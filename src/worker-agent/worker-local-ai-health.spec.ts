@@ -99,6 +99,523 @@ describe('WorkerLocalAiHealth', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('rejects a loaded model whose context is below its configured minimum', async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ version: '0.12.1' }))
+      .mockResolvedValueOnce(jsonResponse({
+        models: [{ name: 'qwen3:8b' }, { name: 'nomic-embed-text' }],
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        models: [{ name: 'qwen3:8b', context_length: 4_096 }],
+      }));
+    const health = new WorkerLocalAiHealth({ fetch: fetchMock });
+
+    const samples = await health.check({
+      ...baseParams,
+      kind: 'lightweight',
+      expectedModels: [
+        { modelId: 'qwen3:8b', required: true, minContextLength: 8_192 },
+        baseParams.expectedModels[1],
+      ],
+    });
+
+    expect(fetchMock.mock.calls[2]?.[0]).toBe('http://127.0.0.1:11434/api/ps');
+    expect(samples[1]).toMatchObject({
+      layer: 'model',
+      ok: false,
+      required: true,
+      failureCode: 'insufficient-context',
+      evidence: {
+        loadedModels: ['qwen3:8b'],
+        availableContextLength: 4_096,
+        insufficientContextModels: ['qwen3:8b'],
+      },
+    });
+  });
+
+  it('enforces LM Studio loaded context through its native model metadata', async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ data: [{ id: 'qwen3:8b' }] }))
+      .mockResolvedValueOnce(jsonResponse({
+        data: [{
+          id: 'qwen3:8b',
+          state: 'loaded',
+          loaded_context_length: 4_096,
+        }],
+      }));
+    const health = new WorkerLocalAiHealth({ fetch: fetchMock });
+
+    const samples = await health.check({
+      ...baseParams,
+      provider: 'openai-compatible',
+      endpointId: 'openai-compatible',
+      kind: 'lightweight',
+      expectedModels: [{
+        modelId: 'qwen3:8b',
+        required: true,
+        minContextLength: 8_192,
+      }],
+    });
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      'http://127.0.0.1:1234/v1/models',
+      'http://127.0.0.1:1234/api/v0/models',
+    ]);
+    expect(samples[1]).toMatchObject({
+      failureCode: 'insufficient-context',
+      evidence: {
+        loadedModels: ['qwen3:8b'],
+        availableContextLength: 4_096,
+      },
+    });
+  });
+
+  it('keeps context checks compatible when an endpoint has no capacity metadata route', async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ version: '0.12.1' }))
+      .mockResolvedValueOnce(jsonResponse({
+        models: [{ name: 'qwen3:8b' }, { name: 'nomic-embed-text' }],
+      }))
+      .mockResolvedValueOnce(jsonResponse({}, 404));
+    const health = new WorkerLocalAiHealth({ fetch: fetchMock });
+
+    const samples = await health.check({
+      ...baseParams,
+      kind: 'lightweight',
+      expectedModels: [{
+        modelId: 'qwen3:8b',
+        required: true,
+        minContextLength: 8_192,
+      }],
+    });
+
+    expect(samples[1]).toMatchObject({ layer: 'model', ok: true });
+    expect(samples[1]?.evidence).not.toHaveProperty('availableContextLength');
+  });
+
+  it.each([
+    ['below', 4_096, false, 'insufficient-context'],
+    ['equal to', 8_192, true, undefined],
+    ['above', 16_384, true, undefined],
+  ] as const)(
+    'checks Ollama context after a canary loads a model %s the minimum',
+    async (_relationship, contextLength, ok, failureCode) => {
+      let loaded = false;
+      const fetchMock = vi.fn<typeof fetch>(async (input) => {
+        const url = String(input);
+        if (url.endsWith('/api/version')) return jsonResponse({ version: '0.12.1' });
+        if (url.endsWith('/api/tags')) {
+          return jsonResponse({ models: [{ name: 'qwen3:8b' }] });
+        }
+        if (url.endsWith('/api/generate')) {
+          loaded = true;
+          return jsonResponse({ response: 'AIO_HEALTH_OK' });
+        }
+        if (url.endsWith('/api/ps')) {
+          return jsonResponse({
+            models: loaded ? [{ name: 'qwen3:8b', context_length: contextLength }] : [],
+          });
+        }
+        throw new Error(`Unexpected URL: ${url}`);
+      });
+      const health = new WorkerLocalAiHealth({ fetch: fetchMock });
+
+      const samples = await health.check({
+        ...baseParams,
+        expectedModels: [{
+          modelId: 'qwen3:8b',
+          required: true,
+          minContextLength: 8_192,
+        }],
+      });
+
+      expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+        'http://127.0.0.1:11434/api/version',
+        'http://127.0.0.1:11434/api/tags',
+        'http://127.0.0.1:11434/api/generate',
+        'http://127.0.0.1:11434/api/ps',
+      ]);
+      expect(samples[1]).toMatchObject({
+        layer: 'model',
+        ok,
+        ...(failureCode ? { failureCode } : {}),
+        evidence: { availableContextLength: contextLength },
+      });
+    },
+  );
+
+  it('keeps functional validation compatible when post-canary capacity remains unavailable', async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ version: '0.12.1' }))
+      .mockResolvedValueOnce(jsonResponse({ models: [{ name: 'qwen3:8b' }] }))
+      .mockResolvedValueOnce(jsonResponse({ response: 'AIO_HEALTH_OK' }))
+      .mockResolvedValueOnce(jsonResponse({ models: [] }));
+    const health = new WorkerLocalAiHealth({ fetch: fetchMock });
+
+    const samples = await health.check({
+      ...baseParams,
+      expectedModels: [{
+        modelId: 'qwen3:8b',
+        required: true,
+        minContextLength: 8_192,
+      }],
+    });
+
+    expect(samples.map((sample) => [sample.layer, sample.ok])).toEqual([
+      ['endpoint', true],
+      ['model', true],
+      ['inference', true],
+    ]);
+    expect(samples[1]?.evidence).not.toHaveProperty('availableContextLength');
+  });
+
+  it('fails safely when post-canary capacity metadata is malformed', async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ version: '0.12.1' }))
+      .mockResolvedValueOnce(jsonResponse({ models: [{ name: 'qwen3:8b' }] }))
+      .mockResolvedValueOnce(jsonResponse({ response: 'AIO_HEALTH_OK' }))
+      .mockResolvedValueOnce(jsonResponse({ models: 'not-an-array' }));
+    const health = new WorkerLocalAiHealth({ fetch: fetchMock });
+
+    const samples = await health.check({
+      ...baseParams,
+      expectedModels: [{
+        modelId: 'qwen3:8b',
+        required: true,
+        minContextLength: 8_192,
+      }],
+    });
+
+    expect(samples).toEqual([
+      expect.objectContaining({
+        layer: 'endpoint',
+        ok: false,
+        required: true,
+        failureCode: 'monitor-error',
+      }),
+    ]);
+  });
+
+  it.each([
+    ['fractional', 4_096.5],
+    ['string', '4096'],
+    ['below the supported minimum', 0],
+    ['above the supported maximum', 100_000_001],
+  ] as const)(
+    'fails safely when Ollama reports a present but %s context length',
+    async (_description, contextLength) => {
+      const fetchMock = vi.fn<typeof fetch>()
+        .mockResolvedValueOnce(jsonResponse({ version: '0.12.1' }))
+        .mockResolvedValueOnce(jsonResponse({ models: [{ name: 'qwen3:8b' }] }))
+        .mockResolvedValueOnce(jsonResponse({
+          models: [{ name: 'qwen3:8b', context_length: contextLength }],
+        }));
+      const health = new WorkerLocalAiHealth({ fetch: fetchMock });
+
+      const samples = await health.check({
+        ...baseParams,
+        kind: 'lightweight',
+        expectedModels: [{
+          modelId: 'qwen3:8b',
+          required: true,
+          minContextLength: 8_192,
+        }],
+      });
+
+      expect(samples).toEqual([
+        expect.objectContaining({
+          layer: 'endpoint',
+          ok: false,
+          required: true,
+          failureCode: 'monitor-error',
+        }),
+      ]);
+    },
+  );
+
+  it('ignores malformed capacity fields belonging only to unrelated models', async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ version: '0.12.1' }))
+      .mockResolvedValueOnce(jsonResponse({ models: [{ name: 'qwen3:8b' }] }))
+      .mockResolvedValueOnce(jsonResponse({
+        models: [
+          { name: 'qwen3:8b', context_length: 8_192 },
+          { name: 'unrelated-model', context_length: 4_096.5 },
+        ],
+      }));
+    const health = new WorkerLocalAiHealth({ fetch: fetchMock });
+
+    const samples = await health.check({
+      ...baseParams,
+      kind: 'lightweight',
+      expectedModels: [{
+        modelId: 'qwen3:8b',
+        required: true,
+        minContextLength: 8_192,
+      }],
+    });
+
+    expect(samples[1]).toMatchObject({
+      layer: 'model',
+      ok: true,
+      evidence: { availableContextLength: 8_192 },
+    });
+  });
+
+  it.each([
+    ['lower row first', [4_096, 16_384]],
+    ['higher row first', [16_384, 4_096]],
+  ] as const)(
+    'uses the conservative context capacity for duplicate Ollama model rows with the %s',
+    async (_description, contextLengths) => {
+      const fetchMock = vi.fn<typeof fetch>()
+        .mockResolvedValueOnce(jsonResponse({ version: '0.12.1' }))
+        .mockResolvedValueOnce(jsonResponse({ models: [{ name: 'qwen3:8b' }] }))
+        .mockResolvedValueOnce(jsonResponse({
+          models: contextLengths.map((contextLength) => ({
+            name: 'qwen3:8b',
+            context_length: contextLength,
+          })),
+        }));
+      const health = new WorkerLocalAiHealth({ fetch: fetchMock });
+
+      const samples = await health.check({
+        ...baseParams,
+        kind: 'lightweight',
+        expectedModels: [{
+          modelId: 'qwen3:8b',
+          required: true,
+          minContextLength: 8_192,
+        }],
+      });
+
+      expect(samples[1]).toMatchObject({
+        layer: 'model',
+        ok: false,
+        required: true,
+        failureCode: 'insufficient-context',
+        evidence: {
+          loadedModels: ['qwen3:8b'],
+          availableContextLength: 4_096,
+          insufficientContextModels: ['qwen3:8b'],
+        },
+      });
+    },
+  );
+
+  it.each([
+    ['fractional', 4_096.5],
+    ['out-of-bounds', 100_000_001],
+    ['wrongly typed', '4096'],
+  ] as const)(
+    'fails safely when LM Studio reports a %s preferred context field',
+    async (_description, loadedContextLength) => {
+      const fetchMock = vi.fn<typeof fetch>()
+        .mockResolvedValueOnce(jsonResponse({ data: [{ id: 'qwen3:8b' }] }))
+        .mockResolvedValueOnce(jsonResponse({
+          data: [{
+            id: 'qwen3:8b',
+            state: 'loaded',
+            loaded_context_length: loadedContextLength,
+            context_length: 16_384,
+          }],
+        }));
+      const health = new WorkerLocalAiHealth({ fetch: fetchMock });
+
+      const samples = await health.check({
+        ...baseParams,
+        provider: 'openai-compatible',
+        endpointId: 'openai-compatible',
+        kind: 'lightweight',
+        expectedModels: [{
+          modelId: 'qwen3:8b',
+          required: true,
+          minContextLength: 8_192,
+        }],
+      });
+
+      expect(samples).toEqual([
+        expect.objectContaining({
+          layer: 'endpoint',
+          ok: false,
+          required: true,
+          failureCode: 'monitor-error',
+        }),
+      ]);
+    },
+  );
+
+  it.each([
+    ['lower row first', [4_096, 16_384]],
+    ['higher row first', [16_384, 4_096]],
+  ] as const)(
+    'uses the conservative context capacity for duplicate LM Studio model rows with the %s',
+    async (_description, contextLengths) => {
+      const fetchMock = vi.fn<typeof fetch>()
+        .mockResolvedValueOnce(jsonResponse({ data: [{ id: 'qwen3:8b' }] }))
+        .mockResolvedValueOnce(jsonResponse({
+          data: contextLengths.map((contextLength) => ({
+            id: 'qwen3:8b',
+            state: 'loaded',
+            loaded_context_length: contextLength,
+          })),
+        }));
+      const health = new WorkerLocalAiHealth({ fetch: fetchMock });
+
+      const samples = await health.check({
+        ...baseParams,
+        provider: 'openai-compatible',
+        endpointId: 'openai-compatible',
+        kind: 'lightweight',
+        expectedModels: [{
+          modelId: 'qwen3:8b',
+          required: true,
+          minContextLength: 8_192,
+        }],
+      });
+
+      expect(samples[1]).toMatchObject({
+        layer: 'model',
+        ok: false,
+        required: true,
+        failureCode: 'insufficient-context',
+        evidence: {
+          loadedModels: ['qwen3:8b'],
+          availableContextLength: 4_096,
+          insufficientContextModels: ['qwen3:8b'],
+        },
+      });
+    },
+  );
+
+  it.each([
+    ['Ollama', 'ollama', [4_096.5, 16_384]],
+    ['Ollama reversed', 'ollama', [16_384, 4_096.5]],
+    ['LM Studio', 'openai-compatible', [4_096.5, 16_384]],
+    ['LM Studio reversed', 'openai-compatible', [16_384, 4_096.5]],
+  ] as const)(
+    'fails safely for %s duplicate rows when one context value is malformed',
+    async (_description, provider, contextLengths) => {
+      const fetchMock = vi.fn<typeof fetch>();
+      if (provider === 'ollama') {
+        fetchMock
+          .mockResolvedValueOnce(jsonResponse({ version: '0.12.1' }))
+          .mockResolvedValueOnce(jsonResponse({ models: [{ name: 'qwen3:8b' }] }))
+          .mockResolvedValueOnce(jsonResponse({
+            models: contextLengths.map((contextLength) => ({
+              name: 'qwen3:8b',
+              context_length: contextLength,
+            })),
+          }));
+      } else {
+        fetchMock
+          .mockResolvedValueOnce(jsonResponse({ data: [{ id: 'qwen3:8b' }] }))
+          .mockResolvedValueOnce(jsonResponse({
+            data: contextLengths.map((contextLength) => ({
+              id: 'qwen3:8b',
+              state: 'loaded',
+              loaded_context_length: contextLength,
+            })),
+          }));
+      }
+      const health = new WorkerLocalAiHealth({ fetch: fetchMock });
+
+      const samples = await health.check({
+        ...baseParams,
+        provider,
+        endpointId: provider,
+        kind: 'lightweight',
+        expectedModels: [{
+          modelId: 'qwen3:8b',
+          required: true,
+          minContextLength: 8_192,
+        }],
+      });
+
+      expect(samples).toEqual([
+        expect.objectContaining({
+          layer: 'endpoint',
+          ok: false,
+          required: true,
+          failureCode: 'monitor-error',
+        }),
+      ]);
+    },
+  );
+
+  it('checks LM Studio capacity after a canary loads the required model', async () => {
+    let loaded = false;
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url.endsWith('/v1/models')) return jsonResponse({ data: [{ id: 'qwen3:8b' }] });
+      if (url.endsWith('/v1/chat/completions')) {
+        loaded = true;
+        return jsonResponse({ choices: [{ message: { content: 'AIO_HEALTH_OK' } }] });
+      }
+      if (url.endsWith('/api/v0/models')) {
+        return jsonResponse({
+          data: loaded
+            ? [{ id: 'qwen3:8b', state: 'loaded', loaded_context_length: 4_096 }]
+            : [{ id: 'qwen3:8b', state: 'not-loaded' }],
+        });
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+    const health = new WorkerLocalAiHealth({ fetch: fetchMock });
+
+    const samples = await health.check({
+      ...baseParams,
+      provider: 'openai-compatible',
+      endpointId: 'openai-compatible',
+      expectedModels: [{
+        modelId: 'qwen3:8b',
+        required: true,
+        minContextLength: 8_192,
+      }],
+    });
+
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+      'http://127.0.0.1:1234/v1/models',
+      'http://127.0.0.1:1234/v1/chat/completions',
+      'http://127.0.0.1:1234/api/v0/models',
+    ]);
+    expect(samples[1]).toMatchObject({
+      failureCode: 'insufficient-context',
+      required: true,
+      evidence: { availableContextLength: 4_096 },
+    });
+  });
+
+  it('preserves assigned role scope for a missing optional model', async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ version: '0.12.1' }))
+      .mockResolvedValueOnce(jsonResponse({
+        models: [{ name: 'qwen3:8b' }],
+      }));
+    const health = new WorkerLocalAiHealth({ fetch: fetchMock });
+
+    const samples = await health.check({
+      ...baseParams,
+      kind: 'lightweight',
+      expectedModels: [
+        baseParams.expectedModels[0],
+        {
+          modelId: 'nomic-embed-text',
+          required: false,
+          routingRoles: ['titleGeneration'],
+        },
+      ],
+    });
+
+    expect(samples[1]).toMatchObject({
+      layer: 'model',
+      ok: false,
+      required: false,
+      failureCode: 'missing-required-model',
+      affectedRoles: ['titleGeneration'],
+    });
+  });
+
   it('classifies an aborted endpoint request as an endpoint timeout', async () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn<typeof fetch>((_input, init) => new Promise((_resolve, reject) => {

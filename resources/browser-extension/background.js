@@ -1214,6 +1214,7 @@ async function executeBrowserCommand(command) {
         return await captureAccessibilitySnapshot(tabId, {
           interestingOnly: command.payload?.interestingOnly !== false,
           limit: typeof command.payload?.limit === 'number' ? command.payload.limit : 2000,
+          timeoutMs: commandExecutionTimeoutMs(command),
         });
       } finally {
         await stopControlledTab(tabId, controlToken);
@@ -1250,6 +1251,7 @@ async function executeBrowserCommand(command) {
             fullPage: command.payload?.fullPage === true,
             maxWidth: command.payload?.maxWidth,
             maxHeight: command.payload?.maxHeight,
+            timeoutMs: commandExecutionTimeoutMs(command),
           }),
           capturedAt: Date.now(),
         };
@@ -1403,18 +1405,81 @@ const DEBUGGER_BUSY_PATTERN = /already attached/i;
 const DEBUGGER_ATTACH_RETRIES = 2;
 const DEBUGGER_ATTACH_RETRY_DELAY_MS = 300;
 
+// Every CDP hop is bounded so a wedged debugger session reports WHICH step
+// hung instead of letting the outer command watchdog fire a generic
+// `browser_extension_command_timeout` at the end of the whole window (observed
+// live: two accessibility_snapshot calls on one heavy page each burned their
+// full 60s budget and told us nothing about where they stalled).
+//
+// attach / keep-alive / detach are browser-process calls that normally return
+// in single-digit milliseconds, so they get flat ceilings. Page work gets a
+// share of the command budget, leaving room for the reply to reach the
+// coordinator before its own watchdog fires. `evaluate` is deliberately NOT
+// bounded here: an agent-supplied expression with awaitPromise may legitimately
+// run long, and the outer watchdog is the right ceiling for it.
+const CDP_ATTACH_TIMEOUT_MS = 10000;
+const CDP_CONTROL_TIMEOUT_MS = 5000;
+const CDP_PAGE_WORK_BUDGET_RATIO = 0.8;
+const MIN_CDP_PAGE_WORK_TIMEOUT_MS = 5000;
+
+function cdpPageWorkTimeoutMs(commandTimeoutMs) {
+  const budget =
+    typeof commandTimeoutMs === 'number'
+    && Number.isFinite(commandTimeoutMs)
+    && commandTimeoutMs > 0
+      ? commandTimeoutMs
+      : DEFAULT_COMMAND_TIMEOUT_MS;
+  return Math.max(
+    MIN_CDP_PAGE_WORK_TIMEOUT_MS,
+    Math.floor(budget * CDP_PAGE_WORK_BUDGET_RATIO),
+  );
+}
+
+function withCdpDeadline(work, label, timeoutMs) {
+  let timer = null;
+  const deadline = new Promise((_resolve, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`browser_extension_cdp_timeout:${label} after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+  return Promise.race([Promise.resolve(work), deadline]).finally(() => {
+    if (timer !== null) {
+      clearTimeout(timer);
+    }
+  });
+}
+
 async function attachAndRunDebugger(tabId, callback) {
   if (!chrome.debugger?.attach || !chrome.debugger?.sendCommand) {
     throw new Error('Chrome debugger API is unavailable.');
   }
   const debuggee = { tabId };
-  await attachDebugger(debuggee);
+  try {
+    await withCdpDeadline(attachDebugger(debuggee), 'attach', CDP_ATTACH_TIMEOUT_MS);
+  } catch (error) {
+    // The attach can still land after its deadline. Drop whatever session
+    // arrives, or the tab keeps an orphaned debugger nobody detaches (the outer
+    // command watchdog no longer fires — this deadline beat it) and every later
+    // CDP command on the tab fails as browser_tab_debugger_busy.
+    await detachDebuggerQuietly(debuggee);
+    throw error;
+  }
   try {
     await applyDebuggerKeepAlive(debuggee);
     return await callback(debuggee);
   } finally {
-    await chrome.debugger.detach(debuggee).catch(() => undefined);
+    await detachDebuggerQuietly(debuggee);
   }
+}
+
+// Bounded and best-effort: a detach that never settles would hold this tab's
+// debugger chain open and stall every later CDP command queued behind it.
+function detachDebuggerQuietly(debuggee) {
+  return withCdpDeadline(
+    chrome.debugger.detach(debuggee),
+    'detach',
+    CDP_CONTROL_TIMEOUT_MS,
+  ).catch(() => undefined);
 }
 
 // For the duration of this CDP session, make the tab report as focused/visible
@@ -1426,12 +1491,18 @@ async function attachAndRunDebugger(tabId, callback) {
 // re-applied on every session; preventTabDiscard() covers the idle gaps between
 // commands when no debugger is attached.
 async function applyDebuggerKeepAlive(debuggee) {
-  await chrome.debugger
-    .sendCommand(debuggee, 'Emulation.setFocusEmulationEnabled', { enabled: true })
-    .catch(() => undefined);
-  await chrome.debugger
-    .sendCommand(debuggee, 'Page.setWebLifecycleState', { state: 'active' })
-    .catch(() => undefined);
+  // Best-effort AND bounded: these are optional comfort settings, so a hang
+  // here must neither fail the command nor eat its execution window.
+  await withCdpDeadline(
+    chrome.debugger.sendCommand(debuggee, 'Emulation.setFocusEmulationEnabled', { enabled: true }),
+    'Emulation.setFocusEmulationEnabled',
+    CDP_CONTROL_TIMEOUT_MS,
+  ).catch(() => undefined);
+  await withCdpDeadline(
+    chrome.debugger.sendCommand(debuggee, 'Page.setWebLifecycleState', { state: 'active' }),
+    'Page.setWebLifecycleState',
+    CDP_CONTROL_TIMEOUT_MS,
+  ).catch(() => undefined);
 }
 
 // Attach with a short retry: the detach of a just-finished session can still
@@ -1748,10 +1819,27 @@ function uidSelectFn(value) {
 async function captureAccessibilitySnapshot(tabId, options) {
   const interestingOnly = options.interestingOnly !== false;
   const limit = Math.max(1, Math.min(typeof options.limit === 'number' ? options.limit : 2000, 2000));
+  const pageWorkTimeoutMs = cdpPageWorkTimeoutMs(options.timeoutMs);
   return withDebugger(tabId, async (debuggee) => {
-    await chrome.debugger.sendCommand(debuggee, 'DOM.enable').catch(() => undefined);
-    await chrome.debugger.sendCommand(debuggee, 'Accessibility.enable').catch(() => undefined);
-    const tree = await chrome.debugger.sendCommand(debuggee, 'Accessibility.getFullAXTree', {});
+    await withCdpDeadline(
+      chrome.debugger.sendCommand(debuggee, 'DOM.enable'),
+      'DOM.enable',
+      CDP_CONTROL_TIMEOUT_MS,
+    ).catch(() => undefined);
+    await withCdpDeadline(
+      chrome.debugger.sendCommand(debuggee, 'Accessibility.enable'),
+      'Accessibility.enable',
+      CDP_CONTROL_TIMEOUT_MS,
+    ).catch(() => undefined);
+    // getFullAXTree walks the WHOLE tree regardless of the caller's node limit,
+    // so on a very large or wedged page it is the step that stalls. Bound it so
+    // the failure names this call instead of surfacing as an anonymous
+    // end-of-window command timeout.
+    const tree = await withCdpDeadline(
+      chrome.debugger.sendCommand(debuggee, 'Accessibility.getFullAXTree', {}),
+      'Accessibility.getFullAXTree',
+      pageWorkTimeoutMs,
+    );
     const nodes = Array.isArray(tree?.nodes) ? tree.nodes : [];
     const out = [];
     for (const node of nodes) {
@@ -2171,10 +2259,13 @@ async function captureTabScreenshot(tabId, options = {}) {
   const maxWidth = clampNumber(options.maxWidth, 1, SCREENSHOT_MAX_DIMENSION, SCREENSHOT_DEFAULT_MAX_WIDTH);
   const maxHeight = clampNumber(options.maxHeight, 1, SCREENSHOT_MAX_DIMENSION, undefined);
 
+  const pageWorkTimeoutMs = cdpPageWorkTimeoutMs(options.timeoutMs);
   return withDebugger(tabId, async (debuggee) => {
-    const metrics = await chrome.debugger
-      .sendCommand(debuggee, 'Page.getLayoutMetrics')
-      .catch(() => null);
+    const metrics = await withCdpDeadline(
+      chrome.debugger.sendCommand(debuggee, 'Page.getLayoutMetrics'),
+      'Page.getLayoutMetrics',
+      CDP_CONTROL_TIMEOUT_MS,
+    ).catch(() => null);
 
     const params = {
       format,
@@ -2196,7 +2287,13 @@ async function captureTabScreenshot(tabId, options = {}) {
       };
     }
 
-    const shot = await chrome.debugger.sendCommand(debuggee, 'Page.captureScreenshot', params);
+    // Same failure class as the accessibility tree: a page that will not paint
+    // leaves this call outstanding until the whole command window expires.
+    const shot = await withCdpDeadline(
+      chrome.debugger.sendCommand(debuggee, 'Page.captureScreenshot', params),
+      'Page.captureScreenshot',
+      pageWorkTimeoutMs,
+    );
     const data = shot?.data;
     if (typeof data !== 'string' || !data) {
       throw new Error('Browser screenshot capture returned no image data.');

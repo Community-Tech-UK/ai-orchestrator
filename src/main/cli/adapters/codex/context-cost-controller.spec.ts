@@ -77,4 +77,71 @@ describe('CodexContextCostController shared-policy execution adapter', () => {
       vi.useRealTimers();
     }
   });
+
+  // LT-017: the installed Codex app-server never emits `thread/compacted`, so
+  // every manual compaction paid the full timeout (30 s in production) before
+  // falling back. Once a session has proved the notification absent, later
+  // attempts must concede immediately.
+  describe('LT-017 — the unobserved-notification timeout is not paid twice', () => {
+    it('skips the native attempt after a timeout, without starting another RPC', async () => {
+      vi.useFakeTimers();
+      try {
+        const start = vi.fn(async () => undefined);
+        const { controller } = createController({
+          compactionTimeoutMs: 5,
+          getCompactionTarget: () => ({ threadId: 'thread-fixture', start }),
+        });
+
+        const first = controller.compactContext(5);
+        await vi.advanceTimersByTimeAsync(5);
+        await expect(first).resolves.toBe(false);
+        expect(start).toHaveBeenCalledTimes(1);
+        expect(controller.nativeCompactionKnownUnsupported()).toBe(true);
+
+        // Second attempt: resolves without advancing any timer at all, and does
+        // not issue another compact RPC. Before the fix this hung until the
+        // timeout elapsed again.
+        await expect(controller.compactContext(5)).resolves.toBe(false);
+        expect(start).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('re-enables the native path once the provider does emit the notification', async () => {
+      vi.useFakeTimers();
+      try {
+        const { controller } = createController({ compactionTimeoutMs: 5 });
+        const first = controller.compactContext(5);
+        await vi.advanceTimersByTimeAsync(5);
+        await expect(first).resolves.toBe(false);
+        expect(controller.nativeCompactionKnownUnsupported()).toBe(true);
+
+        // A CLI upgrade mid-session should not leave the native path disabled.
+        controller.recordCompactionObserved(1_000);
+        expect(controller.nativeCompactionKnownUnsupported()).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('leaves the native path enabled when the provider does emit the notification', async () => {
+      const { controller, proofEvents } = createController({ compactionTimeoutMs: 50 });
+      // A provider that settles the gate during the compact RPC — i.e. a build
+      // that behaves correctly. The timeout must never be recorded against it.
+      const { controller: healthy } = createController({
+        compactionTimeoutMs: 50,
+        getCompactionTarget: () => ({
+          threadId: 'thread-fixture',
+          start: async () => healthy.recordCompactionObserved(1_000),
+        }),
+      });
+
+      await expect(healthy.compactContext(50)).resolves.toBe(true);
+      expect(healthy.nativeCompactionKnownUnsupported()).toBe(false);
+      // A fresh controller starts enabled.
+      expect(controller.nativeCompactionKnownUnsupported()).toBe(false);
+      expect(proofEvents).toEqual([]);
+    });
+  });
 });

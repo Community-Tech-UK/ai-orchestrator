@@ -7,6 +7,10 @@ import {
   initializeBrowserCampaignRuntime,
   stopBrowserCampaignRuntime,
 } from './browser-campaign-runtime';
+import {
+  BrowserReliabilityEvents,
+  getBrowserReliabilityEvents,
+} from './browser-reliability-events';
 import { makeGrant, makeService } from './browser-gateway-service.test-helpers';
 
 describe('BrowserGatewayService existing Chrome tabs', () => {
@@ -152,6 +156,41 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
     expect(grants[0].nodeId).toBe('node-1');
     expect(grants[0].profileId).toBeUndefined();
     expect(grants[0].targetId).toBeUndefined();
+  });
+
+  it('tells the agent a timed-out existing-tab read is not a permission problem', async () => {
+    // Live regression: an accessibility_snapshot that timed out surfaced as a
+    // bare `browser_extension_command_timeout`, the agent read it as a refusal
+    // and re-requested a grant, and the user got a second approval dialog for a
+    // site they had just approved.
+    BrowserReliabilityEvents._resetForTesting();
+    const sendCommand = vi.fn(async () => {
+      throw new Error('browser_extension_cdp_timeout:Accessibility.getFullAXTree after 48000ms');
+    });
+    const { service } = makeService({
+      existingTab: { ...appStoreConnectTab, nodeId: 'node-1', nodeName: 'Windows PC' },
+      extensionCommandStore: { sendCommand },
+    });
+
+    const result = await service.accessibilitySnapshot({
+      instanceId: 'instance-1',
+      provider: 'claude',
+      profileId: appStoreConnectTab.profileId,
+      targetId: appStoreConnectTab.targetId,
+    });
+
+    expect(result).toMatchObject({ decision: 'allowed', outcome: 'failed' });
+    expect(result.reason).toContain('browser_extension_cdp_timeout:Accessibility.getFullAXTree');
+    expect(result.reason).toContain('NOT a permission problem');
+    expect(result.reason).toContain('do not call browser.request_grant');
+    expect(result.reason).toContain('node-1');
+    // And it leaves a trace outside the audit table.
+    expect(getBrowserReliabilityEvents().countByKind()['command_timeout']).toBe(1);
+    expect(getBrowserReliabilityEvents().recent().at(-1)).toMatchObject({
+      kind: 'command_timeout',
+      nodeId: 'node-1',
+      detail: { command: 'accessibility_snapshot', cdpStep: 'Accessibility.getFullAXTree' },
+    });
   });
 
   it('reports timed_out_unknown for a timed-out existing-tab click without a read-back contract', async () => {
@@ -469,10 +508,14 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
       targetId: existingTab.targetId,
     });
 
-    expect(result).toMatchObject({
-      outcome: 'failed',
-      reason: 'browser_extension_command_timeout',
-    });
+    expect(result).toMatchObject({ outcome: 'failed' });
+    // Still a plain read timeout: no post-timeout mutation probe, no
+    // applied/not-applied verdict — just the original code, now with the
+    // channel and an explicit "this is not a permission problem" note.
+    expect(result.reason).toContain('browser_extension_command_timeout');
+    expect(result.reason).not.toContain('timed_out_');
+    expect(result.reason).not.toContain('mutation probe');
+    expect(result.reason).toContain('NOT a permission problem');
   });
 
   it('uploads files in existing Chrome tabs through the extension command bridge after upload approval', async () => {
@@ -1786,6 +1829,130 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
         }],
       },
     });
+  });
+
+  it('answers a repeat existing-tab grant request from the live grant instead of re-prompting', async () => {
+    // Live regression: an extension command timeout on a remote-node tab looked
+    // like a denial, the agent re-sent the identical request_grant, and the user
+    // was asked to approve the same site again 54s after approving it.
+    const nodeId = 'bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be';
+    const remoteTab = {
+      profileId: `existing-tab:n.${nodeId}:771546564:771547091`,
+      targetId: `existing-tab:n.${nodeId}:771546564:771547091:target`,
+      nodeId,
+      nodeName: 'Windows PC',
+      tabId: 771547091,
+      windowId: 771546564,
+      title: 'European Dynamics - View CfT Workspace',
+      url: 'https://etendersni.gov.uk/epps/cft/prepareViewCfTWS.do?resourceId=6643652',
+      origin: 'https://etendersni.gov.uk',
+      allowedOrigins: [
+        {
+          scheme: 'https' as const,
+          hostPattern: 'etendersni.gov.uk',
+          includeSubdomains: true,
+        },
+      ],
+    };
+    const proposedGrant = {
+      mode: 'session' as const,
+      allowedOrigins: remoteTab.allowedOrigins,
+      allowedActionClasses: ['read', 'navigate', 'input', 'credential', 'submit'] as const,
+      allowExternalNavigation: false,
+      autonomous: false,
+    };
+    const { approvalRequests, audits, service } = makeService({
+      existingTab: remoteTab,
+      grants: [makeGrant({
+        id: 'grant-etendersni',
+        // What the approval dialog actually writes for an existing tab: node
+        // scoped, no profileId, upgraded to autonomous because submit needs it.
+        mode: 'autonomous',
+        provider: 'claude',
+        profileId: undefined,
+        nodeId,
+        autonomous: true,
+        allowedOrigins: remoteTab.allowedOrigins,
+        allowedActionClasses: ['read', 'navigate', 'input', 'credential', 'submit'],
+      })],
+    });
+
+    const result = await service.requestGrant({
+      instanceId: 'instance-1',
+      provider: 'claude',
+      profileId: remoteTab.profileId,
+      targetId: remoteTab.targetId,
+      reason: 'Need to complete the tender workspace form',
+      proposedGrant: { ...proposedGrant, allowedActionClasses: [...proposedGrant.allowedActionClasses] },
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+    });
+    expect(result.reason).toContain('existing_grant_covers_request');
+    expect(approvalRequests).toHaveLength(0);
+    expect(audits.at(-1)).toMatchObject({
+      toolName: 'browser.request_grant',
+      decision: 'allowed',
+      outcome: 'succeeded',
+      grantId: 'grant-etendersni',
+      autonomous: true,
+    });
+  });
+
+  it('still prompts for an existing-tab grant that the live grant does not cover', async () => {
+    const nodeId = 'bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be';
+    const remoteTab = {
+      profileId: `existing-tab:n.${nodeId}:1:2`,
+      targetId: `existing-tab:n.${nodeId}:1:2:target`,
+      nodeId,
+      tabId: 2,
+      windowId: 1,
+      title: 'European Dynamics - View CfT Workspace',
+      url: 'https://etendersni.gov.uk/epps/cft/prepareViewCfTWS.do',
+      origin: 'https://etendersni.gov.uk',
+      allowedOrigins: [
+        {
+          scheme: 'https' as const,
+          hostPattern: 'etendersni.gov.uk',
+          includeSubdomains: true,
+        },
+      ],
+    };
+    const { approvalRequests, service } = makeService({
+      existingTab: remoteTab,
+      grants: [makeGrant({
+        id: 'grant-read-only',
+        mode: 'session',
+        provider: 'claude',
+        profileId: undefined,
+        nodeId,
+        allowedOrigins: remoteTab.allowedOrigins,
+        allowedActionClasses: ['read', 'navigate'],
+      })],
+    });
+
+    const result = await service.requestGrant({
+      instanceId: 'instance-1',
+      provider: 'claude',
+      profileId: remoteTab.profileId,
+      targetId: remoteTab.targetId,
+      proposedGrant: {
+        mode: 'session',
+        allowedOrigins: remoteTab.allowedOrigins,
+        allowedActionClasses: ['read', 'navigate', 'submit'],
+        allowExternalNavigation: false,
+        autonomous: false,
+      },
+    });
+
+    expect(result).toMatchObject({
+      decision: 'requires_user',
+      outcome: 'not_run',
+      requestId: 'request-1',
+    });
+    expect(approvalRequests).toHaveLength(1);
   });
 
   it('captures a fresh existing-tab snapshot through the extension command bridge', async () => {

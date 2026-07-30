@@ -561,6 +561,12 @@ export class AcpCliAdapter extends BaseCliAdapter {
       const turn = this.currentPrompt;
       const duration = turn ? Date.now() - turn.startedAt : 0;
       const usage = this.toCliUsage(result.usage, duration);
+      // LT-018: ACP hands us real per-turn token counts, but they were only ever
+      // attached to the response. Nothing emitted a `context` event, so the
+      // context bar sat at 0 % for the whole session and auto-compaction never
+      // fired for Copilot. Publish the aggregate, which is what the
+      // `copilot-acp` capability profile already claims to provide.
+      this.publishContextUsageFromTurn(result.usage);
       const response: CliResponse = {
         id: turn?.responseId ?? responseId,
         role: 'assistant',
@@ -1975,6 +1981,41 @@ export class AcpCliAdapter extends BaseCliAdapter {
     }
 
     return prompt;
+  }
+
+  /**
+   * Running total of provider-reported tokens for this ACP session (LT-018).
+   * ACP reports per-turn usage only, so the session aggregate is accumulated
+   * here — matching the `aggregate-only` / `cumulativeReporting: available`
+   * capabilities the `copilot-acp` profile declares.
+   */
+  private cumulativeTokens = 0;
+
+  /**
+   * Emit a `context` event from a turn's ACP usage.
+   *
+   * Deliberately conservative: `used` is the aggregate, not a true
+   * context-window occupancy, because ACP does not report window occupancy and
+   * fabricating one would be worse than an honest aggregate. When the provider
+   * sends no usage at all, nothing is emitted — a missing bar is preferable to a
+   * confident zero, which is the defect this fixes.
+   */
+  private publishContextUsageFromTurn(usage: AcpPromptUsage | undefined): void {
+    const turnTokens = usage?.totalTokens
+      ?? ((usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0));
+    if (!turnTokens || turnTokens <= 0) return;
+
+    this.cumulativeTokens += turnTokens;
+    const total = ACP_CAPABILITIES.contextWindow;
+    const used = this.cumulativeTokens;
+    this.emit('context', {
+      used,
+      total,
+      percentage: total > 0 ? Math.min((used / total) * 100, 100) : 0,
+      cumulativeTokens: this.cumulativeTokens,
+      ...(usage?.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
+      ...(usage?.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
+    });
   }
 
   private toCliUsage(usage: AcpPromptUsage | undefined, duration: number) {

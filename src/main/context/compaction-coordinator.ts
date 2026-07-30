@@ -35,6 +35,13 @@ export interface CompactionResult {
   newUsage?: ContextUsage;
   summary?: string;
   error?: string;
+  /**
+   * True when the provider supports native compaction but this attempt fell
+   * back to restart-with-summary. Without it the caller cannot distinguish
+   * "compacted in place" from "the thread was replaced", which are very
+   * different outcomes — the fallback mints a new provider session id (LT-017).
+   */
+  nativeAttemptFailed?: boolean;
 }
 
 export type CompactionStrategy = (instanceId: string) => Promise<boolean>;
@@ -436,16 +443,22 @@ export class CompactionCoordinator extends EventEmitter {
 
       let success = false;
       let method: 'native' | 'restart-with-summary' = 'native';
+      // LT-017: remember that the native path was tried and failed, so the
+      // result can say so instead of presenting the fallback as a plain success.
+      let nativeAttemptFailed = false;
 
       if (nativeCompactionSupported && this.nativeCompactStrategy) {
         // Try native strategy first when provider supports it
         const strategy = this.nativeCompactStrategy;
         success = await measureAsync('context.compact', () => strategy(instanceId));
         method = 'native';
+        nativeAttemptFailed = !success;
       }
 
       if (!success && this.restartCompactStrategy) {
-        // Fallback to restart-with-summary
+        // Fallback to restart-with-summary. This replaces the provider thread
+        // rather than compacting it in place, so the caller is told the native
+        // attempt failed even though the overall operation succeeds.
         const strategy = this.restartCompactStrategy;
         success = await measureAsync('context.compact', () => strategy(instanceId));
         method = 'restart-with-summary';
@@ -469,7 +482,19 @@ export class CompactionCoordinator extends EventEmitter {
       const cumulativeNow = this.latestUsage.get(instanceId)?.cumulativeTokens
         ?? previousUsage?.cumulativeTokens;
 
-      const result: CompactionResult = { success: true, method, blocking, previousUsage };
+      const result: CompactionResult = {
+        success: true,
+        method,
+        blocking,
+        previousUsage,
+        ...(nativeAttemptFailed ? { nativeAttemptFailed: true } : {}),
+      };
+      if (nativeAttemptFailed) {
+        logger.warn('Native compaction failed; recovered via restart-with-summary', {
+          instanceId,
+          note: 'the provider thread was replaced, not compacted in place',
+        });
+      }
       this.emit('compaction-completed', { instanceId, result });
       if (method === 'restart-with-summary') {
         this.recordObservedCompaction(instanceId, cumulativeNow ?? 0);

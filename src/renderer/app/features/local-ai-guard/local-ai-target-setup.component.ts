@@ -148,6 +148,7 @@ export class LocalAiTargetSetupComponent {
       && value.expectedModelRules.length === value.expectedModels.length
       && value.expectedModelRules.every((rule) =>
         value.expectedModels.includes(rule.modelId)
+        && (rule.routingRoles?.every((role) => value.routingRoles.includes(role)) ?? true)
         && this.modelContextError(rule.modelId) === null)
       && value.canaryModel
       && value.expectedModels.includes(value.canaryModel)
@@ -271,11 +272,19 @@ export class LocalAiTargetSetupComponent {
 
   protected toggleRole(role: AuxiliaryLlmSlot, event: Event): void {
     const checked = (event.target as HTMLInputElement).checked;
-    const current = this.form().routingRoles;
+    const currentForm = this.form();
+    const current = currentForm.routingRoles;
+    const routingRoles = checked
+      ? [...new Set([...current, role])]
+      : current.filter((candidate) => candidate !== role);
     this.patchForm({
-      routingRoles: checked
-        ? [...new Set([...current, role])]
-        : current.filter((candidate) => candidate !== role),
+      routingRoles,
+      expectedModelRules: currentForm.expectedModelRules.map((rule) => ({
+        ...rule,
+        ...(rule.routingRoles
+          ? { routingRoles: rule.routingRoles.filter((candidate) => routingRoles.includes(candidate)) }
+          : {}),
+      })),
     });
   }
 
@@ -315,8 +324,33 @@ export class LocalAiTargetSetupComponent {
   protected updateModelRequired(modelId: string, event: Event): void {
     const required = (event.target as HTMLInputElement).checked;
     this.patchForm({
-      expectedModelRules: this.form().expectedModelRules.map((rule) =>
-        rule.modelId === modelId ? { ...rule, required } : rule),
+      expectedModelRules: this.form().expectedModelRules.map((rule) => {
+        if (rule.modelId !== modelId) return rule;
+        const next = { ...rule, required };
+        if (required) delete next.routingRoles;
+        else next.routingRoles ??= [...this.form().routingRoles];
+        return next;
+      }),
+    });
+  }
+
+  protected updateModelRole(
+    modelId: string,
+    role: AuxiliaryLlmSlot,
+    event: Event,
+  ): void {
+    const checked = (event.target as HTMLInputElement).checked;
+    this.patchForm({
+      expectedModelRules: this.form().expectedModelRules.map((rule) => {
+        if (rule.modelId !== modelId) return rule;
+        const current = rule.routingRoles ?? [];
+        return {
+          ...rule,
+          routingRoles: checked
+            ? [...new Set([...current, role])]
+            : current.filter((candidate) => candidate !== role),
+        };
+      }),
     });
   }
 
@@ -416,6 +450,12 @@ export class LocalAiTargetSetupComponent {
 
   protected roleChecked(role: AuxiliaryLlmSlot): boolean {
     return this.form().routingRoles.includes(role);
+  }
+
+  protected modelRoleChecked(modelId: string, role: AuxiliaryLlmSlot): boolean {
+    return this.form().expectedModelRules
+      .find((model) => model.modelId === modelId)
+      ?.routingRoles?.includes(role) ?? false;
   }
 
   protected safeOperationError(): string | null {

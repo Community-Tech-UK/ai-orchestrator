@@ -7,20 +7,11 @@ import {
   LOCAL_AI_REVISION_CURSOR_MAX_DIGITS,
   LOCAL_AI_TARGET_NUMERIC_LIMITS,
 } from '../types/local-ai-guard.types';
-
-const AuxiliaryLlmSlotSchema = z.enum([
-  'compression',
-  'memoryDistillation',
-  'webExtract',
-  'titleGeneration',
-  'routingClassification',
-  'approvalScoring',
-  'loopScoring',
-  'retrievalHypothesis',
-  'branchScoring',
-  'subQueryExecution',
-  'verifyOutputSummary',
-]);
+import {
+  LocalAiExpectedModelSchema,
+  LocalAiRoutingRoleSchema as AuxiliaryLlmSlotSchema,
+  requireValidTargetModelRelationships,
+} from './local-ai-target-model.schemas';
 
 const IdSchema = z.string().trim().min(1).max(256);
 const TimestampSchema = z.number().int().nonnegative();
@@ -187,11 +178,6 @@ function boundedNumber(limit: { readonly min: number; readonly max: number }) {
   return z.number().finite().min(limit.min).max(limit.max);
 }
 
-const LocalAiExpectedModelSchema = z.object({
-  modelId: IdSchema,
-  required: z.boolean(),
-  minContextLength: boundedInteger(LOCAL_AI_TARGET_NUMERIC_LIMITS.minContextLength).optional(),
-}).strict();
 const LocalAiCanarySchema = z.object({
   model: IdSchema,
   timeoutMs: boundedInteger(LOCAL_AI_TARGET_NUMERIC_LIMITS.canaryTimeoutMs),
@@ -240,27 +226,6 @@ function requireEnrolledRoutingRole(
       code: 'custom',
       path: ['routingRoles'],
       message: 'Enrolled Local AI targets require at least one routing role',
-    });
-  }
-}
-
-function requireValidTargetModelRelationships(
-  target: { expectedModels?: { modelId: string }[]; canary?: { model: string } },
-  context: z.core.$RefinementCtx,
-): void {
-  const modelIds = target.expectedModels?.map(({ modelId }) => modelId);
-  if (modelIds && new Set(modelIds).size !== modelIds.length) {
-    context.addIssue({
-      code: 'custom',
-      path: ['expectedModels'],
-      message: 'Expected Local AI model IDs must be unique',
-    });
-  }
-  if (modelIds && target.canary && !modelIds.includes(target.canary.model)) {
-    context.addIssue({
-      code: 'custom',
-      path: ['canary', 'model'],
-      message: 'Canary model must be present in expectedModels',
     });
   }
 }
@@ -324,6 +289,7 @@ export const LocalAiProbeEvidenceSchema = z.object({
   advertisedModels: LocalAiEvidenceValueSchema.optional(),
   loadedModels: LocalAiEvidenceValueSchema.optional(),
   missingModels: LocalAiEvidenceValueSchema.optional(),
+  insufficientContextModels: LocalAiEvidenceValueSchema.optional(),
   requiredModelCount: LocalAiEvidenceValueSchema.optional(),
   availableContextLength: LocalAiEvidenceValueSchema.optional(),
   canaryOutputValid: LocalAiEvidenceValueSchema.optional(),

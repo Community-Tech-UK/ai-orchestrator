@@ -70,6 +70,7 @@ export type LocalAiProbeEvidenceKey =
   | 'advertisedModels'
   | 'loadedModels'
   | 'missingModels'
+  | 'insufficientContextModels'
   | 'requiredModelCount'
   | 'availableContextLength'
   | 'canaryOutputValid'
@@ -81,13 +82,21 @@ export type LocalAiProbeEvidenceKey =
 export type LocalAiProbeEvidenceValue = string | number | boolean | string[];
 export type LocalAiProbeEvidence = Partial<Record<LocalAiProbeEvidenceKey, LocalAiProbeEvidenceValue>>;
 
+export interface LocalAiExpectedModel {
+  modelId: string;
+  required: boolean;
+  minContextLength?: number;
+  /** Roles that depend on this model when it is optional. Required models protect every target role. */
+  routingRoles?: AuxiliaryLlmSlot[];
+}
+
 export interface LocalAiTargetConfig {
   lifecycle: LocalAiTargetLifecycle;
   location: { type: 'coordinator' } | { type: 'worker'; nodeId: string };
   provider: 'ollama' | 'openai-compatible';
   endpointId: string;
   baseUrl: string;
-  expectedModels: { modelId: string; required: boolean; minContextLength?: number }[];
+  expectedModels: LocalAiExpectedModel[];
   canary: { model: string; timeoutMs: number; intervalMs: number };
   endpointCheckIntervalMs: number;
   freshnessLimitMs: number;

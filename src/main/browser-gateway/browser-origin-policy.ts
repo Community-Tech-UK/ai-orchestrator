@@ -67,6 +67,47 @@ export function normalizeOrigin(input: string): BrowserNormalizedOrigin | null {
   }
 }
 
+/**
+ * True when `candidate` authorizes every URL `requested` would.
+ *
+ * Pattern-vs-pattern, unlike isOriginAllowed which matches one concrete URL.
+ * Used to answer "does a live grant already cover this grant proposal?" so a
+ * re-request cannot raise a second approval dialog for permission the user has
+ * already given.
+ */
+export function allowedOriginCovers(
+  candidate: BrowserAllowedOrigin,
+  requested: BrowserAllowedOrigin,
+): boolean {
+  if (candidate.scheme !== requested.scheme) {
+    return false;
+  }
+  const candidatePort = candidate.port ?? defaultPort(candidate.scheme);
+  const requestedPort = requested.port ?? defaultPort(requested.scheme);
+  if (candidatePort !== requestedPort) {
+    return false;
+  }
+  const candidateHost = normalizeHostPattern(candidate.hostPattern);
+  const requestedHost = normalizeHostPattern(requested.hostPattern);
+  if (candidateHost === requestedHost) {
+    // A host-only candidate cannot stand in for a subdomain-wide request.
+    return candidate.includeSubdomains || !requested.includeSubdomains;
+  }
+  return candidate.includeSubdomains && requestedHost.endsWith(`.${candidateHost}`);
+}
+
+export function allowedOriginsCover(
+  candidates: BrowserAllowedOrigin[],
+  requested: BrowserAllowedOrigin[],
+): boolean {
+  return (
+    requested.length > 0 &&
+    requested.every((origin) =>
+      candidates.some((candidate) => allowedOriginCovers(candidate, origin)),
+    )
+  );
+}
+
 export function isOriginAllowed(
   url: string,
   allowedOrigins: BrowserAllowedOrigin[],

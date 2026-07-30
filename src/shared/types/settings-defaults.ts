@@ -217,6 +217,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   crossModelReviewLocalSelectorId: '',
   crossModelReviewLocalTimeout: 120,
   crossModelReviewLocalMaxToolRounds: 12,
+  providersExcludedFromAutomation: [],
 
   // Conversational ping-pong review
   pingPongReviewerProvider: 'auto',

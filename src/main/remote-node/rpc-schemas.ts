@@ -30,6 +30,19 @@ const ProviderModelIdSchema = z.string().max(512);
 const LocalModelEndpointProviderSchema = z.enum(['ollama', 'openai-compatible']);
 const LocalAiEndpointIdSchema = z.string().trim().min(1).max(128);
 const LocalAiModelIdSchema = z.string().trim().min(1).max(256);
+const LocalAiRoutingRoleSchema = z.enum([
+  'compression',
+  'memoryDistillation',
+  'webExtract',
+  'titleGeneration',
+  'routingClassification',
+  'approvalScoring',
+  'loopScoring',
+  'retrievalHypothesis',
+  'branchScoring',
+  'subQueryExecution',
+  'verifyOutputSummary',
+]);
 export const LOCAL_AI_HEALTH_MAX_TIMEOUT_MS = 120_000;
 export const LOCAL_AI_HEALTH_MAX_LATENCY_THRESHOLD_MS = 300_000;
 
@@ -458,6 +471,7 @@ const LocalAiExpectedModelRpcSchema = z.object({
     .min(LOCAL_AI_TARGET_NUMERIC_LIMITS.minContextLength.min)
     .max(LOCAL_AI_TARGET_NUMERIC_LIMITS.minContextLength.max)
     .optional(),
+  routingRoles: z.array(LocalAiRoutingRoleSchema).max(50).optional(),
 }).strict();
 
 const LocalAiCanaryContractSchema = z.object({

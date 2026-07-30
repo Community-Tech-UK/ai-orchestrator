@@ -46,6 +46,7 @@ describe('InstanceMessagingStore', () => {
   const ipcMock = {
     sendInput: vi.fn(),
     steerInput: vi.fn(),
+    wakeInstance: vi.fn(),
     // Consumed by the InstanceStatusReconcilerService interval; resolves empty
     // so reconciliation is a no-op while timers are advanced in these tests.
     listInstances: vi.fn(),
@@ -63,6 +64,8 @@ describe('InstanceMessagingStore', () => {
     ipcMock.sendInput.mockReset();
     ipcMock.steerInput.mockReset();
     ipcMock.steerInput.mockResolvedValue({ success: true });
+    ipcMock.wakeInstance.mockReset();
+    ipcMock.wakeInstance.mockResolvedValue({ success: true });
     ipcMock.listInstances.mockReset();
     ipcMock.listInstances.mockResolvedValue({ success: true, data: [] });
     listStoreMock.validateFiles.mockReset();
@@ -97,6 +100,47 @@ describe('InstanceMessagingStore', () => {
     vi.useRealTimers();
     store = undefined;
     stateService = undefined;
+  });
+
+  it('queues and wakes instead of sending into a hibernated session', async () => {
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    currentStateService.addInstance(createInstance({ status: 'hibernated' }));
+    ipcMock.sendInput.mockResolvedValue({ success: true });
+
+    await currentStore.sendInput('inst-1', 'are you there?');
+
+    expect(ipcMock.sendInput).not.toHaveBeenCalled();
+    expect(ipcMock.wakeInstance).toHaveBeenCalledWith('inst-1');
+    expect(currentStore.getQueuedMessageCount('inst-1')).toBe(1);
+
+    // The wake lands the instance on 'ready', which is what drains the queue.
+    currentStateService.updateInstance('inst-1', { status: 'ready' });
+    currentStore.processMessageQueue('inst-1');
+    await vi.advanceTimersByTimeAsync(150);
+
+    expect(ipcMock.sendInput).toHaveBeenCalledTimes(1);
+    expect(currentStore.getQueuedMessageCount('inst-1')).toBe(0);
+  });
+
+  it('restores the text to the draft when waking a hibernated session fails', async () => {
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    currentStateService.addInstance(createInstance({ status: 'hibernated' }));
+    ipcMock.wakeInstance.mockResolvedValue({
+      success: false,
+      error: { message: 'wake spawn failed' },
+    });
+
+    await currentStore.sendInput('inst-1', 'do not strand me');
+
+    expect(currentStore.getQueuedMessageCount('inst-1')).toBe(0);
+    expect(TestBed.inject(DraftService).getDraft('inst-1')).toBe('do not strand me');
+    const instance = currentStateService.getInstance('inst-1');
+    expect(instance?.outputBuffer[instance.outputBuffer.length - 1]).toMatchObject({
+      type: 'error',
+      content: expect.stringContaining('Failed to wake this session'),
+    });
   });
 
   it('stops retrying when the backend reports a permanent error state', async () => {

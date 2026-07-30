@@ -5598,19 +5598,19 @@
     },
     {
       "path": "resources/browser-extension/background.js",
-      "lines": 3602
+      "lines": 3699
     },
     {
       "path": "docs/superpowers/plans/2026-06-08-50-hour-loop-resilience_completed.md",
       "lines": 3564
     },
     {
-      "path": "docs/superpowers/plans/2026-04-28-wave2-navigation-pickers-prompt-recall-plan_completed.md",
-      "lines": 3523
+      "path": "src/main/instance/instance-lifecycle.ts",
+      "lines": 3546
     },
     {
-      "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3498
+      "path": "docs/superpowers/plans/2026-04-28-wave2-navigation-pickers-prompt-recall-plan_completed.md",
+      "lines": 3523
     },
     {
       "path": "docs/superpowers/plans/2026-04-05-bash-validation-pipeline_completed.md",
@@ -5637,12 +5637,12 @@
       "lines": 2851
     },
     {
-      "path": "docs/superpowers/plans/2026-04-17-wave2-provider-normalization.md",
-      "lines": 2829
+      "path": "src/main/instance/instance-manager.ts",
+      "lines": 2849
     },
     {
-      "path": "src/main/instance/instance-manager.ts",
-      "lines": 2824
+      "path": "docs/superpowers/plans/2026-04-17-wave2-provider-normalization.md",
+      "lines": 2829
     },
     {
       "path": "docs/superpowers/plans/2026-03-20-cross-model-review_completed.md",
@@ -5661,16 +5661,20 @@
       "lines": 2659
     },
     {
-      "path": "src/main/browser-gateway/browser-gateway-service.ts",
-      "lines": 2580
-    },
-    {
       "path": "src/main/instance/instance-communication.ts",
-      "lines": 2533
+      "lines": 2548
     },
     {
       "path": "docs/superpowers/plans/2026-04-07-remote-folder-browsing.md",
       "lines": 2519
+    },
+    {
+      "path": "src/main/browser-gateway/browser-gateway-service.ts",
+      "lines": 2420
+    },
+    {
+      "path": "src/main/browser-gateway/browser-gateway-service-existing-tabs.spec.ts",
+      "lines": 2395
     },
     {
       "path": "docs/superpowers/plans/2026-07-04-control-center-shell-plan_completed.md",
@@ -5685,16 +5689,12 @@
       "lines": 2339
     },
     {
-      "path": "src/main/browser-gateway/browser-gateway-service-existing-tabs.spec.ts",
-      "lines": 2228
-    },
-    {
       "path": "src/main/instance/instance-communication.spec.ts",
       "lines": 2226
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.ts",
-      "lines": 2161
+      "lines": 2202
     },
     {
       "path": "docs/superpowers/plans/2026-04-09-resilient-codex-resume-and-agent-observability_completed.md",
@@ -5773,6 +5773,10 @@
       "lines": 1754
     },
     {
+      "path": "src/main/browser-gateway/browser-extension-assets.spec.ts",
+      "lines": 1673
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
       "lines": 1635
     },
@@ -5813,10 +5817,6 @@
       "lines": 1540
     },
     {
-      "path": "src/main/browser-gateway/browser-extension-assets.spec.ts",
-      "lines": 1531
-    },
-    {
       "path": "src/main/instance/__tests__/instance-manager.send-input.spec.ts",
       "lines": 1520
     },
@@ -5835,6 +5835,10 @@
     {
       "path": "src/main/instance/__tests__/instance-manager.create.spec.ts",
       "lines": 1498
+    },
+    {
+      "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
+      "lines": 1492
     },
     {
       "path": "src/main/history/history-manager.ts",
@@ -5857,10 +5861,6 @@
       "lines": 1426
     },
     {
-      "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
-      "lines": 1414
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-02-phase-b-context-token-efficiency.md",
       "lines": 1411
     },
@@ -5871,6 +5871,10 @@
     {
       "path": "src/main/ipc/handlers/__tests__/loop-handlers.spec.ts",
       "lines": 1391
+    },
+    {
+      "path": "src/main/instance/__tests__/instance-manager.lifecycle.spec.ts",
+      "lines": 1382
     },
     {
       "path": "src/main/chats/chat-service.spec.ts",
@@ -5925,8 +5929,8 @@
       "lines": 1314
     },
     {
-      "path": "src/main/instance/__tests__/instance-manager.lifecycle.spec.ts",
-      "lines": 1304
+      "path": "src/main/orchestration/cross-model-review-service.spec.ts",
+      "lines": 1301
     },
     {
       "path": "src/main/workspace/git/vcs-manager.ts",
@@ -5951,10 +5955,6 @@
     {
       "path": "src/main/ipc/handlers/instance-handlers.ts",
       "lines": 1276
-    },
-    {
-      "path": "src/main/orchestration/cross-model-review-service.spec.ts",
-      "lines": 1272
     },
     {
       "path": "docs/superpowers/plans/2026-04-13-collapsible-system-events_completed.md",
@@ -6011,6 +6011,10 @@
     {
       "path": "packages/contracts/src/schemas/__tests__/loop.schemas.spec.ts",
       "lines": 1236
+    },
+    {
+      "path": "src/main/browser-gateway/browser-gateway-service.approvals.spec.ts",
+      "lines": 1232
     },
     {
       "path": "src/main/mcp/__tests__/orchestrator-tools.spec.ts",
@@ -6103,10 +6107,6 @@
     {
       "path": "src/main/ipc/handlers/local-ai-guard-handlers.spec.ts",
       "lines": 1119
-    },
-    {
-      "path": "src/main/browser-gateway/browser-gateway-service.approvals.spec.ts",
-      "lines": 1116
     },
     {
       "path": "src/renderer/app/features/mcp/mcp-page.component.ts",
@@ -6265,6 +6265,10 @@
       "lines": 985
     },
     {
+      "path": "src/main/local-ai-guard/local-ai-guard.integration.spec.ts",
+      "lines": 984
+    },
+    {
       "path": "src/main/app/initialization-steps.ts",
       "lines": 980
     },
@@ -6329,16 +6333,16 @@
       "lines": 949
     },
     {
+      "path": "src/main/orchestration/cli-verification-extension.ts",
+      "lines": 948
+    },
+    {
       "path": "src/renderer/app/features/tasks/tasks-page.component.ts",
       "lines": 947
     },
     {
       "path": "src/main/remote-node/__tests__/rpc-event-router.spec.ts",
       "lines": 938
-    },
-    {
-      "path": "src/main/orchestration/cli-verification-extension.ts",
-      "lines": 937
     },
     {
       "path": "src/renderer/app/features/editor/editor-page.component.ts",
@@ -6405,8 +6409,16 @@
       "lines": 880
     },
     {
+      "path": "src/worker-agent/worker-local-ai-health.spec.ts",
+      "lines": 877
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-02-error-recovery-resilience.COMPLETED.md",
       "lines": 876
+    },
+    {
+      "path": "src/renderer/app/core/state/instance/instance-messaging.store.ts",
+      "lines": 874
     },
     {
       "path": "src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts",
@@ -6418,6 +6430,10 @@
     },
     {
       "path": "docs/plans/2026-06-26-loop-engine-overhaul-spec_completed.md",
+      "lines": 867
+    },
+    {
+      "path": "src/main/orchestration/consensus-coordinator.ts",
       "lines": 867
     },
     {
@@ -6433,8 +6449,8 @@
       "lines": 862
     },
     {
-      "path": "src/main/orchestration/consensus-coordinator.ts",
-      "lines": 860
+      "path": "src/main/orchestration/cross-model-review-service.ts",
+      "lines": 859
     },
     {
       "path": "docs/superpowers/plans/2026-05-10-main-process-multicore-offload_completed.md",
@@ -6453,20 +6469,12 @@
       "lines": 852
     },
     {
-      "path": "src/main/orchestration/cross-model-review-service.ts",
-      "lines": 851
-    },
-    {
       "path": "src/renderer/app/features/verification/config/verification-preferences.component.ts",
       "lines": 851
     },
     {
       "path": "src/main/services/voice/providers/local-whisper-transcription-provider.ts",
       "lines": 850
-    },
-    {
-      "path": "src/main/local-ai-guard/local-ai-guard.integration.spec.ts",
-      "lines": 847
     },
     {
       "path": "src/main/orchestration/embedding-service.ts",
@@ -6526,10 +6534,6 @@
     },
     {
       "path": "docs/superpowers/plans/2026-07-04-back-navigation-hotfix-plan_completed.md",
-      "lines": 826
-    },
-    {
-      "path": "src/renderer/app/core/state/instance/instance-messaging.store.ts",
       "lines": 826
     },
     {

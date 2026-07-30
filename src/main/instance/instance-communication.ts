@@ -2097,6 +2097,21 @@ export class InstanceCommunicationManager extends EventEmitter {
         timestamp: Date.now(),
       });
 
+      // Hibernation kills the adapter on purpose to free memory; the instance
+      // survives in the store and comes back through wakeInstance(). Treating
+      // that exit as a crash would both mark a healthy session failed and throw
+      // an IllegalTransitionError out of this synchronous listener.
+      if (instance.status === 'hibernating' || instance.status === 'hibernated') {
+        logger.info('Adapter exit during hibernation — expected, not a crash', {
+          instanceId,
+          status: instance.status,
+          code,
+          signal,
+        });
+        this.interruptedInstances.delete(instanceId);
+        return;
+      }
+
       if (isStatelessExecAdapter(adapter)) {
         logger.info('Ignoring per-turn process exit for stateless exec adapter', {
           instanceId,

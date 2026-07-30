@@ -87,6 +87,8 @@ interface Harness {
     evaluateResumeHealth: ReturnType<typeof vi.fn>;
     transitionState: ReturnType<typeof vi.fn>;
     buildFallbackHistory: ReturnType<typeof vi.fn>;
+    emitSystemNotice: ReturnType<typeof vi.fn>;
+    emitModelSelectionDegradation: ReturnType<typeof vi.fn>;
   };
 }
 
@@ -99,6 +101,8 @@ function makeHarness(instance: Instance, adapters: CliAdapter[]): Harness {
       (inst as unknown as { status: string }).status = status;
     }),
     buildFallbackHistory: vi.fn().mockResolvedValue('fallback history'),
+    emitSystemNotice: vi.fn(),
+    emitModelSelectionDegradation: vi.fn(),
   };
   const reconciler = new RuntimeReconciler({
     getInstance: () => instance,
@@ -127,7 +131,8 @@ function makeHarness(instance: Instance, adapters: CliAdapter[]): Harness {
     prepareStatusForAdapterInput: vi.fn(),
     buildReplayContinuityMessage: () => 'replay preamble',
     buildFallbackHistory: deps.buildFallbackHistory,
-    emitModelSelectionDegradation: vi.fn(),
+    emitModelSelectionDegradation: deps.emitModelSelectionDegradation,
+    emitSystemNotice: deps.emitSystemNotice,
     emitRuntimeChanged: vi.fn(),
     emitYoloToggled: vi.fn(),
     getSettings: () => ({ defaultCli: 'claude' }),
@@ -240,5 +245,67 @@ describe('RuntimeReconciler.applyRuntimeChange — resume-health policy (LT-008)
     expect(createCalls[1].options['resume']).toBe(false);
     expect(createCalls[1].options['forkSession']).toBe(false);
     expect(deps.buildFallbackHistory).toHaveBeenCalled();
+  });
+});
+
+// LT-015: the runtime-change notices were delivered with `adapter.sendInput`,
+// which reaches the CLI but produces no visible message. Three live-check
+// families asserted on a transcript line that could never appear. They must now
+// be both delivered AND recorded.
+describe('RuntimeReconciler.applyRuntimeChange — runtime-change notices are visible (LT-015)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSessionMutex.acquire.mockResolvedValue(() => {});
+    mockContinuity.writeThroughIdentityLocked.mockResolvedValue(undefined);
+    mockContinuity.updateState.mockResolvedValue(undefined);
+  });
+
+  it('records the YOLO-enabled notice in the transcript, not only to the CLI', async () => {
+    const { reconciler, deps } = makeHarness(makeInstance(), [makeAdapter()]);
+
+    await reconciler.applyRuntimeChange('inst-1', yoloOnly(true));
+
+    expect(deps.emitSystemNotice).toHaveBeenCalledTimes(1);
+    const [, content, metadata] = deps.emitSystemNotice.mock.calls[0];
+    expect(content).toContain('[System: YOLO mode enabled');
+    expect(metadata).toMatchObject({ kind: 'yolo-mode-changed' });
+  });
+
+  it('records the YOLO-disabled notice too', async () => {
+    const instance = makeInstance();
+    (instance as unknown as { yoloMode: boolean }).yoloMode = true;
+    const { reconciler, deps } = makeHarness(instance, [makeAdapter()]);
+
+    await reconciler.applyRuntimeChange('inst-1', yoloOnly(false));
+
+    expect(deps.emitSystemNotice).toHaveBeenCalledTimes(1);
+    expect(deps.emitSystemNotice.mock.calls[0][1]).toContain('[System: YOLO mode disabled');
+  });
+
+  it('still delivers the notice to the adapter as well as recording it', async () => {
+    const adapter = makeAdapter();
+    const { reconciler, deps } = makeHarness(makeInstance(), [adapter]);
+
+    await reconciler.applyRuntimeChange('inst-1', yoloOnly(true));
+
+    const delivered = (adapter.sendInput as ReturnType<typeof vi.fn>).mock.calls
+      .map((call: unknown[]) => String(call[0]));
+    expect(delivered.some((text) => text.includes('[System: YOLO mode enabled'))).toBe(true);
+    expect(deps.emitSystemNotice).toHaveBeenCalled();
+  });
+
+  it('does not abort the runtime change when rendering the notice throws', async () => {
+    const { reconciler, deps, instance } = makeHarness(makeInstance(), [makeAdapter(77)]);
+    deps.emitSystemNotice.mockImplementation(() => {
+      throw new Error('renderer detached');
+    });
+
+    // The change has already been applied to the live session by this point;
+    // a failed transcript write must not undo it.
+    const result = await reconciler.applyRuntimeChange('inst-1', yoloOnly(true));
+
+    expect(result.yoloMode).toBe(true);
+    expect(result.status).toBe('idle');
+    expect(instance.processId).toBe(77);
   });
 });

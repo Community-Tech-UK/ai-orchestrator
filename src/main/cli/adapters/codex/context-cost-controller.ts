@@ -86,10 +86,36 @@ export class CodexContextCostController {
     const awaited = this.gate.hasPendingWaiters();
     this.gate.settle();
     this.governor.recordCompactionObserved(cumulativeTokens);
+    // The connected app-server demonstrably does emit `thread/compacted`, so
+    // clear any earlier negative verdict — a CLI upgrade mid-session should
+    // re-enable the native path rather than stay disabled until restart.
+    this.nativeCompactionUnobserved = false;
     if (!awaited) this.deps.recordActionProof?.('native-compaction', 'observed');
   }
 
+  /**
+   * Set once the connected app-server has accepted a compact RPC but never sent
+   * `thread/compacted` within the timeout. Some Codex builds never emit it at
+   * all, and without this every compaction paid the full timeout again for no
+   * possible benefit (LT-017).
+   */
+  private nativeCompactionUnobserved = false;
+
+  /** Has this session already proven the native compaction notification absent? */
+  nativeCompactionKnownUnsupported(): boolean {
+    return this.nativeCompactionUnobserved;
+  }
+
   async compactContext(timeoutMs: number): Promise<boolean> {
+    // LT-017: don't pay the timeout again once this session has proven the
+    // provider never sends the notification. The caller falls back exactly as
+    // it would have after waiting, just immediately.
+    if (this.nativeCompactionUnobserved) {
+      logger.info('Skipping native compaction — this session already proved the notification absent', {
+        timeoutMs,
+      });
+      return false;
+    }
     const observed = this.gate.wait(timeoutMs);
     if (!await this.startCompaction()) {
       this.gate.cancel();
@@ -100,7 +126,14 @@ export class CodexContextCostController {
       this.deps.recordActionProof?.('native-compaction', 'observed');
       return true;
     }
-    logger.warn('Context compaction was acknowledged but not observed', { timeoutMs, outcome });
+    if (outcome === 'timed-out') {
+      this.nativeCompactionUnobserved = true;
+    }
+    logger.warn('Context compaction was acknowledged but not observed', {
+      timeoutMs,
+      outcome,
+      nativeCompactionDisabledForSession: this.nativeCompactionUnobserved,
+    });
     return false;
   }
 

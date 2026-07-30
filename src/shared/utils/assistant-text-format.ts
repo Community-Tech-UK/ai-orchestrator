@@ -6,7 +6,24 @@
  * These helpers insert paragraph breaks and spacing before markdown rendering.
  */
 
-const NARRATION_BREAK_AFTER = /([.!?])\s*(?=(?:Now(?:\s+(?:let me|I'll|the|add|clear|wire|let me run|let me read))?|Let me|I'll|I will|First|Next|Then|Also|After that|Before that|Once|Looking at|Reading|Checking|Implementing|Wiring|Running|Adding|Updating|Fixing|The plan|This plan|Following|Exploring|Tracing|Searching)\b)/gi;
+/**
+ * Sentence end that runs straight into planning narration, e.g. "…read the
+ * types.Now let me wire it up".
+ *
+ * Two guards keep this off legitimate markdown structure, because the trigger
+ * words are ordinary English and this rule also runs over every provider's
+ * final answer:
+ *
+ * - The lookbehind rejects an ordered-list marker. `5. Once Worker …` is list
+ *   item 5, not a sentence followed by narration; rewriting it to `5.\n\nOnce`
+ *   closes the list at an empty item and drops the following markers to
+ *   literal text.
+ * - Only spaces and tabs are consumed, never a newline, so the rule can never
+ *   inject a blank line into a list, a lazy continuation, or a table. The
+ *   monologue this exists for arrives as one long line, so same-line breaking
+ *   is all it ever needed.
+ */
+const NARRATION_BREAK_AFTER = /(?<!^[ \t]{0,8}\d{1,9})([.!?])[ \t]*(?=(?:Now(?:\s+(?:let me|I'll|the|add|clear|wire|let me run|let me read))?|Let me|I'll|I will|First|Next|Then|Also|After that|Before that|Once|Looking at|Reading|Checking|Implementing|Wiring|Running|Adding|Updating|Fixing|The plan|This plan|Following|Exploring|Tracing|Searching)\b)/gim;
 
 const NARRATION_MARKER_PATTERN =
   /\b(?:now let me|let me|i'll|i will|first,? i|next,? i|now i|now the|now add|now clear|now wire|i need to|i should|i'll start|let me explore|let me read|let me check|let me run|let me look|let me search|let me implement|let me wire)\b/gi;

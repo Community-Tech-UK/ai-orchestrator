@@ -784,20 +784,26 @@ vi.mock('../../../shared/types/command.types', () => ({
 // ---------------------------------------------------------------------------
 // RLM database mock (avoid SQLite binary issues)
 // ---------------------------------------------------------------------------
-vi.mock('../../persistence/rlm-database', () => ({
-  RLMDatabase: vi.fn().mockImplementation(() => ({
+vi.mock('../../persistence/rlm-database', () => {
+  const rawDb = {
+    prepareCached: vi.fn(() => ({
+      run: vi.fn(() => ({ changes: 0, lastInsertRowid: 0 })),
+      get: vi.fn(() => undefined),
+      all: vi.fn(() => []),
+    })),
+  };
+  const rlmDatabase = {
     initialize: vi.fn().mockResolvedValue(undefined),
     query: vi.fn().mockReturnValue([]),
     insert: vi.fn(),
     close: vi.fn(),
-  })),
-  getRLMDatabase: vi.fn(() => ({
-    initialize: vi.fn().mockResolvedValue(undefined),
-    query: vi.fn().mockReturnValue([]),
-    insert: vi.fn(),
-    close: vi.fn(),
-  })),
-}));
+    getRawDb: vi.fn(() => rawDb),
+  };
+  return {
+    RLMDatabase: vi.fn().mockImplementation(() => rlmDatabase),
+    getRLMDatabase: vi.fn(() => rlmDatabase),
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Codemem mock — CodememService's field initializer calls `new Database()`
@@ -1232,6 +1238,78 @@ describe('InstanceManager', () => {
       expect(manager.getAdapter(instance.id)).toBeUndefined();
       expect(instance.status).toBe('failed');
       expect(mockAdapterTerminate).toHaveBeenCalled();
+    });
+
+    it('coalesces concurrent wake requests into a single respawn', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Concurrent Wake',
+      });
+      await instance.readyPromise;
+      await manager.hibernateInstance(instance.id);
+      mockCreateCliAdapter.mockClear();
+
+      await Promise.all([
+        manager.wakeInstance(instance.id),
+        manager.wakeInstance(instance.id),
+      ]);
+
+      expect(mockCreateCliAdapter).toHaveBeenCalledTimes(1);
+      expect(instance.status).toBe('ready');
+    });
+
+    it('is a no-op for an instance that is already awake', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Already Awake',
+      });
+      await instance.readyPromise;
+      const adapterBefore = manager.getAdapter(instance.id);
+
+      await expect(manager.wakeInstance(instance.id)).resolves.toBeUndefined();
+
+      expect(manager.getAdapter(instance.id)).toBe(adapterBefore);
+    });
+  });
+
+  describe('hibernated sessions', () => {
+    it('wakes the session and delivers the message when the user sends into it', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Send Wakes Hibernated',
+      });
+      await instance.readyPromise;
+      await manager.hibernateInstance(instance.id);
+      expect(instance.status).toBe('hibernated');
+      expect(manager.getAdapter(instance.id)).toBeUndefined();
+      mockAdapterSendInput.mockClear();
+
+      await manager.sendInput(instance.id, 'are you there?');
+
+      expect(instance.status).not.toBe('hibernated');
+      expect(manager.getAdapter(instance.id)).toBeDefined();
+      expect(mockAdapterSendInput).toHaveBeenCalledWith(
+        expect.stringContaining('are you there?'),
+        undefined,
+      );
+    });
+
+    it('does not treat the adapter exit from a deliberate hibernation as a crash', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Hibernation Exit',
+      });
+      await instance.readyPromise;
+      const adapter = manager.getAdapter(instance.id) as unknown as EventEmitter;
+
+      // Reproduces the live failure: the CLI process exit lands while the
+      // instance is mid-hibernation. 'hibernating' -> 'error' is an illegal
+      // transition, so an unguarded handler threw out of this synchronous
+      // emit and surfaced as an uncaught main-process exception.
+      manager.updateInstanceStatus(instance.id, 'hibernating');
+      expect(() => adapter.emit('exit', 1, null)).not.toThrow();
+
+      expect(instance.status).toBe('hibernating');
     });
   });
 

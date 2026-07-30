@@ -21,6 +21,14 @@ interface BrowserExtensionBackgroundHarness {
     snapshots: Array<{ state: string; lastPollAckAt: number | null; unhealthySince: number | null }>,
     now: number,
   ) => { text: string; color: string | null };
+  captureAccessibilitySnapshot: (
+    tabId: number,
+    options: { interestingOnly?: boolean; limit?: number; timeoutMs?: number },
+  ) => Promise<unknown>;
+  captureTabScreenshot: (
+    tabId: number,
+    options: { fullPage?: boolean; timeoutMs?: number },
+  ) => Promise<unknown>;
   forceReleaseCommandResources: (command: {
     target?: { tabId?: number };
   }) => Promise<void>;
@@ -42,6 +50,11 @@ interface BrowserExtensionBackgroundHarness {
 }
 
 interface BrowserExtensionChromeHarness {
+  debugger: {
+    attach: ReturnType<typeof vi.fn>;
+    detach: ReturnType<typeof vi.fn>;
+    sendCommand: ReturnType<typeof vi.fn>;
+  };
   runtime: {
     connectNative: ReturnType<typeof vi.fn>;
     getManifest: ReturnType<typeof vi.fn>;
@@ -224,6 +237,133 @@ describe('browser extension assets', () => {
     expect(background).toContain('browser_extension_command_timeout');
     expect(background).toContain('function forceReleaseCommandResources');
     expect(background).toContain('chrome.debugger.detach({ tabId })');
+  });
+
+  it('bounds the accessibility tree CDP call and names the stalled step', async () => {
+    // Live incident: two accessibility_snapshot calls on one heavy page each
+    // burned their whole 60s window and surfaced as a bare
+    // browser_extension_command_timeout, which said nothing about where they
+    // stalled — and read to the agent like a permission refusal.
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    harness.chrome.debugger.sendCommand.mockImplementation(
+      async (_debuggee: unknown, method: string) => {
+        if (method === 'Accessibility.getFullAXTree') {
+          return new Promise(() => undefined);
+        }
+        return {};
+      },
+    );
+
+    const settled = harness
+      .captureAccessibilitySnapshot(42, { limit: 10, timeoutMs: 60_000 })
+      .then(() => null, (error: unknown) => error as Error);
+    await flushPromises();
+
+    // 80% of the 60s command budget, leaving the reply time to get home.
+    const deadline = harness.timers.setTimeout.mock.calls.find(
+      (call: unknown[]) => call[1] === 48_000,
+    );
+    expect(deadline).toBeDefined();
+    (deadline?.[0] as () => void)();
+
+    const error = await settled;
+    expect(error?.message).toContain(
+      'browser_extension_cdp_timeout:Accessibility.getFullAXTree',
+    );
+    // The session must not be left attached — a held debugger stalls every
+    // later CDP command queued behind this tab's chain.
+    expect(harness.chrome.debugger.detach).toHaveBeenCalledWith({ tabId: 42 });
+  });
+
+  it('bounds the debugger attach hop separately from page work', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    harness.chrome.debugger.attach.mockImplementation(async () => new Promise(() => undefined));
+
+    const settled = harness
+      .captureAccessibilitySnapshot(42, { limit: 10, timeoutMs: 60_000 })
+      .then(() => null, (error: unknown) => error as Error);
+    await flushPromises();
+
+    const deadline = harness.timers.setTimeout.mock.calls.find(
+      (call: unknown[]) => call[1] === 10_000,
+    );
+    expect(deadline).toBeDefined();
+    (deadline?.[0] as () => void)();
+
+    const error = await settled;
+    expect(error?.message).toContain('browser_extension_cdp_timeout:attach');
+    expect(harness.chrome.debugger.sendCommand).not.toHaveBeenCalled();
+    // A late attach must not leave the tab holding an orphaned session: the
+    // command watchdog that used to clean up no longer fires, because this
+    // deadline beat it.
+    expect(harness.chrome.debugger.detach).toHaveBeenCalledWith({ tabId: 42 });
+  });
+
+  it('keeps a short floor on the page-work deadline for small command budgets', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    harness.chrome.debugger.sendCommand.mockImplementation(
+      async (_debuggee: unknown, method: string) => {
+        if (method === 'Accessibility.getFullAXTree') {
+          return new Promise(() => undefined);
+        }
+        return {};
+      },
+    );
+
+    const settled = harness
+      .captureAccessibilitySnapshot(42, { limit: 10, timeoutMs: 1_000 })
+      .then(() => null, (error: unknown) => error as Error);
+    await flushPromises();
+
+    // 80% of 1s would be 800ms — too short to ever return a tree, so the floor
+    // applies instead. No deadline shorter than the floor may be registered,
+    // and firing the floor-length ones must be what fails the tree call (the
+    // already-settled enable hops ignore a late rejection).
+    expect(
+      harness.timers.setTimeout.mock.calls.every((call: unknown[]) => Number(call[1]) >= 5_000),
+    ).toBe(true);
+    for (const call of harness.timers.setTimeout.mock.calls) {
+      if (call[1] === 5_000) {
+        (call[0] as () => void)();
+      }
+    }
+    const error = await settled;
+    expect(error?.message).toContain(
+      'browser_extension_cdp_timeout:Accessibility.getFullAXTree',
+    );
+  });
+
+  it('bounds the screenshot capture the same way', async () => {
+    // Same failure class, seen live on 2026-07-28: "Existing-tab live
+    // screenshot failed: browser_extension_command_timeout".
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    harness.chrome.debugger.sendCommand.mockImplementation(
+      async (_debuggee: unknown, method: string) => {
+        if (method === 'Page.captureScreenshot') {
+          return new Promise(() => undefined);
+        }
+        return {};
+      },
+    );
+
+    const settled = harness
+      .captureTabScreenshot(42, { timeoutMs: 60_000 })
+      .then(() => null, (error: unknown) => error as Error);
+    await flushPromises();
+
+    const deadline = harness.timers.setTimeout.mock.calls.find(
+      (call: unknown[]) => call[1] === 48_000,
+    );
+    expect(deadline).toBeDefined();
+    (deadline?.[0] as () => void)();
+
+    const error = await settled;
+    expect(error?.message).toContain('browser_extension_cdp_timeout:Page.captureScreenshot');
+    expect(harness.chrome.debugger.detach).toHaveBeenCalledWith({ tabId: 42 });
   });
 
   it('releases a stuck per-tab debugger chain when the command watchdog fires', async () => {
@@ -1246,7 +1386,9 @@ function loadBackgroundHarnessForTest(options: {
         onAlarm: alarmEvent,
       },
       debugger: {
+        attach: vi.fn(async () => undefined),
         detach: vi.fn(async () => undefined),
+        sendCommand: vi.fn(async () => ({ nodes: [] })),
       },
       runtime: {
         connectNative,
@@ -1340,7 +1482,7 @@ function loadBackgroundHarnessForTest(options: {
     __backgroundHarness: undefined as BrowserExtensionBackgroundHarness | undefined,
   };
   runInNewContext(
-    `${background}\n;globalThis.__backgroundHarness = { bridges, deriveToolbarBadgeState, forceReleaseCommandResources, reportTabInventory, selfHealIfWedged, startControlledTab, stopControlledTab, tabDebuggerChains };`,
+    `${background}\n;globalThis.__backgroundHarness = { bridges, captureAccessibilitySnapshot, captureTabScreenshot, deriveToolbarBadgeState, forceReleaseCommandResources, reportTabInventory, selfHealIfWedged, startControlledTab, stopControlledTab, tabDebuggerChains };`,
     context,
     { filename: 'resources/browser-extension/background.js' },
   );

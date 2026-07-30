@@ -63,6 +63,54 @@ describe('CompactionCoordinator strategy selection', () => {
     expect(nativeCompact).toHaveBeenCalledTimes(1);
     expect(restartCompact).toHaveBeenCalledTimes(1);
   });
+
+  // LT-017: a native failure recovered by restart-with-summary was reported as a
+  // plain `success: true`, so callers could not tell that the provider thread had
+  // been *replaced* rather than compacted in place — a materially different
+  // outcome, since the fallback mints a new provider session id.
+  it('flags nativeAttemptFailed when the fallback rescued a failed native attempt', async () => {
+    const coordinator = CompactionCoordinator.getInstance();
+    coordinator.configure({
+      nativeCompact: vi.fn(async () => false),
+      restartCompact: vi.fn(async () => true),
+      supportsNativeCompaction: () => true,
+    });
+
+    const result = await coordinator.compactInstance('inst-flagged');
+
+    expect(result.success).toBe(true);
+    expect(result.method).toBe('restart-with-summary');
+    expect(result.nativeAttemptFailed).toBe(true);
+  });
+
+  it('does not flag nativeAttemptFailed when native compaction succeeds', async () => {
+    const coordinator = CompactionCoordinator.getInstance();
+    coordinator.configure({
+      nativeCompact: vi.fn(async () => true),
+      restartCompact: vi.fn(async () => true),
+      supportsNativeCompaction: () => true,
+    });
+
+    const result = await coordinator.compactInstance('inst-native-ok');
+
+    expect(result.method).toBe('native');
+    expect(result.nativeAttemptFailed).toBeUndefined();
+  });
+
+  it('does not flag nativeAttemptFailed when native was never attempted', async () => {
+    const coordinator = CompactionCoordinator.getInstance();
+    coordinator.configure({
+      nativeCompact: vi.fn(async () => false),
+      restartCompact: vi.fn(async () => true),
+      supportsNativeCompaction: () => false,
+    });
+
+    const result = await coordinator.compactInstance('inst-no-native');
+
+    expect(result.method).toBe('restart-with-summary');
+    // Nothing failed — this provider simply has no native path.
+    expect(result.nativeAttemptFailed).toBeUndefined();
+  });
 });
 
 describe('CompactionCoordinator self-managed auto-compaction', () => {

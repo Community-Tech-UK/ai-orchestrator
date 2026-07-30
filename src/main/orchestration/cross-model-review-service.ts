@@ -47,6 +47,7 @@ import {
   isReviewerRateLimitError,
 } from './cross-model-review-service.constants';
 import { resolveReviewWorkingDirectory } from './cross-model-review-service.helpers';
+import { filterProvidersForAutomation } from '../providers/automation-provider-exclusions';
 import { getLocalModelInventoryService } from '../local-models/local-model-inventory-service';
 import { LocalReviewer } from '../review/local-reviewer';
 import {
@@ -739,9 +740,16 @@ export class CrossModelReviewService extends EventEmitter {
       const available = normalizeReviewerCliList(result.available.map(c => c.name));
       const settings = getSettingsManager().getAll();
       const configured = normalizeReviewerCliList(settings.crossModelReviewProviders as string[]);
-      const effectiveList = configured.length > 0
-        ? configured.filter(p => available.includes(p))
-        : available;
+      // An empty `configured` means "auto-pick whatever is installed", so an
+      // operator-excluded provider would rejoin the pool the moment the reviewer
+      // list is cleared. Filter at the pool boundary so neither branch can
+      // reintroduce one.
+      const effectiveList = filterProvidersForAutomation(
+        configured.length > 0
+          ? configured.filter(p => available.includes(p))
+          : available,
+        'crossModelReview',
+      );
 
       // Surface configured reviewers that detection could not find. Without this
       // a top-priority reviewer (e.g. antigravity) silently drops out of the

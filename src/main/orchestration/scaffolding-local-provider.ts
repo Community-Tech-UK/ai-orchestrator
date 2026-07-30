@@ -19,6 +19,7 @@
 import { getLogger } from '../logging/logger';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { resolveCliType } from '../cli/adapters/adapter-factory';
+import { filterProvidersForAutomation } from '../providers/automation-provider-exclusions';
 import type { CliType } from '../cli/cli-detection';
 // Type-only import: erased at runtime, so no require cycle with default-invokers.
 import type { RoutingIntent } from './default-invokers';
@@ -59,7 +60,11 @@ export async function resolveScaffoldingProvider(
   defaultCli: DefaultCliSetting,
   routingIntent?: RoutingIntent,
 ): Promise<ScaffoldingProviderChoice | undefined> {
-  for (const provider of SCAFFOLDING_PROVIDER_PREFERENCE) {
+  const candidates = filterProvidersForAutomation(
+    SCAFFOLDING_PROVIDER_PREFERENCE,
+    'scaffoldingProvider',
+  );
+  for (const provider of candidates) {
     if (provider === 'ollama') {
       // Text-only adapter: eligible for inline-context scaffolding gates only,
       // never for caller-authored workflow steps that may need tool use.

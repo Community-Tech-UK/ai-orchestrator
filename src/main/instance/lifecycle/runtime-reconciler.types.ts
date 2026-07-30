@@ -142,6 +142,16 @@ export interface RuntimeReconcilerDeps {
   buildReplayContinuityMessage(instance: Instance, reason: string): string;
   buildFallbackHistory(instance: Instance, reason: string): Promise<string>;
   emitModelSelectionDegradation(instance: Instance, degradation: ModelSelectionDegradation): void;
+  /**
+   * Append a `system` message to the instance transcript and push it to the
+   * renderer. Used for runtime-change notices, which must be visible to the
+   * user and not only delivered to the CLI (LT-015).
+   */
+  emitSystemNotice(
+    instance: Instance,
+    content: string,
+    metadata?: Record<string, unknown>,
+  ): void;
   emitRuntimeChanged(payload: {
     instanceId: string;
     model?: string;

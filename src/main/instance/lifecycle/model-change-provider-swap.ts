@@ -104,6 +104,19 @@ export async function assertSwapTargetCliAvailable(
 }
 
 /**
+ * Where a swap's model came from. Only `requested` and `remembered` represent a
+ * choice the *user* made for this provider; `global-default` is the legacy
+ * `AppSettings.defaultModel`, which is a single id shared across every provider
+ * and is therefore routinely wrong for a swap target (LT-016).
+ */
+export type SwapModelSource = 'requested' | 'remembered' | 'global-default' | 'provider-default';
+
+export interface SwapModelResolution {
+  model?: string;
+  source: SwapModelSource;
+}
+
+/**
  * Resolve the model for a provider swap when the caller didn't pin one:
  * remembered per-provider default → global default → undefined (provider's
  * own default). Mirrors `resolve-initial-model.ts` precedence minus the
@@ -114,12 +127,36 @@ export function resolveSwapModel(
   requestedModel: string | undefined,
   settings: Pick<AppSettings, 'defaultModelByProvider' | 'defaultModel'>,
 ): string | undefined {
+  return resolveSwapModelWithSource(targetProvider, requestedModel, settings).model;
+}
+
+/**
+ * Same resolution as `resolveSwapModel`, but reports which rung supplied the
+ * model. Callers need this to tell a *stale user selection* (worth telling the
+ * user about when the provider rejects it) from the global default simply not
+ * belonging to the target provider (never worth telling the user about, because
+ * they never chose it for this provider) — LT-016.
+ */
+export function resolveSwapModelWithSource(
+  targetProvider: SwapTargetProvider,
+  requestedModel: string | undefined,
+  settings: Pick<AppSettings, 'defaultModelByProvider' | 'defaultModel'>,
+): SwapModelResolution {
   if (requestedModel !== undefined && requestedModel.trim() !== '') {
-    return requestedModel;
+    return { model: requestedModel, source: 'requested' };
   }
-  return resolveInitialModel({
+
+  const remembered = settings.defaultModelByProvider?.[targetProvider];
+  if (remembered) {
+    return { model: remembered, source: 'remembered' };
+  }
+
+  const resolved = resolveInitialModel({
     provider: targetProvider,
     defaultModelByProvider: settings.defaultModelByProvider,
     defaultModel: settings.defaultModel,
   });
+  return resolved === undefined
+    ? { model: undefined, source: 'provider-default' }
+    : { model: resolved, source: 'global-default' };
 }

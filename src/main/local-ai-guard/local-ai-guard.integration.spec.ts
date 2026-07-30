@@ -12,6 +12,7 @@ import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type {
   LocalAiFallbackPolicy,
   LocalAiProbeResult,
+  LocalAiTarget,
   LocalAiTargetConfig,
 } from '../../shared/types/local-ai-guard.types';
 import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
@@ -31,6 +32,8 @@ import {
 } from './local-ai-runtime';
 import { LocalAiRoutingGuard } from './local-ai-routing-guard';
 import { LocalAiTargetRepository } from './local-ai-target-repository';
+import { LocalAiProbeService } from './local-ai-probe-service';
+import { WorkerLocalAiHealth } from '../../worker-agent/worker-local-ai-health';
 
 type Handler = (event: unknown, payload?: unknown) => Promise<IpcResponse>;
 const electron = vi.hoisted(() => ({
@@ -610,6 +613,140 @@ describe('Local AI Guard end-to-end composition', () => {
       state: 'healthy',
       routableRoles: ['compression'],
     });
+  });
+
+  it('removes a coordinator target from routing when loaded context is below its minimum', async () => {
+    let loaded = false;
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url.endsWith('/api/version')) {
+        return new Response(JSON.stringify({ version: '0.12.1' }));
+      }
+      if (url.endsWith('/api/tags')) {
+        return new Response(JSON.stringify({ models: [{ name: 'qwen3:14b' }] }));
+      }
+      if (url.endsWith('/api/generate')) {
+        loaded = true;
+        return new Response(JSON.stringify({ response: 'AIO_HEALTH_OK' }));
+      }
+      if (url.endsWith('/api/ps')) {
+        return new Response(JSON.stringify({
+          models: loaded ? [{ name: 'qwen3:14b', context_length: 4_096 }] : [],
+        }));
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+    const config = targetConfig('notify-and-allow', {
+      location: { type: 'coordinator' },
+      expectedModels: [{
+        modelId: 'qwen3:14b',
+        required: true,
+        minContextLength: 8_192,
+      }],
+      routingRoles: ['compression'],
+    });
+    const target: LocalAiTarget = {
+      ...config,
+      id: 'context-target',
+      label: 'Context target',
+      createdAt: 1_000,
+      updatedAt: 1_000,
+    };
+    const samples = await new LocalAiProbeService({ fetch: fetchMock })
+      .check(target, 'functional');
+    const transition = new LocalAiHealthEngine().apply(target, undefined, samples, 1_000);
+
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+      'http://127.0.0.1:11434/api/version',
+      'http://127.0.0.1:11434/api/tags',
+      'http://127.0.0.1:11434/api/generate',
+      'http://127.0.0.1:11434/api/ps',
+    ]);
+    expect(samples.find((sample) => sample.layer === 'model')).toMatchObject({
+      failureCode: 'insufficient-context',
+      required: true,
+      affectedRoles: ['compression'],
+    });
+    expect(transition.current.routableRoles).toEqual([]);
+  });
+
+  it('quarantines every coordinator role when present context metadata is malformed', async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: '0.12.1' })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        models: [{ name: 'qwen3:14b' }],
+      })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        models: [{ name: 'qwen3:14b', context_length: 8_191.5 }],
+      })));
+    const config = targetConfig('notify-and-allow', {
+      location: { type: 'coordinator' },
+      expectedModels: [{
+        modelId: 'qwen3:14b',
+        required: true,
+        minContextLength: 8_192,
+      }],
+      routingRoles: ['compression', 'titleGeneration'],
+    });
+    const target: LocalAiTarget = {
+      ...config,
+      id: 'malformed-context-target',
+      label: 'Malformed context target',
+      createdAt: 1_000,
+      updatedAt: 1_000,
+    };
+    const samples = await new LocalAiProbeService({ fetch: fetchMock })
+      .check(target, 'lightweight');
+    const transition = new LocalAiHealthEngine().apply(target, undefined, samples, 1_000);
+
+    expect(samples.find((sample) => sample.failureCode === 'monitor-error')).toMatchObject({
+      layer: 'endpoint',
+      ok: false,
+      required: true,
+      affectedRoles: ['compression', 'titleGeneration'],
+      evidence: { errorKind: 'monitor-error' },
+    });
+    expect(transition.current.routableRoles).toEqual([]);
+    expect(transition.current.state).not.toBe('healthy');
+  });
+
+  it('keeps unrelated roles routable when a scoped optional worker model is missing', async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: '0.12.1' })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        models: [{ name: 'qwen3:14b' }],
+      })));
+    const workerHealth = new WorkerLocalAiHealth({ fetch: fetchMock, now: () => 1_000 });
+    const probes = new LocalAiProbeService({
+      now: () => 1_000,
+      sendServiceRpc: async (_nodeId, _method, params) => workerHealth.check(params),
+    });
+    const config = targetConfig('notify-and-allow', {
+      expectedModels: [
+        { modelId: 'qwen3:14b', required: true },
+        {
+          modelId: 'optional-title-model',
+          required: false,
+          routingRoles: ['titleGeneration'],
+        },
+      ],
+      routingRoles: ['compression', 'titleGeneration'],
+    });
+    const target: LocalAiTarget = {
+      ...config,
+      id: 'optional-model-target',
+      label: 'Optional model target',
+      createdAt: 1_000,
+      updatedAt: 1_000,
+    };
+    const samples = await probes.check(target, 'lightweight');
+    const transition = new LocalAiHealthEngine().apply(target, undefined, samples, 1_000);
+
+    expect(samples.find((sample) => sample.layer === 'model')).toMatchObject({
+      required: false,
+      affectedRoles: ['titleGeneration'],
+    });
+    expect(transition.current.routableRoles).toEqual(['compression']);
   });
 
   it('keeps worker transport connected while endpoint failure opens an incident', async () => {

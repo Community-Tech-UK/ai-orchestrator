@@ -13,6 +13,7 @@ import type { CliType } from '../cli/cli-detection';
 import { normalizeReviewerCliList } from './cross-model-review-service.constants';
 import type { ProviderQuotaSnapshot } from '../../shared/types/provider-quota.types';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
+import { _resetAutomationProviderExclusionsForTesting } from '../providers/automation-provider-exclusions';
 
 /**
  * `CliAdapter` is a large union of concrete adapter classes, and
@@ -160,6 +161,7 @@ const reviewTestState = vi.hoisted(() => ({
   localMaxToolRounds: 12,
   qualityModel: '',
   quotaSnapshot: null as ProviderQuotaSnapshot | null,
+  excludedFromAutomation: [] as string[],
 }));
 
 vi.mock('../core/config/settings-manager', () => ({
@@ -177,6 +179,7 @@ vi.mock('../core/config/settings-manager', () => ({
       crossModelReviewLocalTimeout: reviewTestState.localTimeout,
       crossModelReviewLocalMaxToolRounds: reviewTestState.localMaxToolRounds,
       auxiliaryLlmQualityModel: reviewTestState.qualityModel,
+      providersExcludedFromAutomation: reviewTestState.excludedFromAutomation,
     }),
   }),
 }));
@@ -250,6 +253,8 @@ describe('CrossModelReviewService', () => {
     reviewTestState.localSelectorId = '';
     reviewTestState.qualityModel = '';
     reviewTestState.quotaSnapshot = null;
+    reviewTestState.excludedFromAutomation = [];
+    _resetAutomationProviderExclusionsForTesting();
     detectionTestState.availableClis = ['gemini', 'codex', 'copilot'];
     vi.mocked(resolveCliType).mockImplementation(async (cli) => {
       if (!cli || cli === 'auto' || cli === 'openai') return 'codex';
@@ -373,6 +378,30 @@ describe('CrossModelReviewService', () => {
     const payload = await unavailable;
 
     expect(payload.dropped.map((d) => d.cli)).toContain('antigravity');
+  });
+
+  it('keeps a provider excluded from automation out of the reviewer pool', async () => {
+    reviewTestState.excludedFromAutomation = ['copilot'];
+    detectionTestState.availableClis = ['cursor', 'copilot'];
+    reviewTestState.providers = ['cursor', 'copilot'];
+
+    const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+    await service.refreshAvailability();
+
+    expect(service.reviewerPool.getStatus().map((r) => r.cliType)).toEqual(['cursor']);
+  });
+
+  it('does not re-admit an excluded provider when the reviewer list is cleared', async () => {
+    // An empty crossModelReviewProviders means "auto-pick whatever is
+    // installed" — the exclusion has to survive that branch too.
+    reviewTestState.excludedFromAutomation = ['copilot'];
+    detectionTestState.availableClis = ['cursor', 'copilot'];
+    reviewTestState.providers = [];
+
+    const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+    await service.refreshAvailability();
+
+    expect(service.reviewerPool.getStatus().map((r) => r.cliType)).toEqual(['cursor']);
   });
 
   it('does not re-emit review:reviewer-unavailable while the dropped set is unchanged', async () => {

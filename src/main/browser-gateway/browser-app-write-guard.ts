@@ -148,6 +148,10 @@ function writeOutcomeFromError(error: unknown): 'failed' | 'maybe_applied' {
   }
   if (
     message.startsWith('browser_extension_command_timeout')
+    // A named CDP-hop timeout is still a delivered command: `attach` almost
+    // certainly did not apply, but `detach` fires after the work is done, so
+    // stay conservative and make the caller verify.
+    || message.startsWith('browser_extension_cdp_timeout')
     || message.startsWith('browser_extension_channel_down')
   ) {
     return 'maybe_applied';

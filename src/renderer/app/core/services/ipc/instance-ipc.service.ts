@@ -196,6 +196,15 @@ export class InstanceIpcService {
   }
 
   /**
+   * Wake a hibernated instance (the memory governor kills the CLI but keeps the
+   * session). Resolves once the replacement adapter is ready to take input.
+   */
+  async wakeInstance(instanceId: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.wakeInstance({ instanceId });
+  }
+
+  /**
    * Restart an instance
    */
   async restartInstance(instanceId: string): Promise<IpcResponse> {

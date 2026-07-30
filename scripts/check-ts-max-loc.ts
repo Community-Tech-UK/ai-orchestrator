@@ -96,7 +96,7 @@ const ALLOWLIST: Record<string, number> = {
   // Raised 2475 -> 2530 for the reliability hardening wiring (persistence
   // sentinel + write journal + assert_persisted/write_journal delegates; the
   // implementations live in browser-reliability-operations.ts).
-  'src/main/browser-gateway/browser-gateway-service.ts': 2530,
+  'src/main/browser-gateway/browser-gateway-service.ts': 2419,
   // Declarative MCP tool-name + JSON-schema catalog; crossed 700 with the
   // reliability tools (assert_persisted, write_journal). Catalog growth, not
   // logic growth.
@@ -123,6 +123,10 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/channels/channel-message-router.ts': 2902,
   // Main process — CLI adapters
   'src/main/cli/adapters/acp-cli-adapter.ts': 2160,
+  // Sat at 699 — one line under the cap — so the automation-provider-exclusion
+  // guard in resolveCliType could not be added without crossing it. Entered at
+  // 706 rather than dropping the guard; the file is a refactor candidate.
+  'src/main/cli/adapters/adapter-factory.ts': 706,
   'src/main/cli/adapters/base-cli-adapter.ts': 988,
   // Raised 2218 -> 2286 for resident interrupt control_request handling.
   // Raised 2286 -> 2345 for per-text-block assistant emission + rate-limit dedup.
@@ -161,11 +165,18 @@ const ALLOWLIST: Record<string, number> = {
   // Raised 3442 -> 3447 for the two LT-008 fixes in changeAgentMode: the
   // captured fork-resume source, and the listener strip before the
   // fresh-fallback terminate (each with a one-line rationale).
-  'src/main/instance/instance-lifecycle.ts': 3447,
+  // Raised 3447 -> 3522 for the hibernation-wake fixes: idempotent
+  // wakeInstance (concurrent wakers coalesce) and the listener strip before
+  // the hibernate terminate, which stopped a deliberate kill from throwing
+  // hibernating -> error out of the adapter exit handler.
+  'src/main/instance/instance-lifecycle.ts': 3522,
   // Raised 2632 -> 2655 for the sendInput post-wait liveness re-check (fail
   // fast instead of delivering input into a terminated instance).
   // Raised 2772 -> 2773 (one-line drift; re-tighten at the next manager split).
-  'src/main/instance/instance-manager.ts': 2773,
+  // Raised 2773 -> 2848 for the wake-on-send branch: a hibernated session has
+  // no adapter, so sendInput must wake it instead of falling through to the
+  // communication layer's "no adapter" bug-state path.
+  'src/main/instance/instance-manager.ts': 2848,
   // Raised 1068 -> 1105 (2026-07-17 loop-issue fixes).
   'src/main/instance/instance-orchestration.ts': 1105,
   'src/main/instance/lifecycle/interrupt-respawn-handler.ts': 1421,

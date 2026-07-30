@@ -154,6 +154,7 @@ import {
   readExistingTabNetworkRequests,
 } from './browser-existing-tab-capture';
 import { BrowserGatewayApprovalOperations } from './browser-gateway-approval-operations';
+import { BrowserGrantRequestOperations } from './browser-grant-request-operations';
 import { normalizeElementCandidates } from './browser-element-candidates';
 import {
   browserActionTargetLabel,
@@ -281,6 +282,7 @@ export class BrowserGatewayService {
   private readonly existingTabOperations: BrowserExistingTabOperations;
   private readonly targetDiscoveryOperations: BrowserTargetDiscoveryOperations;
   private readonly approvalOperations: BrowserGatewayApprovalOperations;
+  private readonly grantRequestOperations: BrowserGrantRequestOperations;
   private readonly manualHandoffOperations: BrowserManualHandoffOperations;
 
   constructor(options: BrowserGatewayServiceOptions = {}) {
@@ -347,6 +349,15 @@ export class BrowserGatewayService {
       approvalStore: this.approvalStore,
       extensionTabStore: this.extensionTabStore,
       profileStore: this.profileStore,
+      getLiveTarget: (profileId, targetId) => this.getLiveTarget(profileId, targetId),
+      autoApproveApproval: (approval) => this.autoApproveApproval(approval),
+      result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
+    });
+    this.grantRequestOperations = new BrowserGrantRequestOperations({
+      extensionTabStore: this.extensionTabStore,
+      profileStore: this.profileStore,
+      grantStore: this.grantStore,
+      approvalStore: this.approvalStore,
       getLiveTarget: (profileId, targetId) => this.getLiveTarget(profileId, targetId),
       autoApproveApproval: (approval) => this.autoApproveApproval(approval),
       result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
@@ -2206,178 +2217,7 @@ export class BrowserGatewayService {
   async requestGrant(
     request: BrowserGatewayContext & BrowserRequestGrantRequest,
   ): Promise<BrowserGatewayResult<null>> {
-    const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
-    if (existingTab) {
-      return this.requestGrantForExistingTab(request, existingTab);
-    }
-
-    const profile = this.profileStore.getProfile(request.profileId);
-    const { target, error } = profile
-      ? await this.getLiveTarget(request.profileId, request.targetId)
-      : { target: null, error: undefined };
-    const currentUrl = target?.url;
-    if (!profile || !target || !currentUrl) {
-      return this.result({
-        context: request,
-        profileId: request.profileId,
-        targetId: request.targetId,
-        action: 'request_grant',
-        toolName: 'browser.request_grant',
-        actionClass: 'unknown',
-        decision: 'denied',
-        outcome: 'not_run',
-        reason: error ?? 'profile_target_or_url_not_found',
-        summary: error
-          ? `Browser grant request denied because the live browser target could not be refreshed: ${error}`
-          : 'Browser grant request denied because the profile, target, or URL was not found',
-        data: null,
-      });
-    }
-
-    const originDecision = isOriginAllowed(currentUrl, profile.allowedOrigins);
-    if (!originDecision.allowed) {
-      return this.result({
-        context: request,
-        profileId: profile.id,
-        targetId: target.id,
-        action: 'request_grant',
-        toolName: 'browser.request_grant',
-        actionClass: 'unknown',
-        decision: 'denied',
-        outcome: 'not_run',
-        reason: originDecision.reason,
-        summary: `Browser grant request denied by origin policy: ${originDecision.reason}`,
-        origin: target.origin,
-        url: currentUrl,
-        data: null,
-      });
-    }
-
-    const actionClass = primaryActionClass(request.proposedGrant.allowedActionClasses);
-    const approval = this.approvalStore.createRequest({
-      instanceId: request.instanceId ?? 'unknown',
-      provider: providerFromContext(request.provider),
-      profileId: profile.id,
-      targetId: target.id,
-      toolName: 'browser.request_grant',
-      action: 'request_grant',
-      actionClass,
-      origin: originDecision.origin,
-      url: currentUrl,
-      proposedGrant: request.proposedGrant,
-      expiresAt: Date.now() + 30 * 60 * 1000,
-    });
-    const autoGrant = this.autoApproveApproval(approval);
-    if (autoGrant) {
-      return this.result({
-        context: request,
-        profileId: profile.id,
-        targetId: target.id,
-        action: 'request_grant',
-        toolName: 'browser.request_grant',
-        actionClass,
-        decision: 'allowed',
-        outcome: 'succeeded',
-        summary: 'Auto-approved Browser Gateway grant request',
-        origin: originDecision.origin,
-        url: currentUrl,
-        grantId: autoGrant.id,
-        autonomous: autoGrant.autonomous,
-        data: null,
-      });
-    }
-
-    return this.result({
-      context: request,
-      profileId: profile.id,
-      targetId: target.id,
-      action: 'request_grant',
-      toolName: 'browser.request_grant',
-      actionClass,
-      decision: 'requires_user',
-      outcome: 'not_run',
-      requestId: approval.requestId,
-      reason: request.reason ?? 'browser_grant_requires_user_approval',
-      summary: 'Browser grant request requires user approval',
-      origin: originDecision.origin,
-      url: currentUrl,
-      data: null,
-    });
-  }
-
-  private async requestGrantForExistingTab(
-    request: BrowserGatewayContext & BrowserRequestGrantRequest,
-    attachment: BrowserExistingTabAttachment,
-  ): Promise<BrowserGatewayResult<null>> {
-    const originDecision = isOriginAllowed(attachment.url, attachment.allowedOrigins);
-    if (!originDecision.allowed) {
-      return this.result({
-        context: request,
-        profileId: attachment.profileId,
-        targetId: attachment.targetId,
-        action: 'request_grant',
-        toolName: 'browser.request_grant',
-        actionClass: 'unknown',
-        decision: 'denied',
-        outcome: 'not_run',
-        reason: originDecision.reason,
-        summary: `Browser grant request denied by existing Chrome tab origin policy: ${originDecision.reason}`,
-        origin: originDecision.origin,
-        url: attachment.url,
-        data: null,
-      });
-    }
-
-    const actionClass = primaryActionClass(request.proposedGrant.allowedActionClasses);
-    const approval = this.approvalStore.createRequest({
-      instanceId: request.instanceId ?? 'unknown',
-      provider: providerFromContext(request.provider),
-      profileId: attachment.profileId,
-      targetId: attachment.targetId,
-      toolName: 'browser.request_grant',
-      action: 'request_grant',
-      actionClass,
-      origin: originDecision.origin,
-      url: attachment.url,
-      proposedGrant: request.proposedGrant,
-      expiresAt: Date.now() + 30 * 60 * 1000,
-    });
-    const autoGrant = this.autoApproveApproval(approval);
-    if (autoGrant) {
-      return this.result({
-        context: request,
-        profileId: attachment.profileId,
-        targetId: attachment.targetId,
-        action: 'request_grant',
-        toolName: 'browser.request_grant',
-        actionClass,
-        decision: 'allowed',
-        outcome: 'succeeded',
-        summary: 'Auto-approved Browser Gateway grant request for existing Chrome tab',
-        origin: originDecision.origin,
-        url: attachment.url,
-        grantId: autoGrant.id,
-        autonomous: autoGrant.autonomous,
-        data: null,
-      });
-    }
-
-    return this.result({
-      context: request,
-      profileId: attachment.profileId,
-      targetId: attachment.targetId,
-      action: 'request_grant',
-      toolName: 'browser.request_grant',
-      actionClass,
-      decision: 'requires_user',
-      outcome: 'not_run',
-      requestId: approval.requestId,
-      reason: request.reason ?? 'browser_grant_requires_user_approval',
-      summary: 'Browser grant request for existing Chrome tab requires user approval',
-      origin: originDecision.origin,
-      url: attachment.url,
-      data: null,
-    });
+    return this.grantRequestOperations.requestGrant(request);
   }
 
   async getApprovalStatus(

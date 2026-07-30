@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { BrowserAllowedOrigin } from '@contracts/types/browser';
-import { isOriginAllowed, normalizeOrigin } from './browser-origin-policy';
+import {
+  allowedOriginCovers,
+  allowedOriginsCover,
+  isOriginAllowed,
+  normalizeOrigin,
+} from './browser-origin-policy';
 
 describe('browser-origin-policy', () => {
   it('normalizes URLs to scheme, host, origin, and default ports', () => {
@@ -89,5 +94,48 @@ describe('browser-origin-policy', () => {
     ];
 
     expect(isOriginAllowed('https://child.example.com', allowed).allowed).toBe(true);
+  });
+  it('decides whether one allowed origin pattern covers another', () => {
+    const host: BrowserAllowedOrigin = {
+      scheme: 'https',
+      hostPattern: 'etendersni.gov.uk',
+      includeSubdomains: false,
+    };
+    const wildcard: BrowserAllowedOrigin = { ...host, includeSubdomains: true };
+
+    expect(allowedOriginCovers(wildcard, host)).toBe(true);
+    expect(allowedOriginCovers(wildcard, wildcard)).toBe(true);
+    expect(allowedOriginCovers(host, host)).toBe(true);
+    // A host-only grant cannot stand in for a subdomain-wide request.
+    expect(allowedOriginCovers(host, wildcard)).toBe(false);
+    // Subdomain-inclusive parents cover narrower children, never the reverse.
+    expect(allowedOriginCovers(wildcard, {
+      scheme: 'https',
+      hostPattern: 'epps.etendersni.gov.uk',
+      includeSubdomains: false,
+    })).toBe(true);
+    expect(allowedOriginCovers({
+      scheme: 'https',
+      hostPattern: 'epps.etendersni.gov.uk',
+      includeSubdomains: true,
+    }, host)).toBe(false);
+    // Scheme and port must match exactly.
+    expect(allowedOriginCovers({ ...wildcard, scheme: 'http' }, host)).toBe(false);
+    expect(allowedOriginCovers({ ...wildcard, port: 8443 }, host)).toBe(false);
+    expect(allowedOriginCovers({ ...wildcard, port: 443 }, host)).toBe(true);
+  });
+
+  it('requires every requested origin to be covered and rejects an empty request', () => {
+    const allowed: BrowserAllowedOrigin[] = [
+      { scheme: 'https', hostPattern: 'etendersni.gov.uk', includeSubdomains: true },
+    ];
+
+    expect(allowedOriginsCover(allowed, allowed)).toBe(true);
+    expect(allowedOriginsCover(allowed, [])).toBe(false);
+    expect(allowedOriginsCover([], allowed)).toBe(false);
+    expect(allowedOriginsCover(allowed, [
+      ...allowed,
+      { scheme: 'https', hostPattern: 'example.com', includeSubdomains: false },
+    ])).toBe(false);
   });
 });

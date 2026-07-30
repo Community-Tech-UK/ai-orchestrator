@@ -30,6 +30,10 @@ import { ErrorCategory } from '../../shared/types/error-recovery.types';
 import { createAbortController, createChildAbortController } from '../util/abort-controller-tree';
 import { observeAdapterRuntimeEvents } from '../providers/adapter-runtime-event-bridge';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
+import {
+  filterProvidersForAutomation,
+  isProviderExcludedFromAutomation,
+} from '../providers/automation-provider-exclusions';
 
 const logger = getLogger('ConsensusCoordinator');
 
@@ -410,15 +414,18 @@ export class ConsensusCoordinator extends EventEmitter {
     const availableNames = new Set(result.available.map(c => c.name));
 
     if (requested && requested.length > 0) {
-      // Filter requested providers to only those that are available
+      // Filter requested providers to only those that are available. The
+      // "requested" list comes from an orchestrator agent's consensus_query
+      // command, not from a human picking a session provider, so the automation
+      // exclusions apply to it just as they do to the default fan-out.
       return requested.filter(spec => {
         const cliType = toCliType(spec.provider);
-        return availableNames.has(cliType);
+        return availableNames.has(cliType) && !isProviderExcludedFromAutomation(cliType);
       });
     }
 
     // Default: use all available providers from the priority list
-    return DEFAULT_PROVIDER_PRIORITY
+    return filterProvidersForAutomation(DEFAULT_PROVIDER_PRIORITY, 'consensus')
       .filter(cli => availableNames.has(cli))
       .slice(0, MAX_CONCURRENT_QUERIES)
       .map(cli => ({ provider: cli as ConsensusProviderSpec['provider'] }));

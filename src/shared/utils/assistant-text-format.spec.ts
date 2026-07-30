@@ -28,6 +28,38 @@ describe('formatAssistantTextForDisplay', () => {
       'types: Now add',
     );
   });
+
+  it('leaves an ordered-list item that opens with a narration word alone', () => {
+    // Regression: Codex emitted `5. Once Worker → … click **Enrol target**.`
+    // and the narration rule rewrote the marker to `5.\n\nOnce …`. That closed
+    // the list at an empty item 5 and left `6.` rendering as literal text.
+    const input = [
+      '4. Click **Validate endpoint**.',
+      '5. Once Worker → Endpoint → Model → Canary all pass, click **Enrol target**.',
+      '6. The status should move through checking to healthy.',
+    ].join('\n');
+
+    expect(formatAssistantTextForDisplay(input)).toBe(input);
+  });
+
+  it('leaves indented and multi-digit ordered-list markers alone', () => {
+    const input = ['  3. Next, restart the worker.', '  12. Then confirm it is healthy.'].join('\n');
+
+    expect(formatAssistantTextForDisplay(input)).toBe(input);
+  });
+
+  it('never inserts a paragraph break across a newline', () => {
+    // A lazy continuation line must stay inside its list item.
+    const input = ['1. Enrol the target.', '   Once that lands, restart the worker.'].join('\n');
+
+    expect(formatAssistantTextForDisplay(input)).toBe(input);
+  });
+
+  it('still breaks a mid-line sentence end that is not a list marker', () => {
+    expect(formatAssistantTextForDisplay('Ran step 5. Once that lands, restart.')).toBe(
+      'Ran step 5.\n\nOnce that lands, restart.',
+    );
+  });
 });
 
 describe('splitNarrationFromResponse', () => {
@@ -123,5 +155,25 @@ describe('extractThinkingContent narration extraction', () => {
     expect(result.hasThinking).toBe(false);
     expect(result.response).toContain('That changes the interpretation materially.');
     expect(result.response).toContain('It also means I should narrow');
+  });
+
+  it('preserves an ordered list through the Codex final-message path', () => {
+    // codex-app-server-turn-adapter emits `extracted.response` as the persisted
+    // message content, and extractThinkingContent formats unconditionally —
+    // so a narration rewrite here reaches conversation history, not just the UI.
+    const input = [
+      'What to do:',
+      '',
+      '1. Click **Configure windows-pc · ollama**.',
+      '2. Choose the model(s) and canary model.',
+      '3. Select at least one routing role.',
+      '4. Click **Validate endpoint**.',
+      '5. Once Worker → Endpoint → Model → Canary all pass, click **Enrol target**.',
+      '6. The status should move through checking to healthy.',
+    ].join('\n');
+
+    const result = extractThinkingContent(input, { headerStyle: false });
+    expect(result.hasThinking).toBe(false);
+    expect(result.response).toBe(input);
   });
 });

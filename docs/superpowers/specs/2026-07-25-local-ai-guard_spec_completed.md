@@ -1,10 +1,10 @@
 # Local AI Guard Specification
 
-**Status:** Approved; implementation planned  
+**Status:** Implemented and independently verified; deferred live checks recorded  
 **Date:** 2026-07-25  
 **Scope:** Coordinator-local and worker-node local AI health, routing safety, cost visibility, incident management, and recovery
 
-**Implementation plan:** [2026-07-26-local-ai-guard_plan.md](../plans/2026-07-26-local-ai-guard_plan.md)
+**Implementation plan:** [2026-07-26-local-ai-guard_plan_completed.md](../plans/2026-07-26-local-ai-guard_plan_completed.md)
 
 ## 1. Summary
 
@@ -532,3 +532,16 @@ Real UI/runtime checks that require a rebuilt application or live worker are rec
 11. Recovery actions are bounded, audited, and restricted to supported operations.
 12. No secret, prompt, or model-response content is stored as health evidence.
 13. Tests and canonical project gates pass, followed by the required independent completion-gate review during implementation.
+
+## 21. As-Built Status
+
+The specification is implemented as of 2026-07-30. All agent-runnable acceptance
+criteria passed focused, integration, canonical, and cold repository-wide tests. The
+independent Round 4 completion gate returned `VERDICT: PASS` with no findings after
+reproducing the prior context-capacity, post-canary, role-scope, malformed-metadata,
+duplicate-order, and routing-quarantine failure classes through production code.
+
+Six rebuilt-application, real-endpoint/provider, restart, or external-worker checks
+remain explicitly deferred in the
+[Local AI Guard live-test plan](../plans/2026-07-26-local-ai-guard_plan_livetest.md).
+They do not replace or defer any agent-runnable defect or automated acceptance check.

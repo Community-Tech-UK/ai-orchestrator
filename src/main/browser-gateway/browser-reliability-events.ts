@@ -24,7 +24,13 @@ export type BrowserReliabilityEventKind =
   | 'write_rejected_session_stale'
   | 'attachment_suspended'
   | 'attachment_restored'
-  | 'attachment_rebound';
+  | 'attachment_rebound'
+  /**
+   * An extension command was delivered but never answered inside its window.
+   * Recorded because a timeout used to leave no trace anywhere except the audit
+   * table, so diagnosing one meant querying rlm.db by hand.
+   */
+  | 'command_timeout';
 
 export interface BrowserReliabilityEvent {
   at: number;
@@ -68,7 +74,11 @@ export class BrowserReliabilityEvents {
       ...(event.instanceId ? { instanceId: event.instanceId } : {}),
       ...(event.detail ?? {}),
     };
-    if (kind.startsWith('write_rejected') || kind === 'contract_mismatch') {
+    if (
+      kind.startsWith('write_rejected')
+      || kind === 'contract_mismatch'
+      || kind === 'command_timeout'
+    ) {
       logger.warn(`Browser reliability event: ${kind}`, logContext);
     } else {
       logger.info(`Browser reliability event: ${kind}`, logContext);

@@ -22,6 +22,7 @@ import {
   assertSwapTargetCliAvailable,
   mapReasoningEffortForProvider,
   resolveSwapModel,
+  resolveSwapModelWithSource,
 } from './model-change-provider-swap';
 import type { Instance } from '../../../shared/types/instance.types';
 
@@ -81,6 +82,59 @@ describe('resolveSwapModel', () => {
 
   it('returns undefined (provider default) when no source supplies a model', () => {
     expect(resolveSwapModel('gemini', undefined, { defaultModelByProvider: {}, defaultModel: '' })).toBeUndefined();
+  });
+});
+
+// LT-016: an unpinned swap told the user their model was "no longer available"
+// when the id came from the provider-agnostic global default they never chose
+// for that provider. The notice is suppressed by provenance, so provenance has
+// to be reported accurately.
+describe('resolveSwapModelWithSource (LT-016 provenance)', () => {
+  const settings = {
+    defaultModelByProvider: { codex: 'gpt-5.5' },
+    defaultModel: 'opus[1m]',
+  };
+
+  it('reports an explicitly requested model as "requested"', () => {
+    expect(resolveSwapModelWithSource('codex', 'gpt-5.3-codex', settings)).toEqual({
+      model: 'gpt-5.3-codex',
+      source: 'requested',
+    });
+  });
+
+  it('reports a remembered per-provider default as "remembered"', () => {
+    expect(resolveSwapModelWithSource('codex', undefined, settings)).toEqual({
+      model: 'gpt-5.5',
+      source: 'remembered',
+    });
+    expect(resolveSwapModelWithSource('codex', '   ', settings)).toEqual({
+      model: 'gpt-5.5',
+      source: 'remembered',
+    });
+  });
+
+  it('reports the global fallback as "global-default" — the case that must stay silent', () => {
+    // `gemini` has nothing remembered, so this falls through to the global
+    // default, which is a Claude model id. Its later rejection by the target
+    // provider is not a degraded user selection.
+    expect(resolveSwapModelWithSource('gemini', undefined, settings)).toEqual({
+      model: 'opus[1m]',
+      source: 'global-default',
+    });
+  });
+
+  it('reports "provider-default" when no rung supplies a model', () => {
+    expect(
+      resolveSwapModelWithSource('gemini', undefined, { defaultModelByProvider: {}, defaultModel: '' }),
+    ).toEqual({ model: undefined, source: 'provider-default' });
+  });
+
+  it('keeps resolveSwapModel behaviour identical to before', () => {
+    for (const requested of [undefined, '  ', 'gpt-5.3-codex']) {
+      expect(resolveSwapModel('codex', requested, settings)).toBe(
+        resolveSwapModelWithSource('codex', requested, settings).model,
+      );
+    }
   });
 });
 

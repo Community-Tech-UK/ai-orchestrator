@@ -76,7 +76,12 @@ export class LocalAiProbeService {
         target.location.nodeId,
         COORDINATOR_TO_NODE.LOCAL_AI_HEALTH_DIAGNOSE,
         params,
-        healthRpcBudget(target.provider, 'functional', params.timeoutMs),
+        healthRpcBudget(
+          target.provider,
+          'functional',
+          params.timeoutMs,
+          target.expectedModels.some((model) => model.minContextLength !== undefined),
+        ),
       );
       const report = parseBoundedServiceRpcResponse(
         LocalAiHealthDiagnoseResultSchema,
@@ -219,7 +224,12 @@ export class LocalAiProbeService {
         nodeId,
         COORDINATOR_TO_NODE.LOCAL_AI_HEALTH_CHECK,
         params,
-        healthRpcBudget(target.provider, kind, params.timeoutMs),
+        healthRpcBudget(
+          target.provider,
+          kind,
+          params.timeoutMs,
+          target.expectedModels.some((model) => model.minContextLength !== undefined),
+        ),
       );
       const samples = parseBoundedServiceRpcResponse(LocalAiHealthCheckResultSchema, raw);
       return [
@@ -267,7 +277,9 @@ export class LocalAiProbeService {
     return samples.map((sample) => ({
       ...sample,
       targetId: target.id,
-      affectedRoles: [...target.routingRoles],
+      affectedRoles: sample.layer === 'model' && !sample.ok && !sample.required
+        ? sample.affectedRoles.filter((role) => target.routingRoles.includes(role))
+        : [...target.routingRoles],
     }));
   }
 
@@ -379,9 +391,12 @@ function healthRpcBudget(
   provider: LocalAiTarget['provider'],
   kind: 'lightweight' | 'functional',
   perRequestTimeoutMs: number,
+  checksContextCapacity: boolean,
 ): number {
   const metadataRequests = provider === 'ollama' ? 2 : 1;
-  const requestCount = metadataRequests + (kind === 'functional' ? 1 : 0);
+  const requestCount = metadataRequests
+    + (checksContextCapacity ? 1 : 0)
+    + (kind === 'functional' ? 1 : 0);
   return requestCount * perRequestTimeoutMs + LOCAL_AI_HEALTH_RPC_TRANSPORT_MARGIN_MS;
 }
 
@@ -394,7 +409,8 @@ function recommendedActionsFor(
   samples: LocalAiProbeResult[],
 ): LocalAiRepairAction[] {
   const actions: LocalAiRepairAction[] = ['deep-check'];
-  if (samples.some((sample) => sample.failureCode === 'missing-required-model')) {
+  if (samples.some((sample) =>
+    ['missing-required-model', 'insufficient-context'].includes(sample.failureCode ?? ''))) {
     actions.push('validate-models');
   }
   if (samples.some((sample) => sample.failureCode === 'worker-offline')) {

@@ -83,6 +83,25 @@
               />
               <span>{{ model.modelId }} is required</span>
             </label>
+            @if (!model.required) {
+              <fieldset>
+                <legend>{{ model.modelId }} routing roles</legend>
+                <p class="field-help">Only these roles are paused if this optional model fails.</p>
+                <div class="choice-grid">
+                  @for (role of form().routingRoles; track role) {
+                    <label class="choice">
+                      <input
+                        type="checkbox"
+                        [attr.aria-label]="model.modelId + ' uses ' + roleLabel(role)"
+                        [checked]="modelRoleChecked(model.modelId, role)"
+                        (change)="updateModelRole(model.modelId, role, $event)"
+                      />
+                      <span>{{ roleLabel(role) }}</span>
+                    </label>
+                  }
+                </div>
+              </fieldset>
+            }
             <label>
               <span>{{ model.modelId }} minimum context length</span>
               <input

@@ -1637,6 +1637,31 @@ export class InstanceManager extends EventEmitter {
     let hookError: string | undefined;
     try {
 
+    // A hibernated session has no adapter: the memory governor killed the CLI
+    // to free heap and left the transcript in place, telling the user to send a
+    // message to wake it. Honour that here — otherwise the send falls through
+    // to the communication layer's "no adapter" bug-state branch, which cannot
+    // even mark the instance failed (hibernated -> error is an illegal
+    // transition) and leaves the renderer's message queued against a session
+    // that will never become idle. Discord/doc-review deliveries already wake
+    // first; this is the same contract for the app's own send path.
+    if (instance.status === 'hibernated' || instance.status === 'waking') {
+      logger.info('Send targets a hibernated session — waking before delivery', {
+        instanceId,
+        status: instance.status,
+      });
+      await this.awaitWithBudget(
+        this.lifecycle.wakeInstance(instanceId),
+        this.computeInitWaitBudgetMs(instance),
+        'Instance wake timed out',
+      );
+      // Cast via string to bypass TS narrowing (status was mutated by the wake).
+      const postWakeStatus = instance.status as string;
+      if (postWakeStatus === 'failed' || postWakeStatus === 'error') {
+        throw new Error(`Instance ${instanceId} failed to wake from hibernation`);
+      }
+    }
+
     // Wait for a background init to finish before delivering input. The budget
     // scales with host load and transcript-replay size (see init-wait-budget).
     // On timeout we do NOT abort: a large-context replay may still be

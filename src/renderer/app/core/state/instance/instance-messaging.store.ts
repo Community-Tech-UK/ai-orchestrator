@@ -241,6 +241,16 @@ export class InstanceMessagingStore {
       return;
     }
 
+    // A hibernated session has no CLI process; the memory governor killed it and
+    // told the user to send a message to wake it. Queue the text and ask main to
+    // wake, then let the normal drain-on-ready deliver it. Sending straight
+    // through instead would hold the IPC call for the whole wake (spawn +
+    // transcript replay) and can outlive the renderer's send guard.
+    if (instance.status === 'hibernated') {
+      await this.queueMessageAndWakeHibernatedInstance(targetInstanceId, { message, files });
+      return;
+    }
+
     // If instance is busy, respawning, degraded, or in a transitional state, queue the message instead of sending immediately.
     // 'degraded' means the remote node is temporarily disconnected — queue so the
     // message can be delivered if/when the node reconnects and the instance is restored.
@@ -287,6 +297,13 @@ export class InstanceMessagingStore {
         targetInstanceId,
         `Cannot steer message — instance is ${instance.status}. Try restarting the instance.`
       );
+      return;
+    }
+
+    // Nothing to steer while hibernated — there is no turn and no process.
+    // Same contract as sendInput: queue the text and wake the session.
+    if (instance.status === 'hibernated') {
+      await this.queueMessageAndWakeHibernatedInstance(targetInstanceId, { message, files, kind: 'steer' });
       return;
     }
 
@@ -660,6 +677,37 @@ export class InstanceMessagingStore {
       || status === 'failed'
       || status === 'error'
       || status === 'cancelled';
+  }
+
+  /**
+   * Queue a message against a hibernated session and ask main to wake it.
+   *
+   * The queue only drains on idle/ready/waiting_for_input, and nothing else
+   * moves a hibernated instance out of that state, so the wake request is what
+   * makes the queued message deliverable rather than permanently parked.
+   */
+  private async queueMessageAndWakeHibernatedInstance(
+    instanceId: string,
+    queuedMessage: QueuedMessage,
+  ): Promise<void> {
+    if (queuedMessage.kind === 'steer') {
+      this.enqueueSteerMessage(instanceId, queuedMessage);
+    } else {
+      this.enqueueMessage(instanceId, queuedMessage);
+    }
+
+    const result = await this.ipc.wakeInstance(instanceId);
+    if (!result.success) {
+      console.error('InstanceMessagingStore: wake failed for hibernated instance', {
+        instanceId,
+        error: result.error,
+      });
+      this.clearQueueWithNotification(instanceId);
+      this.addErrorToOutput(
+        instanceId,
+        `Failed to wake this session:\n${result.error?.message || 'Unknown error'}`
+      );
+    }
   }
 
   private async queueMessageAndRestartTerminalInstance(

@@ -433,6 +433,21 @@ export interface AppSettings extends DesktopComputerUseSettings {
   crossModelReviewLocalSelectorId: string;
   crossModelReviewLocalTimeout: number;
   crossModelReviewLocalMaxToolRounds: number;
+  /**
+   * Providers barred from AUTOMATIC selection, by CLI id ('copilot', 'codex', …).
+   *
+   * A provider listed here is skipped by every path that picks a provider on the
+   * user's behalf — cross-model and ping-pong review, consensus fan-out,
+   * verification panels, scaffolding/workflow routing, magic prompts, and the
+   * generic `auto` spawn fallback. It stays fully available when the user
+   * explicitly chooses it for a session, or sets it as `defaultCli`.
+   *
+   * Exists for seats whose licence is scoped to a specific context — e.g. a
+   * work Copilot subscription usable only on that employer's repositories,
+   * where an automatic cross-review call would be a licence breach. Empty
+   * (the default) means no restriction.
+   */
+  providersExcludedFromAutomation: string[];
 
   // Conversational ping-pong review (bigchange_pingpong_review)
   /**

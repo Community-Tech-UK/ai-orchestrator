@@ -1410,4 +1410,82 @@ describe('AcpCliAdapter', () => {
 
     proc.exit();
   });
+
+  // LT-018: ACP reports real per-turn token counts, but they were only ever
+  // attached to the response object. Nothing emitted a `context` event, so a
+  // Copilot instance showed 0 % for its whole life and auto-compaction — which
+  // keys off that number — could never fire.
+  describe('LT-018 — context usage reaches the context bar', () => {
+    function harnessRespondingWithUsage(usage: unknown) {
+      const proc = createInitializedAgentHarness();
+      proc.onRequest('session/prompt', (message) => {
+        proc.respond(message.id, { stopReason: 'end_turn', usage });
+      });
+      return proc;
+    }
+
+    it('emits a context event with the session aggregate, accumulating across turns', async () => {
+      const proc = harnessRespondingWithUsage({
+        inputTokens: 900,
+        outputTokens: 100,
+        totalTokens: 1000,
+      });
+      const adapter = new TestAcpCliAdapter(proc, {
+        command: process.execPath,
+        workingDirectory: '/tmp',
+      });
+      await adapter.spawn();
+
+      const contextEvents: Record<string, number>[] = [];
+      adapter.on('context', (usage: Record<string, number>) => contextEvents.push(usage));
+
+      await adapter.sendMessage({ role: 'user', content: 'one' });
+      await adapter.sendMessage({ role: 'user', content: 'two' });
+
+      expect(contextEvents).toHaveLength(2);
+      // Aggregate, not per-turn: the second event must include the first turn.
+      expect(contextEvents[0]).toMatchObject({ used: 1000, cumulativeTokens: 1000 });
+      expect(contextEvents[1]).toMatchObject({ used: 2000, cumulativeTokens: 2000 });
+      // A real, non-zero percentage against the declared window.
+      expect(contextEvents[1]['total']).toBeGreaterThan(0);
+      expect(contextEvents[1]['percentage']).toBeGreaterThan(0);
+
+      proc.exit();
+    });
+
+    it('falls back to input+output when totalTokens is absent', async () => {
+      const proc = harnessRespondingWithUsage({ inputTokens: 40, outputTokens: 60 });
+      const adapter = new TestAcpCliAdapter(proc, {
+        command: process.execPath,
+        workingDirectory: '/tmp',
+      });
+      await adapter.spawn();
+
+      const contextEvents: Record<string, number>[] = [];
+      adapter.on('context', (usage: Record<string, number>) => contextEvents.push(usage));
+      await adapter.sendMessage({ role: 'user', content: 'hi' });
+
+      expect(contextEvents).toHaveLength(1);
+      expect(contextEvents[0]).toMatchObject({ used: 100, cumulativeTokens: 100 });
+
+      proc.exit();
+    });
+
+    it('emits nothing when the provider reports no usage — an absent bar beats a fake 0 %', async () => {
+      const proc = harnessRespondingWithUsage(undefined);
+      const adapter = new TestAcpCliAdapter(proc, {
+        command: process.execPath,
+        workingDirectory: '/tmp',
+      });
+      await adapter.spawn();
+
+      const contextEvents: unknown[] = [];
+      adapter.on('context', (usage: unknown) => contextEvents.push(usage));
+      await adapter.sendMessage({ role: 'user', content: 'hi' });
+
+      expect(contextEvents).toEqual([]);
+
+      proc.exit();
+    });
+  });
 });

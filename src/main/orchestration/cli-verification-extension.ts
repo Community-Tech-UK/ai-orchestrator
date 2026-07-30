@@ -24,6 +24,7 @@ import {
 } from './response-analysis';
 import { CliDetectionService, CliInfo, CliType } from '../cli/cli-detection';
 import { getProviderInstanceManager } from '../providers/provider-instance-manager';
+import { isProviderExcludedFromAutomation } from '../providers/automation-provider-exclusions';
 import type { ProviderAdapter } from '@sdk/provider-adapter';
 import { selectPersonalities, PERSONALITY_PROMPTS } from './personalities';
 import { generateId } from '../../shared/utils/id-generator';
@@ -212,17 +213,27 @@ export class CliVerificationCoordinator extends EventEmitter {
    */
   private async selectAgents(
     config: CliVerificationConfig,
-    availableClis: CliInfo[]
+    allAvailableClis: CliInfo[]
   ): Promise<AgentConfig[]> {
     const agents: AgentConfig[] = [];
     const targetAgentCount = Math.max(config.agentCount ?? 1, 1);
     const personalities = selectPersonalities(targetAgentCount);
     let personalityIndex = 0;
 
+    // A verification panel is always assembled by the app, never by a user
+    // picking a session provider, so operator-excluded providers are dropped up
+    // front. The requested-CLI branch is checked by name rather than against
+    // this list, because a requested CLI that is not installed still reaches
+    // the API-fallback path below and must be excluded there too.
+    const availableClis = allAvailableClis.filter(
+      (cli) => !isProviderExcludedFromAutomation(cli.name),
+    );
+
     // If specific CLIs requested
     if (config.cliAgents && config.cliAgents.length > 0) {
       for (const cliName of config.cliAgents) {
         if (agents.length >= targetAgentCount) break;
+        if (isProviderExcludedFromAutomation(cliName)) continue;
         const cli = availableClis.find(c => c.name === cliName);
 
         if (cli?.installed) {

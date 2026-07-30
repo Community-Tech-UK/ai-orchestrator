@@ -154,6 +154,31 @@ describe('LocalAiTargetConfigSchema', () => {
     }).expectedModels).toEqual(expectedModels);
   });
 
+  it('accepts optional-model role ownership only within the target routing roles', () => {
+    const scoped = {
+      ...validTargetConfig,
+      routingRoles: ['compression', 'titleGeneration'],
+      expectedModels: [
+        validTargetConfig.expectedModels[0],
+        {
+          modelId: 'qwen3:8b',
+          required: false,
+          routingRoles: ['titleGeneration'],
+        },
+      ],
+    };
+
+    expect(LocalAiTargetConfigSchema.parse(scoped).expectedModels[1])
+      .toMatchObject({ routingRoles: ['titleGeneration'] });
+    expect(LocalAiTargetConfigSchema.safeParse({
+      ...scoped,
+      expectedModels: [
+        scoped.expectedModels[0],
+        { ...scoped.expectedModels[1], routingRoles: ['webExtract'] },
+      ],
+    }).success).toBe(false);
+  });
+
   it('rejects an enrolled target without any routing capability', () => {
     expect(() => LocalAiTargetConfigSchema.parse({
       ...validTargetConfig,

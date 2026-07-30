@@ -51,6 +51,21 @@ export function isInstanceSettledStatus(status: InstanceStatus): boolean {
   return INSTANCE_SETTLED_STATUSES.has(status);
 }
 
+/**
+ * Statuses that already own a live adapter, so a wake request is a no-op.
+ * Terminal and recovery statuses are deliberately excluded: those callers need
+ * the error rather than a silent success.
+ */
+export const ALREADY_AWAKE_STATUSES = new Set<InstanceStatus>([
+  'ready',
+  'idle',
+  'waiting_for_input',
+  'busy',
+  'processing',
+  'thinking_deeply',
+  'waiting_for_permission',
+]);
+
 function isOutputOptionalSettledStatus(status: InstanceStatus): boolean {
   return status === 'error' || status === 'failed' || status === 'terminated';
 }

@@ -52,6 +52,7 @@ import { getCheckpointManager } from '../session/checkpoint-manager';
 import type { DetectedFailure } from '../../shared/types/error-recovery.types';
 import { SessionDiffTracker } from './session-diff-tracker';
 import {
+  ALREADY_AWAKE_STATUSES,
   IllegalTransitionError,
   InstanceStateMachine,
 } from './instance-state-machine';
@@ -895,6 +896,27 @@ export class InstanceLifecycleManager extends EventEmitter {
 
   private emitModelSelectionDegradation(instance: Instance, degradation: ModelSelectionDegradation): void {
     const notice = createModelSelectionDegradationNotice(degradation);
+    this.deps.addToOutputBuffer(instance, notice);
+    this.emit('output', { instanceId: instance.id, message: notice });
+  }
+
+  /**
+   * Record a `system` notice in the transcript and push it to the renderer.
+   * The runtime reconciler uses this so provider/model/YOLO change notices are
+   * visible to the user, not only delivered to the CLI (LT-015).
+   */
+  private emitSystemNotice(
+    instance: Instance,
+    content: string,
+    metadata?: Record<string, unknown>,
+  ): void {
+    const notice: OutputMessage = {
+      id: generateId(),
+      timestamp: Date.now(),
+      type: 'system',
+      content,
+      ...(metadata ? { metadata } : {}),
+    };
     this.deps.addToOutputBuffer(instance, notice);
     this.emit('output', { instanceId: instance.id, message: notice });
   }
@@ -2073,8 +2095,13 @@ export class InstanceLifecycleManager extends EventEmitter {
       this.terminator.mineTranscript(instanceId, instance, 'hibernate');
 
       // Kill the adapter process without removing the instance from the store.
+      // Detach listeners BEFORE terminating so the exit handler doesn't treat
+      // this deliberate kill as a crash: it would try `hibernating -> error`,
+      // which the state machine rejects, and the IllegalTransitionError would
+      // escape a synchronous EventEmitter callback as an uncaught exception.
       const adapter = this.deps.getAdapter(instanceId);
       if (adapter) {
+        adapter.removeAllListeners();
         await adapter.terminate(true);
         this.deps.deleteAdapter(instanceId);
       }
@@ -2109,6 +2136,11 @@ export class InstanceLifecycleManager extends EventEmitter {
 
   /**
    * Wake a hibernated instance: restore session state and spawn a new adapter.
+   *
+   * Idempotent for concurrent wakers (a user send, a Discord reply and a
+   * doc-review delivery can all land on the same hibernated session): a wake
+   * already in flight is awaited rather than started twice, and an instance
+   * that is already awake is a no-op.
    */
   async wakeInstance(instanceId: string): Promise<void> {
     const instance = this.deps.getInstance(instanceId);
@@ -2116,7 +2148,21 @@ export class InstanceLifecycleManager extends EventEmitter {
       throw new Error(`Instance ${instanceId} not found`);
     }
 
+    if (instance.status === 'waking') {
+      // wakeInstance() assigns readyPromise in the same synchronous block that
+      // sets 'waking', so an observer of 'waking' always sees the promise.
+      await instance.readyPromise;
+      return;
+    }
+
     if (instance.status !== 'hibernated') {
+      if (ALREADY_AWAKE_STATUSES.has(instance.status)) {
+        logger.info('wakeInstance called on an already-awake instance — nothing to do', {
+          instanceId,
+          status: instance.status,
+        });
+        return;
+      }
       throw new Error(
         `Cannot wake instance ${instanceId}: status is '${instance.status}', expected 'hibernated'`
       );
@@ -3297,6 +3343,8 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       buildFallbackHistory: (instance, reason) => this.buildFallbackHistory(instance, reason),
       emitModelSelectionDegradation: (instance, degradation) =>
         this.emitModelSelectionDegradation(instance, degradation),
+      emitSystemNotice: (instance, content, metadata) =>
+        this.emitSystemNotice(instance, content, metadata),
       emitRuntimeChanged: (payload) => this.emit('model-changed', payload),
       emitYoloToggled: (payload) => this.emit('yolo-toggled', payload),
       getSettings: () => this.settings.getAll(),

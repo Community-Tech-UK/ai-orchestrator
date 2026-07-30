@@ -18,6 +18,10 @@ import { isProviderNotice } from '../cli/provider-notice';
 import { resolveModelForTier } from '../../shared/types/provider.types';
 import { getLogger } from '../logging/logger';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
+import {
+  filterProvidersForAutomation,
+  isProviderExcludedFromAutomation,
+} from '../providers/automation-provider-exclusions';
 import { extractJson } from '../orchestration/cross-model-review-service.helpers';
 import {
   getMagicPrompt,
@@ -73,8 +77,11 @@ function hasSendMessage(adapter: CliAdapter): adapter is SendMessageAdapter {
 }
 
 async function defaultResolveProvider(preferred?: string): Promise<CliType | null> {
-  // Honor an explicit preference first.
-  if (preferred) {
+  // Honor an explicit preference first — unless the operator barred that
+  // provider from automatic use. A magic prompt is a background one-shot, never
+  // a session the user opened, so even a caller-supplied provider is an
+  // automatic choice here and the exclusion applies.
+  if (preferred && !isProviderExcludedFromAutomation(preferred)) {
     try {
       const info = await isCliAvailable(preferred as CliType);
       if (info.installed) return await resolveCliType(preferred as CliType);
@@ -82,7 +89,7 @@ async function defaultResolveProvider(preferred?: string): Promise<CliType | nul
       // fall through to preference order
     }
   }
-  for (const candidate of FAST_PROVIDER_PREFERENCE) {
+  for (const candidate of filterProvidersForAutomation(FAST_PROVIDER_PREFERENCE, 'magicPrompt')) {
     try {
       const info = await isCliAvailable(candidate);
       if (info.installed) return await resolveCliType(candidate);

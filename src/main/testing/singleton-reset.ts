@@ -166,6 +166,7 @@ import { _resetMagicPromptServiceForTesting } from '../magic-prompts/magic-promp
 import { OrchestratorPluginManager } from '../plugins/plugin-manager';
 import { RLMDatabase } from '../persistence/rlm-database';
 import { FailoverManager } from '../providers/failover-manager';
+import { _resetAutomationProviderExclusionsForTesting } from '../providers/automation-provider-exclusions';
 import { HotModelSwitcher } from '../routing/hot-model-switcher';
 import { CheckpointManager } from '../session/checkpoint-manager';
 import { BackgroundTaskManager } from '../tasks/background-task-manager';
@@ -280,6 +281,7 @@ export async function resetAllSingletonsForTesting(): Promise<void> {
   OrchestratorPluginManager._resetForTesting();
   RLMDatabase._resetForTesting();
   FailoverManager._resetForTesting();
+  _resetAutomationProviderExclusionsForTesting();
   HotModelSwitcher._resetForTesting();
   CheckpointManager._resetForTesting();
   BackgroundTaskManager._resetForTesting();

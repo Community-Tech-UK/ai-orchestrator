@@ -35,6 +35,7 @@ import { defaultHardenedWritableRoots } from '../../sandbox/seatbelt';
 import { getInstanceExtraWritableRoots, isInstanceHardened } from '../../instance/lifecycle/hardened-mode-scoping';
 import { getPermissionRegistry } from '../../orchestration/permission-registry';
 import { getProviderConcurrencyLimiter } from '../provider-concurrency-limiter';
+import { filterProvidersForAutomation } from '../../providers/automation-provider-exclusions';
 import {
   buildBrowserGatewayAcpMcpServers,
   buildBrowserGatewayCodexConfigToml,
@@ -147,8 +148,13 @@ export async function resolveCliType(
     }
   }
 
-  // Fall back to first available CLI.
-  const priority: CliType[] = ['claude', 'codex', 'antigravity', 'copilot', 'cursor', 'grok', 'ollama'];
+  // Fall back to first available CLI. Providers the operator barred from
+  // automatic selection are dropped here only — an explicitly requested CLI or
+  // an explicit `defaultCli` (both handled above) is a human choice and stands.
+  const priority = filterProvidersForAutomation<CliType>(
+    ['claude', 'codex', 'antigravity', 'copilot', 'cursor', 'grok', 'ollama'],
+    'resolveCliType',
+  );
   logger.debug('Falling back to auto-detect', { priority });
 
   for (const cli of priority) {

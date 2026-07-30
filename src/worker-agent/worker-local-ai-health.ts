@@ -1,10 +1,5 @@
-import {
-  execFile as execFileCallback,
-  spawn as spawnProcess,
-} from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import path from 'node:path';
 import type {
   LocalAiDiagnosticReport,
   LocalAiFailureCode,
@@ -19,6 +14,21 @@ import {
   validateRpcParams,
 } from '../main/remote-node/rpc-schemas';
 import { LMSTUDIO_LOCAL_BASE_URL, OLLAMA_LOCAL_BASE_URL } from './local-model-config';
+import {
+  affectedRolesForExpectedModels,
+  evaluateLocalAiModelCapacity,
+  parseLocalAiModelCapacity,
+  type LocalAiModelCapacityMetadata,
+} from './worker-local-ai-model-capacity';
+import {
+  executeFile,
+  isProcessNotFoundError,
+  launchDetached,
+  resolveOllamaRestart,
+  type ExecFilePort,
+  type LaunchDetachedPort,
+  type SupportedLocalAiPlatform,
+} from './worker-local-ai-repair';
 
 export const EXACT_TOKEN_CANARY = 'AIO_HEALTH_OK';
 export const EXACT_TOKEN_CANARY_PROMPT =
@@ -26,21 +36,9 @@ export const EXACT_TOKEN_CANARY_PROMPT =
 const MAX_HTTP_RESPONSE_BYTES = 64 * 1024;
 const MAX_ADVERTISED_MODELS = 512;
 const MAX_EVIDENCE_MODELS = 20;
-const REPAIR_COMMAND_TIMEOUT_MS = 30_000;
-const DETACHED_LAUNCH_TIMEOUT_MS = 5_000;
 
 type LocalAiHealthCheckParams = ReturnType<typeof LocalAiHealthCheckParamsSchema.parse>;
-type SupportedPlatform = 'darwin' | 'win32' | 'linux';
 type FetchPort = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
-type ExecFilePort = (executable: string, args: readonly string[]) => Promise<void>;
-type LaunchDetachedPort = (executable: string, args: readonly string[]) => Promise<void>;
-
-interface RepairCommand {
-  executable: string;
-  args: readonly string[];
-  allowProcessNotFound?: boolean;
-  detached?: boolean;
-}
 
 interface WorkerLocalAiHealthDeps {
   fetch?: FetchPort;
@@ -49,7 +47,7 @@ interface WorkerLocalAiHealthDeps {
     provider: LocalAiHealthCheckParams['provider'],
     endpointId: string,
   ) => string | null;
-  platform?: SupportedPlatform;
+  platform?: SupportedLocalAiPlatform;
   pathExists?: (candidate: string) => boolean;
   execFile?: ExecFilePort;
   launchDetached?: LaunchDetachedPort;
@@ -71,7 +69,7 @@ export class WorkerLocalAiHealth {
   private readonly fetchPort: FetchPort;
   private readonly now: () => number;
   private readonly endpointResolver: NonNullable<WorkerLocalAiHealthDeps['endpointResolver']>;
-  private readonly platform: SupportedPlatform;
+  private readonly platform: SupportedLocalAiPlatform;
   private readonly pathExists: (candidate: string) => boolean;
   private readonly execFile: ExecFilePort;
   private readonly launchDetached: LaunchDetachedPort;
@@ -142,37 +140,72 @@ export class WorkerLocalAiHealth {
         .filter((expected) => !advertisedSet.has(expected.modelId));
       const missingIds = missing.map((expected) => expected.modelId);
       const canaryMissing = !advertisedSet.has(params.canary.model);
+      const canary = params.kind === 'functional' && !canaryMissing
+        ? await this.runCanary(params, baseUrl, checkedAt)
+        : undefined;
+      const capacity = params.expectedModels.some((expected) =>
+        expected.minContextLength !== undefined)
+        ? await this.readModelCapacity(
+            params.provider,
+            baseUrl,
+            params.timeoutMs,
+            new Set(params.expectedModels
+              .filter((expected) => expected.minContextLength !== undefined)
+              .map((expected) => expected.modelId)),
+          )
+        : { loadedModels: [], contextLengths: new Map<string, number>() };
+      const context = evaluateLocalAiModelCapacity(
+        params.expectedModels,
+        capacity,
+        params.canary.model,
+      );
+      const insufficientIds = context.insufficientModels.map((expected) => expected.modelId);
       const requiredMissing = missing.some((expected) => expected.required) || canaryMissing;
+      const requiredFailure = requiredMissing || context.required;
+      const affectedRoles = affectedRolesForExpectedModels([
+        ...missing,
+        ...context.insufficientModels,
+      ]);
       const model: LocalAiProbeResult = {
         targetId: params.endpointId,
         layer: 'model',
         checkType: params.kind,
-        ok: missing.length === 0,
-        required: requiredMissing,
-        affectedRoles: [],
+        ok: missing.length === 0 && context.insufficientModels.length === 0,
+        required: requiredFailure,
+        affectedRoles,
         checkedAt,
         durationMs: endpointDuration,
-        ...(missing.length > 0
+        ...(missing.length > 0 || context.insufficientModels.length > 0
           ? {
-              failureCode: 'missing-required-model' as const,
-              message: requiredMissing
-                ? 'One or more required local models are unavailable.'
-                : 'One or more optional local models are unavailable.',
+              failureCode: missing.length > 0
+                ? 'missing-required-model' as const
+                : 'insufficient-context' as const,
+              message: missing.length > 0
+                ? requiredMissing
+                  ? 'One or more required local models are unavailable.'
+                  : 'One or more optional local models are unavailable.'
+                : context.required
+                  ? 'One or more required local models have insufficient context capacity.'
+                  : 'One or more optional local models have insufficient context capacity.',
             }
           : {}),
         evidence: {
           advertisedModels: advertisedModels.slice(0, MAX_EVIDENCE_MODELS),
+          ...(capacity.loadedModels.length > 0
+            ? { loadedModels: capacity.loadedModels.slice(0, MAX_EVIDENCE_MODELS) }
+            : {}),
           missingModels: missingIds.slice(0, MAX_EVIDENCE_MODELS),
+          ...(insufficientIds.length > 0
+            ? { insufficientContextModels: insufficientIds.slice(0, MAX_EVIDENCE_MODELS) }
+            : {}),
           requiredModelCount: params.expectedModels.filter((expected) => expected.required).length,
+          ...(context.availableContextLength === undefined
+            ? {} : { availableContextLength: context.availableContextLength }),
         },
       };
 
       const samples = [endpoint, model];
-      if (params.kind === 'lightweight' || canaryMissing) {
-        return samples;
-      }
-
-      samples.push(await this.runCanary(params, baseUrl, checkedAt));
+      if (canary) samples.push(canary);
       return samples;
     } catch (error) {
       const failure = normalizeProbeFailure(error, 'endpoint-timeout');
@@ -213,7 +246,12 @@ export class WorkerLocalAiHealth {
       };
     }
 
-    const operation = this.resolveOllamaRestart();
+    const operation = resolveOllamaRestart({
+      platform: this.platform,
+      pathExists: this.pathExists,
+      homeDir: this.homeDir,
+      env: this.env,
+    });
     if (!operation) {
       return {
         targetId: params.endpointId,
@@ -311,6 +349,31 @@ export class WorkerLocalAiHealth {
     const models = rows.map((row) =>
       readBoundedString((row as { id?: unknown } | null)?.id, 'Model catalog was malformed.'));
     return { models, httpStatus: response.status };
+  }
+
+  private async readModelCapacity(
+    provider: LocalAiHealthCheckParams['provider'],
+    baseUrl: string,
+    timeoutMs: number,
+    relevantModelIds: ReadonlySet<string>,
+  ): Promise<LocalAiModelCapacityMetadata> {
+    try {
+      const response = await this.requestJson(
+        provider === 'ollama' ? `${baseUrl}/api/ps` : `${baseUrl}/api/v0/models`,
+        { method: 'GET' },
+        timeoutMs,
+        'endpoint-timeout',
+      );
+      return parseLocalAiModelCapacity(provider, response.data, relevantModelIds);
+    } catch (error) {
+      if (
+        error instanceof ProbeFailure
+        && ['http-404', 'http-405'].includes(error.evidenceErrorKind)
+      ) {
+        return { loadedModels: [], contextLengths: new Map<string, number>() };
+      }
+      throw error;
+    }
   }
 
   private async runCanary(
@@ -481,58 +544,6 @@ export class WorkerLocalAiHealth {
     };
   }
 
-  private resolveOllamaRestart(): RepairCommand[] | null {
-    if (this.platform === 'darwin') {
-      const app = [
-        '/Applications/Ollama.app',
-        path.join(this.homeDir, 'Applications', 'Ollama.app'),
-      ].find(this.pathExists);
-      return app
-        ? [
-            {
-              executable: '/usr/bin/osascript',
-              args: ['-e', 'tell application "Ollama" to quit'],
-            },
-            { executable: '/usr/bin/open', args: ['-a', 'Ollama'] },
-          ]
-        : null;
-    }
-
-    if (this.platform === 'win32') {
-      const candidates = [
-        this.env['LOCALAPPDATA']
-          ? path.win32.join(this.env['LOCALAPPDATA'], 'Programs', 'Ollama', 'ollama app.exe')
-          : null,
-        this.env['ProgramFiles']
-          ? path.win32.join(this.env['ProgramFiles'], 'Ollama', 'ollama app.exe')
-          : null,
-        this.env['ProgramFiles(x86)']
-          ? path.win32.join(this.env['ProgramFiles(x86)'], 'Ollama', 'ollama app.exe')
-          : null,
-      ].filter((candidate): candidate is string => candidate !== null);
-      const executable = candidates.find(this.pathExists);
-      return executable
-        ? [
-            {
-              executable: 'C:\\Windows\\System32\\taskkill.exe',
-              args: ['/F', '/IM', 'ollama app.exe'],
-              allowProcessNotFound: true,
-            },
-            { executable, args: [], detached: true },
-          ]
-        : null;
-    }
-
-    const systemctl = ['/usr/bin/systemctl', '/bin/systemctl'].find(this.pathExists);
-    const ollama = ['/usr/local/bin/ollama', '/usr/bin/ollama', '/snap/bin/ollama']
-      .find(this.pathExists);
-    return systemctl && ollama
-      ? [{
-          executable: systemctl,
-          args: ['--user', 'restart', 'ollama.service'],
-        }]
-      : null;
-  }
 }
 
 function resolveWorkerLocalEndpoint(
@@ -548,54 +559,7 @@ function resolveWorkerLocalEndpoint(
   return null;
 }
 
-function executeFile(executable: string, args: readonly string[]): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    execFileCallback(executable, [...args], {
-      windowsHide: true,
-      timeout: REPAIR_COMMAND_TIMEOUT_MS,
-      killSignal: 'SIGKILL',
-    }, (error) => {
-      if (error) {
-        reject(error);
-      } else {
-        resolve();
-      }
-    });
-  });
-}
-
-function launchDetached(executable: string, args: readonly string[]): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    const child = spawnProcess(executable, [...args], {
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: true,
-    });
-    const timeoutId = setTimeout(() => {
-      child.kill('SIGKILL');
-      reject(new Error('Detached repair launch timed out'));
-    }, DETACHED_LAUNCH_TIMEOUT_MS);
-    child.once('error', (error) => {
-      clearTimeout(timeoutId);
-      reject(error);
-    });
-    child.once('spawn', () => {
-      clearTimeout(timeoutId);
-      child.unref();
-      resolve();
-    });
-  });
-}
-
-function isProcessNotFoundError(error: unknown): boolean {
-  if (!error || typeof error !== 'object' || !('code' in error)) {
-    return false;
-  }
-  const code = (error as { code?: unknown }).code;
-  return code === 128 || code === '128';
-}
-
-function normalizePlatform(platform: NodeJS.Platform): SupportedPlatform {
+function normalizePlatform(platform: NodeJS.Platform): SupportedLocalAiPlatform {
   return platform === 'darwin' || platform === 'win32' ? platform : 'linux';
 }
 
@@ -680,7 +644,8 @@ function recommendedActionsFor(
   samples: LocalAiProbeResult[],
 ): LocalAiRepairAction[] {
   const actions: LocalAiRepairAction[] = ['deep-check'];
-  if (samples.some((sample) => sample.failureCode === 'missing-required-model')) {
+  if (samples.some((sample) =>
+    ['missing-required-model', 'insufficient-context'].includes(sample.failureCode ?? ''))) {
     actions.push('validate-models');
   }
   if (provider === 'ollama' && samples.some((sample) =>

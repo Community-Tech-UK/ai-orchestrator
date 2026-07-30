@@ -192,6 +192,12 @@ targets and open incidents into a non-routable state; the current runtime
 generation must obtain fresh probe evidence, including the two-success recovery
 threshold, before `LocalAiRoutingGuard` admits work.
 
+The model layer validates advertised identity plus loaded context capacity when
+the provider exposes bounded metadata (`/api/ps` for Ollama or LM Studio native
+model metadata). Required model failures protect every target role. Optional
+models carry an explicit subset of target routing roles, and their failures
+quarantine only that subset through worker RPC and coordinator translation.
+
 Auxiliary routing integration is installed by `local-ai-runtime.ts`.
 `AuxiliaryLlmService` retains compatibility for unmanaged endpoints, while an
 enrolled endpoint must receive a fresh eligible verdict and an activity lease.

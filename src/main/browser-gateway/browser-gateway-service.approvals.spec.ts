@@ -781,6 +781,122 @@ describe('BrowserGatewayService approvals', () => {
     });
   });
 
+  it('reuses the pending approval instead of stacking a second dialog for the same target', async () => {
+    const { service, approvalRequests } = makeService();
+    const proposedGrant = {
+      mode: 'session' as const,
+      allowedOrigins: [
+        {
+          scheme: 'http' as const,
+          hostPattern: 'localhost',
+          port: 4567,
+          includeSubdomains: false,
+        },
+      ],
+      allowedActionClasses: ['read', 'input'] as const,
+      allowExternalNavigation: false,
+      autonomous: false,
+    };
+    const ask = () => service.requestGrant({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      proposedGrant: { ...proposedGrant, allowedActionClasses: [...proposedGrant.allowedActionClasses] },
+    });
+
+    await expect(ask()).resolves.toMatchObject({
+      decision: 'requires_user',
+      requestId: 'request-1',
+    });
+    const second = await ask();
+
+    expect(second).toMatchObject({
+      decision: 'requires_user',
+      outcome: 'not_run',
+      requestId: 'request-1',
+    });
+    expect(second.reason).toContain('approval_already_pending');
+    expect(approvalRequests).toHaveLength(1);
+  });
+
+  it('opens a new approval when the pending one would not cover the new ask', async () => {
+    const { service, approvalRequests } = makeService();
+    const origins = [
+      {
+        scheme: 'http' as const,
+        hostPattern: 'localhost',
+        port: 4567,
+        includeSubdomains: false,
+      },
+    ];
+
+    await service.requestGrant({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      proposedGrant: {
+        mode: 'session',
+        allowedOrigins: origins,
+        allowedActionClasses: ['read'],
+        allowExternalNavigation: false,
+        autonomous: false,
+      },
+    });
+    await service.requestGrant({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      proposedGrant: {
+        mode: 'session',
+        allowedOrigins: origins,
+        allowedActionClasses: ['read', 'submit'],
+        allowExternalNavigation: false,
+        autonomous: false,
+      },
+    });
+
+    expect(approvalRequests).toHaveLength(2);
+  });
+
+  it('answers a repeat managed-profile grant request from the live grant', async () => {
+    const { service, approvalRequests, audits } = makeService({
+      grants: [makeGrant({ allowedActionClasses: ['read', 'input'] })],
+    });
+
+    const result = await service.requestGrant({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      proposedGrant: {
+        mode: 'session',
+        allowedOrigins: [
+          {
+            scheme: 'http',
+            hostPattern: 'localhost',
+            port: 4567,
+            includeSubdomains: false,
+          },
+        ],
+        allowedActionClasses: ['read', 'input'],
+        allowExternalNavigation: false,
+        autonomous: false,
+      },
+      reason: 'overnight form filling',
+    });
+
+    expect(result).toMatchObject({ decision: 'allowed', outcome: 'succeeded' });
+    expect(result.reason).toContain('existing_grant_covers_request');
+    expect(approvalRequests).toHaveLength(0);
+    expect(audits.at(-1)).toMatchObject({
+      toolName: 'browser.request_grant',
+      grantId: 'grant-1',
+    });
+  });
+
   it('auto-approves explicit browser grant requests for YOLO instances', async () => {
     const { service, approvalStore, grants } = makeService({
       autoApproveRequests: ({ instanceId }) => instanceId === 'instance-1',

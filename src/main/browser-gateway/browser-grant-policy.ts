@@ -1,9 +1,11 @@
 import type {
   BrowserActionClass,
+  BrowserGrantMode,
+  BrowserGrantProposal,
   BrowserPermissionGrant,
   BrowserProvider,
 } from '@contracts/types/browser';
-import { isOriginAllowed } from './browser-origin-policy';
+import { allowedOriginsCover, isOriginAllowed } from './browser-origin-policy';
 
 export interface BrowserGrantMatchInput {
   grants: BrowserPermissionGrant[];
@@ -79,9 +81,132 @@ export function findMatchingBrowserGrant(
   return grant ? { grant } : { reason: 'no_matching_grant' };
 }
 
+export interface BrowserGrantProposalCoverageInput {
+  grants: BrowserPermissionGrant[];
+  instanceId: string;
+  provider?: BrowserProvider;
+  nodeId?: string;
+  profileId: string;
+  targetId?: string;
+  /** Live origin of the target the proposal is about. */
+  origin: string;
+  proposal: BrowserGrantProposal;
+  now?: number;
+}
+
+/**
+ * Broadest-first ordering used to decide whether a live grant is at least as
+ * permissive as a proposal's mode. `per_action` grants are consumed by the next
+ * mutation, so they only stand in for another `per_action` request.
+ */
+const GRANT_MODE_RANK: Record<BrowserGrantMode, number> = {
+  per_action: 0,
+  session: 1,
+  autonomous: 2,
+};
+
+/**
+ * A live grant that already authorizes everything `proposal` asks for, or null.
+ *
+ * `browser.request_grant` uses this to answer "you already have this" instead of
+ * recording another approval request. Agents re-request a grant whenever an
+ * unrelated failure looks like a permission problem (an extension command
+ * timeout, for example), and without this every re-request raised a fresh
+ * approval dialog for the same site the user had just approved.
+ */
+export function findGrantCoveringProposal(
+  input: BrowserGrantProposalCoverageInput,
+): BrowserPermissionGrant | null {
+  const { proposal } = input;
+  if (proposal.allowedActionClasses.length === 0) {
+    return null;
+  }
+  // Upload roots are approved per path set — never assume an existing grant
+  // covers a newly proposed one.
+  if (proposal.uploadRoots && proposal.uploadRoots.length > 0) {
+    return null;
+  }
+  const now = input.now ?? Date.now();
+  const requiresAutonomy =
+    requiresAutonomousGrant(proposal.allowedActionClasses) ||
+    (proposal.mode === 'autonomous' && proposal.autonomous);
+  return (
+    input.grants.find(
+      (grant) =>
+        GRANT_MODE_RANK[grant.mode] >= GRANT_MODE_RANK[proposal.mode] &&
+        (!proposal.allowExternalNavigation || grant.allowExternalNavigation) &&
+        allowedOriginsCover(grant.allowedOrigins, proposal.allowedOrigins) &&
+        proposal.allowedActionClasses.every((actionClass) =>
+          grantMatches(
+            grant,
+            {
+              instanceId: input.instanceId,
+              ...(input.provider ? { provider: input.provider } : {}),
+              ...(input.nodeId ? { nodeId: input.nodeId } : {}),
+              profileId: input.profileId,
+              ...(input.targetId ? { targetId: input.targetId } : {}),
+              origin: input.origin,
+              actionClass,
+              autonomousRequired: requiresAutonomy,
+            },
+            now,
+          ),
+        ),
+    ) ?? null
+  );
+}
+
+/**
+ * True when approving `pending` would authorize everything `requested` asks for.
+ *
+ * Lets a repeat `browser.request_grant` attach to the approval request already
+ * waiting on the user instead of stacking a second identical dialog beside it.
+ */
+export function proposalCoversProposal(
+  pending: BrowserGrantProposal,
+  requested: BrowserGrantProposal,
+): boolean {
+  if (requested.allowedActionClasses.length === 0) {
+    return false;
+  }
+  if (GRANT_MODE_RANK[pending.mode] < GRANT_MODE_RANK[requested.mode]) {
+    return false;
+  }
+  if (requested.autonomous && !pending.autonomous) {
+    return false;
+  }
+  if (requested.allowExternalNavigation && !pending.allowExternalNavigation) {
+    return false;
+  }
+  const pendingRoots = new Set(pending.uploadRoots ?? []);
+  if (!(requested.uploadRoots ?? []).every((root) => pendingRoots.has(root))) {
+    return false;
+  }
+  if (
+    !requested.allowedActionClasses.every((actionClass) =>
+      pending.allowedActionClasses.includes(actionClass),
+    )
+  ) {
+    return false;
+  }
+  return allowedOriginsCover(pending.allowedOrigins, requested.allowedOrigins);
+}
+
+type BrowserGrantMatchCriteria = Pick<
+  BrowserGrantMatchInput,
+  | 'instanceId'
+  | 'provider'
+  | 'nodeId'
+  | 'profileId'
+  | 'targetId'
+  | 'origin'
+  | 'actionClass'
+  | 'autonomousRequired'
+>;
+
 function grantMatches(
   grant: BrowserPermissionGrant,
-  input: BrowserGrantMatchInput,
+  input: BrowserGrantMatchCriteria,
   now: number,
 ): boolean {
   if (actionClassNeverGrantable(input.actionClass)) {

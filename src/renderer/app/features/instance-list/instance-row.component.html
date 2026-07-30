@@ -20,7 +20,7 @@
         <span class="child-connector">└</span>
       }
 
-      <span class="leading-indicator" [title]="needsAttention() ? activityLabel() : showActivitySpinner() ? activityLabel() : isHibernated() ? 'Hibernated — click to wake' : providerVisual().label">
+      <span class="leading-indicator" [title]="needsAttention() ? activityLabel() : showActivitySpinner() ? activityLabel() : isHibernated() ? 'Hibernated — send a message to wake' : providerVisual().label">
         <span
           class="provider-badge"
           [class.provider-busy]="showActivitySpinner()"
@@ -92,7 +92,7 @@
           @if (needsAttention()) {
             <span class="attention-overlay-dot" [title]="activityLabel()"></span>
           } @else if (isHibernated()) {
-            <span class="hibernated-overlay-dot" title="Hibernated — click to wake"></span>
+            <span class="hibernated-overlay-dot" title="Hibernated — send a message to wake"></span>
           }
         </span>
       </span>

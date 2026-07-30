@@ -117,6 +117,36 @@ describe('LocalAiProbeService', () => {
     expect(samples.every((sample) => sample.affectedRoles[0] === 'compression')).toBe(true);
   });
 
+  it('preserves optional model role scope instead of quarantining every target role', async () => {
+    const sendServiceRpc = vi.fn(async () => [
+      workerSample(),
+      workerSample({
+        layer: 'model',
+        ok: false,
+        required: false,
+        affectedRoles: ['titleGeneration'],
+        failureCode: 'missing-required-model',
+        evidence: {
+          advertisedModels: ['qwen3:8b'],
+          missingModels: ['nomic-embed-text'],
+          requiredModelCount: 1,
+        },
+      }),
+    ]);
+    const service = new LocalAiProbeService({ sendServiceRpc });
+
+    const samples = await service.check(target(
+      { type: 'worker', nodeId: 'worker-7' },
+      { routingRoles: ['compression', 'titleGeneration'] },
+    ), 'lightweight');
+
+    expect(samples[2]).toMatchObject({
+      layer: 'model',
+      required: false,
+      affectedRoles: ['titleGeneration'],
+    });
+  });
+
   it('maps a worker disconnect to worker-offline', async () => {
     const service = new LocalAiProbeService({
       sendServiceRpc: vi.fn(async () => {

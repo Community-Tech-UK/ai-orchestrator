@@ -201,6 +201,59 @@ describe('LocalAiTargetSetupComponent', () => {
     expect(button('Validate endpoint').disabled).toBe(true);
   });
 
+  it('blocks enrolment when validation reports insufficient required model context', async () => {
+    store.validateTarget.mockResolvedValueOnce(validation().map((result) =>
+      result.layer === 'model'
+        ? {
+            ...result,
+            ok: false,
+            required: true,
+            failureCode: 'insufficient-context',
+            evidence: {
+              loadedModels: ['qwen3:8b'],
+              availableContextLength: 4_096,
+              insufficientContextModels: ['qwen3:8b'],
+            },
+          }
+        : result));
+    click('Configure Studio worker');
+    setCheckbox('Expected model qwen3:8b', true);
+    selectValue('Canary model', 'qwen3:8b');
+    setCheckbox('Compression', true);
+
+    click('Validate endpoint');
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('[data-validation-layer="model"]')?.textContent)
+      .toContain('Needs attention');
+    expect(button('Enrol target').disabled).toBe(true);
+    expect(store.createTarget).not.toHaveBeenCalled();
+  });
+
+  it('persists role ownership for an optional expected model', async () => {
+    click('Configure Studio worker');
+    setCheckbox('Expected model qwen3:14b', true);
+    selectValue('Canary model', 'qwen3:8b');
+    setCheckbox('Compression', true);
+    setCheckbox('Title generation', true);
+    setCheckbox('qwen3:14b required', false);
+    setCheckbox('qwen3:14b uses Compression', false);
+
+    click('Validate endpoint');
+    await fixture.whenStable();
+    fixture.detectChanges();
+    click('Enrol target');
+    await fixture.whenStable();
+
+    const config = store.createTarget.mock.calls[0]?.[0] as LocalAiTargetConfig;
+    expect(config.expectedModels).toContainEqual({
+      modelId: 'qwen3:14b',
+      required: false,
+      routingRoles: ['titleGeneration'],
+    });
+  });
+
   it('uses the existing typed update path when editing instead of creating a duplicate target', async () => {
     fixture.componentRef.setInput('editingTargetId', 'target-1');
     fixture.componentRef.setInput('editingEndpoint', {

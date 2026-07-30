@@ -23,6 +23,10 @@ import {
   ReviewSeveritySchema,
 } from '../../shared/types/review-severity';
 import { extractLastJsonPayload } from '../agents/review-json-extract';
+import {
+  filterProvidersForAutomation,
+  isProviderExcludedFromAutomation,
+} from '../providers/automation-provider-exclusions';
 
 const logger = getLogger('AgenticPingPongReviewer');
 
@@ -192,12 +196,19 @@ async function resolveReviewerProvider(
       error: err instanceof Error ? err.message : String(err),
     });
   }
+  // Drop operator-excluded providers from the pool. This covers both the Tier 1
+  // preference and — the reason it matters — the Tier 2 widening below, which
+  // otherwise reaches for ANY installed provider when the preferred pair is
+  // exhausted. Reviewing is machine-initiated work, so there is no "the user
+  // chose it" case to preserve here.
+  installed = filterProvidersForAutomation(installed, 'pingPongReviewer');
   const builder = normalizeReviewerCli(builderProvider);
   const triedSet = new Set(tried.map((p) => normalizeReviewerCli(p)));
   const isEligible = (p: string): boolean => {
     const candidate = normalizeReviewerCli(p);
     return candidate !== builder &&
       !triedSet.has(candidate) &&
+      !isProviderExcludedFromAutomation(candidate) &&
       (installed.length === 0 || installed.includes(candidate));
   };
 
@@ -207,6 +218,13 @@ async function resolveReviewerProvider(
       logger.warn('Ping-pong reviewer provider equals builder — falling back to auto', {
         builderProvider,
       });
+    } else if (isProviderExcludedFromAutomation(normalized)) {
+      // Surfaced rather than silently skipped: the operator has configured two
+      // settings that contradict each other, and the exclusion wins.
+      logger.warn(
+        'Configured ping-pong reviewer is excluded from automatic selection — falling back to auto',
+        { reviewer: normalized },
+      );
     } else if (isEligible(normalized)) {
       return normalized;
     }

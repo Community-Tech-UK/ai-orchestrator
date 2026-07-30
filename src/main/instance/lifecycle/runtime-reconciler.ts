@@ -46,10 +46,12 @@ import { buildLocalModelRuntimeSummary } from './instance-create-builder';
 import {
   assertSwapTargetCliAvailable,
   mapReasoningEffortForProvider,
-  resolveSwapModel,
+  resolveSwapModelWithSource,
+  type SwapModelSource,
   type SwapTargetProvider,
 } from './model-change-provider-swap';
 import { computeRuntimeDiff, planContinuity } from './runtime-reconciler-plan';
+import { announceRuntimeChange, runtimeChangeNoticesFor } from './runtime-change-notices';
 import type { UnifiedSpawnOptions } from '../../cli/adapters/adapter-factory';
 import type { DesiredRuntime, Instance } from '../../../shared/types/instance.types';
 import type {
@@ -117,9 +119,15 @@ export class RuntimeReconciler {
       }
 
       let newModel = desired.model;
+      // LT-016: a model taken from the *global* default was never chosen by the
+      // user for this provider, so its rejection must not be reported as a
+      // degraded selection. Tracked here and consulted at validation below.
+      let swapModelSource: SwapModelSource | undefined;
       if (isProviderSwap) {
         await assertSwapTargetCliAvailable(instance, targetProvider, settingsAll.defaultCli);
-        newModel = resolveSwapModel(targetProvider, desired.model, settingsAll);
+        const resolution = resolveSwapModelWithSource(targetProvider, desired.model, settingsAll);
+        newModel = resolution.model;
+        swapModelSource = resolution.source;
       } else if (newModel === undefined && !localModelTarget) {
         // Same-provider request without a model — nothing to change to.
         newModel = instance.currentModel;
@@ -224,13 +232,23 @@ export class RuntimeReconciler {
             cliType === 'codex' && looksLikeCodexModelId(modelToValidate),
         });
         if (selection.degradation) {
+          // The global default is one id shared by every provider, so it is
+          // routinely unknown to a swap target. That is not a degraded *user*
+          // selection — nothing the user picked failed — so it is logged but
+          // never surfaced as a transcript notice (LT-016). An explicitly
+          // requested model, or a stale remembered per-provider one, still is.
+          const fromGlobalDefault = swapModelSource === 'global-default';
           logger.warn('Model not valid for target provider during runtime change, using provider default', {
             model: selection.degradation.requestedModel,
             provider: cliType,
             validModelCount: knownModelIds.length,
             fallbackModel: selection.degradation.fallbackModel ?? 'provider-default',
+            source: swapModelSource ?? 'requested',
+            userVisible: !fromGlobalDefault,
           });
-          this.deps.emitModelSelectionDegradation(instance, selection.degradation);
+          if (!fromGlobalDefault) {
+            this.deps.emitModelSelectionDegradation(instance, selection.degradation);
+          }
         }
         validatedModel = selection.model;
       }
@@ -392,29 +410,24 @@ export class RuntimeReconciler {
           );
         }
 
-        if (isYoloOnlyChange) {
-          // Notify the instance about the permission-posture change.
-          await adapter.sendInput(
-            nextYoloMode
-              ? '[System: YOLO mode enabled - tool permissions are now pre-configured for this mode.]'
-              : '[System: YOLO mode disabled - tool permissions will now require approval.]'
-          );
-        } else {
-          // Notify the instance about the change
-          await adapter.sendInput(
-            isProviderSwap
-              ? `[System: Provider changed from ${oldProvider} (model ${oldModel}) to ${instance.provider} (model ${validatedModel || 'provider default'}). Thinking changed from ${oldReasoningEffort ?? 'provider default'} to ${nextReasoningEffort ?? 'provider default'}. Conversation context has been carried over from the previous provider.]`
-              : `[System: Model changed from ${oldModel} to ${validatedModel || 'provider default'}. Thinking changed from ${oldReasoningEffort ?? 'provider default'} to ${nextReasoningEffort ?? 'provider default'}. Conversation context has been preserved.]`
-          );
-          if (diff.yoloModeChanged) {
-            // Combined change (e.g. a queued model swap and a queued yolo
-            // flip both landed together) — also announce the permission change.
-            await adapter.sendInput(
-              nextYoloMode
-                ? '[System: YOLO mode enabled - tool permissions are now pre-configured for this mode.]'
-                : '[System: YOLO mode disabled - tool permissions will now require approval.]'
-            );
-          }
+        // LT-015: notices are control messages for the model, but the user needs
+        // to see that the runtime changed under their session too — so each is
+        // delivered to the CLI *and* recorded as a transcript entry.
+        const emitSystemNotice = this.deps.emitSystemNotice.bind(this.deps);
+        const notices = runtimeChangeNoticesFor({
+          isYoloOnlyChange,
+          isProviderSwap,
+          yoloModeChanged: diff.yoloModeChanged,
+          nextYoloMode,
+          oldProvider,
+          newProvider: instance.provider,
+          oldModel,
+          newModel: validatedModel,
+          oldReasoningEffort,
+          newReasoningEffort: nextReasoningEffort,
+        });
+        for (const notice of notices) {
+          await announceRuntimeChange({ instance, adapter, emitSystemNotice, ...notice });
         }
       } catch (error) {
         if (isProviderSwap) {

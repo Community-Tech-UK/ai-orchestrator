@@ -10,6 +10,7 @@ import type {
   AuxiliaryLlmSlot,
 } from '../../../shared/types/auxiliary-llm.types';
 import { REMOTE_REVIEWER_PROVIDER_IDS } from '../../../shared/types/reviewer-provider.types';
+import { AUTOMATION_PROVIDER_IDS } from '../../../shared/types/automation-provider.types';
 
 export type SettingsToolPolicyTier = 'open' | 'read-only' | 'secret';
 
@@ -327,6 +328,15 @@ export const SETTINGS_TOOL_POLICY = {
   crossModelReviewLocalSelectorId: open(settingStringSchema),
   crossModelReviewLocalTimeout: open(z.number().finite().int().min(10).max(600)),
   crossModelReviewLocalMaxToolRounds: open(z.number().finite().int().min(1).max(32)),
+  // Licence guardrail: this list is what stops an automatic path from calling a
+  // provider the operator may only use in a specific context (e.g. a work-only
+  // Copilot seat). An agent that could edit it could grant itself the very
+  // access the operator withheld, so it is operator-only — same reasoning as
+  // browserAllowSharedTabCredentialFill.
+  providersExcludedFromAutomation: readOnly(
+    false,
+    z.array(z.enum(AUTOMATION_PROVIDER_IDS)).max(AUTOMATION_PROVIDER_IDS.length),
+  ),
   pingPongReviewerProvider: open(
     z.enum(['auto', ...REMOTE_REVIEWER_PROVIDER_IDS]),
   ),

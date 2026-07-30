@@ -29,6 +29,15 @@ import type { BrowserSnapshot } from './puppeteer-browser-driver';
 import { isOriginAllowed } from './browser-origin-policy';
 import { isMutatingBrowserCommand } from './browser-mutation-safety';
 import {
+  cdpTimeoutStep,
+  isDeliveredCommandTimeout,
+  isMissingExtensionTabError,
+  mutationTimeoutError,
+  notDeliveredError,
+  readTimeoutError,
+  receiptMissingError,
+} from './browser-extension-command-failures';
+import {
   allowedOriginFromUrl,
   extractTabPayload,
 } from './browser-gateway-service-helpers';
@@ -315,46 +324,57 @@ export class BrowserExistingTabOperations {
       // already applied. Before surfacing the failure, re-read any control state
       // the command describes so callers get a concrete applied/not-applied/unknown
       // result instead of a duplicate-prone bare timeout. Reads stay a plain
-      // timeout (safe to retry).
+      // timeout (safe to retry) plus the "not a permission problem" note.
       const message = error instanceof Error ? error.message : String(error);
+      const channel = this.describeChannel(attachment.nodeId);
       if (isMissingExtensionTabError(message)) {
         this.deps.extensionTabStore.detachTab(attachment.profileId, attachment.targetId);
         throw error instanceof Error ? error : new Error(message);
       }
       if (message.startsWith('browser_extension_command_not_delivered')) {
-        // Removed from the queue before rejection: the extension never received
-        // it, so it certainly did not run — even a mutation is safe to retry.
-        throw new Error(
-          `browser_extension_command_not_delivered (${this.describeChannel(attachment.nodeId)}; `
-          + 'the command never reached the extension and did NOT run — safe to retry)',
-        );
+        throw notDeliveredError(channel);
       }
       if (message.startsWith('browser_extension_command_receipt_missing')) {
-        // Delivered to the transport, but the extension never acked receiving
-        // it — the handoff almost certainly died en route. Weaker guarantee
-        // than not_delivered (the ack itself could have been lost), hence the
-        // verify-first advice for mutations.
-        throw new Error(
-          `browser_extension_command_receipt_missing (${this.describeChannel(attachment.nodeId)}; `
-          + 'the extension never acknowledged receiving this command — it almost certainly did not '
-          + 'run, but verify page state before retrying a mutation)',
-        );
+        throw receiptMissingError(channel);
       }
-      if (isDeliveredCommandTimeout(message) && isMutatingBrowserCommand(command)) {
-        const probe = await postTimeoutMutationProbe(
+      if (!isDeliveredCommandTimeout(message)) {
+        throw error instanceof Error ? error : new Error(message);
+      }
+      this.recordCommandTimeout(attachment, command, message, channel);
+      if (!isMutatingBrowserCommand(command)) {
+        throw readTimeoutError(message, command, channel);
+      }
+      throw mutationTimeoutError(
+        message,
+        await postTimeoutMutationProbe(
           command,
           payload,
           attachment,
           (request) => this.deps.extensionCommandStore.sendCommand(request),
-        );
-        if (message === 'browser_extension_command_timeout') {
-          throw new Error(`browser_extension_command_timeout_${probe}`);
-        }
-        throw new Error(
-          `${message}; post-timeout mutation probe: ${probe}`,
-        );
-      }
-      throw error instanceof Error ? error : new Error(message);
+        ),
+      );
+    });
+  }
+
+  /**
+   * Surface a delivered-but-unanswered command in the reliability ring buffer
+   * (and therefore `browser.health` + app.log). Before this, a timeout left no
+   * trace anywhere but the audit table.
+   */
+  private recordCommandTimeout(
+    attachment: BrowserExistingTabAttachment,
+    command: BrowserExtensionCommandName,
+    message: string,
+    channel: string,
+  ): void {
+    const cdpStep = cdpTimeoutStep(message);
+    this.deps.reliabilityEvents?.record('command_timeout', {
+      ...(attachment.nodeId ? { nodeId: attachment.nodeId } : {}),
+      detail: {
+        command,
+        channel,
+        ...(cdpStep ? { cdpStep } : {}),
+      },
     });
   }
 
@@ -600,11 +620,6 @@ export class BrowserExistingTabOperations {
   }
 }
 
-function isDeliveredCommandTimeout(message: string): boolean {
-  return message.startsWith('browser_extension_command_timeout') ||
-    message.startsWith('browser_extension_channel_down');
-}
-
 function remoteTabAttachOptions(
   attachment: BrowserExistingTabAttachment,
 ): BrowserExtensionTabAttachOptions | undefined {
@@ -622,10 +637,6 @@ function extensionCommandCallerTimeoutMs(executionTimeoutMs: number): number {
     ? EXTENSION_COMMAND_RESULT_GRACE_MS
     : SHORT_EXTENSION_COMMAND_RESULT_GRACE_MS;
   return executionTimeoutMs + graceMs;
-}
-
-function isMissingExtensionTabError(message: string): boolean {
-  return /\bno tab with id\b/i.test(message);
 }
 
 function extractScreenshotBase64(result: unknown): string {
