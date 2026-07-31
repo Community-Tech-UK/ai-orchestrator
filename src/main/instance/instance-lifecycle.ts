@@ -12,7 +12,6 @@ import {
 import type { CliType } from '../cli/cli-detection';
 import type { ResumeAttemptResult } from '../cli/adapters/base-cli-adapter';
 import type { ExecutionLocation } from '../../shared/types/worker-node.types';
-import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 import {
   getProviderModelContextWindow,
 } from '../../shared/types/provider.types';
@@ -23,10 +22,6 @@ import {
 import { drainContextEvidenceQueue } from '../context-evidence/context-evidence-coordinator';
 import { getHistoryManager } from '../history';
 import { getOutputStorageManager } from '../memory';
-import { getProjectMemoryBriefService } from '../memory/project-memory-brief';
-import { getContextWorkerClient } from './context-worker-client';
-import { extractAuthoredLessons } from '../memory/project-story-convention';
-import { getProjectKnowledgeCoordinator } from '../memory/project-knowledge-coordinator';
 import { getConversationMiner } from '../memory/conversation-miner';
 import { getSupervisorTree } from '../process';
 import { getAgentById } from '../../shared/types/agent.types';
@@ -88,13 +83,6 @@ import type { ProviderId } from '../../shared/types/provider-quota.types';
 import { DesiredRuntimeQueue } from './lifecycle/desired-runtime-queue';
 import { RuntimeReconciler } from './lifecycle/runtime-reconciler';
 import type { SwapTargetProvider } from './lifecycle/model-change-provider-swap';
-import {
-  applyOutputStyle,
-  applyResolvedOutputStyle,
-  isOutputStyleInjectableProvider,
-  isOutputStyleName,
-} from './output-style';
-import { getOutputStyleRegistry } from './output-style-registry';
 import { PlanModeManager } from './lifecycle/plan-mode-manager';
 import { RestartPolicyHelpers } from './lifecycle/restart-policy-helpers';
 import {
@@ -112,8 +100,6 @@ import { SpawnConfigBuilder } from './lifecycle/spawn-config-builder';
 import { createInitialUserMessage, getSeededInitialUserMessage } from './lifecycle/initial-user-message';
 import { getCompactionCoordinator } from '../context/compaction-coordinator';
 import { getCodemem } from '../codemem';
-import { getMcpManager } from '../mcp/mcp-manager';
-import { getIndexedCodebaseContextService } from '../indexing/indexed-codebase-context';
 import { recordLifecycleTrace } from '../observability/lifecycle-trace';
 import { warmCodememWithTimeout } from './warm-codemem';
 import {
@@ -128,14 +114,11 @@ import {
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 import { getPromptHistoryService } from '../prompt-history/prompt-history-service';
 import { summarizeCreateInstanceConfig } from './lifecycle/instance-create-logging';
-import { callWithDeadline } from '../util/deadline';
 import { LifecycleMemoryPressureMonitor } from './lifecycle/memory-pressure-monitor';
 import { getOrCreateTurnSupervisor } from '../session/session-turn-supervisor';
-import { isRestoreOrReplayContinuity } from './lifecycle/create-validation-helpers';
-import type { McpRuntimeToolContextSelection } from '../mcp/mcp-runtime-tool-context';
 import { applyProviderSessionDurability } from './lifecycle/provider-session-durability';
 import { getLocalModelInventoryService } from '../local-models/local-model-inventory-service';
-import { buildToolPermissionPrompt } from './lifecycle/tool-permission-prompt';
+import { assembleInstanceSystemPrompt } from './instance-system-prompt';
 import type {
   LocalModelInventoryEntry,
   ModelRuntimeTarget,
@@ -153,16 +136,6 @@ function localModelInventoryEntryMatchesTarget(
     && entry.modelId === target.modelId
     && (target.source !== 'worker-node' || entry.nodeId === target.nodeId);
 }
-
-/**
- * How long create-time prompt enrichers (observation memory, MCP tool context)
- * may run before we assemble the system prompt without them. A genuinely-async
- * enricher that exceeds this is not waited on; its result, if it eventually
- * arrives, is deferred into the next turn as a continuity preamble rather than
- * blocking the first send. (Synchronous enrichers can't be interrupted by a
- * deadline — those need an off-thread move, tracked separately.)
- */
-const CREATE_ENRICHER_DEADLINE_MS = 600;
 
 export type { LifecycleDependencies, RestartOutcome } from './instance-lifecycle.types';
 
@@ -992,45 +965,6 @@ export class InstanceLifecycleManager extends EventEmitter {
     logger.info('Deferred create-time enricher to next turn', { instanceId, label });
   }
 
-  private async buildInitialRuntimeContextBlock(
-    instance: Instance,
-    config: InstanceCreateConfig,
-    initialPrompt: string | undefined,
-  ): Promise<string | undefined> {
-    const blocks = [config.initialContextBlock?.trim()].filter(Boolean) as string[];
-    const prompt = initialPrompt?.trim();
-    if (!prompt || instance.depth !== 0 || isRestoreOrReplayContinuity(config)) {
-      return blocks.length > 0 ? blocks.join('\n\n') : undefined;
-    }
-
-    try {
-      const service = getIndexedCodebaseContextService();
-      const indexedContext = await service.buildContext({
-        workspacePath: instance.workingDirectory,
-        query: prompt,
-        maxTokens: 900,
-        topK: 5,
-      });
-      const indexedBlock = service.formatContextBlock(indexedContext);
-      if (indexedBlock) {
-        blocks.push(indexedBlock);
-        logger.info('Injected indexed codebase context into initial prompt', {
-          instanceId: instance.id,
-          storeId: indexedContext?.storeId,
-          resultCount: indexedContext?.results.length ?? 0,
-          tokens: indexedContext?.tokens ?? 0,
-        });
-      }
-    } catch (error) {
-      logger.warn('Failed to build indexed codebase context for initial prompt', {
-        instanceId: instance.id,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-
-    return blocks.length > 0 ? blocks.join('\n\n') : undefined;
-  }
-
   /**
    * Three-way native-resume verdict. Wraps the readiness coordinator's probe
    * with this layer's resume-attempt-result classification: a `fresh-fallback`
@@ -1414,277 +1348,23 @@ export class InstanceLifecycleManager extends EventEmitter {
 
         if (signal.aborted) return;
 
-        // Build system prompt with instruction content prepended
-        let systemPrompt = resolvedAgent.systemPrompt || '';
-        if (instructionPrompts.length > 0) {
-          const instructionSection = instructionPrompts.join('\n\n---\n\n');
-          systemPrompt = `${instructionSection}\n\n---\n\n${systemPrompt}`;
-          logger.info('Prepended instruction prompts to system prompt', { count: instructionPrompts.length });
-        }
-
-        // Output style (claude2_todo #29): append the selected communication-style
-        // directive for root sessions on system-prompt-injectable providers.
-        // Default 'default' is a no-op, so this is inert unless the user opts in.
-        if (instance.depth === 0) {
-          const outputStyle = this.settings.getAll().outputStyle;
-          if (outputStyle && outputStyle !== 'default' && isOutputStyleInjectableProvider(config.provider)) {
-            let styled = systemPrompt;
-            if (isOutputStyleName(outputStyle)) {
-              // Built-in style (unchanged behaviour — append-only).
-              styled = applyOutputStyle(systemPrompt, outputStyle);
-            } else {
-              // User-authored `.md` style: append or full-prompt-swap (mode: replace).
-              const userStyle = await getOutputStyleRegistry()
-                .resolveUserStyle(instance.workingDirectory, outputStyle)
-                .catch((err) => {
-                  logger.warn('User output-style resolution failed', { outputStyle, error: String(err) });
-                  return null;
-                });
-              if (userStyle) {
-                styled = applyResolvedOutputStyle(systemPrompt, userStyle);
-              }
-            }
-            if (styled !== systemPrompt) {
-              systemPrompt = styled;
-              logger.info('Applied output style to system prompt', { outputStyle });
-            }
-          }
-        }
-
-        // Inject observation memory context (learned reflections from past sessions).
-        // Deadline-bounded and off-thread via the context worker.
-        try {
-        const observationContext = await callWithDeadline(
-          this.deps.buildObservationContext(systemPrompt, instance.id, config.initialPrompt),
-          {
-            ms: CREATE_ENRICHER_DEADLINE_MS,
-            fallback: '',
-              onTimeout: () =>
-                logger.info('Observation context exceeded create deadline; deferring to next turn', {
-                  instanceId: instance.id,
-                }),
-              onError: (err) =>
-                logger.warn('Failed to inject observation context', {
-                  error: err instanceof Error ? err.message : String(err),
-                }),
-              onLateResult: (text) => this.deferEnricherPreamble(instance.id, 'observation', text),
-            },
-          );
-          if (observationContext) {
-            systemPrompt = `${systemPrompt}\n\n---\n\n${observationContext}`;
-            logger.info('Injected observation memory context into system prompt');
-          }
-        } catch (err) {
-          logger.warn('Failed to inject observation context', { error: err instanceof Error ? err.message : String(err) });
-        }
-
-        // Inject a compact, project-scoped memory brief for fresh root sessions.
-        if (instance.depth === 0 && !isRestoreOrReplayContinuity(config)) {
-          try {
-            const projectBriefRequest = {
-              projectPath: instance.workingDirectory,
-              instanceId: instance.id,
-              initialPrompt: config.initialPrompt,
-              provider: config.provider,
-              model: config.modelOverride || resolvedAgent.modelOverride || this.settings.getAll().defaultModel,
-            };
-            let projectBrief = await getContextWorkerClient()
-              .buildProjectMemoryBrief(projectBriefRequest)
-              .catch((error) => {
-                logger.warn('Context worker failed to build project memory brief; falling back to main process', {
-                  error: error instanceof Error ? error.message : String(error),
-                });
-                return null;
-              });
-            projectBrief ??= await getProjectMemoryBriefService().buildBrief(projectBriefRequest);
-            if (projectBrief.text.trim()) {
-              systemPrompt = `${systemPrompt}\n\n---\n\n${projectBrief.text}`;
-              logger.info('Injected project memory brief into system prompt', {
-                projectKey: projectBrief.stats.projectKey,
-                candidatesScanned: projectBrief.stats.candidatesScanned,
-                candidatesIncluded: projectBrief.stats.candidatesIncluded,
-                sourceCounts: projectBrief.sources.reduce<Record<string, number>>((counts, source) => {
-                  counts[source.type] = (counts[source.type] ?? 0) + 1;
-                  return counts;
-                }, {}),
-                truncated: projectBrief.stats.truncated,
-              });
-            }
-          } catch (err) {
-            logger.warn('Failed to inject project memory brief', {
-              error: err instanceof Error ? err.message : String(err),
-              instanceId: instance.id,
-            });
-          }
-        }
-
-        // A7#15: inject authored project lessons (.aio/lessons.md) into fresh
-        // root sessions. The file is git-trackable and written by humans/agents;
-        // injecting it carries hard-won knowledge into the next session. Skipped
-        // when the file holds only its skeleton placeholder (no real entries).
-        if (instance.depth === 0 && !isRestoreOrReplayContinuity(config)) {
-          try {
-            const lessons = extractAuthoredLessons({ projectRoot: instance.workingDirectory });
-            if (lessons) {
-              systemPrompt = `${systemPrompt}\n\n---\n\n${lessons}`;
-              logger.info('Injected project lessons into system prompt', {
-                instanceId: instance.id,
-                chars: lessons.length,
-              });
-            }
-          } catch (err) {
-            logger.warn('Failed to inject project lessons', {
-              error: err instanceof Error ? err.message : String(err),
-              instanceId: instance.id,
-            });
-          }
-        }
-
-        // E14: inject a compact ranked repo map for fresh root sessions so the
-        // agent has structural project context without reading every file.
-        if (instance.depth === 0 && !isRestoreOrReplayContinuity(config)
-            && instance.workingDirectory && this.settings.getAll().injectRepoMap) {
-          try {
-            const { getRepoMapService } = await import('../memory/repo-map-service');
-            const repoMap = await getRepoMapService().buildRepoMap({
-              projectPath: instance.workingDirectory,
-              tokenBudget: this.settings.getAll().repoMapTokenBudget,
-            });
-            if (repoMap.text.trim()) {
-              systemPrompt = `${systemPrompt}\n\n---\n\n${repoMap.text}`;
-              logger.info('Injected repo map into system prompt', {
-                instanceId: instance.id,
-                filesIncluded: repoMap.stats.filesIncluded,
-                filesConsidered: repoMap.stats.filesConsidered,
-                tokensUsed: repoMap.stats.tokensUsed,
-                truncated: repoMap.stats.truncated,
-                fallback: repoMap.stats.fallback,
-              });
-            }
-          } catch (err) {
-            logger.warn('Failed to inject repo map', {
-              error: err instanceof Error ? err.message : String(err),
-              instanceId: instance.id,
-            });
-          }
-        }
-
-        // Inject wake-up context (mempalace L0 identity + L1 essential story)
-        if (instance.depth === 0) {
-          try {
-            const wakeText = await callWithDeadline(
-              () => this.deps.buildWakeContextText(instance.workingDirectory),
-              {
-                ms: CREATE_ENRICHER_DEADLINE_MS,
-                fallback: null,
-                onTimeout: () =>
-                  logger.info('Wake context exceeded create deadline; continuing without it', {
-                    instanceId: instance.id,
-                  }),
-                onError: (error) =>
-                  logger.warn('Failed to build wake context off-thread', {
-                    instanceId: instance.id,
-                    error: error instanceof Error ? error.message : String(error),
-                  }),
-              },
-            );
-            if (wakeText && wakeText.trim().length > 30) {
-              systemPrompt = `${systemPrompt}\n\n---\n\n${wakeText}`;
-              logger.info('Injected wake-up context into system prompt', {
-                tokenEstimate: sharedEstimateTokens(wakeText),
-              });
-            }
-          } catch (err) {
-            logger.warn('Failed to inject wake context', {
-              error: err instanceof Error ? err.message : String(err),
-            });
-          }
-        }
-
-        // Register and refresh project knowledge for the working directory (async, fire-and-forget).
-        if (instance.depth === 0 && instance.workingDirectory) {
-          getProjectKnowledgeCoordinator().ensureProjectKnown(
-            instance.workingDirectory,
-            'instance-working-directory',
-            { autoRefresh: true },
-          ).catch((err) => {
-            logger.warn('Codebase mining failed', {
-              error: err instanceof Error ? err.message : String(err),
-              workingDirectory: instance.workingDirectory,
-            });
-          });
-        }
-
-        const initialRuntimeContextBlock = await this.buildInitialRuntimeContextBlock(
+        // Build the system prompt via the locked injection contract (WS-B4)
+        // and the initial-turn runtime context block. Extracted to
+        // instance-system-prompt.ts; see that module's header for the full
+        // rationale and the byte-identical-behaviour contract it must uphold.
+        const { systemPrompt, initialRuntimeContextBlock } = await assembleInstanceSystemPrompt({
           instance,
           config,
-          initialUserMessage?.content,
-        );
-
-        // MCP runtime tool selection. Deadline-bounded: a slow tool-load (or a
-        // large connector set) defers into the next turn rather than holding up
-        // the first send.
-        try {
-          const mcpManager = getMcpManager();
-          const runtimeToolSelection = await callWithDeadline<
-            McpRuntimeToolContextSelection | null
-          >(
-            () =>
-              this.deps.buildMcpRuntimeToolContextSelection(
-                mcpManager.exportRuntimeToolContextSnapshot(),
-                config.initialPrompt,
-                6,
-              ),
-            {
-              ms: CREATE_ENRICHER_DEADLINE_MS,
-              fallback: null,
-              onTimeout: () =>
-                logger.info('MCP tool context exceeded create deadline; deferring to next turn', {
-                  instanceId: instance.id,
-                }),
-              onLateResult: (selection) => {
-                if (!selection) {
-                  return;
-                }
-                void mcpManager
-                  .hydrateRuntimeToolContextSelection(selection)
-                  .then((ctx) => {
-                    this.deferEnricherPreamble(
-                      instance.id,
-                      'mcp',
-                      mcpManager.formatRuntimeToolContext(ctx),
-                    );
-                  })
-                  .catch((error) => {
-                    logger.warn('Failed to hydrate deferred MCP tool context', {
-                      instanceId: instance.id,
-                      error: error instanceof Error ? error.message : String(error),
-                    });
-                  });
-              },
-            },
-          );
-          const runtimeToolContext = runtimeToolSelection
-            ? await mcpManager.hydrateRuntimeToolContextSelection(runtimeToolSelection)
-            : null;
-          const mcpPrompt = runtimeToolContext
-            ? mcpManager.formatRuntimeToolContext(runtimeToolContext)
-            : null;
-          if (runtimeToolContext && mcpPrompt) {
-            systemPrompt = `${systemPrompt}\n\n---\n\n${mcpPrompt}`;
-            logger.info('Injected deferred MCP runtime tool context into system prompt', {
-              selectedTools: runtimeToolContext.selectedTools.length,
-              deferredToolCount: runtimeToolContext.deferredToolCount,
-              serverCount: runtimeToolContext.serverSummaries.length,
-            });
-          }
-        } catch (err) {
-          logger.warn('Failed to inject MCP runtime tool context', {
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-
-        systemPrompt += `\n\n---\n\n${buildToolPermissionPrompt(instance.yoloMode)}`;
+          resolvedAgent,
+          instructionPrompts,
+          initialUserMessageContent: initialUserMessage?.content,
+          deps: {
+            buildObservationContext: this.deps.buildObservationContext,
+            buildWakeContextText: this.deps.buildWakeContextText,
+            buildMcpRuntimeToolContextSelection: this.deps.buildMcpRuntimeToolContextSelection,
+            deferEnricherPreamble: (instanceId, label, text) => this.deferEnricherPreamble(instanceId, label, text),
+          },
+        });
 
         if (signal.aborted) return;
 

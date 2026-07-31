@@ -26,6 +26,7 @@ import type { EvidenceObservationBoundary } from '../context-evidence/evidence-c
 import type { ContextEvidenceCoordinator } from '../context-evidence/context-evidence-coordinator';
 import { getContextEvidenceMode } from '../context-evidence/context-evidence-settings';
 import { getSettingsManager } from '../core/config/settings-manager';
+import { pickNeverWorse } from './never-worse';
 
 const logger = getLogger('OutputPersistenceManager');
 
@@ -167,12 +168,16 @@ export class OutputPersistenceManager {
         return output;
       }
       if (mode === 'shadow') return output;
-      return await this.buildAuthenticatedPreview(
+      // Persistence already happened above regardless of mode; this guard only
+      // governs what goes into the context — never swap in a preview that
+      // isn't actually smaller than the raw output (P0.2).
+      const preview = await this.buildAuthenticatedPreview(
         context.conversationId,
         result.capture.record.id,
         output,
         result.capture.record.byteCount,
       );
+      return pickNeverWorse(output, preview);
     } catch (error) {
       this.recordMigrationError(contentFreeErrorCode(error), context.provider, toolName);
       return output;

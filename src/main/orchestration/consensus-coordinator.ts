@@ -23,6 +23,7 @@ import type {
   ConsensusProviderResponse,
   ConsensusResult,
   ConsensusProgressEvent,
+  ConsensusStrategy,
 } from './consensus.types';
 import { getLogger } from '../logging/logger';
 import { handleCoordinatorError } from './utils/coordinator-error-handler';
@@ -429,6 +430,24 @@ export class ConsensusCoordinator extends EventEmitter {
       .filter(cli => availableNames.has(cli))
       .slice(0, MAX_CONCURRENT_QUERIES)
       .map(cli => ({ provider: cli as ConsensusProviderSpec['provider'] }));
+  }
+
+  /**
+   * Synthesize consensus text directly from already-collected provider
+   * responses (e.g. an Ask Council compare run, WS-B6) — no new provider
+   * calls, just the existing agreement/dissent/edge-case algorithm this
+   * class already uses for live `query()` fan-outs. Public so callers that
+   * hold pre-collected `ConsensusProviderResponse[]` (successes AND
+   * failures — failures keep absent members visible in the result) can
+   * reuse the exact same synthesis this coordinator produces for a live
+   * query, without re-querying any provider.
+   */
+  synthesizeFromResponses(
+    responses: ConsensusProviderResponse[],
+    strategy: ConsensusStrategy = 'majority',
+    providerSpecs: ConsensusProviderSpec[] = [],
+  ): ConsensusResult {
+    return this.synthesizeConsensus(responses, strategy, Date.now(), providerSpecs);
   }
 
   /**

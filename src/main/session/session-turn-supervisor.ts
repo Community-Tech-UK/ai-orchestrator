@@ -12,6 +12,7 @@
 
 import { getLogger } from '../logging/logger';
 import { getSessionContinuityManagerIfInitialized } from './session-continuity';
+import { getDoomLoopDetector } from '../orchestration/doom-loop-detector';
 
 const logger = getLogger('SessionTurnSupervisor');
 
@@ -60,6 +61,12 @@ export class SessionTurnSupervisor {
       turnGeneration: this.turnGeneration,
       providerTurnId: providerTurnId ?? null,
     });
+    // WS-A2: this is the only clean turn-start signal shared by every
+    // provider path (instance-communication.ts calls recordTurnStart() on
+    // the first output/tool event of a new turn) — reset the tool-loop
+    // detector's per-turn chains/warn-once state here rather than adding a
+    // second call site.
+    this.notifyToolLoopDetector('notifyTurnStart');
   }
 
   recordTurnEnd(outcome: TurnOutcome): void {
@@ -68,6 +75,7 @@ export class SessionTurnSupervisor {
       turnGeneration: this.turnGeneration,
       outcome,
     });
+    this.notifyToolLoopDetector('notifyTurnEnd');
   }
 
   // ─── Interrupt lifecycle ────────────────────────────────────────────────────
@@ -112,6 +120,14 @@ export class SessionTurnSupervisor {
       getSessionContinuityManagerIfInitialized()?.logTurnEvent(this.instanceId, type, payload);
     } catch {
       // Journal failures must not disrupt the main flow.
+    }
+  }
+
+  private notifyToolLoopDetector(method: 'notifyTurnStart' | 'notifyTurnEnd'): void {
+    try {
+      getDoomLoopDetector()[method](this.instanceId);
+    } catch {
+      // Tool-loop detection must never disrupt turn lifecycle tracking.
     }
   }
 }

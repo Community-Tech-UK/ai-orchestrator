@@ -7,6 +7,8 @@ describe('INSTANCE_CHANNELS', () => {
     expect(INSTANCE_CHANNELS.INSTANCE_STEER_INPUT).toBe('instance:steer-input');
     expect(INSTANCE_CHANNELS.INSTANCE_HIBERNATE).toBe('instance:hibernate');
     expect(INSTANCE_CHANNELS.INSTANCE_COMPACT).toBe('instance:compact');
+    expect(INSTANCE_CHANNELS.INSTANCE_COMPACTION_PREVIEW).toBe('instance:compaction-preview');
+    expect(INSTANCE_CHANNELS.INSTANCE_COMPACTION_APPLY).toBe('instance:compaction-apply');
     expect(INSTANCE_CHANNELS.INSTANCE_RECOVER_COMPACTION_CONTEXT).toBe('instance:recover-compaction-context');
     expect(INSTANCE_CHANNELS.CONTEXT_WARNING).toBe('context:warning');
   });

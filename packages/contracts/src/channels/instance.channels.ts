@@ -48,6 +48,10 @@ export const INSTANCE_CHANNELS = {
 
   // Context compaction
   INSTANCE_COMPACT: 'instance:compact',
+  /** WS-B7: read-only manual-compaction preview (affected range, boundary, mode). */
+  INSTANCE_COMPACTION_PREVIEW: 'instance:compaction-preview',
+  /** WS-B7: boundary-aware manual compaction apply (checkpoint + "keep latest N exchanges"). */
+  INSTANCE_COMPACTION_APPLY: 'instance:compaction-apply',
   INSTANCE_RECOVER_COMPACTION_CONTEXT: 'instance:recover-compaction-context',
   INSTANCE_COMPACT_STATUS: 'instance:compact-status',
   CONTEXT_WARNING: 'context:warning',

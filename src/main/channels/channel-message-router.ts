@@ -30,6 +30,12 @@ import { RateLimiter } from './rate-limiter';
 import type { BaseChannelAdapter, ChannelAutocompleteChoice, ChannelAutocompleteRequest } from './channel-adapter';
 import { getRecentDirectoriesManager } from '../core/config/recent-directories-manager';
 import { getSettingsManager } from '../core/config/settings-manager';
+import { getSessionAdmissionService } from '../session/session-admission-service';
+import {
+  deliverChannelMessage,
+  handleChannelAdmissionRedelivery,
+  type ChannelAdmissionDeliveryDeps,
+} from './channel-admission-delivery';
 import type {
   ChannelMessageAction,
   ChannelPlatform,
@@ -220,7 +226,20 @@ export class ChannelMessageRouter {
       getWatchingChats: (instanceId: string) => this.getWatchingChatsForInstance(instanceId),
     });
     this.promptBridge.start();
+    getSessionAdmissionService().registerRedeliveryHandler(
+      'channel',
+      (ctx) => handleChannelAdmissionRedelivery(this.admissionDeliveryDeps(), ctx),
+    );
     logger.info('Channel message router started');
+  }
+
+  /** Capabilities the extracted admission-delivery module needs from this router. */
+  private admissionDeliveryDeps(): ChannelAdmissionDeliveryDeps {
+    return {
+      getInstanceManager: () => this.getInstanceManager(),
+      streamResults: (msg, instanceId, adapter) => this.streamResults(msg, instanceId, adapter),
+      getAdapter: (platform) => this.channelManager.getAdapter(platform),
+    };
   }
 
   stop(): void {
@@ -2364,16 +2383,7 @@ export class ChannelMessageRouter {
       await im.wakeInstance(instanceId);
     }
 
-    // Attach the output listener before delivering the prompt so the reply
-    // can't be emitted before we're listening. (This is an existing, ready
-    // instance, so there is no buffered first turn to replay.)
-    this.streamResults(msg, instanceId, adapter);
-
-    if (attachments.length > 0) {
-      await im.sendInput(instanceId, buildChannelMessagePrompt(msg, content), attachments);
-    } else {
-      await im.sendInput(instanceId, buildChannelMessagePrompt(msg, content));
-    }
+    await deliverChannelMessage(this.admissionDeliveryDeps(), msg, instanceId, content, adapter, attachments);
   }
 
   private async routeBroadcast(
@@ -2405,14 +2415,7 @@ export class ChannelMessageRouter {
 
     for (const inst of activeInstances) {
       try {
-        // Attach before delivering the prompt so the reply can't race ahead of
-        // the listener. These are existing instances, so nothing to replay.
-        this.streamResults(msg, inst.id, adapter);
-        if (attachments.length > 0) {
-          await im.sendInput(inst.id, buildChannelMessagePrompt(msg, content), attachments);
-        } else {
-          await im.sendInput(inst.id, buildChannelMessagePrompt(msg, content));
-        }
+        await deliverChannelMessage(this.admissionDeliveryDeps(), msg, inst.id, content, adapter, attachments);
       } catch (err) {
         logger.warn('Failed to send broadcast to instance', { instanceId: inst.id, error: err });
       }

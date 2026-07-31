@@ -28,6 +28,7 @@ const EXPECTED_PATHS = [
   '/rlm',
   '/training',
   '/memory',
+  '/memory-review',
   '/memory/stats',
   '/debate',
   '/verification',

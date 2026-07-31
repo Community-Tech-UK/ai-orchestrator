@@ -1,0 +1,234 @@
+<div class="page">
+  <!-- Header -->
+  <div class="page-header">
+    <div class="header-title">
+      <span class="title">Ask Council</span>
+      <span class="subtitle">Send the same prompt to multiple AI providers — answers appear as each one finishes, then synthesize them</span>
+    </div>
+  </div>
+
+  <!-- Banners -->
+  @if (errorMessage()) {
+    <div class="banner banner-error" role="alert">{{ errorMessage() }}</div>
+  }
+
+  <!-- Prompt input area -->
+  <div class="input-section">
+    <label for="council-prompt" class="visually-hidden">Prompt for the council</label>
+    <textarea
+      id="council-prompt"
+      class="prompt-input"
+      [value]="prompt()"
+      placeholder="Enter your prompt here — all selected providers will receive exactly this text..."
+      rows="4"
+      [disabled]="isRunning()"
+      (input)="onPromptInput($event)"
+    ></textarea>
+
+    <!-- Provider selector -->
+    <fieldset class="providers-row">
+      <legend class="providers-label">Providers</legend>
+
+      @if (loadingProviders()) {
+        <span class="providers-loading">Detecting installed providers…</span>
+      } @else if (availableProviders().length === 0) {
+        <span class="providers-empty">No providers detected. Install Claude, Gemini, Copilot, or Codex CLI.</span>
+      } @else {
+        <div class="providers-list">
+          @for (p of availableProviders(); track p) {
+            <label class="provider-checkbox" [class.checked]="isSelected(p)">
+              <input
+                type="checkbox"
+                [checked]="isSelected(p)"
+                [disabled]="isRunning()"
+                (change)="toggleProvider(p)"
+              />
+              <span class="provider-name">{{ p }}</span>
+            </label>
+          }
+        </div>
+      }
+
+      <button
+        class="btn btn-select-all"
+        type="button"
+        [disabled]="availableProviders().length === 0 || isRunning()"
+        (click)="selectAll()"
+      >
+        All
+      </button>
+      <button
+        class="btn btn-clear"
+        type="button"
+        [disabled]="selectedProviders().length === 0 || isRunning()"
+        (click)="clearSelection()"
+      >
+        None
+      </button>
+    </fieldset>
+
+    <div class="actions-row">
+      <button
+        class="btn btn-primary"
+        type="button"
+        [disabled]="!canStart()"
+        (click)="runCouncil()"
+      >
+        @if (starting()) {
+          Starting…
+        } @else {
+          Ask Council
+        }
+      </button>
+
+      @if (canCancel()) {
+        <button class="btn btn-cancel" type="button" (click)="cancel()">Cancel</button>
+      }
+
+      @if (run() && !isRunning()) {
+        <button class="btn" type="button" (click)="clearRun()">Clear</button>
+      }
+
+      <span class="run-hint">{{ runHint() }}</span>
+    </div>
+  </div>
+
+  <!-- Per-provider cards -->
+  @if (members().length > 0) {
+    <div class="results-section">
+      <div class="results-header">
+        <span class="results-count">
+          {{ succeededMembers().length }} of {{ members().length }} provider{{ members().length !== 1 ? 's' : '' }} answered
+        </span>
+        @if (isRunning()) {
+          <span class="running-indicator">
+            <span class="spinner" aria-hidden="true"></span>
+            Waiting for {{ pendingCount() }} more…
+          </span>
+        }
+      </div>
+
+      <div class="cards-grid" aria-live="polite">
+        @for (member of members(); track member.provider) {
+          <div class="card" [class]="'card-' + member.status">
+            <div class="card-header">
+              <span class="card-provider">{{ member.provider }}</span>
+              @if (member.model) {
+                <span class="card-model">{{ member.model }}</span>
+              }
+              @if (member.durationMs !== undefined) {
+                <span class="card-duration">{{ formatMs(member.durationMs) }}</span>
+              }
+              <span class="card-status" [class]="'status-' + member.status">
+                {{ statusLabel(member.status) }}
+              </span>
+            </div>
+
+            @if (member.status === 'succeeded' && member.answer) {
+              <div class="card-body card-answer">{{ member.answer }}</div>
+            } @else if ((member.status === 'failed' || member.status === 'cancelled') && member.error) {
+              <div class="card-body card-error-msg">{{ member.error }}</div>
+            } @else if (member.status === 'running') {
+              <div class="card-body card-pending">
+                <span class="spinner" aria-hidden="true"></span> Waiting for a response…
+              </div>
+            } @else if (member.status === 'queued') {
+              <div class="card-body card-pending">Queued…</div>
+            }
+          </div>
+        }
+      </div>
+    </div>
+  } @else if (!starting()) {
+    <div class="empty-state">
+      Select providers above, enter a prompt, then click <strong>Ask Council</strong>.
+    </div>
+  }
+
+  <!-- Synthesis controls -->
+  @if (canSynthesize() || synthesis()) {
+    <div class="synthesis-section">
+      <div class="synthesis-header">Synthesize the council's answers</div>
+
+      <fieldset class="synthesis-method" [disabled]="synthesizing()">
+        <legend class="visually-hidden">Synthesis method</legend>
+
+        <label class="synthesis-option">
+          <input
+            type="radio"
+            name="synthesis-method"
+            value="consensus"
+            [checked]="synthesisChoice() === 'consensus'"
+            (change)="setSynthesisChoice('consensus')"
+          />
+          Consensus (agreement, dissent, edge cases)
+        </label>
+
+        <label class="synthesis-option">
+          <input
+            type="radio"
+            name="synthesis-method"
+            value="debate"
+            [checked]="synthesisChoice() === 'debate'"
+            (change)="setSynthesisChoice('debate')"
+          />
+          Debate-moderated synthesis
+        </label>
+
+        <label class="synthesis-option">
+          <input
+            type="radio"
+            name="synthesis-method"
+            value="provider"
+            [checked]="synthesisChoice() === 'provider'"
+            (change)="setSynthesisChoice('provider')"
+          />
+          Pick a provider to synthesize
+        </label>
+
+        @if (synthesisChoice() === 'provider') {
+          <label for="synthesis-provider-select" class="visually-hidden">Provider to synthesize with</label>
+          <select
+            id="synthesis-provider-select"
+            class="synthesis-provider-select"
+            (change)="setSynthesisProviderId($any($event.target).value)"
+          >
+            @for (p of synthesisProviderChoices(); track p) {
+              <option [value]="p">{{ p }}</option>
+            }
+          </select>
+        }
+      </fieldset>
+
+      <button
+        class="btn btn-primary"
+        type="button"
+        [disabled]="!canSynthesize()"
+        (click)="synthesize()"
+      >
+        @if (synthesizing()) {
+          Synthesizing…
+        } @else {
+          Synthesize
+        }
+      </button>
+
+      @if (synthesis(); as result) {
+        <div class="synthesis-result">
+          @if (result.error) {
+            <div class="banner banner-error" role="alert">{{ result.error }}</div>
+          } @else {
+            <div class="synthesis-text">{{ result.text }}</div>
+          }
+          <div class="synthesis-attribution">
+            @for (a of result.attribution; track a.provider) {
+              <span class="attribution-chip" [class.included]="a.included" [title]="a.reason ?? ''">
+                {{ a.provider }}{{ a.included ? '' : ' (absent)' }}
+              </span>
+            }
+          </div>
+        </div>
+      }
+    </div>
+  }
+</div>

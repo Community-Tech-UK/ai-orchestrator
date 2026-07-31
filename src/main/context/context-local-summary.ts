@@ -4,6 +4,7 @@ import {
   summarizeFileOperations,
 } from './file-operation-extractor';
 import { hasAuthenticatedEvidencePreview } from './microcompact';
+import { pickNeverWorse } from './never-worse';
 
 /**
  * Generate a local summary without an API call.
@@ -42,7 +43,9 @@ export function generateLocalSummary(turns: ConversationTurn[], priorSummary: st
       const result = tc.output
         ? hasAuthenticatedEvidencePreview(tc)
           ? `authenticated evidence ${tc.evidencePreview.evidenceId} retained separately`
-          : tc.output.slice(0, 80).replace(/\n/g, ' ')
+          // Never swap in the truncated form when it wouldn't actually cost
+          // fewer estimated tokens than the full output (short outputs).
+          : pickNeverWorse(tc.output, tc.output.slice(0, 80).replace(/\n/g, ' '))
         : 'no output';
       toolLines.push(`- \`${tc.name}\`: ${result}`);
     }

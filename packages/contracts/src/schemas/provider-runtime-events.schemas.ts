@@ -148,6 +148,33 @@ const ProviderCompleteEventSchema = z.object({
   ...ProviderApiDiagnosticsSchema,
 });
 
+// WS-B10 (2026-07-30): mandatory unknown-item member — see ProviderUnknownEvent
+// in packages/contracts/src/types/provider-runtime-events.ts for the rationale.
+const ProviderUnknownEventSchema = z.object({
+  kind: z.literal('unknown'),
+  providerRef: ProviderNameSchema.optional(),
+  rawType: z.string().min(1),
+  payload: z.unknown(),
+  receivedAt: z.number().int().nonnegative(),
+});
+
+// WS-B10: loop-guard seam. See ProviderToolUseObservedEvent/ProviderToolResultObservedEvent.
+const ProviderToolUseObservedEventSchema = z.object({
+  kind: z.literal('tool_use_observed'),
+  toolName: z.string(),
+  callId: z.string().optional(),
+  argsHash: z.string().optional(),
+  argsSummary: z.string(),
+});
+
+const ProviderToolResultObservedEventSchema = z.object({
+  kind: z.literal('tool_result_observed'),
+  callId: z.string().optional(),
+  resultHash: z.string().optional(),
+  resultSummary: z.string(),
+  isError: z.boolean().optional(),
+});
+
 export const ProviderRuntimeEventSchema = z.discriminatedUnion('kind', [
   ProviderOutputEventSchema,
   ProviderToolUseEventSchema,
@@ -158,6 +185,9 @@ export const ProviderRuntimeEventSchema = z.discriminatedUnion('kind', [
   ProviderExitEventSchema,
   ProviderSpawnedEventSchema,
   ProviderCompleteEventSchema,
+  ProviderToolUseObservedEventSchema,
+  ProviderToolResultObservedEventSchema,
+  ProviderUnknownEventSchema,
 ]);
 
 export const ProviderRuntimeEventEnvelopeSchema = z.object({
@@ -174,5 +204,7 @@ export const ProviderRuntimeEventEnvelopeSchema = z.object({
     source: z.string().min(1).max(100),
     payload: z.unknown(),
   }).optional(),
+  // WS-B10: must-not-persist marker honored by ProviderRuntimeEventBus.captureRawBackedEvent.
+  ephemeral: z.boolean().optional(),
   event: ProviderRuntimeEventSchema,
 });

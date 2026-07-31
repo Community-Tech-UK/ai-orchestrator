@@ -37,6 +37,7 @@ const LocalAiRoutingRoleSchema = z.enum([
   'titleGeneration',
   'routingClassification',
   'approvalScoring',
+  'approvalAdjudication',
   'loopScoring',
   'retrievalHypothesis',
   'branchScoring',

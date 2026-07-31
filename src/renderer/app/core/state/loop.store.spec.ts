@@ -15,9 +15,9 @@ describe('LoopStore', () => {
     terminalIntentRecorded: Listener<{ loopRunId: string; intent: NonNullable<LoopStatePayload['terminalIntentPending']> }>[];
     terminalIntentRejected: Listener<{ loopRunId: string; intent: NonNullable<LoopStatePayload['terminalIntentPending']>; reason: string }>[];
     freshEyesReviewStarted: Listener<{ loopRunId: string; signal: string }>[];
-    freshEyesReviewPassed: Listener<{ loopRunId: string; signal: string; reviewersUsed: string[]; nonBlockingFindings: number; summary?: string }>[];
-    freshEyesReviewFailed: Listener<{ loopRunId: string; signal: string; error: string }>[];
-    freshEyesReviewBlocked: Listener<{ loopRunId: string; signal: string; reviewersUsed: string[]; blockingFindings: unknown[]; summary?: string }>[];
+    freshEyesReviewPassed: Listener<{ loopRunId: string; signal: string; reviewersUsed: string[]; nonBlockingFindings: number; summary?: string; demotedFindings?: unknown[]; coverage?: unknown[] }>[];
+    freshEyesReviewFailed: Listener<{ loopRunId: string; signal: string; error: string; coverage?: unknown[] }>[];
+    freshEyesReviewBlocked: Listener<{ loopRunId: string; signal: string; reviewersUsed: string[]; blockingFindings: unknown[]; summary?: string; demotedFindings?: unknown[]; coverage?: unknown[] }>[];
     steeringDowngraded: Listener<{ loopRunId: string; requestedKind: 'steer'; effectiveKind: 'queue'; reason: string }>[];
     followUpDrained: Listener<{ loopRunId: string; seq: number; count: number; remaining: number }>[];
     completed: Listener<{ loopRunId: string; signal: string; verifyOutput: string }>[];
@@ -223,9 +223,58 @@ describe('LoopStore', () => {
 
     expect(store.activityForLoop('loop-1')().map((activity) => activity.message)).toEqual([
       'Fresh-eyes review started for declared-complete',
-      'Fresh-eyes review blocked declared-complete',
+      'Fresh-eyes review blocked declared-complete: [high] Missing test',
     ]);
     expect(store.activityForLoop('loop-1')()[1]?.kind).toBe('input_required');
+  });
+
+  it('surfaces WS-A3 anchor status and demoted findings in fresh-eyes activity', () => {
+    store.ensureWired();
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: { ...activeState(), totalIterations: 3 },
+    }));
+
+    listeners.freshEyesReviewBlocked.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      signal: 'declared-complete',
+      reviewersUsed: ['gemini'],
+      blockingFindings: [{ severity: 'critical', title: 'Secret leaked', anchorStatus: 'verified' }],
+      summary: 'one blocker',
+      demotedFindings: [{ severity: 'high', title: 'Unverifiable claim', demotedReason: 'no quote' }],
+    }));
+
+    const activity = store.activityForLoop('loop-1')().at(-1);
+    expect(activity?.message).toBe(
+      'Fresh-eyes review blocked declared-complete: [critical] Secret leaked [verified] (1 other finding demoted to advisory)',
+    );
+    expect((activity?.detail as { demotedFindings?: unknown[] } | undefined)?.demotedFindings).toHaveLength(1);
+  });
+
+  it('surfaces a WS-B9 required-angle coverage shortfall suffix on fresh-eyes activity', () => {
+    store.ensureWired();
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: { ...activeState(), totalIterations: 3 },
+    }));
+
+    listeners.freshEyesReviewPassed.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      signal: 'declared-complete',
+      reviewersUsed: ['gemini'],
+      nonBlockingFindings: 0,
+      summary: 'reviewer ran clean',
+      coverage: [
+        { angle: 'correctness', reviewerProvider: 'gemini', status: 'used', findingCount: 0, required: true },
+        { angle: 'security', reviewerProvider: 'codex', status: 'parse_failed', findingCount: 0, required: true },
+      ],
+    }));
+
+    const activity = store.activityForLoop('loop-1')().at(-1);
+    expect(activity?.message).toBe(
+      'Fresh-eyes review passed for declared-complete (1 required reviewer angle short of coverage this attempt)',
+    );
+    expect((activity?.detail as { coverage?: unknown[] } | undefined)?.coverage).toHaveLength(2);
   });
 
   it('surfaces steering downgrade and follow-up drain events as loop activity', () => {

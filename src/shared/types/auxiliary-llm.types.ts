@@ -13,6 +13,7 @@ export type AuxiliaryLlmSlot =
   | 'titleGeneration'
   | 'routingClassification'
   | 'approvalScoring'
+  | 'approvalAdjudication'
   | 'loopScoring'
   | 'retrievalHypothesis'
   | 'branchScoring'
@@ -35,6 +36,7 @@ export const DEFAULT_SLOT_TIERS: Record<AuxiliaryLlmSlot, AuxiliaryLlmTier> = {
   titleGeneration: 'quick',
   routingClassification: 'quick',
   approvalScoring: 'quick',
+  approvalAdjudication: 'quality',
   loopScoring: 'quick',
   retrievalHypothesis: 'quick',
   branchScoring: 'quick',

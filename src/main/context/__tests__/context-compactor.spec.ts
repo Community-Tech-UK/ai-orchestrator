@@ -439,6 +439,51 @@ describe('ContextCompactor', () => {
     });
   });
 
+  describe('preserveRecentOverride (WS-B7 manual boundary)', () => {
+    function seed(compactorInstance: ContextCompactor): void {
+      compactorInstance.updateConfig({
+        maxContextTokens: 1100,
+        autoCompact: false,
+        triggerThreshold: 0.85,
+        preserveRecent: 5,
+      });
+      for (let i = 0; i < 10; i++) {
+        compactorInstance.addTurn(makeTurn({
+          tokenCount: 100,
+          role: i % 2 === 0 ? 'user' : 'assistant',
+          content: `turn ${i}`,
+        }));
+      }
+    }
+
+    beforeEach(() => {
+      seed(compactor);
+    });
+
+    it('is byte-compatible with the pre-WS-B7 default when omitted (uses config.preserveRecent)', async () => {
+      const withOptions = await compactor.compact();
+      ContextCompactor._resetForTesting();
+      compactor = ContextCompactor.getInstance();
+      seed(compactor);
+      const withoutOptions = await compactor.compact(undefined);
+
+      expect(withOptions.turnsPreserved).toBe(withoutOptions.turnsPreserved);
+      expect(withOptions.turnsRemoved).toBe(withoutOptions.turnsRemoved);
+    });
+
+    it('honors a smaller preserveRecentOverride than the configured default', async () => {
+      const result = await compactor.compact({ preserveRecentOverride: 1 });
+      expect(result.summaryGenerated).toBe(true);
+      // Fewer turns preserved than the config default of 5 would have kept.
+      expect(result.turnsPreserved).toBeLessThan(5);
+    });
+
+    it('does not mutate the shared config.preserveRecent default', async () => {
+      await compactor.compact({ preserveRecentOverride: 1 });
+      expect(compactor.getConfig().preserveRecent).toBe(5);
+    });
+  });
+
   describe('compactLayered', () => {
     it('records one metrics attempt when it falls through to full compaction', async () => {
       compactor.updateConfig({

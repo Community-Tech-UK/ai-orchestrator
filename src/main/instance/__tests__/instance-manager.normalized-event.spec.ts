@@ -501,6 +501,8 @@ vi.mock('../../persistence/rlm-database', () => ({
 // ---------------------------------------------------------------------------
 import { InstanceManager } from '../instance-manager';
 import { InstanceSettledTracker } from '../instance-settled-tracker';
+import { DoomLoopDetector, getDoomLoopDetector, type ToolLoopDetectionEvent } from '../../orchestration/doom-loop-detector';
+import { getSettingsManager } from '../../core/config/settings-manager';
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -701,5 +703,80 @@ describe('InstanceManager settled events', () => {
     });
 
     await expect(waiting).resolves.toBe(current);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WS-A2: result-aware tool-loop protection wiring
+// ---------------------------------------------------------------------------
+
+describe('InstanceManager tool-loop detector wiring (WS-A2)', () => {
+  beforeEach(() => {
+    idCounter = 0;
+    capturedCommunicationDeps = undefined;
+    DoomLoopDetector._resetForTesting();
+  });
+
+  function repeatToolRoundTrip(manager: InstanceManager, instanceId: string, count: number): void {
+    for (let i = 0; i < count; i++) {
+      manager.emitProviderRuntimeEvent(instanceId, {
+        kind: 'tool_use',
+        toolName: 'read_file',
+        toolUseId: `call-${i}`,
+        input: { path: '/tmp/same.txt' },
+      });
+      manager.emitProviderRuntimeEvent(instanceId, {
+        kind: 'tool_result',
+        toolName: 'read_file',
+        toolUseId: `call-${i}`,
+        success: true,
+        output: 'identical content',
+      });
+    }
+  }
+
+  it('a synthetic normalized tool_use/tool_result stream reaches the doom-loop detector', () => {
+    const manager = new InstanceManager();
+    const detected: ToolLoopDetectionEvent[] = [];
+    getDoomLoopDetector().on('tool-loop-detected', (event: ToolLoopDetectionEvent) => detected.push(event));
+
+    repeatToolRoundTrip(manager, 'inst-loop', 3);
+
+    expect(detected).toHaveLength(1);
+    expect(detected[0]).toMatchObject({
+      instanceId: 'inst-loop',
+      detector: 'repeat-no-progress',
+      severity: 'warn',
+      toolName: 'read_file',
+    });
+  });
+
+  it('does not auto-interrupt when toolLoopAutoInterrupt is off (default)', () => {
+    const manager = new InstanceManager();
+    const interruptSpy = vi.spyOn(manager, 'interruptInstance').mockReturnValue(true);
+
+    // 6 identical round trips crosses the default critical threshold (3 x 2).
+    repeatToolRoundTrip(manager, 'inst-loop', 6);
+
+    expect(interruptSpy).not.toHaveBeenCalled();
+  });
+
+  it('auto-interrupts exactly once when toolLoopAutoInterrupt is on and a critical detection fires', () => {
+    vi.mocked(getSettingsManager).mockReturnValueOnce({
+      getAll: vi.fn(() => ({})),
+      get: vi.fn((key: string) => (key === 'toolLoopAutoInterrupt' ? true : undefined)),
+      on: vi.fn(),
+      emit: vi.fn(),
+    } as unknown as ReturnType<typeof getSettingsManager>);
+
+    const manager = new InstanceManager();
+    const interruptSpy = vi.spyOn(manager, 'interruptInstance').mockReturnValue(true);
+
+    // 8 identical round trips: crosses both the warn (3) and critical (6) thresholds,
+    // then keeps going — the idempotency guard must still cap this at one interrupt.
+    repeatToolRoundTrip(manager, 'inst-loop', 8);
+
+    expect(interruptSpy).toHaveBeenCalledTimes(1);
+    expect(interruptSpy).toHaveBeenCalledWith('inst-loop');
   });
 });

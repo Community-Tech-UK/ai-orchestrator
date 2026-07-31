@@ -332,8 +332,13 @@ export class ContextCompactor extends EventEmitter {
 
   /**
    * Perform context compaction with safety timeout, prune pass, and post-verification.
+   *
+   * `options.preserveRecentOverride` (WS-B7) lets a manual caller honor an
+   * explicit "keep latest N exchanges" boundary for this one call without
+   * mutating the shared `config.preserveRecent` default. Omitting it is
+   * byte-compatible with the pre-WS-B7 behavior (uses `config.preserveRecent`).
    */
-  async compact(): Promise<CompactionResult> {
+  async compact(options?: { preserveRecentOverride?: number }): Promise<CompactionResult> {
     this.rebuildWorkingStateFromSource();
     const originalTokens = this.state.totalTokens;
     const originalTurnCount = this.state.turns.length;
@@ -373,7 +378,11 @@ export class ContextCompactor extends EventEmitter {
       }
 
       // Phase 2: Summarize old turns
-      const turnsToPreserve = Math.min(this.config.preserveRecent, this.state.turns.length);
+      const preserveRecentRaw = options?.preserveRecentOverride ?? this.config.preserveRecent;
+      const preserveRecent = Number.isFinite(preserveRecentRaw)
+        ? Math.max(0, Math.floor(preserveRecentRaw))
+        : this.config.preserveRecent;
+      const turnsToPreserve = Math.min(preserveRecent, this.state.turns.length);
 
       // Orphan-repair invariant (B3): a naive "keep last N" cut can land
       // between a tool_use and its tool_result. Walk the boundary backward

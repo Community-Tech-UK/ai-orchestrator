@@ -7,6 +7,7 @@
  * - Chain-of-Verification (Meta AI, ACL 2024)
  */
 
+import { createHash } from 'node:crypto';
 import { estimateTokens } from '../../shared/utils/token-estimate';
 
 /**
@@ -55,10 +56,56 @@ export function angleForReviewer(index: number): ReviewAngle {
   return REVIEW_ANGLES[((index % REVIEW_ANGLES.length) + REVIEW_ANGLES.length) % REVIEW_ANGLES.length];
 }
 
+/**
+ * WS-B9: a stable fingerprint of the static prompt material a given angle
+ * actually produces for a reviewer — the angle's own title/guidance plus the
+ * shared evidence-citation instructions and JSON output shape for this review
+ * depth. Used as one component of the per-angle cache key
+ * (`review-coverage.ts`): editing any of this text changes the fingerprint,
+ * which invalidates every cached verdict keyed on the old version — a stale
+ * cached finding can never survive a prompt-wording change silently.
+ * Deliberately NOT a full rendered prompt (no `taskDescription`/reviewed
+ * content) — those vary every call and are already covered by the cache
+ * key's separate `workHash` component.
+ */
+export function promptVersionForAngle(reviewDepth: 'structured' | 'tiered', angle: ReviewAngle): string {
+  const shape = reviewDepth === 'tiered' ? TIERED_JSON_EXAMPLE : STRUCTURED_JSON_EXAMPLE;
+  const material = [reviewDepth, angle.id, angle.title, angle.guidance, EVIDENCE_SECTION, shape].join('\n');
+  return createHash('sha256').update(material).digest('hex').slice(0, 16);
+}
+
 function angleSection(angle?: ReviewAngle): string {
   if (!angle) return '';
   return `\n## Your primary review angle: ${angle.title}\nYou must still score every dimension below, but scrutinise this angle hardest: ${angle.guidance}\n`;
 }
+
+/**
+ * Sentinel line a reviewer appends to an "issues" string to cite evidence.
+ * Taught once here; parsed by `parseEvidenceTail` in
+ * `review-artifact-anchor.ts`. A plain marker (not free-form JSON-in-prose)
+ * keeps a reviewer that doesn't cite evidence producing ordinary text with no
+ * side effects, and makes one that does unambiguous to parse.
+ */
+export const EVIDENCE_TAIL_MARKER = '#EVIDENCE#';
+
+const EVIDENCE_SECTION = `
+## Citing evidence for an issue
+An issue you cannot locate in the material under review cannot block completion — it is only a
+best-effort observation for a human to consider. When you CAN point to the exact place, end that
+issue string with a line containing exactly ${EVIDENCE_TAIL_MARKER}, followed on the next line by one
+JSON object: {"file": "relative/path.ts", "lines": [12, 15], "quote": "the exact text you copied"}.
+"file" and "lines" are optional location hints. "quote" is required and must be copied
+character-for-character from the material under review — never paraphrased, retyped from memory, or
+invented. If you cannot produce an exact quote, do not add this line at all.
+
+Example issue string with evidence:
+"The handler never checks the response status before parsing JSON.
+${EVIDENCE_TAIL_MARKER}
+{"file": "src/api/client.ts", "lines": [42, 44], "quote": "const data = await res.json();"}"
+
+A fabricated or paraphrased quote is worse than none — when in doubt, omit the ${EVIDENCE_TAIL_MARKER}
+line rather than guess.
+`;
 
 function escapeClosingTag(text: string, tagName: string): string {
   return text.replace(new RegExp(`</${tagName}`, 'gi'), `<\\/${tagName}`);
@@ -120,7 +167,7 @@ For each dimension:
 - 3: Minor issues (style, non-critical suggestions)
 - 2: Notable issues that should be addressed
 - 1: Critical issues that would cause failures
-
+${EVIDENCE_SECTION}
 ## Output Format
 Respond ONLY with this JSON (no markdown fences, no preamble):
 ${STRUCTURED_JSON_EXAMPLE}
@@ -168,7 +215,7 @@ Score each (1-4, with reasoning BEFORE score):
 3. **Security** — vulnerabilities, data handling
 4. **Consistency** — internal contradictions, requirement mismatches
 5. **Feasibility** — will this actually work in practice?
-
+${EVIDENCE_SECTION}
 ## Output Format
 Respond ONLY with this JSON (no markdown fences, no preamble):
 ${TIERED_JSON_EXAMPLE}

@@ -7,6 +7,7 @@ import { ipcMain } from 'electron';
 import { IPC_CHANNELS, type IpcResponse } from '../../../shared/types/ipc.types';
 import {
   BashValidatePayloadSchema,
+  PermissionAnalyzeShadowedRulesPayloadSchema,
   PermissionPatternPayloadSchema,
   PermissionGetAuditLogPayloadSchema,
   PermissionRecordBatchDecisionPayloadSchema,
@@ -372,6 +373,20 @@ export function registerSecurityHandlers(): void {
         };
       }
     }
+  );
+
+  // Static lint: rules that can never fire because a broader earlier rule
+  // always matches first. Read-only.
+  ipcMain.handle(
+    IPC_CHANNELS.PERMISSION_ANALYZE_SHADOWED_RULES,
+    validatedHandler(
+      'PERMISSION_ANALYZE_SHADOWED_RULES',
+      PermissionAnalyzeShadowedRulesPayloadSchema,
+      async (payload) => {
+        const findings = getPermissionManager().analyzeShadowedRules(payload.scope);
+        return { success: true, data: { findings } };
+      }
+    )
   );
 
   ipcMain.handle(

@@ -87,13 +87,16 @@ export function formatSettingsListTable(result: SettingsToolListResult): string 
     String(setting.key),
     formatCliValue(setting.value),
     setting.policyTier,
-    setting.writable ? 'yes' : 'no',
+    formatCliWritable(setting.cliWritable),
     setting.restartRequired ? 'yes' : 'no',
     setting.category,
   ]);
   return [
     `Settings: ${result.count}`,
-    formatTable(['Key', 'Value', 'Policy', 'Writable', 'Restart', 'Category'], rows),
+    formatTable(['Key', 'Value', 'Policy', 'CLI-Write', 'Restart', 'Category'], rows),
+    '',
+    'Policy is the safe MCP tool tier. CLI-Write is whether this CLI can change '
+      + 'the key; read-only-tier keys are usually CLI-writable.',
     '',
   ].join('\n');
 }
@@ -101,10 +104,24 @@ export function formatSettingsListTable(result: SettingsToolListResult): string 
 function formatSettingsGet(result: SettingsToolGetResult): string {
   return [
     `${String(result.key)}: ${formatCliValue(result.value)}`,
-    `policy=${result.policyTier} writable=${result.writable ? 'yes' : 'no'} `
+    `policy=${result.policyTier} cliWritable=${formatCliWritable(result.cliWritable)} `
+      + `toolWritable=${result.writable ? 'yes' : 'no'} `
       + `restartRequired=${result.restartRequired ? 'yes' : 'no'}`,
     '',
   ].join('\n');
+}
+
+/**
+ * `cliWritable` is absent when the parent Harness app predates it (the app and
+ * this SEA are built by separate steps). Report that honestly rather than
+ * falling back to the narrower tool-tier flag, which would understate what the
+ * CLI can change — the exact confusion this column exists to remove.
+ */
+function formatCliWritable(cliWritable: boolean | undefined): string {
+  if (cliWritable === undefined) {
+    return 'unknown';
+  }
+  return cliWritable ? 'yes' : 'no';
 }
 
 function formatSettingsMutation(result: SettingsToolSetResult): string {
@@ -226,7 +243,8 @@ function assertSettingsGetResult(value: unknown): SettingsToolGetResult {
     !hasOwn(value, 'value') ||
     typeof value['restartRequired'] !== 'boolean' ||
     typeof value['writable'] !== 'boolean' ||
-    !isSettingsPolicyTier(value['policyTier'])) {
+    !isSettingsPolicyTier(value['policyTier']) ||
+    !isOptionalBoolean(value['cliWritable'])) {
     throw new Error('privileged_get returned an invalid result');
   }
   return {
@@ -235,6 +253,9 @@ function assertSettingsGetResult(value: unknown): SettingsToolGetResult {
     restartRequired: value['restartRequired'],
     writable: value['writable'],
     policyTier: value['policyTier'],
+    ...(typeof value['cliWritable'] === 'boolean'
+      ? { cliWritable: value['cliWritable'] }
+      : {}),
   };
 }
 
@@ -266,9 +287,14 @@ function assertSettingsListItem(value: unknown): asserts value is SettingsToolLi
     typeof value['writable'] !== 'boolean' ||
     typeof value['restartRequired'] !== 'boolean' ||
     typeof value['description'] !== 'string' ||
-    !isSettingsPolicyTier(value['policyTier'])) {
+    !isSettingsPolicyTier(value['policyTier']) ||
+    !isOptionalBoolean(value['cliWritable'])) {
     throw new Error('privileged_list returned an invalid result');
   }
+}
+
+function isOptionalBoolean(value: unknown): boolean {
+  return value === undefined || typeof value === 'boolean';
 }
 
 function isSettingsPolicyTier(value: unknown): value is SettingsToolListResult['settings'][number]['policyTier'] {
@@ -300,6 +326,16 @@ function formatSettingsHelp(): string {
     '  get <key> [--json]',
     '  set <key> <json-value> [--json]',
     '  reset <key> [--json]',
+    '',
+    'This CLI is a trusted local repair surface. It can set and reset almost',
+    'every setting, including read-only-tier and secret-tier keys that the safe',
+    'set_setting MCP tool refuses. The exceptions are a small set of',
+    'operator-only authorization anchors, which report CLI-Write=no and fail',
+    'with an "operator-only" error.',
+    '',
+    'Read the CLI-Write column (cliWritable in --json) to decide whether this',
+    'CLI can change a key. Policy/policyTier describes the safe MCP tool surface',
+    'instead, so a read-only tier there does not mean read-only here.',
     '',
   ].join('\n');
 }

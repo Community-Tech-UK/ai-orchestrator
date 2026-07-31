@@ -202,6 +202,24 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
       return ipcRenderer.invoke(ch.INSTANCE_COMPACT, payload);
     },
 
+    /**
+     * Read-only manual-compaction preview (WS-B7): affected range, boundary,
+     * mode (aio-managed / adapter-self-managed / unavailable). Never mutates
+     * instance state.
+     */
+    previewCompaction: (payload: { instanceId: string; keepLatestExchanges?: number }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.INSTANCE_COMPACTION_PREVIEW, payload);
+    },
+
+    /**
+     * Boundary-aware manual compaction apply (WS-B7): creates a
+     * pre-compaction checkpoint, then compacts honoring `keepLatestExchanges`
+     * when given.
+     */
+    applyCompactionWithOptions: (payload: { instanceId: string; keepLatestExchanges?: number }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.INSTANCE_COMPACTION_APPLY, payload);
+    },
+
     recoverCompactionContext: (payload: {
       instanceId: string;
       markerId: string;
@@ -401,6 +419,20 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
       ipcRenderer.on(ch.CONTEXT_WARNING, handler);
       return () =>
         ipcRenderer.removeListener(ch.CONTEXT_WARNING, handler);
+    },
+
+    /**
+     * Listen for result-aware tool-loop detections (WS-A2: repeat-no-progress,
+     * ping-pong, runaway). No generated `IPC_CHANNELS` entry exists for this
+     * channel yet — main and renderer both use the raw `'instance:doom-loop'`
+     * string (see `setupInstanceEventForwarding()` and `renderer-event-validation.ts`).
+     */
+    onInstanceDoomLoop: (callback: (data: unknown) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, data: unknown) =>
+        callback(data);
+      ipcRenderer.on('instance:doom-loop', handler);
+      return () =>
+        ipcRenderer.removeListener('instance:doom-loop', handler);
     },
 
     /**

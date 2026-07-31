@@ -9,6 +9,7 @@ import type {
   ConsensusAgreement,
   ConsensusAnalysis,
   ConsensusDisagreement,
+  DebateConfig,
   DebateContribution,
   DebateSessionRound,
 } from '../../shared/types/debate.types';
@@ -62,6 +63,40 @@ export function analyzeConsensus(debate: ActiveDebate): ConsensusAnalysis {
 export function getFinalSubstantiveRound(debate: ActiveDebate): DebateSessionRound {
   return [...debate.rounds].reverse().find((round) => round.type !== 'synthesis')
     ?? debate.rounds[debate.rounds.length - 1];
+}
+
+/**
+ * Build a transient, single-round ActiveDebate from ALREADY-COLLECTED
+ * contributions (e.g. an Ask Council compare run, WS-B6) so the coordinator
+ * can reuse `analyzeConsensus` + its real `generateSynthesis` extensibility
+ * event without running a full multi-round debate from scratch. Never
+ * registered in the coordinator's `activeDebates`/`completedDebates` maps —
+ * callers own the object for the duration of one synthesis call.
+ */
+export function buildEphemeralSynthesisDebate(
+  query: string,
+  contributions: DebateContribution[],
+  context: string | undefined,
+  config: DebateConfig,
+): ActiveDebate {
+  const round: DebateSessionRound = {
+    roundNumber: 1,
+    type: 'defense',
+    contributions,
+    consensusScore: calculateConsensus(contributions),
+    timestamp: Date.now(),
+    durationMs: 0,
+  };
+  return {
+    id: `council-synth-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    config,
+    query,
+    context,
+    currentRound: 1,
+    rounds: [round],
+    startTime: Date.now(),
+    status: 'in_progress',
+  };
 }
 
 function textSimilarity(a: string, b: string): number {

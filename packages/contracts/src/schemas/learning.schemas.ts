@@ -201,6 +201,18 @@ export const LearningRateOutcomePayloadSchema = z.object({
   satisfaction: z.number().min(0).max(1),
 });
 
+// ============ Correction Mining (WS-B8 fail->fix scan) ============
+
+export const LearningScanRunPayloadSchema = z.object({
+  workspaceId: z.string().min(1).max(4_000).optional(),
+  sessionLimit: z.number().int().min(1).max(200).optional(),
+  sinceTs: z.number().int().nonnegative().optional(),
+}).strict().optional();
+
+export const LearningScanGetStatusPayloadSchema = z.object({
+  workspaceId: z.string().min(1).max(4_000).optional(),
+}).strict().optional();
+
 const AbExperimentIdSchema = z.string().min(1).max(200);
 
 const AbVariantInputSchema = z.object({

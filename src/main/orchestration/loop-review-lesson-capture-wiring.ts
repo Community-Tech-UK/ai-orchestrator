@@ -11,6 +11,7 @@ import { getLogger } from '../logging/logger';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getAuxiliaryLlmService } from '../rlm/auxiliary-llm-service';
 import { getLessonStore } from '../memory/lesson-store';
+import { getGovernedProposalService } from '../memory/governed-proposal-service';
 import { redactForEgress } from '../security/content-egress-gate';
 import { getLLMService } from '../rlm/llm-service';
 import { runAuthorizedFrontierFallback } from '../local-ai-guard/local-ai-cost-correlation';
@@ -68,7 +69,16 @@ export function captureReviewLessonForVerdict(opts: {
       },
       captureLesson: (text) => {
         // WS3: memory writes get a memory-kind scan (redact, don't drop).
-        const { reinforced } = getLessonStore().capture(redactForEgress(text, { kind: 'memory' }).content);
+        const gatedText = redactForEgress(text, { kind: 'memory' }).content;
+        const { reinforced } = getLessonStore().capture(gatedText);
+        // WS-A4: parallel governance record — the direct lesson-capture path
+        // above is unchanged; this only raises/reinforces a review-inbox
+        // proposal so a human can promote or reject the agent-derived lesson.
+        // Fail-soft by design (captureMemoryProposal never throws).
+        getGovernedProposalService().captureMemoryProposal({
+          text: gatedText,
+          sourceSessionId: opts.loopRunId,
+        });
         return { reinforced };
       },
     },

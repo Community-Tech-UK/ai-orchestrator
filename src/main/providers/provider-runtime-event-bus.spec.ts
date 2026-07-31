@@ -270,4 +270,54 @@ describe('ProviderRuntimeEventBus', () => {
     vi.advanceTimersByTime(101);
     expect(emitted).toHaveLength(2);
   });
+
+  // ── WS-B10: ephemeral (must-not-persist) events ─────────────────────────
+
+  it('excludes an ephemeral raw-backed event from the persistence-facing capture stream', () => {
+    const captured: ProviderRuntimeEventEnvelope[] = [];
+    const captureBus = new ProviderRuntimeEventBus(
+      (envelope) => emitted.push(envelope),
+      { onRawBackedEvent: (envelope) => captured.push(envelope) },
+    );
+    const raw = { source: 'adapter-event:output' as const, payload: { text: 'hi' } };
+
+    captureBus.enqueue({
+      ...makePending('output', 'inst-1', { content: 'persist-me' }),
+      raw,
+    });
+    captureBus.enqueue({
+      ...makePending('output', 'inst-1', { content: 'ephemeral-me' }),
+      raw,
+      ephemeral: true,
+    });
+
+    // Persistence stream only sees the non-ephemeral event.
+    expect(captured).toHaveLength(1);
+    expect((captured[0]?.event as { content: string }).content).toBe('persist-me');
+
+    // Renderer-facing stream is unaffected by the ephemeral marker — both are emitted.
+    expect(emitted).toHaveLength(2);
+    expect(emitted.map((e) => (e.event as { content: string }).content)).toEqual([
+      'persist-me',
+      'ephemeral-me',
+    ]);
+    expect(emitted[1]?.ephemeral).toBe(true);
+  });
+
+  it('captureRawBackedEvent (capture-only path) also honors the ephemeral marker', () => {
+    const captured: ProviderRuntimeEventEnvelope[] = [];
+    const captureBus = new ProviderRuntimeEventBus(
+      (envelope) => emitted.push(envelope),
+      { onRawBackedEvent: (envelope) => captured.push(envelope) },
+    );
+
+    captureBus.captureRawBackedEvent({
+      ...makePending('tool_result', 'inst-1'),
+      event: { kind: 'tool_result', toolName: 'Read', success: true },
+      raw: { source: 'adapter-event:tool_result', payload: {} },
+      ephemeral: true,
+    });
+
+    expect(captured).toHaveLength(0);
+  });
 });

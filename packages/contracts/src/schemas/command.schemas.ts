@@ -99,3 +99,91 @@ export const CompareRunPayloadSchema = z.object({
 });
 
 export type CompareRunPayload = z.infer<typeof CompareRunPayloadSchema>;
+
+// --- Ask Council: progressive compare with synthesis (WS-B6) ---
+
+export const CouncilMemberStatusSchema = z.enum([
+  'queued',
+  'running',
+  'succeeded',
+  'failed',
+  'cancelled',
+]);
+
+export type CouncilMemberStatus = z.infer<typeof CouncilMemberStatusSchema>;
+
+export const CouncilMemberSchema = z.object({
+  provider: z.string().min(1).max(50),
+  status: CouncilMemberStatusSchema,
+  model: z.string().max(200).optional(),
+  answer: z.string().max(200_000).optional(),
+  error: z.string().max(5000).optional(),
+  startedAt: z.number().optional(),
+  durationMs: z.number().optional(),
+});
+
+export type CouncilMember = z.infer<typeof CouncilMemberSchema>;
+
+/** consensus/debate reuse AIO's own synthesis machinery; a provider id routes
+ *  the attributed synthesis prompt through that single chosen provider. */
+export const CouncilSynthesisMethodSchema = z.union([
+  z.literal('consensus'),
+  z.literal('debate'),
+  z.object({ providerId: z.string().min(1).max(50) }),
+]);
+
+export type CouncilSynthesisMethod = z.infer<typeof CouncilSynthesisMethodSchema>;
+
+export const CouncilSynthesisAttributionSchema = z.object({
+  provider: z.string().min(1).max(50),
+  included: z.boolean(),
+  /** Why an absent member was excluded (its terminal status/error). */
+  reason: z.string().max(500).optional(),
+});
+
+export type CouncilSynthesisAttribution = z.infer<typeof CouncilSynthesisAttributionSchema>;
+
+export const CouncilSynthesisResultSchema = z.object({
+  method: CouncilSynthesisMethodSchema,
+  text: z.string().max(200_000),
+  attribution: z.array(CouncilSynthesisAttributionSchema).max(8),
+  generatedAt: z.number(),
+  error: z.string().max(2000).optional(),
+});
+
+export type CouncilSynthesisResult = z.infer<typeof CouncilSynthesisResultSchema>;
+
+export const CouncilRunSchema = z.object({
+  id: z.string().min(1).max(200),
+  prompt: z.string().min(1).max(100_000),
+  workingDirectory: z.string().max(10000).optional(),
+  createdAt: z.number(),
+  members: z.array(CouncilMemberSchema).max(8),
+  cancelled: z.boolean(),
+  synthesis: CouncilSynthesisResultSchema.optional(),
+});
+
+export type CouncilRun = z.infer<typeof CouncilRunSchema>;
+
+/** Same shape as compare:run — start a progressive run instead of awaiting all answers. */
+export const CompareStartPayloadSchema = CompareRunPayloadSchema;
+export type CompareStartPayload = z.infer<typeof CompareStartPayloadSchema>;
+
+export const CompareCancelPayloadSchema = z.object({
+  runId: z.string().min(1).max(200),
+});
+export type CompareCancelPayload = z.infer<typeof CompareCancelPayloadSchema>;
+
+export const CompareSynthesizePayloadSchema = z.object({
+  runId: z.string().min(1).max(200),
+  method: CouncilSynthesisMethodSchema,
+});
+export type CompareSynthesizePayload = z.infer<typeof CompareSynthesizePayloadSchema>;
+
+/** Omit runId to fetch the most recently started run (renderer reload/restart rehydrate). */
+export const CompareGetRunPayloadSchema = z.object({
+  runId: z.string().min(1).max(200).optional(),
+});
+export type CompareGetRunPayload = z.infer<typeof CompareGetRunPayloadSchema>;
+
+export const CompareRunUpdatedEventSchema = CouncilRunSchema;

@@ -80,6 +80,7 @@ import { getSessionContinuityManager } from '../session/session-continuity';
 import { reviveContinuitySession } from './lifecycle/continuity-revival';
 import { getPermissionEnforcer } from '../security/permission-enforcer';
 import { getPermissionManager, type PermissionRequest, type PermissionScope } from '../security/permission-manager';
+import { cleanupAdjudicatorBreakerForInstance, maybeAdjudicateDeferredPermission, resetAdjudicatorBreaker } from '../security/approval-adjudicator';
 import {
   getToolExecutionGate,
   type ToolExecutionGateDecision,
@@ -105,6 +106,7 @@ import type {
   ProviderRuntimeEventEnvelope,
 } from '@contracts/types/provider-runtime-events';
 import { buildProviderRuntimeEventIngress } from './instance-provider-event-ingress';
+import { observeToolLoopEvent as observeToolLoopEventWiring, type ToolLoopWiringDeps } from './instance-tool-loop-wiring';
 import { toProviderOutputEvent } from '../providers/provider-output-event';
 import { toJsonSafeProviderEventPayload } from '../providers/provider-event-raw-payload';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
@@ -199,6 +201,11 @@ export class InstanceManager extends EventEmitter {
   // Tracking
   private hasReceivedFirstMessage = new Set<string>();
   private settings = getSettingsManager();
+  // WS-A2: resolved lazily so a post-construction spy on interruptInstance is honoured.
+  private readonly toolLoopWiringDeps: ToolLoopWiringDeps = {
+    getAutoInterruptSetting: () => this.settings.get('toolLoopAutoInterrupt'),
+    interruptInstance: (instanceId: string) => this.interruptInstance(instanceId),
+  };
   private pendingPermissionRequestsByInputId = new Map<string, PermissionRequest>();
   private readonly providerEventBus = new ProviderRuntimeEventBus(
     (envelope) => this.emit('provider:normalized-event', envelope),
@@ -1019,6 +1026,44 @@ export class InstanceManager extends EventEmitter {
 
         return;
       }
+
+      // WS-B3: opt-in adjudicator for unattended instances (see approval-adjudicator.ts).
+      if (decision.action === 'ask') {
+        const adjudicated = await maybeAdjudicateDeferredPermission({
+          instanceId: payload.instanceId,
+          request,
+          toolName: toolName || 'unknown',
+          contextPort: this.context,
+        });
+        if (adjudicated) {
+          this.emitPermissionLifecycleEvent({
+            instanceId: payload.instanceId,
+            requestId: payload.requestId,
+            outcome: adjudicated.approved ? 'allow' : 'deny',
+            toolName: toolName || 'unknown',
+            reason: adjudicated.reason,
+            source: 'adjudicator',
+            metadataType: metaType,
+          });
+          try {
+            await this.resumeAfterDeferredPermission(payload.instanceId, adjudicated.approved);
+          } catch (err) {
+            logger.error('Auto-resume after adjudicated permission failed', err instanceof Error ? err : undefined, { instanceId: payload.instanceId });
+          }
+          if (instance) {
+            const msg = {
+              id: generateId(),
+              timestamp: Date.now(),
+              type: 'system' as const,
+              content: `Permission ${adjudicated.approved ? 'allowed' : 'denied'} by adjudicator (risk ${adjudicated.riskLevel}) for ${toolName}: ${adjudicated.reason}`,
+              metadata: { permissionDecision: true, adjudicated: true, ...this.toPermissionGateMetadata(decision) },
+            };
+            this.communication.addToOutputBuffer(instance, msg);
+            this.publishOutput(payload.instanceId, msg);
+          }
+          return;
+        }
+      }
     }
 
     // Default behavior: forward to renderer and let the user decide.
@@ -1061,6 +1106,8 @@ export class InstanceManager extends EventEmitter {
     const req = this.pendingPermissionRequestsByInputId.get(key);
     if (!req) return;
     this.pendingPermissionRequestsByInputId.delete(key);
+    // WS-B3: a live human decision breaks the adjudicator's denial streak.
+    resetAdjudicatorBreaker(params.instanceId);
     try {
       getPermissionEnforcer().recordUserDecision(params.instanceId, req, params.action, params.scope);
     } catch {
@@ -1173,8 +1220,11 @@ export class InstanceManager extends EventEmitter {
       sessionId?: string;
       timestamp?: number;
       raw?: ProviderRuntimeEventEnvelope['raw'];
+      /** WS-B10: must-not-persist marker; see `ProviderRuntimeEventEnvelope.ephemeral`. */
+      ephemeral?: boolean;
     },
   ): void {
+    observeToolLoopEventWiring(this.toolLoopWiringDeps, instanceId, event);
     const pending = buildProviderRuntimeEventIngress({
       getInstance: (id) => this.state.getInstance(id),
       instanceId,
@@ -1397,6 +1447,7 @@ export class InstanceManager extends EventEmitter {
     getAutoTitleService().clearInstance(instanceId);
     // Drop per-instance accumulated state so long-running daemons don't leak.
     getActionCircuitBreaker().reset(instanceId);
+    cleanupAdjudicatorBreakerForInstance(instanceId);
     forgetLspFeedbackInstance(instanceId);
     await this.lifecycle.terminateInstance(instanceId, graceful);
     dispatchInstanceLifecycleHook('SessionEnd', instance, {

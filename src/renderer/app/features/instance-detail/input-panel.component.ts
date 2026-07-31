@@ -86,6 +86,7 @@ import type { InstanceWaitReason, DesiredRuntime } from '../../../../shared/type
 import { ComposerToolbarComponent } from './composer-toolbar.component';
 import { ComposerBannersComponent } from './composer-banners.component';
 import { ComposerRecoveryBannerComponent } from './composer-recovery-banner.component';
+import { RunReadinessBannerComponent, RunReadinessGate } from './run-readiness-banner.component';
 import {
   tryStartLoopFromPanel,
   type LoopStartRequestPayload,
@@ -130,6 +131,7 @@ const LOOP_START_ACK_TIMEOUT_MS = 30_000;
     ComposerQueueComponent,
     ComposerRecoveryBannerComponent,
     ComposerToolbarComponent,
+    RunReadinessBannerComponent,
     LoopToggleComponent,
     LoopConfigPanelComponent,
     ImageLightboxComponent,
@@ -189,7 +191,7 @@ export class InputPanelComponent implements OnDestroy {
 
   readonly holdReasonLabel = computed<string | null>(() => formatWaitReasonLabel(this.waitReason()));
 
-  // Quota-park + hardened-denial banners live in ComposerBannersComponent.
+  readonly runReadiness = new RunReadinessGate(this.provider);
 
   // Computed preview data for pending files
   pendingFilePreviews = computed(() => {
@@ -869,6 +871,7 @@ export class InputPanelComponent implements OnDestroy {
   canSend(): boolean {
     if (this.loopStarting()) return false; // double-start dedupe
     if (this.submission.submitting()) return false; // one in-flight submission at a time
+    if (this.runReadiness.blocking()) return false; // WS-C3: readiness checkpoint
     if (this.loopArmed()) {
       // When the loop panel is open, Send means "start loop". Validity is
       // owned by the panel's config, not the textarea. Keep the button

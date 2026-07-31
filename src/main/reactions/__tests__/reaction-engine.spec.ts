@@ -28,6 +28,18 @@ vi.mock('../../../shared/utils/id-generator', () => ({
   generateId: () => 'test-event-id',
 }));
 
+const mockAdmitAutomatedWrite = vi.fn().mockReturnValue({ kind: 'admitted', admissionId: 'adm-default' });
+const mockMarkDelivered = vi.fn();
+const mockMarkFailed = vi.fn();
+vi.mock('../../session/session-admission-service', () => ({
+  getSessionAdmissionService: () => ({
+    admitAutomatedWrite: mockAdmitAutomatedWrite,
+    markDelivered: mockMarkDelivered,
+    markFailed: mockMarkFailed,
+    registerRedeliveryHandler: vi.fn(),
+  }),
+}));
+
 import { ReactionEngine, _resetReactionEngineForTesting } from '../reaction-engine';
 import { fetchPREnrichmentBatch } from '../../vcs/remotes/github-pr-poller';
 import type { PREnrichmentData, ReactionEvent } from '../reaction.types';
@@ -80,6 +92,7 @@ describe('ReactionEngine', () => {
     _resetReactionEngineForTesting();
     vi.clearAllMocks();
     vi.useFakeTimers();
+    mockAdmitAutomatedWrite.mockReturnValue({ kind: 'admitted', admissionId: 'adm-default' });
 
     engine = ReactionEngine.getInstance();
     mockInstanceManager = createMockInstanceManager();
@@ -179,6 +192,40 @@ describe('ReactionEngine', () => {
         'inst-1',
         expect.stringContaining('CI failing'),
       );
+      expect(mockMarkDelivered).toHaveBeenCalledWith('adm-default');
+    });
+
+    it('does not send feedback when admission suppresses the write (A5)', async () => {
+      mockAdmitAutomatedWrite.mockReturnValue({
+        kind: 'suppressed',
+        reason: 'awaiting-human',
+        admissionId: 'adm-suppressed',
+      });
+
+      const enrichmentMap = new Map<string, PREnrichmentData>();
+      enrichmentMap.set('test-org/test-repo#42', makePRData({ ciStatus: 'passing' }));
+      vi.mocked(fetchPREnrichmentBatch).mockResolvedValueOnce(enrichmentMap);
+
+      engine.trackInstance('inst-1', 'https://github.com/test-org/test-repo/pull/42');
+      engine.setArmed('inst-1', true);
+      await vi.advanceTimersByTimeAsync(100);
+
+      const failingData = makePRData({
+        ciStatus: 'failing',
+        ciChecks: [{ name: 'tests', status: 'failing', conclusion: 'failure' }],
+      });
+      enrichmentMap.set('test-org/test-repo#42', failingData);
+      vi.mocked(fetchPREnrichmentBatch).mockResolvedValueOnce(enrichmentMap);
+
+      await vi.advanceTimersByTimeAsync(5000);
+
+      expect(mockAdmitAutomatedWrite).toHaveBeenCalledWith({
+        instanceId: 'inst-1',
+        origin: 'reaction',
+        message: expect.stringContaining('CI failing'),
+      });
+      expect(mockInstanceManager.sendInput).not.toHaveBeenCalled();
+      expect(mockMarkDelivered).not.toHaveBeenCalled();
     });
 
     it('clears CI failure tracker when CI recovers', async () => {

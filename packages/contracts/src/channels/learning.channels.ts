@@ -58,6 +58,10 @@ export const LEARNING_CHANNELS = {
   SPECIALIST_INSTANCE_STATUS_CHANGED: 'specialist:instance-status-changed',
   SPECIALIST_FINDING_ADDED: 'specialist:finding-added',
 
+  // Correction mining (WS-B8 fail->fix scan into governed 'rule' proposals)
+  LEARNING_SCAN_RUN: 'learning-scan:run',
+  LEARNING_SCAN_GET_STATUS: 'learning-scan:get-status',
+
   // A/B Testing operations
   AB_CREATE_EXPERIMENT: 'ab:create-experiment',
   AB_UPDATE_EXPERIMENT: 'ab:update-experiment',

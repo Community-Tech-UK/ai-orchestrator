@@ -47,15 +47,18 @@ export type ProviderName = BuiltInProviderName | PluginProviderName;
  * Used as the discriminant in the ProviderRuntimeEvent union.
  */
 export type ProviderEventKind =
-  | 'output'        // Streaming text content
-  | 'tool_use'      // Tool invocation started
-  | 'tool_result'   // Tool invocation completed
-  | 'status'        // Provider-level status transition
-  | 'context'       // Context window usage update
-  | 'error'         // Provider-level error
-  | 'exit'          // Process/session exited
-  | 'spawned'       // Process spawned
-  | 'complete';     // Response turn completed
+  | 'output'              // Streaming text content
+  | 'tool_use'            // Tool invocation started
+  | 'tool_result'         // Tool invocation completed
+  | 'status'              // Provider-level status transition
+  | 'context'             // Context window usage update
+  | 'error'               // Provider-level error
+  | 'exit'                // Process/session exited
+  | 'spawned'             // Process spawned
+  | 'complete'            // Response turn completed
+  | 'tool_use_observed'   // WS-B10: hash+summary tool-call seam for a loop guard
+  | 'tool_result_observed' // WS-B10: hash+summary tool-result seam for a loop guard
+  | 'unknown';            // WS-B10: fail-closed capture of an unclassifiable provider event
 
 // ============================================
 // Shared Output Payload Shapes
@@ -272,6 +275,78 @@ export interface ProviderCompleteEvent {
   degradedReason?: DegradedReason;
 }
 
+/**
+ * WS-B10 (2026-07-30): fail-closed capture of a provider event the current
+ * normalizer could not classify into one of the other kinds — an unmapped
+ * adapter event name, or a recognized event whose payload didn't have the
+ * shape normalization requires (see the `[NORMALIZE_DROP]`-logged branches
+ * this replaces in `adapter-runtime-event-bridge.ts`). Producers route
+ * unrecognized/malformed events here instead of dropping them so nothing is
+ * lost silently. This is the MANDATORY unknown-item member of the union.
+ */
+export interface ProviderUnknownEvent {
+  kind: 'unknown';
+  /**
+   * Provider name embedded directly on the event for consumers that only
+   * see the bare `event` value without its envelope (for example a stored
+   * capture blob). Optional: the enclosing envelope's `provider` field is
+   * already authoritative when the envelope is available, and pure
+   * normalizers without provider context may omit it.
+   */
+  providerRef?: ProviderName;
+  /** The adapter/provider-native event name or shape descriptor that could not be classified. */
+  rawType: string;
+  /**
+   * JSON-safe, size-bounded snapshot of the unrecognized payload. Producers
+   * MUST cap the serialized size — see `UNKNOWN_EVENT_PAYLOAD_MAX_BYTES` in
+   * `adapter-runtime-event-bridge.ts`. Oversized payloads are replaced with
+   * a `{ truncated: true, ... }` marker rather than sent whole.
+   */
+  payload: unknown;
+  /** Milliseconds since epoch when the normalizer observed this event. */
+  receivedAt: number;
+}
+
+/**
+ * WS-B10: normalized observation of a tool invocation, purpose-built as a
+ * small, hash-bearing seam for a future tool-loop guard (detecting repeated
+ * identical calls without needing the full `tool_use` payload). Producers
+ * may emit this alongside — not instead of — `tool_use`.
+ */
+export interface ProviderToolUseObservedEvent {
+  kind: 'tool_use_observed';
+  /** Tool name. */
+  toolName: string;
+  /** Correlates with the matching `tool_result_observed` event, when known. */
+  callId?: string;
+  /**
+   * sha256 (hex, first 16 chars) of the stable-serialized tool arguments,
+   * computed at normalization time. Volatile fields (timestamps, request
+   * ids, etc.) are NOT stripped before hashing here — a loop detector that
+   * needs volatility-insensitive comparison owns that filtering itself.
+   */
+  argsHash?: string;
+  /** Bounded, human-readable summary of the tool arguments. */
+  argsSummary: string;
+}
+
+/** WS-B10: normalized observation of a tool result, paired with `ProviderToolUseObservedEvent`. */
+export interface ProviderToolResultObservedEvent {
+  kind: 'tool_result_observed';
+  /** Correlates with the matching `tool_use_observed` event, when known. */
+  callId?: string;
+  /**
+   * sha256 (hex, first 16 chars) of the stable-serialized tool result,
+   * computed at normalization time. See
+   * `ProviderToolUseObservedEvent.argsHash` for the volatility caveat.
+   */
+  resultHash?: string;
+  /** Bounded, human-readable summary of the tool result. */
+  resultSummary: string;
+  /** Whether the observed tool invocation failed, when known to the normalizer. */
+  isError?: boolean;
+}
+
 // ============================================
 // Discriminated Union
 // ============================================
@@ -280,9 +355,16 @@ export interface ProviderCompleteEvent {
  * Discriminated union of all provider runtime events.
  * Consumers can switch on `event.kind` for type-safe access to payloads.
  *
- * @frozen as of Wave 2 (2026-04-17). See the Wave 3 design doc for the v2
- * taxonomy (5-family hierarchical). Do not add new `kind` values to this
- * union. Additive optional fields on existing kinds are permitted.
+ * @frozen as of Wave 2 (2026-04-17); the original 9-kind core taxonomy
+ * remains the load-bearing shape. WS-B10 (2026-07-30, event taxonomy
+ * hardening — see `docs/plans/2026-07-30-sibling-audit-round2_plan.md`)
+ * added three CONSERVATIVE, additive kinds under the Wave 2 design doc's
+ * documented "10th kind = escalate" exception
+ * (`docs/superpowers/specs/2026-04-17-wave2-provider-normalization-design.md`
+ * §9): `unknown` (mandatory fail-closed capture), and
+ * `tool_use_observed`/`tool_result_observed` (loop-guard seam). Do not add
+ * further `kind` values without the same explicit escalation. Additive
+ * optional fields on existing kinds are always permitted without escalation.
  */
 export type ProviderRuntimeEvent =
   | ProviderOutputEvent
@@ -293,7 +375,10 @@ export type ProviderRuntimeEvent =
   | ProviderErrorEvent
   | ProviderExitEvent
   | ProviderSpawnedEvent
-  | ProviderCompleteEvent;
+  | ProviderCompleteEvent
+  | ProviderToolUseObservedEvent
+  | ProviderToolResultObservedEvent
+  | ProviderUnknownEvent;
 
 /**
  * JSON-safe source payload retained alongside its canonical event. Runtime
@@ -335,5 +420,14 @@ export interface ProviderRuntimeEventEnvelope {
   readonly turnId?: string;
   /** Optional replay payload captured at the adapter event boundary. */
   readonly raw?: ProviderRuntimeEventRaw;
+  /**
+   * WS-B10: marks this occurrence as must-not-persist. Durable forensic
+   * capture (`ProviderEventCaptureService`, gated in
+   * `ProviderRuntimeEventBus.captureRawBackedEvent`) skips ephemeral
+   * envelopes even when `raw` is attached. Renderer-facing emission
+   * (`provider:normalized-event`) is unaffected — `ephemeral` only gates
+   * durable persistence. Absent/false means "persist as before."
+   */
+  readonly ephemeral?: boolean;
   readonly event: ProviderRuntimeEvent;
 }

@@ -97,6 +97,15 @@ const spawnMock = spawnFixture.spawnMock;
 const spawnedProcesses = spawnFixture.spawnedProcesses as FakeProc[];
 const lastSpawnState = spawnFixture.state;
 
+// Spy on the shared process-group kill helper so timeout/terminate paths can
+// be asserted to route through it (POSIX kills -pid / Windows taskkill /T)
+// instead of calling ChildProcess#kill() directly, which only kills the
+// wrapper PID and orphans children of npm-wrapper CLIs (P0.1).
+const killProcessGroupMock = vi.hoisted(() => vi.fn(() => true));
+vi.mock('../base-cli-process-utils', () => ({
+  killProcessGroup: killProcessGroupMock,
+}));
+
 vi.mock('child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('child_process')>();
   const mocked = {
@@ -956,6 +965,31 @@ describe('CursorCliAdapter — lifecycle + status + stderr', () => {
       const result = await statusPromise;
       expect(result.available).toBe(false);
       expect(result.error).toMatch(/Timeout/i);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('per-call timeout kills the process group, not just the wrapper PID (P0.1)', async () => {
+    killProcessGroupMock.mockClear();
+    vi.useFakeTimers();
+    try {
+      const adapter = new CursorCliAdapter({ timeout: 300_000 });
+      (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+
+      const sendPromise = adapter.sendMessage({ role: 'user', content: 'hi' });
+      const proc = spawnedProcesses[0];
+      expect(proc).toBeDefined();
+
+      // Attach the rejection expectation BEFORE advancing timers so the
+      // rejection handler is registered before the timeout fires — otherwise
+      // it's briefly unhandled and vitest flags it as an unhandled rejection.
+      const rejection = expect(sendPromise).rejects.toThrow(/Cursor CLI timeout after 300000ms/);
+      await vi.advanceTimersByTimeAsync(300_000);
+      await rejection;
+
+      expect(killProcessGroupMock).toHaveBeenCalledWith(proc.pid, 'SIGTERM');
+      expect(proc.kill).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }

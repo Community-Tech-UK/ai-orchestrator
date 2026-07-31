@@ -317,9 +317,18 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // A3 — adapter-layer degraded-output detection (off by default)
   detectDegradedAdapterOutput: false,
 
+  // WS-A2 — auto-interrupt on a critical tool-loop detection (off by default)
+  toolLoopAutoInterrupt: false,
+
+  // WS-B3 — opt-in Guardian adjudicator for unattended approval asks (off by default)
+  approvalAdjudicationEnabled: false,
+
   // D4 — CLI spawn worker offload pilot (off by default)
   enableSpawnWorkerOffload: false,
   projectPluginTrust: {},
+
+  // WS-B1 phase 1 — PR creation is opt-in per project (off by default)
+  allowPrCreation: {},
 
   // Reactions
   reactionsEnabled: true,
@@ -346,6 +355,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     titleGeneration: { enabled: true, provider: 'auto', tier: 'quick', maxInputTokens: 12000, maxOutputTokens: 512, temperature: 0.2, timeoutMs: 45000, requireJson: false, allowFrontierFallback: false },
     routingClassification: { enabled: true, provider: 'auto', tier: 'quick', maxInputTokens: 16000, maxOutputTokens: 512, temperature: 0, timeoutMs: 45000, requireJson: true, allowFrontierFallback: false },
     approvalScoring: { enabled: true, provider: 'auto', tier: 'quick', maxInputTokens: 16000, maxOutputTokens: 512, temperature: 0, timeoutMs: 45000, requireJson: true, allowFrontierFallback: false },
+    approvalAdjudication: { enabled: true, provider: 'auto', tier: 'quality', maxInputTokens: 24000, maxOutputTokens: 512, temperature: 0, timeoutMs: 60000, requireJson: true, allowFrontierFallback: false },
     loopScoring: { enabled: true, provider: 'auto', tier: 'quick', maxInputTokens: 32000, maxOutputTokens: 1024, temperature: 0, timeoutMs: 30000, requireJson: true, allowFrontierFallback: false },
     retrievalHypothesis: { enabled: true, provider: 'auto', tier: 'quick', maxInputTokens: 4096, maxOutputTokens: 300, temperature: 0.3, timeoutMs: 2500, requireJson: false, allowFrontierFallback: false },
     branchScoring: { enabled: true, provider: 'auto', tier: 'quick', maxInputTokens: 16000, maxOutputTokens: 512, temperature: 0, timeoutMs: 30000, requireJson: true, allowFrontierFallback: true },

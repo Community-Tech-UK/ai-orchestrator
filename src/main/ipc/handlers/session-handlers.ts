@@ -48,6 +48,8 @@ import { SessionRevivalService } from '../../session/session-revival-service';
 import { HistoryRestoreCoordinator } from '../../history/history-restore-coordinator';
 import { isRemoteNodeReachable } from './remote-node-check';
 import { validatedHandler } from '../validated-handler';
+import { registerSessionAdmissionHandlers } from './session-admission-handlers';
+import { registerSessionQueueHandlers } from './session-queue-handlers';
 
 export {
   getNativeResumeSessionId,
@@ -1085,4 +1087,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
       continuityHandlerOptions('SESSION_GET_STATS_FAILED'),
     ),
   );
+
+  registerSessionAdmissionHandlers({ ensureTrustedSender: deps.ensureTrustedSender });
+  registerSessionQueueHandlers({ ensureTrustedSender: deps.ensureTrustedSender });
 }

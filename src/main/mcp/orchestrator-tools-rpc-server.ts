@@ -76,6 +76,7 @@ import {
   CALENDAR_READ_RPC_SPECS,
   CALENDAR_TOOL_NAMES,
 } from './orchestrator-tools-rpc-calendar';
+import { dispatchLocalAiCliRpc, isLocalAiCliRpcMethod, type LocalAiCliOperations } from './orchestrator-tools-rpc-local-ai';
 
 const logger = getLogger('OrchestratorToolsRpcServer');
 
@@ -165,6 +166,8 @@ export interface OrchestratorToolsRpcServerOptions extends FileTransferToolConte
     request: ReleaseMutationAuthorizationRequest,
   ) => Promise<boolean>;
   calendarTools?: CalendarToolDependencies;
+  /** Backs the privileged Local AI Guard CLI without importing native runtime code into the SEA. */
+  localAiGuardOperations?: LocalAiCliOperations | null;
   authorizeCalendarMutation?: (
     request: CalendarMutationAuthorizationRequest,
   ) => Promise<boolean>;
@@ -200,6 +203,7 @@ export class OrchestratorToolsRpcServer {
     OrchestratorToolsRpcServerOptions['authorizeReleaseMutation']
   >;
   private readonly calendarTools: CalendarToolDependencies;
+  private readonly localAiGuardOperations: LocalAiCliOperations | null;
   private readonly authorizeCalendarMutation: NonNullable<
     OrchestratorToolsRpcServerOptions['authorizeCalendarMutation']
   >;
@@ -247,6 +251,7 @@ export class OrchestratorToolsRpcServer {
     this.resolveContextEvidence = options.resolveContextEvidence ?? (() => null);
     this.authorizeReleaseMutation = options.authorizeReleaseMutation ?? (async () => false);
     this.calendarTools = options.calendarTools ?? {};
+    this.localAiGuardOperations = options.localAiGuardOperations ?? null;
     this.authorizeCalendarMutation = options.authorizeCalendarMutation ?? (async () => false);
     this.toolFactoryInjected = options.toolFactory !== undefined;
     this.toolFactory = options.toolFactory ?? createOrchestratorToolDefinitions;
@@ -315,6 +320,9 @@ export class OrchestratorToolsRpcServer {
     const calendarReadSpec = CALENDAR_READ_RPC_SPECS.find((spec) => spec.method === request.method);
     if (calendarReadSpec) {
       return this.dispatchValidatedTool(calendarReadSpec.toolName, calendarReadSpec.schema, params);
+    }
+    if (isLocalAiCliRpcMethod(request.method)) {
+      return dispatchLocalAiCliRpc(request.method, params.payload, this.localAiGuardOperations);
     }
 
     switch (request.method) {

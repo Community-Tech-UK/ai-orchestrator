@@ -11,6 +11,7 @@ vi.mock('electron', () => ({
 import type { InstanceManager } from '../instance/instance-manager';
 import type { WindowManager } from '../window-manager';
 import {
+  createGovernedProposalInitializationStep,
   createInitializationSteps,
   createLocalAiGuardInitializationStep,
 } from './initialization-steps';
@@ -39,5 +40,30 @@ describe('Local AI Guard initialization', () => {
 
     expect(guard).toBe(names.indexOf('Auxiliary LLM service') + 1);
     expect(guard).toBeLessThan(names.indexOf('IPC handlers'));
+  });
+});
+
+describe('Governed proposal review inbox initialization', () => {
+  it('is fail-soft when rehydrate/backfill throws', () => {
+    const initialize = vi.fn(() => {
+      throw new Error('rlm database unavailable');
+    });
+    const step = createGovernedProposalInitializationStep(() => ({ initialize }));
+
+    expect(() => step.fn()).not.toThrow();
+    expect(initialize).toHaveBeenCalledOnce();
+  });
+
+  it('is registered as part of the full initialization sequence', () => {
+    const steps = createInitializationSteps({
+      instanceManager: {} as InstanceManager,
+      windowManager: {} as WindowManager,
+      isStatelessExecProvider: () => false,
+      getNodeLatencyForInstance: () => undefined,
+      syncRemoteNodeMetricsToLoadBalancer: () => undefined,
+    });
+    const names = steps.map((step) => step.name);
+
+    expect(names).toContain('Governed proposal review inbox');
   });
 });

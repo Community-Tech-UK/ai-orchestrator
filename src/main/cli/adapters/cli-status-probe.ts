@@ -4,6 +4,7 @@ import {
   getClampedLoadWatchdogMultiplier,
   isRuntimeOverloadedNow,
 } from '../../runtime/system-load-monitor';
+import { killProcessGroup } from './base-cli-process-utils';
 import type { CliStatus } from './base-cli-adapter.types';
 
 const logger = getLogger('CliStatusProbe');
@@ -87,10 +88,15 @@ function probeOnce(
 
     timeout = setTimeout(() => {
       const timerLatenessMs = now() - startedAt - timeoutMs;
-      try {
-        options.killSignal ? proc.kill(options.killSignal) : proc.kill();
-      } catch {
-        // Process may already be gone.
+      const signal = options.killSignal ?? 'SIGTERM';
+      // Group kill reaps children of npm-wrapper CLIs; falls back to a plain
+      // kill when the child shares our process group (no group of its own).
+      if (!killProcessGroup(proc.pid, signal)) {
+        try {
+          proc.kill(signal);
+        } catch {
+          // Process may already be gone.
+        }
       }
       finish(
         { available: false, error: options.timeoutError },

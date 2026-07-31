@@ -19,6 +19,8 @@ import { registerSpecialistHandlers } from './specialist-ipc-handler';
 import { registerTrainingHandlers } from './training-ipc-handler';
 import { registerLLMHandlers } from './llm-ipc-handler';
 import { registerObservationHandlers } from './observation-ipc-handler';
+import { registerGovernedProposalHandlers } from './governed-proposal-ipc-handler';
+import { registerLearningScanHandlers } from './learning-scan-ipc-handler';
 import { registerCrossModelReviewIpcHandlers } from './cross-model-review-ipc';
 import { initializeTokenStatsPersistence } from '../memory/token-stats-initialization';
 import { registerDefaultQuotaProbes } from '../core/system/provider-quota';
@@ -56,6 +58,7 @@ import {
   registerQuotaHandlers,
   registerTaskHandlers,
   registerRepoJobHandlers,
+  registerWorkboardHandlers,
   registerSearchHandlers,
   registerStatsHandlers,
   registerCommandHandlers,
@@ -263,7 +266,7 @@ export class IpcMainHandler {
     // Command and plan mode handlers
     registerCommandHandlers(this.instanceManager);
     registerMagicPromptHandlers();
-    registerCompareHandlers();
+    registerCompareHandlers({ windowManager: this.windowManager });
     registerLspFeedback({ instanceManager: this.instanceManager });
     registerCircuitBreaker({ costTracker: getCostTracker() });
     registerUpdateHandlers({ windowManager: this.windowManager });
@@ -341,6 +344,7 @@ export class IpcMainHandler {
     // Task management handlers (subagent spawning)
     registerTaskHandlers();
     registerRepoJobHandlers(this.instanceManager);
+    registerWorkboardHandlers({ instanceManager: this.instanceManager });
 
     // Security handlers (secret detection, env filtering, bash validation)
     registerSecurityHandlers();
@@ -420,6 +424,16 @@ export class IpcMainHandler {
 
     // Observation memory handlers
     registerObservationHandlers({
+      ensureTrustedSender: this.ensureTrustedSender.bind(this),
+    });
+
+    // Governed proposal handlers (WS-A4 memory promotion review inbox)
+    registerGovernedProposalHandlers({
+      ensureTrustedSender: this.ensureTrustedSender.bind(this),
+    });
+
+    // Correction-mining scan handlers (WS-B8 fail->fix into governed 'rule' proposals)
+    registerLearningScanHandlers({
       ensureTrustedSender: this.ensureTrustedSender.bind(this),
     });
 

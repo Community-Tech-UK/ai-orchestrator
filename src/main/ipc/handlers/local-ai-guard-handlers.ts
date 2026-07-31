@@ -1,31 +1,17 @@
-import { randomUUID } from 'node:crypto';
 import type { IpcMainInvokeEvent } from 'electron';
 import { ipcMain } from 'electron';
 import type { ZodType } from 'zod';
 import { IPC_CHANNELS } from '@contracts/channels';
-import {
-  AUXILIARY_DISCOVERY_MAX_CANDIDATES,
-  AUXILIARY_DISCOVERY_MAX_MODELS,
-  type AuxiliaryLlmCandidate,
-} from '../../../shared/types/auxiliary-llm.types';
-import type {
-  LocalAiDiscoveredEndpoint,
-  LocalAiEndpointIdentity,
-  LocalAiGuardSnapshot,
-  LocalAiProbeResult,
-  LocalAiTarget,
-} from '../../../shared/types/local-ai-guard.types';
+import type { AuxiliaryLlmCandidate } from '../../../shared/types/auxiliary-llm.types';
+import type { LocalAiGuardSnapshot } from '../../../shared/types/local-ai-guard.types';
 import {
   LocalAiEmptyRequestSchema,
-  LocalAiDiscoveredEndpointSchema,
-  LocalAiDiscoveredEndpointsSchema,
   LocalAiFallbackRequestSchema,
   LocalAiFallbackResolveRequestSchema,
   LocalAiGuardSnapshotSchema,
   LocalAiIncidentSchema,
   LocalAiIncidentAcknowledgeRequestSchema,
   LocalAiPendingFallbackRequestsSchema,
-  LocalAiProbeResultsSchema,
   LocalAiPublicDiagnosticReportSchema,
   LocalAiPublicEffectivenessSummarySchema,
   LocalAiRecheckRequestSchema,
@@ -46,6 +32,7 @@ import {
 } from '../../local-ai-guard/local-ai-runtime';
 import { getLogger } from '../../logging/logger';
 import { getAuxiliaryLlmService } from '../../rlm/auxiliary-llm-service';
+import { createLocalAiPublicOperations } from '../../local-ai-guard/local-ai-public-operations';
 import { registerCleanup } from '../../util/cleanup-registry';
 import type { WindowManager } from '../../window-manager';
 import { validatedHandler, type IpcResponse } from '../validated-handler';
@@ -92,7 +79,12 @@ export function registerLocalAiGuardHandlers(
   const discoverCandidates = dependencies.discoverCandidates
     ?? (() => getAuxiliaryLlmService().discoverCandidates());
   const now = dependencies.now ?? Date.now;
-  const createId = dependencies.createId ?? randomUUID;
+  const publicOperations = createLocalAiPublicOperations({
+    getRuntime: () => runtime,
+    discoverCandidates,
+    now,
+    ...(dependencies.createId ? { createId: dependencies.createId } : {}),
+  });
 
   register(
     IPC_CHANNELS.LOCAL_AI_GUARD_GET_SNAPSHOT,
@@ -145,10 +137,7 @@ export function registerLocalAiGuardHandlers(
       'LOCAL_AI_GUARD_DISCOVERY_FAILED',
       async () => ({
         success: true,
-        data: sanitizeCandidates(
-          await discoverCandidates(),
-          (identity) => runtime.targets.findByEndpoint(identity)?.id,
-        ),
+        data: await publicOperations.discover(),
       }),
     ),
     dependencies.ensureTrustedSender,
@@ -159,21 +148,7 @@ export function registerLocalAiGuardHandlers(
     async ({ config }) => runtimeOperation(
       runtime,
       'LOCAL_AI_GUARD_VALIDATION_FAILED',
-      async () => {
-        const checkedAt = safeTimestamp(now());
-        const target: LocalAiTarget = {
-          ...config,
-          id: createId(),
-          label: 'Validation target',
-          createdAt: checkedAt,
-          updatedAt: checkedAt,
-        };
-        const samples = await runtime.probes.check(target, 'functional');
-        return {
-          success: true,
-          data: LocalAiProbeResultsSchema.parse(sanitizeProbeResults(samples)),
-        };
-      },
+      async () => ({ success: true, data: await publicOperations.validate(config) }),
     ),
     dependencies.ensureTrustedSender,
   );
@@ -406,52 +381,6 @@ function unavailableResponse<T>(): IpcResponse<T> {
 
 function success<T>(data: T): IpcResponse<T> {
   return { success: true, data };
-}
-
-function sanitizeCandidates(
-  candidates: AuxiliaryLlmCandidate[],
-  findEnrolledTargetId: (identity: LocalAiEndpointIdentity) => string | undefined,
-): LocalAiDiscoveredEndpoint[] {
-  const sanitized: LocalAiDiscoveredEndpoint[] = [];
-  for (const candidate of candidates) {
-    if (sanitized.length >= AUXILIARY_DISCOVERY_MAX_CANDIDATES) break;
-    try {
-      const { endpoint } = candidate;
-      if (endpoint.provider !== 'ollama' && endpoint.provider !== 'openai-compatible') continue;
-      const location = endpoint.source === 'worker-node' && endpoint.workerNodeId
-        ? { type: 'worker' as const, nodeId: endpoint.workerNodeId }
-        : { type: 'coordinator' as const };
-      const parsed = LocalAiDiscoveredEndpointSchema.safeParse({
-        identity: {
-          location,
-          provider: endpoint.provider,
-          endpointId: endpoint.id,
-          baseUrl: endpoint.baseUrl,
-        },
-        label: endpoint.label,
-        models: candidate.models
-          .slice(0, AUXILIARY_DISCOVERY_MAX_MODELS)
-          .map((model) => model.id),
-        healthy: candidate.healthy,
-      });
-      if (!parsed.success) continue;
-      const enrolledTargetId = findEnrolledTargetId(parsed.data.identity);
-      sanitized.push({
-        ...parsed.data,
-        ...(enrolledTargetId ? { enrolledTargetId } : {}),
-      });
-    } catch {
-      continue;
-    }
-  }
-  return LocalAiDiscoveredEndpointsSchema.parse(sanitized);
-}
-
-function sanitizeProbeResults(samples: LocalAiProbeResult[]): LocalAiProbeResult[] {
-  return samples.slice(0, 10).map((sample) => ({
-    ...sample,
-    ...(sample.message ? { message: 'The Local AI health check reported a failure.' } : {}),
-  }));
 }
 
 function safeTimestamp(value: number): number {

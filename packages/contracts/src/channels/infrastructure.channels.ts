@@ -75,6 +75,7 @@ export const INFRASTRUCTURE_CHANNELS = {
   PERMISSION_REJECT_PATTERN: 'permission:reject-pattern',
   PERMISSION_GET_STATS: 'permission:get-stats',
   PERMISSION_GET_AUDIT_LOG: 'permission:get-audit-log',
+  PERMISSION_ANALYZE_SHADOWED_RULES: 'permission:analyze-shadowed-rules',
 
   // Cost Tracking
   COST_RECORD_USAGE: 'cost:record-usage',
@@ -164,6 +165,13 @@ export const INFRASTRUCTURE_CHANNELS = {
   // Multi-provider compare — ask N providers the same prompt
   COMPARE_RUN: 'compare:run',
   COMPARE_LIST_PROVIDERS: 'compare:list-providers',
+
+  // Ask Council — progressive compare with synthesis (WS-B6)
+  COMPARE_START: 'compare:start',
+  COMPARE_CANCEL: 'compare:cancel',
+  COMPARE_SYNTHESIZE: 'compare:synthesize',
+  COMPARE_GET_RUN: 'compare:get-run',
+  COMPARE_RUN_UPDATED: 'compare:run-updated',
 
   // LSP post-edit feedback loop (opt-in)
   LSP_FEEDBACK_GET: 'lsp-feedback:get',

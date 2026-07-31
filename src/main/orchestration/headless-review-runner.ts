@@ -1,8 +1,15 @@
+import { createHash } from 'node:crypto';
 import { getProviderQuotaService } from '../core/system/provider-quota-service';
 import type { HeadlessReviewFinding, HeadlessReviewResult, HeadlessReviewReviewer } from '../cli-entrypoints/review-command-output';
 import type { ReviewResult } from '../../shared/types/cross-model-review.types';
 import { aggregateReviewFindings, type AggregatableFinding } from './review-finding-aggregation';
-import { angleForReviewer, buildStructuredReviewPrompt, buildTieredReviewPrompt, truncateForReview } from './review-prompts';
+import {
+  angleForReviewer,
+  buildStructuredReviewPrompt,
+  buildTieredReviewPrompt,
+  promptVersionForAngle,
+  truncateForReview,
+} from './review-prompts';
 import { createLocalReviewExecutionPlan, runReviewExecutionBatch } from './review-execution-batch';
 import { parseCrossModelReviewResponse } from './review-response-parser';
 import { serializeReviewResultJsonSchema } from '../../shared/validation/cross-model-review-schemas';
@@ -10,6 +17,8 @@ import { summarizeHeadlessReview, toHeadlessFindings } from './headless-review-f
 import { resolveAntigravityReviewModelPlan } from './antigravity-review-model-routing';
 import { resolveReviewWorkingDirectory } from './cross-model-review-service.helpers';
 import { redactForEgress } from '../security/content-egress-gate';
+import { verifyAnchor } from './review-artifact-anchor';
+import { LOCAL_ADVISORY_ANGLE, NO_RULES_HASH } from './review-coverage';
 import { resolveReviewerModelOverride, type HeadlessReviewRequest, type ReviewExecutionHost } from '../review/review-execution-host';
 
 export interface HeadlessReviewRunnerDependencies {
@@ -44,8 +53,14 @@ export async function runHeadlessReviewCommand(
   const reviewerStatuses: HeadlessReviewReviewer[] = [];
   const egress = redactForEgress(request.content, { kind: 'diff', preserveDiffMarkers: true });
   const reviewContent = truncateForReview(egress.content);
+  // WS-B9: the exact, redacted, size-bounded material every reviewer this
+  // call actually sees. One component of the per-angle cache key — an
+  // identical hash means an identical review payload, so a cached verdict
+  // for the same reviewer/model/angle/prompt is safe to reuse.
+  const workHash = createHash('sha256').update(reviewContent).digest('hex');
   const taskDescription = redactForEgress(request.taskDescription, { kind: 'prompt' }).content;
   const reviewDepth = request.reviewDepth ?? 'structured';
+  const reviewCache = request.reviewCache;
   const localPlan = dependencies.createLocalPlan({
     workspaceRoot: cwd,
     taskDescription,
@@ -69,6 +84,7 @@ export async function runHeadlessReviewCommand(
         let reviewerIndex = 0;
         for (const reviewer of reviewers) {
           const angle = angleForReviewer(reviewerIndex++);
+          const promptVersion = promptVersionForAngle(reviewDepth, angle);
           const prompt = reviewDepth === 'tiered'
             ? buildTieredReviewPrompt(taskDescription, reviewContent, angle)
             : buildStructuredReviewPrompt(taskDescription, reviewContent, angle);
@@ -80,8 +96,41 @@ export async function runHeadlessReviewCommand(
                   getProviderQuotaService().getSnapshot('antigravity'),
                 )
               : [configuredModel];
+            // WS-B9: caching needs one unambiguous model identity for the key.
+            // Antigravity's runtime fallback plan can try several concrete
+            // models within a single call and the identity isn't known until
+            // AFTER dispatch, so cache participation is deliberately skipped
+            // for that narrow multi-model-fallback case rather than caching
+            // under an ambiguous "auto" identity.
+            const cacheModel = reviewCache && reviewerModels.length === 1
+              ? (configuredModel ?? 'auto')
+              : undefined;
+            if (reviewCache && cacheModel) {
+              const cached = reviewCache.lookup({
+                reviewerProvider: reviewer,
+                model: cacheModel,
+                angleId: angle.id,
+                promptVersion,
+                rulesHash: NO_RULES_HASH,
+                workHash,
+              });
+              if (cached) {
+                successful.push(cached.review);
+                reviewerStatuses.push({
+                  provider: reviewer,
+                  status: 'cached',
+                  angle: angle.id,
+                  required: true,
+                  ...(configuredModel ? { model: configuredModel } : {}),
+                  reason: cached.activationReason,
+                  findingCount: toHeadlessFindings(cached.review).length,
+                });
+                continue;
+              }
+            }
             let lastResponseLength = 0;
             let parsed: ReviewResult | null = null;
+            let usedModel: string | undefined;
             // WS14: Claude reviewers get the verdict schema natively (--json-schema);
             // the host applies it only when the resolved CLI is actually claude.
             const jsonSchema = serializeReviewResultJsonSchema(reviewDepth);
@@ -94,22 +143,51 @@ export async function runHeadlessReviewCommand(
                 : await dependencies.host.dispatchReviewerPrompt(reviewer, prompt, cwd, abort.signal, { jsonSchema });
               lastResponseLength = rawResponse?.length ?? 0;
               parsed = parseCrossModelReviewResponse(reviewer, rawResponse, reviewDepth, 0);
-              if (parsed) break;
+              if (parsed) {
+                usedModel = reviewerModel;
+                break;
+              }
             }
             if (!parsed) {
+              // WS-B9: split from the generic 'failed' below — an unparseable
+              // response is a distinct coverage outcome from a transport/
+              // execution error, and (per house style) a parse failure is
+              // never cached.
               reviewerStatuses.push({
                 provider: reviewer,
-                status: 'failed',
+                status: 'parse_failed',
+                angle: angle.id,
+                required: true,
                 reason: `Reviewer returned unparseable output (${lastResponseLength} chars; expected strict JSON)`,
               });
               continue;
             }
             successful.push(parsed);
-            reviewerStatuses.push({ provider: reviewer, status: 'used' });
+            if (reviewCache && cacheModel) {
+              reviewCache.store({
+                reviewerProvider: reviewer,
+                model: cacheModel,
+                angleId: angle.id,
+                promptVersion,
+                rulesHash: NO_RULES_HASH,
+                workHash,
+                review: parsed,
+              });
+            }
+            reviewerStatuses.push({
+              provider: reviewer,
+              status: 'used',
+              angle: angle.id,
+              required: true,
+              ...(usedModel ? { model: usedModel } : {}),
+              findingCount: toHeadlessFindings(parsed).length,
+            });
           } catch (error) {
             reviewerStatuses.push({
               provider: reviewer,
               status: 'failed',
+              angle: angle.id,
+              required: true,
               reason: error instanceof Error ? error.message : String(error),
             });
           }
@@ -132,15 +210,30 @@ export async function runHeadlessReviewCommand(
       ...(localParticipant.model ? { model: localParticipant.model } : {}),
       ...(localParticipant.selectorId ? { selectorId: localParticipant.selectorId } : {}),
       ...(localParticipant.reason ? { reason: localParticipant.reason } : {}),
+      // WS-B9: the local pass has no `ReviewAngle` and its findings are
+      // always advisory (see `loop-fresh-eyes-reviewer.ts`) — never required
+      // coverage.
+      angle: LOCAL_ADVISORY_ANGLE,
+      required: false,
+      findingCount: batch.localOutcome.status === 'used' ? toHeadlessFindings(batch.localOutcome.review).length : 0,
     });
   }
   const localReviews = batch.localOutcome.status === 'used'
     ? [{ ...batch.localOutcome.review, source: 'local' as const }]
     : [];
   const successfulReviews = [...batch.remoteReviews, ...localReviews];
+  // WS-A3: verify each finding's cited quote against `reviewContent` — the
+  // exact material every reviewer this call actually saw — BEFORE
+  // aggregation, so clustering's weakest-anchor-status rule has real values
+  // to roll up. This covers both the standalone CLI review command and any
+  // caller (including the loop's fresh-eyes gate) that reaches this runner;
+  // a caller that also durably persists its OWN reviewed artifact (the loop
+  // completion gate does, via `review-artifact-anchor.ts`) re-verifies
+  // against that persisted copy before treating a finding as blocking.
   const taggedFindings: AggregatableFinding[] = successfulReviews.flatMap((review) =>
     toHeadlessFindings(review).map((finding) => ({
       ...finding,
+      ...(finding.anchor ? { anchorStatus: verifyAnchor(reviewContent, finding.anchor).status } : {}),
       reviewer: review.reviewerId,
       source: review.source === 'local' ? 'local' : 'remote',
     })),
@@ -157,6 +250,9 @@ export async function runHeadlessReviewCommand(
     reviewers: finding.reviewers,
     agreementCount: finding.agreementCount,
     advisory: finding.advisory,
+    ...(finding.anchor ? { anchor: finding.anchor } : {}),
+    ...(finding.anchorStatus ? { anchorStatus: finding.anchorStatus } : {}),
+    ...(finding.evidenceClass ? { evidenceClass: finding.evidenceClass } : {}),
   }));
   if (egress.secretsFound) {
     findings.unshift({
@@ -165,13 +261,21 @@ export async function runHeadlessReviewCommand(
         'was redacted from the review payload. Inspect the local diff before approving this change.',
       severity: 'critical',
       confidence: 1,
+      // WS-A3: a hard-coded, non-LLM safety check — always blocks (when
+      // severity-eligible) regardless of anchor state; there is nothing to
+      // "cite" since it isn't a model judgement.
+      evidenceClass: 'deterministic-gate',
     });
   }
+  // WS-B9: 'parse_failed' is a split-out sibling of 'failed' (see above) —
+  // both are infra-worthy failures for this rollup, so it must match both.
+  const isFailureStatus = (status: HeadlessReviewReviewer['status']): boolean =>
+    status === 'failed' || status === 'parse_failed';
   const failedReasons = reviewerStatuses
-    .filter((reviewer) => reviewer.source !== 'local' && reviewer.status === 'failed' && reviewer.reason)
+    .filter((reviewer) => reviewer.source !== 'local' && isFailureStatus(reviewer.status) && reviewer.reason)
     .map((reviewer) => `${reviewer.provider}: ${reviewer.reason}`);
   const localFailureReasons = reviewerStatuses
-    .filter((reviewer) => reviewer.source === 'local' && reviewer.status === 'failed' && reviewer.reason)
+    .filter((reviewer) => reviewer.source === 'local' && isFailureStatus(reviewer.status) && reviewer.reason)
     .map((reviewer) => `${reviewer.provider}: ${reviewer.reason}`);
   if (batch.remoteError) failedReasons.push(`remote: ${batch.remoteError}`);
   const infrastructureErrors = batch.remoteReviews.length === 0 &&

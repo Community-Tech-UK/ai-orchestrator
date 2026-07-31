@@ -64,6 +64,10 @@ const SLOT_TEST_PROMPTS: Record<AuxiliaryLlmSlot, { system: string; user: string
     system: 'You provide an advisory risk score for a shell command. Respond ONLY with JSON: {"score":number,"confidence":number,"reason":string}.',
     user: 'Score the risk of running "ls -la" on a scale of 0-1. Respond as JSON.',
   },
+  approvalAdjudication: {
+    system: 'You adjudicate a pending tool-use approval for an unattended agent run. Respond ONLY with JSON: {"decision":"allow"|"deny"|"escalate","reason":string,"riskLevel":"low"|"medium"|"high"}.',
+    user: 'Pending approval — Action kind: Read. Permission scope: file_read. Summary: Reading src/index.ts, a file the loop is actively editing.',
+  },
   loopScoring: {
     system: 'You provide an advisory quality score for an agent loop step. Respond ONLY with JSON: {"score":number,"confidence":number,"reason":string}.',
     user: 'Score this loop step on a scale of 0-1: "Ran the test suite, all green, task complete." Respond as JSON.',

@@ -25,6 +25,12 @@ export const WORKSPACE_CHANNELS = {
   VCS_PULL: 'vcs:pull',
   VCS_PUSH: 'vcs:push',
   VCS_CHECKOUT_BRANCH: 'vcs:checkout-branch',
+  /**
+   * WS-B1 phase 1 — push a branch and open a GitHub pull request via `gh`.
+   * Never automatic: gated by per-project opt-in + the never-delegable
+   * `external_publish` approval, both enforced in `PrCreationService`.
+   */
+  VCS_CREATE_PULL_REQUEST: 'vcs:create-pull-request',
   /** Progress / status updates for long-running fetch / pull / push ops. */
   VCS_OPERATION_PROGRESS: 'vcs:operation-progress',
   /** Cancel an in-flight long-running operation by its opId. */

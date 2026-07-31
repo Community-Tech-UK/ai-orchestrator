@@ -7,6 +7,7 @@ import type {
 } from '@contracts/schemas/loop';
 import {
   LoopIpcService,
+  type FreshEyesFindingSummary,
   type LoopActivityPayload,
   type LoopOutstandingQuery,
   type LoopOutstandingStatus,
@@ -25,7 +26,7 @@ import {
 } from './loop-state-status';
 import { snapshotLastIteration } from './loop-store-summary';
 import { loopStateToRunSummary, upsertRecentRun } from './loop-store-recent-runs';
-import { followUpDrainedActivity, steeringDowngradedActivity } from './loop-store-task18-activity';
+import { coverageSuffix, followUpDrainedActivity, steeringDowngradedActivity } from './loop-store-task18-activity';
 
 /** Discriminated result of a recent-run refresh. On error the store preserves
  *  the prior list so the Workboard keeps showing what it already held. */
@@ -245,20 +246,27 @@ export class LoopStore {
       });
     });
 
-    this.ipc.onFreshEyesReviewPassed(({ loopRunId, signal, reviewersUsed, nonBlockingFindings, summary }) => {
+    this.ipc.onFreshEyesReviewPassed(({ loopRunId, signal, reviewersUsed, nonBlockingFindings, summary, demotedFindings, coverage }) => {
       const state = this.activeByLoop(loopRunId);
+      const demotedCount = demotedFindings?.length ?? 0;
+      // WS-A3: a demoted finding means a severity-blocking issue was raised
+      // but its evidence could not be verified — still worth a visible note
+      // even though nothing blocked.
+      const demotedSuffix = demotedCount > 0
+        ? ` (${demotedCount} finding${demotedCount === 1 ? '' : 's'} demoted to advisory - evidence not verified)`
+        : '';
       this.addActivity({
         loopRunId,
         seq: state?.totalIterations ?? 0,
         stage: state?.currentStage ?? '',
         kind: 'status',
-        message: `Fresh-eyes review passed for ${signal}`,
+        message: `Fresh-eyes review passed for ${signal}${demotedSuffix}${coverageSuffix(coverage)}`,
         timestamp: Date.now(),
-        detail: { signal, reviewersUsed, nonBlockingFindings, summary },
+        detail: { signal, reviewersUsed, nonBlockingFindings, summary, demotedFindings, coverage },
       });
     });
 
-    this.ipc.onFreshEyesReviewFailed(({ loopRunId, signal, error }) => {
+    this.ipc.onFreshEyesReviewFailed(({ loopRunId, signal, error, coverage }) => {
       const state = this.activeByLoop(loopRunId);
       this.addActivity({
         loopRunId,
@@ -267,20 +275,33 @@ export class LoopStore {
         kind: 'error',
         message: `Fresh-eyes review failed for ${signal}: ${error}`,
         timestamp: Date.now(),
-        detail: { signal, error },
+        detail: { signal, error, coverage },
       });
     });
 
-    this.ipc.onFreshEyesReviewBlocked(({ loopRunId, signal, reviewersUsed, blockingFindings, summary }) => {
+    this.ipc.onFreshEyesReviewBlocked(({ loopRunId, signal, reviewersUsed, blockingFindings, summary, demotedFindings, coverage }) => {
       const state = this.activeByLoop(loopRunId);
+      // WS-A3: surface anchor status on each blocking finding (verified /
+      // re-anchored — deterministic-gate findings carry neither) plus the
+      // demoted count, so the activity feed shows why a finding blocked
+      // rather than just that something did.
+      const anchorBadge = (f: FreshEyesFindingSummary): string =>
+        f.anchorStatus ? ` [${f.anchorStatus}]` : '';
+      const findingLines = blockingFindings
+        .map((f) => `${f.severity ? `[${f.severity}] ` : ''}${f.title}${anchorBadge(f)}`)
+        .join('; ');
+      const demotedCount = demotedFindings?.length ?? 0;
+      const demotedSuffix = demotedCount > 0
+        ? ` (${demotedCount} other finding${demotedCount === 1 ? '' : 's'} demoted to advisory)`
+        : '';
       this.addActivity({
         loopRunId,
         seq: state?.totalIterations ?? 0,
         stage: state?.currentStage ?? '',
         kind: 'input_required',
-        message: `Fresh-eyes review blocked ${signal}`,
+        message: `Fresh-eyes review blocked ${signal}: ${findingLines}${demotedSuffix}${coverageSuffix(coverage)}`,
         timestamp: Date.now(),
-        detail: { signal, reviewersUsed, blockingFindings, summary },
+        detail: { signal, reviewersUsed, blockingFindings, summary, demotedFindings, coverage },
       });
     });
     this.ipc.onSteeringDowngraded((event) => this.addActivity(steeringDowngradedActivity(event, this.activeByLoop(event.loopRunId))));

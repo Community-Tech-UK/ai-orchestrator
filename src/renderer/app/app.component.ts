@@ -43,6 +43,20 @@ import { LocalAiFallbackBannerComponent } from './features/local-ai-guard/local-
 
 const STARTUP_BANNER_DISMISSAL_STORAGE_KEY = 'startup-capabilities-banner:dismissed-fingerprint';
 
+/**
+ * WS-A2 `instance:doom-loop` payload — mirrors `ToolLoopDetectionEvent` in
+ * `src/main/orchestration/doom-loop-detector.ts` (main-process types are not
+ * imported into the renderer bundle; kept minimal and structural here).
+ */
+interface ToolLoopWarningPayload {
+  instanceId: string;
+  detector: 'repeat-no-progress' | 'ping-pong' | 'runaway';
+  severity: 'warn' | 'critical';
+  toolName: string;
+  count: number;
+  windowDescription: string;
+}
+
 declare global {
   interface Window {
     __perfService?: PerfInstrumentationService;
@@ -124,6 +138,7 @@ export class AppComponent implements OnInit, OnDestroy {
   private readonly localAiGuardStore = inject(LocalAiGuardStore);
 
   private menuListenerCleanup: (() => void) | null = null;
+  private toolLoopListenerCleanup: (() => void) | null = null;
   private resumeToastTimer: ReturnType<typeof setTimeout> | null = null;
 
   isMacOS = false;
@@ -251,6 +266,18 @@ export class AppComponent implements OnInit, OnDestroy {
       void this.router.navigateByUrl(getControlSurface('settings').path);
     });
 
+    // WS-A2: minimal renderer notice for result-aware tool-loop detections.
+    // Warnings are always emitted by the main-process detector regardless of
+    // the (default-off) auto-interrupt setting; this just surfaces them.
+    this.toolLoopListenerCleanup = this.ipcService.on('instance:doom-loop', (data) => {
+      const event = data as ToolLoopWarningPayload;
+      const prefix = event.severity === 'critical' ? 'Tool loop (critical)' : 'Tool loop warning';
+      this.toastService.show(
+        `${prefix}: ${event.toolName} — ${event.windowDescription}`,
+        'error',
+      );
+    });
+
     // Signal app ready
     await this.ipcService.appReady();
     if (!this.startupCapabilities()) {
@@ -308,6 +335,8 @@ export class AppComponent implements OnInit, OnDestroy {
     this.resumeToastTimer = null;
     this.menuListenerCleanup?.();
     this.menuListenerCleanup = null;
+    this.toolLoopListenerCleanup?.();
+    this.toolLoopListenerCleanup = null;
     this.windowControlsOverlayCleanup?.();
     this.windowControlsOverlayCleanup = null;
     this.appUpdateStore.dispose();

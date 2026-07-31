@@ -10,6 +10,10 @@ import type {
 } from '../../../../../shared/types/instance.types';
 import type { ModelRuntimeTarget } from '../../../../../shared/types/local-model-runtime.types';
 import type { ReasoningEffort } from '../../../../../shared/types/provider.types';
+import type {
+  CompactionBoundaryOptions,
+  CompactionPreview,
+} from '../../../../../shared/types/compaction-preview.types';
 
 export interface CreateInstanceConfig {
   workingDirectory: string;
@@ -67,6 +71,32 @@ export interface InstanceQueueInitialPromptPayload {
   message: string;
   attachments?: FileAttachment[];
   seededAlready: true;
+}
+
+// ============================================
+// Durable renderer send-queue (WS-A1 Phase B)
+// ============================================
+
+export interface QueueSourceMetadata {
+  hadAttachmentsDropped?: boolean;
+  kind?: 'queue' | 'steer';
+  retryCount?: number;
+  seededAlready?: boolean;
+}
+
+export interface QueuedMessageDTO {
+  admissionId: string;
+  instanceId: string;
+  message: string;
+  attachments: FileAttachment[];
+  /** True when one or more staged attachments failed to resolve on the main side — never silent. */
+  attachmentsDropped: boolean;
+  contextBlock: string | null;
+  queuePosition: number | null;
+  state: 'queued' | 'promoting';
+  sourceMetadata: QueueSourceMetadata | null;
+  createdAt: number;
+  updatedAt: number;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -438,6 +468,26 @@ export class InstanceIpcService {
     return this.api.compactInstance({ instanceId });
   }
 
+  /** Read-only manual-compaction preview (WS-B7). Never mutates instance state. */
+  async previewCompaction(
+    instanceId: string,
+    options?: CompactionBoundaryOptions,
+  ): Promise<IpcResponse<CompactionPreview>> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.previewCompaction({ instanceId, keepLatestExchanges: options?.keepLatestExchanges }) as Promise<
+      IpcResponse<CompactionPreview>
+    >;
+  }
+
+  /** Boundary-aware manual compaction apply (WS-B7): checkpoint + optional "keep latest N exchanges". */
+  async applyCompactionWithOptions(
+    instanceId: string,
+    options?: CompactionBoundaryOptions,
+  ): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.applyCompactionWithOptions({ instanceId, keepLatestExchanges: options?.keepLatestExchanges });
+  }
+
   async recoverCompactionContext(
     instanceId: string,
     markerId: string,
@@ -536,5 +586,58 @@ export class InstanceIpcService {
   ): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.respondToInputRequired(instanceId, requestId, response, permissionKey, decisionAction, decisionScope, metadata, updatedInput);
+  }
+
+  /**
+   * Read-only list of recent prompt admission decisions (Phase A of
+   * SessionAdmissionService: suppressed vs. delivered automated writes, and
+   * observed user sends). No UI consumes this yet — Phase A ships the
+   * IPC surface only.
+   */
+  async listSessionAdmissions(payload?: { instanceId?: string; states?: string[] }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.listSessionAdmissions(payload);
+  }
+
+  // ============================================
+  // Durable renderer send-queue (WS-A1 Phase B)
+  // ============================================
+
+  async queueEnqueue(
+    instanceId: string,
+    payload: { message: string; attachments?: FileAttachment[]; contextBlock?: string; sourceMetadata?: QueueSourceMetadata },
+  ): Promise<IpcResponse<{ admissionId: string; queuePosition: number | null }>> {
+    if (!this.api?.sessionQueueEnqueue) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.sessionQueueEnqueue({ instanceId, ...payload }) as Promise<
+      IpcResponse<{ admissionId: string; queuePosition: number | null }>
+    >;
+  }
+
+  async queueUpdate(
+    admissionId: string,
+    patch: { message?: string; attachments?: FileAttachment[]; contextBlock?: string },
+  ): Promise<IpcResponse<QueuedMessageDTO | null>> {
+    if (!this.api?.sessionQueueUpdate) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.sessionQueueUpdate({ admissionId, ...patch }) as Promise<IpcResponse<QueuedMessageDTO | null>>;
+  }
+
+  async queueCancel(admissionId: string): Promise<IpcResponse<{ cancelled: boolean }>> {
+    if (!this.api?.sessionQueueCancel) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.sessionQueueCancel(admissionId) as Promise<IpcResponse<{ cancelled: boolean }>>;
+  }
+
+  async queueReorder(instanceId: string, orderedIds: string[]): Promise<IpcResponse> {
+    if (!this.api?.sessionQueueReorder) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.sessionQueueReorder(instanceId, orderedIds);
+  }
+
+  async queueList(instanceId?: string): Promise<IpcResponse<{ queues: Record<string, QueuedMessageDTO[]> }>> {
+    if (!this.api?.sessionQueueList) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.sessionQueueList(instanceId) as Promise<IpcResponse<{ queues: Record<string, QueuedMessageDTO[]> }>>;
+  }
+
+  async queuePromote(admissionId: string): Promise<IpcResponse<QueuedMessageDTO | null>> {
+    if (!this.api?.sessionQueuePromote) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.sessionQueuePromote(admissionId) as Promise<IpcResponse<QueuedMessageDTO | null>>;
   }
 }

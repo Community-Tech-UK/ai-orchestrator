@@ -8,6 +8,44 @@ import type {
   LoopTerminalIntentPayload,
 } from '@contracts/schemas/loop';
 import { ElectronIpcService, type IpcResponse } from './electron-ipc.service';
+import type { AnchorStatus, EvidenceClass } from '../../../../../shared/types/review-evidence';
+
+/**
+ * WS-A3: renderer-facing summary of a fresh-eyes finding. Mirrors the fields
+ * of `FreshEyesFinding` (`src/main/orchestration/loop-fresh-eyes-reviewer.ts`)
+ * that the UI actually needs to display; kept local (not imported from main)
+ * since the renderer never needs `anchor.quote` or other main-only detail.
+ * All fields beyond `title`/`severity` are optional and absence is normal —
+ * older/degraded events simply carry fewer of them.
+ */
+export interface FreshEyesFindingSummary {
+  title: string;
+  body?: string;
+  severity?: string;
+  file?: string;
+  advisory?: boolean;
+  anchorStatus?: AnchorStatus;
+  evidenceClass?: EvidenceClass;
+  /** Set only on a finding demoted from blocking to advisory (WS-A3). */
+  demotedReason?: string;
+}
+
+/**
+ * WS-B9: renderer-facing per-angle reviewer coverage summary for one
+ * fresh-eyes review attempt. Mirrors `LoopReviewAngleCoverageEntry`
+ * (`src/main/orchestration/review-coverage.ts`); kept local for the same
+ * "renderer doesn't need main-only detail" reason as
+ * {@link FreshEyesFindingSummary}.
+ */
+export interface ReviewAngleCoverageSummary {
+  angle: string;
+  reviewerProvider?: string;
+  model?: string;
+  status: 'used' | 'cached' | 'skipped' | 'failed' | 'parse_failed';
+  activationReason?: string;
+  findingCount: number;
+  required: boolean;
+}
 
 /**
  * The verify command detected for a workspace. `scope` mirrors
@@ -454,17 +492,17 @@ export class LoopIpcService {
     if (!this.api) return () => { /* noop */ };
     return this.api.onLoopFreshEyesReviewStarted((p) => this.ngZone.run(() => cb(p as { loopRunId: string; signal: string })));
   }
-  onFreshEyesReviewPassed(cb: (data: { loopRunId: string; signal: string; reviewersUsed: string[]; nonBlockingFindings: number; summary?: string; infrastructureError?: string }) => void): () => void {
+  onFreshEyesReviewPassed(cb: (data: { loopRunId: string; signal: string; reviewersUsed: string[]; nonBlockingFindings: number; summary?: string; infrastructureError?: string; demotedFindings?: FreshEyesFindingSummary[]; coverage?: ReviewAngleCoverageSummary[] }) => void): () => void {
     if (!this.api) return () => { /* noop */ };
-    return this.api.onLoopFreshEyesReviewPassed((p) => this.ngZone.run(() => cb(p as { loopRunId: string; signal: string; reviewersUsed: string[]; nonBlockingFindings: number; summary?: string; infrastructureError?: string })));
+    return this.api.onLoopFreshEyesReviewPassed((p) => this.ngZone.run(() => cb(p as { loopRunId: string; signal: string; reviewersUsed: string[]; nonBlockingFindings: number; summary?: string; infrastructureError?: string; demotedFindings?: FreshEyesFindingSummary[]; coverage?: ReviewAngleCoverageSummary[] })));
   }
-  onFreshEyesReviewFailed(cb: (data: { loopRunId: string; signal: string; error: string }) => void): () => void {
+  onFreshEyesReviewFailed(cb: (data: { loopRunId: string; signal: string; error: string; coverage?: ReviewAngleCoverageSummary[] }) => void): () => void {
     if (!this.api) return () => { /* noop */ };
-    return this.api.onLoopFreshEyesReviewFailed((p) => this.ngZone.run(() => cb(p as { loopRunId: string; signal: string; error: string })));
+    return this.api.onLoopFreshEyesReviewFailed((p) => this.ngZone.run(() => cb(p as { loopRunId: string; signal: string; error: string; coverage?: ReviewAngleCoverageSummary[] })));
   }
-  onFreshEyesReviewBlocked(cb: (data: { loopRunId: string; signal: string; reviewersUsed: string[]; blockingFindings: unknown[]; summary?: string }) => void): () => void {
+  onFreshEyesReviewBlocked(cb: (data: { loopRunId: string; signal: string; reviewersUsed: string[]; blockingFindings: FreshEyesFindingSummary[]; summary?: string; demotedFindings?: FreshEyesFindingSummary[]; coverage?: ReviewAngleCoverageSummary[] }) => void): () => void {
     if (!this.api) return () => { /* noop */ };
-    return this.api.onLoopFreshEyesReviewBlocked((p) => this.ngZone.run(() => cb(p as { loopRunId: string; signal: string; reviewersUsed: string[]; blockingFindings: unknown[]; summary?: string })));
+    return this.api.onLoopFreshEyesReviewBlocked((p) => this.ngZone.run(() => cb(p as { loopRunId: string; signal: string; reviewersUsed: string[]; blockingFindings: FreshEyesFindingSummary[]; summary?: string; demotedFindings?: FreshEyesFindingSummary[]; coverage?: ReviewAngleCoverageSummary[] })));
   }
   onSteeringDowngraded(cb: (data: LoopSteeringDowngradedPayload) => void): () => void {
     if (!this.api) return () => { /* noop */ };

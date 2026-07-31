@@ -348,6 +348,62 @@
   }
 </div>
 
+<!-- Rule Analysis Section -->
+<div class="section">
+  <div class="section-header">
+    <h4>
+      Rule analysis
+      @if (shadowedRuleFindings().length > 0) {
+        <span class="shadow-count-badge">{{ shadowedRuleFindings().length }}</span>
+      }
+    </h4>
+    <div class="header-actions">
+      <button
+        class="btn-secondary"
+        (click)="loadShadowedRuleFindings()"
+        [disabled]="shadowedRulesLoading()"
+      >
+        Refresh
+      </button>
+    </div>
+  </div>
+
+  <p class="section-description">
+    Rules are checked in order — the first one that matches wins. This looks for rules that can
+    never win because a broader rule ahead of them always matches first, so they never get a
+    chance to decide anything. Read-only for now; nothing here is changed automatically.
+  </p>
+
+  @if (shadowedRulesLoading()) {
+    <div class="loading-state">Loading...</div>
+  } @else if (shadowedRuleFindings().length === 0) {
+    <div class="empty-state">
+      <span class="empty-icon">&#10003;</span>
+      <span>No dead rules found</span>
+    </div>
+  } @else {
+    <div class="audit-list">
+      @for (finding of shadowedRuleFindings(); track finding.rule.id) {
+        <div class="audit-row" [class.denial]="finding.kind === 'conflicting'">
+          <div class="audit-main">
+            <span class="audit-action" [class.deny]="finding.kind === 'conflicting'">
+              {{ finding.kind === 'conflicting' ? 'conflicting' : 'redundant' }}
+            </span>
+            <span class="audit-resource">{{ finding.rule.pattern }}</span>
+            <span class="audit-tool">shadowed by {{ finding.shadowedBy.pattern }}</span>
+          </div>
+          <div class="audit-meta">
+            <span>{{ finding.rule.scope }}</span>
+            <span>{{ finding.rule.source }} · priority {{ finding.rule.priority }}</span>
+            <span>vs {{ finding.shadowedBy.source }} · priority {{ finding.shadowedBy.priority }}</span>
+          </div>
+          <div class="audit-reason">{{ finding.explanation }}</div>
+        </div>
+      }
+    </div>
+  }
+</div>
+
 <!-- Statistics Section -->
 <div class="section">
   <div class="section-header">

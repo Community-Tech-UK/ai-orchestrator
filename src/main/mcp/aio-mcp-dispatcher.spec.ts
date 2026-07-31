@@ -9,6 +9,7 @@ const dispatcherMocks = vi.hoisted(() => ({
   runRemoteNodesCli: vi.fn(async () => undefined),
   runReleaseReadinessCli: vi.fn(async () => undefined),
   runSettingsCli: vi.fn(async () => undefined),
+  runLocalAiCli: vi.fn(async () => undefined),
 }));
 
 vi.mock('./orchestrator-tools-mcp-forwarder', () => ({
@@ -35,6 +36,9 @@ vi.mock('./release-readiness-cli', () => ({
 vi.mock('./settings-cli', () => ({
   runSettingsCli: dispatcherMocks.runSettingsCli,
 }));
+vi.mock('./local-ai-cli', () => ({
+  runLocalAiCli: dispatcherMocks.runLocalAiCli,
+}));
 
 import { isAioMcpSubcommand, runAioMcpDispatcher } from './aio-mcp-dispatcher';
 
@@ -53,6 +57,7 @@ describe('aio-mcp-dispatcher', () => {
     expect(isAioMcpSubcommand('remote-nodes')).toBe(true);
     expect(isAioMcpSubcommand('release-readiness')).toBe(true);
     expect(isAioMcpSubcommand('settings')).toBe(true);
+    expect(isAioMcpSubcommand('local-ai')).toBe(true);
     expect(isAioMcpSubcommand('something-else')).toBe(false);
     expect(isAioMcpSubcommand(null)).toBe(false);
     expect(isAioMcpSubcommand(undefined)).toBe(false);
@@ -103,6 +108,12 @@ describe('aio-mcp-dispatcher', () => {
   it('routes "settings" to runSettingsCli with remaining args', async () => {
     const code = await runAioMcpDispatcher(argv('settings', 'list', '--json'));
     expect(dispatcherMocks.runSettingsCli).toHaveBeenCalledWith(['list', '--json']);
+    expect(code).toBe(0);
+  });
+
+  it('routes "local-ai" to runLocalAiCli with remaining args', async () => {
+    const code = await runAioMcpDispatcher(argv('local-ai', 'discover', '--json'));
+    expect(dispatcherMocks.runLocalAiCli).toHaveBeenCalledWith(['discover', '--json']);
     expect(code).toBe(0);
   });
 

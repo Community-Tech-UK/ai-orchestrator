@@ -74,6 +74,12 @@ export const MEMORY_CHANNELS = {
   RLM_SECTION_REMOVED: 'rlm:section-removed',
   RLM_QUERY_COMPLETE: 'rlm:query-complete',
 
+  // Governed Proposal operations (WS-A4 memory promotion review inbox)
+  GOVERNED_PROPOSAL_LIST: 'governed-proposal:list',
+  GOVERNED_PROPOSAL_GET: 'governed-proposal:get',
+  GOVERNED_PROPOSAL_APPROVE: 'governed-proposal:approve',
+  GOVERNED_PROPOSAL_REJECT: 'governed-proposal:reject',
+
   // Observation Memory operations
   OBSERVATION_GET_STATS: 'observation:get-stats',
   OBSERVATION_GET_REFLECTIONS: 'observation:get-reflections',

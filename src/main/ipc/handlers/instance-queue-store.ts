@@ -1,3 +1,10 @@
+/**
+ * @deprecated Superseded by `SessionQueueService` / `SessionAdmissionStore`
+ * (WS-A1 Phase B) as the durable authority for the renderer send-queue.
+ * Kept only so `QueuePersistenceService.restoreFromDisk()` can read and
+ * migrate any legacy entries once, then clear this store via
+ * `saveInstanceQueue(instanceId, [])`. Do not add new writers.
+ */
 import ElectronStore from 'electron-store';
 
 interface PersistedQueueEntry {

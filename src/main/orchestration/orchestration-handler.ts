@@ -33,6 +33,12 @@ import {
 import { getRemoteNodeRosterService } from '../remote-node/remote-node-roster-service';
 import { getConsensusCoordinator } from './consensus-coordinator';
 import type { ConsensusProviderSpec } from './consensus.types';
+import { getSessionAdmissionService } from '../session/session-admission-service';
+import {
+  injectConsensusResult,
+  handleConsensusRedelivery,
+  type ConsensusResultInjectionDeps,
+} from './consensus-result-injection';
 import { AutomationCreatePayloadSchema } from '@contracts/schemas/automation';
 import { getToolRegistry } from '../tools/tool-registry';
 import { getTaskManager } from './task-manager';
@@ -102,6 +108,24 @@ export class OrchestrationHandler extends EventEmitter {
   private recentCommands = new Map<string, { signature: string; timestamp: number }[]>();
   private static readonly COMMAND_DEDUP_WINDOW_MS = 30_000;
   private static readonly MAX_COMMANDS_PER_WINDOW = 10;
+
+  constructor() {
+    super();
+    // Refire a suppressed consensus_query result injection once the
+    // requesting instance is ready again (see injectConsensusResult).
+    getSessionAdmissionService().registerRedeliveryHandler(
+      'consensus',
+      (ctx) => handleConsensusRedelivery(this.consensusResultInjectionDeps(), ctx),
+    );
+  }
+
+  /** Capabilities the extracted consensus-result-injection module needs from this handler. */
+  private consensusResultInjectionDeps(): ConsensusResultInjectionDeps {
+    return {
+      injectResponse: (instanceId, action, success, data) =>
+        this.injectResponse(instanceId, action, success, data),
+    };
+  }
 
   /**
    * Register an instance for orchestration
@@ -1313,7 +1337,7 @@ export class OrchestrationHandler extends EventEmitter {
           timestamp: Date.now(),
         });
       }
-      this.injectResponse(instanceId, 'consensus_query', anyProviderSucceeded, {
+      injectConsensusResult(this.consensusResultInjectionDeps(), instanceId, anyProviderSucceeded, {
         status: anyProviderSucceeded ? 'complete' : 'failed',
         message,
         agreement: result.agreement,
@@ -1344,7 +1368,7 @@ export class OrchestrationHandler extends EventEmitter {
         error: error instanceof Error ? error.message : String(error),
         timestamp: Date.now(),
       });
-      this.injectResponse(instanceId, 'consensus_query', false, {
+      injectConsensusResult(this.consensusResultInjectionDeps(), instanceId, false, {
         status: 'failed',
         activeConsensusQueries: this.getActiveConsensusQueryCount(instanceId),
         error: error instanceof Error ? error.message : String(error),

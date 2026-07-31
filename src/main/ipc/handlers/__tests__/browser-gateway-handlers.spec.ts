@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IpcResponse } from '../../validated-handler';
+import type { AdmissionOutcome } from '../../../session/session-admission-service';
 
 type IpcHandler = (event: unknown, payload?: unknown) => Promise<IpcResponse>;
 
@@ -58,6 +59,17 @@ vi.mock('../../../logging/logger', () => ({
   getLogger: () => ({ debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() }),
 }));
 
+const admissionMocks = vi.hoisted(() => ({
+  admitAutomatedWrite: vi.fn<() => AdmissionOutcome>(() => ({ kind: 'admitted', admissionId: 'adm-default' })),
+  markDelivered: vi.fn(),
+  markFailed: vi.fn(),
+  registerRedeliveryHandler: vi.fn(),
+}));
+
+vi.mock('../../../session/session-admission-service', () => ({
+  getSessionAdmissionService: () => admissionMocks,
+}));
+
 import { registerBrowserGatewayHandlers } from '../browser-gateway-handlers';
 
 const fakeEvent = {};
@@ -69,6 +81,11 @@ describe('registerBrowserGatewayHandlers', () => {
     for (const mock of Object.values(serviceMocks)) {
       mock.mockResolvedValue({ decision: 'allowed', outcome: 'succeeded', auditId: 'audit-1' });
     }
+    admissionMocks.admitAutomatedWrite.mockReset();
+    admissionMocks.admitAutomatedWrite.mockReturnValue({ kind: 'admitted', admissionId: 'adm-default' });
+    admissionMocks.markDelivered.mockClear();
+    admissionMocks.markFailed.mockClear();
+    admissionMocks.registerRedeliveryHandler.mockClear();
     registerBrowserGatewayHandlers();
   });
 
@@ -254,6 +271,56 @@ describe('registerBrowserGatewayHandlers', () => {
 
     expect(result).toMatchObject({ success: true });
     expect(sendInput).toHaveBeenCalledTimes(1);
+  });
+
+  describe('SessionAdmissionService gating on the resume nudge (A5)', () => {
+    it('does not send the resume nudge when admission suppresses it', async () => {
+      electronMocks.handlers.clear();
+      const sendInput = vi.fn().mockResolvedValue(undefined);
+      serviceMocks.approveRequest.mockResolvedValueOnce({
+        decision: 'allowed',
+        outcome: 'succeeded',
+        auditId: 'audit-1',
+        data: { instanceId: 'instance-7' },
+      });
+      admissionMocks.admitAutomatedWrite.mockReturnValue({
+        kind: 'suppressed',
+        reason: 'respawning',
+        admissionId: 'adm-blocked',
+      });
+      registerBrowserGatewayHandlers({
+        instanceManager: { sendInput } as never,
+      });
+
+      const result = await invoke('browser:approve-request', validApprovePayload());
+
+      expect(result).toMatchObject({ success: true });
+      expect(sendInput).not.toHaveBeenCalled();
+      expect(admissionMocks.admitAutomatedWrite).toHaveBeenCalledWith(
+        expect.objectContaining({ instanceId: 'instance-7', origin: 'browser-gateway' }),
+      );
+    });
+
+    it('registers a redelivery handler for the browser-gateway origin that resends directly', async () => {
+      electronMocks.handlers.clear();
+      const sendInput = vi.fn().mockResolvedValue(undefined);
+      registerBrowserGatewayHandlers({
+        instanceManager: { sendInput } as never,
+      });
+
+      expect(admissionMocks.registerRedeliveryHandler).toHaveBeenCalledWith('browser-gateway', expect.any(Function));
+      const handler = admissionMocks.registerRedeliveryHandler.mock.calls.at(-1)![1] as (ctx: {
+        admissionId: string;
+        instanceId: string;
+        message: string;
+      }) => void;
+
+      handler({ admissionId: 'adm-blocked', instanceId: 'instance-7', message: 'retry now' });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(sendInput).toHaveBeenCalledWith('instance-7', 'retry now');
+      expect(admissionMocks.markDelivered).toHaveBeenCalledWith('adm-blocked');
+    });
   });
 
   it('can reject untrusted senders before validating or calling the service', async () => {

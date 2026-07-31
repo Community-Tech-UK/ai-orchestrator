@@ -100,6 +100,7 @@ export const CONTROL_SURFACES: readonly ControlSurfaceItem[] = [
   surface({ id: 'logs', path: '/logs', label: 'Logs', subtitle: 'Inspect app logs and debug output.', group: 'monitoring', kind: 'diagnostic', dashboard: true }),
   surface({ id: 'observations', path: '/observations', label: 'Telemetry', subtitle: 'Review observations and reflections.', group: 'knowledge', kind: 'diagnostic', dashboard: true }),
   surface({ id: 'knowledge', path: '/knowledge', label: 'Knowledge Graph', subtitle: 'Explore structured project knowledge.', group: 'knowledge', kind: 'view', layout: 'wide', dashboard: true }),
+  surface({ id: 'memory-review', path: '/memory-review', label: 'Memory review', subtitle: 'Approve, edit, or reject lessons the agent captured on its own.', group: 'knowledge', kind: 'workflow', dashboard: true }),
   surface({ id: 'plugins', path: '/plugins', label: 'Plugins', subtitle: 'Manage runtime plugin integrations.', group: 'integrations', kind: 'integration', dashboard: true }),
   surface({ id: 'models', path: '/models', label: 'Models', subtitle: 'Choose provider models and overrides.', group: 'settings', kind: 'setting', dashboard: true, settings: true }),
   surface({ id: 'remote-config', path: '/remote-config', label: 'Remote Config', subtitle: 'Sync settings from remote configuration sources.', group: 'integrations', kind: 'integration', dashboard: true, settings: true }),

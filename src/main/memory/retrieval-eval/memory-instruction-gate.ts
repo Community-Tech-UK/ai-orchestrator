@@ -33,7 +33,11 @@ export function admitToTier(
 ): boolean {
   if (tier === 'advisory') return true;
   if (!gateEnabled) return true; // operator opted out (logged by the caller)
-  return provenance === 'user-authored' || provenance === 'imported';
+  // WS-A4: 'user-approved' is admitted alongside the pre-existing human-trusted
+  // provenances. It is set ONLY by GovernedProposalService.approve() from an
+  // explicit operator decision recorded in `proposal_audit` — never inferred,
+  // never set by an agent. 'agent-derived' (no sign-off) stays blocked.
+  return provenance === 'user-authored' || provenance === 'imported' || provenance === 'user-approved';
 }
 
 /**

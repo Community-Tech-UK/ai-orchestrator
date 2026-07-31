@@ -1,9 +1,12 @@
 import type {
   LoopCrossModelReviewConfig,
+  LoopReviewAngleCoverageEntry,
   LoopTerminalIntent,
 } from '../../shared/types/loop.types';
 import type { ReviewSeverity } from '../../shared/types/review-severity';
+import type { AnchorStatus, EvidenceClass, FindingAnchor } from '../../shared/types/review-evidence';
 import type { CrossModelReviewService } from './cross-model-review-service';
+import type { HeadlessReviewAngleCacheHook } from '../review/review-execution-host';
 
 /**
  * Severity of a fresh-eyes review finding. Mirrors
@@ -21,6 +24,25 @@ export interface FreshEyesFinding {
   confidence: number;
   /** Local-only findings are visible but cannot block completion. */
   advisory?: boolean;
+  /**
+   * WS-A3: evidence-anchoring — see `HeadlessReviewFinding` in
+   * `review-command-output.ts` (this mirrors it, kept local for the same
+   * lazy-import reason as {@link FreshEyesSeverity}). `anchor` is an exact
+   * quote (plus best-effort file/line hints) cited from the reviewed
+   * material. `evidenceClass` says whether citation is even possible for
+   * this finding. `anchorStatus` — set by the completion gate once the
+   * finding is checked against the persisted artifact for this review
+   * attempt — says whether the citation actually checked out.
+   */
+  anchor?: FindingAnchor;
+  anchorStatus?: AnchorStatus;
+  evidenceClass?: EvidenceClass;
+  /**
+   * Set only by the completion gate (`loop-coordinator-completion-gates.ts`)
+   * when a severity-blocking finding is demoted to advisory because its
+   * evidence could not be verified. Never set by a reviewer implementation.
+   */
+  demotedReason?: string;
 }
 
 export interface FreshEyesReviewerInput {
@@ -69,6 +91,12 @@ export interface FreshEyesReviewerInput {
   planFile?: string;
   /** Ping-pong: whether this round is reviewing a plan or an implementation. */
   subject?: 'plan' | 'impl';
+  /**
+   * WS-B9: per-angle reviewer-verdict cache hook, bound to the gate's
+   * `LoopState` by `runFreshEyesReviewGate` — see `review-coverage.ts`.
+   * Undefined for the local-only advisory pass (no angle concept there).
+   */
+  reviewAngleCache?: HeadlessReviewAngleCacheHook;
 }
 
 export interface FreshEyesReviewerResult {
@@ -85,6 +113,14 @@ export interface FreshEyesReviewerResult {
    */
   tokensUsed?: number;
   costCents?: number;
+  /**
+   * WS-B9: per-angle coverage for this attempt (used/cached/skipped/failed/
+   * parse_failed), one entry per reviewer this call dispatched or reused from
+   * cache. Undefined for a reviewer implementation (including test stubs)
+   * that doesn't report coverage — the gate treats that as "not applicable",
+   * never as a shortfall.
+   */
+  coverage?: LoopReviewAngleCoverageEntry[];
 }
 
 export type FreshEyesReviewer = (
@@ -193,6 +229,9 @@ export async function runLocalOnlyFreshEyesReview(
         ...(finding.file ? { file: finding.file } : {}),
         confidence: finding.confidence,
         advisory: true,
+        ...(finding.anchor ? { anchor: finding.anchor } : {}),
+        ...(finding.anchorStatus ? { anchorStatus: finding.anchorStatus } : {}),
+        ...(finding.evidenceClass ? { evidenceClass: finding.evidenceClass } : {}),
       })),
       summary: result.summary,
     };
@@ -226,6 +265,7 @@ export const defaultFreshEyesReviewer: FreshEyesReviewer = async (input) => {
       reviewDepth: input.config.reviewDepth,
       timeoutSeconds: input.config.timeoutSeconds,
       signal: input.abortSignal,
+      ...(input.reviewAngleCache ? { reviewCache: input.reviewAngleCache } : {}),
     });
 
     return {
@@ -236,15 +276,37 @@ export const defaultFreshEyesReviewer: FreshEyesReviewer = async (input) => {
         file: f.file,
         confidence: f.confidence,
         advisory: f.advisory,
+        ...(f.anchor ? { anchor: f.anchor } : {}),
+        ...(f.anchorStatus ? { anchorStatus: f.anchorStatus } : {}),
+        ...(f.evidenceClass ? { evidenceClass: f.evidenceClass } : {}),
       })),
+      // WS-B9: a cache hit is just as authoritative as a live 'used' call —
+      // both mean the reviewer's angle actually produced a verdict this
+      // attempt.
       reviewersUsed: result.reviewers
-        .filter((r) => r.status === 'used' && r.source !== 'local')
+        .filter((r) => (r.status === 'used' || r.status === 'cached') && r.source !== 'local')
         .map((r) => r.provider),
       summary: result.summary,
       infrastructureError:
         result.infrastructureErrors && result.infrastructureErrors.length > 0
           ? result.infrastructureErrors.join('; ')
           : undefined,
+      // WS-B9: only emitted when the headless runner actually dispatched or
+      // reused at least one reviewer — an empty `result.reviewers` (e.g. zero
+      // resolved reviewers and no local pass) has nothing to report.
+      ...(result.reviewers.length > 0
+        ? {
+          coverage: result.reviewers.map((r) => ({
+            angle: r.angle ?? r.provider,
+            ...(r.model ? { model: r.model } : {}),
+            reviewerProvider: r.provider,
+            status: r.status,
+            ...(r.reason ? { activationReason: r.reason } : {}),
+            findingCount: r.findingCount ?? 0,
+            required: r.required ?? r.source !== 'local',
+          })),
+        }
+        : {}),
     };
   } catch (err) {
     return {

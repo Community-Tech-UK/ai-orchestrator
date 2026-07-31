@@ -11,6 +11,7 @@ import { validateIpcPayload } from '@contracts/schemas/common';
 import {
   VcsCheckoutBranchPayloadSchema,
   VcsCommitPayloadSchema,
+  VcsCreatePullRequestPayloadSchema,
   VcsDiscardFilesPayloadSchema,
   VcsFetchPayloadSchema,
   VcsFindReposPayloadSchema,
@@ -36,6 +37,7 @@ import {
 } from '../../workspace/git/git-status-watcher';
 import { getLogger } from '../../logging/logger';
 import { getHookManager } from '../../hooks/hook-manager';
+import { getPrCreationService } from '../../vcs/pr-creation-service';
 import type { WindowManager } from '../../window-manager';
 
 const logger = getLogger('VcsHandlers');
@@ -885,6 +887,49 @@ export function registerVcsHandlers(deps?: {
           success: false,
           error: {
             code: 'VCS_CHECKOUT_BRANCH_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  // ---------------------------------------------------------------------
+  // WS-B1 phase 1 — create a GitHub pull request from a completed
+  // loop/worktree branch. Never automatic: explicit invocation only, gated
+  // end-to-end in PrCreationService (per-project opt-in + never-delegable
+  // external_publish approval).
+  // ---------------------------------------------------------------------
+  ipcMain.handle(
+    IPC_CHANNELS.VCS_CREATE_PULL_REQUEST,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: unknown,
+    ): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(
+          VcsCreatePullRequestPayloadSchema,
+          payload,
+          'VCS_CREATE_PULL_REQUEST',
+        );
+        const result = await getPrCreationService().createPullRequest(validated);
+        if (result.ok) {
+          return { success: true, data: { url: result.url } };
+        }
+        return {
+          success: false,
+          error: {
+            code: `VCS_CREATE_PULL_REQUEST_${result.error.kind.toUpperCase()}`,
+            message: result.error.message,
+            timestamp: Date.now(),
+          },
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'VCS_CREATE_PULL_REQUEST_FAILED',
             message: (error as Error).message,
             timestamp: Date.now(),
           },

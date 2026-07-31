@@ -15,6 +15,8 @@ export interface ProviderRuntimeEventIngressOptions {
   sessionId?: string;
   timestamp?: number;
   raw?: ProviderRuntimeEventEnvelope['raw'];
+  /** WS-B10: forwarded onto the bus's PendingEnvelope; see `ProviderRuntimeEventEnvelope.ephemeral`. */
+  ephemeral?: boolean;
 }
 
 interface BuildProviderRuntimeEventIngressInput {
@@ -40,6 +42,7 @@ export function buildProviderRuntimeEventIngress(
     adapterGeneration: instance?.adapterGeneration,
     turnId: resolveRuntimeEventTurnId(input.event, instance),
     raw: input.options?.raw,
+    ...(input.options?.ephemeral !== undefined ? { ephemeral: input.options.ephemeral } : {}),
     event: input.event,
   };
 }

@@ -25,6 +25,11 @@
             attachments dropped
           </span>
         }
+        @if (queuedMsg.notDurable) {
+          <span class="queued-drop-warning" title="Not yet saved for crash recovery — a renderer crash right now could lose this message">
+            not saved
+          </span>
+        }
         <button
           class="queued-edit-btn"
           (click)="editMessage.emit(i)"

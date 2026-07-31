@@ -48,6 +48,10 @@ const PRIVILEGED_CLI_OPERATOR_ONLY_KEYS = new Set<keyof AppSettings>([
   'browserVaultMasterPasswordFile',
   'browserVaultAutoUnlock',
   'browserAllowSharedTabCredentialFill',
+  // WS-B1 phase 1 (2026-07-31 fresh-eyes CRITICAL fix): PR creation authority
+  // is a human/GUI-only decision — the privileged repair CLI's agent-facing
+  // `settings set` path must not be able to grant it either.
+  'allowPrCreation',
   'computerUseEnabled',
   'computerUseAllowedAppsJson',
   'computerUseDeniedAppsJson',
@@ -145,6 +149,7 @@ const auxiliarySlotMapSchema = z.object({
   titleGeneration: auxiliarySlotSchema.optional(),
   routingClassification: auxiliarySlotSchema.optional(),
   approvalScoring: auxiliarySlotSchema.optional(),
+  approvalAdjudication: auxiliarySlotSchema.optional(),
   loopScoring: auxiliarySlotSchema.optional(),
   retrievalHypothesis: auxiliarySlotSchema.optional(),
   branchScoring: auxiliarySlotSchema.optional(),
@@ -170,6 +175,22 @@ const orchestrationRoutingPolicyMapSchema = z.object({
   z.ZodOptional<typeof orchestrationRoutingPolicyValueSchema>
 >).strict();
 const orchestrationRoutingPolicySchema = jsonBackedObjectSchema(orchestrationRoutingPolicyMapSchema);
+
+// Closed-tier, Record-valued settings without an explicit schema were the
+// exact CRITICAL gap found in the WS-B1 phase 1 fresh-eyes review (2026-07-31):
+// `coerceRendererSettingValue`'s typeof-fallback treats `typeof value ===
+// 'object'` as sufficient, which matches ANY object/array shape and provides
+// no structural validation. A full survey of every closed-tier key (see the
+// hardened fallback in `coerceRendererSettingValue` below) found exactly
+// three Record-typed settings relying on that fallback; all three now get a
+// real schema so a malformed/oversized payload is rejected at the write
+// boundary instead of merely being sanitized downstream.
+const contextEvidenceModeSchema = z.enum(['off', 'shadow', 'enforce']);
+const contextEvidenceModeByProviderSchema = z.record(z.string().min(1).max(64), contextEvidenceModeSchema);
+const projectPluginTrustValueSchema = z.enum(['trusted', 'untrusted', 'ask']);
+const projectPluginTrustMapSchema = z.record(z.string().min(1).max(1000), projectPluginTrustValueSchema);
+// WS-B1 phase 1 — per-project PR-creation opt-in map.
+const allowPrCreationMapSchema = z.record(z.string().min(1).max(1000), z.boolean());
 
 const workerModeSchema = z.object({
   role: z.enum(['unset', 'coordinator', 'worker']),
@@ -218,7 +239,10 @@ export const SETTINGS_TOOL_POLICY = {
   residentClaudeSession: readOnly(),
   // Rollout posture is a trusted operator decision. Agents may inspect it but
   // cannot silently advance a provider from off/shadow to enforce mid-run.
-  contextEvidenceModeByProvider: readOnly(),
+  // Schema-gated (2026-07-31 hardening) even though `normalizeContextEvidenceModeByProvider`
+  // already sanitizes malformed values downstream — belt and suspenders at
+  // the write boundary too.
+  contextEvidenceModeByProvider: readOnly(false, contextEvidenceModeByProviderSchema),
   theme: open(themeSchema),
   maxChildrenPerParent: open(numberSettingSchema('maxChildrenPerParent')),
   maxTotalInstances: open(numberSettingSchema('maxTotalInstances')),
@@ -413,8 +437,21 @@ export const SETTINGS_TOOL_POLICY = {
   injectRepoMap: open(z.boolean()),
   repoMapTokenBudget: open(z.number().finite().int().min(0).max(200_000)),
   detectDegradedAdapterOutput: open(z.boolean()),
+  toolLoopAutoInterrupt: open(z.boolean()),
+  approvalAdjudicationEnabled: open(z.boolean()),
   enableSpawnWorkerOffload: open(z.boolean(), true),
-  projectPluginTrust: readOnly(),
+  // Writes actually happen through dedicated `projectPluginTrustGrant`/
+  // `projectPluginTrustRevoke` IPC (plugin-manager.ts), not this generic
+  // settings surface, but the schema still gates it defensively (see the
+  // Record-valued closed-key note above).
+  projectPluginTrust: readOnly(false, projectPluginTrustMapSchema),
+  // WS-B1 phase 1: per-project PR-creation opt-in is a human/GUI decision,
+  // not an agent-tool-writable setting — mirrors projectPluginTrust. Schema-
+  // gated (Record<string,boolean>, no typeof fallback) AND excluded from the
+  // privileged `aio-mcp settings` CLI below, so the ONLY write path is the
+  // renderer Settings-UI IPC a human drives — never an agent/MCP tool call,
+  // never the privileged repair CLI.
+  allowPrCreation: readOnly(false, allowPrCreationMapSchema),
   auxiliaryLlmEnabled: open(z.boolean()),
   auxiliaryLlmRoutingMode: open(auxiliaryRoutingModeSchema),
   auxiliaryLlmAllowRemoteWorkerModels: open(z.boolean()),
@@ -483,8 +520,20 @@ export function assertWritableSetting(
   }
 }
 
+/**
+ * The privileged `aio-mcp settings` CLI is a trusted local repair surface, so
+ * its write boundary is NOT the `policyTier` used by the safe MCP tools: it can
+ * write every key except the operator-only authorization anchors above. Callers
+ * that report writability to a human or an agent must use this, not
+ * `policy.tier === 'open'`, or read-only-tier keys look unchangeable when the
+ * CLI can in fact change them.
+ */
+export function isPrivilegedSettingsCliWritable(key: keyof AppSettings): boolean {
+  return !PRIVILEGED_CLI_OPERATOR_ONLY_KEYS.has(key);
+}
+
 export function assertPrivilegedSettingsCliWritable(key: keyof AppSettings): void {
-  if (PRIVILEGED_CLI_OPERATOR_ONLY_KEYS.has(key)) {
+  if (!isPrivilegedSettingsCliWritable(key)) {
     throw new Error(`Setting is operator-only and cannot be changed by agents: ${key}`);
   }
 }
@@ -542,7 +591,27 @@ export function coerceRendererSettingValue(
       value: parsed.data as AppSettings[keyof AppSettings],
     };
   }
+  // No explicit schema. 2026-07-31 fresh-eyes CRITICAL fix: a bare
+  // `typeof value === typeof persisted` check is only a meaningful gate for
+  // primitive types — for an object/array-shaped setting, `typeof value ===
+  // 'object'` matches ANY shape (a renderer payload could set a Record-typed
+  // closed setting to an arbitrary map and this would previously pass). This
+  // is what let `allowPrCreation: {'/repo': true}` through undetected.
+  //
+  // Every closed-tier key without a schema was surveyed at fix time and is a
+  // primitive (string/boolean/number) — the three Record-valued exceptions
+  // (`allowPrCreation`, `projectPluginTrust`, `contextEvidenceModeByProvider`)
+  // now carry an explicit schema above and never reach this branch. So:
+  // reject outright (no fallback at all) for any non-primitive default type,
+  // and keep the same-primitive-type check only for the confirmed-safe
+  // primitive case. A FUTURE object/array-shaped closed-tier key MUST get an
+  // explicit schema — falling through here is a bug, not a feature.
   const expected = typeof DEFAULT_SETTINGS[typedKey];
+  if (expected !== 'string' && expected !== 'boolean' && expected !== 'number') {
+    throw new Error(
+      `Setting ${typedKey} has no writable schema and is not a primitive type; refusing to write it.`,
+    );
+  }
   if (typeof value !== expected) {
     throw new Error(`Invalid value for ${typedKey}: expected ${expected}`);
   }

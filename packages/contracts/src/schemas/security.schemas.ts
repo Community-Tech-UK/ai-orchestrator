@@ -61,6 +61,28 @@ export const BashValidatePayloadSchema = z.object({
   command: z.string().min(1).max(100_000),
 });
 
+export const PermissionScopeSchema = z.enum([
+  'file_read',
+  'file_write',
+  'file_delete',
+  'directory_read',
+  'directory_create',
+  'directory_delete',
+  'bash_execute',
+  'bash_dangerous',
+  'tool_use',
+  'network_access',
+  'subprocess_spawn',
+  'environment_access',
+  'secret_access',
+  'git_operation',
+  'external_service',
+]);
+
+export const PermissionAnalyzeShadowedRulesPayloadSchema = z.object({
+  scope: PermissionScopeSchema.optional(),
+});
+
 export const BashCommandPayloadSchema = z.object({
   command: z.string().min(1).max(100_000),
 });

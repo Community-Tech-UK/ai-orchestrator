@@ -135,6 +135,55 @@ describe('OrchestratorToolsRpcServer settings integration', () => {
     expect(JSON.stringify(result)).not.toContain('redaction-test-value');
   });
 
+  it('privileged_list reports CLI writability over the wire, not just the tool tier', async () => {
+    const server = new OrchestratorToolsRpcServer({
+      userDataPath: os.tmpdir(),
+      isKnownLocalInstance: (id) => id === KNOWN_INSTANCE,
+      settingsManager: makeSettingsManager(),
+      registerCleanup: () => undefined,
+      toolFactory: () => [],
+    });
+
+    const result = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 20,
+      method: 'orchestrator_tools.settings.privileged_list',
+      params: { instanceId: KNOWN_INSTANCE, payload: {} },
+    }) as {
+      settings: { key: keyof AppSettings; writable: boolean; cliWritable?: boolean }[];
+    };
+
+    const byKey = new Map(result.settings.map((setting) => [setting.key, setting]));
+    // Read-only to the safe tool, writable by this CLI — the distinction the
+    // CLI's CLI-Write column depends on.
+    expect(byKey.get('defaultYoloMode')).toMatchObject({ writable: false, cliWritable: true });
+    expect(byKey.get('browserAllowSharedTabCredentialFill')).toMatchObject({ cliWritable: false });
+  });
+
+  it('privileged_get reports CLI writability over the wire', async () => {
+    const server = new OrchestratorToolsRpcServer({
+      userDataPath: os.tmpdir(),
+      isKnownLocalInstance: (id) => id === KNOWN_INSTANCE,
+      settingsManager: makeSettingsManager(),
+      registerCleanup: () => undefined,
+      toolFactory: () => [],
+    });
+
+    const result = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 21,
+      method: 'orchestrator_tools.settings.privileged_get',
+      params: { instanceId: KNOWN_INSTANCE, payload: { key: 'defaultYoloMode' } },
+    });
+
+    expect(result).toMatchObject({
+      key: 'defaultYoloMode',
+      policyTier: 'read-only',
+      writable: false,
+      cliWritable: true,
+    });
+  });
+
   it('privileged_get refuses secret keys instead of returning their value', async () => {
     const settingsManager = makeSettingsManager({
       remoteNodesEnrollmentToken: 'redaction-test-value',

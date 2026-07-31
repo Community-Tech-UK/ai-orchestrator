@@ -1,10 +1,65 @@
 import type { Instance, InstanceStatus, QueuedMessage } from './instance.types';
 import type { FileAttachment } from '../../../../../shared/types/instance.types';
 import { validateAttachmentCount } from './instance-attachments';
+import type { InstanceStateService } from './instance-state.service';
 
 export interface SendInputImmediateOptions {
   skipUserBubble?: boolean;
   queuedMetadata?: Pick<QueuedMessage, 'kind' | 'hadAttachmentsDropped' | 'seededAlready'>;
+}
+
+/** Append to the back of an instance's queue. Extracted so InstanceMessagingStore stays under its LOC ratchet. */
+export function enqueueToQueue(stateService: InstanceStateService, instanceId: string, queuedMessage: QueuedMessage): void {
+  stateService.messageQueue.update((currentMap) => {
+    const newMap = new Map(currentMap);
+    const queue = newMap.get(instanceId) || [];
+    newMap.set(instanceId, [...queue, queuedMessage]);
+    return newMap;
+  });
+}
+
+/** Prepend to the front of an instance's queue (pause-front-of-line, retry-requeue, terminal-restart). */
+export function enqueueToQueueFront(stateService: InstanceStateService, instanceId: string, queuedMessage: QueuedMessage): void {
+  stateService.messageQueue.update((currentMap) => {
+    const newMap = new Map(currentMap);
+    const queue = newMap.get(instanceId) || [];
+    newMap.set(instanceId, [queuedMessage, ...queue]);
+    return newMap;
+  });
+}
+
+/** Insert after any existing steer messages but before the first passive-queue message. */
+export function enqueueSteerToQueue(stateService: InstanceStateService, instanceId: string, queuedMessage: QueuedMessage): void {
+  stateService.messageQueue.update((currentMap) => {
+    const newMap = new Map(currentMap);
+    const queue = newMap.get(instanceId) || [];
+    const firstPassiveIndex = queue.findIndex((item) => item.kind !== 'steer');
+    const insertAt = firstPassiveIndex === -1 ? queue.length : firstPassiveIndex;
+    newMap.set(instanceId, [...queue.slice(0, insertAt), queuedMessage, ...queue.slice(insertAt)]);
+    return newMap;
+  });
+}
+
+/**
+ * Remove one specific entry by object reference (not index — the queue may
+ * have been reordered/mutated during an await since the caller captured it).
+ * Returns false when the entry is no longer present (already cancelled/sent
+ * by another path), which callers use to avoid a duplicate send.
+ */
+export function removeQueuedEntry(stateService: InstanceStateService, instanceId: string, entry: QueuedMessage): boolean {
+  let removed = false;
+  stateService.messageQueue.update((currentMap) => {
+    const queue = currentMap.get(instanceId);
+    if (!queue) return currentMap;
+    const index = queue.indexOf(entry);
+    if (index === -1) return currentMap;
+    removed = true;
+    const newMap = new Map(currentMap);
+    const newQueue = [...queue.slice(0, index), ...queue.slice(index + 1)];
+    if (newQueue.length === 0) newMap.delete(instanceId); else newMap.set(instanceId, newQueue);
+    return newMap;
+  });
+  return removed;
 }
 
 export function isTransientQueueStatus(status: InstanceStatus): boolean {

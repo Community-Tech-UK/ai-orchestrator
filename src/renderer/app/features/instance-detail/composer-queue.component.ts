@@ -7,6 +7,8 @@ export interface ComposerQueuedMessage {
   files?: File[];
   kind?: 'queue' | 'steer';
   hadAttachmentsDropped?: boolean;
+  /** True while this entry's durable send-queue row is unconfirmed or failed to persist. */
+  notDurable?: boolean;
 }
 
 @Component({

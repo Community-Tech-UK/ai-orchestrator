@@ -17,6 +17,7 @@ import { IPC_CHANNELS, IpcResponse } from '../../shared/types/ipc.types';
 import { getLogger } from '../logging/logger';
 import { getLspManager } from '../workspace/lsp-manager';
 import { LspFeedbackCoordinator, type LspDiagnostic, type LspSeverity } from './lsp-feedback-coordinator';
+import { getSessionAdmissionService } from '../session/session-admission-service';
 
 const logger = getLogger('LspFeedbackReg');
 
@@ -76,8 +77,38 @@ export function registerLspFeedback(deps: { instanceManager: LspFeedbackInstance
         line: d.range?.start?.line !== undefined ? d.range.start.line + 1 : undefined,
       }));
     },
-    injectFeedback: (instanceId, note) =>
-      deps.instanceManager.sendInput(instanceId, note, undefined, { autoContinuation: true }),
+    // A5: re-check live instance state right before injecting — isInstanceIdle
+    // above can race a status change (permission prompt, interrupt, respawn)
+    // between the coordinator's check and this call. No redelivery handler is
+    // registered for 'lsp-feedback': diagnostics are re-published on every
+    // save/LSP cycle, so a suppressed note is dropped (logged) rather than
+    // replayed stale later — the coordinator will naturally reconsider on the
+    // next diagnostics event.
+    injectFeedback: async (instanceId, note) => {
+      const outcome = getSessionAdmissionService().admitAutomatedWrite({
+        instanceId,
+        origin: 'lsp-feedback',
+        message: note,
+      });
+      if (outcome.kind === 'suppressed') {
+        logger.info('LSP feedback suppressed pending instance readiness', {
+          instanceId,
+          reason: outcome.reason,
+          admissionId: outcome.admissionId,
+        });
+        return;
+      }
+      try {
+        await deps.instanceManager.sendInput(instanceId, note, undefined, { autoContinuation: true });
+        getSessionAdmissionService().markDelivered(outcome.admissionId);
+      } catch (err) {
+        getSessionAdmissionService().markFailed(
+          outcome.admissionId,
+          err instanceof Error ? err.message : String(err),
+        );
+        throw err;
+      }
+    },
   });
   coordinator.attach();
 

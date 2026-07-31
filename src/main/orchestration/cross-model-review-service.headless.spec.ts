@@ -123,8 +123,8 @@ describe('CrossModelReviewService headless review', () => {
       expect.objectContaining({ jsonSchema: expect.any(String) }),
     );
     expect(result.reviewers).toEqual([
-      { provider: 'antigravity', status: 'used' },
-      { provider: 'codex', status: 'failed', reason: 'CLI unavailable' },
+      { provider: 'antigravity', status: 'used', angle: 'correctness', required: true, findingCount: 1 },
+      { provider: 'codex', status: 'failed', reason: 'CLI unavailable', angle: 'security', required: true },
     ]);
     expect(result.findings).toContainEqual(expect.objectContaining({
       title: 'antigravity correctness concern',
@@ -160,7 +160,7 @@ describe('CrossModelReviewService headless review', () => {
       expect.objectContaining({ jsonSchema: expect.any(String) }),
     );
     expect(result.reviewers).toEqual([
-      { provider: 'antigravity', status: 'used' },
+      { provider: 'antigravity', status: 'used', angle: 'correctness', required: true, findingCount: 1 },
     ]);
   });
 
@@ -187,7 +187,9 @@ describe('CrossModelReviewService headless review', () => {
       'codex', expect.any(String), REPO_CWD, expect.any(AbortSignal),
       expect.objectContaining({ jsonSchema: expect.any(String) }),
     );
-    expect(result.reviewers).toEqual([{ provider: 'codex', status: 'used' }]);
+    expect(result.reviewers).toEqual([
+      { provider: 'codex', status: 'used', angle: 'correctness', required: true, findingCount: 1 },
+    ]);
   });
 
   it('truncates an oversized payload before dispatching to the reviewer', async () => {
@@ -266,8 +268,16 @@ describe('CrossModelReviewService headless review', () => {
       reviewers: ['gemini'],
     });
 
+    // WS-B9: an unparseable response is 'parse_failed', a status distinct
+    // from a transport/execution 'failed' — both still feed infrastructureErrors.
     expect(result.reviewers).toEqual([
-      { provider: 'antigravity', status: 'failed', reason: expect.stringContaining('unparseable output') },
+      {
+        provider: 'antigravity',
+        status: 'parse_failed',
+        reason: expect.stringContaining('unparseable output'),
+        angle: 'correctness',
+        required: true,
+      },
     ]);
     expect(result.reviewers[0].reason).toMatch(/\d+ chars/);
     expect(result.infrastructureErrors).toHaveLength(1);
@@ -316,7 +326,17 @@ describe('CrossModelReviewService headless review', () => {
       'Claude Sonnet 4.6 (Thinking)',
       'GPT-OSS 120B (Medium)',
     ]);
-    expect(result.reviewers).toEqual([{ provider: 'antigravity', status: 'used' }]);
+    // WS-B9: antigravity's multi-model fallback plan means cache participation
+    // is deliberately skipped (see `headless-review-runner.ts`), so this stays
+    // a plain 'used' with the concrete model that actually produced a verdict.
+    expect(result.reviewers).toEqual([{
+      provider: 'antigravity',
+      status: 'used',
+      angle: 'correctness',
+      required: true,
+      findingCount: 1,
+      model: 'GPT-OSS 120B (Medium)',
+    }]);
   });
 
   it('validates the cwd before dispatch and falls back to process.cwd() for a missing path', async () => {
@@ -346,7 +366,9 @@ describe('CrossModelReviewService headless review', () => {
       expect.objectContaining({ jsonSchema: expect.any(String) }),
     );
     expect(result.cwd).toBe(process.cwd());
-    expect(result.reviewers).toEqual([{ provider: 'antigravity', status: 'used' }]);
+    expect(result.reviewers).toEqual([
+      { provider: 'antigravity', status: 'used', angle: 'correctness', required: true, findingCount: 1 },
+    ]);
   });
 
   it('returns stable JSON-shaped results when no reviewers are available', async () => {
@@ -504,7 +526,7 @@ describe('CrossModelReviewService headless review', () => {
     });
 
     expect(result.reviewers).toEqual([
-      { provider: 'codex', status: 'used' },
+      { provider: 'codex', status: 'used', angle: 'correctness', required: true, findingCount: 1 },
       expect.objectContaining({ provider: 'local-model', status: 'failed', reason: 'Local parse failed.' }),
     ]);
     expect(result.findings).toEqual([expect.objectContaining({ advisory: false })]);

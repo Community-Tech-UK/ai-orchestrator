@@ -21,6 +21,19 @@ vi.mock('../../logging/logger', () => ({
   }),
 }));
 
+const mockAdmitAutomatedWrite = vi.fn().mockReturnValue({ kind: 'admitted', admissionId: 'adm-default' });
+const mockMarkDelivered = vi.fn();
+const mockMarkFailed = vi.fn();
+const mockRegisterRedeliveryHandler = vi.fn();
+vi.mock('../../session/session-admission-service', () => ({
+  getSessionAdmissionService: () => ({
+    admitAutomatedWrite: mockAdmitAutomatedWrite,
+    markDelivered: mockMarkDelivered,
+    markFailed: mockMarkFailed,
+    registerRedeliveryHandler: mockRegisterRedeliveryHandler,
+  }),
+}));
+
 // Mock remote-node barrel to prevent transitive import chain reaching
 // command-manager.ts → ElectronStore (which requires Electron runtime)
 vi.mock('../../remote-node', () => ({
@@ -347,6 +360,11 @@ describe('ChannelMessageRouter', () => {
     addRecentDirectoryMock.mockClear();
     hibernatedInstancesState.entries = [];
     historyEntriesState.entries = [];
+    mockAdmitAutomatedWrite.mockReset();
+    mockAdmitAutomatedWrite.mockReturnValue({ kind: 'admitted', admissionId: 'adm-default' });
+    mockMarkDelivered.mockClear();
+    mockMarkFailed.mockClear();
+    mockRegisterRedeliveryHandler.mockClear();
     adapter = makeMockAdapter();
     persistence = makeMockPersistence();
     channelManager = makeMockChannelManager(adapter);
@@ -534,6 +552,25 @@ describe('ChannelMessageRouter', () => {
         expect.stringContaining('<channel_message>\nfollow up\n</channel_message>'),
       );
       expect(instanceManager.createInstance).not.toHaveBeenCalled();
+      expect(mockMarkDelivered).toHaveBeenCalledWith('adm-default');
+    });
+
+    it('does not send when admission suppresses the write, and registers a channel redelivery handler on start (A5)', async () => {
+      mockAdmitAutomatedWrite.mockReturnValue({
+        kind: 'suppressed',
+        reason: 'awaiting-human',
+        admissionId: 'adm-suppressed',
+      });
+      router.start();
+      persistence.resolveInstanceByThread.mockReturnValue('existing-inst');
+      const msg = makeMessage({ threadId: 'thread-1', content: 'follow up' });
+      await router.handleInboundMessage(msg);
+
+      expect(instanceManager.sendInput).not.toHaveBeenCalled();
+      expect(mockAdmitAutomatedWrite).toHaveBeenCalledWith(
+        expect.objectContaining({ instanceId: 'existing-inst', origin: 'channel' }),
+      );
+      expect(mockRegisterRedeliveryHandler).toHaveBeenCalledWith('channel', expect.any(Function));
     });
   });
 
@@ -578,6 +615,26 @@ describe('ChannelMessageRouter', () => {
         expect.stringContaining('<channel_message>\nstop everything\n</channel_message>'),
       );
       expect(instanceManager.sendInput).not.toHaveBeenCalledWith('c', expect.anything());
+    });
+
+    it('suppresses one instance without aborting the rest of the broadcast (A5)', async () => {
+      instanceManager.getInstances.mockReturnValue([
+        { id: 'a', status: 'idle' },
+        { id: 'b', status: 'busy' },
+      ]);
+      mockAdmitAutomatedWrite.mockImplementation(({ instanceId }: { instanceId: string }) =>
+        instanceId === 'a'
+          ? { kind: 'suppressed', reason: 'awaiting-human', admissionId: 'adm-a' }
+          : { kind: 'admitted', admissionId: 'adm-b' },
+      );
+      const msg = makeMessage({ content: '@all stop everything' });
+      await router.handleInboundMessage(msg);
+
+      expect(instanceManager.sendInput).not.toHaveBeenCalledWith('a', expect.anything());
+      expect(instanceManager.sendInput).toHaveBeenCalledWith(
+        'b',
+        expect.stringContaining('<channel_message>\nstop everything\n</channel_message>'),
+      );
     });
 
     it('sends "no active instances" message when there are none', async () => {

@@ -42,6 +42,7 @@ export const aliases = {
   '@contracts/schemas/doc-review': resolve(configDir, './packages/contracts/src/schemas/doc-review.schemas'),
   '@contracts/schemas/rlm-maintenance': resolve(configDir, './packages/contracts/src/schemas/rlm-maintenance.schemas'),
   '@contracts/schemas/context-evidence': resolve(configDir, './packages/contracts/src/schemas/context-evidence.schemas'),
+  '@contracts/schemas/workboard': resolve(configDir, './packages/contracts/src/schemas/workboard.schemas'),
   '@contracts/channels/automation': resolve(configDir, './packages/contracts/src/channels/automation.channels'),
   '@contracts/channels/campaign': resolve(configDir, './packages/contracts/src/channels/campaign.channels'),
   '@contracts/channels/pause': resolve(configDir, './packages/contracts/src/channels/pause.channels'),

@@ -34,6 +34,7 @@ $AIO_MCP settings get <key> [--json]
 $AIO_MCP settings set <key> <json-value> [--json]
 $AIO_MCP settings reset <key> [--json]
 $AIO_MCP remote-nodes [--json]
+$AIO_MCP local-ai --help
 $AIO_MCP release-readiness --help
 ```
 
@@ -47,6 +48,50 @@ The `orchestrator-tools` forwarder exposes `request_doc_review` (args:
 build the HTML artifact with the `doc-review-artifact` skill into the workspace's
 `.aio-review/` dir, call `request_doc_review`, then apply the returned decisions
 to the Markdown source. These are MCP tools, not `$AIO_MCP` CLI subcommands.
+
+## What This CLI May Change
+
+There are two settings surfaces with different write boundaries. Do not confuse
+them.
+
+| Surface | Boundary |
+| --- | --- |
+| `set_setting` / `reset_setting` MCP tools | `open`-tier keys only. |
+| `$AIO_MCP settings set` / `reset` (this CLI) | Every key except the operator-only authorization anchors. |
+
+This CLI is the trusted local repair surface, so a `read-only` or `secret`
+policy tier does **not** mean you cannot change the key here. Roughly 90% of
+keys are writable through this CLI.
+
+Decide from the `CLI-Write` column, or the `cliWritable` field under `--json`:
+
+- `yes` — this CLI can set and reset the key.
+- `no` — an operator-only anchor. `set`/`reset` fails with `Setting is
+  operator-only and cannot be changed by agents`. Ask the user to change it in
+  the Settings UI instead.
+- `unknown` — the running app predates the field. Fall back to trying the write
+  and reporting the exact error.
+
+Ignore the `writable` field for this purpose. It describes the safe MCP tool
+tier, not this CLI, and reports `false` for many keys this CLI can change.
+
+Secret-tier keys are readable only through `settings list` — `settings get`
+refuses them — so `list` is the only place their `cliWritable` shows up. Most of
+them are writable; `browserVaultMasterPasswordFile` is both secret-tier and
+operator-only, so it is not. See "Redaction And Secrets" below.
+
+The operator-only anchors are the credential-vault unlock settings
+(`browserVaultMasterPasswordFile`, `browserVaultAutoUnlock`), the shared-tab
+credential-fill switch, the five Computer Use policy keys, the four Microsoft
+Graph OAuth and calendar-allowlist keys, the context-evidence rollout mode,
+the three Local AI Guard fallback-policy and budget keys, and the WS-B1
+per-project PR-creation opt-in map (`allowPrCreation`).
+`PRIVILEGED_CLI_OPERATOR_ONLY_KEYS` in
+`src/main/core/config/settings-control-policy.ts` is the authoritative list.
+
+When the user asks you to change one of your own Harness settings, check
+`CLI-Write` first and say plainly which of the two answers applies. Do not
+report a key as unchangeable on the strength of its policy tier alone.
 
 ## Settings Repair Workflow
 
@@ -69,6 +114,9 @@ to the Markdown source. These are MCP tools, not `$AIO_MCP` CLI subcommands.
    ```bash
    $AIO_MCP settings get <key> --json
    ```
+
+   For a secret-tier key `get` refuses, so verify from the redacted `oldValue`
+   and `newValue` that `set` returned, or from `settings list`.
 
 4. Tell the user exactly what key changed and whether `restartRequired` is true.
 
@@ -103,8 +151,8 @@ Secret-tier settings are intentionally protected:
 
 - `settings list` returns redacted secret values.
 - `settings get` refuses secret keys.
-- `settings set` and `settings reset` can change secret keys, but output redacted
-  old and new values.
+- `settings set` and `settings reset` can change secret keys, except the
+  operator-only anchors, but output redacted old and new values.
 
 Never print, summarize, or infer secret values from settings output, local files,
 logs, process environments, screenshots, or shell history.
@@ -145,6 +193,35 @@ Prefer JSON if you need to parse fields such as `status`, `activeInstances`,
 derives Capacity and Capabilities from those fields. Do not treat a missing or
 disconnected node as proof that the machine is off; only report what the roster
 says.
+
+## Local AI Guard Targets
+
+Local AI Guard target configuration is not an `AppSettings` surface. Never edit
+the Local AI SQLite tables directly and do not try to encode target records as
+settings keys.
+
+Use:
+
+```bash
+$AIO_MCP local-ai discover --json
+$AIO_MCP local-ai list --json
+$AIO_MCP local-ai validate '<config-json>' --json
+$AIO_MCP local-ai enrol '<config-json>' --json
+```
+
+Recommended agent workflow:
+
+1. Read the relevant auxiliary-model and fallback settings.
+2. Run `local-ai discover --json` and select one exact discovered identity.
+3. Build a strict `LocalAiTargetConfig` using only advertised models.
+4. Run `local-ai validate ... --json` and inspect every required result.
+5. Run `local-ai enrol ... --json`. The parent repeats validation and refuses
+   persistence if the result is empty or a required probe fails.
+6. Run `local-ai list --json` and verify the persisted target.
+
+The command uses the existing known-local-instance RPC authentication. Human
+output omits raw evidence; JSON contains only the existing bounded public Local
+AI schemas and never secret resolvers or model output.
 
 ## Release Readiness
 
@@ -214,6 +291,7 @@ Run the relevant help command:
 ```bash
 $AIO_MCP --help
 $AIO_MCP settings --help
+$AIO_MCP local-ai --help
 $AIO_MCP remote-nodes --help
 $AIO_MCP release-readiness --help
 ```

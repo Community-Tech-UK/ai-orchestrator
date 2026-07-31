@@ -1,6 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import { getLogger } from '../logging/logger';
 import type {
   LoopIteration,
+  LoopReviewAngleCoverageEntry,
   LoopStage,
   LoopState,
 } from '../../shared/types/loop.types';
@@ -23,10 +25,13 @@ import type { CompletionSignalEvidence } from '../../shared/types/loop-state.typ
 import type { EvidenceResolution } from './evidence-resolver';
 import {
   isBlockingFreshEyesFinding,
+  type FreshEyesFinding,
   type FreshEyesReviewer,
   type FreshEyesReviewerResult,
   type FreshEyesSeverity,
 } from './loop-fresh-eyes-reviewer';
+import { getReviewArtifact, persistReviewArtifact, verifyAnchor } from './review-artifact-anchor';
+import { buildReviewAngleCacheHook, computeRequiredCoverageMet, persistReviewCoverageReport } from './review-coverage';
 import type { LoopCleanReviewClassifier } from './loop-clean-review-classifier';
 import type { LoopStageMachine } from './loop-stage-machine';
 import { applyVerifyOutcomeToIteration, verifyFailureIntervention } from './loop-coordinator-utils';
@@ -53,6 +58,92 @@ export interface FreshEyesGateResult {
    * `architecturalStatus` field.
    */
   blockingSeverities?: FreshEyesSeverity[];
+  /**
+   * WS-A3: severity-blocking findings that were demoted to advisory because
+   * their cited evidence could not be verified against the persisted
+   * artifact for this review attempt (or they cited no evidence at all).
+   * Never silently dropped — present (with `demotedReason` set) whenever a
+   * demotion happened, on both the pass and the block outcome.
+   */
+  demotedFindings?: FreshEyesFinding[];
+  /**
+   * WS-B9: per-angle reviewer coverage for this attempt, when the reviewer
+   * implementation reported it. A `required` angle other than `used`/`cached`
+   * forces `errored: true` (see `computeRequiredCoverageMet` in
+   * `review-coverage.ts`) — partial required coverage is never a clean pass.
+   */
+  coverage?: LoopReviewAngleCoverageEntry[];
+}
+
+/**
+ * WS-A3: split a review's severity-blocking candidates into those that may
+ * actually block completion and those demoted to advisory because their
+ * evidence could not be trusted.
+ *
+ * A finding blocks only if:
+ *   (a) it is `evidenceClass: 'deterministic-gate'` — a hard-coded, non-LLM
+ *       safety check (the secret-redaction sentinel), which is authoritative
+ *       by construction and needs no anchor, OR
+ *   (b) it carries an `anchor` whose quote {@link verifyAnchor}s as
+ *       `verified` or `re-anchored` against `diffArtifactContent` — the
+ *       durably persisted diff this exact review attempt was shown.
+ *
+ * Everything else (no anchor at all, or `evidence_unverified`) is demoted:
+ * still visible, carries a `demotedReason`, but cannot block on severity
+ * alone — a hallucinated, stale, or mislocated finding can no longer force
+ * another loop cycle with nothing to prove the cited code exists.
+ */
+export function classifyFreshEyesBlocking(
+  candidates: readonly FreshEyesFinding[],
+  diffArtifactContent: string,
+): { blocking: FreshEyesFinding[]; demoted: FreshEyesFinding[] } {
+  const blocking: FreshEyesFinding[] = [];
+  const demoted: FreshEyesFinding[] = [];
+
+  for (const finding of candidates) {
+    if (finding.evidenceClass === 'deterministic-gate') {
+      blocking.push(finding);
+      continue;
+    }
+
+    if (finding.anchor) {
+      const result = verifyAnchor(diffArtifactContent, finding.anchor);
+      if (result.status === 'verified') {
+        blocking.push({ ...finding, anchorStatus: 'verified' });
+        continue;
+      }
+      if (result.status === 're-anchored') {
+        blocking.push({
+          ...finding,
+          anchorStatus: 're-anchored',
+          anchor: {
+            ...finding.anchor,
+            ...(result.resolvedLineRange ? { lineRange: result.resolvedLineRange } : {}),
+            ...(result.resolvedFile ? { file: result.resolvedFile } : {}),
+          },
+        });
+        continue;
+      }
+      demoted.push({
+        ...finding,
+        anchorStatus: 'evidence_unverified',
+        demotedReason:
+          'The cited evidence quote could not be located in the reviewed diff — the finding may ' +
+          'be stale, hallucinated, or mislocated. Demoted to advisory; it will not block completion ' +
+          'on its own.',
+      });
+      continue;
+    }
+
+    demoted.push({
+      ...finding,
+      demotedReason:
+        'No locatable evidence quote was supplied for this severity-blocking finding. Demoted to ' +
+        'advisory; it will not block completion on its own.',
+    });
+  }
+
+  return { blocking, demoted };
 }
 
 export async function evaluateReviewDrivenCompletion(args: {
@@ -307,6 +398,29 @@ export async function runFreshEyesReviewGate(args: {
     ? iterationFiles
     : workspaceDiff.changedFiles;
 
+  // WS-A3: durably persist the exact material this review attempt is shown
+  // (diff + verify excerpt) BEFORE dispatching the reviewer, so a later
+  // evidence-anchor check proves a finding's quote against what was actually
+  // reviewed, not a freshly-recomputed (and possibly different) workspace
+  // diff. Keyed by a fresh id per attempt so a resumed/retried gate never
+  // verifies a finding against a stale attempt's artifact.
+  const reviewAttemptId = `fer_${randomUUID()}`;
+  const verifyOutputExcerpt = verifyOutput.slice(0, 4096);
+  persistReviewArtifact({
+    state,
+    iterationSeq: iteration.seq,
+    reviewAttemptId,
+    artifactType: 'diff',
+    content: diffEgress.content,
+  });
+  persistReviewArtifact({
+    state,
+    iterationSeq: iteration.seq,
+    reviewAttemptId,
+    artifactType: 'output',
+    content: verifyOutputExcerpt,
+  });
+
   let reviewResult: FreshEyesReviewerResult;
   try {
     reviewResult = await reviewer({
@@ -318,12 +432,14 @@ export async function runFreshEyesReviewGate(args: {
       diffSource: workspaceDiff.source,
       filesChangedThisIteration,
       uncompletedPlanFilesAtStart: state.uncompletedPlanFilesAtStart,
-      verifyOutputExcerpt: verifyOutput.slice(0, 4096),
+      verifyOutputExcerpt,
       signal: signalId,
       terminalIntent: state.terminalIntentPending?.kind === 'complete'
         ? state.terminalIntentPending
         : undefined,
       config: effectiveCfg,
+      // WS-B9: bind the per-angle cache to THIS run's LoopState.
+      reviewAngleCache: buildReviewAngleCacheHook(state),
     });
   } catch (err) {
     logger.warn('Fresh-eyes reviewer threw - no clean review verdict produced', {
@@ -338,9 +454,43 @@ export async function runFreshEyesReviewGate(args: {
     return { blocked: false, ran: true, errored: true };
   }
 
-  const blocking = reviewResult.findings.filter((finding) =>
+  const severityBlockingCandidates = reviewResult.findings.filter((finding) =>
     isBlockingFreshEyesFinding(finding, effectiveCfg.blockingSeverities),
   );
+  // The classification below MUST check against what was actually persisted
+  // (not `diffEgress.content` directly) — the stored copy is the bounded,
+  // authoritative record of "the artifact for this review attempt".
+  const diffArtifactContent = getReviewArtifact(state, reviewAttemptId, 'diff')?.content ?? '';
+  const { blocking, demoted } = classifyFreshEyesBlocking(severityBlockingCandidates, diffArtifactContent);
+  if (demoted.length > 0) {
+    logger.info(
+      'Fresh-eyes review: severity-blocking finding(s) demoted to advisory - evidence not verified',
+      {
+        loopRunId: state.id,
+        signal: signalId,
+        reviewAttemptId,
+        demotedCount: demoted.length,
+        reasons: demoted.map((f) => f.demotedReason),
+      },
+    );
+  }
+
+  // WS-B9: per-angle coverage for this attempt. Only present when the
+  // reviewer implementation actually reports it (the default headless
+  // reviewer always does when at least one angle was dispatched/reused; test
+  // stubs and other implementations that don't opt in are treated as "not
+  // applicable" — this can never newly BLOCK a pass that was already clean
+  // under the pre-WS-B9 rules).
+  const coverageAngles: LoopReviewAngleCoverageEntry[] = reviewResult.coverage ?? [];
+  const requiredCoverageMet = computeRequiredCoverageMet(coverageAngles);
+  if (coverageAngles.length > 0) {
+    persistReviewCoverageReport(state, {
+      reviewAttemptId,
+      createdAt: Date.now(),
+      angles: coverageAngles,
+      requiredCoverageMet,
+    });
+  }
 
   if (blocking.length === 0) {
     if (reviewResult.reviewersUsed.length === 0) {
@@ -358,8 +508,34 @@ export async function runFreshEyesReviewGate(args: {
         error:
           reviewResult.infrastructureError ??
           'no reviewers available for fresh-eyes review',
+        ...(coverageAngles.length > 0 ? { coverage: coverageAngles } : {}),
       });
-      return { blocked: false, ran: true, errored: true };
+      return { blocked: false, ran: true, errored: true, ...(coverageAngles.length > 0 ? { coverage: coverageAngles } : {}) };
+    }
+
+    // WS-B9: at least one reviewer produced a verdict, but a REQUIRED angle
+    // (dispatched or expected to be reused this attempt) ended
+    // skipped/failed/parse_failed — partial required coverage is never a
+    // clean pass. Follows the exact same fail-closed `errored` path as the
+    // "zero reviewers" case above (see `evidence-resolver.ts`
+    // `freshEyesErrored` — the main coordinator's completion authority
+    // treats this as "no independently confirmed verdict", not silent
+    // acceptance).
+    if (!requiredCoverageMet) {
+      const shortfall = coverageAngles
+        .filter((a) => a.required && a.status !== 'used' && a.status !== 'cached')
+        .map((a) => `${a.angle}:${a.status}`);
+      logger.warn(
+        'Fresh-eyes review: required reviewer/angle coverage was incomplete - treating as unavailable, not a clean pass',
+        { loopRunId: state.id, signal: signalId, reviewAttemptId, shortfall },
+      );
+      emit('loop:fresh-eyes-review-failed', {
+        loopRunId: state.id,
+        signal: signalId,
+        error: `required reviewer/angle coverage was incomplete this attempt (${shortfall.join(', ')})`,
+        coverage: coverageAngles,
+      });
+      return { blocked: false, ran: true, errored: true, coverage: coverageAngles };
     }
 
     state.unresolvedReviewThreads = [];
@@ -373,14 +549,26 @@ export async function runFreshEyesReviewGate(args: {
       nonBlockingFindings: reviewResult.findings.length,
       summary: reviewResult.summary,
       infrastructureError: reviewResult.infrastructureError,
+      // WS-A3: never silently drop a demoted finding — it stays visible on
+      // the pass event too, since demotion (not the review) is why nothing
+      // blocked.
+      demotedFindings: demoted,
+      ...(coverageAngles.length > 0 ? { coverage: coverageAngles } : {}),
     });
     logger.info('Fresh-eyes review passed', {
       loopRunId: state.id,
       signal: signalId,
       reviewersUsed: reviewResult.reviewersUsed,
       findings: reviewResult.findings.length,
+      demoted: demoted.length,
     });
-    return { blocked: false, ran: true, errored: false };
+    return {
+      blocked: false,
+      ran: true,
+      errored: false,
+      ...(demoted.length > 0 ? { demotedFindings: demoted } : {}),
+      ...(coverageAngles.length > 0 ? { coverage: coverageAngles } : {}),
+    };
   }
 
   // Collapse cross-reviewer duplicates and order worst-first so the agent sees
@@ -434,12 +622,18 @@ export async function runFreshEyesReviewGate(args: {
     reviewersUsed: reviewResult.reviewersUsed,
     blockingFindings: dedupedFindings,
     summary: reviewResult.summary,
+    // WS-A3: never silently drop a demoted finding — a reader of this event
+    // can see both what actually blocked and what almost did but wasn't
+    // trusted enough to.
+    demotedFindings: demoted,
+    ...(coverageAngles.length > 0 ? { coverage: coverageAngles } : {}),
   });
   logger.info('Fresh-eyes review blocked completion - injected interventions', {
     loopRunId: state.id,
     signal: signalId,
     blocking: ranked.length,
     severities: orderedSeverities,
+    demoted: demoted.length,
   });
   // WS6 Task 4: a blocking cross-model verdict is a durable lesson — distill it
   // into the lesson store. Fire-and-forget: never let it affect the gate result.
@@ -453,5 +647,12 @@ export async function runFreshEyesReviewGate(args: {
     })),
     summary: reviewResult.summary,
   });
-  return { blocked: true, ran: true, errored: false, blockingSeverities: orderedSeverities };
+  return {
+    blocked: true,
+    ran: true,
+    errored: false,
+    blockingSeverities: orderedSeverities,
+    ...(demoted.length > 0 ? { demotedFindings: demoted } : {}),
+    ...(coverageAngles.length > 0 ? { coverage: coverageAngles } : {}),
+  };
 }

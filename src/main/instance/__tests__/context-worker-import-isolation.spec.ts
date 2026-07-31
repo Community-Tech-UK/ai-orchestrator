@@ -33,8 +33,11 @@ const WORKER_ENTRY = resolve(SPEC_DIR, '../context-worker-main.ts');
 // Baseline closure size after the barrel→deep-import fix was 56 modules; the
 // barrel-coupled regression was 228. Task 9's worker-safe Local AI Guard
 // routing/correlation integration brings the measured closure to 121 modules.
-// This ceiling still catches a re-coupling long before the 228-module failure.
-const CLOSURE_SIZE_CEILING = 124;
+// 2026-07-30: 124 after rlm-migrations-056-060 (governed proposals) joined the
+// RLM migration graph the worker already includes — diff-verified as exactly
+// one module, not a re-coupling. Ceiling leaves room for a few more migration
+// batches while still catching a barrel re-coupling long before 228.
+const CLOSURE_SIZE_CEILING = 132;
 
 function resolveImport(spec: string, fromFile: string): string | null {
   if (!spec.startsWith('.')) return null; // bare module (electron, node:*, npm)

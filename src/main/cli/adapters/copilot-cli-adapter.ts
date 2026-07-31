@@ -43,6 +43,7 @@ import { startCopilotServerMode } from './copilot/copilot-server-mode';
 import type { CopilotServerSession } from './copilot/copilot-server-session'; import type { CopilotServerTurnBridge } from './copilot/copilot-server-turn-bridge';
 import { parseNdjsonLine, parseStreamingJson } from '../json-parse';
 import { probeVersionStatus } from './cli-status-probe';
+import { killProcessGroup } from './base-cli-process-utils';
 import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
 
 // ============ Re-exports from extracted modules (public API preserved) ============
@@ -559,11 +560,7 @@ export class CopilotCliAdapter extends BaseCliAdapter {
       const timeoutMs = this.cliConfig.timeout ?? this.config.timeout ?? 300_000;
       const timeout = setTimeout(() => {
         if (this.process) {
-          try {
-            this.process.kill('SIGTERM');
-          } catch {
-            /* ignored */
-          }
+          killProcessGroup(this.process.pid, 'SIGTERM');
           reject(new Error(`Copilot CLI timeout after ${timeoutMs}ms`));
         }
       }, timeoutMs);
@@ -945,10 +942,14 @@ export class CopilotCliAdapter extends BaseCliAdapter {
       });
 
       const timer = setTimeout(() => {
-        try {
-          proc.kill('SIGTERM');
-        } catch {
-          /* ignored */
+        // Group kill reaps children of npm-wrapper CLIs; falls back to a plain
+        // kill when the child shares our process group (no group of its own).
+        if (!killProcessGroup(proc.pid, 'SIGTERM')) {
+          try {
+            proc.kill('SIGTERM');
+          } catch {
+            /* ignored */
+          }
         }
         reject(new Error('Timeout fetching Copilot model list'));
       }, 5000);

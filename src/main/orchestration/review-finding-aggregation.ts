@@ -47,6 +47,41 @@ const SEVERITY_RANK: Record<HeadlessReviewSeverity, number> = {
   low: 1,
 };
 
+/**
+ * WS-A3: rank an `anchorStatus` from strongest to weakest evidence. A
+ * missing status (the finding was never checked against an artifact, e.g. it
+ * has no anchor at all) ranks weakest — the conservative default.
+ */
+const ANCHOR_STATUS_RANK: Record<string, number> = {
+  verified: 3,
+  're-anchored': 2,
+  evidence_unverified: 1,
+};
+
+/**
+ * Cluster-level `anchorStatus`: conservative — the WEAKEST status among all
+ * cluster members — UNLESS the representative's OWN anchor already verified,
+ * in which case the representative's status wins outright (the strongest
+ * articulation is directly confirmed; a weaker sibling elsewhere in the
+ * cluster doesn't undermine it).
+ */
+function clusterAnchorStatus(
+  rep: AggregatableFinding,
+  members: readonly AggregatableFinding[],
+): HeadlessReviewFinding['anchorStatus'] {
+  if (rep.anchorStatus === 'verified') return rep.anchorStatus;
+  let weakest: HeadlessReviewFinding['anchorStatus'];
+  let weakestRank = Infinity;
+  for (const member of members) {
+    const rank = member.anchorStatus ? ANCHOR_STATUS_RANK[member.anchorStatus] : 0;
+    if (rank < weakestRank) {
+      weakestRank = rank;
+      weakest = member.anchorStatus;
+    }
+  }
+  return weakest;
+}
+
 const STOPWORDS = new Set([
   'the', 'a', 'an', 'and', 'or', 'but', 'is', 'are', 'was', 'were', 'be', 'been',
   'to', 'of', 'in', 'on', 'at', 'for', 'with', 'this', 'that', 'these', 'those',
@@ -159,6 +194,8 @@ export function aggregateReviewFindings(
       ? `${agreementCount}/${totalReviewers} reviewers independently flagged this. `
       : '';
 
+    const anchorStatus = clusterAnchorStatus(rep, cluster.members);
+
     return {
       title: rep.title,
       body: `${agreementPrefix}${rep.body}`,
@@ -170,6 +207,11 @@ export function aggregateReviewFindings(
       agreementCount,
       reviewerProvenance,
       advisory,
+      // WS-A3: the anchor rides the representative finding (the strongest
+      // articulation); the status is the conservative cluster-wide rollup.
+      ...(rep.anchor ? { anchor: rep.anchor } : {}),
+      ...(rep.evidenceClass ? { evidenceClass: rep.evidenceClass } : {}),
+      ...(anchorStatus ? { anchorStatus } : {}),
     };
   });
 

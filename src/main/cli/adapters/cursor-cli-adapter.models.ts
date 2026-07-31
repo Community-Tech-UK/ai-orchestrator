@@ -17,6 +17,7 @@ import {
   PROVIDER_MODEL_LIST,
   type ModelDisplayInfo,
 } from '../../../shared/types/provider.types';
+import { killProcessGroup } from './base-cli-process-utils';
 
 /** How long a discovered Cursor model list is cached before re-querying the CLI. */
 export const CURSOR_MODEL_DISCOVERY_CACHE_TTL_MS = 5 * 60_000;
@@ -184,10 +185,14 @@ export function discoverCursorModels(spawn: () => ChildProcess): Promise<ModelDi
     });
 
     const timer = setTimeout(() => {
-      try {
-        proc.kill('SIGTERM');
-      } catch {
-        /* ignored */
+      // Group kill reaps children of npm-wrapper CLIs; falls back to a plain
+      // kill when the child shares our process group (no group of its own).
+      if (!killProcessGroup(proc.pid, 'SIGTERM')) {
+        try {
+          proc.kill('SIGTERM');
+        } catch {
+          /* ignored */
+        }
       }
       reject(new Error('Timeout fetching Cursor model list'));
     }, 5000);

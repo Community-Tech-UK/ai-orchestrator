@@ -26,6 +26,7 @@ import { runBrowserExtensionNativeHost } from '../browser-gateway/browser-extens
 import { runRemoteNodesCli } from './remote-nodes-cli';
 import { runReleaseReadinessCli } from './release-readiness-cli';
 import { runSettingsCli } from './settings-cli';
+import { runLocalAiCli } from './local-ai-cli';
 
 type AioMcpRunner = (argv: readonly string[]) => Promise<void>;
 
@@ -38,6 +39,7 @@ const SUBCOMMANDS = {
   'remote-nodes': runRemoteNodesCli,
   'release-readiness': runReleaseReadinessCli,
   settings: runSettingsCli,
+  'local-ai': runLocalAiCli,
 } as const;
 
 export type AioMcpSubcommand = keyof typeof SUBCOMMANDS;
@@ -82,6 +84,7 @@ function formatHelp(): string {
     '  remote-nodes        Print the safe remote worker roster (--json for JSON)',
     '  release-readiness   Build release readiness report from evidence JSON',
     '  settings            Inspect and repair app settings through the parent app',
+    '  local-ai            Discover, validate, and enrol Local AI targets',
     '',
   ].join('\n');
 }

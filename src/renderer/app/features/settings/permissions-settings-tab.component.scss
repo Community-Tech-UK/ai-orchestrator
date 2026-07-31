@@ -92,3 +92,19 @@
 .audit-reason {
   margin-top: 6px;
 }
+
+.shadow-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  margin-left: 8px;
+  border-radius: 9px;
+  background: var(--error-color);
+  color: var(--bg-primary);
+  font-size: 11px;
+  font-weight: 700;
+  vertical-align: middle;
+}

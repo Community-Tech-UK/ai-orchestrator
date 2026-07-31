@@ -39,6 +39,7 @@ const SLOT_LABELS: Record<AuxiliaryLlmSlot, string> = {
   titleGeneration: 'Title generation',
   routingClassification: 'Routing classification',
   approvalScoring: 'Approval scoring',
+  approvalAdjudication: 'Approval adjudication',
   loopScoring: 'Loop scoring',
   retrievalHypothesis: 'Retrieval hypothesis',
   branchScoring: 'Branch scoring',

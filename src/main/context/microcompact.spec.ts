@@ -74,6 +74,24 @@ describe('Microcompact', () => {
     expect(result.turns[0].toolCalls![0].output).toBe('file1\nfile2');
   });
 
+  it('skips the swap when the evidence preview would not save tokens (P0.2 never-worse guard)', async () => {
+    const mc = new Microcompact({ recentTurnsToProtect: 0, minSavingsTokens: 0 });
+    const turn = makeTurn('no-savings', 100, 1_000);
+    await authorize(turn);
+
+    // Make the claimed original-output token count equal to the real,
+    // authenticated preview's token count — the swap would save nothing, so
+    // it must be skipped even though the preview is otherwise valid.
+    const previewTokenCount = turn.toolCalls![0].evidencePreview!.tokenCount;
+    turn.toolCalls![0].outputTokens = previewTokenCount;
+
+    const result = mc.compact([turn]);
+
+    expect(result.skipped).toBe(true);
+    expect(result.tokensSaved).toBe(0);
+    expect(result.turns[0].toolCalls![0].output).toBe('file1\nfile2');
+  });
+
   it('rejects incomplete or unauthenticated previews', () => {
     const mc = new Microcompact({ recentTurnsToProtect: 0, minSavingsTokens: 0 });
     const turn = makeTurn('bounded', 100, 1_000);

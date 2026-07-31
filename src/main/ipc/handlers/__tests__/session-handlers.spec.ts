@@ -118,6 +118,13 @@ vi.mock('../remote-node-check', () => ({
   isRemoteNodeReachable: (...args: unknown[]) => mockIsRemoteNodeReachable(...args),
 }));
 
+const mockListAdmissions = vi.fn().mockReturnValue([]);
+vi.mock('../../../session/session-admission-service', () => ({
+  getSessionAdmissionService: () => ({
+    listAdmissions: mockListAdmissions,
+  }),
+}));
+
 import { registerSessionHandlers } from '../session-handlers';
 import { IPC_CHANNELS } from '../../../../shared/types/ipc.types';
 
@@ -168,6 +175,8 @@ describe('session-handlers', () => {
     mockListSnapshots.mockReturnValue([]);
     mockCreateSnapshot.mockReset();
     mockGetSessionStats.mockReset();
+    mockListAdmissions.mockReset();
+    mockListAdmissions.mockReturnValue([]);
 
     mockInstanceManager = makeMockInstanceManager();
 
@@ -295,6 +304,49 @@ describe('session-handlers', () => {
     await expect(invoke(IPC_CHANNELS.HISTORY_LIST)).resolves.toEqual(trustError);
     expect(ensureTrustedSender).toHaveBeenCalledWith({}, IPC_CHANNELS.HISTORY_LIST);
     expect(mockGetEntries).not.toHaveBeenCalled();
+  });
+
+  describe('session:admissions-list', () => {
+    it('returns admissions filtered by instanceId and states', async () => {
+      const rows = [{ admissionId: 'a1', instanceId: 'instance-1', state: 'suppressed' }];
+      mockListAdmissions.mockReturnValue(rows);
+
+      const result = await invoke(IPC_CHANNELS.SESSION_ADMISSIONS_LIST, {
+        instanceId: 'instance-1',
+        states: ['suppressed'],
+      });
+
+      expect(result).toEqual({ success: true, data: rows });
+      expect(mockListAdmissions).toHaveBeenCalledWith({
+        instanceId: 'instance-1',
+        states: ['suppressed'],
+      });
+    });
+
+    it('accepts an empty payload', async () => {
+      const result = await invoke(IPC_CHANNELS.SESSION_ADMISSIONS_LIST);
+      expect(result).toEqual({ success: true, data: [] });
+    });
+
+    it('rejects an invalid payload before calling the admission service', async () => {
+      const result = await invoke(IPC_CHANNELS.SESSION_ADMISSIONS_LIST, { states: ['not-a-real-state'] });
+      expect(result).toMatchObject({
+        success: false,
+        error: expect.objectContaining({ code: 'VALIDATION_FAILED' }),
+      });
+      expect(mockListAdmissions).not.toHaveBeenCalled();
+    });
+
+    it('returns a structured error when the admission service throws', async () => {
+      mockListAdmissions.mockImplementation(() => {
+        throw new Error('db unavailable');
+      });
+      const result = await invoke(IPC_CHANNELS.SESSION_ADMISSIONS_LIST);
+      expect(result).toMatchObject({
+        success: false,
+        error: { code: 'SESSION_ADMISSIONS_LIST_FAILED', message: 'db unavailable', timestamp: expect.any(Number) },
+      });
+    });
   });
 
   describe('session continuity', () => {

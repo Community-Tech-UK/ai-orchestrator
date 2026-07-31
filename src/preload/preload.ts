@@ -44,6 +44,10 @@ import { createDocReviewDomain } from './domains/doc-review.preload';
 import { createNotificationDomain } from './domains/notification.preload';
 import { createContextEvidenceDomain } from './domains/context-evidence.preload';
 import { createLocalAiGuardDomain } from './domains/local-ai-guard.preload';
+import { createGovernedProposalDomain } from './domains/governed-proposal.preload';
+import { createLearningScanDomain } from './domains/learning-scan.preload';
+import { createCompareDomain } from './domains/compare.preload';
+import { createWorkboardDomain } from './domains/workboard.preload';
 import type { IpcResponse } from './domains/types';
 
 // --- Auth token shared across domains that need authenticated IPC calls ---
@@ -91,6 +95,10 @@ const electronAPI = {
   ...createNotificationDomain(ipcRenderer, IPC_CHANNELS),
   ...createContextEvidenceDomain(ipcRenderer, IPC_CHANNELS),
   ...createLocalAiGuardDomain(ipcRenderer, IPC_CHANNELS),
+  ...createGovernedProposalDomain(ipcRenderer, IPC_CHANNELS),
+  ...createLearningScanDomain(ipcRenderer, IPC_CHANNELS),
+  ...createCompareDomain(ipcRenderer, IPC_CHANNELS),
+  ...createWorkboardDomain(ipcRenderer, IPC_CHANNELS),
 
   /**
    * Get current platform

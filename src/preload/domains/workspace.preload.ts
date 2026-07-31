@@ -168,6 +168,23 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.VCS_CHECKOUT_BRANCH, payload);
     },
+    /**
+     * WS-B1 phase 1 — push a branch and open a GitHub pull request via `gh`.
+     * Never automatic: the main process gates this on a per-project opt-in
+     * plus an explicit, never-delegable approval before anything is spawned.
+     */
+    vcsCreatePullRequest: (payload: {
+      projectPath: string;
+      branch: string;
+      title: string;
+      body?: string;
+      baseBranch?: string;
+      draft?: boolean;
+      instanceId?: string;
+      loopId?: string;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.VCS_CREATE_PULL_REQUEST, payload);
+    },
 
     worktreeCreate: (payload: {
       instanceId: string;

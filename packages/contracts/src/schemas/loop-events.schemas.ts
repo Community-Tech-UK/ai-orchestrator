@@ -92,16 +92,28 @@ export const LoopFreshEyesReviewStartedEventSchema = LoopFreshEyesReviewCoreSche
 export const LoopFreshEyesReviewPassedEventSchema = LoopFreshEyesReviewCoreSchema.extend({
   reviewersUsed: z.array(z.string()),
   summary: z.string(),
+  // WS-A3: severity-blocking findings demoted to advisory because their cited
+  // evidence could not be verified — kept visible rather than silently
+  // dropped. Findings are `unknown`-typed here for the same reason
+  // `blockingFindings` below is: the shape lives in main-process orchestration
+  // types and this push-channel guard only pins core identity keys.
+  demotedFindings: z.array(z.unknown()).optional(),
+  // WS-B9: per-angle reviewer coverage for this attempt (used/cached/
+  // skipped/failed/parse_failed) — same "unknown, main owns the shape" reason.
+  coverage: z.array(z.unknown()).optional(),
 }).passthrough();
 
 export const LoopFreshEyesReviewFailedEventSchema = LoopFreshEyesReviewCoreSchema.extend({
   error: z.string(),
+  coverage: z.array(z.unknown()).optional(),
 }).passthrough();
 
 export const LoopFreshEyesReviewBlockedEventSchema = LoopFreshEyesReviewCoreSchema.extend({
   reviewersUsed: z.array(z.string()),
   blockingFindings: z.array(z.unknown()),
   summary: z.string(),
+  demotedFindings: z.array(z.unknown()).optional(),
+  coverage: z.array(z.unknown()).optional(),
 }).passthrough();
 
 export const LoopInterventionAppliedEventSchema = z.object({

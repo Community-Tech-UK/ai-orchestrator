@@ -14,6 +14,7 @@ import type { ProviderContextCapabilities } from '@contracts/types/context-evide
 import { getLogger } from '../logging/logger';
 import type { ContextUsage } from '../../shared/types/instance.types';
 import type { ContextEvidenceMode } from '../../shared/types/settings.types';
+import type { CompactionBoundaryOptions } from '../../shared/types/compaction-preview.types';
 import { TokenBudgetTracker } from './token-budget-tracker';
 import { CompactionEpochTracker } from './compaction-epoch';
 import { measureAsync } from '../util/slow-operations';
@@ -44,7 +45,15 @@ export interface CompactionResult {
   nativeAttemptFailed?: boolean;
 }
 
-export type CompactionStrategy = (instanceId: string) => Promise<boolean>;
+/**
+ * `options` carries the WS-B7 manual-compaction boundary. Automatic and
+ * plain (no-boundary) manual calls pass `undefined`, which every strategy
+ * must treat identically to the pre-WS-B7 behavior.
+ */
+export type CompactionStrategy = (
+  instanceId: string,
+  options?: CompactionBoundaryOptions,
+) => Promise<boolean>;
 
 /** Circuit breaker state per instance */
 interface CircuitBreakerState {
@@ -295,12 +304,15 @@ export class CompactionCoordinator extends EventEmitter {
   /**
    * Manual trigger (from IPC or /compact command)
    */
-  async compactInstance(instanceId: string): Promise<CompactionResult> {
+  async compactInstance(
+    instanceId: string,
+    options?: CompactionBoundaryOptions,
+  ): Promise<CompactionResult> {
     if (this.compactingInstances.has(instanceId)) {
       return { success: false, method: 'native', blocking: true, error: 'Compaction already in progress' };
     }
 
-    return this.executeCompaction(instanceId, true);
+    return this.executeCompaction(instanceId, true, options);
   }
 
   /**
@@ -419,7 +431,11 @@ export class CompactionCoordinator extends EventEmitter {
     return usage.used >= this.CHUNKED_COMPACTION_THRESHOLD_TOKENS;
   }
 
-  private async executeCompaction(instanceId: string, blocking = true): Promise<CompactionResult> {
+  private async executeCompaction(
+    instanceId: string,
+    blocking = true,
+    options?: CompactionBoundaryOptions,
+  ): Promise<CompactionResult> {
     this.compactingInstances.add(instanceId);
     const previousUsage = this.latestUsage.get(instanceId);
     this.emit('compaction-started', { instanceId });
@@ -450,7 +466,7 @@ export class CompactionCoordinator extends EventEmitter {
       if (nativeCompactionSupported && this.nativeCompactStrategy) {
         // Try native strategy first when provider supports it
         const strategy = this.nativeCompactStrategy;
-        success = await measureAsync('context.compact', () => strategy(instanceId));
+        success = await measureAsync('context.compact', () => strategy(instanceId, options));
         method = 'native';
         nativeAttemptFailed = !success;
       }
@@ -460,7 +476,7 @@ export class CompactionCoordinator extends EventEmitter {
         // rather than compacting it in place, so the caller is told the native
         // attempt failed even though the overall operation succeeds.
         const strategy = this.restartCompactStrategy;
-        success = await measureAsync('context.compact', () => strategy(instanceId));
+        success = await measureAsync('context.compact', () => strategy(instanceId, options));
         method = 'restart-with-summary';
       }
 

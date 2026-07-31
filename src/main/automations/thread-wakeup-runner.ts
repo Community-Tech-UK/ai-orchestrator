@@ -7,6 +7,7 @@ import type { InstanceManager } from '../instance/instance-manager';
 import { getLogger } from '../logging/logger';
 import type { SessionRevivalService } from '../session/session-revival-service';
 import type { AutomationStore } from './automation-store';
+import { getSessionAdmissionService, type RedeliveryContext } from '../session/session-admission-service';
 
 const logger = getLogger('ThreadWakeupRunner');
 
@@ -27,7 +28,14 @@ export class ThreadWakeupRunner {
     private readonly revival: RevivalInput,
     private readonly store: WakeupStore,
     private readonly now = () => Date.now(),
-  ) {}
+  ) {
+    // Best-effort nudge once the target instance is no longer parked (e.g. it
+    // was waiting_for_permission when the original wakeup was suppressed).
+    // The AutomationRun itself is already terminalized 'failed' by the time
+    // this ever fires (see below) — this only tries the direct send again,
+    // it does not resurrect the run.
+    getSessionAdmissionService().registerRedeliveryHandler('automation', (ctx) => this.handleRedelivery(ctx));
+  }
 
   async fireThreadWakeup(request: ThreadWakeupRequest): Promise<AutomationRun> {
     const { run, automation, destination } = request;
@@ -41,15 +49,41 @@ export class ThreadWakeupRunner {
     const instanceId = revived.instanceId;
     this.store.attachInstance(run.id, instanceId, this.now());
 
+    // A5: re-check live instance state before firing into it — a revived
+    // thread can still be waiting_for_permission/interrupting/quota-parked.
+    const admission = getSessionAdmissionService().admitAutomatedWrite({
+      instanceId,
+      origin: 'automation',
+      message: automation.action.prompt,
+      attachments: automation.action.attachments,
+      sourceMetadata: { automationId: automation.id, runId: run.id },
+    });
+    if (admission.kind === 'suppressed') {
+      const reason = `Thread wakeup deferred: instance not ready to receive input (${admission.reason}).`;
+      logger.warn('Thread wakeup send suppressed pending instance readiness', {
+        automationId: automation.id,
+        runId: run.id,
+        instanceId,
+        reason: admission.reason,
+        admissionId: admission.admissionId,
+      });
+      return this.fail(run, reason);
+    }
+
     try {
       await this.instanceManager.sendInput(
         instanceId,
         automation.action.prompt,
         automation.action.attachments,
       );
+      getSessionAdmissionService().markDelivered(admission.admissionId);
       const summary = `Wakeup prompt delivered to thread ${instanceId}.`;
       return this.terminalize(run, 'succeeded', undefined, summary);
     } catch (error) {
+      getSessionAdmissionService().markFailed(
+        admission.admissionId,
+        error instanceof Error ? error.message : String(error),
+      );
       const reason = `Thread wakeup send failed: ${error instanceof Error ? error.message : String(error)}`;
       logger.warn('Thread wakeup send failed', {
         automationId: automation.id,
@@ -59,6 +93,23 @@ export class ThreadWakeupRunner {
       });
       return this.fail(run, reason);
     }
+  }
+
+  private handleRedelivery(ctx: RedeliveryContext): void {
+    void this.instanceManager
+      .sendInput(ctx.instanceId, ctx.message, ctx.attachments)
+      .then(() => getSessionAdmissionService().markDelivered(ctx.admissionId))
+      .catch((error: unknown) => {
+        getSessionAdmissionService().markFailed(
+          ctx.admissionId,
+          error instanceof Error ? error.message : String(error),
+        );
+        logger.warn('Thread wakeup redelivery failed', {
+          instanceId: ctx.instanceId,
+          admissionId: ctx.admissionId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
   }
 
   private async reviveTarget(

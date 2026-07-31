@@ -45,6 +45,7 @@ import { getLogger } from '../logging/logger';
 import { broadcastSettingsChanged } from '../ipc/handlers/settings-broadcast';
 import type { AppInitializationStep } from './initialization-steps';
 import { getContextEvidenceCoordinator } from '../context-evidence/context-evidence-coordinator';
+import { createDefaultLocalAiPublicOperations } from '../local-ai-guard/default-local-ai-public-operations';
 
 const logger = getLogger('AppInitialization');
 
@@ -130,9 +131,10 @@ function parseNonEmptyStringArray(json: string, fallback: readonly string[]): st
   }
 }
 
-function safeCalendarApprovalLabel(value: unknown): string {
-  return String(value ?? '')
-    .replace(/[\r\n\t\u0000-\u001f\u007f]+/g, ' ')
+function safeMutationApprovalLabel(value: unknown): string {
+  return [...String(value ?? '')]
+    .map((character) => character.charCodeAt(0) <= 31 || character.charCodeAt(0) === 127 ? ' ' : character)
+    .join('')
     .trim()
     .slice(0, 200);
 }
@@ -262,6 +264,7 @@ export function createOrchestratorToolsStep(
       await initializeOrchestratorToolsRpcServer({
         operatorDbPath: defaultOperatorDbPath(),
         isKnownLocalInstance: (instanceId) => Boolean(instanceManager.getInstance(instanceId)),
+        localAiGuardOperations: createDefaultLocalAiPublicOperations(),
         resolveContextEvidence: (instanceId) => {
           const instance = instanceManager.getInstance(instanceId);
           const state = instance?.contextEvidence;
@@ -283,21 +286,17 @@ export function createOrchestratorToolsStep(
           const destination = isAndroid
             ? (payload['track'] ?? payload['destinationTrack'])
             : payload['destination'];
-          const safeLabel = (value: unknown): string => String(value ?? '')
-            .replace(/[\r\n\t\u0000-\u001f\u007f]+/g, ' ')
-            .trim()
-            .slice(0, 200);
           const decision = await getPermissionRegistry().requestPermission({
             id: `release_${randomUUID()}`,
             instanceId,
             action: 'store_release_mutation',
-            description: `Allow ${isAndroid ? 'Google Play' : 'App Store Connect'} release for ${safeLabel(appIdentity) || 'unknown app'} (${safeLabel(releaseIdentity) || 'unknown version'}) to ${safeLabel(destination) || 'unknown destination'}?`,
+            description: `Allow ${isAndroid ? 'Google Play' : 'App Store Connect'} release for ${safeMutationApprovalLabel(appIdentity) || 'unknown app'} (${safeMutationApprovalLabel(releaseIdentity) || 'unknown version'}) to ${safeMutationApprovalLabel(destination) || 'unknown destination'}?`,
             toolName: method.slice('orchestrator_tools.'.length),
             details: {
               platform: isAndroid ? 'android' : 'ios',
-              appIdentity: safeLabel(appIdentity),
-              releaseIdentity: safeLabel(releaseIdentity),
-              destination: safeLabel(destination),
+              appIdentity: safeMutationApprovalLabel(appIdentity),
+              releaseIdentity: safeMutationApprovalLabel(releaseIdentity),
+              destination: safeMutationApprovalLabel(destination),
             },
             createdAt: Date.now(),
             timeoutMs: 5 * 60_000,
@@ -307,9 +306,9 @@ export function createOrchestratorToolsStep(
         calendarTools,
         authorizeCalendarMutation: async ({ instanceId, method, payload }) => {
           const operation = method.slice('orchestrator_tools.graph_calendar_'.length);
-          const account = safeCalendarApprovalLabel(payload['account']);
-          const subject = safeCalendarApprovalLabel(payload['subject']);
-          const eventId = safeCalendarApprovalLabel(payload['eventId']);
+          const account = safeMutationApprovalLabel(payload['account']);
+          const subject = safeMutationApprovalLabel(payload['subject']);
+          const eventId = safeMutationApprovalLabel(payload['eventId']);
           const attendeeCount = Array.isArray(payload['attendees'])
             ? payload['attendees'].length
             : 0;

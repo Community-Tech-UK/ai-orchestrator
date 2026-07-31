@@ -118,7 +118,13 @@ describe('LoopCoordinator convergence (Piece B)', () => {
       reviewerInputs.push(input);
       if (reviewerInputs.length === 1) {
         return {
-          findings: [{ title: 'Blocking design flaw', body: 'The fix masks the symptom but not the cause.', severity: 'high', confidence: 0.9 }],
+          findings: [{
+            title: 'Blocking design flaw', body: 'The fix masks the symptom but not the cause.', severity: 'high', confidence: 0.9,
+            // WS-A3: `deterministic-gate` keeps this finding blocking without
+            // needing a real anchor-verified quote — this test is about
+            // convergence sequencing, not evidence anchoring.
+            evidenceClass: 'deterministic-gate',
+          }],
           reviewersUsed: ['gemini'],
           summary: 'one blocking finding',
         };

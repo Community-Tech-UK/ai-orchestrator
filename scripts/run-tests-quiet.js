@@ -57,8 +57,18 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
 const SCRATCH_DIR = path.join(ROOT, '_scratch');
-const LOG_PATH = path.join(SCRATCH_DIR, 'test-run.log');
-const JSON_PATH = path.join(SCRATCH_DIR, 'test-results.json');
+// Concurrent sessions (agents, loops, a human terminal) each run this script
+// against the same checkout; a shared report path lets one run clobber
+// another's JSON mid-write, which surfaces as "test run failed ... produced no
+// JSON report" while the log tail shows a different run entirely. Set
+// AIO_TEST_OUT_SUFFIX (e.g. to a session id) to give a run its own files; the
+// default paths stay unchanged for CI, docs, and single-session use.
+const OUT_SUFFIX = (process.env.AIO_TEST_OUT_SUFFIX || '')
+  .replace(/[^A-Za-z0-9._-]/g, '')
+  .slice(0, 64);
+const suffixed = (base, ext) => `${base}${OUT_SUFFIX ? `.${OUT_SUFFIX}` : ''}${ext}`;
+const LOG_PATH = path.join(SCRATCH_DIR, suffixed('test-run', '.log'));
+const JSON_PATH = path.join(SCRATCH_DIR, suffixed('test-results', '.json'));
 
 // How much detail to surface without re-flooding context.
 const MAX_FAILURES_SHOWN = 20;

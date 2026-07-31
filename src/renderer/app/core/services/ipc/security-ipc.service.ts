@@ -116,4 +116,36 @@ export class SecurityIpcService {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.permissionGetAuditLog(instanceId, limit);
   }
+
+  /**
+   * Static lint: rules that can never fire because a broader, higher-
+   * precedence rule always matches first. Pass `scope` to limit to one
+   * permission scope; omit it to analyze every scope.
+   */
+  async permissionAnalyzeShadowedRules(scope?: string): Promise<IpcResponse<{ findings: ShadowedRuleFindingDto[] }>> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.permissionAnalyzeShadowedRules(scope) as Promise<
+      IpcResponse<{ findings: ShadowedRuleFindingDto[] }>
+    >;
+  }
+}
+
+export interface PermissionRuleDto {
+  id: string;
+  name: string;
+  description?: string;
+  scope: string;
+  pattern: string;
+  literal?: boolean;
+  action: 'allow' | 'deny' | 'ask';
+  priority: number;
+  source: 'system' | 'default' | 'project' | 'user' | 'agent' | 'session';
+  enabled: boolean;
+}
+
+export interface ShadowedRuleFindingDto {
+  rule: PermissionRuleDto;
+  shadowedBy: PermissionRuleDto;
+  kind: 'redundant' | 'conflicting';
+  explanation: string;
 }

@@ -1,61 +1,66 @@
 /**
  * Spec: AskCouncilPageComponent — logic-level tests.
  *
- * Tests are written without Angular TestBed so they run fast in vitest.
- * We instantiate the component through TestBed, stub CompareIpcService, and
- * exercise signals/methods.
+ * The component delegates all run/synthesis state to AskCouncilStore, so it
+ * is stubbed here with plain signals; these tests only exercise the
+ * component's own page-local logic (prompt/provider selection, synthesis
+ * method choice, and that it calls the store correctly).
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
+import { signal, ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { AskCouncilPageComponent } from './ask-council-page.component';
-import type { CompareResult } from './ask-council-page.component';
-import { CompareIpcService } from '../../core/services/ipc/compare-ipc.service';
+import { AskCouncilStore } from './ask-council.store';
+import type { CouncilMember, CouncilRun, CouncilSynthesisResult } from '../../core/services/ipc/compare-ipc.service';
 
-// ─── helpers ─────────────────────────────────────────────────────────────────
+// AskCouncilPageComponent uses templateUrl/styleUrl; these tests are logic-only
+// (no DOM assertions), so resolve those external resources to empty strings —
+// same JIT-test pattern as cost-page.component.spec.ts.
+await resolveComponentResources((url) => {
+  if (url.endsWith('.html') || url.endsWith('.scss')) {
+    return Promise.resolve('');
+  }
+  return Promise.reject(new Error(`Unexpected resource: ${url}`));
+});
 
-function makeCompareResult(overrides: Partial<CompareResult> = {}): CompareResult {
-  return {
-    prompt: 'test prompt',
-    results: [
-      { provider: 'claude', ok: true, model: 'claude-3', answer: 'Hello from Claude', durationMs: 500 },
-      { provider: 'gemini', ok: true, model: 'gemini-pro', answer: 'Hello from Gemini', durationMs: 800 },
-    ],
-    ...overrides,
-  };
+function makeMember(overrides: Partial<CouncilMember> = {}): CouncilMember {
+  return { provider: 'claude', status: 'succeeded', answer: 'hi', ...overrides };
 }
 
-function makePartialFailureResult(): CompareResult {
+function makeMockStore() {
   return {
-    prompt: 'test prompt',
-    results: [
-      { provider: 'claude', ok: true, model: 'claude-3', answer: 'Hello from Claude', durationMs: 400 },
-      { provider: 'gemini', ok: false, error: 'Provider is not available', durationMs: 50 },
-    ],
+    availableProviders: signal<string[]>([]),
+    loadingProviders: signal(false),
+    starting: signal(false),
+    synthesizing: signal(false),
+    errorMessage: signal<string | null>(null),
+    members: signal<CouncilMember[]>([]),
+    isRunning: signal(false),
+    canSynthesize: signal(false),
+    canCancel: signal(false),
+    synthesis: signal<CouncilSynthesisResult | null>(null),
+    succeededMembers: signal<CouncilMember[]>([]),
+    failedMembers: signal<CouncilMember[]>([]),
+    run: signal<CouncilRun | null>(null),
+    initialize: vi.fn().mockResolvedValue(undefined),
+    start: vi.fn().mockResolvedValue(undefined),
+    cancel: vi.fn().mockResolvedValue(undefined),
+    synthesize: vi.fn().mockResolvedValue(undefined),
+    clearRun: vi.fn(),
   };
 }
-
-// ─── setup ────────────────────────────────────────────────────────────────────
 
 describe('AskCouncilPageComponent', () => {
   let component: AskCouncilPageComponent;
-
-  let mockCompareIpc: {
-    compareListProviders: ReturnType<typeof vi.fn>;
-    compareRun: ReturnType<typeof vi.fn>;
-  };
+  let mockStore: ReturnType<typeof makeMockStore>;
 
   beforeEach(async () => {
-    mockCompareIpc = {
-      compareListProviders: vi.fn().mockResolvedValue({ success: true, data: ['claude', 'gemini'] }),
-      compareRun: vi.fn().mockResolvedValue({ success: true, data: makeCompareResult() }),
-    };
+    mockStore = makeMockStore();
 
     await TestBed.configureTestingModule({
       imports: [AskCouncilPageComponent],
-      providers: [
-        { provide: CompareIpcService, useValue: mockCompareIpc },
-      ],
+      providers: [{ provide: AskCouncilStore, useValue: mockStore }],
     }).compileComponents();
 
     const fixture = TestBed.createComponent(AskCouncilPageComponent);
@@ -65,40 +70,35 @@ describe('AskCouncilPageComponent', () => {
   // ── initial state ──────────────────────────────────────────────────────────
 
   describe('initial state', () => {
-    it('starts with empty prompt', () => {
+    it('starts with an empty prompt and no selected providers', () => {
       expect(component.prompt()).toBe('');
+      expect(component.selectedProviders()).toEqual([]);
     });
 
-    it('starts with no results', () => {
-      expect(component.results()).toBeNull();
-    });
-
-    it('starts not running', () => {
-      expect(component.running()).toBe(false);
-    });
-
-    it('canRun is false when prompt is empty', () => {
-      expect(component.canRun()).toBe(false);
+    it('canStart is false when prompt is empty', () => {
+      expect(component.canStart()).toBe(false);
     });
   });
 
-  // ── provider loading ───────────────────────────────────────────────────────
+  // ── ngOnInit ────────────────────────────────────────────────────────────────
 
-  describe('ngOnInit / loadProviders', () => {
-    it('loads available providers from IPC and pre-selects all', async () => {
+  describe('ngOnInit', () => {
+    it('initializes the store', async () => {
       await component.ngOnInit();
+      expect(mockStore.initialize).toHaveBeenCalledOnce();
+    });
 
-      expect(component.availableProviders()).toEqual(['claude', 'gemini']);
+    it('pre-selects all available providers when none are selected yet', async () => {
+      mockStore.availableProviders.set(['claude', 'gemini']);
+      await component.ngOnInit();
       expect(component.selectedProviders()).toEqual(['claude', 'gemini']);
     });
 
-    it('handles IPC error gracefully (no crash, empty list)', async () => {
-      mockCompareIpc.compareListProviders.mockResolvedValue({ success: false, error: { message: 'fail' } });
-
+    it('does not clobber an existing selection', async () => {
+      mockStore.availableProviders.set(['claude', 'gemini']);
+      component.selectedProviders.set(['gemini']);
       await component.ngOnInit();
-
-      expect(component.availableProviders()).toEqual([]);
-      expect(component.selectedProviders()).toEqual([]);
+      expect(component.selectedProviders()).toEqual(['gemini']);
     });
   });
 
@@ -106,10 +106,11 @@ describe('AskCouncilPageComponent', () => {
 
   describe('provider selection', () => {
     beforeEach(async () => {
+      mockStore.availableProviders.set(['claude', 'gemini']);
       await component.ngOnInit();
     });
 
-    it('isSelected returns true for a selected provider', () => {
+    it('isSelected reflects current selection', () => {
       expect(component.isSelected('claude')).toBe(true);
     });
 
@@ -124,168 +125,132 @@ describe('AskCouncilPageComponent', () => {
       expect(component.isSelected('gemini')).toBe(true);
     });
 
-    it('selectAll re-selects all available providers', () => {
+    it('selectAll re-selects every available provider', () => {
       component.clearSelection();
       component.selectAll();
       expect(component.selectedProviders()).toEqual(['claude', 'gemini']);
     });
 
-    it('clearSelection empties selection', () => {
+    it('clearSelection empties the selection', () => {
       component.clearSelection();
       expect(component.selectedProviders()).toEqual([]);
     });
   });
 
-  // ── canRun / runHint derived signals ──────────────────────────────────────
+  // ── canStart / runHint ─────────────────────────────────────────────────────
 
-  describe('canRun', () => {
+  describe('canStart / runHint', () => {
     beforeEach(async () => {
+      mockStore.availableProviders.set(['claude']);
       await component.ngOnInit();
     });
 
-    it('is false when prompt is blank (whitespace-only)', () => {
-      component.prompt.set('   ');
-      expect(component.canRun()).toBe(false);
+    it('is false while the store reports a run in progress', () => {
+      component.prompt.set('hello');
+      mockStore.isRunning.set(true);
+      expect(component.canStart()).toBe(false);
     });
 
-    it('is false when no providers are selected', () => {
-      component.prompt.set('Hello');
-      component.clearSelection();
-      expect(component.canRun()).toBe(false);
+    it('is true with a non-blank prompt and at least one selected provider', () => {
+      component.prompt.set('hello');
+      expect(component.canStart()).toBe(true);
     });
 
-    it('is true when prompt is non-blank and at least one provider is selected', () => {
-      component.prompt.set('Hello');
-      expect(component.canRun()).toBe(true);
+    it('runHint prompts for a prompt when blank', () => {
+      expect(component.runHint()).toMatch(/enter a prompt/i);
     });
   });
 
-  // ── run: success (all providers OK) ───────────────────────────────────────
+  // ── run / cancel / clear ───────────────────────────────────────────────────
 
-  describe('run() — all providers succeed', () => {
-    beforeEach(async () => {
+  describe('runCouncil()', () => {
+    it('starts the store with the trimmed prompt and selected providers', async () => {
+      mockStore.availableProviders.set(['claude', 'gemini']);
       await component.ngOnInit();
-      component.prompt.set('What is 2+2?');
+      component.prompt.set('  hello  ');
+
+      await component.runCouncil();
+
+      expect(mockStore.start).toHaveBeenCalledWith('hello', ['claude', 'gemini']);
     });
 
-    it('populates results on success', async () => {
-      await component.run();
-
-      const res = component.results();
-      expect(res).not.toBeNull();
-      expect(res!.results).toHaveLength(2);
-    });
-
-    it('sets running=false after run completes', async () => {
-      await component.run();
-      expect(component.running()).toBe(false);
-    });
-
-    it('successCount equals number of OK cells', async () => {
-      await component.run();
-      expect(component.successCount()).toBe(2);
-    });
-
-    it('maxDurationMs returns the slowest provider duration', async () => {
-      await component.run();
-      expect(component.maxDurationMs()).toBe(800);
-    });
-
-    it('calls compareRun with trimmed prompt and selected providers', async () => {
-      component.prompt.set('  trimmed prompt  ');
-      await component.run();
-
-      expect(mockCompareIpc.compareRun).toHaveBeenCalledWith({
-        prompt: 'trimmed prompt',
-        providers: ['claude', 'gemini'],
-      });
+    it('does nothing when canStart is false', async () => {
+      component.prompt.set('');
+      await component.runCouncil();
+      expect(mockStore.start).not.toHaveBeenCalled();
     });
   });
 
-  // ── run: partial failure ───────────────────────────────────────────────────
+  it('cancel() delegates to the store', async () => {
+    await component.cancel();
+    expect(mockStore.cancel).toHaveBeenCalledOnce();
+  });
 
-  describe('run() — partial failure (one provider fails)', () => {
-    beforeEach(async () => {
-      await component.ngOnInit();
-      component.prompt.set('Hello');
-      mockCompareIpc.compareRun.mockResolvedValue({
-        success: true,
-        data: makePartialFailureResult(),
-      });
+  it('clearRun() delegates to the store', () => {
+    component.clearRun();
+    expect(mockStore.clearRun).toHaveBeenCalledOnce();
+  });
+
+  // ── synthesis method selection ─────────────────────────────────────────────
+
+  describe('synthesize()', () => {
+    it('routes the consensus method', async () => {
+      component.setSynthesisChoice('consensus');
+      await component.synthesize();
+      expect(mockStore.synthesize).toHaveBeenCalledWith('consensus');
     });
 
-    it('still populates results', async () => {
-      await component.run();
-      expect(component.results()).not.toBeNull();
-      expect(component.results()!.results).toHaveLength(2);
+    it('routes the debate method', async () => {
+      component.setSynthesisChoice('debate');
+      await component.synthesize();
+      expect(mockStore.synthesize).toHaveBeenCalledWith('debate');
     });
 
-    it('successCount reflects only OK cells', async () => {
-      await component.run();
-      expect(component.successCount()).toBe(1);
+    it('routes a chosen provider, defaulting to the first succeeded member', async () => {
+      mockStore.succeededMembers.set([makeMember({ provider: 'gemini' }), makeMember({ provider: 'codex' })]);
+      component.setSynthesisChoice('provider');
+
+      await component.synthesize();
+
+      expect(mockStore.synthesize).toHaveBeenCalledWith({ providerId: 'gemini' });
     });
 
-    it('failed card carries an error string', async () => {
-      await component.run();
-      const geminiCell = component.results()!.results.find((c) => c.provider === 'gemini')!;
-      expect(geminiCell.ok).toBe(false);
-      expect(geminiCell.error).toBe('Provider is not available');
+    it('routes an explicitly-picked provider once one is set', async () => {
+      mockStore.succeededMembers.set([makeMember({ provider: 'gemini' }), makeMember({ provider: 'codex' })]);
+      component.setSynthesisChoice('provider');
+      component.setSynthesisProviderId('codex');
+
+      await component.synthesize();
+
+      expect(mockStore.synthesize).toHaveBeenCalledWith({ providerId: 'codex' });
+    });
+
+    it('does nothing for the provider method when no member has succeeded', async () => {
+      component.setSynthesisChoice('provider');
+      await component.synthesize();
+      expect(mockStore.synthesize).not.toHaveBeenCalled();
     });
   });
 
-  // ── run: IPC-level failure ─────────────────────────────────────────────────
-
-  describe('run() — IPC-level error', () => {
-    beforeEach(async () => {
-      await component.ngOnInit();
-      component.prompt.set('Hello');
-      mockCompareIpc.compareRun.mockResolvedValue({
-        success: false,
-        error: { message: 'Main process crashed' },
-      });
-    });
-
-    it('sets errorMessage and leaves results null', async () => {
-      await component.run();
-      expect(component.errorMessage()).toBe('Main process crashed');
-      expect(component.results()).toBeNull();
-    });
-
-    it('clears running flag after failure', async () => {
-      await component.run();
-      expect(component.running()).toBe(false);
-    });
-  });
-
-  // ── clearResults ───────────────────────────────────────────────────────────
-
-  describe('clearResults()', () => {
-    it('resets results and errorMessage', async () => {
-      await component.ngOnInit();
-      component.prompt.set('Hi');
-      await component.run();
-
-      component.clearResults();
-
-      expect(component.results()).toBeNull();
-      expect(component.errorMessage()).toBeNull();
-    });
-  });
-
-  // ── formatMs helper ────────────────────────────────────────────────────────
+  // ── helpers ────────────────────────────────────────────────────────────────
 
   describe('formatMs()', () => {
     it('formats sub-second durations as ms', () => {
       expect(component.formatMs(450)).toBe('450ms');
     });
 
-    it('formats durations >= 1000 as seconds with one decimal', () => {
+    it('formats durations >= 1000ms as seconds with one decimal', () => {
       expect(component.formatMs(1500)).toBe('1.5s');
-    });
-
-    it('handles zero', () => {
-      expect(component.formatMs(0)).toBe('0ms');
     });
   });
 
+  describe('statusLabel()', () => {
+    it('labels every member status', () => {
+      expect(component.statusLabel('queued')).toBe('Queued');
+      expect(component.statusLabel('running')).toBe('Running…');
+      expect(component.statusLabel('succeeded')).toBe('Done');
+      expect(component.statusLabel('failed')).toBe('Failed');
+      expect(component.statusLabel('cancelled')).toBe('Cancelled');
+    });
+  });
 });

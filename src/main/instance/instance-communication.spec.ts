@@ -44,6 +44,15 @@ vi.mock('../session/session-continuity', () => ({
   }),
 }));
 
+const admissionMocks = vi.hoisted(() => ({
+  recordUserSend: vi.fn<() => { admissionId: string } | null>(() => ({ admissionId: 'adm-default' })),
+  markDelivered: vi.fn(),
+  markFailed: vi.fn(),
+}));
+vi.mock('../session/session-admission-service', () => ({
+  getSessionAdmissionService: () => admissionMocks,
+}));
+
 // LT-004 tests below drive a real CodexCliAdapter through app-server mode.
 // Keep all real exports; only stub the process-tree killer and the browser
 // approval store lookup so nothing in that codepath touches a real process
@@ -1822,6 +1831,70 @@ describe('conversation-aware rewind points', () => {
 
     // No soft checkpoint should have been created
     expect(snapshotSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('SessionAdmissionService observability on the user send path (Phase A)', () => {
+  let instance: Instance;
+  let adapters: Map<string, CliAdapter>;
+  let comm: InstanceCommunicationManager;
+
+  beforeEach(() => {
+    admissionMocks.recordUserSend.mockReset();
+    admissionMocks.recordUserSend.mockReturnValue({ admissionId: 'adm-default' });
+    admissionMocks.markDelivered.mockClear();
+    admissionMocks.markFailed.mockClear();
+
+    instance = createInstance();
+    adapters = new Map();
+
+    comm = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, adapter) => { adapters.set(id, adapter); },
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate: vi.fn(),
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+    });
+  });
+
+  it('records the send before dispatch and marks it delivered on success', async () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+
+    await comm.sendInput(instance.id, 'fix the bug');
+
+    expect(admissionMocks.recordUserSend).toHaveBeenCalledWith(
+      instance.id, 'fix the bug', undefined, undefined,
+    );
+    expect(admissionMocks.markDelivered).toHaveBeenCalledWith('adm-default');
+    expect(admissionMocks.markFailed).not.toHaveBeenCalled();
+  });
+
+  it('marks the admission failed (without swallowing the original error) when the adapter send rejects', async () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    (adapter.sendInput as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('adapter exploded'));
+    adapters.set(instance.id, adapter);
+
+    await expect(comm.sendInput(instance.id, 'fix the bug')).rejects.toThrow('adapter exploded');
+
+    expect(admissionMocks.markFailed).toHaveBeenCalledWith('adm-default', 'adapter exploded');
+    expect(admissionMocks.markDelivered).not.toHaveBeenCalled();
+  });
+
+  it('does not break the send when recordUserSend returns null (store unavailable)', async () => {
+    admissionMocks.recordUserSend.mockReturnValue(null);
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+
+    await comm.sendInput(instance.id, 'fix the bug');
+
+    expect(adapter.sendInput).toHaveBeenCalledWith('fix the bug', undefined);
+    expect(admissionMocks.markDelivered).not.toHaveBeenCalled();
+    expect(admissionMocks.markFailed).not.toHaveBeenCalled();
   });
 });
 

@@ -256,3 +256,21 @@ export const VcsCheckoutBranchPayloadSchema = z.object({
 export const VcsOperationCancelPayloadSchema = z.object({
   opId: z.string().min(1).max(200),
 });
+
+/**
+ * WS-B1 phase 1 — create a GitHub pull request from a completed
+ * loop/worktree branch via `gh`. Gated end-to-end in `PrCreationService`
+ * (per-project opt-in + never-delegable `external_publish` approval);
+ * this schema only validates shape.
+ */
+export const VcsCreatePullRequestPayloadSchema = z.object({
+  projectPath: WorkingDirectorySchema,
+  branch: z.string().min(1).max(400),
+  title: z.string().min(1).max(2000),
+  body: z.string().max(65536).optional(),
+  baseBranch: z.string().min(1).max(400).optional(),
+  draft: z.boolean().optional(),
+  instanceId: z.string().min(1).max(200).optional(),
+  /** Present only when a loop initiated this call — the URL is recorded as loop evidence. */
+  loopId: z.string().min(1).max(200).optional(),
+});

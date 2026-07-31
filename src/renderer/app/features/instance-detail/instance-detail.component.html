@@ -51,6 +51,7 @@
               [dismissed]="contextWarningDismissed()"
               [isEstimated]="inst.contextUsage.isEstimated === true"
               (compactNow)="onCompactNow()"
+              (previewRequested)="onPreviewCompaction()"
               (dismiss)="onDismissContextWarning()"
             />
           }
@@ -463,5 +464,10 @@
       [isOpen]="remoteBrowseOpen()"
       (folderSelected)="onRemoteFolderSelected($event)"
       (closed)="remoteBrowseOpen.set(false)"
+    />
+    <app-compaction-preview-dialog
+      [instanceId]="instance()?.id ?? null"
+      [isOpen]="compactionPreviewOpen()"
+      (closed)="compactionPreviewOpen.set(false)"
     />
     <app-child-diagnostic-bundle-modal />

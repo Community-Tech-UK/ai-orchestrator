@@ -37,6 +37,7 @@ import type { IpcResponse } from '../validated-handler';
 import { getBrowserGatewayService } from '../../browser-gateway/browser-gateway-service';
 import type { InstanceManager } from '../../instance/instance-manager';
 import { getLogger } from '../../logging/logger';
+import { getSessionAdmissionService } from '../../session/session-admission-service';
 
 const logger = getLogger('BrowserGatewayHandlers');
 
@@ -280,6 +281,30 @@ export function registerBrowserGatewayHandlers(
     (service, payload) => service.getHealth(payload),
     deps,
   );
+
+  // Best-effort refire for a resume nudge suppressed by admitAutomatedWrite
+  // (the instance was mid-interrupt/respawn/quota-park when the approval
+  // decision resolved). Registered once per process; last registration wins,
+  // matching every other admission-service redelivery handler.
+  if (deps.instanceManager) {
+    const instanceManager = deps.instanceManager;
+    getSessionAdmissionService().registerRedeliveryHandler('browser-gateway', (ctx) => {
+      void instanceManager
+        .sendInput(ctx.instanceId, ctx.message)
+        .then(() => getSessionAdmissionService().markDelivered(ctx.admissionId))
+        .catch((error: unknown) => {
+          getSessionAdmissionService().markFailed(
+            ctx.admissionId,
+            error instanceof Error ? error.message : String(error),
+          );
+          logger.warn('Browser gateway resume redelivery failed', {
+            instanceId: ctx.instanceId,
+            admissionId: ctx.admissionId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+    });
+  }
 }
 
 function register<TPayload extends BrowserGatewayIpcPayload>(
@@ -363,11 +388,39 @@ function resumeInstanceAfterBrowserDecision(
       ? 'The browser action you requested was just approved by the user in the approval dialog. Retry the action now and continue.'
       : 'The browser action you requested was just denied by the user in the approval dialog. Do not retry it; continue without it.';
 
-  void instanceManager.sendInput(instanceId, message).catch((error) => {
-    logger.warn('Failed to resume instance after browser approval decision', {
+  // A5: re-check live instance state — the agent's turn may have moved on
+  // (interrupted, respawning, quota-parked) between the approval dialog
+  // resolving and this nudge firing. Suppressed nudges are refired on the
+  // next ready edge (see the redelivery handler registered in
+  // registerBrowserGatewayHandlers) rather than dropped, since leaving the
+  // agent stuck without knowing to retry is worse than a delayed nudge.
+  const outcome = getSessionAdmissionService().admitAutomatedWrite({
+    instanceId,
+    origin: 'browser-gateway',
+    message,
+    sourceMetadata: { decision },
+  });
+  if (outcome.kind === 'suppressed') {
+    logger.info('Browser gateway resume nudge suppressed pending instance readiness', {
       instanceId,
       decision,
-      error: error instanceof Error ? error.message : String(error),
+      reason: outcome.reason,
+      admissionId: outcome.admissionId,
     });
-  });
+    return;
+  }
+
+  void instanceManager.sendInput(instanceId, message)
+    .then(() => getSessionAdmissionService().markDelivered(outcome.admissionId))
+    .catch((error) => {
+      getSessionAdmissionService().markFailed(
+        outcome.admissionId,
+        error instanceof Error ? error.message : String(error),
+      );
+      logger.warn('Failed to resume instance after browser approval decision', {
+        instanceId,
+        decision,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
 }

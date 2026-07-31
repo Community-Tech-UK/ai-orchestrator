@@ -25,6 +25,7 @@ import * as path from 'path';
 import { getLogger } from '../logging/logger';
 import { normalizeProjectMemoryKey } from '../memory/project-memory-key';
 import { redactForEgress } from '../security/content-egress-gate';
+import { formatAge } from '../memory/format-age';
 
 const logger = getLogger('LoopMemory');
 
@@ -76,7 +77,13 @@ export function renderLearningLine(record: LoopLearningRecord): string {
   const obs = record.observations.filter((o) => o.trim()).slice(0, 4).join('; ');
   const line = `[${record.status}] goal "${truncate(record.goal, 80)}" — ${truncate(record.reason, 120)}` +
     (obs ? ` · ${obs}` : '');
-  return truncate(line, MAX_LINE_CHARS);
+  // Age is advisory context, not a source of truth — surfaced so the model
+  // can weigh how stale the observation might be. Omit it when the record
+  // (e.g. a hand-built one in a test) doesn't carry a timestamp.
+  const aged = record.createdAt !== undefined
+    ? `${line} (${formatAge(Date.now() - record.createdAt)})`
+    : line;
+  return truncate(aged, MAX_LINE_CHARS);
 }
 
 /**

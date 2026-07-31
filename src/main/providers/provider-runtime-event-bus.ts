@@ -71,6 +71,12 @@ export interface PendingEnvelope {
   adapterGeneration?: number;
   turnId?: string;
   raw?: ProviderRuntimeEventRaw;
+  /**
+   * WS-B10: must-not-persist marker. See
+   * `ProviderRuntimeEventEnvelope.ephemeral` for the full contract; honored
+   * in `captureRawBackedEvent` below.
+   */
+  ephemeral?: boolean;
   event: ProviderRuntimeEvent;
 }
 
@@ -140,8 +146,14 @@ export class ProviderRuntimeEventBus {
    * Send a raw-backed adapter event to the forensic stream without publishing
    * it to renderer consumers. Used for intentionally non-rendering events,
    * such as a provider's echoed user message.
+   *
+   * WS-B10: `pending.ephemeral` is honored here — this is the single choke
+   * point for the durable-capture stream (`onRawBackedEvent` /
+   * `provider:raw-event`, consumed by `ProviderEventCaptureService`), so an
+   * ephemeral event is skipped regardless of whether `raw` is attached.
    */
   captureRawBackedEvent(pending: PendingEnvelope): void {
+    if (pending.ephemeral) return;
     if (!pending.raw || !this.onRawBackedEvent) return;
     this.onRawBackedEvent({
       eventId: randomUUID(),
@@ -201,6 +213,7 @@ export class ProviderRuntimeEventBus {
       adapterGeneration: pending.adapterGeneration,
       turnId: pending.turnId,
       ...(pending.raw ? { raw: pending.raw } : {}),
+      ...(pending.ephemeral ? { ephemeral: pending.ephemeral } : {}),
       event: pending.event,
     };
     this.emitted++;

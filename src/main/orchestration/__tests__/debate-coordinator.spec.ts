@@ -1141,3 +1141,66 @@ describe('DebateCoordinator', () => {
     });
   });
 });
+
+// ─── synthesizeContributions (WS-B6: Ask Council routes through debate synthesis
+// without running a full multi-round debate from scratch) ───
+
+describe('DebateCoordinator.synthesizeContributions', () => {
+  let coordinator: DebateCoordinator;
+
+  beforeEach(() => {
+    DebateCoordinator._resetForTesting();
+    coordinator = DebateCoordinator.getInstance();
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    DebateCoordinator._resetForTesting();
+  });
+
+  it('rejects fewer than 2 contributions', async () => {
+    coordinator.on('debate:generate-synthesis', makeSynthesisHandler(SYNTHESIS_RESPONSE));
+
+    await expect(
+      coordinator.synthesizeContributions('q', [
+        { agentId: 'claude', content: 'only one', confidence: 1, reasoning: 'r' },
+      ]),
+    ).rejects.toThrow(/at least 2/i);
+  });
+
+  it('routes synthesis through the debate:generate-synthesis extensibility event', async () => {
+    coordinator.on('debate:generate-synthesis', makeSynthesisHandler(SYNTHESIS_RESPONSE));
+
+    const { synthesis, consensusAnalysis } = await coordinator.synthesizeContributions(
+      'What should we do?',
+      [
+        { agentId: 'claude', content: 'Do A', confidence: 1, reasoning: 'r' },
+        { agentId: 'gemini', content: 'Do A too', confidence: 1, reasoning: 'r' },
+      ],
+    );
+
+    expect(synthesis).toBe(SYNTHESIS_RESPONSE);
+    expect(consensusAnalysis.overallScore).toBeGreaterThan(0);
+  });
+
+  it('does not register the transient debate in activeDebates/completedDebates', async () => {
+    coordinator.on('debate:generate-synthesis', makeSynthesisHandler(SYNTHESIS_RESPONSE));
+
+    await coordinator.synthesizeContributions('q', [
+      { agentId: 'claude', content: 'Do A', confidence: 1, reasoning: 'r' },
+      { agentId: 'gemini', content: 'Do B', confidence: 1, reasoning: 'r' },
+    ]);
+
+    expect(coordinator.getActiveDebates()).toHaveLength(0);
+    expect(coordinator.getStats().totalDebates).toBe(0);
+  });
+
+  it('rejects (via extensibility guard) when no debate:generate-synthesis handler is registered', async () => {
+    await expect(
+      coordinator.synthesizeContributions('q', [
+        { agentId: 'claude', content: 'Do A', confidence: 1, reasoning: 'r' },
+        { agentId: 'gemini', content: 'Do B', confidence: 1, reasoning: 'r' },
+      ]),
+    ).rejects.toThrow(/No handler registered/i);
+  });
+});

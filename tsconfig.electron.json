@@ -59,6 +59,7 @@
       "@contracts/schemas/doc-review":       ["./packages/contracts/src/schemas/doc-review.schemas"],
       "@contracts/schemas/rlm-maintenance":  ["./packages/contracts/src/schemas/rlm-maintenance.schemas"],
       "@contracts/schemas/context-evidence": ["./packages/contracts/src/schemas/context-evidence.schemas"],
+      "@contracts/schemas/workboard":        ["./packages/contracts/src/schemas/workboard.schemas"],
       "@contracts/channels/automation":      ["./packages/contracts/src/channels/automation.channels"],
       "@contracts/channels/campaign":        ["./packages/contracts/src/channels/campaign.channels"],
       "@contracts/channels/pause":           ["./packages/contracts/src/channels/pause.channels"],

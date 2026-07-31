@@ -223,6 +223,12 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
             body: 'The implementation does not match the spec.',
             severity: 'critical',
             confidence: 0.9,
+            // WS-A3: a severity-blocking finding needs anchor-verified
+            // evidence (or a deterministic-gate classification) to actually
+            // block. This test exercises "a blocking finding blocks", not
+            // evidence-anchor verification (covered in
+            // `loop-coordinator-completion-gates.spec.ts`).
+            evidenceClass: 'deterministic-gate',
           },
         ],
         reviewersUsed: ['gemini'],
@@ -242,12 +248,17 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
       reviewResult: {
         findings: [
           // Two reviewers flag the SAME critical issue (same title+file) ...
+          // WS-A3: `deterministic-gate` keeps all three findings blocking
+          // (this test is about dedup/ordering/corroboration, not evidence
+          // anchoring — covered separately in
+          // `loop-coordinator-completion-gates.spec.ts`).
           {
             title: 'Auth bypass in handler',
             body: 'gemini phrasing',
             severity: 'critical',
             file: 'src/auth.ts',
             confidence: 0.8,
+            evidenceClass: 'deterministic-gate',
           },
           {
             title: 'Auth bypass in handler',
@@ -255,6 +266,7 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
             severity: 'critical',
             file: 'src/auth.ts',
             confidence: 0.95,
+            evidenceClass: 'deterministic-gate',
           },
           // ... plus one distinct lower-severity issue.
           {
@@ -263,6 +275,7 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
             severity: 'high',
             file: 'src/x.ts',
             confidence: 0.7,
+            evidenceClass: 'deterministic-gate',
           },
         ],
         reviewersUsed: ['gemini', 'codex'],

@@ -248,4 +248,25 @@ export class VcsIpcService {
   async vcsListBranches(workingDirectory: string): Promise<IpcResponse> {
     return this.vcsGetBranches(workingDirectory);
   }
+
+  /**
+   * WS-B1 phase 1 — push a branch and open a GitHub pull request via `gh`.
+   * Never automatic: the main process requires a per-project opt-in plus an
+   * explicit, never-delegable approval before anything is spawned. Resolves
+   * `{ success: true, data: { url } }` on success, or a typed error code
+   * (`VCS_CREATE_PULL_REQUEST_<KIND>`) otherwise.
+   */
+  async vcsCreatePullRequest(payload: {
+    projectPath: string;
+    branch: string;
+    title: string;
+    body?: string;
+    baseBranch?: string;
+    draft?: boolean;
+    instanceId?: string;
+    loopId?: string;
+  }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.vcsCreatePullRequest(payload);
+  }
 }

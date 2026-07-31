@@ -18,6 +18,16 @@ export const SESSION_CHANNELS = {
   SESSION_LIST_SNAPSHOTS: 'session:list-snapshots',
   SESSION_CREATE_SNAPSHOT: 'session:create-snapshot',
   SESSION_GET_STATS: 'session:get-stats',
+  SESSION_ADMISSIONS_LIST: 'session:admissions-list',
+
+  // Durable renderer send-queue (WS-A1 Phase B) — the admission store is the
+  // authority for not-yet-sent queued messages; see session-queue-service.ts.
+  SESSION_QUEUE_ENQUEUE: 'session:queue-enqueue',
+  SESSION_QUEUE_UPDATE: 'session:queue-update',
+  SESSION_QUEUE_CANCEL: 'session:queue-cancel',
+  SESSION_QUEUE_REORDER: 'session:queue-reorder',
+  SESSION_QUEUE_LIST: 'session:queue-list',
+  SESSION_QUEUE_PROMOTE: 'session:queue-promote',
 
   // Snapshot operations (file revert)
   SNAPSHOT_TAKE: 'snapshot:take',

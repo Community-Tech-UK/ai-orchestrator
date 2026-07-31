@@ -6,6 +6,7 @@ import {
   deleteTurnSupervisor,
   _resetTurnSupervisorsForTesting,
 } from './session-turn-supervisor';
+import { DoomLoopDetector, getDoomLoopDetector } from '../orchestration/doom-loop-detector';
 
 // Suppress the turn journal writes (session-continuity not initialized in tests).
 vi.mock('./session-continuity', () => ({
@@ -60,6 +61,36 @@ describe('SessionTurnSupervisor', () => {
       supervisor.recordTurnEnd('completed');
       supervisor.recordTurnStart();
       expect(supervisor.snapshot().turnGeneration).toBe(2);
+    });
+  });
+
+  describe('tool-loop detector wiring (WS-A2)', () => {
+    beforeEach(() => {
+      DoomLoopDetector._resetForTesting();
+    });
+
+    it('recordTurnStart() resets the tool-loop detector state for this instance', () => {
+      const detector = getDoomLoopDetector();
+      detector.markAutoInterrupted('inst-1');
+      expect(detector.hasAutoInterruptedThisTurn('inst-1')).toBe(true);
+
+      supervisor.recordTurnStart('turn-2');
+
+      expect(detector.hasAutoInterruptedThisTurn('inst-1')).toBe(false);
+    });
+
+    it('recordTurnEnd() resets the tool-loop detector state for this instance', () => {
+      const detector = getDoomLoopDetector();
+      detector.markAutoInterrupted('inst-1');
+
+      supervisor.recordTurnEnd('completed');
+
+      expect(detector.hasAutoInterruptedThisTurn('inst-1')).toBe(false);
+    });
+
+    it('does not throw when the detector has no tracked state for this instance yet', () => {
+      expect(() => supervisor.recordTurnStart('turn-1')).not.toThrow();
+      expect(() => supervisor.recordTurnEnd('completed')).not.toThrow();
     });
   });
 

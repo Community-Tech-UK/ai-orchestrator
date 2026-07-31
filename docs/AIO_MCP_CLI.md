@@ -20,13 +20,14 @@ dist/aio-mcp-cli-sea/aio-mcp --help
 
 ## What It Can Do
 
-`aio-mcp` has three human-facing command groups:
+`aio-mcp` has four human-facing command groups:
 
 | Command | Purpose |
 | --- | --- |
 | `settings` | Inspect and repair Harness app settings through the running parent app. |
 | `remote-nodes` | Print the safe remote worker roster. |
 | `release-readiness` | Build a mobile release readiness report from evidence JSON and live captures. |
+| `local-ai` | Discover, validate, list, and enrol Local AI Guard targets through the running parent app. |
 
 It also has MCP and integration forwarders:
 
@@ -146,12 +147,36 @@ It can update settings that the ordinary safe MCP `set_setting` tool cannot
 write. This is deliberate: it gives Harness-owned agents a repair path when a
 broken setting prevents normal operation.
 
+Because of that, the two surfaces have different write boundaries:
+
+| Surface | Boundary |
+| --- | --- |
+| `set_setting` / `reset_setting` MCP tools | `open`-tier keys only. |
+| `$AIO_MCP settings set` / `reset` | Every key except the operator-only anchors. |
+
+The `CLI-Write` column (`cliWritable` under `--json`) answers "can this CLI
+change it". The `Policy` column reports the safe MCP tool tier instead, so a
+`read-only` policy does not imply the CLI is blocked. `CLI-Write: no` marks the
+17 operator-only authorization anchors — the two credential-vault unlock keys,
+shared-tab credential fill, the five Computer Use policy keys, the four
+Microsoft Graph OAuth and calendar-allowlist keys, the context-evidence rollout
+mode, the three Local AI Guard fallback-policy and budget keys, and the
+WS-B1 per-project PR-creation opt-in map (`allowPrCreation`). Those are
+changed from the Settings UI by the operator, never by an agent.
+`PRIVILEGED_CLI_OPERATOR_ONLY_KEYS` in
+`src/main/core/config/settings-control-policy.ts` is the authoritative list.
+
+Secret-tier keys are not readable through `settings get`, so `settings list` is
+the only place their `CLI-Write` value appears. Most are writable;
+`browserVaultMasterPasswordFile` is both secret-tier and operator-only, so it is
+not.
+
 Secret-tier values are not printed:
 
 - `list` shows redacted secret values.
 - `get` refuses secret keys.
-- `set` and `reset` can operate on secret keys, but report only redacted old and
-  new values.
+- `set` and `reset` can operate on secret keys other than the operator-only
+  anchors, but report only redacted old and new values.
 
 Do not paste CLI output into issues, docs, or chat if it contains local paths,
 hostnames, socket paths, or any value you have not checked. The command is
@@ -167,6 +192,37 @@ app:
 $AIO_MCP remote-nodes
 $AIO_MCP remote-nodes --json
 ```
+
+## Local AI Guard
+
+Local AI Guard targets are durable runtime records rather than ordinary
+`AppSettings` keys. Use the dedicated command family instead of editing the
+database or trying to write them through `settings set`:
+
+```bash
+$AIO_MCP local-ai discover [--json]
+$AIO_MCP local-ai list [--json]
+$AIO_MCP local-ai validate '<config-json>' [--json]
+$AIO_MCP local-ai enrol '<config-json>' [--json]
+```
+
+`discover` returns the same bounded, non-secret endpoint metadata used by the
+Health Centre. `validate` runs the worker, endpoint, model, and functional
+canary checks without writing a target.
+
+`enrol` is deliberately not a blind create operation. The Electron parent:
+
+1. rejects an already managed endpoint;
+2. runs functional validation against the supplied configuration;
+3. refuses empty results or any failed required probe;
+4. checks for a duplicate again; and
+5. writes the target through the authoritative repository.
+
+Use `--json` for agent-driven work. The configuration must satisfy
+`LocalAiTargetConfigSchema`, including at least one expected model, a canary
+chosen from those models, and at least one routing role for an enrolled target.
+Endpoint URLs may not contain userinfo and must use a literal loopback, private,
+or Tailscale IPv4 host.
 
 The table output is easier for a person to read. Use `--json` when another tool
 will parse the result.
@@ -306,4 +362,5 @@ npm run test:quiet -- \
 npm run build:aio-mcp-dist
 dist/aio-mcp-cli-sea/aio-mcp --help
 dist/aio-mcp-cli-sea/aio-mcp settings --help
+dist/aio-mcp-cli-sea/aio-mcp local-ai --help
 ```

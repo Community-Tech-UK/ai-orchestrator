@@ -141,6 +141,13 @@ vi.mock('../../../logging/logger', () => ({
   }),
 }));
 
+// WS-B1 phase 1 — the IPC layer only validates + dispatches; all gating and
+// spawning is covered directly in pr-creation-service.spec.ts.
+const createPullRequestMock = vi.fn();
+vi.mock('../../../vcs/pr-creation-service', () => ({
+  getPrCreationService: () => ({ createPullRequest: createPullRequestMock }),
+}));
+
 // ============================================================
 // 4. Import SUT after mocks are in place
 // ============================================================
@@ -505,6 +512,58 @@ describe('vcs-handlers — stage / unstage (Phase 2d)', () => {
       });
       expect(res.success).toBe(false);
       expect(fakeManager.checkoutBranch).not.toHaveBeenCalled();
+    });
+  });
+
+  // ---------------------------------------------------------------
+  // VCS_CREATE_PULL_REQUEST (WS-B1 phase 1)
+  // ---------------------------------------------------------------
+  describe('VCS_CREATE_PULL_REQUEST', () => {
+    beforeEach(() => {
+      createPullRequestMock.mockReset();
+    });
+
+    it('validates the payload, dispatches to the service, and returns the URL on success', async () => {
+      createPullRequestMock.mockResolvedValue({ ok: true, url: 'https://github.com/acme/widgets/pull/9' });
+      const res = await invoke(IPC_CHANNELS.VCS_CREATE_PULL_REQUEST, {
+        projectPath: '/work',
+        branch: 'aio/session-branch',
+        title: 'Add feature',
+        baseBranch: 'main',
+        loopId: 'loop-1',
+      });
+      expect(res.success).toBe(true);
+      expect(res.data?.['url']).toBe('https://github.com/acme/widgets/pull/9');
+      expect(createPullRequestMock).toHaveBeenCalledWith({
+        projectPath: '/work',
+        branch: 'aio/session-branch',
+        title: 'Add feature',
+        baseBranch: 'main',
+        loopId: 'loop-1',
+      });
+    });
+
+    it('maps a typed service failure to a dedicated error code', async () => {
+      createPullRequestMock.mockResolvedValue({
+        ok: false,
+        error: { kind: 'optIn', message: 'PR creation is not enabled for this project.' },
+      });
+      const res = await invoke(IPC_CHANNELS.VCS_CREATE_PULL_REQUEST, {
+        projectPath: '/work',
+        branch: 'aio/session-branch',
+        title: 'Add feature',
+      });
+      expect(res.success).toBe(false);
+      expect(res.error?.code).toBe('VCS_CREATE_PULL_REQUEST_OPTIN');
+      expect(res.error?.message).toBe('PR creation is not enabled for this project.');
+    });
+
+    it('rejects an invalid payload without calling the service (missing branch/title)', async () => {
+      const res = await invoke(IPC_CHANNELS.VCS_CREATE_PULL_REQUEST, {
+        projectPath: '/work',
+      });
+      expect(res.success).toBe(false);
+      expect(createPullRequestMock).not.toHaveBeenCalled();
     });
   });
 });

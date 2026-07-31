@@ -429,6 +429,24 @@ export const InstanceRecoverCompactionContextPayloadSchema = z.object({
 
 export type InstanceRecoverCompactionContextPayload = z.infer<typeof InstanceRecoverCompactionContextPayloadSchema>;
 
+// WS-B7 manual compaction preview + boundary-aware apply. `keepLatestExchanges`
+// is optional in both — omitting it previews/applies the pre-WS-B7 default.
+const CompactionKeepLatestExchangesSchema = z.number().int().min(0).max(1000);
+
+export const InstanceCompactionPreviewPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  keepLatestExchanges: CompactionKeepLatestExchangesSchema.optional(),
+});
+
+export type InstanceCompactionPreviewPayload = z.infer<typeof InstanceCompactionPreviewPayloadSchema>;
+
+export const InstanceCompactionApplyPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  keepLatestExchanges: CompactionKeepLatestExchangesSchema.optional(),
+});
+
+export type InstanceCompactionApplyPayload = z.infer<typeof InstanceCompactionApplyPayloadSchema>;
+
 const ContextUsageEventSchema = z.object({
   used: z.number().nonnegative().finite(),
   total: z.number().nonnegative().finite(),
@@ -659,11 +677,18 @@ export const CrossModelReviewReviewerRateLimitClearedEventSchema = z.object({
   cliType: z.string(),
 }).strict();
 
+/**
+ * WS-A2 — `instance:doom-loop`: a result-aware tool-loop detection
+ * (`ToolLoopDetectionEvent` in `src/main/orchestration/doom-loop-detector.ts`).
+ * `.strict()` rejects unknown keys, so this must track that type exactly.
+ */
 export const InstanceDoomLoopEventSchema = z.object({
   instanceId: z.string(),
+  detector: z.enum(['repeat-no-progress', 'ping-pong', 'runaway']),
+  severity: z.enum(['warn', 'critical']),
   toolName: z.string(),
-  input: z.unknown().optional(),
-  consecutiveCount: z.number().int(),
+  count: z.number().int(),
+  windowDescription: z.string(),
 }).strict();
 
 export const InstanceInputRequiredEventSchema = z.object({

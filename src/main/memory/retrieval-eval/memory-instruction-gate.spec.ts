@@ -13,6 +13,15 @@ describe('admitToTier', () => {
     expect(admitToTier('imported', 'system', true)).toBe(true);
   });
 
+  it('system tier admits user-approved (WS-A4 governed-proposal promotion) when the gate is enabled', () => {
+    expect(admitToTier('user-approved', 'system', true)).toBe(true);
+  });
+
+  it('system tier still blocks agent-derived even though user-approved is admitted', () => {
+    expect(admitToTier('agent-derived', 'system', true)).toBe(false);
+    expect(admitToTier('user-approved', 'system', true)).toBe(true);
+  });
+
   it('system tier admits everything when the operator disables the gate', () => {
     expect(admitToTier('agent-derived', 'system', false)).toBe(true);
   });
@@ -23,17 +32,18 @@ describe('filterMemoriesForTier', () => {
     { id: 'm1', provenance: 'agent-derived' as const },
     { id: 'm2', provenance: 'user-authored' as const },
     { id: 'm3', provenance: 'imported' as const },
+    { id: 'm4', provenance: 'user-approved' as const },
   ];
 
-  it('agent-derived memories never reach system-tier assembly (gate on)', () => {
+  it('agent-derived memories never reach system-tier assembly (gate on); user-approved does', () => {
     const { admitted, blocked } = filterMemoriesForTier(memories, 'system', true);
-    expect(admitted.map((m) => m.id)).toEqual(['m2', 'm3']);
+    expect(admitted.map((m) => m.id)).toEqual(['m2', 'm3', 'm4']);
     expect(blocked).toEqual(['m1']);
   });
 
   it('advisory tier keeps all memories', () => {
     const { admitted, blocked } = filterMemoriesForTier(memories, 'advisory', true);
-    expect(admitted).toHaveLength(3);
+    expect(admitted).toHaveLength(4);
     expect(blocked).toEqual([]);
   });
 });

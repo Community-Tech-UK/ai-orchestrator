@@ -31,6 +31,7 @@ import {
   coerceRendererSettingValue,
   coerceWritableSettingValue,
   getSettingsToolPolicy,
+  isPrivilegedSettingsCliWritable,
   requireKnownSettingsToolKey,
   settingsValueForTool,
   type SettingsToolPolicy,
@@ -83,10 +84,17 @@ export interface SettingsToolListItem {
   defaultValue: unknown;
   type: string;
   category: string;
+  /** Writable through the safe `set_setting` MCP tool (open tier only). */
   writable: boolean;
   restartRequired: boolean;
   description: string;
   policyTier: SettingsToolPolicyTier;
+  /**
+   * Writable through the privileged `aio-mcp settings` CLI, which is broader
+   * than `writable`. Only the privileged RPC methods populate this, so the safe
+   * MCP tool output is unchanged.
+   */
+  cliWritable?: boolean;
 }
 
 export interface SettingsToolListResult {
@@ -98,8 +106,11 @@ export interface SettingsToolGetResult {
   key: keyof AppSettings;
   value: unknown;
   restartRequired: boolean;
+  /** Writable through the safe `set_setting` MCP tool (open tier only). */
   writable: boolean;
   policyTier: SettingsToolPolicyTier;
+  /** Writable through the privileged CLI; see {@link SettingsToolListItem}. */
+  cliWritable?: boolean;
 }
 
 export interface SettingsToolSetResult {
@@ -353,22 +364,34 @@ export function privilegedListSettings(
   args: SettingsPrivilegedListArgs,
 ): SettingsToolListResult {
   void args.all;
-  return listSettingsForTools(context, args);
+  const base = listSettingsForTools(context, args);
+  return {
+    count: base.count,
+    settings: base.settings.map((setting) => ({
+      ...setting,
+      cliWritable: isPrivilegedSettingsCliWritable(setting.key),
+    })),
+  };
 }
 
 export function privilegedGetSetting(
   context: SettingsToolContext,
   args: SettingsPrivilegedGetArgs,
 ): SettingsToolGetResult {
-  return getSettingForTools(context, args);
+  const result = getSettingForTools(context, args);
+  return { ...result, cliWritable: isPrivilegedSettingsCliWritable(result.key) };
 }
 
 export function privilegedSetSetting(
   context: SettingsToolContext,
   args: SettingsPrivilegedSetArgs,
 ): SettingsToolSetResult {
-  const { key, value } = coerceRendererSettingValue(args.key, args.value);
+  // Authorize before parsing the caller-supplied value, so an operator-only key
+  // always reports the operator-only refusal rather than leaking a value-shape
+  // error for a write that was never permitted in the first place.
+  const key = requireKnownSettingsToolKey(args.key);
   assertPrivilegedSettingsCliWritable(key);
+  const { value } = coerceRendererSettingValue(key, args.value);
   const policy = getSettingsToolPolicy(key);
   const manager = requireSettingsManager(context);
   const oldRaw = manager.get(key);
@@ -488,7 +511,9 @@ function inferCategory(key: keyof AppSettings): string {
     key === 'projectPluginTrust' ||
     key.startsWith('chromeDevtools') ||
     key === 'detectDegradedAdapterOutput' ||
-    key === 'enableSpawnWorkerOffload'
+    key === 'enableSpawnWorkerOffload' ||
+    key === 'toolLoopAutoInterrupt' ||
+    key === 'approvalAdjudicationEnabled'
   ) {
     return 'advanced';
   }

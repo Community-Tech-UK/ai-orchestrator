@@ -4,10 +4,11 @@ import { IpcFacadeService } from '../../services/ipc';
 import { InstanceListStore } from './instance-list.store';
 import { InstanceMessagingStore } from './instance-messaging.store';
 import { InstanceStateService } from './instance-state.service';
-import type { Instance } from './instance.types';
+import type { Instance, QueuedMessage } from './instance.types';
 import { PauseStore } from '../pause/pause.store';
 import type { PauseStatePayload } from '@contracts/schemas/pause';
 import { DraftService } from '../../services/draft.service';
+import { QueuePersistenceService } from './queue-persistence.service';
 
 function createInstance(overrides: Partial<Instance> = {}): Instance {
   return {
@@ -650,5 +651,183 @@ describe('InstanceMessagingStore', () => {
       expect(ipcMock.sendInput).toHaveBeenCalledTimes(1);
       expect(currentStore.getQueuedMessageCount('inst-1')).toBe(0);
     });
+  });
+});
+
+describe('InstanceMessagingStore — durable queue wiring (WS-A1 Phase B)', () => {
+  let store: InstanceMessagingStore | undefined;
+  let stateService: InstanceStateService | undefined;
+
+  const ipcMock = {
+    sendInput: vi.fn(),
+    steerInput: vi.fn(),
+    wakeInstance: vi.fn(),
+    listInstances: vi.fn(),
+  };
+
+  const listStoreMock = {
+    validateFiles: vi.fn(() => []),
+    fileToAttachments: vi.fn(),
+    interruptInstance: vi.fn(),
+    restartInstance: vi.fn(),
+  };
+
+  const queuePersistenceMock = {
+    notifyEnqueued: vi.fn(),
+    notifyCancelled: vi.fn(),
+    notifyPromoting: vi.fn().mockResolvedValue(true),
+    rebindEntry: vi.fn(),
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    ipcMock.sendInput.mockReset();
+    ipcMock.sendInput.mockResolvedValue({ success: true });
+    ipcMock.steerInput.mockReset();
+    ipcMock.steerInput.mockResolvedValue({ success: true });
+    ipcMock.wakeInstance.mockReset();
+    ipcMock.listInstances.mockReset();
+    ipcMock.listInstances.mockResolvedValue({ success: true, data: [] });
+    listStoreMock.validateFiles.mockReset();
+    listStoreMock.validateFiles.mockReturnValue([]);
+    listStoreMock.interruptInstance.mockReset();
+    listStoreMock.interruptInstance.mockResolvedValue(true);
+    listStoreMock.restartInstance.mockReset();
+    queuePersistenceMock.notifyEnqueued.mockReset();
+    queuePersistenceMock.notifyCancelled.mockReset();
+    queuePersistenceMock.notifyPromoting.mockReset();
+    queuePersistenceMock.notifyPromoting.mockResolvedValue(true);
+    queuePersistenceMock.rebindEntry.mockReset();
+
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        InstanceMessagingStore,
+        InstanceStateService,
+        { provide: IpcFacadeService, useValue: ipcMock },
+        { provide: InstanceListStore, useValue: listStoreMock },
+        { provide: QueuePersistenceService, useValue: queuePersistenceMock },
+      ],
+    });
+
+    store = TestBed.inject(InstanceMessagingStore);
+    stateService = TestBed.inject(InstanceStateService);
+  });
+
+  afterEach(() => {
+    clearInterval(
+      (store as { queueWatchdog: ReturnType<typeof setInterval> | null } | undefined)
+        ?.queueWatchdog ?? undefined
+    );
+    TestBed.resetTestingModule();
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
+    store = undefined;
+    stateService = undefined;
+  });
+
+  it('notifies the durable queue on enqueue while busy', async () => {
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    currentStateService.addInstance(createInstance({ status: 'busy' }));
+
+    await currentStore.sendInput('inst-1', 'queued while busy');
+
+    expect(queuePersistenceMock.notifyEnqueued).toHaveBeenCalledWith(
+      'inst-1',
+      expect.objectContaining({ message: 'queued while busy' }),
+      'back',
+    );
+  });
+
+  it('promotes the exact drained QueuedMessage object before the send IPC call, and cancels nothing', async () => {
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    currentStateService.addInstance(createInstance({ status: 'busy' }));
+
+    await currentStore.sendInput('inst-1', 'drain me');
+    const queuedEntry = currentStore.getMessageQueue('inst-1')[0];
+
+    currentStateService.updateInstance('inst-1', { status: 'idle' });
+    currentStore.processMessageQueue('inst-1');
+    await vi.advanceTimersByTimeAsync(150);
+
+    expect(queuePersistenceMock.notifyPromoting).toHaveBeenCalledWith('inst-1', queuedEntry);
+    expect(ipcMock.sendInput).toHaveBeenCalledTimes(1);
+    // notifyPromoting must resolve BEFORE the send IPC fires.
+    const promoteOrder = queuePersistenceMock.notifyPromoting.mock.invocationCallOrder[0];
+    const sendOrder = ipcMock.sendInput.mock.invocationCallOrder[0];
+    expect(promoteOrder).toBeLessThan(sendOrder);
+    expect(queuePersistenceMock.notifyCancelled).not.toHaveBeenCalled();
+  });
+
+  it('a failed durable promote leaves the message visibly queued instead of sending anyway (Finding 2)', async () => {
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    currentStateService.addInstance(createInstance({ status: 'busy' }));
+    queuePersistenceMock.notifyPromoting.mockResolvedValue(false);
+
+    await currentStore.sendInput('inst-1', 'drain me');
+    currentStateService.updateInstance('inst-1', { status: 'idle' });
+    currentStore.processMessageQueue('inst-1');
+    await vi.advanceTimersByTimeAsync(150);
+
+    expect(queuePersistenceMock.notifyPromoting).toHaveBeenCalled();
+    expect(ipcMock.sendInput).not.toHaveBeenCalled();
+    expect(currentStore.getQueuedMessageCount('inst-1')).toBe(1);
+    expect(currentStore.getMessageQueue('inst-1')[0]).toMatchObject({ message: 'drain me' });
+  });
+
+  it('cancelQueuedMessage removes the entry AND notifies the durable cancel', () => {
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    currentStateService.addInstance(createInstance({ status: 'busy' }));
+    const entry: QueuedMessage = { message: 'to cancel' };
+    currentStateService.messageQueue.set(new Map([['inst-1', [entry]]]));
+
+    const removed = currentStore.cancelQueuedMessage('inst-1', 0);
+
+    expect(removed).toBe(entry);
+    expect(currentStore.getQueuedMessageCount('inst-1')).toBe(0);
+    expect(queuePersistenceMock.notifyCancelled).toHaveBeenCalledWith('inst-1', entry);
+  });
+
+  it('removeFromQueue (steer path) does NOT notify a cancel — steerQueuedMessage rebinds instead', async () => {
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    currentStateService.addInstance(createInstance({ status: 'busy' }));
+    const entry: QueuedMessage = { message: 'to steer' };
+    currentStateService.messageQueue.set(new Map([['inst-1', [entry]]]));
+
+    await currentStore.steerQueuedMessage('inst-1', 0);
+
+    expect(queuePersistenceMock.notifyCancelled).not.toHaveBeenCalled();
+    expect(queuePersistenceMock.rebindEntry).toHaveBeenCalledWith(entry, expect.objectContaining({ message: 'to steer', kind: 'steer' }));
+  });
+
+  it('clearMessageQueue notifies a durable cancel for every remaining entry', () => {
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    currentStateService.addInstance(createInstance({ status: 'busy' }));
+    currentStateService.messageQueue.set(
+      new Map([['inst-1', [{ message: 'm1' }, { message: 'm2' }]]]),
+    );
+
+    currentStore.clearMessageQueue('inst-1');
+
+    expect(queuePersistenceMock.notifyCancelled).toHaveBeenCalledWith(
+      'inst-1',
+      [{ message: 'm1' }, { message: 'm2' }],
+    );
+  });
+
+  it('clearMessageQueue on an already-empty queue does not call notifyCancelled', () => {
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    currentStateService.addInstance(createInstance({ status: 'idle' }));
+
+    currentStore.clearMessageQueue('inst-1');
+
+    expect(queuePersistenceMock.notifyCancelled).not.toHaveBeenCalled();
   });
 });

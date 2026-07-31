@@ -59,6 +59,7 @@ export type ControlSurfaceId =
   | 'logs'
   | 'observations'
   | 'knowledge'
+  | 'memory-review'
   | 'plugins'
   | 'models'
   | 'remote-config'

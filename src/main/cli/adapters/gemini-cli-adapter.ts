@@ -44,6 +44,7 @@ import {
   parseGeminiStreamingEvent,
 } from './gemini-json';
 import { probeVersionStatus } from './cli-status-probe';
+import { killProcessGroup } from './base-cli-process-utils';
 import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
 
 const logger = getLogger('GeminiCliAdapter');
@@ -406,7 +407,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
       // Timeout handling
       const timeout = setTimeout(() => {
         if (this.process) {
-          this.process.kill('SIGTERM');
+          killProcessGroup(this.process.pid, 'SIGTERM');
           reject(new Error('Gemini CLI timeout'));
         }
       }, this.config.timeout);

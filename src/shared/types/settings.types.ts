@@ -20,39 +20,21 @@ export {
   DEFAULT_SETTINGS,
 } from './settings-defaults';
 
-export type ThemeMode = 'light' | 'dark' | 'system';
-export type DisplayDensity = 'comfortable' | 'compact';
-
-/**
- * The orchestration gates whose model tier an operator can pin.
- *
- * These are finer-grained than `RoutingIntent` (`loop | workflow | scaffolding |
- * synthesis`) on purpose: verify, review and non-synthesis debate all share the
- * `scaffolding` intent, but they are very different jobs with very different
- * cost/quality trade-offs, and an operator needs to tune them independently.
- */
-export type OrchestrationRoutingPolicyKey =
-  | 'loop'
-  | 'workflow'
-  | 'verify'
-  | 'review'
-  | 'debate'
-  | 'debateSynthesis';
-
-/** A pinned tier, or `auto` to defer to the router's keyword heuristic. */
-export type OrchestrationRoutingPolicyValue = 'auto' | 'fast' | 'balanced' | 'powerful';
-
-export type SidebarStyle = 'standard' | 'compact';
-export type CanonicalCliType = 'claude' | 'gemini' | 'antigravity' | 'codex' | 'copilot' | 'auto' | 'cursor' | 'grok';
-export type CliType = CanonicalCliType | 'openai'; // legacy alias kept for persisted settings compatibility
-export type ConfigSource = 'project' | 'user' | 'default';
-export type DefaultMissedRunPolicy = 'skip' | 'notify' | 'runOnce';
-export type PauseReachabilityProbeMode = 'disabled' | 'reachable-means-vpn' | 'unreachable-means-vpn';
-export type VoiceSttRoutingMode = 'auto' | 'this-device' | 'worker-node' | 'cloud' | 'this-device-or-cloud';
-export type ProjectPluginTrust = 'trusted' | 'untrusted' | 'ask';
-/** CLI update policy: off | notify (default) | auto (safe updates only). */
-export type CliUpdatePolicy = 'off' | 'notify' | 'auto';
-export type ContextEvidenceMode = 'off' | 'shadow' | 'enforce';
+// Primitive/enum type aliases used as AppSettings field types (LOC ratchet split).
+import type {
+  CanonicalCliType,
+  CliType,
+  CliUpdatePolicy,
+  ContextEvidenceMode,
+  DefaultMissedRunPolicy,
+  DisplayDensity,
+  PauseReachabilityProbeMode,
+  ProjectPluginTrust,
+  SidebarStyle,
+  ThemeMode,
+  VoiceSttRoutingMode,
+} from './settings-primitives.types';
+export type * from './settings-primitives.types';
 
 /** Application settings that are persisted to disk. */
 export interface AppSettings extends DesktopComputerUseSettings {
@@ -602,6 +584,37 @@ export interface AppSettings extends DesktopComputerUseSettings {
   detectDegradedAdapterOutput: boolean;
 
   /**
+   * WS-A2 — auto-interrupt a turn when the result-aware tool-loop detector
+   * (`doom-loop-detector.ts`) reports a 'critical' detection (repeat-no-progress,
+   * ping-pong, or runaway tool-call pattern). AIO only observes provider CLI
+   * tool events — it cannot veto a tool call inside the CLI process — so this
+   * is the one point where the orchestrator can actually intervene: sending
+   * the existing interrupt to the stuck turn. Warning events (renderer notice)
+   * are always emitted regardless of this setting; only the auto-interrupt
+   * action is gated.
+   *
+   * DEFAULT: false — ships dormant until validated against real stuck-loop
+   * transcripts. When false, behavior is unchanged: detections are still
+   * logged/forwarded, but no turn is ever interrupted automatically.
+   */
+  toolLoopAutoInterrupt: boolean;
+
+  /**
+   * WS-B3 — opt-in Guardian-style LLM adjudicator for on-request tool-use
+   * approvals raised by an UNATTENDED (loop-active) instance. When enabled,
+   * an 'ask' decision from an instance driving an active loop is routed
+   * through the auxiliary `approvalAdjudication` slot before falling back to
+   * the ordinary human approval prompt; malformed/timeout output and any
+   * never-delegable category (credentials/billing/external_publish/
+   * interactive_question) always escalate to the human unchanged.
+   *
+   * DEFAULT: false — ships dormant until validated against real unattended
+   * runs. When false, behavior is unchanged: every 'ask' still parks for a
+   * human exactly as today.
+   */
+  approvalAdjudicationEnabled: boolean;
+
+  /**
    * D4 — offload local Claude/Gemini child-process stdio handling from the
    * Electron main thread to the CLI spawn worker. Default off while the pilot
    * path is validated in production.
@@ -613,6 +626,17 @@ export interface AppSettings extends DesktopComputerUseSettings {
    * not import project plugin code until trust is granted.
    */
   projectPluginTrust: Record<string, ProjectPluginTrust>;
+
+  /**
+   * WS-B1 phase 1 — per-project opt-in for `PrCreationService` to push a
+   * branch and open a GitHub pull request via the `gh` CLI. Keyed by
+   * canonical project root (mirrors `projectPluginTrust`); missing/false
+   * roots refuse PR creation outright. This is a silent-default-OFF
+   * capability gate, not a substitute for the never-delegable
+   * `external_publish` approval (WS-B3) — that ask still runs after opt-in
+   * passes, on every invocation.
+   */
+  allowPrCreation: Record<string, boolean>;
 
   // Auxiliary LLM (local/cheap model routing for helper calls)
   auxiliaryLlmEnabled: boolean;

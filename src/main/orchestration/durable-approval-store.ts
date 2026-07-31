@@ -72,9 +72,29 @@ function toRecord(row: ApprovalRow): ApprovalRecord {
 }
 
 export class DurableApprovalStore {
+  private static instance: DurableApprovalStore | null = null;
+
   constructor(private readonly db: SqliteDriver) {
     this.ensureSchema();
     this.sweepExpired();
+  }
+
+  /**
+   * Lazily-created shared instance backed by the RLM database (WS-B3), for
+   * call sites that don't already hold a reference (e.g. approval-adjudicator.ts).
+   * Independent of any `new DurableApprovalStore(db)` a caller constructs
+   * directly (e.g. app/initialization-steps.ts) — both point at the same
+   * SQLite table, so either usage is safe.
+   */
+  static getInstance(db: SqliteDriver): DurableApprovalStore {
+    if (!DurableApprovalStore.instance) {
+      DurableApprovalStore.instance = new DurableApprovalStore(db);
+    }
+    return DurableApprovalStore.instance;
+  }
+
+  static _resetForTesting(): void {
+    DurableApprovalStore.instance = null;
   }
 
   private ensureSchema(): void {
@@ -147,6 +167,8 @@ export class DurableApprovalStore {
     approvalId: string,
     status: 'approved' | 'denied',
     resolvedBy: ApprovalResolvedBy,
+    /** Extra audit detail merged in alongside `resolvedBy` (WS-B3: adjudicator model/riskLevel/reason). */
+    extraDetail?: Record<string, unknown>,
   ): ApprovalRecord | undefined {
     const now = Date.now();
     const result = this.db
@@ -157,7 +179,7 @@ export class DurableApprovalStore {
       )
       .run(status, now, resolvedBy, approvalId);
     if (result.changes === 0) return undefined;
-    this.audit(approvalId, status, { resolvedBy });
+    this.audit(approvalId, status, { resolvedBy, ...extraDetail });
     return this.get(approvalId);
   }
 

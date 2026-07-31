@@ -17,12 +17,20 @@ import * as fs from 'fs';
 import { getLogger } from '../logging/logger';
 import type { PermissionDecisionStore } from './permission-decision-store.js';
 import { installPermissionManagerExtensions } from './permission-manager-extensions';
+import {
+  ALL_PERMISSION_SCOPES,
+  detectShadowedRules,
+  type ShadowedRuleFinding,
+} from './shadowed-rule-detector';
+import { buildNeverDelegableAskDecision, deriveApprovalCategory, type ApprovalCategory } from './approval-category';
 export type {
   BatchPermissionDecision,
   BatchPermissionRequest,
   LearnedPermissionPattern,
   PermissionLearningStats,
 } from './permission-manager-extensions';
+export type { ShadowedRuleFinding, ShadowKind } from './shadowed-rule-detector';
+export type { ApprovalCategory } from './approval-category';
 
 const logger = getLogger('PermissionManager');
 
@@ -129,6 +137,8 @@ export interface PermissionRequest {
     yoloMode?: boolean;
     /** Agent identity making the request — enables per-agent rule overrides (#18). */
     agentId?: string;
+    /** WS-B3 never-delegable category hint; see approval-category.ts. */
+    categoryHint?: ApprovalCategory;
   };
   /** Timestamp */
   timestamp: number;
@@ -150,6 +160,10 @@ export interface PermissionDecision {
   reason: string;
   /** Timestamp */
   decidedAt: number;
+  /** WS-B3: never-delegable category this request maps to, if any. */
+  category?: ApprovalCategory;
+  /** WS-B3 who-decided audit; omitted when no single source cleanly applies. */
+  decidedBy?: 'user' | 'rule' | 'yolo' | 'adjudicator' | 'never-delegable-guard';
 }
 
 /**
@@ -550,11 +564,20 @@ export class PermissionManager extends EventEmitter {
    * Check permission for a request
    */
   checkPermission(request: PermissionRequest): PermissionDecision {
+    // WS-B3: never-delegable categories always ask, before YOLO/rules/cache.
+    const category = deriveApprovalCategory(request);
+    if (category) {
+      const decision = buildNeverDelegableAskDecision(request, category);
+      this.emit('permission:decided', decision);
+      return decision;
+    }
+
     // Check if YOLO mode overrides
     if (this.config.allowYoloOverride && request.context?.yoloMode) {
       return {
         request,
         action: 'allow',
+        decidedBy: 'yolo',
         fromCache: false,
         reason: 'YOLO mode enabled - all permissions granted',
         decidedAt: Date.now(),
@@ -593,6 +616,7 @@ export class PermissionManager extends EventEmitter {
           request,
           action: rule.action,
           matchedRule: rule,
+          decidedBy: rule.source === 'user' || rule.source === 'session' ? 'user' : 'rule',
           fromCache: false,
           reason: `Matched rule: ${rule.name}`,
           decidedAt: Date.now(),
@@ -769,6 +793,25 @@ export class PermissionManager extends EventEmitter {
   }
 
   /**
+   * Static lint: find configured rules that can never fire because an
+   * earlier rule (per the exact precedence checkPermission uses) always
+   * matches first. Read-only and side-effect-free.
+   *
+   * Deliberately excludes session and per-agent override rules — those are
+   * tied to a live request's instanceId/agentId, not to the persistent rule
+   * configuration this lint is meant to surface in the settings UI. Pass
+   * `scope` to limit analysis to a single scope; omit it to analyze all.
+   */
+  analyzeShadowedRules(scope?: PermissionScope): ShadowedRuleFinding[] {
+    const scopes = scope ? [scope] : ALL_PERMISSION_SCOPES;
+    const findings: ShadowedRuleFinding[] = [];
+    for (const s of scopes) {
+      findings.push(...detectShadowedRules(this.getOrderedRulesForAnalysis(s)));
+    }
+    return findings;
+  }
+
+  /**
    * Clear all caches
    */
   clearCache(): void {
@@ -932,6 +975,25 @@ export class PermissionManager extends EventEmitter {
       }
     }
 
+    return rules;
+  }
+
+  /**
+   * Ordered rule list for `scope`, exactly as checkPermission would evaluate
+   * it (gatherRules + the same priority sort — see checkPermission ~575-579)
+   * for a request with no real instanceId/agentId. For static analysis only
+   * (analyzeShadowedRules); never use this to decide a real request.
+   */
+  private getOrderedRulesForAnalysis(scope: PermissionScope): PermissionRule[] {
+    const syntheticRequest: PermissionRequest = {
+      id: '__shadow-analysis__',
+      instanceId: '__shadow-analysis__',
+      scope,
+      resource: '',
+      timestamp: Date.now(),
+    };
+    const rules = this.gatherRules(syntheticRequest);
+    rules.sort((a, b) => a.priority - b.priority);
     return rules;
   }
 

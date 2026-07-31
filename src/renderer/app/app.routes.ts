@@ -236,6 +236,12 @@ const controlSurfaceRoutes: Routes = [
       import('./features/knowledge/knowledge-page.component').then((m) => m.KnowledgePageComponent),
   },
   {
+    path: 'memory-review',
+    data: controlSurfaceRouteData('memory-review'),
+    loadComponent: () =>
+      import('./features/memory-review/memory-review-page.component').then((m) => m.MemoryReviewPageComponent),
+  },
+  {
     path: 'plugins',
     data: controlSurfaceRouteData('plugins'),
     loadComponent: () =>

@@ -60,6 +60,7 @@ const ROLE_OPTIONS: readonly RoleOption[] = [
   { value: 'titleGeneration', label: 'Title generation' },
   { value: 'routingClassification', label: 'Routing classification' },
   { value: 'approvalScoring', label: 'Approval scoring' },
+  { value: 'approvalAdjudication', label: 'Approval adjudication' },
   { value: 'loopScoring', label: 'Loop scoring' },
   { value: 'retrievalHypothesis', label: 'Retrieval hypothesis' },
   { value: 'branchScoring', label: 'Branch scoring' },

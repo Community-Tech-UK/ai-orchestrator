@@ -24,6 +24,12 @@ const captured = vi.hoisted(() => ({
       method: string;
       payload: Record<string, unknown>;
     }) => Promise<boolean>;
+    localAiGuardOperations?: {
+      list: () => Promise<unknown>;
+      discover: () => Promise<unknown>;
+      validate: (config: unknown) => Promise<unknown>;
+      create: (config: unknown) => Promise<unknown>;
+    };
   },
   settings: {
     graphClientId: 'graph-client-id',
@@ -48,6 +54,17 @@ const captured = vi.hoisted(() => ({
     isNodeConnected: vi.fn(),
   },
   sendServiceRpc: vi.fn(),
+  localAiRuntime: {
+    targets: {
+      list: vi.fn(),
+      findByEndpoint: vi.fn(),
+      create: vi.fn(),
+    },
+    probes: {
+      check: vi.fn(),
+    },
+  },
+  discoverLocalAiCandidates: vi.fn(),
 }));
 
 vi.mock('../core/config/settings-manager', () => ({
@@ -153,6 +170,16 @@ vi.mock('../context-evidence/context-evidence-coordinator', () => ({
   getContextEvidenceCoordinator: () => ({ id: 'coordinator' }),
 }));
 
+vi.mock('../local-ai-guard/local-ai-runtime', () => ({
+  getLocalAiGuardRuntime: () => captured.localAiRuntime,
+}));
+
+vi.mock('../rlm/auxiliary-llm-service', () => ({
+  getAuxiliaryLlmService: () => ({
+    discoverCandidates: captured.discoverLocalAiCandidates,
+  }),
+}));
+
 import { createOrchestratorToolsStep } from './orchestrator-tools-step';
 import { COORDINATOR_TO_NODE } from '../remote-node/worker-node-rpc';
 
@@ -225,6 +252,26 @@ describe('createOrchestratorToolsStep settings node-config integration', () => {
     await expect(
       captured.initializeOptions?.authorizeCalendarMutation?.(request),
     ).resolves.toBe(false);
+  });
+
+  it('injects canonical Local AI list, discovery, validation, and create operations', async () => {
+    captured.localAiRuntime.targets.list.mockReturnValue([]);
+    captured.discoverLocalAiCandidates.mockResolvedValue([]);
+    await startStep();
+
+    const operations = captured.initializeOptions?.localAiGuardOperations;
+    expect(operations).toMatchObject({
+      list: expect.any(Function),
+      discover: expect.any(Function),
+      validate: expect.any(Function),
+      create: expect.any(Function),
+    });
+    await expect(operations?.list()).resolves.toEqual([]);
+    await expect(operations?.discover()).resolves.toEqual([]);
+    expect(captured.localAiRuntime.targets.list).toHaveBeenCalledWith({
+      includeRetired: false,
+    });
+    expect(captured.discoverLocalAiCandidates).toHaveBeenCalledOnce();
   });
 
   it('fails closed when the writable-account setting is malformed', async () => {

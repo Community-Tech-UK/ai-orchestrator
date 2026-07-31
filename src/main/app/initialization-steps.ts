@@ -21,6 +21,7 @@ import { reconcilePrivateCodexRolloutPaths } from '../cli/adapters/codex/codex-p
 import { cleanupLeakedAioCodexThreads } from '../cli/adapters/codex/codex-state-cleanup';
 import { getRemoteObserverServer } from '../remote/observer-server';
 import { getSessionContinuityManager } from '../session/session-continuity';
+import { getSessionAdmissionService } from '../session/session-admission-service';
 import { initializeArtifactCleanupMaintenance } from '../session/artifact-cleanup-maintenance';
 import { getProviderEventCaptureService } from '../conversation-ledger/provider-event-capture-service';
 import { initializeProviderEventCaptureMaintenance } from '../conversation-ledger/provider-event-capture-maintenance';
@@ -48,6 +49,7 @@ import { registerLearningBootstrap } from '../bootstrap/learning-bootstrap';
 import { registerMemoryBootstrap } from '../bootstrap/memory-bootstrap';
 import { registerInfrastructureBootstrap } from '../bootstrap/infrastructure-bootstrap';
 import { getKnowledgeBridge } from '../memory/knowledge-bridge';
+import { getGovernedProposalService } from '../memory/governed-proposal-service';
 import { getChildAnnouncer } from '../orchestration/child-announcer';
 import type { ChildAnnouncement } from '../../shared/types/child-announce.types';
 import { getAgentTreePersistence } from '../session/agent-tree-persistence';
@@ -146,6 +148,17 @@ export function createLocalAiGuardInitializationStep(
       }
     },
   };
+}
+
+/** WS-A4: rehydrate approved memory proposals into LessonStore + one-time backfill. Fail-soft. */
+export function createGovernedProposalInitializationStep(
+  service: () => { initialize: () => void } = getGovernedProposalService,
+): AppInitializationStep {
+  return { name: 'Governed proposal review inbox', fn: () => {
+    try { service().initialize(); } catch (error) {
+      logger.warn('Governed proposal initialization failed', { error: error instanceof Error ? error.message : String(error) });
+    }
+  } };
 }
 
 export function createInitializationSteps(
@@ -790,6 +803,19 @@ export function createInitializationSteps(
     },
     createOrchestratorToolsStep(instanceManager, windowManager),
     {
+      name: 'Session admission service',
+      fn: () => {
+        // Wires the live InstanceManager so admitAutomatedWrite() can re-read
+        // instance state and the redelivery listener can watch status edges.
+        // Registration of per-origin redelivery handlers happens inside each
+        // writer module (channel router, thread-wakeup runner, LSP feedback,
+        // browser-gateway handlers, orchestration handler) — order relative to
+        // those doesn't matter since they only resolve the singleton lazily at
+        // call time.
+        getSessionAdmissionService().setInstanceManager(instanceManager);
+      },
+    },
+    {
       name: 'Codemem RPC server',
       fn: async () => {
         const { app } = await import('electron');
@@ -967,6 +993,7 @@ export function createInitializationSteps(
         logger.info('Cross-project patterns initialized');
       },
     },
+    createGovernedProposalInitializationStep(),
   ];
 }
 

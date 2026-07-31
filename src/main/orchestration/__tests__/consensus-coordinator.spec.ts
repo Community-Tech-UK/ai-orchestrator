@@ -211,3 +211,51 @@ describe('ConsensusCoordinator', () => {
     expect(result.consensus).toContain('...');
   });
 });
+
+// ─── synthesizeFromResponses (WS-B6: Ask Council reuses this, no new provider calls) ───
+
+describe('ConsensusCoordinator.synthesizeFromResponses', () => {
+  beforeEach(() => {
+    ConsensusCoordinator._resetForTesting();
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    ConsensusCoordinator._resetForTesting();
+  });
+
+  it('never spawns a provider adapter — pure text synthesis of already-collected responses', () => {
+    const coordinator = ConsensusCoordinator.getInstance();
+    const result = coordinator.synthesizeFromResponses([
+      { provider: 'claude', content: 'Use option A because it is simpler.', success: true, durationMs: 100 },
+      { provider: 'gemini', content: 'Use option A because it is simpler and faster.', success: true, durationMs: 200 },
+    ]);
+
+    expect(createAdapterMock).not.toHaveBeenCalled();
+    expect(result.successCount).toBe(2);
+    expect(result.consensus).toContain('claude');
+    expect(result.consensus).toContain('gemini');
+  });
+
+  it('keeps failed/absent responses visible via successCount/failureCount', () => {
+    const coordinator = ConsensusCoordinator.getInstance();
+    const result = coordinator.synthesizeFromResponses([
+      { provider: 'claude', content: 'Answer A', success: true, durationMs: 50 },
+      { provider: 'codex', content: 'Answer B', success: true, durationMs: 60 },
+      { provider: 'gemini', content: '', success: false, error: 'timed out', durationMs: 10 },
+    ]);
+
+    expect(result.successCount).toBe(2);
+    expect(result.failureCount).toBe(1);
+  });
+
+  it('defaults to the majority strategy when none is given', () => {
+    const coordinator = ConsensusCoordinator.getInstance();
+    const result = coordinator.synthesizeFromResponses([
+      { provider: 'claude', content: 'Answer A', success: true, durationMs: 50 },
+      { provider: 'codex', content: 'Answer B', success: true, durationMs: 60 },
+    ]);
+
+    expect(result.consensus).toMatch(/consensus|multi-model analysis/i);
+  });
+});

@@ -238,4 +238,149 @@ describe('settings-cli', () => {
   it('formats empty list results clearly', () => {
     expect(formatSettingsListTable({ count: 0, settings: [] })).toContain('No settings matched');
   });
+
+  it('reports a read-only-tier key as CLI-writable so agents do not refuse it', () => {
+    const output = formatSettingsListTable({
+      count: 2,
+      settings: [
+        {
+          key: 'pauseDetectorDiagnostics',
+          value: false,
+          defaultValue: false,
+          type: 'boolean',
+          category: 'network',
+          writable: false,
+          restartRequired: false,
+          description: 'Pause detector diagnostics.',
+          policyTier: 'read-only',
+          cliWritable: true,
+        },
+        {
+          key: 'browserAllowSharedTabCredentialFill',
+          value: false,
+          defaultValue: false,
+          type: 'boolean',
+          category: 'general',
+          writable: false,
+          restartRequired: false,
+          description: 'Shared tab credential fill.',
+          policyTier: 'read-only',
+          cliWritable: false,
+        },
+      ],
+    });
+
+    expect(output).toContain('CLI-Write');
+    const [diagnostics, operatorOnly] = output
+      .split('\n')
+      .filter((line) => line.startsWith('pauseDetectorDiagnostics')
+        || line.startsWith('browserAllowSharedTabCredentialFill'));
+    // Same read-only policy tier, opposite CLI answers.
+    expect(diagnostics).toMatch(/read-only\s+yes\s/);
+    expect(operatorOnly).toMatch(/read-only\s+no\s/);
+  });
+
+  it('reports unknown CLI writability when the parent app omits the field', () => {
+    const output = formatSettingsListTable({
+      count: 1,
+      settings: [{
+        key: 'pauseDetectorDiagnostics',
+        value: false,
+        defaultValue: false,
+        type: 'boolean',
+        category: 'network',
+        writable: false,
+        restartRequired: false,
+        description: 'Pause detector diagnostics.',
+        policyTier: 'read-only',
+      }],
+    });
+
+    expect(output).toMatch(/read-only\s+unknown\s/);
+  });
+
+  it('distinguishes CLI writability from tool writability in get output', async () => {
+    const stdout = vi.fn();
+    const client = clientReturning({
+      key: 'pauseDetectorDiagnostics',
+      value: false,
+      restartRequired: false,
+      writable: false,
+      policyTier: 'read-only',
+      cliWritable: true,
+    });
+
+    await runSettingsCli(['get', 'pauseDetectorDiagnostics'], { client, stdout });
+
+    const output = stdoutText(stdout);
+    expect(output).toContain('cliWritable=yes');
+    expect(output).toContain('toolWritable=no');
+  });
+
+  it('preserves cliWritable through privileged_get JSON output', async () => {
+    const stdout = vi.fn();
+    const client = clientReturning({
+      key: 'pauseDetectorDiagnostics',
+      value: false,
+      restartRequired: false,
+      writable: false,
+      policyTier: 'read-only',
+      cliWritable: true,
+    });
+
+    await runSettingsCli(['get', 'pauseDetectorDiagnostics', '--json'], { client, stdout });
+
+    expect(JSON.parse(stdoutText(stdout))).toMatchObject({ cliWritable: true });
+  });
+
+  it('rejects a non-boolean cliWritable from the parent RPC server', async () => {
+    const stdout = vi.fn();
+    const client = clientReturning({
+      count: 1,
+      settings: [{
+        key: 'theme',
+        value: 'dark',
+        defaultValue: 'dark',
+        type: 'select',
+        category: 'display',
+        writable: true,
+        restartRequired: false,
+        description: 'Color theme.',
+        policyTier: 'open',
+        cliWritable: 'yes',
+      }],
+    });
+
+    await expect(runSettingsCli(['list', '--json'], { client, stdout })).rejects.toThrow(
+      /privileged_list returned an invalid result/,
+    );
+    expect(stdout).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-boolean cliWritable from privileged_get', async () => {
+    const stdout = vi.fn();
+    const client = clientReturning({
+      key: 'theme',
+      value: 'dark',
+      restartRequired: false,
+      writable: true,
+      policyTier: 'open',
+      cliWritable: 'yes',
+    });
+
+    await expect(runSettingsCli(['get', 'theme', '--json'], { client, stdout })).rejects.toThrow(
+      /privileged_get returned an invalid result/,
+    );
+    expect(stdout).not.toHaveBeenCalled();
+  });
+
+  it('explains the two write surfaces in help output', async () => {
+    const stdout = vi.fn();
+
+    await runSettingsCli(['--help'], { client: clientReturning({}), stdout });
+
+    const output = stdoutText(stdout);
+    expect(output).toContain('CLI-Write');
+    expect(output).toContain('operator-only');
+  });
 });

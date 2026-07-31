@@ -408,10 +408,17 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
     });
   });
 
-  getDoomLoopDetector().on('doom-loop-detected', (event) => {
-    logger.warn('Forwarding doom loop event to renderer', {
+  // WS-A2: result-aware tool-loop detections (repeat-no-progress, ping-pong,
+  // runaway). Channel name kept as `instance:doom-loop` for continuity with
+  // the schema/validation wiring already registered for it; the payload
+  // shape itself is the new `ToolLoopDetectionEvent`.
+  getDoomLoopDetector().on('tool-loop-detected', (event) => {
+    logger.warn('Forwarding tool loop detection to renderer', {
       instanceId: event.instanceId,
+      detector: event.detector,
+      severity: event.severity,
       toolName: event.toolName,
+      count: event.count,
     });
     windowManager.sendToRenderer('instance:doom-loop', event);
   });

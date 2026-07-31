@@ -35,6 +35,7 @@ import { isAntigravityModelId } from '../../../shared/types/provider.types';
 import { extractThinkingContent, ThinkingBlock } from '../../../shared/utils/thinking-extractor';
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
 import { probeVersionStatus } from './cli-status-probe';
+import { killProcessGroup } from './base-cli-process-utils';
 
 const logger = getLogger('AntigravityCliAdapter');
 
@@ -218,7 +219,7 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
 
       const timeout = setTimeout(() => {
         if (this.process) {
-          this.process.kill('SIGTERM');
+          killProcessGroup(this.process.pid, 'SIGTERM');
           reject(new Error('Antigravity CLI timeout'));
         }
       }, this.config.timeout);

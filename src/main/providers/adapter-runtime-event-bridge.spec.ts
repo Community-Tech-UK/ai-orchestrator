@@ -3,8 +3,12 @@ import { describe, expect, it } from 'vitest';
 import {
   mapAdapterRuntimeEvent,
   observeAdapterRuntimeEvents,
+  toProviderToolResultObservedEvent,
+  toProviderToolUseObservedEvent,
+  UNKNOWN_EVENT_PAYLOAD_MAX_BYTES,
   type NormalizedAdapterRuntimeEvent,
 } from './adapter-runtime-event-bridge';
+import type { CliToolCall } from '../cli/adapters/base-cli-adapter';
 
 describe('observeAdapterRuntimeEvents', () => {
   it('maps adapter events purely while retaining the original context payload', () => {
@@ -250,5 +254,107 @@ describe('observeAdapterRuntimeEvents', () => {
     adapter.emit('status', 'idle');
 
     expect(events).toHaveLength(0);
+  });
+});
+
+describe('WS-B10 unknown-event routing', () => {
+  it('routes a malformed output payload to `unknown` instead of dropping it', () => {
+    // Object shape with non-string content — normalizeOutputMessage rejects this.
+    const malformed = { id: 'msg-1', timestamp: 1, type: 'assistant', content: 42 };
+
+    const mapped = mapAdapterRuntimeEvent('output', [malformed]);
+
+    expect(mapped?.event).toMatchObject({
+      kind: 'unknown',
+      rawType: 'output',
+      payload: malformed,
+    });
+    expect(typeof (mapped?.event as { receivedAt: number }).receivedAt).toBe('number');
+  });
+
+  it('still silently drops empty-string output (intentional no-op, not unrecognized)', () => {
+    expect(mapAdapterRuntimeEvent('output', [''])).toBeNull();
+  });
+
+  it('routes a malformed context payload to `unknown` instead of dropping it', () => {
+    const malformed = { notUsed: true };
+
+    const mapped = mapAdapterRuntimeEvent('context', [malformed]);
+
+    expect(mapped?.event).toMatchObject({
+      kind: 'unknown',
+      rawType: 'context',
+      payload: malformed,
+    });
+  });
+
+  it('caps an oversized unknown-event payload with a truncated marker', () => {
+    const huge = { blob: 'x'.repeat(UNKNOWN_EVENT_PAYLOAD_MAX_BYTES * 2) };
+
+    const mapped = mapAdapterRuntimeEvent('context', [huge]);
+    const event = mapped?.event as { kind: string; payload: unknown };
+
+    expect(event.kind).toBe('unknown');
+    expect(event.payload).toMatchObject({
+      truncated: true,
+      maxBytes: UNKNOWN_EVENT_PAYLOAD_MAX_BYTES,
+    });
+    expect(JSON.stringify(event.payload).length).toBeLessThan(JSON.stringify(huge).length);
+  });
+});
+
+describe('WS-B10 tool observation normalization', () => {
+  const toolCall: CliToolCall = {
+    id: 'tool-1',
+    name: 'Read',
+    arguments: { path: 'README.md' },
+    result: 'file contents here',
+  };
+
+  it('normalizes a tool_use CliToolCall into tool_use_observed with a stable hash and bounded summary', () => {
+    const event = toProviderToolUseObservedEvent(toolCall);
+
+    expect(event).toEqual({
+      kind: 'tool_use_observed',
+      toolName: 'Read',
+      callId: 'tool-1',
+      argsHash: expect.any(String),
+      argsSummary: JSON.stringify({ path: 'README.md' }),
+    });
+    // Same arguments (even with different key order) hash identically.
+    const reordered = toProviderToolUseObservedEvent({
+      ...toolCall,
+      arguments: { path: 'README.md' },
+    });
+    expect(reordered.argsHash).toBe(event.argsHash);
+  });
+
+  it('normalizes a tool_result CliToolCall into tool_result_observed', () => {
+    const event = toProviderToolResultObservedEvent(toolCall);
+
+    expect(event).toEqual({
+      kind: 'tool_result_observed',
+      callId: 'tool-1',
+      resultHash: expect.any(String),
+      resultSummary: 'file contents here',
+    });
+  });
+
+  it('omits result fields when the raw tool call has no result yet', () => {
+    const event = toProviderToolResultObservedEvent({ id: 'tool-2', name: 'Bash', arguments: {} });
+
+    expect(event).toEqual({
+      kind: 'tool_result_observed',
+      callId: 'tool-2',
+      resultSummary: '',
+    });
+  });
+
+  it('truncates an overlong summary', () => {
+    const longResult = 'y'.repeat(500);
+    const event = toProviderToolResultObservedEvent({ id: 'tool-3', name: 'Bash', arguments: {}, result: longResult });
+
+    expect(event.resultSummary.length).toBeLessThan(longResult.length);
+    expect(event.resultSummary.endsWith('…')).toBe(true);
   });
 });

@@ -190,6 +190,8 @@ export interface QueuedMessage {
   kind?: 'queue' | 'steer';
   hadAttachmentsDropped?: boolean;
   seededAlready?: boolean;
+  /** True while this entry's durable send-queue row is unconfirmed or failed to persist (WS-A1 review Finding 1). */
+  notDurable?: boolean;
 }
 
 // ============================================

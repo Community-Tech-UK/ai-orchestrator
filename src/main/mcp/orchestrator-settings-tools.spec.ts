@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS, type AppSettings } from '../../shared/types/settings.types';
+import { assertPrivilegedSettingsCliWritable } from '../core/config/settings-control-policy';
 
 const loggerMocks = vi.hoisted(() => ({
   info: vi.fn(),
@@ -18,6 +19,9 @@ import {
   SETTINGS_TOOL_POLICY,
   createSettingsToolDefinitions,
   getSettingsToolPolicy,
+  privilegedGetSetting,
+  privilegedListSettings,
+  privilegedSetSetting,
 } from './orchestrator-settings-tools';
 
 function cloneSettings(): AppSettings {
@@ -439,5 +443,121 @@ describe('orchestrator settings MCP tools', () => {
       tier: 'read-only',
       restartRequired: false,
     });
+  });
+});
+
+describe('privileged settings CLI writability reporting', () => {
+  function privilegedList() {
+    const settings = makeSettingsManager();
+    const result = privilegedListSettings({ settingsManager: settings }, {});
+    return new Map(result.settings.map((setting) => [setting.key, setting]));
+  }
+
+  it('reports read-only-tier keys as CLI-writable', () => {
+    const byKey = privilegedList();
+
+    // The tool tier says read-only; the privileged CLI can still write these.
+    expect(byKey.get('defaultYoloMode')).toMatchObject({
+      policyTier: 'read-only',
+      writable: false,
+      cliWritable: true,
+    });
+    expect(byKey.get('remoteNodesEnabled')).toMatchObject({
+      policyTier: 'read-only',
+      cliWritable: true,
+    });
+  });
+
+  it('reports secret-tier keys as CLI-writable while keeping values redacted', () => {
+    expect(privilegedList().get('remoteNodesEnrollmentToken')).toMatchObject({
+      policyTier: 'secret',
+      value: '[redacted]',
+      writable: false,
+      cliWritable: true,
+    });
+  });
+
+  it('reports operator-only anchors as not CLI-writable', () => {
+    const byKey = privilegedList();
+
+    for (const key of [
+      'browserAllowSharedTabCredentialFill',
+      'browserVaultAutoUnlock',
+      'computerUseEnabled',
+      'graphAgentWritableAccountsJson',
+      'contextEvidenceModeByProvider',
+      'localAiGuardDailyFallbackBudgetUsd',
+    ] as const) {
+      expect(byKey.get(key)?.cliWritable, key).toBe(false);
+    }
+  });
+
+  it('agrees with the mutation guard for every classified key', () => {
+    // The reported column and the guard that actually refuses the write must
+    // never drift apart, or the CLI advertises a write it then rejects.
+    for (const setting of privilegedList().values()) {
+      let mutationAllowed = true;
+      try {
+        assertPrivilegedSettingsCliWritable(setting.key);
+      } catch {
+        mutationAllowed = false;
+      }
+      expect(setting.cliWritable, setting.key).toBe(mutationAllowed);
+    }
+  });
+
+  it('keeps CLI writability a superset of safe-tool writability', () => {
+    // Both docs tell agents to ignore the policy tier and read CLI-Write. That
+    // advice is only sound while every open-tier key is also CLI-writable; an
+    // open-tier key added to the operator-only denylist would silently make it
+    // wrong.
+    for (const setting of privilegedList().values()) {
+      if (setting.writable) {
+        expect(setting.cliWritable, setting.key).toBe(true);
+      }
+    }
+  });
+
+  it('holds the operator-only anchor count the docs quote', () => {
+    // docs/AIO_MCP_CLI.md and docs/llm/AIO_MCP_CLI_REFERENCE.md both state 17
+    // anchors and enumerate them by group (WS-B1 phase 1 fresh-eyes fix added
+    // `allowPrCreation` as the 17th). Fail here if an 18th is added without
+    // updating that prose.
+    const anchors = [...privilegedList().values()].filter((setting) => !setting.cliWritable);
+
+    expect(anchors).toHaveLength(17);
+  });
+
+  it('refuses an operator-only key before parsing the supplied value', () => {
+    const settings = makeSettingsManager();
+
+    // A badly typed value on an operator-only key must still report the
+    // authorization refusal the docs promise, not a value-shape error.
+    expect(() => privilegedSetSetting(
+      { settingsManager: settings },
+      { key: 'computerUseEnabled', value: 'not-a-boolean' },
+    )).toThrow(/operator-only/);
+    expect(settings.set).not.toHaveBeenCalled();
+  });
+
+  it('populates cliWritable on privileged_get', () => {
+    const settings = makeSettingsManager();
+
+    expect(privilegedGetSetting({ settingsManager: settings }, { key: 'defaultYoloMode' }))
+      .toMatchObject({ policyTier: 'read-only', writable: false, cliWritable: true });
+    expect(privilegedGetSetting(
+      { settingsManager: settings },
+      { key: 'browserAllowSharedTabCredentialFill' },
+    )).toMatchObject({ cliWritable: false });
+  });
+
+  it('leaves the safe list_settings tool output free of cliWritable', async () => {
+    const { tool } = toolByName('list_settings');
+
+    const result = await tool.handler({}) as {
+      settings: Record<string, unknown>[];
+    };
+
+    expect(result.settings.every((setting) => !('cliWritable' in setting))).toBe(true);
   });
 });

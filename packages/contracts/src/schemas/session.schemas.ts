@@ -9,6 +9,8 @@ import {
   FileAttachmentSchema,
   RequiredModelIdSchema,
 } from './common.schemas';
+export * from './session-admission.schemas';
+export * from './session-snapshot.schemas';
 
 // ============ Helper schemas ============
 
@@ -398,18 +400,6 @@ export const SessionResumePayloadSchema = z.object({
     validateParallelToolResults: z.boolean().optional(),
   }).strict().optional(),
 }).strict();
-
-export const SessionListSnapshotsPayloadSchema = z.object({
-  instanceId: InstanceIdSchema.optional(),
-}).strict().optional();
-
-export const SessionCreateSnapshotPayloadSchema = z.object({
-  instanceId: InstanceIdSchema,
-  name: z.string().min(1).max(200).optional(),
-  description: z.string().max(2_000).optional(),
-}).strict();
-
-export const SessionGetStatsPayloadSchema = z.undefined().optional();
 
 const ArchiveSessionByInstancePayloadSchema = z.object({
   instanceId: InstanceIdSchema,

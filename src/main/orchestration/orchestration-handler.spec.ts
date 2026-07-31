@@ -28,6 +28,19 @@ vi.mock('../automations/automation-create-service', () => ({
   createAutomationWithScheduling: automationMocks.createAutomationWithScheduling,
 }));
 
+const admissionMocks = vi.hoisted(() => ({
+  admitAutomatedWrite: vi.fn<() => import('../session/session-admission-service').AdmissionOutcome>(
+    () => ({ kind: 'admitted', admissionId: 'adm-default' }),
+  ),
+  markDelivered: vi.fn(),
+  markFailed: vi.fn(),
+  registerRedeliveryHandler: vi.fn(),
+}));
+
+vi.mock('../session/session-admission-service', () => ({
+  getSessionAdmissionService: () => admissionMocks,
+}));
+
 import { OrchestrationHandler } from './orchestration-handler';
 import {
   CONSENSUS_INTENT_REMINDER,
@@ -85,6 +98,11 @@ describe('OrchestrationHandler.processOutput (streaming markers)', () => {
   beforeEach(() => {
     consensusMocks.query.mockReset();
     automationMocks.createAutomationWithScheduling.mockReset();
+    admissionMocks.admitAutomatedWrite.mockReset();
+    admissionMocks.admitAutomatedWrite.mockReturnValue({ kind: 'admitted', admissionId: 'adm-default' });
+    admissionMocks.markDelivered.mockClear();
+    admissionMocks.markFailed.mockClear();
+    admissionMocks.registerRedeliveryHandler.mockClear();
   });
 
   it('emits a user-action request when the marker block is split across chunks', () => {
@@ -251,6 +269,83 @@ describe('OrchestrationHandler.processOutput (streaming markers)', () => {
       activeConsensusQueries: 0,
       successCount: 1,
       failureCount: 0,
+    });
+    expect(admissionMocks.markDelivered).toHaveBeenCalledWith('adm-default');
+  });
+
+  describe('SessionAdmissionService gating on consensus completion (A5)', () => {
+    it('registers a redelivery handler for the consensus origin on construction', () => {
+      new OrchestrationHandler();
+      expect(admissionMocks.registerRedeliveryHandler).toHaveBeenCalledWith('consensus', expect.any(Function));
+    });
+
+    it('suppresses the completion write-back when admission denies it, and does not emit inject-response', async () => {
+      const orchestration = new OrchestrationHandler();
+      orchestration.registerInstance('i-6', '/tmp', null);
+
+      const injectedResponses: string[] = [];
+      orchestration.on('inject-response', (_instanceId, response) => {
+        injectedResponses.push(response);
+      });
+
+      // The initial 'dispatching' ack is NOT gated (it is part of the current
+      // turn's own tool-call handling); only the async completion write-back
+      // (injectConsensusResult) calls admitAutomatedWrite, so this mock only
+      // ever observes that one call.
+      admissionMocks.admitAutomatedWrite.mockReturnValue({
+        kind: 'suppressed',
+        reason: 'awaiting-human',
+        admissionId: 'adm-blocked',
+      });
+
+      consensusMocks.query.mockResolvedValueOnce({
+        consensus: 'Use the implementation with the noted safeguards.',
+        agreement: 1,
+        responses: [{ provider: 'gemini', content: 'Use it.', success: true, durationMs: 10 }],
+        dissent: [],
+        edgeCases: [],
+        totalDurationMs: 10,
+        totalEstimatedCost: 0,
+        successCount: 1,
+        failureCount: 0,
+      });
+
+      orchestration.processOutput('i-6', commandBlock({
+        action: 'consensus_query',
+        question: 'Should we use this implementation?',
+        providers: ['gemini'],
+      }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const completionResponses = injectedResponses.filter((response) =>
+        response.includes('Action: consensus_query') && response.includes('"status":"complete"'),
+      );
+      expect(completionResponses).toHaveLength(0);
+      expect(admissionMocks.markDelivered).not.toHaveBeenCalledWith('adm-blocked');
+    });
+
+    it('the registered redelivery handler re-injects the stored consensus response', () => {
+      const orchestration = new OrchestrationHandler();
+      const injectedResponses: { instanceId: string; response: string }[] = [];
+      orchestration.on('inject-response', (instanceId: string, response: string) => {
+        injectedResponses.push({ instanceId, response });
+      });
+
+      const handler = admissionMocks.registerRedeliveryHandler.mock.calls.at(-1)![1] as (ctx: {
+        admissionId: string;
+        instanceId: string;
+        sourceMetadata?: Record<string, unknown>;
+      }) => void;
+
+      handler({
+        admissionId: 'adm-blocked',
+        instanceId: 'i-6',
+        sourceMetadata: { success: true, data: { status: 'complete', message: 'done' } },
+      });
+
+      expect(injectedResponses).toHaveLength(1);
+      expect(injectedResponses[0].instanceId).toBe('i-6');
+      expect(admissionMocks.markDelivered).toHaveBeenCalledWith('adm-blocked');
     });
   });
 

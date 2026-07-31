@@ -13,6 +13,9 @@ import type { Instance, InstanceStatus, OutputMessage, QueuedMessage } from './i
 import { PauseStore } from '../pause/pause.store';
 import {
   createQueuedMetadata,
+  enqueueSteerToQueue,
+  enqueueToQueue,
+  enqueueToQueueFront,
   inputFilesToAttachments,
   isActiveTurnStatus,
   isInterruptRecoveryStatus,
@@ -21,10 +24,12 @@ import {
   isTerminalStatus,
   isTransientQueueStatus,
   pickQueuedMetadata,
+  removeQueuedEntry,
   type SendInputImmediateOptions,
 } from './instance-messaging-queue-utils';
 import { getSendInputTimeoutMs } from './instance-messaging-send-utils';
 import { InstanceStatusReconcilerService } from './instance-status-reconciler.service';
+import { QueuePersistenceService } from './queue-persistence.service';
 
 // Max transient-failure retries before dropping a queued message. Sized so the
 // cumulative wait exceeds one large-context restart (resume failure → replay).
@@ -38,6 +43,7 @@ export class InstanceMessagingStore {
   private draftService = inject(DraftService);
   private pauseStore = inject(PauseStore);
   private statusReconciler = inject(InstanceStatusReconcilerService);
+  private queuePersistence = inject(QueuePersistenceService);
   private queueWatchdog: ReturnType<typeof setInterval> | null = null;
   private interruptRequests = new Map<string, number>();
   private terminalRestartRequests = new Set<string>();
@@ -130,11 +136,13 @@ export class InstanceMessagingStore {
    * Clear the message queue for an instance
    */
   clearMessageQueue(instanceId: string): void {
+    const cleared = this.stateService.messageQueue().get(instanceId);
     this.stateService.messageQueue.update((map) => {
       const newMap = new Map(map);
       newMap.delete(instanceId);
       return newMap;
     });
+    if (cleared && cleared.length > 0) this.queuePersistence.notifyCancelled(instanceId, cleared);
   }
 
   /**
@@ -203,6 +211,13 @@ export class InstanceMessagingStore {
       return newMap;
     });
 
+    return removed;
+  }
+
+  /** Remove a queued message AND cancel its durable row — for genuine cancel/edit-to-composer flows (never for a steer/resend handoff). */
+  cancelQueuedMessage(instanceId: string, index: number): QueuedMessage | null {
+    const removed = this.removeFromQueue(instanceId, index);
+    if (removed) this.queuePersistence.notifyCancelled(instanceId, removed);
     return removed;
   }
 
@@ -370,8 +385,18 @@ export class InstanceMessagingStore {
       ...queuedMessage,
       kind: 'steer',
     };
+    // Content is unchanged (only `kind` differs), so carry the durable-row
+    // association forward instead of cancelling+re-enqueuing under a new id.
+    this.queuePersistence.rebindEntry(queuedMessage, steerMessage);
 
     if (isReadyForInputStatus(instance.status) && !this.pauseStore.isPaused()) {
+      // Durable promote is awaited BEFORE this message is treated as gone —
+      // on failure it goes back into the queue instead of sending anyway.
+      const promoted = await this.queuePersistence.notifyPromoting(instanceId, steerMessage);
+      if (!promoted) {
+        this.enqueueMessageFront(instanceId, steerMessage);
+        return;
+      }
       await this.sendInputImmediate(
         instanceId,
         steerMessage.message,
@@ -535,19 +560,11 @@ export class InstanceMessagingStore {
         });
       }
 
-      this.stateService.messageQueue.update((currentMap) => {
-        const newMap = new Map(currentMap);
-        const existingQueue = newMap.get(targetInstanceId) || [];
-        newMap.set(targetInstanceId, [
-          {
-            message,
-            files,
-            retryCount: nextRetryCount,
-            ...createQueuedMetadata(options),
-          },
-          ...existingQueue,
-        ]);
-        return newMap;
+      this.enqueueMessageFront(targetInstanceId, {
+        message,
+        files,
+        retryCount: nextRetryCount,
+        ...createQueuedMetadata(options),
       });
 
       // Schedule a retry. The primary drain trigger is batch-update → idle,
@@ -583,35 +600,32 @@ export class InstanceMessagingStore {
     }
     this.terminalRestartRequests.delete(instanceId);
 
-    const currentMap = this.stateService.messageQueue();
-    const queue = currentMap.get(instanceId);
+    const queue = this.stateService.messageQueue().get(instanceId);
     if (!queue || queue.length === 0) return;
 
-    // Take the first message from the queue
+    // Take the first message from the queue. It is NOT removed from the
+    // signal yet — drainNextQueuedMessage() awaits the durable promote first
+    // (Finding 2: a crashed/failed promote must leave it visibly queued
+    // instead of silently vanishing before the send is confirmed).
     const nextMessage = queue[0];
-    const remainingQueue = queue.slice(1);
 
-    // Update the signal with the new queue state
-    this.stateService.messageQueue.update((map) => {
-      const newMap = new Map(map);
-      if (remainingQueue.length === 0) {
-        newMap.delete(instanceId);
-      } else {
-        newMap.set(instanceId, remainingQueue);
-      }
-      return newMap;
+    // Use setTimeout to avoid state update conflicts (unchanged 100ms timing).
+    setTimeout(() => {
+      void this.drainNextQueuedMessage(instanceId, nextMessage);
+    }, 100);
+  }
+
+  /** Awaits durable promotion, THEN removes the entry and sends — never the other way round. */
+  private async drainNextQueuedMessage(instanceId: string, nextMessage: QueuedMessage): Promise<void> {
+    const promoted = await this.queuePersistence.notifyPromoting(instanceId, nextMessage);
+    if (!promoted) return; // stays queued; the watchdog/next ready transition retries
+
+    if (!removeQueuedEntry(this.stateService, instanceId, nextMessage)) return; // already gone (cancelled/sent elsewhere)
+
+    await this.sendInputImmediate(instanceId, nextMessage.message, nextMessage.files, nextMessage.retryCount ?? 0, {
+      skipUserBubble: nextMessage.seededAlready === true,
+      queuedMetadata: pickQueuedMetadata(nextMessage),
     });
-
-    if (nextMessage) {
-      // Use setTimeout to avoid state update conflicts
-      const retryCount = nextMessage.retryCount ?? 0;
-      setTimeout(() => {
-        this.sendInputImmediate(instanceId, nextMessage.message, nextMessage.files, retryCount, {
-          skipUserBubble: nextMessage.seededAlready === true,
-          queuedMetadata: pickQueuedMetadata(nextMessage),
-        });
-      }, 100);
-    }
   }
 
   // ============================================
@@ -780,36 +794,18 @@ export class InstanceMessagingStore {
   }
 
   private enqueueMessage(instanceId: string, queuedMessage: QueuedMessage): void {
-    this.stateService.messageQueue.update((currentMap) => {
-      const newMap = new Map(currentMap);
-      const queue = newMap.get(instanceId) || [];
-      newMap.set(instanceId, [...queue, queuedMessage]);
-      return newMap;
-    });
+    enqueueToQueue(this.stateService, instanceId, queuedMessage);
+    void this.queuePersistence.notifyEnqueued(instanceId, queuedMessage, 'back');
   }
 
   private enqueueMessageFront(instanceId: string, queuedMessage: QueuedMessage): void {
-    this.stateService.messageQueue.update((currentMap) => {
-      const newMap = new Map(currentMap);
-      const queue = newMap.get(instanceId) || [];
-      newMap.set(instanceId, [queuedMessage, ...queue]);
-      return newMap;
-    });
+    enqueueToQueueFront(this.stateService, instanceId, queuedMessage);
+    void this.queuePersistence.notifyEnqueued(instanceId, queuedMessage, 'front');
   }
 
   private enqueueSteerMessage(instanceId: string, queuedMessage: QueuedMessage): void {
-    this.stateService.messageQueue.update((currentMap) => {
-      const newMap = new Map(currentMap);
-      const queue = newMap.get(instanceId) || [];
-      const firstPassiveIndex = queue.findIndex((item) => item.kind !== 'steer');
-      const insertAt = firstPassiveIndex === -1 ? queue.length : firstPassiveIndex;
-      newMap.set(instanceId, [
-        ...queue.slice(0, insertAt),
-        queuedMessage,
-        ...queue.slice(insertAt),
-      ]);
-      return newMap;
-    });
+    enqueueSteerToQueue(this.stateService, instanceId, queuedMessage);
+    void this.queuePersistence.notifyEnqueued(instanceId, queuedMessage, 'steer');
   }
 
   private hasRecentInterruptRequest(instanceId: string): boolean {

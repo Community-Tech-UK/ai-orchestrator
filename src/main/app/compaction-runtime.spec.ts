@@ -1,9 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CompactionCoordinator } from '../context/compaction-coordinator';
+import { _resetContextEngineForTesting } from '../context/context-engine';
+import { ContextCompactor } from '../context/context-compactor';
+import { CheckpointType } from '../../shared/types/error-recovery.types';
 import type { EvidenceLedgerRecord } from '../conversation-ledger/context-evidence-ledger.types';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { WindowManager } from '../window-manager';
 import {
+  applyCompaction,
   recordProviderThreadCompactionMarker,
   setCompactionMarkerRecorderForTesting,
   setupCompactionCoordinator,
@@ -16,6 +20,14 @@ const settingsManagerMock = vi.hoisted(() => ({
 
 vi.mock('../core/config/settings-manager', () => ({
   getSettingsManager: () => settingsManagerMock,
+}));
+
+const checkpointManagerMock = vi.hoisted(() => ({
+  createCheckpoint: vi.fn(),
+}));
+
+vi.mock('../session/checkpoint-manager', () => ({
+  getCheckpointManager: () => checkpointManagerMock,
 }));
 
 const evidenceMocks = vi.hoisted(() => ({
@@ -328,6 +340,163 @@ describe('setupCompactionCoordinator', () => {
         messageMetadata: { threadCompacted: true },
       }),
     }));
+  });
+});
+
+describe('applyCompaction (WS-B7)', () => {
+  beforeEach(() => {
+    CompactionCoordinator._resetForTesting();
+    ContextCompactor._resetForTesting();
+    // `getContextEngine()` is a separate module-level singleton from
+    // `CompactionCoordinator` — without resetting it too, a `LegacyContextEngine`
+    // constructed in an earlier test keeps a stale reference to a coordinator
+    // instance that later tests already reset out from under it.
+    _resetContextEngineForTesting();
+    setCompactionMarkerRecorderForTesting(() => undefined);
+    settingsManagerMock.get.mockReset();
+    settingsManagerMock.get.mockReturnValue(0);
+    settingsManagerMock.on.mockReset();
+    evidenceMocks.listEvidence.mockReset();
+    evidenceMocks.listEvidence.mockResolvedValue([]);
+    checkpointManagerMock.createCheckpoint.mockReset();
+    checkpointManagerMock.createCheckpoint.mockResolvedValue({ id: 'ckpt-1' });
+  });
+
+  afterEach(() => {
+    setCompactionMarkerRecorderForTesting(null);
+    CompactionCoordinator._resetForTesting();
+    ContextCompactor._resetForTesting();
+    _resetContextEngineForTesting();
+    vi.restoreAllMocks();
+  });
+
+  function makeNativeInstanceManager() {
+    const compactContext = vi.fn(async () => true);
+    const emitOutputMessage = vi.fn();
+    const instance = { id: 'inst-1', outputBuffer: [] };
+    const instanceManager = {
+      getAdapterRuntimeCapabilities: vi.fn(() => ({ supportsNativeCompaction: true })),
+      getAdapter: vi.fn(() => ({ compactContext })),
+      getInstance: vi.fn(() => instance),
+      sendInput: vi.fn(),
+      emitOutputMessage,
+    } as unknown as InstanceManager;
+    return { instanceManager, emitOutputMessage };
+  }
+
+  it('creates a labeled pre-compaction checkpoint and attaches its id to the compaction boundary message', async () => {
+    const { instanceManager, emitOutputMessage } = makeNativeInstanceManager();
+    setupCompactionCoordinator(instanceManager, makeWindowManager());
+
+    const result = await applyCompaction(instanceManager, 'inst-1', { keepLatestExchanges: 2 });
+
+    expect(result.success).toBe(true);
+    expect(checkpointManagerMock.createCheckpoint).toHaveBeenCalledWith(
+      'inst-1',
+      CheckpointType.MANUAL,
+      expect.stringContaining('keep latest 2 exchanges'),
+    );
+    expect(emitOutputMessage).toHaveBeenCalledWith(
+      'inst-1',
+      expect.objectContaining({
+        metadata: expect.objectContaining({ checkpointId: 'ckpt-1' }),
+      }),
+    );
+  });
+
+  it('uses a plain label and singular "exchange" wording for a single-exchange boundary', async () => {
+    const { instanceManager } = makeNativeInstanceManager();
+    setupCompactionCoordinator(instanceManager, makeWindowManager());
+
+    await applyCompaction(instanceManager, 'inst-1', { keepLatestExchanges: 1 });
+
+    expect(checkpointManagerMock.createCheckpoint).toHaveBeenCalledWith(
+      'inst-1',
+      CheckpointType.MANUAL,
+      'Before manual compaction (keep latest 1 exchange)',
+    );
+  });
+
+  it('uses the plain "Before manual compaction" label with no boundary (plain Compact Now path)', async () => {
+    const { instanceManager } = makeNativeInstanceManager();
+    setupCompactionCoordinator(instanceManager, makeWindowManager());
+
+    await applyCompaction(instanceManager, 'inst-1');
+
+    expect(checkpointManagerMock.createCheckpoint).toHaveBeenCalledWith(
+      'inst-1',
+      CheckpointType.MANUAL,
+      'Before manual compaction',
+    );
+  });
+
+  it('swallows a checkpoint-creation failure and still compacts (no checkpointId attached)', async () => {
+    checkpointManagerMock.createCheckpoint.mockRejectedValueOnce(new Error('disk full'));
+    const { instanceManager, emitOutputMessage } = makeNativeInstanceManager();
+    setupCompactionCoordinator(instanceManager, makeWindowManager());
+
+    const result = await applyCompaction(instanceManager, 'inst-1');
+
+    expect(result.success).toBe(true);
+    const boundaryCall = emitOutputMessage.mock.calls.find(
+      (call) => (call[1] as { content?: string }).content === '— Context compacted —',
+    );
+    expect(boundaryCall).toBeDefined();
+    expect((boundaryCall![1] as { metadata: Record<string, unknown> }).metadata['checkpointId']).toBeUndefined();
+  });
+
+  it('honors an explicit keepLatestExchanges boundary on the restart-with-summary path', async () => {
+    const instance = {
+      id: 'inst-restart',
+      outputBuffer: [
+        { id: 'm1', type: 'user' as const, content: 'one', timestamp: 1 },
+        { id: 'm2', type: 'assistant' as const, content: 'two', timestamp: 2 },
+        { id: 'm3', type: 'user' as const, content: 'three', timestamp: 3 },
+        { id: 'm4', type: 'assistant' as const, content: 'four', timestamp: 4 },
+      ],
+    };
+    const instanceManager = {
+      getAdapterRuntimeCapabilities: vi.fn(() => ({ supportsNativeCompaction: false })),
+      getAdapter: vi.fn(() => ({})),
+      getInstance: vi.fn(() => instance),
+      restartFreshInstance: vi.fn(async () => undefined),
+      sendInput: vi.fn(async () => undefined),
+      emitOutputMessage: vi.fn(),
+    } as unknown as InstanceManager;
+    setupCompactionCoordinator(instanceManager, makeWindowManager());
+
+    const compactSpy = vi.spyOn(ContextCompactor.getInstance(), 'compact');
+
+    const result = await applyCompaction(instanceManager, 'inst-restart', { keepLatestExchanges: 1 });
+
+    expect(result.success).toBe(true);
+    // 1 exchange = the trailing user+assistant pair = 2 messages.
+    expect(compactSpy).toHaveBeenCalledWith({ preserveRecentOverride: 2 });
+  });
+
+  it('is byte-compatible with the pre-WS-B7 default when no boundary is given (no override passed to compact())', async () => {
+    const instance = {
+      id: 'inst-restart-default',
+      outputBuffer: [
+        { id: 'm1', type: 'user' as const, content: 'one', timestamp: 1 },
+        { id: 'm2', type: 'assistant' as const, content: 'two', timestamp: 2 },
+      ],
+    };
+    const instanceManager = {
+      getAdapterRuntimeCapabilities: vi.fn(() => ({ supportsNativeCompaction: false })),
+      getAdapter: vi.fn(() => ({})),
+      getInstance: vi.fn(() => instance),
+      restartFreshInstance: vi.fn(async () => undefined),
+      sendInput: vi.fn(async () => undefined),
+      emitOutputMessage: vi.fn(),
+    } as unknown as InstanceManager;
+    setupCompactionCoordinator(instanceManager, makeWindowManager());
+
+    const compactSpy = vi.spyOn(ContextCompactor.getInstance(), 'compact');
+
+    await applyCompaction(instanceManager, 'inst-restart-default');
+
+    expect(compactSpy).toHaveBeenCalledWith(undefined);
   });
 });
 

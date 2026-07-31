@@ -16,6 +16,7 @@ import {
 } from '@angular/core';
 import { Router } from '@angular/router';
 import { ContextWarningComponent } from './context-warning.component';
+import { CompactionPreviewDialogComponent } from './compaction-preview-dialog.component';
 import { InstanceStore, type InstanceProvider, type OutputMessage } from '../../core/state/instance.store';
 import { HistoryStore } from '../../core/state/history.store';
 import { SettingsStore } from '../../core/state/settings.store';
@@ -105,6 +106,7 @@ interface ResendEditedEvent {
   imports: [
     OutputStreamComponent,
     ContextWarningComponent,
+    CompactionPreviewDialogComponent,
     InputPanelComponent,
     DropZoneComponent,
     ActivityStatusComponent,
@@ -362,6 +364,8 @@ export class InstanceDetailComponent {
   isTogglingYolo = signal(false);
   isTogglingFastMode = signal(false);
   private manualCompacting = signal(false);
+  /** WS-B7: manual-compaction preview dialog open state. */
+  compactionPreviewOpen = signal(false);
   contextWarningDismissed = signal(false);
   recoveryDismissed = signal(false);
   restartToasts = signal<RestartToast[]>([]);
@@ -980,7 +984,7 @@ export class InstanceDetailComponent {
     const inst = this.instance();
     if (!inst) return;
 
-    const removedMessage = this.store.removeFromQueue(inst.id, index);
+    const removedMessage = this.store.cancelQueuedMessage(inst.id, index);
     if (removedMessage) {
       const inputPanel = this.inputPanel();
       if (inputPanel) {
@@ -1579,6 +1583,13 @@ export class InstanceDetailComponent {
       this.store.compactInstance(inst.id).finally(() => {
         this.manualCompacting.set(false);
       });
+    }
+  }
+
+  /** WS-B7: opens the manual-compaction preview dialog instead of compacting immediately. */
+  onPreviewCompaction(): void {
+    if (this.instance() && !this.isCompacting()) {
+      this.compactionPreviewOpen.set(true);
     }
   }
 

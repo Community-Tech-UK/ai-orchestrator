@@ -23,6 +23,7 @@ import {
 import { fetchPREnrichmentBatch, formatCIFailureMessage, formatReviewMessage } from '../vcs/remotes/github-pr-poller';
 import { parseGitHostWorkItemUrl } from '../vcs/remotes/git-host-connector';
 import type { InstanceManager } from '../instance/instance-manager';
+import { deliverAdmittedReactionFeedback } from './reaction-feedback-delivery';
 import type {
   ReactionEngineConfig,
   ReactionConfig,
@@ -571,17 +572,7 @@ export class ReactionEngine extends EventEmitter {
       return false;
     }
 
-    try {
-      await this.instanceManager.sendInput(instanceId, message);
-      logger.info('Sent reaction feedback to agent', {
-        instanceId,
-        messagePreview: message.slice(0, 120),
-      });
-      return true;
-    } catch (err) {
-      logger.error('Failed to send reaction to agent', err instanceof Error ? err : new Error(String(err)), { instanceId });
-      return false;
-    }
+    return deliverAdmittedReactionFeedback(this.instanceManager, instanceId, message);
   }
 
   // -------------------------------------------------------------------------

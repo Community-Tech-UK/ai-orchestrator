@@ -1,5 +1,6 @@
 import { resolveCliType } from '../cli/adapters/adapter-factory';
 import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
+import type { ReviewResult } from '../../shared/types/cross-model-review.types';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 import { getSettingsManager } from '../core/config/settings-manager';
 import type { CliType as SettingsCliType } from '../../shared/types/settings.types';
@@ -41,6 +42,36 @@ export interface ReviewExecutionHost {
   ): Promise<string>;
 }
 
+/**
+ * WS-B9: optional per-angle reviewer-verdict cache hook. Only the loop's
+ * fresh-eyes gate supplies this (bound to its `LoopState` via
+ * `review-coverage.ts`) — the standalone `aio review` CLI command leaves it
+ * undefined, so `headless-review-runner.ts` always dispatches live for that
+ * caller and behaves exactly as before WS-B9. `lookup`/`store` receive the
+ * raw key components (not a precomputed key) so the runner never needs to
+ * know how a key is built; the hook owner (the gate) computes it via
+ * `buildAngleCacheKey`.
+ */
+export interface HeadlessReviewAngleCacheHook {
+  lookup(input: {
+    reviewerProvider: string;
+    model: string;
+    angleId: string;
+    promptVersion: string;
+    rulesHash: string;
+    workHash: string;
+  }): { review: ReviewResult; activationReason: string } | undefined;
+  store(input: {
+    reviewerProvider: string;
+    model: string;
+    angleId: string;
+    promptVersion: string;
+    rulesHash: string;
+    workHash: string;
+    review: ReviewResult;
+  }): void;
+}
+
 export interface HeadlessReviewRequest {
   target: string;
   cwd: string;
@@ -52,6 +83,8 @@ export interface HeadlessReviewRequest {
   timeoutSeconds?: number;
   /** Optional caller cancellation bridged into remote and local review work. */
   signal?: AbortSignal;
+  /** WS-B9: per-angle reviewer-verdict cache — see {@link HeadlessReviewAngleCacheHook}. */
+  reviewCache?: HeadlessReviewAngleCacheHook;
 }
 
 function isCliAdapterLike(adapter: unknown): adapter is { sendMessage: (m: CliMessage) => Promise<CliResponse> } {

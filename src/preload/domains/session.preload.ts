@@ -19,7 +19,7 @@ export function createSessionDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHA
       forkAfterMessageId?: string;
       displayName?: string;
       initialPrompt?: string;
-      attachments?: Array<{ name: string; type: string; size: number; data?: string }>;
+      attachments?: { name: string; type: string; size: number; data?: string }[];
       preserveRuntimeSettings?: boolean;
       supersedeSource?: boolean;
     }): Promise<IpcResponse> => {
@@ -125,6 +125,52 @@ export function createSessionDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHA
     createSessionSnapshot: (payload: { instanceId: string; name?: string; description?: string }) =>
       ipcRenderer.invoke(ch.SESSION_CREATE_SNAPSHOT, payload),
     getSessionStats: () => ipcRenderer.invoke(ch.SESSION_GET_STATS),
+    /**
+     * Read-only list of recent prompt admission decisions (Phase A of
+     * SessionAdmissionService) — no UI consumes this yet.
+     */
+    listSessionAdmissions: (payload?: { instanceId?: string; states?: string[] }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.SESSION_ADMISSIONS_LIST, payload);
+    },
+
+    // ============================================
+    // Durable renderer send-queue (WS-A1 Phase B)
+    // ============================================
+
+    sessionQueueEnqueue: (payload: {
+      instanceId: string;
+      message: string;
+      attachments?: { name: string; type: string; size: number; data?: string }[];
+      contextBlock?: string;
+      sourceMetadata?: { hadAttachmentsDropped?: boolean; kind?: 'queue' | 'steer'; retryCount?: number; seededAlready?: boolean };
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.SESSION_QUEUE_ENQUEUE, payload);
+    },
+
+    sessionQueueUpdate: (payload: {
+      admissionId: string;
+      message?: string;
+      attachments?: { name: string; type: string; size: number; data?: string }[];
+      contextBlock?: string;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.SESSION_QUEUE_UPDATE, payload);
+    },
+
+    sessionQueueCancel: (admissionId: string): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.SESSION_QUEUE_CANCEL, { admissionId });
+    },
+
+    sessionQueueReorder: (instanceId: string, orderedIds: string[]): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.SESSION_QUEUE_REORDER, { instanceId, orderedIds });
+    },
+
+    sessionQueueList: (instanceId?: string): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.SESSION_QUEUE_LIST, instanceId ? { instanceId } : undefined);
+    },
+
+    sessionQueuePromote: (admissionId: string): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.SESSION_QUEUE_PROMOTE, { admissionId });
+    },
 
     // ============================================
     // History

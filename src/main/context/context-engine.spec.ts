@@ -109,9 +109,15 @@ describe('LegacyContextEngine', () => {
   it('delegates compactInstance + cleanupInstance', async () => {
     const engine = new LegacyContextEngine();
     await engine.compactInstance('i1');
-    expect(hoisted.coordinator.compactInstance).toHaveBeenCalledWith('i1');
+    expect(hoisted.coordinator.compactInstance).toHaveBeenCalledWith('i1', undefined);
     engine.cleanupInstance('i1');
     expect(hoisted.coordinator.cleanupInstance).toHaveBeenCalledWith('i1');
+  });
+
+  it('passes the WS-B7 boundary options through to the coordinator', async () => {
+    const engine = new LegacyContextEngine();
+    await engine.compactInstance('i1', { keepLatestExchanges: 3 });
+    expect(hoisted.coordinator.compactInstance).toHaveBeenCalledWith('i1', { keepLatestExchanges: 3 });
   });
 
   it('getStatus reports the last seen usage + coordinator compacting state', () => {
@@ -263,6 +269,13 @@ describe('SafeContextEngine (quarantine/fallback)', () => {
     await expect(safe.compactInstance('i1')).rejects.toThrow('compact boom');
   });
 
+  it('compactInstance passes the WS-B7 boundary options through to the inner engine', async () => {
+    const inner = makeInner();
+    const safe = new SafeContextEngine(inner);
+    await safe.compactInstance('i1', { keepLatestExchanges: 2 });
+    expect(inner.compactInstance).toHaveBeenCalledWith('i1', { keepLatestExchanges: 2 });
+  });
+
   it('quarantines after assemble throws, then returns empty context fallback', async () => {
     const inner = makeInner({
       assemble: vi.fn(async () => {
@@ -384,7 +397,7 @@ describe('getContextEngine singleton', () => {
     };
     setContextEngine(inner);
     await getContextEngine().compactInstance('i1');
-    expect(inner.compactInstance).toHaveBeenCalledWith('i1');
+    expect(inner.compactInstance).toHaveBeenCalledWith('i1', undefined);
     expect(hoisted.coordinator.compactInstance).not.toHaveBeenCalled();
   });
 });

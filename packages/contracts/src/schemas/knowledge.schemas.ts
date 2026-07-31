@@ -161,3 +161,32 @@ export const WakeContextGeneratedEventSchema = z.object({
   totalTokens: z.number().int().nonnegative(),
   wing: z.string().max(4_000).optional(),
 }).strict();
+
+// ============ Governed Proposal Payloads (WS-A4 memory review inbox) ============
+
+const GovernedProposalKindSchema = z.enum(['memory', 'skill', 'hook', 'rule']);
+const GovernedProposalStatusSchema = z.enum(['pending', 'approved', 'rejected', 'superseded']);
+
+export const GovernedProposalListPayloadSchema = z.object({
+  kind: GovernedProposalKindSchema.optional(),
+  status: GovernedProposalStatusSchema.optional(),
+  sourceSessionId: z.string().min(1).optional(),
+  limit: z.number().int().positive().max(1000).optional(),
+}).optional();
+
+export const GovernedProposalGetPayloadSchema = z.object({
+  id: z.string().min(1),
+});
+
+export const GovernedProposalApprovePayloadSchema = z.object({
+  id: z.string().min(1),
+  editedText: z.string().min(1).max(2_000).optional(),
+  rationale: z.string().max(2_000).optional(),
+  actor: z.string().min(1).max(200),
+});
+
+export const GovernedProposalRejectPayloadSchema = z.object({
+  id: z.string().min(1),
+  rationale: z.string().max(2_000).optional(),
+  actor: z.string().min(1).max(200),
+});

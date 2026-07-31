@@ -731,6 +731,11 @@ export class InstanceStore implements OnDestroy {
     return this.messagingStore.removeFromQueue(instanceId, index);
   }
 
+  /** Remove a queued message AND cancel its durable row — use for cancel/edit-to-composer flows. */
+  cancelQueuedMessage(instanceId: string, index: number): { message: string; files?: File[]; kind?: 'queue' | 'steer' } | null {
+    return this.messagingStore.cancelQueuedMessage(instanceId, index);
+  }
+
   /** Validate files before sending - returns array of error messages */
   validateFiles(files: File[]): string[] {
     return this.listStore.validateFiles(files);

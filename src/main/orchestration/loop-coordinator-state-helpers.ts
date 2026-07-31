@@ -113,6 +113,20 @@ export function cloneLoopStateForBroadcast(s: LoopState): LoopState {
   return {
     ...s,
     config,
+    // WS-A3: durably persisted review artifacts (diff/verify-output text,
+    // bounded but still up to ~192KB) are proof material for the completion
+    // gate only — the renderer never needs the raw text, just the
+    // anchor/anchorStatus/demotedReason fields already carried on individual
+    // findings in the fresh-eyes IPC events. Stripping this keeps every
+    // routine state broadcast from re-sending it.
+    reviewArtifacts: undefined,
+    // WS-B9: same rationale — the per-attempt coverage report and per-angle
+    // cache are internal completion-gate working state (findings text,
+    // reviewer verdicts). The renderer gets a lightweight `coverage` summary
+    // on the fresh-eyes IPC events instead (see `loop-coordinator-completion-
+    // gates.ts`).
+    reviewCoverageReports: undefined,
+    reviewAngleCache: undefined,
     pendingInterventions: s.pendingInterventions.map((item) => ({ ...coercePendingInput(item) })),
     recentWarnIterationSeqs: [...s.recentWarnIterationSeqs],
     completionAttempts: s.completionAttempts,

@@ -16,6 +16,7 @@
  */
 
 import type { ContextUsage, Instance, InstanceStatus, OutputMessage } from '../../shared/types/instance.types';
+import type { CompactionBoundaryOptions } from '../../shared/types/compaction-preview.types';
 import type { IndexedCodebaseContextInfo } from '../indexing/indexed-codebase-context';
 import type { InstanceContextPort } from '../instance/instance-context-port';
 import type { ContextBudget, RlmContextInfo, UnifiedMemoryContextInfo } from '../instance/instance-types';
@@ -80,8 +81,8 @@ export interface ContextEngine {
   assemble(request: ContextAssembleRequest): Promise<ContextAssemblyResult>;
   /** Called when an instance turn settles. */
   afterTurn(request: ContextAfterTurnRequest): void;
-  /** Explicit user/IPC-driven compaction. */
-  compactInstance(instanceId: string): Promise<CompactionResult>;
+  /** Explicit user/IPC-driven compaction. `options` carries the WS-B7 manual boundary. */
+  compactInstance(instanceId: string, options?: CompactionBoundaryOptions): Promise<CompactionResult>;
   /** Current context status for the instance. */
   getStatus(instanceId: string): ContextStatus;
   /** Release per-instance state (on terminate/restart). */
@@ -141,8 +142,8 @@ export class LegacyContextEngine implements ContextEngine {
     }
   }
 
-  compactInstance(instanceId: string): Promise<CompactionResult> {
-    return this.coordinator.compactInstance(instanceId);
+  compactInstance(instanceId: string, options?: CompactionBoundaryOptions): Promise<CompactionResult> {
+    return this.coordinator.compactInstance(instanceId, options);
   }
 
   getStatus(instanceId: string): ContextStatus {
@@ -232,9 +233,9 @@ export class SafeContextEngine implements ContextEngine {
     }
   }
 
-  compactInstance(instanceId: string): Promise<CompactionResult> {
+  compactInstance(instanceId: string, options?: CompactionBoundaryOptions): Promise<CompactionResult> {
     // Manual compaction is IPC-driven; let errors propagate to the caller.
-    return this.inner.compactInstance(instanceId);
+    return this.inner.compactInstance(instanceId, options);
   }
 
   getStatus(instanceId: string): ContextStatus {

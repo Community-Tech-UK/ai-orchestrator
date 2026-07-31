@@ -1106,7 +1106,13 @@ export class LoopCoordinator extends EventEmitter {
           // surfaced lessons so a later echo can reinforce them on use.
           const surfaced = getLessonStore().digest(limit);
           surfacedLessonsForRun.push(...surfaced.map((l) => ({ id: l.id, text: l.text })));
-          return [...learnings, ...surfaced.map((l) => l.text)].slice(0, limit);
+          return [
+            // loop-memory's renderLearningLine already appends "(N days ago)"
+            // per line (P0.3) — no separate timestamp here, so
+            // assemblePlanStageContext doesn't double-append an age suffix.
+            ...learnings.map((text) => ({ text })),
+            ...surfaced.map((l) => ({ text: l.text, createdAt: l.createdAt, updatedAt: l.updatedAt })),
+          ].slice(0, limit);
         },
       });
       if (block) planStageContext = block;

@@ -18,10 +18,18 @@ export function registerOrchestrationBootstrap(): void {
       const { getConsensusManager } = require('../orchestration/consensus') as typeof import('../orchestration/consensus');
       const { getSupervisor } = require('../orchestration/supervisor') as typeof import('../orchestration/supervisor');
       const { getDoomLoopDetector } = require('../orchestration/doom-loop-detector') as typeof import('../orchestration/doom-loop-detector');
+      const { getCompactionCoordinator } = require('../context/compaction-coordinator') as typeof import('../context/compaction-coordinator');
 
       getConsensusManager();
       getSupervisor();
       getDoomLoopDetector();
+
+      // WS-A2: arm the post-compaction tool-loop canary — a fresh summary is
+      // a common trigger for re-probing already-known state. `post-compact-hook`
+      // only fires after a successful compaction (see CompactionCoordinator).
+      getCompactionCoordinator().on('post-compact-hook', (payload: { instanceId: string }) => {
+        getDoomLoopDetector().notifyCompaction(payload.instanceId);
+      });
     },
   });
 

@@ -4,6 +4,9 @@ import {
   type CompactionResult,
   type ContextPolicyEvent,
 } from '../context/compaction-coordinator';
+import { getContextEngine } from '../context/context-engine';
+import { exchangesToMessageBoundary, groupExchanges } from '../context/compaction-boundary';
+import { loadAuthenticatedEvidencePreviews } from '../context/compaction-evidence-preview';
 import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getHookManager } from '../hooks/hook-manager';
@@ -14,15 +17,13 @@ import {
   recordCompactionMarker,
   type RecordCompactionMarkerParams,
 } from '../persistence/rlm/rlm-compaction-markers';
+import { getCheckpointManager } from '../session/checkpoint-manager';
+import { CheckpointType } from '../../shared/types/error-recovery.types';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { WindowManager } from '../window-manager';
 import type { ContextUsage, Instance } from '../../shared/types/instance.types';
+import type { CompactionBoundaryOptions } from '../../shared/types/compaction-preview.types';
 import { getConversationLedgerService } from '../conversation-ledger';
-import { getContextEvidenceRuntime } from '../context-evidence/evidence-maintenance-service';
-import {
-  EvidencePreviewBuilder,
-  type VerifiedEvidencePreview,
-} from '../context-evidence/evidence-preview-builder';
 import {
   ProviderContextActionExecutor,
   type ProviderContextActionHandlerResult,
@@ -30,6 +31,15 @@ import {
 } from '../context-evidence/provider-context-action-executor';
 
 const logger = getLogger('CompactionRuntime');
+
+/**
+ * Checkpoint created by `applyCompaction()` (WS-B7) just before triggering
+ * this instance's compaction, consumed (and attached to the compaction
+ * boundary message) by the `compaction-completed` listener below. Cleared
+ * defensively by `applyCompaction()` itself in case no event fires (e.g. the
+ * "already in progress" early return).
+ */
+const pendingManualCheckpoints = new Map<string, string>();
 
 interface NativeCompactionAdapter {
   compactContext?: () => Promise<boolean>;
@@ -224,7 +234,11 @@ export function setupCompactionCoordinator(
         createdAt: event.createdAt,
       });
     },
-    nativeCompact: async (instanceId: string) => {
+    nativeCompact: async (instanceId: string, _options?: CompactionBoundaryOptions) => {
+      // The adapter's own native compaction has no boundary hook — WS-B7's
+      // "keep latest N exchanges" control only applies to the AIO-managed
+      // restart-with-summary path below. `previewCompaction()` labels this
+      // provider `adapter-self-managed` and says so honestly.
       const adapter = instanceManager.getAdapter(instanceId) as NativeCompactionAdapter | undefined;
       if (!adapter || typeof adapter.compactContext !== 'function') {
         // Honest false. The previous implementation fell through to
@@ -256,7 +270,7 @@ export function setupCompactionCoordinator(
       const capabilities = instanceManager.getAdapterRuntimeCapabilities(instanceId);
       return capabilities?.selfManagedAutoCompaction === true;
     },
-    restartCompact: async (instanceId: string) => {
+    restartCompact: async (instanceId: string, options?: CompactionBoundaryOptions) => {
       const compactor = ContextCompactor.getInstance();
       try {
         const instance = instanceManager.getInstance(instanceId);
@@ -294,7 +308,17 @@ export function setupCompactionCoordinator(
           compactor.addTurn(turn);
         }
 
-        const compactionResult = await compactor.compact();
+        // WS-B7: honor an explicit "keep latest N exchanges" boundary.
+        // Omitting it (the pre-WS-B7 default, and what plain "Compact Now"
+        // still sends) leaves `compact()` on its own `preserveRecent`
+        // config — byte-identical to the prior behavior.
+        const preserveRecentOverride = options?.keepLatestExchanges === undefined
+          ? undefined
+          : exchangesToMessageBoundary(groupExchanges(turns), options.keepLatestExchanges);
+
+        const compactionResult = await compactor.compact(
+          preserveRecentOverride === undefined ? undefined : { preserveRecentOverride },
+        );
         const summaries = compactor.getState().summaries;
         const latestSummary = summaries[summaries.length - 1];
         const summaryText = latestSummary?.content || 'Previous conversation context was compacted.';
@@ -389,6 +413,11 @@ export function setupCompactionCoordinator(
 
   coordinator.on('compaction-completed', (payload) => {
     const { instanceId, result } = payload;
+    // WS-B7: consume this instance's pre-compaction checkpoint (if
+    // `applyCompaction()` created one) regardless of outcome, so a failed
+    // compaction never leaves a stale entry behind.
+    const checkpointId = pendingManualCheckpoints.get(instanceId) ?? null;
+    pendingManualCheckpoints.delete(instanceId);
 
     if (result.success) {
       const instance = instanceManager.getInstance(instanceId);
@@ -414,6 +443,7 @@ export function setupCompactionCoordinator(
             previousUsage: result.previousUsage,
             newUsage: result.newUsage,
             ...(markerId ? { compactionMarkerId: markerId } : {}),
+            ...(checkpointId ? { checkpointId } : {}),
           },
         };
         instanceManager.emitOutputMessage(instanceId, boundaryMessage);
@@ -449,33 +479,43 @@ export function setupCompactionCoordinator(
   });
 }
 
-async function loadAuthenticatedEvidencePreviews(
-  instance: Instance,
-): Promise<VerifiedEvidencePreview[]> {
-  const conversationId = instance.contextEvidence?.conversationId;
-  if (!conversationId) return [];
-  try {
-    const runtime = getContextEvidenceRuntime();
-    const records = await getConversationLedgerService().listEvidence(conversationId, { limit: 25 });
-    const builder = new EvidencePreviewBuilder(runtime.blobStore);
-    const previews: VerifiedEvidencePreview[] = [];
-    for (const record of records) {
-      const result = await builder.build(record);
-      if (result.canReplaceOriginal) previews.push(result.preview);
-    }
-    return previews;
-  } catch (error) {
-    logger.warn('Authenticated evidence previews unavailable for restart compaction', {
-      instanceId: instance.id,
-      errorCode: evidencePreviewFailureCode(error),
-    });
-    return [];
-  }
-}
+/**
+ * Manual compaction entry point (WS-B7): creates a labeled pre-compaction
+ * checkpoint, then runs the existing compaction path with an optional
+ * "keep latest N exchanges" boundary honored. Both the plain "Compact Now"
+ * button and the boundary-aware preview dialog's Confirm route through this
+ * — the only difference is whether `opts.keepLatestExchanges` is set.
+ * Checkpoint creation failures are logged and swallowed; compaction still
+ * proceeds (a missing checkpoint should never block manual compaction).
+ */
+export async function applyCompaction(
+  instanceManager: InstanceManager,
+  instanceId: string,
+  opts?: CompactionBoundaryOptions,
+): Promise<CompactionResult> {
+  const label = opts?.keepLatestExchanges !== undefined
+    ? `Before manual compaction (keep latest ${opts.keepLatestExchanges} exchange${opts.keepLatestExchanges === 1 ? '' : 's'})`
+    : 'Before manual compaction';
 
-function evidencePreviewFailureCode(error: unknown): string {
-  const code = (error as { code?: unknown }).code;
-  return typeof code === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/.test(code)
-    ? code
-    : 'EVIDENCE_PREVIEW_UNAVAILABLE';
+  let checkpointId: string | null = null;
+  try {
+    const checkpoint = await getCheckpointManager().createCheckpoint(instanceId, CheckpointType.MANUAL, label);
+    checkpointId = checkpoint?.id ?? null;
+  } catch (error) {
+    logger.warn('Failed to create pre-compaction checkpoint', {
+      instanceId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  if (checkpointId) pendingManualCheckpoints.set(instanceId, checkpointId);
+
+  try {
+    return await getContextEngine().compactInstance(instanceId, opts);
+  } finally {
+    // Defensive: the `compaction-completed` listener normally consumes this
+    // entry synchronously before `compactInstance()` resolves, but an early
+    // "already in progress" return never emits that event at all.
+    pendingManualCheckpoints.delete(instanceId);
+  }
 }

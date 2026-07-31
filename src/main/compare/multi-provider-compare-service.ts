@@ -9,26 +9,31 @@
  *
  * Provider/adapter plumbing is injected so the fan-out + error handling are
  * unit-testable without spawning real CLIs.
+ *
+ * `compare()` awaits every provider (`Promise.all`) and only ever returns a
+ * fully-settled result — nothing is usable until the slowest provider
+ * finishes. WS-B6's `CouncilRunService` (`council-run-service.ts`) is the
+ * progressive sibling: same provider set, same one-shot invocation
+ * (`invokeProviderOneShot` in `council-provider-invoke.ts`, extracted from
+ * this file's old `runOne`), but each member resolves independently with
+ * live progress, cancellation, and durable recovery.
  */
 
-import { resolveCliType, type CliAdapter } from '../cli/adapters/adapter-factory';
-import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
-import type { UnifiedSpawnOptions } from '../cli/adapters/adapter-factory';
-import { isCliAvailable, type CliType } from '../cli/cli-detection';
-import { isProviderNotice } from '../cli/provider-notice';
-import { resolveModelForTier } from '../../shared/types/provider.types';
+import type { CliType } from '../cli/cli-detection';
 import { getLogger } from '../logging/logger';
-import { getProviderRuntimeService } from '../providers/provider-runtime-service';
+import {
+  DEFAULT_PROVIDER_INVOKE_DEPS,
+  invokeProviderOneShot,
+  type ProviderInvokeDeps,
+} from './council-provider-invoke';
 
 const logger = getLogger('MultiCompare');
 
-const COMPARE_TIMEOUT = 60_000;
-
-/** Providers we know how to spawn as one-shots. */
-const KNOWN_PROVIDERS: readonly CliType[] = ['claude', 'gemini', 'antigravity', 'copilot', 'codex', 'cursor'];
+/** Providers we know how to spawn as one-shots. Shared with the WS-B6 Council run engine. */
+export const KNOWN_PROVIDERS: readonly CliType[] = ['claude', 'gemini', 'antigravity', 'copilot', 'codex', 'cursor'];
 
 /** Hard cap on fan-out width to avoid spawning an unbounded number of CLIs. */
-const MAX_PROVIDERS = 8;
+export const MAX_PROVIDERS = 8;
 
 export interface CompareCell {
   provider: string;
@@ -44,37 +49,10 @@ export interface CompareResult {
   results: CompareCell[];
 }
 
-export interface MultiProviderCompareDeps {
-  /** Resolve a SPECIFIC provider (no preference fallback). null if unavailable. */
-  resolveProvider(provider: string): Promise<CliType | null>;
-  createAdapter(cliType: CliType, options: UnifiedSpawnOptions): CliAdapter;
-  /** Monotonic clock for durations. Injectable for deterministic tests. */
-  now(): number;
-}
+/** Re-exported so existing importers (and tests) keep working unchanged. */
+export type MultiProviderCompareDeps = ProviderInvokeDeps;
 
-type SendMessageAdapter = CliAdapter & {
-  sendMessage: (message: CliMessage) => Promise<CliResponse>;
-};
-
-function hasSendMessage(adapter: CliAdapter): adapter is SendMessageAdapter {
-  return typeof (adapter as { sendMessage?: unknown }).sendMessage === 'function';
-}
-
-async function defaultResolveProvider(provider: string): Promise<CliType | null> {
-  try {
-    const info = await isCliAvailable(provider as CliType);
-    if (info.installed) return await resolveCliType(provider as CliType);
-  } catch {
-    // treat as unavailable
-  }
-  return null;
-}
-
-const DEFAULT_DEPS: MultiProviderCompareDeps = {
-  resolveProvider: defaultResolveProvider,
-  createAdapter: (cliType, options) => getProviderRuntimeService().createAdapter({ cliType, options }),
-  now: () => Date.now(),
-};
+const DEFAULT_DEPS: MultiProviderCompareDeps = DEFAULT_PROVIDER_INVOKE_DEPS;
 
 export class MultiProviderCompareService {
   private readonly deps: MultiProviderCompareDeps;
@@ -91,6 +69,16 @@ export class MultiProviderCompareService {
     return checks.filter((c) => c.type !== null).map((c) => c.p);
   }
 
+  /** De-dupe while preserving order, keep only known providers, and bound the fan-out. */
+  selectProviders(providers: string[]): string[] {
+    const unique = [...new Set(providers)].filter((p) => KNOWN_PROVIDERS.includes(p as CliType));
+    const selected = unique.slice(0, MAX_PROVIDERS);
+    if (selected.length < unique.length) {
+      logger.warn('Compare fan-out capped', { requested: unique.length, cap: MAX_PROVIDERS });
+    }
+    return selected;
+  }
+
   async compare(
     prompt: string,
     providers: string[],
@@ -100,12 +88,7 @@ export class MultiProviderCompareService {
     if (!trimmed) {
       return { prompt: '', results: [] };
     }
-    // De-dupe while preserving order, and bound the fan-out.
-    const unique = [...new Set(providers)].filter((p) => KNOWN_PROVIDERS.includes(p as CliType));
-    const selected = unique.slice(0, MAX_PROVIDERS);
-    if (selected.length < unique.length) {
-      logger.warn('Compare fan-out capped', { requested: unique.length, cap: MAX_PROVIDERS });
-    }
+    const selected = this.selectProviders(providers);
 
     const results = await Promise.all(
       selected.map((provider) => this.runOne(trimmed, provider, options.workingDirectory)),
@@ -118,48 +101,8 @@ export class MultiProviderCompareService {
     provider: string,
     workingDirectory?: string,
   ): Promise<CompareCell> {
-    const started = this.deps.now();
-    const elapsed = () => this.deps.now() - started;
-
-    const cliType = await this.deps.resolveProvider(provider);
-    if (!cliType) {
-      return { provider, ok: false, error: 'Provider is not available', durationMs: elapsed() };
-    }
-
-    const model = resolveModelForTier('balanced', cliType);
-    let adapter: CliAdapter;
-    try {
-      adapter = this.deps.createAdapter(cliType, {
-        workingDirectory: workingDirectory ?? process.cwd(),
-        model,
-        yoloMode: false,
-        timeout: COMPARE_TIMEOUT,
-      });
-    } catch (error) {
-      return { provider, ok: false, model, error: this.msg(error), durationMs: elapsed() };
-    }
-
-    if (!hasSendMessage(adapter)) {
-      return { provider, ok: false, model, error: 'Provider does not support one-shot prompts', durationMs: elapsed() };
-    }
-
-    try {
-      const response = await adapter.sendMessage({ role: 'user', content: prompt });
-      const raw = (response.content ?? '').trim();
-      if (raw.length === 0) {
-        return { provider, ok: false, model, error: 'Empty response', durationMs: elapsed() };
-      }
-      if (isProviderNotice(raw)) {
-        return { provider, ok: false, model, error: 'Provider returned a status/limit notice', durationMs: elapsed() };
-      }
-      return { provider, ok: true, model, answer: raw, durationMs: elapsed() };
-    } catch (error) {
-      return { provider, ok: false, model, error: this.msg(error), durationMs: elapsed() };
-    }
-  }
-
-  private msg(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
+    const result = await invokeProviderOneShot(this.deps, provider, prompt, { workingDirectory });
+    return { provider, ...result };
   }
 }
 

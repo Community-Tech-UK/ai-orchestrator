@@ -16,7 +16,7 @@ import type {
   DebateResult, DebateRoundType, DebateSessionRound, DebateStats, DebateStatus,
 } from '../../shared/types/debate.types';
 import { getLogger } from '../logging/logger';
-import { calculateConsensus, analyzeConsensus, getFinalSubstantiveRound } from './debate-consensus';
+import { calculateConsensus, analyzeConsensus, buildEphemeralSynthesisDebate, getFinalSubstantiveRound } from './debate-consensus';
 import { estimateTokens } from '../rlm/token-counter';
 import { handleCoordinatorError } from './utils/coordinator-error-handler';
 import { createAbortController, createChildAbortController } from '../util/abort-controller-tree';
@@ -901,6 +901,33 @@ Create a comprehensive synthesis that:
 5. Notes any important caveats or limitations
 
 Provide your synthesis:`;
+  }
+
+  // ============ Ask Council synthesis (WS-B6) ============
+
+  /**
+   * Synthesize a moderated summary from ALREADY-COLLECTED contributions (e.g.
+   * an Ask Council compare run) rather than running a full multi-round debate
+   * from scratch. Routes the actual synthesis text through the same
+   * `debate:generate-synthesis` extensibility event real debates use (wired
+   * to a real CLI call by `registerDefaultDebateInvoker`) — see
+   * `buildEphemeralSynthesisDebate` in debate-consensus.ts for the transient,
+   * unregistered debate object this reuses `analyzeConsensus` against.
+   */
+  async synthesizeContributions(
+    query: string,
+    contributions: DebateContribution[],
+    context?: string,
+    config?: Partial<DebateConfig>,
+  ): Promise<{ synthesis: string; consensusAnalysis: ConsensusAnalysis }> {
+    if (contributions.length < 2) {
+      throw new Error('Debate synthesis needs at least 2 contributions');
+    }
+
+    const debate = buildEphemeralSynthesisDebate(query, contributions, context, { ...this.defaultConfig, ...config });
+    const consensusAnalysis = analyzeConsensus(debate);
+    const synthesis = await this.generateSynthesis(debate, consensusAnalysis);
+    return { synthesis, consensusAnalysis };
   }
 
   // ============ Helper Methods ============

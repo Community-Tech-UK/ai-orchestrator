@@ -7,6 +7,21 @@ import type {
 import type { InstanceManager } from '../instance/instance-manager';
 import type { SessionRevivalService } from '../session/session-revival-service';
 import type { AutomationStore } from './automation-store';
+
+const mockAdmitAutomatedWrite = vi.fn().mockReturnValue({ kind: 'admitted', admissionId: 'adm-default' });
+const mockMarkDelivered = vi.fn();
+const mockMarkFailed = vi.fn();
+const mockRegisterRedeliveryHandler = vi.fn();
+
+vi.mock('../session/session-admission-service', () => ({
+  getSessionAdmissionService: () => ({
+    admitAutomatedWrite: mockAdmitAutomatedWrite,
+    markDelivered: mockMarkDelivered,
+    markFailed: mockMarkFailed,
+    registerRedeliveryHandler: mockRegisterRedeliveryHandler,
+  }),
+}));
+
 import { ThreadWakeupRunner } from './thread-wakeup-runner';
 
 function makeAutomation(destination: AutomationDestination): Automation {
@@ -70,6 +85,7 @@ describe('ThreadWakeupRunner', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockAdmitAutomatedWrite.mockReturnValue({ kind: 'admitted', admissionId: 'adm-default' });
     runner = new ThreadWakeupRunner(
       {
         sendInput,
@@ -183,5 +199,89 @@ describe('ThreadWakeupRunner', () => {
       undefined,
       3_000,
     );
+  });
+
+  describe('SessionAdmissionService gating (A5)', () => {
+    it('does not send when admission suppresses the revived instance, and marks the run deferred/failed', async () => {
+      const destination: AutomationDestination = {
+        kind: 'thread',
+        instanceId: 'instance-1',
+        reviveIfArchived: false,
+      };
+      const automation = makeAutomation(destination);
+      const run = makeRun();
+      const attached = { ...run, instanceId: 'instance-1' };
+      const deferred = {
+        ...attached,
+        status: 'failed' as const,
+        error: 'Thread wakeup deferred: instance not ready to receive input (awaiting-human).',
+      };
+
+      revive.mockResolvedValue({ status: 'live', instanceId: 'instance-1' });
+      attachInstance.mockReturnValue(attached);
+      terminalizeRun.mockReturnValue(deferred);
+      mockAdmitAutomatedWrite.mockReturnValue({
+        kind: 'suppressed',
+        reason: 'awaiting-human',
+        admissionId: 'adm-suppressed',
+      });
+
+      const result = await runner.fireThreadWakeup({ run, automation, destination });
+
+      expect(sendInput).not.toHaveBeenCalled();
+      expect(mockAdmitAutomatedWrite).toHaveBeenCalledWith({
+        instanceId: 'instance-1',
+        origin: 'automation',
+        message: 'Continue the work',
+        attachments: automation.action.attachments,
+        sourceMetadata: { automationId: 'automation-1', runId: 'run-1' },
+      });
+      expect(terminalizeRun).toHaveBeenCalledWith(
+        'run-1',
+        'failed',
+        expect.stringContaining('awaiting-human'),
+        undefined,
+        3_000,
+      );
+      expect(result).toEqual(deferred);
+    });
+
+    it('sends and marks delivered when admission admits', async () => {
+      const destination: AutomationDestination = {
+        kind: 'thread',
+        instanceId: 'instance-1',
+        reviveIfArchived: false,
+      };
+      const automation = makeAutomation(destination);
+      const run = makeRun();
+      const attached = { ...run, instanceId: 'instance-1' };
+      const completed = { ...attached, status: 'succeeded' as const };
+
+      revive.mockResolvedValue({ status: 'live', instanceId: 'instance-1' });
+      attachInstance.mockReturnValue(attached);
+      terminalizeRun.mockReturnValue(completed);
+      mockAdmitAutomatedWrite.mockReturnValue({ kind: 'admitted', admissionId: 'adm-admitted' });
+      sendInput.mockResolvedValue(undefined);
+
+      await runner.fireThreadWakeup({ run, automation, destination });
+
+      expect(sendInput).toHaveBeenCalledWith('instance-1', 'Continue the work', automation.action.attachments);
+      expect(mockMarkDelivered).toHaveBeenCalledWith('adm-admitted');
+    });
+
+    it('registers a redelivery handler for the automation origin that resends directly', () => {
+      expect(mockRegisterRedeliveryHandler).toHaveBeenCalledWith('automation', expect.any(Function));
+      const handler = mockRegisterRedeliveryHandler.mock.calls[0][1] as (ctx: {
+        admissionId: string;
+        instanceId: string;
+        message: string;
+        attachments?: unknown[];
+      }) => void;
+
+      sendInput.mockResolvedValue(undefined);
+      handler({ admissionId: 'adm-redeliver', instanceId: 'instance-9', message: 'wake up' });
+
+      expect(sendInput).toHaveBeenCalledWith('instance-9', 'wake up', undefined);
+    });
   });
 });

@@ -6,6 +6,12 @@
     [instanceStatus]="instanceStatus()"
   />
 
+  <!-- WS-C3: run-readiness checkpoint — reasons Send would fail expensively, right before it -->
+  <app-run-readiness-banner
+    [instanceId]="instanceId()"
+    [reasons]="runReadiness.reasons()"
+  />
+
   <!-- Unsent new-session composition: in flight, or recovered for retry -->
   @if (isDraftComposer()) {
     <app-composer-recovery-banner

@@ -146,6 +146,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/context/jit-loader.ts': 773,
   // Main process — core
   'src/main/core/config/claude-md-loader.ts': 804,
+  'src/main/core/config/settings-control-policy.ts': 717,
   'src/main/core/error-recovery.ts': 990,
   // Main process — history
   'src/main/history/history-manager.ts': 1478,
@@ -176,7 +177,10 @@ const ALLOWLIST: Record<string, number> = {
   // Raised 2773 -> 2848 for the wake-on-send branch: a hibernated session has
   // no adapter, so sendInput must wake it instead of falling through to the
   // communication layer's "no adapter" bug-state path.
-  'src/main/instance/instance-manager.ts': 2848,
+  // Raised 2848 -> 2900 for WS-B3: the adjudicator wiring in the
+  // deferred_permission ask path plus the terminateInstance breaker-state
+  // cleanup (fresh-eyes fix for the adjudicator-breaker leak).
+  'src/main/instance/instance-manager.ts': 2900,
   // Raised 1068 -> 1105 (2026-07-17 loop-issue fixes).
   'src/main/instance/instance-orchestration.ts': 1105,
   'src/main/instance/lifecycle/interrupt-respawn-handler.ts': 1421,
@@ -292,7 +296,11 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/rlm/llm-service.ts': 1024,
   'src/main/rlm/smart-compaction.ts': 880,
   // Main process — security
-  'src/main/security/permission-manager.ts': 1151,
+  // Raised 1151 -> 1210 for WS-B3 Phase 1: the never-delegable-category guard
+  // in checkPermission() plus its type fields. The decision-building logic
+  // itself was extracted to the sibling approval-category.ts module first,
+  // per this file's own extraction convention (see shadowed-rule-detector.ts).
+  'src/main/security/permission-manager.ts': 1210,
   // Main process — session
   'src/main/session/checkpoint-manager.ts': 752,
   // Re-tightened after moving the public session state interfaces to
@@ -373,6 +381,8 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/rlm/rlm-analytics.component.ts': 702,
   'src/renderer/app/features/semantic-search/semantic-search-page.component.ts': 865,
   'src/renderer/app/features/settings/ecosystem-settings-tab.component.ts': 733,
+  // Crossed 700 with the WS-B3 `approvalAdjudication` auxiliary slot entry.
+  'src/renderer/app/features/settings/auxiliary-models-settings-tab.component.ts': 702,
   'src/renderer/app/features/settings/permissions-settings-tab.component.ts': 413,
   'src/renderer/app/features/skills/skill-browser.component.ts': 766,
   'src/renderer/app/features/stats/stats-page.component.ts': 868,
@@ -393,6 +403,10 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/services/voice/providers/local-whisper-transcription-provider.ts': 849,
   // Shared
   'src/shared/types/loop.types.ts': 780,
+  // Crossed 700 from the WS-B3 `approvalAdjudicationEnabled` field alongside a
+  // concurrent, unrelated primitive-type extraction into settings-primitives.types.ts
+  // already in progress in this working tree; re-tighten once that split lands.
+  'src/shared/types/settings.types.ts': 711,
   // Worker agent
   // Raised 989 -> 990 (one-line drift; re-tighten at the next worker split).
   'src/worker-agent/worker-agent.ts': 990,

@@ -271,3 +271,38 @@ export const KNOWLEDGE_GRAPH_HELP: HelpEntry = {
     },
   ],
 };
+
+export const MEMORY_REVIEW_HELP: HelpEntry = {
+  sections: [
+    {
+      kind: 'callout',
+      variant: 'info',
+      heading: 'What this does',
+      body: 'Lessons the agent distils on its own from code review and debate outcomes never reach system-prompt-tier memory until a human approves them. This inbox is where you make that call.',
+    },
+    {
+      kind: 'steps',
+      heading: 'Deciding a proposal',
+      items: [
+        'Approve to accept the lesson as written — its status becomes user-approved.',
+        'Edit then approve to rewrite the wording before accepting; the original agent-derived lesson is retired and a new user-authored one takes its place.',
+        'Reject to discard the lesson; the underlying agent-derived entry is retired.',
+      ],
+    },
+    {
+      kind: 'list',
+      heading: 'What you see per proposal',
+      items: [
+        'Provenance badge and reinforcement count (how many times the same lesson was re-observed).',
+        'Source session, when the review that produced it is known.',
+        'How long ago it was captured.',
+      ],
+    },
+    {
+      kind: 'callout',
+      variant: 'tip',
+      heading: 'Decided history',
+      body: 'Toggle "Show decided history" to review past approvals and rejections, including any rationale you recorded.',
+    },
+  ],
+};

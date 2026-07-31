@@ -15,10 +15,11 @@ import * as os from 'node:os';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
+  classifyFreshEyesBlocking,
   runFreshEyesReviewGate,
   trackRepeatedCompletionEvidence,
 } from './loop-coordinator-completion-gates';
-import type { FreshEyesReviewer } from './loop-fresh-eyes-reviewer';
+import type { FreshEyesFinding, FreshEyesReviewer } from './loop-fresh-eyes-reviewer';
 import {
   defaultLoopConfig,
   type LoopIteration,
@@ -99,9 +100,15 @@ const cleanReview: FreshEyesReviewer = async () => ({
   summary: 'clean',
 });
 
+// WS-A3: a severity-blocking finding needs anchor-verified evidence (or a
+// deterministic-gate classification) to actually block completion — a bare
+// severity-only finding with no anchor is now DEMOTED (see the "WS-A3
+// evidence-anchored blocking" describe block below). This fixture uses
+// `deterministic-gate` so the pre-existing "a review blocks" tests exercise
+// that always-blocks path without needing a real git-backed diff artifact.
 const blockedReview: FreshEyesReviewer = async () => ({
   findings: [
-    { title: 'Bug', body: 'Broken', severity: 'critical', confidence: 0.9 },
+    { title: 'Bug', body: 'Broken', severity: 'critical', confidence: 0.9, evidenceClass: 'deterministic-gate' },
   ],
   reviewersUsed: ['stub'],
   summary: 'blocked',
@@ -248,6 +255,255 @@ describe('runFreshEyesReviewGate — D6 instant ALLOW (anti-self-grading)', () =
     });
 
     expect(captureReviewLesson).not.toHaveBeenCalled();
+  });
+});
+
+describe('classifyFreshEyesBlocking (WS-A3 blocking-rule matrix)', () => {
+  const DIFF = [
+    'diff --git a/src/a.ts b/src/a.ts',
+    '--- a/src/a.ts',
+    '+++ b/src/a.ts',
+    '@@ -1,1 +1,2 @@',
+    ' unchanged',
+    '+const guard = checkAuth();',
+  ].join('\n');
+
+  it('lets a deterministic-gate finding block unconditionally, with no anchor needed', () => {
+    const finding: FreshEyesFinding = {
+      title: 'Potential secret redacted before external review',
+      body: '1 potential secret was redacted from the review payload.',
+      severity: 'critical',
+      confidence: 1,
+      evidenceClass: 'deterministic-gate',
+    };
+    const { blocking, demoted } = classifyFreshEyesBlocking([finding], '');
+    expect(blocking).toEqual([finding]);
+    expect(demoted).toEqual([]);
+  });
+
+  it('blocks a severity-blocking finding whose anchor verifies against the persisted artifact', () => {
+    const finding: FreshEyesFinding = {
+      title: 'Missing auth guard', body: 'The route never checks auth.', severity: 'high', confidence: 0.9,
+      anchor: { file: 'src/a.ts', quote: 'const guard = checkAuth();' },
+    };
+    const { blocking, demoted } = classifyFreshEyesBlocking([finding], DIFF);
+    expect(demoted).toEqual([]);
+    expect(blocking).toHaveLength(1);
+    expect(blocking[0].anchorStatus).toBe('verified');
+  });
+
+  it('re-anchors (and still blocks) when the quote is real but at a location the finding did not cite', () => {
+    const finding: FreshEyesFinding = {
+      title: 'Missing auth guard', body: 'x', severity: 'high', confidence: 0.9,
+      anchor: { file: 'src/other.ts', quote: 'const guard = checkAuth();' },
+    };
+    const { blocking, demoted } = classifyFreshEyesBlocking([finding], DIFF);
+    expect(demoted).toEqual([]);
+    expect(blocking).toHaveLength(1);
+    expect(blocking[0].anchorStatus).toBe('re-anchored');
+    expect(blocking[0].anchor?.file).toBe('src/a.ts');
+  });
+
+  it('demotes a severity-blocking finding whose anchor cannot be verified, with a reason', () => {
+    const finding: FreshEyesFinding = {
+      title: 'Hallucinated bug', body: 'x', severity: 'critical', confidence: 0.9,
+      anchor: { quote: 'this text is nowhere in the diff' },
+    };
+    const { blocking, demoted } = classifyFreshEyesBlocking([finding], DIFF);
+    expect(blocking).toEqual([]);
+    expect(demoted).toHaveLength(1);
+    expect(demoted[0].anchorStatus).toBe('evidence_unverified');
+    expect(demoted[0].demotedReason).toMatch(/could not be located/);
+  });
+
+  it('demotes a severity-blocking finding that cites no evidence at all, with a reason', () => {
+    const finding: FreshEyesFinding = { title: 'Vague concern', body: 'x', severity: 'high', confidence: 0.5 };
+    const { blocking, demoted } = classifyFreshEyesBlocking([finding], DIFF);
+    expect(blocking).toEqual([]);
+    expect(demoted).toHaveLength(1);
+    expect(demoted[0].demotedReason).toMatch(/No locatable evidence/);
+  });
+});
+
+describe('runFreshEyesReviewGate (WS-A3 demotion visibility, end to end)', () => {
+  it('passes (nothing blocks) but still surfaces a demoted finding on the pass event', async () => {
+    const state = makeState();
+    const iteration = makeIteration({
+      filesChanged: [{ path: 'src/app.ts', additions: 1, deletions: 0, contentHash: 'h' }],
+    });
+    const unanchoredButSevere: FreshEyesReviewer = async () => ({
+      findings: [{ title: 'Unverifiable claim', body: 'x', severity: 'critical', confidence: 0.9 }],
+      reviewersUsed: ['stub'],
+      summary: 'one unverifiable finding',
+    });
+
+    const args = gateArgs(state, iteration, unanchoredButSevere);
+    const result = await runFreshEyesReviewGate(args);
+
+    expect(result.blocked).toBe(false);
+    expect(result.demotedFindings).toHaveLength(1);
+    expect(result.demotedFindings?.[0].demotedReason).toBeTruthy();
+    expect(args.emit).toHaveBeenCalledWith(
+      'loop:fresh-eyes-review-passed',
+      expect.objectContaining({ demotedFindings: expect.arrayContaining([expect.objectContaining({ title: 'Unverifiable claim' })]) }),
+    );
+  });
+
+  it('blocks on the deterministic-gate finding while a co-occurring unverifiable finding is demoted, not dropped', async () => {
+    const state = makeState();
+    const iteration = makeIteration({
+      filesChanged: [{ path: 'src/app.ts', additions: 1, deletions: 0, contentHash: 'h' }],
+    });
+    const mixedReview: FreshEyesReviewer = async () => ({
+      findings: [
+        {
+          title: 'Potential secret redacted before external review',
+          body: 'redacted', severity: 'critical', confidence: 1, evidenceClass: 'deterministic-gate',
+        },
+        { title: 'Unverifiable claim', body: 'x', severity: 'high', confidence: 0.7 },
+      ],
+      reviewersUsed: ['stub'],
+      summary: 'mixed',
+    });
+
+    const args = gateArgs(state, iteration, mixedReview);
+    const result = await runFreshEyesReviewGate(args);
+
+    expect(result.blocked).toBe(true);
+    expect(result.demotedFindings).toHaveLength(1);
+    expect(result.demotedFindings?.[0].title).toBe('Unverifiable claim');
+    expect(args.emit).toHaveBeenCalledWith(
+      'loop:fresh-eyes-review-blocked',
+      expect.objectContaining({
+        blockingFindings: [expect.objectContaining({ title: 'Potential secret redacted before external review' })],
+        demotedFindings: expect.arrayContaining([expect.objectContaining({ title: 'Unverifiable claim' })]),
+      }),
+    );
+  });
+});
+
+describe('runFreshEyesReviewGate (WS-B9 exact reviewer coverage + per-angle cache)', () => {
+  it('a required angle that parse_failed forces errored:true, not a clean pass, even though something ran', async () => {
+    const state = makeState();
+    const iteration = makeIteration({
+      filesChanged: [{ path: 'src/app.ts', additions: 1, deletions: 0, contentHash: 'h' }],
+    });
+    const shortfallReview: FreshEyesReviewer = async () => ({
+      findings: [],
+      reviewersUsed: ['gemini'],
+      summary: 'one reviewer ran clean, one angle parse-failed',
+      coverage: [
+        { angle: 'correctness', reviewerProvider: 'gemini', status: 'used', findingCount: 0, required: true },
+        {
+          angle: 'security', reviewerProvider: 'codex', status: 'parse_failed', findingCount: 0,
+          required: true, activationReason: 'unparseable output',
+        },
+      ],
+    });
+
+    const args = gateArgs(state, iteration, shortfallReview);
+    const result = await runFreshEyesReviewGate(args);
+
+    expect(result.blocked).toBe(false);
+    expect(result.errored).toBe(true);
+    expect(result.coverage).toHaveLength(2);
+    expect(args.emit).toHaveBeenCalledWith(
+      'loop:fresh-eyes-review-failed',
+      expect.objectContaining({
+        error: expect.stringContaining('security:parse_failed'),
+        coverage: expect.arrayContaining([expect.objectContaining({ angle: 'security', status: 'parse_failed' })]),
+      }),
+    );
+    // Never a clean-verdict cache write on a coverage shortfall.
+    expect(state.freshEyesCleanForWorkState).not.toBe(true);
+  });
+
+  it('full required coverage (all used) stays a clean pass and carries coverage on the result/event', async () => {
+    const state = makeState();
+    const iteration = makeIteration({
+      filesChanged: [{ path: 'src/app.ts', additions: 1, deletions: 0, contentHash: 'h' }],
+    });
+    const fullCoverageReview: FreshEyesReviewer = async () => ({
+      findings: [],
+      reviewersUsed: ['gemini'],
+      summary: 'clean',
+      coverage: [
+        { angle: 'correctness', reviewerProvider: 'gemini', status: 'used', findingCount: 0, required: true },
+        { angle: 'local-advisory', reviewerProvider: 'local-model', status: 'used', findingCount: 0, required: false },
+      ],
+    });
+
+    const args = gateArgs(state, iteration, fullCoverageReview);
+    const result = await runFreshEyesReviewGate(args);
+
+    expect(result).toEqual(expect.objectContaining({ blocked: false, ran: true, errored: false }));
+    expect(result.coverage).toHaveLength(2);
+    expect(state.freshEyesCleanForWorkState).toBe(true);
+    expect(args.emit).toHaveBeenCalledWith(
+      'loop:fresh-eyes-review-passed',
+      expect.objectContaining({ coverage: expect.any(Array) }),
+    );
+  });
+
+  it('a reviewer implementation that reports no coverage at all is unaffected (backward compatible)', async () => {
+    // `cleanReview` (existing fixture) never sets `coverage` — the shortfall
+    // check must be a no-op, not a false shortfall.
+    const state = makeState();
+    const result = await runFreshEyesReviewGate(gateArgs(state, makeIteration(), cleanReview));
+
+    expect(result).toEqual({ blocked: false, ran: true, errored: false });
+    expect(result.coverage).toBeUndefined();
+  });
+
+  it('binds the per-angle cache to this run\'s LoopState: a second attempt with an identical key reuses it', async () => {
+    const state = makeState();
+    const cacheAwareReview: FreshEyesReviewer = async (input) => {
+      const keyInput = {
+        reviewerProvider: 'gemini', model: 'auto', angleId: 'correctness',
+        promptVersion: 'pv1', rulesHash: 'none', workHash: 'wh-unchanged',
+      };
+      const hit = input.reviewAngleCache?.lookup(keyInput);
+      if (hit) {
+        return {
+          findings: [], reviewersUsed: ['gemini'], summary: 'clean (reused)',
+          coverage: [{
+            angle: 'correctness', reviewerProvider: 'gemini', status: 'cached',
+            findingCount: 0, required: true, activationReason: hit.activationReason,
+          }],
+        };
+      }
+      input.reviewAngleCache?.store({
+        ...keyInput,
+        review: {
+          reviewerId: 'gemini', reviewType: 'structured',
+          scores: {
+            correctness: { reasoning: 'ok', score: 4, issues: [] },
+            completeness: { reasoning: 'ok', score: 4, issues: [] },
+            security: { reasoning: 'ok', score: 4, issues: [] },
+            consistency: { reasoning: 'ok', score: 4, issues: [] },
+          },
+          overallVerdict: 'APPROVE', summary: 'clean', timestamp: 1, durationMs: 1, parseSuccess: true,
+        },
+      });
+      return {
+        findings: [], reviewersUsed: ['gemini'], summary: 'clean (live)',
+        coverage: [{ angle: 'correctness', reviewerProvider: 'gemini', status: 'used', findingCount: 0, required: true }],
+      };
+    };
+
+    const first = await runFreshEyesReviewGate(gateArgs(
+      state,
+      makeIteration({ filesChanged: [{ path: 'src/app.ts', additions: 1, deletions: 0, contentHash: 'h1' }] }),
+      cacheAwareReview,
+    ));
+    expect(first.coverage?.[0]).toMatchObject({ status: 'used' });
+
+    const second = await runFreshEyesReviewGate(gateArgs(
+      state,
+      makeIteration({ filesChanged: [{ path: 'src/app.ts', additions: 1, deletions: 0, contentHash: 'h2' }] }),
+      cacheAwareReview,
+    ));
+    expect(second.coverage?.[0]).toMatchObject({ status: 'cached' });
   });
 });
 

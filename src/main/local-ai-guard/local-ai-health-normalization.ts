@@ -16,6 +16,7 @@ const ROLE_ORDER: readonly AuxiliaryLlmSlot[] = [
   'titleGeneration',
   'routingClassification',
   'approvalScoring',
+  'approvalAdjudication',
   'loopScoring',
   'retrievalHypothesis',
   'branchScoring',

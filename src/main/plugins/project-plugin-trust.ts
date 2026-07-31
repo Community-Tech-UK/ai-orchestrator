@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import * as path from 'path';
 import type { ProjectPluginTrust } from '../../shared/types/settings.types';
 import type { PluginManifest } from '@sdk/plugins';
@@ -69,9 +70,24 @@ export function buildProjectPluginTrustSkippedPlugin(
 
 const TRUST_VALUES = new Set<ProjectPluginTrust>(['trusted', 'untrusted', 'ask']);
 
+/**
+ * Resolves symlinks via `fs.realpathSync` (2026-07-31 fresh-eyes hardening,
+ * aligned with the same fix in `pr-creation-service.ts` — this function
+ * shared the exact gap: `path.resolve` never dereferences a symlink, so a
+ * symlink alias of a DIFFERENT, untrusted directory could be mistaken for a
+ * trusted one). Fail-closed: an unresolvable path (missing, permissions,
+ * symlink loop) falls back to the plain-resolved form, which can then only
+ * still match another equally-unresolvable, byte-identical raw string.
+ */
 export function canonicalizeProjectPluginRoot(projectRoot: string): string {
   const resolved = path.resolve(projectRoot);
-  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+  let real = resolved;
+  try {
+    real = fs.realpathSync(resolved);
+  } catch {
+    real = resolved;
+  }
+  return process.platform === 'win32' ? real.toLowerCase() : real;
 }
 
 export function resolveProjectPluginTrust(

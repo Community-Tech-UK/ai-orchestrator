@@ -39,6 +39,7 @@ const {
   mockResolveModelForTier,
   mockLocalModelInventory,
   mockLocalModelRefresh,
+  mockCleanupAdjudicatorBreakerForInstance,
 } = vi.hoisted(() => ({
   mockCreateCliAdapter: vi.fn(),
   mockCommandExecuteCommandString: vi.fn().mockResolvedValue(null),
@@ -94,6 +95,7 @@ const {
   mockResolveModelForTier: vi.fn(),
   mockLocalModelInventory: [] as unknown[],
   mockLocalModelRefresh: vi.fn(),
+  mockCleanupAdjudicatorBreakerForInstance: vi.fn(),
 }));
 
 // ---------------------------------------------------------------------------
@@ -379,6 +381,13 @@ const mockPermissionManager = {
 
 vi.mock('../../security/permission-manager', () => ({
   getPermissionManager: vi.fn(() => mockPermissionManager),
+}));
+
+vi.mock('../../security/approval-adjudicator', () => ({
+  maybeAdjudicateDeferredPermission: vi.fn().mockResolvedValue(null),
+  resetAdjudicatorBreaker: vi.fn(),
+  cleanupAdjudicatorBreakerForInstance: mockCleanupAdjudicatorBreakerForInstance,
+  isAdjudicatorBreakerTripped: vi.fn().mockReturnValue(false),
 }));
 
 vi.mock('../../../shared/utils/permission-mapper', () => ({
@@ -1211,6 +1220,17 @@ describe('InstanceManager', () => {
       expect(manager.getAllInstances()).toHaveLength(1);
       await manager.terminateInstance(instance.id);
       expect(manager.getAllInstances()).toHaveLength(0);
+    });
+
+    it('cleans up the adjudicator denial-breaker state (WS-B3 fresh-eyes fix)', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Adjudicator Breaker Cleanup Test',
+      });
+
+      await manager.terminateInstance(instance.id);
+
+      expect(mockCleanupAdjudicatorBreakerForInstance).toHaveBeenCalledWith(instance.id);
     });
   });
 

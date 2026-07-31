@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { EventEmitter } from 'events';
 import type { CliResponse, CliToolCall } from '../cli/adapters/base-cli-adapter';
 import { toProviderOutputEvent } from './provider-output-event';
@@ -8,11 +8,26 @@ import type {
   ProviderPromptWeightBreakdown,
   ProviderRateLimitDiagnostics,
   ProviderRuntimeEvent,
+  ProviderToolResultObservedEvent,
+  ProviderToolUseObservedEvent,
+  ProviderUnknownEvent,
 } from '@contracts/types/provider-runtime-events';
 import { getLogger } from '../logging/logger';
 import { normalizeUsage, type UsageLike } from '../../shared/util/usage-normalization';
+import { toJsonSafeProviderEventPayload } from './provider-event-raw-payload';
 
 const bridgeLogger = getLogger('AdapterRuntimeEventBridge');
+
+/**
+ * WS-B10: cap on the serialized size of a `ProviderUnknownEvent.payload`.
+ * Oversized payloads are replaced with a `{ truncated: true, ... }` marker
+ * (see `capUnknownEventPayload`) instead of forwarding an unbounded blob
+ * through IPC and into the capture ledger.
+ */
+export const UNKNOWN_EVENT_PAYLOAD_MAX_BYTES = 4096;
+
+/** Bound on the human-readable tool observation summaries (args/result). */
+const TOOL_OBSERVATION_SUMMARY_MAX_CHARS = 200;
 
 export type AdapterRuntimeEventSource = Pick<EventEmitter, 'on' | 'off'>;
 
@@ -36,7 +51,12 @@ type NormalizedAdapterRuntimeRawPayload<K extends ProviderRuntimeEventKind> =
             : K extends 'complete' ? CliResponse
               : K extends 'exit' ? { code: number | null; signal: string | null }
                 : K extends 'spawned' ? number
-                  : never;
+                  // WS-B10: `unknown` is the only new kind that can flow through
+                  // observeAdapterRuntimeEvents() today (output/context fail-closed
+                  // routing); tool_use_observed/tool_result_observed are pure
+                  // normalizers not yet wired into this live stream.
+                  : K extends 'unknown' ? unknown
+                    : never;
 
 export type NormalizedAdapterRuntimeEvent =
   | NormalizedAdapterRuntimeEventBase<'output', OutputMessage | string>
@@ -47,7 +67,8 @@ export type NormalizedAdapterRuntimeEvent =
   | NormalizedAdapterRuntimeEventBase<'error', Error | string>
   | NormalizedAdapterRuntimeEventBase<'complete', CliResponse>
   | NormalizedAdapterRuntimeEventBase<'exit', { code: number | null; signal: string | null }>
-  | NormalizedAdapterRuntimeEventBase<'spawned', number>;
+  | NormalizedAdapterRuntimeEventBase<'spawned', number>
+  | NormalizedAdapterRuntimeEventBase<'unknown', unknown>;
 
 export type AdapterRuntimeEventName =
   | 'output'
@@ -155,8 +176,18 @@ export function mapAdapterRuntimeEvent(
   switch (name) {
     case 'output': {
       const rawPayload = args[0] as OutputMessage | string;
+      // An empty string is an intentional no-op (nothing to normalize into an
+      // output event), not an unrecognized shape — keep dropping it silently.
+      if (typeof rawPayload === 'string' && !rawPayload) {
+        return null;
+      }
       const normalized = normalizeOutputMessage(rawPayload);
-      return normalized ? { event: toProviderOutputEvent(normalized), rawPayload, timestamp: normalized.timestamp } : null;
+      if (normalized) {
+        return { event: toProviderOutputEvent(normalized), rawPayload, timestamp: normalized.timestamp };
+      }
+      // WS-B10: previously a silent drop (see the `[NORMALIZE_DROP]` warn
+      // above in normalizeOutputMessage) — fail-closed into `unknown` instead.
+      return { event: buildUnknownEvent('output', rawPayload), rawPayload };
     }
     case 'tool_use': {
       const rawPayload = args[0] as CliToolCall;
@@ -173,7 +204,11 @@ export function mapAdapterRuntimeEvent(
     case 'context': {
       const rawPayload = args[0];
       const normalized = normalizeContextUsage(rawPayload);
-      if (!normalized) return null;
+      if (!normalized) {
+        // WS-B10: previously a silent drop with no log at all — fail-closed
+        // into `unknown` instead.
+        return { event: buildUnknownEvent('context', rawPayload), rawPayload };
+      }
       return {
         event: {
           kind: 'context', used: normalized.used, total: normalized.total, percentage: normalized.percentage,
@@ -447,4 +482,116 @@ function normalizeOutputMessageType(type: unknown): OutputMessage['type'] {
     default:
       return 'assistant';
   }
+}
+
+// ============================================
+// WS-B10: unknown-event routing and tool observation normalization
+// ============================================
+
+/** Fail-closed wrapper for a recognized-but-unclassifiable adapter event. */
+function buildUnknownEvent(rawType: string, payload: unknown): ProviderUnknownEvent {
+  return {
+    kind: 'unknown',
+    rawType,
+    payload: capUnknownEventPayload(payload),
+    receivedAt: Date.now(),
+  };
+}
+
+/**
+ * Cap the serialized size of an unknown-event payload at
+ * `UNKNOWN_EVENT_PAYLOAD_MAX_BYTES`. Oversized payloads are replaced with a
+ * bounded preview marker rather than sent whole.
+ */
+function capUnknownEventPayload(value: unknown): unknown {
+  const safe = toJsonSafeProviderEventPayload(value);
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(safe) ?? 'undefined';
+  } catch {
+    return { truncated: true, reason: 'unserializable' };
+  }
+  const byteLength = Buffer.byteLength(serialized, 'utf8');
+  if (byteLength <= UNKNOWN_EVENT_PAYLOAD_MAX_BYTES) {
+    return safe;
+  }
+  return {
+    truncated: true,
+    originalByteLength: byteLength,
+    maxBytes: UNKNOWN_EVENT_PAYLOAD_MAX_BYTES,
+    preview: serialized.slice(0, UNKNOWN_EVENT_PAYLOAD_MAX_BYTES),
+  };
+}
+
+/**
+ * Pure normalizer from a raw `CliToolCall` (tool_use phase) into the
+ * `tool_use_observed` seam a future loop-detector consumes. Not wired into
+ * the live `observeAdapterRuntimeEvents` stream in WS-B10 — callers that
+ * want this seam invoke it directly alongside their existing `tool_use`
+ * handling so today's event volume/behavior is unchanged.
+ */
+export function toProviderToolUseObservedEvent(toolCall: CliToolCall): ProviderToolUseObservedEvent {
+  const argsHash = toolCall.arguments !== undefined ? hashStable(stableStringify(toolCall.arguments)) : undefined;
+  return {
+    kind: 'tool_use_observed',
+    toolName: toolCall.name,
+    ...(toolCall.id !== undefined ? { callId: toolCall.id } : {}),
+    ...(argsHash !== undefined ? { argsHash } : {}),
+    argsSummary: summarizeForObservation(toolCall.arguments),
+  };
+}
+
+/**
+ * Pure normalizer from a raw `CliToolCall` (tool_result phase) into the
+ * `tool_result_observed` seam. See `toProviderToolUseObservedEvent` for why
+ * this is not wired into the live adapter-event stream in WS-B10.
+ */
+export function toProviderToolResultObservedEvent(toolCall: CliToolCall): ProviderToolResultObservedEvent {
+  const resultHash = toolCall.result !== undefined ? hashStable(stableStringify(toolCall.result)) : undefined;
+  return {
+    kind: 'tool_result_observed',
+    ...(toolCall.id !== undefined ? { callId: toolCall.id } : {}),
+    ...(resultHash !== undefined ? { resultHash } : {}),
+    resultSummary: summarizeForObservation(toolCall.result),
+  };
+}
+
+/** sha256 hex digest (first 16 chars) — matches the pattern in loop-invoker-capture.ts. */
+function hashStable(value: string): string {
+  return createHash('sha256').update(value).digest('hex').slice(0, 16);
+}
+
+/** Deterministic JSON serialization (sorted keys) so equal values hash equal regardless of key order. */
+function stableStringify(value: unknown): string {
+  try {
+    return JSON.stringify(sortJsonKeys(value));
+  } catch {
+    return String(value);
+  }
+}
+
+function sortJsonKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortJsonKeys);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, child]) => [key, sortJsonKeys(child)]),
+  );
+}
+
+function summarizeForObservation(value: unknown, maxLength = TOOL_OBSERVATION_SUMMARY_MAX_CHARS): string {
+  let text: string;
+  if (value === undefined) {
+    text = '';
+  } else if (typeof value === 'string') {
+    text = value;
+  } else {
+    try {
+      text = JSON.stringify(value) ?? String(value);
+    } catch {
+      text = String(value);
+    }
+  }
+  return text.length <= maxLength ? text : `${text.slice(0, maxLength)}…`;
 }

@@ -8,6 +8,7 @@ import {
 import { Router } from '@angular/router';
 import { InstanceDetailComponent } from '../instance-detail/instance-detail.component';
 import { WorkboardCardComponent } from './workboard-card.component';
+import { WorkboardDecisionTimelineComponent } from './workboard-decision-timeline.component';
 import { WorkboardSourceSummaryComponent } from './workboard-source-summary.component';
 import { WorkboardStore } from './workboard.store';
 import type { WorkboardLane } from './workboard.types';
@@ -41,7 +42,12 @@ const REFRESH_INTERVAL_MS = 4000;
   selector: 'app-workboard-page',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [InstanceDetailComponent, WorkboardCardComponent, WorkboardSourceSummaryComponent],
+  imports: [
+    InstanceDetailComponent,
+    WorkboardCardComponent,
+    WorkboardDecisionTimelineComponent,
+    WorkboardSourceSummaryComponent,
+  ],
   providers: [WorkboardStore],
   template: `
     <div class="wb" [class.wb-detail-open]="showDetail()">
@@ -139,6 +145,7 @@ const REFRESH_INTERVAL_MS = 4000;
                 (openSpecialist)="onOpenSpecialist($event)"
               />
             }
+            <app-workboard-decision-timeline [item]="selected" [now]="0" />
           } @else {
             <div class="wb-detail-placeholder">
               <p>Select a card to see its details.</p>
@@ -306,6 +313,8 @@ const REFRESH_INTERVAL_MS = 4000;
 
     .wb-detail-instance { flex: 1; min-height: 0; overflow: hidden; display: flex; }
     .wb-detail-instance > * { flex: 1; min-width: 0; }
+
+    app-workboard-decision-timeline { flex: 0 0 auto; max-height: 240px; overflow-y: auto; }
 
     .wb-detail-placeholder {
       display: flex;

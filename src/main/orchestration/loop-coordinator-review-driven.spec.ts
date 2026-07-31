@@ -763,7 +763,17 @@ describe('LoopCoordinator review-driven completion', () => {
       reviewCalls += 1;
       if (reviewCalls === 1) {
         return {
-          findings: [{ title: 'Missing error handling', body: 'parsePayload can throw', severity: 'critical', confidence: 0.9 }],
+          findings: [{
+            title: 'Missing error handling', body: 'parsePayload can throw', severity: 'critical', confidence: 0.9,
+            // WS-A3: a severity-blocking finding only blocks completion when
+            // its evidence is anchor-verified, or (as here) it is a
+            // deterministic-gate finding — a plain severity claim with no
+            // anchor is demoted to advisory instead. `deterministic-gate`
+            // keeps this test exercising "a blocking finding resets the
+            // streak", not evidence-anchor verification (covered in
+            // `loop-coordinator-completion-gates.spec.ts`).
+            evidenceClass: 'deterministic-gate',
+          }],
           reviewersUsed: ['gemini'],
           summary: '1 finding',
         };

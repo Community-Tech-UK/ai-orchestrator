@@ -115,6 +115,7 @@ import {
   RemoteConfigUpdatedEventSchema,
   SettingsChangedEventSchema,
 } from '@contracts/schemas/settings';
+import { CompareRunUpdatedEventSchema } from '@contracts/schemas/command';
 import {
   CliUpdatePillStateEventSchema,
   EmptyRendererEventSchema,
@@ -289,6 +290,7 @@ const RENDERER_EVENT_SCHEMAS = new Map<string, ZodType>([
   [IPC_CHANNELS.MCP_STATE_CHANGED, McpStateChangedEventSchema],
   [IPC_CHANNELS.VCS_STATUS_CHANGED, VcsStatusChangedEventSchema],
   [IPC_CHANNELS.VCS_OPERATION_PROGRESS, VcsOperationProgressEventSchema],
+  [IPC_CHANNELS.COMPARE_RUN_UPDATED, CompareRunUpdatedEventSchema],
 ]);
 
 interface RendererEventSender {

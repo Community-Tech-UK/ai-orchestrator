@@ -8,6 +8,7 @@ import { isSessionNotFoundText } from './resume-error-classifier';
 import { extractThinkingContent } from '../../../shared/utils/thinking-extractor';
 import { CURSOR_DEFAULT_MODELS, discoverCursorModels } from './cursor-cli-adapter.models';
 import { probeVersionStatus } from './cli-status-probe';
+import { killProcessGroup } from './base-cli-process-utils';
 import type {
   CursorAssistantEvent,
   CursorCliConfig,
@@ -410,11 +411,7 @@ export class CursorCliAdapter extends BaseCliAdapter {
     const timeoutMs = this.cliConfig.timeout ?? this.config.timeout ?? 300_000;
     this.activeTimeout = setTimeout(() => {
       if (this.process) {
-        try {
-          this.process.kill('SIGTERM');
-        } catch {
-          /* ignored */
-        }
+        killProcessGroup(this.process.pid, 'SIGTERM');
         const rs = this.activeResultState;
         this.activeResultState = null;
         this.activeTimeout = null;

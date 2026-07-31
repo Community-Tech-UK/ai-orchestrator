@@ -141,4 +141,63 @@ describe('aggregateReviewFindings', () => {
     expect(finding.advisory).toBe(false);
     expect(finding.reviewerProvenance).toEqual([{ reviewer: 'same-id', source: 'remote' }]);
   });
+
+  describe('WS-A3 evidence anchoring', () => {
+    it('keeps the weakest anchorStatus across the cluster when the representative did not itself verify', () => {
+      const [finding] = aggregateReviewFindings([
+        f({
+          reviewer: 'codex', title: 'Missing null guard', body: 'payload value is read without a null guard',
+          severity: 'high', confidence: 0.9,
+          anchor: { quote: 'payload.value' }, anchorStatus: 're-anchored',
+        }),
+        f({
+          reviewer: 'gemini', title: 'Missing null guard', body: 'payload value read without a null guard',
+          severity: 'high', confidence: 0.5,
+          anchor: { quote: 'payload.value' }, anchorStatus: 'evidence_unverified',
+        }),
+      ], { totalReviewers: 2 });
+
+      // codex is the representative (higher confidence), but its OWN status
+      // (re-anchored) is not 'verified', so the cluster conservatively rolls
+      // up to the weakest member — evidence_unverified.
+      expect(finding.anchorStatus).toBe('evidence_unverified');
+      // The anchor itself still rides the representative finding.
+      expect(finding.anchor).toEqual({ quote: 'payload.value' });
+    });
+
+    it("uses the representative's own verified status outright, even with a weaker sibling", () => {
+      const [finding] = aggregateReviewFindings([
+        f({
+          reviewer: 'codex', title: 'Missing null guard', body: 'payload value is read without a null guard',
+          severity: 'high', confidence: 0.9,
+          anchor: { quote: 'payload.value' }, anchorStatus: 'verified',
+        }),
+        f({
+          reviewer: 'gemini', title: 'Missing null guard', body: 'payload value read without a null guard',
+          severity: 'high', confidence: 0.5,
+          anchor: { quote: 'payload.value' }, anchorStatus: 'evidence_unverified',
+        }),
+      ], { totalReviewers: 2 });
+
+      expect(finding.anchorStatus).toBe('verified');
+    });
+
+    it('carries evidenceClass through from the representative finding', () => {
+      const [finding] = aggregateReviewFindings([
+        f({ reviewer: 'codex', title: 'Unlocalized note', body: 'general concern', evidenceClass: 'unlocalized-advisory' }),
+      ], { totalReviewers: 1 });
+
+      expect(finding.evidenceClass).toBe('unlocalized-advisory');
+      expect(finding.anchorStatus).toBeUndefined();
+    });
+
+    it('leaves anchorStatus unset when no cluster member was ever checked against an artifact', () => {
+      const [finding] = aggregateReviewFindings([
+        f({ reviewer: 'codex', title: 'Plain finding', body: 'no evidence cited' }),
+      ], { totalReviewers: 1 });
+
+      expect(finding.anchorStatus).toBeUndefined();
+      expect(finding.anchor).toBeUndefined();
+    });
+  });
 });

@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal, effect } from '@angular/core';
 import { SettingsStore } from '../../core/state/settings.store';
-import { SecurityIpcService } from '../../core/services/ipc/security-ipc.service';
+import { SecurityIpcService, type ShadowedRuleFindingDto } from '../../core/services/ipc/security-ipc.service';
 import { TaskIpcService } from '../../core/services/ipc/task-ipc.service';
 import { TaskPreflightCardComponent } from '../../shared/components/task-preflight-card.component';
 import type { TaskPreflightReport } from '../../../../shared/types/task-preflight.types';
@@ -123,6 +123,9 @@ export class PermissionsSettingsTabComponent {
   permissionAuditDecisions = signal<PermissionDecisionAuditRecord[]>([]);
   permissionAuditDenials = signal<PermissionDenialAuditRecord[]>([]);
 
+  shadowedRuleFindings = signal<ShadowedRuleFindingDto[]>([]);
+  shadowedRulesLoading = signal(false);
+
   private initialized = false;
 
   constructor() {
@@ -155,7 +158,22 @@ export class PermissionsSettingsTabComponent {
       this.loadStats(),
       this.loadPermissionPreset(),
       this.loadPermissionAudit(),
+      this.loadShadowedRuleFindings(),
     ]);
+  }
+
+  async loadShadowedRuleFindings(): Promise<void> {
+    this.shadowedRulesLoading.set(true);
+    try {
+      const response = await this.securityIpc.permissionAnalyzeShadowedRules();
+      if (response.success) {
+        this.shadowedRuleFindings.set(response.data?.findings ?? []);
+      }
+    } catch (error) {
+      console.error('Failed to load rule analysis:', error);
+    } finally {
+      this.shadowedRulesLoading.set(false);
+    }
   }
 
   async loadPermissionPreset(): Promise<void> {

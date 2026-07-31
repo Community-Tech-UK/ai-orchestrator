@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildStructuredReviewPrompt, buildTieredReviewPrompt } from './review-prompts';
+import { buildStructuredReviewPrompt, buildTieredReviewPrompt, EVIDENCE_TAIL_MARKER } from './review-prompts';
 
 describe('cross-model review prompt contracts', () => {
   it.each([buildStructuredReviewPrompt, buildTieredReviewPrompt])(
@@ -22,6 +22,20 @@ describe('cross-model review prompt contracts', () => {
       expect(prompt).not.toContain('Only issues that MUST be addressed');
       expect(prompt).toContain('Allowed overall_verdict values');
       expect(prompt).toContain('"overall_verdict": "APPROVE"');
+    },
+  );
+
+  it.each([buildStructuredReviewPrompt, buildTieredReviewPrompt])(
+    'WS-A3: teaches the evidence-anchor tail once with a worked example, and prohibits fabricating a quote',
+    (buildPrompt) => {
+      const prompt = buildPrompt('task', 'output');
+      expect(prompt).toContain(EVIDENCE_TAIL_MARKER);
+      expect(prompt).toContain('"quote"');
+      expect(prompt).toContain('character-for-character');
+      expect(prompt).toContain('never paraphrased, retyped from memory, or');
+      // The evidence section (instructions + one worked example) appears
+      // exactly once per prompt — teach once, not scattered.
+      expect(prompt.split('## Citing evidence for an issue').length - 1).toBe(1);
     },
   );
 });

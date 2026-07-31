@@ -37,6 +37,7 @@ import { DOC_REVIEW_CHANNELS } from './doc-review.channels';
 import { NOTIFICATION_CHANNELS } from './notification.channels';
 import { CONTEXT_EVIDENCE_CHANNELS } from './context-evidence.channels';
 import { LOCAL_AI_GUARD_CHANNELS } from './local-ai-guard.channels';
+import { WORKBOARD_CHANNELS } from './workboard.channels';
 
 export {
   INSTANCE_CHANNELS,
@@ -70,6 +71,7 @@ export {
   NOTIFICATION_CHANNELS,
   CONTEXT_EVIDENCE_CHANNELS,
   LOCAL_AI_GUARD_CHANNELS,
+  WORKBOARD_CHANNELS,
 };
 
 /**
@@ -108,6 +110,7 @@ export const IPC_CHANNELS = {
   ...NOTIFICATION_CHANNELS,
   ...CONTEXT_EVIDENCE_CHANNELS,
   ...LOCAL_AI_GUARD_CHANNELS,
+  ...WORKBOARD_CHANNELS,
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

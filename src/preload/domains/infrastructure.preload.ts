@@ -153,6 +153,9 @@ export function createInfrastructureDomain(
     permissionGetStats: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.PERMISSION_GET_STATS);
     },
+    permissionAnalyzeShadowedRules: (scope?: string): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.PERMISSION_ANALYZE_SHADOWED_RULES, { scope });
+    },
     permissionGetAuditLog: (
       instanceId?: string,
       limit?: number
@@ -491,18 +494,6 @@ export function createInfrastructureDomain(
     },
     sessionRecallResolveRef: (payload: { text: string }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.SESSION_RECALL_RESOLVE_REF, payload);
-    },
-
-    // Multi-provider compare — ask N providers the same prompt
-    compareListProviders: (): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.COMPARE_LIST_PROVIDERS);
-    },
-    compareRun: (payload: {
-      prompt: string;
-      providers: string[];
-      workingDirectory?: string;
-    }): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.COMPARE_RUN, payload);
     },
 
     // LSP post-edit feedback loop (opt-in)

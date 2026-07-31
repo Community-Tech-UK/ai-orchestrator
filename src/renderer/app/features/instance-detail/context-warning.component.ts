@@ -22,6 +22,13 @@ import {
         </div>
         <div class="warning-actions">
           @if (!isCompacting()) {
+            <button
+              class="preview-btn"
+              (click)="previewRequested.emit()"
+              aria-label="Preview what compaction will summarize before it happens"
+            >
+              Preview
+            </button>
             <button class="compact-btn" (click)="compactNow.emit()">
               Compact Now
             </button>
@@ -111,6 +118,25 @@ import {
       background: rgba(255, 255, 255, 0.1);
     }
 
+    .preview-btn {
+      padding: 4px 12px;
+      border-radius: var(--radius-sm);
+      border: 1px solid currentColor;
+      background: transparent;
+      color: inherit;
+      opacity: 0.85;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all var(--transition-fast);
+      white-space: nowrap;
+    }
+
+    .preview-btn:hover {
+      opacity: 1;
+      background: rgba(255, 255, 255, 0.1);
+    }
+
     .compacting-label {
       font-size: 12px;
       font-style: italic;
@@ -148,6 +174,8 @@ export class ContextWarningComponent {
   isEstimated = input<boolean>(false);
 
   compactNow = output<void>();
+  /** WS-B7: opens the manual-compaction preview dialog before compacting. */
+  previewRequested = output<void>();
   dismiss = output<void>();
 
   visible = computed(() => {

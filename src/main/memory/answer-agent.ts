@@ -13,8 +13,12 @@ import { getLLMService } from '../rlm/llm-service';
 import { retryWithBackoff } from '../core/error-recovery';
 import { getLogger } from '../logging/logger';
 import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
+import { formatAge, isStaleAge } from './format-age';
 
 const answerLogger = getLogger('AnswerAgent');
+
+/** Memories older than this get a brief "verify before trusting" caveat (P0.3). */
+const STALE_MEMORY_DAYS = 30;
 
 export interface AnswerConfig {
   maxContextTokens: number;
@@ -81,10 +85,14 @@ export function buildAnswerMemoryContext(
         escapeClosingTag(memory.content, 'memory'),
         'retrieved_memories',
       );
+      const ageMs = Date.now() - memory.updatedAt;
+      const stale = isStaleAge(ageMs, STALE_MEMORY_DAYS);
       parts.push(
         '<memory>',
         content,
         memory.tags.length > 0 ? `Tags: ${memory.tags.join(', ')}` : '',
+        `Age: ${formatAge(ageMs)}`,
+        stale ? 'This memory is over 30 days old — verify against current code or state before relying on it.' : '',
         '</memory>',
       );
     }

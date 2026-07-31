@@ -126,7 +126,7 @@ describe('ProviderRuntimeEventEnvelopeSchema', () => {
     ).toThrow();
   });
 
-  it('accepts each of the 9 event kinds', () => {
+  it('accepts each of the original 9 event kinds (WS-B10 additions covered separately below)', () => {
     const kinds = [
       { kind: 'output', content: 'hi' },
       { kind: 'tool_use', toolName: 'bash' },
@@ -258,5 +258,80 @@ describe('ProviderRuntimeEventEnvelopeSchema', () => {
         },
       })
     ).toThrow();
+  });
+
+  // ── WS-B10: taxonomy hardening ──────────────────────────────────────────
+
+  it('accepts the WS-B10 unknown event with a JSON-safe payload', () => {
+    const parsed = ProviderRuntimeEventEnvelopeSchema.parse({
+      ...baseEnv,
+      event: {
+        kind: 'unknown',
+        providerRef: 'claude',
+        rawType: 'output',
+        payload: { odd: true, nested: [1, 2] },
+        receivedAt: 1713340800000,
+      },
+    }).event;
+
+    expect(parsed).toMatchObject({ kind: 'unknown', rawType: 'output' });
+  });
+
+  it('accepts an unknown event without the optional providerRef', () => {
+    expect(() =>
+      ProviderRuntimeEventEnvelopeSchema.parse({
+        ...baseEnv,
+        event: { kind: 'unknown', rawType: 'context', payload: null, receivedAt: 1 },
+      })
+    ).not.toThrow();
+  });
+
+  it('rejects an unknown event missing rawType or receivedAt', () => {
+    expect(
+      ProviderRuntimeEventEnvelopeSchema.safeParse({
+        ...baseEnv,
+        event: { kind: 'unknown', payload: null },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('accepts tool_use_observed and tool_result_observed events', () => {
+    const toolUseObserved = ProviderRuntimeEventEnvelopeSchema.parse({
+      ...baseEnv,
+      event: {
+        kind: 'tool_use_observed',
+        toolName: 'Read',
+        callId: 'tool-1',
+        argsHash: 'abc123',
+        argsSummary: '{"path":"README.md"}',
+      },
+    }).event;
+    expect(toolUseObserved).toMatchObject({ kind: 'tool_use_observed', toolName: 'Read', callId: 'tool-1' });
+
+    const toolResultObserved = ProviderRuntimeEventEnvelopeSchema.parse({
+      ...baseEnv,
+      event: {
+        kind: 'tool_result_observed',
+        callId: 'tool-1',
+        resultHash: 'def456',
+        resultSummary: 'ok',
+        isError: false,
+      },
+    }).event;
+    expect(toolResultObserved).toMatchObject({ kind: 'tool_result_observed', resultSummary: 'ok', isError: false });
+  });
+
+  it('rejects tool_use_observed missing the required argsSummary', () => {
+    expect(
+      ProviderRuntimeEventEnvelopeSchema.safeParse({
+        ...baseEnv,
+        event: { kind: 'tool_use_observed', toolName: 'Read' },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('accepts an envelope-level ephemeral marker', () => {
+    const parsed = ProviderRuntimeEventEnvelopeSchema.parse({ ...baseEnv, ephemeral: true });
+    expect(parsed.ephemeral).toBe(true);
   });
 });

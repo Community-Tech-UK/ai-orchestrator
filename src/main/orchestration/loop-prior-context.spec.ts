@@ -19,7 +19,7 @@ function input(over: Partial<AssemblePlanContextInput> = {}): AssemblePlanContex
     searchCodemem: async () => [
       { path: 'src/widget.ts', startLine: 12, excerpt: 'export function widget() { … }' },
     ],
-    surfaceLearnings: async () => ['Prefer the reconciler for runtime changes.'],
+    surfaceLearnings: async () => [{ text: 'Prefer the reconciler for runtime changes.' }],
     ...over,
   };
 }
@@ -61,7 +61,10 @@ describe('assemblePlanStageContext', () => {
 
   it('stays within the token budget even with oversized sources', async () => {
     const block = await assemblePlanStageContext(input({
-      surfaceLearnings: async () => Array.from({ length: 50 }, (_, i) => `lesson ${i} ${'x'.repeat(2_000)}`),
+      surfaceLearnings: async () => Array.from(
+        { length: 50 },
+        (_, i) => ({ text: `lesson ${i} ${'x'.repeat(2_000)}` }),
+      ),
       searchCodemem: async () => Array.from({ length: 50 }, (_, i) => ({
         path: `src/f${i}.ts`,
         excerpt: 'y'.repeat(2_000),
@@ -69,5 +72,43 @@ describe('assemblePlanStageContext', () => {
     }));
     expect(estimateTokens(block)).toBeLessThanOrEqual(PLAN_CONTEXT_TOKEN_BUDGET + 32);
     expect(block).toContain('truncated to the');
+  });
+
+  describe('lesson age rendering (P0.3)', () => {
+    it('appends a day-granularity age when the lesson carries a timestamp', async () => {
+      const block = await assemblePlanStageContext(input({
+        surfaceLearnings: async () => [{ text: 'Recent lesson.', updatedAt: Date.now() }],
+      }));
+      expect(block).toContain('Recent lesson. (today)');
+    });
+
+    it('omits the age suffix when no timestamp is known', async () => {
+      const block = await assemblePlanStageContext(input({
+        surfaceLearnings: async () => [{ text: 'Timestampless lesson.' }],
+      }));
+      expect(block).toContain('Timestampless lesson.');
+      expect(block).not.toContain('Timestampless lesson. (');
+    });
+
+    it('adds ONE header caveat line when any lesson is older than 7 days, not per-line', async () => {
+      const eightDaysAgo = Date.now() - 8 * 24 * 60 * 60 * 1000;
+      const block = await assemblePlanStageContext(input({
+        surfaceLearnings: async () => [
+          { text: 'Stale lesson.', updatedAt: eightDaysAgo },
+          { text: 'Fresh lesson.', updatedAt: Date.now() },
+        ],
+      }));
+      expect(block).toContain('Stale lesson. (1 week ago)');
+      expect(block).toContain('Fresh lesson. (today)');
+      const caveatOccurrences = block.split('point-in-time').length - 1;
+      expect(caveatOccurrences).toBe(1);
+    });
+
+    it('adds no staleness caveat when all lessons are recent', async () => {
+      const block = await assemblePlanStageContext(input({
+        surfaceLearnings: async () => [{ text: 'Fresh lesson.', updatedAt: Date.now() }],
+      }));
+      expect(block).not.toContain('point-in-time');
+    });
   });
 });

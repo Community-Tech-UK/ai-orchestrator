@@ -19,8 +19,13 @@ export type LessonStatus = 'active' | 'deprecated';
  * WS16 provenance: gates instruction-grade use. `agent-derived` lessons (the
  * default — captured by loop review/debate) may only appear inside advisory,
  * clearly-labelled blocks, never system-prompt-tier content.
+ *
+ * WS-A4: `user-approved` is a distinct, narrower trust tier from
+ * `user-authored`. It is set ONLY by {@link LessonStore.setProvenance} from an
+ * explicit operator decision recorded in `proposal_audit` (GovernedProposal
+ * approve, no edit) — never by `capture()`'s own upgrade-on-recapture path.
  */
-export type LessonProvenance = 'user-authored' | 'agent-derived' | 'imported';
+export type LessonProvenance = 'user-authored' | 'agent-derived' | 'imported' | 'user-approved';
 
 export interface Lesson {
   id: string;
@@ -147,6 +152,30 @@ export class LessonStore {
     if (!lesson || lesson.status === 'deprecated') return false;
     lesson.status = 'deprecated';
     return true;
+  }
+
+  /**
+   * WS-A4: explicit provenance override for an operator decision (governed
+   * proposal approve/reject). Distinct from `capture()`'s automatic
+   * upgrade-on-recapture — this is the only path that may set
+   * `'user-approved'`. Returns the updated lesson, or undefined if unknown.
+   */
+  setProvenance(id: string, provenance: LessonProvenance, now: number = Date.now()): Lesson | undefined {
+    const lesson = this.lessons.get(id);
+    if (!lesson) return undefined;
+    lesson.provenance = provenance;
+    lesson.updatedAt = now;
+    return lesson;
+  }
+
+  /** Find the first active lesson whose normalized text matches, or undefined. */
+  findActiveByNormalizedText(normalizedText: string): Lesson | undefined {
+    for (const lesson of this.lessons.values()) {
+      if (lesson.status === 'active' && normalizeLessonText(lesson.text) === normalizedText) {
+        return lesson;
+      }
+    }
+    return undefined;
   }
 
   get(id: string): Lesson | undefined {

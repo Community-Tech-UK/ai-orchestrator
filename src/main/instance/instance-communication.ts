@@ -71,6 +71,7 @@ import {
 import { isSessionNotFoundText } from '../cli/adapters/resume-error-classifier';
 import { getSessionContinuityManagerIfInitialized } from '../session/session-continuity';
 import { getOrCreateTurnSupervisor } from '../session/session-turn-supervisor';
+import { getSessionAdmissionService } from '../session/session-admission-service';
 import { stabilizeThinkingBlocks } from '../../shared/utils/thinking-extractor';
 import {
   CIRCUIT_BREAKER_CONFIG,
@@ -873,10 +874,27 @@ export class InstanceCommunicationManager extends EventEmitter {
     // tool_executing extends timeouts for long tool runs). Adapters that
     // return from sendInput() quickly (Claude, Gemini) are unaffected.
     this.deps.onToolStateChange?.(instanceId, 'generating');
+    // Observe-only receipt (Phase A of SessionAdmissionService). Never adds
+    // latency or a new failure mode: recordUserSend() swallows its own
+    // errors and returns null on failure, and the mark* calls below are
+    // fail-soft no-ops when admissionRecord is null.
+    const admissionRecord = getSessionAdmissionService().recordUserSend(
+      instanceId,
+      finalMessage,
+      attachments,
+      finalContextBlock,
+    );
     try {
       await adapter.sendInput(finalMessage, attachments);
       logger.info('Message sent to adapter');
+      if (admissionRecord) getSessionAdmissionService().markDelivered(admissionRecord.admissionId);
     } catch (initialError) {
+      if (admissionRecord) {
+        getSessionAdmissionService().markFailed(
+          admissionRecord.admissionId,
+          initialError instanceof Error ? initialError.message : String(initialError),
+        );
+      }
       let sendError = initialError;
 
       if (attachments?.length && isUnsupportedOrchestratorAttachmentError(sendError)) {

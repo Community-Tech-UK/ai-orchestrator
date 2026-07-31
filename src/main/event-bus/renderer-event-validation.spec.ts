@@ -482,6 +482,42 @@ describe('renderer event validation', () => {
     })).toBe(false);
   });
 
+  it('validates WS-B9 per-angle coverage on fresh-eyes review events', () => {
+    const coverage = [
+      { angle: 'correctness', reviewerProvider: 'gemini', status: 'used', findingCount: 0, required: true },
+      { angle: 'security', reviewerProvider: 'codex', status: 'parse_failed', findingCount: 0, required: true },
+    ];
+    expect(validateRendererEventPayload(IPC_CHANNELS.LOOP_FRESH_EYES_REVIEW_PASSED, {
+      loopRunId: 'loop-1',
+      signal: 'declared-complete',
+      reviewersUsed: ['gemini'],
+      summary: 'clean',
+      coverage,
+    })).toBe(true);
+    expect(validateRendererEventPayload(IPC_CHANNELS.LOOP_FRESH_EYES_REVIEW_BLOCKED, {
+      loopRunId: 'loop-1',
+      signal: 'declared-complete',
+      reviewersUsed: ['gemini'],
+      blockingFindings: [{ title: 'Bug', severity: 'critical' }],
+      summary: 'blocked',
+      coverage,
+    })).toBe(true);
+    expect(validateRendererEventPayload(IPC_CHANNELS.LOOP_FRESH_EYES_REVIEW_FAILED, {
+      loopRunId: 'loop-1',
+      signal: 'declared-complete',
+      error: 'required reviewer/angle coverage was incomplete this attempt (security:parse_failed)',
+      coverage,
+    })).toBe(true);
+    // Absence stays valid too — coverage is optional (older/degraded reviewer
+    // implementations don't report it).
+    expect(validateRendererEventPayload(IPC_CHANNELS.LOOP_FRESH_EYES_REVIEW_PASSED, {
+      loopRunId: 'loop-1',
+      signal: 'declared-complete',
+      reviewersUsed: ['gemini'],
+      summary: 'clean',
+    })).toBe(true);
+  });
+
   it('validates CLI verification coordinator event payloads', () => {
     expect(validateRendererEventPayload('verification:started', {
       requestId: 'cli-verify-1',
@@ -571,9 +607,11 @@ describe('renderer event validation', () => {
     })).toBe(true);
     expect(validateRendererEventPayload('instance:doom-loop', {
       instanceId: 'instance-1',
+      detector: 'repeat-no-progress',
+      severity: 'warn',
       toolName: 'Bash',
-      input: { command: 'ls' },
-      consecutiveCount: 5,
+      count: 5,
+      windowDescription: '3 consecutive identical calls',
     })).toBe(true);
     expect(validateRendererEventPayload(IPC_CHANNELS.INPUT_REQUIRED, {
       instanceId: 'instance-1',
