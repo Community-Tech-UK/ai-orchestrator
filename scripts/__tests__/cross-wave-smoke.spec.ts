@@ -304,7 +304,10 @@ describe('Wave 7 cross-wave smoke', () => {
     });
 
     const controller = TestBed.inject(SessionPickerController);
-    expect(controller.groups()[0].items.map((item) => item.value.id)).toEqual(['inst-b', 'inst-a']);
+    // WS-C2 added a "Needs You" group ahead of Live Sessions, so address the
+    // live group by id rather than position; these idle fixtures belong there.
+    const liveGroup = controller.groups().find((group) => group.id === 'live');
+    expect(liveGroup?.items.map((item) => item.value.id)).toEqual(['inst-b', 'inst-a']);
   });
 
   it('keeps compaction summaries out of system-event grouping and suppresses interrupt boundaries', () => {

@@ -84,7 +84,10 @@ const ALLOWLIST: Record<string, number> = {
   // seams + breaker auto-disable notification; the loop logic itself lives in
   // automation-loop-run.ts). Re-tighten after the next runner split.
   // Raised 753 -> 776 (2026-07-17 loop-fix + context-evidence follow-ups).
-  'src/main/automations/automation-runner.ts': 776,
+  // Raised 776 -> 837 (WS-C7 contained-execution-profile fire-time gate +
+  // spawn wiring, incl. the thread/loop refusal guard so contained never
+  // silently downgrades).
+  'src/main/automations/automation-runner.ts': 837,
   // Main process — browser gateway
   // Raised 2284 -> 2400 for the execute_fill_plan + fill_credential service
   // methods (delegators to browser-form-fill-operations) + the credential
@@ -402,6 +405,9 @@ const ALLOWLIST: Record<string, number> = {
   // current size pending a dedicated STT-follow-up split (see OUTSTANDING.md).
   'src/main/services/voice/providers/local-whisper-transcription-provider.ts': 849,
   // Shared
+  // Crossed 700 from the WS-C7 `containedExecution` field (Instance +
+  // InstanceCreateConfig) — re-tighten with a dedicated split if it grows further.
+  'src/shared/types/instance.types.ts': 702,
   'src/shared/types/loop.types.ts': 780,
   // Crossed 700 from the WS-B3 `approvalAdjudicationEnabled` field alongside a
   // concurrent, unrelated primitive-type extraction into settings-primitives.types.ts

@@ -448,6 +448,18 @@
                   </div>
                 }
 
+                <app-automation-execution-profile-selector
+                  [value]="form().executionProfile"
+                  [resolvedProvider]="resolvedModelPreview().provider"
+                  (valueChange)="patchForm({ executionProfile: $event })"
+                />
+
+                <app-automation-authority-panel
+                  [authorityInput]="formAuthorityInput()"
+                  [templates]="authorityTemplates"
+                  (templateApplied)="applyAuthorityTemplate($event)"
+                />
+
                 @if (store.preflight(); as report) {
                   <div class="preflight" [class.preflight--blocked]="!report.okToSave">
                     <div class="preflight-header">
@@ -540,6 +552,10 @@
                 </div>
 
                 <pre class="prompt">{{ automation.action.prompt }}</pre>
+
+                @if (selectedAuthorityInput(); as authorityInput) {
+                  <app-automation-authority-panel [authorityInput]="authorityInput" />
+                }
 
                 <h3>Recent Runs</h3>
                 <div class="runs">

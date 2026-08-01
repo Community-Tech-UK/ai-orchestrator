@@ -14,6 +14,14 @@ import {
   type WorkflowLifecyclePhase,
 } from '../../../../shared/types/workflow-lifecycle.types';
 import { NO_WORKSPACE_KEY, toWorkspaceId } from '../../../../shared/utils/workspace-key';
+import {
+  attentionLevelForAutomationRunStatus,
+  attentionLevelForInstanceStatus,
+  attentionLevelForLoopStatus,
+  attentionLevelForRepoJobStatus,
+  mostUrgentAttentionLevel,
+  type AttentionLevel,
+} from '../../../../shared/attention/attention-level';
 import type {
   WorkboardInstanceInput,
   WorkboardItem,
@@ -33,106 +41,67 @@ function assertNever(value: never): never {
 }
 
 // ---------------------------------------------------------------------------
-// Source-status → attention-lane policy (exhaustive; a new status is a compile
-// error until it is mapped). This is a Workboard attention policy, NOT a
-// replacement for WorkflowLifecyclePhase — the coarse phase is retained too.
+// Source-status → attention-lane policy. WS-C2: the actual urgency ranking
+// now lives in ONE place, `src/shared/attention/attention-level.ts` (shared
+// by Workboard, the session picker, and the mobile gateway) — these
+// functions are thin per-domain projections of that shared scale onto
+// Workboard's four-lane display grouping. Each keeps its historic name and
+// signature so existing callers/tests are unaffected.
 // ---------------------------------------------------------------------------
+
+/** Project a shared `AttentionLevel` onto Workboard's four-lane grouping.
+ *  `blocked` / `failed` / `review` all collapse into `needs-you` — Workboard
+ *  shows one lane for "needs you"; the finer split stays on `attentionLevel`
+ *  for act-from-the-card and snoozing. */
+export function attentionLevelToLane(level: AttentionLevel): WorkboardLane {
+  switch (level) {
+    case 'blocked':
+    case 'failed':
+    case 'review':
+      return 'needs-you';
+    case 'waiting':
+      return 'waiting';
+    case 'working':
+      return 'working';
+    case 'idle':
+      return 'done';
+    default:
+      return assertNever(level);
+  }
+}
 
 /** Instance status → lane (spec §4.2). */
 export function instanceStatusToLane(status: InstanceStatus): WorkboardLane {
-  switch (status) {
-    case 'waiting_for_permission':
-    case 'waiting_for_input':
-    case 'degraded':
-    case 'error':
-    case 'failed':
-      return 'needs-you';
-    case 'initializing':
-    case 'busy':
-    case 'processing':
-    case 'thinking_deeply':
-    case 'respawning':
-    case 'waking':
-    case 'interrupting':
-    case 'cancelling':
-    case 'interrupt-escalating':
-      return 'working';
-    case 'hibernating':
-    case 'hibernated':
-      return 'waiting';
-    case 'ready':
-    case 'idle':
-    case 'terminated':
-    case 'cancelled':
-    case 'superseded':
-      return 'done';
-    default:
-      return assertNever(status);
-  }
+  return attentionLevelToLane(attentionLevelForInstanceStatus(status));
 }
 
 /** Loop status → lane (spec §4.2). `provider-limit` splits on `endedAt`:
  *  a null end is an active/resumable wait, a set end is a terminal attention. */
 export function loopStatusToLane(status: LoopStatus, endedAt: number | null): WorkboardLane {
-  switch (status) {
-    case 'running':
-      return 'working';
-    case 'paused':
-      return 'waiting';
-    case 'provider-limit':
-      return endedAt === null ? 'waiting' : 'needs-you';
-    case 'completed-needs-review':
-    case 'failed':
-    case 'error':
-    case 'no-progress':
-    case 'cap-reached':
-    case 'cost-exceeded':
-    case 'needs-human-arbitration':
-    case 'reviewer-unreliable':
-    case 'reviewer-unavailable':
-    case 'builder-unreliable':
-      return 'needs-you';
-    case 'completed':
-    case 'cancelled':
-      return 'done';
-    default:
-      return assertNever(status);
-  }
+  return attentionLevelToLane(attentionLevelForLoopStatus(status, endedAt));
 }
 
 /** Automation-run status → lane (spec §4.2). */
 export function automationRunStatusToLane(status: AutomationRunStatus): WorkboardLane {
-  switch (status) {
-    case 'running':
-      return 'working';
-    case 'pending':
-      return 'waiting';
-    case 'failed':
-      return 'needs-you';
-    case 'succeeded':
-    case 'skipped':
-    case 'cancelled':
-      return 'done';
-    default:
-      return assertNever(status);
-  }
+  return attentionLevelToLane(attentionLevelForAutomationRunStatus(status));
 }
 
 /** Repository-job status → lane (spec §4.2). */
 export function repoJobStatusToLane(status: RepoJobStatus): WorkboardLane {
-  switch (status) {
-    case 'running':
-      return 'working';
-    case 'queued':
-      return 'waiting';
-    case 'failed':
-      return 'needs-you';
-    case 'completed':
-    case 'cancelled':
-      return 'done';
-    default:
-      return assertNever(status);
-  }
+  return attentionLevelToLane(attentionLevelForRepoJobStatus(status));
+}
+
+/**
+ * WS-C2 snooze hand-raise predicate: true when an item's current attention
+ * level should automatically clear an active snooze. `working` and
+ * `waiting` are the two "still in progress, nothing to see" levels — a
+ * snooze survives those. Anything else — the item newly needs a decision
+ * (`blocked`), failed, was flagged for review, or finished (`idle`) — raises
+ * its hand and un-snoozes automatically, matching the plan's "becomes
+ * blocked-on-you, fails, or completes" wording.
+ */
+export function attentionLevelClearsSnooze(level: AttentionLevel): boolean {
+  return level !== 'working' && level !== 'waiting';
 }
 
 /** Repository jobs are not in the shared lifecycle module; project them here. */
@@ -235,6 +204,7 @@ function instanceToCandidate(inst: WorkboardInstanceInput): Candidate {
       rawStatus: inst.status,
       phase,
       lane: instanceStatusToLane(inst.status),
+      attentionLevel: attentionLevelForInstanceStatus(inst.status),
       updatedAt: inst.lastActivity,
       terminal: isTerminalPhase(phase),
     },
@@ -253,6 +223,7 @@ function loopToCandidate(loop: LoopRunSummaryPayload): Candidate {
       rawStatus: loop.status,
       phase: loopStatusToPhase(loop.status),
       lane: loopStatusToLane(loop.status, loop.endedAt),
+      attentionLevel: attentionLevelForLoopStatus(loop.status, loop.endedAt),
       updatedAt: loop.endedAt ?? loop.startedAt,
       // A loop is terminal exactly when it has an end time — this correctly
       // treats a resumable `provider-limit` (endedAt null) as still live and a
@@ -278,6 +249,7 @@ function automationRunToCandidate(run: AutomationRun, automation: Automation | u
       rawStatus: run.status,
       phase,
       lane: automationRunStatusToLane(run.status),
+      attentionLevel: attentionLevelForAutomationRunStatus(run.status),
       updatedAt: run.finishedAt ?? run.startedAt ?? run.updatedAt ?? run.createdAt,
       terminal: isTerminalPhase(phase),
     },
@@ -298,6 +270,7 @@ function repoJobToCandidate(job: RepoJobRecord): Candidate {
       rawStatus: job.status,
       phase,
       lane: repoJobStatusToLane(job.status),
+      attentionLevel: attentionLevelForRepoJobStatus(job.status),
       updatedAt: job.completedAt ?? job.startedAt ?? job.createdAt,
       terminal: isTerminalPhase(phase),
     },
@@ -328,6 +301,7 @@ function buildItem(
 ): WorkboardItem {
   const relations = [primary.relation, ...relatedRelations];
   const lane = mostUrgentLane(relations.map((r) => r.lane));
+  const attentionLevel = mostUrgentAttentionLevel(relations.map((r) => r.attentionLevel));
   const updatedAt = relations.reduce((max, r) => Math.max(max, r.updatedAt), 0);
 
   const item: WorkboardItem = {
@@ -335,6 +309,7 @@ function buildItem(
     primary: primary.relation,
     relations,
     lane,
+    attentionLevel,
     title: primary.title,
     workspaceId: toWorkspaceId(primary.workingDirectory),
     workingDirectory: primary.workingDirectory,

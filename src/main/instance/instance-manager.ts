@@ -24,6 +24,7 @@ import { forgetLspFeedbackInstance } from '../codemem/lsp-feedback-registration'
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getTaskManager } from '../orchestration/task-manager';
 import { removeInstanceBrowserToolsMode } from './lifecycle/browser-tool-scoping'; import { removeInstanceHardened } from './lifecycle/hardened-mode-scoping';
+import { removeInstanceContainedExecution } from './lifecycle/contained-execution-scoping';
 import { getHandoffStateService } from '../session/handoff-state-service';
 import { getNotificationService } from '../notifications/notification-service';
 import { buildParkFailoverOfferNotification } from './instance-failover';
@@ -81,6 +82,7 @@ import { reviveContinuitySession } from './lifecycle/continuity-revival';
 import { getPermissionEnforcer } from '../security/permission-enforcer';
 import { getPermissionManager, type PermissionRequest, type PermissionScope } from '../security/permission-manager';
 import { cleanupAdjudicatorBreakerForInstance, maybeAdjudicateDeferredPermission, resetAdjudicatorBreaker } from '../security/approval-adjudicator';
+import { deleteContextManifest } from '../context/context-manifest-store';
 import {
   getToolExecutionGate,
   type ToolExecutionGateDecision,
@@ -668,7 +670,7 @@ export class InstanceManager extends EventEmitter {
       const instance = this.state.getInstance(instanceId);
       this.providerEventBus.removeInstance(instanceId);
       this.settledTracker.clear(instanceId);
-      removeInstanceBrowserToolsMode(instanceId); removeInstanceHardened(instanceId); getHandoffStateService().removeInstance(instanceId);
+      removeInstanceBrowserToolsMode(instanceId); removeInstanceHardened(instanceId); removeInstanceContainedExecution(instanceId); getHandoffStateService().removeInstance(instanceId);
       this.emit('instance:event', this.lifecycleEvents.recordRemoved(instanceId, instance?.status));
       this.emit('instance:removed', instanceId);
     });
@@ -1448,6 +1450,7 @@ export class InstanceManager extends EventEmitter {
     // Drop per-instance accumulated state so long-running daemons don't leak.
     getActionCircuitBreaker().reset(instanceId);
     cleanupAdjudicatorBreakerForInstance(instanceId);
+    deleteContextManifest(instanceId);
     forgetLspFeedbackInstance(instanceId);
     await this.lifecycle.terminateInstance(instanceId, graceful);
     dispatchInstanceLifecycleHook('SessionEnd', instance, {

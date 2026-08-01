@@ -6,24 +6,27 @@ import type {
   MobileMessageDto,
   MobileProjectDto,
 } from '../../shared/types/mobile-gateway.types';
+import { ALL_INSTANCE_STATUSES, attentionLevelForInstanceStatus } from '../../shared/attention/attention-level';
 
 const NO_WORKSPACE_KEY = '__no_workspace__';
 
-/** Statuses that count as "actively working" for the project rollup. */
-export const WORKING_STATUSES = new Set<string>([
-  'initializing',
-  'busy',
-  'processing',
-  'thinking_deeply',
-  'interrupting',
-  'interrupt-escalating',
-  'cancelling',
-  'respawning',
-  'waking',
-]);
+/** Statuses that count as "actively working" for the project rollup. WS-C2:
+ *  derived from the shared attention scale (`working` level) rather than a
+ *  hand-maintained duplicate — this is exactly the same 9-status set
+ *  Workboard's `working` lane uses. */
+export const WORKING_STATUSES = new Set<string>(
+  ALL_INSTANCE_STATUSES.filter((status) => attentionLevelForInstanceStatus(status) === 'working'),
+);
 
-/** Statuses where an instance is blocked waiting on the user. */
-export const WAITING_STATUSES = new Set<string>(['waiting_for_permission', 'waiting_for_input']);
+/** Statuses where an instance is blocked waiting on the user (a live,
+ *  answerable prompt). WS-C2: derived from the shared attention scale's
+ *  `blocked` level — the same 2-status set as before this refactor
+ *  (`waiting_for_permission` / `waiting_for_input`); intentionally narrower
+ *  than "needs you" (see `needsAttentionCount` in `buildProjects`), since
+ *  this set specifically gates clearing a stale pending-prompt entry. */
+export const WAITING_STATUSES = new Set<string>(
+  ALL_INSTANCE_STATUSES.filter((status) => attentionLevelForInstanceStatus(status) === 'blocked'),
+);
 
 /** One persisted chat as the history source exposes it (structural view of ChatRecord). */
 export interface GatewayHistoryChat {
@@ -93,6 +96,7 @@ export function serializeInstance(
     id: instance.id,
     displayName: instance.displayName,
     status: instance.status,
+    attentionLevel: attentionLevelForInstanceStatus(instance.status),
     provider: instance.provider,
     model: instance.currentModel,
     workingDirectory,
@@ -135,6 +139,7 @@ export function buildProjects(instances: MobileInstanceDto[]): MobileProjectDto[
         sessionCount: 0,
         busyCount: 0,
         pendingApprovalCount: 0,
+        needsAttentionCount: 0,
         lastActivity: 0,
       };
       map.set(key, proj);
@@ -142,6 +147,11 @@ export function buildProjects(instances: MobileInstanceDto[]): MobileProjectDto[
     proj.sessionCount += 1;
     if (inst.isLooping === true || WORKING_STATUSES.has(inst.status)) proj.busyCount += 1;
     proj.pendingApprovalCount += inst.pendingApprovalCount;
+    // WS-C2: `blocked` or `failed` — the same "needs you" bucket Workboard's
+    // needs-you lane uses, minus `review` (no instance-level equivalent).
+    if (inst.attentionLevel === 'blocked' || inst.attentionLevel === 'failed') {
+      proj.needsAttentionCount += 1;
+    }
     proj.lastActivity = Math.max(proj.lastActivity, inst.lastActivity);
   }
   return [...map.values()].sort((a, b) => b.lastActivity - a.lastActivity);

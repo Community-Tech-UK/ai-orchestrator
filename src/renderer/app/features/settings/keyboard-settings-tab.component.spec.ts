@@ -67,4 +67,51 @@ describe('KeyboardSettingsTabComponent', () => {
     expect(pending.textContent).toContain('focus-output');
     expect(service.getCustomizations()).toEqual(before);
   });
+
+  it('rejects (does not apply) an import that claims a reserved platform combo (WS-C9)', () => {
+    // jsdom reports an empty navigator.platform, so KeybindingService resolves
+    // to the 'other' reserved-key list here — use one of those combos.
+    expect(service.isMac).toBe(false);
+    const textarea = fixture.nativeElement.querySelector('textarea') as HTMLTextAreaElement;
+    textarea.value = JSON.stringify([{ id: 'focus-input', keys: { key: 'F4', modifiers: ['alt'] } }]);
+    textarea.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    const before = service.getCustomizations();
+    const importButton = [...fixture.nativeElement.querySelectorAll('button')]
+      .find((button: HTMLButtonElement) => button.textContent?.includes('Import shortcuts')) as HTMLButtonElement;
+    importButton.click();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('reserved shortcut');
+    expect(service.getCustomizations()).toEqual(before);
+  });
+
+  it('groups shortcuts by context and searches by name/description/context (WS-C9)', () => {
+    const groupHeadings = [...fixture.nativeElement.querySelectorAll('.category-title')].map(
+      (el: HTMLElement) => el.textContent,
+    );
+    expect(groupHeadings).toContain('Composer / input');
+    expect(groupHeadings).toContain('Global');
+
+    const search = fixture.nativeElement.querySelector('.keybinding-search') as HTMLInputElement;
+    search.value = 'focus the message input';
+    search.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    const rows = [...fixture.nativeElement.querySelectorAll('.shortcut-name')].map(
+      (el: HTMLElement) => el.textContent,
+    );
+    expect(rows).toEqual(['Focus Input']);
+  });
+
+  it('renders every hint through ShortcutHintPipe (live resolver), matching KeybindingService.formatBinding', () => {
+    const search = fixture.nativeElement.querySelector('.keybinding-search') as HTMLInputElement;
+    search.value = 'Focus Input';
+    search.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    const kbd = fixture.nativeElement.querySelector('.shortcut-keys kbd') as HTMLElement;
+    expect(kbd.textContent).toBe(service.formatBindingByAction('focus-input'));
+  });
 });

@@ -50,6 +50,7 @@ export async function generateOpenAiCompatibleOnWorker(
           { role: 'user', content: params.userPrompt },
         ],
         temperature: params.temperature,
+        reasoning_effort: 'none',
         max_tokens: params.maxOutputTokens,
         stream: false,
       };

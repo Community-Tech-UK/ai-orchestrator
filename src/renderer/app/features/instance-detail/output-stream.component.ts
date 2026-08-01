@@ -43,6 +43,7 @@ import {
   withSelectionItem,
 } from './output-stream-context-menu';
 import { InstanceStore } from '../../core/state/instance/instance.store';
+import { SettingsStore } from '../../core/state/settings.store';
 import { MessageFormatService } from './message-format.service';
 import { OutputScrollService } from './output-scroll.service';
 import {
@@ -70,6 +71,9 @@ import { TranscriptFindController } from './transcript-find-controller';
 import { TranscriptJumpRailComponent } from './transcript-jump-rail.component';
 import { excerptText } from './transcript-jump-rail.markers';
 import { OutputStreamRenderWindow } from './output-stream-render-window';
+import { InlineEditController } from './output-stream-inline-edit-controller';
+import { TranscriptVirtualizerController } from './transcript-virtualizer-controller';
+import type { RenderSegment } from './transcript-virtualizer-math';
 
 interface OlderMessagesLoadResult {
   prependedCount: number;
@@ -127,11 +131,6 @@ export class OutputStreamComponent {
     retryMode: 'transcript-only';
   }>();
 
-  /** Id of the user message currently being edited in place, or null. */
-  protected editingMessageId = signal<string | null>(null);
-  /** Working text for the inline editor. */
-  protected editingDraft = signal('');
-
   /** ID of the last user message — used to show the edit button only on that message. */
   protected lastUserMessageId = computed(() => {
     const msgs = this.messages();
@@ -181,6 +180,13 @@ export class OutputStreamComponent {
   protected contextMenuX = signal(0);
   protected contextMenuY = signal(0);
   protected contextMenuItems = signal<ContextMenuItem[]>([]);
+
+  protected readonly inlineEdit = new InlineEditController({
+    getViewportElement: () => this.getViewportElement(),
+    isLoopOriginatedUserMessage: (message) => this.isLoopOriginatedUserMessage(message),
+    getMessages: () => this.messages(),
+    emitResend: (event) => this.resendEdited.emit(event),
+  });
 
   protected readonly transcriptFind = new TranscriptFindController({
     getViewportElement: () => this.getViewportElement(),
@@ -321,6 +327,28 @@ export class OutputStreamComponent {
   /** rAF-scoped guard so a burst of scroll events expands one step, not many. */
   private isExpandingRenderWindow = false;
 
+  private settingsStore = inject(SettingsStore);
+  /** WS-C10 — flagged measured-height DOM virtualization; default off. See
+   *  settings-defaults.ts and transcript-virtualizer-controller.ts. */
+  protected readonly virtualizationEnabled = computed(
+    () => this.settingsStore.settings().transcriptVirtualization,
+  );
+  /** Windowed rendering over `windowedItems()` by measured/estimated row
+   *  height, with top-level user messages always pinned (the jump rail and
+   *  inline-edit focus both need to query them synchronously) and the whole
+   *  window bypassed while transcript find is open (so search sees every
+   *  loaded message, not just the on-screen slice). */
+  private readonly virtualizer = new TranscriptVirtualizerController<RenderedDisplayItem>({
+    getViewportElement: () => this.getViewportElement(),
+    getInstanceId: () => this.instanceId(),
+    getItems: () => this.windowedItems(),
+    enabled: () => this.virtualizationEnabled(),
+    bypass: () => this.transcriptFind.isOpen(),
+    isPinned: (item) => item.type === 'message' && item.message?.type === 'user',
+    isScrolledUp: () => this.userScrolledUpRef.value,
+  });
+  protected readonly transcriptSegments = this.virtualizer.segments;
+
   /** Count of hidden tool-group items (for the toggle bar), including those
    *  nested inside work-cycles. */
   protected hiddenToolGroupCount = computed(() => {
@@ -369,8 +397,7 @@ export class OutputStreamComponent {
       this.isLoadingOlder.set(false);
       this.olderMessagesHiddenCount.set(0);
       // Close any open inline message editor — it belonged to the old session.
-      this.editingMessageId.set(null);
-      this.editingDraft.set('');
+      this.inlineEdit.reset();
       this.lastAutoScrollInstanceId = currentInstanceId;
       this.lastAutoScrollSignature = this.getMessageSignature(this.messages());
       // Drop any deferred restore from a prior switch — it's stale now.
@@ -384,6 +411,18 @@ export class OutputStreamComponent {
       // Perf: measure thread switch time and transcript paint
       const stopSwitch = this.perf.markThreadSwitch(this.previousInstanceId, currentInstanceId);
       const stopPaint = this.perf.markTranscriptPaint(currentInstanceId, this.messages().length);
+
+      // WS-C10: capture the outgoing session's scroll anchor and pre-resolve
+      // the incoming one, so the virtualizer's render window already covers
+      // the restored position before the rAF below sets scrollTop — avoiding
+      // a blank-spacer flash. No-op (and no anchor storage) while disabled.
+      if (this.virtualizationEnabled()) {
+        if (this.previousInstanceId !== null) {
+          this.virtualizer.saveAnchorForInstance(this.previousInstanceId);
+        }
+        const anchoredTarget = this.virtualizer.restoreScrollTopForInstance(currentInstanceId);
+        this.virtualizer.recordScrollTopValue(anchoredTarget ?? targetPosition ?? 0);
+      }
 
       // Restore scroll position for the new instance using rAF for frame alignment
       requestAnimationFrame(() => {
@@ -515,10 +554,14 @@ export class OutputStreamComponent {
 
     // Deferred syntax highlighting: after Angular renders new content,
     // highlight code blocks in idle time so input is never blocked. Tracks
-    // the windowed list — the DOM only ever contains windowedItems, and
-    // window expansion must highlight the newly revealed rows.
+    // the rendered segment list rather than windowedItems() directly so
+    // WS-C10 virtualization (where the window can also slide on scroll
+    // alone, with windowedItems() unchanged) still highlights newly
+    // revealed rows; when virtualization is disabled the two are
+    // equivalent, since transcriptSegments() then mirrors windowedItems()
+    // one row per item.
     effect(() => {
-      this.windowedItems();
+      this.transcriptSegments();
       setTimeout(() => {
         const container = this.getViewportElement();
         if (container) {
@@ -529,14 +572,23 @@ export class OutputStreamComponent {
 
     // Re-apply find highlights after Angular replaces rendered transcript nodes.
     effect(() => {
-      this.windowedItems();
+      this.transcriptSegments();
       this.transcriptFind.reapplyAfterRender();
+    });
+
+    // WS-C10: keep the per-row ResizeObserver's watch list in sync with the
+    // rendered segments (virtualized path only — a cheap no-op otherwise,
+    // since every row is already observed and stays in the DOM).
+    effect(() => {
+      this.transcriptSegments();
+      queueMicrotask(() => this.virtualizer.reconcileObservedRows());
     });
 
     // Setup scroll listener and delegated click handler after render
     afterNextRender(() => {
       const clickBinding = this.setupDelegatedClickHandler();
       const scrollBinding = this.setupScrollListener();
+      const detachVirtualizer = this.virtualizer.attach();
 
       this.destroyRef.onDestroy(() => {
         if (clickBinding) {
@@ -551,6 +603,7 @@ export class OutputStreamComponent {
           this.copyResetTimer = null;
         }
         this.transcriptFind.destroy();
+        detachVirtualizer();
       });
     });
   }
@@ -1081,94 +1134,6 @@ export class OutputStreamComponent {
     });
   }
 
-  // ---- Inline message editing (edit-in-place + resend) ----
-
-  protected isEditingMessage(messageId: string): boolean {
-    return this.editingMessageId() === messageId;
-  }
-
-  /**
-   * Begin editing a user message in place: swap the bubble for an inline
-   * textarea seeded with its content. Loop-originated prompts aren't editable
-   * (the loop owns their delivery), matching the edit button's disabled state.
-   */
-  protected startEditingMessage(message: OutputMessage): void {
-    if (this.isLoopOriginatedUserMessage(message)) return;
-    this.editingMessageId.set(message.id);
-    this.editingDraft.set(message.content);
-    this.focusEditTextarea(message.content);
-  }
-
-  protected onEditDraftInput(event: Event): void {
-    const textarea = event.target as HTMLTextAreaElement;
-    this.editingDraft.set(textarea.value);
-    this.autosizeEditTextarea(textarea);
-  }
-
-  protected onEditKeydown(event: KeyboardEvent): void {
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault();
-      this.resendEditedMessage();
-    } else if (event.key === 'Escape') {
-      event.preventDefault();
-      this.cancelEditingMessage();
-    }
-  }
-
-  protected cancelEditingMessage(): void {
-    this.editingMessageId.set(null);
-    this.editingDraft.set('');
-  }
-
-  /**
-   * Resend the inline-edited message. Resolves the in-memory buffer index by
-   * id — the index space InstanceDetailComponent.onResendEdited expects, which
-   * forks at that point and delivers the edited text. No-op on empty text.
-   */
-  protected resendEditedMessage(): void {
-    const messageId = this.editingMessageId();
-    if (messageId === null) return;
-
-    const text = this.editingDraft();
-    if (!text.trim()) return;
-
-    const msgs = this.messages();
-    const index = msgs.findIndex((m) => m.id === messageId);
-    if (index === -1) {
-      this.cancelEditingMessage();
-      return;
-    }
-
-    this.resendEdited.emit({
-      messageIndex: index,
-      messageId,
-      text,
-      attachments: msgs[index].attachments,
-      retryMode: 'transcript-only',
-    });
-
-    this.editingMessageId.set(null);
-    this.editingDraft.set('');
-  }
-
-  private focusEditTextarea(content: string): void {
-    requestAnimationFrame(() => {
-      const textarea = this.getViewportElement()?.querySelector<HTMLTextAreaElement>(
-        '.inline-edit-textarea',
-      );
-      if (!textarea) return;
-      textarea.focus();
-      textarea.selectionStart = content.length;
-      textarea.selectionEnd = content.length;
-      this.autosizeEditTextarea(textarea);
-    });
-  }
-
-  private autosizeEditTextarea(textarea: HTMLTextAreaElement): void {
-    textarea.style.height = 'auto';
-    textarea.style.height = `${textarea.scrollHeight}px`;
-  }
-
   onContextMenu(event: MouseEvent, item: DisplayItem): void {
     event.preventDefault();
     event.stopPropagation();
@@ -1326,6 +1291,12 @@ export class OutputStreamComponent {
     (content) => this.markdownService.render(content),
     (contentLength, durationMs) => this.perf.recordMarkdownRender(contentLength, durationMs),
   );
+
+  /** `@for` track key for a WS-C10 render segment — the row's item id, or
+   *  the spacer's synthetic key. */
+  protected segmentKey(segment: RenderSegment<RenderedDisplayItem>): string {
+    return segment.type === 'row' ? segment.id : segment.key;
+  }
 
   private getViewportElement(): HTMLDivElement | null {
     return this.container()?.nativeElement ?? null;

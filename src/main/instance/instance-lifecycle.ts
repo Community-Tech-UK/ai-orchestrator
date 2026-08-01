@@ -72,6 +72,7 @@ import { resolveFastMode } from './lifecycle/resolve-fast-mode';
 import { computeRuntimeDiff } from './lifecycle/runtime-reconciler-plan';
 import { setInstanceBrowserToolsMode } from './lifecycle/browser-tool-scoping';
 import { setInstanceHardened } from './lifecycle/hardened-mode-scoping';
+import { setInstanceContainedExecution } from './lifecycle/contained-execution-scoping';
 import { attemptInstanceFailover } from './instance-failover';
 import { classifyLoopError } from '../core/loop-error-classification';
 import { getFailoverManager } from '../providers/failover-manager';
@@ -81,6 +82,7 @@ import { getInstanceProviderLimitHandler } from './instance-provider-limit-handl
 import { detectAvailableClis } from '../cli/cli-detection';
 import type { ProviderId } from '../../shared/types/provider-quota.types';
 import { DesiredRuntimeQueue } from './lifecycle/desired-runtime-queue';
+import { isAdapterOnLoan, onAdapterLoanReleased, warnIfLoanLooksWedged } from './lifecycle/adapter-loan-registry';
 import { RuntimeReconciler } from './lifecycle/runtime-reconciler';
 import type { SwapTargetProvider } from './lifecycle/model-change-provider-swap';
 import { PlanModeManager } from './lifecycle/plan-mode-manager';
@@ -99,6 +101,7 @@ import { InstanceTerminationCoordinator } from './lifecycle/instance-termination
 import { SpawnConfigBuilder } from './lifecycle/spawn-config-builder';
 import { createInitialUserMessage, getSeededInitialUserMessage } from './lifecycle/initial-user-message';
 import { getCompactionCoordinator } from '../context/compaction-coordinator';
+import { recordContextManifest } from '../context/context-manifest-store';
 import { getCodemem } from '../codemem';
 import { recordLifecycleTrace } from '../observability/lifecycle-trace';
 import { warmCodememWithTimeout } from './warm-codemem';
@@ -149,6 +152,8 @@ export class InstanceLifecycleManager extends EventEmitter {
   /** Queue-aware YOLO toggling (park-while-busy + auto-apply-on-idle). */
   /** Queue-aware runtime changes (park-while-busy + auto-apply-on-settle). */
   private _desiredRuntimeQueue?: DesiredRuntimeQueue;
+  /** LT-020: unsubscribes the adapter-loan release hook on teardown. */
+  private _loanReleaseUnsubscribe?: () => void;
   /** Single owner of runtime changes (provider/model swap; more paths migrate here). */
   private _runtimeReconciler?: RuntimeReconciler;
   /**
@@ -509,8 +514,13 @@ export class InstanceLifecycleManager extends EventEmitter {
 
   /** Lazily built so it can close over deps/reconciler/emit after construction. */
   private get desiredRuntimeQueue(): DesiredRuntimeQueue {
-    return (this._desiredRuntimeQueue ??= new DesiredRuntimeQueue({
+    if (this._desiredRuntimeQueue) return this._desiredRuntimeQueue;
+    const queue = new DesiredRuntimeQueue({
       getInstance: (id) => this.deps.getInstance(id),
+      // LT-020: a `same-session` loop executes on this instance's adapter.
+      // Respawning it mid-iteration SIGTERMs the loop's CLI.
+      isAdapterOnLoan: (id) => isAdapterOnLoan(id),
+      warnIfLoanLooksWedged: (id) => warnIfLoanLooksWedged(id),
       applyChange: (id, desired) => this.runtimeReconciler.applyRuntimeChange(id, desired),
       publishPendingState: (instance) => {
         this.deps.queueUpdate(
@@ -525,7 +535,13 @@ export class InstanceLifecycleManager extends EventEmitter {
         this.deps.addToOutputBuffer(instance, message);
         this.emit('output', { instanceId: instance.id, message });
       },
-    }));
+    });
+    // The loan release is the real iteration boundary; a change deferred by a
+    // loan would otherwise wait for an unrelated later state transition.
+    this._loanReleaseUnsubscribe = onAdapterLoanReleased((instanceId) => {
+      queue.onAdapterLoanReleased(instanceId);
+    });
+    return (this._desiredRuntimeQueue = queue);
   }
 
   /**
@@ -1180,6 +1196,9 @@ export class InstanceLifecycleManager extends EventEmitter {
     setInstanceBrowserToolsMode(instance.id, instance.browserToolsMode);
     // WS13: register hardened mode before the first adapter build reads it.
     setInstanceHardened(instance.id, instance.hardened);
+    // WS-C7: register the contained execution profile before the first
+    // adapter build reads it (same registry-lookup shape as hardened mode).
+    setInstanceContainedExecution(instance.id, instance.containedExecution);
     const abortController = instance.abortController!;
     const spawnTransaction = createSpawnTransaction(`create:${instance.id}`);
 
@@ -2568,6 +2587,17 @@ export class InstanceLifecycleManager extends EventEmitter {
         this.transitionState(instance, 'idle');
         this.deps.startStuckTracking?.(instanceId);
         spawnTransaction.commit();
+        // WS-C6: a fresh restart (used by restart-with-summary compaction
+        // and the manual "clear context" action) re-spawns the CLI with NO
+        // AIO system-prompt blocks re-injected — assembleInstanceSystemPrompt
+        // is not called on this path, only the continuity-package user
+        // message the caller sends next. Record that honestly as an empty
+        // epoch rather than silently leaving the manifest history stale.
+        recordContextManifest(instanceId, 'restart-compact', [], {
+          note:
+            'Fresh restart: no AIO system-prompt blocks were re-injected. Only a '
+            + 'compacted continuity summary was sent as a follow-up user message.',
+        });
       } catch (error) {
         await spawnTransaction.rollback(error);
         instance.recoveryMethod = 'failed';
@@ -3221,5 +3251,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
   destroy(): void {
     this.idleMonitor.stop();
     this.memoryPressureMonitor.stop();
+    this._loanReleaseUnsubscribe?.();
+    this._loanReleaseUnsubscribe = undefined;
   }
 }

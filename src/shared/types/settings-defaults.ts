@@ -143,6 +143,15 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // Recent Directories
   maxRecentDirectories: 200,
 
+  // Keyboard (WS-C9)
+  /**
+   * User keybinding overrides, serialized via
+   * `serializeKeybindingCustomizations` (`{version:1, customizations:[...]}`
+   * JSON). Empty string = no overrides. Loaded/saved by KeybindingService;
+   * see core/keybindings/keybinding-registry.ts.
+   */
+  keybindingCustomizations: '',
+
   // Advanced
   customModelOverride: '',
   customModelsByProvider: {},
@@ -362,4 +371,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     subQueryExecution: { enabled: false, provider: 'auto', tier: 'quality', maxInputTokens: 64000, maxOutputTokens: 2048, temperature: 0.2, timeoutMs: 45000, requireJson: false, allowFrontierFallback: true },
     verifyOutputSummary: { enabled: true, provider: 'auto', tier: 'quality', maxInputTokens: 32000, maxOutputTokens: 1024, temperature: 0.2, timeoutMs: 45000, requireJson: false, allowFrontierFallback: false },
   }),
+
+  // WS-C10 — flagged transcript DOM virtualization (off by default; see settings.types.ts)
+  transcriptVirtualization: false,
 };

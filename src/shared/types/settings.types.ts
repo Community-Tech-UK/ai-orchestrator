@@ -146,6 +146,10 @@ export interface AppSettings extends DesktopComputerUseSettings {
   // Recent Directories
   maxRecentDirectories: number; // 5-500, max directories to remember
 
+  // Keyboard
+  /** Serialized user keybinding overrides (WS-C9). Empty string = none. */
+  keybindingCustomizations: string;
+
   // Advanced
   customModelOverride: string; // empty = use default
   /**
@@ -710,6 +714,23 @@ export interface AppSettings extends DesktopComputerUseSettings {
    * Only relevant when reactionsEnabled is true. Default: 60 000 (1 min).
    */
   reactionsPollIntervalMs: number;
+
+  /**
+   * WS-C10 — flagged prototype: measured dynamic-height DOM virtualization
+   * for the main transcript (`OutputStreamComponent`), replacing the
+   * always-fully-rendered "show earlier" window with a scroll-proximate
+   * slice plus height-matched spacers for collapsed regions. Top-level user
+   * messages stay pinned in the DOM (the jump rail and inline-edit focus
+   * both depend on querying them synchronously) and virtualization is
+   * bypassed entirely while transcript find is open.
+   *
+   * DEFAULT: false — ships dormant pending real-browser continuity
+   * benchmarks (scroll jank, prepend/streaming/collapse/session-switch
+   * anchor stability) before default-on. When false, rendering is
+   * byte-identical to today: every loaded message is a top-level row, no
+   * ResizeObserver or extra scroll listener is attached.
+   */
+  transcriptVirtualization: boolean;
 }
 
 export { SETTINGS_METADATA } from './settings-metadata';

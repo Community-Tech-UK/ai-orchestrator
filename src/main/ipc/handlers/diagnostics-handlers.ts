@@ -9,6 +9,7 @@ import { getInstructionDiagnosticsService } from '../../diagnostics/instruction-
 import { getOperatorArtifactExporter } from '../../diagnostics/operator-artifact-exporter';
 import { getSkillDiagnosticsService } from '../../diagnostics/skill-diagnostics-service';
 import { getSettingsManager } from '../../core/config/settings-manager';
+import { getContextManifestHistory } from '../../context/context-manifest-store';
 import { getLogger } from '../../logging/logger';
 import type { InstanceManager } from '../../instance/instance-manager';
 import type { WindowManager } from '../../window-manager';
@@ -167,6 +168,30 @@ export function registerDiagnosticsHandlers(deps: DiagnosticsHandlerDependencies
           },
         });
         return { success: true, data: report };
+      },
+    ),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.CONTEXT_MANIFEST_GET,
+    validatedHandler(
+      IPC_CHANNELS.CONTEXT_MANIFEST_GET,
+      InstanceScopedPayloadSchema,
+      async (payload): Promise<IpcResponse> => {
+        const instance = deps.instanceManager?.getInstance(payload.instanceId);
+        if (!instance) {
+          return toErrorResponse(
+            'CONTEXT_MANIFEST_UNKNOWN_INSTANCE',
+            new Error(`Unknown instance: ${payload.instanceId}`),
+          );
+        }
+        return {
+          success: true,
+          data: {
+            instanceId: payload.instanceId,
+            history: getContextManifestHistory(payload.instanceId),
+          },
+        };
       },
     ),
   );

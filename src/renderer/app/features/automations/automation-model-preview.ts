@@ -28,6 +28,13 @@ export interface AutomationModelPreview {
   label: string;
   /** Where the resolved model came from, for the informational tag. */
   source: AutomationModelSource;
+  /**
+   * WS-C7 — the concrete resolved provider (`undefined` when it stays
+   * unresolved, e.g. no favourites/defaults pin one). Exposed so the
+   * execution-profile selector can warn about a `contained` pick that will
+   * fail the fire-time gate, using the SAME resolution the runner uses.
+   */
+  provider: InstanceProvider | undefined;
 }
 
 /**
@@ -61,5 +68,5 @@ export function computeAutomationModelPreview(
       : modelId
     : 'provider default';
 
-  return { label, source };
+  return { label, source, provider };
 }

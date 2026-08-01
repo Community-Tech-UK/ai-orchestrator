@@ -151,6 +151,17 @@ describe('WorkboardStore', () => {
     expect(lanes.working).toHaveLength(0);
   });
 
+  it('carries the WS-C2 shared attentionLevel — not a re-derived lane — on items', () => {
+    instanceStore.instances.set([instance({ id: 'inst-1', status: 'waiting_for_permission' })]);
+    const [item] = store.items();
+    // Split finer than the `needs-you` lane: a live permission prompt is `blocked`.
+    expect(item.attentionLevel).toBe('blocked');
+    expect(item.primary.attentionLevel).toBe('blocked');
+
+    instanceStore.instances.set([instance({ id: 'inst-1', status: 'error' })]);
+    expect(store.items()[0]?.attentionLevel).toBe('failed');
+  });
+
   it('selecting an instance-linked item moves InstanceStore selection', () => {
     instanceStore.instances.set([instance({ id: 'inst-1' })]);
     store.selectItem('instance:inst-1');
@@ -198,6 +209,98 @@ describe('WorkboardStore', () => {
     expect(store.automationError()).toBeNull();
     // A failed loop refresh does not clear the other sources' held data.
     expect(store.items().some((i) => i.id === 'loop-run:loop-keep')).toBe(true);
+  });
+
+  describe('WS-C2 snooze with hand-raise', () => {
+    it('hides a snoozed item from its lane and visibleCount without affecting workspace options', () => {
+      instanceStore.instances.set([instance({ id: 'inst-1', status: 'busy' })]);
+      expect(store.isSnoozed('instance:inst-1')).toBe(false);
+      expect(store.visibleCount()).toBe(1);
+
+      store.snoozeItem('instance:inst-1');
+
+      expect(store.isSnoozed('instance:inst-1')).toBe(true);
+      expect(store.lanes().working).toHaveLength(0);
+      expect(store.visibleCount()).toBe(0);
+      // Unaffected: still one correlated item, and the workspace picker
+      // still lists the (now-hidden) item's workspace.
+      expect(store.items()).toHaveLength(1);
+      expect(store.workspaceOptions().map((o) => o.id)).toContain(toWorkspaceId('/repo/project'));
+    });
+
+    it('an explicit unsnooze re-shows the item immediately', () => {
+      instanceStore.instances.set([instance({ id: 'inst-1', status: 'busy' })]);
+      store.snoozeItem('instance:inst-1');
+      expect(store.visibleCount()).toBe(0);
+
+      store.unsnoozeItem('instance:inst-1');
+
+      expect(store.isSnoozed('instance:inst-1')).toBe(false);
+      expect(store.visibleCount()).toBe(1);
+      expect(store.lanes().working).toHaveLength(1);
+    });
+
+    it('hand-raise: auto-clears a snooze once the item becomes blocked', () => {
+      instanceStore.instances.set([instance({ id: 'inst-1', status: 'busy' })]);
+      store.snoozeItem('instance:inst-1');
+      expect(store.visibleCount()).toBe(0);
+
+      instanceStore.instances.set([instance({ id: 'inst-1', status: 'waiting_for_permission' })]);
+      TestBed.flushEffects();
+
+      expect(store.isSnoozed('instance:inst-1')).toBe(false);
+      expect(store.lanes()['needs-you']).toHaveLength(1);
+      expect(store.visibleCount()).toBe(1);
+    });
+
+    it('hand-raise: auto-clears a snooze once the item fails', () => {
+      instanceStore.instances.set([instance({ id: 'inst-1', status: 'busy' })]);
+      store.snoozeItem('instance:inst-1');
+
+      instanceStore.instances.set([instance({ id: 'inst-1', status: 'error' })]);
+      TestBed.flushEffects();
+
+      expect(store.isSnoozed('instance:inst-1')).toBe(false);
+      expect(store.visibleCount()).toBe(1);
+    });
+
+    it('hand-raise: auto-clears a snooze once the item completes (idle)', () => {
+      instanceStore.instances.set([instance({ id: 'inst-1', status: 'busy' })]);
+      store.snoozeItem('instance:inst-1');
+
+      instanceStore.instances.set([instance({ id: 'inst-1', status: 'idle' })]);
+      TestBed.flushEffects();
+
+      expect(store.isSnoozed('instance:inst-1')).toBe(false);
+      expect(store.visibleCount()).toBe(1);
+    });
+
+    it('a snooze survives a still-working or still-waiting transition', () => {
+      instanceStore.instances.set([instance({ id: 'inst-1', status: 'busy' })]);
+      store.snoozeItem('instance:inst-1');
+
+      // busy -> processing: both `working`, does not clear.
+      instanceStore.instances.set([instance({ id: 'inst-1', status: 'processing' })]);
+      TestBed.flushEffects();
+      expect(store.isSnoozed('instance:inst-1')).toBe(true);
+      expect(store.visibleCount()).toBe(0);
+
+      // processing -> hibernating: `working` -> `waiting`, still does not clear.
+      instanceStore.instances.set([instance({ id: 'inst-1', status: 'hibernating' })]);
+      TestBed.flushEffects();
+      expect(store.isSnoozed('instance:inst-1')).toBe(true);
+      expect(store.visibleCount()).toBe(0);
+    });
+
+    it('drops a snooze once its item leaves the projection entirely', () => {
+      instanceStore.instances.set([instance({ id: 'inst-1', status: 'busy' })]);
+      store.snoozeItem('instance:inst-1');
+
+      instanceStore.instances.set([]);
+      TestBed.flushEffects();
+
+      expect(store.isSnoozed('instance:inst-1')).toBe(false);
+    });
   });
 });
 

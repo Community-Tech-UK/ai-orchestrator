@@ -8,6 +8,7 @@
  */
 
 import type { ReasoningEffort } from './provider.types';
+import type { AttentionLevel } from '../attention/attention-level';
 
 /** A paired phone, as persisted by the gateway. The bearer `token` is secret. */
 export interface MobileDevice {
@@ -61,6 +62,17 @@ export interface MobileInstanceDto {
   id: string;
   displayName: string;
   status: string;
+  /**
+   * WS-C2 unified attention scale (`src/shared/attention/attention-level.ts`)
+   * for this instance — the SAME ordered levels Workboard and the desktop
+   * session picker use, computed the same way, so the phone never has to
+   * re-derive its own status→urgency vocabulary from the raw `status`
+   * string. Closes a real gap: before this field, a `degraded` / `error` /
+   * `failed` instance produced no "needs you" signal on mobile at all
+   * (`pendingApprovalCount` only ever counted `waiting_for_permission` /
+   * `waiting_for_input`).
+   */
+  attentionLevel: AttentionLevel;
   provider: string;
   model?: string;
   workingDirectory: string;
@@ -147,6 +159,15 @@ export interface MobileProjectDto {
   sessionCount: number;
   busyCount: number;
   pendingApprovalCount: number;
+  /**
+   * WS-C2: count of instances in this project at `blocked` or `failed`
+   * attentionLevel — the same "needs you" bucket Workboard's `needs-you`
+   * lane uses (minus `review`, which has no instance-level equivalent
+   * today). A superset of `pendingApprovalCount`: it also counts
+   * `degraded` / `error` / `failed` instances, which never had an
+   * answerable prompt to count.
+   */
+  needsAttentionCount: number;
   lastActivity: number;
 }
 

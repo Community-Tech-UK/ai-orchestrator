@@ -1334,6 +1334,31 @@ describe('InstanceManager', () => {
   });
 
   describe('restartFreshInstance', () => {
+    beforeEach(async () => {
+      const { _resetAllContextManifestsForTesting } = await import('../../context/context-manifest-store');
+      _resetAllContextManifestsForTesting();
+    });
+
+    it('records a restart-compact context manifest epoch on successful fresh restart (WS-C6)', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Fresh Restart Manifest',
+      });
+      await instance.readyPromise;
+
+      await manager.restartFreshInstance(instance.id);
+
+      const { getContextManifestHistory } = await import('../../context/context-manifest-store');
+      const history = getContextManifestHistory(instance.id);
+      const spawnEpoch = history.find((snapshot) => snapshot.trigger === 'spawn');
+      const restartEpoch = history.find((snapshot) => snapshot.trigger === 'restart-compact');
+
+      expect(spawnEpoch).toBeDefined();
+      expect(restartEpoch).toBeDefined();
+      expect(restartEpoch?.entries).toEqual([]);
+      expect(restartEpoch?.note).toMatch(/no AIO system-prompt blocks were re-injected/i);
+    });
+
     it('rolls back the replacement adapter when fresh restart spawn fails', async () => {
       const instance = await manager.createInstance({
         workingDirectory: TEST_WORKING_DIR,

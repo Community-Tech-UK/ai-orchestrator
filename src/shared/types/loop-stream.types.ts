@@ -1,3 +1,4 @@
+import type { LoopActivityKind as ContractLoopActivityKind } from '@contracts/schemas/loop';
 import type {
   CompletionSignalId,
   LoopStage,
@@ -44,18 +45,12 @@ export type LoopStreamTerminalStatus =
   | 'reviewer-unavailable'
   | 'builder-unreliable';
 
-export type LoopActivityKind =
-  | 'spawned'
-  | 'status'
-  | 'tool_use'
-  | 'tool_result'
-  | 'assistant'
-  | 'system'
-  | 'input_required'
-  | 'error'
-  | 'stream-idle'
-  | 'complete'
-  | 'heartbeat';
+/**
+ * Derived from the contracts package (LT-021), not re-declared. A hand-copied
+ * union here is what let the renderer-boundary schema drift out of step with
+ * the emitter and silently drop 8 of the 11 kinds.
+ */
+export type LoopActivityKind = ContractLoopActivityKind;
 
 export interface LoopActivityEvent {
   loopRunId: string;

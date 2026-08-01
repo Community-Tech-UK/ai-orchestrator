@@ -83,6 +83,18 @@ export abstract class BaseChannelAdapter extends EventEmitter {
     return undefined;
   }
 
+  /**
+   * Whether this adapter can edit a previously-sent message in place (WS-C8).
+   * Gates editable channel progress drafts: an edit-capable channel gets one
+   * bounded, evolving "Working…" message that is edited as status changes
+   * and collapsed at completion; a non-edit channel gets no draft at all —
+   * deliberately calmer than falling back to a fresh-message stack. Override
+   * in concrete adapters that support message editing (Discord).
+   */
+  supportsMessageEditing(): boolean {
+    return false;
+  }
+
   // Access control
   getAccessPolicy(): AccessPolicy {
     return { ...this.accessPolicy };

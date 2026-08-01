@@ -37,10 +37,27 @@
             {{ hiddenToolGroupCount() }} tool call{{ hiddenToolGroupCount() !== 1 ? ' groups' : ' group' }} hidden
           </button>
         }
-        @for (item of windowedItems(); track item.id; let i = $index) {
-          <div class="transcript-item" [attr.data-item-index]="i" [attr.data-item-id]="item.id" (contextmenu)="onContextMenu($event, item)">
-            <ng-container [ngTemplateOutlet]="itemBody" [ngTemplateOutletContext]="{ $implicit: item }" />
-          </div>
+        @if (virtualizationEnabled()) {
+          @for (segment of transcriptSegments(); track segmentKey(segment)) {
+            @if (segment.type === 'row') {
+              <div class="transcript-item" [attr.data-item-id]="segment.id" (contextmenu)="onContextMenu($event, segment.item)">
+                <ng-container [ngTemplateOutlet]="itemBody" [ngTemplateOutletContext]="{ $implicit: segment.item }" />
+              </div>
+            } @else {
+              <!-- WS-C10: off-window messages are collapsed into a height-matched
+                   spacer, not removed — this preserves total scrollHeight (so
+                   scroll-to-bottom / delta-compensated prepend restores keep
+                   working) but means their content is absent from the
+                   accessibility tree while collapsed, unlike the flag-off path. -->
+              <div class="transcript-spacer" [style.height.px]="segment.height" aria-hidden="true"></div>
+            }
+          }
+        } @else {
+          @for (item of windowedItems(); track item.id; let i = $index) {
+            <div class="transcript-item" [attr.data-item-index]="i" [attr.data-item-id]="item.id" (contextmenu)="onContextMenu($event, item)">
+              <ng-container [ngTemplateOutlet]="itemBody" [ngTemplateOutletContext]="{ $implicit: item }" />
+            </div>
+          }
         }
       </div>
     }
@@ -194,27 +211,27 @@
                 <div class="restore-notice-content" [innerHTML]="item.renderedMessage"></div>
               </div>
             } @else if (hasContent(item.message)) {
-              @if (item.message.type === 'user' && isEditingMessage(item.message.id)) {
+              @if (item.message.type === 'user' && inlineEdit.isEditingMessage(item.message.id)) {
                 <div class="inline-edit-container">
                   <textarea
                     class="inline-edit-textarea"
-                    [value]="editingDraft()"
-                    (input)="onEditDraftInput($event)"
-                    (keydown)="onEditKeydown($event)"
+                    [value]="inlineEdit.editingDraft()"
+                    (input)="inlineEdit.onEditDraftInput($event)"
+                    (keydown)="inlineEdit.onEditKeydown($event)"
                     rows="3"
                     aria-label="Edit message"
                   ></textarea>
                 </div>
                 <div class="inline-edit-actions">
                   <span class="inline-edit-hint">Enter to resend · Esc to cancel</span>
-                  <button type="button" class="inline-edit-btn secondary" (click)="cancelEditingMessage()">
+                  <button type="button" class="inline-edit-btn secondary" (click)="inlineEdit.cancelEditingMessage()">
                     Cancel
                   </button>
                   <button
                     type="button"
                     class="inline-edit-btn primary"
-                    [disabled]="!editingDraft().trim()"
-                    (click)="resendEditedMessage()"
+                    [disabled]="!inlineEdit.editingDraft().trim()"
+                    (click)="inlineEdit.resendEditedMessage()"
                   >
                     Resend
                   </button>
@@ -291,7 +308,7 @@
                       [title]="isLoopOriginatedUserMessage(item.message)
                         ? 'Cannot edit a loop prompt — start a new loop to change it'
                         : 'Edit and resend'"
-                      (click)="startEditingMessage(item.message)">
+                      (click)="inlineEdit.startEditingMessage(item.message)">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
                         <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>

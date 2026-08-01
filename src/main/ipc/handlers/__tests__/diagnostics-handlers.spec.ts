@@ -52,11 +52,20 @@ vi.mock('../../../logging/logger', () => ({
   getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
 
+const manifestStoreMocks = vi.hoisted(() => ({
+  getContextManifestHistory: vi.fn(),
+}));
+vi.mock('../../../context/context-manifest-store', () => ({
+  getContextManifestHistory: manifestStoreMocks.getContextManifestHistory,
+}));
+
 import { registerDiagnosticsHandlers } from '../diagnostics-handlers';
 
 const fakeEvent = {};
 
 describe('diagnostics-handlers', () => {
+  const instanceManagerMock = { getInstance: vi.fn() };
+
   beforeEach(() => {
     electronMocks.handlers.clear();
     vi.clearAllMocks();
@@ -66,7 +75,10 @@ describe('diagnostics-handlers', () => {
     serviceMocks.exportBundle.mockResolvedValue({ bundlePath: '/tmp/a.zip', bundleBytes: 1, manifest: {} });
     serviceMocks.getState.mockReturnValue({ count: 0, entries: [], generatedAt: 1 });
     serviceMocks.refresh.mockResolvedValue({ count: 0, entries: [], generatedAt: 2 });
-    registerDiagnosticsHandlers();
+    manifestStoreMocks.getContextManifestHistory.mockReset();
+    instanceManagerMock.getInstance.mockReset();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    registerDiagnosticsHandlers({ instanceManager: instanceManagerMock as any });
   });
 
   it('validates doctor report payloads', async () => {
@@ -117,6 +129,34 @@ describe('diagnostics-handlers', () => {
     await expect(invoke('cli-update-pill:refresh', {})).resolves.toMatchObject({
       success: true,
       data: { generatedAt: 2 },
+    });
+  });
+
+  describe('context:manifest-for-instance (WS-C6)', () => {
+    it('rejects a payload without instanceId', async () => {
+      const result = await invoke('context:manifest-for-instance', {});
+      expect(result.success).toBe(false);
+      expect(manifestStoreMocks.getContextManifestHistory).not.toHaveBeenCalled();
+    });
+
+    it('reports an error for an unknown instance', async () => {
+      instanceManagerMock.getInstance.mockReturnValue(undefined);
+      const result = await invoke('context:manifest-for-instance', { instanceId: 'missing' });
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('CONTEXT_MANIFEST_UNKNOWN_INSTANCE');
+    });
+
+    it('returns the recorded manifest history for a known instance', async () => {
+      instanceManagerMock.getInstance.mockReturnValue({ id: 'inst-1' });
+      const history = [
+        { epoch: 0, at: 1, trigger: 'spawn', entries: [{ kind: 'instructions', status: 'supplied' }] },
+      ];
+      manifestStoreMocks.getContextManifestHistory.mockReturnValue(history);
+
+      const result = await invoke('context:manifest-for-instance', { instanceId: 'inst-1' });
+
+      expect(result).toMatchObject({ success: true, data: { instanceId: 'inst-1', history } });
+      expect(manifestStoreMocks.getContextManifestHistory).toHaveBeenCalledWith('inst-1');
     });
   });
 });

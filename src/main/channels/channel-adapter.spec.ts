@@ -52,6 +52,11 @@ function makeMsg(overrides: Partial<InboundChannelMessage> = {}): InboundChannel
 }
 
 describe('BaseChannelAdapter — idempotent inbound intake (B6)', () => {
+  it('defaults supportsMessageEditing() to false (WS-C8) unless a concrete adapter overrides it', () => {
+    const adapter = new TestAdapter();
+    expect(adapter.supportsMessageEditing()).toBe(false);
+  });
+
   it('emits a new message and reports acceptance', () => {
     const adapter = new TestAdapter();
     const listener = vi.fn();

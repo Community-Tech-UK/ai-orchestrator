@@ -13,6 +13,7 @@ import { dirname, join } from 'path';
 import type { CodexReasoningEffort } from './codex/app-server-types';
 import type { AcpMcpServerConfig } from '../../../shared/types/cli.types';
 import type { UnifiedSpawnOptions } from './adapter-factory.types';
+import { getSafeEnvStrict } from '../../security/env-filter';
 import {
   buildBrowserGatewayGeminiSettingsJson,
   buildBrowserGatewayMcpConfigJson,
@@ -249,10 +250,19 @@ export function toCodexReasoningEffort(
 }
 
 export function mergeSpawnEnv(options: UnifiedSpawnOptions, base: Record<string, string> = {}): Record<string, string> {
-  return {
+  const merged = {
     ...base,
     ...(options.env ?? {}),
   };
+  // WS-C7: a contained-execution-profile spawn derives its environment from
+  // getSafeEnvStrict() (src/main/security/env-filter.ts) — the host env AND any
+  // caller-supplied `options.env` both pass through the secret filter, so no
+  // API keys, tokens, or other blocked values (including AI-provider keys) can
+  // reach the child process from either source.
+  if (options.filterEnv) {
+    return getSafeEnvStrict(merged);
+  }
+  return merged;
 }
 
 function mergeGeminiMcpServers(json: string | null, into: Record<string, unknown>): void {

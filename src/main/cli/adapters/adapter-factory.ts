@@ -33,6 +33,7 @@ import { getLogger } from '../../logging/logger';
 import { BaseCliAdapter } from './base-cli-adapter';
 import { defaultHardenedWritableRoots } from '../../sandbox/seatbelt';
 import { getInstanceExtraWritableRoots, isInstanceHardened } from '../../instance/lifecycle/hardened-mode-scoping';
+import { isInstanceContainedExecution } from '../../instance/lifecycle/contained-execution-scoping';
 import { getPermissionRegistry } from '../../orchestration/permission-registry';
 import { getProviderConcurrencyLimiter } from '../provider-concurrency-limiter';
 import { filterProvidersForAutomation } from '../../providers/automation-provider-exclusions';
@@ -586,7 +587,13 @@ export function createCliAdapter(
   options: UnifiedSpawnOptions,
   executionLocation?: ExecutionLocation,
 ): CliAdapter {
-  const effectiveOptions = withBrowserGatewaySystemPrompt(options);
+  // WS-C7: a contained-execution-profile instance (registered by
+  // AutomationRunner via contained-execution-scoping.ts) always spawns with a
+  // filtered environment, on every provider adapter and across respawns —
+  // same registry-lookup shape as the WS13 hardened-mode check below.
+  const effectiveOptions = withBrowserGatewaySystemPrompt(
+    isInstanceContainedExecution(options.instanceId) ? { ...options, filterEnv: true } : options,
+  );
   const runtimeTarget = effectiveOptions.modelRuntimeTarget;
   if (effectiveOptions.launchMode === 'interactive') {
     if (cliType !== 'claude') {

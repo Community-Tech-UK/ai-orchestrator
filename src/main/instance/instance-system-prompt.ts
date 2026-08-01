@@ -44,8 +44,13 @@ import { buildToolPermissionPrompt } from './lifecycle/tool-permission-prompt';
 import { isRestoreOrReplayContinuity } from './lifecycle/create-validation-helpers';
 import {
   createSystemPromptComposer,
+  type SystemPromptBlockKind,
   type SystemPromptBlockManifestEntry,
 } from '../context/prompt-injection-contract';
+import {
+  buildContextManifestEntries,
+  recordContextManifest,
+} from '../context/context-manifest-store';
 import type { LifecycleDependencies } from './instance-lifecycle.types';
 
 const logger = getLogger('InstanceSystemPrompt');
@@ -147,6 +152,10 @@ export async function assembleInstanceSystemPrompt(
   const settings = getSettingsManager();
 
   const systemPromptComposer = createSystemPromptComposer();
+  // WS-C6: kinds where a real fetch/build failure or deadline timeout was
+  // observed (as opposed to "genuinely no content this time") — see
+  // context-manifest-store.ts's 'unavailable' status.
+  const unavailableBlockKinds = new Set<SystemPromptBlockKind>();
 
   let instructionsBlockContent = resolvedAgent.systemPrompt || '';
   if (instructionPrompts.length > 0) {
@@ -205,14 +214,18 @@ export async function assembleInstanceSystemPrompt(
       {
         ms: CREATE_ENRICHER_DEADLINE_MS,
         fallback: '',
-        onTimeout: () =>
+        onTimeout: () => {
+          unavailableBlockKinds.add('observation-memory');
           logger.info('Observation context exceeded create deadline; deferring to next turn', {
             instanceId: instance.id,
-          }),
-        onError: (err) =>
+          });
+        },
+        onError: (err) => {
+          unavailableBlockKinds.add('observation-memory');
           logger.warn('Failed to inject observation context', {
             error: err instanceof Error ? err.message : String(err),
-          }),
+          });
+        },
         onLateResult: (text) => deps.deferEnricherPreamble(instance.id, 'observation', text),
       },
     );
@@ -221,6 +234,7 @@ export async function assembleInstanceSystemPrompt(
       logger.info('Injected observation memory context into system prompt');
     }
   } catch (err) {
+    unavailableBlockKinds.add('observation-memory');
     logger.warn('Failed to inject observation context', { error: err instanceof Error ? err.message : String(err) });
   }
 
@@ -257,6 +271,7 @@ export async function assembleInstanceSystemPrompt(
         });
       }
     } catch (err) {
+      unavailableBlockKinds.add('project-brief');
       logger.warn('Failed to inject project memory brief', {
         error: err instanceof Error ? err.message : String(err),
         instanceId: instance.id,
@@ -279,6 +294,7 @@ export async function assembleInstanceSystemPrompt(
         });
       }
     } catch (err) {
+      unavailableBlockKinds.add('lessons');
       logger.warn('Failed to inject project lessons', {
         error: err instanceof Error ? err.message : String(err),
         instanceId: instance.id,
@@ -308,6 +324,7 @@ export async function assembleInstanceSystemPrompt(
         });
       }
     } catch (err) {
+      unavailableBlockKinds.add('repo-map');
       logger.warn('Failed to inject repo map', {
         error: err instanceof Error ? err.message : String(err),
         instanceId: instance.id,
@@ -323,15 +340,19 @@ export async function assembleInstanceSystemPrompt(
         {
           ms: CREATE_ENRICHER_DEADLINE_MS,
           fallback: null,
-          onTimeout: () =>
+          onTimeout: () => {
+            unavailableBlockKinds.add('wake-context');
             logger.info('Wake context exceeded create deadline; continuing without it', {
               instanceId: instance.id,
-            }),
-          onError: (error) =>
+            });
+          },
+          onError: (error) => {
+            unavailableBlockKinds.add('wake-context');
             logger.warn('Failed to build wake context off-thread', {
               instanceId: instance.id,
               error: error instanceof Error ? error.message : String(error),
-            }),
+            });
+          },
         },
       );
       if (wakeText && wakeText.trim().length > 30) {
@@ -341,6 +362,7 @@ export async function assembleInstanceSystemPrompt(
         });
       }
     } catch (err) {
+      unavailableBlockKinds.add('wake-context');
       logger.warn('Failed to inject wake context', {
         error: err instanceof Error ? err.message : String(err),
       });
@@ -384,10 +406,12 @@ export async function assembleInstanceSystemPrompt(
       {
         ms: CREATE_ENRICHER_DEADLINE_MS,
         fallback: null,
-        onTimeout: () =>
+        onTimeout: () => {
+          unavailableBlockKinds.add('mcp-tool-context');
           logger.info('MCP tool context exceeded create deadline; deferring to next turn', {
             instanceId: instance.id,
-          }),
+          });
+        },
         onLateResult: (selection) => {
           if (!selection) {
             return;
@@ -425,6 +449,7 @@ export async function assembleInstanceSystemPrompt(
       });
     }
   } catch (err) {
+    unavailableBlockKinds.add('mcp-tool-context');
     logger.warn('Failed to inject MCP runtime tool context', {
       error: err instanceof Error ? err.message : String(err),
     });
@@ -433,13 +458,28 @@ export async function assembleInstanceSystemPrompt(
   systemPromptComposer.add('tool-permissions', buildToolPermissionPrompt(instance.yoloMode));
 
   const { text: systemPrompt, manifest: systemPromptManifest } = systemPromptComposer.compose();
-  // No existing persistence field for this manifest (see WS-B4 spec) — a
-  // later workstream owns storing/exposing it. Debug-log it so it is at
-  // least visible for local diagnosis of unexpected cache-prefix churn.
   logger.debug('Composed system prompt manifest', {
     instanceId: instance.id,
     blocks: systemPromptManifest,
   });
+
+  // WS-C6: record this assembly as a new epoch in the per-instance context
+  // manifest history. `createInstance()` is the sole caller of this function
+  // (see the module header's extraction contract), and it is itself the
+  // entry point for every flow that produces a *new* Instance object —
+  // first-time spawn, fork, history import, and continuity revival/restore
+  // all funnel through it. A restore/revival/fork is a 'respawn' of prior
+  // context under a new instance id; a genuinely first-time session is a
+  // 'spawn'. (The separate 'restart-compact' trigger covers restartFreshInstance,
+  // which reuses the same instance id and does not call this function at
+  // all — see its own recordContextManifest call in instance-lifecycle.ts.)
+  const manifestTrigger =
+    config.isRestoredSession === true || isRestoreOrReplayContinuity(config) ? 'respawn' : 'spawn';
+  recordContextManifest(
+    instance.id,
+    manifestTrigger,
+    buildContextManifestEntries(systemPromptManifest, unavailableBlockKinds),
+  );
 
   return { systemPrompt, systemPromptManifest, initialRuntimeContextBlock };
 }

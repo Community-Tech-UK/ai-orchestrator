@@ -1985,25 +1985,34 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
   /**
    * Running total of provider-reported tokens for this ACP session (LT-018).
-   * ACP reports per-turn usage only, so the session aggregate is accumulated
-   * here — matching the `aggregate-only` / `cumulativeReporting: available`
-   * capabilities the `copilot-acp` profile declares.
+   * ACP reports per-turn usage only, so the aggregate is accumulated here.
    */
   private cumulativeTokens = 0;
+
+  /** One "no usage reported" log line per session, not one per turn (LT-018). */
+  private loggedMissingUsage = false;
 
   /**
    * Emit a `context` event from a turn's ACP usage.
    *
    * Deliberately conservative: `used` is the aggregate, not a true
-   * context-window occupancy, because ACP does not report window occupancy and
-   * fabricating one would be worse than an honest aggregate. When the provider
-   * sends no usage at all, nothing is emitted — a missing bar is preferable to a
-   * confident zero, which is the defect this fixes.
+   * context-window occupancy, because ACP does not report one and fabricating
+   * it would be worse. No usage ⇒ no event (a missing bar beats a confident
+   * zero), logged once so "the provider sent nothing" and "we dropped what it
+   * sent" stay distinguishable (LT-018).
    */
   private publishContextUsageFromTurn(usage: AcpPromptUsage | undefined): void {
-    const turnTokens = usage?.totalTokens
-      ?? ((usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0));
-    if (!turnTokens || turnTokens <= 0) return;
+    const partTokens = (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0);
+    const turnTokens = usage?.totalTokens || partTokens;
+    if (!turnTokens || turnTokens <= 0) {
+      if (this.loggedMissingUsage) return;
+      this.loggedMissingUsage = true;
+      logger.info('ACP turn reported no token usage; context bar stays empty for this session', {
+        profile: this.acpConfig.contextCapabilityProfile ?? 'none',
+        usageKeys: usage ? Object.keys(usage) : null,
+      });
+      return;
+    }
 
     this.cumulativeTokens += turnTokens;
     const total = ACP_CAPABILITIES.contextWindow;

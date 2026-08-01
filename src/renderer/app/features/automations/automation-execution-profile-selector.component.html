@@ -1,0 +1,37 @@
+<fieldset class="profile-picker" aria-label="Execution profile">
+  <legend class="profile-picker__legend">Execution profile</legend>
+
+  <label class="profile-option">
+    <input
+      type="radio"
+      name="executionProfile"
+      value="standard"
+      [checked]="value() === 'standard'"
+      (change)="select('standard')"
+    />
+    <span class="profile-option__body">
+      <span class="profile-option__title">Standard</span>
+      <span class="profile-option__desc">Runs the same as today — full read/write access to the project folder, following the YOLO and provider settings above.</span>
+    </span>
+  </label>
+
+  <label class="profile-option">
+    <input
+      type="radio"
+      name="executionProfile"
+      value="contained"
+      [checked]="value() === 'contained'"
+      (change)="select('contained')"
+    />
+    <span class="profile-option__body">
+      <span class="profile-option__title">Contained</span>
+      <span class="profile-option__desc">Locked down for unattended runs: read-only filesystem, no network, no API keys from your environment. Codex must be signed in via its own login or config file — environment-variable API keys will not reach a contained run. Only works on Codex — any other provider fails the run instead of running unsandboxed.</span>
+    </span>
+  </label>
+
+  @if (containedProviderMismatch()) {
+    <p class="profile-warning" role="alert">
+      This automation currently resolves to a provider other than Codex, so a Contained run will fail immediately when it fires. Pin the provider to Codex (or leave it on Auto with a Codex favourite/default) to fix this.
+    </p>
+  }
+</fieldset>

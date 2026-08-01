@@ -99,6 +99,7 @@ export function buildInstanceRecord(
     bareMode: config.bareMode ?? false,
     ...(config.browserToolsMode ? { browserToolsMode: config.browserToolsMode } : {}),
     ...(config.hardened ? { hardened: true } : {}),
+    ...(config.containedExecution ? { containedExecution: true } : {}),
     // WS7 Phase B: per-instance override wins; else seed from the global list.
     ...((config.failoverProviders ?? options.defaultFailoverProviders)?.length
       ? { failoverProviders: config.failoverProviders ?? options.defaultFailoverProviders }

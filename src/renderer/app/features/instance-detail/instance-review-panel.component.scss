@@ -1,0 +1,233 @@
+.panel {
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  margin: var(--spacing-md) 0;
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+  user-select: none;
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-display);
+  font-weight: 800;
+}
+
+.chevron {
+  display: inline-block;
+  font-size: 12px;
+  transition: transform 0.15s ease;
+  color: var(--text-muted);
+}
+
+.chevron.open {
+  transform: rotate(90deg);
+}
+
+.badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.badge.running {
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.35);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.btn {
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.btn.primary {
+  border-color: transparent;
+  background: linear-gradient(
+    135deg,
+    var(--primary-color) 0%,
+    var(--primary-hover) 100%
+  );
+  color: var(--bg-primary);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.body {
+  padding: 12px;
+}
+
+.config {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.block-title {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.agent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 180px;
+  overflow: auto;
+  padding-right: 6px;
+}
+
+.agent {
+  display: grid;
+  grid-template-columns: 18px 120px 1fr;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.agent-name {
+  font-family: var(--font-display);
+  font-weight: 700;
+}
+
+.agent-desc {
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.files {
+  max-height: 180px;
+  overflow: auto;
+}
+
+.file-count {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.file {
+  font-size: 12px;
+  padding: 6px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-md);
+  background: rgba(0, 0, 0, 0.12);
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.muted {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.error {
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--error-color);
+}
+
+.findings-dispatch {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  margin-bottom: var(--spacing-md);
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.findings-dispatch-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  margin-bottom: 8px;
+}
+
+.findings-dispatch-count {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.findings-dispatch-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 160px;
+  overflow: auto;
+}
+
+.finding-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  padding: 2px 0;
+}
+
+.finding-summary {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.finding-location {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.finding-title {
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -192,6 +192,34 @@ const projectPluginTrustMapSchema = z.record(z.string().min(1).max(1000), projec
 // WS-B1 phase 1 — per-project PR-creation opt-in map.
 const allowPrCreationMapSchema = z.record(z.string().min(1).max(1000), z.boolean());
 
+// WS-C9 — user keybinding overrides, serialized by
+// `serializeKeybindingCustomizations` (renderer `keybinding-conflicts.ts`).
+const keybindingModifierSchema = z.enum(['ctrl', 'alt', 'shift', 'meta', 'cmd']);
+const keybindingComboSchema = z.object({
+  key: z.string().min(1).max(32),
+  modifiers: z.array(keybindingModifierSchema).max(4),
+}).strict();
+const keybindingCustomizationSchema = z.object({
+  id: z.string().min(1).max(128),
+  keys: z.union([keybindingComboSchema, z.array(keybindingComboSchema).max(6)]),
+}).strict();
+const keybindingCustomizationsMapSchema = z.object({
+  version: z.literal(1).optional(),
+  customizations: z.array(keybindingCustomizationSchema).max(200),
+}).strict();
+// `''` is this setting's own default sentinel for "no overrides" (see
+// DEFAULT_SETTINGS.keybindingCustomizations and the `if (!raw) return;`
+// guard in KeybindingService's load path) — unlike `jsonBackedObjectSchema`'s
+// other two callers below, which default to a real JSON string
+// (DEFAULT_ORCHESTRATION_ROUTING_POLICY_JSON / a stringified slot map) and
+// must keep rejecting a genuinely empty string. Scoped to this call site
+// only, not added to `jsonBackedObjectSchema` itself, so those other two
+// settings are unaffected.
+const keybindingCustomizationsSchema = z.union([
+  z.literal(''),
+  jsonBackedObjectSchema(keybindingCustomizationsMapSchema),
+]);
+
 const workerModeSchema = z.object({
   role: z.enum(['unset', 'coordinator', 'worker']),
   startWorkerOnLaunch: z.boolean(),
@@ -268,6 +296,7 @@ export const SETTINGS_TOOL_POLICY = {
   thinkingDefaultExpanded: open(z.boolean()),
   showCost: open(z.boolean()),
   maxRecentDirectories: open(numberSettingSchema('maxRecentDirectories')),
+  keybindingCustomizations: open(keybindingCustomizationsSchema),
   customModelOverride: open(modelIdSchema),
   customModelsByProvider: open(customModelsByProviderSchema),
   modelCatalogRemoteOverrideUrl: open(optionalHttpUrlSchema),
@@ -483,6 +512,9 @@ export const SETTINGS_TOOL_POLICY = {
   // Reactions (event-driven re-prompting)
   reactionsEnabled: open(z.boolean()),
   reactionsPollIntervalMs: open(z.number().int().min(5000).max(600_000)),
+
+  // WS-C10 — flagged transcript DOM virtualization prototype (off by default)
+  transcriptVirtualization: open(z.boolean()),
 } satisfies Record<keyof AppSettings, SettingsToolPolicy>;
 
 export function getSettingsToolPolicy(key: string): SettingsToolPolicy {

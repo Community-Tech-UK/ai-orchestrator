@@ -48,6 +48,12 @@ vi.mock('../../../shared/utils/id-generator', () => ({
 }));
 
 import { RuntimeReconciler } from './runtime-reconciler';
+import {
+  AdapterOnLoanError,
+  beginAdapterLoan,
+  endAdapterLoan,
+  _resetAdapterLoansForTesting,
+} from './adapter-loan-registry';
 
 const LIVE_SESSION_ID = 'live-claude-session';
 
@@ -83,6 +89,7 @@ interface Harness {
   reconciler: RuntimeReconciler;
   instance: Instance;
   createCalls: Array<{ options: Record<string, unknown> }>;
+  deleteAdapter: ReturnType<typeof vi.fn>;
   deps: {
     evaluateResumeHealth: ReturnType<typeof vi.fn>;
     transitionState: ReturnType<typeof vi.fn>;
@@ -92,8 +99,17 @@ interface Harness {
   };
 }
 
-function makeHarness(instance: Instance, adapters: CliAdapter[]): Harness {
+function makeHarness(
+  instance: Instance,
+  adapters: CliAdapter[],
+  opts: {
+    noAdapter?: boolean;
+    getAdapter?: () => CliAdapter | undefined;
+    assertLocalModelRuntimeAvailable?: () => Promise<void>;
+  } = {},
+): Harness {
   let adapterIndex = 0;
+  const deleteAdapter = vi.fn();
   const createCalls: Array<{ options: Record<string, unknown> }> = [];
   const deps = {
     evaluateResumeHealth: vi.fn().mockResolvedValue('healthy'),
@@ -106,15 +122,15 @@ function makeHarness(instance: Instance, adapters: CliAdapter[]): Harness {
   };
   const reconciler = new RuntimeReconciler({
     getInstance: () => instance,
-    getAdapter: () => makeAdapter(),
+    getAdapter: opts.getAdapter ?? (() => (opts.noAdapter ? undefined : makeAdapter())),
     setAdapter: vi.fn(),
-    deleteAdapter: vi.fn(),
+    deleteAdapter,
     setupAdapterEvents: vi.fn(),
     transitionState: deps.transitionState,
     resolveCliTypeForInstance: async () => 'claude',
     // Claude: resumable and forkable — the exact shape that triggered LT-008.
     getAdapterRuntimeCapabilities: () => ({ supportsResume: true, supportsForkSession: true }),
-    assertLocalModelRuntimeAvailable: vi.fn(),
+    assertLocalModelRuntimeAvailable: opts.assertLocalModelRuntimeAvailable ?? vi.fn(),
     residentClaudeForSpawn: () => false,
     createRuntimeAdapter: (_cliType: unknown, options: Record<string, unknown>) => {
       createCalls.push({ options });
@@ -145,12 +161,41 @@ function makeHarness(instance: Instance, adapters: CliAdapter[]): Harness {
     },
     queueUpdate: vi.fn(),
   } as unknown as RuntimeReconcilerDeps);
-  return { reconciler, instance, createCalls, deps };
+  return { reconciler, instance, createCalls, deps, deleteAdapter };
 }
 
 /** A pure permission-posture flip — the toggleYoloMode path. */
 function yoloOnly(yoloMode: boolean): DesiredRuntime {
   return { provider: 'claude', yoloMode } as unknown as DesiredRuntime;
+}
+
+/**
+ * A harness whose pre-teardown await lets a loop claim the adapter mid-flight —
+ * standing in for the real cold-cache CLI probe on a provider swap, which takes
+ * seconds and is the window the entry-time loan check cannot cover on its own.
+ */
+function makeHarnessWithLateLoan(instance: Instance): Harness {
+  return makeHarness(instance, [makeAdapter()], {
+    assertLocalModelRuntimeAvailable: async () => {
+      await Promise.resolve();
+      beginAdapterLoan('inst-1', 'loop-late');
+    },
+  });
+}
+
+/** A change carrying a local-model target, so the pre-teardown await runs. */
+function localModelChange(): DesiredRuntime {
+  return {
+    provider: 'claude',
+    modelRuntimeTarget: {
+      kind: 'local-model',
+      source: 'this-device',
+      endpointProvider: 'ollama',
+      endpointId: 'ollama',
+      modelId: 'qwen',
+      selectorId: 'lm://this-device/ollama/ollama/qwen',
+    },
+  } as unknown as DesiredRuntime;
 }
 
 describe('RuntimeReconciler.applyRuntimeChange — fork resume source (LT-008)', () => {
@@ -307,5 +352,50 @@ describe('RuntimeReconciler.applyRuntimeChange — runtime-change notices are vi
     expect(result.yoloMode).toBe(true);
     expect(result.status).toBe('idle');
     expect(instance.processId).toBe(77);
+  });
+});
+
+/**
+ * LT-020. The reconciler is the single choke point for every change-driven
+ * respawn, so the loan guard has to live here — not only in the queue.
+ */
+describe('RuntimeReconciler — adapter loans (LT-020)', () => {
+  beforeEach(() => {
+    _resetAdapterLoansForTesting();
+  });
+
+  it('refuses a change while a loop iteration holds the adapter', async () => {
+    const { reconciler } = makeHarness(makeInstance(), [makeAdapter()]);
+    const loan = beginAdapterLoan('inst-1', 'loop-a');
+
+    await expect(reconciler.applyRuntimeChange('inst-1', yoloOnly(true)))
+      .rejects.toBeInstanceOf(AdapterOnLoanError);
+
+    endAdapterLoan(loan);
+  });
+
+  it('re-checks the loan immediately before terminating, closing the await window', async () => {
+    // A provider swap awaits CLI availability before teardown. If the loop
+    // starts its next iteration during that await, the first check has already
+    // passed — and terminating anyway is the original defect.
+    const instance = makeInstance();
+    const { reconciler, deleteAdapter } = makeHarnessWithLateLoan(instance);
+
+    await expect(reconciler.applyRuntimeChange('inst-1', localModelChange()))
+      .rejects.toBeInstanceOf(AdapterOnLoanError);
+
+    // The decisive assertion: the old adapter was never torn down.
+    expect(deleteAdapter).not.toHaveBeenCalled();
+  });
+
+  it('allows the change when the adapter is already gone (failover must not be blocked)', async () => {
+    const instance = makeInstance({ status: 'error' } as Partial<Instance>);
+    const { reconciler } = makeHarness(instance, [makeAdapter(99)], { noAdapter: true });
+    beginAdapterLoan('inst-1', 'loop-a');
+
+    // A dead CLI has nothing to SIGTERM, and blocking here would strand the
+    // instance on a failing provider — the case `error` is an allowed status for.
+    const result = await reconciler.applyRuntimeChange('inst-1', yoloOnly(true));
+    expect(result.yoloMode).toBe(true);
   });
 });

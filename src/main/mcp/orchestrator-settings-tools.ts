@@ -513,7 +513,8 @@ function inferCategory(key: keyof AppSettings): string {
     key === 'detectDegradedAdapterOutput' ||
     key === 'enableSpawnWorkerOffload' ||
     key === 'toolLoopAutoInterrupt' ||
-    key === 'approvalAdjudicationEnabled'
+    key === 'approvalAdjudicationEnabled' ||
+    key === 'transcriptVirtualization'
   ) {
     return 'advanced';
   }

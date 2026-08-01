@@ -25,6 +25,15 @@ import { PageHeaderComponent } from '../../shared/components/page-header/page-he
 import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
 import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
 import { AutomationWebhooksPanelComponent } from './automation-webhooks-panel.component';
+import { AutomationAuthorityPanelComponent } from './automation-authority-panel.component';
+import { AutomationExecutionProfileSelectorComponent } from './automation-execution-profile-selector.component';
+import {
+  AUTOMATION_AUTHORITY_TEMPLATES,
+  automationToAuthorityInput,
+  formToAuthorityInput,
+  type AutomationAuthorityInput,
+  type AutomationAuthorityTemplateId,
+} from './automation-authority';
 import {
   emptyForm,
   formToLoopAction,
@@ -50,7 +59,14 @@ interface AutomationGroup {
 @Component({
   selector: 'app-automations-page',
   standalone: true,
-  imports: [CommonModule, FormsModule, CompactModelPickerComponent, PageHeaderComponent, AutomationWebhooksPanelComponent],
+  imports: [
+    CommonModule,
+    FormsModule,
+    CompactModelPickerComponent,
+    PageHeaderComponent,
+    AutomationWebhooksPanelComponent,
+    AutomationAuthorityPanelComponent, AutomationExecutionProfileSelectorComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { '(document:keydown.escape)': 'onEscape()' },
   templateUrl: './automations-page.component.html',
@@ -135,6 +151,21 @@ export class AutomationsPageComponent {
   selectedRuns = computed(() =>
     this.store.runs().filter((run) => run.automationId === this.selectedId()).slice(0, 20)
   );
+
+  /** WS-C5: live operating-authority contract for the editor form, and for the read-only pre-run detail view. */
+  readonly authorityTemplates = AUTOMATION_AUTHORITY_TEMPLATES;
+  readonly formAuthorityInput = computed<AutomationAuthorityInput>(() => formToAuthorityInput(this.form()));
+  readonly selectedAuthorityInput = computed<AutomationAuthorityInput | null>(() => {
+    const automation = this.selected();
+    return automation ? automationToAuthorityInput(automation) : null;
+  });
+
+  /** Apply a one-click authority preset (WS-C5); it patches real config fields, never hides the resulting contract. */
+  applyAuthorityTemplate(id: AutomationAuthorityTemplateId): void {
+    const template = AUTOMATION_AUTHORITY_TEMPLATES.find((candidate) => candidate.id === id);
+    if (!template) return;
+    this.patchForm(template.apply(this.form()));
+  }
 
   constructor() {
     void this.store.loadTemplates();
@@ -533,6 +564,9 @@ export class AutomationsPageComponent {
       forceNodeId: model.forceNodeId || undefined,
       attachments: model.attachments,
       loop: formToLoopAction(model),
+      // WS-C7: absent means 'standard' (current behaviour) — never persist the
+      // default explicitly so older/other-worktree readers see no field at all.
+      executionProfile: model.executionProfile === 'standard' ? undefined : model.executionProfile,
     };
     const trigger = formToTrigger(model);
 
@@ -760,6 +794,7 @@ export class AutomationsPageComponent {
       loopIsolateWorkspace: automation.action.loop?.isolateWorkspace ?? true,
       loopMaxIterations: automation.action.loop?.maxIterations != null ? String(automation.action.loop.maxIterations) : '',
       loopMaxCostCents: automation.action.loop?.maxCostCents != null ? String(automation.action.loop.maxCostCents) : '',
+      executionProfile: automation.action.executionProfile ?? 'standard',
     };
   }
 

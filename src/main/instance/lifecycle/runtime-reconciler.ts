@@ -51,6 +51,7 @@ import {
   type SwapTargetProvider,
 } from './model-change-provider-swap';
 import { computeRuntimeDiff, planContinuity } from './runtime-reconciler-plan';
+import { assertAdapterNotOnLoan } from './adapter-loan-registry';
 import { announceRuntimeChange, runtimeChangeNoticesFor } from './runtime-change-notices';
 import type { UnifiedSpawnOptions } from '../../cli/adapters/adapter-factory';
 import type { DesiredRuntime, Instance } from '../../../shared/types/instance.types';
@@ -85,6 +86,10 @@ export class RuntimeReconciler {
       if (unavailableReason) {
         throw new Error(unavailableReason);
       }
+
+      // LT-020: the choke point for every *change-driven* respawn (the queue,
+      // chat `setYoloMode`, mobile `changeModel`, loop failover).
+      assertAdapterNotOnLoan(instanceId, Boolean(this.deps.getAdapter(instanceId)));
 
       const oldModel = instance.currentModel || 'default';
       const oldCurrentModel = instance.currentModel;
@@ -168,6 +173,9 @@ export class RuntimeReconciler {
       const oldAdapter = this.deps.getAdapter(instanceId);
       const oldAdapterCapabilities = this.deps.getAdapterRuntimeCapabilities(oldAdapter);
       if (oldAdapter) {
+        // LT-020: re-check with nothing awaiting between here and the
+        // terminate — the entry check cannot cover the swap's CLI probe.
+        assertAdapterNotOnLoan(instanceId, true);
         this.deps.deleteAdapter(instanceId);
         await oldAdapter.terminate(true);
       }

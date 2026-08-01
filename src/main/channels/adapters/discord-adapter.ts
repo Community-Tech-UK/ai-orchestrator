@@ -399,6 +399,11 @@ export class DiscordAdapter extends BaseChannelAdapter {
     return this.displayName;
   }
 
+  /** Discord messages sent by this bot can be edited in place — see WS-C8. */
+  override supportsMessageEditing(): boolean {
+    return true;
+  }
+
   /**
    * Nickname to apply in servers: the explicit bot name, else the machine
    * hostname (with a trailing ".local" stripped). Capped at Discord's 32 chars.

@@ -49,6 +49,27 @@ export const LoopCompletionOutcomeSchema = z.enum([
   'rename-gate',
   'review-blocked',
 ]);
+/**
+ * Every activity kind the main process can put on the `loop:activity` push
+ * channel (LT-021). This is the single source of truth: `LoopInvocationActivity`
+ * in the main process derives its kind from `LoopActivityKind` below, so adding
+ * one there without adding it here is a type error rather than an event the
+ * renderer-boundary validator silently drops.
+ */
+export const LoopActivityKindSchema = z.enum([
+  'spawned',
+  'status',
+  'tool_use',
+  'tool_result',
+  'assistant',
+  'system',
+  'input_required',
+  'error',
+  'stream-idle',
+  'complete',
+  'heartbeat',
+]);
+
 export const LoopVerdictSchema = z.enum(['OK', 'WARN', 'CRITICAL']);
 export const LoopVerifyFailureKindSchema = z.enum(['command', 'timeout', 'infra']);
 export const LoopProviderSchema = z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']);
@@ -886,6 +907,7 @@ export const LoopResumeWithAnswersPayloadSchema = z.object({
 
 // ============ Inferred types ============
 
+export type LoopActivityKind = z.infer<typeof LoopActivityKindSchema>;
 export type LoopConfigPayload = z.infer<typeof LoopConfigSchema>;
 export type LoopConfigInput = z.infer<typeof LoopConfigInputSchema>;
 export type LoopStatePayload = z.infer<typeof LoopStateSchema>;

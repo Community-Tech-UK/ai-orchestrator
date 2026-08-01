@@ -3,6 +3,7 @@ import type { InstanceStatus } from '../../core/state/instance/instance.types';
 import type { Automation, AutomationRun } from '../../../../shared/types/automation.types';
 import type { RepoJobRecord } from '../../../../shared/types/repo-job.types';
 import type { WorkflowLifecyclePhase } from '../../../../shared/types/workflow-lifecycle.types';
+import type { AttentionLevel } from '../../../../shared/attention/attention-level';
 
 /**
  * Renderer-local Workboard view model.
@@ -39,6 +40,11 @@ export interface WorkboardRelation {
   rawStatus: string;
   phase: WorkflowLifecyclePhase;
   lane: WorkboardLane;
+  /** WS-C2: this relation's position on the shared, cross-surface attention
+   *  scale (`src/shared/attention/attention-level.ts`) — finer-grained than
+   *  `lane` (splits `needs-you` into `blocked` / `failed` / `review`) so
+   *  act-from-the-card can tell an answerable prompt from a failure. */
+  attentionLevel: AttentionLevel;
   updatedAt: number;
   /** True when this relation has reached a terminal, non-resumable state.
    *  Drives the 24-hour recent-terminal retention window. */
@@ -57,6 +63,9 @@ export interface WorkboardItem {
   primary: WorkboardRelation;
   relations: readonly WorkboardRelation[];
   lane: WorkboardLane;
+  /** Most urgent `attentionLevel` across every relation (mirrors how `lane`
+   *  is the most urgent lane). Drives act-from-the-card and snooze. */
+  attentionLevel: AttentionLevel;
   title: string;
   workspaceId: string;
   workingDirectory: string;
@@ -117,3 +126,20 @@ export interface WorkboardProjectionInput {
 
 /** Lane arrays keyed by lane. Every lane is always present (possibly empty). */
 export type WorkboardLanes = Record<WorkboardLane, WorkboardItem[]>;
+
+/**
+ * WS-C2 act-from-the-card: a structural (not imported) view of the pending
+ * orchestration `user-action-request` records `listUserActionRequestsForInstance`
+ * returns. Kept structural — like `GatewayChatHistorySource` in the mobile
+ * gateway — so this feature doesn't import `OrchestrationHandler`'s main-only
+ * type or the instance-detail feature's local `UserActionRequest` type.
+ * Deliberately excludes `select_option` / `ask_questions` / `switch_mode`:
+ * those need a chosen option or free-text answer, which a compact card
+ * cannot safely default — only `approve_action` / `confirm` fit a plain
+ * Approve/Reject pair.
+ */
+export interface WorkboardPendingActionRequest {
+  id: string;
+  instanceId: string;
+  requestType: 'switch_mode' | 'approve_action' | 'confirm' | 'select_option' | 'ask_questions';
+}

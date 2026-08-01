@@ -3,6 +3,7 @@ import type { InstanceManager } from '../instance/instance-manager';
 import type { Instance } from '../../shared/types/instance.types';
 import type {
   Automation,
+  AutomationAction,
   AutomationFireOutcome,
   AutomationRun,
   AutomationRunStatus,
@@ -38,9 +39,15 @@ import type {
   ThreadWakeupRunnerFactory,
 } from './automation-runner-types';
 import { renderWebhookPromptTemplate } from './webhook-prompt-template';
-import { readAutomationModelDefaults, resolveAutomationSpawnTarget, type AutomationModelDefaults } from './automation-model-defaults';
+import {
+  readAutomationModelDefaults,
+  resolveAutomationSpawnTarget,
+  type AutomationModelDefaults,
+  type AutomationSpawnTarget,
+} from './automation-model-defaults';
 import { AutomationLoopRunDispatcher, defaultLoopRunExists, recoverLoopLinkedRuns } from './automation-loop-run';
 import { getNotificationService } from '../notifications/notification-service';
+import { checkContainedExecutionGate } from './automation-execution-profile-gate';
 
 const logger = getLogger('AutomationRunner');
 
@@ -214,6 +221,11 @@ export class AutomationRunner {
       return;
     }
 
+    // WS-C7: contained only enforces on a fresh one-shot instance spawn — refuse thread/loop shapes rather than silently ignore the profile.
+    if (this.refuseUnsupportedContainedShape(claimed.snapshot, claimed.run.id)) {
+      return;
+    }
+
     if (claimed.snapshot.destination.kind === 'thread') {
       const terminal = await this.requireThreadWakeupRunner().fireThreadWakeup({
         run: claimed.run,
@@ -232,16 +244,23 @@ export class AutomationRunner {
     }
 
     try {
+      const spawnTarget = this.resolveSpawnTargetOrRefuse(claimed.snapshot.action, claimed.run.id);
+      if (!spawnTarget) {
+        return;
+      }
+      const contained = claimed.snapshot.action.executionProfile === 'contained';
       const instance = await manager.createInstance({
         displayName: `Automation: ${claimed.snapshot.name}`,
         workingDirectory: claimed.snapshot.action.workingDirectory,
         initialPrompt: claimed.snapshot.action.prompt,
         attachments: claimed.snapshot.action.attachments,
-        yoloMode: claimed.snapshot.action.yoloMode,
+        // WS-C7: contained forces the CLI's sandbox read-only via yoloMode=false.
+        yoloMode: contained ? false : claimed.snapshot.action.yoloMode,
         agentId: claimed.snapshot.action.agentId,
-        ...resolveAutomationSpawnTarget(claimed.snapshot.action, this.automationModelDefaults()),
+        ...spawnTarget,
         forceNodeId: claimed.snapshot.action.forceNodeId,
         reasoningEffort: claimed.snapshot.action.reasoningEffort,
+        ...(contained ? { containedExecution: true } : {}),
         // Durable provenance so the rail can mark this session as automation-born
         // (with a clock indicator) even after AI auto-titling rewrites the
         // "Automation: …" displayName. Survives archive into the history entry.
@@ -376,6 +395,37 @@ export class AutomationRunner {
 
   private dispatchSystemActionIfHandled(claimed: ClaimedAutomationRun): AutomationRun | null {
     return dispatchAutomationSystemAction(claimed, { store: this.store, now: () => this.now() });
+  }
+
+  /** WS-C7: contained has no enforcement path for a thread wakeup or a loop action — refuse rather than silently ignore the profile. Returns true when refused. */
+  private refuseUnsupportedContainedShape(snapshot: ClaimedAutomationRun['snapshot'], runId: string): boolean {
+    if (snapshot.action.executionProfile !== 'contained') {
+      return false;
+    }
+    if (snapshot.destination.kind !== 'thread' && !snapshot.action.loop) {
+      return false;
+    }
+    const reason = 'Contained runs only support a fresh one-shot instance today — thread-wakeup and loop actions cannot be sandboxed, so the run is refused instead of running unsandboxed.';
+    const failed = this.store.terminalizeRun(runId, 'failed', reason, undefined, this.now());
+    if (failed) {
+      this.handleTerminalRun(failed, { retryable: false });
+    }
+    return true;
+  }
+
+  /** WS-C7: resolves + enforces the `contained` gate together so they can never diverge; null = refused (terminalized), do not spawn. */
+  private resolveSpawnTargetOrRefuse(action: AutomationAction, runId: string): AutomationSpawnTarget | null {
+    const spawnTarget = resolveAutomationSpawnTarget(action, this.automationModelDefaults());
+    const gate = checkContainedExecutionGate(action.executionProfile, spawnTarget.provider);
+    if (gate.ok) {
+      return spawnTarget;
+    }
+    logger.warn('Automation run refused by contained-execution gate', { runId, reason: gate.reason });
+    const failed = this.store.terminalizeRun(runId, 'failed', gate.reason, undefined, this.now());
+    if (failed) {
+      this.handleTerminalRun(failed, { retryable: false }); // deterministic refusal — never retry
+    }
+    return null;
   }
 
   private requireLoopRunDispatcher(): AutomationLoopRunDispatcher {
@@ -714,6 +764,10 @@ export class AutomationRunner {
       }
     }
 
+    if (retryRun.configSnapshot && this.refuseUnsupportedContainedShape(retryRun.configSnapshot, retryRun.id)) {
+      return;
+    }
+
     if (retryRun.configSnapshot?.destination.kind === 'thread') {
       const terminal = await this.requireThreadWakeupRunner().fireThreadWakeup({
         run: retryRun,
@@ -729,16 +783,23 @@ export class AutomationRunner {
       if (!snapshot) {
         throw new Error('Retry run has no config snapshot');
       }
+      const spawnTarget = this.resolveSpawnTargetOrRefuse(snapshot.action, retryRun.id);
+      if (!spawnTarget) {
+        return;
+      }
+      const contained = snapshot.action.executionProfile === 'contained';
       const instance = await manager.createInstance({
         displayName: `Automation: ${snapshot.name} (retry ${retryRun.attempt})`,
         workingDirectory: snapshot.action.workingDirectory,
         initialPrompt: snapshot.action.prompt,
         attachments: snapshot.action.attachments,
-        yoloMode: snapshot.action.yoloMode,
+        // WS-C7: same forced sandbox as the first attempt — see dispatchRun.
+        yoloMode: contained ? false : snapshot.action.yoloMode,
         agentId: snapshot.action.agentId,
-        ...resolveAutomationSpawnTarget(snapshot.action, this.automationModelDefaults()),
+        ...spawnTarget,
         forceNodeId: snapshot.action.forceNodeId,
         reasoningEffort: snapshot.action.reasoningEffort,
+        ...(contained ? { containedExecution: true } : {}),
         // Same durable provenance as the first attempt so the rail marks the
         // retry session as automation-born and viewing it clears the badge.
         metadata: {

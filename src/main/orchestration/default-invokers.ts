@@ -7,6 +7,7 @@
  */
 
 import type { InstanceManager } from '../instance/instance-manager';
+import { beginAdapterLoan, endAdapterLoan } from '../instance/lifecycle/adapter-loan-registry';
 import type { DegradedReason } from '../cli/adapters/degraded-output-classifier';
 import { getLogger } from '../logging/logger';
 import { getMultiVerifyCoordinator } from './multi-verify-coordinator';
@@ -709,7 +710,7 @@ import {
 } from './loop-attempt-observation';
 import { defaultLoopContextConfig, LOOP_DEFAULT_MAX_TURNS_PER_ITERATION } from '../../shared/types/loop.types';
 import { evaluateLoopContextDiscipline } from './loop-context-discipline-runtime';
-import { attachInvocationActivity, type LoopInvocationActivity, type LoopInvocationActivityKind } from './loop-invocation-activity';
+import { attachInvocationActivity, boundActivityDetail, type LoopInvocationActivity, type LoopInvocationActivityKind } from './loop-invocation-activity';
 import { observeLoopProviderRuntimeEvents } from './loop-provider-event-capture';
 import {
   createLoopInvocationCapture,
@@ -1192,6 +1193,12 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         stage: p.stage,
         timestamp: Date.now(),
         ...activity,
+        // LT-021: `tool_use`/`tool_result` now actually reach the renderer, and
+        // their `detail` carries the raw tool input/result — a 300 KB Write or a
+        // large Read would otherwise be copied to the renderer and to every
+        // connected thin/mobile client, per event. `message` is already capped
+        // upstream; `detail` was not, because it never crossed IPC before.
+        ...(activity.detail ? { detail: boundActivityDetail(activity.detail) } : {}),
       });
     };
     emitActivity({
@@ -1237,6 +1244,16 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       reusedAdapter = liveAdapter;
       borrowedFromInstance = true;
     }
+
+    // LT-020: claim the loan the moment the borrow is decided, not just before
+    // the CLI call. Between here and there sits `recyclePersistentLoopAdapter`,
+    // and a swap applying in that window respawns the instance and leaves
+    // `reusedAdapter` pointing at a terminated adapter. Everything from here to
+    // the invocation's `finally` is covered — see the wrapping try below.
+    const adapterLoan = borrowedFromInstance
+      ? beginAdapterLoan(p.chatId, p.loopRunId)
+      : undefined;
+    try {
 
     // LF-4 RPI: a PLAN→IMPLEMENT context reset recycles the persistent adapter
     // first, so the IMPLEMENT iteration starts from a fresh session anchored on
@@ -1576,6 +1593,13 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         reason: attemptObserver.failureNote(),
       });
       p.callback(failure);
+    }
+    } finally {
+      // Release before the coordinator dispatches the next iteration, so a
+      // queued runtime change gets its boundary. This outer `finally` also
+      // covers adapter recycling/creation above, which can throw or return
+      // early — a leaked loan would wedge the user's queued change forever.
+      endAdapterLoan(adapterLoan);
     }
   });
 }

@@ -1,7 +1,7 @@
 import { getSecretAuditLog } from './secret-redaction';
 import { detectSecretsInContent, type DetectedSecret } from './secret-detector';
 
-export type EgressContentKind = 'diff' | 'prompt' | 'webhook' | 'memory';
+export type EgressContentKind = 'diff' | 'prompt' | 'webhook' | 'memory' | 'channel';
 
 export interface EgressRedactionOptions {
   kind: EgressContentKind;

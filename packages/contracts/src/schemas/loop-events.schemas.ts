@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  LoopActivityKindSchema,
   LoopPendingInputKindSchema,
   LoopStageSchema,
   LoopStatusSchema,
@@ -45,7 +46,11 @@ export const LoopActivityEventSchema = z.object({
   seq: z.number().int(),
   stage: LoopStageSchema,
   timestamp: z.number(),
-  kind: z.enum(['status', 'error', 'input_required']),
+  // LT-021: the invoker forwards its whole activity vocabulary on this channel,
+  // not just the three kinds the coordinator emits directly. Narrowing this to
+  // `status | error | input_required` silently dropped every tool call and
+  // result before it reached the renderer's loop activity feed.
+  kind: LoopActivityKindSchema,
   message: z.string(),
   detail: z.record(z.string(), z.unknown()).optional(),
 }).passthrough();

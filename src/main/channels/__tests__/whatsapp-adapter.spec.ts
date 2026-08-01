@@ -141,6 +141,10 @@ describe('WhatsAppAdapter', () => {
     expect(adapter.platform).toBe('whatsapp');
   });
 
+  it('does not support editing sent messages (WS-C8 falls back to no draft, not a message stack)', () => {
+    expect(adapter.supportsMessageEditing()).toBe(false);
+  });
+
   it('defaults to pairing mode', () => {
     const policy = adapter.getAccessPolicy();
     expect(policy.mode).toBe('pairing');

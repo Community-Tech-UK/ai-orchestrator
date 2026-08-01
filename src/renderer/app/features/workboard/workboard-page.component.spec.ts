@@ -12,6 +12,8 @@ await resolveComponentResources(() => Promise.resolve(''));
 import { WorkboardStore } from './workboard.store';
 import { InstanceDetailComponent } from '../instance-detail/instance-detail.component';
 import { workboardSpecialistTarget } from './workboard-source-summary.component';
+import { LoopStore } from '../../core/state/loop.store';
+import { InstanceIpcService } from '../../core/services/ipc/instance-ipc.service';
 import type { WorkboardItem, WorkboardLanes } from './workboard.types';
 
 const NOW = 1_700_000_000_000;
@@ -34,11 +36,13 @@ function item(overrides: Partial<WorkboardItem> = {}): WorkboardItem {
       rawStatus: 'busy',
       phase: 'running',
       lane: 'working',
+      attentionLevel: 'working',
       updatedAt: NOW,
       terminal: false,
     },
     relations: [],
     lane: 'working',
+    attentionLevel: 'working',
     title: 'Build session',
     workspaceId: '/repo/project',
     workingDirectory: '/repo/project',
@@ -77,6 +81,10 @@ function makeFakeStore() {
     retryLoops: vi.fn(async () => { /* noop */ }),
     retryRepoJobs: vi.fn(async () => { /* noop */ }),
     retryAutomations: vi.fn(async () => { /* noop */ }),
+    // WS-C2: WorkboardCardComponent reads snooze state directly off the store.
+    isSnoozed: vi.fn(() => false),
+    snoozeItem: vi.fn(),
+    unsnoozeItem: vi.fn(),
   };
 }
 
@@ -96,7 +104,18 @@ describe('WorkboardPageComponent', () => {
     router = { navigateByUrl: vi.fn() };
     TestBed.configureTestingModule({
       imports: [WorkboardPageComponent],
-      providers: [{ provide: Router, useValue: router }],
+      providers: [
+        { provide: Router, useValue: router },
+        // WS-C2: WorkboardCardComponent injects these directly for act-from-the-card.
+        { provide: LoopStore, useValue: { resume: vi.fn(async () => { /* noop */ }) } },
+        {
+          provide: InstanceIpcService,
+          useValue: {
+            listUserActionRequestsForInstance: vi.fn(async () => ({ success: true, data: [] })),
+            respondToUserAction: vi.fn(async () => ({ success: true })),
+          },
+        },
+      ],
     });
     TestBed.overrideComponent(WorkboardPageComponent, {
       remove: { imports: [InstanceDetailComponent], providers: [WorkboardStore] },
@@ -131,7 +150,8 @@ describe('WorkboardPageComponent', () => {
         id: 'repo-job:b',
         title: 'PR review',
         lane: 'needs-you',
-        primary: { kind: 'repo-job', id: 'b', rawStatus: 'failed', phase: 'failed', lane: 'needs-you', updatedAt: NOW, terminal: true },
+        attentionLevel: 'failed',
+        primary: { kind: 'repo-job', id: 'b', rawStatus: 'failed', phase: 'failed', lane: 'needs-you', attentionLevel: 'failed', updatedAt: NOW, terminal: true },
         statusLabel: 'Failed',
         progress: 80,
       }),
@@ -231,7 +251,7 @@ describe('WorkboardPageComponent', () => {
       item({
         id: 'automation-run:r',
         instanceId: undefined,
-        primary: { kind: 'automation-run', id: 'r', rawStatus: 'failed', phase: 'failed', lane: 'needs-you', updatedAt: NOW, terminal: true },
+        primary: { kind: 'automation-run', id: 'r', rawStatus: 'failed', phase: 'failed', lane: 'needs-you', attentionLevel: 'failed', updatedAt: NOW, terminal: true },
       }),
     );
     const fixture = await render();
@@ -245,7 +265,7 @@ describe('WorkboardPageComponent', () => {
       item({
         id: 'repo-job:b',
         instanceId: undefined,
-        primary: { kind: 'repo-job', id: 'b', rawStatus: 'failed', phase: 'failed', lane: 'needs-you', updatedAt: NOW, terminal: true },
+        primary: { kind: 'repo-job', id: 'b', rawStatus: 'failed', phase: 'failed', lane: 'needs-you', attentionLevel: 'failed', updatedAt: NOW, terminal: true },
       }),
     );
     const fixture = await render();

@@ -403,6 +403,216 @@ describe('AutomationRunner thread wakeups', () => {
   });
 });
 
+describe('AutomationRunner WS-C7 contained execution profile', () => {
+  const store = {
+    get: vi.fn(),
+    decideAndInsertRun: vi.fn(),
+    claimNextPending: vi.fn(),
+    failRunningRuns: vi.fn(),
+    listRunningLoopLinkedRuns: vi.fn(() => []),
+    recordRunOutcome: vi.fn(),
+    terminalizeRun: vi.fn(),
+    attachInstance: vi.fn(),
+  } as unknown as AutomationStore;
+  const manager = Object.assign(new EventEmitter(), {
+    createInstance: vi.fn(),
+  }) as unknown as InstanceManager & { createInstance: ReturnType<typeof vi.fn> };
+  const threadWakeupFactory = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    threadWakeupFactory.mockReturnValue({ fireThreadWakeup: vi.fn() });
+    vi.mocked(store.failRunningRuns).mockReturnValue([]);
+    vi.mocked(store.recordRunOutcome).mockReturnValue({ automation: null, autoDisabled: false });
+  });
+
+  function makeContainedRun(provider: 'codex' | 'claude' | undefined): AutomationRun {
+    const run = makeRun();
+    run.configSnapshot = {
+      ...run.configSnapshot!,
+      destination: { kind: 'newInstance' },
+      action: {
+        prompt: 'Do the contained thing',
+        workingDirectory: '/repo/current',
+        provider,
+        executionProfile: 'contained',
+      },
+    };
+    return run;
+  }
+
+  it('spawns with a forced read-only sandbox + filtered env when contained resolves to codex', async () => {
+    const automation = makeAutomation({
+      destination: { kind: 'newInstance' },
+      action: {
+        prompt: 'Do the contained thing',
+        workingDirectory: '/repo/current',
+        provider: 'codex',
+        yoloMode: true, // must be overridden to false by the contained profile
+        executionProfile: 'contained',
+      },
+    });
+    const run = makeContainedRun('codex');
+    vi.mocked(store.get).mockResolvedValue(automation);
+    vi.mocked(store.decideAndInsertRun).mockReturnValue({ kind: 'started', run });
+    manager.createInstance.mockResolvedValue({ id: 'instance-contained', outputBuffer: [], status: 'working' });
+
+    const runner = new AutomationRunner(store, undefined, () => 2_000, threadWakeupFactory);
+    runner.initialize(manager);
+
+    const result = await runner.fire('automation-1', { trigger: 'scheduled', scheduledAt: 2_000 });
+
+    expect(result.status).toBe('started');
+    expect(manager.createInstance).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'codex',
+      yoloMode: false,
+      containedExecution: true,
+    }));
+    expect(store.terminalizeRun).not.toHaveBeenCalled();
+  });
+
+  it('refuses the run before spawning when contained resolves to a non-codex provider', async () => {
+    const automation = makeAutomation({
+      destination: { kind: 'newInstance' },
+      action: {
+        prompt: 'Do the contained thing',
+        workingDirectory: '/repo/current',
+        provider: 'claude',
+        executionProfile: 'contained',
+      },
+    });
+    const run = makeContainedRun('claude');
+    vi.mocked(store.get).mockResolvedValue(automation);
+    vi.mocked(store.decideAndInsertRun).mockReturnValue({ kind: 'started', run });
+    vi.mocked(store.terminalizeRun).mockImplementation((runId, status, error) => ({
+      ...run,
+      id: runId,
+      status,
+      error: error ?? null,
+      finishedAt: 3_000,
+    }));
+
+    const runner = new AutomationRunner(store, undefined, () => 2_000, threadWakeupFactory);
+    runner.initialize(manager);
+
+    const result = await runner.fire('automation-1', { trigger: 'scheduled', scheduledAt: 2_000 });
+
+    expect(result.status).toBe('started'); // fire() itself always reports 'started'; the refusal happens inside dispatch
+    expect(manager.createInstance).not.toHaveBeenCalled();
+    expect(store.terminalizeRun).toHaveBeenCalledWith(
+      run.id,
+      'failed',
+      'Contained runs require Codex — claude cannot enforce isolation.',
+      undefined,
+      2_000,
+    );
+    // A deterministic policy refusal must never be scheduled for retry.
+    expect(store.recordRunOutcome).toHaveBeenCalledWith(run.automationId, 'failed', expect.any(String), 2_000);
+  });
+
+  it('refuses a contained loop action outright instead of running the loop unsandboxed', async () => {
+    const automation = makeAutomation({
+      destination: { kind: 'newInstance' },
+      action: {
+        prompt: 'Do the contained loop thing',
+        workingDirectory: '/repo/current',
+        provider: 'codex',
+        executionProfile: 'contained',
+        loop: { verifyCommand: 'npm test', isolateWorkspace: true },
+      },
+    });
+    const run = makeRun();
+    run.configSnapshot = { ...run.configSnapshot!, destination: { kind: 'newInstance' }, action: automation.action };
+    vi.mocked(store.get).mockResolvedValue(automation);
+    vi.mocked(store.decideAndInsertRun).mockReturnValue({ kind: 'started', run });
+    vi.mocked(store.terminalizeRun).mockImplementation((runId, status, error) => ({
+      ...run,
+      id: runId,
+      status,
+      error: error ?? null,
+      finishedAt: 3_000,
+    }));
+
+    const runner = new AutomationRunner(store, undefined, () => 2_000, threadWakeupFactory);
+    runner.initialize(manager);
+
+    await runner.fire('automation-1', { trigger: 'scheduled', scheduledAt: 2_000 });
+
+    expect(manager.createInstance).not.toHaveBeenCalled();
+    expect(store.terminalizeRun).toHaveBeenCalledWith(
+      run.id,
+      'failed',
+      expect.stringContaining('thread-wakeup and loop actions cannot be sandboxed'),
+      undefined,
+      2_000,
+    );
+  });
+
+  it('refuses a contained thread-destination wakeup outright instead of resuming an unsandboxed session', async () => {
+    const automation = makeAutomation({
+      destination: { kind: 'thread', instanceId: 'inst-1', reviveIfArchived: true },
+      action: {
+        prompt: 'Wake it up, contained',
+        workingDirectory: '/repo/current',
+        provider: 'codex',
+        executionProfile: 'contained',
+      },
+    });
+    const run = makeRun();
+    run.configSnapshot = { ...run.configSnapshot!, action: automation.action };
+    vi.mocked(store.get).mockResolvedValue(automation);
+    vi.mocked(store.decideAndInsertRun).mockReturnValue({ kind: 'started', run });
+    vi.mocked(store.terminalizeRun).mockImplementation((runId, status, error) => ({
+      ...run,
+      id: runId,
+      status,
+      error: error ?? null,
+      finishedAt: 3_000,
+    }));
+
+    const runner = new AutomationRunner(store, undefined, () => 2_000, threadWakeupFactory);
+    runner.initialize(manager);
+
+    await runner.fire('automation-1', { trigger: 'scheduled', scheduledAt: 2_000 });
+
+    expect(manager.createInstance).not.toHaveBeenCalled();
+    expect(threadWakeupFactory().fireThreadWakeup).not.toHaveBeenCalled();
+    expect(store.terminalizeRun).toHaveBeenCalledWith(
+      run.id,
+      'failed',
+      expect.stringContaining('thread-wakeup and loop actions cannot be sandboxed'),
+      undefined,
+      2_000,
+    );
+  });
+
+  it('applies the same refusal on the retry dispatch path', async () => {
+    const retryRun = makeContainedRun('claude');
+    retryRun.attempt = 2;
+    vi.mocked(store.terminalizeRun).mockImplementation((runId, status, error) => ({
+      ...retryRun,
+      id: runId,
+      status,
+      error: error ?? null,
+      finishedAt: 3_000,
+    }));
+
+    const runner = new AutomationRunner(store, undefined, () => 2_000, threadWakeupFactory);
+    runner.initialize(manager);
+
+    await runner.dispatchRetryRun(retryRun);
+
+    expect(manager.createInstance).not.toHaveBeenCalled();
+    expect(store.terminalizeRun).toHaveBeenCalledWith(
+      retryRun.id,
+      'failed',
+      'Contained runs require Codex — claude cannot enforce isolation.',
+      undefined,
+      2_000,
+    );
+  });
+});
+
 describe('AutomationRunner one-time provider-limit resume cleanup', () => {
   const store = {
     get: vi.fn(),

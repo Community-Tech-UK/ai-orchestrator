@@ -222,6 +222,10 @@ describe('DiscordAdapter', () => {
     expect(policy.codeExpiryMs).toBe(60 * 60 * 1000);
   });
 
+  it('supports editing sent messages (WS-C8)', () => {
+    expect(adapter.supportsMessageEditing()).toBe(true);
+  });
+
   // ---- connect / disconnect ----
 
   it('emits connecting then connected status events on successful connect', async () => {

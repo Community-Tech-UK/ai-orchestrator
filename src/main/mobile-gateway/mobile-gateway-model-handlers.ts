@@ -12,6 +12,7 @@ import {
   type ModelDisplayInfo,
 } from '../../shared/types/provider.types';
 import type { UnifiedModelEntry } from '../../shared/types/unified-model-catalog.types';
+import { isAdapterOnLoanError } from '../instance/lifecycle/adapter-loan-registry';
 import { readJsonBody, sendJsonResponse } from './mobile-gateway-http-utils';
 import { serializeInstance } from './mobile-gateway-serializers';
 
@@ -120,6 +121,16 @@ async function handleChangeModel(
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes('not found')) {
       sendJsonResponse(res, 404, { error: 'Instance not found' });
+      return;
+    }
+    // LT-020: a loop iteration is running on this session's adapter. That is a
+    // "try again shortly", not a server error — and this path calls the
+    // reconciler directly, so nothing queues it. Say so honestly rather than
+    // promising a retry that will not happen.
+    if (isAdapterOnLoanError(error)) {
+      sendJsonResponse(res, 409, {
+        error: 'This session is running a loop iteration. Try again when it finishes.',
+      });
       return;
     }
     if (isModelSwitchUnavailable(message)) {

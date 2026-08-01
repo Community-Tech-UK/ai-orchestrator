@@ -6,6 +6,7 @@ import {
   OnDestroy,
   TemplateRef,
   computed,
+  inject,
   input,
   output,
   signal,
@@ -14,6 +15,8 @@ import {
 import { NgTemplateOutlet } from '@angular/common';
 import type { OverlayController, OverlayItem, OverlayItemFooterTemplate } from './overlay.types';
 import { createFocusTrap, type FocusTrapHandle } from '../../shared/utils/focus-trap';
+import { KeybindingService } from '../../core/services/keybinding.service';
+import type { KeybindingContext } from '../../../../shared/types/keybinding.types';
 
 @Component({
   selector: 'app-overlay-shell',
@@ -287,10 +290,20 @@ export class OverlayShellComponent implements AfterViewInit, OnDestroy {
   private focusTimer: ReturnType<typeof setTimeout> | null = null;
   private selectedIndex = signal(0);
 
+  // WS-C9: every OverlayShellComponent instance (command palette, command
+  // help, session/model/resume pickers, prompt-history search) is the
+  // 'overlay' keybinding context while it has focus. Restored on destroy so
+  // a nested/short-lived overlay never leaves the resolver on the wrong
+  // context.
+  private readonly keybindingService = inject(KeybindingService);
+  private previousKeybindingContext: KeybindingContext | null = null;
+
   flatItems = computed(() => this.controller().groups().flatMap((group) => group.items));
   selectedItem = computed(() => this.flatItems()[this.selectedIndex()] ?? null);
 
   ngAfterViewInit(): void {
+    this.previousKeybindingContext = this.keybindingService.getContext();
+    this.keybindingService.setContext('overlay');
     this.focusTimer = setTimeout(() => {
       this.focusTimer = null;
       this.ensureFocusTrap();
@@ -307,6 +320,10 @@ export class OverlayShellComponent implements AfterViewInit, OnDestroy {
     this.focusTrap?.restore();
     this.restoreSavedFocus();
     this.focusTrap = null;
+    if (this.previousKeybindingContext) {
+      this.keybindingService.setContext(this.previousKeybindingContext);
+      this.previousKeybindingContext = null;
+    }
   }
 
   private ensureFocusTrap(): void {
@@ -335,18 +352,29 @@ export class OverlayShellComponent implements AfterViewInit, OnDestroy {
     switch (event.key) {
       case 'ArrowDown':
         event.preventDefault();
+        event.stopPropagation();
         this.move(1);
         break;
       case 'ArrowUp':
         event.preventDefault();
+        event.stopPropagation();
         this.move(-1);
         break;
       case 'Enter':
         event.preventDefault();
+        event.stopPropagation();
         this.select(this.selectedItem());
         break;
       case 'Escape':
+        // WS-C9: stop the keydown from bubbling to `document`, where
+        // KeybindingService's global listener also matches Escape
+        // ('cancel-operation', gated on an eligibility snapshot that can be
+        // stale for this same synchronous dispatch). Without this, closing
+        // an overlay with Escape could re-trigger the global cancel cascade
+        // a second time and, once no overlay signal is left open, fall
+        // through to interrupting the selected running instance.
         event.preventDefault();
+        event.stopPropagation();
         this.closeRequested.emit();
         break;
     }
@@ -354,7 +382,9 @@ export class OverlayShellComponent implements AfterViewInit, OnDestroy {
 
   onShellKeydown(event: KeyboardEvent): void {
     if (event.key === 'Escape') {
+      // Same double-fire hazard as onInputKeydown's Escape case — see there.
       event.preventDefault();
+      event.stopPropagation();
       this.closeRequested.emit();
     }
   }

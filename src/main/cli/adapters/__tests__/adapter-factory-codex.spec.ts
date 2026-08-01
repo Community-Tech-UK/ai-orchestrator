@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -56,6 +56,70 @@ describe('adapter factory - codex', () => {
     }).cliConfig).toMatchObject({
       approvalMode: 'suggest',
       sandboxMode: 'read-only',
+    });
+  });
+
+  describe('WS-C7 contained execution profile shape', () => {
+    const ORIGINAL_ENV = { ...process.env };
+
+    beforeEach(() => {
+      process.env['FAKE_API_KEY'] = 'sk-test-should-never-leak';
+    });
+
+    afterEach(() => {
+      process.env = { ...ORIGINAL_ENV };
+    });
+
+    it('matches the read-only sandbox + filtered-env contained spawn shape (yoloMode false + filterEnv true)', () => {
+      const adapter = createCliAdapter('codex', {
+        workingDirectory: '/tmp',
+        yoloMode: false,
+        filterEnv: true,
+      });
+
+      const config = (adapter as unknown as {
+        cliConfig: { approvalMode?: string; sandboxMode?: string; env?: Record<string, string> };
+      }).cliConfig;
+      expect(config).toMatchObject({ approvalMode: 'suggest', sandboxMode: 'read-only' });
+      expect(config.env).toBeDefined();
+      expect(config.env?.['FAKE_API_KEY']).toBeUndefined();
+    });
+
+    it('a standard (non-contained) spawn never filters the environment', () => {
+      const adapter = createCliAdapter('codex', {
+        workingDirectory: '/tmp',
+        yoloMode: false,
+      });
+
+      const config = (adapter as unknown as {
+        cliConfig: { env?: Record<string, string> };
+      }).cliConfig;
+      // No env key at all — mergeSpawnEnv() returns {} and createCodexAdapter
+      // omits an empty env object, so the CLI process inherits process.env as
+      // it always has (this test only guards against a filterEnv regression;
+      // the actual OS-level inheritance happens outside this unit).
+      expect(config.env).toBeUndefined();
+    });
+
+    it('folds filterEnv in automatically for an instance registered as contained (the real production wiring)', async () => {
+      const { setInstanceContainedExecution, _resetContainedExecutionScopingForTesting } =
+        await import('../../../instance/lifecycle/contained-execution-scoping');
+      _resetContainedExecutionScopingForTesting();
+      setInstanceContainedExecution('inst-contained-1', true);
+      try {
+        const adapter = createCliAdapter('codex', {
+          workingDirectory: '/tmp',
+          yoloMode: false,
+          instanceId: 'inst-contained-1',
+        });
+        const config = (adapter as unknown as {
+          cliConfig: { env?: Record<string, string> };
+        }).cliConfig;
+        expect(config.env?.['FAKE_API_KEY']).toBeUndefined();
+        expect(config.env).toBeDefined();
+      } finally {
+        _resetContainedExecutionScopingForTesting();
+      }
     });
   });
 

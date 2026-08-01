@@ -16,6 +16,7 @@ describe('SessionPickerController', () => {
       currentModel: 'sonnet',
       workingDirectory: '/repo',
       lastActivity: 10,
+      status: 'busy',
     },
   ]);
   const historyEntries = signal([
@@ -60,6 +61,7 @@ describe('SessionPickerController', () => {
     const controller = TestBed.inject(SessionPickerController);
 
     expect(controller.groups().map((group) => [group.id, group.items.length])).toEqual([
+      ['needs-you', 0],
       ['live', 1],
       ['history', 1],
       ['archived', 0],
@@ -68,11 +70,40 @@ describe('SessionPickerController', () => {
 
   it('selects live sessions without restoring history', async () => {
     const controller = TestBed.inject(SessionPickerController);
-    const liveItem = controller.groups()[0].items[0];
+    const liveItem = controller.groups()[1].items[0];
 
     await controller.run(liveItem);
 
     expect(instanceStore.setSelectedInstance).toHaveBeenCalledWith('inst-1');
     expect(historyStore.restoreEntry).not.toHaveBeenCalled();
+  });
+
+  describe('WS-C2 Needs You grouping (shared attention scale)', () => {
+    it('moves a blocked/failed live session into its own Needs You group, ordered most-urgent first', () => {
+      instances.set([
+        { id: 'a', displayName: 'Working', sessionId: 's-a', provider: 'claude', currentModel: 'sonnet', workingDirectory: '/repo', lastActivity: 10, status: 'busy' },
+        { id: 'b', displayName: 'Failed', sessionId: 's-b', provider: 'claude', currentModel: 'sonnet', workingDirectory: '/repo', lastActivity: 10, status: 'error' },
+        { id: 'c', displayName: 'Blocked', sessionId: 's-c', provider: 'claude', currentModel: 'sonnet', workingDirectory: '/repo', lastActivity: 10, status: 'waiting_for_permission' },
+      ]);
+      const controller = TestBed.inject(SessionPickerController);
+
+      const [needsYou, live] = controller.groups();
+      expect(needsYou.id).toBe('needs-you');
+      // `blocked` outranks `failed` on the shared scale.
+      expect(needsYou.items.map((item) => item.value.id)).toEqual(['c', 'b']);
+      expect(live.items.map((item) => item.value.id)).toEqual(['a']);
+    });
+
+    it('does not move a merely working or waiting session into Needs You', () => {
+      instances.set([
+        { id: 'a', displayName: 'Working', sessionId: 's-a', provider: 'claude', currentModel: 'sonnet', workingDirectory: '/repo', lastActivity: 10, status: 'busy' },
+        { id: 'b', displayName: 'Hibernating', sessionId: 's-b', provider: 'claude', currentModel: 'sonnet', workingDirectory: '/repo', lastActivity: 10, status: 'hibernating' },
+      ]);
+      const controller = TestBed.inject(SessionPickerController);
+
+      const [needsYou, live] = controller.groups();
+      expect(needsYou.items).toHaveLength(0);
+      expect(live.items.map((item) => item.value.id).sort()).toEqual(['a', 'b']);
+    });
   });
 });

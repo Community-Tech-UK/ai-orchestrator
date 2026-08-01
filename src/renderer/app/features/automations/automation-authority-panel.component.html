@@ -1,0 +1,41 @@
+<section class="authority" aria-label="What this automation may do">
+  <div class="authority-head">
+    <h3 class="authority-title">Authority</h3>
+    @if (templates().length > 0) {
+      <div class="authority-templates" role="group" aria-label="Apply a safety preset">
+        @for (template of templates(); track template.id) {
+          <button
+            type="button"
+            class="btn authority-template-btn"
+            [title]="template.description"
+            (click)="applyTemplate(template.id)"
+          >
+            {{ template.name }}
+          </button>
+        }
+      </div>
+    }
+  </div>
+
+  <div class="authority-cards">
+    @for (card of cards(); track card.kind) {
+      <div class="authority-card">
+        <span class="authority-card__title">{{ card.title }}</span>
+        <ul class="authority-card__list">
+          @for (item of card.statements; track item.statement) {
+            <li>
+              <span
+                class="authority-badge"
+                [class.authority-badge--technical]="item.enforcement === 'technical'"
+                [class.authority-badge--instruction]="item.enforcement === 'instruction-only'"
+              >
+                {{ item.enforcement === 'technical' ? 'Enforced' : 'Prompt only' }}
+              </span>
+              <span class="authority-statement">{{ item.statement }}</span>
+            </li>
+          }
+        </ul>
+      </div>
+    }
+  </div>
+</section>

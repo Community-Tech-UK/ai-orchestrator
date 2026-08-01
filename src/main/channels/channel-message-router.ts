@@ -58,6 +58,11 @@ import { getRLMDatabase } from '../persistence/rlm-database';
 import { buildChannelMessagePrompt } from './channel-message-prompt';
 import { ChannelPromptBridge, type WatchingChat } from './channel-prompt-bridge';
 import { relayAttachmentsToChannel } from './channel-attachment-relay';
+import {
+  ProgressDraftManager,
+  reportChannelToolProgress,
+  collapseChannelProgressDraft,
+} from './progress-draft-manager';
 
 const logger = getLogger('ChannelMessageRouter');
 
@@ -201,6 +206,8 @@ export class ChannelMessageRouter {
   private resolvedRouteStore: ChannelRouteStore | null | undefined;
   /** Surfaces agent approval/question prompts to watching channel chats (backlog #1). */
   private promptBridge: ChannelPromptBridge | null = null;
+  /** WS-C8 — one bounded, evolving "Working…" draft per task on edit-capable channels. */
+  private progressDraftManager = new ProgressDraftManager();
 
   constructor(
     private channelManager: ChannelManager,
@@ -2537,10 +2544,29 @@ export class ChannelMessageRouter {
     tracker.lastHeartbeatAt = now;
     const toolName = this.extractToolName(message);
     const ctx = tracker.currentMsg;
+
+    // WS-C8 — on an edit-capable channel, narrate via one evolving draft
+    // message instead of posting a fresh "still working…" line every time
+    // (the multi-message stack this heartbeat otherwise produces).
+    const narrated = reportChannelToolProgress(this.progressDraftManager, adapter, {
+      key: this.progressDraftKey(tracker),
+      chatId: ctx.chatId,
+      replyToMessageId: ctx.messageId,
+      taskStartedAt: tracker.turnStartedAt,
+      toolName,
+      now,
+    });
+    if (narrated) return;
+
     const suffix = toolName ? ` (running ${toolName})` : '';
     void adapter
       .sendMessage(ctx.chatId, `🛠️ still working…${suffix}`, { replyTo: ctx.messageId })
       .catch(() => undefined);
+  }
+
+  /** Stable per-task key for the progress draft manager — matches the `streamResults` tracker key. */
+  private progressDraftKey(tracker: OutputStreamTracker): string {
+    return `${tracker.currentMsg.platform}:${tracker.currentMsg.chatId}:${tracker.instanceId}`;
   }
 
   private extractToolName(message: { metadata?: Record<string, unknown> }): string | undefined {
@@ -2664,8 +2690,14 @@ export class ChannelMessageRouter {
         // to relay and/or be finalizing.
         relayPendingAttachments();
         if (tracker.pendingFinalization) {
-          finalizeTurn();
-          cleanup();
+          // WS-C8 — collapse any progress draft to its receipt before the
+          // reaction/cleanup that marks this turn done.
+          void collapseChannelProgressDraft(
+            this.progressDraftManager, adapter, this.progressDraftKey(tracker), finalStatus,
+          ).finally(() => {
+            finalizeTurn();
+            cleanup();
+          });
         }
         return;
       }
@@ -2710,43 +2742,56 @@ export class ChannelMessageRouter {
         }
       }
 
-      void adapter.sendMessage(ctx.chatId, outboundContent, {
-        replyTo: ctx.messageId,
-      }).then((sentMessage) => {
-        this.persistence.saveMessage({
-          id: `out-${ctx.platform}-${sentMessage.messageId}`,
-          platform: ctx.platform,
-          chat_id: ctx.chatId,
-          message_id: sentMessage.messageId,
-          thread_id: ctx.threadId ?? null,
-          sender_id: 'bot',
-          sender_name: 'Orchestrator',
-          content: bufferedContent,
-          direction: 'outbound',
-          instance_id: instanceId,
-          reply_to_message_id: ctx.messageId,
-          timestamp: sentMessage.timestamp,
-        });
+      const sendReply = (): void => {
+        void adapter.sendMessage(ctx.chatId, outboundContent, {
+          replyTo: ctx.messageId,
+        }).then((sentMessage) => {
+          this.persistence.saveMessage({
+            id: `out-${ctx.platform}-${sentMessage.messageId}`,
+            platform: ctx.platform,
+            chat_id: ctx.chatId,
+            message_id: sentMessage.messageId,
+            thread_id: ctx.threadId ?? null,
+            sender_id: 'bot',
+            sender_name: 'Orchestrator',
+            content: bufferedContent,
+            direction: 'outbound',
+            instance_id: instanceId,
+            reply_to_message_id: ctx.messageId,
+            timestamp: sentMessage.timestamp,
+          });
 
-        this.channelManager.emitResponseSent({
-          channelMessageId: ctx.messageId,
-          platform: ctx.platform,
-          chatId: ctx.chatId,
-          messageId: sentMessage.messageId,
-          instanceId,
-          content: bufferedContent,
-          status: 'complete',
-          replyToMessageId: ctx.messageId,
-          timestamp: sentMessage.timestamp,
+          this.channelManager.emitResponseSent({
+            channelMessageId: ctx.messageId,
+            platform: ctx.platform,
+            chatId: ctx.chatId,
+            messageId: sentMessage.messageId,
+            instanceId,
+            content: bufferedContent,
+            status: 'complete',
+            replyToMessageId: ctx.messageId,
+            timestamp: sentMessage.timestamp,
+          });
+        }).catch((err: unknown) => {
+          logger.error('Failed to send output to channel', err instanceof Error ? err : new Error(String(err)));
+        }).finally(() => {
+          if (shouldCleanupAfterSend) {
+            finalizeTurn();
+            cleanup();
+          }
         });
-      }).catch((err: unknown) => {
-        logger.error('Failed to send output to channel', err instanceof Error ? err : new Error(String(err)));
-      }).finally(() => {
-        if (shouldCleanupAfterSend) {
-          finalizeTurn();
-          cleanup();
-        }
-      });
+      };
+
+      // WS-C8 — collapse any progress draft to its receipt immediately
+      // before the real answer goes out, so the channel shows the calm
+      // "Done in Xs" edit and then the answer, never the reverse.
+      if (shouldCleanupAfterSend) {
+        void collapseChannelProgressDraft(
+          this.progressDraftManager, adapter, this.progressDraftKey(tracker), finalStatus,
+        ).finally(sendReply);
+      } else {
+        sendReply();
+      }
 
       // Relay any attachments after the text send is initiated (deduped).
       relayPendingAttachments();

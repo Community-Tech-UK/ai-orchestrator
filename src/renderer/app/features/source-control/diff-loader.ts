@@ -105,6 +105,11 @@ export class DiffLoader {
 export function classifyHunks(file: DiffFile): RenderedDiffLine[] {
   const out: RenderedDiffLine[] = [];
   for (const hunk of file.hunks) {
+    // WS-C4: running per-side line counters, seeded from the hunk header,
+    // so add/remove/context lines carry their real old/new line numbers
+    // for line-range annotation hit-testing.
+    let oldLineNumber = hunk.oldStart;
+    let newLineNumber = hunk.newStart;
     const lines = hunk.content.split('\n');
     for (const line of lines) {
       if (line.length === 0) continue;
@@ -113,11 +118,15 @@ export function classifyHunks(file: DiffFile): RenderedDiffLine[] {
       } else if (line.startsWith('+++') || line.startsWith('---')) {
         out.push({ kind: 'meta', text: line });
       } else if (line.startsWith('+')) {
-        out.push({ kind: 'add', text: line });
+        out.push({ kind: 'add', text: line, newLineNumber });
+        newLineNumber++;
       } else if (line.startsWith('-')) {
-        out.push({ kind: 'remove', text: line });
+        out.push({ kind: 'remove', text: line, oldLineNumber });
+        oldLineNumber++;
       } else {
-        out.push({ kind: 'context', text: line });
+        out.push({ kind: 'context', text: line, oldLineNumber, newLineNumber });
+        oldLineNumber++;
+        newLineNumber++;
       }
     }
   }

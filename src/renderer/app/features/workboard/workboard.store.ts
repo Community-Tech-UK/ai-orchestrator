@@ -4,6 +4,7 @@ import { AutomationStore } from '../../core/state/automation.store';
 import { LoopStore } from '../../core/state/loop.store';
 import { RepoJobStore } from '../../core/state/repo-job.store';
 import {
+  attentionLevelClearsSnooze,
   buildWorkboardLanes,
   deriveWorkspaceOptions,
   filterItemsByWorkspace,
@@ -53,6 +54,12 @@ export class WorkboardStore {
   private readonly automationErrorSignal = signal<string | null>(null);
   private readonly repoJobErrorSignal = signal<string | null>(null);
 
+  /** WS-C2 snooze: session-only (no natural persistence layer exists yet for
+   *  Workboard view state — everything else here is either derived or an
+   *  injected clock). Losing snoozes on reload is acceptable: a reload
+   *  always re-shows every genuinely live item, which is the safe default. */
+  private readonly snoozedIdsSignal = signal<ReadonlySet<string>>(new Set());
+
   constructor() {
     // The Workboard is the only surface that needs the global recent-loop read
     // model live, so it wires the loop event listeners once on init.
@@ -66,6 +73,26 @@ export class WorkboardStore {
       const stillPresent = this.items().some((item) => item.id === id);
       if (!stillPresent) {
         untracked(() => this.selectedItem.set(null));
+      }
+    });
+
+    // WS-C2 snooze hand-raise: automatically drop a snooze once the item's
+    // attention level rises (see `attentionLevelClearsSnooze`) or the item
+    // leaves the projection entirely. Runs on every `items()` recompute so
+    // the card reappears the moment it actually needs you, not on the next
+    // manual refresh.
+    effect(() => {
+      const currentItems = this.items();
+      const snoozed = untracked(() => this.snoozedIdsSignal());
+      if (snoozed.size === 0) return;
+      const stillSnoozed = new Set<string>();
+      for (const item of currentItems) {
+        if (snoozed.has(item.id) && !attentionLevelClearsSnooze(item.attentionLevel)) {
+          stillSnoozed.add(item.id);
+        }
+      }
+      if (stillSnoozed.size !== snoozed.size) {
+        untracked(() => this.snoozedIdsSignal.set(stillSnoozed));
       }
     });
   }
@@ -95,11 +122,22 @@ export class WorkboardStore {
     filterItemsByWorkspace(this.items(), this.selectedWorkspace()),
   );
 
-  /** Lane arrays, always all four lanes, sorted per lane policy. */
-  readonly lanes = computed<WorkboardLanes>(() => buildWorkboardLanes(this.filteredItems()));
+  /** WS-C2: workspace-filtered items with an active snooze hidden. The
+   *  workspace filter and snooze are independent — snoozing never affects
+   *  the workspace picker's counts (those come from the unfiltered `items()`). */
+  readonly visibleItems = computed<WorkboardItem[]>(() => {
+    const snoozed = this.snoozedIdsSignal();
+    const filtered = this.filteredItems();
+    if (snoozed.size === 0) return filtered;
+    return filtered.filter((item) => !snoozed.has(item.id));
+  });
 
-  /** Total visible cards after filtering. */
-  readonly visibleCount = computed(() => this.filteredItems().length);
+  /** Lane arrays, always all four lanes, sorted per lane policy. Snoozed
+   *  items are excluded until their attention rises (see `snoozeItem`). */
+  readonly lanes = computed<WorkboardLanes>(() => buildWorkboardLanes(this.visibleItems()));
+
+  /** Total visible cards after filtering and snoozing. */
+  readonly visibleCount = computed(() => this.visibleItems().length);
 
   readonly selectedWorkspaceId = this.selectedWorkspace.asReadonly();
   readonly selectedItemId = this.selectedItem.asReadonly();
@@ -191,6 +229,29 @@ export class WorkboardStore {
   async retryAutomations(): Promise<void> {
     await this.automationStore.refresh();
     this.automationErrorSignal.set(this.automationStore.error());
+  }
+
+  // ────── WS-C2: snooze with hand-raise ──────
+
+  /** Hide a card from its attention lane. Auto-clears the moment the item's
+   *  attention rises again (see the hand-raise effect in the constructor) —
+   *  callers never need to un-snooze a genuinely urgent item themselves. */
+  snoozeItem(itemId: string): void {
+    this.snoozedIdsSignal.update((ids) => (ids.has(itemId) ? ids : new Set(ids).add(itemId)));
+  }
+
+  /** Explicit user un-snooze (e.g. an "undo" affordance). */
+  unsnoozeItem(itemId: string): void {
+    this.snoozedIdsSignal.update((ids) => {
+      if (!ids.has(itemId)) return ids;
+      const next = new Set(ids);
+      next.delete(itemId);
+      return next;
+    });
+  }
+
+  isSnoozed(itemId: string): boolean {
+    return this.snoozedIdsSignal().has(itemId);
   }
 }
 

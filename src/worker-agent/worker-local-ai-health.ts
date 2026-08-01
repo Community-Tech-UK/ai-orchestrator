@@ -20,6 +20,7 @@ import {
   parseLocalAiModelCapacity,
   type LocalAiModelCapacityMetadata,
 } from './worker-local-ai-model-capacity';
+import { suppressReasoning } from '../shared/utils/openai-response';
 import {
   executeFile,
   isProcessNotFoundError,
@@ -36,6 +37,8 @@ export const EXACT_TOKEN_CANARY_PROMPT =
 const MAX_HTTP_RESPONSE_BYTES = 64 * 1024;
 const MAX_ADVERTISED_MODELS = 512;
 const MAX_EVIDENCE_MODELS = 20;
+const MAX_CANARY_OUTPUT_TOKENS = 32;
+const CANARY_SYSTEM_PROMPT = 'You are a deterministic health-check responder.';
 
 type LocalAiHealthCheckParams = ReturnType<typeof LocalAiHealthCheckParamsSchema.parse>;
 type FetchPort = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
@@ -391,11 +394,11 @@ export class WorkerLocalAiHealth {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 model: params.canary.model,
-                prompt: EXACT_TOKEN_CANARY_PROMPT,
+                prompt: suppressReasoning(EXACT_TOKEN_CANARY_PROMPT),
                 stream: false,
                 options: {
                   temperature: 0,
-                  num_predict: 8,
+                  num_predict: MAX_CANARY_OUTPUT_TOKENS,
                 },
               }),
             },
@@ -409,9 +412,13 @@ export class WorkerLocalAiHealth {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 model: params.canary.model,
-                messages: [{ role: 'user', content: EXACT_TOKEN_CANARY_PROMPT }],
+                messages: [
+                  { role: 'system', content: suppressReasoning(CANARY_SYSTEM_PROMPT) },
+                  { role: 'user', content: EXACT_TOKEN_CANARY_PROMPT },
+                ],
                 temperature: 0,
-                max_tokens: 8,
+                reasoning_effort: 'none',
+                max_tokens: MAX_CANARY_OUTPUT_TOKENS,
                 stream: false,
               }),
             },

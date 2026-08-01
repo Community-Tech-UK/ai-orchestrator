@@ -3,6 +3,7 @@ import { signal } from '@angular/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { OverlayShellComponent } from './overlay-shell.component';
 import type { OverlayController, OverlayItem } from './overlay.types';
+import { KeybindingService } from '../../core/services/keybinding.service';
 
 function makeController(): OverlayController {
   const query = signal('');
@@ -61,5 +62,53 @@ describe('OverlayShellComponent focus trap', () => {
     fixture.destroy();
 
     expect(document.activeElement).toBe(opener);
+  });
+
+  it(
+    'stops Escape from bubbling to document (WS-C9: prevents the global cancel-operation ' +
+      "binding from re-firing behind the overlay's own close)",
+    async () => {
+      fixture = TestBed.createComponent(OverlayShellComponent);
+      (fixture.componentInstance as unknown as { controller: () => OverlayController }).controller = () =>
+        makeController();
+      fixture.detectChanges();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const input = fixture.nativeElement.querySelector('.overlay-input') as HTMLInputElement;
+      let sawEscapeAtDocument = false;
+      const documentListener = (event: KeyboardEvent) => {
+        if (event.key === 'Escape') sawEscapeAtDocument = true;
+      };
+      document.addEventListener('keydown', documentListener);
+
+      let closed = false;
+      fixture.componentInstance.closeRequested.subscribe(() => {
+        closed = true;
+      });
+
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+
+      document.removeEventListener('keydown', documentListener);
+      expect(closed).toBe(true);
+      expect(sawEscapeAtDocument).toBe(false);
+    },
+  );
+
+  it("sets the 'overlay' keybinding context while mounted and restores the prior context on destroy", async () => {
+    const keybindingService = TestBed.inject(KeybindingService);
+    keybindingService.setContext('input');
+
+    fixture = TestBed.createComponent(OverlayShellComponent);
+    (fixture.componentInstance as unknown as { controller: () => OverlayController }).controller = () =>
+      makeController();
+    fixture.detectChanges();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(keybindingService.getContext()).toBe('overlay');
+
+    fixture.destroy();
+    fixture = null;
+
+    expect(keybindingService.getContext()).toBe('input');
   });
 });

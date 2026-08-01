@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DesiredRuntimeQueue, type DesiredRuntimeQueueDeps } from './desired-runtime-queue';
+import { AdapterOnLoanError } from './adapter-loan-registry';
 import { computeRuntimeDiff, planContinuity } from './runtime-reconciler-plan';
 import type { DesiredRuntime, Instance, InstanceStatus } from '../../../shared/types/instance.types';
 
@@ -46,6 +47,7 @@ function makeHarness(
   const notifyApplyFailure = vi.fn();
   const deps: DesiredRuntimeQueueDeps = {
     getInstance: (id) => (id === instance.id ? instance : undefined),
+    isAdapterOnLoan: () => false,
     applyChange: applyChange as unknown as DesiredRuntimeQueueDeps['applyChange'],
     publishPendingState,
     notifyApplyFailure,
@@ -326,5 +328,137 @@ describe('DesiredRuntimeQueue', () => {
       'Codex CLI is not installed',
     );
     expect(instance.desiredRuntime).toBeUndefined();
+  });
+});
+
+/**
+ * LT-020. A `same-session` loop runs on the parent instance's adapter, so the
+ * instance can read `idle` between two turns of one in-flight iteration.
+ * Applying then SIGTERMs the loop's CLI and kills the loop, so the queue must
+ * treat a declared adapter loan as "not a boundary" and wait for its release.
+ */
+describe('DesiredRuntimeQueue — loop adapter loans (LT-020)', () => {
+  function makeLoanHarness(instance: Instance, onLoan: { value: boolean }) {
+    const applyChange = vi.fn(async (_id: string, desired: DesiredRuntime) => {
+      instance.provider = desired.provider;
+      if (desired.model !== undefined) instance.currentModel = desired.model;
+      return instance;
+    });
+    const publishPendingState = vi.fn();
+    const deps: DesiredRuntimeQueueDeps = {
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      isAdapterOnLoan: () => onLoan.value,
+      applyChange: applyChange as unknown as DesiredRuntimeQueueDeps['applyChange'],
+      publishPendingState,
+      notifyApplyFailure: vi.fn(),
+    };
+    return { queue: new DesiredRuntimeQueue(deps), applyChange, publishPendingState };
+  }
+
+  it('queues rather than applying while the adapter is on loan, even at an idle status', async () => {
+    const instance = makeInstance('idle');
+    const onLoan = { value: true };
+    const h = makeLoanHarness(instance, onLoan);
+
+    await h.queue.requestChange('inst-1', { provider: 'codex', model: 'gpt-5.6-sol' });
+
+    expect(h.applyChange).not.toHaveBeenCalled();
+    expect(instance.desiredRuntime).toEqual({ provider: 'codex', model: 'gpt-5.6-sol' });
+    expect(instance.provider).toBe('claude');
+  });
+
+  it('does not apply on a settle transition that lands mid-loan', async () => {
+    const instance = makeInstance('busy');
+    const onLoan = { value: true };
+    const h = makeLoanHarness(instance, onLoan);
+    await h.queue.requestChange('inst-1', { provider: 'codex' });
+
+    instance.status = 'idle';
+    h.queue.onSettled(instance);
+    await flushMacrotasks();
+
+    expect(h.applyChange).not.toHaveBeenCalled();
+    expect(instance.desiredRuntime).toEqual({ provider: 'codex' });
+  });
+
+  it('applies when the loan is released — the real iteration boundary', async () => {
+    const instance = makeInstance('busy');
+    const onLoan = { value: true };
+    const h = makeLoanHarness(instance, onLoan);
+    await h.queue.requestChange('inst-1', { provider: 'codex', model: 'gpt-5.6-sol' });
+
+    instance.status = 'idle';
+    onLoan.value = false;
+    h.queue.onAdapterLoanReleased('inst-1');
+    await flushMacrotasks();
+
+    expect(h.applyChange).toHaveBeenCalledTimes(1);
+    expect(instance.provider).toBe('codex');
+    expect(instance.desiredRuntime).toBeUndefined();
+  });
+
+  /**
+   * The reconciler re-checks the loan after taking the session mutex, so it can
+   * reject a change the queue thought was applyable. If that iteration then
+   * finishes before the rejection is handled, `canApplyNow` reads true again —
+   * and without the typed error the change would be dropped and reported to the
+   * user as a permanent failure quoting a transient condition.
+   */
+  it('re-parks (never drops) a loan rejection even if the loan has already cleared', async () => {
+    const instance = makeInstance('idle');
+    const onLoan = { value: false };
+    const applyChange = vi.fn(async () => { throw new AdapterOnLoanError('inst-1'); });
+    const publishPendingState = vi.fn();
+    const notifyApplyFailure = vi.fn();
+    const queue = new DesiredRuntimeQueue({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      isAdapterOnLoan: () => onLoan.value,
+      applyChange: applyChange as unknown as DesiredRuntimeQueueDeps['applyChange'],
+      publishPendingState,
+      notifyApplyFailure,
+    });
+
+    await queue.requestChange('inst-1', { provider: 'codex', model: 'gpt-5.6-sol' });
+
+    expect(notifyApplyFailure).not.toHaveBeenCalled();
+    expect(instance.desiredRuntime).toEqual({ provider: 'codex', model: 'gpt-5.6-sol' });
+    expect(instance.provider).toBe('claude');
+  });
+
+  it('still surfaces a genuine apply failure as a permanent failure', async () => {
+    const instance = makeInstance('busy');
+    const applyChange = vi.fn(async () => {
+      throw new Error('Cannot switch provider: the Codex CLI is not installed.');
+    });
+    const notifyApplyFailure = vi.fn();
+    const queue = new DesiredRuntimeQueue({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      isAdapterOnLoan: () => false,
+      applyChange: applyChange as unknown as DesiredRuntimeQueueDeps['applyChange'],
+      publishPendingState: vi.fn(),
+      notifyApplyFailure,
+    });
+    await queue.requestChange('inst-1', { provider: 'codex' });
+
+    instance.status = 'idle';
+    queue.onSettled(instance);
+    await flushMacrotasks();
+
+    expect(notifyApplyFailure).toHaveBeenCalledTimes(1);
+    expect(instance.desiredRuntime).toBeUndefined();
+  });
+
+  it('ignores a loan release when the instance is still busy', async () => {
+    const instance = makeInstance('busy');
+    const onLoan = { value: true };
+    const h = makeLoanHarness(instance, onLoan);
+    await h.queue.requestChange('inst-1', { provider: 'codex' });
+
+    onLoan.value = false;
+    h.queue.onAdapterLoanReleased('inst-1');
+    await flushMacrotasks();
+
+    expect(h.applyChange).not.toHaveBeenCalled();
+    expect(instance.desiredRuntime).toEqual({ provider: 'codex' });
   });
 });

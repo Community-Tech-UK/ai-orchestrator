@@ -13,10 +13,11 @@ function item(overrides: Partial<WorkboardItem> = {}): WorkboardItem {
     id: 'loop-run:loop-1',
     primary: {
       kind: 'loop-run', id: 'loop-1', rawStatus: 'provider-limit',
-      phase: 'blocked', lane: 'waiting', updatedAt: NOW, terminal: false,
+      phase: 'blocked', lane: 'waiting', attentionLevel: 'waiting', updatedAt: NOW, terminal: false,
     },
     relations: [],
     lane: 'waiting',
+    attentionLevel: 'waiting',
     title: 'Fix the flaky test',
     workspaceId: '/repo/project',
     workingDirectory: '/repo/project',

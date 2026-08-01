@@ -423,6 +423,7 @@ export interface Instance {
   yoloMode: boolean; // Auto-approve all permissions
   browserToolsMode?: BrowserToolsMode; // WS9 per-instance browser tool surface; undefined = global setting decides
   hardened?: boolean; // WS13 — spawn the CLI inside the macOS Seatbelt jail (fail-closed when unavailable)
+  containedExecution?: boolean; // WS-C7 — see the matching field on InstanceCreateConfig below
   /**
    * WS7 Phase B — ordered fallback providers this session may fail over to when
    * its recovery ladder exhausts on a provider-fault category. Empty/undefined
@@ -557,6 +558,7 @@ export interface InstanceCreateConfig {
   runtimeSummary?: InstanceRuntimeSummary;
   browserToolsMode?: BrowserToolsMode; // WS9 per-instance browser tool surface; undefined = global setting decides
   hardened?: boolean; // WS13 — spawn the CLI inside the macOS Seatbelt jail (fail-closed when unavailable)
+  containedExecution?: boolean; // WS-C7 — filtered spawn env via getSafeEnv(); see contained-execution-scoping.ts
   /** WS7 Phase B — ordered fallback providers; undefined = seed from global `sessionFailoverProviders`. */
   failoverProviders?: string[];
 

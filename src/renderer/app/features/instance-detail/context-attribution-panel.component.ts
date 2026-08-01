@@ -8,7 +8,7 @@
  * so there is no hot-path cost.
  */
 
-import { DecimalPipe } from '@angular/common';
+import { DatePipe, DecimalPipe } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -24,6 +24,13 @@ import type {
   ContextAttributionBucketKey,
   ContextAttributionReport,
 } from '../../../../shared/types/context-attribution.types';
+import type {
+  ContextManifestBlockKind,
+  ContextManifestEntryStatus,
+  ContextManifestReport,
+  ContextManifestSnapshot,
+  ContextManifestTrigger,
+} from '../../../../shared/types/context-manifest.types';
 import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
 
 const REFRESH_INTERVAL_MS = 10_000;
@@ -36,6 +43,74 @@ const BUCKET_LABELS: Record<ContextAttributionBucketKey, string> = {
   attachments: 'Attachments',
   other: 'Other / unattributed',
 };
+
+const MANIFEST_BLOCK_LABELS: Record<ContextManifestBlockKind, string> = {
+  instructions: 'Instructions',
+  'output-style': 'Output style',
+  'observation-memory': 'Observation memory',
+  'project-brief': 'Project brief',
+  lessons: 'Lessons',
+  'repo-map': 'Repo map',
+  'wake-context': 'Wake context',
+  'mcp-tool-context': 'MCP tool context',
+  'tool-permissions': 'Tool permissions',
+};
+
+const MANIFEST_TRIGGER_LABELS: Record<ContextManifestTrigger, string> = {
+  spawn: 'Spawn',
+  respawn: 'Respawn / continuity',
+  'restart-compact': 'Restart (compaction)',
+};
+
+const MANIFEST_STATUS_LABELS: Record<ContextManifestEntryStatus, string> = {
+  supplied: 'supplied',
+  'skipped-empty': 'skipped (empty)',
+  unavailable: 'unavailable',
+};
+
+export interface ManifestEntryRow {
+  kind: ContextManifestBlockKind;
+  label: string;
+  status: ContextManifestEntryStatus;
+  statusLabel: string;
+  shortHash?: string;
+  charLength?: number;
+}
+
+export interface ManifestEpochRow {
+  epoch: number;
+  at: number;
+  trigger: ContextManifestTrigger;
+  triggerLabel: string;
+  note?: string;
+  suppliedCount: number;
+  totalCount: number;
+  entries: ManifestEntryRow[];
+}
+
+/** Newest epoch first, with human-readable labels for the template. */
+export function buildManifestEpochRows(
+  history: readonly ContextManifestSnapshot[] | undefined,
+): ManifestEpochRow[] {
+  if (!history || history.length === 0) return [];
+  return [...history].reverse().map((snapshot) => ({
+    epoch: snapshot.epoch,
+    at: snapshot.at,
+    trigger: snapshot.trigger,
+    triggerLabel: MANIFEST_TRIGGER_LABELS[snapshot.trigger],
+    note: snapshot.note,
+    suppliedCount: snapshot.entries.filter((entry) => entry.status === 'supplied').length,
+    totalCount: snapshot.entries.length,
+    entries: snapshot.entries.map((entry) => ({
+      kind: entry.kind,
+      label: MANIFEST_BLOCK_LABELS[entry.kind],
+      status: entry.status,
+      statusLabel: MANIFEST_STATUS_LABELS[entry.status],
+      shortHash: entry.contentHash ? entry.contentHash.slice(0, 8) : undefined,
+      charLength: entry.charLength,
+    })),
+  }));
+}
 
 export interface AttributionRow {
   key: ContextAttributionBucketKey;
@@ -72,7 +147,7 @@ export function buildSparklinePoints(samples: readonly { ratio: number }[]): str
 @Component({
   selector: 'app-context-attribution-panel',
   standalone: true,
-  imports: [DecimalPipe],
+  imports: [DecimalPipe, DatePipe],
   template: `
     <div class="attribution-panel">
       @if (error(); as message) {
@@ -130,6 +205,53 @@ export function buildSparklinePoints(samples: readonly { ratio: number }[]): str
             </div>
           } @else {
             <p class="panel-loading">Not enough completed turns with cache data yet.</p>
+          }
+        </div>
+
+        <div class="section">
+          <div class="section-title">
+            Context manifest
+            <span class="estimated-note" title="AIO can only prove what it composed and sent — never what the provider's own process actually kept or used from it.">AIO-owned sources only</span>
+          </div>
+          <p class="manifest-honesty-note">
+            Records exactly which AIO-owned context sources (instructions, project brief, lessons, etc.)
+            this instance's system prompt actually received, per reassembly. Provider-side prompt
+            caching or session state cannot be verified from here.
+          </p>
+          @if (manifestEpochs().length === 0) {
+            <p class="panel-loading">No context manifest recorded yet.</p>
+          } @else {
+            <ul class="manifest-epoch-list">
+              @for (epoch of manifestEpochs(); track epoch.epoch) {
+                <li>
+                  <details [open]="isEpochExpanded(epoch.epoch)" (toggle)="onEpochToggle(epoch.epoch, $event)">
+                    <summary>
+                      <span class="epoch-badge">Epoch {{ epoch.epoch }}</span>
+                      <span class="epoch-trigger">{{ epoch.triggerLabel }}</span>
+                      <span class="epoch-supplied">{{ epoch.suppliedCount }}/{{ epoch.totalCount }} supplied</span>
+                      <span class="epoch-at">{{ epoch.at | date:'short' }}</span>
+                    </summary>
+                    @if (epoch.note) {
+                      <p class="manifest-honesty-note epoch-note">{{ epoch.note }}</p>
+                    }
+                    <ul class="manifest-entry-list">
+                      @for (entry of epoch.entries; track entry.kind) {
+                        <li [class]="'manifest-entry status-' + entry.status">
+                          <span class="entry-label">{{ entry.label }}</span>
+                          <span class="entry-status">{{ entry.statusLabel }}</span>
+                          @if (entry.shortHash) {
+                            <span class="entry-hash" [title]="'sha256 ' + entry.shortHash">{{ entry.shortHash }}</span>
+                          }
+                          @if (entry.charLength !== undefined) {
+                            <span class="entry-length">{{ entry.charLength | number:'1.0-0' }} chars</span>
+                          }
+                        </li>
+                      }
+                    </ul>
+                  </details>
+                </li>
+              }
+            </ul>
           }
         </div>
       }
@@ -238,6 +360,69 @@ export function buildSparklinePoints(samples: readonly { ratio: number }[]): str
     .cache-break { color: var(--warning-color); }
     .panel-error { color: var(--error-color); margin: 0; }
     .panel-loading { color: var(--text-muted); margin: 0; }
+
+    .manifest-honesty-note {
+      margin: 0 0 6px;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+
+    .manifest-epoch-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      gap: 4px;
+    }
+
+    .manifest-epoch-list summary {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      font-family: var(--font-mono);
+      padding: 2px 0;
+    }
+
+    .manifest-epoch-list summary::marker { color: var(--text-muted); }
+
+    .epoch-badge { font-weight: 600; color: var(--text-primary); }
+    .epoch-trigger { color: var(--primary-color); }
+    .epoch-supplied { color: var(--text-muted); }
+    .epoch-at { margin-left: auto; color: var(--text-muted); }
+
+    .epoch-note { padding-left: 16px; }
+
+    .manifest-entry-list {
+      list-style: none;
+      margin: 4px 0 6px;
+      padding: 0 0 0 16px;
+      display: grid;
+      gap: 2px;
+    }
+
+    .manifest-entry {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto auto;
+      gap: 8px;
+      align-items: center;
+      font-family: var(--font-mono);
+    }
+
+    .manifest-entry.status-skipped-empty,
+    .manifest-entry.status-unavailable {
+      color: var(--text-muted);
+    }
+
+    .manifest-entry.status-unavailable .entry-status { color: var(--warning-color); }
+
+    .entry-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .entry-hash, .entry-length { color: var(--text-muted); }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -249,7 +434,10 @@ export class ContextAttributionPanelComponent implements OnInit, OnDestroy {
 
   private readonly attributionState = signal<ContextAttributionReport | null>(null);
   private readonly cacheState = signal<CacheAnalyticsReport | null>(null);
+  private readonly manifestState = signal<ContextManifestReport | null>(null);
   private readonly errorState = signal<string | null>(null);
+  /** Epoch numbers the user has explicitly expanded/collapsed; unset epochs default to "latest expanded". */
+  private readonly manifestEpochOverrides = signal<ReadonlyMap<number, boolean>>(new Map());
 
   readonly attribution = this.attributionState.asReadonly();
   readonly error = this.errorState.asReadonly();
@@ -265,6 +453,21 @@ export class ContextAttributionPanelComponent implements OnInit, OnDestroy {
   });
 
   readonly sparklinePoints = computed(() => buildSparklinePoints(this.cacheSamples()));
+
+  readonly manifestEpochs = computed(() => buildManifestEpochRows(this.manifestState()?.history));
+  private readonly latestManifestEpoch = computed(() => this.manifestEpochs()[0]?.epoch);
+
+  isEpochExpanded(epoch: number): boolean {
+    const override = this.manifestEpochOverrides().get(epoch);
+    return override ?? epoch === this.latestManifestEpoch();
+  }
+
+  onEpochToggle(epoch: number, event: Event): void {
+    const isOpen = (event.target as HTMLDetailsElement).open;
+    const next = new Map(this.manifestEpochOverrides());
+    next.set(epoch, isOpen);
+    this.manifestEpochOverrides.set(next);
+  }
 
   ngOnInit(): void {
     void this.refresh();
@@ -282,9 +485,11 @@ export class ContextAttributionPanelComponent implements OnInit, OnDestroy {
       return;
     }
     try {
-      const [attribution, cache] = await Promise.all([
+      const [attribution, cache, manifest] = await Promise.all([
         api.contextAttributionGet({ instanceId: this.instanceId() }),
         api.cacheAnalyticsGet({ instanceId: this.instanceId() }),
+        // Optional: older builds' preload bundle may not expose this channel yet.
+        api.contextManifestGet?.({ instanceId: this.instanceId() }) ?? Promise.resolve(null),
       ]);
       if (attribution.success && attribution.data) {
         this.attributionState.set(attribution.data as ContextAttributionReport);
@@ -294,6 +499,9 @@ export class ContextAttributionPanelComponent implements OnInit, OnDestroy {
       }
       if (cache.success && cache.data) {
         this.cacheState.set(cache.data as CacheAnalyticsReport);
+      }
+      if (manifest?.success && manifest.data) {
+        this.manifestState.set(manifest.data as ContextManifestReport);
       }
     } catch (error) {
       this.errorState.set(error instanceof Error ? error.message : String(error));

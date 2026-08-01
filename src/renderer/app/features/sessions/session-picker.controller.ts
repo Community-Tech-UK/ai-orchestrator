@@ -4,6 +4,11 @@ import { InstanceStore } from '../../core/state/instance.store';
 import { UsageStore } from '../../core/state/usage.store';
 import type { OverlayController, OverlayGroup, OverlayItem } from '../overlay/overlay.types';
 import type { SessionPickerItem } from '../../../../shared/types/prompt-history.types';
+import {
+  ATTENTION_LEVEL_ORDER,
+  attentionLevelForInstanceStatus,
+  isAtLeastAsUrgent,
+} from '../../../../shared/attention/attention-level';
 
 function formatAge(timestamp?: number): string {
   if (!timestamp) {
@@ -43,6 +48,10 @@ export class SessionPickerController implements OverlayController<SessionPickerI
       kind: 'live',
       lastActivity: instance.lastActivity,
       frecencyScore: this.usageStore.frecency('session', instance.id),
+      // Guard: some live-shaped fixtures/edge states carry no status yet; the
+      // shared mapper is deliberately exhaustive over the closed union, so an
+      // absent status maps to 'idle' here rather than reaching assertNever.
+      attentionLevel: instance.status ? attentionLevelForInstanceStatus(instance.status) : 'idle',
     }));
 
     const history = this.historyStore.entries().map((entry): SessionPickerItem => ({
@@ -74,8 +83,20 @@ export class SessionPickerController implements OverlayController<SessionPickerI
     const history = items.filter((item) => item.value.kind === 'history');
     const archived = items.filter((item) => item.value.kind === 'archived');
 
+    // WS-C2: split live sessions by the shared attention scale — the same
+    // "needs you" cutoff (blocked or failed) Workboard's needs-you lane and
+    // the mobile gateway's needsAttentionCount use — rather than a
+    // palette-local notion of urgency. Ordering, not just grouping, comes
+    // from the shared scale too: a blocked session sorts ahead of a failed
+    // one within "Needs You".
+    const needsYou = live
+      .filter((item) => isAtLeastAsUrgent(item.value.attentionLevel ?? 'idle', 'failed'))
+      .sort((a, b) => this.attentionRank(a) - this.attentionRank(b));
+    const otherLive = live.filter((item) => !isAtLeastAsUrgent(item.value.attentionLevel ?? 'idle', 'failed'));
+
     return [
-      { id: 'live', label: 'Live Sessions', items: live },
+      { id: 'needs-you', label: 'Needs You', items: needsYou },
+      { id: 'live', label: 'Live Sessions', items: otherLive },
       { id: 'history', label: 'History', items: history },
       { id: 'archived', label: 'Archived', items: archived },
     ];
@@ -130,5 +151,11 @@ export class SessionPickerController implements OverlayController<SessionPickerI
     const liveBoost = item.kind === 'live' ? 10_000 : 0;
     const recent = item.lastActivity ? item.lastActivity / 1_000_000 : 0;
     return liveBoost + item.frecencyScore * 1000 + recent;
+  }
+
+  /** WS-C2: rank of an overlay item's attentionLevel on the shared scale
+   *  (0 = most urgent), for ordering the "Needs You" group. */
+  private attentionRank(item: OverlayItem<SessionPickerItem>): number {
+    return ATTENTION_LEVEL_ORDER.indexOf(item.value.attentionLevel ?? 'idle');
   }
 }

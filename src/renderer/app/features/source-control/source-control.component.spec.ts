@@ -32,10 +32,17 @@ const componentStyles = readFileSync(
   resolve(specDirectory, './source-control.component.scss'),
   'utf8',
 );
+// WS-C4: SourceControlComponent transitively renders SourceControlDiffViewComponent
+// (via the modal viewer), which also has an external styleUrl.
+const diffViewStyles = readFileSync(
+  resolve(specDirectory, './source-control-diff-view.component.scss'),
+  'utf8',
+);
 
 await resolveComponentResources((url) => {
   if (url.endsWith('source-control.component.html')) return Promise.resolve(componentTemplate);
   if (url.endsWith('source-control.component.scss')) return Promise.resolve(componentStyles);
+  if (url.endsWith('source-control-diff-view.component.scss')) return Promise.resolve(diffViewStyles);
   return Promise.reject(new Error(`Unexpected component resource: ${url}`));
 });
 

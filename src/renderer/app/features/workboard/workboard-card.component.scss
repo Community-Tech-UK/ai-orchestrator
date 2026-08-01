@@ -2,6 +2,13 @@
   display: block;
 }
 
+.wb-card-shell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 4px);
+  width: 100%;
+}
+
 .wb-card {
   display: flex;
   flex-direction: column;
@@ -158,6 +165,56 @@
   background: var(--bg-tertiary);
   color: var(--text-muted);
   border: 1px solid var(--border-subtle, var(--border-color));
+}
+
+/* WS-C2 act-from-the-card + snooze. A sibling of `.wb-card`, never nested
+ * inside it, so no button is ever nested inside another. */
+.wb-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1, 4px);
+  padding: 0 var(--space-1, 4px);
+}
+
+.wb-card-action {
+  font-family: var(--font-sans, inherit);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm, 6px);
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: var(--bg-hover);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--border-focus, var(--primary-color));
+    outline-offset: 2px;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+}
+
+.wb-card-action-approve {
+  border-color: var(--status-success-border, var(--success-border));
+  color: var(--status-success, var(--success-color));
+}
+
+.wb-card-action-reject,
+.wb-card-action-resume {
+  border-color: var(--status-warning-border, var(--border-subtle));
+}
+
+.wb-card-snooze[aria-pressed='true'] {
+  background: var(--bg-hover);
+  border-color: var(--border-strong, var(--border-color));
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -2,6 +2,8 @@
  * Prompt history types for per-instance and per-project prompt recall.
  */
 
+import type { AttentionLevel } from '../attention/attention-level';
+
 export const PROMPT_HISTORY_MAX = 100;
 export const PROMPT_HISTORY_STASH_KEY_PREFIX = '__recall_stash__:';
 
@@ -59,6 +61,13 @@ export interface SessionPickerItem {
   kind: 'live' | 'history' | 'archived';
   lastActivity?: number;
   frecencyScore: number;
+  /**
+   * WS-C2 unified attention scale (`src/shared/attention/attention-level.ts`)
+   * — only set for `kind: 'live'`, where an instance status exists. Drives
+   * the session picker's "Needs You" grouping, the same shared scale
+   * Workboard and the mobile gateway use.
+   */
+  attentionLevel?: AttentionLevel;
 }
 
 export interface ModelPickerItem {

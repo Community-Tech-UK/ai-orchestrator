@@ -55,6 +55,35 @@ describe('KeybindingService — conflicts + import/export (Task 13)', () => {
     expect(service.getCustomizations()).toEqual(before);
   });
 
+  it('customizeBindingSafe (WS-C9) rejects a change that would introduce a NEW conflict', () => {
+    const before = service.getCustomizations();
+    const result = service.customizeBindingSafe('focus-input', { key: 'o', modifiers: [] });
+    expect(result.ok).toBe(false);
+    expect((result as { ok: false; reason: string }).reason).toContain('focus-output');
+    expect(service.getCustomizations()).toEqual(before);
+  });
+
+  it('customizeBindingSafe (WS-C9) rejects a reserved platform combo', () => {
+    // jsdom reports an empty navigator.platform -> 'other' reserved list.
+    expect(service.isMac).toBe(false);
+    const before = service.getCustomizations();
+    const result = service.customizeBindingSafe('focus-input', { key: 'F4', modifiers: ['alt'] });
+    expect(result.ok).toBe(false);
+    expect(service.getCustomizations()).toEqual(before);
+  });
+
+  it('customizeBindingSafe (WS-C9) rejects an attempt to customize a non-customizable binding', () => {
+    const result = service.customizeBindingSafe('send-message', { key: 'Enter', modifiers: ['shift'] });
+    expect(result).toEqual({ ok: false, reason: expect.stringContaining('not customizable') as unknown as string });
+  });
+
+  it('customizeBindingSafe (WS-C9) applies a safe change and reports ok', () => {
+    const result = service.customizeBindingSafe('focus-input', { key: 'q', modifiers: ['meta', 'alt', 'shift'] });
+    expect(result).toEqual({ ok: true });
+    expect(service.getBinding('focus-input')?.keys).toEqual({ key: 'q', modifiers: ['meta', 'alt', 'shift'] });
+    expect(service.conflicts()).toEqual([]);
+  });
+
   it('exposes remappable input-context composer editing bindings', () => {
     const composerBindings = service.allBindings().filter((binding) => binding.id.startsWith('composer.'));
 

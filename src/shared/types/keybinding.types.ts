@@ -44,7 +44,10 @@ export type KeybindingContext =
   | 'input'            // When input field is focused
   | 'output'           // When output area is focused
   | 'instance-list'    // When instance list is focused
-  | 'command-palette'; // When command palette is open
+  | 'command-palette'  // When command palette is open
+  | 'overlay';         // When any OverlayShellComponent-based overlay has focus (command
+                        // palette, command help, session/model/resume pickers, prompt-history
+                        // search). See core/keybindings/keybinding-registry.ts (WS-C9).
 
 /**
  * Keybinding action types

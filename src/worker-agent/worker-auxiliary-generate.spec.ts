@@ -51,6 +51,7 @@ describe('generateOpenAiCompatibleOnWorker', () => {
     const body = JSON.parse((fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);
     expect(body.messages[0].content).toContain('/no_think');
     expect(body.messages[0].content).toContain('You score things.');
+    expect(body.reasoning_effort).toBe('none');
   });
 
   it('retries WITHOUT response_format when LM Studio 400s on json_object', async () => {

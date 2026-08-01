@@ -54,4 +54,9 @@ describe('computeAutomationModelPreview', () => {
     // The provider default is the provider's primary catalog model.
     expect(preview.label).toBe('Opus latest, 1M');
   });
+
+  it('WS-C7: exposes the resolved concrete provider, undefined when it stays unresolved', () => {
+    expect(computeAutomationModelPreview({ provider: 'codex', model: '' }, NO_DEFAULTS).provider).toBe('codex');
+    expect(computeAutomationModelPreview({ provider: 'auto', model: '' }, NO_DEFAULTS).provider).toBeUndefined();
+  });
 });

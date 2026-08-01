@@ -1817,4 +1817,140 @@ describe('ChannelMessageRouter', () => {
       expect(promptSend?.[0]).toBe('c1');
     });
   });
+
+  // -------------------------------------------------------------------------
+  // WS-C8 — editable channel progress drafts
+  // -------------------------------------------------------------------------
+
+  describe('WS-C8 editable channel progress drafts', () => {
+    async function routeTurn(status = 'busy'): Promise<void> {
+      instanceManager.getInstances.mockReturnValue([{ id: 'inst-1', status, outputBuffer: [] }]);
+      await router.handleInboundMessage(
+        makeMessage({ id: 'seed', chatId: 'c1', messageId: 'm1', content: 'do work' }),
+      );
+    }
+
+    async function flushAsync(): Promise<void> {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+
+    beforeEach(() => {
+      settingsState.channelToolHeartbeat = true;
+      Object.assign(adapter, { supportsMessageEditing: vi.fn(() => true) });
+    });
+
+    it('capability gating: a non-edit-capable adapter keeps today\'s multi-message heartbeat, never an edit', async () => {
+      vi.useFakeTimers();
+      Object.assign(adapter, { supportsMessageEditing: vi.fn(() => false) });
+      await routeTurn();
+
+      await vi.advanceTimersByTimeAsync(31_000);
+      instanceManager.emit(
+        'provider:normalized-event',
+        makeEnvelope('inst-1', { messageType: 'tool_use', metadata: { tool_name: 'Bash' } }),
+      );
+      await flushAsync();
+
+      expect(adapter.editMessage).not.toHaveBeenCalled();
+      const heartbeat = adapter.sendMessage.mock.calls.find(
+        (c) => typeof c[1] === 'string' && c[1].includes('still working'),
+      );
+      expect(heartbeat).toBeDefined();
+    });
+
+    it('narrates a long tool-active turn via one edited draft, not a message stack, and collapses before the reply', async () => {
+      vi.useFakeTimers();
+      await routeTurn();
+
+      // First tool-activity heartbeat, past both the 30s router throttle and
+      // the manager's 8s creation delay → creates the draft (one message).
+      await vi.advanceTimersByTimeAsync(31_000);
+      instanceManager.emit(
+        'provider:normalized-event',
+        makeEnvelope('inst-1', { messageType: 'tool_use', metadata: { tool_name: 'Bash' } }),
+      );
+      await flushAsync();
+
+      expect(adapter.sendMessage).toHaveBeenCalledTimes(1);
+      expect(adapter.sendMessage.mock.calls[0][0]).toBe('c1');
+      expect(adapter.sendMessage.mock.calls[0][1]).toContain('Working on it');
+      expect(adapter.editMessage).not.toHaveBeenCalled();
+
+      // Second tool-activity heartbeat with a different tool → edits the
+      // SAME draft message rather than posting a second one.
+      await vi.advanceTimersByTimeAsync(31_000);
+      instanceManager.emit(
+        'provider:normalized-event',
+        makeEnvelope('inst-1', { messageType: 'tool_use', metadata: { tool_name: 'Grep' } }),
+      );
+      await flushAsync();
+
+      expect(adapter.sendMessage).toHaveBeenCalledTimes(1); // still just the one draft message
+      expect(adapter.editMessage).toHaveBeenCalledTimes(1);
+      expect(adapter.editMessage).toHaveBeenCalledWith('c1', 'sent-1', expect.stringContaining('Grep'));
+
+      // Turn completes with a real reply — the draft must collapse to a
+      // receipt BEFORE that reply goes out.
+      instanceManager.emit(
+        'provider:normalized-event',
+        makeEnvelope('inst-1', { content: 'done', messageId: 'a1' }),
+      );
+      instanceManager.emit('instance:state-update', { instanceId: 'inst-1', status: 'idle' });
+      await vi.advanceTimersByTimeAsync(2000);
+      await flushAsync();
+
+      expect(adapter.editMessage).toHaveBeenCalledWith('c1', 'sent-1', expect.stringContaining('Done in'));
+      const replyCallIndex = adapter.sendMessage.mock.calls.findIndex((c) => c[1] === 'done');
+      expect(replyCallIndex).toBeGreaterThan(-1);
+
+      // Two edits happened in this test (the 'Grep' progress line, then the
+      // collapse) — the collapse is always the last one.
+      const collapseCallIndex = adapter.editMessage.mock.calls.length - 1;
+      const collapseOrder = adapter.editMessage.mock.invocationCallOrder[collapseCallIndex];
+      const replyOrder = adapter.sendMessage.mock.invocationCallOrder[replyCallIndex];
+      expect(collapseOrder).toBeLessThan(replyOrder);
+    });
+
+    it('skips the draft entirely for a short, silent turn — no edit, no extra message', async () => {
+      vi.useFakeTimers();
+      await routeTurn();
+
+      // Well under both the 30s heartbeat throttle and the 8s draft-creation
+      // delay — no tool heartbeat and no draft ever fire.
+      await vi.advanceTimersByTimeAsync(2000);
+      instanceManager.emit(
+        'provider:normalized-event',
+        makeEnvelope('inst-1', { content: 'quick answer', messageId: 'a1' }),
+      );
+      instanceManager.emit('instance:state-update', { instanceId: 'inst-1', status: 'idle' });
+      await vi.advanceTimersByTimeAsync(2000);
+      await flushAsync();
+
+      expect(adapter.editMessage).not.toHaveBeenCalled();
+      expect(adapter.sendMessage).toHaveBeenCalledTimes(1);
+      expect(adapter.sendMessage.mock.calls[0][1]).toBe('quick answer');
+    });
+
+    it('collapses to a failure note (not the success receipt) when the turn ends in error', async () => {
+      vi.useFakeTimers();
+      await routeTurn();
+
+      await vi.advanceTimersByTimeAsync(31_000);
+      instanceManager.emit(
+        'provider:normalized-event',
+        makeEnvelope('inst-1', { messageType: 'tool_use', metadata: { tool_name: 'Bash' } }),
+      );
+      await flushAsync();
+      expect(adapter.sendMessage).toHaveBeenCalledTimes(1);
+
+      // No assistant text this time — the turn ends silently in error.
+      instanceManager.emit('instance:state-update', { instanceId: 'inst-1', status: 'failed' });
+      await vi.advanceTimersByTimeAsync(2000);
+      await flushAsync();
+
+      expect(adapter.editMessage).toHaveBeenCalledWith('c1', 'sent-1', expect.stringContaining('Hit a problem'));
+    });
+  });
 });

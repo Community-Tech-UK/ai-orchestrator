@@ -8,21 +8,16 @@
  * get an autonomous response, unanswerable prompt types terminate the child).
  */
 
+import type { LoopActivityKind } from '@contracts/schemas/loop';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import type { CliResponse, CliToolCall } from '../cli/adapters/base-cli-adapter.types';
 
-export type LoopInvocationActivityKind =
-  | 'spawned'
-  | 'status'
-  | 'tool_use'
-  | 'tool_result'
-  | 'assistant'
-  | 'system'
-  | 'input_required'
-  | 'error'
-  | 'stream-idle'
-  | 'complete'
-  | 'heartbeat';
+/**
+ * Derived from the contracts package (LT-021) so the renderer-boundary
+ * validator and this emitter cannot drift: every kind emitted here is, by
+ * construction, a kind `LoopActivityEventSchema` accepts.
+ */
+export type LoopInvocationActivityKind = LoopActivityKind;
 
 export interface LoopInvocationActivity {
   kind: LoopInvocationActivityKind;
@@ -32,6 +27,54 @@ export interface LoopInvocationActivity {
 
 const LOOP_AUTONOMOUS_INPUT_RESPONSE =
   'Loop Mode is unattended. Do not wait for human input. Make the best reasonable assumption a senior engineer would defend, document it in your loop NOTES file, and continue. If the work is genuinely blocked, write the BLOCKED.md file at the loop-state path given in your iteration prompt with the exact blocker, then exit the iteration.';
+
+/** Max serialized size of any single `detail` value crossing the IPC boundary. */
+const MAX_ACTIVITY_DETAIL_CHARS = 2000;
+
+/**
+ * Bound a `detail` payload for the renderer (LT-021).
+ *
+ * Widening the boundary schema means `tool_use`/`tool_result` details now cross
+ * IPC for the first time, and those carry raw tool input and results — a large
+ * Write or Read would be copied to the renderer and every connected thin client
+ * on every event. Values are truncated in place rather than dropped, so the feed
+ * still shows what the tool was doing.
+ */
+export function boundActivityDetail(
+  detail: Record<string, unknown>,
+): Record<string, unknown> {
+  const bounded: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(detail)) {
+    if (typeof value === 'string') {
+      bounded[key] = value.length > MAX_ACTIVITY_DETAIL_CHARS
+        ? `${value.slice(0, MAX_ACTIVITY_DETAIL_CHARS)}… [truncated ${value.length - MAX_ACTIVITY_DETAIL_CHARS} chars]`
+        : value;
+      continue;
+    }
+    // A function survives `typeof value !== 'object'` but not Electron's
+    // structured clone, and a DataCloneError would take out the whole event
+    // rather than one field. Defensive: no current producer emits one.
+    if (typeof value === 'function') {
+      bounded[key] = '[function]';
+      continue;
+    }
+    if (value === null || typeof value !== 'object') {
+      bounded[key] = value;
+      continue;
+    }
+    let serialized: string;
+    try {
+      serialized = JSON.stringify(value) ?? '';
+    } catch {
+      bounded[key] = '[unserializable]';
+      continue;
+    }
+    bounded[key] = serialized.length > MAX_ACTIVITY_DETAIL_CHARS
+      ? `${serialized.slice(0, MAX_ACTIVITY_DETAIL_CHARS)}… [truncated ${serialized.length - MAX_ACTIVITY_DETAIL_CHARS} chars]`
+      : value;
+  }
+  return bounded;
+}
 
 export function attachInvocationActivity(
   adapter: CliAdapter,

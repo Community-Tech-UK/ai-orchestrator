@@ -1,5 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import type {
+  LoopActivityKind,
   LoopRunSummaryPayload,
   LoopStatePayload,
   LoopIterationPayload,
@@ -71,7 +72,9 @@ export interface LoopActivityPayload {
   loopRunId: string;
   seq: number;
   stage: string;
-  kind: 'spawned' | 'status' | 'tool_use' | 'tool_result' | 'assistant' | 'system' | 'input_required' | 'error' | 'stream-idle' | 'complete' | 'heartbeat';
+  // LT-021: derived from the contract, never re-declared — a hand-copied union
+  // here is how the boundary schema drifted and dropped 8 of the 11 kinds.
+  kind: LoopActivityKind;
   message: string;
   timestamp: number;
   detail?: Record<string, unknown>;

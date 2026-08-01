@@ -82,10 +82,21 @@ export interface DiffResult {
   totalDeletions: number;
 }
 
-/** A single rendered line in the diff view, post-classification. */
+/**
+ * A single rendered line in the diff view, post-classification.
+ *
+ * `oldLineNumber`/`newLineNumber` (WS-C4) are 1-based line numbers on each
+ * side, populated by `classifyHunks` for `add`/`remove`/`context` lines only
+ * (never for `header`/`meta`). They drive line-range selection/annotation in
+ * `SourceControlDiffViewComponent` — a `remove` line only has an old-side
+ * number, an `add` line only a new-side number, and a `context` line
+ * (unchanged) has both since it exists on both sides.
+ */
 export interface RenderedDiffLine {
   kind: 'add' | 'remove' | 'context' | 'header' | 'meta';
   text: string;
+  oldLineNumber?: number;
+  newLineNumber?: number;
 }
 
 /**

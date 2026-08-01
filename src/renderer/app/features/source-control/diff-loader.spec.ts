@@ -37,10 +37,10 @@ describe('classifyHunks', () => {
 
     expect(classifyHunks(file)).toEqual([
       { kind: 'header', text: '@@ -1,3 +1,4 @@' },
-      { kind: 'context', text: ' context-line' },
-      { kind: 'add', text: '+added-line' },
-      { kind: 'remove', text: '-removed-line' },
-      { kind: 'context', text: ' another-context' },
+      { kind: 'context', text: ' context-line', oldLineNumber: 1, newLineNumber: 1 },
+      { kind: 'add', text: '+added-line', newLineNumber: 2 },
+      { kind: 'remove', text: '-removed-line', oldLineNumber: 2 },
+      { kind: 'context', text: ' another-context', oldLineNumber: 3, newLineNumber: 3 },
     ]);
   });
 
@@ -56,7 +56,7 @@ describe('classifyHunks', () => {
     const file = makeFile([['@@ -1 +1 @@', '', '+added', ''].join('\n')]);
     expect(classifyHunks(file)).toEqual([
       { kind: 'header', text: '@@ -1 +1 @@' },
-      { kind: 'add', text: '+added' },
+      { kind: 'add', text: '+added', newLineNumber: 1 },
     ]);
   });
 
@@ -65,11 +65,72 @@ describe('classifyHunks', () => {
       ['@@ -1 +1 @@', '+a'].join('\n'),
       ['@@ -10 +10 @@', '-b'].join('\n'),
     ]);
+    // NOTE: makeFile() hard-codes oldStart/newStart to 1 for every hunk (the
+    // `@@ -10 +10 @@` text is just embedded content here, not a structured
+    // field), so both hunks' line numbers start from 1.
     expect(classifyHunks(file)).toEqual([
       { kind: 'header', text: '@@ -1 +1 @@' },
-      { kind: 'add', text: '+a' },
+      { kind: 'add', text: '+a', newLineNumber: 1 },
       { kind: 'header', text: '@@ -10 +10 @@' },
-      { kind: 'remove', text: '-b' },
+      { kind: 'remove', text: '-b', oldLineNumber: 1 },
+    ]);
+  });
+
+  it('assigns oldStart/newStart-seeded line numbers per hunk (WS-C4 hit-testing)', () => {
+    const file: DiffFile = {
+      path: 'x.ts',
+      status: 'modified',
+      additions: 0,
+      deletions: 0,
+      hunks: [
+        {
+          oldStart: 42,
+          oldLines: 2,
+          newStart: 100,
+          newLines: 2,
+          content: [' unchanged', '-old-line', '+new-line'].join('\n'),
+        },
+      ],
+    };
+    expect(classifyHunks(file)).toEqual([
+      { kind: 'context', text: ' unchanged', oldLineNumber: 42, newLineNumber: 100 },
+      { kind: 'remove', text: '-old-line', oldLineNumber: 43 },
+      { kind: 'add', text: '+new-line', newLineNumber: 101 },
+    ]);
+  });
+
+  it('re-seeds line numbers independently per hunk when hunks have different oldStart/newStart (fresh-eyes WARNING 1)', () => {
+    const file: DiffFile = {
+      path: 'x.ts',
+      status: 'modified',
+      additions: 0,
+      deletions: 0,
+      hunks: [
+        {
+          oldStart: 10,
+          oldLines: 2,
+          newStart: 20,
+          newLines: 2,
+          content: [' first-context', '+first-add'].join('\n'),
+        },
+        {
+          oldStart: 50,
+          oldLines: 2,
+          newStart: 60,
+          newLines: 2,
+          content: ['-second-remove', ' second-context'].join('\n'),
+        },
+      ],
+    };
+
+    expect(classifyHunks(file)).toEqual([
+      // First hunk seeds from oldStart:10 / newStart:20.
+      { kind: 'context', text: ' first-context', oldLineNumber: 10, newLineNumber: 20 },
+      { kind: 'add', text: '+first-add', newLineNumber: 21 },
+      // Second hunk re-seeds from its OWN oldStart:50 / newStart:60 — it
+      // does not continue counting from the first hunk's line numbers.
+      { kind: 'remove', text: '-second-remove', oldLineNumber: 50 },
+      { kind: 'context', text: ' second-context', oldLineNumber: 51, newLineNumber: 60 },
     ]);
   });
 });

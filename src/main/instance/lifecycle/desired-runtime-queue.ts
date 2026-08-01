@@ -17,6 +17,7 @@ import { getLogger } from '../../logging/logger';
 import { generateId } from '../../../shared/utils/id-generator';
 import { isModelSwitchAllowedStatus } from '../../../shared/types/instance-status-policy';
 import { computeRuntimeDiff } from './runtime-reconciler-plan';
+import { isAdapterOnLoanError } from './adapter-loan-registry';
 import type { DesiredRuntime } from './runtime-reconciler.types';
 import type { Instance, OutputMessage } from '../../../shared/types/instance.types';
 
@@ -24,6 +25,19 @@ const logger = getLogger('DesiredRuntimeQueue');
 
 export interface DesiredRuntimeQueueDeps {
   getInstance(instanceId: string): Instance | undefined;
+  /**
+   * LT-020: true while a loop iteration is executing on this instance's
+   * adapter. Applying a change then respawns the CLI the loop is mid-iteration
+   * on, which the loop can only see as an unexplained `process_exit`.
+   *
+   * **Required on purpose.** As an optional dep this guard could be deleted at
+   * the single production call site with every test still green — the exact
+   * shape of "exists but isn't wired" that shipped the bug it prevents. Test
+   * doubles that don't care pass `() => false`.
+   */
+  isAdapterOnLoan(instanceId: string): boolean;
+  /** Optional diagnostic hook; absent in test doubles that don't care. */
+  warnIfLoanLooksWedged?(instanceId: string): void;
   /** Apply the desired runtime now (respawns the session). Caller must be settled. */
   applyChange(instanceId: string, desired: DesiredRuntime): Promise<Instance>;
   /** Broadcast the queued desired runtime (set or cleared) to the renderer. */
@@ -37,6 +51,16 @@ export class DesiredRuntimeQueue {
   private readonly scheduled = new Set<string>();
 
   constructor(private readonly deps: DesiredRuntimeQueueDeps) {}
+
+  /**
+   * Whether the change may be applied right now. Status alone is not enough:
+   * a borrowed adapter (LT-020) can leave the instance reading input-waiting
+   * between two turns of the same in-flight loop iteration.
+   */
+  private canApplyNow(instance: Instance): boolean {
+    return isModelSwitchAllowedStatus(instance.status)
+      && !this.deps.isAdapterOnLoan(instance.id);
+  }
 
   /**
    * Queue-aware change request. Applies immediately from an input-waiting
@@ -62,16 +86,18 @@ export class DesiredRuntimeQueue {
 
     // Apply immediately from a settled state. If we lose a race to a new
     // turn, the reconciler throws on its status gate — fall through and queue.
-    if (isModelSwitchAllowedStatus(instance.status)) {
+    if (this.canApplyNow(instance)) {
       instance.desiredRuntime = undefined;
       try {
         return await this.deps.applyChange(instanceId, desired);
       } catch (error) {
         const live = this.deps.getInstance(instanceId);
-        if (!live || isModelSwitchAllowedStatus(live.status)) {
+        // Same reasoning as the deferred path: a loan rejection is retry-later,
+        // so queue it rather than throwing the transient message at the caller.
+        if (!live || (this.canApplyNow(live) && !isAdapterOnLoanError(error))) {
           throw error;
         }
-        // Became busy mid-flight — queue below.
+        // Became busy, or a loop took the adapter mid-flight — queue below.
       }
     }
 
@@ -83,6 +109,10 @@ export class DesiredRuntimeQueue {
       status: live.status,
       desiredRuntime: desired,
     });
+    // This path parks quietly and never reaches `assertAdapterNotOnLoan`, so a
+    // wedged loan would otherwise show as a pending chip that never lands, with
+    // nothing in the log to explain it.
+    this.deps.warnIfLoanLooksWedged?.(instanceId);
     return live;
   }
 
@@ -91,9 +121,25 @@ export class DesiredRuntimeQueue {
    * input-waiting status with a queued desired runtime, schedule the apply.
    */
   onSettled(instance: Instance): void {
-    if (isModelSwitchAllowedStatus(instance.status) && instance.desiredRuntime !== undefined) {
+    if (this.canApplyNow(instance) && instance.desiredRuntime !== undefined) {
       this.schedule(instance.id);
     }
+  }
+
+  /**
+   * LT-020: a loop iteration finished borrowing this instance's adapter. That
+   * — not the instance's status flicker mid-iteration — is the real boundary at
+   * which a queued change becomes safe.
+   */
+  onAdapterLoanReleased(instanceId: string): void {
+    const instance = this.deps.getInstance(instanceId);
+    if (!instance || instance.desiredRuntime === undefined) return;
+    if (!this.canApplyNow(instance)) return;
+    logger.info('Applying runtime change deferred by a loop adapter loan', {
+      instanceId,
+      desiredRuntime: instance.desiredRuntime,
+    });
+    this.schedule(instanceId);
   }
 
   /**
@@ -122,8 +168,9 @@ export class DesiredRuntimeQueue {
     if (desired === undefined) {
       return;
     }
-    if (!isModelSwitchAllowedStatus(instance.status)) {
-      // Raced with a new turn; a later settled transition will reschedule.
+    if (!this.canApplyNow(instance)) {
+      // Raced with a new turn, or a loop borrowed the adapter (LT-020). A later
+      // settled transition — or the loan release — reschedules.
       return;
     }
     // Clear BEFORE applying: the reconciler transitions through initializing →
@@ -142,12 +189,18 @@ export class DesiredRuntimeQueue {
       // state transition, and `onSettled` only fires from one, so a retry needs
       // a genuine external transition back into an allowed status.
       const live = this.deps.getInstance(instanceId);
-      if (live && !isModelSwitchAllowedStatus(live.status)) {
+      // A loan rejection is *always* retry-later, never a failed swap — and it
+      // must not depend on the loan still being held when we get here. A short
+      // iteration can start and finish inside this window, which would
+      // otherwise make `canApplyNow` true again and drop the user's change with
+      // a permanent-failure notice quoting a transient condition.
+      if (live && (isAdapterOnLoanError(error) || !this.canApplyNow(live))) {
         live.desiredRuntime = desired;
         this.deps.publishPendingState(live);
         logger.info('Deferred runtime change lost the status race; re-queued', {
           instanceId,
           status: live.status,
+          reason: isAdapterOnLoanError(error) ? 'adapter-on-loan' : 'status',
           desiredRuntime: desired,
         });
         return;

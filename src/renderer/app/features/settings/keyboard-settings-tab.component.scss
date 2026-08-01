@@ -11,6 +11,22 @@
   line-height: 1.5;
 }
 
+.keybinding-search {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.keybinding-empty {
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: var(--spacing-md) 0;
+}
+
 .shortcut-category {
   background: var(--bg-secondary);
   border-radius: var(--radius-md);

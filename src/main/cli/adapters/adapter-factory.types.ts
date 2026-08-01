@@ -49,6 +49,17 @@ export interface UnifiedSpawnOptions {
    *  Bounds runaway sessions; omit for unbounded (the CLI default). */
   maxTurns?: number;
   env?: Record<string, string>;
+  /**
+   * WS-C7 — derive the merged spawn environment from `getSafeEnv()` instead
+   * of the unfiltered pass-through (see `mergeSpawnEnv` in
+   * adapter-spawn-helpers.ts). No host API keys, tokens, or other secrets
+   * reach the child process; the provider CLI must authenticate through its
+   * own stored credentials instead. Set for every provider by
+   * `createCliAdapter` when the spawning instance is registered as a
+   * contained-execution-profile instance (contained-execution-scoping.ts) —
+   * production callers should not set this directly.
+   */
+  filterEnv?: boolean;
   allowedTools?: string[];
   disallowedTools?: string[];
   resume?: boolean;  // Resume an existing session (requires sessionId)

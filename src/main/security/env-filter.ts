@@ -270,6 +270,21 @@ export function getSafeEnv(
 }
 
 /**
+ * Like getSafeEnv(), but also runs `additionalEnv` through the same default
+ * filter instead of appending it verbatim. Use for contained/sandboxed spawns
+ * where caller-supplied env (e.g. an automation's action.env) must not be able
+ * to reintroduce API keys or other secrets the base filter blocks.
+ */
+export function getSafeEnvStrict(additionalEnv?: Record<string, string>): Record<string, string> {
+  const safe = getSafeEnv();
+  if (additionalEnv) {
+    const { filtered } = filterEnvVars(additionalEnv, DEFAULT_ENV_FILTER_CONFIG);
+    Object.assign(safe, filtered);
+  }
+  return safe;
+}
+
+/**
  * API keys that trusted child processes (CLI adapters, MCP servers) need
  * to authenticate with their respective AI/VCS providers.
  *

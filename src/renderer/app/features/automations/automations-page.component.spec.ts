@@ -62,6 +62,17 @@ class AutomationWebhooksPanelStubComponent {
   @Input() automations: unknown;
 }
 
+@Component({
+  selector: 'app-automation-authority-panel',
+  standalone: true,
+  template: '',
+})
+class AutomationAuthorityPanelStubComponent {
+  @Input() authorityInput: unknown;
+  @Input() templates: unknown;
+  @Output() templateApplied = new EventEmitter<unknown>();
+}
+
 function makeAutomation(overrides: Partial<Automation> = {}): Automation {
   return {
     id: 'automation-1',
@@ -154,6 +165,7 @@ describe('AutomationsPageComponent row actions', () => {
           CompactModelPickerStubComponent,
           PageHeaderStubComponent,
           AutomationWebhooksPanelStubComponent,
+          AutomationAuthorityPanelStubComponent,
         ],
       },
     });

@@ -1,6 +1,7 @@
 import type {
   AutomationAction,
   AutomationConcurrencyPolicy,
+  AutomationExecutionProfile,
   AutomationMissedRunPolicy,
   AutomationWebhookFilter,
 } from '../../../../shared/types/automation.types';
@@ -36,6 +37,8 @@ export interface AutomationFormModel {
   loopIsolateWorkspace: boolean;
   loopMaxIterations: string;
   loopMaxCostCents: string;
+  /** WS-C7 — 'standard' (default) preserves current behaviour unchanged. */
+  executionProfile: AutomationExecutionProfile;
 }
 
 export function emptyForm(): AutomationFormModel {
@@ -66,6 +69,7 @@ export function emptyForm(): AutomationFormModel {
     loopIsolateWorkspace: true,
     loopMaxIterations: '',
     loopMaxCostCents: '',
+    executionProfile: 'standard',
   };
 }
 

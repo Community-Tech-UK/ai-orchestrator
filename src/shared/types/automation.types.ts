@@ -8,6 +8,22 @@ export type AutomationRunStatus = 'pending' | 'running' | 'succeeded' | 'failed'
 export type AutomationReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'workflow';
 export type AutomationDeliveryMode = 'notify' | 'silent' | 'localOnly';
 
+/**
+ * WS-C7 — the execution profile an automation action runs under.
+ *
+ * `'standard'` (the default when absent) preserves current behaviour exactly.
+ * `'contained'` is an honest, opt-in containment posture: the resolved
+ * provider (see `resolveAutomationSpawnTarget`) must be Codex — the only
+ * provider with a real, technically-enforced sandbox in this codebase
+ * (`sandboxMode: 'read-only'`, adapter-factory.ts `createCodexAdapter`) — and
+ * the spawn environment is derived from `getSafeEnv()` instead of the
+ * unfiltered pass-through, so no API keys, tokens, or other secrets from the
+ * host environment reach the child process. A resolved provider other than
+ * Codex fails the run at fire time with a plain-language reason; the run is
+ * NEVER silently downgraded to standard/host execution.
+ */
+export type AutomationExecutionProfile = 'standard' | 'contained';
+
 /** A bounded, JSONPath-lite predicate for webhook payloads. */
 export interface AutomationWebhookFilter {
   /** Dot-delimited path rooted at the webhook payload, such as `issue.state`. */
@@ -90,6 +106,20 @@ export interface AutomationAction {
   attachments?: FileAttachment[];
   /** WS5: when present, the action spawns a loop instead of a one-shot instance. */
   loop?: AutomationLoopAction;
+  /**
+   * WS-C7 — execution profile for this action. Absent means `'standard'`
+   * (current behaviour, unchanged). See {@link AutomationExecutionProfile}.
+   */
+  executionProfile?: AutomationExecutionProfile;
+  /**
+   * WS-C7 — only meaningful when `executionProfile` is `'contained'`.
+   * `'fail'` is the only honest option today: this codebase has no other
+   * containment mechanism to fall back to, so a non-Codex resolved provider
+   * always fails the run rather than silently running less contained than
+   * requested. The field exists to make that refusal explicit/self-documenting
+   * rather than an unstated implementation detail.
+   */
+  containedFallback?: 'fail';
   systemAction?:
     | {
         type: 'loopProviderLimitResume';

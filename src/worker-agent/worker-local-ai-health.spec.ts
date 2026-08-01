@@ -65,12 +65,49 @@ describe('WorkerLocalAiHealth', () => {
     expect(url).toBe('http://127.0.0.1:11434/api/generate');
     expect(JSON.parse(String(init?.body))).toEqual({
       model: 'qwen3:8b',
-      prompt: EXACT_TOKEN_CANARY_PROMPT,
+      prompt: `/no_think\n\n${EXACT_TOKEN_CANARY_PROMPT}`,
       stream: false,
       options: {
         temperature: 0,
-        num_predict: 8,
+        num_predict: 32,
       },
+    });
+  });
+
+  it('sends a bounded reasoning-suppressed canary to OpenAI-compatible workers', async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ data: [{ id: 'qwen3:8b' }] }))
+      .mockResolvedValueOnce(jsonResponse({
+        choices: [{ message: { content: 'AIO_HEALTH_OK' }, finish_reason: 'stop' }],
+      }));
+    const health = new WorkerLocalAiHealth({ fetch: fetchMock });
+
+    const samples = await health.check({
+      ...baseParams,
+      provider: 'openai-compatible',
+      endpointId: 'openai-compatible',
+    });
+
+    expect(samples.at(-1)).toMatchObject({
+      layer: 'inference',
+      ok: true,
+      evidence: { canaryOutputValid: true },
+    });
+    const [url, init] = fetchMock.mock.calls[1]!;
+    expect(url).toBe('http://127.0.0.1:1234/v1/chat/completions');
+    expect(JSON.parse(String(init?.body))).toEqual({
+      model: 'qwen3:8b',
+      messages: [
+        {
+          role: 'system',
+          content: '/no_think\n\nYou are a deterministic health-check responder.',
+        },
+        { role: 'user', content: EXACT_TOKEN_CANARY_PROMPT },
+      ],
+      temperature: 0,
+      reasoning_effort: 'none',
+      max_tokens: 32,
+      stream: false,
     });
   });
 
@@ -718,6 +755,36 @@ describe('WorkerLocalAiHealth', () => {
       },
     });
     expect(JSON.stringify(inference)).not.toContain('untrusted model text');
+  });
+
+  it('rejects a reasoning-truncated OpenAI canary without returning hidden reasoning', async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ data: [{ id: 'qwen3:8b' }] }))
+      .mockResolvedValueOnce(jsonResponse({
+        choices: [{
+          message: {
+            content: '',
+            reasoning_content: 'private reasoning must stay private',
+          },
+          finish_reason: 'length',
+        }],
+      }));
+    const health = new WorkerLocalAiHealth({ fetch: fetchMock });
+
+    const samples = await health.check({
+      ...baseParams,
+      provider: 'openai-compatible',
+      endpointId: 'openai-compatible',
+    });
+    const inference = samples.at(-1);
+
+    expect(inference).toMatchObject({
+      layer: 'inference',
+      ok: false,
+      failureCode: 'malformed-inference-output',
+      evidence: { canaryOutputValid: false },
+    });
+    expect(JSON.stringify(inference)).not.toContain('private reasoning');
   });
 
   it('uses fixed macOS Ollama restart commands after resolving a known installation', async () => {

@@ -115,6 +115,7 @@ vi.mock('../automations', () => ({
 }));
 
 import { registerDefaultLoopInvoker, buildLoopBranchSelectorDeps } from './default-invokers';
+import { isAdapterOnLoan, _resetAdapterLoansForTesting } from '../instance/lifecycle/adapter-loan-registry';
 import type { BranchSelectInput } from './loop-branch-select';
 
 describe('LF-5 branch-select deps', () => {
@@ -144,6 +145,9 @@ describe('LF-5 branch-select deps', () => {
 
 describe('Loop Mode invoker plumbing', () => {
   beforeEach(() => {
+    // LT-020: the adapter-loan registry is a module-level singleton, so a test
+    // that leaves a loan held would make the next one see a false positive.
+    _resetAdapterLoansForTesting();
     // Fresh emitter per test; registerDefaultLoopInvoker bails if a listener
     // already exists, so we must reset both the coordinator mock and the
     // listener registry. The fake also implements `registerIterationHook`
@@ -1134,6 +1138,49 @@ describe('Loop Mode invoker plumbing', () => {
 
       expect(hoisted.sendMessage).toHaveBeenCalledTimes(2);
       expect(hoisted.setResume).not.toHaveBeenCalledWith(false);
+    });
+
+    it('LT-020: declares an adapter loan for the whole borrowed iteration and releases it after', async () => {
+      const instanceManager = {
+        getInstance: vi.fn(() => ({
+          id: 'chat-live',
+          provider: 'claude',
+          workingDirectory: '/tmp/ws',
+        })),
+        getAdapter: vi.fn(() => hoisted.adapterRef.current),
+      };
+      registerDefaultLoopInvoker(instanceManager as never);
+
+      // Sample the loan from inside the CLI call — the exact window in which a
+      // queued provider swap used to respawn the adapter and SIGTERM the loop.
+      let onLoanDuringSend: boolean | undefined;
+      hoisted.sendMessage.mockImplementation(async () => {
+        onLoanDuringSend = isAdapterOnLoan('chat-live');
+        return { content: 'ok', usage: { totalTokens: 5 } };
+      });
+
+      expect(isAdapterOnLoan('chat-live')).toBe(false);
+
+      const iter = new Promise<LoopChildResult | { error: string }>((resolve) => {
+        hoisted.loopCoordinatorRef.current.emit('loop:invoke-iteration', {
+          correlationId: 'loop-loan::0',
+          loopRunId: 'loop-loan',
+          chatId: 'chat-live',
+          provider: 'claude',
+          workspaceCwd: '/tmp/ws',
+          stage: 'IMPLEMENT',
+          seq: 0,
+          prompt: 'iter 0',
+          config: { contextStrategy: 'same-session' },
+          callback: resolve,
+        });
+      });
+      await new Promise<void>((r) => setImmediate(r));
+      await new Promise<void>((r) => setImmediate(r));
+      await iter;
+
+      expect(onLoanDuringSend).toBe(true);
+      expect(isAdapterOnLoan('chat-live')).toBe(false);
     });
 
     it('2026-07-11 park-fix Phase 5 regression: a same-session iteration on a borrowed live chat adapter never routes through InstanceManager.sendInput (which is what would double-park it alongside LoopProviderLimitHandler)', async () => {

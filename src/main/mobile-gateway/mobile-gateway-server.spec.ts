@@ -25,6 +25,7 @@ import { MAX_QUEUED_PER_INSTANCE } from './mobile-input-queue';
 import type { FileAttachment, Instance, InstanceCreateConfig } from '../../shared/types/instance.types';
 import type { LoopState } from '../../shared/types/loop.types';
 import type { MobileMessageDto, MobileMessagesResumeDto, MobilePauseDto } from '../../shared/types/mobile-gateway.types';
+import { AdapterOnLoanError } from '../instance/lifecycle/adapter-loan-registry';
 
 function inst(partial: Partial<Instance>): Instance {
   return {
@@ -1424,6 +1425,23 @@ describe('MobileGatewayServer', () => {
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({
       error: 'Model changes are only available while the instance is waiting for user input. Current status: busy.',
+    });
+  });
+
+  it('LT-020: maps a loop adapter loan to 409, not a 500', async () => {
+    // A same-session loop is executing on this instance's adapter. That is a
+    // "try again shortly", not a server error — and this path calls the
+    // reconciler directly, so nothing queues the change on the user's behalf.
+    source.changeModel.mockRejectedValueOnce(new AdapterOnLoanError('a'));
+    const token = await pairToken();
+    const res = await authed(token, '/api/instances/a/model', {
+      method: 'POST',
+      body: JSON.stringify({ model: 'opus' }),
+    });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({
+      error: 'This session is running a loop iteration. Try again when it finishes.',
     });
   });
 
