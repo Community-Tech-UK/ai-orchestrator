@@ -47,6 +47,19 @@
   (global-name "com.apple.cfprefsd.agent")
   (local-name "com.apple.cfprefsd.agent"))
 
+; Keychain access (LT-026). The composition contract above already states that
+; read access is broad in Phase A because "CLIs need configs, keychains" — but
+; reading the login keychain is a mach-lookup to securityd, not a file read, and
+; that was missing. Without it every provider CLI whose credentials live in the
+; Keychain starts, fails to authenticate, and exits 1: the Claude CLI printed
+; "Not logged in · Please run /login" and died 0.5 s after spawn, so hardened
+; mode killed every session it was enabled on. Verified: adding this makes the
+; same jailed spawn succeed.
+(allow mach-lookup
+  (global-name "com.apple.SecurityServer")
+  (global-name "com.apple.securityd.xpc")
+  (global-name "com.apple.SecurityServer.xpc"))
+
 ; python multiprocessing / OpenMP runtimes.
 (allow ipc-posix-sem)
 (allow ipc-posix-shm-read-data

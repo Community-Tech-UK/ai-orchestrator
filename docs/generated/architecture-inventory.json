@@ -5742,7 +5742,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3258
+      "lines": 3268
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase1-contracts-package_completed.md",
@@ -5945,6 +5945,10 @@
       "lines": 1540
     },
     {
+      "path": "src/main/instance/__tests__/instance-manager.create.spec.ts",
+      "lines": 1533
+    },
+    {
       "path": "src/main/orchestration/orchestration-handler.ts",
       "lines": 1529
     },
@@ -5959,10 +5963,6 @@
     {
       "path": "src/main/instance/__tests__/instance-manager.change-model.spec.ts",
       "lines": 1513
-    },
-    {
-      "path": "src/main/instance/__tests__/instance-manager.create.spec.ts",
-      "lines": 1498
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",

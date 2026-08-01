@@ -1221,6 +1221,41 @@ describe('InstanceManager', () => {
       }));
     });
 
+    /**
+     * LT-016, create path. The global `defaultModel` is provider-agnostic and
+     * is typically a Claude id, so it is offered to every provider and
+     * correctly rejected by most. Telling the user their model "is no longer
+     * available" for a choice they never made for THAT provider is a trust bug
+     * — and it is the reason LT-016 was wrongly marked fixed once already, when
+     * only the swap path was suppressed and the create path was not.
+     *
+     * This asserts the suppression at the emission site, which is the one thing
+     * that would catch the guard being deleted.
+     */
+    it('does NOT surface a degradation note when the rejected model came from the global default', async () => {
+      mockSettingsGetAll.mockReturnValue({
+        ...mockSettingsData,
+        defaultModel: 'opus[1m]',          // a Claude id, offered to every provider
+        defaultModelByProvider: {},        // nothing remembered for this provider
+      });
+      mockGetModelsForProvider.mockReturnValue([
+        { id: 'gpt-5.6-terra', name: 'Terra', tier: 'powerful' },
+      ]);
+
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        provider: 'codex',
+      });
+      await instance.readyPromise;
+
+      // It still degrades away from the rejected global default …
+      expect(instance.currentModel).not.toBe('opus[1m]');
+      // … but says nothing to the user about it.
+      expect(instance.outputBuffer).not.toContainEqual(expect.objectContaining({
+        metadata: expect.objectContaining({ kind: 'model-selection-degraded' }),
+      }));
+    });
+
     it('triggers auto-title for the initial prompt before Codex sendInput resolves', async () => {
       mockAdapterSendInput.mockImplementation(() => new Promise<void>((resolve) => { void resolve; }));
 

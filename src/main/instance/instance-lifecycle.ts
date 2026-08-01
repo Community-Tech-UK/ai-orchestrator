@@ -1429,13 +1429,23 @@ export class InstanceLifecycleManager extends EventEmitter {
           });
         }
         if (modelSelection.degradation) {
+          // LT-016, create path: the global `defaultModel` is provider-agnostic
+          // (typically a Claude id), so it gets offered to every provider and
+          // correctly rejected by most of them. Telling the user their model
+          // "is no longer available" when they never chose it for this provider
+          // is a trust bug — the same one already suppressed on the swap path.
+          const fromGlobalDefault = modelSelection.modelSource === 'global-default';
           logger.warn('Model not valid for target provider, falling back to provider default', {
             model: modelSelection.degradation.requestedModel,
             provider: resolvedCliType,
             validModelCount: modelSelection.knownModelCount ?? 0,
             fallbackModel: modelSelection.degradation.fallbackModel ?? 'provider-default',
+            source: modelSelection.modelSource ?? 'requested',
+            userVisible: !fromGlobalDefault,
           });
-          this.emitModelSelectionDegradation(instance, modelSelection.degradation);
+          if (!fromGlobalDefault) {
+            this.emitModelSelectionDegradation(instance, modelSelection.degradation);
+          }
         }
 
         instance.currentModel = resolvedModel;

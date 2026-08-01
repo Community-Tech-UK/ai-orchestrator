@@ -10,7 +10,7 @@ import {
   resolveAvailableModelSelection,
   type ModelSelectionDegradation,
 } from './model-selection-degradation';
-import { resolveInitialModel } from './resolve-initial-model';
+import { resolveInitialModelWithSource, type InitialModelSource } from './resolve-initial-model';
 
 export interface ModelSelectionResolverDeps {
   getKnownModels?: (provider: string) => Promise<string[]>;
@@ -26,9 +26,22 @@ export interface ModelSelectionInput {
   localModelId?: string;
 }
 
+/**
+ * Where the model being validated came from (LT-016). A rejection only deserves
+ * a user-facing notice when the user actually chose the thing that was
+ * rejected — the provider-agnostic global `defaultModel` is not a choice they
+ * made for *this* provider.
+ */
 export interface ResolvedModelSelection {
   model?: string;
   degradation?: ModelSelectionDegradation;
+  /**
+   * Which precedence rung supplied the model. Note this describes the model as
+   * *resolved*, before tier expansion — if a tier was expanded,
+   * `degradation.requestedModel` is the expanded provider-native id while this
+   * still names where the tier came from.
+   */
+  modelSource?: InitialModelSource;
   knownModelCount?: number;
   tierResolution?: {
     tier: 'fast' | 'balanced' | 'powerful';
@@ -54,13 +67,17 @@ export class ModelSelectionResolver {
       return { model: input.localModelId };
     }
 
-    let model = resolveInitialModel({
+    // Decision and provenance come from ONE call — see the note on
+    // `resolveInitialModelWithSource` for why they must not be computed apart.
+    const resolution = resolveInitialModelWithSource({
       configModelOverride: input.configModelOverride,
       agentModelOverride: input.agentModelOverride,
       provider: input.provider,
       defaultModelByProvider: input.defaultModelByProvider,
       defaultModel: input.defaultModel,
     });
+    let model = resolution.model;
+    const modelSource: InitialModelSource = resolution.source;
 
     if (!model) {
       return { model: undefined };
@@ -91,6 +108,7 @@ export class ModelSelectionResolver {
       ? {
           model: selection.model,
           degradation: selection.degradation,
+          modelSource,
           knownModelCount: knownModelIds.length,
         }
       : { model: selection.model };

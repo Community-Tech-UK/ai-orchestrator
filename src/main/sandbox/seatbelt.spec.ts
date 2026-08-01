@@ -51,6 +51,38 @@ describe('buildSeatbeltCommand', () => {
     expect(wrapped.args[1]).toContain('WRITABLE_ROOT_1');
   });
 
+  /**
+   * LT-027. Seatbelt matches `subpath` against the REAL path, and on macOS both
+   * `/tmp` and `os.tmpdir()` are symlinks — so unresolved roots granted no
+   * write access at all. Measured: `mkdir` inside the unresolved root failed
+   * `Operation not permitted`; with the realpath'd root it succeeded.
+   */
+  it('resolves writable roots through symlinks so the grant actually applies', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const nodeFs = require('node:fs') as typeof import('node:fs');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const nodeOs = require('node:os') as typeof import('node:os');
+    const symlinked = nodeOs.tmpdir();
+    const real = nodeFs.realpathSync(symlinked);
+
+    const wrapped = buildSeatbeltCommand({
+      command: 'x', args: [], writableRoots: [symlinked], basePolicy: BASE,
+    });
+
+    expect(wrapped.args).toContain(`WRITABLE_ROOT_0=${real}`);
+    if (real !== symlinked) {
+      expect(wrapped.args).not.toContain(`WRITABLE_ROOT_0=${symlinked}`);
+    }
+  });
+
+  it('passes through a root that does not exist yet rather than dropping it', () => {
+    const missing = '/definitely/not/a/real/path/aio-test';
+    const wrapped = buildSeatbeltCommand({
+      command: 'x', args: [], writableRoots: [missing], basePolicy: BASE,
+    });
+    expect(wrapped.args).toContain(`WRITABLE_ROOT_0=${missing}`);
+  });
+
   it('fails closed with no writable roots', () => {
     expect(() =>
       buildSeatbeltCommand({ command: 'x', args: [], writableRoots: [], basePolicy: BASE }),
@@ -80,6 +112,22 @@ describe('buildSeatbeltCommand', () => {
     expect(policy).toContain('(deny default)');
     // The static file must not pre-grant broad writes — those are param-gated.
     expect(policy).not.toContain('(allow file-write* (regex');
+  });
+
+  /**
+   * LT-026. Reading the login keychain is a mach-lookup to securityd, not a
+   * file read — and the policy's own composition contract says read access is
+   * broad "because CLIs need configs, keychains". Without this allowance every
+   * provider CLI whose credentials live in the Keychain starts, fails to
+   * authenticate and exits 1, so hardened mode killed every session it was
+   * enabled on (observed: `Not logged in · Please run /login`, exit 1, 0.5 s
+   * after spawn).
+   */
+  it('grants the keychain mach-lookup that credentialed CLIs need', () => {
+    _resetSeatbeltForTesting();
+    const policy = loadBasePolicy();
+    expect(policy).toContain('com.apple.SecurityServer');
+    expect(policy).toContain('com.apple.securityd.xpc');
   });
 });
 

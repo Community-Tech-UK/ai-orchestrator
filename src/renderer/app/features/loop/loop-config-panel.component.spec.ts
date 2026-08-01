@@ -295,6 +295,30 @@ describe('LoopConfigPanelComponent', () => {
     expect(component.buildConfig()?.completion?.verifyCommand).toBe('');
   });
 
+  it('WS6: no verifier anywhere reads as an honest refusal, not a silent pass', () => {
+    // L2. The hint has to say what is wrong AND what the two ways out are,
+    // because the start button is about to refuse.
+    component.verifyCommand.set('');
+    setInferredVerify(null);
+
+    expect(component.verifyHint()).toBe('(no verifier detected — set one or enable operator review)');
+    expect(component.canSubmit()).toBe(false);
+  });
+
+  it('WS6: a descendant verifier is adopted with its workspace-relative prefix', () => {
+    // L4. Unlike an ancestor, a verifier inside the workspace covers code this
+    // loop is actually aimed at, so it is adopted rather than merely offered.
+    component.verifyCommand.set('');
+    setInferredVerify({
+      command: 'npm --prefix "apps/mobile" run test',
+      source: 'package.json scripts: test',
+      scope: 'descendant',
+    });
+
+    expect(component.verifyHint()).toContain('will be used: npm --prefix "apps/mobile" run test');
+    expect(component.canSubmit()).toBe(true);
+  });
+
   it('WS6: a verifier that lives OUTSIDE the workspace is offered, not adopted', () => {
     // It belongs to an enclosing project this loop was not aimed at, and its
     // suite covers code outside the loop's scope. Suggest it; let the user pick.

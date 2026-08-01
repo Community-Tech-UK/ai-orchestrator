@@ -54,6 +54,9 @@ describe('ModelSelectionResolver', () => {
         fallbackModel: 'gemini-3.1-pro-preview',
         reason: 'model-unavailable',
       },
+      // LT-016: an explicit override is the user's own choice, so this
+      // degradation SHOULD reach them.
+      modelSource: 'requested',
       knownModelCount: 1,
     });
   });
@@ -68,5 +71,60 @@ describe('ModelSelectionResolver', () => {
       provider: 'codex',
       configModelOverride: 'gpt-5.9-codex',
     })).resolves.toEqual({ model: 'gpt-5.9-codex' });
+  });
+
+  /**
+   * LT-016 (create path). The global `defaultModel` is provider-agnostic and is
+   * typically a Claude id, so it is offered to every provider and correctly
+   * rejected by most. Surfacing "your model is no longer available" for a
+   * choice the user never made for THAT provider is the trust bug; provenance
+   * is what lets the caller suppress it. The swap path already did this — this
+   * pins the create path to the same contract.
+   */
+  describe('degradation provenance (LT-016)', () => {
+    const getKnownModels = vi.fn().mockResolvedValue(['gemini-3.1-pro-preview']);
+    const getDefaultModel = vi.fn().mockReturnValue('gemini-3.1-pro-preview');
+
+    it('marks a rejection traced to the global default as global-default', async () => {
+      const resolver = new ModelSelectionResolver({ getKnownModels, getDefaultModel });
+      const result = await resolver.resolve({
+        provider: 'copilot',
+        defaultModel: 'opus[1m]',
+      });
+      expect(result.degradation).toBeDefined();
+      expect(result.modelSource).toBe('global-default');
+    });
+
+    it('marks an explicitly requested model as requested', async () => {
+      const resolver = new ModelSelectionResolver({ getKnownModels, getDefaultModel });
+      const result = await resolver.resolve({
+        provider: 'copilot',
+        configModelOverride: 'definitely-not-a-model',
+        defaultModel: 'opus[1m]',
+      });
+      expect(result.degradation).toBeDefined();
+      expect(result.modelSource).toBe('requested');
+    });
+
+    it('marks a stale per-provider remembered model as remembered', async () => {
+      const resolver = new ModelSelectionResolver({ getKnownModels, getDefaultModel });
+      const result = await resolver.resolve({
+        provider: 'copilot',
+        defaultModelByProvider: { copilot: 'retired-copilot-model' },
+        defaultModel: 'opus[1m]',
+      });
+      expect(result.degradation).toBeDefined();
+      expect(result.modelSource).toBe('remembered');
+    });
+
+    it('marks an agent-pinned model as agent', async () => {
+      const resolver = new ModelSelectionResolver({ getKnownModels, getDefaultModel });
+      const result = await resolver.resolve({
+        provider: 'copilot',
+        agentModelOverride: 'agent-pinned-ghost',
+        defaultModel: 'opus[1m]',
+      });
+      expect(result.modelSource).toBe('agent');
+    });
   });
 });
