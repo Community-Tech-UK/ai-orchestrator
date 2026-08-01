@@ -1,3 +1,13 @@
+{"kind":"spawned","pid":39132}
+{"kind":"status","status":"ready"}
 {"kind":"status","status":"busy"}
-{"kind":"output","content":"Hello from Copilot.","messageType":"assistant","messageId":"copilot-message-1","timestamp":4000}
-{"kind":"exit","code":0,"signal":null}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785546017150,"metadata":{"sessionUpdate":"[omitted-session-body]","transport":"[omitted-session-body]","streaming":true,"accumulatedContent":"[omitted-session-body]"}}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785546017154,"metadata":{"sessionUpdate":"[omitted-session-body]","transport":"[omitted-session-body]","streaming":true,"accumulatedContent":"[omitted-session-body]"}}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785546017157,"metadata":{"sessionUpdate":"[omitted-session-body]","transport":"[omitted-session-body]","streaming":true,"accumulatedContent":"[omitted-session-body]"}}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785546017159,"metadata":{"sessionUpdate":"[omitted-session-body]","transport":"[omitted-session-body]","streaming":true,"accumulatedContent":"[omitted-session-body]"}}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785546017147,"metadata":{"sessionUpdate":"[omitted-session-body]","transport":"[omitted-session-body]","streaming":true,"accumulatedContent":"[omitted-session-body]"}}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785546017169,"metadata":{"sessionUpdate":"[omitted-session-body]","transport":"[omitted-session-body]","streaming":true,"accumulatedContent":"[omitted-session-body]"}}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785546017171,"metadata":{"sessionUpdate":"[omitted-session-body]","transport":"[omitted-session-body]","streaming":true,"accumulatedContent":"[omitted-session-body]"}}
+{"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785546017353,"metadata":{"transport":"[omitted-session-body]","streaming":false,"accumulatedContent":"[omitted-session-body]"}}
+{"kind":"status","status":"idle"}
+{"kind":"complete","durationMs":2429,"stopReason":"[omitted-session-body]"}

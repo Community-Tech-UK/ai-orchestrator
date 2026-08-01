@@ -174,6 +174,62 @@ describe('ClaudeCliAdapter', () => {
     });
   });
 
+  /**
+   * LT-025. With `--json-schema` the CLI returns the schema-conformant object
+   * as a `StructuredOutput` tool_use block, NOT as assistant text. The parser
+   * routed text to `content` and tool_use to `toolCalls`, so a reply that was
+   * only a structured answer produced `content: ''` — every Claude-reviewer
+   * cross-model review saw a zero-length response and failed. These drive the
+   * real `parseOutput`, so reverting the one-line fix fails them.
+   */
+  describe('parseOutput — structured output (--json-schema)', () => {
+    const assistantLine = (blocks: unknown[], parentToolUseId?: string) => JSON.stringify({
+      type: 'assistant',
+      ...(parentToolUseId ? { parent_tool_use_id: parentToolUseId } : {}),
+      message: { role: 'assistant', content: blocks },
+    });
+    const structuredBlock = (input: Record<string, unknown>, id = 'toolu_1') => ({
+      type: 'tool_use', id, name: 'StructuredOutput', input,
+    });
+
+    it('surfaces the StructuredOutput payload as the response content', () => {
+      const verdict = { overall_verdict: 'CONCERNS', summary: 'unguarded divide' };
+      const out = adapter.parseOutput(assistantLine([structuredBlock(verdict)]));
+      expect(JSON.parse(out.content)).toEqual(verdict);
+    });
+
+    it('prefers the structured payload over accompanying prose', () => {
+      const verdict = { overall_verdict: 'PASS' };
+      const ndjson = assistantLine([
+        { type: 'text', text: 'Reviewing the snippet as given…' },
+        structuredBlock(verdict),
+      ]);
+      expect(JSON.parse(adapter.parseOutput(ndjson).content)).toEqual(verdict);
+    });
+
+    it('takes the accepted retry, not a rejected first attempt', () => {
+      const ndjson = [
+        assistantLine([structuredBlock({ overall_verdict: 'APPROVE', score: 9 }, 'toolu_1')]),
+        assistantLine([structuredBlock({ overall_verdict: 'CONCERNS', summary: 'ok' }, 'toolu_2')]),
+      ].join('\n');
+      expect(JSON.parse(adapter.parseOutput(ndjson).content))
+        .toEqual({ overall_verdict: 'CONCERNS', summary: 'ok' });
+    });
+
+    it('does not let a subagent payload replace the parent turn answer', () => {
+      const ndjson = [
+        assistantLine([{ type: 'text', text: 'the real final answer' }]),
+        assistantLine([structuredBlock({ sub: 'agent payload' })], 'toolu_parent'),
+      ].join('\n');
+      expect(adapter.parseOutput(ndjson).content).toBe('the real final answer');
+    });
+
+    it('falls back to text when there is no structured output', () => {
+      const ndjson = assistantLine([{ type: 'text', text: 'plain answer' }]);
+      expect(adapter.parseOutput(ndjson).content).toBe('plain answer');
+    });
+  });
+
   describe('parseOutput — token extraction across CLI schema versions', () => {
     /**
      * Regression: Loop Mode reported `tokens: 0` for every iteration on

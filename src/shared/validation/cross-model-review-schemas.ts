@@ -69,10 +69,19 @@ export const TieredReviewResultJsonSchema = z.object({
  * WS14 — serialized JSON Schema for Claude's `--json-schema` structured-output
  * flag on one-shot review spawns. Derived from the SAME Zod schema the parser
  * validates with, so the wire contract and the validator cannot drift.
+ *
+ * The `$schema` dialect key is stripped (LT-024). Zod 4's `toJSONSchema` emits
+ * `"$schema": "https://json-schema.org/draft/2020-12/schema"`, and the Claude
+ * CLI's validator rejects the whole document with
+ * `--json-schema is not a valid JSON Schema: no schema with key or ref …`,
+ * exiting 1. Every Claude-reviewer cross-model review failed because of it. The
+ * key is metadata about which dialect the document uses, not part of the
+ * contract being expressed, so dropping it changes nothing the reviewer needs.
  */
 export function serializeReviewResultJsonSchema(reviewDepth: 'structured' | 'tiered'): string {
   const schema = reviewDepth === 'tiered' ? TieredReviewResultJsonSchema : ReviewResultJsonSchema;
-  return JSON.stringify(z.toJSONSchema(schema));
+  const { $schema: _dialect, ...body } = z.toJSONSchema(schema) as Record<string, unknown>;
+  return JSON.stringify(body);
 }
 
 export type ReviewDismissPayload = z.infer<typeof ReviewDismissPayloadSchema>;

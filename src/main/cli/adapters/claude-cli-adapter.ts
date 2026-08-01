@@ -70,6 +70,7 @@ import {
   type ClaudeToolUseContext,
 } from './claude-cli-permission-details';
 import { probeVersionStatus } from './cli-status-probe';
+import { structuredOutputContent, type StructuredOutputCandidate } from './structured-output-content';
 import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
 
 export type { DeferredToolUse } from './claude-cli-adapter.types';
@@ -870,6 +871,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   parseOutput(raw: string): CliResponse {
     const id = this.generateResponseId();
     const toolCalls: CliToolCall[] = [];
+    const structuredCandidates: StructuredOutputCandidate[] = [];
     let content = '';
     // We accumulate tokens across all assistant turns as a fallback. Some CLI
     // versions emit the authoritative `result` message at the end with the
@@ -907,6 +909,15 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
             (block) => block.type === 'tool_use'
           );
           for (const tool of toolUses) {
+            // LT-025: keep the subagent tag with the block. `parseOutput`
+            // flattens every assistant message — including subagent turns,
+            // which the CLI streams into the same NDJSON — so the structured
+            // answer has to be chosen with that provenance in hand.
+            structuredCandidates.push({
+              name: tool.name,
+              input: tool.input,
+              parentToolUseId: (msg as { parent_tool_use_id?: string | null }).parent_tool_use_id,
+            });
             toolCalls.push({
               id: tool.id || generateId(),
               name: tool.name || '',
@@ -981,7 +992,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
     return {
       id,
-      content: content.trim(),
+      content: structuredOutputContent(structuredCandidates) ?? content.trim(),
       role: 'assistant',
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
       usage,

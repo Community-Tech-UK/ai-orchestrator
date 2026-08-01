@@ -3,7 +3,9 @@ import {
   ReviewDismissPayloadSchema,
   ReviewActionPayloadSchema,
   ReviewResultJsonSchema,
-  TieredReviewResultJsonSchema, serializeReviewResultJsonSchema} from './cross-model-review-schemas';
+  TieredReviewResultJsonSchema,
+  serializeReviewResultJsonSchema,
+} from './cross-model-review-schemas';
 
 describe('CrossModelReviewSchemas', () => {
   describe('ReviewDismissPayloadSchema', () => {
@@ -188,6 +190,24 @@ describe('CrossModelReviewSchemas', () => {
 });
 
 describe('serializeReviewResultJsonSchema (WS14 --json-schema wire contract)', () => {
+  /**
+   * LT-024. Zod 4 emits a `$schema` dialect key, and the Claude CLI rejects the
+   * entire document for it — `--json-schema is not a valid JSON Schema: no
+   * schema with key or ref "https://json-schema.org/draft/2020-12/schema"`,
+   * exit 1. Every Claude-reviewer cross-model review failed until it was
+   * stripped, so the absence of this key IS the wire contract.
+   */
+  it('omits the $schema dialect key, which the Claude CLI rejects', () => {
+    for (const depth of ['structured', 'tiered'] as const) {
+      const parsed = JSON.parse(serializeReviewResultJsonSchema(depth));
+      expect(parsed).not.toHaveProperty('$schema');
+      // Everything the reviewer actually needs is still there.
+      expect(parsed.type).toBe('object');
+      expect(parsed.properties).toBeDefined();
+      expect(Array.isArray(parsed.required)).toBe(true);
+    }
+  });
+
   it('produces valid JSON Schema with the verdict fields for both depths', () => {
     const structured = JSON.parse(serializeReviewResultJsonSchema('structured'));
     expect(Object.keys(structured.properties)).toEqual(
