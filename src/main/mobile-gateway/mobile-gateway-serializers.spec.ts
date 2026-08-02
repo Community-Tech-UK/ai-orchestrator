@@ -85,3 +85,44 @@ describe('mobile-gateway-serializers WS-C2 attention scale', () => {
     });
   });
 });
+
+/**
+ * LT-018 on the mobile surface. `MobileInstanceDto.contextPercentage` is
+ * documented as "0–100 context window usage, **when known**", and omitting it is
+ * how the phone client is told there is nothing to show. Because
+ * `Instance.contextUsage` is seeded at create, sending it unconditionally
+ * shipped a confident `0` for every session that had not reported yet — the same
+ * defect that was fixed across four desktop surfaces.
+ */
+describe('serializeInstance contextPercentage (LT-018)', () => {
+  it('omits contextPercentage when the provider has not reported occupancy', () => {
+    const dto = serializeInstance(
+      inst({ contextUsage: { used: 0, total: 200_000, percentage: 0 } }),
+    );
+
+    expect(dto.contextPercentage).toBeUndefined();
+    expect('contextPercentage' in dto ? dto.contextPercentage : undefined).toBeUndefined();
+  });
+
+  it('sends the real percentage once the provider reports', () => {
+    const dto = serializeInstance(
+      inst({
+        contextUsage: {
+          used: 50_000, total: 200_000, percentage: 25, occupancyReported: true,
+        },
+      }),
+    );
+
+    expect(dto.contextPercentage).toBe(25);
+  });
+
+  it('sends a genuine 0%, because that is a measurement and not an absence', () => {
+    const dto = serializeInstance(
+      inst({
+        contextUsage: { used: 0, total: 200_000, percentage: 0, occupancyReported: true },
+      }),
+    );
+
+    expect(dto.contextPercentage).toBe(0);
+  });
+});

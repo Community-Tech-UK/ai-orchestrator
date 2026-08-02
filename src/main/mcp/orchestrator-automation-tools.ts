@@ -13,7 +13,13 @@
  */
 
 import { z } from 'zod';
-import { ModelIdSchema } from '@contracts/schemas/common';
+// LT-031 sibling: these MUST be the same bounds the entity/event schemas use.
+// The MCP write path does NOT validate against AutomationCreatePayloadSchema
+// (unlike the IPC path), so a looser arg cap here writes successfully and then
+// fails `AutomationChangedEventSchema` — the event is dropped and the UI goes
+// stale with no error. `workingDirectory` was 10_000 here against a 1_000 entity
+// bound; a path that long exceeds PATH_MAX on every supported platform anyway.
+import { ModelIdSchema, WorkingDirectorySchema } from '@contracts/schemas/common';
 import type { McpServerToolDefinition } from './mcp-server-tools';
 import type { SpawnRemoteInstanceMeta } from './orchestrator-tools';
 
@@ -37,7 +43,7 @@ export const CreateAutomationArgsSchema = z
      * Absolute working directory the automation runs in. Optional — defaults to
      * the calling chat's project folder.
      */
-    workingDirectory: z.string().min(1).max(10_000).optional(),
+    workingDirectory: WorkingDirectorySchema.optional(),
     /** Optional human-readable description. */
     description: z.string().max(2000).optional(),
     /** CLI provider to run with (defaults to the app default). */
@@ -177,7 +183,7 @@ export const UpdateAutomationArgsSchema = z
     /** New IANA timezone. Omit to keep the existing timezone. */
     timezone: z.string().min(1).max(100).optional(),
     /** New absolute working directory. Omit to leave unchanged. */
-    workingDirectory: z.string().min(1).max(10_000).optional(),
+    workingDirectory: WorkingDirectorySchema.optional(),
     /** New CLI provider. Omit to leave unchanged. */
     provider: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']).optional(),
     /** New model override for the spawned agent. Omit to leave unchanged. */

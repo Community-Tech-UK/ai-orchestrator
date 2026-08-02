@@ -13,7 +13,7 @@ vi.mock('../../logging/logger', () => ({
 }));
 
 import {
-  announceRuntimeChange,
+  announceRuntimeChangeSet,
   modelChangeNoticeText,
   providerChangeNoticeText,
   runtimeChangeNoticesFor,
@@ -120,59 +120,89 @@ describe('runtimeChangeNoticesFor', () => {
   });
 });
 
-describe('announceRuntimeChange', () => {
-  it('delivers to the CLI and records a transcript entry with its kind', async () => {
-    const adapter = makeAdapter();
+
+/**
+ * LT-030. The original order — `await adapter.sendInput(...)` THEN render —
+ * deadlocked on a loop-bearing session: after a provider swap the loop
+ * immediately reclaims the adapter, `sendInput` never resolves, and everything
+ * after it is dead code. The user saw no provider-change notice at all on that
+ * path, and `applyRuntimeChange` never resolved.
+ */
+
+/**
+ * These target the function the reconciler ACTUALLY calls. The previous tests
+ * exercised a single-notice helper that no longer has a production caller — the
+ * multi-send it implied is precisely what caused LT-030.
+ */
+describe('announceRuntimeChangeSet (LT-030)', () => {
+  const instance = { id: 'inst-1' } as never;
+  const notice = (text: string, kind: string) => ({ text, kind }) as never;
+
+  it('renders every notice, then delivers them as ONE message', async () => {
+    const order: string[] = [];
+    const emitSystemNotice = vi.fn((_i: unknown, text: string) => { order.push(`render:${text}`); });
+    const adapter = { sendInput: vi.fn(async (t: string) => { order.push(`send:${t}`); }) } as never;
+
+    await announceRuntimeChangeSet({
+      instance, adapter, emitSystemNotice,
+      notices: [notice('MODEL', 'model-changed'), notice('YOLO', 'yolo-mode-changed')],
+      preamble: 'PREAMBLE',
+    });
+
+    // One send, preamble first, both notices in it.
+    expect((adapter as unknown as { sendInput: { mock: { calls: string[][] } } }).sendInput.mock.calls).toHaveLength(1);
+    const body = (adapter as unknown as { sendInput: { mock: { calls: string[][] } } }).sendInput.mock.calls[0][0];
+    expect(body).toBe('PREAMBLE\n\nMODEL\n\nYOLO');
+    // Both rendered BEFORE anything was delivered.
+    expect(order.slice(0, 2)).toEqual(['render:MODEL', 'render:YOLO']);
+  });
+
+  it('renders the divergence line too, and sends nothing when there is no body', async () => {
     const emitSystemNotice = vi.fn();
+    const adapter = { sendInput: vi.fn() } as never;
 
-    await announceRuntimeChange({
-      instance,
-      adapter,
-      text: '[System: YOLO mode enabled]',
-      kind: 'yolo-mode-changed',
-      emitSystemNotice,
+    await announceRuntimeChangeSet({
+      instance, adapter, emitSystemNotice, notices: [], divergence: 'DIVERGED',
     });
 
-    // Both halves — this is the whole point of LT-015.
-    expect(adapter.sendInput).toHaveBeenCalledWith('[System: YOLO mode enabled]');
-    expect(emitSystemNotice).toHaveBeenCalledWith(
-      instance,
-      '[System: YOLO mode enabled]',
-      { kind: 'yolo-mode-changed' },
-    );
+    expect(emitSystemNotice).toHaveBeenCalledWith(instance, 'DIVERGED',
+      { kind: 'loop-provider-divergence' });
+    expect((adapter as unknown as { sendInput: { mock: { calls: unknown[] } } }).sendInput.mock.calls).toHaveLength(0);
   });
 
-  it('delivers before rendering, so a render failure cannot lose the delivery', async () => {
-    const adapter = makeAdapter();
-    const emitSystemNotice = vi.fn(() => {
-      throw new Error('renderer detached');
+  it('never throws when a render fails — the change is already applied', async () => {
+    const emitSystemNotice = vi.fn(() => { throw new Error('renderer detached'); });
+    const adapter = { sendInput: vi.fn(async () => {}) } as never;
+
+    await expect(announceRuntimeChangeSet({
+      instance, adapter, emitSystemNotice,
+      notices: [notice('MODEL', 'model-changed')], divergence: 'DIVERGED',
+    })).resolves.toBeUndefined();
+  });
+
+  it('never throws when delivery is refused — a notice must not revert a swap', async () => {
+    const emitSystemNotice = vi.fn();
+    const adapter = {
+      sendInput: vi.fn(async () => { throw new Error('runtime already has an active turn'); }),
+    } as never;
+
+    await expect(announceRuntimeChangeSet({
+      instance, adapter, emitSystemNotice, notices: [notice('MODEL', 'model-changed')],
+    })).resolves.toBeUndefined();
+    expect(emitSystemNotice).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not hang when the CLI never accepts the message', async () => {
+    vi.useFakeTimers();
+    const emitSystemNotice = vi.fn();
+    const adapter = { sendInput: vi.fn(() => new Promise<void>(() => {})) } as never;
+
+    const promise = announceRuntimeChangeSet({
+      instance, adapter, emitSystemNotice, notices: [notice('MODEL', 'model-changed')],
     });
-
-    await expect(
-      announceRuntimeChange({
-        instance,
-        adapter,
-        text: '[System: Model changed]',
-        kind: 'model-changed',
-        emitSystemNotice,
-      }),
-    ).resolves.toBeUndefined();
-
-    expect(adapter.sendInput).toHaveBeenCalledTimes(1);
-  });
-
-  it('propagates a delivery failure — that one is not recoverable', async () => {
-    const adapter = makeAdapter();
-    adapter.sendInput.mockRejectedValue(new Error('adapter gone'));
-
-    await expect(
-      announceRuntimeChange({
-        instance,
-        adapter,
-        text: '[System: Model changed]',
-        kind: 'model-changed',
-        emitSystemNotice: vi.fn(),
-      }),
-    ).rejects.toThrow('adapter gone');
+    expect(emitSystemNotice).toHaveBeenCalledTimes(1);   // rendered before awaiting
+    await vi.advanceTimersByTimeAsync(10_000);
+    await expect(promise).resolves.toBeUndefined();
+    vi.useRealTimers();
   });
 });

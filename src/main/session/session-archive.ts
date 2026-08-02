@@ -122,11 +122,12 @@ export class SessionArchiveManager {
     const archived: ArchivedSession = {
       meta,
       messages: instance.outputBuffer,
-      contextUsage: {
-        used: instance.contextUsage.used,
-        total: instance.contextUsage.total,
-        costEstimate: instance.contextUsage.costEstimate,
-      },
+      // LT-018: archive the whole object. The narrowed form dropped
+      // `occupancyReported`/`percentage`, so a restored archive could not tell a
+      // real measurement from the placeholder. Dormant today (the renderer does
+      // not read this back yet) but it is the same field-by-field rebuild that
+      // caused the live defect elsewhere.
+      contextUsage: { ...instance.contextUsage },
     };
 
     // Save to file

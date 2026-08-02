@@ -116,32 +116,125 @@ export function runtimeChangeNoticesFor(params: {
   return params.yoloModeChanged ? [primary, yolo] : [primary];
 }
 
+/** How long to wait for the CLI to accept a notice before giving up on it. */
+const NOTICE_DELIVERY_TIMEOUT_MS = 10_000;
+
 /**
- * Deliver a notice to the CLI **and** record it in the transcript.
+ * Send to the CLI, but never wait forever (LT-030).
  *
- * The transcript write is best-effort and deliberately runs *after* delivery:
- * the runtime change has already been applied to the live session by this point,
- * so failing to render a notice must never abort or reverse it. A failure is
- * logged rather than thrown.
+ * Every post-swap `adapter.sendInput` shares one hazard: on a loop-bearing
+ * session the loop reclaims the adapter for its next iteration the moment the
+ * swap lands, and the send never settles. Anything awaiting it becomes dead
+ * code — which is how a provider swap on a looping session silently produced no
+ * notices at all and left `applyRuntimeChange` unresolved.
+ *
+ * A genuine rejection still propagates; only slowness is absorbed.
  */
-export async function announceRuntimeChange(params: {
+export async function sendInputWithoutWedging(
+  adapter: Pick<CliAdapter, 'sendInput'>,
+  text: string,
+  context: { instanceId: string; what: string },
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      adapter.sendInput(text),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(() => {
+          logger.warn('CLI did not accept a post-change message in time; continuing', {
+            instanceId: context.instanceId,
+            what: context.what,
+            timeoutMs: NOTICE_DELIVERY_TIMEOUT_MS,
+          });
+          resolve();
+        }, NOTICE_DELIVERY_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/**
+ * Announce a completed runtime change: every applicable notice, then the
+ * loop-provider divergence line if this session now disagrees with a loop
+ * running on it (LT-020).
+ *
+ * Lives here rather than in the reconciler so the ordering rules above — render
+ * first, deliver bounded — apply to the whole sequence in one place.
+ */
+export async function announceRuntimeChangeSet(params: {
   instance: Instance;
   adapter: CliAdapter;
-  text: string;
-  kind: RuntimeChangeNoticeKind;
+  notices: RuntimeChangeNotice[];
   emitSystemNotice(
     instance: Instance,
     content: string,
     metadata?: Record<string, unknown>,
   ): void;
+  divergence?: string | null;
+  /**
+   * Extra control text to deliver in the SAME message as the notices — the
+   * replay-continuity preamble on a non-resuming change.
+   *
+   * It must ride along rather than be sent separately (LT-030). On Codex,
+   * `sendInput` starts a real model turn, so a second send lands on a runtime
+   * that "already has an active turn" and is refused — and the reconciler
+   * treated that as a failed change and reverted a swap it had already applied.
+   * This was the root cause: the colliding sends were the reconciler's OWN, not
+   * the loop's.
+   */
+  preamble?: string;
 }): Promise<void> {
-  await params.adapter.sendInput(params.text);
+  // Render first, always — this is the half the user sees, and it must not
+  // depend on a CLI that may be slow, busy, or gone.
+  for (const notice of params.notices) {
+    try {
+      params.emitSystemNotice(params.instance, notice.text, { kind: notice.kind });
+    } catch (error) {
+      logger.warn('Runtime-change notice could not be rendered', {
+        instanceId: params.instance.id,
+        kind: notice.kind,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  if (params.divergence) {
+    try {
+      params.emitSystemNotice(params.instance, params.divergence, {
+        kind: 'loop-provider-divergence',
+      });
+    } catch (error) {
+      // Same reasoning as the notices above: `emitSystemNotice` runs buffer,
+      // streaming and persistence work plus arbitrary `output` listeners, and a
+      // throw here would propagate into the reconciler's catch and revert a swap
+      // that has already been applied and persisted.
+      logger.warn('Loop-divergence notice could not be rendered', {
+        instanceId: params.instance.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  // Then ONE delivery for the whole set — see `preamble` for why it cannot be
+  // several.
+  const body = [params.preamble, ...params.notices.map((n) => n.text)]
+    .filter((part): part is string => Boolean(part && part.trim()))
+    .join('\n\n');
+  if (!body) return;
   try {
-    params.emitSystemNotice(params.instance, params.text, { kind: params.kind });
-  } catch (error) {
-    logger.warn('Runtime-change notice delivered but not rendered', {
+    await sendInputWithoutWedging(params.adapter, body, {
       instanceId: params.instance.id,
-      kind: params.kind,
+      what: 'runtime-change-announcement',
+    });
+  } catch (error) {
+    // Best-effort by construction. The runtime change is already applied AND
+    // its identity written through by the time we get here, so a refused send
+    // — e.g. a provider whose runtime "already has an active turn" — must not
+    // propagate and make the caller revert it. The user has the transcript
+    // entries either way; only the model's copy is missing.
+    logger.warn('Runtime-change announcement rendered but not delivered', {
+      instanceId: params.instance.id,
       error: error instanceof Error ? error.message : String(error),
     });
   }

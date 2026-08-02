@@ -116,6 +116,11 @@ const ProviderContextEventSchema = z.object({
   source: z.string().min(1).max(100).optional(),
   promptWeight: z.number().nonnegative().optional(),
   promptWeightBreakdown: ProviderPromptWeightBreakdownSchema.optional(),
+  // LT-018: must mirror `ProviderContextEvent`. A plain `z.object()` strips
+  // unrecognised keys, so omitting this silently dropped the flag from every
+  // persisted ledger row — which would recreate the defect (real measurements
+  // read back as unreported) the first time an export or replay trusted it.
+  occupancyReported: z.boolean().optional(),
 });
 
 const ProviderErrorEventSchema = z.object({

@@ -37,6 +37,11 @@ export interface ContextUsage {
   total: number;
   /** Percentage of context window used (0–100). */
   percentage: number;
+  /**
+   * True once a provider has actually reported occupancy (LT-018). Absent means
+   * the numbers are a seeded placeholder, so the UI shows no-data, not 0 %.
+   */
+  occupancyReported?: boolean;
   /** Lifetime token spend across all turns in this session. */
   cumulativeTokens?: number;
   /** Input tokens in the provider-reported API call, when known. */

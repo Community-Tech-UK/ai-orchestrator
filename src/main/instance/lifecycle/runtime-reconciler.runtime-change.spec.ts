@@ -253,6 +253,89 @@ describe('RuntimeReconciler.applyRuntimeChange — fork resume source (LT-008)',
   });
 });
 
+/**
+ * LT-018. A cross-provider swap forces `planContinuity` to 'replay', which mints
+ * a brand-new session id — so the previous provider's `used` belongs to a
+ * session that no longer exists, and its `occupancyReported` is a claim about a
+ * runtime being torn down. Spreading them across the swap produced a
+ * *confident* percentage computed from the old provider's token count against
+ * the new provider's window, broadcast in a visible `idle` state before the new
+ * runtime had run a turn. A swap to a smaller window could fake >=95%, which
+ * disables the composer.
+ */
+describe('RuntimeReconciler.applyRuntimeChange — occupancy across a swap (LT-018)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSessionMutex.acquire.mockResolvedValue(() => {});
+    mockContinuity.writeThroughIdentityLocked.mockResolvedValue(undefined);
+    mockContinuity.updateState.mockResolvedValue(undefined);
+  });
+
+  it('clears occupancy when the session identity is minted fresh', async () => {
+    const reported = makeInstance({
+      contextUsage: { used: 124_000, total: 200_000, percentage: 62, occupancyReported: true },
+    });
+    const { reconciler, instance } = makeHarness(reported, [makeAdapter()]);
+    (reconciler as unknown as { deps: RuntimeReconcilerDeps }).deps.getAdapterRuntimeCapabilities =
+      () => ({ supportsResume: false, supportsForkSession: false });
+
+    await reconciler.applyRuntimeChange('inst-1', yoloOnly(true));
+
+    expect(instance.contextUsage.used).toBe(0);
+    expect(instance.contextUsage.percentage).toBe(0);
+    expect(instance.contextUsage.occupancyReported).toBeUndefined();
+  });
+
+  it('keeps occupancy when the session genuinely resumes', async () => {
+    const reported = makeInstance({
+      contextUsage: { used: 124_000, total: 200_000, percentage: 62, occupancyReported: true },
+    });
+    const { reconciler, instance } = makeHarness(reported, [makeAdapter()]);
+
+    await reconciler.applyRuntimeChange('inst-1', yoloOnly(true));
+
+    expect(instance.contextUsage.used).toBe(124_000);
+    expect(instance.contextUsage.occupancyReported).toBe(true);
+  });
+
+  /**
+   * The occupancy decision is made BEFORE spawn, assuming the resume succeeds.
+   * When the health probe then fails and the method falls back to a brand-new
+   * session, that assumption is void — without recomputing, the instance keeps
+   * the dead runtime's `used` and flag, rescaled to the new window, for a
+   * session that has produced zero turns.
+   */
+  it('clears occupancy when a planned resume fails and falls back to a fresh session', async () => {
+    const reported = makeInstance({
+      contextUsage: { used: 124_000, total: 200_000, percentage: 62, occupancyReported: true },
+    });
+    const { reconciler, instance, deps } = makeHarness(reported, [makeAdapter(), makeAdapter(88)]);
+    deps.evaluateResumeHealth.mockResolvedValue('unrecoverable');
+
+    await reconciler.applyRuntimeChange('inst-1', yoloOnly(true));
+
+    expect(instance.contextUsage.used).toBe(0);
+    expect(instance.contextUsage.occupancyReported).toBeUndefined();
+  });
+
+  it('preserves accrued cost across a fresh-session swap', async () => {
+    const reported = makeInstance({
+      contextUsage: {
+        used: 124_000, total: 200_000, percentage: 62, occupancyReported: true, costEstimate: 3.5,
+      },
+    });
+    const { reconciler, instance } = makeHarness(reported, [makeAdapter()]);
+    (reconciler as unknown as { deps: RuntimeReconcilerDeps }).deps.getAdapterRuntimeCapabilities =
+      () => ({ supportsResume: false, supportsForkSession: false });
+
+    await reconciler.applyRuntimeChange('inst-1', yoloOnly(true));
+
+    // Spend already incurred does not become untrue because the runtime changed.
+    expect(instance.contextUsage.costEstimate).toBe(3.5);
+    expect(instance.contextUsage.occupancyReported).toBeUndefined();
+  });
+});
+
 describe('RuntimeReconciler.applyRuntimeChange — resume-health policy (LT-008)', () => {
   beforeEach(() => {
     vi.clearAllMocks();

@@ -110,7 +110,13 @@ export function serializeInstance(
     pendingApprovalCount: WAITING_STATUSES.has(instance.status) ? 1 : 0,
     hasUnreadCompletion: false,
     isLooping: options.isLooping === true,
-    contextPercentage: instance.contextUsage?.percentage,
+    // LT-018: the DTO documents this as "when known", and omitting it is how the
+    // phone client is told there is nothing to show. `contextUsage` is seeded at
+    // create, so sending it unconditionally shipped a confident `0` for every
+    // session that had not reported yet — the desktop defect, on mobile.
+    contextPercentage: instance.contextUsage?.occupancyReported
+      ? instance.contextUsage.percentage
+      : undefined,
   };
 }
 

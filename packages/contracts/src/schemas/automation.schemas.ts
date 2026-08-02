@@ -120,9 +120,27 @@ export const AutomationDestinationSchema = z.discriminatedUnion('kind', [
   }),
 ]);
 
+/**
+ * Automation descriptions are operational notes, not labels — the real ones in
+ * use run to well over a thousand characters ("PAUSED 2026-08-01 because …,
+ * original description: …"). The previous 1000 cap was below real usage AND
+ * disagreed with the write path: the MCP tools cap `description` at **2000**
+ * (`orchestrator-automation-tools.ts`) and do NOT validate against
+ * `AutomationCreatePayloadSchema` the way the IPC path does. So a 1001–2000
+ * char description saved successfully and then failed THIS schema on the
+ * `automation:changed` renderer event, which `validateRendererEventPayload`
+ * drops — the automation changed on disk while the Automations UI silently kept
+ * showing the old one. Observed live on 2026-08-01.
+ *
+ * Raised rather than truncated: clipping the write would destroy the note.
+ * Bounded, not unbounded — this still rejects a runaway payload, and 8000 sits
+ * clear of the 2000 write cap so the two cannot disagree again.
+ */
+const AUTOMATION_DESCRIPTION_MAX = 8_000;
+
 export const AutomationCreatePayloadSchema = z.object({
   name: z.string().min(1).max(200),
-  description: z.string().max(1000).optional(),
+  description: z.string().max(AUTOMATION_DESCRIPTION_MAX).optional(),
   enabled: z.boolean().optional(),
   schedule: AutomationScheduleSchema,
   trigger: AutomationConfiguredTriggerSchema.optional(),
@@ -136,7 +154,7 @@ export const AutomationUpdatePayloadSchema = z.object({
   id: AutomationIdSchema,
   updates: z.object({
     name: z.string().min(1).max(200).optional(),
-    description: z.string().max(1000).optional(),
+    description: z.string().max(AUTOMATION_DESCRIPTION_MAX).optional(),
     enabled: z.boolean().optional(),
     schedule: AutomationScheduleSchema.optional(),
     trigger: AutomationConfiguredTriggerSchema.optional(),
@@ -191,7 +209,7 @@ export const AutomationPreflightPayloadSchema = z.object({
 export const AutomationSchema = z.object({
   id: AutomationIdSchema,
   name: z.string().min(1).max(200),
-  description: z.string().max(1000).optional(),
+  description: z.string().max(AUTOMATION_DESCRIPTION_MAX).optional(),
   enabled: z.boolean(),
   active: z.boolean(),
   workspaceId: z.string().min(1).max(1000),

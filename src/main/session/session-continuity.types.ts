@@ -57,6 +57,19 @@ export interface SessionState {
     used: number;
     total: number;
     costEstimate?: number;
+    /**
+     * LT-018: whether these numbers are a real measurement rather than the
+     * create-time placeholder. Persisted so a hibernate/wake round trip does not
+     * regress a reporting provider's context ring to "no data".
+     *
+     * Absent on records written before this field existed. Those are NOT simply
+     * treated as unreported — `restoreContextUsage()`
+     * (`src/main/instance/lifecycle/context-usage-restore.ts`) additionally
+     * infers a real measurement from a non-zero `used`, because every path that
+     * writes a placeholder or a reset writes `used: 0`. See that file for the
+     * full argument; do not re-derive the rule here.
+     */
+    occupancyReported?: boolean;
   };
   pendingTasks: PendingTask[];
   environmentVariables: Record<string, string>;

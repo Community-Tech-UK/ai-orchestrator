@@ -54,8 +54,23 @@ function overrideInputs(
   if ('currentModel' in overrides) w['currentModel'] = () => overrides.currentModel;
 }
 
+/**
+ * A usage the provider actually reported. `occupancyReported` is what separates
+ * a measurement from the placeholder every instance is seeded with (LT-018) —
+ * these tests are all about real numbers, so it belongs here.
+ */
 function makeUsage(used: number, total: number): ContextUsage {
-  return { used, total, percentage: total > 0 ? (used / total) * 100 : 0 };
+  return {
+    used,
+    total,
+    percentage: total > 0 ? (used / total) * 100 : 0,
+    occupancyReported: true,
+  };
+}
+
+/** The seeded placeholder: numbers present, but nothing has reported yet. */
+function makeUnreportedUsage(total = 200_000): ContextUsage {
+  return { used: 0, total, percentage: 0 };
 }
 
 describe('ComposerToolbarComponent', () => {
@@ -113,6 +128,47 @@ describe('ComposerToolbarComponent', () => {
 
   it('returns 0 for ringPct when total is 0', () => {
     overrideInputs(component, { contextUsage: makeUsage(0, 0) });
+    expect(component.ringPct()).toBe(0);
+  });
+
+  // ── 3b. Unreported occupancy is unknown, not zero (LT-018) ───────────────
+
+  /**
+   * Copilot (ACP) reports no usage at all, so its bar sat at a confident 0 %
+   * for the whole session — indistinguishable from an empty context. The
+   * numbers are seeded, so the only way to tell is this flag.
+   */
+  it('shows no-data rather than 0% when the provider has not reported occupancy', () => {
+    overrideInputs(component, { contextUsage: makeUnreportedUsage() });
+    expect(component.ringPct()).toBe(0);
+    expect(component.ringTitle()).toBe('Context window: no data');
+  });
+
+  it('shows a real percentage once the provider reports', () => {
+    overrideInputs(component, { contextUsage: makeUsage(50_000, 200_000) });
+    expect(component.ringTitle()).toContain('25% used');
+    expect(component.ringTitle()).not.toContain('no data');
+  });
+
+  /**
+   * The tooltip alone does not fix LT-018. The ring's *visible* label is the one
+   * number the user actually reads, and it renders off `ringPct()`, which
+   * returns 0 for an unknown occupancy — indistinguishable from a genuine 0 %.
+   * `occupancyKnown()` is what the template must gate that label on.
+   */
+  it('does not claim a numeric percentage on the visible ring label when occupancy is unknown', () => {
+    overrideInputs(component, { contextUsage: makeUnreportedUsage() });
+    expect(component.occupancyKnown()).toBe(false);
+  });
+
+  it('does claim the visible percentage once the provider has reported', () => {
+    overrideInputs(component, { contextUsage: makeUsage(50_000, 200_000) });
+    expect(component.occupancyKnown()).toBe(true);
+  });
+
+  it('treats a zero-width context window as unknown, not as 0%', () => {
+    overrideInputs(component, { contextUsage: makeUsage(0, 0) });
+    expect(component.occupancyKnown()).toBe(false);
     expect(component.ringPct()).toBe(0);
   });
 
@@ -456,5 +512,49 @@ describe('shouldHydrateComposerPickerSelection', () => {
         cursorUnknown,
       ),
     ).toBe(false);
+  });
+});
+
+/**
+ * LT-018 — asserted against the **rendered DOM**, deliberately.
+ *
+ * The computed-only tests above are not sufficient on their own: a completion
+ * review proved they still pass if the template is reverted to an
+ * unconditional `{{ ringPct() | number:'1.0-0' }}%`. `ringPct()` returns 0 for
+ * an unknown occupancy, so the one number the user actually reads would show a
+ * confident "0%" while every assertion stayed green. The label markup is the
+ * thing under test here, so it has to be rendered.
+ */
+describe('ComposerToolbarComponent context ring label (rendered)', () => {
+  async function renderWith(contextUsage: ContextUsage): Promise<string> {
+    await TestBed.configureTestingModule({
+      imports: [ComposerToolbarComponent],
+      providers: [
+        { provide: InstanceIpcService, useValue: ipcStub },
+        { provide: ToastService, useValue: toastStub },
+      ],
+    }).compileComponents();
+
+    const fixture = TestBed.createComponent(ComposerToolbarComponent);
+    fixture.componentRef.setInput('instanceId', 'inst-dom');
+    fixture.componentRef.setInput('provider', 'claude');
+    fixture.componentRef.setInput('currentModel', 'claude-opus-4-5');
+    fixture.componentRef.setInput('contextUsage', contextUsage);
+    fixture.detectChanges();
+
+    const label = fixture.nativeElement.querySelector('.ctx-ring__label') as HTMLElement | null;
+    return label?.textContent?.trim() ?? '';
+  }
+
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('renders an en dash, not "0%", when the provider has not reported occupancy', async () => {
+    expect(await renderWith(makeUnreportedUsage())).toBe('–');
+  });
+
+  it('renders the real percentage once the provider reports', async () => {
+    expect(await renderWith(makeUsage(50_000, 200_000))).toBe('25%');
   });
 });

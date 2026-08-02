@@ -125,6 +125,21 @@ export interface ContextUsage {
   total: number;
   /** Percentage of context window used (0–100). */
   percentage: number;
+  /**
+   * True once a provider has actually reported occupancy for this session
+   * (LT-018).
+   *
+   * Every instance is seeded with `used: 0` so the numeric fields stay required
+   * and the ~15 call sites that do arithmetic on them keep working. But a fresh
+   * session and a session whose provider never reports occupancy are then
+   * indistinguishable — both read a confident `0 %`. Copilot (ACP) reports no
+   * usage at all, so its bar sat at 0 % forever and looked like an empty
+   * context rather than an unknown one.
+   *
+   * Absent/false means "these numbers are a placeholder, not a measurement" —
+   * the UI shows no-data rather than zero.
+   */
+  occupancyReported?: boolean;
   /** Lifetime token spend across all turns in this session. */
   cumulativeTokens?: number;
   /** Input tokens in the provider-reported API call, when known. */

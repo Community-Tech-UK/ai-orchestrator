@@ -3,6 +3,7 @@ import {
   InstanceChangeModelPayloadSchema,
   InstanceCreatePayloadSchema,
   InstanceCreateWithMessagePayloadSchema,
+  InstanceCompactStatusEventSchema,
 } from '../instance.schemas';
 
 describe('instance.schemas', () => {
@@ -331,5 +332,46 @@ describe('instance.schemas', () => {
         modelId: 'qwen2.5',
       },
     }).success).toBe(false);
+  });
+});
+
+/**
+ * LT-018. `ContextUsageEventSchema` is `.strict()`, so an unknown key does not
+ * get stripped — `safeParse` fails and `validateRendererEventPayload` drops the
+ * whole event before `webContents.send`. `previousUsage`/`newUsage` are fed the
+ * live `ContextUsage`, which carries `occupancyReported` whenever a provider
+ * reports real occupancy — the ordinary case for a compaction, since compaction
+ * is triggered *because* a real threshold was crossed. Omitting the field from
+ * this schema therefore blocked `instance:compact-status` `completed` almost
+ * every time, leaving the renderer permanently showing "compacting".
+ */
+describe('InstanceCompactStatusEventSchema contextUsage (LT-018)', () => {
+  const usage = { used: 190_000, total: 200_000, percentage: 95, occupancyReported: true };
+
+  it('accepts a completed event whose usage carries occupancyReported', () => {
+    const parsed = InstanceCompactStatusEventSchema.safeParse({
+      instanceId: 'inst-1',
+      status: 'completed',
+      success: true,
+      method: 'native',
+      blocking: false,
+      previousUsage: usage,
+      newUsage: { ...usage, used: 0, percentage: 0 },
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+
+  it('still rejects a genuinely unknown key, so strictness is not weakened', () => {
+    const parsed = InstanceCompactStatusEventSchema.safeParse({
+      instanceId: 'inst-1',
+      status: 'completed',
+      success: true,
+      method: 'native',
+      blocking: false,
+      previousUsage: { ...usage, bogusField: 1 },
+    });
+
+    expect(parsed.success).toBe(false);
   });
 });

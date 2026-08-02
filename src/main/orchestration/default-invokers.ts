@@ -7,7 +7,8 @@
  */
 
 import type { InstanceManager } from '../instance/instance-manager';
-import { beginAdapterLoan, endAdapterLoan } from '../instance/lifecycle/adapter-loan-registry';
+import { endAdapterLoan } from '../instance/lifecycle/adapter-loan-registry';
+import { decideAdapterBorrow } from './loop-adapter-borrow';
 import type { DegradedReason } from '../cli/adapters/degraded-output-classifier';
 import { getLogger } from '../logging/logger';
 import { getMultiVerifyCoordinator } from './multi-verify-coordinator';
@@ -694,8 +695,6 @@ import {
   branchSelectErr,
   runVerifyInDir,
   commitWorktreeChanges,
-  canBorrowParentLoopAdapter,
-  liveAdapterMatchesRequestedModel,
   scoreCandidatesListwise,
 } from './loop-branch-selector-helpers';
 import * as pathLoop from 'path';
@@ -1213,46 +1212,26 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       ? undefined
       : p.config?.maxTurnsPerIteration ?? LOOP_DEFAULT_MAX_TURNS_PER_ITERATION;
 
-    // Adapter selection priority for this iteration:
-    //   1. The parent instance's existing adapter, only for providers whose
-    //      session model is safe to borrow. This preserves Claude's "continue
-    //      this chat" behavior while avoiding Codex inheriting a stale external
-    //      rollout/thread id from the visible chat.
-    //   2. A `same-session` persistent loop adapter — pre-fix legacy path for
-    //      loops with no parent instance (chat-detail loops where the chat has
-    //      no live runtime; pure-workspace loops). Owned by this listener.
-    //   3. Fresh per-iteration adapter (the explicit fresh-child path inside
-    //      invokeCliTextResponse).
-    let reusedAdapter: unknown | undefined;
-    let borrowedFromInstance = false;
     const contextStrategy = p.config?.contextStrategy ?? 'same-session';
     const sameSession = contextStrategy === 'same-session';
 
-    // Defensive `?.` access — tests pass a stub `instanceManager` without
-    // these methods. Production InstanceManager always has them.
-    const liveInstance = instanceManager.getInstance?.(p.chatId);
-    const liveAdapter = liveInstance ? instanceManager.getAdapter?.(p.chatId) : undefined;
-    // Borrow same-session loops into the chat's live adapter; skip worktree isolation.
-    if (
-      sameSession &&
-      !(p.executionCwd && p.executionCwd !== p.workspaceCwd) &&
-      liveAdapter &&
-      canBorrowParentLoopAdapter(p.provider, liveInstance?.provider) &&
-      liveAdapterMatchesRequestedModel(liveInstance?.currentModel, p.model) &&
-      isBaseCliAdapterLike(liveAdapter)
-    ) {
-      reusedAdapter = liveAdapter;
-      borrowedFromInstance = true;
-    }
-
-    // LT-020: claim the loan the moment the borrow is decided, not just before
-    // the CLI call. Between here and there sits `recyclePersistentLoopAdapter`,
-    // and a swap applying in that window respawns the instance and leaves
-    // `reusedAdapter` pointing at a terminated adapter. Everything from here to
-    // the invocation's `finally` is covered — see the wrapping try below.
-    const adapterLoan = borrowedFromInstance
-      ? beginAdapterLoan(p.chatId, p.loopRunId)
-      : undefined;
+    // Priority 1 of the adapter-selection ladder (see loop-adapter-borrow.ts):
+    // borrow the parent instance's live adapter, and take the LT-020 loan on
+    // the same tick. Priorities 2 (persistent loop adapter) and 3 (fresh child)
+    // are handled below and inside invokeCliTextResponse respectively.
+    const borrow = await decideAdapterBorrow(instanceManager, {
+      chatId: p.chatId,
+      loopRunId: p.loopRunId,
+      provider: p.provider,
+      model: p.model,
+      workspaceCwd: p.workspaceCwd,
+      executionCwd: p.executionCwd,
+      contextStrategy,
+    });
+    const { borrowedFromInstance, adapterLoan, liveInstance } = borrow;
+    // Reassigned below by the persistent-adapter and context-reset paths.
+    let reusedAdapter = borrow.reusedAdapter;
+    // Everything from here to the invocation's `finally` is covered by the loan.
     try {
 
     // LF-4 RPI: a PLAN→IMPLEMENT context reset recycles the persistent adapter

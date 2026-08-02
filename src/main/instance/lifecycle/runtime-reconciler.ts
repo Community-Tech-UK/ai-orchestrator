@@ -40,7 +40,8 @@ import {
   buildToolPermissionConfig,
 } from './tool-permission-config';
 import { getKnownModelsForCli } from './create-validation-helpers';
-import { resolveAvailableModelSelection } from './model-selection-degradation';
+import { resolveRuntimeChangeModel } from './model-selection-degradation';
+import { resolveSwapContextUsage } from './context-usage-restore';
 import { resolveExecutionLocation } from './execution-location-resolver';
 import { buildLocalModelRuntimeSummary } from './instance-create-builder';
 import {
@@ -51,8 +52,8 @@ import {
   type SwapTargetProvider,
 } from './model-change-provider-swap';
 import { computeRuntimeDiff, planContinuity } from './runtime-reconciler-plan';
-import { assertAdapterNotOnLoan } from './adapter-loan-registry';
-import { announceRuntimeChange, runtimeChangeNoticesFor } from './runtime-change-notices';
+import { assertAdapterNotOnLoan, beginRuntimeChange, type RuntimeChangeClaim } from './adapter-loan-registry';
+import { announceRuntimeChangeSet, runtimeChangeNoticesFor } from './runtime-change-notices';
 import type { UnifiedSpawnOptions } from '../../cli/adapters/adapter-factory';
 import type { DesiredRuntime, Instance } from '../../../shared/types/instance.types';
 import type {
@@ -81,15 +82,19 @@ export class RuntimeReconciler {
     }
 
     const release = await getSessionMutex().acquire(instanceId, 'runtime-change');
+    let runtimeChangeClaim: RuntimeChangeClaim | undefined;
+    /** Set when the resume ladder fell back; delivered with the notices (LT-030). */
+    let fallbackPreamble: string | undefined;
     try {
       const unavailableReason = getModelSwitchUnavailableReason(instance.status);
       if (unavailableReason) {
         throw new Error(unavailableReason);
       }
 
-      // LT-020: the choke point for every *change-driven* respawn (the queue,
-      // chat `setYoloMode`, mobile `changeModel`, loop failover).
+      // LT-020 choke point for every change-driven respawn; LT-030 reciprocal
+      // claim, held through the post-change messaging.
       assertAdapterNotOnLoan(instanceId, Boolean(this.deps.getAdapter(instanceId)));
+      runtimeChangeClaim = beginRuntimeChange(instanceId);
 
       const oldModel = instance.currentModel || 'default';
       const oldCurrentModel = instance.currentModel;
@@ -124,9 +129,8 @@ export class RuntimeReconciler {
       }
 
       let newModel = desired.model;
-      // LT-016: a model taken from the *global* default was never chosen by the
-      // user for this provider, so its rejection must not be reported as a
-      // degraded selection. Tracked here and consulted at validation below.
+      // LT-016: a model from the *global* default was never chosen for this
+      // provider, so its rejection must not be reported as a degraded selection.
       let swapModelSource: SwapModelSource | undefined;
       if (isProviderSwap) {
         await assertSwapTargetCliAvailable(instance, targetProvider, settingsAll.defaultCli);
@@ -231,30 +235,24 @@ export class RuntimeReconciler {
       const modelToValidate = validatedModel;
       if (!localModelTarget && modelToValidate !== undefined) {
         const knownModelIds = await getKnownModelsForCli(cliType);
-        const selection = resolveAvailableModelSelection({
+        const selection = resolveRuntimeChangeModel({
           provider: cliType,
           requestedModel: modelToValidate,
           knownModelIds,
           fallbackModel: getDefaultModelForCli(cliType),
-          allowDynamicCodexModel:
-            cliType === 'codex' && looksLikeCodexModelId(modelToValidate),
+          allowDynamicCodexModel: cliType === 'codex' && looksLikeCodexModelId(modelToValidate),
+          modelSource: swapModelSource,
         });
         if (selection.degradation) {
-          // The global default is one id shared by every provider, so it is
-          // routinely unknown to a swap target. That is not a degraded *user*
-          // selection — nothing the user picked failed — so it is logged but
-          // never surfaced as a transcript notice (LT-016). An explicitly
-          // requested model, or a stale remembered per-provider one, still is.
-          const fromGlobalDefault = swapModelSource === 'global-default';
           logger.warn('Model not valid for target provider during runtime change, using provider default', {
             model: selection.degradation.requestedModel,
             provider: cliType,
             validModelCount: knownModelIds.length,
             fallbackModel: selection.degradation.fallbackModel ?? 'provider-default',
             source: swapModelSource ?? 'requested',
-            userVisible: !fromGlobalDefault,
+            userVisible: selection.userVisible,
           });
-          if (!fromGlobalDefault) {
+          if (selection.userVisible) {
             this.deps.emitModelSelectionDegradation(instance, selection.degradation);
           }
         }
@@ -283,13 +281,12 @@ export class RuntimeReconciler {
         instance.runtimeSummary = undefined;
       }
       const contextTotal = getProviderModelContextWindow(cliType, validatedModel);
-      instance.contextUsage = {
-        ...instance.contextUsage,
-        total: contextTotal,
-        percentage: contextTotal > 0
-          ? Math.min((instance.contextUsage.used / contextTotal) * 100, 100)
-          : 0
-      };
+      // LT-018: see resolveSwapContextUsage.
+      instance.contextUsage = resolveSwapContextUsage(
+        instance.contextUsage,
+        contextTotal,
+        shouldResume,
+      );
 
       const spawnConfigBuilder = this.deps.spawnConfigBuilder;
       const spawnOptions: UnifiedSpawnOptions = {
@@ -348,6 +345,8 @@ export class RuntimeReconciler {
 
             const fallbackOptions = { ...spawnOptions, resume: false, forkSession: false, sessionId: generateId() };
             instance.sessionId = fallbackOptions.sessionId;
+            // LT-018: resume failed, identity is fresh — recompute occupancy.
+            instance.contextUsage = resolveSwapContextUsage(instance.contextUsage, contextTotal, false);
             adapter = this.deps.createRuntimeAdapter(cliType, fallbackOptions, instance.executionLocation);
             this.deps.setupAdapterEvents(instanceId, adapter);
             this.deps.setAdapter(instanceId, adapter);
@@ -365,7 +364,9 @@ export class RuntimeReconciler {
 
             if (hasConversation) {
               this.deps.prepareStatusForAdapterInput(instance);
-              await adapter.sendInput(await this.deps.buildFallbackHistory(instance, 'resume-failed-fallback'));
+              // LT-030: carried as the preamble so it ships in the SAME
+              // delivery as the notices — a separate send starts a turn they hit.
+              fallbackPreamble = await this.deps.buildFallbackHistory(instance, 'resume-failed-fallback');
             }
           } else {
             throw spawnError;
@@ -409,34 +410,35 @@ export class RuntimeReconciler {
           }
         }
 
-        if (!shouldResume && hasConversation) {
-          await adapter.sendInput(
-            this.deps.buildReplayContinuityMessage(
-              instance,
-              isYoloOnlyChange ? 'yolo-toggle' : isProviderSwap ? 'provider-change' : 'model-change',
-            ),
-          );
-        }
+        // LT-030: the preamble rides WITH the notices in one delivery.
+        const why = isYoloOnlyChange ? 'yolo-toggle' : isProviderSwap ? 'provider-change' : 'model-change';
+        const preamble = fallbackPreamble ?? (!shouldResume && hasConversation
+          ? this.deps.buildReplayContinuityMessage(instance, why) : undefined);
 
-        // LT-015: notices are control messages for the model, but the user needs
-        // to see that the runtime changed under their session too — so each is
-        // delivered to the CLI *and* recorded as a transcript entry.
-        const emitSystemNotice = this.deps.emitSystemNotice.bind(this.deps);
-        const notices = runtimeChangeNoticesFor({
-          isYoloOnlyChange,
-          isProviderSwap,
-          yoloModeChanged: diff.yoloModeChanged,
-          nextYoloMode,
-          oldProvider,
-          newProvider: instance.provider,
-          oldModel,
-          newModel: validatedModel,
-          oldReasoningEffort,
-          newReasoningEffort: nextReasoningEffort,
+        // LT-015/LT-020: control messages for the model, and the user must see
+        // the runtime changed too. LT-030: the change is already applied and
+        // written through here, so this never throws (see the set function).
+        await announceRuntimeChangeSet({
+          instance,
+          adapter,
+          emitSystemNotice: this.deps.emitSystemNotice.bind(this.deps),
+          notices: runtimeChangeNoticesFor({
+            isYoloOnlyChange,
+            isProviderSwap,
+            yoloModeChanged: diff.yoloModeChanged,
+            nextYoloMode,
+            oldProvider,
+            newProvider: instance.provider,
+            oldModel,
+            newModel: validatedModel,
+            oldReasoningEffort,
+            newReasoningEffort: nextReasoningEffort,
+          }),
+          divergence: isProviderSwap
+            ? this.deps.describeLoopProviderDivergence?.(instanceId, instance.provider)
+            : null,
+          preamble,
         });
-        for (const notice of notices) {
-          await announceRuntimeChange({ instance, adapter, emitSystemNotice, ...notice });
-        }
       } catch (error) {
         if (isProviderSwap) {
           // Leave the instance pointed at its previous provider so a manual
@@ -486,6 +488,8 @@ export class RuntimeReconciler {
 
       return instance;
     } finally {
+      // LT-030: claim first, so a waiting loop wakes into a settled instance.
+      runtimeChangeClaim?.release();
       release();
     }
   }
@@ -636,6 +640,10 @@ export class RuntimeReconciler {
       actuallyResumed = false;
       instance.processId = pid;
       instance.providerSessionId = fallbackSessionId;
+      // LT-018: fresh session after a dead resume — pre-crash occupancy is not
+      // this runtime's. Sibling restart flows already reset the same way.
+      const ctx = instance.contextUsage;
+      instance.contextUsage = resolveSwapContextUsage(ctx, ctx.total, false);
       // C1/B4: Persist the fresh session ID before reporting respawn complete
       // so a crash cannot replay the old doomed session/cursor.
       try {

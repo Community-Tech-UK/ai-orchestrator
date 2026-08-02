@@ -103,19 +103,38 @@ export class InstanceQueries {
     return grouped;
   });
 
-  /** Total context usage across all instances */
+  /**
+   * Total context usage across all instances.
+   *
+   * LT-018: only instances whose provider has actually **reported** occupancy
+   * contribute to `used`/`total`. Every instance is seeded with a placeholder
+   * `{used: 0, total: 200000}` at create, so summing unconditionally made
+   * `total > 0` true immediately and rendered a confident "0% ctx" in the
+   * always-visible sidebar for a fleet that had simply not reported yet —
+   * the same defect as the composer ring, at fleet scope.
+   *
+   * `occupancyReported` on the aggregate means "at least one instance
+   * contributed a real measurement", which is what a consumer needs to decide
+   * whether the percentage is worth showing at all.
+   */
   readonly totalContextUsage = computed(() => {
     let used = 0;
     let total = 0;
     let costEstimate = 0;
+    let reporting = 0;
     for (const instance of this.instances()) {
+      // Cost is independent of occupancy reporting — a provider can bill
+      // without telling us how full the window is.
+      costEstimate += instance.contextUsage.costEstimate || 0;
+      if (!instance.contextUsage.occupancyReported) continue;
+      reporting += 1;
       used += instance.contextUsage.used;
       total += instance.contextUsage.total;
-      costEstimate += instance.contextUsage.costEstimate || 0;
     }
     return {
       used,
       total,
+      occupancyReported: reporting > 0,
       // Cap at 100% - used can exceed total in long sessions due to context truncation
       percentage: total > 0 ? Math.min((used / total) * 100, 100) : 0,
       costEstimate: costEstimate > 0 ? costEstimate : undefined,

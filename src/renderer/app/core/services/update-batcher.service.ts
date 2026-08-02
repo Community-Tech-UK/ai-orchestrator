@@ -6,18 +6,17 @@ import { Injectable } from '@angular/core';
 import type { ExecutionLocation } from '../../../../shared/types/worker-node.types';
 import type { ActivityState } from '../../../../shared/types/activity.types';
 import type { ReasoningEffort } from '../../../../shared/types/provider.types';
-import type { InstanceWaitReason, DesiredRuntime } from '../../../../shared/types/instance.types';
+import type { InstanceWaitReason, DesiredRuntime, ContextUsage } from '../../../../shared/types/instance.types';
 import type { InstanceRuntimeSummary } from '../../../../shared/types/local-model-runtime.types';
 
 export interface StateUpdate {
   instanceId: string;
   status?: string;
   activityState?: ActivityState;
-  contextUsage?: {
-    used: number;
-    total: number;
-    percentage: number;
-  };
+  // LT-018: the full ContextUsage, not a hand-rolled subset. A narrowed local
+  // shape here would let a future field-by-field rebuild silently drop
+  // `occupancyReported` with no compiler error, blanking the context ring.
+  contextUsage?: ContextUsage;
   diffStats?: {
     totalAdded: number;
     totalDeleted: number;

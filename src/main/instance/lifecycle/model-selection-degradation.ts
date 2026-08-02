@@ -87,3 +87,39 @@ export function createModelSelectionDegradationNotice(
     },
   };
 }
+
+/**
+ * Validate a runtime-change model against the target provider's catalog and
+ * decide whether the user should hear about a degradation (LT-016).
+ *
+ * Extracted from `RuntimeReconciler.applyRuntimeChange` so the "is this
+ * rejection the user's problem?" rule lives next to the notice it suppresses,
+ * and is unit-testable without the reconciler.
+ *
+ * The rule: the global `defaultModel` is one id shared by every provider, so a
+ * swap target routinely rejects it. Nothing the user picked failed, so it is
+ * logged but not surfaced. An explicitly requested model — or a stale remembered
+ * per-provider one — still is.
+ */
+export function resolveRuntimeChangeModel(params: {
+  provider: string;
+  requestedModel: string;
+  knownModelIds: readonly string[];
+  fallbackModel?: string;
+  allowDynamicCodexModel?: boolean;
+  modelSource?: string;
+}): { model?: string; degradation?: ModelSelectionDegradation; userVisible: boolean } {
+  const selection = resolveAvailableModelSelection({
+    provider: params.provider,
+    requestedModel: params.requestedModel,
+    knownModelIds: params.knownModelIds,
+    fallbackModel: params.fallbackModel,
+    allowDynamicCodexModel: params.allowDynamicCodexModel,
+  });
+  const userVisible = Boolean(selection.degradation) && params.modelSource !== 'global-default';
+  return {
+    model: selection.model,
+    ...(selection.degradation ? { degradation: selection.degradation } : {}),
+    userVisible,
+  };
+}

@@ -152,6 +152,20 @@ export interface RuntimeReconcilerDeps {
     content: string,
     metadata?: Record<string, unknown>,
   ): void;
+  /**
+   * LT-020: describe a provider divergence a swap has just created, or `null`.
+   *
+   * A `same-session` loop runs on this instance's adapter but keeps its OWN
+   * configured provider. Swapping the session therefore leaves the badge saying
+   * one thing while the loop keeps spending on another — which is the actual
+   * defect: not that they differ, but that nothing said so. Optional because
+   * loop knowledge lives in `src/main/orchestration` and the reconciler must
+   * not depend on it statically.
+   */
+  describeLoopProviderDivergence?(
+    instanceId: string,
+    newProvider: string,
+  ): string | null;
   emitRuntimeChanged(payload: {
     instanceId: string;
     model?: string;

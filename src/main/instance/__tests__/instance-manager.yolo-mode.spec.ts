@@ -1151,9 +1151,16 @@ describe('InstanceManager', () => {
         expect.anything(),
       );
       // Combined change announces the model change AND the yolo change.
-      const sent = mockAdapterSendInput.mock.calls.map((call) => call[0]);
-      expect(sent.some((msg: string) => msg.includes('Model changed'))).toBe(true);
-      expect(sent).toContain(YOLO_ON_NOTICE);
+      // LT-030: both now ride in ONE delivery — a second send would land on a
+      // runtime that already has an active turn from the first and be refused.
+      // The contract is that both texts reach the CLI, not that there are two
+      // sends; the user-visible half is two separate transcript entries.
+      // Both must appear in the SAME call — a second send would land on a
+      // runtime that already has an active turn from the first (LT-030).
+      const sent = mockAdapterSendInput.mock.calls.map((call) => String(call[0]));
+      const combined = sent.find((msg) => msg.includes('Model changed'));
+      expect(combined).toBeDefined();
+      expect(combined).toContain(YOLO_ON_NOTICE);
     });
   });
 

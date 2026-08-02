@@ -102,10 +102,19 @@ describe('BaseCliAdapter hardened spawn wrap', () => {
       const args = spawnMock.mock.calls[0][1] as string[];
       // The real CLI rides after the `--` separator, untouched.
       expect(args.slice(args.indexOf('--') + 1)).toEqual(['fake-cli', '--print']);
-      // Writable roots ride -D params, never the policy text.
-      expect(args).toContain(`WRITABLE_ROOT_0=${tmpdir()}`);
+      // Writable roots ride -D params, never the policy text — and they are
+      // realpath'd (LT-027): on macOS `os.tmpdir()` is a symlink, and Seatbelt
+      // matches `subpath` against the real path, so granting the unresolved
+      // path granted nothing at all.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const realTmp = (require('node:fs') as typeof import('node:fs')).realpathSync(tmpdir());
+      expect(args).toContain(`WRITABLE_ROOT_0=${realTmp}`);
       const policy = args[args.indexOf('-p') + 1];
       expect(policy).toContain('(deny default)');
+      // Assert BOTH forms: the realpath contains the unresolved path as a
+      // substring, so checking only the resolved one would stop catching
+      // interpolation of the unresolved form.
+      expect(policy).not.toContain(realTmp);
       expect(policy).not.toContain(tmpdir());
     },
   );

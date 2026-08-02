@@ -76,6 +76,11 @@ function buildPostCompactionUsage(previousUsage: ContextUsage): ContextUsage {
     ...(previousUsage.costEstimate !== undefined
       ? { costEstimate: previousUsage.costEstimate }
       : {}),
+    // LT-018: a post-compaction `used: 0` is a real measurement — the context
+    // genuinely was reset — so occupancy stays *reported* if it was before.
+    // Dropping the flag here would blank the ring to "no data" after every
+    // compaction on providers that do report occupancy.
+    ...(previousUsage.occupancyReported ? { occupancyReported: true } : {}),
     source: 'post-compaction-reset',
     isEstimated: true,
   };

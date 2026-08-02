@@ -260,6 +260,24 @@ describe('createAutomationToolImplementations', () => {
       expect(result).toMatchObject({ name: 'PR sweep', workingDirectory: '/repo' });
     });
 
+    /**
+     * LT-031 class-closure. The MCP path writes without validating, unlike the
+     * IPC path — so a value that is legal as a tool argument but illegal in the
+     * entity/event schema used to save fine and then have its
+     * `automation:changed` event dropped, leaving the UI silently stale.
+     * It must now fail loudly at the write instead.
+     */
+    it('refuses a write the app could not broadcast, rather than going stale silently', async () => {
+      await expect(
+        impls.createAutomation(
+          { name: 'x'.repeat(400), prompt: 'do', cron: '0 9 * * *' },
+          { callerInstanceId: 'chat-1' },
+        ),
+      ).rejects.toThrow(/UI would silently go stale/);
+
+      expect(createWithScheduling).not.toHaveBeenCalled();
+    });
+
     it('rejects when no working directory can be resolved', async () => {
       const noCwd = makeImpls({ resolveWorkingDirectory: () => undefined });
 

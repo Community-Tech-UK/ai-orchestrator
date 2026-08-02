@@ -178,6 +178,14 @@ export interface ProviderContextEvent {
   outputTokens?: number;
   /** Source of the context accounting, for example provider-usage or estimate. */
   source?: string;
+  /**
+   * LT-018: whether these numbers are a real measurement rather than a
+   * placeholder or a "no reading yet" signal. This event is a second, parallel
+   * transport for the same figures the instance's `contextUsage` carries — the
+   * diagnostics panel renders this one — so it needs the same flag, or a
+   * confident "0%" reappears on a surface every other gate has protected.
+   */
+  occupancyReported?: boolean;
   /** Share of the context window attributable to prompt/input tokens. */
   promptWeight?: number;
   /** Estimated token attribution for prompt/input sources. */

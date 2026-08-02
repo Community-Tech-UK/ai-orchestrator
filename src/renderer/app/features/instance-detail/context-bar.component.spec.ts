@@ -46,8 +46,19 @@ class ContextEvidencePanelStubComponent {
   scope = input<ContextEvidenceScope | null>(null);
 }
 
+/**
+ * A usage the provider actually reported. `occupancyReported` is what separates
+ * a real measurement from the placeholder every instance is seeded with
+ * (LT-018) — these fixtures all stand for real numbers, so it belongs here.
+ * Override it to `undefined` to model the placeholder.
+ */
 function usage(overrides: Partial<ContextUsage> = {}): ContextUsage {
-  return { used: 50, total: 100, percentage: 50, ...overrides };
+  return { used: 50, total: 100, percentage: 50, occupancyReported: true, ...overrides };
+}
+
+/** The seeded placeholder: numbers present, but nothing has reported yet. */
+function unreportedUsage(total = 200_000): ContextUsage {
+  return { used: 0, total, percentage: 0 };
 }
 
 describe('ContextBarComponent', () => {
@@ -86,6 +97,57 @@ describe('ContextBarComponent', () => {
   function setShowDetails(component: ContextBarComponent, value: boolean): void {
     (component as unknown as { showDetails: () => boolean }).showDetails = () => value;
   }
+
+  /**
+   * LT-018 — asserted against the rendered DOM, because this is a defect about
+   * what is on screen. `Instance.contextUsage` is a required field seeded at
+   * create with `{used: 0, total: 200000, percentage: 0}`, so this component
+   * always has something to render. Before the gate it printed a
+   * precise-looking `0/200,000 (0%)` in the instance header for any provider
+   * that never reports occupancy (Copilot/ACP), and for every session before
+   * its first real report.
+   */
+  describe('unreported occupancy (LT-018)', () => {
+    it('renders "no data" instead of fabricated token counts in the detailed view', () => {
+      setUsage(fixture.componentInstance, unreportedUsage());
+      setShowDetails(fixture.componentInstance, true);
+      fixture.detectChanges();
+
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('no data');
+      expect(text).not.toContain('200,000');
+      expect(text).not.toContain('0%');
+      expect(fixture.nativeElement.querySelector('.used')).toBeNull();
+      expect(fixture.nativeElement.querySelector('.total')).toBeNull();
+    });
+
+    it('renders an en dash instead of "0%" in the compact view', () => {
+      setUsage(fixture.componentInstance, unreportedUsage());
+      setShowDetails(fixture.componentInstance, false);
+      fixture.detectChanges();
+
+      const label = fixture.nativeElement.querySelector('.compact-label') as HTMLElement;
+      expect(label.textContent?.trim()).toBe('\u2013');
+    });
+
+    it('leaves the bar fill empty rather than implying a measured zero', () => {
+      setUsage(fixture.componentInstance, unreportedUsage());
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.occupancyKnown()).toBe(false);
+      expect(fixture.componentInstance.percentage()).toBe(0);
+    });
+
+    it('still shows cost, which does not depend on occupancy reporting', () => {
+      setUsage(fixture.componentInstance, { ...unreportedUsage(), costEstimate: 1.25 });
+      setShowDetails(fixture.componentInstance, true);
+      fixture.detectChanges();
+
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('no data');
+      expect(text).toContain('1.25');
+    });
+  });
 
   describe('existing occupancy rendering', () => {
     it('caps the bar fill at 100% for over-budget usage', () => {

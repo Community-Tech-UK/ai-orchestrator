@@ -11,7 +11,14 @@
  * sanitizer analysis.
  */
 
+import { getLogger } from '../../logging/logger';
+
+const logger = getLogger('RecallTraceStore');
+
 export type RetrievalSurface = 'rlm' | 'codemem' | 'lessons';
+
+/** How `sanitizeRetrievalQuery` reduced an over-long query, when it did. */
+export type RetrievalSanitizeStrategy = 'unchanged' | 'last-question' | 'tail-line' | 'truncated';
 
 export interface RecallTrace {
   id: string;
@@ -19,6 +26,8 @@ export interface RecallTrace {
   queryHash: string;
   rawQuery?: string;
   sanitizedQuery?: string;
+  /** Which sanitizer strategy produced `sanitizedQuery`. */
+  strategy?: RetrievalSanitizeStrategy;
   /** Returned item ids with scores, in rank order. */
   returned: Array<{ id: string; score: number }>;
   usedIds: string[];
@@ -42,6 +51,7 @@ export interface RecordTraceInput {
   returned: Array<{ id: string; score: number }>;
   rawQuery?: string;
   sanitizedQuery?: string;
+  strategy?: RetrievalSanitizeStrategy;
   now?: number;
   /** Deterministic id supplier (avoids RNG in worker/test contexts). */
   idFor?: (seq: number) => string;
@@ -62,11 +72,30 @@ export class RecallTraceStore {
       queryHash: hashQuery(input.query),
       ...(input.rawQuery !== undefined ? { rawQuery: input.rawQuery } : {}),
       ...(input.sanitizedQuery !== undefined ? { sanitizedQuery: input.sanitizedQuery } : {}),
+      ...(input.strategy !== undefined ? { strategy: input.strategy } : {}),
       returned: input.returned,
       usedIds: [],
       ts: input.now ?? Date.now(),
     };
     this.traces.push(trace);
+    // WS16 observability. This store is in-memory with no IPC, preload or disk
+    // surface, so before this line a recall trace was unobservable by anyone —
+    // three livetest checks (4's assertion half, 5, and 6) were unrunnable
+    // *by construction*, not merely unrun. Deliberately logs the query HASH and
+    // lengths, never the text: the store's own contract is that traces "never
+    // leak query text into telemetry".
+    logger.debug('Recall trace recorded', {
+      id,
+      surface: trace.surface,
+      queryHash: trace.queryHash,
+      returnedCount: trace.returned.length,
+      sanitized: trace.sanitizedQuery !== undefined,
+      ...(trace.strategy !== undefined ? { strategy: trace.strategy } : {}),
+      ...(trace.rawQuery !== undefined ? { rawQueryLength: trace.rawQuery.length } : {}),
+      ...(trace.sanitizedQuery !== undefined
+        ? { sanitizedQueryLength: trace.sanitizedQuery.length }
+        : {}),
+    });
     if (this.traces.length > this.maxTraces) {
       this.traces.splice(0, this.traces.length - this.maxTraces);
     }
@@ -89,6 +118,11 @@ export class RecallTraceStore {
         if (trace.usedIds.includes(usedId)) continue;
         trace.usedIds.push(usedId);
         credited.push(usedId);
+        logger.debug('Recall trace credited a used item', {
+          id: trace.id,
+          surface,
+          usedId,
+        });
         break;
       }
     }

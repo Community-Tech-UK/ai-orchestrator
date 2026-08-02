@@ -89,7 +89,10 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
             transform="rotate(-90 10 10)"
           />
         </svg>
-        <span class="ctx-ring__label">{{ ringPct() | number:'1.0-0' }}%</span>
+        <!-- LT-018: an en dash, not "0%". A confident zero on the one visible
+             number is the whole defect — the tooltip alone does not fix what
+             the user actually reads. -->
+        <span class="ctx-ring__label">{{ occupancyKnown() ? (ringPct() | number:'1.0-0') + '%' : '–' }}</span>
       </button>
 
       <!-- (b) Model picker -->
@@ -330,9 +333,21 @@ export class ComposerToolbarComponent {
 
   // ── Computed for the ring ──
 
+  /**
+   * LT-018: whether the ring has a real measurement to show, as opposed to the
+   * create-time placeholder. Drives the visible label — `ringPct()` returning 0
+   * is indistinguishable from a genuine 0 %, so the template must not render a
+   * number off it without checking this first.
+   */
+  readonly occupancyKnown = computed(() => {
+    const u = this.contextUsage();
+    return Boolean(u && u.total > 0 && u.occupancyReported);
+  });
+
   readonly ringPct = computed(() => {
     const u = this.contextUsage();
-    if (!u || u.total === 0) return 0;
+    // LT-018: an unreported occupancy is unknown, not zero.
+    if (!this.occupancyKnown() || !u) return 0;
     return Math.min((u.used / u.total) * 100, 100);
   });
 
@@ -350,7 +365,7 @@ export class ComposerToolbarComponent {
 
   readonly ringTitle = computed(() => {
     const u = this.contextUsage();
-    if (!u) return 'Context window: no data';
+    if (!u || !u.occupancyReported) return 'Context window: no data';
     const pct = this.ringPct().toFixed(0);
     return `Context window: ${pct}% used (${u.used.toLocaleString()} / ${u.total.toLocaleString()} tokens)`;
   });

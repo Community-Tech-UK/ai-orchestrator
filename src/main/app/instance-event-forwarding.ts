@@ -29,7 +29,7 @@ import { ProviderRuntimeEventEnvelopeSchema } from '@contracts/schemas/provider-
 import { isFastModeUnavailableNotice } from '../instance/lifecycle/fast-mode-notice';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { WindowManager } from '../window-manager';
-import type { Instance, InstanceStatus, OutputMessage } from '../../shared/types/instance.types';
+import type { Instance, InstanceStatus, OutputMessage, ContextUsage } from '../../shared/types/instance.types';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 
 const logger = getLogger('InstanceEventForwarding');
@@ -278,7 +278,9 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
       updates?: {
         instanceId: string;
         status?: string;
-        contextUsage?: { used: number; total: number; percentage: number };
+        // LT-018: the full ContextUsage, not a narrowed local subset — a subset
+        // invites a future field-by-field rebuild that drops `occupancyReported`.
+        contextUsage?: ContextUsage;
       }[];
     };
     if (data.updates) {
@@ -308,15 +310,18 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
         if (update.contextUsage) {
           // C2: Route through the continuity queue instead of calling directly,
           // so writes are serialized and awaited correctly.
+          // LT-018: persist the WHOLE object. `session-continuity.updateState`
+          // does a shallow `Object.assign`, so this replaces the stored
+          // `contextUsage` wholesale — narrowing to `{used, total}` silently
+          // dropped `occupancyReported`, `percentage` and `costEstimate` from
+          // the on-disk record on every ordinary turn. The cost loss was the
+          // worst of it: accrued spend vanished on any hibernate/wake or
+          // restart. This is the field-by-field rebuild the type widening a few
+          // lines above was meant to prevent.
           continuityQueue.enqueue({
             kind: 'state',
             instanceId: update.instanceId,
-            update: {
-              contextUsage: {
-                used: update.contextUsage.used,
-                total: update.contextUsage.total,
-              },
-            },
+            update: { contextUsage: { ...update.contextUsage } },
           });
         }
         if (update.instanceId) {

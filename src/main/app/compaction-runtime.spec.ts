@@ -112,6 +112,7 @@ describe('setupCompactionCoordinator', () => {
         percentage: 94,
         cumulativeTokens: 500_000,
         source: 'provider-usage',
+        occupancyReported: true,
       },
       outputBuffer: [],
     };
@@ -141,6 +142,10 @@ describe('setupCompactionCoordinator', () => {
       percentage: 0,
       source: 'post-compaction-reset',
       isEstimated: true,
+      // LT-018: a post-compaction `used: 0` is a real measurement, so occupancy
+      // stays reported. Dropping it here would blank the context ring to
+      // "no data" after every compaction on providers that do report occupancy.
+      occupancyReported: true,
     });
     expect(updateInstanceStatus).toHaveBeenCalledWith('inst-1', 'busy', {
       reason: 'context-compacted',

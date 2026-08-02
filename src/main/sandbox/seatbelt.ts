@@ -67,6 +67,45 @@ export interface SeatbeltCommand {
 }
 
 /**
+ * Resolve a writable root through symlinks (LT-027).
+ *
+ * Seatbelt matches `subpath` against the **real** path, so a root that sits
+ * under a symlinked prefix grants nothing. On macOS that is not an edge case:
+ * `/tmp` is a symlink to `/private/tmp` and `os.tmpdir()` resolves under
+ * `/private/var/folders/…`, so the default temp root — and any workspace under
+ * `/tmp` — silently granted no write access at all. Measured directly: a
+ * `mkdir` inside the unresolved root fails `Operation not permitted`, while the
+ * same `mkdir` with the realpath'd root succeeds.
+ *
+ * A root that does not exist yet must still be resolved, or the bug survives:
+ * the "Allow path & retry" lever hands us exactly such a path (the denial
+ * message names a file that was never created), and passing it through
+ * unresolved leaves the grant not matching. So we walk up to the nearest
+ * existing ancestor, resolve that, and re-append the unresolved tail.
+ */
+function realpathForSandbox(root: string): string {
+  try {
+    return fs.realpathSync(root);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException)?.code;
+    if (code !== 'ENOENT') {
+      // ELOOP/EACCES/EIO degrade to an inert grant — fail-closed, not
+      // fail-open — but the symptom is an unexplained "Operation not
+      // permitted" at runtime, so say so here rather than let it be silent.
+      logger.warn('Could not resolve a hardened writable root; grant may not apply', {
+        root,
+        code: code ?? 'unknown',
+      });
+      return root;
+    }
+    // ENOENT: resolve the deepest ancestor that does exist.
+    const parent = path.dirname(root);
+    if (parent === root) return root;
+    return path.join(realpathForSandbox(parent), path.basename(root));
+  }
+}
+
+/**
  * Wrap a CLI spawn in `sandbox-exec`. Only fixed `WRITABLE_ROOT_n` param KEYS
  * are generated into policy text; the path VALUES ride `-D` arguments.
  */
@@ -78,7 +117,7 @@ export function buildSeatbeltCommand(params: {
 }): SeatbeltCommand {
   const base = params.basePolicy ?? loadBasePolicy();
   const roots = params.writableRoots
-    .map((root) => path.resolve(root))
+    .map((root) => realpathForSandbox(path.resolve(root)))
     .filter((root, index, all) => all.indexOf(root) === index);
   if (roots.length === 0) {
     throw new Error('Hardened mode requires at least one writable root (the workspace)');
@@ -147,19 +186,44 @@ export function resolveHardenedSpawn(params: {
   });
 }
 
-export type SandboxFailureKind = 'sandbox-denial' | 'normal-failure';
+export type SandboxFailureKind =
+  | 'sandbox-denial'
+  /** The jail blocked credential access/refresh, reported by the CLI as a plain
+   *  auth error (LT-029). Distinct from a file denial: the remedy is different. */
+  | 'credential-denial'
+  | 'normal-failure';
 
 /**
  * Codex denial heuristic (denial.rs), keyword-first: stderr/stdout keywords
  * mean a likely sandbox denial; otherwise quick-reject exit codes (2/126/127
  * — argument/permission/not-found shell failures) are NORMAL failures.
  */
+/**
+ * Credential failures a jailed CLI reports when it cannot reach or update its
+ * own token store (LT-029). These do NOT look like sandbox denials — the CLI
+ * reports them as ordinary auth errors — so without matching them the user gets
+ * "Not logged in" or a 401 with no hint that the jail caused it.
+ */
+const CREDENTIAL_FAILURE_KEYWORDS = [
+  'not logged in',
+  'please run /login',
+  'oauth access token',
+  'invalid_grant',
+  'failed to refresh',
+  'authentication failed',
+  'failed to authenticate',
+];
+
 export function classifySandboxFailure(output: {
   exitCode: number | null;
   stderr?: string;
   stdout?: string;
 }): SandboxFailureKind {
   if (output.exitCode === 0) return 'normal-failure';
+  const haystackForCreds = `${output.stderr ?? ''}\n${output.stdout ?? ''}`.toLowerCase();
+  if (CREDENTIAL_FAILURE_KEYWORDS.some((needle) => haystackForCreds.includes(needle))) {
+    return 'credential-denial';
+  }
   const keywords = [
     'operation not permitted',
     'permission denied',
@@ -188,6 +252,19 @@ export function buildSandboxExitAdvice(params: {
 }): string | null {
   if (!params.hardened) return null;
   const kind = classifySandboxFailure({ exitCode: params.exitCode, stderr: params.recentOutput });
+  if (kind === 'credential-denial') {
+    // LT-029: the jail deliberately does NOT grant write access to
+    // ~/Library/Keychains — that is the user's entire secret store, and letting
+    // a jailed CLI modify it would defeat the point of hardened mode. So a
+    // token refresh inside the jail can fail, and it surfaces as an ordinary
+    // auth error with nothing pointing at the sandbox. Say so explicitly.
+    return (
+      '. Hardened mode (Seatbelt) does not grant write access to the system '
+      + 'keychain, so a provider CLI cannot refresh or re-store its credentials '
+      + 'inside the jail. Re-authenticate in a session WITHOUT hardened mode, '
+      + 'then start the hardened session again.'
+    );
+  }
   if (kind !== 'sandbox-denial') return null;
   return (
     '. Hardened mode (Seatbelt) likely blocked file access. ' +

@@ -70,6 +70,9 @@ export class CodeRetrievalService {
         query,
         rawQuery: sanitized.sanitized ? rawQuery : undefined,
         sanitizedQuery: sanitized.sanitized ? query : undefined,
+        // WS16 check 4 asks to see WHICH strategy recovered the query, not just
+        // that one did. The sanitizer already knows; it was simply dropped here.
+        strategy: sanitized.strategy,
         returned: results.map((r) => ({ id: r.relativePath, score: r.score })),
       });
     } catch { /* tracing is best-effort observability */ }

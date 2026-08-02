@@ -173,6 +173,14 @@ export class ProviderDiagnosticsPanelComponent {
 
   private applyEvent(event: ProviderRuntimeEvent): void {
     if (event.kind === 'context') {
+      // LT-018: this is the PRIMARY path — `withInputContext()`'s gated
+      // fallback only fills a gap (`context: snapshot.context ?? ...`), so once
+      // this sets a row it wins forever. An ungated first event (e.g. Codex's
+      // "no reading yet") therefore locked in a confident "Context: 0%" pill
+      // right next to a context bar correctly reading "no data".
+      if (event.occupancyReported !== true) {
+        return;
+      }
       this.snapshot.update((current) => ({
         ...current,
         context: {
@@ -204,7 +212,12 @@ export class ProviderDiagnosticsPanelComponent {
 
   private withInputContext(snapshot: ProviderDiagnosticsSnapshot): ProviderDiagnosticsSnapshot {
     const usage = this.contextUsage();
-    if (!usage) {
+    // LT-018: `contextUsage` is a required field seeded with a placeholder at
+    // create, so it is always truthy — synthesising a diagnostic row from it
+    // reported a confident "0%" for providers (e.g. Copilot/ACP) that never
+    // emit a real `context` event. Only fall back to the input when it carries
+    // an actual measurement; a genuine provider event still wins either way.
+    if (!usage || !usage.occupancyReported) {
       return snapshot;
     }
 

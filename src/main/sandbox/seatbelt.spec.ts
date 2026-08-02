@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+
   _resetSeatbeltForTesting,
   buildSandboxExitAdvice,
   buildSeatbeltCommand,
@@ -12,6 +13,32 @@ import {
 import * as os from 'node:os';
 import * as path from 'node:path';
 
+
+/**
+ * LT-027 note: `buildSeatbeltCommand` now realpath-resolves roots, so a literal
+ * `/tmp/...` expectation silently depends on whether that path happens to exist
+ * on the machine running the suite (`/tmp` is a symlink to `/private/tmp` on
+ * macOS). These fixtures are unique per run and their expectations are derived
+ * the same way the implementation derives them, so the suite cannot be broken
+ * by an unrelated scratch directory.
+ */
+const FIXTURE_A = `/tmp/aio-seatbelt-spec-a-${process.pid}`;
+const FIXTURE_B = `/tmp/aio-seatbelt-spec-b-${process.pid}`;
+/** What the builder must emit for a given root: nearest-existing-ancestor realpath + tail. */
+function expectedRoot(root: string): string {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const nodeFs = require('node:fs') as typeof import('node:fs');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const nodePath = require('node:path') as typeof import('node:path');
+  const resolve = (p: string): string => {
+    try { return nodeFs.realpathSync(p); } catch {
+      const parent = nodePath.dirname(p);
+      return parent === p ? p : nodePath.join(resolve(parent), nodePath.basename(p));
+    }
+  };
+  return resolve(nodePath.resolve(root));
+}
+
 const BASE = '(version 1)\n(deny default)\n(allow file-read*)';
 
 describe('buildSeatbeltCommand', () => {
@@ -21,7 +48,7 @@ describe('buildSeatbeltCommand', () => {
     const wrapped = buildSeatbeltCommand({
       command: '/usr/local/bin/claude',
       args: ['--print', 'hi'],
-      writableRoots: ['/tmp/workspace', '/tmp/workspace'], // dedup
+      writableRoots: [FIXTURE_A, FIXTURE_A], // dedup
       basePolicy: BASE,
     });
 
@@ -31,10 +58,11 @@ describe('buildSeatbeltCommand', () => {
     // Generated clauses reference only fixed param KEYS…
     expect(policy).toContain('(allow file-write* (subpath (param "WRITABLE_ROOT_0")))');
     // …and never the raw path (injection safety).
-    expect(policy).not.toContain('/tmp/workspace');
+    expect(policy).not.toContain(FIXTURE_A);
+    expect(policy).not.toContain(expectedRoot(FIXTURE_A));
     // The value rides -D.
     expect(wrapped.args).toContain('-D');
-    expect(wrapped.args).toContain('WRITABLE_ROOT_0=/tmp/workspace');
+    expect(wrapped.args).toContain(`WRITABLE_ROOT_0=${expectedRoot(FIXTURE_A)}`);
     // Deduped: no second root param.
     expect(wrapped.args.join(' ')).not.toContain('WRITABLE_ROOT_1');
     // Original command follows the separator.
@@ -44,10 +72,10 @@ describe('buildSeatbeltCommand', () => {
 
   it('supports multiple writable roots with sequential params', () => {
     const wrapped = buildSeatbeltCommand({
-      command: 'codex', args: [], writableRoots: ['/a', '/b'], basePolicy: BASE,
+      command: 'codex', args: [], writableRoots: [FIXTURE_A, FIXTURE_B], basePolicy: BASE,
     });
-    expect(wrapped.args).toContain('WRITABLE_ROOT_0=/a');
-    expect(wrapped.args).toContain('WRITABLE_ROOT_1=/b');
+    expect(wrapped.args).toContain(`WRITABLE_ROOT_0=${expectedRoot(FIXTURE_A)}`);
+    expect(wrapped.args).toContain(`WRITABLE_ROOT_1=${expectedRoot(FIXTURE_B)}`);
     expect(wrapped.args[1]).toContain('WRITABLE_ROOT_1');
   });
 
@@ -139,6 +167,40 @@ describe('classifySandboxFailure', () => {
       .toBe('sandbox-denial');
   });
 
+  /**
+   * LT-029. Hardened mode deliberately does not grant write access to
+   * ~/Library/Keychains — that is the user's whole secret store. So a jailed
+   * CLI can fail to refresh its token, and it reports that as an ordinary auth
+   * error with nothing pointing at the sandbox. These pin that such a failure is
+   * classified separately and gets the right remedy, not the "Allow path &
+   * retry" advice (there is no path to allow).
+   */
+  it('classifies a credential failure separately from a file denial', () => {
+    expect(classifySandboxFailure({ exitCode: 1, stdout: 'Not logged in · Please run /login' }))
+      .toBe('credential-denial');
+    expect(classifySandboxFailure({ exitCode: 1, stderr: 'API Error: 401 OAuth access token has been revoked' }))
+      .toBe('credential-denial');
+    expect(classifySandboxFailure({ exitCode: 1, stderr: 'Failed to authenticate.' }))
+      .toBe('credential-denial');
+  });
+
+  it('advises re-authenticating outside the jail, not allowing a path', () => {
+    const advice = buildSandboxExitAdvice({
+      hardened: true, exitCode: 1, recentOutput: 'Not logged in · Please run /login',
+    });
+    expect(advice).toContain('does not grant write access to the system keychain');
+    expect(advice).toContain('WITHOUT hardened mode');
+    expect(advice).not.toContain('Allow path & retry');
+  });
+
+  it('still gives the path advice for a genuine file denial', () => {
+    const advice = buildSandboxExitAdvice({
+      hardened: true, exitCode: 1,
+      recentOutput: "EPERM: operation not permitted, open '/Users/x/Desktop/probe.txt'",
+    });
+    expect(advice).toContain('Allow path & retry');
+  });
+
   it('treats quick-reject exit codes without keywords as normal failures', () => {
     expect(classifySandboxFailure({ exitCode: 127, stderr: 'command not found: foo' })).toBe('normal-failure');
     expect(classifySandboxFailure({ exitCode: 2, stderr: 'usage: grep …' })).toBe('normal-failure');
@@ -162,7 +224,7 @@ describe('resolveHardenedSpawn', () => {
       hardened: false,
       command: 'claude',
       args: ['--print'],
-      writableRoots: ['/tmp/ws'],
+      writableRoots: [FIXTURE_A],
       available: false,
     });
     expect(result).toEqual({ command: 'claude', args: ['--print'] });
@@ -174,7 +236,7 @@ describe('resolveHardenedSpawn', () => {
         hardened: true,
         command: 'claude',
         args: [],
-        writableRoots: ['/tmp/ws'],
+        writableRoots: [FIXTURE_A],
         available: false,
       }),
     ).toThrow(/refusing to spawn unsandboxed/);
@@ -185,13 +247,13 @@ describe('resolveHardenedSpawn', () => {
       hardened: true,
       command: 'claude',
       args: ['--print'],
-      writableRoots: ['/tmp/ws'],
+      writableRoots: [FIXTURE_A],
       available: true,
       basePolicy: BASE,
     });
     expect(result.command).toBe(SANDBOX_EXEC_PATH);
     expect(result.args.slice(-3)).toEqual(['--', 'claude', '--print']);
-    expect(result.args).toContain('WRITABLE_ROOT_0=/tmp/ws');
+    expect(result.args).toContain(`WRITABLE_ROOT_0=${expectedRoot(FIXTURE_A)}`);
   });
 });
 

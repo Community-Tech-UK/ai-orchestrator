@@ -161,3 +161,53 @@ describe('AutomationUpdatePayloadSchema destination', () => {
     });
   });
 });
+
+/**
+ * Observed live 2026-08-01, from `app.log`:
+ *   Blocked invalid renderer event payload
+ *   { channel: "automation:changed",
+ *     issues: [{ path: "automation.description",
+ *                message: "Too big: expected string to have <=1000 characters" }] }
+ *
+ * An agent appended an operational note to a real automation. The write
+ * succeeded (the MCP write path caps at 2000 and does not validate against
+ * `AutomationCreatePayloadSchema`), then the `automation:changed`
+ * renderer event failed this schema and `validateRendererEventPayload` dropped
+ * it — so the automation changed on disk while the Automations UI kept showing
+ * the stale one, with no error anywhere the user could see.
+ *
+ * The bug was the INCONSISTENCY between a 2000-char write cap and a 1000-char
+ * event cap, so the fix is one shared bound across create/update/entity — not a
+ * truncation, which would have destroyed the note.
+ */
+describe('automation description length (live drop, 2026-08-01)', () => {
+  const longNote = 'PAUSED 2026-08-01 by the engine rework. '.repeat(40); // ~1600 chars
+
+  it('accepts a realistic multi-paragraph operational description on create', () => {
+    expect(longNote.length).toBeGreaterThan(1000);
+    expect(
+      AutomationCreatePayloadSchema.safeParse({
+        ...baseCreatePayload,
+        description: longNote,
+      }).success,
+    ).toBe(true);
+  });
+
+  it('accepts the same description on update', () => {
+    expect(
+      AutomationUpdatePayloadSchema.safeParse({
+        id: '11111111-2222-4333-8444-555555555555',
+        updates: { description: longNote },
+      }).success,
+    ).toBe(true);
+  });
+
+  it('is still bounded — a runaway description is rejected', () => {
+    expect(
+      AutomationCreatePayloadSchema.safeParse({
+        ...baseCreatePayload,
+        description: 'x'.repeat(8_001),
+      }).success,
+    ).toBe(false);
+  });
+});

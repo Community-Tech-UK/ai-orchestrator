@@ -153,7 +153,10 @@ const TRANSITION_MAP: Readonly<Record<InstanceStatus, readonly InstanceStatus[]>
   respawning:         ['ready', 'idle', 'busy', 'error', 'initializing', 'interrupt-escalating', 'cancelled'],
   hibernating:        ['hibernated'],
   hibernated:         ['waking'],
-  waking:             ['ready', 'error'],
+  // 'idle' mirrors 'initializing': stateless exec adapters (Codex app-server,
+  // Gemini, Copilot, Cursor, Antigravity) emit `status: idle` from spawn(), so
+  // a woken instance legitimately lands on idle before the wake flow sets ready.
+  waking:             ['ready', 'idle', 'error'],
   error:              ['ready', 'idle', 'respawning', 'initializing', 'cancelled'],
   degraded:           ['ready', 'idle', 'error', 'initializing'],  // Reconnected → ready/idle, grace period expired → error
   // Terminal states have no outgoing transitions.

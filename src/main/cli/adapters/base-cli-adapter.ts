@@ -600,9 +600,16 @@ export abstract class BaseCliAdapter extends EventEmitter {
       writableRoots: this.hardenedMode?.writableRoots ?? [],
     });
     if (this.hardenedMode) {
+      // LT-027: log the roots the jail was actually GRANTED, not the ones we
+      // were asked for. They are realpath-resolved on the way in, so a count
+      // alone (or the pre-resolution paths) describes a different tree from the
+      // one enforced — which is exactly what made LT-027 hard to see.
       logger.info('Spawning CLI under Seatbelt hardened mode', {
         adapter: this.getName(),
         writableRootCount: this.hardenedMode.writableRoots.length,
+        grantedRoots: hardenedTarget.args
+          .filter((arg) => arg.startsWith('WRITABLE_ROOT_'))
+          .map((arg) => arg.slice(arg.indexOf('=') + 1)),
       });
     }
 

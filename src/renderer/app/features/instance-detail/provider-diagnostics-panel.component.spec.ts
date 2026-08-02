@@ -51,6 +51,28 @@ describe('ProviderDiagnosticsPanelComponent', () => {
     TestBed.resetTestingModule();
   });
 
+  /**
+   * LT-018. This live-event path is PRIMARY — `withInputContext()`'s gated
+   * fallback only fills a gap (`context: snapshot.context ?? ...`), so whatever
+   * lands here first wins permanently. An ungated "no reading yet" event
+   * therefore pinned a confident "Context: 0%" pill next to a context bar
+   * correctly reading "no data".
+   */
+  it('ignores a context event that carries no real occupancy reading', () => {
+    events.next(makeEnvelope({
+      kind: 'context',
+      used: 0,
+      total: 200_000,
+      percentage: 0,
+      occupancyReported: false,
+    }));
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).not.toContain('Context');
+    expect(text).not.toContain('0%');
+  });
+
   it('renders available request, stop, quota, rate-limit, and context diagnostics', () => {
     events.next(makeEnvelope({
       kind: 'error',
@@ -68,6 +90,9 @@ describe('ProviderDiagnosticsPanelComponent', () => {
       used: 80,
       total: 100,
       percentage: 80,
+      // LT-018: a real provider reading. Ungated events are now ignored here,
+      // because this path wins permanently over the gated fallback.
+      occupancyReported: true,
       inputTokens: 60,
       outputTokens: 20,
       promptWeight: 0.75,

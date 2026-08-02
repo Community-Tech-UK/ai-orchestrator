@@ -137,6 +137,97 @@ export class AdapterOnLoanError extends Error {
   readonly instanceId: string;
 }
 
+/**
+ * Runtime changes in flight, by instance (LT-030).
+ *
+ * The loan above is one half of the interlock: it stops the reconciler tearing
+ * down an adapter a loop iteration is running on. This is the other half — it
+ * stops a loop *taking* the adapter back while a runtime change is still
+ * finishing.
+ *
+ * Scope, precisely: `canBorrowParentLoopAdapter` only borrows when BOTH the loop
+ * and the instance are claude, so after a claude→codex swap the loop cannot
+ * reclaim the new adapter anyway — there the reconciler's own back-to-back sends
+ * were the whole problem (LT-030). This claim matters for same-provider changes
+ * (claude→claude model or yolo flips) and for the terminate/respawn window,
+ * where the loop genuinely can take the adapter back mid-sequence.
+ */
+const runtimeChangesInFlight = new Map<string, { holders: number; waiters: (() => void)[] }>();
+
+export interface RuntimeChangeClaim {
+  readonly instanceId: string;
+  release(): void;
+}
+
+/**
+ * Claim an instance for the duration of a runtime change. Held across the whole
+ * post-change sequence, not just the respawn — the messaging is the part that
+ * was losing the race.
+ */
+export function beginRuntimeChange(instanceId: string): RuntimeChangeClaim {
+  // Refcounted, for the same reason the loan above is token-keyed: nothing
+  // guarantees a single claim per instance forever, and the first release of two
+  // overlapping claims must not wake waiters while the second is still live.
+  const entry = runtimeChangesInFlight.get(instanceId) ?? { holders: 0, waiters: [] };
+  entry.holders += 1;
+  runtimeChangesInFlight.set(instanceId, entry);
+  logger.debug('Runtime change claimed the adapter', { instanceId, holders: entry.holders });
+  let released = false;
+  return {
+    instanceId,
+    release(): void {
+      if (released) return;
+      released = true;
+      const live = runtimeChangesInFlight.get(instanceId);
+      if (!live) return;
+      live.holders -= 1;
+      if (live.holders > 0) return;
+      runtimeChangesInFlight.delete(instanceId);
+      for (const wake of live.waiters) {
+        try { wake(); } catch { /* a waiter must never break the release */ }
+      }
+    },
+  };
+}
+
+export function isRuntimeChangeInFlight(instanceId: string): boolean {
+  return runtimeChangesInFlight.has(instanceId);
+}
+
+/**
+ * Wait for an in-flight runtime change to finish before borrowing the adapter.
+ *
+ * Bounded: a reconciler that never releases must not wedge the loop forever —
+ * the loop falls through and takes its normal path, which is strictly better
+ * than stalling. Resolves immediately when nothing is in flight.
+ */
+export function waitForRuntimeChange(instanceId: string, timeoutMs = 30_000): Promise<void> {
+  const entry = runtimeChangesInFlight.get(instanceId);
+  if (!entry) return Promise.resolve();
+  logger.info('Loop iteration waiting for an in-flight runtime change', { instanceId, timeoutMs });
+  return new Promise<void>((resolve) => {
+    let settled = false;
+    const done = (): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      logger.warn('Runtime change did not settle in time; continuing without waiting', {
+        instanceId,
+        timeoutMs,
+      });
+      // Drop the dead closure: while a claim is held these would otherwise
+      // accumulate one per iteration.
+      const live = runtimeChangesInFlight.get(instanceId);
+      if (live) live.waiters = live.waiters.filter((w) => w !== done);
+      done();
+    }, timeoutMs);
+    entry.waiters.push(done);
+  });
+}
+
 export function isAdapterOnLoanError(error: unknown): error is AdapterOnLoanError {
   return error instanceof AdapterOnLoanError;
 }
@@ -186,4 +277,5 @@ export function _resetAdapterLoansForTesting(): void {
   loans.clear();
   loanStartedAt.clear();
   releaseListeners.clear();
+  runtimeChangesInFlight.clear();
 }

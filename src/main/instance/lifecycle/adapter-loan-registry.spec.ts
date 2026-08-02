@@ -2,6 +2,9 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   assertAdapterNotOnLoan,
   beginAdapterLoan,
+  beginRuntimeChange,
+  isRuntimeChangeInFlight,
+  waitForRuntimeChange,
   endAdapterLoan,
   isAdapterOnLoan,
   loanHoldersFor,
@@ -122,5 +125,90 @@ describe('adapter-loan-registry (LT-020)', () => {
     expect(oldestLoanAgeMs('inst-1')).toBeGreaterThanOrEqual(0);
     endAdapterLoan(loan);
     expect(oldestLoanAgeMs('inst-1')).toBe(0);
+  });
+});
+
+/**
+ * LT-030 — the reciprocal half of the interlock. The loan stops the reconciler
+ * tearing down an adapter mid-iteration; this stops a loop taking the adapter
+ * back while the reconciler is still delivering its post-change messages.
+ * Without it a swap landed, the loop immediately started its next iteration on
+ * the new adapter, and every notice the reconciler still had to send either hung
+ * or was refused — so the swap was reverted and the user was told nothing.
+ */
+describe('runtime-change claim (LT-030)', () => {
+  beforeEach(() => {
+    _resetAdapterLoansForTesting();
+  });
+
+  it('reports a change in flight only between claim and release', () => {
+    expect(isRuntimeChangeInFlight('inst-1')).toBe(false);
+    const claim = beginRuntimeChange('inst-1');
+    expect(isRuntimeChangeInFlight('inst-1')).toBe(true);
+    expect(isRuntimeChangeInFlight('other')).toBe(false);
+    claim.release();
+    expect(isRuntimeChangeInFlight('inst-1')).toBe(false);
+  });
+
+  it('resolves immediately when nothing is in flight', async () => {
+    await expect(waitForRuntimeChange('inst-1')).resolves.toBeUndefined();
+  });
+
+  it('blocks a waiter until the change is released', async () => {
+    const claim = beginRuntimeChange('inst-1');
+    let settled = false;
+    const waiting = waitForRuntimeChange('inst-1').then(() => { settled = true; });
+
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    claim.release();
+    await waiting;
+    expect(settled).toBe(true);
+  });
+
+  it('wakes every waiter on a single release', async () => {
+    const claim = beginRuntimeChange('inst-1');
+    const results: number[] = [];
+    const all = Promise.all([
+      waitForRuntimeChange('inst-1').then(() => results.push(1)),
+      waitForRuntimeChange('inst-1').then(() => results.push(2)),
+    ]);
+    claim.release();
+    await all;
+    expect(results).toHaveLength(2);
+  });
+
+  it('is idempotent — a double release does not throw or re-wake', async () => {
+    const claim = beginRuntimeChange('inst-1');
+    claim.release();
+    expect(() => claim.release()).not.toThrow();
+    await expect(waitForRuntimeChange('inst-1')).resolves.toBeUndefined();
+  });
+
+  it('gives up after the timeout so a stuck reconciler cannot stall the loop', async () => {
+    vi.useFakeTimers();
+    beginRuntimeChange('inst-1');   // deliberately never released
+    let settled = false;
+    const waiting = waitForRuntimeChange('inst-1', 5_000).then(() => { settled = true; });
+
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(settled).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(2);
+    await waiting;
+    expect(settled).toBe(true);
+    vi.useRealTimers();
+  });
+
+  it('is independent of the loan — the two halves do not interfere', () => {
+    const loan = beginAdapterLoan('inst-1', 'loop-a');
+    const claim = beginRuntimeChange('inst-2');
+    expect(isAdapterOnLoan('inst-1')).toBe(true);
+    expect(isRuntimeChangeInFlight('inst-1')).toBe(false);
+    expect(isAdapterOnLoan('inst-2')).toBe(false);
+    expect(isRuntimeChangeInFlight('inst-2')).toBe(true);
+    endAdapterLoan(loan);
+    claim.release();
   });
 });

@@ -1278,6 +1278,60 @@ describe('InstanceManager', () => {
       expect(instance.status).toBe('ready');
     });
 
+    it('wakes an adapter that reports idle from spawn (stateless exec adapters)', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Spawn Emits Idle',
+      });
+      await instance.readyPromise;
+      await manager.hibernateInstance(instance.id);
+
+      // Codex app-server, Gemini, Copilot, Cursor and Antigravity all end
+      // spawn() with `emit('status', 'idle')`, which lands while the instance
+      // is still 'waking'.
+      mockCreateCliAdapter.mockImplementation(() => {
+        const adapter = makeMockAdapter();
+        adapter.spawn = vi.fn(async () => {
+          const pid = await mockAdapterSpawn();
+          adapter.emit('status', 'idle');
+          return pid;
+        });
+        return adapter;
+      });
+
+      await expect(manager.wakeInstance(instance.id)).resolves.toBeUndefined();
+      expect(instance.status).toBe('ready');
+      expect(manager.getAdapter(instance.id)).toBeDefined();
+    });
+
+    it('coalesces concurrent wakes even when spawn reports idle mid-wake', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Concurrent Wake Idle Spawn',
+      });
+      await instance.readyPromise;
+      await manager.hibernateInstance(instance.id);
+
+      mockCreateCliAdapter.mockImplementation(() => {
+        const adapter = makeMockAdapter();
+        adapter.spawn = vi.fn(async () => {
+          const pid = await mockAdapterSpawn();
+          adapter.emit('status', 'idle');
+          return pid;
+        });
+        return adapter;
+      });
+      mockCreateCliAdapter.mockClear();
+
+      await Promise.all([
+        manager.wakeInstance(instance.id),
+        manager.wakeInstance(instance.id),
+      ]);
+
+      expect(mockCreateCliAdapter).toHaveBeenCalledTimes(1);
+      expect(instance.status).toBe('ready');
+    });
+
     it('is a no-op for an instance that is already awake', async () => {
       const instance = await manager.createInstance({
         workingDirectory: TEST_WORKING_DIR,

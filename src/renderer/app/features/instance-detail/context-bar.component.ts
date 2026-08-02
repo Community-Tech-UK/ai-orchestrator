@@ -27,19 +27,27 @@ import { ContextAttributionPanelComponent } from './context-attribution-panel.co
 
       @if (showDetails()) {
         <div class="bar-details">
-          @if (isEstimated()) {
-            <span class="estimated-badge" title="Estimated from aggregate token spend — actual context occupancy may be lower">~</span>
+          <!-- LT-018: never render token counts or a percentage off the seeded
+               placeholder — "0/200,000 (0%)" reads as a precise measurement and
+               is entirely fabricated. Cost is independent: a provider can bill
+               without reporting window occupancy. -->
+          @if (occupancyKnown()) {
+            @if (isEstimated()) {
+              <span class="estimated-badge" title="Estimated from aggregate token spend — actual context occupancy may be lower">~</span>
+            }
+            <span class="used">{{ usage().used | number:'1.0-0' }}</span>
+            <span class="separator">/</span>
+            <span class="total">{{ usage().total | number:'1.0-0' }}</span>
+            <span class="percentage">({{ isEstimated() ? '~' : '' }}{{ percentage() | number:'1.0-0' }}%)</span>
+          } @else {
+            <span class="percentage no-data" title="This provider has not reported context occupancy for this session">no data</span>
           }
-          <span class="used">{{ usage().used | number:'1.0-0' }}</span>
-          <span class="separator">/</span>
-          <span class="total">{{ usage().total | number:'1.0-0' }}</span>
-          <span class="percentage">({{ isEstimated() ? '~' : '' }}{{ percentage() | number:'1.0-0' }}%)</span>
           @if (showCostEffective() && costEstimate()) {
             <span class="cost">≈{{ costEstimate() | number:'1.2-2' }} USD</span>
           }
         </div>
       } @else {
-        <span class="compact-label">{{ isEstimated() ? '~' : '' }}{{ percentage() | number:'1.0-0' }}%</span>
+        <span class="compact-label">{{ occupancyKnown() ? (isEstimated() ? '~' : '') + (percentage() | number:'1.0-0') + '%' : '–' }}</span>
       }
 
       @if (instanceId()) {
@@ -228,12 +236,25 @@ export class ContextBarComponent {
   /** Per-call `showCost` input AND the global cost-visibility setting. */
   readonly showCostEffective = computed(() => this.showCost() && this.settings.showCost());
 
+  /**
+   * LT-018: whether these numbers are a real measurement rather than the
+   * create-time placeholder every instance is seeded with. `Instance.contextUsage`
+   * is a required field, so this component always has *something* to render —
+   * without this gate the instance header showed a precise-looking, entirely
+   * fabricated `0/200,000 (0%)` for any provider that never reports occupancy
+   * (e.g. Copilot/ACP), and for every session before its first real report.
+   */
+  readonly occupancyKnown = computed(() => {
+    const usage = this.usage();
+    return Boolean(usage && usage.total > 0 && usage.occupancyReported);
+  });
+
   percentage = computed(() => {
     const usage = this.usage();
+    if (!this.occupancyKnown()) return 0;
     // Cap at 100% for display - used can exceed total in long sessions
     // due to context window truncation or summarization.
-    const raw = usage.total > 0 ? (usage.used / usage.total) * 100 : 0;
-    return Math.min(raw, 100);
+    return Math.min((usage.used / usage.total) * 100, 100);
   });
 
   isEstimated = computed(() => this.usage().isEstimated === true);

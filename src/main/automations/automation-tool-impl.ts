@@ -23,6 +23,11 @@ import type {
   UpdateAutomationFn,
   AutomationMutationResult,
 } from '../mcp/orchestrator-automation-tools';
+import { z } from 'zod';
+import {
+  AutomationCreatePayloadSchema,
+  AutomationUpdatePayloadSchema,
+} from '@contracts/schemas/automation';
 import { computeNextFireAt } from './automation-schedule';
 import { validateCronExpression } from './automation-schedule';
 import { findEquivalentAutomation } from './automation-equivalence';
@@ -102,6 +107,43 @@ function summarizeAutomation(automation: Automation): AutomationMutationResult {
     enabled: automation.enabled && automation.active,
     workingDirectory: automation.action.workingDirectory,
   };
+}
+
+
+/**
+ * LT-031: the MCP write path is the one automation entry point that does NOT
+ * validate before writing — the IPC handler runs `AutomationCreatePayloadSchema`
+ * / `AutomationUpdatePayloadSchema` first (`automation-handlers.ts`), this one
+ * wrote straight to the store. That asymmetry is what let a value save
+ * successfully and then fail `AutomationChangedEventSchema`, so
+ * `validateRendererEventPayload` dropped the `automation:changed` event and the
+ * Automations UI silently kept showing the stale automation.
+ *
+ * Two field-level instances of that were fixed by hand (`description`,
+ * `workingDirectory`). This closes the CLASS: any future MCP arg looser than its
+ * entity counterpart now fails loudly here, at the write, instead of silently
+ * losing the UI update.
+ *
+ * Deliberately validates the **mapped input**, not the raw args: the MCP arg
+ * shape is flat (`cron`/`runAt`/`workingDirectory`/`prompt`) while the payload
+ * shape is nested (`schedule`/`action`), and the mapping above does real work
+ * (cron validation, `Date.parse`, defaulting the working directory). Only after
+ * that mapping is there a payload-shaped object to check.
+ */
+function assertWritablePayload(
+  schema: z.ZodType,
+  value: unknown,
+  operation: 'create' | 'update' | 'postpone',
+): void {
+  const parsed = schema.safeParse(value);
+  if (parsed.success) return;
+  const detail = parsed.error.issues
+    .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
+    .join('; ');
+  throw new Error(
+    `Cannot ${operation} automation: the values are valid as tool arguments but would be `
+    + `rejected when the app broadcasts the change, so the UI would silently go stale. ${detail}`,
+  );
 }
 
 export function createAutomationToolImplementations(
@@ -184,6 +226,8 @@ export function createAutomationToolImplementations(
           reused: true,
         };
       }
+
+      assertWritablePayload(AutomationCreatePayloadSchema, input, 'create');
 
       const automation = await deps.createWithScheduling(input);
       if (!automation) {
@@ -319,6 +363,12 @@ export function createAutomationToolImplementations(
       const nextFireAt =
         enabled && existing.active ? computeNextFireAt(effectiveSchedule, now()) : null;
 
+      assertWritablePayload(
+        AutomationUpdatePayloadSchema.shape.updates,
+        updates,
+        'update',
+      );
+
       const updated = await store.update(args.id, updates, nextFireAt);
       scheduler.schedule(updated);
       events.emitChanged({ automation: updated, automationId: updated.id, type: 'updated' });
@@ -365,6 +415,11 @@ export function createAutomationToolImplementations(
           runAt: newFireAt,
           timezone: existing.schedule.timezone,
         };
+        assertWritablePayload(
+          AutomationUpdatePayloadSchema.shape.updates,
+          { schedule },
+          'postpone',
+        );
         automation = await store.update(args.id, { schedule }, newFireAt, currentNow);
       } else {
         store.setNextFireAt(args.id, newFireAt, currentNow);

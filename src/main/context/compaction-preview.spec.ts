@@ -106,10 +106,32 @@ describe('previewCompaction', () => {
     expect(preview.keepLatestExchanges).toBe(2);
   });
 
+  /**
+   * LT-018. `isEstimated !== true` is satisfied by the create-time placeholder,
+   * which sets neither field — so a self-managing adapter that had never
+   * reported occupancy was labelled `measured` and rendered "~0 (measured)":
+   * a confident claim about a number nobody measured. Only a real report earns
+   * `measured`.
+   */
+  it('labels the create-time placeholder heuristic, not measured', async () => {
+    const instance = makeInstance({
+      outputBuffer: [message({ type: 'user', content: 'hi' })],
+      contextUsage: { used: 0, total: 200_000, percentage: 0 },
+    });
+    const instanceManager = makeInstanceManager({
+      instance,
+      capabilities: { supportsNativeCompaction: true },
+    });
+
+    const preview = await previewCompaction(instanceManager, 'inst-1');
+
+    expect(preview.tokenEstimate).toEqual({ value: 0, source: 'heuristic' });
+  });
+
   it('returns mode adapter-self-managed and defers honestly when the provider self-manages compaction', async () => {
     const instance = makeInstance({
       outputBuffer: [message({ type: 'user', content: 'hi' })],
-      contextUsage: { used: 42_000, total: 100_000, percentage: 42, isEstimated: false },
+      contextUsage: { used: 42_000, total: 100_000, percentage: 42, isEstimated: false, occupancyReported: true },
     });
     const instanceManager = makeInstanceManager({
       instance,

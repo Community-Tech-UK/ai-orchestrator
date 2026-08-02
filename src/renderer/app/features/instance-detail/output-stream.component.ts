@@ -15,7 +15,6 @@ import {
   inject,
   signal,
   ChangeDetectionStrategy,
-  afterNextRender,
   DestroyRef,
   ElementRef,
   HostListener,
@@ -584,28 +583,66 @@ export class OutputStreamComponent {
       queueMicrotask(() => this.virtualizer.reconcileObservedRows());
     });
 
-    // Setup scroll listener and delegated click handler after render
-    afterNextRender(() => {
+    // Bind the viewport listeners, and REBIND whenever the viewport element
+    // changes identity.
+    //
+    // This was a one-shot `afterNextRender` and it bound nothing in the common
+    // case: `#container` sits inside the `@else` of `@if (displayItems().length
+    // === 0)`, so an instance that opens with an empty transcript has no
+    // container at first render. All three binders resolve the viewport at call
+    // time and return null / no-op when it is absent, so the single attempt
+    // silently did nothing and was never retried — the scroll listener stayed
+    // dead for the life of the component even after messages arrived, which is
+    // why scroll-edge loading never fired (60 real wheel events moved the
+    // viewport while the listener's own state stayed frozen).
+    //
+    // Keyed on the `container` viewChild signal, matching the deferred-restore
+    // watcher above: the effect re-runs when the element materialises, and
+    // again if the `@if` ever tears it down and rebuilds it.
+    effect(() => {
+      const element = this.container()?.nativeElement ?? null;
+      if (element === this.boundViewport) return;
+
+      this.detachViewportBindings();
+      this.boundViewport = element;
+      if (!element) return;
+
       const clickBinding = this.setupDelegatedClickHandler();
       const scrollBinding = this.setupScrollListener();
       const detachVirtualizer = this.virtualizer.attach();
 
-      this.destroyRef.onDestroy(() => {
+      this.viewportCleanup = () => {
         if (clickBinding) {
           clickBinding.element.removeEventListener('click', clickBinding.listener);
         }
         if (scrollBinding) {
           scrollBinding.element.removeEventListener('scroll', scrollBinding.listener);
         }
-
-        if (this.copyResetTimer !== null) {
-          clearTimeout(this.copyResetTimer);
-          this.copyResetTimer = null;
-        }
-        this.transcriptFind.destroy();
         detachVirtualizer();
-      });
+      };
     });
+
+    this.destroyRef.onDestroy(() => {
+      this.detachViewportBindings();
+      this.boundViewport = null;
+      if (this.copyResetTimer !== null) {
+        clearTimeout(this.copyResetTimer);
+        this.copyResetTimer = null;
+      }
+      this.transcriptFind.destroy();
+    });
+  }
+
+  /** The element the viewport listeners are currently bound to, if any. */
+  private boundViewport: HTMLElement | null = null;
+
+  /** Removes the current viewport listeners; null when nothing is bound. */
+  private viewportCleanup: (() => void) | null = null;
+
+  private detachViewportBindings(): void {
+    const cleanup = this.viewportCleanup;
+    this.viewportCleanup = null;
+    cleanup?.();
   }
 
   @HostListener('window:keydown', ['$event'])

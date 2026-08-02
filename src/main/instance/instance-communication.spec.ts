@@ -69,6 +69,7 @@ vi.mock('../browser-gateway/browser-approval-store', () => ({
 }));
 
 import { InstanceCommunicationManager } from './instance-communication';
+import { InstanceStateMachine } from './instance-state-machine';
 import { TokenBudgetTracker } from '../context/token-budget-tracker';
 import { AcpCliAdapter } from '../cli/adapters/acp-cli-adapter';
 import { CodexCliAdapter } from '../cli/adapters/codex-cli-adapter';
@@ -295,6 +296,114 @@ describe('InstanceCommunicationManager', () => {
     );
   });
 
+  /**
+   * LT-018 regression. The 'context' handler clones the incoming usage to add
+   * `occupancyReported`, so it is no longer the same object as `usage`. What
+   * the renderer's context ring actually renders is what reaches `queueUpdate`
+   * — so queuing the raw `usage` would make a *reporting* provider display
+   * "Context window: no data" for most of an active turn, since 'context'
+   * events are the highest-frequency per-instance update during a turn.
+   */
+  it('queues the flagged usage, not the raw event payload, so the ring shows real occupancy', () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('context', {
+      used: 80,
+      total: 100,
+      percentage: 80,
+    });
+
+    expect(instance.contextUsage).toMatchObject({ used: 80, occupancyReported: true });
+    expect(queueUpdate).toHaveBeenCalledWith(
+      instance.id,
+      instance.status,
+      expect.objectContaining({ used: 80, total: 100, occupancyReported: true }),
+    );
+  });
+
+  /**
+   * LT-018 at the source. The Codex app-server adapter emits a `context` event
+   * with `used: 0, isEstimated: true` to mean "no per-call occupancy yet and no
+   * prior occupancy" (`!hasAccurateOccupancy && used === 0`). Stamping
+   * `occupancyReported` on that would republish the exact confident zero this
+   * fix removes — straight from the provider, past every renderer gate.
+   */
+  it('does not mark occupancy reported for a no-reading context event', () => {
+    const adapter = new FakeAdapter('codex-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('context', {
+      used: 0,
+      total: 200_000,
+      percentage: 0,
+      isEstimated: true,
+    });
+
+    expect(instance.contextUsage.occupancyReported).toBeUndefined();
+  });
+
+  it('still marks occupancy reported for an ESTIMATED reading with real tokens', () => {
+    const adapter = new FakeAdapter('codex-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('context', {
+      used: 90_000,
+      total: 200_000,
+      percentage: 45,
+      isEstimated: true,
+    });
+
+    // An estimate off real token spend is still a measurement; it keeps its "~".
+    expect(instance.contextUsage.occupancyReported).toBe(true);
+    expect(instance.contextUsage.isEstimated).toBe(true);
+  });
+
+  /**
+   * A provider-observed compaction (`codex/compaction-presentation.ts`) emits
+   * the SAME `{used: 0, isEstimated: true}` shape as Codex's "no reading yet",
+   * but means the opposite: occupancy was genuinely measured and genuinely
+   * reset. Shape alone cannot tell them apart, so history does — a reset must
+   * not un-report. Without this, a session at 62% would drop to "no data" on
+   * every surface the moment Codex compacted itself.
+   */
+  it('keeps occupancy reported when a compaction resets a session that had reported', () => {
+    const adapter = new FakeAdapter('codex-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    manager.setupAdapterEvents(instance.id, adapter);
+
+    (adapter as unknown as EventEmitter).emit('context', {
+      used: 124_000, total: 200_000, percentage: 62,
+    });
+    expect(instance.contextUsage.occupancyReported).toBe(true);
+
+    (adapter as unknown as EventEmitter).emit('context', {
+      used: 0, total: 200_000, percentage: 0, isEstimated: true, source: 'thread-compacted',
+    });
+
+    expect(instance.contextUsage.used).toBe(0);
+    expect(instance.contextUsage.occupancyReported).toBe(true);
+  });
+
+  it('forwards the occupancy flag on the provider runtime event too, not just the instance', () => {
+    const adapter = new FakeAdapter('codex-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    manager.setupAdapterEvents(instance.id, adapter);
+
+    (adapter as unknown as EventEmitter).emit('context', {
+      used: 0, total: 200_000, percentage: 0, isEstimated: true,
+    });
+
+    expect(emitProviderRuntimeEvent).toHaveBeenCalledWith(
+      instance.id,
+      expect.objectContaining({ kind: 'context', occupancyReported: false }),
+      expect.anything(),
+    );
+  });
+
   it('clears an expired provider-limit gate after a non-limit turn completes', () => {
     const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
     const clearProviderLimitAfterSuccessfulTurn = vi.fn();
@@ -516,6 +625,10 @@ describe('InstanceCommunicationManager', () => {
       outputTokens: 20,
       source: 'provider-usage',
       promptWeight: 0.75,
+      // LT-018: the diagnostics panel renders this event rather than the
+      // instance's contextUsage, so it carries the same flag. A real
+      // provider-usage reading is reported.
+      occupancyReported: true,
     }, expect.objectContaining({
       raw: {
         source: 'adapter-event:context',
@@ -2294,5 +2407,63 @@ describe('provider-limit park on thrown sendInput errors', () => {
     expect(compactContext).toHaveBeenCalledWith(instance.id);
     expect(onProviderLimitTurn).not.toHaveBeenCalled();
     expect(adapter.sendInput).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Adapter status events during a hibernate-wake
+// ---------------------------------------------------------------------------
+
+describe('InstanceCommunicationManager – adapter status during wake', () => {
+  let instance: Instance;
+  let adapters: Map<string, CliAdapter>;
+
+  function createWakeManager(): InstanceCommunicationManager {
+    const stateMachines = new Map<string, InstanceStateMachine>();
+    return new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, adapter) => { adapters.set(id, adapter); },
+      deleteAdapter: (id) => adapters.delete(id),
+      transitionState: (inst, status) => {
+        let sm = stateMachines.get(inst.id);
+        if (!sm) {
+          sm = new InstanceStateMachine(inst.status);
+          stateMachines.set(inst.id, sm);
+        }
+        sm.transition(status);
+        inst.status = sm.current;
+      },
+      queueUpdate: vi.fn(),
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+    });
+  }
+
+  beforeEach(() => {
+    instance = createInstance('waking');
+    adapters = new Map();
+  });
+
+  it('accepts the idle status stateless exec adapters emit from spawn()', () => {
+    const adapter = new FakeAdapter('codex-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    const manager = createWakeManager();
+    manager.setupAdapterEvents(instance.id, adapter);
+
+    expect(() => adapter.emit('status', 'idle')).not.toThrow();
+    expect(instance.status).toBe('idle');
+  });
+
+  it('ignores a status the state machine rejects instead of throwing into the adapter', () => {
+    const adapter = new FakeAdapter('codex-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    const manager = createWakeManager();
+    manager.setupAdapterEvents(instance.id, adapter);
+
+    expect(() => adapter.emit('status', 'waiting_for_input')).not.toThrow();
+    expect(instance.status).toBe('waking');
   });
 });

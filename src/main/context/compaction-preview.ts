@@ -66,7 +66,14 @@ export async function previewCompaction(
       keptVerbatimCount: 0,
       tokenEstimate: {
         value: instance.contextUsage?.used ?? 0,
-        source: instance.contextUsage && instance.contextUsage.isEstimated !== true ? 'measured' : 'heuristic',
+        // LT-018: `isEstimated !== true` was true for the create-time
+        // placeholder (which sets neither field), so an instance that had never
+        // reported occupancy was labelled `measured` and rendered as
+        // "~0 (measured)" — a confident claim about a number nobody measured.
+        // Only a genuine report earns `measured`.
+        source: instance.contextUsage?.occupancyReported && instance.contextUsage.isEstimated !== true
+          ? 'measured'
+          : 'heuristic',
       },
       protectedItems: { mostRecentUserTurnProtected: false, authenticatedEvidencePreserved: false },
       totalMessageCount: turns.length,

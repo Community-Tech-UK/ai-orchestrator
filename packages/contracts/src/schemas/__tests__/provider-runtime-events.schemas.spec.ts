@@ -335,3 +335,38 @@ describe('ProviderRuntimeEventEnvelopeSchema', () => {
     expect(parsed.ephemeral).toBe(true);
   });
 });
+
+/**
+ * LT-018. `ProviderContextEvent` carries `occupancyReported` so the diagnostics
+ * panel — which renders this event rather than the instance's `contextUsage` —
+ * can tell a real measurement from a "no reading yet" signal. A plain
+ * `z.object()` strips unrecognised keys, so if the schema and the type drift
+ * apart the flag is silently dropped from every persisted ledger row, and a real
+ * measurement reads back as unreported.
+ */
+describe('ProviderContextEvent occupancyReported (LT-018)', () => {
+  function parseContext(event: Record<string, unknown>) {
+    return ProviderRuntimeEventEnvelopeSchema.parse({ ...baseEnv, event }) as {
+      event: { occupancyReported?: boolean };
+    };
+  }
+
+  it('round-trips occupancyReported: true rather than stripping it', () => {
+    const parsed = parseContext({
+      kind: 'context', used: 124_000, total: 200_000, occupancyReported: true,
+    });
+    expect(parsed.event.occupancyReported).toBe(true);
+  });
+
+  it('round-trips occupancyReported: false, which is not the same as absent', () => {
+    const parsed = parseContext({
+      kind: 'context', used: 0, total: 200_000, occupancyReported: false,
+    });
+    expect(parsed.event.occupancyReported).toBe(false);
+  });
+
+  it('stays optional, so pre-flag events still parse', () => {
+    const parsed = parseContext({ kind: 'context', used: 10, total: 200 });
+    expect(parsed.event.occupancyReported).toBeUndefined();
+  });
+});

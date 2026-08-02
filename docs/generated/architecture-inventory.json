@@ -5742,7 +5742,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3268
+      "lines": 3285
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase1-contracts-package_completed.md",
@@ -5786,11 +5786,15 @@
     },
     {
       "path": "src/main/instance/instance-communication.ts",
-      "lines": 2566
+      "lines": 2624
     },
     {
       "path": "docs/superpowers/plans/2026-04-07-remote-folder-browsing.md",
       "lines": 2519
+    },
+    {
+      "path": "src/main/instance/instance-communication.spec.ts",
+      "lines": 2470
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
@@ -5811,10 +5815,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan_completed.md",
       "lines": 2339
-    },
-    {
-      "path": "src/main/instance/instance-communication.spec.ts",
-      "lines": 2299
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.ts",
@@ -5890,7 +5890,7 @@
     },
     {
       "path": "src/main/session/session-continuity.ts",
-      "lines": 1796
+      "lines": 1798
     },
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
@@ -5905,12 +5905,12 @@
       "lines": 1673
     },
     {
-      "path": "src/main/orchestration/default-invokers.ts",
-      "lines": 1644
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
       "lines": 1635
+    },
+    {
+      "path": "src/main/orchestration/default-invokers.ts",
+      "lines": 1623
     },
     {
       "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
@@ -5969,6 +5969,10 @@
       "lines": 1492
     },
     {
+      "path": "src/main/instance/__tests__/instance-manager.lifecycle.spec.ts",
+      "lines": 1481
+    },
+    {
       "path": "src/main/history/history-manager.ts",
       "lines": 1479
     },
@@ -5983,10 +5987,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-04-agentic-harness-hardening_completed.md",
       "lines": 1456
-    },
-    {
-      "path": "src/main/instance/__tests__/instance-manager.lifecycle.spec.ts",
-      "lines": 1427
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.thread-recovery.spec.ts",
@@ -6011,6 +6011,10 @@
     {
       "path": "src/renderer/app/core/state/source-control.store.spec.ts",
       "lines": 1351
+    },
+    {
+      "path": "src/renderer/app/features/instance-detail/output-stream.component.ts",
+      "lines": 1347
     },
     {
       "path": "src/main/memory/unified-controller.ts",
@@ -6055,10 +6059,6 @@
     {
       "path": "src/renderer/app/features/knowledge/knowledge-page.component.ts",
       "lines": 1314
-    },
-    {
-      "path": "src/renderer/app/features/instance-detail/output-stream.component.ts",
-      "lines": 1310
     },
     {
       "path": "src/main/orchestration/cross-model-review-service.spec.ts",
@@ -6178,7 +6178,7 @@
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.yolo-mode.spec.ts",
-      "lines": 1195
+      "lines": 1202
     },
     {
       "path": "docs/superpowers/plans/2026-04-03-remote-nodes-phase5-integration.COMPLETED.md",
@@ -6349,12 +6349,12 @@
       "lines": 1023
     },
     {
-      "path": "src/renderer/app/features/plan/plan-page.component.ts",
-      "lines": 1015
+      "path": "src/main/cli/adapters/base-cli-adapter.ts",
+      "lines": 1021
     },
     {
-      "path": "src/main/cli/adapters/base-cli-adapter.ts",
-      "lines": 1014
+      "path": "src/renderer/app/features/plan/plan-page.component.ts",
+      "lines": 1015
     },
     {
       "path": "src/worker-agent/worker-agent.ts",

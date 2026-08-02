@@ -32,7 +32,12 @@ const PROVIDER_COST_LABELS: Record<string, string> = {
                 {{ store.instanceCount() }} session{{ store.instanceCount() === 1 ? '' : 's' }}
               </span>
             }
-            @if (store.totalContextUsage().total > 0) {
+            <!-- LT-018: a positive total alone was true the moment any instance
+                 was created, because every instance is seeded with a placeholder
+                 context window — so this rendered a confident "0% ctx" for a
+                 fleet that had merely not reported yet. Hide the stat entirely
+                 until something has actually measured. -->
+            @if (store.totalContextUsage().occupancyReported) {
               <span class="stat">
                 {{ store.totalContextUsage().percentage | number: '1.0-0' }}% ctx
               </span>
@@ -68,7 +73,10 @@ export class SidebarFooterComponent {
 
   readonly hasStats = computed(() =>
     this.store.instanceCount() > 0
-      || this.store.totalContextUsage().total > 0
+      // LT-018: `total` now only accumulates from instances that reported, so
+      // this is equivalent to the flag — say so, rather than leaving a second
+      // spelling of the same condition to drift.
+      || this.store.totalContextUsage().occupancyReported
       || (this.showCost() && !!this.store.totalContextUsage().costEstimate)
   );
 

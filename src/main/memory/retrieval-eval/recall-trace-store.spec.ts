@@ -55,3 +55,55 @@ describe('RecallTraceStore', () => {
     expect(t.id).toBe('fixed-1');
   });
 });
+
+/**
+ * WS16 observability. This store is in-memory with no IPC, preload, disk or
+ * diagnostics surface — before these log lines a recall trace was unobservable
+ * by anyone, which made three livetest checks unrunnable *by construction*
+ * rather than merely unrun. The store's own contract is that traces "never leak
+ * query text into telemetry", so the log carries the hash and lengths only.
+ */
+describe('RecallTraceStore observability (WS16 checks 4/5/6)', () => {
+  it('retains the sanitizer strategy so it can be observed, not just that sanitizing happened', () => {
+    const store = new RecallTraceStore();
+    const trace = store.record({
+      surface: 'codemem',
+      query: 'where is the backoff helper?',
+      rawQuery: 'an 8-frame stack trace … where is the backoff helper?',
+      sanitizedQuery: 'where is the backoff helper?',
+      strategy: 'last-question',
+      returned: [{ id: 'src/a.ts', score: 2 }],
+    });
+
+    expect(trace.strategy).toBe('last-question');
+  });
+
+  it('omits strategy entirely when the caller did not supply one', () => {
+    const store = new RecallTraceStore();
+    const trace = store.record({
+      surface: 'rlm',
+      query: 'short query',
+      returned: [],
+    });
+
+    expect(trace.strategy).toBeUndefined();
+    expect('strategy' in trace).toBe(false);
+  });
+
+  it('never retains query text on the hash key, whatever the strategy', () => {
+    const store = new RecallTraceStore();
+    const secret = 'token sk-do-not-log-me please find the helper?';
+    const trace = store.record({
+      surface: 'codemem',
+      query: 'please find the helper?',
+      rawQuery: secret,
+      sanitizedQuery: 'please find the helper?',
+      strategy: 'last-question',
+      returned: [],
+    });
+
+    // queryHash is the telemetry-safe key; raw text is retained locally only.
+    expect(trace.queryHash).not.toContain('sk-do-not-log-me');
+    expect(trace.queryHash).toBe(hashQuery('please find the helper?'));
+  });
+});

@@ -210,6 +210,43 @@ describe('RuntimeReconciler.applyRecoveryRespawn', () => {
     expect(deps.evaluateResumeHealth).toHaveBeenCalledTimes(2);
   });
 
+  /**
+   * LT-018. A proven-dead resume falls back to a fresh session with replayed
+   * history, so the pre-crash occupancy belongs to a runtime that no longer
+   * exists. The sibling restart flows already reset via `resetBackendSessionState`;
+   * this path did not, so the UI kept showing the pre-crash percentage as if it
+   * were the new session's real reading — and at >=95% that disables the composer.
+   *
+   * The default fixture seeds `{used: 0}`, which is indistinguishable from the
+   * reset outcome, so this test seeds a REAL reading first. Without that, the
+   * assertion passes whether or not the reset exists.
+   */
+  it('clears occupancy when a dead resume falls back to a fresh session', async () => {
+    const reported = makeInstance({
+      contextUsage: { used: 90_000, total: 100_000, percentage: 90, occupancyReported: true },
+    });
+    const { reconciler, instance, deps } = makeHarness(reported, [makeAdapter(81), makeAdapter(82)]);
+    deps.evaluateResumeHealth.mockResolvedValue('unrecoverable');
+
+    await reconciler.applyRecoveryRespawn('inst-1', makeRequest(), makeHooks());
+
+    expect(instance.contextUsage.used).toBe(0);
+    expect(instance.contextUsage.percentage).toBe(0);
+    expect(instance.contextUsage.occupancyReported).toBeUndefined();
+  });
+
+  it('keeps occupancy when the recovery respawn genuinely resumes', async () => {
+    const reported = makeInstance({
+      contextUsage: { used: 90_000, total: 100_000, percentage: 90, occupancyReported: true },
+    });
+    const { reconciler, instance } = makeHarness(reported, [makeAdapter(81)]);
+
+    await reconciler.applyRecoveryRespawn('inst-1', makeRequest(), makeHooks());
+
+    expect(instance.contextUsage.used).toBe(90_000);
+    expect(instance.contextUsage.occupancyReported).toBe(true);
+  });
+
   it('unrecoverable resume health falls back to a fresh session (proven-dead only)', async () => {
     const resumeAdapter = makeAdapter(81);
     const fallbackAdapter = makeAdapter(82);

@@ -209,6 +209,15 @@ describe('InstanceStateMachine – valid transitions', () => {
     expect(sm.current).toBe('error');
   });
 
+  it('waking → idle (stateless exec adapters emit idle from spawn during a wake)', () => {
+    const sm = new InstanceStateMachine('waking');
+    sm.transition('idle');
+    expect(sm.current).toBe('idle');
+    // The wake flow still finishes on ready afterwards.
+    sm.transition('ready');
+    expect(sm.current).toBe('ready');
+  });
+
   it('idle → waiting_for_input', () => {
     const sm = new InstanceStateMachine('idle');
     sm.transition('waiting_for_input');

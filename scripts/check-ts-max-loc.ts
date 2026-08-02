@@ -68,6 +68,12 @@ const ALLOWLIST: Record<string, number> = {
   'benchmarks/orchestrator-benchmark/runner.ts': 768,
   // Contracts
   'packages/contracts/src/schemas/session.schemas.ts': 743,
+  // Sat at exactly 700 — the hard limit — so the next schema field of any kind
+  // breaks the build. Allowlisted for LT-018's `occupancyReported`, which HAD to
+  // be added: the schema is `.strict()`, so its absence rejected every
+  // `instance:compact-status` completed event outright. Splitting this barrel is
+  // the real fix and is worth doing on its own, not as a rider.
+  'packages/contracts/src/schemas/instance.schemas.ts': 703,
   // Allowlisted for the loop-engine/Pi-Task-18 fields (ledger-stall bounds,
   // CompletionSignalEvidence.openCount, LoopState ledger +
   // justCompacted, follow-up pending-input kind) — type/schema round-trip.
@@ -187,6 +193,13 @@ const ALLOWLIST: Record<string, number> = {
   // Raised 1068 -> 1105 (2026-07-17 loop-issue fixes).
   'src/main/instance/instance-orchestration.ts': 1105,
   'src/main/instance/lifecycle/interrupt-respawn-handler.ts': 1421,
+  // Was 697 of 700. LT-018 added occupancy resets to the two fresh-session
+  // fallback branches (`applyRuntimeChange`'s resume failure and
+  // `applyRecoveryRespawn`), each of which was carrying a dead runtime's
+  // context percentage into a new session. Two extractions already came out of
+  // this file in the same change (`resolveRuntimeChangeModel`,
+  // `resolveSwapContextUsage`); a third purely to reclaim 5 lines would be churn.
+  'src/main/instance/lifecycle/runtime-reconciler.ts': 705,
   // Main process — IPC handlers
   'src/main/ipc/handlers/app-handlers.ts': 660,
   // Raised 1208 -> 1251 (2026-07-17 thread-resilience + context-evidence handlers).

@@ -55,6 +55,7 @@ import { getAutoTitleService } from './auto-title-service';
 import { ActivityStateDetector } from '../providers/activity-state-detector';
 import { getDeferDecisionStore } from '../cli/hooks/defer-decision-store';
 import { InstanceSpawner } from './lifecycle/instance-spawner';
+import { restoreContextUsage } from './lifecycle/context-usage-restore';
 import { createSpawnTransaction, type SpawnTransaction } from './lifecycle/spawn-transaction';
 import {
   deliverInitialPromptAfterSpawn,
@@ -83,6 +84,7 @@ import { detectAvailableClis } from '../cli/cli-detection';
 import type { ProviderId } from '../../shared/types/provider-quota.types';
 import { DesiredRuntimeQueue } from './lifecycle/desired-runtime-queue';
 import { isAdapterOnLoan, onAdapterLoanReleased, warnIfLoanLooksWedged } from './lifecycle/adapter-loan-registry';
+import { describeLoopProviderDivergence } from './lifecycle/loop-provider-divergence';
 import { RuntimeReconciler } from './lifecycle/runtime-reconciler';
 import type { SwapTargetProvider } from './lifecycle/model-change-provider-swap';
 import { PlanModeManager } from './lifecycle/plan-mode-manager';
@@ -162,6 +164,14 @@ export class InstanceLifecycleManager extends EventEmitter {
    * Accumulated so multiple late enrichers combine into one preamble.
    */
   private readonly lateEnricherPreambles = new Map<string, Map<string, string>>();
+
+  /**
+   * Wakes currently in flight, keyed by instance id. A wake no longer stays on
+   * 'waking' for its whole duration — stateless exec adapters emit
+   * `status: idle` from spawn() — so status alone can no longer tell a
+   * concurrent waker that a wake is still running. See wakeInstance().
+   */
+  private readonly wakesInFlight = new Map<string, Promise<void>>();
 
   /**
    * Callbacks used to keep a session alive when its create-time initial prompt
@@ -1857,6 +1867,14 @@ export class InstanceLifecycleManager extends EventEmitter {
       throw new Error(`Instance ${instanceId} not found`);
     }
 
+    const wakeInFlight = this.wakesInFlight.get(instanceId);
+    if (wakeInFlight) {
+      // Status is not a reliable in-flight signal: the adapter can report
+      // 'idle' from spawn() long before the wake finishes replaying.
+      await wakeInFlight;
+      return;
+    }
+
     if (instance.status === 'waking') {
       // wakeInstance() assigns readyPromise in the same synchronous block that
       // sets 'waking', so an observer of 'waking' always sees the promise.
@@ -1912,17 +1930,9 @@ export class InstanceLifecycleManager extends EventEmitter {
           instance.currentModel = sessionState.modelId;
         }
         if (sessionState?.contextUsage) {
-          instance.contextUsage = {
-            used: sessionState.contextUsage.used,
-            total: sessionState.contextUsage.total,
-            percentage: sessionState.contextUsage.total > 0
-              ? Math.min(
-                  (sessionState.contextUsage.used / sessionState.contextUsage.total) * 100,
-                  100
-                )
-              : 0,
-            costEstimate: sessionState.contextUsage.costEstimate,
-          };
+          // LT-018: see `context-usage-restore.ts` for why a non-zero persisted
+          // `used` counts as evidence of a real measurement.
+          instance.contextUsage = restoreContextUsage(sessionState.contextUsage);
         }
 
         await initializeInstanceEvidenceOwnership(instance, this.settings.getAll());
@@ -2146,9 +2156,14 @@ export class InstanceLifecycleManager extends EventEmitter {
     })();
 
     instance.readyPromise = wakePromise;
+    this.wakesInFlight.set(instanceId, wakePromise);
     wakePromise.catch(() => { /* rejection surfaced via readyPromise */ });
 
-    await wakePromise;
+    try {
+      await wakePromise;
+    } finally {
+      this.wakesInFlight.delete(instanceId);
+    }
   }
 
   private createSessionBoundaryMessage(): OutputMessage {
@@ -3065,6 +3080,8 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         this.emitModelSelectionDegradation(instance, degradation),
       emitSystemNotice: (instance, content, metadata) =>
         this.emitSystemNotice(instance, content, metadata),
+      describeLoopProviderDivergence: (instanceId, newProvider) =>
+        describeLoopProviderDivergence(instanceId, newProvider),
       emitRuntimeChanged: (payload) => this.emit('model-changed', payload),
       emitYoloToggled: (payload) => this.emit('yolo-toggled', payload),
       getSettings: () => this.settings.getAll(),

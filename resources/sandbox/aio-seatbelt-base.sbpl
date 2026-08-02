@@ -6,8 +6,11 @@
 ;
 ; Composition contract (see src/main/sandbox/seatbelt.ts):
 ;  - this base is deny-by-default with the process/pty/sysctl carve-outs below;
-;  - READ access is granted broadly in Phase A (CLIs need configs, keychains
-;    are protected by TCC anyway); WRITE access is granted ONLY via generated
+;  - READ access is granted broadly in Phase A (CLIs need configs). NOTE: the
+;    original contract said keychains were "protected by TCC anyway" — that is
+;    NOT true (TCC is inherited from the responsible app), and securityd
+;    mach-lookup is now granted explicitly below (LT-026). Per-item keychain
+;    ACLs are the boundary; WRITE access is granted ONLY via generated
 ;    (param "WRITABLE_ROOT_n") clauses appended by the builder — the paths
 ;    themselves always arrive via `-D` parameters, never interpolated into
 ;    policy text (injection-safe, codex lesson);
@@ -47,18 +50,29 @@
   (global-name "com.apple.cfprefsd.agent")
   (local-name "com.apple.cfprefsd.agent"))
 
-; Keychain access (LT-026). The composition contract above already states that
-; read access is broad in Phase A because "CLIs need configs, keychains" — but
-; reading the login keychain is a mach-lookup to securityd, not a file read, and
-; that was missing. Without it every provider CLI whose credentials live in the
-; Keychain starts, fails to authenticate, and exits 1: the Claude CLI printed
-; "Not logged in · Please run /login" and died 0.5 s after spawn, so hardened
-; mode killed every session it was enabled on. Verified: adding this makes the
-; same jailed spawn succeed.
+; Keychain access (LT-026). Reading the login keychain is a mach-lookup to
+; securityd, not a file read. Without it every provider CLI whose credentials
+; live in the Keychain starts, fails to authenticate and exits 1: the Claude CLI
+; printed "Not logged in · Please run /login" and died 0.5 s after spawn, so
+; hardened mode killed every session it was enabled on.
+;
+; This is a deliberate widening of the Phase A contract above, not a restoration
+; of it: that contract assumed the keychain was out of reach ("protected by TCC
+; anyway"), which is not true here — TCC is inherited from the responsible app,
+; so it is NOT the boundary. The real boundary is per-item keychain ACLs, plus
+; the fact that keychain *mutation* is a client-side file write and therefore
+; still gated by the WRITABLE_ROOT grants below (verified: a jailed
+; `security add-generic-password` into a keychain outside the roots fails
+; "Operation not permitted").
+;
+; Both names are load-bearing in principle. A/B on the Claude CLI path that
+; actually broke shows only `com.apple.SecurityServer` is required today;
+; `com.apple.securityd.xpc` is the modern SecItem endpoint and is granted to
+; every App Store app by Apple's own application.sb, so it is kept for provider
+; CLIs that use the SecItem API rather than shelling out to /usr/bin/security.
 (allow mach-lookup
   (global-name "com.apple.SecurityServer")
-  (global-name "com.apple.securityd.xpc")
-  (global-name "com.apple.SecurityServer.xpc"))
+  (global-name "com.apple.securityd.xpc"))
 
 ; python multiprocessing / OpenMP runtimes.
 (allow ipc-posix-sem)

@@ -1254,7 +1254,9 @@ export class SessionContinuityManager extends EventEmitter {
       contextUsage: {
         used: instance.contextUsage.used,
         total: instance.contextUsage.total,
-        costEstimate: instance.contextUsage.costEstimate
+        costEstimate: instance.contextUsage.costEstimate,
+        // LT-018: carry the "these numbers are real" flag across hibernate/wake.
+        occupancyReported: instance.contextUsage.occupancyReported
       },
       pendingTasks: [],
       environmentVariables: {},

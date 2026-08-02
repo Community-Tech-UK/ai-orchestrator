@@ -357,3 +357,51 @@ describe('setupInstanceEventForwarding', () => {
     );
   });
 });
+
+/**
+ * LT-018. `session-continuity.updateState` does a shallow `Object.assign`, so
+ * whatever is enqueued here REPLACES the stored `contextUsage` wholesale.
+ * Narrowing it to `{used, total}` therefore dropped `occupancyReported`,
+ * `percentage` and `costEstimate` from the on-disk record on every ordinary
+ * turn — accrued spend vanished on any hibernate/wake or restart, and the wake
+ * restore lost the one flag it exists to recover.
+ */
+describe('instance:batch-update contextUsage persistence (LT-018)', () => {
+  it('persists the whole ContextUsage, not a narrowed subset', async () => {
+    const mgr = buildManager({ 'inst-1': { id: 'inst-1', sessionId: 's1' } });
+    setupInstanceEventForwarding({
+      instanceManager: mgr,
+      windowManager: mockWindowManager,
+      isStatelessExecProvider: () => false,
+      getNodeLatencyForInstance: () => undefined,
+    });
+
+    mgr.emit('instance:batch-update', {
+      updates: [{
+        instanceId: 'inst-1',
+        status: 'idle',
+        contextUsage: {
+          used: 124_000,
+          total: 200_000,
+          percentage: 62,
+          costEstimate: 4.25,
+          occupancyReported: true,
+        },
+      }],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(mockContinuity.updateState).toHaveBeenCalledWith(
+      'inst-1',
+      expect.objectContaining({
+        contextUsage: expect.objectContaining({
+          used: 124_000,
+          total: 200_000,
+          percentage: 62,
+          costEstimate: 4.25,
+          occupancyReported: true,
+        }),
+      }),
+    );
+  });
+});

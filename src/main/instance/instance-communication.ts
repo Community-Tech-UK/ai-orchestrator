@@ -30,7 +30,7 @@ import {
   buildUnsupportedAttachmentWarnings,
   isUnsupportedOrchestratorAttachmentError,
 } from './orchestrator-attachment-fallback';
-import { isInstanceSettledStatus } from './instance-state-machine';
+import { IllegalTransitionError, isInstanceSettledStatus } from './instance-state-machine';
 import { generateId } from '../../shared/utils/id-generator';
 import { classifyContextOverflow, extractOverflowTokenCount } from '../context/ptl-retry';
 import { BudgetAction } from '../context/token-budget-tracker.js';
@@ -1504,7 +1504,25 @@ export class InstanceCommunicationManager extends EventEmitter {
           return;
         }
 
-        const previousStatus = this.transitionAdapterStatus(instanceId, instance, normalizedStatus);
+        // An adapter status event is advisory. Throwing out of this listener
+        // aborts whatever the adapter was doing when it emitted — a status
+        // emitted from spawn() would otherwise fail the whole hibernate-wake.
+        const statusBeforeTransition = instance.status;
+        let previousStatus: InstanceStatus;
+        try {
+          previousStatus = this.transitionAdapterStatus(instanceId, instance, normalizedStatus);
+        } catch (error) {
+          if (error instanceof IllegalTransitionError) {
+            logger.warn('Adapter status rejected by the lifecycle state machine — ignoring', {
+              instanceId,
+              adapter: adapter.getName(),
+              from: statusBeforeTransition,
+              to: normalizedStatus,
+            });
+            return;
+          }
+          throw error;
+        }
         instance.lastActivity = Date.now();
 
         const wasActiveTurn = ACTIVE_CHILD_TURN_STATUSES.has(previousStatus);
@@ -1583,12 +1601,32 @@ export class InstanceCommunicationManager extends EventEmitter {
         });
         return;
       }
+      // LT-018: decide ONCE, before either transport, whether this event is a
+      // real occupancy measurement. `instance.contextUsage` and the
+      // `ProviderContextEvent` are two independent paths carrying the same
+      // numbers to the UI — the diagnostics panel renders the latter — so
+      // computing this separately per path is exactly how they drift.
+      //
+      // Two different events share the shape `{used: 0, isEstimated: true}`:
+      //   - Codex app-server's "no per-call occupancy yet AND no prior
+      //     occupancy" (`codex-app-server-notification-adapter.ts`), and
+      //   - a genuine provider-observed compaction reset
+      //     (`codex/compaction-presentation.ts`, `source: 'thread-compacted'`).
+      // They are indistinguishable by shape, so discriminate on history
+      // instead: a reset cannot *un*-report occupancy. Same rule
+      // `buildPostCompactionUsage` applies to AIO-driven compaction.
+      const isNoReadingShape = usage.isEstimated === true && usage.used === 0;
+      const alreadyReported =
+        this.deps.getInstance(instanceId)?.contextUsage?.occupancyReported === true;
+      const occupancyReported = !isNoReadingShape || alreadyReported;
+
       emitProviderRuntimeEvent(
         {
           kind: 'context',
           used: usage.used,
           total: usage.total,
           percentage: usage.percentage,
+          occupancyReported,
           ...(usage.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
           ...(usage.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
           ...(usage.source !== undefined ? { source: usage.source } : {}),
@@ -1609,11 +1647,31 @@ export class InstanceCommunicationManager extends EventEmitter {
             incomingTotal: usage.total,
           });
         }
-        instance.contextUsage = usage;
+        // LT-018: this is the moment the numbers stop being a placeholder —
+        // unless the event itself says it has no reading.
+        //
+        // `isEstimated: true` with `used === 0` is the shape the Codex
+        // app-server adapter emits specifically to mean "no per-call occupancy
+        // yet and no prior occupancy"
+        // (`codex-app-server-notification-adapter.ts`, `!hasAccurateOccupancy
+        // && used === 0`). Flagging that as reported would republish the exact
+        // confident zero this whole fix exists to remove, straight from the
+        // source. An *estimated* reading with `used > 0` is still a real
+        // measurement and keeps its "~" badge.
+        // Uses the single decision made above, so this and the
+        // ProviderContextEvent cannot disagree.
+        instance.contextUsage = occupancyReported
+          ? { ...usage, occupancyReported: true }
+          : { ...usage };
         // Prefer the lifetime spend counter; fall back to occupancy for
         // adapters that don't emit cumulativeTokens (e.g. Claude).
         instance.totalTokensUsed = usage.cumulativeTokens ?? usage.used;
-        this.deps.queueUpdate(instanceId, instance.status, usage);
+        // Must be `instance.contextUsage`, NOT `usage`: the line above clones
+        // rather than assigning, so the two are no longer the same object. The
+        // renderer's context ring reads what is queued here, and the raw `usage`
+        // carries no `occupancyReported` — pushing it would make a *reporting*
+        // provider render as "no data" for most of an active turn.
+        this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
         if (!isStatelessExecAdapter(adapter)) {
           this.checkContextWarningThreshold(instanceId, instance, usage);
         }
