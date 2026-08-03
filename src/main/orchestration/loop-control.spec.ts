@@ -29,6 +29,15 @@ afterEach(() => {
 });
 
 describe('loop-control CLI contract', () => {
+  it('preserves a fresh control directory omitted from a concurrent caller active snapshot', async () => {
+    const inFlightDir = path.join(workspace, '.aio-loop-control', 'loop-in-flight');
+    fs.mkdirSync(path.join(inFlightDir, 'intents'), { recursive: true });
+
+    await prepareLoopControl(workspace, 'loop-second', [runtime.loopRunId, 'loop-second']);
+
+    expect(fs.existsSync(inFlightDir)).toBe(true);
+  });
+
   it('writes concurrent control updates safely when they start in the same millisecond', async () => {
     const now = Date.now();
     const dateNow = vi.spyOn(Date, 'now').mockReturnValue(now);

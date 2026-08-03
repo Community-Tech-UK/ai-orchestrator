@@ -2,7 +2,7 @@
 /**
  * check-provider-parity.js
  *
- * Validates that every canonical provider ID found in the settings types
+ * Validates that every canonical provider ID found in the settings primitives
  * appears in docs/provider-parity-checklist.md.
  *
  * Usage:  node scripts/check-provider-parity.js
@@ -15,19 +15,19 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
-const SETTINGS_FILE = path.join(ROOT, 'src/shared/types/settings.types.ts');
+const SETTINGS_PRIMITIVES_FILE = path.join(ROOT, 'src/shared/types/settings-primitives.types.ts');
 const CHECKLIST_FILE = path.join(ROOT, 'docs/provider-parity-checklist.md');
 
 // ---------------------------------------------------------------------------
-// Extract canonical CLI types from the settings file
+// Extract canonical CLI types from the settings primitives file
 // ---------------------------------------------------------------------------
 
-const settingsSource = fs.readFileSync(SETTINGS_FILE, 'utf8');
+const settingsPrimitivesSource = fs.readFileSync(SETTINGS_PRIMITIVES_FILE, 'utf8');
 
 // Match: export type CanonicalCliType = 'claude' | 'gemini' | ...
-const match = settingsSource.match(/CanonicalCliType\s*=\s*([^;]+);/);
+const match = settingsPrimitivesSource.match(/CanonicalCliType\s*=\s*([^;]+);/);
 if (!match) {
-  console.error('ERROR: Could not find CanonicalCliType in', SETTINGS_FILE);
+  console.error('ERROR: Could not find CanonicalCliType in', SETTINGS_PRIMITIVES_FILE);
   process.exit(1);
 }
 

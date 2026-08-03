@@ -20,6 +20,7 @@ export const LOOP_CONTROL_PROMPT_VERSION = 1 as const;
 export const LOOP_CONTROL_MAX_JSON_BYTES = 16 * 1024;
 export const LOOP_WAKEUP_MIN_DELAY_MS = 60_000;
 export const LOOP_WAKEUP_MAX_DELAY_MS = 3_600_000;
+const LOOP_CONTROL_STALE_GRACE_MS = 24 * 60 * 60 * 1_000;
 
 export interface LoopControlRuntime extends LoopControlMetadata {
   secret: string;
@@ -604,7 +605,12 @@ async function pruneStaleLoopControlDirs(workspace: string, activeLoopRunIds: Se
   const entries = await fs.readdir(root, { withFileTypes: true }).catch(() => []);
   await Promise.all(entries
     .filter((entry) => entry.isDirectory() && !activeLoopRunIds.has(entry.name))
-    .map((entry) => fs.rm(path.join(root, entry.name), { recursive: true, force: true }).catch(() => undefined)));
+    .map(async (entry) => {
+      const controlDir = path.join(root, entry.name);
+      const stat = await fs.stat(controlDir).catch(() => null);
+      if (!stat || Date.now() - stat.mtimeMs < LOOP_CONTROL_STALE_GRACE_MS) return;
+      await fs.rm(controlDir, { recursive: true, force: true }).catch(() => undefined);
+    }));
 }
 
 async function resolveLoopControlCliPath(controlDir: string): Promise<string> {
