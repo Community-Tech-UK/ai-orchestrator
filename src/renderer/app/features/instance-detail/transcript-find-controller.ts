@@ -6,6 +6,7 @@ import {
   setActiveTranscriptFindMatch,
 } from './transcript-find-dom';
 import { loadOlderUntilFindMatch } from './transcript-find-load';
+import { runRestoreFrame } from './restore-frame';
 
 export interface TranscriptFindControllerDeps {
   getViewportElement: () => HTMLElement | null;
@@ -258,7 +259,13 @@ export class TranscriptFindController {
     return this.isOpen() && this.query() === query && this.searchVersion === version;
   }
 
+  /**
+   * LT-033: a bare rAF promise never settles while the document is hidden, and
+   * this is awaited inside a `try` whose `finally` clears `loadingOlder` — so a
+   * find issued with the window backgrounded left that signal `true` and the
+   * find bar's next/prev buttons disabled for the rest of the session.
+   */
   private async waitForRender(): Promise<void> {
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    await new Promise<void>((resolve) => runRestoreFrame(() => resolve()));
   }
 }

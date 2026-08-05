@@ -356,7 +356,14 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/file-explorer/file-explorer.component.ts': 1096,
   'src/renderer/app/features/hooks/hooks-config.component.ts': 1035,
   'src/renderer/app/features/hooks/hooks-page.component.ts': 767,
-  'src/renderer/app/features/instance-detail/input-panel.component.ts': 1737,
+  // Was 1787 of an allowed 1787 — exactly at tolerance, so a one-line import
+  // could not land. Raised for LT-033: `scheduleTextareaResize` cleared its
+  // re-entry guard only inside a `requestAnimationFrame`, which never fires
+  // while the document is hidden, so a single backgrounded keystroke stopped
+  // the composer auto-growing for the rest of the session. The fix is an import
+  // plus one comment; splitting a 1787-line component is real work that should
+  // not ride on a bug fix.
+  'src/renderer/app/features/instance-detail/input-panel.component.ts': 1790,
   'src/renderer/app/features/instance-detail/instance-detail.component.ts': 1582,
   // Raised 1266 -> 1297 (2026-07-17 thread-resilience stream updates).
   'src/renderer/app/features/instance-detail/output-stream.component.ts': 1297,

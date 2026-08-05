@@ -33,6 +33,7 @@ import {
   signal,
 } from '@angular/core';
 import type { DisplayItem } from './display-item.types';
+import { runRestoreFrame } from './restore-frame';
 import type { UserPromptRef } from '../../../../shared/types/prompt-index.types';
 import {
   MIN_JUMP_TARGETS,
@@ -454,7 +455,9 @@ export class TranscriptJumpRailComponent {
   private scheduleMeasure(): void {
     if (this.measureScheduled) return;
     this.measureScheduled = true;
-    requestAnimationFrame(() => {
+    // LT-033: same shape — cleared only inside the frame. Scroll or resize with
+    // the window hidden and the rail's tick highlighting freezes for good.
+    runRestoreFrame(() => {
       this.measureScheduled = false;
       this.measure();
     });

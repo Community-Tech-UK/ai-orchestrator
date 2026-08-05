@@ -73,6 +73,7 @@ import { OutputStreamRenderWindow } from './output-stream-render-window';
 import { InlineEditController } from './output-stream-inline-edit-controller';
 import { TranscriptVirtualizerController } from './transcript-virtualizer-controller';
 import type { RenderSegment } from './transcript-virtualizer-math';
+import { runRestoreFrame } from './restore-frame';
 
 interface OlderMessagesLoadResult {
   prependedCount: number;
@@ -424,7 +425,7 @@ export class OutputStreamComponent {
       }
 
       // Restore scroll position for the new instance using rAF for frame alignment
-      requestAnimationFrame(() => {
+      runRestoreFrame(() => {
         // If the user has switched away again before this frame landed, abort.
         if (this.instanceId() !== currentInstanceId) {
           this.isRestoringRef.value = false;
@@ -514,7 +515,7 @@ export class OutputStreamComponent {
 
       this.isRestoringRef.value = true;
 
-      requestAnimationFrame(() => {
+      runRestoreFrame(() => {
         // Bail out if a later instance switch has invalidated this restore.
         if (this.instanceId() !== currentId) {
           this.isRestoringRef.value = false;
@@ -543,7 +544,7 @@ export class OutputStreamComponent {
         return;
       }
 
-      requestAnimationFrame(() => {
+      runRestoreFrame(() => {
         const viewport = this.getViewportElement();
         if (viewport && !this.userScrolledUpRef.value) {
           viewport.scrollTop = viewport.scrollHeight;
@@ -583,22 +584,18 @@ export class OutputStreamComponent {
       queueMicrotask(() => this.virtualizer.reconcileObservedRows());
     });
 
-    // Bind the viewport listeners, and REBIND whenever the viewport element
-    // changes identity.
+    // Bind the viewport listeners, and REBIND whenever the element changes.
     //
-    // This was a one-shot `afterNextRender` and it bound nothing in the common
+    // This was a one-shot `afterNextRender` that bound nothing in the common
     // case: `#container` sits inside the `@else` of `@if (displayItems().length
-    // === 0)`, so an instance that opens with an empty transcript has no
-    // container at first render. All three binders resolve the viewport at call
-    // time and return null / no-op when it is absent, so the single attempt
-    // silently did nothing and was never retried — the scroll listener stayed
-    // dead for the life of the component even after messages arrived, which is
-    // why scroll-edge loading never fired (60 real wheel events moved the
-    // viewport while the listener's own state stayed frozen).
+    // === 0)`, so an instance opening with an empty transcript has no container
+    // at first render. All three binders fail soft when it is absent, so the
+    // single attempt did nothing and was never retried — the scroll listener
+    // stayed dead for the component's life even after messages arrived.
     //
     // Keyed on the `container` viewChild signal, matching the deferred-restore
-    // watcher above: the effect re-runs when the element materialises, and
-    // again if the `@if` ever tears it down and rebuilds it.
+    // watcher above: re-runs when the element materialises, and again if the
+    // `@if` tears it down and rebuilds it.
     effect(() => {
       const element = this.container()?.nativeElement ?? null;
       if (element === this.boundViewport) return;
@@ -656,6 +653,7 @@ export class OutputStreamComponent {
       this.transcriptFind.openFind();
     }
   }
+
 
   /**
    * Apply a captured scroll-restore to a viewport. Either snaps to
@@ -718,7 +716,9 @@ export class OutputStreamComponent {
     const viewport = this.getViewportElement();
     const scrollHeightBefore = viewport?.scrollHeight ?? 0;
     this.renderWindow.expand();
-    requestAnimationFrame(() => {
+    // LT-032: `isExpandingRenderWindow` gates re-entry above and clears only
+    // here — on plain rAF it sticks, disabling scroll-edge reveal for good.
+    runRestoreFrame(() => {
       if (viewport && this.instanceId() === instanceId) {
         viewport.scrollTop += viewport.scrollHeight - scrollHeightBefore;
       }
@@ -748,7 +748,7 @@ export class OutputStreamComponent {
             // Newly loaded pages must actually enter the DOM: grow the render
             // window by at least the prepended item count.
             this.renderWindow.grow(instanceId, data.prependedCount);
-            requestAnimationFrame(() => {
+            runRestoreFrame(() => {
               if (viewport) {
                 const scrollHeightAfter = viewport.scrollHeight;
                 viewport.scrollTop += scrollHeightAfter - scrollHeightBefore;
@@ -790,7 +790,7 @@ export class OutputStreamComponent {
           }
 
           // After Angular renders the new items, restore scroll position
-          requestAnimationFrame(() => {
+          runRestoreFrame(() => {
             if (viewport) {
               const scrollHeightAfter = viewport.scrollHeight;
               viewport.scrollTop += scrollHeightAfter - scrollHeightBefore;

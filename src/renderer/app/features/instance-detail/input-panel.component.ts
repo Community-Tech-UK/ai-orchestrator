@@ -87,6 +87,7 @@ import { ComposerToolbarComponent } from './composer-toolbar.component';
 import { ComposerBannersComponent } from './composer-banners.component';
 import { ComposerRecoveryBannerComponent } from './composer-recovery-banner.component';
 import { RunReadinessBannerComponent, RunReadinessGate } from './run-readiness-banner.component';
+import { runRestoreFrame } from './restore-frame';
 import {
   tryStartLoopFromPanel,
   type LoopStartRequestPayload,
@@ -1113,7 +1114,9 @@ export class InputPanelComponent implements OnDestroy {
     if (this.resizeScheduled) return;
     this.resizeScheduled = true;
 
-    requestAnimationFrame(() => {
+    // LT-033: rAF never fires while hidden, so clearing the guard only inside
+    // it meant one backgrounded keystroke stopped the composer auto-growing.
+    runRestoreFrame(() => {
       this.resizeScheduled = false;
       const target = this.textareaResizeTarget;
       this.textareaResizeTarget = null;
