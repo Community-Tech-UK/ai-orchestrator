@@ -327,6 +327,47 @@ describe('DarwinDesktopDriver', () => {
     });
   });
 
+  it('reports an equivalent Electron source id using the requested CGWindow id', async () => {
+    const driver = new DarwinDesktopDriver({
+      helper: makeHelper(),
+      captureScreenshot: capture({
+        data: 'BASE64',
+        mimeType: 'image/png',
+        width: 100,
+        height: 50,
+        windowId: 'window:216:0',
+      }),
+      now: () => 4242,
+    });
+
+    await expect(driver.screenshot({
+      appId: 'darwin-app:com.apple.Preview',
+      windowId: '216',
+    })).resolves.toMatchObject({
+      windowId: '216',
+    });
+  });
+
+  it('does not normalise an Electron source id for a different CGWindow', async () => {
+    const driver = new DarwinDesktopDriver({
+      helper: makeHelper(),
+      captureScreenshot: capture({
+        data: 'BASE64',
+        mimeType: 'image/png',
+        width: 100,
+        height: 50,
+        windowId: 'window:999:0',
+      }),
+    });
+
+    await expect(driver.screenshot({
+      appId: 'darwin-app:com.apple.Preview',
+      windowId: '216',
+    })).resolves.toMatchObject({
+      windowId: 'window:999:0',
+    });
+  });
+
   it('throws when the capture backend cannot find the target', async () => {
     const driver = new DarwinDesktopDriver({
       helper: makeHelper(),

@@ -70,6 +70,19 @@ describe('desktop-mcp-tools', () => {
     expect(drag?.description).toContain('observed app bounds');
   });
 
+  it('documents the focus-race sequence and ineligible out-of-window accessibility nodes', () => {
+    const tools = createDesktopMcpTools({ call: vi.fn() });
+    const activate = tools.find((tool) => tool.name === 'computer.activate_window');
+    const query = tools.find((tool) => tool.name === 'computer.query_elements');
+    const click = tools.find((tool) => tool.name === 'computer.click');
+
+    expect(activate?.description).toContain('same orchestrated call');
+    expect(activate?.description).toContain('fresh accessibility snapshot');
+    expect(query?.description).toContain('inputEligible: false');
+    expect(query?.description).toContain('menu-bar');
+    expect(click?.description).toContain('inputEligible: false');
+  });
+
   it('keeps the stdio bridge free of Electron and desktop driver imports', () => {
     const source = [
       'src/main/desktop-gateway/desktop-mcp-stdio-server.ts',

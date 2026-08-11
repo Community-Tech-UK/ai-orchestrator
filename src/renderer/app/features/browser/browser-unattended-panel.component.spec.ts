@@ -65,7 +65,10 @@ describe('BrowserUnattendedPanelComponent', () => {
     refreshCampaigns: ReturnType<typeof vi.fn>;
     refreshEscalations: ReturnType<typeof vi.fn>;
   };
-  let gatewayIpc: { listProfiles: ReturnType<typeof vi.fn> };
+  let gatewayIpc: {
+    listProfiles: ReturnType<typeof vi.fn>;
+    listTargets: ReturnType<typeof vi.fn>;
+  };
 
   beforeEach(async () => {
     vi.useFakeTimers();
@@ -91,6 +94,19 @@ describe('BrowserUnattendedPanelComponent', () => {
         success: true,
         data: { decision: 'allowed', outcome: 'succeeded', auditId: 'a', data: [] },
       }),
+      listTargets: vi.fn().mockResolvedValue({
+        success: true,
+        data: {
+          decision: 'allowed',
+          outcome: 'succeeded',
+          auditId: 'a',
+          data: [
+            { id: 't1', profileId: 'p1', nodeId: 'node-1', nodeName: 'windows-pc' },
+            { id: 't2', profileId: 'p2', nodeId: 'node-1', nodeName: 'windows-pc' },
+            { id: 't3', profileId: 'p3' },
+          ],
+        },
+      }),
     };
 
     await TestBed.configureTestingModule({
@@ -114,6 +130,23 @@ describe('BrowserUnattendedPanelComponent', () => {
   it('loads profiles and refreshes the store on init', () => {
     expect(gatewayIpc.listProfiles).toHaveBeenCalled();
     expect(store.refreshAll).toHaveBeenCalled();
+  });
+
+  it('offers local plus one scope per node so shared tabs can be authorized', () => {
+    // A shared tab's profileId is ephemeral, so its authorization is keyed by
+    // node scope. Without these options no shared-tab record could be created.
+    expect(fixture.componentInstance.sharedTabScopes()).toEqual([
+      { id: 'local', label: 'Shared tabs on this machine (local)' },
+      { id: 'node-1', label: 'Shared tabs on windows-pc' },
+    ]);
+  });
+
+  it('falls back to local only when targets cannot be listed', async () => {
+    gatewayIpc.listTargets.mockResolvedValue({ success: false });
+    await fixture.componentInstance.refreshNow();
+    expect(fixture.componentInstance.sharedTabScopes()).toEqual([
+      { id: 'local', label: 'Shared tabs on this machine (local)' },
+    ]);
   });
 
   it('polls the store every ~10s while mounted', async () => {

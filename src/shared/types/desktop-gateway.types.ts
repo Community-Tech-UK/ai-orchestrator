@@ -160,6 +160,8 @@ export interface DesktopAccessibilityNode {
   enabled?: boolean;
   focused?: boolean;
   redacted?: boolean;
+  /** False when this element's centre lies outside the approved window bounds. */
+  inputEligible?: boolean;
   children?: DesktopAccessibilityNode[];
 }
 
@@ -330,6 +332,8 @@ export interface DesktopElementCandidate {
   enabled?: boolean;
   focused?: boolean;
   redacted?: boolean;
+  /** False means the element can be observed but cannot be targeted for input. */
+  inputEligible?: boolean;
 }
 
 export interface DesktopQueryElementsResult {
@@ -345,6 +349,9 @@ export interface DesktopGrantSummary {
   createdAt: number;
   expiresAt: number;
   scope: 'session' | 'durable';
+  /** Requested lifetime; optional only for grants persisted before this field existed. */
+  duration?: DesktopGrantDuration;
+  minutes?: number;
   decidedBy: string;
   reason?: string;
   revokedAt?: number;

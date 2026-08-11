@@ -71,6 +71,11 @@ import {
   toGrantSummary,
 } from './desktop-gateway-service-helpers';
 import { DesktopObservationStore } from './desktop-observation-store';
+import { normalizeDesktopWindowId } from './desktop-window-identity';
+import {
+  annotateInputEligibility,
+  findApprovedWindowBounds,
+} from './desktop-accessibility-actionability';
 
 interface DesktopGatewaySettingsReader {
   get<K extends keyof Pick<
@@ -238,7 +243,8 @@ export class DesktopGatewayService {
         }, policy.app.appId, policy.grantId);
         return denied('computer_use_target_changed', 'failed');
       }
-      if (targetWindowId && result.windowId && result.windowId !== targetWindowId) {
+      const resultWindowId = normalizeDesktopWindowId(result.windowId, targetWindowId);
+      if (targetWindowId && resultWindowId && resultWindowId !== targetWindowId) {
         await this.audit(
           context,
           'computer.screenshot',
@@ -251,7 +257,7 @@ export class DesktopGatewayService {
         );
         return denied('computer_use_target_changed', 'failed');
       }
-      const observedWindowId = result.windowId ?? targetWindowId;
+      const observedWindowId = resultWindowId ?? targetWindowId;
       const data = {
         ...result,
         ...(observedWindowId ? { windowId: observedWindowId } : {}),
@@ -294,7 +300,8 @@ export class DesktopGatewayService {
         }, policy.app.appId, policy.grantId);
         return denied('computer_use_target_changed', 'failed');
       }
-      if (targetWindowId && result.windowId && result.windowId !== targetWindowId) {
+      const resultWindowId = normalizeDesktopWindowId(result.windowId, targetWindowId);
+      if (targetWindowId && resultWindowId && resultWindowId !== targetWindowId) {
         await this.audit(
           context,
           'computer.accessibility_snapshot',
@@ -307,13 +314,20 @@ export class DesktopGatewayService {
         );
         return denied('computer_use_target_changed', 'failed');
       }
-      const observedWindowId = result.windowId ?? targetWindowId;
+      const observedWindowId = resultWindowId ?? targetWindowId;
+      const windowBounds = policy.app
+        ? findApprovedWindowBounds(policy.app, observedWindowId)
+        : undefined;
+      const nodes = windowBounds
+        ? annotateInputEligibility(result.nodes, windowBounds)
+        : result.nodes;
       const data = {
         ...result,
+        nodes,
         ...(observedWindowId ? { windowId: observedWindowId } : {}),
         observationToken: this.observations.create(result.appId, {
           ...(observedWindowId ? { windowId: observedWindowId } : {}),
-          snapshot: result.nodes,
+          snapshot: nodes,
         }),
       };
       await this.audit(context, 'computer.accessibility_snapshot', 'allowed', 'ok', undefined, metadataFromObject(request), result.appId, policy.grantId);

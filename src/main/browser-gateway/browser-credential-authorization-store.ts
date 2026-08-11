@@ -49,6 +49,15 @@ export interface CredentialAuthorization {
    * only into one of these selectors — binds the grant to specific controls.
    */
   allowedSelectors?: string[];
+  /**
+   * For `email_code`: sender domains that may carry this origin's one-time codes
+   * even though they are unrelated to it. Needed because many services send
+   * codes from a shared platform — a GOV.UK service on `*.gov.uk` has Notify
+   * send from `notifications.service.gov.uk`, a different registrable domain, so
+   * the default origin-relation rule refuses it. Declaring the sender here is a
+   * human act, per origin; it is never inferred from the page or the mail.
+   */
+  allowedSenderDomains?: string[];
   /** Bitwarden folder this authorization is scoped to (e.g. 'AIO-Agent'). */
   vaultFolder: string;
   createdAt: number;
@@ -109,6 +118,8 @@ export interface AuthorizationCheck {
 export interface AuthorizationDecision {
   authorized: boolean;
   authorizationId?: string;
+  /** Sender domains the matched authorization permits for `email_code`. */
+  allowedSenderDomains?: string[];
   reason?:
     | 'no_authorization_for_profile'
     | 'origin_not_authorized'
@@ -190,7 +201,13 @@ export class CredentialAuthorizationService {
       if (auth.expiresAt <= now) {
         continue; // an expired-but-otherwise-matching auth is reported below
       }
-      return { authorized: true, authorizationId: auth.id };
+      return {
+        authorized: true,
+        authorizationId: auth.id,
+        ...(auth.allowedSenderDomains && auth.allowedSenderDomains.length > 0
+          ? { allowedSenderDomains: auth.allowedSenderDomains }
+          : {}),
+      };
     }
 
     // Nothing fully matched — report the most specific failure reason.

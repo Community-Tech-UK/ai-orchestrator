@@ -34,6 +34,14 @@ export class BrowserUnattendedPanelComponent implements OnInit, OnDestroy {
   private pollTimer: ReturnType<typeof setInterval> | null = null;
 
   readonly profiles = signal<BrowserProfile[]>([]);
+  /**
+   * Node scopes an authorization can be granted against for the user's own
+   * shared Chrome tabs. A shared tab's profileId is per-tab and ephemeral, so
+   * the standing record is keyed by node instead ('local' for this machine).
+   */
+  readonly sharedTabScopes = signal<{ id: string; label: string }[]>([
+    { id: 'local', label: 'Shared tabs on this machine (local)' },
+  ]);
   readonly loading = signal(false);
 
   async ngOnInit(): Promise<void> {
@@ -53,7 +61,7 @@ export class BrowserUnattendedPanelComponent implements OnInit, OnDestroy {
   async refreshNow(): Promise<void> {
     this.loading.set(true);
     try {
-      await Promise.all([this.loadProfiles(), this.store.refreshAll()]);
+      await Promise.all([this.loadProfiles(), this.loadSharedTabScopes(), this.store.refreshAll()]);
     } finally {
       this.loading.set(false);
     }
@@ -64,5 +72,29 @@ export class BrowserUnattendedPanelComponent implements OnInit, OnDestroy {
     if (response.success) {
       this.profiles.set(response.data?.data ?? []);
     }
+  }
+
+  /**
+   * 'local' is always offered; remote nodes are discovered from the shared tabs
+   * currently visible, which is where their ids come from anyway.
+   */
+  private async loadSharedTabScopes(): Promise<void> {
+    const byNode = new Map<string, string>();
+    try {
+      const response = await this.gatewayIpc.listTargets();
+      if (response.success) {
+        for (const target of response.data?.data ?? []) {
+          if (target.nodeId) {
+            byNode.set(target.nodeId, target.nodeName ?? target.nodeId);
+          }
+        }
+      }
+    } catch {
+      // Listing targets is best-effort; 'local' is always a valid scope.
+    }
+    this.sharedTabScopes.set([
+      { id: 'local', label: 'Shared tabs on this machine (local)' },
+      ...[...byNode].map(([id, name]) => ({ id, label: `Shared tabs on ${name}` })),
+    ]);
   }
 }

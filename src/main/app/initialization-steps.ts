@@ -98,6 +98,7 @@ import { initializeUnifiedModelCatalogRuntime } from './unified-model-catalog-in
 import { maybeStartWorkerModeOnLaunch } from '../remote-node/worker-mode-autostart';
 import { initializeContextEvidenceRuntime } from '../context-evidence/evidence-maintenance-service';
 import { initializeLocalAiGuardRuntime } from '../local-ai-guard';
+import { registerAcpYoloAutoApproval } from './permission-auto-approval';
 
 const logger = getLogger('AppInitialization');
 const CODEMEM_MAINTENANCE_COOLDOWN_MS = 30 * 60 * 1000;
@@ -955,20 +956,17 @@ export function createInitializationSteps(
         // autoApproveRequests yolo policy here so the registry resolves them
         // immediately. Registered AFTER the durable-store listeners so the
         // pending row is persisted before this listener emits `permission:resolved`.
-        permissionRegistry.on('permission:requested', (req: { id: string; instanceId: string }) => {
-          try {
-            const requestingInstance = instanceManager.getInstance(req.instanceId);
-            if (requestingInstance?.yoloMode) {
-              permissionRegistry.resolve(req.id, true, 'auto_approve');
-            }
-          } catch (err) {
+        registerAcpYoloAutoApproval(
+          permissionRegistry,
+          (instanceId) => instanceManager.getInstance(instanceId)?.yoloMode === true,
+          (req, err) => {
             logger.warn('Yolo auto-approve for ACP permission request failed', {
               requestId: req.id,
               instanceId: req.instanceId,
               error: err instanceof Error ? err.message : String(err),
             });
-          }
-        });
+          },
+        );
 
         // Register plan-mode agent tools bound to the live InstanceManager.
         // The returned ToolDefinitions can be exposed to debate coordinators

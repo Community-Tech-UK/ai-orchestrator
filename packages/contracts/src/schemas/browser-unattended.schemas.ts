@@ -51,11 +51,37 @@ export const BrowserCreateCredentialAuthorizationRequestSchema = z
     /** Epoch ms. Standing consent — weeks/months out, validated in the handler. */
     expiresAt: z.number().int().positive(),
     note: z.string().min(1).max(1000).optional(),
+    /**
+     * For `email_code`: sender domains allowed to carry this origin's one-time
+     * codes even when unrelated to it (a shared platform such as GOV.UK Notify
+     * sending for a *.gov.uk service). Explicit human consent, per origin.
+     */
+    allowedSenderDomains: z.array(z.string().min(1).max(253)).max(10).optional(),
   })
   .strict();
 export type BrowserCreateCredentialAuthorizationRequest = z.infer<
   typeof BrowserCreateCredentialAuthorizationRequestSchema
 >;
+
+/**
+ * Bind an EXISTING vault login to an origin so an authorized fill can use it.
+ * Renderer-only, like every other standing-consent surface here: an agent must
+ * never enrol its own credential.
+ */
+export const BrowserEnrolCredentialRequestSchema = z
+  .object({
+    /** Bitwarden item id, or its exact item name. */
+    item: z.string().min(1).max(300),
+    /** Origin to bind to, e.g. https://auth.portal.gov.uk. */
+    origin: z.string().url().max(500),
+    /**
+     * Move the item into the jailed vault folder when it lives elsewhere.
+     * Deliberate opt-in: it widens what an authorized fill can reach.
+     */
+    moveIntoFolder: z.boolean().optional(),
+  })
+  .strict();
+export type BrowserEnrolCredentialRequest = z.infer<typeof BrowserEnrolCredentialRequestSchema>;
 
 export const BrowserListCredentialAuthorizationsRequestSchema = z
   .object({

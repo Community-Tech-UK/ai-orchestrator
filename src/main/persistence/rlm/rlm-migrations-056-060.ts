@@ -90,4 +90,29 @@ export const RLM_MIGRATIONS_056_060: Migration[] = [
       DROP TABLE IF EXISTS learning_scan_checkpoints;
     `,
   },
+  {
+    // Credential authorizations: persist the three optional scope fields that
+    // the record type has always carried but the SQLite store never wrote, so
+    // they survive a restart.
+    //  - allowed_selectors_json: losing it silently WIDENS an authorization
+    //    (the control allowlist disappears), so this one is a real hole.
+    //  - allowed_secret_types_json: losing it breaks every secret_fill grant.
+    //  - allowed_sender_domains_json: sender domains permitted to carry this
+    //    origin's one-time codes (e.g. GOV.UK Notify for a *.gov.uk service),
+    //    which the origin-relation rule alone would refuse.
+    // Spec: docs/plans/browser-gateway-credential-login_plan.md
+    name: '058_credential_authorization_scope_fields',
+    up: `
+      ALTER TABLE browser_credential_authorizations
+        ADD COLUMN allowed_secret_types_json TEXT;
+      ALTER TABLE browser_credential_authorizations
+        ADD COLUMN allowed_selectors_json TEXT;
+      ALTER TABLE browser_credential_authorizations
+        ADD COLUMN allowed_sender_domains_json TEXT;
+    `,
+    down: `
+      -- SQLite cannot drop columns on older engines; leaving them is harmless
+      -- because the store treats each as optional.
+    `,
+  },
 ];

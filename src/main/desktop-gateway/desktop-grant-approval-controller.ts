@@ -181,6 +181,10 @@ export class DesktopGrantApprovalController {
       scope,
       createdAt: this.deps.now(),
       expiresAt: grantExpiresAt,
+      duration: pending.request.duration,
+      ...(pending.request.duration === 'boundedMinutes' && pending.request.minutes
+        ? { minutes: pending.request.minutes }
+        : {}),
       decidedBy: request.decidedBy,
       ...(request.reason ? { reason: request.reason } : {}),
     });

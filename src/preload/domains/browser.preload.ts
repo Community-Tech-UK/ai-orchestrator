@@ -256,8 +256,16 @@ export function createBrowserDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHA
       vaultFolder: string;
       expiresAt: number;
       note?: string;
+      allowedSenderDomains?: string[];
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.BROWSER_CREATE_CREDENTIAL_AUTHORIZATION, payload);
+    },
+    browserEnrolCredential: (payload: {
+      item: string;
+      origin: string;
+      moveIntoFolder?: boolean;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.BROWSER_ENROL_CREDENTIAL, payload);
     },
     browserListCredentialAuthorizations: (payload?: {
       profileId?: string;

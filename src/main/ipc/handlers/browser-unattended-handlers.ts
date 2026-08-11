@@ -3,6 +3,7 @@ import type { z } from 'zod';
 import { IPC_CHANNELS } from '@contracts/channels';
 import {
   BrowserVaultUnlockRequestSchema,
+  BrowserEnrolCredentialRequestSchema,
   BrowserCreateCredentialAuthorizationRequestSchema,
   BrowserListCredentialAuthorizationsRequestSchema,
   BrowserRevokeCredentialAuthorizationRequestSchema,
@@ -17,6 +18,7 @@ import { validateIpcPayload } from '@contracts/schemas/common';
 import type { IpcResponse } from '../validated-handler';
 import {
   getBrowserCredentialAuthorizationService,
+  getBrowserCredentialVault,
   getBrowserCampaignService,
   getBrowserEscalationService,
   getBrowserVaultStatus,
@@ -70,6 +72,24 @@ export function registerBrowserUnattendedHandlers(
     deps,
   );
 
+  // Bind an existing login (an account James registered by hand) to an origin.
+  // Without this, only agent-created accounts could ever be filled, because
+  // createAgentCredential was the sole writer of vault origin bindings. Returns
+  // a reference + username only; the password is never read here.
+  register(
+    IPC_CHANNELS.BROWSER_ENROL_CREDENTIAL,
+    BrowserEnrolCredentialRequestSchema,
+    (payload) =>
+      getBrowserCredentialVault().enrolExistingCredential({
+        item: payload.item,
+        origin: payload.origin,
+        ...(payload.moveIntoFolder !== undefined
+          ? { moveIntoFolder: payload.moveIntoFolder }
+          : {}),
+      }),
+    deps,
+  );
+
   register(
     IPC_CHANNELS.BROWSER_CREATE_CREDENTIAL_AUTHORIZATION,
     BrowserCreateCredentialAuthorizationRequestSchema,
@@ -89,6 +109,9 @@ export function registerBrowserUnattendedHandlers(
           vaultFolder: payload.vaultFolder,
           expiresAt: payload.expiresAt,
           ...(payload.note ? { note: payload.note } : {}),
+          ...(payload.allowedSenderDomains && payload.allowedSenderDomains.length > 0
+            ? { allowedSenderDomains: payload.allowedSenderDomains }
+            : {}),
         },
         generateId(),
       );

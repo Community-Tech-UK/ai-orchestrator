@@ -26,6 +26,16 @@ import {
 } from './desktop-grant-store';
 import type { DesktopSessionLock } from './desktop-session-lock';
 import type { DesktopDriver } from './platform/desktop-driver';
+import {
+  annotateInputEligibility,
+  findApprovedWindowBounds,
+} from './desktop-accessibility-actionability';
+import { normalizeDesktopWindowId } from './desktop-window-identity';
+import {
+  isDeniedHotkey,
+  isSecretLikeInput,
+  matchesWaitCondition,
+} from './desktop-input-policy';
 
 interface DesktopInputControllerDeps {
   driver: DesktopDriver;
@@ -146,6 +156,19 @@ export class DesktopInputController {
       );
       return denied(observed.reason);
     }
+    if (observed.candidate.inputEligible === false) {
+      const reason = 'computer_use_target_outside_approved_window';
+      await this.deps.audit(
+        context,
+        'computer.hotkey',
+        'denied',
+        'not_run',
+        reason,
+        metadataFromObject(request),
+        request.appId,
+      );
+      return denied(reason);
+    }
     const resolvedRequest = {
       ...request,
       ...(isSensitiveObservedElement(observed.candidate) ? { sensitive: true } : {}),
@@ -259,13 +282,14 @@ export class DesktopInputController {
           maxNodes: 500,
         });
         if (matchesWaitCondition(snapshot.nodes, request.condition)) {
-          const observedWindowId = snapshot.windowId ?? policy.app.windowId;
+          const observedWindowId = normalizeDesktopWindowId(
+            snapshot.windowId,
+            policy.app.windowId,
+          ) ?? policy.app.windowId;
           if (
             snapshot.appId !== policy.app.appId
             || !observedWindowId
-            || (policy.app.windowId
-              && snapshot.windowId
-              && snapshot.windowId !== policy.app.windowId)
+            || (policy.app.windowId && observedWindowId !== policy.app.windowId)
           ) {
             await this.deps.audit(
               context,
@@ -279,9 +303,13 @@ export class DesktopInputController {
             );
             return denied('computer_use_target_changed', 'failed');
           }
+          const windowBounds = findApprovedWindowBounds(policy.app, observedWindowId);
+          const nodes = windowBounds
+            ? annotateInputEligibility(snapshot.nodes, windowBounds)
+            : snapshot.nodes;
           const token = this.deps.createObservationToken(snapshot.appId, {
             windowId: observedWindowId,
-            snapshot: snapshot.nodes,
+            snapshot: nodes,
           });
           await this.deps.audit(context, 'computer.wait_for', 'allowed', 'ok', undefined, metadataFromObject(request), policy.app.appId, policy.grantId);
           return allowed({
@@ -404,6 +432,19 @@ export class DesktopInputController {
       );
       return { ok: false, reason: observed.reason };
     }
+    if (observed.candidate.inputEligible === false) {
+      const reason = 'computer_use_target_outside_approved_window';
+      await this.deps.audit(
+        context,
+        toolName,
+        'denied',
+        'not_run',
+        reason,
+        metadataFromObject(request),
+        request.appId,
+      );
+      return { ok: false, reason };
+    }
     if (request.elementUid && !observed.candidate.bounds) {
       const reason = 'computer_use_element_bounds_unavailable';
       await this.deps.audit(
@@ -476,6 +517,19 @@ export class DesktopInputController {
         request.appId,
       );
       return { ok: false, reason: observed.reason };
+    }
+    if (observed.candidate.inputEligible === false) {
+      const reason = 'computer_use_target_outside_approved_window';
+      await this.deps.audit(
+        context,
+        'computer.type_text',
+        'denied',
+        'not_run',
+        reason,
+        metadataFromObject(request),
+        request.appId,
+      );
+      return { ok: false, reason };
     }
     if (!request.elementUid) {
       return {
@@ -608,67 +662,6 @@ function errorReason(error: unknown, fallback: string): string {
 
 function metadataFromObject(value: object): Record<string, unknown> {
   return { ...(value as Record<string, unknown>) };
-}
-
-function isDeniedHotkey(keys: string[]): boolean {
-  const normalized = new Set(keys.map((key) => key.trim().toLowerCase()));
-  if (normalized.has('enter') || normalized.has('return') || normalized.has('space')) {
-    return true;
-  }
-  const hasCommand = normalized.has('cmd') || normalized.has('command') || normalized.has('meta');
-  if (hasCommand && normalized.has('q')) {
-    return true;
-  }
-  if (hasCommand && normalized.has('option') && normalized.has('escape')) {
-    return true;
-  }
-  const hasControl = normalized.has('ctrl') || normalized.has('control');
-  if ((hasCommand || normalized.has('shift'))
-    && (normalized.has('delete') || normalized.has('backspace'))) {
-    return true;
-  }
-  return hasControl && hasCommand && (
-    normalized.has('power')
-    || normalized.has('eject')
-    || normalized.has('delete')
-  );
-}
-
-function isSecretLikeInput(request: DesktopInputActionRequest): boolean {
-  if (!('text' in request) || typeof request.text !== 'string') {
-    return false;
-  }
-  const text = request.text.trim();
-  if (/^(sk-|xox[baprs]-|gh[pousr]_)/i.test(text)) {
-    return true;
-  }
-  const noWhitespace = !/\s/.test(text);
-  const hasLetters = /[a-z]/i.test(text);
-  const hasDigits = /\d/.test(text);
-  const hasSymbols = /[^a-z0-9]/i.test(text);
-  return text.length >= 48 && noWhitespace && hasLetters && hasDigits && hasSymbols;
-}
-
-function matchesWaitCondition(
-  nodes: DesktopAccessibilitySnapshotResult['nodes'],
-  condition: DesktopWaitForRequest['condition'],
-): boolean {
-  for (const node of nodes) {
-    const nodeText = [node.label, node.value].filter(Boolean).join(' ');
-    if (condition.text && nodeText.includes(condition.text)) {
-      return true;
-    }
-    if (condition.label && node.label?.includes(condition.label)) {
-      return true;
-    }
-    if (condition.role && node.role === condition.role) {
-      return true;
-    }
-    if (node.children && matchesWaitCondition(node.children, condition)) {
-      return true;
-    }
-  }
-  return false;
 }
 
 async function sleep(ms: number): Promise<void> {

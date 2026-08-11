@@ -49,12 +49,40 @@ export class BrowserCredentialAuthorizationPanelComponent implements OnInit {
   readonly vaultFolder = signal('AIO-Agent');
   readonly expiryPresetDays = signal<number>(90);
   readonly note = signal('');
+  /** Comma/space separated; only meaningful when 'email_code' is selected. */
+  readonly senderDomains = signal('');
+
+  /**
+   * Shared existing Chrome tabs authorize by NODE scope, not by a managed
+   * profile id: a tab's own profileId is per-tab and ephemeral. Offering the
+   * node scopes here is what makes an authorization for the user's real browser
+   * possible at all — previously only managed profiles could be selected, so a
+   * shared-tab fill could never find a matching record.
+   */
+  readonly sharedTabScopes = input<{ id: string; label: string }[]>([]);
+
+  /** Enrol-an-existing-login form. */
+  readonly enrolItem = signal('');
+  readonly enrolOrigin = signal('');
+  readonly enrolMoveIntoFolder = signal(false);
+  readonly enrolResult = signal<{ vaultItemRef: string; username: string; movedIntoFolder: boolean } | null>(
+    null,
+  );
+  readonly enrolError = signal<string | null>(null);
 
   constructor() {
     effect(() => {
       const profiles = this.profiles();
-      if (!this.selectedProfileId() && profiles.length > 0) {
+      const scopes = this.sharedTabScopes();
+      if (this.selectedProfileId()) {
+        return;
+      }
+      if (profiles.length > 0) {
         this.selectedProfileId.set(profiles[0]!.id);
+      } else if (scopes.length > 0) {
+        // With no managed profile the form used to be unusable; a shared-tab
+        // scope is a valid authorization target on its own.
+        this.selectedProfileId.set(scopes[0]!.id);
       }
     });
   }
@@ -114,6 +142,55 @@ export class BrowserCredentialAuthorizationPanelComponent implements OnInit {
     this.note.set((event.target as HTMLTextAreaElement).value);
   }
 
+  onSenderDomainsInput(event: Event): void {
+    this.senderDomains.set((event.target as HTMLInputElement).value);
+  }
+
+  onEnrolItemInput(event: Event): void {
+    this.enrolItem.set((event.target as HTMLInputElement).value);
+  }
+
+  onEnrolOriginInput(event: Event): void {
+    this.enrolOrigin.set((event.target as HTMLInputElement).value);
+  }
+
+  onEnrolMoveIntoFolderChange(event: Event): void {
+    this.enrolMoveIntoFolder.set((event.target as HTMLInputElement).checked);
+  }
+
+  /**
+   * Bind an existing vault login to an origin. Required for any account that
+   * was registered by hand: without a binding the vault refuses to resolve its
+   * secret, so an authorization alone can never fill it.
+   */
+  async enrol(): Promise<void> {
+    this.enrolError.set(null);
+    this.enrolResult.set(null);
+    const item = this.enrolItem().trim();
+    const origin = this.enrolOrigin().trim();
+    if (!item) {
+      this.enrolError.set('Enter the vault item name or id.');
+      return;
+    }
+    if (!origin) {
+      this.enrolError.set('Enter the origin to bind to, e.g. https://auth.portal.gov.uk');
+      return;
+    }
+    const result = await this.store.enrolCredential({
+      item,
+      origin,
+      moveIntoFolder: this.enrolMoveIntoFolder(),
+    });
+    if (!result) {
+      this.enrolError.set(this.store.errorMessage() ?? 'Failed to enrol the credential.');
+      return;
+    }
+    this.enrolResult.set(result);
+    this.enrolItem.set('');
+    this.enrolOrigin.set('');
+    this.enrolMoveIntoFolder.set(false);
+  }
+
   setExpiryPreset(days: number): void {
     this.expiryPresetDays.set(days);
   }
@@ -143,6 +220,10 @@ export class BrowserCredentialAuthorizationPanelComponent implements OnInit {
     const vaultFolder = this.vaultFolder().trim() || 'AIO-Agent';
     const note = this.note().trim();
     const expiresAt = Date.now() + this.expiryPresetDays() * DAY_MS;
+    const allowedSenderDomains = this.senderDomains()
+      .split(/[\s,]+/)
+      .map((domain) => domain.trim().toLowerCase())
+      .filter((domain) => domain.length > 0);
 
     const created = await this.store.createAuthorization({
       profileId,
@@ -151,6 +232,7 @@ export class BrowserCredentialAuthorizationPanelComponent implements OnInit {
       vaultFolder,
       expiresAt,
       ...(note ? { note } : {}),
+      ...(allowedSenderDomains.length > 0 ? { allowedSenderDomains } : {}),
     });
     if (created) {
       this.resetForm();
@@ -183,5 +265,6 @@ export class BrowserCredentialAuthorizationPanelComponent implements OnInit {
     this.selectedPurposes.set(new Set());
     this.vaultFolder.set('AIO-Agent');
     this.note.set('');
+    this.senderDomains.set('');
   }
 }

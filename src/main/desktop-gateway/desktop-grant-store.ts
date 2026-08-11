@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import type {
   DesktopGatewayContext,
   DesktopGrantCapability,
+  DesktopGrantDuration,
 } from '../../shared/types/desktop-gateway.types';
 
 export type DesktopGrantScope = 'session' | 'durable';
@@ -16,6 +17,8 @@ export interface DesktopPermissionGrant {
   scope: DesktopGrantScope;
   createdAt: number;
   expiresAt: number;
+  duration?: DesktopGrantDuration;
+  minutes?: number;
   decidedBy: string;
   reason?: string;
   revokedAt?: number;

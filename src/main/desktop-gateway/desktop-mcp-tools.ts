@@ -39,8 +39,9 @@ export const DESKTOP_DEGRADED_TOOL_NAMES: readonly DesktopMcpToolName[] = [
 type DesktopMcpToolName = typeof TOOL_NAMES[number];
 
 const TOOL_GUIDANCE: Partial<Record<DesktopMcpToolName, string>> = {
-  'computer.activate_window': 'Bring a specific observed window of the approved app to the front so input actions can target it. Needs a fresh accessibility-snapshot token; defaults to the observed window. Navigation only — it grants no permission to mutate the app, and you must take a fresh snapshot afterwards.',
-  'computer.click': 'Use a fresh computer.accessibility_snapshot token. Target an elementUid or coordinates inside the observed approved app window; sensitive controls are blocked for escalation.',
+  'computer.activate_window': 'Bring a specific observed window of the approved app to the front so input actions can target it. Needs a fresh accessibility-snapshot token and defaults to the observed window. Navigation only; it grants no permission to mutate the app. To reduce focus races, perform activation, a fresh accessibility snapshot, and follow-up input in the same orchestrated call when possible. A focused accessibility element alone does not prove the app remains frontmost.',
+  'computer.query_elements': 'Candidates with inputEligible: false can be observed but cannot be targeted for input. This includes menu-bar items whose centres are outside the approved window; use a safe keyboard route when policy permits.',
+  'computer.click': 'Use a fresh computer.accessibility_snapshot token. Target an elementUid or coordinates inside the observed approved app window; candidates with inputEligible: false cannot be clicked, and sensitive controls are blocked for escalation.',
   'computer.type_text': 'Use a fresh accessibility snapshot and an elementUid or observed focused field. Password and other secure fields are blocked; never send credentials.',
   'computer.hotkey': 'The approved app must remain active. Activation, destructive, quit, and system-level shortcuts are blocked.',
   'computer.scroll': 'Use an observed elementUid or coordinates inside the observed approved app window.',

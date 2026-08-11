@@ -6,7 +6,9 @@ import {
   SqliteCredentialAuthorizationStore,
   SqliteEscalationRecordStore,
   SqliteBrowserCampaignStore,
+  SqliteVaultOriginBindingStore,
 } from './browser-unattended-sqlite-stores';
+import { CredentialVault } from './browser-credential-vault';
 import { createBwRunner } from './browser-bw-runner';
 import { getBrowserCampaignRuntime } from './browser-campaign-runtime';
 import { getBrowserCredentialSession } from './browser-credential-session';
@@ -32,6 +34,24 @@ let credentialAuthorizationService: CredentialAuthorizationService | null = null
 let campaignService: BrowserCampaignService | null = null;
 let escalationService: BrowserEscalationService | null = null;
 let escalationNotify: ((escalation: BrowserEscalation) => void) | null = null;
+
+let credentialVault: CredentialVault | null = null;
+
+/**
+ * Shared credential vault. The renderer enrolment dialog and the gateway's
+ * fill path must be the same instance, so an item James enrols is immediately
+ * bound for browser.fill_credential without a restart.
+ */
+export function getBrowserCredentialVault(): CredentialVault {
+  if (!credentialVault) {
+    credentialVault = new CredentialVault({
+      runner: createBwRunner(),
+      bindings: new SqliteVaultOriginBindingStore(),
+      getSession: () => getBrowserCredentialSession().getToken(),
+    });
+  }
+  return credentialVault;
+}
 
 export function getBrowserCredentialAuthorizationService(): CredentialAuthorizationService {
   if (!credentialAuthorizationService) {

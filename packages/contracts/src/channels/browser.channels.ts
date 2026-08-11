@@ -45,6 +45,7 @@ export const BROWSER_CHANNELS = {
   BROWSER_VAULT_UNLOCK: 'browser:vault-unlock',
   BROWSER_VAULT_LOCK: 'browser:vault-lock',
   BROWSER_VAULT_STATUS: 'browser:vault-status',
+  BROWSER_ENROL_CREDENTIAL: 'browser:enrol-credential',
   BROWSER_CREATE_CREDENTIAL_AUTHORIZATION: 'browser:create-credential-authorization',
   BROWSER_LIST_CREDENTIAL_AUTHORIZATIONS: 'browser:list-credential-authorizations',
   BROWSER_REVOKE_CREDENTIAL_AUTHORIZATION: 'browser:revoke-credential-authorization',

@@ -10,7 +10,10 @@
 
   <section class="unattended-block">
     <h3>Standing Credential Authorizations</h3>
-    <app-browser-credential-authorization-panel [profiles]="profiles()" />
+    <app-browser-credential-authorization-panel
+      [profiles]="profiles()"
+      [sharedTabScopes]="sharedTabScopes()"
+    />
   </section>
 
   <section class="unattended-block">

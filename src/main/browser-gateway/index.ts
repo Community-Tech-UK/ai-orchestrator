@@ -11,12 +11,10 @@ import { prepareBrowserExtensionNativeHostRuntime } from './browser-extension-na
 import { setBrowserGatewayMcpBridgeAvailabilityProvider } from './browser-health-service';
 import { setBrowserLocalExtensionUserDataPathProvider } from './browser-local-extension-health';
 import * as fs from 'node:fs';
-import { CredentialVault } from './browser-credential-vault';
-import { createBwRunner } from './browser-bw-runner';
-import { SqliteVaultOriginBindingStore } from './browser-unattended-sqlite-stores';
 import {
   getBrowserCampaignService,
   getBrowserCredentialAuthorizationService,
+  getBrowserCredentialVault,
   maybeAutoUnlockBrowserCredentialVault,
   watchVaultAutoUnlockSetting,
 } from './browser-unattended-services';
@@ -34,7 +32,6 @@ import { registerCleanup } from '../util/cleanup-registry';
 import { BrowserEmailCodeReader } from './browser-email-code-reader';
 import { ImapMcpMailboxReader, type ImapMcpServerCommand } from './browser-imap-mailbox-reader';
 import { MCP_CONFIG_PATH } from '../instance/lifecycle/spawn-config-builder';
-import { getBrowserCredentialSession } from './browser-credential-session';
 import { deriveManagedDebugPort } from './chrome-devtools-attach';
 import { getLogger } from '../logging/logger';
 import { getSettingsManager } from '../core/config/settings-manager';
@@ -95,11 +92,9 @@ function buildCredentialServices(): Pick<
   'credentialVault' | 'credentialAuthorizations' | 'emailCodeReader'
 > {
   try {
-    const credentialVault = new CredentialVault({
-      runner: createBwRunner(),
-      bindings: new SqliteVaultOriginBindingStore(),
-      getSession: () => getBrowserCredentialSession().getToken(),
-    });
+    // Shared singleton (same instance the renderer enrolment dialog binds
+    // items on), so a newly enrolled login is fillable without a restart.
+    const credentialVault = getBrowserCredentialVault();
     // Shared singleton: the same instance the renderer IPC dialogs write to,
     // so a newly approved authorization is immediately honoured at fill time.
     const credentialAuthorizations = getBrowserCredentialAuthorizationService();

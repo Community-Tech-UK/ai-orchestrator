@@ -11,6 +11,8 @@ import type {
   CreateBrowserCampaignPayload,
   CreateCredentialAuthorizationPayload,
   CredentialAuthorization,
+  EnrolCredentialPayload,
+  EnrolCredentialResult,
 } from '../../../features/browser/browser-unattended.types';
 import { ElectronIpcService, type IpcResponse } from './electron-ipc.service';
 
@@ -43,6 +45,16 @@ export class BrowserUnattendedIpcService {
 
   async vaultStatus(): Promise<IpcResponse<BrowserVaultStatus>> {
     return this.call(() => this.api?.browserVaultStatus());
+  }
+
+  /**
+   * Bind an existing vault login to an origin. Returns a reference + username
+   * only — the password never leaves the main process.
+   */
+  async enrolCredential(
+    payload: EnrolCredentialPayload,
+  ): Promise<IpcResponse<EnrolCredentialResult>> {
+    return this.call(() => this.api?.browserEnrolCredential(payload));
   }
 
   async createCredentialAuthorization(

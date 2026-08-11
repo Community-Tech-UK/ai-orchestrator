@@ -217,7 +217,8 @@ function findNodeAtPoint(
   let bestArea = Number.POSITIVE_INFINITY;
   const visit = (node: DesktopAccessibilityNode): void => {
     const bounds = node.bounds;
-    if (bounds
+    if (node.inputEligible !== false
+      && bounds
       && point.x >= bounds.x
       && point.x <= bounds.x + bounds.width
       && point.y >= bounds.y
@@ -249,6 +250,7 @@ function toCandidate(node: DesktopAccessibilityNode): DesktopElementCandidate {
     ...(node.enabled !== undefined ? { enabled: node.enabled } : {}),
     ...(node.focused !== undefined ? { focused: node.focused } : {}),
     ...(node.redacted !== undefined ? { redacted: node.redacted } : {}),
+    ...(node.inputEligible !== undefined ? { inputEligible: node.inputEligible } : {}),
   };
 }
 

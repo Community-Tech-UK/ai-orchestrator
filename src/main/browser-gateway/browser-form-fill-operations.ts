@@ -247,6 +247,7 @@ export async function fillCredentialOperation(
       field.kind === 'totp' ? 'totp' : field.kind === 'email_code' ? 'email_code' : 'login',
     );
   }
+  let authorizedSenderDomains: string[] | undefined;
   for (const purpose of purposes) {
     const decision = authorizations.check({ profileId: authProfileId, origin, purpose });
     if (!decision.authorized) {
@@ -255,11 +256,18 @@ export async function fillCredentialOperation(
         `${toolName} is not authorized for ${origin} (${purpose})`,
       );
     }
+    if (purpose === 'email_code') {
+      authorizedSenderDomains = decision.allowedSenderDomains;
+    }
   }
 
   let emailSenderDomains: string[] | null = null;
   if (hasEmailCodeField) {
-    emailSenderDomains = resolveEmailSenderDomains(origin, request.emailCode?.senderDomains);
+    emailSenderDomains = resolveEmailSenderDomains(
+      origin,
+      request.emailCode?.senderDomains,
+      authorizedSenderDomains,
+    );
     if (!emailSenderDomains) {
       return deny(
         'email_code_sender_domain_not_allowed',
@@ -445,6 +453,12 @@ const DEFAULT_EMAIL_CODE_WINDOW_MS = 15 * 60 * 1000;
 export function resolveEmailSenderDomains(
   origin: string,
   requested: string[] | undefined,
+  /**
+   * Sender domains the live, human-granted authorization permits for this origin
+   * even though they are unrelated to it (a shared notification platform such as
+   * GOV.UK Notify). Explicit consent only — never derived from the page.
+   */
+  authorized?: string[],
 ): string[] | null {
   let host: string;
   try {
@@ -452,8 +466,12 @@ export function resolveEmailSenderDomains(
   } catch {
     return null;
   }
+  const authorizedNormalized = (authorized ?? [])
+    .map((domain) => domain.trim().toLowerCase())
+    .filter((domain) => domain.length > 0);
   if (!requested || requested.length === 0) {
-    return [host];
+    // De-duplicate: an authorization may name the origin host itself.
+    return [...new Set([host, ...authorizedNormalized])];
   }
   // allowPrivateDomains: platform suffixes (github.io, netlify.app, …) are
   // boundaries too — two tenants of one platform are unrelated parties.
@@ -461,6 +479,9 @@ export function resolveEmailSenderDomains(
   const registrable = getDomain(host, PSL_OPTIONS);
   const related = (domain: string): boolean => {
     if (domain === host || domain.endsWith(`.${host}`)) {
+      return true;
+    }
+    if (authorizedNormalized.includes(domain)) {
       return true;
     }
     return registrable !== null && getDomain(domain, PSL_OPTIONS) === registrable;

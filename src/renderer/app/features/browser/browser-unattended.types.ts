@@ -37,6 +37,24 @@ export interface CreateCredentialAuthorizationPayload {
   vaultFolder: string;
   expiresAt: number;
   note?: string;
+  /**
+   * Sender domains allowed to carry this origin's one-time codes when they are
+   * unrelated to it (e.g. GOV.UK Notify for a *.gov.uk service).
+   */
+  allowedSenderDomains?: string[];
+}
+
+export interface EnrolCredentialPayload {
+  /** Bitwarden item id, or its exact item name. */
+  item: string;
+  origin: string;
+  moveIntoFolder?: boolean;
+}
+
+export interface EnrolCredentialResult {
+  vaultItemRef: string;
+  username: string;
+  movedIntoFolder: boolean;
 }
 
 export type BrowserVaultUnlockReason = 'empty_password' | 'bw_unlock_failed' | 'empty_session';

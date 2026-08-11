@@ -169,6 +169,39 @@ describe('DesktopGatewayService', () => {
     });
   });
 
+  it('accepts an Electron source id that identifies the requested CGWindow', async () => {
+    const app = {
+      ...APP,
+      windowId: '216',
+      windows: [{ windowId: '216', bounds: { x: 20, y: 40, width: 800, height: 600 } }],
+    };
+    const service = makeService({
+      allowedApps: [app.appId],
+      apps: [app],
+      screenshot: {
+        appId: app.appId,
+        windowId: 'window:216:0',
+        data: 'iVBORw0KGgo=',
+        mimeType: 'image/png',
+        width: 800,
+        height: 600,
+        capturedAt: 1783468800000,
+      },
+    });
+
+    await expect(service.screenshot(context(), {
+      appId: app.appId,
+      windowId: '216',
+    })).resolves.toMatchObject({
+      decision: 'allowed',
+      outcome: 'ok',
+      data: {
+        windowId: '216',
+        observationToken: expect.stringMatching(/^obs_/),
+      },
+    });
+  });
+
   it('resolves an observed element uid to bounded coordinates before clicking', async () => {
     const driver = makeDriver({
       apps: [APP],
@@ -281,6 +314,75 @@ describe('DesktopGatewayService', () => {
       reason: 'computer_use_target_outside_approved_window',
     });
     expect(driver.click).toHaveBeenCalledOnce();
+  });
+
+  it('labels accessibility nodes outside the approved window and refuses all input targeting', async () => {
+    const app = {
+      ...APP,
+      windowId: '216',
+      windows: [{ windowId: '216', bounds: { x: 0, y: 23, width: 800, height: 600 } }],
+    };
+    const driver = makeDriver({
+      apps: [app],
+      snapshot: {
+        appId: app.appId,
+        windowId: '216',
+        nodes: [{
+          uid: 'ax-menu-open',
+          role: 'AXMenuItem',
+          label: 'Open profile...',
+          focused: true,
+          bounds: { x: 20, y: 0, width: 120, height: 22 },
+        }],
+        focusedUid: 'ax-menu-open',
+        capturedAt: 1,
+      },
+    });
+    const service = makeService({
+      allowedApps: [app.appId],
+      driver,
+      requireApprovalForInput: false,
+    });
+    const snapshot = await service.accessibilitySnapshot(context(), { appId: app.appId });
+    const observationToken = snapshot.data!.observationToken!;
+
+    await expect(service.queryElements(context(), {
+      appId: app.appId,
+      observationToken,
+      text: 'Open profile',
+    })).resolves.toMatchObject({
+      decision: 'allowed',
+      data: {
+        candidates: [{ uid: 'ax-menu-open', inputEligible: false }],
+      },
+    });
+    await expect(service.click(context(), {
+      appId: app.appId,
+      observationToken,
+      elementUid: 'ax-menu-open',
+    })).resolves.toMatchObject({
+      decision: 'denied',
+      reason: 'computer_use_target_outside_approved_window',
+    });
+    await expect(service.typeText(context(), {
+      appId: app.appId,
+      observationToken,
+      text: 'not typed',
+    })).resolves.toMatchObject({
+      decision: 'denied',
+      reason: 'computer_use_target_outside_approved_window',
+    });
+    await expect(service.hotkey(context(), {
+      appId: app.appId,
+      observationToken,
+      keys: ['cmd', 's'],
+    })).resolves.toMatchObject({
+      decision: 'denied',
+      reason: 'computer_use_target_outside_approved_window',
+    });
+    expect(driver.click).not.toHaveBeenCalled();
+    expect(driver.typeText).not.toHaveBeenCalled();
+    expect(driver.hotkey).not.toHaveBeenCalled();
   });
 
   it('blocks secure text fields and sensitive observed controls without trusting caller flags', async () => {
@@ -751,6 +853,43 @@ describe('DesktopGatewayService', () => {
     }));
   });
 
+  it('accepts an equivalent Electron window id while waiting for accessibility state', async () => {
+    const app = {
+      ...APP,
+      windowId: '216',
+      windows: [{ windowId: '216', bounds: { x: 0, y: 23, width: 800, height: 600 } }],
+    };
+    const driver = makeDriver({
+      apps: [app],
+      snapshot: {
+        appId: app.appId,
+        windowId: 'window:216:0',
+        nodes: [{
+          uid: 'ax-save',
+          role: 'AXButton',
+          label: 'Save',
+          bounds: { x: 10, y: 30, width: 100, height: 40 },
+        }],
+        capturedAt: 1,
+      },
+    });
+    const service = makeService({
+      allowedApps: [app.appId],
+      driver,
+      requireApprovalForInput: false,
+    });
+
+    await expect(service.waitFor(context(), {
+      appId: app.appId,
+      condition: { label: 'Save' },
+      timeoutMs: 100,
+    })).resolves.toMatchObject({
+      decision: 'allowed',
+      outcome: 'ok',
+      data: { observationToken: expect.stringMatching(/^obs_/) },
+    });
+  });
+
   it('keeps drags inside observed app bounds and blocks activation hotkeys', async () => {
     const driver = makeDriver({
       apps: [APP],
@@ -853,7 +992,12 @@ describe('DesktopGatewayService', () => {
     });
     const grants = await service.listGrants(context(), { includeExpired: true });
 
-    expect(grants.data?.grants[0]?.expiresAt).toBe(91_000);
+    expect(grants.data?.grants[0]).toMatchObject({
+      expiresAt: 91_000,
+      scope: 'session',
+      duration: 'boundedMinutes',
+      minutes: 1,
+    });
   });
 
   it('routes app grant requests through the permission registry approval path', async () => {

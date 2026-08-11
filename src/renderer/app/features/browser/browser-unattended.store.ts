@@ -11,6 +11,8 @@ import type {
   CreateBrowserCampaignPayload,
   CreateCredentialAuthorizationPayload,
   CredentialAuthorization,
+  EnrolCredentialPayload,
+  EnrolCredentialResult,
 } from './browser-unattended.types';
 
 /**
@@ -132,6 +134,22 @@ export class BrowserUnattendedStore {
       }
       await this.refreshAuthorizations();
       return true;
+    });
+  }
+
+  /**
+   * Bind an existing vault login to an origin so an authorized fill can use it.
+   * Returns the reference + username, or null on failure (message in
+   * `errorMessage`). No secret is ever returned.
+   */
+  async enrolCredential(payload: EnrolCredentialPayload): Promise<EnrolCredentialResult | null> {
+    return this.runBusy(async () => {
+      const response = await this.ipc.enrolCredential(payload);
+      if (!response.success || !response.data) {
+        this.setError(response.error?.message ?? 'Failed to enrol the credential.');
+        return null;
+      }
+      return response.data;
     });
   }
 

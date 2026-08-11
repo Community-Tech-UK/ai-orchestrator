@@ -42,6 +42,54 @@ describe('resolveEmailSenderDomains', () => {
     ]);
   });
 
+  describe('authorization-declared senders (shared notification platforms)', () => {
+    // GOV.UK services send their one-time codes through Notify, whose
+    // registrable domain (service.gov.uk) differs from the service's own
+    // (gca.gov.uk). Without an explicit allowance every such login is unusable.
+    const GOV_ORIGIN = 'https://auth.reportmi.gca.gov.uk';
+    const NOTIFY = 'notifications.service.gov.uk';
+
+    it('rejects the unrelated sender when no authorization declares it', () => {
+      expect(resolveEmailSenderDomains(GOV_ORIGIN, [NOTIFY])).toBeNull();
+    });
+
+    it('accepts it when the live authorization declares it', () => {
+      expect(resolveEmailSenderDomains(GOV_ORIGIN, [NOTIFY], [NOTIFY])).toEqual([NOTIFY]);
+    });
+
+    it('includes declared senders alongside the origin host by default', () => {
+      expect(resolveEmailSenderDomains(GOV_ORIGIN, undefined, [NOTIFY])).toEqual([
+        'auth.reportmi.gca.gov.uk',
+        NOTIFY,
+      ]);
+    });
+
+    it('does not duplicate a declared sender that is the origin host', () => {
+      expect(
+        resolveEmailSenderDomains(GOV_ORIGIN, undefined, ['auth.reportmi.gca.gov.uk']),
+      ).toEqual(['auth.reportmi.gca.gov.uk']);
+    });
+
+    it('still rejects any sender the authorization did not declare', () => {
+      expect(resolveEmailSenderDomains(GOV_ORIGIN, ['evil.example'], [NOTIFY])).toBeNull();
+      // One undeclared domain poisons the request even beside a declared one.
+      expect(
+        resolveEmailSenderDomains(GOV_ORIGIN, [NOTIFY, 'evil.example'], [NOTIFY]),
+      ).toBeNull();
+    });
+
+    it('normalizes declared senders for case and whitespace', () => {
+      expect(
+        resolveEmailSenderDomains(GOV_ORIGIN, ['NOTIFICATIONS.Service.GOV.UK'], ['  notifications.service.gov.uk ']),
+      ).toEqual([NOTIFY]);
+    });
+
+    it('ignores an empty declaration list', () => {
+      expect(resolveEmailSenderDomains(GOV_ORIGIN, [NOTIFY], [])).toBeNull();
+      expect(resolveEmailSenderDomains(GOV_ORIGIN, [NOTIFY], ['   '])).toBeNull();
+    });
+  });
+
   it('returns null for an unparseable origin', () => {
     expect(resolveEmailSenderDomains('not a url', ['example.com'])).toBeNull();
   });

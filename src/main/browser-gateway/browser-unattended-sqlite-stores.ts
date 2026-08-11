@@ -1,6 +1,7 @@
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { getRLMDatabase } from '../persistence/rlm-database';
 import type {
+  SecretFieldKind,
   VaultOriginBinding,
   VaultOriginBindingStore,
 } from './browser-credential-vault';
@@ -81,6 +82,9 @@ interface CredentialAuthorizationRow {
   expires_at: number;
   revoked_at: number | null;
   note: string | null;
+  allowed_secret_types_json: string | null;
+  allowed_selectors_json: string | null;
+  allowed_sender_domains_json: string | null;
 }
 
 export class SqliteCredentialAuthorizationStore
@@ -93,8 +97,10 @@ export class SqliteCredentialAuthorizationStore
       .prepare(
         `INSERT INTO browser_credential_authorizations
            (id, profile_id, allowed_origins_json, purposes_json, vault_folder,
-            created_at, expires_at, revoked_at, note)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            created_at, expires_at, revoked_at, note,
+            allowed_secret_types_json, allowed_selectors_json,
+            allowed_sender_domains_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         auth.id,
@@ -106,6 +112,9 @@ export class SqliteCredentialAuthorizationStore
         auth.expiresAt,
         auth.revokedAt ?? null,
         auth.note ?? null,
+        auth.allowedSecretTypes ? JSON.stringify(auth.allowedSecretTypes) : null,
+        auth.allowedSelectors ? JSON.stringify(auth.allowedSelectors) : null,
+        auth.allowedSenderDomains ? JSON.stringify(auth.allowedSenderDomains) : null,
       );
   }
 
@@ -151,7 +160,66 @@ function mapAuthorization(row: CredentialAuthorizationRow): CredentialAuthorizat
     expiresAt: row.expires_at,
     ...(row.revoked_at !== null ? { revokedAt: row.revoked_at } : {}),
     ...(row.note !== null ? { note: row.note } : {}),
+    ...parseSecretTypes(row.allowed_secret_types_json),
+    ...parseScopeList('allowedSelectors', row.allowed_selectors_json),
+    ...parseScopeList('allowedSenderDomains', row.allowed_sender_domains_json),
   };
+}
+
+const SECRET_FIELD_KINDS: readonly SecretFieldKind[] = [
+  'username',
+  'password',
+  'totp',
+  'bank_account_number',
+  'bank_sort_code',
+  'iban',
+  'bic_swift',
+  'tax_identifier',
+  'policy_number',
+  'arbitrary_named_vault_field',
+];
+
+/**
+ * Restore `allowedSecretTypes`, dropping anything not a known kind. Dropping
+ * fails CLOSED: `check()` requires the requested type to be listed, so an
+ * unrecognised entry can only ever narrow the grant, never widen it.
+ */
+function parseSecretTypes(
+  json: string | null,
+): { allowedSecretTypes: SecretFieldKind[] } | Record<string, never> {
+  const parsed = parseScopeList('allowedSecretTypes', json);
+  if (!('allowedSecretTypes' in parsed)) {
+    return {};
+  }
+  return {
+    allowedSecretTypes: parsed.allowedSecretTypes.filter((entry): entry is SecretFieldKind =>
+      (SECRET_FIELD_KINDS as readonly string[]).includes(entry),
+    ),
+  };
+}
+
+/**
+ * Restore an optional string-list scope field. A malformed or non-array value is
+ * dropped rather than guessed: for `allowedSelectors` a silently-empty list
+ * would WIDEN the authorization, so the column is only honoured when it parses
+ * to a real array.
+ */
+function parseScopeList<K extends string>(
+  key: K,
+  json: string | null,
+): Record<K, string[]> | Record<string, never> {
+  if (json === null) {
+    return {};
+  }
+  try {
+    const parsed: unknown = JSON.parse(json);
+    if (!Array.isArray(parsed) || parsed.some((entry) => typeof entry !== 'string')) {
+      return {};
+    }
+    return { [key]: parsed as string[] } as Record<K, string[]>;
+  } catch {
+    return {};
+  }
 }
 
 // ── Escalations ─────────────────────────────────────────────────────────────

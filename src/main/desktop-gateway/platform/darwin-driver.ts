@@ -21,6 +21,10 @@ import { desktopCapturer, systemPreferences } from 'electron';
 import type { DesktopDriver } from './desktop-driver';
 import { BundledDarwinHelperClient } from './darwin-helper-client';
 import type { DesktopHelperClient } from './desktop-helper-protocol';
+import {
+  desktopWindowIdsMatch,
+  normalizeDesktopWindowId,
+} from '../desktop-window-identity';
 
 /**
  * Raw screenshot bytes for a target, resolved by the injected capture backend
@@ -180,9 +184,11 @@ export class DarwinDesktopDriver implements DesktopDriver {
     if (!captured) {
       throw new Error('computer_use_target_not_found');
     }
+    const requestedWindowId = request.windowId ?? hints.windowId;
+    const resultWindowId = normalizeDesktopWindowId(captured.windowId, requestedWindowId);
     return {
       appId: request.appId ?? request.windowId ?? hints.displayName ?? 'darwin-screen',
-      ...(captured.windowId ? { windowId: captured.windowId } : {}),
+      ...(resultWindowId ? { windowId: resultWindowId } : {}),
       data: captured.data,
       mimeType: captured.mimeType,
       width: captured.width,
@@ -362,12 +368,5 @@ export function selectDesktopCaptureSource<T extends { id: string; name: string 
 }
 
 function desktopSourceMatchesWindowId(sourceId: string, requestedWindowId: string): boolean {
-  if (sourceId === requestedWindowId) {
-    return true;
-  }
-  if (!/^\d+$/u.test(requestedWindowId)) {
-    return false;
-  }
-  const electronWindowId = /^window:(\d+):\d+$/u.exec(sourceId);
-  return electronWindowId?.[1] === requestedWindowId;
+  return desktopWindowIdsMatch(sourceId, requestedWindowId);
 }

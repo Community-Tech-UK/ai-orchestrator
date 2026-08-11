@@ -112,6 +112,25 @@ export interface CreateAgentCredentialResult {
   username: string;
 }
 
+export interface EnrolExistingCredentialInput {
+  /** Bitwarden item id, or its exact item name. */
+  item: string;
+  /** Origin the credential is being bound to, e.g. https://auth.portal.gov.uk. */
+  origin: string;
+  /**
+   * Move the item into the jailed folder when it currently sits elsewhere. The
+   * caller must set this deliberately: it widens which items an authorized fill
+   * can reach, so it is a human decision, never a default.
+   */
+  moveIntoFolder?: boolean;
+}
+
+export interface EnrolExistingCredentialResult {
+  vaultItemRef: string;
+  username: string;
+  movedIntoFolder: boolean;
+}
+
 export interface GetSecretForFillInput {
   vaultItemRef: string;
   /** Live page origin; must match the item's bound origin. */
@@ -211,6 +230,62 @@ export class CredentialVault {
     });
 
     return { vaultItemRef: parsed.id, username: input.username };
+  }
+
+  /**
+   * Bind an EXISTING login (an account a human already registered) to an origin
+   * so an authorized fill can use it.
+   *
+   * Without this, only agent-created accounts are usable: `getSecretForFill`
+   * refuses any item with no recorded binding, and `createAgentCredential` was
+   * the only writer of bindings. Every hand-registered portal account was
+   * therefore permanently unfillable.
+   *
+   * The same two locks still apply afterwards — the item must live in the jailed
+   * folder, and the binding pins it to one origin. Moving an item into the jail
+   * widens what an authorized fill can reach, so it happens only when the caller
+   * explicitly asks. The password is never read, returned, or logged here: the
+   * item body is re-encoded in this process solely to change `folderId`.
+   */
+  async enrolExistingCredential(
+    input: EnrolExistingCredentialInput,
+  ): Promise<EnrolExistingCredentialResult> {
+    const folderId = await this.resolveFolderId();
+    const item = this.parseItem(await this.bw(['get', 'item', input.item]));
+    const username = typeof item.login?.username === 'string' ? item.login.username : '';
+    if (username === '') {
+      throw new CredentialVaultError(
+        `Vault item ${item.id} has no username to enrol`,
+        'secret_field_empty',
+      );
+    }
+    if (typeof item.login?.password !== 'string' || item.login.password === '') {
+      throw new CredentialVaultError(
+        `Vault item ${item.id} has no password to enrol`,
+        'secret_field_empty',
+      );
+    }
+
+    let movedIntoFolder = false;
+    if (item.folderId !== folderId) {
+      if (!input.moveIntoFolder) {
+        throw new CredentialVaultError(
+          `Vault item ${item.id} is not inside the ${this.folderName} folder`,
+          'item_outside_agent_folder',
+        );
+      }
+      await this.moveItemToFolder(item.id, folderId);
+      movedIntoFolder = true;
+    }
+
+    this.bindings.put({
+      vaultItemRef: item.id,
+      origin: input.origin,
+      username,
+      createdAt: this.now(),
+    });
+
+    return { vaultItemRef: item.id, username, movedIntoFolder };
   }
 
   /**
@@ -335,6 +410,21 @@ export class CredentialVault {
     }
     this.cachedFolderId = parsed.id;
     return parsed.id;
+  }
+
+  /**
+   * Re-encode an item with a new folderId. The decoded body carries the
+   * password, so it stays in this scope: it is never returned, logged, or placed
+   * in an error (`bw` failures report only the subcommand verb and stderr).
+   */
+  private async moveItemToFolder(itemId: string, folderId: string): Promise<void> {
+    const raw = safeJson(await this.bw(['get', 'item', itemId])) as Record<string, unknown> | null;
+    if (!raw || typeof raw !== 'object') {
+      throw new CredentialVaultError('Could not parse bw item output', 'item_not_found');
+    }
+    const encoded = Buffer.from(JSON.stringify({ ...raw, folderId }), 'utf-8').toString('base64');
+    await this.bw(['edit', 'item', itemId, encoded]);
+    await this.bw(['sync']);
   }
 
   private async bw(args: string[]): Promise<string> {

@@ -36,6 +36,43 @@ describe('CredentialAuthorizationService.check', () => {
     ).toEqual({ authorized: true, authorizationId: auth.id });
   });
 
+  it('returns the declared one-time-code senders on the authorized decision', () => {
+    // The fill path needs these to accept a shared notification platform (GOV.UK
+    // Notify) whose domain is unrelated to the service's own.
+    const { service } = makeService();
+    service.create(
+      {
+        ...baseAuth(),
+        purposes: ['login', 'email_code'],
+        allowedSenderDomains: ['notifications.service.gov.uk'],
+      },
+      'auth-notify',
+    );
+    expect(
+      service.check({
+        profileId: 'profile-1',
+        origin: 'https://portal.example.gov.uk',
+        purpose: 'email_code',
+      }),
+    ).toEqual({
+      authorized: true,
+      authorizationId: 'auth-notify',
+      allowedSenderDomains: ['notifications.service.gov.uk'],
+    });
+  });
+
+  it('omits the sender list when the authorization declares none', () => {
+    const { service } = makeService();
+    service.create({ ...baseAuth(), purposes: ['email_code'] }, 'auth-plain');
+    const decision = service.check({
+      profileId: 'profile-1',
+      origin: 'https://portal.example.gov.uk',
+      purpose: 'email_code',
+    });
+    expect(decision.authorized).toBe(true);
+    expect(decision).not.toHaveProperty('allowedSenderDomains');
+  });
+
   it('authorizes a shared-tab node scope profile the same as a managed profile', () => {
     // Shared-tab fills key the check by the tab's stable node scope ('local' or
     // a nodeId), not its ephemeral existing-tab profileId. check() is

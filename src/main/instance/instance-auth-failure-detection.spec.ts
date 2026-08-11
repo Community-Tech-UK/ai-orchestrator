@@ -48,3 +48,44 @@ describe('detectAuthFailureSignal', () => {
     expect(detectAuthFailureSignal(message)).toBeNull();
   });
 });
+
+/**
+ * WS "in-session auth repair" check 7: *"no false banner from a tool's OAuth
+ * error"* — a tool/MCP failure whose message mentions OAuth, while the provider
+ * itself is signed in, must not surface the signed-out banner.
+ *
+ * The doc frames the guarantee as coming from the live auth probe vetoing the
+ * match downstream. It is actually enforced one step earlier and more cheaply:
+ * `NOT_PROVIDER_AUTH_PATTERNS` excludes `mcp`, `github`, `npm`, `docker`, `git`,
+ * `ssh`, `registry` and `database` *before* the auth patterns are consulted, so
+ * these never classify as a provider auth failure at all and
+ * `onAuthFailureTurn` is never called. Belt and braces, and worth pinning:
+ * a regression here would put a "you are signed out" banner in front of a user
+ * who is signed in, for someone else's expired token.
+ */
+describe('detectAuthFailureSignal — third-party OAuth errors (auth-repair check 7)', () => {
+  const thirdPartyOauthFailures = [
+    'MCP server "notion" failed: OAuth token expired, please re-run login',
+    'mcp: authentication error contacting the remote server',
+    'GitHub: Bad credentials (401 Unauthorized) — your token has expired',
+    'npm ERR! code E401 — Incorrect or missing credentials, please log in',
+    'docker: unauthorized: authentication required (401)',
+    'git: Invalid credentials for remote origin; please re-run login',
+    'ssh: Permission denied (publickey) — expired credentials',
+    'registry returned 401 unauthorized: token revoked',
+    'database connection failed: invalid credentials',
+  ];
+
+  for (const message of thirdPartyOauthFailures) {
+    it(`does not flag a provider auth failure for: ${message.slice(0, 44)}…`, () => {
+      expect(detectAuthFailureSignal(message)).toBeNull();
+    });
+  }
+
+  it('still flags a genuine provider auth failure with the same vocabulary', () => {
+    // The control: identical wording, no third-party marker. If this ever
+    // returns null the exclusions have over-reached and real sign-outs go quiet.
+    expect(detectAuthFailureSignal('OAuth token expired, please re-run login')).not.toBeNull();
+    expect(detectAuthFailureSignal('Not logged in · Please run /login')).not.toBeNull();
+  });
+});

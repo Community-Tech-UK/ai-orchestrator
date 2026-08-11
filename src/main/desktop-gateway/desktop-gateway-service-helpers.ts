@@ -46,6 +46,8 @@ export function toGrantSummary(grant: DesktopPermissionGrant): DesktopGrantSumma
     createdAt: grant.createdAt,
     expiresAt: grant.expiresAt,
     scope: grant.scope,
+    ...(grant.duration ? { duration: grant.duration } : {}),
+    ...(grant.minutes !== undefined ? { minutes: grant.minutes } : {}),
     decidedBy: grant.decidedBy,
     ...(grant.reason ? { reason: grant.reason } : {}),
     ...(grant.revokedAt ? { revokedAt: grant.revokedAt } : {}),

@@ -63,6 +63,54 @@ describe('unattended SQLite stores (migration 040)', () => {
     expect(store.get('auth-1')?.revokedAt).toBe(500);
   });
 
+  it('persists the optional scope fields, which used to be dropped on reload', () => {
+    const store = new SqliteCredentialAuthorizationStore(db);
+    store.insert({
+      id: 'auth-scoped',
+      profileId: 'windows-pc',
+      allowedOrigins: [{ scheme: 'https', hostPattern: 'gca.gov.uk', includeSubdomains: true }],
+      purposes: ['login', 'email_code'],
+      vaultFolder: 'AIO-Agent',
+      createdAt: 1,
+      expiresAt: 1_000,
+      allowedSelectors: ['#password'],
+      allowedSecretTypes: ['iban'],
+      allowedSenderDomains: ['notifications.service.gov.uk'],
+    });
+
+    const loaded = store.get('auth-scoped');
+    // Losing allowedSelectors would silently WIDEN the authorization.
+    expect(loaded?.allowedSelectors).toEqual(['#password']);
+    expect(loaded?.allowedSecretTypes).toEqual(['iban']);
+    expect(loaded?.allowedSenderDomains).toEqual(['notifications.service.gov.uk']);
+  });
+
+  it('omits scope fields that are absent or malformed rather than guessing', () => {
+    const store = new SqliteCredentialAuthorizationStore(db);
+    store.insert({
+      id: 'auth-plain',
+      profileId: 'profile-1',
+      allowedOrigins: [{ scheme: 'https', hostPattern: 'a.example', includeSubdomains: false }],
+      purposes: ['login'],
+      vaultFolder: 'AIO-Agent',
+      createdAt: 1,
+      expiresAt: 1_000,
+    });
+    const plain = store.get('auth-plain');
+    expect(plain).not.toHaveProperty('allowedSelectors');
+    expect(plain).not.toHaveProperty('allowedSenderDomains');
+
+    db.prepare(
+      `UPDATE browser_credential_authorizations
+         SET allowed_selectors_json = ?, allowed_secret_types_json = ?
+       WHERE id = ?`,
+    ).run('not json', '["iban","nonsense_kind"]', 'auth-plain');
+    const reloaded = store.get('auth-plain');
+    expect(reloaded).not.toHaveProperty('allowedSelectors');
+    // Unknown secret kinds are dropped; the grant can only narrow, never widen.
+    expect(reloaded?.allowedSecretTypes).toEqual(['iban']);
+  });
+
   it('round-trips an escalation and updates status', () => {
     const store = new SqliteEscalationRecordStore(db);
     store.insert({

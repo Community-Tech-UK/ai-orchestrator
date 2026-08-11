@@ -58,6 +58,15 @@ class FakeBw implements BwRunner {
       });
       return ok(JSON.stringify({ id, folderId: decoded.folderId, login: decoded.login }));
     }
+    if (args[0] === 'edit' && args[1] === 'item') {
+      const existing = this.items.get(args[2] as string);
+      if (!existing) {
+        return { stdout: '', stderr: 'Not found.', code: 1 };
+      }
+      const decoded = JSON.parse(Buffer.from(args[3] as string, 'base64').toString('utf-8'));
+      this.items.set(args[2] as string, { ...existing, folderId: decoded.folderId });
+      return ok(JSON.stringify({ id: args[2], folderId: decoded.folderId, login: decoded.login }));
+    }
     if (args[0] === 'sync') {
       return ok('Syncing complete.');
     }
@@ -139,6 +148,132 @@ describe('CredentialVault.createAgentCredential', () => {
     const { vault } = makeVault(bw);
     await vault.createAgentCredential({ origin: 'https://a.example', username: 'u' });
     expect(bw.commands.some((c) => c[0] === 'create' && c[1] === 'folder')).toBe(true);
+  });
+});
+
+describe('CredentialVault.enrolExistingCredential', () => {
+  it('binds an item already inside the agent folder and never returns the password', async () => {
+    const bw = new FakeBw();
+    bw.seedItem('item-existing', AGENT_FOLDER_ID, 'james@communitytech.co.uk', 'Real-Password-1!');
+    const { vault, bindings } = makeVault(bw);
+
+    const result = await vault.enrolExistingCredential({
+      item: 'item-existing',
+      origin: 'https://auth.reportmi.gca.gov.uk',
+    });
+
+    expect(result).toEqual({
+      vaultItemRef: 'item-existing',
+      username: 'james@communitytech.co.uk',
+      movedIntoFolder: false,
+    });
+    expect(JSON.stringify(result)).not.toContain('Real-Password-1!');
+    expect(bindings.get('item-existing')?.origin).toBe('https://auth.reportmi.gca.gov.uk');
+    // Already in the folder: no edit should have been issued.
+    expect(bw.commands.some((c) => c[0] === 'edit')).toBe(false);
+  });
+
+  it('refuses an out-of-folder item unless the move is explicitly requested', async () => {
+    const bw = new FakeBw();
+    bw.seedItem('item-personal', 'folder-personal', 'james@communitytech.co.uk', 'Real-Password-1!');
+    const { vault, bindings } = makeVault(bw);
+
+    await expect(
+      vault.enrolExistingCredential({ item: 'item-personal', origin: 'https://a.example' }),
+    ).rejects.toMatchObject({ code: 'item_outside_agent_folder' });
+    // Nothing was bound, so a later fill still refuses.
+    expect(bindings.get('item-personal')).toBeUndefined();
+  });
+
+  it('moves an out-of-folder item into the jail when asked, then binds it', async () => {
+    const bw = new FakeBw();
+    bw.seedItem('item-personal', 'folder-personal', 'james@communitytech.co.uk', 'Real-Password-1!');
+    const { vault, bindings } = makeVault(bw);
+
+    const result = await vault.enrolExistingCredential({
+      item: 'item-personal',
+      origin: 'https://auth.reportmi.gca.gov.uk',
+      moveIntoFolder: true,
+    });
+
+    expect(result.movedIntoFolder).toBe(true);
+    expect(bindings.get('item-personal')?.username).toBe('james@communitytech.co.uk');
+    expect(bw.commands.some((c) => c[0] === 'edit' && c[1] === 'item')).toBe(true);
+    // The move must preserve the password: a later fill still resolves it.
+    await expect(
+      vault.getSecretForFill({
+        vaultItemRef: 'item-personal',
+        origin: 'https://auth.reportmi.gca.gov.uk',
+        kind: 'password',
+      }),
+    ).resolves.toBe('Real-Password-1!');
+  });
+
+  it('makes a previously unfillable hand-registered login fillable', async () => {
+    const bw = new FakeBw();
+    bw.seedItem('item-existing', AGENT_FOLDER_ID, 'u@example.com', 'Real-Password-1!');
+    const { vault } = makeVault(bw);
+
+    // Before enrolment the binding is missing, which is the bug this closes.
+    await expect(
+      vault.getSecretForFill({
+        vaultItemRef: 'item-existing',
+        origin: 'https://portal.example.gov.uk',
+        kind: 'password',
+      }),
+    ).rejects.toMatchObject({ code: 'origin_binding_missing' });
+
+    await vault.enrolExistingCredential({
+      item: 'item-existing',
+      origin: 'https://portal.example.gov.uk',
+    });
+
+    await expect(
+      vault.getSecretForFill({
+        vaultItemRef: 'item-existing',
+        origin: 'https://portal.example.gov.uk',
+        kind: 'password',
+      }),
+    ).resolves.toBe('Real-Password-1!');
+  });
+
+  it('still refuses a fill on an origin other than the one enrolled', async () => {
+    const bw = new FakeBw();
+    bw.seedItem('item-existing', AGENT_FOLDER_ID, 'u@example.com', 'Real-Password-1!');
+    const { vault } = makeVault(bw);
+    await vault.enrolExistingCredential({
+      item: 'item-existing',
+      origin: 'https://portal.example.gov.uk',
+    });
+
+    await expect(
+      vault.getSecretForFill({
+        vaultItemRef: 'item-existing',
+        origin: 'https://evil.example',
+        kind: 'password',
+      }),
+    ).rejects.toMatchObject({ code: 'origin_mismatch' });
+  });
+
+  it('refuses an item with no password rather than binding an empty secret', async () => {
+    const bw = new FakeBw();
+    bw.seedItem('item-empty', AGENT_FOLDER_ID, 'u@example.com', '');
+    const { vault, bindings } = makeVault(bw);
+
+    await expect(
+      vault.enrolExistingCredential({ item: 'item-empty', origin: 'https://a.example' }),
+    ).rejects.toMatchObject({ code: 'secret_field_empty' });
+    expect(bindings.get('item-empty')).toBeUndefined();
+  });
+
+  it('refuses when the vault is locked', async () => {
+    const bw = new FakeBw();
+    bw.seedItem('item-existing', AGENT_FOLDER_ID, 'u@example.com', 'Real-Password-1!');
+    const { vault } = makeVault(bw, { locked: true });
+
+    await expect(
+      vault.enrolExistingCredential({ item: 'item-existing', origin: 'https://a.example' }),
+    ).rejects.toMatchObject({ code: 'vault_locked' });
   });
 });
 
