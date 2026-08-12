@@ -25,6 +25,37 @@ import { getLogger } from '../../logging/logger';
 
 const logger = getLogger('RestartPolicyHelpers');
 
+/**
+ * Diagnostic-only, opt-in observability for the hydration-ladder rung choice.
+ * The continuity block is delivered straight into `adapter.sendInput` and was
+ * otherwise never logged or reachable — livetest checks 1/3/4 for the rolling
+ * handoff-state feature had to guess from a model's own answers, and a long
+ * probing session invalidated the instrument (see
+ * `docs/superpowers/plans/2026-07-17-rolling-handoff-state-plan_livetest.md`).
+ * Mirrors the `AIO_CODEX_CONTEXT_DIAGNOSTICS` opt-in pattern
+ * (`codex-app-server-adapter.ts`). Off by default; never mutates behavior.
+ */
+const HANDOFF_STATE_DIAGNOSTICS_ENABLED = process.env['AIO_HANDOFF_STATE_DIAGNOSTICS'] === '1';
+
+const REDACTION_MARKERS = ['[REDACTED_SK]', '[REDACTED_GHP]', '[REDACTED_SLACK]', '[REDACTED_PRIVATE_KEY]', '[REDACTED]'];
+
+/**
+ * Logs which continuity rung was rendered and content-free metadata about it
+ * (length, whether a redaction marker fired) unconditionally at debug level.
+ * Only emits the actual rendered document text when the diagnostics flag is
+ * set, since that document can contain conversation content.
+ */
+function logHandoffRungChoice(instanceId: string, reason: string, rung: 'maintained-handoff' | 'replay-preamble', document: string): void {
+  logger.debug('Continuity rung selected', {
+    instanceId,
+    reason,
+    rung,
+    documentChars: document.length,
+    containsRedactionMarker: REDACTION_MARKERS.some((marker) => document.includes(marker)),
+    ...(HANDOFF_STATE_DIAGNOSTICS_ENABLED ? { document } : {}),
+  });
+}
+
 /** Narrow deps this helper set requires. */
 export interface RestartPolicyDeps {
   /** Load persisted messages for an instance. */
@@ -75,6 +106,7 @@ export class RestartPolicyHelpers {
       if (getSettingsManager().getAll().sessionHandoffStateEnabled) {
         const handoff = getHandoffStateService().buildHandoffDocument(instance, reason);
         if (handoff) {
+          logHandoffRungChoice(instance.id, reason, 'maintained-handoff', handoff);
           return handoff;
         }
       }
@@ -84,13 +116,15 @@ export class RestartPolicyHelpers {
         error: error instanceof Error ? error.message : String(error),
       });
     }
-    return buildSharedReplayContinuityMessage(this.activeMessages.getActiveMessages(instance), { reason })
+    const replay = buildSharedReplayContinuityMessage(this.activeMessages.getActiveMessages(instance), { reason })
       || [
         '[SYSTEM CONTINUITY NOTICE]',
         `Native resume is unavailable for this provider. Continuity mode is replay-based (${reason}).`,
         'Continue the previous task and ask for clarification only if essential context is missing.',
         '[END CONTINUITY NOTICE]',
       ].join('\n');
+    logHandoffRungChoice(instance.id, reason, 'replay-preamble', replay);
+    return replay;
   }
 
   /**

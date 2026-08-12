@@ -1,6 +1,11 @@
 import type { AutomationAction } from '../types/automation.types';
 import type { InstanceProvider } from '../types/instance.types';
 import type { CliType } from '../types/settings.types';
+import {
+  CLAUDE_MODELS,
+  CLAUDE_PINNED_MODELS,
+  OPENAI_MODELS,
+} from '../types/provider.types';
 
 /**
  * Pure, renderer-safe fire-time model resolution for automations.
@@ -81,6 +86,36 @@ function firstFavoriteForProvider(
   return null;
 }
 
+/**
+ * Which provider a model id obviously belongs to, or `undefined` when it cannot
+ * be classified.
+ *
+ * `automationDefaultModel` is a single cross-provider setting, so without this
+ * check a user who sets it to a Claude model hands that model to every codex
+ * automation that has not pinned one. Deliberately conservative: only a
+ * POSITIVE identification counts, so an unrecognised id (a local selector, a
+ * gemini/grok model, a custom entry) still falls through exactly as before.
+ */
+export function modelProviderFamily(model: string): InstanceProvider | undefined {
+  // Strip a context-window suffix such as "[1m]" before matching.
+  const normalized = model.trim().toLowerCase().replace(/\[[^\]]*\]$/, '');
+  if (!normalized) return undefined;
+
+  const claudeAliases = new Set<string>(
+    Object.values(CLAUDE_MODELS).map((id) => id.replace(/\[[^\]]*\]$/, '')),
+  );
+  if (claudeAliases.has(normalized)) return 'claude';
+  if ((Object.values(CLAUDE_PINNED_MODELS) as string[]).includes(normalized)) return 'claude';
+  if (normalized.startsWith('claude-')) return 'claude';
+
+  if ((Object.values(OPENAI_MODELS) as string[]).includes(normalized)) return 'codex';
+  if (normalized.startsWith('gpt-') || normalized.startsWith('o1') || normalized.startsWith('o3')) {
+    return 'codex';
+  }
+
+  return undefined;
+}
+
 /** First well-formed favourite in the list, regardless of provider. */
 function firstFavorite(favorites: readonly string[]): ParsedFavorite | null {
   for (const key of favorites) {
@@ -131,7 +166,19 @@ export function resolveAutomationSpawnTarget(
   // Provider resolves the same way it always did: pinned > automation default >
   // the automation's own (possibly 'auto') value.
   let provider = pinnedProvider ?? defaultProvider ?? action.provider;
-  let modelOverride = pinnedModel ?? defaultModel;
+
+  // The cross-provider default only applies when it could actually run on the
+  // resolved provider. Handing a Claude model to the codex CLI (or the reverse)
+  // is a silent misconfiguration, so a positively-identified mismatch is
+  // skipped and resolution falls through to the provider-aware favourite below.
+  let modelOverride = pinnedModel;
+  if (modelOverride === undefined && defaultModel !== undefined) {
+    const concreteProvider = provider && provider !== 'auto' ? provider : undefined;
+    const family = modelProviderFamily(defaultModel);
+    if (!concreteProvider || !family || family === concreteProvider) {
+      modelOverride = defaultModel;
+    }
+  }
 
   const favorites = Array.isArray(defaults.modelPickerFavorites)
     ? defaults.modelPickerFavorites

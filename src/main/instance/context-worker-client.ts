@@ -18,6 +18,7 @@
  *   they never add worker round-trips to the user-input hot path.
  */
 
+import { isOccupancyPressureReading } from '../../shared/utils/context-occupancy';
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { getLogger } from '../logging/logger';
@@ -207,8 +208,10 @@ export class ContextWorkerClient implements InstanceContextPort {
     const usagePct = instance.contextUsage?.percentage ?? 0;
     const isChild = !!instance.parentId;
 
+    // LT-034: must stay identical to `InstanceContext.calculateContextBudget`.
+    // See `isOccupancyPressureReading` for why the raw percentage is not enough.
     const criticalThreshold = isChild ? 95 : 90;
-    if (usagePct >= criticalThreshold) {
+    if (isOccupancyPressureReading(instance.contextUsage) && usagePct >= criticalThreshold) {
       return { totalTokens: 0, rlmMaxTokens: 0, unifiedMaxTokens: 0, rlmTopK: 0 };
     }
 

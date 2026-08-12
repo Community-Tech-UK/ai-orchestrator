@@ -4,6 +4,7 @@
  * All read-only computed values derived from instance state.
  */
 
+import { isOccupancyPressureReading } from '../../../../../shared/utils/context-occupancy';
 import { Injectable, inject, computed } from '@angular/core';
 import { InstanceStateService } from './instance-state.service';
 import { ActivityDebouncerService } from '../../services/activity-debouncer.service';
@@ -126,7 +127,13 @@ export class InstanceQueries {
       // Cost is independent of occupancy reporting — a provider can bill
       // without telling us how full the window is.
       costEstimate += instance.contextUsage.costEstimate || 0;
-      if (!instance.contextUsage.occupancyReported) continue;
+      // LT-018/LT-034: only a real window occupancy contributes. An
+      // aggregate-only provider reports cumulative spend, and summing that into
+      // a fleet-wide "% ctx" — rendered in the always-visible sidebar footer —
+      // fabricates a window figure; one Copilot/Gemini instance is enough to
+      // pin it. Excluded rather than approximated: there is no honest way to
+      // average a window occupancy with a spend total.
+      if (!isOccupancyPressureReading(instance.contextUsage)) continue;
       reporting += 1;
       used += instance.contextUsage.used;
       total += instance.contextUsage.total;

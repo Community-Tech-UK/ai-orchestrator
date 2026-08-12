@@ -2,6 +2,7 @@
  * Instance Communication Manager - Handles adapter events and message passing
  */
 
+import { isOccupancyPressureReading } from '../../shared/utils/context-occupancy';
 import { EventEmitter } from 'events';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import { BaseCliAdapter, type CliResponse } from '../cli/adapters/base-cli-adapter';
@@ -56,12 +57,14 @@ import {
   shouldSkipKnownProviderLimitDispatch,
   tryParkOnProviderLimit as tryParkOnProviderLimitImpl,
 } from './instance-communication-provider-limit';
+import { scheduleSuppressedAutoRespawnRetry } from './instance-communication-recent-respawn-retry';
 import {
   assertInstanceLifecycleHookAllowed,
   dispatchInstanceLifecycleHook,
 } from './instance-lifecycle-hooks';
 import {
   getAdapterRuntimeCapabilities,
+  isAggregateOnlyOccupancy,
   isContextOverflowMessage,
   isCorruptedSessionMessage,
   isRecoverableAcpPromptTurnError,
@@ -324,11 +327,6 @@ export class InstanceCommunicationManager extends EventEmitter {
       // WS8 cache-efficiency analytics: feed the per-turn cache sample so the
       // instance-detail panel can trend hit ratio and flag cache breaks.
       getCacheAnalyticsService().recordTurn(instanceId, { input, cacheRead, cacheWrite });
-      // Spec item 5: maintain the rolling handoff document as turns complete
-      // (cheap, no LLM; only when the feature is enabled).
-      if (getSettingsManager().getAll().sessionHandoffStateEnabled) {
-        getHandoffStateService().noteTurnCompleted(instance);
-      }
     } catch (err) {
       logger.debug('recordCompletionCost failed', { instanceId, error: String(err) });
     }
@@ -1620,6 +1618,19 @@ export class InstanceCommunicationManager extends EventEmitter {
         this.deps.getInstance(instanceId)?.contextUsage?.occupancyReported === true;
       const occupancyReported = !isNoReadingShape || alreadyReported;
 
+      // LT-034: `occupancyReported` says the number is known; it does not say
+      // the number is occupancy. Providers declaring anything other than
+      // `occupancyReporting: 'current'` have no window reading, so their
+      // adapters publish cumulative turn spend in `used` — which renders as a
+      // window percentage climbing to a pinned 100 % over a near-empty context.
+      //
+      // Derived here, once, from the adapter's own declaration rather than in
+      // each adapter: the declarations already exist and are the thing that is
+      // true, so a future provider cannot silently reacquire a fake percentage
+      // by forgetting to set a flag. See `isAggregateOnlyOccupancy` for the
+      // exact gate and why remote adapters are deliberately excluded.
+      const occupancyIsAggregate = isAggregateOnlyOccupancy(adapter);
+
       emitProviderRuntimeEvent(
         {
           kind: 'context',
@@ -1627,6 +1638,7 @@ export class InstanceCommunicationManager extends EventEmitter {
           total: usage.total,
           percentage: usage.percentage,
           occupancyReported,
+          ...(occupancyIsAggregate ? { occupancyIsAggregate: true } : {}),
           ...(usage.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
           ...(usage.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
           ...(usage.source !== undefined ? { source: usage.source } : {}),
@@ -1660,9 +1672,13 @@ export class InstanceCommunicationManager extends EventEmitter {
         // measurement and keeps its "~" badge.
         // Uses the single decision made above, so this and the
         // ProviderContextEvent cannot disagree.
-        instance.contextUsage = occupancyReported
-          ? { ...usage, occupancyReported: true }
-          : { ...usage };
+        instance.contextUsage = {
+          ...usage,
+          ...(occupancyReported ? { occupancyReported: true } : {}),
+          // LT-034: must travel with the numbers, not be re-derived downstream.
+          // The renderer only ever sees what is queued here.
+          ...(occupancyIsAggregate ? { occupancyIsAggregate: true } : {}),
+        };
         // Prefer the lifetime spend counter; fall back to occupancy for
         // adapters that don't emit cumulativeTokens (e.g. Claude).
         instance.totalTokensUsed = usage.cumulativeTokens ?? usage.used;
@@ -1673,7 +1689,12 @@ export class InstanceCommunicationManager extends EventEmitter {
         // provider render as "no data" for most of an active turn.
         this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
         if (!isStatelessExecAdapter(adapter)) {
-          this.checkContextWarningThreshold(instanceId, instance, usage);
+          // Must be `instance.contextUsage`, NOT the raw `usage`: the assignment
+          // above clones, so only the clone carries `occupancyIsAggregate`.
+          // Passing `usage` here would leave the LT-034 guard reading undefined
+          // and firing the false warning anyway — the same clone-vs-raw trap
+          // that broke the LT-018 fix at `queueUpdate`.
+          this.checkContextWarningThreshold(instanceId, instance, instance.contextUsage);
         }
       }
     });
@@ -1757,6 +1778,16 @@ export class InstanceCommunicationManager extends EventEmitter {
       if (completedInstance) {
         this.recordCompletionCost(instanceId, completedInstance, response);
         this.recordEstimationTelemetry(completedInstance, response);
+        // Spec item 5 / LT-046: maintain the rolling handoff document as turns
+        // complete (cheap, no LLM; only when the feature is enabled). Must not
+        // live inside recordCompletionCost — that method early-returns on any
+        // turn without billable `response.usage` (a real, observed case: a
+        // resident-Claude-CLI session with 14 completed turns and correctly
+        // growing `contextUsage`/`totalTokensUsed` still recorded zero cost
+        // entries), which silently starved the handoff state of every turn.
+        if (getSettingsManager().getAll().sessionHandoffStateEnabled) {
+          getHandoffStateService().noteTurnCompleted(completedInstance);
+        }
         if (!providerLimitSignal && completedInstance.provider !== 'auto') {
           this.deps.clearProviderLimitAfterSuccessfulTurn?.({
             provider: completedInstance.provider,
@@ -2253,14 +2284,18 @@ export class InstanceCommunicationManager extends EventEmitter {
         const autoRespawnSuppressed =
           (instance.autoRespawnSuppressedUntil ?? 0) > Date.now();
 
-        const canAutoRespawn =
+        // LT-023: same eligibility as canAutoRespawn below, but without the
+        // recent-respawn-window term — used to decide whether a *suppressed*
+        // exit should be deferred and retried rather than left terminal.
+        const wouldAutoRespawnIfNotRecent =
           this.deps.onUnexpectedExit &&
           !instance.parentId &&                        // Only root instances
           instance.restartCount < 5 &&                 // Don't loop forever
-          !withinRecentRespawnWindow &&                // Don't pile on a fresh respawn
           !autoRespawnSuppressed &&                    // Owner flow is probing resume/fallback
           (instance.status === 'idle' || instance.status === 'ready' || instance.status === 'busy') &&
           instance.outputBuffer.some(m => m.type === 'user'); // Has conversation worth preserving
+
+        const canAutoRespawn = wouldAutoRespawnIfNotRecent && !withinRecentRespawnWindow;
 
         if (withinRecentRespawnWindow) {
           logger.info('Suppressing auto-respawn: another respawn completed very recently', {
@@ -2305,6 +2340,27 @@ export class InstanceCommunicationManager extends EventEmitter {
               buildCrashError(`Auto-respawn failed: ${err instanceof Error ? err.message : String(err)}`)
             );
           });
+          return;
+        }
+
+        // LT-023: a suppressed-but-otherwise-eligible exit used to fall straight
+        // into the terminal branch below with no retry and no waitReason. Defer
+        // it and retry through the normal auto-respawn path once the
+        // suppression window elapses (see instance-communication-recent-respawn-retry.ts).
+        if (withinRecentRespawnWindow && wouldAutoRespawnIfNotRecent) {
+          const remainingSuppressMs = Math.max(0, RECENT_RESPAWN_SUPPRESS_MS - (Date.now() - lastRespawn));
+          scheduleSuppressedAutoRespawnRetry(
+            {
+              getInstance: this.deps.getInstance,
+              queueUpdate: this.deps.queueUpdate,
+              onUnexpectedExit: this.deps.onUnexpectedExit!,
+              transitionInstanceStatus: (inst, status) => this.transitionInstanceStatus(inst, status),
+              buildCrashError,
+            },
+            instanceId,
+            instance,
+            remainingSuppressMs,
+          );
           return;
         }
 
@@ -2525,6 +2581,17 @@ export class InstanceCommunicationManager extends EventEmitter {
     if (instance.parentId !== null) return;
     // Skip if not busy
     if (instance.status !== 'busy') return;
+    // LT-034: `percentage` is only a context-window figure when the provider
+    // reports occupancy. For aggregate-only providers it is cumulative spend,
+    // so this threshold fires on total tokens billed rather than on context
+    // pressure — injecting "your context is at 85% capacity, delegate to
+    // children" into a session whose context is nearly empty. That guidance
+    // goes into the conversation, so a false positive actively degrades the
+    // run rather than merely misinforming the UI.
+    //
+    // Deliberately checked before the threshold, not folded into it: there is
+    // no correct threshold for a number that is not measuring this.
+    if (!isOccupancyPressureReading(usage)) return;
     // Skip if under threshold
     if (usage.percentage < 80) return;
     // Skip adapters that handle context pressure themselves. Claude CLI
@@ -2532,9 +2599,15 @@ export class InstanceCommunicationManager extends EventEmitter {
     // app-server mode (emits `thread/compacted`) surface their own compaction
     // events. Our proactive 80% warning is redundant noise for those and
     // injects "delegate to children" guidance that's misleading when the
-    // adapter is about to auto-compact anyway. Non-compacting adapters
-    // (Cursor, Copilot, Gemini, Codex exec mode) still get the warning
-    // because they have no in-band recovery path.
+    // adapter is about to auto-compact anyway.
+    //
+    // This used to add "non-compacting adapters (Cursor, Copilot, Gemini,
+    // Codex exec mode) still get the warning". That is no longer true and the
+    // claim is removed rather than left to mislead: all four declare
+    // `occupancyReporting: 'aggregate-only'`, so LT-034's guard above returns
+    // before this code is ever reached for them. In practice this branch now
+    // only sheds Claude CLI and Codex app-server — providers that report real
+    // occupancy AND manage their own compaction.
     //
     // Codex app-server's `supportsNativeCompaction` is also true (it has a
     // callable `thread/compact/start` hook), so we honour either signal here

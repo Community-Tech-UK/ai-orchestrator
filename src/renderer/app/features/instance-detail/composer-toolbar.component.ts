@@ -341,12 +341,23 @@ export class ComposerToolbarComponent {
    */
   readonly occupancyKnown = computed(() => {
     const u = this.contextUsage();
-    return Boolean(u && u.total > 0 && u.occupancyReported);
+    // LT-034: an aggregate-only provider reports spend, not occupancy, so the
+    // ring has no window figure to draw however large `used` grows.
+    return Boolean(u && u.total > 0 && u.occupancyReported && !u.occupancyIsAggregate);
+  });
+
+  /** LT-034: cumulative turn spend, when that is all the provider reports. */
+  readonly aggregateTokens = computed(() => {
+    const u = this.contextUsage();
+    if (!u?.occupancyIsAggregate || !u.occupancyReported) return null;
+    const tokens = u.cumulativeTokens ?? u.used;
+    return tokens > 0 ? tokens : null;
   });
 
   readonly ringPct = computed(() => {
     const u = this.contextUsage();
     // LT-018: an unreported occupancy is unknown, not zero.
+    // LT-034: so is an aggregate — `occupancyKnown()` now covers both.
     if (!this.occupancyKnown() || !u) return 0;
     return Math.min((u.used / u.total) * 100, 100);
   });
@@ -366,6 +377,15 @@ export class ComposerToolbarComponent {
   readonly ringTitle = computed(() => {
     const u = this.contextUsage();
     if (!u || !u.occupancyReported) return 'Context window: no data';
+    // LT-034: this provider reports cumulative spend and no window occupancy.
+    // Say what the number is instead of dressing it as a percentage of a
+    // window it never measured — the aggregate is useful, just not occupancy.
+    const aggregate = this.aggregateTokens();
+    if (aggregate !== null) {
+      return `Tokens used this session: ${aggregate.toLocaleString()} `
+        + '(this provider does not report context-window occupancy)';
+    }
+    if (u.occupancyIsAggregate) return 'Context window: no data';
     const pct = this.ringPct().toFixed(0);
     return `Context window: ${pct}% used (${u.used.toLocaleString()} / ${u.total.toLocaleString()} tokens)`;
   });

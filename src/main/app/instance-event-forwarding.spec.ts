@@ -405,3 +405,63 @@ describe('instance:batch-update contextUsage persistence (LT-018)', () => {
     );
   });
 });
+
+/**
+ * LT-034 (gate round 3, finding 3). The context-window guard derives pressure
+ * from `total - used`. For an aggregate-only provider `used` is cumulative turn
+ * spend and — unlike `percentage` — is NOT clamped, so it grows past `total` and
+ * drives `remaining` negative, firing a false "context window is low" warning
+ * and a false hard-block classification over a nearly-empty context.
+ */
+describe('context:warning guard for aggregate-only providers (LT-034)', () => {
+  const emitUsage = (contextUsage: Record<string, unknown>) => {
+    const mgr = buildManager({ 'inst-1': { id: 'inst-1', sessionId: 's1' } });
+    setupInstanceEventForwarding({
+      instanceManager: mgr,
+      windowManager: mockWindowManager,
+      isStatelessExecProvider: () => false,
+      getNodeLatencyForInstance: () => undefined,
+    });
+    mgr.emit('instance:batch-update', {
+      updates: [{ instanceId: 'inst-1', status: 'idle', contextUsage }],
+    });
+  };
+
+  const warnings = () =>
+    mockSendToRenderer.mock.calls.filter(([channel]) => channel === 'context:warning');
+
+  beforeEach(async () => {
+    mockSendToRenderer.mockClear();
+    // The threshold function is module-mocked to never warn. Force it to WANT
+    // to warn, so these tests isolate the occupancy gate rather than
+    // re-testing `evaluateContextWindowGuard`'s own bands.
+    const guard = await import('../context/context-window-guard');
+    vi.mocked(guard.evaluateContextWindowGuard).mockReturnValue({
+      shouldWarn: true, allowed: false, remainingTokens: 5_000,
+      source: 'default', message: 'low',
+    } as ReturnType<typeof guard.evaluateContextWindowGuard>);
+  });
+
+  it('does not warn on cumulative spend that has overrun the window', async () => {
+    emitUsage({
+      used: 260_000, total: 200_000, percentage: 100,
+      occupancyReported: true, occupancyIsAggregate: true,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(warnings()).toHaveLength(0);
+  });
+
+  it('still warns on genuine low remaining context', async () => {
+    emitUsage({
+      used: 195_000, total: 200_000, percentage: 97.5, occupancyReported: true,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(warnings().length).toBeGreaterThan(0);
+  });
+
+  it('does not warn off an unreported placeholder reading', async () => {
+    emitUsage({ used: 195_000, total: 200_000, percentage: 97.5 });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(warnings()).toHaveLength(0);
+  });
+});

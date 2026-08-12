@@ -1,9 +1,14 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import {
   DoomLoopDetector,
   getDoomLoopDetector,
   type ToolLoopDetectionEvent,
 } from './doom-loop-detector';
+import {
+  toProviderToolResultObservedEvent,
+  toProviderToolUseObservedEvent,
+} from '../providers/adapter-runtime-event-bridge';
+import type { CliToolCall } from '../cli/adapters/base-cli-adapter';
 
 describe('DoomLoopDetector', () => {
   afterEach(() => {
@@ -315,5 +320,68 @@ describe('DoomLoopDetector', () => {
       const eventsB = detector.recordToolUse('inst-B', { toolName: 't' });
       expect(eventsB).toHaveLength(0);
     });
+  });
+});
+
+describe('LT-061: realistic Bash polling loop through the full observation pipeline', () => {
+  /** Runs a Bash tool_use/tool_result pair through the real WS-B10 normalizer, as production wiring does. */
+  function recordBashCall(
+    detector: DoomLoopDetector,
+    instanceId: string,
+    callId: string,
+    command: string,
+    description: string,
+    result: string,
+  ): ToolLoopDetectionEvent[] {
+    const toolCall: CliToolCall = { id: callId, name: 'Bash', arguments: { command, description }, result };
+    const useObservation = toProviderToolUseObservedEvent(toolCall);
+    const events = detector.recordToolUse(instanceId, {
+      toolName: useObservation.toolName,
+      callId: useObservation.callId,
+      argsHash: useObservation.argsHash,
+    });
+    const resultObservation = toProviderToolResultObservedEvent(toolCall);
+    events.push(
+      ...detector.recordToolResult(instanceId, {
+        callId: resultObservation.callId,
+        resultHash: resultObservation.resultHash,
+      }),
+    );
+    return events;
+  }
+
+  it('fires repeat-no-progress for an identical command whose description text varies each call', () => {
+    const detector = new DoomLoopDetector({ repeatThreshold: 3, escalationMultiplier: 2 });
+    const all: ToolLoopDetectionEvent[] = [];
+
+    for (let i = 1; i <= 3; i++) {
+      all.push(
+        ...recordBashCall(
+          detector,
+          'inst-1',
+          `c${i}`,
+          'cat /tmp/watch.txt',
+          `Read watch.txt (${i}/8)`,
+          'unchanged file contents',
+        ),
+      );
+    }
+
+    expect(all).toHaveLength(1);
+    expect(all[0]).toMatchObject({ detector: 'repeat-no-progress', severity: 'warn', toolName: 'Bash', count: 3 });
+  });
+
+  it('does not fire when the command genuinely changes even with formulaic description text', () => {
+    const detector = new DoomLoopDetector({ repeatThreshold: 3, escalationMultiplier: 2 });
+    const all: ToolLoopDetectionEvent[] = [];
+    const commands = ['cat /tmp/a.txt', 'cat /tmp/b.txt', 'cat /tmp/c.txt'];
+
+    for (let i = 0; i < commands.length; i++) {
+      all.push(
+        ...recordBashCall(detector, 'inst-1', `c${i}`, commands[i], `Step (${i + 1}/3)`, 'some output'),
+      );
+    }
+
+    expect(all).toHaveLength(0);
   });
 });

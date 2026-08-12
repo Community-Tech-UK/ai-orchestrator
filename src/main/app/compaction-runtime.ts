@@ -43,6 +43,15 @@ const pendingManualCheckpoints = new Map<string, string>();
 
 interface NativeCompactionAdapter {
   compactContext?: () => Promise<boolean>;
+  /**
+   * True once this adapter has proven, within its own lifetime, that the
+   * connected provider build accepts a compact RPC but never confirms it
+   * (LT-017's per-adapter sticky flag). Read immediately after a failed
+   * `compactContext()` call so the coordinator-level record (LT-045, which
+   * survives an adapter respawn) can distinguish "confirmed unsupported"
+   * from an ordinary transient failure.
+   */
+  nativeCompactionKnownUnsupported?: () => boolean;
   getContextCapabilities?: () => ProviderContextCapabilities;
   executeContextAction?: (
     action: ProviderContextExecutableAction,
@@ -81,6 +90,12 @@ function buildPostCompactionUsage(previousUsage: ContextUsage): ContextUsage {
     // Dropping the flag here would blank the ring to "no data" after every
     // compaction on providers that do report occupancy.
     ...(previousUsage.occupancyReported ? { occupancyReported: true } : {}),
+    // LT-034: compaction does not change what the provider is capable of
+    // reporting, so an aggregate-only session is still aggregate-only
+    // afterwards. This function rebuilds the object field by field — the same
+    // shape that silently dropped `occupancyReported` and would have regressed
+    // LT-018 — so the flag has to be carried explicitly here too.
+    ...(previousUsage.occupancyIsAggregate ? { occupancyIsAggregate: true } : {}),
     source: 'post-compaction-reset',
     isEstimated: true,
   };
@@ -257,8 +272,24 @@ export function setupCompactionCoordinator(
         return false;
       }
 
+      // LT-045: a prior compaction for this same AIO instance already proved
+      // the connected provider build never confirms native compaction. That
+      // proof was recorded on the coordinator (which survives an adapter
+      // respawn) precisely because the adapter's own per-attempt sticky flag
+      // (LT-017) does not — restart-with-summary replaces the adapter
+      // wholesale, so without this check every single manual compaction paid
+      // the full confirmation-timeout wait again, not just the first.
+      if (coordinator.isNativeCompactionProvenUnsupported(instanceId)) {
+        logger.info('Skipping native compaction — already proven unsupported this session', { instanceId });
+        return false;
+      }
+
       try {
-        return await adapter.compactContext();
+        const result = await adapter.compactContext();
+        if (!result && adapter.nativeCompactionKnownUnsupported?.()) {
+          coordinator.recordNativeCompactionProvenUnsupported(instanceId);
+        }
+        return result;
       } catch (error) {
         logger.warn('Native compaction strategy failed', {
           instanceId,

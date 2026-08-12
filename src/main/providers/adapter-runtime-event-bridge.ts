@@ -29,6 +29,55 @@ export const UNKNOWN_EVENT_PAYLOAD_MAX_BYTES = 4096;
 /** Bound on the human-readable tool observation summaries (args/result). */
 const TOOL_OBSERVATION_SUMMARY_MAX_CHARS = 200;
 
+/**
+ * LT-061: top-level argument field names that, by convention, carry
+ * human-facing narration attached to a tool call rather than data the tool
+ * acts on — e.g. Anthropic's Bash tool `description`, documented as "shown
+ * to the user before the command is executed" and not consumed by the
+ * shell. CLIs vary this text between otherwise-identical calls (a polling
+ * loop's Nth "(N/8)" caption), which would otherwise make every call hash
+ * differently and defeat `repeat-no-progress`/`ping-pong` in
+ * `doom-loop-detector.ts`.
+ *
+ * Deliberately scoped by FIELD NAME across every tool and provider, not by
+ * tool name or provider: a denylist keyed to e.g. `toolName === 'Bash'`
+ * rots the moment a different tool or CLI adds its own annotation field
+ * under a different name. This still needs a new entry for a genuinely
+ * novel field-name convention, but no longer needs one per tool or
+ * provider.
+ *
+ * Safe against masking a *substantive* field that happens to share one of
+ * these names (e.g. some tool's `description` being its actual payload):
+ * both detectors additionally require the tool *result* to match/stay
+ * stable across the repeated calls (see `checkRepeatNoProgress` /
+ * `isAlternatingStableWindow`), and a call whose real effect lives in one
+ * of these fields will almost always produce a different result each time,
+ * so it will not falsely collapse into "no progress".
+ */
+const ARGS_HASH_IGNORED_ANNOTATION_FIELDS = new Set([
+  'description',
+  'reason',
+  'rationale',
+  'explanation',
+  'justification',
+  'summary',
+  'note',
+  'thought',
+]);
+
+/**
+ * Drop top-level `ARGS_HASH_IGNORED_ANNOTATION_FIELDS` keys before hashing
+ * tool_use arguments for loop detection. Leaves non-object values (and
+ * `argsSummary`, computed separately from the untouched arguments) alone.
+ */
+function stripAnnotationFieldsForHash(value: unknown): unknown {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return value;
+  const entries = Object.entries(value as Record<string, unknown>).filter(
+    ([key]) => !ARGS_HASH_IGNORED_ANNOTATION_FIELDS.has(key),
+  );
+  return Object.fromEntries(entries);
+}
+
 export type AdapterRuntimeEventSource = Pick<EventEmitter, 'on' | 'off'>;
 
 type ProviderRuntimeEventKind = ProviderRuntimeEvent['kind'];
@@ -531,7 +580,10 @@ function capUnknownEventPayload(value: unknown): unknown {
  * handling so today's event volume/behavior is unchanged.
  */
 export function toProviderToolUseObservedEvent(toolCall: CliToolCall): ProviderToolUseObservedEvent {
-  const argsHash = toolCall.arguments !== undefined ? hashStable(stableStringify(toolCall.arguments)) : undefined;
+  const argsHash =
+    toolCall.arguments !== undefined
+      ? hashStable(stableStringify(stripAnnotationFieldsForHash(toolCall.arguments)))
+      : undefined;
   return {
     kind: 'tool_use_observed',
     toolName: toolCall.name,

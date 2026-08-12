@@ -731,3 +731,78 @@ describe('ClaudeCliAdapter rate_limit_event handling', () => {
     expect(outputs).toHaveLength(1);
   });
 });
+
+describe('ClaudeCliAdapter LT-062 raw tool_result emission', () => {
+  function makeAdapter() {
+    const adapter = new ClaudeCliAdapter();
+    const outputs: Array<{ type: string; content: string }> = [];
+    const toolResults: Array<{ id: string; name: string; arguments: unknown; result?: string }> = [];
+    adapter.on('output', (o: { type: string; content: string }) => outputs.push(o));
+    adapter.on('tool_result', (t: { id: string; name: string; arguments: unknown; result?: string }) => toolResults.push(t));
+    const processCliMessage = (
+      adapter as unknown as { processCliMessage: (message: unknown) => void }
+    ).processCliMessage.bind(adapter);
+    return { adapter, outputs, toolResults, processCliMessage };
+  }
+
+  it('emits a raw tool_result event for an ordinary successful tool_result block, without a visible output message', () => {
+    const { outputs, toolResults, processCliMessage } = makeAdapter();
+
+    // The tool_use half — remembers name/input under toolUseContexts so the
+    // tool_result half can attach them to the raw emit.
+    processCliMessage({
+      type: 'assistant',
+      timestamp: 1,
+      message: { content: [{ type: 'tool_use', id: 'toolu_1', name: 'Bash', input: { command: 'cat watch.txt' } }] },
+    });
+
+    processCliMessage({
+      type: 'user',
+      timestamp: 2,
+      message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'watch-marker-lt062' }] },
+    });
+
+    expect(toolResults).toHaveLength(1);
+    expect(toolResults[0]).toMatchObject({
+      id: 'toolu_1',
+      name: 'Bash',
+      arguments: { command: 'cat watch.txt' },
+      result: 'watch-marker-lt062',
+    });
+    // No 'output'-typed tool_result — the visible chat transcript is unchanged.
+    expect(outputs.some((o) => o.type === 'tool_result')).toBe(false);
+  });
+
+  it('emits one raw tool_result per block for repeated identical calls (doom-loop repro shape)', () => {
+    const { toolResults, processCliMessage } = makeAdapter();
+
+    for (let i = 0; i < 3; i++) {
+      const id = `toolu_${i}`;
+      processCliMessage({
+        type: 'assistant',
+        timestamp: i,
+        message: { content: [{ type: 'tool_use', id, name: 'Bash', input: { command: 'cat watch.txt' } }] },
+      });
+      processCliMessage({
+        type: 'user',
+        timestamp: i,
+        message: { content: [{ type: 'tool_result', tool_use_id: id, content: 'unchanged' }] },
+      });
+    }
+
+    expect(toolResults).toHaveLength(3);
+    expect(toolResults.every((t) => t.result === 'unchanged')).toBe(true);
+  });
+
+  it('does not emit for a tool_result block with non-string (structured) content', () => {
+    const { toolResults, processCliMessage } = makeAdapter();
+
+    processCliMessage({
+      type: 'user',
+      timestamp: 1,
+      message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_x', content: [{ type: 'image', data: 'x' }] }] },
+    });
+
+    expect(toolResults).toHaveLength(0);
+  });
+});

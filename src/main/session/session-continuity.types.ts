@@ -70,6 +70,14 @@ export interface SessionState {
      * full argument; do not re-derive the rule here.
      */
     occupancyReported?: boolean;
+    /**
+     * LT-034: whether `used` is cumulative spend rather than context-window
+     * occupancy. Persisted alongside `occupancyReported` so a hibernate/wake
+     * round trip does not re-fabricate a window percentage for an
+     * aggregate-only provider. Narrowing this type without the field is exactly
+     * how the flag gets silently dropped with no compiler error.
+     */
+    occupancyIsAggregate?: boolean;
   };
   pendingTasks: PendingTask[];
   environmentVariables: Record<string, string>;

@@ -39,5 +39,13 @@ export function planCodexAppServerRecovery(error: unknown): CodexAppServerRecove
   if (failure.kind === 'thread-unavailable') {
     return { action: 'replay-thread', failure, keepInstanceUsable: false };
   }
+  // 'request-rejected' is overloaded: it covers both a genuinely terminal server rejection
+  // (e.g. an unknown model, classified 'terminal') and captureTurn's own-runtime "already has
+  // an active turn" collision, which the throw site (app-server-thread-runtime.ts) already
+  // labels 'retry-thread' because it is a transient scheduling race, not a runtime failure.
+  // Trust that label instead of collapsing every 'request-rejected' into a restart. (LT-050)
+  if (failure.kind === 'request-rejected' && failure.recoverability === 'retry-thread') {
+    return { action: 'retry-turn', failure, keepInstanceUsable: true };
+  }
   return { action: 'restart-runtime', failure, keepInstanceUsable: false };
 }

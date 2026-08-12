@@ -25,6 +25,7 @@ import {
   mergeReasoningSections,
   shorten,
 } from './codex/reasoning';
+import { resolveCodexTurnUsageBreakdown } from './codex/token-usage-breakdown';
 
 const logger = getLogger('CodexCliAdapter');
 const INFERRED_COMPLETION_MS = 250;
@@ -394,6 +395,8 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
         const used = hasAccurateOccupancy ? lastTotal : this.lastTurnTokens;
         if (hasAccurateOccupancy) {
           this.lastTurnTokens = lastTotal;
+          // LT-090: also keep the per-call breakdown, not just the total.
+          this.lastTurnUsageBreakdown = resolveCodexTurnUsageBreakdown(last);
         }
         if (cumulativeTotal > 0) {
           this.cumulativeTokensUsed = cumulativeTotal;

@@ -88,3 +88,34 @@ describe('resolveSwapContextUsage (LT-018)', () => {
     expect(next.occupancyReported).toBeUndefined();
   });
 });
+
+describe('occupancyIsAggregate across hibernate/wake (LT-034)', () => {
+  it('restores the aggregate flag so a woken session does not re-fabricate a window %', () => {
+    const restored = restoreContextUsage({
+      used: 190_000,
+      total: 200_000,
+      occupancyReported: true,
+      occupancyIsAggregate: true,
+    });
+    expect(restored.occupancyIsAggregate).toBe(true);
+    expect(restored.occupancyReported).toBe(true);
+  });
+
+  it('leaves the flag absent for a provider that reports real occupancy', () => {
+    const restored = restoreContextUsage({
+      used: 50_000,
+      total: 200_000,
+      occupancyReported: true,
+    });
+    expect(restored.occupancyIsAggregate).toBeUndefined();
+  });
+
+  it('does NOT infer aggregate from the numbers on a legacy record', () => {
+    // Spend and occupancy are indistinguishable by value. A pre-field record is
+    // treated as occupancy (today's behaviour) and self-corrects on the next
+    // context event, which carries the adapter's real declaration.
+    const restored = restoreContextUsage({ used: 190_000, total: 200_000 });
+    expect(restored.occupancyIsAggregate).toBeUndefined();
+    expect(restored.occupancyReported).toBe(true);
+  });
+});

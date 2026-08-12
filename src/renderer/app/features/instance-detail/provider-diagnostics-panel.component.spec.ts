@@ -148,3 +148,63 @@ describe('ProviderDiagnosticsPanelComponent', () => {
     expect(text).not.toContain('end_turn');
   });
 });
+
+/**
+ * LT-034. The diagnostics pill is a third surface rendering the same numbers.
+ * For an aggregate-only provider `percentage` is cumulative spend, so showing
+ * it as "N%" — and styling it `warning` past 90 — repeats the defect the ring
+ * and the context bar were fixed for.
+ */
+describe('ProviderDiagnosticsPanelComponent aggregate occupancy (LT-034)', () => {
+  let events: Subject<ProviderRuntimeEventEnvelope>;
+  let fixture: ComponentFixture<ProviderDiagnosticsPanelComponent>;
+
+  beforeEach(async () => {
+    TestBed.resetTestingModule();
+    events = new Subject<ProviderRuntimeEventEnvelope>();
+    await TestBed.configureTestingModule({
+      imports: [ProviderDiagnosticsPanelComponent],
+      providers: [
+        { provide: InstanceEventsService, useValue: { events$: events.asObservable() } },
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(ProviderDiagnosticsPanelComponent);
+    fixture.componentRef.setInput('instanceId', 'inst-1');
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    fixture.destroy();
+    TestBed.resetTestingModule();
+  });
+
+  it('renders a token count, not a percentage, for an aggregate-only provider', () => {
+    events.next(makeEnvelope({
+      kind: 'context',
+      used: 190_000,
+      total: 200_000,
+      percentage: 95,
+      occupancyReported: true,
+      occupancyIsAggregate: true,
+    }));
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('190,000 tokens used');
+    expect(text).toContain('no window occupancy');
+    expect(text).not.toContain('95%');
+  });
+
+  it('still renders a real percentage for a provider reporting occupancy', () => {
+    events.next(makeEnvelope({
+      kind: 'context',
+      used: 160_000,
+      total: 200_000,
+      percentage: 80,
+      occupancyReported: true,
+    }));
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent as string).toContain('80%');
+  });
+});

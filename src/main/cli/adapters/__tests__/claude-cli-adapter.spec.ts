@@ -159,6 +159,7 @@ vi.mock('../../cli-path-resolver', () => ({
 }));
 
 import { ClaudeCliAdapter, DEFER_MIN_VERSION } from '../claude-cli-adapter';
+import type { CliResponse } from '../base-cli-adapter.types';
 import { InputFormatter } from '../../input-formatter';
 import { NdjsonParser } from '../../ndjson-parser';
 import { getErrorRecoveryManager } from '../../../core/error-recovery';
@@ -1139,6 +1140,115 @@ describe('ClaudeCliAdapter — spawn/terminate lifecycle', () => {
       expect(caps.residentSession).toBe(false);
       expect(caps.liveInterrupt).toBe(false);
       expect(caps.liveSteer).toBe(false);
+    });
+  });
+
+  // LT-047: a resident Claude session's completed turns previously never
+  // reached the `if (completedInstance)` block in instance-communication.ts's
+  // adapter 'complete' handler — the 'result' NDJSON message that ends a
+  // resident turn only ever emitted 'context'/'cost'/'status':'idle', never
+  // routed through the shared `completeResponse()` seam. That silently
+  // starved cost tracking, calibration telemetry, the PostSampling/Stop
+  // lifecycle hooks and the provider-runtime 'complete' trace event for the
+  // default provider. See docs/plans/livetest-remediation-register.md#LT-047.
+  describe('LT-047: resident Claude session fires the adapter complete event', () => {
+    function adapterWithResidentProcess(): {
+      adapter: ClaudeCliAdapter;
+      proc: FakeProc;
+      handleStdout: (raw: string) => void;
+    } {
+      const adapter = new ClaudeCliAdapter({ residentClaude: true });
+      const proc = makeFakeProc();
+      (adapter as unknown as { process: FakeProc | null }).process = proc;
+      (adapter as unknown as { formatter: InputFormatter | null }).formatter =
+        new InputFormatter(proc.stdin as unknown as import('stream').Writable);
+      const handleStdout = (raw: string): void => {
+        (adapter as unknown as { handleStdout(chunk: Buffer): void }).handleStdout(
+          Buffer.from(raw),
+        );
+      };
+      return { adapter, proc, handleStdout };
+    }
+
+    function resultLine(overrides: Record<string, unknown> = {}): string {
+      return `${JSON.stringify({
+        type: 'result',
+        usage: { input_tokens: 10, output_tokens: 2 },
+        total_cost_usd: 0.0015,
+        ...overrides,
+      })}\n`;
+    }
+
+    function assistantTextLine(text: string): string {
+      return `${JSON.stringify({
+        type: 'assistant',
+        message: { content: [{ type: 'text', text }] },
+      })}\n`;
+    }
+
+    it('emits complete (with content + usage) when a resident turn ends via a result message', async () => {
+      const { adapter, handleStdout } = adapterWithResidentProcess();
+      const onComplete = vi.fn();
+      adapter.on('complete', onComplete);
+
+      await adapter.sendInput('say pong');
+      handleStdout(assistantTextLine('pong'));
+      handleStdout(resultLine());
+
+      expect(onComplete).toHaveBeenCalledTimes(1);
+      const response = onComplete.mock.calls[0]![0] as CliResponse;
+      expect(response.content).toBe('pong');
+      expect(response.usage?.inputTokens).toBe(10);
+      expect(response.usage?.outputTokens).toBe(2);
+      expect(response.usage?.cost).toBeCloseTo(0.0015);
+    });
+
+    it('resets the accumulated turn content between resident turns (no cross-turn bleed)', async () => {
+      const { adapter, handleStdout } = adapterWithResidentProcess();
+      const onComplete = vi.fn();
+      adapter.on('complete', onComplete);
+
+      await adapter.sendInput('first');
+      handleStdout(assistantTextLine('first-reply'));
+      handleStdout(resultLine());
+
+      await adapter.sendInput('second');
+      handleStdout(assistantTextLine('second-reply'));
+      handleStdout(resultLine());
+
+      expect(onComplete).toHaveBeenCalledTimes(2);
+      expect((onComplete.mock.calls[0]![0] as CliResponse).content).toBe('first-reply');
+      expect((onComplete.mock.calls[1]![0] as CliResponse).content).toBe('second-reply');
+    });
+
+    it('does not emit complete for a tool_deferred result (turn is paused, not finished)', async () => {
+      const { adapter, handleStdout } = adapterWithResidentProcess();
+      const onComplete = vi.fn();
+      adapter.on('complete', onComplete);
+
+      await adapter.sendInput('run a deferred tool');
+      handleStdout(resultLine({
+        stop_reason: 'tool_deferred',
+        deferred_tool_use: { id: 'tool-1', name: 'Bash', input: { command: 'ls' } },
+      }));
+
+      expect(onComplete).not.toHaveBeenCalled();
+    });
+
+    it('does not double-fire complete when the one-shot sendMessage() path is in flight', async () => {
+      // Guards against firing completeResponse() twice for the same turn: once
+      // from the shared 'result'-case fix here, and again from sendMessage()'s
+      // own process-close handler (which independently calls
+      // parseOutput(this.outputBuffer) + completeResponse()).
+      const { adapter, handleStdout } = adapterWithResidentProcess();
+      const onComplete = vi.fn();
+      adapter.on('complete', onComplete);
+
+      (adapter as unknown as { awaitingOneShotCompletion: boolean }).awaitingOneShotCompletion = true;
+      handleStdout(assistantTextLine('one-shot-in-flight'));
+      handleStdout(resultLine());
+
+      expect(onComplete).not.toHaveBeenCalled();
     });
   });
 });

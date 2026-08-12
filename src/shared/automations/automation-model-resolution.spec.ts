@@ -27,6 +27,60 @@ describe('resolveAutomationSpawnTarget — pre-favourite behaviour (unchanged)',
     expect(target).toEqual({ provider: 'claude', modelOverride: 'opus[1m]' });
   });
 
+  it('does not hand a Claude default model to a codex automation', () => {
+    // automationDefaultModel is one cross-provider setting. Setting it to a
+    // Claude model must not silently misconfigure every unpinned codex job.
+    const target = resolveAutomationSpawnTarget(
+      { provider: 'codex', model: undefined },
+      { ...NO_DEFAULTS, automationDefaultModel: 'opus[1m]' },
+    );
+    expect(target).toEqual({ provider: 'codex', modelOverride: undefined });
+  });
+
+  it('does not hand a codex default model to a claude automation', () => {
+    const target = resolveAutomationSpawnTarget(
+      { provider: 'claude', model: undefined },
+      { ...NO_DEFAULTS, automationDefaultModel: 'gpt-5.6-sol' },
+    );
+    expect(target).toEqual({ provider: 'claude', modelOverride: undefined });
+  });
+
+  it('still applies a matching default to a same-provider automation', () => {
+    expect(
+      resolveAutomationSpawnTarget(
+        { provider: 'claude', model: undefined },
+        { ...NO_DEFAULTS, automationDefaultModel: 'opus[1m]' },
+      ),
+    ).toEqual({ provider: 'claude', modelOverride: 'opus[1m]' });
+    expect(
+      resolveAutomationSpawnTarget(
+        { provider: 'codex', model: undefined },
+        { ...NO_DEFAULTS, automationDefaultModel: 'gpt-5.6-sol' },
+      ),
+    ).toEqual({ provider: 'codex', modelOverride: 'gpt-5.6-sol' });
+  });
+
+  it('applies an unclassifiable default model unchanged, as before', () => {
+    // A local selector or a provider we cannot classify must not regress.
+    const target = resolveAutomationSpawnTarget(
+      { provider: 'gemini', model: undefined },
+      { ...NO_DEFAULTS, automationDefaultModel: 'some-local-model:7b' },
+    );
+    expect(target).toEqual({ provider: 'gemini', modelOverride: 'some-local-model:7b' });
+  });
+
+  it('falls through to the provider favourite when the default is the wrong family', () => {
+    const target = resolveAutomationSpawnTarget(
+      { provider: 'codex', model: undefined },
+      {
+        ...NO_DEFAULTS,
+        automationDefaultModel: 'opus[1m]',
+        modelPickerFavorites: ['codex:gpt-5.6-sol'],
+      },
+    );
+    expect(target).toEqual({ provider: 'codex', modelOverride: 'gpt-5.6-sol' });
+  });
+
   it('keeps a pinned automation model even when a default is configured', () => {
     const target = resolveAutomationSpawnTarget(
       { provider: 'codex', model: 'gpt-5.6-sol' },

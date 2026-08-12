@@ -469,6 +469,10 @@ const ContextUsageEventSchema = z.object({
   // LT-018. MUST mirror `ContextUsage` — `.strict()` REJECTS the whole event
   // on an unknown key, so omitting this blocked every compact-status completed.
   occupancyReported: z.boolean().optional(),
+  // LT-034. MUST mirror `ContextUsage` for the same reason as the line above:
+  // `.strict()` rejects the whole event on an unknown key, so omitting this
+  // would fail every compact-status completed on an aggregate-only provider.
+  occupancyIsAggregate: z.boolean().optional(),
 }).strict();
 
 export const ContextWarningEventSchema = z.union([

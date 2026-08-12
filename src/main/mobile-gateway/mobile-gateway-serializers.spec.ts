@@ -126,3 +126,36 @@ describe('serializeInstance contextPercentage (LT-018)', () => {
     expect(dto.contextPercentage).toBe(0);
   });
 });
+
+/**
+ * LT-034 on the mobile surface. `contextPercentage` is defined as context-window
+ * occupancy; an aggregate-only provider reports cumulative spend, and the DTO has
+ * no field with which the phone could tell the two apart. Omission is the DTO's
+ * own "nothing to show" signal, so it is the honest answer here.
+ */
+describe('serializeInstance contextPercentage for aggregate-only providers (LT-034)', () => {
+  it('omits contextPercentage when the number is cumulative spend', () => {
+    const dto = serializeInstance(
+      inst({
+        contextUsage: {
+          used: 190_000, total: 200_000, percentage: 95,
+          occupancyReported: true, occupancyIsAggregate: true,
+        },
+      }),
+    );
+
+    expect(dto.contextPercentage).toBeUndefined();
+  });
+
+  it('still sends the percentage for a provider that reports real occupancy', () => {
+    const dto = serializeInstance(
+      inst({
+        contextUsage: {
+          used: 50_000, total: 200_000, percentage: 25, occupancyReported: true,
+        },
+      }),
+    );
+
+    expect(dto.contextPercentage).toBe(25);
+  });
+});

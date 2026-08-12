@@ -118,6 +118,19 @@ export interface IdleInstanceInfo {
   hasConversation: boolean;
 }
 
+/**
+ * `ContextUsage.source` for a reading rebuilt from persisted session state on
+ * wake, rather than observed on the current runtime (LT-034).
+ *
+ * The distinction exists because the renderer's `'emergency'` level **disables
+ * the composer**, and sending is the only thing that produces a fresh context
+ * event. A stale reading that locks input therefore blocks the very mechanism
+ * that would correct it — which bites hardest on records hibernated before
+ * `occupancyIsAggregate` existed, since an aggregate session's spend-as-
+ * percentage is typically already pinned near 100 %.
+ */
+export const RESTORED_CONTEXT_USAGE_SOURCE = 'restored-session-state';
+
 export interface ContextUsage {
   /** Current context-window occupancy (tokens used in the latest API call). */
   used: number;
@@ -140,6 +153,23 @@ export interface ContextUsage {
    * the UI shows no-data rather than zero.
    */
   occupancyReported?: boolean;
+  /**
+   * True when `used`/`percentage` are cumulative turn *spend*, not a
+   * context-window occupancy reading (LT-034).
+   *
+   * `occupancyReported` answers "is this number known?". It does not answer
+   * "is this number the thing we are labelling it as?". Providers declaring
+   * `occupancyReporting: 'aggregate-only'` (Copilot/ACP, Gemini, non-resident
+   * Claude, Codex exec) have no occupancy to report, so their adapters publish
+   * a running spend total instead. Rendered as a context-window percentage
+   * that climbs to a pinned 100 % over a nearly-empty context — and, worse, it
+   * used to trip the 80 % warning that injects "delegate to children" guidance
+   * into the conversation.
+   *
+   * Derived centrally from the adapter's declared capability, never per
+   * adapter, so a new provider cannot silently reacquire a fake percentage.
+   */
+  occupancyIsAggregate?: boolean;
   /** Lifetime token spend across all turns in this session. */
   cumulativeTokens?: number;
   /** Input tokens in the provider-reported API call, when known. */

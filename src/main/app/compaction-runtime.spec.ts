@@ -96,6 +96,62 @@ describe('setupCompactionCoordinator', () => {
     expect(sendInput).not.toHaveBeenCalled();
   });
 
+  // LT-045: the per-adapter LT-017 sticky flag is wiped by every restart-with-
+  // summary respawn, so a manual-compaction caller paid the full 30s
+  // confirmation timeout on every single compaction, not just the first, for
+  // any provider build that never confirms native compaction. The
+  // coordinator-level record must survive across a respawn (simulated here
+  // by `getAdapter` returning a *different* adapter object the second time,
+  // exactly as happens after restart-with-summary replaces the adapter).
+  it('skips the native RPC on a later compaction once the coordinator has proven it unsupported, even for a new adapter object (respawn)', async () => {
+    const firstAdapter = {
+      compactContext: vi.fn(async () => false),
+      nativeCompactionKnownUnsupported: vi.fn(() => true),
+    };
+    const secondAdapter = {
+      compactContext: vi.fn(async () => false),
+      nativeCompactionKnownUnsupported: vi.fn(() => true),
+    };
+    const restartCompact = vi.fn(async () => undefined);
+    const adapters = [firstAdapter, secondAdapter];
+    const instanceManager = {
+      getAdapterRuntimeCapabilities: vi.fn(() => ({ supportsNativeCompaction: true })),
+      getAdapter: vi.fn(() => adapters.shift() ?? secondAdapter),
+      getInstance: vi.fn(() => ({ id: 'inst-lt045', outputBuffer: [] })),
+      sendInput: vi.fn(),
+      restartInstance: restartCompact,
+      restartFreshInstance: restartCompact,
+      emitOutputMessage: vi.fn(),
+    } as unknown as InstanceManager;
+
+    setupCompactionCoordinator(instanceManager, makeWindowManager());
+    const coordinator = CompactionCoordinator.getInstance();
+
+    const first = await coordinator.compactInstance('inst-lt045');
+    expect(first.method).toBe('restart-with-summary');
+    expect(first.nativeAttemptFailed).toBe(true);
+    expect(firstAdapter.compactContext).toHaveBeenCalledOnce();
+    expect(coordinator.isNativeCompactionProvenUnsupported('inst-lt045')).toBe(true);
+
+    // Simulated respawn: a brand-new adapter object now backs the instance,
+    // exactly like restart-with-summary replacing the adapter.
+    const second = await coordinator.compactInstance('inst-lt045');
+    expect(second.method).toBe('restart-with-summary');
+    expect(second.nativeAttemptFailed).toBe(true);
+    // The proof: the SECOND adapter's compactContext was never called at all.
+    expect(secondAdapter.compactContext).not.toHaveBeenCalled();
+  });
+
+  it('clears the proven-unsupported record on instance cleanup', () => {
+    const coordinator = CompactionCoordinator.getInstance();
+    coordinator.recordNativeCompactionProvenUnsupported('inst-cleanup');
+    expect(coordinator.isNativeCompactionProvenUnsupported('inst-cleanup')).toBe(true);
+
+    coordinator.cleanupInstance('inst-cleanup');
+
+    expect(coordinator.isNativeCompactionProvenUnsupported('inst-cleanup')).toBe(false);
+  });
+
   it('resets renderer context usage after successful native compaction when no provider context event follows', async () => {
     const compactContext = vi.fn(async () => true);
     const recordMarker = vi.fn(() => 'marker-1');
@@ -169,6 +225,55 @@ describe('setupCompactionCoordinator', () => {
         }),
       }),
     );
+  });
+
+  it('preserves occupancyIsAggregate across compaction (LT-034)', async () => {
+    // buildPostCompactionUsage rebuilds the usage object field by field — the
+    // exact shape that silently dropped `occupancyReported` and would have
+    // regressed LT-018. Compaction does not change what a provider is capable
+    // of reporting, so an aggregate-only session is still aggregate-only
+    // afterwards; losing the flag here would re-fabricate a context-window
+    // percentage out of cumulative spend on the next render.
+    const compactContext = vi.fn(async () => true);
+    setCompactionMarkerRecorderForTesting(vi.fn(() => 'marker-agg'));
+    const instance = {
+      id: 'inst-agg',
+      providerSessionId: 'thread-agg',
+      sessionId: 'legacy-thread-agg',
+      workingDirectory: '/repo',
+      status: 'busy',
+      contextUsage: {
+        used: 103_222,
+        total: 200_000,
+        percentage: 51.6,
+        cumulativeTokens: 103_222,
+        source: 'provider-usage',
+        occupancyReported: true,
+        occupancyIsAggregate: true,
+      },
+      outputBuffer: [],
+    };
+    const instanceManager = {
+      getAdapterRuntimeCapabilities: vi.fn(() => ({ supportsNativeCompaction: true })),
+      getAdapter: vi.fn(() => ({ compactContext })),
+      getInstance: vi.fn(() => instance),
+      sendInput: vi.fn(),
+      emitOutputMessage: vi.fn(),
+      updateInstanceStatus: vi.fn(),
+    } as unknown as InstanceManager;
+
+    setupCompactionCoordinator(instanceManager, makeWindowManager());
+    const coordinator = CompactionCoordinator.getInstance();
+    coordinator.setAutoCompact(false);
+    coordinator.onContextUpdate('inst-agg', instance.contextUsage);
+    const result = await coordinator.compactInstance('inst-agg');
+
+    expect(result.success).toBe(true);
+    expect(instance.contextUsage).toMatchObject({
+      used: 0,
+      occupancyReported: true,
+      occupancyIsAggregate: true,
+    });
   });
 
   it('does NOT fall back to sending /compact as user text when no compactContext exists', async () => {

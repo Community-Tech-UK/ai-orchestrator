@@ -3,6 +3,7 @@ import {
   buildClaudeMcpConfig,
   withBrowserGatewaySystemPrompt,
 } from './adapter-spawn-helpers';
+import { COMPUTER_USE_MCP_SERVER_NAME } from '../../desktop-gateway/desktop-mcp-config';
 import type { UnifiedSpawnOptions } from './adapter-factory.types';
 
 /**
@@ -88,7 +89,7 @@ describe('withBrowserGatewaySystemPrompt', () => {
     const result = withBrowserGatewaySystemPrompt({
       mcpConfig: [JSON.stringify({
         mcpServers: {
-          'computer-use': { command: '/tmp/aio-mcp', args: ['computer-use'] },
+          [COMPUTER_USE_MCP_SERVER_NAME]: { command: '/tmp/aio-mcp', args: ['computer-use'] },
         },
       })],
     } as UnifiedSpawnOptions);

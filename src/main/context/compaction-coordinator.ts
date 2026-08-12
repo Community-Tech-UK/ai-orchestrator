@@ -94,6 +94,20 @@ export class CompactionCoordinator extends EventEmitter {
   // Circuit breaker per instance
   private circuitBreakers = new Map<string, CircuitBreakerState>();
 
+  /**
+   * LT-045: instance ids that have already proven, this session, that the
+   * connected provider build never confirms native compaction (accepts the
+   * RPC but never emits e.g. `thread/compacted`). The per-adapter sticky
+   * flag this mirrors (`CodexContextCostController.nativeCompactionUnobserved`,
+   * LT-017) lives on the adapter object, which restart-with-summary replaces
+   * wholesale on every fallback — so on the manual-compaction path, where a
+   * failed native attempt always triggers an immediate restart, that flag
+   * was wiped before a caller could ever observe the "at most once" saving.
+   * This set survives the adapter respawn because the coordinator itself
+   * does not get replaced.
+   */
+  private nativeCompactionProvenUnsupported = new Set<string>();
+
   // Auto-compact enabled (default true)
   private autoCompactEnabled = true;
 
@@ -367,6 +381,37 @@ export class CompactionCoordinator extends EventEmitter {
     this.budgetTrackers.delete(instanceId);
     this.epochTrackers.delete(instanceId);
     this.circuitBreakers.delete(instanceId);
+    this.nativeCompactionProvenUnsupported.delete(instanceId);
+  }
+
+  /**
+   * True once this instance has proven, this session, that native compaction
+   * does not get confirmed by the connected provider build — even across an
+   * adapter respawn caused by a prior restart-with-summary fallback.
+   */
+  isNativeCompactionProvenUnsupported(instanceId: string): boolean {
+    return this.nativeCompactionProvenUnsupported.has(instanceId);
+  }
+
+  /**
+   * Record that native compaction is proven unsupported for this instance's
+   * session, so future manual/automatic compactions can skip straight to the
+   * fallback strategy instead of paying the confirmation-timeout wait again.
+   * Deliberately sticky for the whole session: only instance teardown clears it.
+   * `recordObservedCompaction` does NOT — an earlier version of this comment
+   * claimed it did, which would have invited a future maintainer to "fix"
+   * working code. LT-045's requirement is precisely that the flag survives
+   * adapter respawns, and a respawned adapter is exactly what would re-observe
+   * a compaction. A CLI upgrade mid-session therefore keeps using the fallback
+   * until the instance is recreated, which is the intended trade.
+   */
+  recordNativeCompactionProvenUnsupported(instanceId: string): void {
+    if (this.nativeCompactionProvenUnsupported.has(instanceId)) return;
+    this.nativeCompactionProvenUnsupported.add(instanceId);
+    logger.info('Native compaction proven unsupported for this session', {
+      instanceId,
+      note: 'future compactions for this instance will skip the native RPC and go straight to restart-with-summary',
+    });
   }
 
   /**

@@ -41,12 +41,34 @@ export interface AttemptDeltaObserver {
   failureNote(): string | null;
 }
 
+/**
+ * `git rev-parse --show-toplevel` always returns the REAL (symlink-resolved)
+ * path, but a caller's `workspaceDir` may reach us through a symlink (e.g.
+ * anything under macOS's `/tmp`, which is `/private/tmp`). If the observer's
+ * own `workspace` stayed un-resolved, `discoverWorkspaceRepositories`'s
+ * authoritative git root would diverge from it by exactly the symlink
+ * prefix, and every `path.relative(workspace, absolutePath)` computed in
+ * `toWorkspaceFileChange` would start with `../` and be silently dropped —
+ * a real write would report as no observed change (LT-065). Resolve
+ * symlinks up front so `workspace` matches whatever git reports; fall back
+ * to a plain absolute path when the target doesn't exist yet (e.g. the
+ * "workspace cannot be read" case), where realpath would throw.
+ */
+function resolveWorkspaceRoot(workspaceDir: string): string {
+  const resolved = path.resolve(workspaceDir);
+  try {
+    return fs.realpathSync(resolved);
+  } catch {
+    return resolved;
+  }
+}
+
 /** Capture the before-snapshots now; failures are recorded, never thrown. */
 export function createAttemptDeltaObserver(
   workspaceDir: string,
   options: WorkspaceSnapshotOptions = {},
 ): AttemptDeltaObserver {
-  const workspace = path.resolve(workspaceDir);
+  const workspace = resolveWorkspaceRoot(workspaceDir);
   const discovery = discoverWorkspaceRepositories(workspace);
   const repoBaselines = discovery.roots.map((root) => ({
     root,

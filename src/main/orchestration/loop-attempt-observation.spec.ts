@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -129,5 +129,42 @@ describe('createAttemptDeltaObserver', () => {
     expect(observation.coverage).toBe('failed');
     expect(observation.changes).toEqual([]);
     expect(observation.reason).toMatch(/could not be read/i);
+  });
+
+  // LT-065: `git rev-parse --show-toplevel` always returns the REAL
+  // (symlink-resolved) path. When the caller's own workspaceCwd reaches the
+  // observer through a symlink (macOS: everything under /tmp, i.e.
+  // /private/tmp) the discovered "authoritative root" and the observer's own
+  // `workspace` diverge by exactly the symlink prefix, so
+  // `toWorkspaceFileChange`'s `path.relative(workspace, absolutePath)` starts
+  // with `../` for every file and is silently dropped — a real write reports
+  // as `changes: []` / `writesObserved: false`, defeating the WS5 replay
+  // guard this module exists to provide.
+  it('still observes a new file when workspaceDir is reached through a symlink', () => {
+    const realTarget = mkdtempSync(join(tmpdir(), 'loop-observation-real-'));
+    const symlinkParent = mkdtempSync(join(tmpdir(), 'loop-observation-link-'));
+    const symlinkPath = join(symlinkParent, 'repo');
+    try {
+      initRepo(realTarget);
+      symlinkSync(realTarget, symlinkPath, 'dir');
+
+      const observer = createAttemptDeltaObserver(symlinkPath);
+      write(symlinkPath, 'write1.txt', 'first');
+
+      const observation = observer.observe();
+      expect(observation.coverage).toBe('complete');
+      expect(observation.changes.map((change) => change.path)).toEqual(['write1.txt']);
+
+      const evidence = buildObservedAttemptEvidence({
+        outcome: 'completed',
+        outputOrError: 'wrote write1.txt',
+        observation,
+        providerThreadReusable: false,
+      });
+      expect(evidence.workspaceEffect).toBe('writes-observed');
+    } finally {
+      rmSync(symlinkParent, { recursive: true, force: true });
+      rmSync(realTarget, { recursive: true, force: true });
+    }
   });
 });

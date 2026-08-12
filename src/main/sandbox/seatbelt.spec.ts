@@ -271,6 +271,16 @@ describe('defaultHardenedWritableRoots', () => {
     const roots = defaultHardenedWritableRoots(undefined);
     expect(roots[0]).toBe(os.tmpdir());
   });
+
+  it('does not grant write access to ~/.cache (WS13 check 8, 2026-08-12 decision)', () => {
+    // Measured live with the production buildSeatbeltCommand: neither Claude
+    // nor Codex needed it (0 sandbox denials with or without), and it is the
+    // single largest unjustified grant in the set (a 130 GB directory on the
+    // machine measured). See the function's own doc comment for the evidence
+    // and why the cross-provider-home half of the same finding is NOT applied.
+    const roots = defaultHardenedWritableRoots('/tmp/my-project');
+    expect(roots).not.toContain(path.join(os.homedir(), '.cache'));
+  });
 });
 
 describe('buildSandboxExitAdvice', () => {

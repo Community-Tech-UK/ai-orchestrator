@@ -39,6 +39,14 @@ import { ContextAttributionPanelComponent } from './context-attribution-panel.co
             <span class="separator">/</span>
             <span class="total">{{ usage().total | number:'1.0-0' }}</span>
             <span class="percentage">({{ isEstimated() ? '~' : '' }}{{ percentage() | number:'1.0-0' }}%)</span>
+          } @else if (aggregateTokens(); as spend) {
+            <!-- LT-034: this provider reports cumulative spend and no window
+                 occupancy. Show the spend, labelled as spend. -->
+            <span class="used">{{ spend | number:'1.0-0' }}</span>
+            <span
+              class="percentage no-data"
+              title="Tokens used this session. This provider does not report context-window occupancy, so no percentage is shown."
+            >tokens used</span>
           } @else {
             <span class="percentage no-data" title="This provider has not reported context occupancy for this session">no data</span>
           }
@@ -47,7 +55,10 @@ import { ContextAttributionPanelComponent } from './context-attribution-panel.co
           }
         </div>
       } @else {
-        <span class="compact-label">{{ occupancyKnown() ? (isEstimated() ? '~' : '') + (percentage() | number:'1.0-0') + '%' : '–' }}</span>
+        <!-- LT-034: the compact label has no room to explain, so an
+             aggregate-only provider gets the neutral dash rather than a
+             percentage it never measured. -->
+        <span class="compact-label" [title]="compactLabelTitle()">{{ occupancyKnown() ? (isEstimated() ? '~' : '') + (percentage() | number:'1.0-0') + '%' : '–' }}</span>
       }
 
       @if (instanceId()) {
@@ -246,7 +257,23 @@ export class ContextBarComponent {
    */
   readonly occupancyKnown = computed(() => {
     const usage = this.usage();
-    return Boolean(usage && usage.total > 0 && usage.occupancyReported);
+    // LT-034: aggregate-only providers report spend, not occupancy — there is
+    // no window figure to render regardless of how large `used` is.
+    return Boolean(
+      usage && usage.total > 0 && usage.occupancyReported && !usage.occupancyIsAggregate,
+    );
+  });
+
+  /**
+   * LT-034: cumulative turn spend for providers that report only that. Shown
+   * instead of a fabricated window percentage — the number is real and useful,
+   * it is simply not occupancy.
+   */
+  readonly aggregateTokens = computed(() => {
+    const usage = this.usage();
+    if (!usage?.occupancyIsAggregate || !usage.occupancyReported) return null;
+    const tokens = usage.cumulativeTokens ?? usage.used;
+    return tokens > 0 ? tokens : null;
   });
 
   percentage = computed(() => {
@@ -258,6 +285,16 @@ export class ContextBarComponent {
   });
 
   isEstimated = computed(() => this.usage().isEstimated === true);
+
+  /** LT-034: the dash is ambiguous on its own, so the tooltip carries the why. */
+  readonly compactLabelTitle = computed(() => {
+    if (this.occupancyKnown()) return 'Context window used';
+    const spend = this.aggregateTokens();
+    return spend === null
+      ? 'This provider has not reported context occupancy for this session'
+      : `${spend.toLocaleString()} tokens used this session — `
+        + 'this provider does not report context-window occupancy';
+  });
 
   costEstimate = computed(() => {
     const cost = this.usage().costEstimate;

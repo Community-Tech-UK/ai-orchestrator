@@ -1076,6 +1076,37 @@ describe('DesktopGatewayService', () => {
     });
   });
 
+  it('records the appId on every audit entry in a request/deny grant lifecycle so an appId-filtered log finds it', async () => {
+    const auditStore = new InMemoryDesktopGatewayAuditStore();
+    const service = makeService({
+      auditStore,
+      allowedApps: [APP.appId],
+      apps: [APP],
+    });
+    const grant = await service.requestAppGrant(context(), {
+      appId: APP.appId,
+      capability: 'observeAndInput',
+      reason: 'Denied app grant lifecycle',
+      duration: 'session',
+    });
+    await service.resolveAppGrant(context(), {
+      requestId: grant.data!.requestId,
+      approved: false,
+      decidedBy: 'test-operator',
+      reason: 'declined by operator',
+    });
+
+    const filtered = await service.getAuditLog(context(), { appId: APP.appId, limit: 10 });
+
+    expect(filtered.data?.entries).toHaveLength(2);
+    expect(filtered.data?.entries.map((entry) => entry.toolName)).toEqual(
+      expect.arrayContaining(['computer.request_app_grant', 'computer.resolve_app_grant']),
+    );
+    for (const entry of filtered.data?.entries ?? []) {
+      expect(entry.appId).toBe(APP.appId);
+    }
+  });
+
   it('redacts screenshot bytes and typed text from audit entries', async () => {
     const auditStore = new InMemoryDesktopGatewayAuditStore();
     const service = makeService({

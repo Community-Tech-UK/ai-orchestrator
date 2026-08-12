@@ -42,6 +42,13 @@ export interface ContextUsage {
    * the numbers are a seeded placeholder, so the UI shows no-data, not 0 %.
    */
   occupancyReported?: boolean;
+  /**
+   * True when `used`/`percentage` are cumulative turn *spend*, not context-window
+   * occupancy (LT-034). Providers declaring `occupancyReporting: 'aggregate-only'`
+   * have no occupancy to report; rendering their running total as a window
+   * percentage pins the ring at a confident 100 % over a near-empty context.
+   */
+  occupancyIsAggregate?: boolean;
   /** Lifetime token spend across all turns in this session. */
   cumulativeTokens?: number;
   /** Input tokens in the provider-reported API call, when known. */

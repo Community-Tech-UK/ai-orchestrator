@@ -29,4 +29,37 @@ describe('Codex app-server recovery policy', () => {
       keepInstanceUsable: false,
     });
   });
+
+  it('treats an "already has an active turn" collision as a retryable scheduling race, not a runtime failure (LT-050)', () => {
+    // Mirrors exactly how CodexAppServerThreadRuntime.captureTurn throws this error
+    // (app-server-thread-runtime.ts) when a second turn (e.g. an orchestration inject-response)
+    // is attempted while the instance's own turn is still active.
+    const error = new CodexAppServerRuntimeError({
+      kind: 'request-rejected',
+      message: 'Codex app-server runtime already has an active turn',
+      recoverability: 'retry-thread',
+    });
+
+    expect(planCodexAppServerRecovery(error)).toMatchObject({
+      action: 'retry-turn',
+      failure: error,
+      keepInstanceUsable: true,
+    });
+  });
+
+  it('still treats an unrelated "request-rejected" failure (e.g. an invalid model) as unrecoverable', () => {
+    // classifyMessage() labels this case 'terminal', not 'retry-thread' — the fix for the
+    // active-turn collision above must not broaden every 'request-rejected' kind.
+    const error = new CodexAppServerRuntimeError({
+      kind: 'request-rejected',
+      message: 'unknown model: gpt-not-a-real-model',
+      recoverability: 'terminal',
+    });
+
+    expect(planCodexAppServerRecovery(error)).toMatchObject({
+      action: 'restart-runtime',
+      failure: error,
+      keepInstanceUsable: false,
+    });
+  });
 });

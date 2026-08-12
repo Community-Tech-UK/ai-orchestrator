@@ -7,7 +7,10 @@
  * directly, rather than buried in a 2000-line lifecycle method.
  */
 
-import type { ContextUsage } from '../../../shared/types/instance.types';
+import {
+  RESTORED_CONTEXT_USAGE_SOURCE,
+  type ContextUsage,
+} from '../../../shared/types/instance.types';
 
 /** The subset of persisted state this restore reads. */
 export interface PersistedContextUsage {
@@ -15,6 +18,19 @@ export interface PersistedContextUsage {
   total: number;
   costEstimate?: number;
   occupancyReported?: boolean;
+  /**
+   * LT-034: whether the persisted `used` is cumulative spend rather than
+   * occupancy. Must round-trip, or a woken aggregate-only session renders a
+   * fabricated window percentage until its next context event — and, via the
+   * detail component's own threshold, can disable the composer on wake.
+   *
+   * Absent on records written before the field existed. Unlike
+   * `occupancyReported` there is deliberately NO inference from the numbers:
+   * spend and occupancy are indistinguishable by value, so a legacy record is
+   * treated as occupancy (today's behaviour) and self-corrects on the first
+   * context event, which carries the adapter's real declaration.
+   */
+  occupancyIsAggregate?: boolean;
 }
 
 /**
@@ -54,6 +70,13 @@ export function restoreContextUsage(persisted: PersistedContextUsage): ContextUs
       : 0,
     costEstimate: persisted.costEstimate,
     ...(persistedOccupancyIsReal(persisted) ? { occupancyReported: true } : {}),
+    // LT-034: this function rebuilds field-by-field, the shape that has now
+    // dropped a flag twice. Carry it explicitly.
+    ...(persisted.occupancyIsAggregate ? { occupancyIsAggregate: true } : {}),
+    // LT-034: mark the reading as restored rather than observed on the current
+    // runtime. A restored number is good enough to warn about, but not fresh
+    // enough to *lock the composer* — see RESTORED_CONTEXT_USAGE_SOURCE.
+    source: RESTORED_CONTEXT_USAGE_SOURCE,
   };
 }
 

@@ -338,3 +338,57 @@ describe('InstanceContextPort', () => {
     expect(context?.skillCount).toBe(1);
   });
 });
+
+/**
+ * LT-034 (gate round 3, finding 2). `calculateContextBudget` skips RLM and
+ * unified-memory injection entirely past 90 % (95 for children), and it runs on
+ * every `sendInput`. The silent half of LT-034 was that a high cumulative
+ * *spend* figure tripped that skip and — spend being monotonic — kept it
+ * tripped, disabling memory injection for the rest of the session with no UI
+ * symptom.
+ *
+ * These test the WIRING at the call site. Round 2 only unit-tested the extracted
+ * predicate, so reverting the guard here failed nothing.
+ */
+describe('InstanceContextManager.calculateContextBudget occupancy gating (LT-034)', () => {
+  const instance = (contextUsage: Record<string, unknown>) => ({
+    id: 'inst-1',
+    sessionId: 'sess-1',
+    parentId: null,
+    contextUsage,
+    outputBuffer: [],
+  }) as unknown as Parameters<InstanceContextPort['calculateContextBudget']>[0];
+
+  it('skips injection on genuinely critical reported occupancy', async () => {
+    const { InstanceContextManager } = await import('../instance-context');
+    const budget = new InstanceContextManager().calculateContextBudget(
+      instance({ used: 190_000, total: 200_000, percentage: 95, occupancyReported: true }),
+      'query',
+    );
+    expect(budget.totalTokens).toBe(0);
+    expect(budget.rlmMaxTokens).toBe(0);
+    expect(budget.rlmTopK).toBe(0);
+  });
+
+  it('does NOT skip injection on high cumulative spend (aggregate-only provider)', async () => {
+    const { InstanceContextManager } = await import('../instance-context');
+    const budget = new InstanceContextManager().calculateContextBudget(
+      instance({
+        used: 190_000, total: 200_000, percentage: 95,
+        occupancyReported: true, occupancyIsAggregate: true,
+      }),
+      'query',
+    );
+    expect(budget.totalTokens).toBeGreaterThan(0);
+    expect(budget.rlmMaxTokens).toBeGreaterThan(0);
+  });
+
+  it('does NOT skip injection on an unreported placeholder reading', async () => {
+    const { InstanceContextManager } = await import('../instance-context');
+    const budget = new InstanceContextManager().calculateContextBudget(
+      instance({ used: 190_000, total: 200_000, percentage: 95 }),
+      'query',
+    );
+    expect(budget.totalTokens).toBeGreaterThan(0);
+  });
+});

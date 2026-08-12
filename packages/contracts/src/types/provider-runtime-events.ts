@@ -186,6 +186,14 @@ export interface ProviderContextEvent {
    * confident "0%" reappears on a surface every other gate has protected.
    */
   occupancyReported?: boolean;
+  /**
+   * LT-034: whether `used`/`percentage` are cumulative turn spend rather than a
+   * context-window occupancy reading. Mirrors `ContextUsage.occupancyIsAggregate`
+   * for the same reason `occupancyReported` is mirrored here — the diagnostics
+   * panel renders this transport, and a dropped flag re-fabricates the
+   * percentage on a surface the ring no longer shows.
+   */
+  occupancyIsAggregate?: boolean;
   /** Share of the context window attributable to prompt/input tokens. */
   promptWeight?: number;
   /** Estimated token attribution for prompt/input sources. */

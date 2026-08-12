@@ -139,9 +139,25 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/cli/adapters/base-cli-adapter.ts': 988,
   // Raised 2218 -> 2286 for resident interrupt control_request handling.
   // Raised 2286 -> 2345 for per-text-block assistant emission + rate-limit dedup.
-  'src/main/cli/adapters/claude-cli-adapter.ts': 2346,
+  // Raised 2346 -> 2430 for LT-047 (resident turns never fired the adapter
+  // 'complete' event, silently starving cost tracking/telemetry/lifecycle
+  // hooks) plus a concurrent same-cycle LT-062 tool_result raw-emit fix.
+  // Re-tightened 2430 -> 2144: extracted argv construction (buildArgs,
+  // mapReasoningEffort, buildSettingsOverlay — ~265 lines) to the new,
+  // independently testable claude-cli-argv-builder.ts.
+  'src/main/cli/adapters/claude-cli-adapter.ts': 2144,
   // Re-tightened after extracting the exec helpers to codex/exec-helpers.ts.
   'src/main/cli/adapters/codex-cli-adapter.ts': 3344,
+  // Was already at 699 (1 line under the old hard 700 cap) before LT-045's
+  // `nativeCompactionKnownUnsupported()` passthrough — a coordinator-level
+  // fix for manual Codex compaction re-paying its 30s confirmation timeout
+  // on every call, not just the first, because restart-with-summary replaces
+  // the adapter object that held the LT-017 per-attempt sticky flag.
+  'src/main/cli/adapters/codex-app-server-adapter.ts': 704,
+  // Was already at 696 (4 lines under the old hard 700 cap) before LT-090's
+  // per-call token-usage-breakdown capture (extracted the field parsing
+  // itself to codex/token-usage-breakdown.ts to keep the addition to 3 lines).
+  'src/main/cli/adapters/codex-app-server-notification-adapter.ts': 699,
   'src/main/cli/adapters/copilot-cli-adapter.ts': 1110,
   'src/main/cli/adapters/cursor-cli-adapter.ts': 1083,
   'src/main/cli/adapters/gemini-cli-adapter.ts': 892,
@@ -164,7 +180,11 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/indexing/tree-sitter-chunker.ts': 716,
   // Main process — instance
   // Raised 2343 -> 2394 for the non-destructive streaming-replace guard.
-  'src/main/instance/instance-communication.ts': 2622,
+  // Raised 2622 -> 2696 for LT-023 (a suppressed unexpected-exit respawn was
+  // a silent dead end — deferred and retried instead; bulk of the logic
+  // lives in instance-communication-recent-respawn-retry.ts) plus other
+  // concurrent same-cycle fixes already in this file.
+  'src/main/instance/instance-communication.ts': 2696,
   'src/main/instance/instance-context.ts': 1265,
   // Raised 3450 -> 3528 for the queue-aware YOLO toggle (park-while-busy +
   // auto-apply-on-idle); the bulk lives in lifecycle/yolo-mode-queue.ts.

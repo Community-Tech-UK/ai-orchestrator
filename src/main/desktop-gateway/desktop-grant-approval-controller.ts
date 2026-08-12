@@ -113,6 +113,7 @@ export class DesktopGrantApprovalController {
       'ok',
       undefined,
       { appId: request.appId, capability: request.capability, reason: request.reason },
+      grantRequest.appId,
     );
     this.requestPermissionRegistryApproval(context, requestedApp, grantRequest, status);
     return allowed(status);
@@ -126,7 +127,7 @@ export class DesktopGrantApprovalController {
     const status = pending ? this.currentGrantStatus(pending) : null;
     await this.deps.audit(context, 'computer.get_approval_status', 'allowed', 'ok', undefined, {
       requestId: request.requestId,
-    });
+    }, pending?.request.appId);
     return allowed(status ?? {
       requestId: request.requestId,
       status: 'unknown',
@@ -157,7 +158,7 @@ export class DesktopGrantApprovalController {
       pending.status = { ...pending.status, status: 'expired' };
       await this.deps.audit(context, 'computer.resolve_app_grant', 'denied', 'not_run', 'computer_use_grant_expired', {
         requestId: request.requestId,
-      });
+      }, pending.request.appId);
       return allowed(pending.status);
     }
     if (!request.approved) {
@@ -165,7 +166,7 @@ export class DesktopGrantApprovalController {
       await this.deps.audit(context, 'computer.resolve_app_grant', 'denied', 'not_run', request.reason, {
         requestId: request.requestId,
         decidedBy: request.decidedBy,
-      });
+      }, pending.request.appId);
       return allowed(pending.status);
     }
     const scope: DesktopGrantScope = pending.request.duration === 'untilRevoked'

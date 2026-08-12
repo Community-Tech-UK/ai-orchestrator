@@ -121,6 +121,10 @@ const ProviderContextEventSchema = z.object({
   // persisted ledger row — which would recreate the defect (real measurements
   // read back as unreported) the first time an export or replay trusted it.
   occupancyReported: z.boolean().optional(),
+  // LT-034: same mirroring rule as the line above — this event is persisted to
+  // the ledger, so a missing key here silently drops "these are spend, not
+  // occupancy" from every replay and export.
+  occupancyIsAggregate: z.boolean().optional(),
 });
 
 const ProviderErrorEventSchema = z.object({

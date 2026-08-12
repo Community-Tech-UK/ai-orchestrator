@@ -29,6 +29,7 @@ import {
 } from '../../browser-gateway/mobile-mcp-config';
 import {
   buildComputerUseGeminiSettingsJson,
+  COMPUTER_USE_MCP_SERVER_NAME,
   type ComputerUseMcpConfigOptions,
 } from '../../desktop-gateway/desktop-mcp-config';
 
@@ -164,7 +165,7 @@ function hasComputerUseBridge(options: UnifiedSpawnOptions): boolean {
   if (options.computerUseMcp) {
     return true;
   }
-  return hasInlineMcpServerConfig(options.mcpConfig ?? [], 'computer-use');
+  return hasInlineMcpServerConfig(options.mcpConfig ?? [], COMPUTER_USE_MCP_SERVER_NAME);
 }
 
 export function withComputerUseProvider(
@@ -303,9 +304,9 @@ function mergeComputerUseGeminiSettings(
     }
     try {
       const parsed = JSON.parse(trimmed) as { mcpServers?: Record<string, unknown> };
-      const server = parsed.mcpServers?.['computer-use'];
+      const server = parsed.mcpServers?.[COMPUTER_USE_MCP_SERVER_NAME];
       if (server) {
-        into['computer-use'] = server;
+        into[COMPUTER_USE_MCP_SERVER_NAME] = server;
       }
     } catch {
       // Ignore malformed inline entries; other providers validate separately.

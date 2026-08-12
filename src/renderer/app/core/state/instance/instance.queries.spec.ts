@@ -181,3 +181,71 @@ describe('InstanceQueries.totalContextUsage (LT-018)', () => {
     expect(total.costEstimate).toBeCloseTo(1.25, 5);
   });
 });
+
+/**
+ * LT-034: the fleet stat is rendered as "N% ctx" in the always-visible sidebar
+ * footer. An aggregate-only provider contributes cumulative spend, so summing
+ * it fabricates a window figure — and one such instance is enough to pin it.
+ */
+describe('InstanceQueries.totalContextUsage (LT-034)', () => {
+  let queries: InstanceQueries;
+  let stateService: InstanceStateService;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [InstanceQueries, InstanceStateService, ActivityDebouncerService],
+    });
+    queries = TestBed.inject(InstanceQueries);
+    stateService = TestBed.inject(InstanceStateService);
+  });
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('excludes an aggregate-only instance from the fleet occupancy figure', () => {
+    stateService.addInstance(createInstance({
+      id: 'copilot',
+      contextUsage: {
+        used: 190_000, total: 200_000, percentage: 95,
+        occupancyReported: true, occupancyIsAggregate: true,
+      },
+    }));
+
+    const total = queries.totalContextUsage();
+    expect(total.occupancyReported).toBe(false);
+    expect(total.percentage).toBe(0);
+    expect(total.used).toBe(0);
+  });
+
+  it('does not let one aggregate instance pollute a real occupancy total', () => {
+    stateService.addInstance(createInstance({
+      id: 'claude',
+      contextUsage: { used: 50_000, total: 200_000, percentage: 25, occupancyReported: true },
+    }));
+    stateService.addInstance(createInstance({
+      id: 'copilot',
+      contextUsage: {
+        used: 190_000, total: 200_000, percentage: 95,
+        occupancyReported: true, occupancyIsAggregate: true,
+      },
+    }));
+
+    const total = queries.totalContextUsage();
+    expect(total.used).toBe(50_000);
+    expect(total.total).toBe(200_000);
+    expect(total.percentage).toBe(25);
+  });
+
+  it('still counts cost from an aggregate instance — billing is independent of occupancy', () => {
+    stateService.addInstance(createInstance({
+      id: 'copilot',
+      contextUsage: {
+        used: 190_000, total: 200_000, percentage: 95,
+        occupancyReported: true, occupancyIsAggregate: true, costEstimate: 1.5,
+      },
+    }));
+
+    expect(queries.totalContextUsage().costEstimate).toBe(1.5);
+  });
+});

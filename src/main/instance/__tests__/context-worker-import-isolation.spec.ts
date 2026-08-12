@@ -37,7 +37,15 @@ const WORKER_ENTRY = resolve(SPEC_DIR, '../context-worker-main.ts');
 // RLM migration graph the worker already includes — diff-verified as exactly
 // one module, not a re-coupling. Ceiling leaves room for a few more migration
 // batches while still catching a barrel re-coupling long before 228.
-const CLOSURE_SIZE_CEILING = 132;
+// 2026-08-12: 132 after LT-034 added `shared/utils/context-occupancy.ts`, which
+// `instance-context.ts` value-imports for `isOccupancyPressureReading()`.
+// Diff-verified as exactly ONE new module: the closure was walked and every
+// member cross-checked against the working tree, and that file plus
+// `instance-context.ts` itself were the only changed entries. It is a leaf — its
+// sole dependency is `import type { ContextUsage }`, which tsc erases, so it
+// deliberately does NOT drag `shared/types/instance.types.ts` (and its own large
+// graph) into the worker. Confirmed absent from the closure.
+const CLOSURE_SIZE_CEILING = 136;
 
 function resolveImport(spec: string, fromFile: string): string | null {
   if (!spec.startsWith('.')) return null; // bare module (electron, node:*, npm)

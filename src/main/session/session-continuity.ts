@@ -1256,7 +1256,10 @@ export class SessionContinuityManager extends EventEmitter {
         total: instance.contextUsage.total,
         costEstimate: instance.contextUsage.costEstimate,
         // LT-018: carry the "these numbers are real" flag across hibernate/wake.
-        occupancyReported: instance.contextUsage.occupancyReported
+        occupancyReported: instance.contextUsage.occupancyReported,
+        // LT-034: and the "these numbers are spend, not occupancy" flag, or the
+        // woken session renders a fabricated window percentage.
+        occupancyIsAggregate: instance.contextUsage.occupancyIsAggregate
       },
       pendingTasks: [],
       environmentVariables: {},

@@ -62,6 +62,18 @@ export function toTraceRecord(envelope: ProviderRuntimeEventEnvelope): TraceReco
       'context.used': event.used,
       'context.total': event.total,
       ...(event.percentage !== undefined ? { 'context.percentage': event.percentage } : {}),
+      // LT-018/LT-034: a trace that records the number but not what it MEANS
+      // bakes "spend labelled as occupancy" into every file written from here
+      // on — which is exactly what the schema comment on `ProviderContextEvent`
+      // warns about. No reader exists yet; that is the point of fixing it now,
+      // while the cost is one line rather than a re-interpretation of an
+      // archive.
+      ...(event.occupancyReported !== undefined
+        ? { 'context.occupancy_reported': event.occupancyReported }
+        : {}),
+      ...(event.occupancyIsAggregate !== undefined
+        ? { 'context.occupancy_is_aggregate': event.occupancyIsAggregate }
+        : {}),
     };
   }
 

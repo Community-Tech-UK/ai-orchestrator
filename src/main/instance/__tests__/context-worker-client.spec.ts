@@ -37,7 +37,13 @@ function makeInstance(overrides: Partial<{
   id: string;
   sessionId: string;
   parentId: string | null;
-  contextUsage: { used: number; total: number; percentage: number };
+  contextUsage: {
+    used: number;
+    total: number;
+    percentage: number;
+    occupancyReported?: boolean;
+    occupancyIsAggregate?: boolean;
+  };
   outputBuffer: unknown[];
 }> = {}) {
   return {
@@ -444,12 +450,44 @@ describe('ContextWorkerClient', () => {
   });
 
   it('calculateContextBudget returns zero budget when context usage is critical', () => {
+    // LT-034: the fixture now states that the reading is a real provider-reported
+    // occupancy. It previously omitted `occupancyReported`, which under LT-018 is
+    // the create-time placeholder — so the skip was being asserted off a number
+    // that means "unknown", not "91% full".
     const budget = client.calculateContextBudget(
-      makeInstance({ contextUsage: { used: 90, total: 100, percentage: 91 } }),
+      makeInstance({
+        contextUsage: { used: 90, total: 100, percentage: 91, occupancyReported: true },
+      }),
       'query',
     );
     expect(budget.rlmMaxTokens).toBe(0);
     expect(budget.totalTokens).toBe(0);
+  });
+
+  // LT-034: these two cover the WIRING of `isOccupancyPressureReading` inside
+  // `calculateContextBudget`, not just the predicate. The silent half of LT-034
+  // was that a high *spend* figure disabled RLM/unified-memory injection for the
+  // rest of a session; reverting the guard at this call site must fail a test.
+  it('does NOT skip context injection on high cumulative SPEND (aggregate-only provider)', () => {
+    const budget = client.calculateContextBudget(
+      makeInstance({
+        contextUsage: {
+          used: 190_000, total: 200_000, percentage: 95,
+          occupancyReported: true, occupancyIsAggregate: true,
+        },
+      }),
+      'query',
+    );
+    expect(budget.totalTokens).toBeGreaterThan(0);
+    expect(budget.rlmMaxTokens).toBeGreaterThan(0);
+  });
+
+  it('does NOT skip context injection on an unreported (placeholder) reading', () => {
+    const budget = client.calculateContextBudget(
+      makeInstance({ contextUsage: { used: 90, total: 100, percentage: 91 } }),
+      'query',
+    );
+    expect(budget.totalTokens).toBeGreaterThan(0);
   });
 
   it('formatRlmContextBlock returns null for null input', () => {

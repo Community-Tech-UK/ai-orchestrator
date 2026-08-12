@@ -4,7 +4,10 @@ import {
   type ResolveInstructionStackParams,
 } from '../core/config/instruction-resolver';
 import type { InstructionDiagnostic } from '../../shared/types/diagnostics.types';
-import type { InstructionResolution } from '../../shared/types/instruction-source.types';
+import type {
+  InstructionResolution,
+  InstructionSourceKind,
+} from '../../shared/types/instruction-source.types';
 import { getLogger } from '../logging/logger';
 import { countRepoFiles } from './count-repo-files';
 
@@ -93,7 +96,7 @@ export class InstructionDiagnosticsService {
       diagnostics.push({
         code: 'instruction-trust',
         severity: scanSeverity === 'critical' || source.trust === 'changed' ? 'error' : 'warning',
-        message: `${source.label}: ${state}${scanSeverity ? ` (scanner: ${scanSeverity})` : ''}${source.applied ? '' : ' — skipped by the trust gate'}`,
+        message: `${source.label}: ${state}${scanSeverity ? ` (scanner: ${scanSeverity})` : ''}${source.applied ? '' : ` — ${this.skipSuffix(source.kind)}`}`,
         filePath: source.path,
         sourceKind: source.kind,
         sourceScope: source.scope,
@@ -103,6 +106,24 @@ export class InstructionDiagnosticsService {
       });
     }
     return diagnostics;
+  }
+
+  /**
+   * WS12 livetest check 4 (2026-08-12): the trust gate only controls
+   * Harness's own assembled prompt hierarchy. Claude (`CLAUDE.md`), Codex
+   * (`AGENTS.md`), Gemini (`GEMINI.md`) and Copilot instructions are all
+   * independently discovered from disk by their own CLIs, so "skipped by
+   * the trust gate" previously implied a stronger guarantee than the gate
+   * actually provides for those four kinds. `orchestrator`/`custom` files
+   * have no such native-discovery path — Harness is their only loader — so
+   * the original wording stays accurate there.
+   */
+  private skipSuffix(kind: InstructionSourceKind): string {
+    const nativelyDiscovered: InstructionSourceKind[] = ['claude', 'agents', 'copilot', 'gemini'];
+    if (nativelyDiscovered.includes(kind)) {
+      return 'not injected by Harness — the CLI may still read this file directly from disk';
+    }
+    return 'skipped by the trust gate';
   }
 
   private mapResolverWarnings(resolution: InstructionResolution): InstructionDiagnostic[] {

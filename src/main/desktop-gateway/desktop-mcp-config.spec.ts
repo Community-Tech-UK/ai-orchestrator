@@ -4,6 +4,7 @@ import {
   buildComputerUseCodexConfigToml,
   buildComputerUseGeminiSettingsJson,
   buildComputerUseMcpConfigJson,
+  COMPUTER_USE_MCP_SERVER_NAME,
   resolveComputerUseBridgeSpec,
 } from './desktop-mcp-config';
 
@@ -36,17 +37,36 @@ describe('desktop-mcp-config', () => {
 
   it('builds Claude inline JSON without ELECTRON_RUN_AS_NODE', () => {
     const config = JSON.parse(buildComputerUseMcpConfigJson(options)!);
-    const server = config.mcpServers['computer-use'];
+    const server = config.mcpServers[COMPUTER_USE_MCP_SERVER_NAME];
 
     expect(server.command).toBe(AIO_MCP);
     expect(server.args).toEqual(['computer-use']);
     expect(server.env).not.toHaveProperty('ELECTRON_RUN_AS_NODE');
   });
 
+  // LT-040 regression guard: Claude CLI treats an MCP server literally named
+  // "computer-use" as reserved (its own built-in desktop-automation server)
+  // and silently classifies it `disabled` — opt-in only via a per-project
+  // allowlist — before ever attempting to spawn it, with no error surfaced
+  // anywhere in our process. A server registered under that exact name never
+  // becomes a live child process of the Claude CLI, so no `computer.*` tool
+  // is ever reachable. See docs/plans/livetest-remediation-register.md LT-040.
+  it('never registers the MCP server under the literal name "computer-use" (LT-040)', () => {
+    const claude = JSON.parse(buildComputerUseMcpConfigJson(options)!);
+    const toml = buildComputerUseCodexConfigToml(options)!;
+    const gemini = JSON.parse(buildComputerUseGeminiSettingsJson(options)!);
+    const [acp] = buildComputerUseAcpMcpServers(options);
+
+    expect(Object.keys(claude.mcpServers)).not.toContain('computer-use');
+    expect(toml).not.toContain('[mcp_servers."computer-use"]');
+    expect(Object.keys(gemini.mcpServers)).not.toContain('computer-use');
+    expect(acp!.name).not.toBe('computer-use');
+  });
+
   it('builds Codex TOML config pointing at the aio-mcp SEA', () => {
     const config = buildComputerUseCodexConfigToml(options);
 
-    expect(config).toContain('[mcp_servers."computer-use"]');
+    expect(config).toContain(`[mcp_servers."${COMPUTER_USE_MCP_SERVER_NAME}"]`);
     expect(config).toContain(`command = "${AIO_MCP}"`);
     expect(config).toContain('args = ["computer-use"]');
     expect(config).toContain(`AI_ORCHESTRATOR_DESKTOP_GATEWAY_SOCKET = "${SOCKET}"`);
@@ -56,12 +76,12 @@ describe('desktop-mcp-config', () => {
     const gemini = JSON.parse(buildComputerUseGeminiSettingsJson(options)!);
     const [acp] = buildComputerUseAcpMcpServers(options);
 
-    expect(gemini.mcpServers['computer-use']).toMatchObject({
+    expect(gemini.mcpServers[COMPUTER_USE_MCP_SERVER_NAME]).toMatchObject({
       command: AIO_MCP,
       args: ['computer-use'],
     });
     expect(acp).toMatchObject({
-      name: 'computer-use',
+      name: COMPUTER_USE_MCP_SERVER_NAME,
       command: AIO_MCP,
       args: ['computer-use'],
     });

@@ -206,6 +206,11 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
     return this.contextCostController.compactContext(CODEX_TIMEOUTS.COMPACTION_SETTLE_MS);
   }
 
+  /** True once this adapter confirmed (real timeout) native compaction is unconfirmed by the provider (LT-045). */
+  nativeCompactionKnownUnsupported(): boolean {
+    return this.contextCostController.nativeCompactionKnownUnsupported();
+  }
+
   protected clearPendingContextCost(): void {
     this.contextCostController.clearPending();
   }

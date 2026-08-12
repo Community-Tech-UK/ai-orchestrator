@@ -31,6 +31,12 @@ interface ProviderDiagnosticsSnapshot {
     source?: string;
     promptWeight?: number;
     promptWeightBreakdown?: ProviderPromptWeightBreakdown;
+    /**
+     * LT-034: `percentage`/`used` are cumulative turn spend, not window
+     * occupancy, because the provider declares `occupancyReporting` other than
+     * `'current'`. Rendered as a token count instead of a percentage.
+     */
+    isAggregate?: boolean;
   };
 }
 
@@ -146,7 +152,11 @@ export class ProviderDiagnosticsPanelComponent {
         id: 'context',
         label: 'Context',
         value: this.formatContext(snapshot.context),
-        tone: snapshot.context.percentage >= 90 ? 'warning' : undefined,
+        // LT-034: a spend total crossing 90 is not context pressure, so it must
+        // not be styled as a warning.
+        tone: !snapshot.context.isAggregate && snapshot.context.percentage >= 90
+          ? 'warning'
+          : undefined,
       });
     }
 
@@ -192,6 +202,7 @@ export class ProviderDiagnosticsPanelComponent {
           source: event.source,
           promptWeight: event.promptWeight,
           promptWeightBreakdown: event.promptWeightBreakdown,
+          isAggregate: event.occupancyIsAggregate === true,
         },
       }));
       return;
@@ -232,6 +243,7 @@ export class ProviderDiagnosticsPanelComponent {
         source: usage.source,
         promptWeight: usage.promptWeight,
         promptWeightBreakdown: usage.promptWeightBreakdown,
+        isAggregate: usage.occupancyIsAggregate === true,
       },
     };
   }
@@ -255,7 +267,13 @@ export class ProviderDiagnosticsPanelComponent {
   }
 
   private formatContext(context: NonNullable<ProviderDiagnosticsSnapshot['context']>): string {
-    const parts = [`${Math.round(context.percentage)}%`];
+    // LT-034: no percentage for a provider that reports only spend — the whole
+    // point is that the window figure does not exist.
+    const parts = [
+      context.isAggregate
+        ? `${context.used.toLocaleString()} tokens used (no window occupancy)`
+        : `${Math.round(context.percentage)}%`,
+    ];
     if (context.inputTokens !== undefined || context.outputTokens !== undefined) {
       parts.push(`${context.inputTokens ?? 0} in / ${context.outputTokens ?? 0} out`);
     }

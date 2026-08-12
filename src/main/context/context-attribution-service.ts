@@ -14,6 +14,7 @@
  * Nothing here changes what is sent to any provider.
  */
 
+import { COMPUTER_USE_MCP_SERVER_NAME } from '../desktop-gateway/desktop-mcp-config';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import type {
   ContextAttributionBucket,
@@ -186,7 +187,9 @@ export async function computeContextAttribution(
   }
   if (mcpProfile.orchestratorTools) addServer('orchestrator-tools', deps.createOrchestratorTools);
   if (mcpProfile.codemem) addServer('codemem', deps.createCodememTools);
-  if (mcpProfile.computerUse) addServer('computer-use', deps.createComputerUseTools);
+  // LT-040: must match the registered server name, or this attribution row is
+  // labelled with a name no provider config actually uses.
+  if (mcpProfile.computerUse) addServer(COMPUTER_USE_MCP_SERVER_NAME, deps.createComputerUseTools);
 
   // --- Conversation, tool results, attachments -----------------------------
   let conversationTokens = 0;

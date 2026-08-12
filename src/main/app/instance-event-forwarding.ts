@@ -1,3 +1,4 @@
+import { isOccupancyPressureReading } from '../../shared/utils/context-occupancy';
 import { getContextEngine } from '../context/context-engine';
 import { evaluateContextWindowGuard } from '../context/context-window-guard';
 import { getCrossModelReviewService } from '../orchestration/cross-model-review-service';
@@ -293,9 +294,23 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
           }
 
           contextEngine.onContextUpdate(update.instanceId, update.contextUsage);
+          // LT-034: `total - used` is only "remaining context" when `used` is a
+          // real window occupancy. For an aggregate-only provider `used` is
+          // cumulative turn spend and is NOT clamped (only `percentage` is —
+          // `acp-cli-adapter.ts` `publishContextUsageFromTurn`), so it grows past
+          // `total` and drives `remaining` negative. Every sufficiently long
+          // Copilot/Cursor/non-resident-Claude session would cross the 32k warn
+          // and 16k hard-block bands over a context that may be nearly empty.
+          //
+          // The pre-existing `isStatelessExecProvider` skip above happens to
+          // exclude two of the five aggregate-only adapters, but for an
+          // unrelated exec-per-message reason — it is not this guard.
           const remaining = update.contextUsage.total - update.contextUsage.used;
           const guardResult = evaluateContextWindowGuard(remaining);
-          if (guardResult.shouldWarn || !guardResult.allowed) {
+          if (
+            isOccupancyPressureReading(update.contextUsage)
+            && (guardResult.shouldWarn || !guardResult.allowed)
+          ) {
             windowManager.sendToRenderer('context:warning', {
               instanceId: update.instanceId,
               ...guardResult,

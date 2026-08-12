@@ -25,14 +25,13 @@ import {
 } from './base-cli-adapter';
 import { NdjsonParser } from '../ndjson-parser';
 import { applyClaudeHygieneEnv, resolveClaudeFallbackModel } from './claude-env-pack';
-import { nativeSessionIdInUse, nativeTranscriptExists } from './claude-transcript-registry';
+import { nativeTranscriptExists } from './claude-transcript-registry';
 import { parseNdjsonLine } from '../json-parse';
 import { InputFormatter } from '../input-formatter';
 import { processAttachments, buildMessageWithFiles } from '../file-handler';
 import { getLogger } from '../../logging/logger';
-import { buildDeferPermissionHookCommand } from '../hooks/hook-path-resolver';
-import { HOST_CLI_CLOUD_SCHEDULER_TOOLS } from './host-cli-tool-policy';
 import { buildAskUserQuestionPrompt, parseAskUserQuestions } from './ask-user-question-prompt';
+import { buildClaudeCliArgs, DEFER_MIN_VERSION } from './claude-cli-argv-builder';
 import type { CliStreamMessage, CliRateLimitInfo } from '../../../shared/types/cli.types';
 import type {
   OutputMessage,
@@ -50,8 +49,6 @@ import {
 import { getErrorRecoveryManager } from '../../core/error-recovery';
 import type {
   RawCliPayload,
-  ClaudeCliReasoningEffort,
-  UnifiedReasoningEffort,
   DeferredToolUse,
   ClaudeCliSpawnOptions,
 } from './claude-cli-adapter.types';
@@ -78,12 +75,11 @@ export type { ClaudeCliSpawnOptions } from './claude-cli-adapter.types';
 export type { InputRequiredPayload } from './claude-cli-adapter.types';
 export type { ClaudeCliAdapterEvents } from './claude-cli-adapter.types';
 export { EXCLUDE_DYNAMIC_SECTIONS_FLAG, helpAdvertisesExcludeDynamicSections };
+// Canonical definition lives in claude-cli-argv-builder.ts (needed there for
+// the extracted buildArgs logic); re-exported here for backward compatibility.
+export { DEFER_MIN_VERSION } from './claude-cli-argv-builder';
 
 const logger = getLogger('ClaudeCliAdapter');
-
-/** Minimum Claude CLI version that supports the `defer` permission decision.
- *  VALIDATED: defer works in CLI 2.1.98. Conservative estimate for first release. */
-export const DEFER_MIN_VERSION = '2.1.90';
 
 /**
  * Claude CLI Adapter - Implementation for Claude Code CLI
@@ -148,6 +144,11 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
    * cleared alongside {@link pendingInterruptResolve}.
    */
   private pendingInterruptRequestId: string | null = null;
+
+  /** LT-047: raw NDJSON for the current resident turn, fed to parseOutput()/completeResponse() at `result`. */
+  private residentTurnRawOutput = '';
+  /** LT-047 double-fire guard: true while sendMessage()'s own close handler owns completeResponse(). */
+  private awaitingOneShotCompletion = false;
 
   constructor(options: ClaudeCliSpawnOptions = {}) {
     // Build env passthrough for the spawned CLI process. The PreToolUse hook
@@ -465,70 +466,6 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     this.inlineArgFiles.clear();
   }
 
-  private mapReasoningEffort(
-    reasoningEffort: UnifiedReasoningEffort | undefined
-  ): ClaudeCliReasoningEffort | undefined {
-    switch (reasoningEffort) {
-      case 'none':
-      case 'minimal':
-      case 'low':
-        return 'low';
-      case 'medium':
-        return 'medium';
-      case 'high':
-        return 'high';
-      case 'xhigh':
-        return 'xhigh';
-      case 'max':
-        return 'max';
-      default:
-        return undefined;
-    }
-  }
-
-  private buildSettingsOverlay(permissionHookEnabled: boolean): string | undefined {
-    const settings: {
-      ultracode?: true;
-      fastMode?: true;
-      hooks?: {
-        PreToolUse: {
-          matcher: string;
-          hooks: {
-            type: 'command';
-            command: string;
-          }[];
-        }[];
-      };
-    } = {};
-
-    if (this.spawnOptions.reasoningEffort === 'workflow') {
-      settings.ultracode = true;
-    }
-
-    // Fast mode (Opus-only, paid-tier): the CLI reads the `fastMode` settings
-    // key. Slash-command toggling (`/fast`) is unavailable in print mode (it
-    // would reach the model as plain text), so the settings overlay is the only
-    // programmatic surface. If the account can't honor it the CLI emits a "fast
-    // mode unavailable" notice on the output stream (auto-reverted by lifecycle).
-    if (this.spawnOptions.fastMode) {
-      settings.fastMode = true;
-    }
-
-    if (permissionHookEnabled && this.spawnOptions.permissionHookPath) {
-      settings.hooks = {
-        PreToolUse: [{
-          matcher: 'Bash',
-          hooks: [{
-            type: 'command',
-            command: buildDeferPermissionHookCommand(this.spawnOptions.permissionHookPath),
-          }],
-        }],
-      };
-    }
-
-    return Object.keys(settings).length > 0 ? JSON.stringify(settings) : undefined;
-  }
-
   async checkStatus(): Promise<CliStatus> {
     if (this.cachedCliStatus) {
       return this.cachedCliStatus;
@@ -584,6 +521,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   async sendMessage(message: CliMessage): Promise<CliResponse> {
     const startTime = Date.now();
     this.outputBuffer = '';
+    this.awaitingOneShotCompletion = true; // LT-047: this close handler owns completeResponse()
     await this.primeCliVersion();
 
     return new Promise((resolve, reject) => {
@@ -610,6 +548,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       const finishResolve = (response: CliResponse): void => {
         if (settled) return;
         settled = true;
+        this.awaitingOneShotCompletion = false;
         if (timeout) clearTimeout(timeout);
         this.completeResponse(response);
         resolve(response);
@@ -618,6 +557,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       const finishReject = (error: Error): void => {
         if (settled) return;
         settled = true;
+        this.awaitingOneShotCompletion = false;
         if (timeout) clearTimeout(timeout);
         reject(error);
       };
@@ -1001,220 +941,25 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  /**
+   * Builds the Claude CLI process argv from `spawnOptions`. The actual
+   * translation lives in `claude-cli-argv-builder.ts` (extracted so it is
+   * independently testable); this method's job is only to gather the few
+   * values that require adapter state (native-resume eligibility, permission
+   * hook eligibility, CLI version, and the Windows inline-JSON materializer)
+   * and hand them over.
+   */
   protected buildArgs(_message: CliMessage): string[] {
-    const args = [
-      '--print',
-      '--output-format',
-      'stream-json',
-      '--input-format',
-      'stream-json',
-      '--verbose'
-    ];
-
-    // Bare mode — skip hooks, LSP, plugins, auto-memory for faster startup (~14%).
-    // Requires explicit ANTHROPIC_API_KEY; OAuth/keychain auth is skipped.
-    if (this.spawnOptions.bare) {
-      args.push('--bare');
-    }
-
-    // Session display name — makes /resume and debugging easier
-    if (this.spawnOptions.name) {
-      args.push('--name', this.spawnOptions.name);
-    }
-
-    // Move per-machine dynamic sections from system prompt to first user message
-    // for better cross-instance prompt cache hit rates. Only pass the flag to a CLI
-    // that actually supports it (detected from --help in primeCliVersion); an older
-    // CLI — e.g. on a remote worker node — rejects the unknown option and the spawn
-    // fails. Strict `=== true`: omit when support is unconfirmed (safe — just loses
-    // the optimization). Live-verified against a Windows worker (2026-06-03).
-    if (this.spawnOptions.excludeDynamicSystemPromptSections
-        && this.excludeDynamicSectionsSupported === true) {
-      args.push(EXCLUDE_DYNAMIC_SECTIONS_FLAG);
-    }
-
-    const permissionHookEnabled = !this.spawnOptions.yoloMode && this.shouldUsePermissionHook();
-
-    // YOLO mode - auto-approve all permissions
-    if (this.spawnOptions.yoloMode) {
-      logger.warn('YOLO mode enabled for Claude CLI instance', {
-        sessionId: this.sessionId,
-        model: this.spawnOptions.model
-      });
-      args.push('--dangerously-skip-permissions');
-    } else {
-      // Use acceptEdits mode to auto-approve file operations (Read, Write, Edit, etc.)
-      // while still requiring approval for potentially dangerous operations like Bash
-      logger.debug('NON-YOLO mode: using --permission-mode acceptEdits');
-      args.push('--permission-mode', 'acceptEdits');
-
-      // Layer defer hook on top for tools that acceptEdits doesn't auto-approve.
-      // The hook intercepts matched tools (Bash, etc.) and returns `defer` to pause
-      // execution, allowing the orchestrator to surface approval UI.
-      // VALIDATED: --permission-mode and PreToolUse hooks work simultaneously.
-      if (!permissionHookEnabled && this.spawnOptions.permissionHookPath && this.cachedCliStatus?.version) {
-        logger.info('Skipping defer permission hook for unsupported Claude CLI version', {
-          version: this.cachedCliStatus.version,
-          minimumVersion: DEFER_MIN_VERSION,
-          sessionId: this.sessionId,
-        });
-      }
-
-      // Only pass --allowedTools if explicitly configured (e.g., by agent profiles).
-      // By default, allow all tools — restrictions are handled via --disallowedTools.
-      if (this.spawnOptions.allowedTools && this.spawnOptions.allowedTools.length > 0) {
-        args.push('--allowedTools', this.spawnOptions.allowedTools.join(','));
-      }
-    }
-
-    const settingsOverlay = this.buildSettingsOverlay(permissionHookEnabled);
-    if (settingsOverlay) {
-      args.push('--settings', this.materializeInlineJsonArg(settingsOverlay));
-    }
-
-    if (this.shouldUseNativeResume()) {
-      args.push('--resume', this.sessionId!);
-      // Fork session creates a new session ID while preserving conversation history
-      if (this.spawnOptions.forkSession) {
-        args.push('--fork-session');
-      }
-    } else if (this.sessionId) {
-      // B7: resume was requested but the transcript is missing for this cwd/id —
-      // start a fresh session under the same id rather than failing on --resume.
-      // Upstream replay re-seeds conversation context.
-      if (this.spawnOptions.resume) {
-        logger.info('Skipping --resume: no transcript for session under current cwd', {
-          sessionId: this.sessionId,
-          cwd: this.spawnOptions.workingDirectory,
-        });
-      }
-      // Reusing the id is only safe while the CLI has never minted it. When it
-      // has (a transcript we can't resume from under this cwd), passing it is a
-      // guaranteed exit-1; let the CLI assign a fresh id instead — the adapter
-      // adopts the authoritative one from the init message either way.
-      if (nativeSessionIdInUse(this.sessionId)) {
-        logger.info('Skipping --session-id: id already in use by an unreachable transcript', {
-          sessionId: this.sessionId,
-          cwd: this.spawnOptions.workingDirectory,
-        });
-      } else {
-        args.push('--session-id', this.sessionId);
-      }
-    }
-
-    if (this.spawnOptions.model) {
-      args.push('--model', this.spawnOptions.model);
-    }
-
-    // WS14: automatic overload fallback. Never pass a fallback equal to the
-    // primary — the CLI rejects that pairing.
-    if (this.spawnOptions.fallbackModel && this.spawnOptions.fallbackModel !== this.spawnOptions.model) {
-      args.push('--fallback-model', this.spawnOptions.fallbackModel);
-    }
-
-    // WS14: structured output for one-shot utility calls (review verdicts).
-    if (this.spawnOptions.jsonSchema) {
-      args.push('--json-schema', this.materializeInlineJsonArg(this.spawnOptions.jsonSchema));
-    }
-
-    const mappedReasoningEffort = this.mapReasoningEffort(this.spawnOptions.reasoningEffort);
-    if (mappedReasoningEffort) {
-      args.push('--effort', mappedReasoningEffort);
-    }
-
-    if (this.spawnOptions.maxTokens) {
-      args.push('--max-tokens', this.spawnOptions.maxTokens.toString());
-    }
-
-    // Agentic-turn backstop. Bounds runaway sessions (outer caps bound
-    // iterations/wall-clock, not turns within a single print-mode run).
-    if (this.spawnOptions.maxTurns && this.spawnOptions.maxTurns > 0) {
-      args.push('--max-turns', this.spawnOptions.maxTurns.toString());
-    }
-
-    // Only add user-specified allowedTools if in YOLO mode (already handled above for non-YOLO)
-    if (
-      this.spawnOptions.yoloMode &&
-      this.spawnOptions.allowedTools &&
-      this.spawnOptions.allowedTools.length > 0
-    ) {
-      args.push('--allowedTools', this.spawnOptions.allowedTools.join(','));
-    }
-
-    // Always deny the host CLI's cloud-scheduler tools, merged with any caller-supplied
-    // denylist and deduped. Enforced here — the single chokepoint every process launch
-    // (cold, warm-start, resume, replay, continuity-recovery) passes through — so the
-    // guarantee holds even for spawn paths that don't wire `disallowedTools` (e.g. a
-    // consumed warm-start adapter whose spawnOptions only carry the working directory).
-    const disallowedTools = Array.from(
-      new Set<string>([
-        ...HOST_CLI_CLOUD_SCHEDULER_TOOLS,
-        ...(this.spawnOptions.disallowedTools ?? []),
-        // D2 (#6): transient per-send override (loop cap wrap-up tools-disable).
-        ...(this.disallowedToolsOverride ?? []),
-      ]),
-    );
-    if (disallowedTools.length > 0) {
-      args.push('--disallowedTools', disallowedTools.join(','));
-    }
-
-    // Don't pass system prompt when resuming - the session already has one
-    // and Claude CLI doesn't support changing it mid-session.
-    // Default is APPEND: `--system-prompt` REPLACES Claude Code's entire default
-    // system prompt (tool guidance, safety, todo machinery) and also disables
-    // --exclude-dynamic-system-prompt-sections. Our orchestration prompt and
-    // agent profiles are written as overlays (agent.types.ts documents
-    // systemPrompt as "to prepend"), so they must ride on top of the default,
-    // not supplant it. Only explicit systemPromptMode: 'replace' (minimal
-    // one-shot spawns like title generation) uses the replacing flag.
-    if (this.spawnOptions.systemPrompt && !this.spawnOptions.resume) {
-      const flag = this.spawnOptions.systemPromptMode === 'replace'
-        ? '--system-prompt'
-        : '--append-system-prompt';
-      args.push(flag, this.spawnOptions.systemPrompt);
-    }
-
-    // MCP server configurations (file paths or inline JSON strings). On Windows
-    // inline JSON is materialized to a temp file path — see materializeInlineJsonArg.
-    if (this.spawnOptions.mcpConfig && this.spawnOptions.mcpConfig.length > 0) {
-      args.push(
-        '--mcp-config',
-        ...this.spawnOptions.mcpConfig.map((entry) => this.materializeInlineJsonArg(entry)),
-      );
-    }
-
-    // Beta headers (API key users only) — e.g. context-1m-2025-08-07
-    if (this.spawnOptions.betas && this.spawnOptions.betas.length > 0) {
-      args.push('--betas', ...this.spawnOptions.betas);
-    }
-
-    if (this.spawnOptions.chrome === true) {
-      args.push('--chrome');
-    }
-
-    logger.debug('buildArgs complete', {
-      yoloMode: this.spawnOptions.yoloMode,
-      argCount: args.length,
-      resume: this.spawnOptions.resume ?? false,
-      forkSession: this.spawnOptions.forkSession ?? false,
-      model: this.spawnOptions.model,
-      reasoningEffort: this.spawnOptions.reasoningEffort ?? null,
-      mappedReasoningEffort: mappedReasoningEffort ?? null,
-      hasSystemPrompt: Boolean(this.spawnOptions.systemPrompt && !this.spawnOptions.resume),
-      allowedToolsCount: this.spawnOptions.allowedTools?.length ?? 0,
-      disallowedToolsCount: this.spawnOptions.disallowedTools?.length ?? 0,
-      mcpConfigCount: this.spawnOptions.mcpConfig?.length ?? 0,
-      betasCount: this.spawnOptions.betas?.length ?? 0,
-      chrome: this.spawnOptions.chrome ?? 'unset',
-      bare: this.spawnOptions.bare ?? false,
-      name: this.spawnOptions.name ?? null,
-      excludeDynamicSystemPromptSections: this.spawnOptions.excludeDynamicSystemPromptSections ?? false,
-      hasPermissionHook: this.shouldUsePermissionHook(),
-      hookPathConfigured: Boolean(this.spawnOptions.permissionHookPath),
+    return buildClaudeCliArgs({
+      spawnOptions: this.spawnOptions,
+      sessionId: this.sessionId,
+      excludeDynamicSectionsSupported: this.excludeDynamicSectionsSupported,
       cliVersion: this.cachedCliStatus?.version ?? null,
+      disallowedToolsOverride: this.disallowedToolsOverride,
+      shouldUseNativeResume: this.shouldUseNativeResume(),
+      shouldUsePermissionHook: this.shouldUsePermissionHook(),
+      materializeInlineJsonArg: (value) => this.materializeInlineJsonArg(value),
     });
-
-    return args;
   }
 
   // ============ Legacy API Methods (Backward Compatibility) ============
@@ -1227,6 +972,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       throw new Error('Process already spawned');
     }
 
+    this.residentTurnRawOutput = ''; // LT-047: fresh process, no in-flight turn
     await this.primeCliVersion();
     this.lastResumeAttemptResult = this.shouldUseNativeResume()
       ? {
@@ -1314,6 +1060,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       finalMessage = buildMessageWithFiles(message, processed);
     }
 
+    this.residentTurnRawOutput = ''; // LT-047: new turn, drop stale prior output
     await this.formatter.sendMessage(
       finalMessage,
       imageAttachments.length > 0 ? imageAttachments : undefined
@@ -1382,6 +1129,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       jsonMessageLength: jsonMessage.length,
       contentPreview: summarizeClaudeLogText(text),
     });
+    this.residentTurnRawOutput = ''; // LT-047: see sendInputImpl
     await this.formatter.sendRaw(jsonMessage);
 
     this.emit('status', 'busy' as InstanceStatus);
@@ -1406,6 +1154,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
   private handleStdout(chunk: Buffer): void {
     const raw = chunk.toString();
+    this.residentTurnRawOutput += raw; // LT-047: accumulate for the `result` case
 
     // Log ALL message types coming through for debugging
     const typeMatch = raw.match(/"type"\s*:\s*"([^"]+)"/g);
@@ -1635,6 +1384,20 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         // Claude CLI returns these as user messages with tool_result content when permissions are denied
         if (userMsg.message?.content && Array.isArray(userMsg.message.content)) {
           for (const block of userMsg.message.content) {
+            // LT-062: below only turns a tool_result into a visible 'output'
+            // message on the permission-denial branch, so the loop detector
+            // never saw an ordinary success/failure. Raw-emit it instead —
+            // same channel AcpCliAdapter already uses, transcript untouched.
+            if (block.type === 'tool_result' && block.tool_use_id && typeof block.content === 'string') {
+              const context = this.toolUseContexts.get(block.tool_use_id);
+              this.emit('tool_result', {
+                id: block.tool_use_id,
+                name: context?.name ?? '',
+                arguments: context?.input ?? {},
+                result: block.content,
+              });
+            }
+
             // Log ALL tool_result errors for diagnostic visibility
             if (
               block.type === 'tool_result' &&
@@ -2014,6 +1777,14 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           // Emit a cost-only event using the 'cost' channel so downstream
           // can merge it without overwriting accurate token values.
           this.emit('cost', { costEstimate: resultMsg.total_cost_usd });
+        }
+
+        // LT-047: resident turns never reached completeResponse()/'complete', starving
+        // cost/telemetry/hooks. Reuse parseOutput() as one-shot mode does; guarded below.
+        if (!this.awaitingOneShotCompletion) {
+          const response = this.parseOutput(this.residentTurnRawOutput);
+          this.residentTurnRawOutput = '';
+          this.completeResponse(response);
         }
 
         // Reset for next turn

@@ -358,3 +358,79 @@ describe('WS-B10 tool observation normalization', () => {
     expect(event.resultSummary.endsWith('…')).toBe(true);
   });
 });
+
+describe('LT-061: argsHash ignores cosmetic annotation fields', () => {
+  it('hashes identically when only the Bash tool description text varies across calls', () => {
+    const first = toProviderToolUseObservedEvent({
+      id: 't1',
+      name: 'Bash',
+      arguments: { command: 'cat /tmp/watch.txt', description: 'Read watch.txt (1/8)' },
+    });
+    const second = toProviderToolUseObservedEvent({
+      id: 't2',
+      name: 'Bash',
+      arguments: { command: 'cat /tmp/watch.txt', description: 'Read watch.txt (2/8)' },
+    });
+
+    expect(second.argsHash).toBe(first.argsHash);
+  });
+
+  it('still hashes differently when the operative command genuinely changes', () => {
+    const first = toProviderToolUseObservedEvent({
+      id: 't1',
+      name: 'Bash',
+      arguments: { command: 'cat /tmp/watch.txt', description: 'Read watch.txt (1/8)' },
+    });
+    const second = toProviderToolUseObservedEvent({
+      id: 't2',
+      name: 'Bash',
+      arguments: { command: 'cat /tmp/other.txt', description: 'Read watch.txt (1/8)' },
+    });
+
+    expect(second.argsHash).not.toBe(first.argsHash);
+  });
+
+  it('generalizes beyond the Bash tool and beyond the description field name', () => {
+    // A hypothetical future provider/tool with a differently-named annotation
+    // field (`reason`) on a tool that is not `Bash`. Proves the exclusion is
+    // not gated on tool identity.
+    const first = toProviderToolUseObservedEvent({
+      id: 't1',
+      name: 'mcp__example__poll_status',
+      arguments: { target: 'job-42', reason: 'checking (1/3)' },
+    });
+    const second = toProviderToolUseObservedEvent({
+      id: 't2',
+      name: 'mcp__example__poll_status',
+      arguments: { target: 'job-42', reason: 'checking (2/3)' },
+    });
+
+    expect(second.argsHash).toBe(first.argsHash);
+  });
+
+  it('still distinguishes genuinely different operative arguments on that same hypothetical tool', () => {
+    const first = toProviderToolUseObservedEvent({
+      id: 't1',
+      name: 'mcp__example__poll_status',
+      arguments: { target: 'job-42', reason: 'checking (1/3)' },
+    });
+    const second = toProviderToolUseObservedEvent({
+      id: 't2',
+      name: 'mcp__example__poll_status',
+      arguments: { target: 'job-43', reason: 'checking (1/3)' },
+    });
+
+    expect(second.argsHash).not.toBe(first.argsHash);
+  });
+
+  it('leaves argsSummary untouched (annotation fields still shown to humans)', () => {
+    const event = toProviderToolUseObservedEvent({
+      id: 't1',
+      name: 'Bash',
+      arguments: { command: 'cat /tmp/watch.txt', description: 'Read watch.txt (1/8)' },
+    });
+
+    expect(event.argsSummary).toContain('description');
+    expect(event.argsSummary).toContain('Read watch.txt (1/8)');
+  });
+});

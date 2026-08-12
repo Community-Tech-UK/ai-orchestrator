@@ -5,6 +5,39 @@ import { ErrorCategory } from '../../shared/types/error-recovery.types';
 import { classifyContextOverflow, isContextOverflowError } from '../context/ptl-retry';
 import { isSessionNotFoundText } from '../cli/adapters/resume-error-classifier';
 
+/**
+ * LT-034: does this adapter's `used`/`percentage` mean context-window
+ * occupancy, or cumulative turn spend?
+ *
+ * Read from the adapter's own declared `occupancyReporting` rather than a
+ * per-adapter flag, because those declarations already exist and are the thing
+ * that is true. Anything a `BaseCliAdapter` declares as other than `'current'`
+ * is spend: the conservative default is `'none'`, and an adapter that emits
+ * usage while declaring it reports no occupancy is not reporting occupancy.
+ * That deliberately also catches Cursor over ACP, which inherits the base
+ * `'none'` and shares `AcpCliAdapter.publishContextUsageFromTurn` with Copilot.
+ *
+ * **Non-`BaseCliAdapter` adapters (i.e. `RemoteCliAdapter`) are treated as NOT
+ * aggregate.** They proxy a CLI running on a worker node and forward whatever
+ * it reports, so a remote resident-Claude session carries real occupancy.
+ * Defaulting those to "aggregate" would hide a working context ring for every
+ * remote instance — a worse trade than the mislabelling this fixes, and one no
+ * evidence supports. The cost is that a remote aggregate-only provider keeps
+ * the LT-034 mislabelling until the capability is forwarded over the worker
+ * protocol; recorded rather than silently assumed correct.
+ */
+export function isAggregateOnlyOccupancy(adapter: CliAdapter): boolean {
+  // Duck-typed rather than `instanceof BaseCliAdapter`: `RemoteCliAdapter` has
+  // no `getContextCapabilities` at all, so the two agree — but `instanceof`
+  // additionally fails whenever the base class is reached through a second
+  // module instance (this repo resolves adapters through path aliases), and a
+  // silent `false` there would look exactly like "this provider reports
+  // occupancy".
+  const read = (adapter as Partial<BaseCliAdapter>).getContextCapabilities;
+  if (typeof read !== 'function') return false;
+  return read.call(adapter).occupancyReporting !== 'current';
+}
+
 export function getAdapterRuntimeCapabilities(adapter: CliAdapter): AdapterRuntimeCapabilities {
   if (adapter instanceof BaseCliAdapter) {
     return adapter.getRuntimeCapabilities();

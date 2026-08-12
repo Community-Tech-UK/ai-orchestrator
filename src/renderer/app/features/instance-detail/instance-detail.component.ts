@@ -58,6 +58,7 @@ import { FileAttachmentService } from './file-attachment.service';
 import { UnifiedCatalogStore } from '../models/unified-catalog.store';
 import type { PendingSelection } from '../models/compact-model-picker.types';
 import type { HudQuickAction } from '../../../../shared/types/orchestration-hud.types';
+import { resolveContextWarningLevel } from './context-warning-level';
 import {
   getConversationHistoryTitle,
   inferConversationHistoryProvider,
@@ -395,20 +396,11 @@ export class InstanceDetailComponent {
     return inst ? this.store.isInstanceCompacting(inst.id) : false;
   });
 
+  /** Rules and rationale live in `resolveContextWarningLevel` (LT-018/LT-034). */
   contextWarningLevel = computed(() => {
     const inst = this.instance();
     if (!inst) return null;
-    // Adapters that self-manage auto-compaction (Claude CLI always; Codex in
-    // app-server mode) handle context internally — the orchestrator never
-    // auto-compacts them, so its "auto-compact at 80%" warning (and the 95%
-    // input-block it drives) is both redundant and misleading here. Suppress it
-    // and defer to the provider's own compaction.
-    if (inst.selfManagesAutoCompaction) return null;
-    const pct = inst.contextUsage.percentage;
-    if (pct >= 95) return 'emergency' as const;
-    if (pct >= 80) return 'critical' as const;
-    if (pct >= 75) return 'warning' as const;
-    return null;
+    return resolveContextWarningLevel(inst.contextUsage, inst.selfManagesAutoCompaction);
   });
 
   // Effect to reset dismissal when usage increases >5% since dismissal

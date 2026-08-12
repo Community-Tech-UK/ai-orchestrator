@@ -10,15 +10,16 @@ import type { Instance, OutputMessage } from '../../../shared/types/instance.typ
 import { buildReplayContinuityMessage as sharedBuilder } from '../../session/replay-continuity';
 import { HandoffStateService, getHandoffStateService } from '../../session/handoff-state-service';
 
-const { mockSettings } = vi.hoisted(() => ({
+const { mockSettings, loggerStub } = vi.hoisted(() => ({
   mockSettings: { sessionHandoffStateEnabled: false },
+  loggerStub: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
 vi.mock('../../core/config/settings-manager', () => ({
   getSettingsManager: () => ({ getAll: () => mockSettings }),
 }));
 vi.mock('../../logging/logger', () => ({
-  getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
+  getLogger: () => loggerStub,
 }));
 
 import { RestartPolicyHelpers } from './restart-policy-helpers';
@@ -58,6 +59,7 @@ describe('RestartPolicyHelpers replay-preamble hydration gating', () => {
   beforeEach(() => {
     HandoffStateService._resetForTesting();
     mockSettings.sessionHandoffStateEnabled = false;
+    loggerStub.debug.mockClear();
   });
 
   it('OFF: output is byte-identical to the shared replay builder', () => {
@@ -91,5 +93,75 @@ describe('RestartPolicyHelpers replay-preamble hydration gating', () => {
     const result = helpers.buildReplayContinuityMessage(instance, 'provider-change');
 
     expect(result).toBe(sharedBuilder(buffer, { reason: 'provider-change' }));
+  });
+});
+
+describe('RestartPolicyHelpers rung-choice observability (livetest instrumentation)', () => {
+  // Fixed 2026-08-12: the continuity block is delivered straight into
+  // adapter.sendInput and was never logged, so livetest checks for this
+  // feature had to guess from a model's own answers instead of asserting
+  // directly. See docs/superpowers/plans/2026-07-17-rolling-handoff-state-plan_livetest.md.
+  const buffer = [
+    message('u1', 'user', 'build the widget'),
+    message('a1', 'assistant', 'building the widget now'),
+  ];
+
+  beforeEach(() => {
+    HandoffStateService._resetForTesting();
+    mockSettings.sessionHandoffStateEnabled = false;
+    loggerStub.debug.mockClear();
+  });
+
+  it('logs the replay-preamble rung with content-free metadata when OFF', () => {
+    const helpers = makeHelpers();
+    const instance = makeInstance(buffer);
+
+    const result = helpers.buildReplayContinuityMessage(instance, 'provider-change');
+
+    expect(loggerStub.debug).toHaveBeenCalledWith('Continuity rung selected', expect.objectContaining({
+      instanceId: 'inst-1',
+      reason: 'provider-change',
+      rung: 'replay-preamble',
+      documentChars: result.length,
+      containsRedactionMarker: false,
+    }));
+    // Content-free by default: the rendered document body is not logged
+    // unless AIO_HANDOFF_STATE_DIAGNOSTICS=1 is set.
+    const loggedPayload = loggerStub.debug.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(loggedPayload['document']).toBeUndefined();
+  });
+
+  it('logs the maintained-handoff rung when ON with maintained state', () => {
+    mockSettings.sessionHandoffStateEnabled = true;
+    const helpers = makeHelpers();
+    const instance = makeInstance(buffer);
+    getHandoffStateService().noteTurnCompleted(instance);
+
+    const result = helpers.buildReplayContinuityMessage(instance, 'provider-change');
+
+    expect(loggerStub.debug).toHaveBeenCalledWith('Continuity rung selected', expect.objectContaining({
+      instanceId: 'inst-1',
+      reason: 'provider-change',
+      rung: 'maintained-handoff',
+      documentChars: result.length,
+    }));
+  });
+
+  it('reports a redaction marker hit when the document contains one', () => {
+    mockSettings.sessionHandoffStateEnabled = true;
+    const helpers = makeHelpers();
+    const secretBuffer = [
+      message('u1', 'user', 'here is a token sk-ant-FAKEFAKEFAKEFAKEFAKE for testing'),
+      message('a1', 'assistant', 'noted'),
+    ];
+    const instance = makeInstance(secretBuffer);
+    getHandoffStateService().noteTurnCompleted(instance);
+
+    helpers.buildReplayContinuityMessage(instance, 'provider-change');
+
+    expect(loggerStub.debug).toHaveBeenCalledWith('Continuity rung selected', expect.objectContaining({
+      rung: 'maintained-handoff',
+      containsRedactionMarker: true,
+    }));
   });
 });

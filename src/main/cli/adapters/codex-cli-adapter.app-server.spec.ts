@@ -723,6 +723,140 @@ describe('CodexCliAdapter', () => {
     });
   });
 
+  describe('LT-090: cost tracking when turn/completed has no usage', () => {
+    it('records real cost/usage from the last thread/tokenUsage/updated sample when turn.usage is absent', async () => {
+      const adapter = new CodexCliAdapter();
+      const client = createSyntheticTurnClient([
+        { method: 'turn/started', params: { threadId: 'thread-1', turn: { id: 'turn-1' } } },
+        {
+          method: 'thread/tokenUsage/updated',
+          params: {
+            threadId: 'thread-1',
+            tokenUsage: {
+              last: { totalTokens: 120, inputTokens: 100, cachedInputTokens: 80, outputTokens: 20, reasoningOutputTokens: 4 },
+              total: { totalTokens: 120, inputTokens: 100, cachedInputTokens: 80, outputTokens: 20, reasoningOutputTokens: 4 },
+              modelContextWindow: 1_000,
+            },
+          },
+        },
+        {
+          method: 'item/completed',
+          params: {
+            threadId: 'thread-1',
+            turnId: 'turn-1',
+            item: { id: 'message-1', type: 'agentMessage', phase: 'final_answer', text: 'Real reply, no turn usage' },
+          },
+        },
+        {
+          // The LT-090 case: `turn/completed` fires but carries no `usage` field,
+          // reproduced live across a trivial reply, a substantive prose turn,
+          // and a tool-using turn in the same session.
+          method: 'turn/completed',
+          params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed' } },
+        },
+      ]);
+      const completions: Array<{
+        usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number; cost?: number };
+      }> = [];
+      adapter.on('complete', (response) => completions.push(response));
+      (adapter as unknown as { appServerClient: typeof client }).appServerClient = client;
+      (adapter as unknown as { appServerThreadId: string }).appServerThreadId = 'thread-1';
+
+      await (adapter as unknown as {
+        appServerSendMessageInner(message: string): Promise<void>;
+      }).appServerSendMessageInner('trigger a turn with no turn.usage');
+
+      expect(completions).toHaveLength(1);
+      expect(completions[0].usage).toBeDefined();
+      expect(completions[0].usage?.inputTokens).toBe(100);
+      expect(completions[0].usage?.outputTokens).toBe(20);
+      expect(completions[0].usage?.totalTokens).toBe(120);
+      expect(completions[0].usage?.cost).toBeGreaterThan(0);
+    });
+
+    it('leaves usage undefined, rather than fabricating a zero-cost entry, when neither turn.usage nor a tokenUsage notification arrived', async () => {
+      const adapter = new CodexCliAdapter();
+      const client = createSyntheticTurnClient([
+        { method: 'turn/started', params: { threadId: 'thread-1', turn: { id: 'turn-1' } } },
+        {
+          method: 'item/completed',
+          params: {
+            threadId: 'thread-1',
+            turnId: 'turn-1',
+            item: { id: 'message-1', type: 'agentMessage', phase: 'final_answer', text: 'No usage anywhere' },
+          },
+        },
+        {
+          method: 'turn/completed',
+          params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed' } },
+        },
+      ]);
+      const completions: Array<{ usage?: unknown }> = [];
+      adapter.on('complete', (response) => completions.push(response));
+      (adapter as unknown as { appServerClient: typeof client }).appServerClient = client;
+      (adapter as unknown as { appServerThreadId: string }).appServerThreadId = 'thread-1';
+
+      await (adapter as unknown as {
+        appServerSendMessageInner(message: string): Promise<void>;
+      }).appServerSendMessageInner('trigger a turn with no usage data at all');
+
+      expect(completions).toHaveLength(1);
+      expect(completions[0].usage).toBeUndefined();
+    });
+
+    it('does not carry a stale tokenUsage sample from one turn into the next turn that receives none', async () => {
+      const adapter = new CodexCliAdapter();
+      let turn = 0;
+      const client = createSyntheticTurnClient([]);
+      client.request.mockImplementation(async (method: string) => {
+        if (method !== 'turn/start') throw new Error(`Unexpected synthetic RPC: ${method}`);
+        turn += 1;
+        const turnId = `turn-${turn}`;
+        if (turn === 1) {
+          client.notificationHandler?.({
+            method: 'thread/tokenUsage/updated',
+            params: {
+              threadId: 'thread-1',
+              tokenUsage: {
+                last: { totalTokens: 120, inputTokens: 100, outputTokens: 20 },
+                total: { totalTokens: 120, inputTokens: 100, outputTokens: 20 },
+                modelContextWindow: 1_000,
+              },
+            },
+          });
+        }
+        client.notificationHandler?.({
+          method: 'item/completed',
+          params: {
+            threadId: 'thread-1',
+            turnId,
+            item: { id: `message-${turn}`, type: 'agentMessage', phase: 'final_answer', text: `reply ${turn}` },
+          },
+        });
+        client.notificationHandler?.({
+          method: 'turn/completed',
+          params: { threadId: 'thread-1', turn: { id: turnId, status: 'completed' } },
+        });
+        return { turn: { id: turnId, status: 'inProgress' } };
+      });
+
+      const completions: Array<{ usage?: { totalTokens?: number } }> = [];
+      adapter.on('complete', (response) => completions.push(response));
+      (adapter as unknown as { appServerClient: typeof client }).appServerClient = client;
+      (adapter as unknown as { appServerThreadId: string }).appServerThreadId = 'thread-1';
+      const send = (message: string) => (adapter as unknown as {
+        appServerSendMessageInner(message: string): Promise<void>;
+      }).appServerSendMessageInner(message);
+
+      await send('first');
+      await send('second');
+
+      expect(completions).toHaveLength(2);
+      expect(completions[0].usage?.totalTokens).toBe(120);
+      expect(completions[1].usage).toBeUndefined();
+    });
+  });
+
   describe('turn cost governor', () => {
     function installSyntheticCostClient(
       adapter: CodexCliAdapter,

@@ -1,15 +1,21 @@
 import { EventEmitter } from 'events';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import type { SessionDiffTracker } from './session-diff-tracker';
 
+// Mutable so LT-046's regression tests can flip `sessionHandoffStateEnabled`
+// without disturbing every other test's fixed defaults (outputBufferSize /
+// enableDiskStorage are read verbatim elsewhere in this file).
+const settingsManagerState = vi.hoisted(() => ({
+  outputBufferSize: 100,
+  enableDiskStorage: false,
+  sessionHandoffStateEnabled: false,
+}));
+
 vi.mock('../core/config/settings-manager', () => ({
   getSettingsManager: () => ({
-    getAll: () => ({
-      outputBufferSize: 100,
-      enableDiskStorage: false,
-    }),
+    getAll: () => settingsManagerState,
   }),
 }));
 
@@ -76,6 +82,7 @@ import { CodexCliAdapter } from '../cli/adapters/codex-cli-adapter';
 import { emitPluginHook } from '../plugins/hook-emitter';
 import { getCostTracker } from '../core/system/cost-tracker';
 import { getTokenCounter, TokenCounter } from '../rlm/token-counter';
+import { getHandoffStateService, HandoffStateService } from '../session/handoff-state-service';
 import type { CliResponse } from '../cli/adapters/base-cli-adapter';
 
 const emitPluginHookMock = vi.mocked(emitPluginHook);
@@ -752,6 +759,75 @@ describe('InstanceCommunicationManager', () => {
       getCostTracker().off('cost-recorded', recorded);
       expect(recorded).toHaveBeenCalledTimes(1);
       expect(recorded.mock.calls[0][0]).toMatchObject({ instanceId: instance.id, cost: 0.002 });
+    });
+  });
+
+  // LT-046: `noteTurnCompleted` used to live inside `recordCompletionCost`,
+  // which early-returns on any turn without billable `response.usage`. A real
+  // resident-Claude-CLI session with 14 completed turns and correctly growing
+  // `contextUsage`/`totalTokensUsed` still recorded zero cost-tracker entries,
+  // so the handoff state was silently never populated despite the setting
+  // being ON — confirmed live via `RestartPolicyHelpers`'s new rung-choice
+  // debug log, not by asking a model. `noteTurnCompleted` must fire on every
+  // completed turn regardless of whether usage/cost was billable.
+  describe('LT-046: rolling handoff state is maintained even when the turn carried no billable usage', () => {
+    function emitComplete(usage: CliResponse['usage']): void {
+      const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+      adapters.set(instance.id, adapter);
+      manager.setupAdapterEvents(instance.id, adapter);
+      const response: CliResponse = { id: 'r1', content: 'done', role: 'assistant', usage };
+      (adapter as unknown as EventEmitter).emit('complete', response);
+    }
+
+    beforeEach(() => {
+      HandoffStateService._resetForTesting();
+      // The cost tracker is a singleton shared across the whole spec file —
+      // an earlier describe (e.g. "cost recording on turn completion") can
+      // leave entries behind, which would make the zero-length assertion
+      // below flaky depending on run order/file-scope. Match that describe's
+      // own beforeEach.
+      getCostTracker().clearEntries();
+    });
+
+    afterEach(() => {
+      settingsManagerState.sessionHandoffStateEnabled = false;
+      HandoffStateService._resetForTesting();
+    });
+
+    it('maintains handoff state from a turn with zero token usage when the setting is ON', () => {
+      settingsManagerState.sessionHandoffStateEnabled = true;
+      instance.outputBuffer.push(
+        createMessage('user', 'remember X'),
+        createMessage('assistant', 'X remembered'),
+      );
+
+      emitComplete({ duration: 1234 }); // no billable usage — the exact shape that starved LT-046
+
+      expect(getCostTracker().getEntries()).toHaveLength(0); // cost tracking correctly still skips it
+      expect(getHandoffStateService().buildHandoffDocument(instance, 'test')).not.toBeNull();
+    });
+
+    it('maintains handoff state from a turn with no usage object at all when the setting is ON', () => {
+      settingsManagerState.sessionHandoffStateEnabled = true;
+      instance.outputBuffer.push(
+        createMessage('user', 'remember Y'),
+        createMessage('assistant', 'Y remembered'),
+      );
+
+      emitComplete(undefined);
+
+      expect(getHandoffStateService().buildHandoffDocument(instance, 'test')).not.toBeNull();
+    });
+
+    it('does not maintain handoff state when the setting is OFF (default)', () => {
+      instance.outputBuffer.push(
+        createMessage('user', 'remember Z'),
+        createMessage('assistant', 'Z remembered'),
+      );
+
+      emitComplete({ inputTokens: 100, outputTokens: 50, cost: 0.002 });
+
+      expect(getHandoffStateService().buildHandoffDocument(instance, 'test')).toBeNull();
     });
   });
 
@@ -1653,6 +1729,71 @@ describe('InstanceCommunicationManager', () => {
   });
 });
 
+/**
+ * LT-034: the 80 % context warning injects "your context is at N% capacity,
+ * delegate to children" INTO the conversation. For a provider that reports
+ * cumulative spend rather than window occupancy, that threshold fires on total
+ * tokens billed while the real context is nearly empty — so a false positive
+ * actively degrades the run, not just the UI.
+ */
+describe('LT-034: context warning suppression for aggregate-only providers', () => {
+  class OccupancyAdapter extends FakeAdapter {
+    constructor(private readonly reporting: 'current' | 'aggregate-only') {
+      super('claude-cli');
+    }
+    getContextCapabilities() {
+      return { occupancyReporting: this.reporting };
+    }
+    getRuntimeCapabilities() {
+      // Not self-managing compaction, so the warning is otherwise eligible.
+      return { supportsNativeCompaction: false, selfManagedAutoCompaction: false };
+    }
+  }
+
+  function runWithAdapter(reporting: 'current' | 'aggregate-only'): OutputMessage[] {
+    const instance = createInstance('busy');
+    const adapters = new Map<string, CliAdapter>();
+    const manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, adapter) => { adapters.set(id, adapter); },
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate: vi.fn(),
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+      emitProviderRuntimeEvent: vi.fn(),
+      captureProviderRuntimeEvent: vi.fn(),
+    });
+
+    const adapter = new OccupancyAdapter(reporting) as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    const messages: OutputMessage[] = [];
+    manager.on('output', (e: { message: OutputMessage }) => messages.push(e.message));
+    manager.setupAdapterEvents(instance.id, adapter);
+
+    // 170k of 200k: well past the 80 % threshold on either reading.
+    (adapter as unknown as EventEmitter).emit('context', {
+      used: 170_000, total: 200_000, percentage: 85, cumulativeTokens: 170_000,
+    });
+    return messages;
+  }
+
+  it('does NOT inject a context warning when the number is cumulative spend', () => {
+    const warnings = runWithAdapter('aggregate-only')
+      .filter((m) => m.metadata?.['contextWarning'] === true);
+    expect(warnings).toHaveLength(0);
+  });
+
+  it('still injects the warning for a provider that reports real occupancy', () => {
+    const warnings = runWithAdapter('current')
+      .filter((m) => m.metadata?.['contextWarning'] === true);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].content).toContain('85%');
+  });
+});
+
 describe('LT-004: Codex app-server exit classification', () => {
   // Reproduces the live-test defect at the instance-communication integration
   // level: a resident Codex app-server process dying was logged as "Ignoring
@@ -1780,6 +1921,110 @@ describe('LT-004: Codex app-server exit classification', () => {
     await crash(new Error('codex app-server crashed'));
 
     expect(onInterruptedExit).toHaveBeenCalledWith(instance.id);
+    expect(onUnexpectedExit).not.toHaveBeenCalled();
+  });
+});
+
+describe('LT-023: a suppressed respawn defers and retries instead of dying silently', () => {
+  // Reproduces the live-test defect: two CLI crashes inside the 5s
+  // recent-respawn suppression window used to leave the instance in a
+  // terminal `error` state with no waitReason and nothing scheduled,
+  // because the suppression sat in front of the circuit breaker and the
+  // normal auto-respawn call was simply never made. These tests drive the
+  // exit handler directly and assert the exit is deferred and retried
+  // instead of being abandoned.
+  let instance: Instance;
+  let adapters: Map<string, CliAdapter>;
+  let queueUpdate: ReturnType<typeof vi.fn>;
+  let onUnexpectedExit: ReturnType<typeof vi.fn>;
+  let manager: InstanceCommunicationManager;
+
+  function buildEligibleInstance(): Instance {
+    const built = createInstance('idle');
+    // canAutoRespawn / wouldAutoRespawnIfNotRecent require conversation
+    // worth preserving.
+    built.outputBuffer = [createMessage('user', 'do the thing')];
+    // A prior respawn "just" completed — inside the 5s suppression window.
+    built.lastRespawnAt = Date.now();
+    return built;
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    adapters = new Map();
+    queueUpdate = vi.fn();
+    onUnexpectedExit = vi.fn().mockResolvedValue(undefined);
+    instance = buildEligibleInstance();
+    manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, adapter) => adapters.set(id, adapter),
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      onUnexpectedExit,
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('defers a suppressed exit into a scheduled retry instead of leaving the instance terminal in error', async () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    manager.setupAdapterEvents(instance.id, adapter);
+
+    (adapter as unknown as EventEmitter).emit('exit', null, 'SIGKILL');
+
+    // Not left terminal: respawning with a backoff waitReason, not `error`
+    // with nothing scheduled.
+    expect(instance.status).toBe('respawning');
+    expect(onUnexpectedExit).not.toHaveBeenCalled();
+    expect(queueUpdate).toHaveBeenCalledWith(
+      instance.id,
+      'respawning',
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      expect.objectContaining({ kind: 'backoff', retryAt: expect.any(Number) }),
+    );
+
+    // Once the suppression window elapses, the deferred retry actually fires
+    // — routing through the normal auto-respawn path (and, inside it, the
+    // circuit breaker's own backoff ladder).
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(onUnexpectedExit).toHaveBeenCalledWith(instance.id);
+  });
+
+  it('does not fire the deferred retry if the instance moved on while waiting', async () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    manager.setupAdapterEvents(instance.id, adapter);
+
+    (adapter as unknown as EventEmitter).emit('exit', null, 'SIGKILL');
+    expect(instance.status).toBe('respawning');
+
+    // Something else (e.g. a deliberate termination) settles the instance
+    // before the deferred retry's timer fires.
+    instance.status = 'terminated';
+
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(onUnexpectedExit).not.toHaveBeenCalled();
+  });
+
+  it('still terminates immediately when the restart cap is already exhausted, even inside the suppression window', () => {
+    instance.restartCount = 5;
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    manager.setupAdapterEvents(instance.id, adapter);
+
+    (adapter as unknown as EventEmitter).emit('exit', null, 'SIGKILL');
+
+    expect(instance.status).toBe('error');
     expect(onUnexpectedExit).not.toHaveBeenCalled();
   });
 });

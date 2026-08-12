@@ -45,6 +45,7 @@ import type {
   UnifiedMemoryContextInfo
 } from './instance-types';
 import type { InstanceContextPort } from './instance-context-port';
+import { isOccupancyPressureReading } from '../../shared/utils/context-occupancy';
 import {
   buildMcpRuntimeToolContextSelection,
   type MCPToolSearchSnapshot,
@@ -282,9 +283,14 @@ export class InstanceContextManager implements InstanceContextPort {
     const usagePct = instance.contextUsage?.percentage ?? 0;
     const isChildInstance = !!instance.parentId;
 
-    // Skip context injection entirely when context is critically high
+    // Skip context injection entirely when context is critically high.
+    // LT-034: only when `percentage` actually measures context pressure. For an
+    // aggregate-only provider it is cumulative spend, so this threshold would
+    // trip on tokens billed and then — spend being monotonic — stay tripped,
+    // silently disabling RLM and unified-memory injection for the rest of the
+    // session with no visible symptom.
     const criticalThreshold = isChildInstance ? 95 : 90;
-    if (usagePct >= criticalThreshold) {
+    if (isOccupancyPressureReading(instance.contextUsage) && usagePct >= criticalThreshold) {
       logger.info('Skipping context injection due to high usage', { usagePct });
       return {
         totalTokens: 0,

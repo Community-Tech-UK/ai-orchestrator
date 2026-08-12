@@ -73,6 +73,22 @@ function makeUnreportedUsage(total = 200_000): ContextUsage {
   return { used: 0, total, percentage: 0 };
 }
 
+/**
+ * LT-034: a provider that reports only cumulative turn spend (Copilot/ACP,
+ * Gemini, non-resident Claude, Codex exec). The numbers are real; they are just
+ * not context-window occupancy.
+ */
+function makeAggregateUsage(spend: number, total = 200_000): ContextUsage {
+  return {
+    used: spend,
+    total,
+    percentage: Math.min((spend / total) * 100, 100),
+    occupancyReported: true,
+    occupancyIsAggregate: true,
+    cumulativeTokens: spend,
+  };
+}
+
 describe('ComposerToolbarComponent', () => {
   let component: ComposerToolbarComponent;
 
@@ -556,5 +572,72 @@ describe('ComposerToolbarComponent context ring label (rendered)', () => {
 
   it('renders the real percentage once the provider reports', async () => {
     expect(await renderWith(makeUsage(50_000, 200_000))).toBe('25%');
+  });
+
+  // ── LT-034: aggregate spend is not occupancy ──────────────────────────────
+
+  it('renders an en dash, not a percentage, for an aggregate-only provider', async () => {
+    // The live defect: three one-word Copilot turns rendered "52% used".
+    expect(await renderWith(makeAggregateUsage(103_222))).toBe('–');
+  });
+
+  it('does not let a large aggregate pin the ring at 100%', async () => {
+    expect(await renderWith(makeAggregateUsage(400_000))).toBe('–');
+  });
+});
+
+describe('ComposerToolbarComponent aggregate occupancy (LT-034)', () => {
+  let component: ComposerToolbarComponent;
+
+  beforeEach(async () => {
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({
+      imports: [ComposerToolbarComponent],
+      providers: [
+        { provide: InstanceIpcService, useValue: ipcStub },
+        { provide: ToastService, useValue: toastStub },
+      ],
+    }).compileComponents();
+    component = TestBed.createComponent(ComposerToolbarComponent).componentInstance;
+    overrideInputs(component, {
+      instanceId: 'inst-agg',
+      provider: 'claude',
+      currentModel: 'claude-opus-4-5',
+    });
+  });
+
+  it('reports occupancy as unknown even though the provider reported a number', () => {
+    overrideInputs(component, { contextUsage: makeAggregateUsage(103_222) });
+    expect(component.occupancyKnown()).toBe(false);
+    expect(component.ringPct()).toBe(0);
+  });
+
+  it('names the number as session spend instead of a context-window percentage', () => {
+    overrideInputs(component, { contextUsage: makeAggregateUsage(103_222) });
+    const title = component.ringTitle();
+    expect(title).toContain('Tokens used this session: 103,222');
+    expect(title).toContain('does not report context-window occupancy');
+    expect(title).not.toContain('% used');
+  });
+
+  it('prefers cumulativeTokens over used when both are present', () => {
+    overrideInputs(component, {
+      contextUsage: { ...makeAggregateUsage(50_000), cumulativeTokens: 77_777 },
+    });
+    expect(component.ringTitle()).toContain('77,777');
+  });
+
+  it('still says "no data" for an aggregate provider that has reported nothing yet', () => {
+    overrideInputs(component, {
+      contextUsage: { used: 0, total: 200_000, percentage: 0, occupancyIsAggregate: true },
+    });
+    expect(component.ringTitle()).toBe('Context window: no data');
+  });
+
+  it('leaves a genuine occupancy provider untouched', () => {
+    overrideInputs(component, { contextUsage: makeUsage(50_000, 200_000) });
+    expect(component.occupancyKnown()).toBe(true);
+    expect(component.ringPct()).toBe(25);
+    expect(component.ringTitle()).toContain('25% used');
   });
 });

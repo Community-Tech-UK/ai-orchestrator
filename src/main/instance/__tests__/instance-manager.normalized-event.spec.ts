@@ -780,3 +780,83 @@ describe('InstanceManager tool-loop detector wiring (WS-A2)', () => {
     expect(interruptSpy).toHaveBeenCalledWith('inst-loop');
   });
 });
+
+// ---------------------------------------------------------------------------
+// LT-062: non-ACP providers (Claude/Codex/Gemini/Antigravity/Ollama) surface
+// tool activity as 'output' messages, not raw tool_use/tool_result events —
+// InstanceManager.publishOutput() funnels every OutputMessage through this
+// same emitProviderRuntimeEvent() call, as a 'output' kind. Prove the bridge
+// reaches the detector through the real InstanceManager entry point, not
+// just the wiring module in isolation.
+// ---------------------------------------------------------------------------
+
+describe('InstanceManager tool-loop detector wiring — LT-062 output-message bridge', () => {
+  beforeEach(() => {
+    idCounter = 0;
+    capturedCommunicationDeps = undefined;
+    DoomLoopDetector._resetForTesting();
+  });
+
+  it('a Claude-shaped tool_use output paired with a raw tool_result reaches the detector', () => {
+    const manager = new InstanceManager();
+    const detected: ToolLoopDetectionEvent[] = [];
+    getDoomLoopDetector().on('tool-loop-detected', (event: ToolLoopDetectionEvent) => detected.push(event));
+
+    for (let i = 0; i < 3; i++) {
+      manager.emitProviderRuntimeEvent('inst-claude', {
+        kind: 'output',
+        content: 'Using tool: Bash',
+        messageType: 'tool_use',
+        metadata: { name: 'Bash', id: `c${i}`, input: { command: 'cat watch.txt' } },
+      });
+      manager.emitProviderRuntimeEvent('inst-claude', {
+        kind: 'tool_result',
+        toolName: 'Bash',
+        toolUseId: `c${i}`,
+        success: true,
+        output: 'unchanged contents',
+      });
+    }
+
+    expect(detected).toHaveLength(1);
+    expect(detected[0]).toMatchObject({
+      instanceId: 'inst-claude',
+      detector: 'repeat-no-progress',
+      severity: 'warn',
+      toolName: 'Bash',
+    });
+  });
+
+  it('an ACP output echo alongside its own raw tool_use/tool_result is not double-counted', () => {
+    const manager = new InstanceManager();
+    const detected: ToolLoopDetectionEvent[] = [];
+    getDoomLoopDetector().on('tool-loop-detected', (event: ToolLoopDetectionEvent) => detected.push(event));
+
+    for (let i = 0; i < 3; i++) {
+      manager.emitProviderRuntimeEvent('inst-acp', {
+        kind: 'tool_use',
+        toolName: 'edit',
+        toolUseId: `c${i}`,
+        input: { kind: 'edit' },
+      });
+      manager.emitProviderRuntimeEvent('inst-acp', {
+        kind: 'output',
+        content: 'title',
+        messageType: 'tool_use',
+        metadata: { toolCallId: `c${i}`, kind: 'edit', name: 'edit', transport: 'acp' },
+      });
+      manager.emitProviderRuntimeEvent('inst-acp', {
+        kind: 'tool_result',
+        toolName: 'edit',
+        toolUseId: `c${i}`,
+        success: true,
+        output: 'same',
+      });
+    }
+
+    // If the ACP 'output' echo were also counted, 3 rounds would look like 6
+    // recorded pairs and would already be at/past critical (escalation x2).
+    expect(detected).toHaveLength(1);
+    expect(detected[0]).toMatchObject({ severity: 'warn', count: 3 });
+  });
+});

@@ -149,6 +149,78 @@ describe('ContextBarComponent', () => {
     });
   });
 
+  describe('aggregate-only occupancy (LT-034)', () => {
+    /** A provider reporting cumulative turn spend, not window occupancy. */
+    const aggregate = (spend = 103_222, total = 200_000): ContextUsage => ({
+      used: spend,
+      total,
+      percentage: Math.min((spend / total) * 100, 100),
+      occupancyReported: true,
+      occupancyIsAggregate: true,
+      cumulativeTokens: spend,
+    });
+
+    it('shows the spend labelled as spend, never a context-window percentage', () => {
+      setUsage(fixture.componentInstance, aggregate());
+      setShowDetails(fixture.componentInstance, true);
+      fixture.detectChanges();
+
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('103,222');
+      expect(text).toContain('tokens used');
+      // The live defect rendered "(52%)" here off three one-word turns.
+      expect(text).not.toContain('52%');
+      expect(text).not.toContain('200,000');
+    });
+
+    it('does not treat a reported aggregate as known occupancy', () => {
+      setUsage(fixture.componentInstance, aggregate());
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.occupancyKnown()).toBe(false);
+      expect(fixture.componentInstance.percentage()).toBe(0);
+      expect(fixture.componentInstance.aggregateTokens()).toBe(103_222);
+    });
+
+    it('renders an en dash in the compact view, with the reason in the tooltip', () => {
+      setUsage(fixture.componentInstance, aggregate());
+      setShowDetails(fixture.componentInstance, false);
+      fixture.detectChanges();
+
+      const label = fixture.nativeElement.querySelector('.compact-label') as HTMLElement;
+      expect(label.textContent?.trim()).toBe('\u2013');
+      expect(label.getAttribute('title')).toContain('103,222 tokens used this session');
+    });
+
+    it('keeps the bar fill empty so a large aggregate cannot look like a full window', () => {
+      setUsage(fixture.componentInstance, aggregate(400_000));
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.percentage()).toBe(0);
+    });
+
+    it('falls back to "no data" when an aggregate provider has reported nothing', () => {
+      setUsage(fixture.componentInstance, {
+        used: 0, total: 200_000, percentage: 0, occupancyIsAggregate: true,
+      });
+      setShowDetails(fixture.componentInstance, true);
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.textContent as string).toContain('no data');
+      expect(fixture.componentInstance.aggregateTokens()).toBeNull();
+    });
+
+    it('leaves a genuine occupancy provider rendering a real percentage', () => {
+      setUsage(fixture.componentInstance, usage({ used: 25, total: 100 }));
+      setShowDetails(fixture.componentInstance, true);
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.occupancyKnown()).toBe(true);
+      expect(fixture.componentInstance.percentage()).toBe(25);
+      expect(fixture.nativeElement.textContent as string).toContain('25%');
+    });
+  });
+
   describe('existing occupancy rendering', () => {
     it('caps the bar fill at 100% for over-budget usage', () => {
       setUsage(fixture.componentInstance, usage({ used: 150, total: 100 }));

@@ -65,6 +65,53 @@ describe('InstructionDiagnosticsService', () => {
     expect(diagnostics.some((d) => d.message.startsWith('Instruction trust:') && d.code !== 'instruction-trust')).toBe(false);
   });
 
+  it('does not overstate the skip for natively-discovered CLIs, but does for Harness-only sources (WS12 livetest check 4, 2026-08-12)', async () => {
+    const service = new InstructionDiagnosticsService(
+      async () => makeResolution({
+        sources: [
+          // claude/agents/copilot/gemini: the CLI discovers these from disk
+          // independently of Harness, so the gate cannot stop them reaching
+          // the model — the message must not claim "skipped" outright.
+          {
+            path: '/repo/CLAUDE.md', kind: 'claude', scope: 'project', loaded: true, applied: false,
+            priority: 1, label: 'Project CLAUDE.md', trust: 'unknown', sha256: 'a'.repeat(64),
+          },
+          {
+            path: '/repo/AGENTS.md', kind: 'agents', scope: 'project', loaded: true, applied: false,
+            priority: 2, label: 'Project AGENTS.md', trust: 'unknown', sha256: 'b'.repeat(64),
+          },
+          {
+            path: '/repo/GEMINI.md', kind: 'gemini', scope: 'project', loaded: true, applied: false,
+            priority: 3, label: 'Project GEMINI.md', trust: 'unknown', sha256: 'c'.repeat(64),
+          },
+          {
+            path: '/repo/.github/copilot-instructions.md', kind: 'copilot', scope: 'project',
+            loaded: true, applied: false, priority: 4, label: 'Copilot instructions',
+            trust: 'unknown', sha256: 'd'.repeat(64),
+          },
+          // custom: no CLI discovers this independently — Harness is the
+          // only loader, so a real skip really does keep it from the model.
+          {
+            path: '/repo/.harness/extra.md', kind: 'custom', scope: 'project', loaded: true,
+            applied: false, priority: 5, label: 'Custom instructions', trust: 'unknown',
+            sha256: 'e'.repeat(64),
+          },
+        ],
+      }),
+      vi.fn().mockResolvedValue(1),
+    );
+
+    const diagnostics = await service.collect({ workingDirectory: '/repo' });
+    const trustRows = diagnostics.filter((d) => d.code === 'instruction-trust');
+    const byPath = (p: string) => trustRows.find((d) => d.filePath === p)!;
+
+    for (const p of ['/repo/CLAUDE.md', '/repo/AGENTS.md', '/repo/GEMINI.md', '/repo/.github/copilot-instructions.md']) {
+      expect(byPath(p).message).toContain('not injected by Harness — the CLI may still read this file directly from disk');
+      expect(byPath(p).message).not.toContain('skipped by the trust gate');
+    }
+    expect(byPath('/repo/.harness/extra.md').message).toContain('skipped by the trust gate');
+  });
+
   it('emits broad-root-scan above the configured file threshold', async () => {
     const countFiles = vi.fn().mockResolvedValue(101);
     const service = new InstructionDiagnosticsService(

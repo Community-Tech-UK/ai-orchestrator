@@ -42,9 +42,11 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
       throw new Error('App-server not initialized');
     }
 
-    // Reset per-turn flag so the fallback path works if this turn doesn't
-    // receive a thread/tokenUsage/updated notification.
+    // Reset per-turn flag/breakdown so the fallback path only ever uses a
+    // sample captured DURING this turn, never a stale one left over from the
+    // previous turn if this one doesn't receive a notification at all.
     this.hasTokenUsageNotification = false;
+    this.lastTurnUsageBreakdown = null;
 
     // App-server turns accept multimodal inputs. Keep supported images as
     // `localImage` items and only fall back to file references for everything
@@ -168,6 +170,17 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     // turn/completed usage contains AGGREGATE input_tokens across all internal
     // agentic sub-calls, NOT actual context window occupancy.
     let finalTurnCostUsd = 0;
+    /**
+     * LT-090: on some app-server builds `turn/completed`'s own `usage` field
+     * comes back empty (reproduced across a trivial reply, a substantive
+     * prose turn, and a tool-using turn, all in one live session), even
+     * though a `thread/tokenUsage/updated` notification with real numbers
+     * arrived earlier in the SAME turn (captured into
+     * `lastTurnUsageBreakdown`, reset to null at the top of this method).
+     * Only set when `turnState.finalTurn?.usage` is falsy below — the two
+     * paths are mutually exclusive, so a turn's cost is never counted twice.
+     */
+    let fallbackUsage: CliResponse['usage'];
     if (turnState.finalTurn?.usage) {
       const usage = turnState.finalTurn.usage;
       const inputTokens = usage.input_tokens || 0;
@@ -224,6 +237,22 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
           this.cumulativeTokensUsed += turnTokens;
         }
       }
+    } else if (this.lastTurnUsageBreakdown) {
+      // LT-090 fallback: `turn/completed` reported no usage for this turn, but
+      // a `thread/tokenUsage/updated` notification during the SAME turn did.
+      // `cumulativeTokensUsed` is intentionally left untouched here — the
+      // notification handler already applied it in real time
+      // (`codex-app-server-notification-adapter.ts`) when the notification
+      // arrived, so redoing it here would double-count.
+      const { inputTokens, outputTokens } = this.lastTurnUsageBreakdown;
+      finalTurnCostUsd = computeTokenCost(this.cliConfig.model, { inputTokens, outputTokens });
+      this.cumulativeCostUsd += finalTurnCostUsd;
+      fallbackUsage = {
+        inputTokens,
+        outputTokens,
+        totalTokens: inputTokens + outputTokens,
+        cost: finalTurnCostUsd,
+      };
     }
 
     // Build and emit the complete response
@@ -237,7 +266,7 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
         outputTokens: turnState.finalTurn.usage.output_tokens || 0,
         totalTokens: (turnState.finalTurn.usage.input_tokens || 0) + (turnState.finalTurn.usage.output_tokens || 0),
         cost: finalTurnCostUsd,
-      } : undefined,
+      } : fallbackUsage,
     };
     this.completeResponse(response);
   }

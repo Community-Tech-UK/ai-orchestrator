@@ -140,6 +140,27 @@ export function buildSeatbeltCommand(params: {
  * system temp dir, and the CLI state homes our providers persist sessions to.
  * Everything else on disk is read-only for the jailed process. Reviewed per
  * provider by the WS13 livetest; tighten there with evidence, not here.
+ *
+ * WS13 check 8 (2026-07-31 evidence, decided 2026-08-12): `~/.cache` is
+ * dropped. Measured with the production `buildSeatbeltCommand` for real
+ * Claude and Codex turns (workspace + tmpdir + each provider's own state
+ * home only, `~/.cache` included vs. excluded): zero sandbox denials either
+ * way for both providers, so it grants write access to a 130 GB directory
+ * (on the machine measured) that nothing tested needed.
+ *
+ * The other half of that evidence run — removing *cross-provider* homes
+ * (e.g. denying a hardened Claude session write access to `~/.codex`) — is
+ * deliberately **not** applied here. `~/.ai-orchestrator` is a genuinely
+ * shared, provider-adjacent state root (`codex-home-manager.ts` redirects
+ * Codex's own session history under `~/.ai-orchestrator/codex`, reached via
+ * a symlink from the process's isolated `CODEX_HOME`), and the minimal-root
+ * probe that showed 0 denials without granting it was a single non-interactive
+ * turn — it is not proof that a longer interactive session's session-history
+ * writes never touch it. Getting a writable-root removal wrong fails CLOSED
+ * (every hardened spawn for that provider breaks, as LT-026/LT-027 did before
+ * they were fixed) with no bounded, safely-measurable blast radius the way
+ * `~/.cache` removal has. Left as future work with the same evidence already
+ * gathered, rather than guessed at here.
  */
 export function defaultHardenedWritableRoots(workingDirectory: string | undefined): string[] {
   const os = require('node:os') as typeof import('node:os'); // eslint-disable-line @typescript-eslint/no-require-imports
@@ -152,7 +173,6 @@ export function defaultHardenedWritableRoots(workingDirectory: string | undefine
     path.join(home, '.gemini'),
     path.join(home, '.copilot'),
     path.join(home, '.ai-orchestrator'),
-    path.join(home, '.cache'),
   ];
 }
 

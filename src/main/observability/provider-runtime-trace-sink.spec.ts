@@ -166,3 +166,49 @@ describe('ProviderRuntimeTraceSink', () => {
     expect(record.instanceId).toBe('inst-1');
   });
 });
+
+/**
+ * LT-018/LT-034. `ProviderContextEvent` carries `occupancyReported` and
+ * `occupancyIsAggregate`, and the schema comment warns that a missing key
+ * "silently drops 'these are spend, not occupancy' from every replay and
+ * export". The trace record is that export, so it has to carry both — a number
+ * without its meaning is exactly the defect, preserved on disk.
+ */
+describe('toTraceRecord context attributes (LT-018/LT-034)', () => {
+  const envelope = (event: Record<string, unknown>) => ({
+    eventId: 'b1c2d3e4-f5a6-4890-abcd-ef0123456789',
+    seq: 1,
+    timestamp: 1_717_000_000_000,
+    provider: 'copilot',
+    instanceId: 'inst-1',
+    event,
+  }) as unknown as Parameters<typeof toTraceRecord>[0];
+
+  it('records that a reading is cumulative spend, not occupancy', () => {
+    const rec = toTraceRecord(envelope({
+      kind: 'context', used: 190_000, total: 200_000, percentage: 95,
+      occupancyReported: true, occupancyIsAggregate: true,
+    }));
+
+    expect(rec.attributes?.['context.occupancy_is_aggregate']).toBe(true);
+    expect(rec.attributes?.['context.occupancy_reported']).toBe(true);
+  });
+
+  it('records a real occupancy reading as not aggregate', () => {
+    const rec = toTraceRecord(envelope({
+      kind: 'context', used: 50_000, total: 200_000, percentage: 25,
+      occupancyReported: true, occupancyIsAggregate: false,
+    }));
+
+    expect(rec.attributes?.['context.occupancy_is_aggregate']).toBe(false);
+  });
+
+  it('omits the keys entirely when the event carries no flags', () => {
+    const rec = toTraceRecord(envelope({
+      kind: 'context', used: 0, total: 200_000, percentage: 0,
+    }));
+
+    expect('context.occupancy_reported' in (rec.attributes ?? {})).toBe(false);
+    expect('context.occupancy_is_aggregate' in (rec.attributes ?? {})).toBe(false);
+  });
+});

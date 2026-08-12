@@ -1,3 +1,4 @@
+import { isOccupancyPressureReading } from '../../shared/utils/context-occupancy';
 import { crossPlatformBasename } from '../../shared/utils/cross-platform-path';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import type {
@@ -114,8 +115,12 @@ export function serializeInstance(
     // phone client is told there is nothing to show. `contextUsage` is seeded at
     // create, so sending it unconditionally shipped a confident `0` for every
     // session that had not reported yet — the desktop defect, on mobile.
-    contextPercentage: instance.contextUsage?.occupancyReported
-      ? instance.contextUsage.percentage
+    // LT-034: and omit it for aggregate-only providers too. `contextPercentage`
+    // is defined as context-window occupancy; sending cumulative spend under
+    // that name reproduces the desktop defect on a client that has no field to
+    // tell the difference. Omission is the DTO's own "nothing to show" signal.
+    contextPercentage: isOccupancyPressureReading(instance.contextUsage)
+      ? instance.contextUsage?.percentage
       : undefined,
   };
 }
