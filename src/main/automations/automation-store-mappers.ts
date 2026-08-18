@@ -30,6 +30,7 @@ export function toSnapshot(automation: Automation): AutomationConfigSnapshot {
     concurrencyPolicy: automation.concurrencyPolicy,
     destination: automation.destination,
     action: automation.action,
+    hidden: automation.hidden === true ? true : undefined,
   };
 }
 
@@ -99,6 +100,8 @@ export function mapAutomationRow(row: AutomationRow, destination: AutomationDest
     consecutiveFailures: row.consecutive_failures ?? 0,
     lastFailureAt: row.last_failure_at ?? null,
     lastFailureReason: row.last_failure_reason ?? null,
+    // Rows read before migration 044 have no column and read as visible.
+    hidden: row.hidden === 1,
   };
 }
 

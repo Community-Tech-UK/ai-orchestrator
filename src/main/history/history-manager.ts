@@ -261,6 +261,21 @@ export class HistoryManager {
           Boolean(instance.metadata?.['automationId'])
           || previousEntries.some((e) => e.isAutomation)
           || undefined,
+        // Hide an archived automation thread only when the runner positively
+        // recorded a clean finish. Every other ending — failed, cancelled,
+        // killed mid-run by terminateAll() on app quit — leaves the thread
+        // visible, which is the direction that fails safe: a hidden health
+        // check that quietly stopped working must never disappear.
+        //
+        // Deliberately NOT carried over from previousEntries, unlike
+        // `isAutomation` above. Re-archiving happens when a thread was restored
+        // and worked in again; inheriting the old hidden flag there would
+        // re-hide a session the operator had deliberately opened, including one
+        // that has since failed in front of them.
+        isHiddenAutomation:
+          (instance.metadata?.['automationHidden'] === true
+            && instance.metadata?.['automationRunSucceeded'] === true)
+          || undefined,
         hideFromProjectRail:
           this.shouldHideInstanceFromProjectRail(instance)
           || previousEntries.some((e) => e.hideFromProjectRail)

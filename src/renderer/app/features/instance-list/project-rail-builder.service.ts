@@ -10,6 +10,8 @@ import {
   getHistoryTimeWindowCutoff,
   type HistoryTimeWindow,
   type HistoryVisibilityMode,
+  isHiddenAutomationHistoryEntry,
+  isHiddenAutomationInstance,
   shouldShowHistoryOnlyProject,
 } from './history-rail-filtering';
 import {
@@ -44,6 +46,11 @@ export interface ProjectRailBuildInput {
   historySortMode: HistorySortMode;
   rootInstanceOrder: string[];
   showEmptyProjects: boolean;
+  /**
+   * Reveal sessions belonging to hidden automations. Does not affect
+   * `hideFromProjectRail` internal sessions, which are unconditionally hidden.
+   */
+  showHiddenAutomations: boolean;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -55,8 +62,14 @@ export class ProjectRailBuilderService {
   buildProjectGroups(input: ProjectRailBuildInput): ProjectGroup[] {
     const filter = input.filter.trim().toLowerCase();
     const activityCutoff = getHistoryTimeWindowCutoff(input.historyTimeWindow);
-    const visibleInstances = input.instances.filter((instance) => !this.isProjectRailHiddenInstance(instance));
-    const visibleHistoryEntries = input.historyEntries.filter((entry) => !entry.hideFromProjectRail);
+    const visibleInstances = input.instances.filter((instance) =>
+      !this.isProjectRailHiddenInstance(instance)
+      && !isHiddenAutomationInstance(instance, input.showHiddenAutomations)
+    );
+    const visibleHistoryEntries = input.historyEntries.filter((entry) =>
+      !entry.hideFromProjectRail
+      && !isHiddenAutomationHistoryEntry(entry, input.showHiddenAutomations)
+    );
     const childrenByParent = this.projectGroupComputation.buildChildrenMap(visibleInstances);
     const instanceMap = new Map(visibleInstances.map((instance) => [instance.id, instance]));
     const historyPartition = this.projectGroupComputation.partitionHistoryEntriesByParent(

@@ -1488,4 +1488,147 @@ describe('AcpCliAdapter', () => {
       proc.exit();
     });
   });
+
+  // LT-100: when the ACP server sends no `usage` at all on `session/prompt`,
+  // Cursor/Grok/Copilot turns used to record ZERO cost (toCliUsage returned
+  // `{ duration }` only, which normalizeUsage cannot turn into a billable
+  // entry). James's decision: estimate, but never silently — fall back to
+  // estimateTokens() over the material actually available and tag the result
+  // isEstimated so no downstream surface can mistake it for a measurement.
+  describe('LT-100 — estimated cost usage when the ACP server reports none', () => {
+    function harnessRespondingWithUsage(usage: unknown) {
+      const proc = createInitializedAgentHarness();
+      proc.onRequest('session/prompt', (message) => {
+        proc.notify('session/update', {
+          sessionId: 'sess-acp-1',
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: 'Hello — I am here and ready to help.' },
+          },
+        });
+        proc.respond(message.id, { stopReason: 'end_turn', usage });
+      });
+      return proc;
+    }
+
+    it('falls back to an estimate tagged isEstimated when usage is absent', async () => {
+      const proc = harnessRespondingWithUsage(undefined);
+      const adapter = new TestAcpCliAdapter(proc, {
+        command: process.execPath,
+        workingDirectory: '/tmp',
+      });
+      await adapter.spawn();
+
+      const response = await adapter.sendMessage({ role: 'user', content: 'Say hello in one short sentence.' });
+
+      expect(response.usage).toBeDefined();
+      expect(response.usage?.isEstimated).toBe(true);
+      expect(response.usage?.inputTokens).toBeGreaterThan(0);
+      expect(response.usage?.outputTokens).toBeGreaterThan(0);
+      expect(response.usage?.totalTokens).toBe(
+        (response.usage?.inputTokens ?? 0) + (response.usage?.outputTokens ?? 0),
+      );
+
+      proc.exit();
+    });
+
+    it('does not tag a real, measured usage object as estimated', async () => {
+      const proc = harnessRespondingWithUsage({ inputTokens: 3, outputTokens: 4, totalTokens: 7 });
+      const adapter = new TestAcpCliAdapter(proc, {
+        command: process.execPath,
+        workingDirectory: '/tmp',
+      });
+      await adapter.spawn();
+
+      const response = await adapter.sendMessage({ role: 'user', content: 'hi' });
+
+      expect(response.usage?.isEstimated).toBeUndefined();
+      expect(response.usage).toMatchObject({ inputTokens: 3, outputTokens: 4, totalTokens: 7 });
+
+      proc.exit();
+    });
+
+    it('still emits nothing on the context event when usage is absent, even though cost now estimates (occupancy stays honest)', async () => {
+      const proc = harnessRespondingWithUsage(undefined);
+      const adapter = new TestAcpCliAdapter(proc, {
+        command: process.execPath,
+        workingDirectory: '/tmp',
+      });
+      await adapter.spawn();
+
+      const contextEvents: unknown[] = [];
+      adapter.on('context', (usage: unknown) => contextEvents.push(usage));
+      const response = await adapter.sendMessage({ role: 'user', content: 'hi' });
+
+      expect(response.usage?.isEstimated).toBe(true);
+      expect(contextEvents).toEqual([]);
+
+      proc.exit();
+    });
+
+    it('folds tool-call arguments and results into the estimate when usage is absent', async () => {
+      const proc = createInitializedAgentHarness();
+      proc.onRequest('session/prompt', (message) => {
+        proc.notify('session/update', {
+          sessionId: 'sess-acp-1',
+          update: {
+            sessionUpdate: 'tool_call',
+            toolCallId: 'call-1',
+            title: 'Read config',
+            kind: 'read',
+            status: 'pending',
+            rawInput: { path: 'package.json' },
+          },
+        });
+        proc.notify('session/update', {
+          sessionId: 'sess-acp-1',
+          update: {
+            sessionUpdate: 'tool_call_update',
+            toolCallId: 'call-1',
+            status: 'completed',
+            content: [
+              {
+                type: 'content',
+                content: { type: 'text', text: 'a fairly long rendered tool result body' },
+              },
+            ],
+          },
+        });
+        proc.notify('session/update', {
+          sessionId: 'sess-acp-1',
+          update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'done' } },
+        });
+        proc.respond(message.id, { stopReason: 'end_turn' });
+      });
+
+      const bareProc = createInitializedAgentHarness();
+      bareProc.onRequest('session/prompt', (message) => {
+        bareProc.notify('session/update', {
+          sessionId: 'sess-acp-1',
+          update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'done' } },
+        });
+        bareProc.respond(message.id, { stopReason: 'end_turn' });
+      });
+
+      const withTools = new TestAcpCliAdapter(proc, { command: process.execPath, workingDirectory: '/tmp' });
+      const withoutTools = new TestAcpCliAdapter(bareProc, { command: process.execPath, workingDirectory: '/tmp' });
+      await withTools.spawn();
+      await withoutTools.spawn();
+
+      const responseWithTools = await withTools.sendMessage({ role: 'user', content: 'hello' });
+      const responseWithoutTools = await withoutTools.sendMessage({ role: 'user', content: 'hello' });
+
+      expect(responseWithTools.usage?.isEstimated).toBe(true);
+      expect(responseWithoutTools.usage?.isEstimated).toBe(true);
+      // Same response text ('done') in both cases, but the tool-call activity
+      // adds real material to the estimate — the turn with tool calls must
+      // estimate strictly more output tokens.
+      expect(responseWithTools.usage?.outputTokens ?? 0).toBeGreaterThan(
+        responseWithoutTools.usage?.outputTokens ?? 0,
+      );
+
+      proc.exit();
+      bareProc.exit();
+    });
+  });
 });

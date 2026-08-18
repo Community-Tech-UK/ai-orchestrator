@@ -65,6 +65,13 @@ export interface CostAttributionRecord {
   usage?: CostAttributionUsage;
   /** False when the provider reported no cost and 0 was assumed. */
   costKnown?: boolean;
+  /**
+   * `instance-turn` only (LT-100): true when `usage` is a heuristic estimate
+   * rather than a provider-measured count — e.g. an ACP-transport turn whose
+   * server sent no `usage` at all. Any offline analysis over this JSONL sink
+   * must keep estimated rows distinguishable from measured ones.
+   */
+  isEstimated?: boolean;
   /** `auxiliary` only: where the slot actually ran. */
   auxRoutedTo?: 'local' | 'cheap-cloud' | 'fallback';
   /**
@@ -194,6 +201,7 @@ export function recordInstanceTurnAttribution(args: {
   model?: string;
   usage: CostAttributionUsage;
   costKnown: boolean;
+  isEstimated?: boolean;
 }): void {
   const role = args.parentId ? 'child' : 'chat';
   recordCostAttribution({
@@ -206,6 +214,7 @@ export function recordInstanceTurnAttribution(args: {
     model: args.model,
     usage: args.usage,
     costKnown: args.costKnown,
+    isEstimated: args.isEstimated,
   });
 }
 

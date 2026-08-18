@@ -148,6 +148,7 @@ export const AutomationCreatePayloadSchema = z.object({
   concurrencyPolicy: z.enum(['skip', 'queue']).optional(),
   destination: AutomationDestinationSchema.default({ kind: 'newInstance' }),
   action: AutomationActionSchema,
+  hidden: z.boolean().optional(),
 });
 
 export const AutomationUpdatePayloadSchema = z.object({
@@ -163,6 +164,7 @@ export const AutomationUpdatePayloadSchema = z.object({
     destination: AutomationDestinationSchema.optional(),
     action: AutomationActionSchema.optional(),
     active: z.boolean().optional(),
+    hidden: z.boolean().optional(),
   }),
 });
 
@@ -228,6 +230,7 @@ export const AutomationSchema = z.object({
   consecutiveFailures: z.number().int().nonnegative().optional(),
   lastFailureAt: z.number().int().nonnegative().nullable().optional(),
   lastFailureReason: z.string().nullable().optional(),
+  hidden: z.boolean().optional(),
 });
 
 const AutomationConfigSnapshotSchema = z.object({
@@ -238,6 +241,7 @@ const AutomationConfigSnapshotSchema = z.object({
   concurrencyPolicy: z.enum(['skip', 'queue']),
   destination: AutomationDestinationSchema,
   action: AutomationActionSchema,
+  hidden: z.boolean().optional(),
 });
 
 export const AutomationRunSchema = z.object({

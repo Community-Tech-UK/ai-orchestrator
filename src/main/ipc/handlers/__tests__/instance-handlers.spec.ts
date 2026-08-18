@@ -734,7 +734,7 @@ describe('instance-handlers', () => {
 
       expect(result.success).toBe(true);
       expect(result.data).toEqual({ interrupted: true });
-      expect(mockInstanceManager.interruptInstance).toHaveBeenCalledWith('inst-11');
+      expect(mockInstanceManager.interruptInstance).toHaveBeenCalledWith('inst-11', 'renderer-ipc');
     });
 
     it('returns { interrupted: false } when instance cannot be interrupted', async () => {

@@ -74,8 +74,8 @@ export class AutomationStore {
         INSERT INTO automations
            (id, name, description, enabled, active, workspace_id, schedule_type, schedule_json, trigger_json,
            missed_run_policy, concurrency_policy, action_json, next_fire_at,
-           last_fired_at, last_run_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
+           last_fired_at, last_run_id, created_at, updated_at, hidden)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)
       `).run(
         id,
         input.name,
@@ -92,6 +92,7 @@ export class AutomationStore {
         nextFireAt,
         now,
         now,
+        input.hidden === true ? 1 : 0,
       );
       this.writeDestination(id, destination);
       this.attachmentService.replacePrepared(id, prepared);
@@ -142,7 +143,8 @@ export class AutomationStore {
             concurrency_policy = ?,
             action_json = ?,
             next_fire_at = ?,
-            updated_at = ?
+            updated_at = ?,
+            hidden = ?
         WHERE id = ?
       `).run(
         updates.name ?? existing.name,
@@ -158,6 +160,7 @@ export class AutomationStore {
         JSON.stringify(stripAttachmentData(mergedAction)),
         setNextFireAt,
         now,
+        (updates.hidden ?? existing.hidden) ? 1 : 0,
         id,
       );
       this.writeDestination(id, destination);

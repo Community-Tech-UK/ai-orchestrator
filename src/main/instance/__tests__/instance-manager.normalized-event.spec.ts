@@ -777,7 +777,7 @@ describe('InstanceManager tool-loop detector wiring (WS-A2)', () => {
     repeatToolRoundTrip(manager, 'inst-loop', 8);
 
     expect(interruptSpy).toHaveBeenCalledTimes(1);
-    expect(interruptSpy).toHaveBeenCalledWith('inst-loop');
+    expect(interruptSpy).toHaveBeenCalledWith('inst-loop', 'tool-loop-auto');
   });
 });
 

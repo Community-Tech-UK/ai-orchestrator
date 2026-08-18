@@ -6,6 +6,7 @@ export const SORT_MODE_STORAGE_KEY = 'instance-list-sort-mode';
 export const HISTORY_VISIBILITY_STORAGE_KEY = 'instance-list-history-visibility';
 export const HISTORY_TIME_WINDOW_STORAGE_KEY = 'instance-list-history-time-window';
 export const SHOW_EMPTY_PROJECTS_STORAGE_KEY = 'instance-list-show-empty-projects';
+export const SHOW_HIDDEN_AUTOMATIONS_STORAGE_KEY = 'instance-list-show-hidden-automations';
 export const STATUS_FILTER_STORAGE_KEY = 'instance-list-status-filter';
 export const LOCATION_FILTER_STORAGE_KEY = 'instance-list-location-filter';
 export const FILTER_TEXT_STORAGE_KEY = 'instance-list-filter-text';

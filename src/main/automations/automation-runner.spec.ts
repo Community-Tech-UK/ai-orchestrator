@@ -401,6 +401,130 @@ describe('AutomationRunner thread wakeups', () => {
       modelOverride: 'opus[1m]',
     }));
   });
+
+  describe('hidden automation provenance', () => {
+    function newInstanceRun(hidden?: boolean): AutomationRun {
+      const run = makeRun();
+      run.configSnapshot = {
+        ...run.configSnapshot!,
+        destination: { kind: 'newInstance' },
+        action: { prompt: 'Check', workingDirectory: '/repo/current' },
+        ...(hidden === undefined ? {} : { hidden }),
+      };
+      return run;
+    }
+
+    it('stamps automationHidden on the first-attempt spawn', async () => {
+      const run = newInstanceRun(true);
+      vi.mocked(store.get).mockResolvedValue(
+        makeAutomation({ destination: { kind: 'newInstance' } }),
+      );
+      vi.mocked(store.decideAndInsertRun).mockReturnValue({ kind: 'started', run });
+      manager.createInstance.mockResolvedValue({ id: 'i-hidden', outputBuffer: [], status: 'working' });
+
+      const runner = new AutomationRunner(store, undefined, () => 2_000, threadWakeupFactory);
+      runner.initialize(manager);
+      await runner.fire('automation-1', { trigger: 'scheduled', scheduledAt: 2_000 });
+
+      expect(manager.createInstance).toHaveBeenCalledWith(expect.objectContaining({
+        metadata: expect.objectContaining({
+          automationId: 'automation-1',
+          automationHidden: true,
+        }),
+      }));
+    });
+
+    it('stamps automationHidden on the retry spawn', async () => {
+      const retryRun = newInstanceRun(true);
+      retryRun.attempt = 2;
+      manager.createInstance.mockResolvedValue({ id: 'i-retry', outputBuffer: [], status: 'working' });
+
+      const runner = new AutomationRunner(store, undefined, () => 2_000, threadWakeupFactory);
+      runner.initialize(manager);
+      await runner.dispatchRetryRun(retryRun);
+
+      expect(manager.createInstance).toHaveBeenCalledWith(expect.objectContaining({
+        metadata: expect.objectContaining({ automationHidden: true }),
+      }));
+    });
+
+    it('omits automationHidden for a visible automation', async () => {
+      const run = newInstanceRun(false);
+      vi.mocked(store.get).mockResolvedValue(
+        makeAutomation({ destination: { kind: 'newInstance' } }),
+      );
+      vi.mocked(store.decideAndInsertRun).mockReturnValue({ kind: 'started', run });
+      manager.createInstance.mockResolvedValue({ id: 'i-visible', outputBuffer: [], status: 'working' });
+
+      const runner = new AutomationRunner(store, undefined, () => 2_000, threadWakeupFactory);
+      runner.initialize(manager);
+      await runner.fire('automation-1', { trigger: 'scheduled', scheduledAt: 2_000 });
+
+      const metadata = manager.createInstance.mock.calls.at(-1)?.[0]?.metadata as Record<string, unknown>;
+      expect(metadata['automationId']).toBe('automation-1');
+      expect(metadata['automationHidden']).toBeUndefined();
+    });
+
+    async function fireHiddenRun(instanceId: string) {
+      const run = newInstanceRun(true);
+      const instance = {
+        id: instanceId,
+        outputBuffer: [{ type: 'assistant', content: 'done', timestamp: 1 }],
+        status: 'working',
+        metadata: { automationId: 'automation-1', automationHidden: true } as Record<string, unknown>,
+      };
+      vi.mocked(store.get).mockResolvedValue(
+        makeAutomation({ destination: { kind: 'newInstance' } }),
+      );
+      vi.mocked(store.decideAndInsertRun).mockReturnValue({ kind: 'started', run });
+      manager.createInstance.mockResolvedValue(instance);
+      (manager as unknown as { getInstance: (id: string) => unknown }).getInstance = (id) =>
+        id === instanceId ? instance : undefined;
+
+      const runner = new AutomationRunner(store, undefined, () => 2_000, threadWakeupFactory);
+      runner.initialize(manager);
+      await runner.fire('automation-1', { trigger: 'scheduled', scheduledAt: 2_000 });
+      return instance;
+    }
+
+    it('marks a cleanly-finished hidden run as safe to hide once archived', async () => {
+      const instance = await fireHiddenRun('i-ok');
+
+      manager.emit('instance:event', {
+        instanceId: 'i-ok',
+        event: { kind: 'status_changed', status: 'idle' },
+      });
+
+      expect(instance.metadata['automationRunSucceeded']).toBe(true);
+    });
+
+    it('leaves a failed hidden run unstamped so the rail keeps showing it', async () => {
+      const instance = await fireHiddenRun('i-fail');
+
+      manager.emit('instance:event', {
+        instanceId: 'i-fail',
+        event: { kind: 'status_changed', status: 'failed' },
+      });
+
+      expect(instance.metadata['automationRunSucceeded']).toBeUndefined();
+    });
+
+    it('leaves a hidden run killed mid-run unstamped', async () => {
+      // The app-shutdown shape: terminateAll() archives the instance before any
+      // status change reaches this runner, so nothing may have marked it safe
+      // to hide by then.
+      const instance = await fireHiddenRun('i-shutdown');
+
+      expect(instance.metadata['automationRunSucceeded']).toBeUndefined();
+
+      manager.emit('instance:event', {
+        instanceId: 'i-shutdown',
+        event: { kind: 'status_changed', status: 'terminated' },
+      });
+
+      expect(instance.metadata['automationRunSucceeded']).toBeUndefined();
+    });
+  });
 });
 
 describe('AutomationRunner WS-C7 contained execution profile', () => {

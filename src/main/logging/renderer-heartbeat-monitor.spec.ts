@@ -108,4 +108,44 @@ describe('RendererHeartbeatMonitor', () => {
     expect(monitor.isTracking(7)).toBe(false);
     expect(mocks.logger.error).not.toHaveBeenCalled();
   });
+
+  it('does not log a stall while suspended, even though beats stop for far longer than the threshold', () => {
+    beatAt(0);
+    monitor.handleSystemSuspend();
+
+    // Simulate a lock-screen period: Chromium throttles the renderer's timer
+    // to roughly once a minute, so the beat that does arrive is heavily
+    // delayed — this must never be reported as a freeze.
+    vi.advanceTimersByTime(60_000);
+    expect(mocks.logger.error).not.toHaveBeenCalled();
+    expect(monitor.isStalled(7)).toBe(false);
+
+    beatAt(1);
+    expect(mocks.logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('rebases on resume so the suspend/lock duration itself is never counted as a stall', () => {
+    beatAt(0);
+    monitor.handleSystemSuspend();
+    vi.advanceTimersByTime(5 * 60_000); // long lock-screen period
+    monitor.handleSystemResume();
+
+    // Immediately after resume, a watchdog scan must not see the 5-minute
+    // gap as a stall — handleSystemResume() rebases lastBeatAt to now.
+    vi.advanceTimersByTime(HEARTBEAT_WATCHDOG_INTERVAL_MS);
+    expect(mocks.logger.error).not.toHaveBeenCalled();
+    expect(monitor.isStalled(7)).toBe(false);
+  });
+
+  it('still detects a genuine stall that starts after resume', () => {
+    beatAt(0);
+    monitor.handleSystemSuspend();
+    vi.advanceTimersByTime(60_000);
+    monitor.handleSystemResume();
+
+    // No further beats arrive post-resume — a real freeze, not throttling.
+    vi.advanceTimersByTime(HEARTBEAT_STALL_THRESHOLD_MS + HEARTBEAT_WATCHDOG_INTERVAL_MS);
+    expect(monitor.isStalled(7)).toBe(true);
+    expect(mocks.logger.error).toHaveBeenCalledTimes(1);
+  });
 });

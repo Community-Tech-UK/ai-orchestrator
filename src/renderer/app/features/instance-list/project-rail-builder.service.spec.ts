@@ -79,6 +79,7 @@ function buildInput(overrides: Partial<ProjectRailBuildInput> = {}): ProjectRail
     historySortMode: 'last-interacted',
     rootInstanceOrder: [],
     showEmptyProjects: false,
+    showHiddenAutomations: false,
     ...overrides,
   };
 }
@@ -174,5 +175,85 @@ describe('ProjectRailBuilderService', () => {
     expect(groups).toHaveLength(1);
     expect(groups[0]?.historyItems.map((item) => item.entry.id)).toEqual(['visible-thread']);
     expect(groups[0]?.sessionCount).toBe(1);
+  });
+
+  describe('hidden automations', () => {
+    it('keeps healthy hidden automation runs out of the rail', () => {
+      const groups = service.buildProjectGroups(buildInput({
+        instances: [
+          makeInstance('hidden-live', {
+            status: 'busy',
+            metadata: { automationId: 'a1', automationHidden: true },
+          }),
+          makeInstance('normal-live'),
+        ],
+        historyEntries: [
+          makeHistoryEntry('hidden-archived', { isHiddenAutomation: true }),
+          makeHistoryEntry('normal-archived'),
+        ],
+      }));
+
+      expect(groups[0]?.liveItems.map((item) => item.instance.id)).toEqual(['normal-live']);
+      expect(groups[0]?.historyItems.map((item) => item.entry.id)).toEqual(['normal-archived']);
+    });
+
+    it('shows a hidden automation run that failed', () => {
+      const groups = service.buildProjectGroups(buildInput({
+        instances: [
+          makeInstance('hidden-failed', {
+            status: 'error',
+            metadata: { automationId: 'a1', automationHidden: true },
+          }),
+        ],
+      }));
+
+      expect(groups[0]?.liveItems.map((item) => item.instance.id)).toEqual(['hidden-failed']);
+    });
+
+    it('shows a hidden automation run parked for permission', () => {
+      const groups = service.buildProjectGroups(buildInput({
+        instances: [
+          makeInstance('hidden-parked', {
+            status: 'waiting_for_permission',
+            metadata: { automationId: 'a1', automationHidden: true },
+          }),
+        ],
+      }));
+
+      expect(groups[0]?.liveItems.map((item) => item.instance.id)).toEqual(['hidden-parked']);
+    });
+
+    it('reveals hidden runs when the toggle is on', () => {
+      const groups = service.buildProjectGroups(buildInput({
+        showHiddenAutomations: true,
+        instances: [
+          makeInstance('hidden-live', {
+            status: 'busy',
+            metadata: { automationId: 'a1', automationHidden: true },
+          }),
+        ],
+        historyEntries: [makeHistoryEntry('hidden-archived', { isHiddenAutomation: true })],
+      }));
+
+      expect(groups[0]?.liveItems.map((item) => item.instance.id)).toEqual(['hidden-live']);
+      expect(groups[0]?.historyItems.map((item) => item.entry.id)).toEqual(['hidden-archived']);
+    });
+
+    it('does not let the toggle reveal internal hideFromProjectRail sessions', () => {
+      const groups = service.buildProjectGroups(buildInput({
+        showHiddenAutomations: true,
+        instances: [
+          makeInstance('probe', { metadata: { hideFromProjectRail: true } }),
+          makeInstance('normal-live'),
+        ],
+        historyEntries: [
+          makeHistoryEntry('hidden-worker', { hideFromProjectRail: true }),
+          makeHistoryEntry('normal-archived'),
+        ],
+      }));
+
+      expect(groups[0]?.liveItems.map((item) => item.instance.id)).toEqual(['normal-live']);
+      expect(groups[0]?.historyItems.map((item) => item.entry.id)).toEqual(['normal-archived']);
+    });
   });
 });

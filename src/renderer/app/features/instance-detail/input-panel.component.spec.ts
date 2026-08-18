@@ -402,6 +402,86 @@ describe('InputPanelComponent composer autocomplete integration', () => {
     expect(component.message()).toBe('see @src');
   });
 
+  // `cancel-operation` is a document-level global Escape binding whose cascade
+  // interrupts the running instance, and KeybindingService's input-element
+  // guard does not exempt Escape typed in a textarea. So an Escape this
+  // component handles locally must stop propagating, or dismissing a composer
+  // affordance also kills the in-flight turn. All four such branches route
+  // through `consumeLocalEscape`; these cover both ends of that helper plus
+  // the fall-through that must NOT be swallowed.
+  it('does not let an edit-mode Escape reach the document-level cancel binding', () => {
+    const { seen, dispose } = captureDocumentKeydown();
+
+    try {
+      component.editMode.set(true);
+      fixture.detectChanges();
+
+      getTextarea().dispatchEvent(keydown('Escape'));
+      fixture.detectChanges();
+
+      expect(component.editMode()).toBe(false);
+      expect(seen).toEqual([]);
+
+      // Drain the textarea-restore frame `cancelEditMode()` schedules so it
+      // does not fire after the environment is torn down.
+      flushAnimationFrames();
+    } finally {
+      dispose();
+    }
+  });
+
+  it('does not let a ghost-text Escape reach the document-level cancel binding', async () => {
+    await typeInComposer('');
+    component.ghostSuggestion.set('git status');
+    fixture.detectChanges();
+    expect(component.showGhostText()).toBe(true);
+
+    const { seen, dispose } = captureDocumentKeydown();
+    try {
+      getTextarea().dispatchEvent(keydown('Escape'));
+      fixture.detectChanges();
+
+      expect(component.showGhostText()).toBe(false);
+      expect(seen).toEqual([]);
+    } finally {
+      dispose();
+    }
+  });
+
+  it('still lets a bare Escape through so it can stop the running turn', () => {
+    const { seen, dispose } = captureDocumentKeydown();
+
+    try {
+      // Nothing open, nothing to dismiss: the global stop shortcut must work.
+      getTextarea().dispatchEvent(keydown('Escape'));
+      fixture.detectChanges();
+
+      expect(seen).toHaveLength(1);
+    } finally {
+      dispose();
+    }
+  });
+
+  it('dismisses the wakeup popover on Escape without reaching the cancel binding', () => {
+    // This one is registered in the capture phase: both this handler and
+    // KeybindingService's live on `document`, where stopPropagation cannot
+    // order them.
+    const { seen, dispose } = captureDocumentKeydown();
+
+    try {
+      component.showWakeupMenu.set(true);
+      fixture.detectChanges();
+
+      document.dispatchEvent(keydown('Escape'));
+      fixture.detectChanges();
+
+      expect(component.showWakeupMenu()).toBe(false);
+      expect(seen).toEqual([]);
+    } finally {
+      dispose();
+    }
+  });
+
   it('shows and toggles the selected provider fast preference for a new session', () => {
     fixture.componentRef.setInput('instanceId', 'new');
     fixture.detectChanges();
@@ -472,6 +552,14 @@ describe('InputPanelComponent composer autocomplete integration', () => {
     await fixture.whenStable();
     await Promise.resolve();
     fixture.detectChanges();
+  }
+
+  /** Bubble-phase document keydown recorder — stands in for KeybindingService. */
+  function captureDocumentKeydown(): { seen: KeyboardEvent[]; dispose: () => void } {
+    const seen: KeyboardEvent[] = [];
+    const listener = (event: Event) => seen.push(event as KeyboardEvent);
+    document.addEventListener('keydown', listener);
+    return { seen, dispose: () => document.removeEventListener('keydown', listener) };
   }
 
   function flushAnimationFrames(): void {

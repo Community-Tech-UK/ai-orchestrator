@@ -46,6 +46,7 @@ import {
 import type {
   Instance,
   InstanceStatus,
+  InterruptOrigin,
   OutputMessage,
 } from '../../../shared/types/instance.types';
 import type { ExecutionLocation } from '../../../shared/types/worker-node.types';
@@ -240,18 +241,30 @@ export class InterruptRespawnHandler {
    * interrupt escalates to adapter termination and leaves the instance in a
    * recoverable `cancelled` state.
    */
-  interrupt(instanceId: string): boolean {
+  interrupt(instanceId: string, origin: InterruptOrigin = 'unknown'): boolean {
     const adapter = this.deps.getAdapter(instanceId);
     const instance = this.deps.getInstance(instanceId);
 
     if (!adapter || !instance) {
-      logger.warn('Cannot interrupt instance: not found', { instanceId });
+      logger.warn('Cannot interrupt instance: not found', { instanceId, origin });
       return false;
     }
+
+    // Single attribution point for every interrupt surface (renderer Escape /
+    // stop button, mobile gateway, chat `/stop`, steer, pause, tool-loop
+    // auto-interrupt). Without this a killed turn was indistinguishable in the
+    // logs from a provider stall.
+    logger.info('Interrupt requested', {
+      instanceId,
+      origin,
+      status: instance.status,
+      provider: instance.provider,
+    });
 
     if (this.isInterruptRecoveryStatus(instance.status)) {
       logger.info('Escalating interrupt on second request', {
         instanceId,
+        origin,
         status: instance.status,
         interruptRequestId: instance.interruptRequestId,
       });
@@ -341,7 +354,7 @@ export class InterruptRespawnHandler {
       'waiting_for_permission',
     ]);
     if (!interruptibleStatuses.has(instance.status)) {
-      logger.warn('Cannot interrupt instance: not interruptible', { instanceId, status: instance.status });
+      logger.warn('Cannot interrupt instance: not interruptible', { instanceId, origin, status: instance.status });
       return false;
     }
 

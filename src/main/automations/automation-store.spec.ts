@@ -88,6 +88,64 @@ describe('AutomationStore', () => {
     expect(afterScheduled?.lastRunId).toBe(asDecision(scheduled).run?.id);
   });
 
+  describe('hidden automations', () => {
+    async function createAutomation(hidden?: boolean) {
+      return store.create({
+        name: 'Uptime check',
+        schedule: { type: 'cron', expression: '0 * * * *', timezone: 'UTC' },
+        missedRunPolicy: 'notify',
+        concurrencyPolicy: 'skip',
+        action: { prompt: 'Check', workingDirectory: '/tmp' },
+        ...(hidden === undefined ? {} : { hidden }),
+      }, 1_000, 100);
+    }
+
+    it('defaults new automations to visible', async () => {
+      const automation = await createAutomation();
+      expect(automation.hidden).toBe(false);
+      expect((await store.get(automation.id))?.hidden).toBe(false);
+    });
+
+    it('round-trips hidden on create', async () => {
+      const automation = await createAutomation(true);
+      expect(automation.hidden).toBe(true);
+      expect((await store.get(automation.id))?.hidden).toBe(true);
+    });
+
+    it('toggles hidden on update in both directions', async () => {
+      const automation = await createAutomation(true);
+
+      const shown = await store.update(automation.id, { hidden: false }, null, 2_000);
+      expect(shown.hidden).toBe(false);
+      expect((await store.get(automation.id))?.hidden).toBe(false);
+
+      const rehidden = await store.update(automation.id, { hidden: true }, null, 3_000);
+      expect(rehidden.hidden).toBe(true);
+    });
+
+    it('preserves hidden across an unrelated update', async () => {
+      const automation = await createAutomation(true);
+      const updated = await store.update(automation.id, { name: 'Renamed' }, null, 2_000);
+      expect(updated.name).toBe('Renamed');
+      expect(updated.hidden).toBe(true);
+    });
+
+    it('snapshots hidden onto the run so later edits do not retroactively change it', async () => {
+      const automation = await createAutomation(true);
+      const started = store.decideAndInsertRun(automation, 'scheduled', 1_000, 1_000);
+      expect(asDecision(started).run!.configSnapshot?.hidden).toBe(true);
+
+      await store.update(automation.id, { hidden: false }, null, 2_000);
+      expect(asDecision(started).run!.configSnapshot?.hidden).toBe(true);
+    });
+
+    it('omits hidden from the snapshot of a visible automation', async () => {
+      const automation = await createAutomation(false);
+      const started = store.decideAndInsertRun(automation, 'scheduled', 1_000, 1_000);
+      expect(asDecision(started).run!.configSnapshot?.hidden).toBeUndefined();
+    });
+  });
+
   it('stores queued run snapshots and dispatches the claimed pending run', async () => {
     const automation = await store.create({
       name: 'Queued check',

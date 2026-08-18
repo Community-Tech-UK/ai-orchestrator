@@ -188,6 +188,16 @@ export interface CliUsage {
   totalTokens?: number;
   cost?: number;
   duration?: number;
+  /**
+   * True when the token counts above are a heuristic estimate (e.g.
+   * {@link estimateTokens} applied to prompt/response text) rather than a
+   * provider-reported measurement. Absent/false means measured. Set this
+   * whenever a call site fabricates usage instead of receiving it from the
+   * CLI/provider — every downstream cost consumer (CostEntry, the cost page,
+   * exports) must keep this flag distinguishable rather than blending an
+   * estimate into a number that reads as measured (LT-100).
+   */
+  isEstimated?: boolean;
 }
 
 /**

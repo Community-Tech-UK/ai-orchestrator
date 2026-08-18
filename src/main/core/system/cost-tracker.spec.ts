@@ -82,6 +82,51 @@ describe('CostTracker.recordUsage', () => {
     tracker.recordUsage('inst-9', 'sess-9', 'claude-sonnet-4-6', 100, 50, 0, 0, 0.005);
     expect(seen).toEqual([{ instanceId: 'inst-9', cost: 0.005 }]);
   });
+
+  // LT-100: ACP-transport providers (Cursor/Grok/Copilot) whose server sends
+  // no `usage` now record a heuristic-estimate entry instead of zero. Every
+  // read surface must be able to tell it apart from a measured entry.
+  describe('LT-100 — isEstimated', () => {
+    it('defaults isEstimated to false when the caller does not pass it', () => {
+      const entry = tracker.recordUsage('inst-1', 'sess-1', 'claude-sonnet-4-6', 100, 50, 0, 0, 0.001);
+      expect(entry.isEstimated).toBe(false);
+    });
+
+    it('tags an entry isEstimated when the caller says so', () => {
+      const entry = tracker.recordUsage(
+        'inst-1', 'sess-1', 'cursor-composer', 40, 60, 0, 0, undefined, 0, true,
+      );
+      expect(entry.isEstimated).toBe(true);
+    });
+
+    it('rolls estimated entries into totalEstimatedCost and hasEstimatedEntries without hiding them from totalCost', () => {
+      tracker.recordUsage('inst-1', 'sess-1', 'claude-sonnet-4-6', 100, 50, 0, 0, 0.01, 0, false);
+      tracker.recordUsage('inst-2', 'sess-2', 'cursor-composer', 40, 60, 0, 0, 0.02, 0, true);
+
+      const summary = tracker.getSummary();
+      expect(summary.totalCost).toBeCloseTo(0.03, 10);
+      expect(summary.hasEstimatedEntries).toBe(true);
+      expect(summary.totalEstimatedCost).toBeCloseTo(0.02, 10);
+    });
+
+    it('reports hasEstimatedEntries: false and totalEstimatedCost: 0 when nothing is estimated', () => {
+      tracker.recordUsage('inst-1', 'sess-1', 'claude-sonnet-4-6', 100, 50, 0, 0, 0.01);
+      const summary = tracker.getSummary();
+      expect(summary.hasEstimatedEntries).toBe(false);
+      expect(summary.totalEstimatedCost).toBe(0);
+    });
+
+    it('flags hasEstimated per model and per session only when that group contains an estimate', () => {
+      tracker.recordUsage('inst-1', 'sess-1', 'claude-sonnet-4-6', 100, 50, 0, 0, 0.01, 0, false);
+      tracker.recordUsage('inst-2', 'sess-2', 'cursor-composer', 40, 60, 0, 0, 0.02, 0, true);
+
+      const summary = tracker.getSummary();
+      expect(summary.byModel['claude-sonnet-4-6']?.hasEstimated).toBe(false);
+      expect(summary.byModel['cursor-composer']?.hasEstimated).toBe(true);
+      expect(summary.bySession['sess-1']?.hasEstimated).toBe(false);
+      expect(summary.bySession['sess-2']?.hasEstimated).toBe(true);
+    });
+  });
 });
 
 describe('CostTracker persistence (E15)', () => {
@@ -127,6 +172,40 @@ describe('CostTracker persistence (E15)', () => {
     expect(row?.cost).toBeCloseTo(0.0731, 10);
     expect(row?.cache_read_tokens).toBe(10);
     expect(row?.reasoning_tokens).toBe(12);
+  });
+
+  it('adds is_estimated persistence via migration 059 (LT-100), defaulting existing/omitted rows to measured', () => {
+    const migration = db
+      .prepare('SELECT name FROM _migrations WHERE name = ?')
+      .get<{ name: string }>('059_cost_entries_is_estimated');
+    expect(migration?.name).toBe('059_cost_entries_is_estimated');
+
+    const column = db
+      .prepare('PRAGMA table_info(cost_entries)')
+      .all<{ name: string; dflt_value: string }>()
+      .find((c) => c.name === 'is_estimated');
+    expect(column?.name).toBe('is_estimated');
+    expect(column?.dflt_value).toBe('0');
+
+    const tracker = new CostTracker();
+    tracker.setDatabase(db);
+    tracker.recordUsage('inst-est', 'sess-est', 'cursor-composer', 40, 60, 0, 0, undefined, 0, true);
+    tracker.recordUsage('inst-measured', 'sess-measured', 'claude-sonnet-4-6', 100, 50, 0, 0, 0.01);
+
+    const rows = db
+      .prepare('SELECT instance_id, is_estimated FROM cost_entries ORDER BY instance_id')
+      .all<{ instance_id: string; is_estimated: number }>();
+    expect(rows).toEqual([
+      { instance_id: 'inst-est', is_estimated: 1 },
+      { instance_id: 'inst-measured', is_estimated: 0 },
+    ]);
+
+    // Rehydration round-trips the flag correctly too.
+    const rehydrated = new CostTracker();
+    rehydrated.setDatabase(db);
+    const entries = rehydrated.getEntries();
+    expect(entries.find((e) => e.instanceId === 'inst-est')?.isEstimated).toBe(true);
+    expect(entries.find((e) => e.instanceId === 'inst-measured')?.isEstimated).toBe(false);
   });
 
   it('rehydrates history on a fresh tracker pointed at the same DB (survives restart)', () => {

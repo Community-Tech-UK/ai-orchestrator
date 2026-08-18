@@ -267,6 +267,10 @@ export class AutomationRunner {
         metadata: {
           automationId: claimed.run.automationId,
           automationRunId: claimed.run.id,
+          // Snapshotted at fire time so the rail never has to join back to the
+          // automation store, and archived threads keep behaving correctly after
+          // the automation is edited or deleted.
+          ...(claimed.snapshot.hidden === true ? { automationHidden: true } : {}),
         },
       });
 
@@ -495,6 +499,30 @@ export class AutomationRunner {
     this.trackingByInstance.delete(instanceId);
     this.instanceByRun.delete(tracking.runId);
 
+    if (status === 'succeeded') {
+      // Durably record the *good* outcome on the instance. Archival hides a
+      // hidden automation's thread only when this stamp is present, so every
+      // other ending — failed, cancelled, killed mid-run at app shutdown —
+      // leaves the thread visible in the project rail.
+      //
+      // Recording success rather than failure is deliberate, and the ordering
+      // is why. `InstanceTerminationCoordinator.terminateInstance` awaits
+      // `archiveRootConversation` (instance-termination.ts:142) *before* it
+      // transitions the instance to `terminated` (:149) or emits `removed`
+      // (:160) — the two events that would tell this runner the run had ended
+      // badly. A failure stamp therefore always lands after the archived entry
+      // has already been written, and `archiveInstance` never re-archives the
+      // same instance. Marking success instead means the unknown state is the
+      // visible one: a hidden automation killed mid-run by `terminateAll()` on
+      // app quit stays in the rail, which is the whole point of the feature's
+      // safety guarantee.
+      //
+      // The archived entry cannot work any of this out for itself: termination
+      // maps every non-`error` status to the `completed` ConversationEndStatus,
+      // so a failed run and a clean run archive identically.
+      this.markInstanceAutomationRunSucceeded(instanceId);
+    }
+
     const outputFullRef = writeFullOutput(tracking);
     const run = this.store.terminalizeRun(
       tracking.runId,
@@ -516,6 +544,19 @@ export class AutomationRunner {
     options?: { retryable?: boolean },
   ): void {
     this.completeTrackedInstance(instanceId, 'failed', reason, options);
+  }
+
+  /**
+   * Flag a cleanly-completed hidden automation session as safe to hide once it
+   * archives. Runs while the instance is still live and long before teardown,
+   * so unlike a failure stamp it cannot lose the race with archival.
+   */
+  private markInstanceAutomationRunSucceeded(instanceId: string): void {
+    const instance = this.instanceManager?.getInstance(instanceId);
+    if (!instance || instance.metadata?.['automationHidden'] !== true) {
+      return;
+    }
+    instance.metadata = { ...instance.metadata, automationRunSucceeded: true };
   }
 
   private isOneTimeRun(run: AutomationRun): boolean {
@@ -805,6 +846,8 @@ export class AutomationRunner {
         metadata: {
           automationId: retryRun.automationId,
           automationRunId: retryRun.id,
+          // Same snapshotted visibility as the first attempt — see dispatchRun.
+          ...(snapshot.hidden === true ? { automationHidden: true } : {}),
         },
       });
 

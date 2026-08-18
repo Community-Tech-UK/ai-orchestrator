@@ -42,3 +42,41 @@ export function getModelSwitchUnavailableReason(
 
   return `Model changes are only available while the instance is waiting for user input. Current status: ${status}.`;
 }
+
+/**
+ * Instance statuses the automation runner treats as a failed run.
+ *
+ * Defined here rather than in the runner because the project rail needs exactly
+ * the same set: a hidden automation is revealed precisely when its run failed.
+ * If the two lists were maintained separately, a status added to one and not the
+ * other would leave a broken hidden automation silently missing from the rail —
+ * the one failure mode hiding must never introduce.
+ */
+export const AUTOMATION_FAILURE_STATUSES = new Set<InstanceStatus>([
+  'error',
+  'failed',
+  'terminated',
+  'cancelled',
+  'superseded',
+]);
+
+/**
+ * Statuses where a run has parked awaiting a human. The runner terminalizes
+ * these as non-retryable failures, and the rail must surface them for the same
+ * reason: an unattended automation waiting forever on a permission prompt is
+ * exactly what a hidden session would otherwise conceal.
+ */
+export const AUTOMATION_WAIT_STATUSES = new Set<InstanceStatus>([
+  'waiting_for_input',
+  'waiting_for_permission',
+]);
+
+/**
+ * True when an automation-born session needs the operator's eyes — it failed, or
+ * it is parked waiting for a human. Hidden automations are shown in the project
+ * rail in exactly these states.
+ */
+export function isAutomationAttentionStatus(status: InstanceStatus | undefined): boolean {
+  return status !== undefined
+    && (AUTOMATION_FAILURE_STATUSES.has(status) || AUTOMATION_WAIT_STATUSES.has(status));
+}

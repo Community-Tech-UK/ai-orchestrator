@@ -40,6 +40,7 @@ import type {
   FileAttachment,
   ForkConfig,
   IdleInstanceInfo,
+  InterruptOrigin,
   OutputMessage,
   RuntimeChangeRequest
 } from '../../shared/types/instance.types';
@@ -206,7 +207,7 @@ export class InstanceManager extends EventEmitter {
   // WS-A2: resolved lazily so a post-construction spy on interruptInstance is honoured.
   private readonly toolLoopWiringDeps: ToolLoopWiringDeps = {
     getAutoInterruptSetting: () => this.settings.get('toolLoopAutoInterrupt'),
-    interruptInstance: (instanceId: string) => this.interruptInstance(instanceId),
+    interruptInstance: (instanceId: string) => this.interruptInstance(instanceId, 'tool-loop-auto'),
   };
   private pendingPermissionRequestsByInputId = new Map<string, PermissionRequest>();
   private readonly providerEventBus = new ProviderRuntimeEventBus(
@@ -1202,7 +1203,7 @@ export class InstanceManager extends EventEmitter {
     for (const instance of this.state.getAllInstances()) {
       if (!activeStatuses.has(instance.status)) continue;
       try {
-        this.lifecycle.interruptInstance(instance.id);
+        this.lifecycle.interruptInstance(instance.id, 'pause');
       } catch (error) {
         logger.warn('Failed to interrupt active instance after pause', {
           instanceId: instance.id,
@@ -1559,8 +1560,8 @@ export class InstanceManager extends EventEmitter {
     return this.lifecycle.requestModelChange(instanceId, request);
   }
 
-  interruptInstance(instanceId: string): boolean {
-    return this.lifecycle.interruptInstance(instanceId);
+  interruptInstance(instanceId: string, origin: InterruptOrigin = 'unknown'): boolean {
+    return this.lifecycle.interruptInstance(instanceId, origin);
   }
 
   async steerInput(
@@ -1578,7 +1579,7 @@ export class InstanceManager extends EventEmitter {
     }
 
     if (STEER_INTERRUPT_STATUSES.has(instance.status)) {
-      const interrupted = this.lifecycle.interruptInstance(instanceId);
+      const interrupted = this.lifecycle.interruptInstance(instanceId, 'steer');
       if (!interrupted) {
         throw new Error(`Instance ${instanceId} did not accept steer interrupt`);
       }

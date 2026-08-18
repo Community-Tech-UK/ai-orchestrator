@@ -34,6 +34,7 @@ import { AppUpdateStore } from './core/state/app-update.store';
 import { AppUpdateBannerComponent } from './shared/components/app-update-banner/app-update-banner.component';
 import { ComputerUsePermissionBannerComponent } from './core/state/computer-use-permission-banner.component';
 import { BrowserApprovalsBannerComponent } from './core/state/browser-approvals-banner.component';
+import { PendingApprovalsBannerComponent } from './core/state/pending-approvals-banner.component';
 import { ComputerUsePermissionChipComponent } from './core/state/computer-use-permission-chip.component';
 import { NotificationCenterComponent } from './features/title-bar/notification-center.component';
 import { RlmStorageMaintenanceComponent } from './features/loop/rlm-storage-maintenance.component';
@@ -104,6 +105,7 @@ const WINDOW_CONTROLS_FALLBACK_INSET = 150;
     WorkerModeComponent,
     AppUpdateBannerComponent,
     BrowserApprovalsBannerComponent,
+    PendingApprovalsBannerComponent,
     ComputerUsePermissionBannerComponent,
     ComputerUsePermissionChipComponent,
     NotificationCenterComponent,

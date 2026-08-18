@@ -433,6 +433,11 @@ export function createOrchestratorToolsForwarderTools(
             type: 'boolean',
             description: 'Whether the automation is active immediately. Defaults to true.',
           },
+          hidden: {
+            type: 'boolean',
+            description:
+              'Keep this automation\'s sessions out of the project rail. Set it for work whose real output lands elsewhere — a health check that only matters when it fails, or a run that delivers an email or a board card. Hidden is quiet, not invisible: the Automations page still shows the automation and every run, and a run that fails or stops for permission is shown in the rail anyway. Defaults to false (visible).',
+          },
         },
         required: ['name', 'prompt'],
         additionalProperties: false,
@@ -549,6 +554,11 @@ export function createOrchestratorToolsForwarderTools(
             type: 'boolean',
             description:
               'Enable (resume) or disable (pause) the automation without deleting it. Omit to leave unchanged.',
+          },
+          hidden: {
+            type: 'boolean',
+            description:
+              'Keep this automation\'s sessions out of the project rail. Use it for work whose real output lands elsewhere — a health check that only matters when it fails, or a run that delivers an email or a board card. Hidden is quiet, not invisible: the Automations page still shows the automation and every run, and a run that fails or stops for permission is shown in the rail anyway. Omit to leave unchanged.',
           },
         },
         required: ['id'],

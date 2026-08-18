@@ -26,6 +26,16 @@ export interface CostEntry {
   cacheWriteTokens?: number;
   reasoningTokens?: number;
   cost: number;
+  /**
+   * True when the token counts (and therefore `cost`, unless a provider
+   * cost override was also supplied) came from a heuristic estimate rather
+   * than a provider-reported measurement — e.g. an ACP-transport turn
+   * (Cursor/Grok/Copilot) whose server sent no `usage` at all (LT-100).
+   * Every read surface (cost page, summaries, exports) must keep this
+   * visibly distinguishable from a measured entry rather than blending it
+   * into a total that reads as measured. Absent/false means measured.
+   */
+  isEstimated?: boolean;
 }
 
 /** Persisted row shape for the `cost_entries` table (snake_case columns). */
@@ -41,6 +51,7 @@ interface CostEntryRow {
   cache_write_tokens: number;
   reasoning_tokens: number;
   cost: number;
+  is_estimated: number;
 }
 
 function rowToEntry(row: CostEntryRow): CostEntry {
@@ -56,6 +67,7 @@ function rowToEntry(row: CostEntryRow): CostEntry {
     cacheWriteTokens: row.cache_write_tokens,
     reasoningTokens: row.reasoning_tokens,
     cost: row.cost,
+    isEstimated: row.is_estimated === 1,
   };
 }
 
@@ -64,6 +76,14 @@ function rowToEntry(row: CostEntryRow): CostEntry {
  */
 export interface CostSummary {
   totalCost: number;
+  /**
+   * Portion of `totalCost` contributed by entries with `isEstimated: true`.
+   * Lets a total that mixes measured and estimated entries say so instead
+   * of reading as a single measured number (LT-100).
+   */
+  totalEstimatedCost: number;
+  /** True when at least one summed entry is an estimate. */
+  hasEstimatedEntries: boolean;
   totalInputTokens: number;
   totalOutputTokens: number;
   totalCacheReadTokens: number;
@@ -75,11 +95,15 @@ export interface CostSummary {
     outputTokens: number;
     reasoningTokens: number;
     requests: number;
+    /** True when any request for this model contributed an estimated entry. */
+    hasEstimated: boolean;
   }>;
   bySession: Record<string, {
     cost: number;
     tokens: number;
     requests: number;
+    /** True when any request for this session contributed an estimated entry. */
+    hasEstimated: boolean;
   }>;
   requestCount: number;
   startTime: number;
@@ -142,8 +166,8 @@ export class CostTracker extends EventEmitter {
       this.insertStmt = db.prepare(`
         INSERT OR REPLACE INTO cost_entries
           (id, timestamp, instance_id, session_id, model,
-           input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens, cost)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens, cost, is_estimated)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       this.db = db;
       // Flush any entries recorded before persistence was attached (INSERT OR
@@ -168,7 +192,7 @@ export class CostTracker extends EventEmitter {
       .prepare(
         `SELECT id, timestamp, instance_id, session_id, model,
                 input_tokens, output_tokens, cache_read_tokens,
-                cache_write_tokens, reasoning_tokens, cost
+                cache_write_tokens, reasoning_tokens, cost, is_estimated
          FROM cost_entries ORDER BY timestamp DESC LIMIT ?`,
       )
       .all<CostEntryRow>(this.maxEntries);
@@ -193,6 +217,7 @@ export class CostTracker extends EventEmitter {
         entry.cacheWriteTokens ?? 0,
         entry.reasoningTokens ?? 0,
         entry.cost,
+        entry.isEstimated ? 1 : 0,
       );
     } catch (err) {
       logger.warn('Failed to persist cost entry', { error: String(err) });
@@ -230,6 +255,11 @@ export class CostTracker extends EventEmitter {
    * cost from the per-model token rate table. Token counts are still stored for
    * analytics either way. When the override is absent, cost is computed from the
    * pricing table via {@link calculateCost}.
+   *
+   * `isEstimated` (LT-100) tags the whole entry — tokens and, unless
+   * `providerCostUsd` overrides it, the derived cost — as a heuristic
+   * estimate rather than a measurement. Every summary/export consumer must
+   * keep it visibly distinguishable from a measured entry.
    */
   recordUsage(
     instanceId: string,
@@ -241,6 +271,7 @@ export class CostTracker extends EventEmitter {
     cacheWriteTokens: number = 0,
     providerCostUsd?: number,
     reasoningTokens: number = 0,
+    isEstimated: boolean = false,
   ): CostEntry {
     const cost =
       typeof providerCostUsd === 'number' &&
@@ -268,6 +299,7 @@ export class CostTracker extends EventEmitter {
       cacheWriteTokens,
       reasoningTokens,
       cost,
+      isEstimated,
     };
 
     this.entries.push(entry);
@@ -302,6 +334,8 @@ export class CostTracker extends EventEmitter {
     const byModel: CostSummary['byModel'] = {};
     const bySession: CostSummary['bySession'] = {};
     let totalCost = 0;
+    let totalEstimatedCost = 0;
+    let hasEstimatedEntries = false;
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
     let totalCacheReadTokens = 0;
@@ -315,6 +349,10 @@ export class CostTracker extends EventEmitter {
       totalCacheReadTokens += entry.cacheReadTokens || 0;
       totalCacheWriteTokens += entry.cacheWriteTokens || 0;
       totalReasoningTokens += entry.reasoningTokens || 0;
+      if (entry.isEstimated) {
+        totalEstimatedCost += entry.cost;
+        hasEstimatedEntries = true;
+      }
 
       // By model
       if (!byModel[entry.model]) {
@@ -324,6 +362,7 @@ export class CostTracker extends EventEmitter {
           outputTokens: 0,
           reasoningTokens: 0,
           requests: 0,
+          hasEstimated: false,
         };
       }
       byModel[entry.model].cost += entry.cost;
@@ -331,19 +370,23 @@ export class CostTracker extends EventEmitter {
       byModel[entry.model].outputTokens += entry.outputTokens;
       byModel[entry.model].reasoningTokens += entry.reasoningTokens || 0;
       byModel[entry.model].requests += 1;
+      if (entry.isEstimated) byModel[entry.model].hasEstimated = true;
 
       // By session
       if (!bySession[entry.sessionId]) {
-        bySession[entry.sessionId] = { cost: 0, tokens: 0, requests: 0 };
+        bySession[entry.sessionId] = { cost: 0, tokens: 0, requests: 0, hasEstimated: false };
       }
       bySession[entry.sessionId].cost += entry.cost;
       bySession[entry.sessionId].tokens +=
         entry.inputTokens + entry.outputTokens + (entry.reasoningTokens || 0);
       bySession[entry.sessionId].requests += 1;
+      if (entry.isEstimated) bySession[entry.sessionId].hasEstimated = true;
     }
 
     return {
       totalCost,
+      totalEstimatedCost,
+      hasEstimatedEntries,
       totalInputTokens,
       totalOutputTokens,
       totalCacheReadTokens,

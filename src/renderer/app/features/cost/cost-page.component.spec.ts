@@ -135,6 +135,48 @@ describe('CostPageComponent — computed signals', () => {
     expect(component.totalCost()).toBeCloseTo(0.012345, 6);
   });
 
+  // ── LT-100: estimated-vs-measured cost stays visibly distinguishable ────
+
+  it('hasEstimatedEntries is false and totalEstimatedCost is 0 for an all-measured summary', () => {
+    component.summary.set(MOCK_SUMMARY);
+    expect(component.hasEstimatedEntries()).toBe(false);
+    expect(component.totalEstimatedCost()).toBe(0);
+  });
+
+  it('hasEstimatedEntries reflects the summary when it mixes in an estimate', () => {
+    component.summary.set({ ...MOCK_SUMMARY, hasEstimatedEntries: true, totalEstimatedCost: 0.002 });
+    expect(component.hasEstimatedEntries()).toBe(true);
+    expect(component.totalEstimatedCost()).toBeCloseTo(0.002, 6);
+  });
+
+  it('modelRows carries hasEstimated per model from the summary', () => {
+    component.summary.set({
+      ...MOCK_SUMMARY,
+      byModel: {
+        ...MOCK_SUMMARY.byModel,
+        'claude-3-5-sonnet-20241022': { ...MOCK_SUMMARY.byModel['claude-3-5-sonnet-20241022'], hasEstimated: true },
+      },
+    });
+    const sonnetRow = component.modelRows().find((r) => r.model === 'claude-3-5-sonnet-20241022');
+    const haikuRow = component.modelRows().find((r) => r.model === 'claude-3-haiku-20240307');
+    expect(sonnetRow?.hasEstimated).toBe(true);
+    expect(haikuRow?.hasEstimated).toBe(false);
+  });
+
+  it('sessionRows carries hasEstimated per session from the summary', () => {
+    component.summary.set({
+      ...MOCK_SUMMARY,
+      bySession: {
+        ...MOCK_SUMMARY.bySession,
+        'sess-aaa': { ...MOCK_SUMMARY.bySession['sess-aaa'], hasEstimated: true },
+      },
+    });
+    const aaaRow = component.sessionRows().find((r) => r.sessionId === 'sess-aaa');
+    const bbbRow = component.sessionRows().find((r) => r.sessionId === 'sess-bbb');
+    expect(aaaRow?.hasEstimated).toBe(true);
+    expect(bbbRow?.hasEstimated).toBe(false);
+  });
+
   // ── Token totals ────────────────────────────────────────────────────────
 
   it('totalInputTokens sums from summary', () => {

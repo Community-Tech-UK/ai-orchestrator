@@ -17,6 +17,7 @@ import type {
   Instance,
   FileAttachment,
   InstanceCreateConfig,
+  InterruptOrigin,
 } from '../../shared/types/instance.types';
 import type { LoopState } from '../../shared/types/loop.types';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
@@ -147,7 +148,7 @@ export interface GatewayInstanceSource extends EmitterLike {
   getAllInstances(): Instance[];
   getInstance(id: string): Instance | undefined;
   sendInput(instanceId: string, message: string, attachments?: FileAttachment[]): Promise<void>;
-  interruptInstance(instanceId: string): boolean;
+  interruptInstance(instanceId: string, origin?: InterruptOrigin): boolean;
   terminateInstance(instanceId: string, graceful?: boolean): Promise<void>;
   resumeAfterDeferredPermission(instanceId: string, approved: boolean, updatedInput?: Record<string, unknown>): Promise<void>;
   recordInputRequiredPermissionDecision(params: {
@@ -1362,7 +1363,7 @@ export class MobileGatewayServer {
       this.sendJson(res, 200, { ok: true, duplicate: true });
       return;
     }
-    const accepted = this.source().interruptInstance(instanceId);
+    const accepted = this.source().interruptInstance(instanceId, 'mobile-gateway');
     this.sendJson(res, 200, { ok: true, accepted });
   }
 

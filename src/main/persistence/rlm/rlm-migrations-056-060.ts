@@ -115,4 +115,21 @@ export const RLM_MIGRATIONS_056_060: Migration[] = [
       -- because the store treats each as optional.
     `,
   },
+  {
+    // LT-100: ACP-transport providers (Cursor/Grok/Copilot) whose server sends
+    // no `usage` at all now record a heuristic-estimate cost entry instead of
+    // zero. `is_estimated` carries that flag through persistence so every read
+    // surface (cost page, summaries, exports) can keep an estimate visibly
+    // distinct from a measured entry rather than silently blending it into a
+    // total that reads as measured. Existing rows default to 0 (measured) —
+    // correct, because estimation did not exist before this migration.
+    name: '059_cost_entries_is_estimated',
+    up: `
+      ALTER TABLE cost_entries ADD COLUMN is_estimated INTEGER NOT NULL DEFAULT 0;
+    `,
+    down: `
+      -- SQLite cannot drop columns portably on older runtimes; leave the
+      -- additive analytics column in place on rollback.
+    `,
+  },
 ];

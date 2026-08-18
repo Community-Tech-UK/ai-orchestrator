@@ -61,6 +61,29 @@ export class PermissionRegistry extends EventEmitter {
 
   getPendingCount(): number { return this.pending.size; }
   listPending(): PermissionRequest[] { return Array.from(this.pending.values()).map(e => e.request); }
+  getPending(requestId: string): PermissionRequest | undefined {
+    return this.pending.get(requestId)?.request;
+  }
+
+  /**
+   * Pushes a pending request's timeout window further into the future by
+   * `extraMs`, replacing its timer. Used by the renderer approval surface so a
+   * human reviewing a short-lived request (e.g. Computer Use's 60s window)
+   * isn't racing the clock while reading the description. Returns the updated
+   * request, or `undefined` if the request is no longer pending (already
+   * resolved or expired).
+   */
+  extend(requestId: string, extraMs: number): PermissionRequest | undefined {
+    const entry = this.pending.get(requestId);
+    if (!entry) return undefined;
+    clearTimeout(entry.timer);
+    const elapsedMs = Date.now() - entry.request.createdAt;
+    entry.request = { ...entry.request, timeoutMs: elapsedMs + extraMs };
+    entry.timer = setTimeout(() => this.resolve(requestId, false, 'timeout'), extraMs);
+    this.emit('permission:extended', entry.request);
+    logger.info('Permission extended', { requestId, extraMs });
+    return entry.request;
+  }
 
   clearForInstance(instanceId: string): void {
     // Collect IDs first to avoid modifying the Map during iteration

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "generatedBy": "scripts/generate-architecture-inventory.js",
   "ipc": {
-    "channelCount": 1123,
+    "channelCount": 1126,
     "channels": [
       {
         "name": "INSTANCE_CREATE",
@@ -5618,11 +5618,26 @@
         "name": "WORKBOARD_DECISIONS_FOR_ITEM",
         "value": "workboard:decisions-for-item",
         "line": 1458
+      },
+      {
+        "name": "PERMISSION_REGISTRY_LIST_PENDING",
+        "value": "permission-registry:list-pending",
+        "line": 1460
+      },
+      {
+        "name": "PERMISSION_REGISTRY_RESOLVE",
+        "value": "permission-registry:resolve",
+        "line": 1461
+      },
+      {
+        "name": "PERMISSION_REGISTRY_EXTEND",
+        "value": "permission-registry:extend",
+        "line": 1462
       }
     ]
   },
   "preload": {
-    "domainCount": 36,
+    "domainCount": 37,
     "domains": [
       "automation.preload.ts",
       "auxiliary-llm.preload.ts",
@@ -5649,6 +5664,7 @@
       "operator.preload.ts",
       "orchestration.preload.ts",
       "pause.preload.ts",
+      "permission-registry.preload.ts",
       "prompt-history.preload.ts",
       "provider.preload.ts",
       "rlm-storage-maintenance.preload.ts",
@@ -5747,7 +5763,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3285
+      "lines": 3286
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase1-contracts-package_completed.md",
@@ -5759,7 +5775,7 @@
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2903
+      "lines": 2904
     },
     {
       "path": "docs/superpowers/plans/2026-04-16-worker-agent-autostart-service.md",
@@ -5774,6 +5790,10 @@
       "lines": 2829
     },
     {
+      "path": "src/main/instance/instance-communication.spec.ts",
+      "lines": 2776
+    },
+    {
       "path": "docs/superpowers/plans/2026-03-20-cross-model-review_completed.md",
       "lines": 2734
     },
@@ -5782,12 +5802,8 @@
       "lines": 2734
     },
     {
-      "path": "src/main/instance/instance-communication.spec.ts",
-      "lines": 2715
-    },
-    {
       "path": "src/main/instance/instance-communication.ts",
-      "lines": 2697
+      "lines": 2719
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave5-orchestration-hud-verification-verdicts-plan_completed.md",
@@ -5819,7 +5835,7 @@
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.ts",
-      "lines": 2211
+      "lines": 2205
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
@@ -5882,6 +5898,10 @@
       "lines": 1866
     },
     {
+      "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+      "lines": 1835
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-01-claude-code-hardening.md",
       "lines": 1830
     },
@@ -5898,10 +5918,6 @@
       "lines": 1801
     },
     {
-      "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
-      "lines": 1791
-    },
-    {
       "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
       "lines": 1772
     },
@@ -5911,6 +5927,10 @@
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
+      "lines": 1635
+    },
+    {
+      "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
       "lines": 1635
     },
     {
@@ -5935,7 +5955,7 @@
     },
     {
       "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
-      "lines": 1586
+      "lines": 1587
     },
     {
       "path": "docs/superpowers/plans/2026-05-02-full-voice-conversation_completed.md",
@@ -5970,16 +5990,12 @@
       "lines": 1513
     },
     {
-      "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
-      "lines": 1492
+      "path": "src/main/history/history-manager.ts",
+      "lines": 1494
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.lifecycle.spec.ts",
       "lines": 1481
-    },
-    {
-      "path": "src/main/history/history-manager.ts",
-      "lines": 1479
     },
     {
       "path": "docs/superpowers/plans/2026-04-01-claude-code-audit-phase2.COMPLETED.md",
@@ -6042,16 +6058,16 @@
       "lines": 1343
     },
     {
+      "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
+      "lines": 1336
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-02-phase-d-architecture-state.md",
       "lines": 1328
     },
     {
       "path": "docs/superpowers/plans/2026-05-27-code-indexing-rework_completed.md",
       "lines": 1328
-    },
-    {
-      "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
-      "lines": 1325
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-fixes-and-ui_completed.md",
@@ -6070,16 +6086,16 @@
       "lines": 1314
     },
     {
+      "path": "src/main/instance/lifecycle/interrupt-respawn-handler.ts",
+      "lines": 1306
+    },
+    {
       "path": "src/main/orchestration/cross-model-review-service.spec.ts",
       "lines": 1301
     },
     {
       "path": "src/main/workspace/git/vcs-manager.ts",
       "lines": 1296
-    },
-    {
-      "path": "src/main/instance/lifecycle/interrupt-respawn-handler.ts",
-      "lines": 1293
     },
     {
       "path": "src/worker-agent/__tests__/worker-agent.spec.ts",
@@ -6218,6 +6234,10 @@
       "lines": 1165
     },
     {
+      "path": "src/main/history/history-manager.spec.ts",
+      "lines": 1165
+    },
+    {
       "path": "src/main/orchestration/multi-verify-coordinator.ts",
       "lines": 1151
     },
@@ -6308,10 +6328,6 @@
     {
       "path": "src/renderer/app/features/instance-list/instance-list.component.scss",
       "lines": 1056
-    },
-    {
-      "path": "src/main/history/history-manager.spec.ts",
-      "lines": 1043
     },
     {
       "path": "src/main/cli/adapters/cursor-cli-adapter.ts",
@@ -6534,16 +6550,20 @@
       "lines": 888
     },
     {
+      "path": "src/main/automations/automation-store.ts",
+      "lines": 888
+    },
+    {
       "path": "src/main/orchestration/consensus-coordinator.ts",
       "lines": 886
     },
     {
-      "path": "src/main/automations/automation-store.ts",
-      "lines": 885
-    },
-    {
       "path": "src/renderer/app/core/services/new-session-draft.service.ts",
       "lines": 883
+    },
+    {
+      "path": "src/main/automations/automation-runner.ts",
+      "lines": 881
     },
     {
       "path": "src/main/rlm/smart-compaction.ts",
@@ -6606,6 +6626,10 @@
       "lines": 852
     },
     {
+      "path": "src/main/automations/automation-runner.spec.ts",
+      "lines": 851
+    },
+    {
       "path": "src/renderer/app/features/verification/config/verification-preferences.component.ts",
       "lines": 851
     },
@@ -6628,10 +6652,6 @@
     {
       "path": "src/main/cli/adapters/gemini-cli-adapter.ts",
       "lines": 840
-    },
-    {
-      "path": "src/main/automations/automation-runner.ts",
-      "lines": 838
     },
     {
       "path": "src/main/orchestration/event-store/__tests__/event-store.spec.ts",
@@ -6666,15 +6686,15 @@
       "lines": 833
     },
     {
-      "path": "src/renderer/app/features/automations/automations-page.component.ts",
-      "lines": 833
-    },
-    {
       "path": "src/renderer/app/core/state/instance/instance-list.store.ts",
       "lines": 832
     },
     {
       "path": "src/main/memory/skills-loader.spec.ts",
+      "lines": 831
+    },
+    {
+      "path": "src/renderer/app/features/automations/automations-page.component.ts",
       "lines": 831
     },
     {

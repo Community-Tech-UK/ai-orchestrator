@@ -139,6 +139,18 @@
                 />
                 <span class="filter-select-label">Show empty projects</span>
               </label>
+              <label
+                class="filter-checkbox-group"
+                title="Hidden automations stay out of the rail while they are working normally. A run that fails, or stops for permission, is always shown."
+              >
+                <input
+                  type="checkbox"
+                  class="filter-checkbox"
+                  [checked]="showHiddenAutomations()"
+                  (change)="onShowHiddenAutomationsChange($event)"
+                />
+                <span class="filter-select-label">Show hidden automation runs</span>
+              </label>
             </div>
           }
         </div>

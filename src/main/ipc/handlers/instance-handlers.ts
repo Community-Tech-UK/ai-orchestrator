@@ -312,7 +312,7 @@ export function registerInstanceHandlers(deps: {
     ): Promise<IpcResponse> => {
       try {
         const validated = validateIpcPayload(InstanceInterruptPayloadSchema, payload, 'INSTANCE_INTERRUPT');
-        const success = instanceManager.interruptInstance(validated.instanceId);
+        const success = instanceManager.interruptInstance(validated.instanceId, 'renderer-ipc');
 
         return {
           success,

@@ -21,7 +21,7 @@ import { getProviderModelContextWindow, type ReasoningEffort } from './provider.
  */
 export type InstanceProvider = CanonicalCliType;
 export type { ImageResolveFailureReason, ImageResolveKind } from '@contracts/schemas/image';
-export type { InstanceStatus } from '@contracts/types/instance-events';
+export type { InstanceStatus, InterruptOrigin } from '@contracts/types/instance-events';
 
 export type InstanceLaunchMode = 'orchestrated' | 'interactive';
 

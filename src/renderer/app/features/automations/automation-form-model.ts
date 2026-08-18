@@ -39,6 +39,8 @@ export interface AutomationFormModel {
   loopMaxCostCents: string;
   /** WS-C7 — 'standard' (default) preserves current behaviour unchanged. */
   executionProfile: AutomationExecutionProfile;
+  /** Keep this automation's sessions out of the project rail. See `Automation.hidden`. */
+  hidden: boolean;
 }
 
 export function emptyForm(): AutomationFormModel {
@@ -70,6 +72,7 @@ export function emptyForm(): AutomationFormModel {
     loopMaxIterations: '',
     loopMaxCostCents: '',
     executionProfile: 'standard',
+    hidden: false,
   };
 }
 

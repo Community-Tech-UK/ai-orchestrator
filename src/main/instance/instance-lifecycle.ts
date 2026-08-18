@@ -32,6 +32,7 @@ import type {
   Instance,
   InstanceCreateConfig,
   InstanceStatus,
+  InterruptOrigin,
   OutputMessage,
   RuntimeChangeRequest,
 } from '../../shared/types/instance.types';
@@ -3101,8 +3102,8 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
    * When the instance is 'respawning' (e.g., second Escape press while stuck),
    * force-terminates the adapter so the frontend can restart cleanly.
    */
-  interruptInstance(instanceId: string): boolean {
-    return this.interruptRespawn.interrupt(instanceId);
+  interruptInstance(instanceId: string, origin: InterruptOrigin = 'unknown'): boolean {
+    return this.interruptRespawn.interrupt(instanceId, origin);
   }
 
   /**

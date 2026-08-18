@@ -1,5 +1,19 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { ContextStore } from '../../../shared/types/rlm.types';
+
+const { loggerInfo, loggerError } = vi.hoisted(() => ({
+  loggerInfo: vi.fn(),
+  loggerError: vi.fn(),
+}));
+vi.mock('../../logging/logger', () => ({
+  getLogger: () => ({
+    info: loggerInfo,
+    warn: vi.fn(),
+    debug: vi.fn(),
+    error: loggerError,
+  }),
+}));
+
 import { executeGrep, executeSemanticSearch } from './context-search';
 import {
   getRecallTraceStore,
@@ -87,5 +101,61 @@ describe('executeSemanticSearch RLM recall trace (WS16)', () => {
       { vectorStore: null, hydeService: null, searchWindowSize: 30 },
     );
     expect(getRecallTraceStore().bySurface('rlm')).toHaveLength(0);
+  });
+});
+
+// LT-055: a `semantic_search` that degrades to keyword matching used to do so
+// with NO signal at all — a caller had no way to tell "genuinely no semantic
+// hits" apart from "vector search never ran for this store". Both fallback
+// paths must now log observably.
+describe('executeSemanticSearch — LT-055 degradation is observable', () => {
+  beforeEach(() => {
+    loggerInfo.mockClear();
+    loggerError.mockClear();
+  });
+
+  it('logs when there is no vector store attached at all', async () => {
+    await executeSemanticSearch(
+      storeWithContent('alpha lexical fallback content'),
+      { query: 'alpha lexical', topK: 3, minSimilarity: 0.5, useHyDE: false },
+      { vectorStore: null, hydeService: null, searchWindowSize: 30 },
+    );
+
+    expect(loggerInfo).toHaveBeenCalledWith(
+      'No vector store attached; semantic_search running as keyword search',
+      expect.objectContaining({ storeId: 'store-1' }),
+    );
+  });
+
+  it('logs when a vector store is attached but genuinely returns zero matches', async () => {
+    const vectorStore = { search: async () => [] };
+
+    await executeSemanticSearch(
+      storeWithContent('alpha lexical fallback content'),
+      { query: 'alpha lexical', topK: 3, minSimilarity: 0.5, useHyDE: false },
+      { vectorStore: vectorStore as never, hydeService: null, searchWindowSize: 30 },
+    );
+
+    expect(loggerInfo).toHaveBeenCalledWith(
+      'Semantic search returned no vector matches; falling back to keyword search',
+      expect.objectContaining({ storeId: 'store-1' }),
+    );
+  });
+
+  it('does not log the zero-matches degradation line when real matches are found', async () => {
+    const vectorStore = {
+      search: async () => [{ entry: { sectionId: 'section-1', contentPreview: 'a' }, similarity: 0.9 }],
+    };
+
+    await executeSemanticSearch(
+      storeWithContent('alpha lexical fallback content'),
+      { query: 'alpha lexical', topK: 3, minSimilarity: 0.5, useHyDE: false },
+      { vectorStore: vectorStore as never, hydeService: null, searchWindowSize: 30 },
+    );
+
+    expect(loggerInfo).not.toHaveBeenCalledWith(
+      'Semantic search returned no vector matches; falling back to keyword search',
+      expect.anything(),
+    );
   });
 });

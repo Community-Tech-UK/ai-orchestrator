@@ -3,21 +3,16 @@ import type {
   AutomationRun,
   ClaimedAutomationRun,
 } from '../../shared/types/automation.types';
-import type { InstanceStatus } from '../../shared/types/instance.types';
+import {
+  AUTOMATION_FAILURE_STATUSES,
+  AUTOMATION_WAIT_STATUSES,
+} from '../../shared/types/instance-status-policy';
 import { toWorkspaceId } from '../../shared/utils/workspace-key';
 
-export const FAILURE_STATUSES = new Set<InstanceStatus>([
-  'error',
-  'failed',
-  'terminated',
-  'cancelled',
-  'superseded',
-]);
-
-export const WAIT_STATUSES = new Set<InstanceStatus>([
-  'waiting_for_input',
-  'waiting_for_permission',
-]);
+// Single source of truth, shared with the project rail so the "hidden automation
+// failed, show it" escape hatch can never drift from what counts as a failure.
+export const FAILURE_STATUSES = AUTOMATION_FAILURE_STATUSES;
+export const WAIT_STATUSES = AUTOMATION_WAIT_STATUSES;
 
 export function automationFromSnapshot(
   automation: Automation,
@@ -32,6 +27,7 @@ export function automationFromSnapshot(
     concurrencyPolicy: snapshot.concurrencyPolicy,
     destination: snapshot.destination,
     action: snapshot.action,
+    hidden: snapshot.hidden === true,
   };
 }
 
@@ -58,5 +54,6 @@ export function automationShellFromRunSnapshot(run: AutomationRun): Automation {
     lastRunId: null,
     createdAt: run.createdAt,
     updatedAt: run.updatedAt,
+    hidden: snapshot.hidden === true,
   };
 }

@@ -58,6 +58,7 @@ import {
   loadLocationFilter,
   loadOrder,
   loadShowEmptyProjects,
+  loadShowHiddenAutomations,
   loadSortMode,
   loadStatusFilter,
   parseHistoryTimeWindow,
@@ -67,6 +68,7 @@ import {
   saveLocationFilter,
   saveOrder,
   saveShowEmptyProjects,
+  saveShowHiddenAutomations,
   saveSortMode,
   saveStatusFilter,
 } from './instance-list-preferences';
@@ -111,6 +113,7 @@ export class InstanceListComponent implements OnDestroy {
   historyVisibilityMode = signal<HistoryVisibilityMode>(loadHistoryVisibilityMode());
   historyTimeWindow = signal<HistoryTimeWindow>(loadHistoryTimeWindow());
   showEmptyProjects = signal<boolean>(loadShowEmptyProjects());
+  showHiddenAutomations = signal<boolean>(loadShowHiddenAutomations());
   openProjectMenuKey = signal<string | null>(null);
   preferredEditorLabel = signal('Editor');
   lastVisitedHistoryThreadId = signal<string | null>(null);
@@ -138,6 +141,7 @@ export class InstanceListComponent implements OnDestroy {
       || this.historyVisibilityMode() !== 'relevant'
       || this.historyTimeWindow() !== 'all'
       || this.showEmptyProjects()
+      || this.showHiddenAutomations()
   );
   readonly systemFileManagerLabel = getSystemFileManagerLabel();
   private projectMenuTrigger: HTMLButtonElement | null = null;
@@ -180,6 +184,7 @@ export class InstanceListComponent implements OnDestroy {
       historySortMode: this.historySortMode(),
       rootInstanceOrder: this.rootInstanceOrder(),
       showEmptyProjects: this.showEmptyProjects(),
+      showHiddenAutomations: this.showHiddenAutomations(),
     });
   });
 
@@ -369,6 +374,12 @@ export class InstanceListComponent implements OnDestroy {
     const value = (event.target as HTMLInputElement).checked;
     this.showEmptyProjects.set(value);
     saveShowEmptyProjects(value);
+  }
+
+  onShowHiddenAutomationsChange(event: Event): void {
+    const value = (event.target as HTMLInputElement).checked;
+    this.showHiddenAutomations.set(value);
+    saveShowHiddenAutomations(value);
   }
 
   onSelectInstance(instanceId: string): void {

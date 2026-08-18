@@ -92,6 +92,22 @@ export class RLMContextManager extends EventEmitter {
   private hydeService: HyDEService | null = null;
   private persistenceEnabled = true;
 
+  /**
+   * LT-055: memoizes the in-flight/completed `indexStoreForSemanticSearch`
+   * call for each store, keyed by store id. `indexStoreForSemanticSearch`
+   * had no production caller at all — every general-purpose context store
+   * (`rlmCreateStore`/`rlmAddSection`) stayed vector-empty forever, so
+   * `semantic_search` silently fell back to keyword matching with no signal.
+   *
+   * Wiring point (James's decision): lazy, on first semantic query. This map
+   * makes that "once per store" — a second query arriving while the first is
+   * still indexing reuses the same in-flight promise (no double-embedding),
+   * and once resolved the promise is kept forever so later queries pay zero
+   * extra work, matching "index once per store, then serve from the index".
+   * A failed indexing attempt is evicted so a later query can retry.
+   */
+  private pendingSemanticIndexing = new Map<string, Promise<{ indexed: number; skipped: number }>>();
+
   private defaultConfig: RLMConfig = {
     maxSectionTokens: 8000,
     summaryThreshold: 50000,
@@ -349,6 +365,18 @@ export class RLMContextManager extends EventEmitter {
     store.accessCount++;
     session.lastActivityAt = Date.now();
 
+    // LT-055: a `semantic_search` query used to run against a store that had
+    // never been indexed at all (no production caller ever populated the
+    // vector store for this store kind), so it silently degraded to keyword
+    // matching with zero vectors. Index once per store, on first semantic
+    // query, before the search runs — subsequent queries reuse the completed
+    // index at zero extra cost (see `pendingSemanticIndexing`). This blocks
+    // only the first semantic query per store; the added latency is the
+    // accepted tradeoff of the lazy option.
+    if (query.type === 'semantic_search') {
+      await this.ensureStoreIndexedForSemanticSearch(store.id);
+    }
+
     const queryResult = await executeQueryOp(
       session,
       store,
@@ -533,6 +561,52 @@ export class RLMContextManager extends EventEmitter {
 
   isSemanticSearchAvailable(): boolean {
     return this.vectorStore !== null;
+  }
+
+  /**
+   * LT-055: lazily index a store for semantic search, exactly once, before a
+   * `semantic_search` query runs against it. See {@link pendingSemanticIndexing}.
+   *
+   * Returns `null` when there is nothing to index (no vector store attached,
+   * or the store id is unknown) — the caller falls through to keyword search
+   * in that case exactly as it always has.
+   */
+  private ensureStoreIndexedForSemanticSearch(
+    storeId: string
+  ): Promise<{ indexed: number; skipped: number }> | null {
+    if (!this.vectorStore) return null;
+
+    const cached = this.pendingSemanticIndexing.get(storeId);
+    if (cached) return cached;
+
+    const indexing = this.indexStoreForSemanticSearch(storeId)
+      .then((result) => {
+        const outcome = result ?? { indexed: 0, skipped: 0 };
+        if (outcome.indexed > 0) {
+          logger.info('Lazily indexed context store for semantic_search (LT-055)', {
+            storeId,
+            indexed: outcome.indexed,
+            skipped: outcome.skipped,
+          });
+        }
+        return outcome;
+      })
+      .catch((error: unknown) => {
+        // Evict on failure so the NEXT query gets a fresh attempt instead of
+        // being permanently stuck behind a rejected promise. This query still
+        // resolves normally (to a zero-indexed outcome) — no vectors were
+        // written, so the subsequent vector search naturally reports zero
+        // results and falls through to keyword search, same as today.
+        this.pendingSemanticIndexing.delete(storeId);
+        logger.warn('Lazy semantic-search indexing failed; this query will fall back to keyword search', {
+          storeId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return { indexed: 0, skipped: 0 };
+      });
+
+    this.pendingSemanticIndexing.set(storeId, indexing);
+    return indexing;
   }
 
   // ============ LLM Service ============

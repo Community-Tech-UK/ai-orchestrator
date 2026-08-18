@@ -21,6 +21,27 @@ export type InstanceStatus =
   | 'failed'
   | 'terminated';
 
+/**
+ * Who asked for a turn to be interrupted.
+ *
+ * Every caller funnels into `InstanceManager.interruptInstance()`, which until
+ * now logged nothing — so a turn that died from an interrupt left no record of
+ * which surface requested it, and a stopped turn was indistinguishable in the
+ * logs from a provider stall. Threading this through to the single log site in
+ * `InterruptRespawnHandler.interrupt()` makes an interrupted turn attributable.
+ *
+ * `'unknown'` is the default for any caller that has not been updated.
+ */
+export type InterruptOrigin =
+  | 'renderer-ipc'
+  | 'mobile-gateway'
+  | 'channel-command'
+  | 'thin-client'
+  | 'steer'
+  | 'pause'
+  | 'tool-loop-auto'
+  | 'unknown';
+
 export type InstanceFailureClass =
   | 'transition'
   | 'startup'

@@ -28,6 +28,7 @@ import {
 } from './base-cli-adapter';
 import { getLogger } from '../../logging/logger';
 import { generateId } from '../../../shared/utils/id-generator';
+import { buildAcpContextUsageEvent, toAcpCliUsage } from './acp-usage-estimator';
 import type { FileAttachment, OutputMessage } from '../../../shared/types/instance.types';
 import type {
   AcpAgentCapabilities,
@@ -178,6 +179,8 @@ interface AcpPendingPromptTurn {
   agentMessageIds: Set<string>;
   /** Stable OutputMessage id used to coalesce retry-state updates for this turn. */
   retryNoticeId?: string;
+  /** Tool-call title/args/results observed this turn — LT-100 estimate input only. */
+  toolActivityChunks: string[];
 }
 interface AcpPendingPermissionRequest {
   key: string;
@@ -552,6 +555,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       chunks: [],
       messageChunksById: new Map<string, string[]>(),
       agentMessageIds: new Set<string>(),
+      toolActivityChunks: [],
     };
     this.emit('status', 'busy');
     this.armStallWatchdog();
@@ -560,17 +564,22 @@ export class AcpCliAdapter extends BaseCliAdapter {
       const result = await this.sendRequest<AcpSessionPromptResult>('session/prompt', promptParams);
       const turn = this.currentPrompt;
       const duration = turn ? Date.now() - turn.startedAt : 0;
-      const usage = this.toCliUsage(result.usage, duration);
-      // LT-018: ACP hands us real per-turn token counts, but they were only ever
-      // attached to the response. Nothing emitted a `context` event, so the
-      // context bar sat at 0 % for the whole session and auto-compaction never
-      // fired for Copilot. Publish the aggregate, which is what the
-      // `copilot-acp` capability profile already claims to provide.
+      const responseText = turn?.chunks.join('') ?? '';
+      const usage = toAcpCliUsage(
+        result.usage,
+        duration,
+        message.content,
+        responseText,
+        turn?.toolActivityChunks.join('\n') ?? '',
+      );
+      // LT-018: publish the raw ACP usage aggregate (not the LT-100 estimate
+      // above) so occupancy stays honest ("no usage ⇒ no event") even when
+      // cost falls back to an estimate.
       this.publishContextUsageFromTurn(result.usage);
       const response: CliResponse = {
         id: turn?.responseId ?? responseId,
         role: 'assistant',
-        content: turn?.chunks.join('') ?? '',
+        content: responseText,
         usage,
         metadata: {
           stopReason: result.stopReason,
@@ -1334,6 +1343,10 @@ export class AcpCliAdapter extends BaseCliAdapter {
       rawInput: update.rawInput,
     };
     this.toolCalls.set(toolCallId, observed);
+    // LT-100 estimate material only (see estimateAcpCliUsage()); never sent anywhere.
+    this.currentPrompt?.toolActivityChunks.push(
+      `${title} ${update.rawInput ? JSON.stringify(update.rawInput) : ''}`,
+    );
 
     const toolCall: CliToolCall = {
       id: toolCallId,
@@ -1390,6 +1403,8 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
     const renderedOutput = this.extractToolOutputText(update.content);
     if (renderedOutput) {
+      // LT-100 estimate material too (see handleToolCallCreated above).
+      this.currentPrompt?.toolActivityChunks.push(renderedOutput);
       this.emit('output', {
         id: generateId(),
         timestamp: Date.now(),
@@ -1993,52 +2008,31 @@ export class AcpCliAdapter extends BaseCliAdapter {
   private loggedMissingUsage = false;
 
   /**
-   * Emit a `context` event from a turn's ACP usage.
-   *
-   * Deliberately conservative: `used` is the aggregate, not a true
-   * context-window occupancy, because ACP does not report one and fabricating
-   * it would be worse. No usage ⇒ no event (a missing bar beats a confident
-   * zero), logged once so "the provider sent nothing" and "we dropped what it
-   * sent" stay distinguishable (LT-018).
+   * Emit a `context` event from a turn's ACP usage (LT-018). The actual
+   * shaping (aggregate math, "is there anything to report") lives in
+   * {@link buildAcpContextUsageEvent}; this method only owns the session
+   * state (`cumulativeTokens`, the once-per-session missing-usage log) and
+   * the `emit`/`logger` side effects.
    */
   private publishContextUsageFromTurn(usage: AcpPromptUsage | undefined): void {
-    const partTokens = (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0);
-    const turnTokens = usage?.totalTokens || partTokens;
-    if (!turnTokens || turnTokens <= 0) {
+    const { event, cumulativeTokensAfter, usageKeys } = buildAcpContextUsageEvent(
+      usage,
+      this.cumulativeTokens,
+      ACP_CAPABILITIES.contextWindow,
+    );
+
+    if (!event) {
       if (this.loggedMissingUsage) return;
       this.loggedMissingUsage = true;
       logger.info('ACP turn reported no token usage; context bar stays empty for this session', {
         profile: this.acpConfig.contextCapabilityProfile ?? 'none',
-        usageKeys: usage ? Object.keys(usage) : null,
+        usageKeys,
       });
       return;
     }
 
-    this.cumulativeTokens += turnTokens;
-    const total = ACP_CAPABILITIES.contextWindow;
-    const used = this.cumulativeTokens;
-    this.emit('context', {
-      used,
-      total,
-      percentage: total > 0 ? Math.min((used / total) * 100, 100) : 0,
-      cumulativeTokens: this.cumulativeTokens,
-      ...(usage?.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
-      ...(usage?.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
-    });
-  }
-
-  private toCliUsage(usage: AcpPromptUsage | undefined, duration: number) {
-    if (!usage) {
-      return duration > 0 ? { duration } : undefined;
-    }
-
-    return {
-      inputTokens: usage.inputTokens,
-      outputTokens: usage.outputTokens,
-      totalTokens: usage.totalTokens,
-      cost: usage.costUsd,
-      duration,
-    };
+    this.cumulativeTokens = cumulativeTokensAfter;
+    this.emit('context', event);
   }
 
   private async sendRequest<TResult>(method: string, params?: unknown): Promise<TResult> {

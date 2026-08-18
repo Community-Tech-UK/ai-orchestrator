@@ -30,6 +30,8 @@ export interface AutomationRow {
   consecutive_failures?: number;
   last_failure_at?: number | null;
   last_failure_reason?: string | null;
+  /** Keep this automation's sessions out of the project rail (migration 044). */
+  hidden?: number;
 }
 
 export interface AutomationRunRow {

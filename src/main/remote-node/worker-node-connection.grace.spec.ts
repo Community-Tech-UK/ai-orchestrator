@@ -2,13 +2,17 @@ import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkerNodeConnectionServer } from './worker-node-connection';
 
-vi.mock('../logging/logger', () => ({
-  getLogger: () => ({
+const mocks = vi.hoisted(() => ({
+  logger: {
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
-  }),
+  },
+}));
+
+vi.mock('../logging/logger', () => ({
+  getLogger: () => mocks.logger,
 }));
 
 vi.mock('../auth/remote-auth', () => ({
@@ -53,9 +57,9 @@ class FakeSocket extends EventEmitter {
     cb?.();
   }
 
-  close(): void {
+  close(code = 1000, reason = ''): void {
     this.readyState = 3; // CLOSED
-    this.emit('close');
+    this.emit('close', code, Buffer.from(reason));
   }
 }
 
@@ -88,6 +92,10 @@ describe('WorkerNodeConnectionServer disconnect grace window', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    mocks.logger.info.mockClear();
+    mocks.logger.warn.mockClear();
+    mocks.logger.error.mockClear();
+    mocks.logger.debug.mockClear();
     WorkerNodeConnectionServer._resetForTesting();
     server = WorkerNodeConnectionServer.getInstance() as unknown as WorkerNodeConnectionServer &
       TestServer;
@@ -167,5 +175,24 @@ describe('WorkerNodeConnectionServer disconnect grace window', () => {
     expect(disconnected).toHaveBeenCalledTimes(1);
     await inflight;
     expect(rejected).toBeInstanceOf(Error);
+  });
+
+  it('logs the WebSocket close code and reason so a disconnect never has to be inferred', async () => {
+    const ws = new FakeSocket();
+    registerNode(server, ws);
+
+    ws.close(1006, 'abnormal closure');
+
+    const call = mocks.logger.info.mock.calls.find(
+      ([message]) => message === 'Worker WebSocket closed',
+    );
+    expect(call).toBeDefined();
+    const [, meta] = call as [string, Record<string, unknown>];
+    expect(meta['nodeId']).toBe('node-1');
+    expect(meta['closeCode']).toBe(1006);
+    expect(meta['closeReason']).toBe('abnormal closure');
+
+    // Clean up the grace timer this close scheduled.
+    await vi.advanceTimersByTimeAsync(3_000);
   });
 });

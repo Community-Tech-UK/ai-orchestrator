@@ -694,4 +694,35 @@ describe('renderer event validation', () => {
     )).toBe(false);
     expect(sender.send).not.toHaveBeenCalled();
   });
+
+  // LT-100: CostEntryEventSchema is `.strict()`, so a `cost-recorded` entry
+  // that now legitimately carries `isEstimated` (ACP-transport turns whose
+  // server sent no usage) must not be silently dropped by the renderer-event
+  // validator on its way to the cost page.
+  it('accepts a cost-recorded payload that carries isEstimated (LT-100)', () => {
+    expect(validateRendererEventPayload(IPC_CHANNELS.COST_USAGE_RECORDED, {
+      id: 'entry-1',
+      timestamp: Date.now(),
+      instanceId: 'inst-1',
+      sessionId: 'sess-1',
+      model: 'cursor-composer',
+      inputTokens: 40,
+      outputTokens: 60,
+      cost: 0.002,
+      isEstimated: true,
+    })).toBe(true);
+  });
+
+  it('still accepts a measured cost-recorded payload with isEstimated omitted', () => {
+    expect(validateRendererEventPayload(IPC_CHANNELS.COST_USAGE_RECORDED, {
+      id: 'entry-2',
+      timestamp: Date.now(),
+      instanceId: 'inst-1',
+      sessionId: 'sess-1',
+      model: 'claude-sonnet-4-6',
+      inputTokens: 40,
+      outputTokens: 60,
+      cost: 0.002,
+    })).toBe(true);
+  });
 });

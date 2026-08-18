@@ -144,6 +144,24 @@
   font-family: var(--font-family-mono);
 }
 
+/* LT-100: visibly distinguish an estimated cost entry/total from a measured one. */
+.estimated-badge {
+  display: inline-block;
+  margin-left: var(--spacing-xs);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm, 4px);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--warning-color, #b26a00);
+  background: var(--warning-bg, rgba(178, 106, 0, 0.12));
+  white-space: nowrap;
+}
+
+.measured-label {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
 /* ── Charts ─────────────────────────────────────── */
 .charts-row {
   display: grid;

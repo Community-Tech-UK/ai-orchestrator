@@ -147,6 +147,44 @@ describe('cost-attribution', () => {
     expect(child['parentId']).toBe('inst-1');
   });
 
+  // LT-100: an ACP-transport turn with no provider usage now records a
+  // heuristic estimate rather than nothing. The offline audit trail must be
+  // able to tell it apart from a measured turn.
+  it('threads isEstimated through to the audit record for an estimated instance turn', () => {
+    process.env['AIO_COST_ATTRIBUTION'] = '1';
+    recordInstanceTurnAttribution({
+      instanceId: 'inst-est',
+      parentId: null,
+      agentId: 'build',
+      provider: 'cursor',
+      model: 'cursor-composer',
+      usage: { inputTokens: 10, outputTokens: 5 },
+      costKnown: false,
+      isEstimated: true,
+    });
+
+    const lines = readFileSync(getCostAttributionFilePath()!, 'utf8').trim().split('\n');
+    const record = JSON.parse(lines[0]) as Record<string, unknown>;
+    expect(record['isEstimated']).toBe(true);
+  });
+
+  it('omits isEstimated for a measured instance turn (unset, not false)', () => {
+    process.env['AIO_COST_ATTRIBUTION'] = '1';
+    recordInstanceTurnAttribution({
+      instanceId: 'inst-measured',
+      parentId: null,
+      agentId: 'build',
+      provider: 'claude',
+      model: 'claude-sonnet-4-6',
+      usage: { inputTokens: 10, outputTokens: 5 },
+      costKnown: true,
+    });
+
+    const lines = readFileSync(getCostAttributionFilePath()!, 'utf8').trim().split('\n');
+    const record = JSON.parse(lines[0]) as Record<string, unknown>;
+    expect(record['isEstimated']).toBeUndefined();
+  });
+
   it('never throws when the directory is not writable', () => {
     process.env['AIO_COST_ATTRIBUTION'] = '1';
     process.env['AIO_COST_ATTRIBUTION_DIR'] = join(dir, 'nope', '\0bad');

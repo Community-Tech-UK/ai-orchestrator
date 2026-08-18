@@ -57,6 +57,51 @@ describe('PermissionRegistry', () => {
     registry.clearForInstance('remove-me');
     expect(registry.getPendingCount()).toBe(0);
   });
+
+  it('extend() pushes the timeout out so the request survives past its original deadline', async () => {
+    vi.useFakeTimers();
+    try {
+      const registry = PermissionRegistry.getInstance();
+      const promise = registry.requestPermission({
+        id: 'ext-1', instanceId: 'inst-1', action: 'desktop_computer_use_grant',
+        description: 'Allow Computer Use for Calculator', createdAt: Date.now(), timeoutMs: 60_000,
+      });
+
+      // Extend by another 60s just before the original 60s deadline.
+      vi.advanceTimersByTime(59_000);
+      const extended = registry.extend('ext-1', 60_000);
+      expect(extended).toBeDefined();
+
+      // Past the ORIGINAL deadline (60_000ms total) the request must still be
+      // pending — this is the behaviour the extend button exists to produce.
+      vi.advanceTimersByTime(1_500);
+      expect(registry.getPendingCount()).toBe(1);
+
+      // Resolve manually before the extended window lapses so this test does
+      // not depend on advancing all the way to the new deadline.
+      registry.resolve('ext-1', true, 'user');
+      const decision = await promise;
+      expect(decision.granted).toBe(true);
+      expect(decision.decidedBy).toBe('user');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('extend() on an unknown or already-resolved request is a safe no-op', () => {
+    const registry = PermissionRegistry.getInstance();
+    expect(registry.extend('does-not-exist', 60_000)).toBeUndefined();
+  });
+
+  it('getPending() returns the live request for a pending id and undefined otherwise', () => {
+    const registry = PermissionRegistry.getInstance();
+    registry.requestPermission({
+      id: 'get-1', instanceId: 'inst-1', action: 'store_release_mutation',
+      description: 'Allow App Store release', createdAt: Date.now(), timeoutMs: 5000,
+    });
+    expect(registry.getPending('get-1')?.action).toBe('store_release_mutation');
+    expect(registry.getPending('missing')).toBeUndefined();
+  });
 });
 
 describe('role capability policy', () => {

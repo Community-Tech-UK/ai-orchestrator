@@ -82,6 +82,7 @@ import { CodexCliAdapter } from '../cli/adapters/codex-cli-adapter';
 import { emitPluginHook } from '../plugins/hook-emitter';
 import { getCostTracker } from '../core/system/cost-tracker';
 import { getTokenCounter, TokenCounter } from '../rlm/token-counter';
+import { getCacheAnalyticsService, CacheAnalyticsService } from '../context/cache-analytics-service';
 import { getHandoffStateService, HandoffStateService } from '../session/handoff-state-service';
 import type { CliResponse } from '../cli/adapters/base-cli-adapter';
 
@@ -759,6 +760,66 @@ describe('InstanceCommunicationManager', () => {
       getCostTracker().off('cost-recorded', recorded);
       expect(recorded).toHaveBeenCalledTimes(1);
       expect(recorded.mock.calls[0][0]).toMatchObject({ instanceId: instance.id, cost: 0.002 });
+    });
+
+    // LT-100: ACP-transport providers (Cursor/Grok/Copilot) whose server sends
+    // no `usage` at all now fall back to a heuristic estimate rather than
+    // recording zero cost. The estimate must stay visibly tagged all the way
+    // through to the cost entry, never blended in as if it were measured.
+    describe('LT-100 — estimated ACP usage stays visibly tagged', () => {
+      it('carries isEstimated through to the cost entry', () => {
+        instance.currentModel = 'cursor-composer';
+        emitComplete('cursor-acp', { inputTokens: 40, outputTokens: 60, totalTokens: 100, isEstimated: true });
+
+        const entries = getCostTracker().getEntries();
+        expect(entries).toHaveLength(1);
+        expect(entries[0].isEstimated).toBe(true);
+      });
+
+      it('does not tag a measured entry as estimated', () => {
+        instance.currentModel = 'claude-sonnet-4-6';
+        emitComplete('claude-cli', { inputTokens: 40, outputTokens: 60, cost: 0.002 });
+
+        const entries = getCostTracker().getEntries();
+        expect(entries).toHaveLength(1);
+        expect(entries[0].isEstimated).toBeFalsy();
+      });
+
+      it('does not feed an estimated turn into token-counter calibration (would compare the heuristic against itself)', () => {
+        TokenCounter._resetForTesting();
+        instance.currentModel = 'cursor-composer';
+        const counter = getTokenCounter();
+        counter.setCalibrateTokenCounts(true);
+        const text = 'calibration sample text that must not be used';
+
+        const adapter = new FakeAdapter('cursor-acp') as unknown as CliAdapter;
+        adapters.set(instance.id, adapter);
+        manager.setupAdapterEvents(instance.id, adapter);
+        const response: CliResponse = {
+          id: 'r-est',
+          content: text,
+          role: 'assistant',
+          usage: { outputTokens: 999, isEstimated: true },
+        };
+        (adapter as unknown as EventEmitter).emit('complete', response);
+
+        // No genuine sample was recorded, so the correction factor stays at
+        // its untouched default (1) rather than being skewed by a
+        // self-referential "estimate vs. itself" comparison.
+        expect(counter.getCorrectionFactor(instance.currentModel)).toBe(1);
+        counter.setCalibrateTokenCounts(false);
+      });
+
+      it('does not feed an estimated turn into prompt-cache analytics (no real cache signal exists for it)', () => {
+        CacheAnalyticsService._resetForTesting();
+        instance.currentModel = 'cursor-composer';
+        const recordTurnSpy = vi.spyOn(getCacheAnalyticsService(), 'recordTurn');
+
+        emitComplete('cursor-acp', { inputTokens: 40, outputTokens: 60, isEstimated: true });
+
+        expect(recordTurnSpy).not.toHaveBeenCalled();
+        recordTurnSpy.mockRestore();
+      });
     });
   });
 

@@ -303,6 +303,11 @@ export class InstanceCommunicationManager extends EventEmitter {
       // default rate, and a provider-supplied cost (below) bypasses pricing.
       const model = instance.currentModel || instance.provider;
       const providerCost = response.usage?.cost;
+      // LT-100: an adapter (currently only AcpCliAdapter, for Cursor/Grok/
+      // Copilot) may tag usage as a heuristic estimate when the provider sent
+      // none at all. Carry the flag through so every downstream cost surface
+      // can keep it visibly distinct from a measured entry.
+      const isEstimated = response.usage?.isEstimated === true;
       getCostTracker().recordUsage(
         instanceId,
         instance.sessionId,
@@ -313,6 +318,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         cacheWrite,
         typeof providerCost === 'number' ? providerCost : undefined,
         reasoning,
+        isEstimated,
       );
       // Fan-out audit task-type attribution: on by default (opt-out AIO_COST_ATTRIBUTION=0).
       recordInstanceTurnAttribution({
@@ -323,10 +329,19 @@ export class InstanceCommunicationManager extends EventEmitter {
         model,
         usage: { inputTokens: input, outputTokens: output, cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite, reasoningTokens: reasoning, cost: typeof providerCost === 'number' ? providerCost : undefined },
         costKnown: typeof providerCost === 'number',
+        isEstimated,
       });
       // WS8 cache-efficiency analytics: feed the per-turn cache sample so the
       // instance-detail panel can trend hit ratio and flag cache breaks.
-      getCacheAnalyticsService().recordTurn(instanceId, { input, cacheRead, cacheWrite });
+      // LT-100 guard: an estimated turn never has real cache-token signal
+      // (the estimator only derives input/output, never cacheRead/cacheWrite),
+      // so `cacheRead: 0` here is not "no cache hit" — it is "unknown". Feeding
+      // it in would record a confident-but-fabricated 0% ratio sample into a
+      // real trend/break-detector, the same class of mistake this whole fix
+      // exists to avoid.
+      if (!isEstimated) {
+        getCacheAnalyticsService().recordTurn(instanceId, { input, cacheRead, cacheWrite });
+      }
     } catch (err) {
       logger.debug('recordCompletionCost failed', { instanceId, error: String(err) });
     }
@@ -344,9 +359,16 @@ export class InstanceCommunicationManager extends EventEmitter {
    * Pure observability — this never mutates token counts (it does NOT enable or
    * feed calibration). It records the heuristic estimator's real-world drift so
    * the accuracy of {@link TokenCounter} is measurable. Fail-soft by design.
+   *
+   * LT-100 guard: `response.usage.outputTokens` must be a real provider
+   * measurement here. When `isEstimated` is set (ACP turns whose server sent
+   * no usage), `outputTokens` is itself `estimateTokens(response.content)` —
+   * feeding it back in as "actual" would compare the heuristic against
+   * itself and silently corrupt the calibration with a perfect, fake sample.
    */
   private recordEstimationTelemetry(instance: Instance, response: CliResponse): void {
     try {
+      if (response.usage?.isEstimated) return;
       if (response.toolCalls && response.toolCalls.length > 0) return;
       const text = response.content;
       const actualOutput = response.usage?.outputTokens;

@@ -433,7 +433,25 @@
                     <input name="yoloMode" type="checkbox" [ngModel]="form().yoloMode" (ngModelChange)="patchForm({ yoloMode: $event })" />
                     <span>YOLO</span>
                   </label>
+                  <label
+                    class="checkbox"
+                    title="Keeps this automation's sessions out of the project rail. Runs still appear here with their full output, and a run that fails or stops for permission is always shown in the rail."
+                  >
+                    <input name="hidden" type="checkbox" [ngModel]="form().hidden" (ngModelChange)="patchForm({ hidden: $event })" />
+                    <span>Hidden</span>
+                  </label>
                 </div>
+                @if (form().hidden) {
+                  <p class="hint">
+                    Runs stay out of the project rail. They remain here with their full
+                    output, and a run that fails or stops for permission is shown in the
+                    rail anyway.
+                    @if (form().loopEnabled) {
+                      <strong>Not applied to loop runs</strong> — their sessions come from
+                      the loop engine and always appear in the rail.
+                    }
+                  </p>
+                }
 
                 <label>
                   <span>Attachments</span>

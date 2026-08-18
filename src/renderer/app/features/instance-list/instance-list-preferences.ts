@@ -9,6 +9,7 @@ import {
   LOCATION_FILTER_STORAGE_KEY,
   ORDER_STORAGE_KEY,
   SHOW_EMPTY_PROJECTS_STORAGE_KEY,
+  SHOW_HIDDEN_AUTOMATIONS_STORAGE_KEY,
   SORT_MODE_STORAGE_KEY,
   STATUS_FILTER_STORAGE_KEY,
   type HistorySortMode,
@@ -105,6 +106,22 @@ export function loadShowEmptyProjects(): boolean {
 export function saveShowEmptyProjects(value: boolean): void {
   try {
     localStorage.setItem(SHOW_EMPTY_PROJECTS_STORAGE_KEY, value ? 'true' : 'false');
+  } catch {
+    // Ignore storage errors.
+  }
+}
+
+export function loadShowHiddenAutomations(): boolean {
+  try {
+    return localStorage.getItem(SHOW_HIDDEN_AUTOMATIONS_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+export function saveShowHiddenAutomations(value: boolean): void {
+  try {
+    localStorage.setItem(SHOW_HIDDEN_AUTOMATIONS_STORAGE_KEY, value ? 'true' : 'false');
   } catch {
     // Ignore storage errors.
   }

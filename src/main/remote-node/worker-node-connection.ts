@@ -405,10 +405,17 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       this.handleMessage(nodeId, msg);
     });
 
-    ws.on('close', () => {
+    ws.on('close', (code, reason) => {
       if (nodeId === null) {
         return;
       }
+      // Content-free: a numeric close code and a short reason string only —
+      // never the connection's payloads. Distinguishes a clean close
+      // (1000/1001) from an abnormal one (e.g. 1006) or a server-initiated
+      // close, which previously had to be inferred from the absence of a
+      // reconnect plus a changed process epoch.
+      const closeCode = code;
+      const closeReason = reason ? reason.toString('utf8').slice(0, 200) : '';
       // Only treat this close as a true disconnect if this socket is still the
       // active one for the node. When a worker reconnects, the new socket
       // replaces the old in nodeToSocket *before* the old socket's close event
@@ -418,11 +425,16 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       // worker permanently absent from the registry ("unknown node" heartbeats).
       if (this.nodeToSocket.get(nodeId) !== ws) {
         this.socketToNode.delete(ws);
-        logger.info('Replaced worker socket closed; keeping active connection', { nodeId });
+        logger.info('Replaced worker socket closed; keeping active connection', {
+          nodeId,
+          closeCode,
+          closeReason,
+        });
         return;
       }
       this.nodeToSocket.delete(nodeId);
       this.socketToNode.delete(ws);
+      logger.info('Worker WebSocket closed', { nodeId, closeCode, closeReason });
       // Defensive depth against a flap storm: do NOT immediately deregister the
       // node or fail its in-flight RPCs. A flapping link (or a fast worker
       // reconnect) frequently re-registers within a couple seconds; the node's

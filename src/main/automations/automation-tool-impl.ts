@@ -207,6 +207,7 @@ export function createAutomationToolImplementations(
           workingDirectory,
           provider: args.provider,
         },
+        ...(args.hidden !== undefined ? { hidden: args.hidden } : {}),
       };
 
       // Idempotency: agents re-issue create_automation for the same recurring
@@ -356,6 +357,7 @@ export function createAutomationToolImplementations(
           : {}),
         ...(scheduleProvided ? { schedule } : {}),
         ...(action ? { action } : {}),
+        ...(args.hidden !== undefined ? { hidden: args.hidden } : {}),
       };
 
       const enabled = args.enabled ?? existing.enabled;

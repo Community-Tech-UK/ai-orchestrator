@@ -17,6 +17,7 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
+import { DOCUMENT } from '@angular/common';
 import { CommandStore } from '../../core/state/command.store';
 import type { ExtendedCommand } from '../../core/state/command.store';
 import { ActionDispatchService } from '../../core/services/action-dispatch.service';
@@ -142,6 +143,7 @@ const LOOP_START_ACK_TIMEOUT_MS = 30_000;
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class InputPanelComponent implements OnDestroy {
+  private document = inject(DOCUMENT);
   protected commandStore = inject(CommandStore);
   private draftService = inject(DraftService);
   private suggestionService = inject(PromptSuggestionService);
@@ -699,6 +701,7 @@ export class InputPanelComponent implements OnDestroy {
   voiceMeterStyle = computed(() => `${Math.max(0.12, this.voice.audioLevel()).toFixed(3)}`);
 
   constructor() {
+    this.document.addEventListener('keydown', this.wakeupEscapeCapture, true);
     this.registerComposerEditingKeybindings();
 
     // Load commands on init
@@ -852,6 +855,7 @@ export class InputPanelComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.document.removeEventListener('keydown', this.wakeupEscapeCapture, true);
     this.textareaResizeTarget = null;
     for (const unsubscribe of this.composerEditingUnsubscribers.splice(0)) {
       unsubscribe();
@@ -940,13 +944,34 @@ export class InputPanelComponent implements OnDestroy {
     }
   }
 
-  /** Dismiss the wakeup popover on Escape. */
-  @HostListener('document:keydown.escape')
-  onEscapeForWakeup(): void {
-    if (this.showWakeupMenu()) {
-      this.showWakeupMenu.set(false);
-    }
-  }
+  /**
+   * Dismiss the wakeup popover on Escape.
+   *
+   * Registered in the CAPTURE phase, unlike the composer's other Escape
+   * handling. `cancel-operation` is a document-level bubble-phase Escape
+   * binding that interrupts the running instance, and the wakeup control is
+   * rendered unconditionally — so a bubble-phase handler here would close the
+   * popover AND kill the turn. `stopPropagation` cannot fix that: both
+   * listeners sit on `document`, where only ordering (not propagation) decides
+   * who runs, and `KeybindingService` registers first. Capture runs before any
+   * bubble listener regardless of registration order, and
+   * `stopImmediatePropagation` then stops the whole dispatch.
+   *
+   * Relies on an invariant the render tree currently guarantees: at most one
+   * `InputPanelComponent` is mounted at a time (`dashboard.component.html` and
+   * `instance-detail.component.html` select between surfaces with mutually
+   * exclusive `@if` chains, and the side chat has its own hand-rolled
+   * composer). If a second composer is ever built on this component, both
+   * listeners would see every keydown and the first-registered instance's
+   * popover state could swallow an Escape meant for the other — scope this
+   * listener to the owning instance before that happens.
+   */
+  private readonly wakeupEscapeCapture = (event: KeyboardEvent): void => {
+    if (event.key !== 'Escape' || !this.showWakeupMenu()) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    this.showWakeupMenu.set(false);
+  };
 
   onWakeupRunAtInput(event: Event): void {
     this.wakeupRunAtLocal.set((event.target as HTMLInputElement).value);
@@ -1166,6 +1191,25 @@ export class InputPanelComponent implements OnDestroy {
     return true;
   }
 
+  /**
+   * Consume an Escape this component has handled locally, so it cannot also
+   * reach the document-level `cancel-operation` binding.
+   *
+   * `cancel-operation` is a global Escape keybinding whose `when` includes
+   * `instance-running`, and `KeybindingService`'s input-element guard only
+   * skips single-character unmodified keys — so `Escape` typed in this
+   * textarea still reaches it and interrupts the running turn. Every branch
+   * that dismisses a composer affordance with Escape must route through here;
+   * a bare Escape with nothing to dismiss deliberately still falls through,
+   * because "Escape stops the turn" is the intended shortcut. Same defect
+   * class WS-C9 fixed in `overlay-shell.component.ts`, and the same reason
+   * `composer-autocomplete.ts` has `consumeKeyboardEvent`.
+   */
+  private consumeLocalEscape(event: KeyboardEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
   onKeyDown(event: KeyboardEvent): void {
     // Handle command suggestions navigation
     if (this.showCommandSuggestions() && this.visibleCommandSuggestions().length > 0) {
@@ -1197,7 +1241,7 @@ export class InputPanelComponent implements OnDestroy {
         }
 
         case 'Escape':
-          event.preventDefault();
+          this.consumeLocalEscape(event);
           this.showCommandSuggestions.set(false);
           return;
       }
@@ -1226,7 +1270,7 @@ export class InputPanelComponent implements OnDestroy {
     }
 
     if (event.key === 'Escape' && this.recallIndex() !== null && !this.editMode()) {
-      event.preventDefault();
+      this.consumeLocalEscape(event);
       this.resetPromptRecall({ restoreStash: true });
       return;
     }
@@ -1249,7 +1293,7 @@ export class InputPanelComponent implements OnDestroy {
       }
 
       if (event.key === 'Escape') {
-        event.preventDefault();
+        this.consumeLocalEscape(event);
         this.dismissGhostSuggestion();
         return;
       }
@@ -1257,7 +1301,7 @@ export class InputPanelComponent implements OnDestroy {
 
     // Edit mode: Escape to cancel
     if (event.key === 'Escape' && this.editMode()) {
-      event.preventDefault();
+      this.consumeLocalEscape(event);
       this.cancelEditMode();
       return;
     }

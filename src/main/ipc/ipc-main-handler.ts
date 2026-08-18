@@ -50,6 +50,7 @@ import {
   registerBrowserGatewayHandlers,
   registerBrowserUnattendedHandlers,
   registerDesktopGatewayHandlers,
+  registerPermissionRegistryHandlers,
   registerTodoHandlers,
   registerDocReviewHandlers,
   registerSecurityHandlers,
@@ -330,6 +331,13 @@ export class IpcMainHandler {
     // renderer Settings tab.
     registerDesktopGatewayHandlers({
       ensureTrustedSender: this.ensureTrustedSender.bind(this),
+    });
+    // Generic PermissionRegistry approval surface (LT-095): renderer-reachable
+    // approve/deny/extend for the Computer Use grant, App Store/Play release
+    // gate, and calendar mutation approvals that share PermissionRegistry.
+    registerPermissionRegistryHandlers({
+      ensureTrustedSender: this.ensureTrustedSender.bind(this),
+      instanceManager: this.instanceManager,
     });
 
     // LSP handlers

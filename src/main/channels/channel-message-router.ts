@@ -1241,7 +1241,7 @@ export class ChannelMessageRouter {
       return;
     }
     const im = this.getInstanceManager();
-    const accepted = im.interruptInstance?.(instanceId);
+    const accepted = im.interruptInstance?.(instanceId, 'channel-command');
     await adapter.sendMessage(
       msg.chatId,
       accepted === false ? `Could not stop **${instanceId.slice(0, 8)}**.` : `Stop requested for **${instanceId.slice(0, 8)}**.`,

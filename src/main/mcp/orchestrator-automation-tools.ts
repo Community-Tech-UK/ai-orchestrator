@@ -50,6 +50,16 @@ export const CreateAutomationArgsSchema = z
     provider: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']).optional(),
     /** Whether the automation is active immediately. Defaults to true. */
     enabled: z.boolean().optional(),
+    /**
+     * Keep this automation's sessions out of the project rail. Set it for work
+     * whose real output lands elsewhere — a health check that only matters when
+     * it fails, or a run that delivers an email or a board card.
+     *
+     * Hidden is quiet, not invisible: the Automations page still shows the
+     * automation and every run, and a run that fails or stops for permission is
+     * shown in the rail anyway. Defaults to false (visible).
+     */
+    hidden: z.boolean().optional(),
   })
   .superRefine((value, ctx) => {
     if (!value.cron?.trim() && !value.runAt?.trim()) {
@@ -205,6 +215,16 @@ export const UpdateAutomationArgsSchema = z
      * firing without deleting it; enabling resumes the schedule.
      */
     enabled: z.boolean().optional(),
+    /**
+     * Keep this automation's sessions out of the project rail. Use it for work
+     * whose real output lands elsewhere — a health check that only matters when
+     * it fails, or a run that delivers an email or a board card.
+     *
+     * Hidden is quiet, not invisible: the Automations page still shows the
+     * automation and every run, and a run that fails or stops for permission is
+     * shown in the rail anyway. Omit to leave unchanged.
+     */
+    hidden: z.boolean().optional(),
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -327,6 +347,11 @@ export function createAutomationToolDefinitions(
           enabled: {
             type: 'boolean',
             description: 'Whether the automation is active immediately. Defaults to true.',
+          },
+          hidden: {
+            type: 'boolean',
+            description:
+              'Keep this automation\'s sessions out of the project rail. Set it for work whose real output lands elsewhere — a health check that only matters when it fails, or a run that delivers an email or a board card. Hidden is quiet, not invisible: the Automations page still shows the automation and every run, and a run that fails or stops for permission is shown in the rail anyway. Defaults to false (visible).',
           },
         },
         required: ['name', 'prompt'],
@@ -456,6 +481,11 @@ export function createAutomationToolDefinitions(
             type: 'boolean',
             description:
               'Enable (resume) or disable (pause) the automation without deleting it. Omit to leave unchanged.',
+          },
+          hidden: {
+            type: 'boolean',
+            description:
+              'Keep this automation\'s sessions out of the project rail. Use it for work whose real output lands elsewhere — a health check that only matters when it fails, or a run that delivers an email or a board card. Hidden is quiet, not invisible: the Automations page still shows the automation and every run, and a run that fails or stops for permission is shown in the rail anyway. Omit to leave unchanged.',
           },
         },
         required: ['id'],

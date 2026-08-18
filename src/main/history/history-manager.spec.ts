@@ -325,6 +325,128 @@ describe('HistoryManager', () => {
     expect(manualEntry?.isAutomation).toBeUndefined();
   });
 
+  it('carries hidden-automation visibility into the archived entry', async () => {
+    const { HistoryManager } = await import('./history-manager');
+    const manager = new HistoryManager();
+
+    const hiddenInstance = makeInstance({
+      id: 'instance-hidden',
+      historyThreadId: 'thread-hidden',
+      sessionId: 'session-hidden',
+      metadata: {
+        automationId: 'automation-8',
+        automationRunId: 'run-8',
+        automationHidden: true,
+        automationRunSucceeded: true,
+      },
+      outputBuffer: [message('m-hidden', 'user', 'run the uptime check', 10)],
+    });
+    const visibleInstance = makeInstance({
+      id: 'instance-visible',
+      historyThreadId: 'thread-visible',
+      sessionId: 'session-visible',
+      metadata: { automationId: 'automation-9', automationRunId: 'run-9' },
+      outputBuffer: [message('m-visible', 'user', 'publish the blog post', 10)],
+    });
+
+    await manager.archiveInstance(hiddenInstance, 'completed');
+    await manager.archiveInstance(visibleInstance, 'completed');
+
+    const entries = manager.getEntries();
+    expect(entries.find((e) => e.historyThreadId === 'thread-hidden')?.isHiddenAutomation).toBe(true);
+    expect(entries.find((e) => e.historyThreadId === 'thread-visible')?.isHiddenAutomation).toBeUndefined();
+  });
+
+  it('does not hide an archived hidden run that did not finish cleanly', async () => {
+    // Termination maps every non-`error` status to the `completed`
+    // ConversationEndStatus, so the archived entry cannot infer the outcome
+    // itself. Anything short of a recorded success must stay visible.
+    const { HistoryManager } = await import('./history-manager');
+    const manager = new HistoryManager();
+
+    const failedInstance = makeInstance({
+      id: 'instance-hidden-failed',
+      historyThreadId: 'thread-hidden-failed',
+      sessionId: 'session-hidden-failed',
+      metadata: {
+        automationId: 'automation-10',
+        automationRunId: 'run-10',
+        automationHidden: true,
+      },
+      outputBuffer: [message('m-failed', 'user', 'run the uptime check', 10)],
+    });
+
+    await manager.archiveInstance(failedInstance, 'completed');
+
+    const entry = manager.getEntries().find((e) => e.historyThreadId === 'thread-hidden-failed');
+    expect(entry?.isAutomation).toBe(true);
+    expect(entry?.isHiddenAutomation).toBeUndefined();
+  });
+
+  it('keeps a hidden run visible when it is killed mid-run at app shutdown', async () => {
+    // terminateAll() on quit archives the instance BEFORE the status change
+    // that would tell AutomationRunner the run died, so no outcome stamp can
+    // exist yet. Recording success (rather than failure) is what makes this
+    // unknown state resolve to "visible".
+    const { HistoryManager } = await import('./history-manager');
+    const manager = new HistoryManager();
+
+    const inFlight = makeInstance({
+      id: 'instance-hidden-inflight',
+      historyThreadId: 'thread-hidden-inflight',
+      sessionId: 'session-hidden-inflight',
+      status: 'busy',
+      metadata: {
+        automationId: 'automation-11',
+        automationRunId: 'run-11',
+        automationHidden: true,
+      },
+      outputBuffer: [message('m-inflight', 'user', 'run the uptime check', 10)],
+    });
+
+    await manager.archiveInstance(inFlight, 'completed');
+
+    const entry = manager.getEntries().find((e) => e.historyThreadId === 'thread-hidden-inflight');
+    expect(entry?.isHiddenAutomation).toBeUndefined();
+  });
+
+  it('does not re-hide a restored thread that is archived again', async () => {
+    // A restored instance carries none of the original automation metadata. If
+    // the previous entry's hidden flag were inherited, a thread the operator
+    // deliberately reopened — and that may since have failed in front of them —
+    // would silently drop out of the rail again.
+    const { HistoryManager } = await import('./history-manager');
+    const manager = new HistoryManager();
+
+    const original = makeInstance({
+      id: 'instance-hidden-restore',
+      historyThreadId: 'thread-hidden-restore',
+      sessionId: 'session-hidden-restore',
+      metadata: {
+        automationId: 'automation-12',
+        automationRunId: 'run-12',
+        automationHidden: true,
+        automationRunSucceeded: true,
+      },
+      outputBuffer: [message('m-orig', 'user', 'run the uptime check', 10)],
+    });
+    await manager.archiveInstance(original, 'completed');
+    expect(
+      manager.getEntries().find((e) => e.historyThreadId === 'thread-hidden-restore')?.isHiddenAutomation,
+    ).toBe(true);
+
+    const restored = makeInstance({
+      id: 'instance-hidden-restored',
+      historyThreadId: 'thread-hidden-restore',
+      sessionId: 'session-hidden-restore',
+      outputBuffer: [message('m-restored', 'user', 'now do something else', 20)],
+    });
+    await manager.archiveInstance(restored, 'error');
+
+    const entries = manager.getEntries().filter((e) => e.historyThreadId === 'thread-hidden-restore');
+    expect(entries.every((e) => e.isHiddenAutomation === undefined)).toBe(true);
+  });
+
   it('persists local-model runtime summaries in history entries and conversation data', async () => {
     const { HistoryManager } = await import('./history-manager');
     const manager = new HistoryManager();

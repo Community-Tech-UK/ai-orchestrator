@@ -570,29 +570,26 @@ export class AutomationsPageComponent {
     };
     const trigger = formToTrigger(model);
 
+    // Create and update take the same shape; building it once keeps a new
+    // field from having to be added in two places (and silently working in
+    // only one of them).
+    const payload = {
+      name: model.name,
+      description: model.description || undefined,
+      enabled: model.enabled,
+      schedule,
+      trigger,
+      missedRunPolicy: model.missedRunPolicy,
+      concurrencyPolicy: model.concurrencyPolicy,
+      action,
+      hidden: model.hidden,
+    };
+
     let ok: boolean;
     try {
       ok = model.id
-        ? await this.store.update(model.id, {
-            name: model.name,
-            description: model.description || undefined,
-            enabled: model.enabled,
-            schedule,
-            trigger,
-            missedRunPolicy: model.missedRunPolicy,
-            concurrencyPolicy: model.concurrencyPolicy,
-            action,
-          })
-        : await this.store.create({
-            name: model.name,
-            description: model.description || undefined,
-            enabled: model.enabled,
-            schedule,
-            trigger,
-            missedRunPolicy: model.missedRunPolicy,
-            concurrencyPolicy: model.concurrencyPolicy,
-            action,
-          });
+        ? await this.store.update(model.id, payload)
+        : await this.store.create(payload);
     } catch (error) {
       this.restoreFormOverlay();
       throw error;
@@ -777,6 +774,7 @@ export class AutomationsPageComponent {
       runAtLocal: automation.schedule.type === 'oneTime' ? toLocalDateInput(automation.schedule.runAt) : toLocalDateInput(Date.now() + 60 * 60 * 1000),
       missedRunPolicy: automation.missedRunPolicy,
       concurrencyPolicy: automation.concurrencyPolicy,
+      hidden: automation.hidden ?? false,
       prompt: automation.action.prompt,
       workingDirectory: automation.action.workingDirectory,
       provider: automation.action.provider ?? 'auto',

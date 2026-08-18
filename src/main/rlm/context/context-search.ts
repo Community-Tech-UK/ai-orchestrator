@@ -267,9 +267,30 @@ export async function executeSemanticSearch(
           sectionsAccessed
         };
       }
+
+      // LT-055: a `semantic_search` query that finds zero vector matches
+      // used to fall through to keyword search with NO signal that anything
+      // degraded — a caller had no way to tell "genuinely no semantic hits"
+      // apart from "vector search never ran for this store". Now that the
+      // store is lazily indexed before this runs (see
+      // `RLMContextManager.ensureStoreIndexedForSemanticSearch`), this branch
+      // means real vectors were searched and none cleared `minSimilarity` —
+      // still worth a log line so the degradation to keyword is observable.
+      logger.info('Semantic search returned no vector matches; falling back to keyword search', {
+        storeId: store.id,
+        queryPreview: query.slice(0, 100),
+        minSimilarity
+      });
     } catch (error) {
       logger.error('Semantic search failed, falling back to keyword search', error instanceof Error ? error : undefined);
     }
+  } else {
+    // LT-055: no vector store attached at all (persistence disabled) — same
+    // observability requirement as the zero-matches case above.
+    logger.info('No vector store attached; semantic_search running as keyword search', {
+      storeId: store.id,
+      queryPreview: query.slice(0, 100)
+    });
   }
 
   // Fall back to keyword search

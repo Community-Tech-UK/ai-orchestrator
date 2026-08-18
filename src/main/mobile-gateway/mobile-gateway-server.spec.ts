@@ -1028,7 +1028,7 @@ describe('MobileGatewayServer', () => {
     const token = await pairToken();
     const intr = await authed(token, '/api/instances/a/interrupt', { method: 'POST' });
     expect(intr.status).toBe(200);
-    expect(source.interruptInstance).toHaveBeenCalledWith('a');
+    expect(source.interruptInstance).toHaveBeenCalledWith('a', 'mobile-gateway');
 
     const term = await authed(token, '/api/instances/a/terminate', {
       method: 'POST',

@@ -159,6 +159,12 @@ export interface AutomationConfigSnapshot {
   concurrencyPolicy: AutomationConcurrencyPolicy;
   destination: AutomationDestination;
   action: AutomationAction;
+  /**
+   * Snapshotted {@link Automation.hidden} so a run's rail visibility follows the
+   * config as it was when the run fired, not a later edit. Absent on snapshots
+   * written before the field existed, which read as visible.
+   */
+  hidden?: boolean;
 }
 
 export interface Automation {
@@ -197,6 +203,31 @@ export interface Automation {
   lastFailureAt?: number | null;
   /** Error message from the most recent failed run, if any. */
   lastFailureReason?: string | null;
+  /**
+   * Keep this automation's sessions out of the project rail. For automations
+   * whose real output lands somewhere else — a health check that only matters
+   * when it fails, a run whose deliverable is an email or a board card — the
+   * rail entry is noise that pushes hand-started sessions below the fold.
+   *
+   * This is a *rail* concept, not a secrecy one: the Automations page still
+   * shows the automation and every run, output and error unchanged. A run that
+   * fails, or parks waiting for a human, is shown in the rail regardless — a
+   * silent health check that silently stops working is worse than the noise it
+   * replaced.
+   *
+   * Orthogonal to the per-run {@link AutomationDeliveryMode}: `hidden` means
+   * "not in the rail", `silent` means "don't notify me". A hidden automation
+   * may still want to notify on failure.
+   *
+   * Applies only to automations that spawn their own session
+   * (`destination.kind === 'newInstance'`). A thread-destination automation
+   * sends into a session that already exists and that the operator may be using
+   * themselves, so hiding it on the automation's behalf would be wrong; the
+   * flag is intentionally inert there. Loop actions are also unaffected — their
+   * sessions come from the loop engine, which carries no automation provenance
+   * today (the rail's automation clock is already absent for them).
+   */
+  hidden?: boolean;
 }
 
 export interface AutomationRun {
@@ -236,6 +267,8 @@ export interface CreateAutomationInput {
   concurrencyPolicy?: AutomationConcurrencyPolicy;
   destination?: AutomationDestination;
   action: AutomationAction;
+  /** See {@link Automation.hidden}. Defaults to visible. */
+  hidden?: boolean;
 }
 
 export interface UpdateAutomationInput {
@@ -249,6 +282,8 @@ export interface UpdateAutomationInput {
   concurrencyPolicy?: AutomationConcurrencyPolicy;
   destination?: AutomationDestination;
   action?: AutomationAction;
+  /** See {@link Automation.hidden}. */
+  hidden?: boolean;
 }
 
 export interface FireAutomationOptions {

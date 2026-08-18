@@ -6,6 +6,7 @@ import { getPoolManager } from '../process/pool-manager';
 import { getLogger } from '../logging/logger';
 import { readPriorWatchdogReport } from '../runtime/main-process-watchdog';
 import { getSystemLoadMonitor } from '../runtime/system-load-monitor';
+import { getRendererHeartbeatMonitor } from '../logging/renderer-heartbeat-monitor';
 
 const logger = getLogger('RuntimeDiagnostics');
 const MAIN_PROCESS_MONITOR_INTERVAL_MS = 1000;
@@ -72,6 +73,7 @@ export function installRuntimeDiagnostics(): void {
     getSessionContinuityManagerIfInitialized()?.handleSystemSuspend();
     getHibernationManager().handleSystemSuspend();
     getPoolManager().handleSystemSuspend();
+    getRendererHeartbeatMonitor().handleSystemSuspend();
   };
   const noteSystemResume = (source: 'resume' | 'unlock-screen'): void => {
     systemSuspended = false;
@@ -84,6 +86,7 @@ export function installRuntimeDiagnostics(): void {
     getSessionContinuityManagerIfInitialized()?.handleSystemResume(POST_RESUME_GRACE_PERIOD_MS);
     getHibernationManager().handleSystemResume(POST_RESUME_GRACE_PERIOD_MS);
     getPoolManager().handleSystemResume(POST_RESUME_GRACE_PERIOD_MS);
+    getRendererHeartbeatMonitor().handleSystemResume();
   };
 
   powerMonitor.on('suspend', () => {

@@ -89,7 +89,7 @@ export function interruptInstance(
     payload,
     'THIN_CLIENT_INSTANCE_INTERRUPT',
   );
-  const interrupted = deps.instanceManager.interruptInstance(validated.instanceId);
+  const interrupted = deps.instanceManager.interruptInstance(validated.instanceId, 'thin-client');
   return {
     success: interrupted,
     data: { interrupted },

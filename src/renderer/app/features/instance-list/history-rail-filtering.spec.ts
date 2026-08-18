@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { ConversationHistoryEntry } from '../../../../shared/types/history.types';
+import type { Instance } from '../../core/state/instance.store';
+import type { InstanceStatus } from '../../../../shared/types/instance.types';
 import {
   getHistoryTimeWindowCutoff,
+  isHiddenAutomationHistoryEntry,
+  isHiddenAutomationInstance,
   shouldShowHistoryOnlyProject,
 } from './history-rail-filtering';
 
@@ -136,5 +140,62 @@ describe('history rail filtering', () => {
         historyItems: [historyEntry('orchestrator-1')],
       })
     ).toBe(true);
+  });
+});
+
+describe('hidden automation rail filtering', () => {
+  function liveRun(
+    status: InstanceStatus,
+    metadata: Record<string, unknown> = { automationHidden: true },
+  ): Pick<Instance, 'status' | 'metadata'> {
+    return { status, metadata };
+  }
+
+  it('hides a healthy hidden automation run', () => {
+    expect(isHiddenAutomationInstance(liveRun('busy'), false)).toBe(true);
+    expect(isHiddenAutomationInstance(liveRun('idle'), false)).toBe(true);
+  });
+
+  it('never hides a session from a visible automation', () => {
+    expect(
+      isHiddenAutomationInstance(liveRun('busy', { automationId: 'a1' }), false)
+    ).toBe(false);
+  });
+
+  it('reveals a hidden run that failed', () => {
+    for (const status of ['error', 'failed', 'terminated', 'cancelled', 'superseded'] as const) {
+      expect(isHiddenAutomationInstance(liveRun(status), false)).toBe(false);
+    }
+  });
+
+  it('reveals a hidden run parked waiting for a human', () => {
+    expect(isHiddenAutomationInstance(liveRun('waiting_for_permission'), false)).toBe(false);
+    expect(isHiddenAutomationInstance(liveRun('waiting_for_input'), false)).toBe(false);
+  });
+
+  it('reveals every hidden run when the toggle is on', () => {
+    expect(isHiddenAutomationInstance(liveRun('busy'), true)).toBe(false);
+  });
+
+  it('hides an archived hidden run, and reveals it with the toggle', () => {
+    const entry = historyEntry('hidden-1', { isHiddenAutomation: true });
+    expect(isHiddenAutomationHistoryEntry(entry, false)).toBe(true);
+    expect(isHiddenAutomationHistoryEntry(entry, true)).toBe(false);
+  });
+
+  it('leaves ordinary archived entries alone', () => {
+    expect(isHiddenAutomationHistoryEntry(historyEntry('plain-1'), false)).toBe(false);
+  });
+
+  it('does not hide an archived run that did not finish cleanly', () => {
+    // HistoryManager resolves the outcome at archive time and only sets the
+    // flag on a recorded success, so anything else arrives here unflagged.
+    // This pins that contract: the rail must not try to second-guess it from
+    // `status`, which cannot distinguish a failed run from a clean one.
+    const failed = historyEntry('hidden-failed', {
+      isHiddenAutomation: undefined,
+      status: 'completed',
+    });
+    expect(isHiddenAutomationHistoryEntry(failed, false)).toBe(false);
   });
 });

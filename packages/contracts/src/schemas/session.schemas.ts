@@ -770,6 +770,8 @@ export const CostEntryEventSchema = z.object({
   cacheWriteTokens: z.number().int().nonnegative().optional(),
   reasoningTokens: z.number().int().nonnegative().optional(),
   cost: z.number().nonnegative().finite(),
+  /** LT-100: true when tokens/cost are a heuristic estimate, not measured. */
+  isEstimated: z.boolean().optional(),
 }).strict();
 
 export const CostBudgetAlertEventSchema = z.object({

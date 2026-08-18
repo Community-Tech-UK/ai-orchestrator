@@ -30,6 +30,16 @@ interface HeartbeatEntry {
 export class RendererHeartbeatMonitor {
   private readonly entries = new Map<number, HeartbeatEntry>();
   private watchdog: ReturnType<typeof setInterval> | null = null;
+  /**
+   * True between a suspend/lock-screen and the matching resume/unlock (see
+   * `RuntimeDiagnostics`). While the screen is locked, Chromium throttles a
+   * backgrounded renderer's timers to roughly once a minute — the heartbeat
+   * keeps sending, just ~every 60s instead of every 2s. Without this gate
+   * every lock-screen period is misreported as a genuine "UI event loop
+   * likely blocked" freeze (it is not: nobody is looking at a locked
+   * screen). See LT-130.
+   */
+  private suspended = false;
 
   /** Record a heartbeat from a renderer webContents. */
   beat(senderId: number, payload: { seq: number; sentAt: number }): void {
@@ -60,6 +70,25 @@ export class RendererHeartbeatMonitor {
     this.stopWatchdogIfIdle();
   }
 
+  /** Call when the host suspends or the screen locks. Stall detection pauses
+   * until the matching resume so throttled-but-alive beats during that
+   * window are never logged as a freeze. */
+  handleSystemSuspend(): void {
+    this.suspended = true;
+  }
+
+  /** Call when the host resumes or the screen unlocks. Rebase every tracked
+   * renderer's last-beat time to now so the elapsed suspend/lock duration is
+   * never counted as a stall; a genuine freeze that starts after resume is
+   * still caught by the normal threshold on the next watchdog scan. */
+  handleSystemResume(): void {
+    this.suspended = false;
+    const now = Date.now();
+    for (const entry of this.entries.values()) {
+      entry.lastBeatAt = now;
+    }
+  }
+
   /** Whether a tracked renderer is currently inside a stall episode. */
   isStalled(senderId: number): boolean {
     const entry = this.entries.get(senderId);
@@ -78,6 +107,9 @@ export class RendererHeartbeatMonitor {
   }
 
   private scan(): void {
+    if (this.suspended) {
+      return;
+    }
     const now = Date.now();
     for (const [senderId, entry] of this.entries) {
       const contents = webContents.fromId(senderId);
@@ -113,6 +145,7 @@ export class RendererHeartbeatMonitor {
       this.watchdog = null;
     }
     this.entries.clear();
+    this.suspended = false;
   }
 }
 

@@ -88,4 +88,40 @@ export const RLM_MIGRATIONS_041_045: Migration[] = [
         ON file_metadata(language);
     `,
   },
+  // Migration 044: hidden automations.
+  //
+  // `hidden` keeps an automation's sessions out of the project rail. It is a
+  // rail concept only — the Automations page is unchanged, and the rail still
+  // shows any run that failed or parked waiting for a human. See
+  // `Automation.hidden` for the full contract.
+  //
+  // The UPDATE is a one-time curation of the operator's existing automations,
+  // requested rather than leaving every pre-existing automation visible. Each
+  // name below was chosen by reading that automation's own prompt: every one
+  // either states it stays silent unless something is wrong, or delivers its
+  // result as an email or a board card. Automations that send, publish, write
+  // to production, or stop for review are deliberately NOT in this list — a
+  // name-pattern rule would have caught the guarded LinkedIn sender, which must
+  // never be silent. Renamed or absent rows simply stay visible.
+  {
+    name: '044_automations_hidden',
+    up: `
+      ALTER TABLE automations ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0;
+
+      UPDATE automations
+      SET hidden = 1
+      WHERE name IN (
+        'Leads panel uptime check',
+        'Work-finder health watchdog',
+        'Process outreach review instructions',
+        'ComTech inbox review (bids and replies)',
+        'Monday work-finder brief',
+        'Spark DPS RM6094 monthly MI return',
+        'LinkedIn accept and reply live check'
+      );
+    `,
+    down: `
+      ALTER TABLE automations DROP COLUMN hidden;
+    `,
+  },
 ];

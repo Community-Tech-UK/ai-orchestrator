@@ -38,6 +38,10 @@ import { RendererPollSchedulerService } from '../../core/services/renderer-poll-
 /** Shape returned by COST_GET_SUMMARY */
 export interface CostSummaryData {
   totalCost: number;
+  /** LT-100: portion of totalCost contributed by estimated entries. */
+  totalEstimatedCost?: number;
+  /** LT-100: true when the summary mixes in at least one estimated entry. */
+  hasEstimatedEntries?: boolean;
   totalInputTokens: number;
   totalOutputTokens: number;
   totalCacheReadTokens: number;
@@ -49,11 +53,13 @@ export interface CostSummaryData {
     outputTokens: number;
     reasoningTokens?: number;
     requests: number;
+    hasEstimated?: boolean;
   }>;
   bySession: Record<string, {
     cost: number;
     tokens: number;
     requests: number;
+    hasEstimated?: boolean;
   }>;
   requestCount: number;
   startTime: number;
@@ -73,6 +79,8 @@ export interface CostEntry {
   cacheWriteTokens?: number;
   reasoningTokens?: number;
   cost: number;
+  /** LT-100: true when this entry's tokens/cost are a heuristic estimate. */
+  isEstimated?: boolean;
 }
 
 /** Flattened row for the per-model breakdown table */
@@ -84,6 +92,7 @@ export interface ModelRow {
   reasoningTokens: number;
   requests: number;
   costPct: number;
+  hasEstimated: boolean;
 }
 
 /** Flattened row for the per-session breakdown table */
@@ -93,6 +102,7 @@ export interface SessionRow {
   tokens: number;
   requests: number;
   costPct: number;
+  hasEstimated: boolean;
 }
 
 /** Shape returned by COST_GET_BUDGET_STATUS */
@@ -104,6 +114,8 @@ interface BudgetStatusData {
 
 const EMPTY_SUMMARY: CostSummaryData = {
   totalCost: 0,
+  totalEstimatedCost: 0,
+  hasEstimatedEntries: false,
   totalInputTokens: 0,
   totalOutputTokens: 0,
   totalCacheReadTokens: 0,
@@ -157,6 +169,8 @@ export class CostPageComponent implements OnInit, OnDestroy {
   // ── Derived aggregate signals ────────────────────────────────────────────
 
   readonly totalCost = computed(() => this.summary().totalCost);
+  readonly totalEstimatedCost = computed(() => this.summary().totalEstimatedCost ?? 0);
+  readonly hasEstimatedEntries = computed(() => this.summary().hasEstimatedEntries === true);
   readonly totalInputTokens = computed(() => this.summary().totalInputTokens ?? 0);
   readonly totalOutputTokens = computed(() => this.summary().totalOutputTokens ?? 0);
   readonly totalCacheTokens = computed(
@@ -189,6 +203,7 @@ export class CostPageComponent implements OnInit, OnDestroy {
         reasoningTokens: stats.reasoningTokens ?? 0,
         requests: stats.requests,
         costPct: total > 0 ? (stats.cost / total) * 100 : 0,
+        hasEstimated: stats.hasEstimated === true,
       }))
       .sort((a, b) => b.cost - a.cost);
   });
@@ -205,6 +220,7 @@ export class CostPageComponent implements OnInit, OnDestroy {
         tokens: stats.tokens,
         requests: stats.requests,
         costPct: total > 0 ? (stats.cost / total) * 100 : 0,
+        hasEstimated: stats.hasEstimated === true,
       }))
       .sort((a, b) => b.cost - a.cost);
   });

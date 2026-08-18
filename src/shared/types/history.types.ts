@@ -154,6 +154,22 @@ export interface ConversationHistoryEntry {
   isAutomation?: boolean;
 
   /**
+   * True when the originating automation was marked hidden *and* its run
+   * finished cleanly. The project rail omits these threads unless the operator
+   * turns on "Show hidden automation runs" — see `Automation.hidden`.
+   *
+   * Set at archive time only when the runner positively recorded success, so
+   * any other ending (failed, cancelled, killed mid-run at app shutdown) leaves
+   * the flag absent and the thread visible. The archived `status` cannot be
+   * used for this: termination maps every non-`error` instance status to
+   * `completed`.
+   *
+   * Distinct from `hideFromProjectRail`, which is unconditional. A hidden
+   * automation is quiet, not invisible.
+   */
+  isHiddenAutomation?: boolean;
+
+  /**
    * Internal worker/probe sessions can be retained for restore/search/debugging
    * without cluttering the project rail's primary workspace folders.
    */
