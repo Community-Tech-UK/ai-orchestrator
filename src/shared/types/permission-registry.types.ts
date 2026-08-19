@@ -14,6 +14,20 @@ export interface PermissionRequest {
   timeoutMs: number;
 }
 
+/**
+ * A pending {@link PermissionRequest} enriched for display in the renderer
+ * approval surface (LT-095): the requesting instance's human-readable name so
+ * "which app/instance is asking" doesn't require the renderer to already have
+ * that instance loaded, plus a precomputed absolute deadline so the UI can
+ * show/countdown a real clock time without re-deriving it from `createdAt` +
+ * `timeoutMs` (which changes on `PermissionRegistry.extend()`).
+ */
+export interface PendingApprovalItem extends PermissionRequest {
+  expiresAt: number;
+  instanceLabel?: string;
+  instanceProvider?: string;
+}
+
 export interface PermissionDecision {
   requestId: string;
   granted: boolean;

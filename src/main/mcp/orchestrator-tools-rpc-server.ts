@@ -75,6 +75,7 @@ import type { CalendarToolDependencies } from './orchestrator-calendar-tools';
 import {
   CALENDAR_READ_RPC_SPECS,
   CALENDAR_TOOL_NAMES,
+  dispatchCalendarMutation,
 } from './orchestrator-tools-rpc-calendar';
 import { dispatchLocalAiCliRpc, isLocalAiCliRpcMethod, type LocalAiCliOperations } from './orchestrator-tools-rpc-local-ai';
 
@@ -501,20 +502,16 @@ export class OrchestratorToolsRpcServer {
         }
         return this.dispatchSameNameTool(request.method, params);
       }
+      // LT-192: dispatchCalendarMutation fails fast on a doomed account
+      // before requesting approval; see orchestrator-tools-rpc-calendar.ts.
       case 'orchestrator_tools.graph_calendar_connect':
       case 'orchestrator_tools.graph_calendar_create_event':
       case 'orchestrator_tools.graph_calendar_update_event':
-      case 'orchestrator_tools.graph_calendar_delete_event': {
-        const authorized = await this.authorizeCalendarMutation({
-          instanceId: params.instanceId,
-          method: request.method,
-          payload: params.payload,
-        });
-        if (!authorized) {
-          throw new Error('calendar_operator_authorization_required');
-        }
-        return this.dispatchSameNameTool(request.method, params);
-      }
+      case 'orchestrator_tools.graph_calendar_delete_event':
+        return dispatchCalendarMutation(
+          { calendarTools: this.calendarTools, authorizeCalendarMutation: this.authorizeCalendarMutation, dispatchSameNameTool: (m, p) => this.dispatchSameNameTool(m, p) },
+          params.instanceId, request.method, params.payload,
+        );
       default:
         throw new Error(`Unknown orchestrator-tools RPC method: ${request.method}`);
     }

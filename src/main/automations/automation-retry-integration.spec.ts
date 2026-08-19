@@ -610,6 +610,239 @@ describe('BUG 1 — oneTime retry survives run-terminal deactivation', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────────────
+// LT-195 — oneTime retry survives the ASYNC automation:changed race
+//
+// BUG 1 covers the scheduler's own 'automation:run-terminal' listener (fixed
+// with deactivateSchedule). But AutomationRunner.handleTerminalRun's oneTime
+// branch also calls emitAutomationState(), which re-fetches the automation
+// and emits 'automation:changed' from a `.then()` callback — i.e.
+// ASYNCHRONOUSLY, after the synchronous retry-scheduling call already
+// returned. Live-reproduced 2026-08-18 (Node-inspector-instrumented,
+// stack-trace-confirmed) against a real manual `automationRunNow` run: by the
+// time that async event fires, the automation's own `nextFireAt` has already
+// gone `null` (schedule "spent" by the fire, independent of the retry), so
+// the scheduler's generic 'automation:changed' listener fell to its `else`
+// branch and called the FULL `deactivate()` — cancelling the just-armed
+// retry timer within ~1ms of it being scheduled, silently, for every
+// one-time automation (manual runNow, provider-limit-resume automations, and
+// any user-created one-time schedule).
+// ──────────────────────────────────────────────────────────────────────────────
+
+describe('LT-195 — oneTime retry survives the automation:changed race', () => {
+  let db: SqliteDriver;
+  let store: AutomationStore;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    resetAutomationEventsForTesting();
+    db = createDb();
+    store = makeStore(db, 5);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    db.close();
+  });
+
+  it('a pending retry survives an automation:changed event whose automation snapshot has active=true, enabled=true, nextFireAt=null', async () => {
+    const automation = await store.create({
+      name: 'OneTime job (LT-195)',
+      schedule: { type: 'oneTime', runAt: 1_000, timezone: 'UTC' },
+      missedRunPolicy: 'notify',
+      concurrencyPolicy: 'skip',
+      action: { prompt: 'Do once', workingDirectory: '/tmp' },
+    }, 1_000, 100);
+
+    const runner = new AutomationRunner(
+      store,
+      getAutomationEvents(),
+      () => Date.now(),
+      vi.fn().mockReturnValue({ fireThreadWakeup: vi.fn() }),
+      3,
+      100,
+    );
+    const catchUp = new CatchUpCoordinator(store, runner, getAutomationEvents(), () => Date.now());
+    const scheduler = new AutomationScheduler(store, runner, catchUp, getAutomationEvents(), () => Date.now());
+    vi.spyOn(runner, 'fire').mockResolvedValue({ status: 'skipped', reason: 'mocked' });
+    scheduler.initialize();
+
+    const decision = store.decideAndInsertRun(automation, 'manual', 1_000, 1_000, {
+      maxAttempts: 3,
+      attempt: 1,
+    });
+    expect(decision.kind).toBe('started');
+    if (decision.kind !== 'started') return;
+
+    vi.spyOn(store, 'insertRetryRun').mockReturnValue(null);
+    vi.spyOn(store, 'listRuns').mockReturnValue([]);
+
+    const failedRun = store.terminalizeRun(decision.run.id, 'failed', 'Automation instance was removed', undefined, 2_000)!;
+    (runner as unknown as { handleTerminalRun: (r: AutomationRun) => void }).handleTerminalRun(failedRun);
+
+    const retryHandles = (scheduler as unknown as { retryHandles: Map<string, unknown> }).retryHandles;
+    expect(retryHandles.size).toBe(1);
+
+    // Reproduce the real, observed post-fire automation snapshot: the
+    // schedule's nextFireAt has already gone null (the fire "spent" it),
+    // but `active`/`enabled` are still true — completeOneTime() was NOT
+    // what caused this in the live repro, and this test does not rely on it.
+    store.clearNextFireAt(automation.id);
+    const snapshot = await store.get(automation.id);
+    expect(snapshot?.active).toBe(true);
+    expect(snapshot?.enabled).toBe(true);
+    expect(snapshot?.nextFireAt).toBeNull();
+
+    // This is exactly what AutomationRunner.emitAutomationState() does,
+    // asynchronously, after handleTerminalRun's synchronous retry-scheduling
+    // call above already returned.
+    getAutomationEvents().emitChanged({ automation: snapshot, automationId: automation.id, type: 'updated' });
+
+    // With the LT-195 fix, the retry must survive — the race must not
+    // silently cancel it.
+    expect(retryHandles.size).toBe(1);
+
+    vi.advanceTimersByTime(300);
+    await Promise.resolve();
+    expect(store.insertRetryRun).toHaveBeenCalledOnce();
+  });
+
+  it('a genuine disable (enabled=false) with NO pending retry still fully deactivates', async () => {
+    const automation = await store.create({
+      name: 'OneTime job, disabled (LT-195 control)',
+      schedule: { type: 'oneTime', runAt: 1_000, timezone: 'UTC' },
+      missedRunPolicy: 'notify',
+      concurrencyPolicy: 'skip',
+      action: { prompt: 'Do once', workingDirectory: '/tmp' },
+    }, 1_000, 100);
+
+    const runner = new AutomationRunner(
+      store, getAutomationEvents(), () => Date.now(),
+      vi.fn().mockReturnValue({ fireThreadWakeup: vi.fn() }), 3, 100,
+    );
+    const catchUp = new CatchUpCoordinator(store, runner, getAutomationEvents(), () => Date.now());
+    const scheduler = new AutomationScheduler(store, runner, catchUp, getAutomationEvents(), () => Date.now());
+    vi.spyOn(runner, 'fire').mockResolvedValue({ status: 'skipped', reason: 'mocked' });
+    scheduler.initialize();
+
+    // Arm an unrelated fire-schedule handle so deactivate() has something to clear.
+    scheduler.schedule({ ...automation, nextFireAt: 50_000 });
+    const handles = (scheduler as unknown as { handles: Map<string, unknown> }).handles;
+    expect(handles.size).toBe(1);
+
+    getAutomationEvents().emitChanged({
+      automation: { ...automation, active: true, enabled: false, nextFireAt: null },
+      automationId: automation.id,
+      type: 'updated',
+    });
+
+    expect(handles.size).toBe(0);
+  });
+
+  it('completion-gate finding: a genuine disable racing an ARMED retry still cancels it (oneTime)', async () => {
+    // This is the case the first LT-195 fix got wrong: `hasPendingRetry(...)`
+    // alone can't distinguish "this automation:changed is the async echo of
+    // the very failure that just armed this retry" from "this is a real
+    // external disable that happens to race a pending retry". Reproduces the
+    // real path: AUTOMATION_UPDATE / update_automation / the "Pause" UI
+    // toggle all call `scheduler.schedule(automation)` (fire-handle only,
+    // never `deactivate()`/`cancelRetry()`) and then `events.emitChanged(...)`
+    // — so a disable landing while a retry is armed must still reach the
+    // full `deactivate()` branch.
+    const automation = await store.create({
+      name: 'OneTime job, disabled mid-backoff (LT-195 gate finding)',
+      schedule: { type: 'oneTime', runAt: 1_000, timezone: 'UTC' },
+      missedRunPolicy: 'notify',
+      concurrencyPolicy: 'skip',
+      action: { prompt: 'Do once', workingDirectory: '/tmp' },
+    }, 1_000, 100);
+
+    const runner = new AutomationRunner(
+      store, getAutomationEvents(), () => Date.now(),
+      vi.fn().mockReturnValue({ fireThreadWakeup: vi.fn() }), 3, 100,
+    );
+    const catchUp = new CatchUpCoordinator(store, runner, getAutomationEvents(), () => Date.now());
+    const scheduler = new AutomationScheduler(store, runner, catchUp, getAutomationEvents(), () => Date.now());
+    vi.spyOn(runner, 'fire').mockResolvedValue({ status: 'skipped', reason: 'mocked' });
+    scheduler.initialize();
+
+    const decision = store.decideAndInsertRun(automation, 'manual', 1_000, 1_000, {
+      maxAttempts: 3,
+      attempt: 1,
+    });
+    expect(decision.kind).toBe('started');
+    if (decision.kind !== 'started') return;
+
+    const failedRun = store.terminalizeRun(decision.run.id, 'failed', 'Automation instance was removed', undefined, 2_000)!;
+    (runner as unknown as { handleTerminalRun: (r: AutomationRun) => void }).handleTerminalRun(failedRun);
+
+    const retryHandles = (scheduler as unknown as { retryHandles: Map<string, unknown> }).retryHandles;
+    expect(retryHandles.size).toBe(1);
+
+    // Real disable path: store.update({ enabled: false }) -> scheduler.schedule(updated)
+    // -> events.emitChanged(...). schedule() only clears the fire handle; it
+    // is emitChanged() reaching this listener that must decide the retry's fate.
+    const disabled = await store.update(automation.id, { enabled: false }, null);
+    scheduler.schedule(disabled);
+    getAutomationEvents().emitChanged({ automation: disabled, automationId: automation.id, type: 'updated' });
+
+    expect(retryHandles.size).toBe(0);
+
+    // And the timer must genuinely be gone, not just absent from the map:
+    // advancing past when it would have fired must not dispatch a run for
+    // an automation the user just disabled.
+    const insertRetrySpy = vi.spyOn(store, 'insertRetryRun');
+    vi.advanceTimersByTime(300);
+    await Promise.resolve();
+    expect(insertRetrySpy).not.toHaveBeenCalled();
+  });
+
+  it('completion-gate finding: a genuine disable racing an ARMED retry still cancels it (cron — not limited to oneTime)', async () => {
+    const automation = await store.create({
+      name: 'Cron job, disabled mid-backoff (LT-195 gate finding)',
+      schedule: { type: 'cron', expression: '0 * * * *', timezone: 'UTC' },
+      missedRunPolicy: 'notify',
+      concurrencyPolicy: 'skip',
+      action: { prompt: 'Do hourly', workingDirectory: '/tmp' },
+    }, 1_000, 100);
+
+    const runner = new AutomationRunner(
+      store, getAutomationEvents(), () => Date.now(),
+      vi.fn().mockReturnValue({ fireThreadWakeup: vi.fn() }), 3, 100,
+    );
+    const catchUp = new CatchUpCoordinator(store, runner, getAutomationEvents(), () => Date.now());
+    const scheduler = new AutomationScheduler(store, runner, catchUp, getAutomationEvents(), () => Date.now());
+    vi.spyOn(runner, 'fire').mockResolvedValue({ status: 'skipped', reason: 'mocked' });
+    scheduler.initialize();
+
+    const decision = store.decideAndInsertRun(automation, 'scheduled', 1_000, 1_000, {
+      maxAttempts: 3,
+      attempt: 1,
+    });
+    expect(decision.kind).toBe('started');
+    if (decision.kind !== 'started') return;
+
+    const failedRun = store.terminalizeRun(decision.run.id, 'failed', 'Automation instance was removed', undefined, 2_000)!;
+    // handleTerminalRun does not gate retry scheduling on isOneTimeRun — a
+    // cron automation mid-backoff hits the exact same async-echo race.
+    (runner as unknown as { handleTerminalRun: (r: AutomationRun) => void }).handleTerminalRun(failedRun);
+
+    const retryHandles = (scheduler as unknown as { retryHandles: Map<string, unknown> }).retryHandles;
+    expect(retryHandles.size).toBe(1);
+
+    const disabled = await store.update(automation.id, { enabled: false }, null);
+    scheduler.schedule(disabled);
+    getAutomationEvents().emitChanged({ automation: disabled, automationId: automation.id, type: 'updated' });
+
+    expect(retryHandles.size).toBe(0);
+
+    const insertRetrySpy = vi.spyOn(store, 'insertRetryRun');
+    vi.advanceTimersByTime(300);
+    await Promise.resolve();
+    expect(insertRetrySpy).not.toHaveBeenCalled();
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
 // BUG 2 — durable pending-retry persistence and rehydration
 // ──────────────────────────────────────────────────────────────────────────────
 

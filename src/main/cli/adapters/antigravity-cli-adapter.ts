@@ -289,6 +289,15 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
       args.push('--sandbox');
     }
 
+    // agy has its own workspace concept, independent of the spawned process's
+    // OS-level cwd (which we also set, for whatever agy uses it for) — without
+    // --add-dir, agy operates against its own persistent default scratch
+    // directory (~/.gemini/antigravity-cli/scratch) regardless of the working
+    // directory the instance is actually scoped to (LT-146).
+    if (this.cliConfig.workingDir) {
+      args.push('--add-dir', this.cliConfig.workingDir);
+    }
+
     // Auto-approve all tool permission requests (the orchestrator is the
     // approval layer for managed instances). Without this, agy would block on
     // interactive permission prompts in non-interactive print mode.

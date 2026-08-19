@@ -2,7 +2,10 @@ import { z } from 'zod';
 import type { McpServerToolDefinition } from './mcp-server-tools';
 
 const DEFAULT_WRITABLE_ACCOUNT_EMAILS = ['james@communitytech.co.uk'];
-const AccountSchema = z.string().trim().min(1).max(320);
+// Exported so the RPC layer's LT-192 precondition (orchestrator-tools-rpc-calendar.ts)
+// normalizes a raw `account` payload field through the exact same schema every
+// mutation/read tool below already applies, so the two can never drift apart.
+export const AccountSchema = z.string().trim().min(1).max(320);
 const CalendarIdSchema = z.string().trim().min(1).max(512);
 const EventIdSchema = z.string().trim().min(1).max(512);
 const CalendarWindowDateTimeSchema = z.string().datetime({ offset: true });
@@ -401,7 +404,15 @@ async function resolveAccountKey(dependencies: CalendarToolDependencies, request
   return account.accountKey;
 }
 
-async function requireWritableAccountKey(dependencies: CalendarToolDependencies, requested: string): Promise<string> {
+/**
+ * Resolves and validates a calendar mutation's target account. Exported so
+ * the RPC layer can use it as a precondition check *before* requesting human
+ * approval — an operator should never be asked to approve a mutation that is
+ * guaranteed to fail because the account is not connected or not writable.
+ * Not applicable to `graph_calendar_connect`, which is how an account is
+ * created in the first place and must be callable with zero accounts.
+ */
+export async function requireWritableAccountKey(dependencies: CalendarToolDependencies, requested: string): Promise<string> {
   const permitted = new Set((dependencies.writableAccountEmails ?? DEFAULT_WRITABLE_ACCOUNT_EMAILS)
     .map((email) => email.trim().toLowerCase()));
   const accounts = await requireAuth(dependencies).listAccounts();

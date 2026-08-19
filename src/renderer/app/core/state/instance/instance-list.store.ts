@@ -769,6 +769,25 @@ export class InstanceListStore {
           : undefined,
       workingDirectory: d['workingDirectory'] as string,
       yoloMode: (d['yoloMode'] as boolean) ?? false,
+      // LT-161: without this, `canOfferFailover()` (composer-banners.component.ts)
+      // can never see a configured fallback list, so the WS7 Phase B "Switch
+      // provider" button never renders for any instance.
+      failoverProviders: Array.isArray(d['failoverProviders'])
+        ? (d['failoverProviders'] as string[])
+        : undefined,
+      // LT-161 (completeness pass): four more fields main always sends
+      // (`serializeInstance`/`serializeForIpc` both spread the full live
+      // object) that this allowlist mapper was silently dropping the same
+      // way it dropped `failoverProviders`. Each has a real, silently-broken
+      // consumer — see the LT-161 register entry for the full list.
+      hardened: typeof d['hardened'] === 'boolean' ? d['hardened'] : undefined,
+      contextEvidence: this.isRecord(d['contextEvidence'])
+        ? (d['contextEvidence'] as unknown as Instance['contextEvidence'])
+        : undefined,
+      fastMode: typeof d['fastMode'] === 'boolean' ? d['fastMode'] : undefined,
+      executionLocation: this.isRecord(d['executionLocation'])
+        ? (d['executionLocation'] as unknown as Instance['executionLocation'])
+        : undefined,
       launchMode: this.isLaunchMode(d['launchMode']) ? d['launchMode'] : 'orchestrated',
       currentModel,
       reasoningEffort,

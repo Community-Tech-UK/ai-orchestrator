@@ -176,8 +176,21 @@ export const DEFAULT_SETTINGS: AppSettings = {
   browserAuxExtractionEnabled: false,
   // Decision 6 (fable plan review, 2026-07-13): deferred by default.
   browserMcpToolDeferral: true,
-  // Spec item 5: OFF until provider-swap livetest evidence motivates it.
-  sessionHandoffStateEnabled: false,
+  // Spec item 5: flipped ON 2026-08-18 on the evidence check 5 actually asks for —
+  // a quality comparison across two real 32-turn Claude sessions (ON and OFF),
+  // judged on the delivered continuity documents rather than on the model's
+  // answer. That distinction mattered: asking the swapped session directly gave
+  // a FALSE POSITIVE on the OFF path, because RLM/project-memory injection fires
+  // on every ordinary turn independently of this setting and supplied the answer
+  // the replay preamble had actually dropped. Reconstructing the real documents
+  // instead (same pure functions, pre-swap messages only): the OFF preamble
+  // reconstructed to 11,824 chars — an exact match for the logged documentChars,
+  // confirming fidelity — and did NOT contain the early decision anywhere, while
+  // the ON rolling summary did, inside its folded-summary section.
+  // An earlier same-day flip was reverted when the only evidence was a one-turn
+  // session (nothing folds in one turn, so the two paths are indistinguishable);
+  // this flip rests on the 30+-turn comparison instead.
+  sessionHandoffStateEnabled: true,
   // WS16: agent-derived memories never reach system-prompt tier by default.
   memoryInstructionGate: true,
   // WS14: empty = no automatic overload fallback model.

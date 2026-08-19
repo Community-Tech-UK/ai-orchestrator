@@ -99,4 +99,15 @@ export type LaneOutboundMessage =
   | { type: 'job-succeeded'; jobId: string; result?: unknown }
   | { type: 'job-failed'; jobId: string; errorMessage: string }
   | { type: 'job-cancelled'; jobId: string }
-  | { type: 'heartbeat'; lane: BackgroundJobLane; timestamp: number };
+  | { type: 'heartbeat'; lane: BackgroundJobLane; timestamp: number }
+  /**
+   * LT-207: a clone-safe broadcast from a per-process singleton inside the
+   * lane worker (e.g. `RLMContextManager`'s `section:added`), re-posted here
+   * so the main process can re-emit it on its own separate instance of the
+   * same class — see `src/main/instance/context-worker-event-forwarding.ts`
+   * for the cross-process `EventEmitter` mechanics this reuses. `message` is
+   * a `ContextWorkerOutboundMsg` (`WorkerSkillActivationMsg` or
+   * `WorkerForwardedEventMsg`); kept as `unknown` here so this generic
+   * lane-transport layer does not depend on the instance-specific protocol.
+   */
+  | { type: 'worker-event'; message: unknown };

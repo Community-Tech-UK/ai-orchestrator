@@ -55,15 +55,23 @@ function issue(overrides: Partial<ReviewIssue> = {}): ReviewIssue {
 
 describe('InstanceReviewPanelComponent (WS-C4 findings dispatch)', () => {
   let sendInput: ReturnType<typeof vi.fn>;
+  let reviewStartSession: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     sendInput = vi.fn().mockResolvedValue(undefined);
+    reviewStartSession = vi.fn().mockResolvedValue({ success: true, data: { sessionId: 'sess-1' } });
     TestBed.configureTestingModule({
       imports: [InstanceReviewPanelComponent],
       providers: [
         {
           provide: IpcFacadeService,
-          useValue: { getApi: () => ({ reviewListAgents: vi.fn().mockResolvedValue({ success: true, data: [] }) }) },
+          useValue: {
+            getApi: () => ({
+              reviewListAgents: vi.fn().mockResolvedValue({ success: true, data: [] }),
+              reviewStartSession,
+              reviewGetSession: vi.fn().mockResolvedValue({ success: true, data: { status: 'completed', issues: [] } }),
+            }),
+          },
         },
         {
           provide: VcsIpcService,
@@ -138,6 +146,31 @@ describe('InstanceReviewPanelComponent (WS-C4 findings dispatch)', () => {
     // runReview() resets selection synchronously before any await resolves.
     void fixture.componentInstance.runReview();
     expect(fixture.componentInstance.selectedFindingKeys().size).toBe(0);
+  });
+
+  it('LT-200: runReview() sends a reviewStartSession payload shaped for ReviewStartSessionPayloadSchema (agentIds array, no bogus agentId/workingDirectory/options)', async () => {
+    const fixture = await render();
+    fixture.componentInstance.files.set(['src/a.ts']);
+    fixture.componentInstance.selectedAgentSet.set(new Set(['design-drift-analyzer']));
+
+    await fixture.componentInstance.runReview();
+
+    expect(reviewStartSession).toHaveBeenCalledTimes(1);
+    const payload = reviewStartSession.mock.calls[0][0];
+    // The real IPC schema (ReviewStartSessionPayloadSchema) requires exactly
+    // these keys. A prior regression sent `agentId` (singular) plus
+    // `workingDirectory` and an `options` wrapper, which always failed Zod
+    // validation with "agentIds: Invalid input: expected array, received
+    // undefined" for every agent, every time.
+    expect(payload).toEqual({
+      instanceId: 'inst-1',
+      agentIds: ['design-drift-analyzer'],
+      files: ['src/a.ts'],
+      diffOnly: fixture.componentInstance.diffOnly(),
+    });
+    expect(payload.agentId).toBeUndefined();
+    expect(payload.workingDirectory).toBeUndefined();
+    expect(payload.options).toBeUndefined();
   });
 
   it('Fix selected sends one packet for the selected findings through InstanceStore.sendInput and clears selection', async () => {

@@ -9,6 +9,7 @@ export type CodexObservedItemClass =
   | 'collaboration'
   | 'agent-message'
   | 'reasoning'
+  | 'user-message'
   | 'other';
 
 export interface CodexTokenUsageSnapshot {
@@ -194,6 +195,15 @@ export function classifyCodexObservedItem(value: unknown): CodexObservedItemClas
       return 'agent-message';
     case 'reasoning':
       return 'reasoning';
+    // LT-148: the app-server emits an item/completed for the user's own turn
+    // content too (a userMessage echo), not only for assistant/tool output.
+    // Without this case it fell through to 'other' — the doc's own safety
+    // protocol treats 'other' as tool-bearing "for safety" — so every real
+    // turn spuriously counted one non-tool item toward the root-tool-item
+    // stop bound before any actual tool call happened.
+    case 'user_message':
+    case 'userMessage':
+      return 'user-message';
     default:
       return 'other';
   }

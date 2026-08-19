@@ -261,6 +261,11 @@ export class ProcessLaneGateway extends EventEmitter implements LaneGateway {
       return;
     }
 
+    if (message.type === 'worker-event') {
+      this.emit('worker-event', message.message);
+      return;
+    }
+
     if (message.type === 'job-succeeded') {
       const pending = this.pending.get(message.jobId);
       if (!pending) return;

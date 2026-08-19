@@ -24,6 +24,23 @@ export class AskCouncilStore {
 
   private cleanupFns: (() => void)[] = [];
   private initialized = false;
+  /**
+   * WS-B6 LT-197: `compareStart()`'s own invoke() response always reflects
+   * the run's initial all-`queued` snapshot (captured synchronously before
+   * any member starts) — but the main process fires member-status
+   * `run-updated` pushes (e.g. `queued` -> `running`) on the very next tick
+   * after that, via a *separate* IPC channel with no ordering guarantee
+   * against the invoke() round-trip. A push for the new run's id can land
+   * (and, per live reproduction, reliably does for anything but an
+   * instant-answering provider) before `start()` even knows that id, so the
+   * `onCompareRunUpdated` listener below drops it (no `_run()` to match
+   * against yet) — and then `start()`'s own response overwrites `_run` with
+   * the stale all-queued snapshot, silently reverting a member that was
+   * already running back to `queued` for its entire execution. Buffered here
+   * (keyed by run id, cleared every `start()`) so `start()` can adopt
+   * whichever is fresher once the id is known.
+   */
+  private pendingRunUpdates = new Map<string, CouncilRun>();
 
   readonly run = this._run.asReadonly();
   readonly availableProviders = this._availableProviders.asReadonly();
@@ -56,6 +73,10 @@ export class AskCouncilStore {
     const unsub = this.ipc.onCompareRunUpdated((run) => {
       if (this._run()?.id === run.id) {
         this._run.set(run);
+      } else if (this._starting()) {
+        // LT-197: might be for the run currently being started, whose id
+        // this store does not know yet — buffered, reconciled in start().
+        this.pendingRunUpdates.set(run.id, run);
       }
     });
     this.cleanupFns.push(unsub);
@@ -74,14 +95,20 @@ export class AskCouncilStore {
   async start(prompt: string, providers: string[], workingDirectory?: string): Promise<void> {
     this._errorMessage.set(null);
     this._starting.set(true);
+    this.pendingRunUpdates.clear();
     try {
       const response = await this.ipc.compareStart({ prompt, providers, workingDirectory });
       if (!response.success || !response.data) {
         this._errorMessage.set(response.error?.message ?? 'Failed to start Council run.');
         return;
       }
-      this._run.set(response.data);
+      // LT-197: a live 'run-updated' push for this run may have already
+      // raced ahead of this invoke() response and be buffered under its id —
+      // it is strictly fresher than the response (which always reflects the
+      // initial all-queued snapshot), so prefer it when present.
+      this._run.set(this.pendingRunUpdates.get(response.data.id) ?? response.data);
     } finally {
+      this.pendingRunUpdates.clear();
       this._starting.set(false);
     }
   }

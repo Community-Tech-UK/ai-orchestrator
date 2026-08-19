@@ -42,4 +42,17 @@ describe('AntigravityCliAdapter buildArgs model forwarding', () => {
     const adapter = new AntigravityCliAdapter({ yolo: true });
     expect(buildArgs(adapter)).toContain('--dangerously-skip-permissions');
   });
+
+  it('LT-146: scopes agy to the configured working directory via --add-dir', () => {
+    const adapter = new AntigravityCliAdapter({ workingDir: '/tmp/aio-lt-evidence-batchC' });
+    const args = buildArgs(adapter);
+    const addDirIdx = args.indexOf('--add-dir');
+    expect(addDirIdx).toBeGreaterThanOrEqual(0);
+    expect(args[addDirIdx + 1]).toBe('/tmp/aio-lt-evidence-batchC');
+  });
+
+  it('LT-146: omits --add-dir when no working directory is configured', () => {
+    const adapter = new AntigravityCliAdapter({});
+    expect(buildArgs(adapter)).not.toContain('--add-dir');
+  });
 });

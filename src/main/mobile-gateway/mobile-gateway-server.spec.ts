@@ -651,6 +651,104 @@ describe('MobileGatewayServer', () => {
     expect(envelope.messages[299].seq).toBe(300);
   });
 
+  it('queues a direct send that races an in-flight direct send for the same instance (LT-181)', async () => {
+    // `instance.status` only flips to busy once the adapter's sendInputImpl
+    // actually runs, so a second near-simultaneous phone send can still see
+    // `idle`. Model that here with a controllable adapter promise: while the
+    // first send is in flight (the fake source's status never changes), a
+    // second request for the same instance must be parked, not thrown at the
+    // adapter — otherwise it gets the raw "already has an active turn"
+    // rejection instead of a queued response.
+    source.instances = [inst({ id: 'a', status: 'idle' })];
+    let resolveFirst: () => void = () => {};
+    const firstGate = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
+    source.sendInput.mockImplementationOnce(() => firstGate);
+
+    const token = await pairToken();
+    const firstReq = authed(token, '/api/instances/a/input', {
+      method: 'POST',
+      body: JSON.stringify({ message: 'first' }),
+    });
+    await vi.waitFor(() => expect(source.sendInput).toHaveBeenCalledTimes(1));
+
+    const secondRes = await authed(token, '/api/instances/a/input', {
+      method: 'POST',
+      body: JSON.stringify({ message: 'second' }),
+    });
+    const secondBody = (await secondRes.json()) as { queued?: boolean; queueId?: string };
+    expect(secondBody.queued).toBe(true);
+    expect(secondBody.queueId).toBeTruthy();
+    // The second send must not have reached the adapter directly.
+    expect(source.sendInput).toHaveBeenCalledTimes(1);
+
+    resolveFirst();
+    const firstRes = await firstReq;
+    expect(firstRes.status).toBe(200);
+    expect((await firstRes.json()).queued).toBeUndefined();
+  });
+
+  it('queues a direct send that races an in-flight QUEUE DELIVERY for the same instance (LT-181)', async () => {
+    // The symmetric half of the race above: a queued message can drain (via
+    // MobileInputQueue.deliverNext -> dispatchSend -> sendInput) at the exact
+    // moment a fresh direct send arrives for the same instance. Before the
+    // in-flight guard was routed through both callers, only direct-vs-direct
+    // was covered — a direct send racing an in-flight *queue drain* still
+    // reached the adapter a second time, because the drain path never marked
+    // anything. Model it: queue a message while busy, flip the instance ready
+    // so the queue starts delivering it, hold that delivery open, then fire a
+    // fresh direct send for the same instance.
+    source.instances = [inst({ id: 'a', status: 'busy' })];
+    const token = await pairToken();
+
+    const queuedRes = await authed(token, '/api/instances/a/input', {
+      method: 'POST',
+      body: JSON.stringify({ message: 'queued-first' }),
+    });
+    expect((await queuedRes.json()).queued).toBe(true);
+    expect(source.sendInput).not.toHaveBeenCalled();
+
+    let resolveDrain: () => void = () => {};
+    const drainGate = new Promise<void>((resolve) => {
+      resolveDrain = resolve;
+    });
+    source.sendInput.mockImplementationOnce(() => drainGate);
+
+    // Ready edge: the queue's own drain now delivers 'queued-first', which
+    // holds on drainGate — instance.status stays 'idle' throughout, exactly
+    // like the real adapter before its status-flip event fires.
+    source.instances[0].status = 'idle';
+    source.emit('instance:state-update', { instanceId: 'a', status: 'idle' });
+    await vi.waitFor(() => expect(source.sendInput).toHaveBeenCalledTimes(1));
+    expect(source.sendInput).toHaveBeenNthCalledWith(1, 'a', 'queued-first', undefined);
+
+    // A fresh direct send arrives while the drain above is still in flight.
+    const directRes = await authed(token, '/api/instances/a/input', {
+      method: 'POST',
+      body: JSON.stringify({ message: 'direct-second' }),
+    });
+    const directBody = (await directRes.json()) as { queued?: boolean; queueId?: string };
+    expect(directBody.queued).toBe(true);
+    expect(directBody.queueId).toBeTruthy();
+    // Must not have reached the adapter while the drain is still in flight.
+    expect(source.sendInput).toHaveBeenCalledTimes(1);
+
+    // Let the drain finish, then confirm the second message follows through
+    // on the next ready edge, in order, with no adapter-level rejection ever
+    // surfacing.
+    resolveDrain();
+    // Let deliverNext's post-delivery continuation (shift the delivered
+    // head, clear the `draining` flag) actually run before triggering the
+    // next ready edge -- otherwise the busy/idle emit below races the flag
+    // clear and no-ops, same as the existing ordering test's double-emit.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    source.emit('instance:state-update', { instanceId: 'a', status: 'busy' });
+    source.emit('instance:state-update', { instanceId: 'a', status: 'idle' });
+    await vi.waitFor(() => expect(source.sendInput).toHaveBeenCalledTimes(2));
+    expect(source.sendInput).toHaveBeenNthCalledWith(2, 'a', 'direct-second', undefined);
+  });
+
   it('routes input to sendInput when the session is ready', async () => {
     source.instances = [inst({ id: 'a', status: 'idle' })];
     const token = await pairToken();

@@ -87,6 +87,12 @@ describe('SnapshotManager', () => {
         id: snapshot?.id,
         historyThreadId: 'thread-1',
         sessionId: 'session-1',
+        // LT-136 regression: the listing used to hardcode trigger: 'auto'
+        // and drop `name` entirely, so a labeled checkpoint (e.g. a manual
+        // pre-compaction snapshot) was indistinguishable from a periodic
+        // auto-checkpoint in the checkpoint timeline UI.
+        name: 'Checkpoint',
+        metadata: expect.objectContaining({ trigger: 'checkpoint' }),
       }),
     );
 

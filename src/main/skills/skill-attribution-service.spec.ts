@@ -22,6 +22,32 @@ function makeService(db: SqliteDriver): SkillAttributionService {
   return service;
 }
 
+/**
+ * Wraps a real SqliteDriver so a test can force the next `SELECT` read
+ * (specifically `.all()`, what `listSkillControls` uses) to throw once,
+ * modelling a transient DB error (e.g. `SQLITE_BUSY`) without touching the
+ * real driver's behaviour otherwise. Writes (`.run()`) are never affected —
+ * only reads are what `loadControlCache()` performs.
+ */
+function flakyReadDriver(db: SqliteDriver, failNextRead: { current: boolean }): SqliteDriver {
+  return {
+    ...db,
+    prepare: (sql: string) => {
+      const statement = db.prepare(sql);
+      return {
+        ...statement,
+        all: <T = unknown>(...params: unknown[]): T[] => {
+          if (failNextRead.current) {
+            failNextRead.current = false;
+            throw new Error('simulated transient DB read error (SQLITE_BUSY)');
+          }
+          return statement.all<T>(...params);
+        },
+      };
+    },
+  } as SqliteDriver;
+}
+
 describe('skill attribution migration 053', () => {
   afterEach(() => {
     for (const db of dbs.splice(0)) db.close();
@@ -193,6 +219,79 @@ describe('SkillAttributionService', () => {
     SkillAttributionService._resetForTesting();
     const fresh = makeService(db);
     expect(fresh.getEffectiveMode('ui-audit', 'builtin')).toBe('disabled');
+  });
+
+  it('LT-169: a second live instance sharing the DB sees a control change without its own reset', () => {
+    // Models the real production split: the context-worker process runs its
+    // own long-lived SkillAttributionService singleton, in a separate OS
+    // process from the main process's IPC handlers, sharing only the RLM
+    // sqlite file. `readerA` stands in for the worker: it already read (and,
+    // pre-fix, would have permanently cached) the control state before
+    // `writerB` (the main process) changes it.
+    const db = openMigratedDb();
+    const readerA = makeService(db);
+    expect(readerA.getEffectiveMode('test-stabilizer', 'builtin')).toBe('enabled');
+
+    SkillAttributionService._resetForTesting();
+    const writerB = makeService(db);
+    writerB.setControl('test-stabilizer', 'disabled', 'kill switch');
+
+    // readerA is the SAME long-lived instance as before, with no reset of
+    // its own — it must still see the disable on its very next read.
+    expect(readerA.getEffectiveMode('test-stabilizer', 'builtin')).toBe('disabled');
+    expect(readerA.getControl('test-stabilizer')?.mode).toBe('disabled');
+
+    // And the reverse direction: re-enabling from writerB must also reach
+    // readerA without a reset, proving this isn't a one-shot invalidation.
+    writerB.setControl('test-stabilizer', 'enabled');
+    expect(readerA.getEffectiveMode('test-stabilizer', 'builtin')).toBe('enabled');
+  });
+
+  it('LT-169 gate finding: fails CLOSED (not open) on a transient DB read error', () => {
+    // Removing the persistent cache fixed "stale forever", but a naive
+    // re-read on every call still fails open for the ONE read that races a
+    // transient DB error: another process disables a skill, this process's
+    // very next read of it throws (e.g. SQLITE_BUSY) before observing the
+    // disable, and a fallback to "no override" would let a builtin default
+    // to 'enabled' — same wrong direction as the original bug. The read
+    // error must make the skill look disabled, not enabled.
+    const db = openMigratedDb();
+    const failNextRead = { current: false };
+    const service = makeService(flakyReadDriver(db, failNextRead));
+
+    // No control has ever been set for this skill. A healthy read confirms
+    // the normal builtin default first, so the failure case below is a real
+    // change of outcome and not just "always disabled".
+    expect(service.getEffectiveMode('ui-audit', 'builtin')).toBe('enabled');
+
+    // The flaky driver throws on exactly ONE read (realistic: a transient
+    // error hits one query, not every query forever), so each assertion
+    // below that needs the failure to be live re-arms it immediately first.
+    failNextRead.current = true;
+    expect(service.getEffectiveMode('ui-audit', 'builtin')).toBe('disabled');
+
+    failNextRead.current = true;
+    expect(service.getControl('ui-audit')?.mode).toBe('disabled');
+
+    // Transient: the NEXT read (no induced failure) recovers to the real
+    // state. This is not a permanent lockout — only the failed read itself
+    // is treated as disabled.
+    expect(service.getEffectiveMode('ui-audit', 'builtin')).toBe('enabled');
+  });
+
+  it('LT-169 gate finding: a read error does not resurrect a stale pre-disable snapshot', () => {
+    // The concrete race from the gate: skill X is enabled (no override), a
+    // read warms the cache with that state, another process disables X, and
+    // THIS process's next read fails before it can observe the disable. The
+    // fallback must not serve the pre-disable snapshot it already has.
+    const db = openMigratedDb();
+    const failNextRead = { current: false };
+    const service = makeService(flakyReadDriver(db, failNextRead));
+
+    expect(service.getEffectiveMode('ui-audit', 'builtin')).toBe('enabled'); // warms controlCache
+
+    failNextRead.current = true;
+    expect(service.getEffectiveMode('ui-audit', 'builtin')).toBe('disabled');
   });
 
   it('is fail-soft without a database', () => {

@@ -61,6 +61,7 @@ import { buildMcpRuntimeToolContextSelection } from '../mcp/mcp-runtime-tool-con
 import { RLMDatabase } from '../persistence/rlm-database';
 import { getPolicyAdapter } from '../observation/policy-adapter';
 import { buildProjectMemoryBriefInWorker } from '../memory/project-memory-brief-worker';
+import { registerWorkerEventForwarding } from './context-worker-event-forwarding';
 import {
   loadHabitTrackerStateSnapshot,
   loadMetricsCollectorStateSnapshot,
@@ -133,6 +134,12 @@ function createTransport(): ContextWorkerTransport {
 }
 
 const transport = createTransport();
+
+// LT-169/170/206: forward every allowlisted worker-local singleton event
+// (skill activations, RLM store/section/query activity, wake-context
+// generation) to the main process — see context-worker-event-forwarding.ts
+// for the full cross-process EventEmitter rationale and the allowlist.
+registerWorkerEventForwarding(transport);
 
 // ── RLM database pre-init ─────────────────────────────────────────────────────
 

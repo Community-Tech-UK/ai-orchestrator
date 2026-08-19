@@ -8,6 +8,7 @@ import { RLMContextManager } from '../rlm/context-manager';
 import { RLMDatabase } from '../persistence/rlm-database';
 import { CodebaseIndexingService } from './indexing-service';
 import type { CodebaseIndexingLaneJob } from './codebase-indexing-lane-protocol';
+import { registerWorkerEventForwarding } from '../instance/context-worker-event-forwarding';
 
 type RunJobMessage = Extract<LaneInboundMessage, { type: 'run-job' }> & {
   payload: CodebaseIndexingLaneJob;
@@ -47,6 +48,36 @@ function send(message: LaneOutboundMessage): void {
 
 function sendHeartbeat(): void {
   send({ type: 'heartbeat', lane: LANE, timestamp: Date.now() });
+}
+
+let workerEventForwardingRegistered = false;
+
+/**
+ * LT-207: this lane constructs its own worker-local `RLMContextManager`
+ * (`indexCodebase()` → `CodebaseIndexingService.addSection()` →
+ * `this.contextManager.addSection(...)`), so `section:added` fired here is
+ * invisible to main's separate singleton and the renderer's
+ * `RLM_SECTION_ADDED` channel never fires for indexing activity — the same
+ * worker-process-singleton class as LT-169/LT-170/LT-206. Reuses that fix's
+ * generic mechanism (`registerWorkerEventForwarding`/`dispatchWorkerBroadcast`
+ * in `context-worker-event-forwarding.ts`) instead of a bespoke forwarder.
+ *
+ * Must run AFTER `RLMDatabase.getInstance()` has been configured with this
+ * job's `userDataPath` and BEFORE the first `RLMContextManager.getInstance()`
+ * call: `registerWorkerEventForwarding` itself calls `getInstance()` to
+ * attach listeners, and `RLMContextManager`'s constructor eagerly resolves
+ * `getRLMDatabase()` — calling it first would let `RLMDatabase` fall back to
+ * its default (wrong) path for the rest of this worker's lifetime, since
+ * both are `getInstance()` singletons where the first call wins. Guarded so
+ * repeated jobs in the same long-lived worker process register the
+ * singleton's listeners only once.
+ */
+function ensureWorkerEventForwarding(): void {
+  if (workerEventForwardingRegistered) return;
+  workerEventForwardingRegistered = true;
+  registerWorkerEventForwarding({
+    postMessage: (message) => send({ type: 'worker-event', message }),
+  });
 }
 
 function ensureHeartbeat(): void {
@@ -89,6 +120,7 @@ async function handleRun(message: RunJobMessage): Promise<void> {
       contentDir: path.join(rlmRoot, 'content'),
     });
   }
+  ensureWorkerEventForwarding();
   RLMContextManager.getInstance().reloadFromPersistence();
   const service = new CodebaseIndexingService();
   activeJobs.set(message.jobId, { service, cancelled: false });

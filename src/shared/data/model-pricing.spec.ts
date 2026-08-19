@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import {
+  computeProviderTokenCost,
   computeTokenCost,
   getCacheWriteMultiplier,
   getModelRate,
@@ -11,7 +12,14 @@ import {
   modelRateOverlaySize,
   DEFAULT_MODEL_RATE,
 } from './model-pricing';
-import { CLAUDE_MODELS, MODEL_PRICING, OPENAI_MODELS } from '../types/provider.types';
+import {
+  CLAUDE_MODELS,
+  CLAUDE_PINNED_MODELS,
+  COPILOT_MODELS,
+  CURSOR_MODELS,
+  MODEL_PRICING,
+  OPENAI_MODELS,
+} from '../types/provider.types';
 
 describe('getCacheWriteMultiplier', () => {
   it('bills GPT-5.6 and later cache writes at 1.25x the input rate', () => {
@@ -107,6 +115,78 @@ describe('computeTokenCost', () => {
     expect(getModelRate(OPENAI_MODELS.GPT56_SOL)).toEqual({ input: 5, output: 30 });
     expect(getModelRate(OPENAI_MODELS.GPT56_TERRA)).toEqual({ input: 2.5, output: 15 });
     expect(getModelRate(OPENAI_MODELS.GPT56_LUNA)).toEqual({ input: 1, output: 6 });
+  });
+});
+
+describe('getProviderModelRate provider-id aliasing (LT-190)', () => {
+  it('resolves an already-CLI-style provider id directly (e.g. settings.defaultCli)', () => {
+    // Local AI Guard's fallback-cost estimator feeds `settings.defaultCli`
+    // (the CLI-facing id, e.g. "claude") straight into this function. Before
+    // LT-190 that always returned undefined because the normalizer only
+    // recognized the upstream vendor names ("anthropic"/"openai"/"google").
+    expect(getProviderModelRate('claude', CLAUDE_MODELS.OPUS_1M)).toEqual(
+      MODEL_PRICING[CLAUDE_MODELS.OPUS_1M],
+    );
+    expect(
+      computeProviderTokenCost('claude', CLAUDE_MODELS.OPUS_1M, {
+        inputTokens: 1_000_000,
+        outputTokens: 1_000_000,
+      }),
+    ).toBeCloseTo(
+      MODEL_PRICING[CLAUDE_MODELS.OPUS_1M].input + MODEL_PRICING[CLAUDE_MODELS.OPUS_1M].output,
+      6,
+    );
+  });
+
+  it('still resolves the upstream vendor-name spelling ("anthropic"/"openai"/"google")', () => {
+    expect(getProviderModelRate('anthropic', CLAUDE_MODELS.OPUS)).toEqual(
+      MODEL_PRICING[CLAUDE_MODELS.OPUS],
+    );
+    expect(getProviderModelRate('openai', OPENAI_MODELS.GPT55)).toEqual(
+      MODEL_PRICING[OPENAI_MODELS.GPT55],
+    );
+  });
+
+  it('still rejects a provider id that is neither a CLI id nor a known vendor name', () => {
+    expect(getProviderModelRate('totally-unknown-provider', CLAUDE_MODELS.OPUS_1M)).toBeUndefined();
+  });
+
+  it('does not price a reseller/proxy model at the primary vendor rate just because the raw id string collides', () => {
+    // Completion-gate finding (2026-08-18): Copilot and Cursor reuse the
+    // exact same raw model-id strings as the primary vendors they proxy
+    // (verified: COPILOT_MODELS.CLAUDE_OPUS_5 === CLAUDE_PINNED_MODELS.OPUS_5
+    // === 'claude-opus-5'), but the static MODEL_PRICING table is a flat,
+    // non-namespaced map — before this fix, getProviderModelRate('copilot', ...)
+    // fell through to that flat table and silently returned the primary
+    // vendor's direct per-token API rate. Copilot/Cursor here are
+    // subscription seats, not metered API access, so that isn't just an
+    // imprecise number — it's the wrong billing model. The fix must make
+    // this undefined, not "priced at zero" and not "priced like Claude".
+    expect(COPILOT_MODELS.CLAUDE_OPUS_5).toBe(CLAUDE_PINNED_MODELS.OPUS_5);
+    expect(getProviderModelRate('copilot', COPILOT_MODELS.CLAUDE_OPUS_5)).toBeUndefined();
+    expect(getProviderModelRate('copilot', COPILOT_MODELS.CLAUDE_OPUS_5)).not.toEqual(
+      getProviderModelRate('claude', CLAUDE_PINNED_MODELS.OPUS_5),
+    );
+
+    // Same collision shape for the Codex-family id, and for Cursor's curated
+    // list (which reuses the identical OpenAI raw id).
+    expect(COPILOT_MODELS.GPT53_CODEX).toBe(OPENAI_MODELS.GPT53_CODEX);
+    expect(getProviderModelRate('copilot', COPILOT_MODELS.GPT53_CODEX)).toBeUndefined();
+    expect(getProviderModelRate('cursor', OPENAI_MODELS.GPT53_CODEX)).toBeUndefined();
+
+    // computeProviderTokenCost must propagate the same "unpriceable, not
+    // zero" result — an undefined rate short-circuits to undefined, never 0.
+    expect(
+      computeProviderTokenCost('copilot', COPILOT_MODELS.CLAUDE_OPUS_5, {
+        inputTokens: 1_000_000,
+        outputTokens: 1_000_000,
+      }),
+    ).toBeUndefined();
+
+    // Cursor's AUTO sentinel and any id not in its curated list are also
+    // unpriced — Cursor is excluded from the static table entirely, not just
+    // for this one colliding id.
+    expect(getProviderModelRate('cursor', CURSOR_MODELS.AUTO)).toBeUndefined();
   });
 });
 

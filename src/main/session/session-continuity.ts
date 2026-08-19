@@ -599,7 +599,12 @@ export class SessionContinuityManager extends EventEmitter {
               historyThreadId: data.historyThreadId || data.state.historyThreadId,
               timestamp: data.timestamp,
               messageCount: data.metadata.messageCount,
-              schemaVersion: data.schemaVersion ?? CURRENT_SCHEMA_VERSION
+              schemaVersion: data.schemaVersion ?? CURRENT_SCHEMA_VERSION,
+              // LT-136: carry the real name/description/trigger through the
+              // startup rebuild too, not just the in-process create path.
+              name: data.name,
+              description: data.description,
+              trigger: data.metadata.trigger,
             });
           }
         } catch (error) {
@@ -1202,7 +1207,12 @@ export class SessionContinuityManager extends EventEmitter {
           historyThreadId: updatedSnapshot.historyThreadId,
           timestamp: updatedSnapshot.timestamp,
           messageCount: updatedSnapshot.metadata.messageCount,
-          schemaVersion: updatedSnapshot.schemaVersion ?? CURRENT_SCHEMA_VERSION
+          schemaVersion: updatedSnapshot.schemaVersion ?? CURRENT_SCHEMA_VERSION,
+          // LT-136: carry the real name/description/trigger for imported
+          // snapshots too, matching the create and rebuild paths.
+          name: updatedSnapshot.name,
+          description: updatedSnapshot.description,
+          trigger: updatedSnapshot.metadata.trigger,
         });
       }
     }

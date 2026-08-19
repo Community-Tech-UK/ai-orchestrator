@@ -238,6 +238,10 @@ export class CompactionCoordinator extends EventEmitter {
   /** Records the sample synchronously, then serializes shared-policy decisions per instance. */
   onContextUpdate(instanceId: string, usage: ContextUsage): void {
     this.latestUsage.set(instanceId, usage);
+    // WS-C1 fix (LT-194): the only feed for CompactionEpochTracker's
+    // turnsBeforeCompaction — a context-usage report is the closest existing
+    // per-turn signal available at this layer.
+    this.getEpochTracker(instanceId).incrementTurn();
     this.emitLegacyWarning(instanceId, usage.percentage);
 
     const capabilities = this.getContextCapabilitiesForInstance?.(instanceId) ?? null;
@@ -539,6 +543,13 @@ export class CompactionCoordinator extends EventEmitter {
 
       this.warnedInstances.delete(instanceId);
       this.dismissedWarnings.delete(instanceId);
+      // WS-C1 fix (LT-194): record the epoch boundary so the Workboard
+      // Decision Timeline's compaction source (buildCompactionDecisions,
+      // which reads getEpochTracker(instanceId).getHistory()) actually gets
+      // an entry. Previously nothing in production ever called this, so that
+      // source was permanently, silently empty for every successful
+      // compaction (native or restart-with-summary).
+      this.getEpochTracker(instanceId).onCompaction();
 
       const cumulativeNow = this.latestUsage.get(instanceId)?.cumulativeTokens
         ?? previousUsage?.cumulativeTokens;

@@ -68,8 +68,22 @@ export class SkillAttributionService extends EventEmitter {
 
   private db: SqliteDriver | null = null;
   private dbResolved = false;
-  /** Write-through cache of explicit controls, keyed by skill name. */
+  /**
+   * Last-known-good snapshot of explicit controls, keyed by skill name.
+   * NOT a memoization cache for reads — `loadControlCache()` re-queries the
+   * DB on every call so every process realm stays in sync (LT-169). This
+   * field only serves as a fallback for a transient DB read error and for
+   * the DB-unavailable (in-memory-only) mode.
+   */
   private controlCache: Map<string, SkillControl> | null = null;
+  /**
+   * Set true only for the duration of the most recent `loadControlCache()`
+   * attempt: true if a DB was configured but the read threw (transient
+   * error), false otherwise (success, or the designed no-DB fallback mode).
+   * `getControl()` consults this immediately after calling
+   * `loadControlCache()` — see its docstring for why (LT-169 fail-closed).
+   */
+  private lastControlReadFailed = false;
 
   static getInstance(): SkillAttributionService {
     if (!SkillAttributionService.instance) {
@@ -205,32 +219,104 @@ export class SkillAttributionService extends EventEmitter {
 
   // ---- Controls (kill-switch) ---------------------------------------------
 
+  /**
+   * Read the current controls straight from the DB whenever it is available.
+   *
+   * LT-169: this service is a per-process singleton, and skill detection for
+   * auto-injection runs inside a separate context-worker OS process with its
+   * own module realm and its own instance of this class (see
+   * `context-worker-main.ts`). A memoized `Map` here would only ever reflect
+   * whatever that *specific* process instance saw on its first read, so a
+   * control changed via the main-process IPC handler (`setControl`, used by
+   * `SKILLS_SET_CONTROL`) would never reach the worker's copy — confirmed
+   * live: the worker process kept serving a stale `disabled`/`enabled`
+   * snapshot from its very first read indefinitely, ignoring every later
+   * `setControl` call from the main process. The DB row is the only state
+   * every realm actually shares, so it is the only safe source of truth for
+   * every read. `controlCache` is kept only as a last-known-good fallback for
+   * a transient DB error and for the DB-unavailable (in-memory-only) mode
+   * `setControl` already documents.
+   */
   private loadControlCache(): Map<string, SkillControl> {
-    if (this.controlCache) return this.controlCache;
-    const cache = new Map<string, SkillControl>();
     const db = this.resolveDb();
     if (db) {
       try {
+        const fresh = new Map<string, SkillControl>();
         for (const control of listSkillControls(db)) {
-          cache.set(control.skillName, control);
+          fresh.set(control.skillName, control);
         }
+        this.controlCache = fresh;
+        this.lastControlReadFailed = false;
+        return fresh;
       } catch (err) {
         logger.warn('loadControlCache failed (fail-soft)', {
           error: err instanceof Error ? err.message : String(err),
         });
+        this.lastControlReadFailed = true;
+        if (this.controlCache) return this.controlCache;
+        return new Map();
       }
     }
-    this.controlCache = cache;
-    return cache;
+    // No DB (unit tests / RLM not yet initialised): fall back to whatever
+    // was set in-memory via setControl(), same as before. This is a designed
+    // mode, not a transient failure, so it does not trip the fail-closed path.
+    this.lastControlReadFailed = false;
+    if (this.controlCache) return this.controlCache;
+    this.controlCache = new Map();
+    return this.controlCache;
   }
 
-  /** The explicit control for a skill, or null if none has been set. */
+  /**
+   * The explicit control for a skill, or null if none has been set.
+   *
+   * LT-169 (fail-closed on a transient read error): removing the persistent
+   * memoization fixed the "stale forever" bug, but a naive re-read still
+   * fails OPEN for the single read that happens to race a DB error —
+   * concretely, another process's `setControl('x','disabled')` write can
+   * land and this process's very next read of it can throw (e.g.
+   * `SQLITE_BUSY`) before it observes the disable. Falling back to the last
+   * known snapshot (or, on a first-ever failed read, to an empty map) would
+   * report "no override" and let a builtin default to 'enabled' — the same
+   * wrong direction as the original bug, just narrowed to one unlucky read
+   * instead of forever. A kill switch must fail closed: when the state
+   * cannot be established, treat it as disabled rather than defaulting open.
+   * This is the one place that decision is made, so every caller —
+   * `getEffectiveMode` and skills-loader's direct `getControl` callers alike
+   * — inherits it without needing its own check.
+   */
   getControl(skillName: string): SkillControl | null {
-    return this.loadControlCache().get(skillName) ?? null;
+    const cache = this.loadControlCache();
+    if (this.lastControlReadFailed) {
+      return {
+        skillName,
+        mode: 'disabled',
+        reason: 'skill control state unknown after a DB read error (fail-closed)',
+        updatedAt: Date.now(),
+      };
+    }
+    return cache.get(skillName) ?? null;
   }
 
+  /**
+   * Best-effort listing for display (health panel / controls UI). Not part
+   * of the injection-decision gate, so it is not fail-closed like
+   * `getControl()`: a momentarily stale list is a display nit, not a policy
+   * violation, and synthesizing entries for skills the DB never mentioned
+   * makes no sense for a listing.
+   */
   listControls(): SkillControl[] {
     return [...this.loadControlCache().values()];
+  }
+
+  /**
+   * The source-based default when no explicit control exists: builtins
+   * default to 'enabled', everything else to 'suggest-only' (decision D1a).
+   * Pure — no DB access — so a caller that already holds its own
+   * `getControl()` result (e.g. `SkillsLoader.resolveModeFor`) can apply
+   * this default without a second DB round trip through `getEffectiveMode`.
+   */
+  resolveSourceDefaultMode(skillSource: string): SkillControlMode {
+    return skillSource === 'builtin' ? 'enabled' : 'suggest-only';
   }
 
   /**
@@ -241,7 +327,7 @@ export class SkillAttributionService extends EventEmitter {
   getEffectiveMode(skillName: string, skillSource: string): SkillControlMode {
     const control = this.getControl(skillName);
     if (control) return control.mode;
-    return skillSource === 'builtin' ? 'enabled' : 'suggest-only';
+    return this.resolveSourceDefaultMode(skillSource);
   }
 
   /** Persist a control. Returns the stored control, or null on failure. */

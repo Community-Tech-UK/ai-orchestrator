@@ -39,7 +39,11 @@ describe('context worker main', () => {
       RLMDatabase: { getInstance: vi.fn(() => ({})) },
     }));
     vi.doMock('../../memory/wake-context-builder', () => ({
-      getWakeContextBuilder: () => ({ getWakeUpText: vi.fn(() => 'wake text') }),
+      // LT-206: registerWorkerEventForwarding() subscribes to
+      // 'wake:context-generated' at module load, so the mock must expose the
+      // EventEmitter surface the real WakeContextBuilder has (it extends
+      // EventEmitter), not just getWakeUpText().
+      getWakeContextBuilder: () => ({ getWakeUpText: vi.fn(() => 'wake text'), on: vi.fn(), emit: vi.fn() }),
     }));
     vi.doMock('../../mcp/mcp-runtime-tool-context', () => ({
       buildMcpRuntimeToolContextSelection: vi.fn(() => ({

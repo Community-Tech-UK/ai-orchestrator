@@ -144,7 +144,7 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'sessionHandoffStateEnabled',
     label: 'Maintained handoff context for swaps and restores',
-    description: 'Keep a rolling summary of each session as it runs, and hand that to the new session when you switch provider/model or restore from history — instead of rebuilding a transcript excerpt at switch time. Off by default while the feature is validated.',
+    description: 'Keep a rolling summary of each session as it runs, and hand that to the new session when you switch provider/model or restore from history — instead of rebuilding a transcript excerpt at switch time. On by default; turn off to use the classic replay preamble instead.',
     type: 'boolean',
     category: 'advanced',
   },

@@ -238,6 +238,46 @@ describe('AskCouncilStore', () => {
       pushUpdate?.(updatedSameRun);
       expect(store.members().find((m) => m.provider === 'gemini')?.status).toBe('succeeded');
     });
+
+    it('LT-197: a run-updated push that races ahead of compareStart()\'s own response is not lost', async () => {
+      // Live-reproduced 2026-08-18: startRun() on the main side is synchronous
+      // and returns the initial all-queued snapshot, but member execution
+      // begins immediately after via a fire-and-forget async call whose first
+      // action is a 'running' patch pushed over a *separate* IPC channel with
+      // no ordering guarantee against the invoke() round-trip. This test
+      // simulates that race by holding compareStart()'s promise open and
+      // firing the push first.
+      const run = makeRun({ members: [{ provider: 'claude', status: 'queued' }, { provider: 'gemini', status: 'queued' }] });
+      let pushUpdate: ((run: CouncilRun) => void) | undefined;
+      let resolveStart!: (value: { success: true; data: CouncilRun }) => void;
+      const ipc = makeIpc({
+        compareStart: vi.fn(() => new Promise((resolve) => { resolveStart = resolve; })),
+        onCompareRunUpdated: vi.fn((cb: (run: CouncilRun) => void) => {
+          pushUpdate = cb;
+          return () => undefined;
+        }),
+      });
+      const store = setupStore(ipc);
+      await store.initialize();
+
+      const startPromise = store.start('hi', ['claude', 'gemini']);
+
+      // The 'running' push for the new run arrives BEFORE start()'s own
+      // response — the store does not know the run's id yet.
+      const racedRunningUpdate = { ...run, members: [{ provider: 'claude', status: 'running' as const }, { provider: 'gemini', status: 'queued' as const }] };
+      pushUpdate?.(racedRunningUpdate);
+      // Not applied yet — store doesn't recognize the id and isn't done starting.
+      expect(store.run()).toBeNull();
+
+      // Now compareStart()'s invoke() round-trip finally resolves with the
+      // stale all-queued snapshot it was holding the whole time.
+      resolveStart({ success: true, data: run });
+      await startPromise;
+
+      // The buffered, fresher 'running' update must win — not the stale
+      // all-queued response.
+      expect(store.members().find((m) => m.provider === 'claude')?.status).toBe('running');
+    });
   });
 
   describe('clearRun()', () => {

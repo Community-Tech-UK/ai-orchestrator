@@ -132,4 +132,47 @@ describe('PluginSourceResolver', () => {
     expect(resolved.kind).toBe('zip');
     await expect(fs.access(path.join(resolved.stagedPath, '.codex-plugin', 'plugin.json'))).resolves.toBeUndefined();
   });
+
+  it('refuses a zip whose entry escapes the extraction directory', async () => {
+    const zipPath = path.join(tempDir, 'traversal.zip');
+    // fflate refuses to encode a `../` entry name, so build the archive with a
+    // same-length placeholder and patch the raw bytes. Zip stores the name
+    // verbatim in the local and central headers and CRCs only cover the file
+    // contents, so a same-length rename keeps the archive valid.
+    const patched = Buffer.from(
+      zipSync({
+        'index.js': new Uint8Array(Buffer.from('module.exports = {};\n')),
+        'xx/escaped.txt': new Uint8Array(Buffer.from('pwned\n')),
+      }),
+    );
+    for (let index = patched.indexOf('xx/escaped.txt'); index !== -1; ) {
+      patched.write('../escaped.txt', index, 'latin1');
+      index = patched.indexOf('xx/escaped.txt', index + 1);
+    }
+    await fs.writeFile(zipPath, patched);
+    const resolver = new PluginSourceResolver();
+
+    // yauzl rejects `../` names before our guard sees them; asserted here so the
+    // combined behaviour stays covered if either layer changes.
+    await expect(resolver.resolve({ type: 'zip', value: zipPath })).rejects.toThrow();
+    await expect(fs.access(path.join(tempDir, 'escaped.txt'))).rejects.toThrow();
+  });
+
+  it('refuses a zip containing a symlink entry', async () => {
+    // GHSA-jmr9-qjv8-65gv: extract-zip creates symlinks without validating the
+    // target, so `link -> /tmp` lets a later `link/...` entry write outside the
+    // staging directory. Unix os id (3) + IFLNK mode marks the entry a symlink.
+    const zipPath = path.join(tempDir, 'symlink.zip');
+    await fs.writeFile(
+      zipPath,
+      Buffer.from(
+        zipSync({
+          link: [new Uint8Array(Buffer.from(tempDir)), { os: 3, attrs: 0o120777 * 0x10000 }],
+        }),
+      ),
+    );
+    const resolver = new PluginSourceResolver();
+
+    await expect(resolver.resolve({ type: 'zip', value: zipPath })).rejects.toThrow(/symlink/);
+  });
 });

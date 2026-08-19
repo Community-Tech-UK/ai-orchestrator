@@ -20,6 +20,9 @@ import {
 } from '../../skills/skill-attribution-service';
 import { registerCleanup } from '../../util/cleanup-registry';
 import { validatedHandler, type IpcResponse } from '../validated-handler';
+import { getLogger } from '../../logging/logger';
+
+const logger = getLogger('SkillAttributionHandlers');
 
 interface SkillAttributionHandlerDependencies {
   windowManager: WindowManager;
@@ -47,6 +50,14 @@ export function registerSkillAttributionHandlers(
 
   let acceptingDeltas = true;
   const onActivation = (activation: SkillActivation) => {
+    // LT-diagnostic (2026-08-18): confirm the listener fires and the push is
+    // attempted, to separate "never emitted/never subscribed" from "emitted
+    // but lost downstream" (see ElectronWindowTransport's own diagnostic log).
+    logger.debug('Forwarding skill activation delta to renderer', {
+      instanceId: activation.instanceId,
+      skillName: activation.skillName,
+      acceptingDeltas,
+    });
     if (!acceptingDeltas) return;
     dependencies.windowManager.sendToRenderer(IPC_CHANNELS.SKILLS_ACTIVATION_DELTA, activation);
   };

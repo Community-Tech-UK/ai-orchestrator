@@ -476,11 +476,27 @@ describe('OrchestratorToolsRpcServer.handleRequest', () => {
     expect(result).toEqual({ accounts: [] });
   });
 
+  /**
+   * A writable calendar account by default policy
+   * (`james@communitytech.co.uk` — see DEFAULT_WRITABLE_ACCOUNT_EMAILS in
+   * orchestrator-calendar-tools.ts), used to exercise the "account precondition
+   * passes" path for mutation dispatch.
+   */
+  function writableCalendarTools() {
+    return {
+      authManager: {
+        connectAccount: vi.fn(async () => ({ accountKey: 'account-1', username: 'james@communitytech.co.uk' })),
+        listAccounts: vi.fn(async () => [{ accountKey: 'account-1', username: 'james@communitytech.co.uk' }]),
+      },
+    };
+  }
+
   it('requires fresh operator authorization before creating a calendar event', async () => {
     const createHandler = vi.fn(async () => ({ id: 'event-1' }));
     const authorizeCalendarMutation = vi.fn(async () => true);
     const { server } = makeServer({
       authorizeCalendarMutation,
+      calendarTools: writableCalendarTools(),
       toolFactory: () => [{
         name: 'graph_calendar_create_event',
         description: 'test tool',
@@ -512,13 +528,14 @@ describe('OrchestratorToolsRpcServer.handleRequest', () => {
 
   it.each([
     ['orchestrator_tools.graph_calendar_connect', 'graph_calendar_connect', {}],
-    ['orchestrator_tools.graph_calendar_create_event', 'graph_calendar_create_event', { accountKey: 'account-1' }],
-    ['orchestrator_tools.graph_calendar_update_event', 'graph_calendar_update_event', { accountKey: 'account-1', eventId: 'event-1' }],
-    ['orchestrator_tools.graph_calendar_delete_event', 'graph_calendar_delete_event', { accountKey: 'account-1', eventId: 'event-1' }],
-  ])('blocks %s without fresh operator authorization', async (method, toolName, payload) => {
+    ['orchestrator_tools.graph_calendar_create_event', 'graph_calendar_create_event', { account: 'james@communitytech.co.uk' }],
+    ['orchestrator_tools.graph_calendar_update_event', 'graph_calendar_update_event', { account: 'james@communitytech.co.uk', eventId: 'event-1' }],
+    ['orchestrator_tools.graph_calendar_delete_event', 'graph_calendar_delete_event', { account: 'james@communitytech.co.uk', eventId: 'event-1' }],
+  ])('blocks %s without fresh operator authorization once the account precondition passes', async (method, toolName, payload) => {
     const handler = vi.fn();
     const { server } = makeServer({
       authorizeCalendarMutation: vi.fn(async () => false),
+      calendarTools: writableCalendarTools(),
       toolFactory: () => [{
         name: toolName,
         description: 'test tool',
@@ -534,6 +551,114 @@ describe('OrchestratorToolsRpcServer.handleRequest', () => {
       params: { instanceId: KNOWN_INSTANCE, payload },
     })).rejects.toThrow('calendar_operator_authorization_required');
     expect(handler).not.toHaveBeenCalled();
+  });
+
+  // LT-192: create/update/delete must fail fast on an unwritable/unknown
+  // target account WITHOUT ever requesting human approval; graph_calendar_connect
+  // must still reach approval with zero accounts, since connecting is how an
+  // account is created.
+  it.each([
+    ['orchestrator_tools.graph_calendar_create_event', 'graph_calendar_create_event', { account: 'nobody@example.test' }],
+    ['orchestrator_tools.graph_calendar_update_event', 'graph_calendar_update_event', { account: 'nobody@example.test', eventId: 'event-1' }],
+    ['orchestrator_tools.graph_calendar_delete_event', 'graph_calendar_delete_event', { account: 'nobody@example.test', eventId: 'event-1' }],
+  ])('LT-192: %s fails fast on an unconnected account without requesting operator approval', async (method, toolName, payload) => {
+    const handler = vi.fn();
+    const authorizeCalendarMutation = vi.fn(async () => true);
+    const { server } = makeServer({
+      authorizeCalendarMutation,
+      // Zero connected accounts, matching the observed production state.
+      calendarTools: { authManager: { connectAccount: vi.fn(), listAccounts: vi.fn(async () => []) } },
+      toolFactory: () => [{
+        name: toolName,
+        description: 'test tool',
+        inputSchema: { type: 'object' },
+        handler,
+      }],
+    } as never);
+
+    await expect(server.handleRequest({
+      jsonrpc: '2.0',
+      id: 164,
+      method,
+      params: { instanceId: KNOWN_INSTANCE, payload },
+    })).rejects.toThrow('Calendar mutation is not permitted for agent calendar mutations: nobody@example.test');
+    expect(authorizeCalendarMutation).not.toHaveBeenCalled();
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('LT-192: graph_calendar_connect still reaches operator approval with zero connected accounts', async () => {
+    const connectHandler = vi.fn(async () => ({ accountKey: 'account-1', username: 'james@communitytech.co.uk' }));
+    const authorizeCalendarMutation = vi.fn(async () => true);
+    const { server } = makeServer({
+      authorizeCalendarMutation,
+      calendarTools: { authManager: { connectAccount: vi.fn(), listAccounts: vi.fn(async () => []) } },
+      toolFactory: () => [{
+        name: 'graph_calendar_connect',
+        description: 'test tool',
+        inputSchema: { type: 'object' },
+        handler: connectHandler,
+      }],
+    } as never);
+
+    await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 165,
+      method: 'orchestrator_tools.graph_calendar_connect',
+      params: { instanceId: KNOWN_INSTANCE, payload: {} },
+    });
+
+    expect(authorizeCalendarMutation).toHaveBeenCalledWith({
+      instanceId: KNOWN_INSTANCE,
+      method: 'orchestrator_tools.graph_calendar_connect',
+      payload: {},
+    });
+    expect(connectHandler).toHaveBeenCalledWith({});
+  });
+
+  // LT-192 gate finding: the fast-fail precondition must normalize the
+  // requested account exactly like the real handler's `AccountSchema`
+  // (`z.string().trim()...`) does, or a legitimate, connected account with
+  // incidental leading/trailing whitespace (plausible from an LLM-composed
+  // tool call or a copy-pasted address) is falsely rejected before approval
+  // is even requested — a real regression the precondition must not
+  // reintroduce relative to pre-LT-192 behavior.
+  it('LT-192: reaches operator approval for a whitespace-padded account, matching Zod\'s trim normalization', async () => {
+    const createHandler = vi.fn(async () => ({ id: 'event-1' }));
+    const authorizeCalendarMutation = vi.fn(async () => true);
+    const { server } = makeServer({
+      authorizeCalendarMutation,
+      calendarTools: writableCalendarTools(),
+      toolFactory: () => [{
+        name: 'graph_calendar_create_event',
+        description: 'test tool',
+        inputSchema: { type: 'object' },
+        handler: createHandler,
+      }],
+    } as never);
+    const payload = {
+      account: '  james@communitytech.co.uk  ',
+      subject: 'Calendar integration test',
+      start: { dateTime: '2026-07-23T10:00:00', timeZone: 'Europe/London' },
+      end: { dateTime: '2026-07-23T10:30:00', timeZone: 'Europe/London' },
+    };
+
+    await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 166,
+      method: 'orchestrator_tools.graph_calendar_create_event',
+      params: { instanceId: KNOWN_INSTANCE, payload },
+    });
+
+    // Must behave identically to the unpadded case: approval requested (the
+    // precondition did NOT reject the account), original payload forwarded
+    // unmodified to the tool handler (the real Zod-backed handler does its
+    // own trim independently, exactly as before this fix).
+    expect(authorizeCalendarMutation).toHaveBeenCalledWith({
+      instanceId: KNOWN_INSTANCE,
+      method: 'orchestrator_tools.graph_calendar_create_event',
+      payload,
+    });
+    expect(createHandler).toHaveBeenCalledWith(payload);
   });
 
   it('dispatches release readiness report requests to the matching tool', async () => {

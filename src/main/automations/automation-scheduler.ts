@@ -96,6 +96,32 @@ export class AutomationScheduler {
         && event.automation.enabled
         && event.automation.nextFireAt !== null) {
         this.schedule(event.automation);
+      } else if (event.automation?.enabled === true && this.hasPendingRetry(event.automationId)) {
+        // LT-195: a fired run's own post-fire bookkeeping (e.g. a oneTime
+        // schedule's `nextFireAt` going null) reliably races AutomationRunner
+        // .handleTerminalRun's synchronous `this.retryScheduler(...)` call —
+        // `emitAutomationState()` re-emits `automation:changed` asynchronously
+        // (after a `store.get()`), so an echo of the very failure that just
+        // armed a retry can arrive here before the full `deactivate()` branch
+        // below would otherwise wrongly cancel it. That echo always still has
+        // `enabled: true` (nothing in the fire path ever flips it) — only a
+        // GENUINE disable does, via the one field every disable path in this
+        // codebase actually changes: the "Pause" UI toggle, `AUTOMATION_UPDATE`,
+        // and the `update_automation` MCP tool all flip `enabled`, never
+        // `active` on their own. So `enabled === true` is not a heuristic that
+        // happens to work for the echo case — it is the same authoritative
+        // on/off bit those write paths themselves use, checked here to tell
+        // "this event is not a disable" apart from "this event might be the
+        // echo". A genuine disable-while-a-retry-is-pending (racing the exact
+        // same way) MUST still cancel the retry — completion-gate-verified
+        // regression covering `enabled: false` racing a pending retry for
+        // both a oneTime and a cron automation; see the LT-195 register entry.
+        // Delete already calls `deactivate()` itself before emitting a
+        // null-`automation` event, so `event.automation?.enabled === true` is
+        // `undefined === true` (false) for that case too — defensively falls
+        // through to the full `deactivate()` below rather than depending on
+        // that ordering.
+        this.deactivateSchedule(event.automationId);
       } else {
         this.deactivate(event.automationId);
       }
@@ -185,6 +211,14 @@ export class AutomationScheduler {
         this.store.clearPendingRetry(runId);
       }
     }
+  }
+
+  /** True when at least one retry timer is currently armed for this automation (LT-195). */
+  private hasPendingRetry(automationId: string): boolean {
+    for (const handle of this.retryHandles.values()) {
+      if (handle.automationId === automationId) return true;
+    }
+    return false;
   }
 
   /**

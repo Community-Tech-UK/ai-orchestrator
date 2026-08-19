@@ -1,9 +1,10 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { rm, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { load } from 'js-yaml';
 
-import { getArtifactRemoteURL } from '@electron/get/dist/cjs/artifact-utils.js';
+import { ElectronDownloadCacheMode, downloadArtifact } from '@electron/get';
 
 const repoRoot = process.cwd();
 const npmrcPath = join(repoRoot, '.npmrc');
@@ -97,14 +98,28 @@ describe('Electron download npm config', () => {
     const previousElectronMirror = process.env['ELECTRON_MIRROR'];
     process.env['ELECTRON_MIRROR'] = electronMirror;
 
-    let linuxCiUrl: string;
+    // `@electron/get` does not export its URL builder, so resolve the URL through
+    // the public download path with a downloader stub that records the requested
+    // URL and writes a placeholder instead of fetching the real archive.
+    const requestedUrls: string[] = [];
+    let artifactPath: string | undefined;
 
     try {
-      linuxCiUrl = await getArtifactRemoteURL({
+      artifactPath = await downloadArtifact({
         version: `v${getLockedElectronVersion()}`,
         artifactName: 'electron',
         platform: 'linux',
         arch: 'x64',
+        // Bypass skips the on-disk cache so the downloader always runs, and leaves
+        // the placeholder in a caller-owned temp dir rather than the shared cache.
+        cacheMode: ElectronDownloadCacheMode.Bypass,
+        unsafelyDisableChecksums: true,
+        downloader: {
+          async download(url: string, targetFilePath: string): Promise<void> {
+            requestedUrls.push(url);
+            await writeFile(targetFilePath, '');
+          },
+        },
       });
     } finally {
       if (previousElectronMirror === undefined) {
@@ -112,7 +127,14 @@ describe('Electron download npm config', () => {
       } else {
         process.env['ELECTRON_MIRROR'] = previousElectronMirror;
       }
+      // Bypass hands ownership of the temp download dir to the caller.
+      if (artifactPath !== undefined) {
+        await rm(dirname(artifactPath), { recursive: true, force: true });
+      }
     }
+
+    expect(requestedUrls).toHaveLength(1);
+    const linuxCiUrl = requestedUrls[0]!;
 
     expect(electronMirror).not.toBe(defaultElectronMirror);
     expect(electronMirror).toMatch(/^https:\/\//);

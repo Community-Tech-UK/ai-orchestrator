@@ -14,6 +14,18 @@ export interface SnapshotMeta {
   timestamp: number;
   messageCount: number;
   schemaVersion: number;
+  /**
+   * LT-136: the index used to drop `name`/`description`/`trigger`, so every
+   * listing (`SnapshotManager.listSnapshots()`) hardcoded `trigger: 'auto'`
+   * and no `name` — a manually labeled pre-compaction checkpoint ("Before
+   * manual compaction (keep latest N exchanges)", trigger 'checkpoint') was
+   * indistinguishable from a periodic auto-checkpoint in the checkpoint
+   * timeline UI, even though the full data was correct on disk. Carried
+   * through the index now so the listing can be honest without a disk read.
+   */
+  name?: string;
+  description?: string;
+  trigger?: 'auto' | 'manual' | 'checkpoint';
 }
 
 export class SnapshotIndex {

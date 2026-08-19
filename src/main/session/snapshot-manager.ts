@@ -98,6 +98,9 @@ export class SnapshotManager extends EventEmitter {
       timestamp: snapshot.timestamp,
       messageCount: snapshot.metadata.messageCount,
       schemaVersion: CURRENT_SCHEMA_VERSION,
+      name: snapshot.name,
+      description: snapshot.description,
+      trigger: snapshot.metadata.trigger,
     });
 
     // Cleanup old snapshots
@@ -122,12 +125,22 @@ export class SnapshotManager extends EventEmitter {
       historyThreadId: meta.historyThreadId,
       timestamp: meta.timestamp,
       schemaVersion: meta.schemaVersion,
+      // LT-136: name/description were never carried by the index, so a
+      // labeled checkpoint (e.g. a manual pre-compaction snapshot) always
+      // listed as an unnamed, generically-titled entry.
+      name: meta.name,
+      description: meta.description,
       state: {} as SessionState, // not loaded for listing
       metadata: {
         messageCount: meta.messageCount,
         tokensUsed: 0,
         duration: 0,
-        trigger: 'auto' as const,
+        // LT-136: was hardcoded 'auto' regardless of the real trigger, so a
+        // manual/checkpoint-triggered snapshot rendered as "Auto" in the
+        // checkpoint timeline. Fall back to 'auto' only for entries indexed
+        // before this fix (in-memory only, so this matters solely within a
+        // single already-running process before restart rebuilds the index).
+        trigger: meta.trigger ?? 'auto',
       },
     }));
   }

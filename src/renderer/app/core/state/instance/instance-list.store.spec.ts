@@ -129,6 +129,106 @@ describe('InstanceListStore', () => {
     expect(instance.currentModel).toBe('gemini-2.5-pro');
   });
 
+  it('LT-161: carries failoverProviders from the snapshot payload so the WS7 Switch-provider button can render', () => {
+    const instance = store.deserializeInstance({
+      id: 'instance-failover',
+      displayName: 'Failover-configured instance',
+      createdAt: 1,
+      historyThreadId: 'thread-failover',
+      parentId: null,
+      childrenIds: [],
+      status: 'idle',
+      contextUsage: { used: 0, total: 200000, percentage: 0 },
+      lastActivity: 2,
+      sessionId: 'session-failover',
+      workingDirectory: '/tmp/project',
+      yoloMode: false,
+      provider: 'claude',
+      failoverProviders: ['claude', 'codex'],
+      outputBuffer: [],
+    });
+
+    expect(instance.failoverProviders).toEqual(['claude', 'codex']);
+  });
+
+  /**
+   * LT-161 (completeness pass): a deserializer missing one field usually means
+   * it is missing others — `failoverProviders` was not the only one dropped.
+   * `hardened`, `contextEvidence`, `fastMode`, and `executionLocation` were
+   * also silently gone, each with a real, silently-broken consumer (WS13
+   * hardened-denial banner, context-evidence panel, FAST badge, remote-node
+   * badge/grouping). This test enumerates every field main can send over the
+   * wire (`Instance` in `instance.types.ts`) except two that are deliberately
+   * NOT wire-carried by design — `isRenamed` (no renderer reads it) and
+   * `pendingYoloMode` (sourced from `desiredRuntime` instead, per the comment
+   * at this file's `handleRestartResponse`/yolo-toggle site) — and fails if a
+   * future field is added to the wire type but not wired into
+   * `deserializeInstance()`, instead of passing silently the way this bug did.
+   *
+   * Keep this field list in sync with `Instance` in `instance.types.ts` when
+   * either changes.
+   */
+  it('LT-161: deserializeInstance carries every wire field forward (structural completeness)', () => {
+    const fixture: Record<string, unknown> = {
+      id: 'instance-complete',
+      displayName: 'Complete instance',
+      createdAt: 111,
+      historyThreadId: 'thread-complete',
+      contextEvidence: { mode: 'shadow', conversationId: 'conv-1', captureFailureCount: 0 },
+      parentId: 'parent-1',
+      childrenIds: ['child-1'],
+      agentId: 'build',
+      agentMode: 'build',
+      provider: 'claude',
+      status: 'idle',
+      contextUsage: { used: 5, total: 200000, percentage: 0.0025 },
+      lastActivity: 222,
+      activityState: 'idle',
+      currentActivity: 'thinking',
+      currentTool: 'Bash',
+      providerSessionId: 'provider-session-1',
+      sessionId: 'session-complete',
+      restartEpoch: 3,
+      adapterGeneration: 4,
+      activeTurnId: 'turn-1',
+      interruptRequestId: 'interrupt-1',
+      interruptRequestedAt: 333,
+      interruptPhase: 'requested',
+      lastTurnOutcome: 'completed',
+      supersededBy: 'instance-superseder',
+      cancelledForEdit: true,
+      recoveryMethod: 'native',
+      archivedUpToMessageId: 'msg-1',
+      workingDirectory: '/tmp/complete-project',
+      yoloMode: true,
+      failoverProviders: ['claude', 'codex'],
+      hardened: true,
+      desiredRuntime: { provider: 'codex' },
+      fastMode: true,
+      launchMode: 'orchestrated',
+      currentModel: 'opus',
+      reasoningEffort: 'high',
+      runtimeSummary: { kind: 'local' },
+      outputBuffer: [],
+      restoreMode: 'native-resume',
+      diffStats: { totalAdded: 1, totalDeleted: 0, files: {} },
+      executionLocation: { type: 'remote', nodeId: 'node-1' },
+      metadata: { key: 'value' },
+      waitReason: { kind: 'quota-park', provider: 'claude', resumeAt: 999 },
+      selfManagesAutoCompaction: true,
+    };
+
+    // Deliberately NOT wire-carried by design — excluded from this check.
+    const intentionallyExcluded = new Set(['isRenamed', 'pendingYoloMode']);
+
+    const instance = store.deserializeInstance(fixture) as unknown as Record<string, unknown>;
+
+    for (const [key, value] of Object.entries(fixture)) {
+      if (intentionallyExcluded.has(key)) continue;
+      expect(instance[key], `field "${key}" should survive deserializeInstance()`).toEqual(value);
+    }
+  });
+
   it('carries selfManagesAutoCompaction from the snapshot payload', () => {
     const selfManaged = store.deserializeInstance({
       id: 'instance-sm',

@@ -15,6 +15,7 @@ import type {
   MetricsCollectorStateSnapshot,
   OutcomeTrackerStateSnapshot,
 } from '../learning/learning-state.types';
+import type { SkillActivation } from '../skills/skill-attribution-service';
 import type {
   ProjectMemoryBrief,
   ProjectMemoryBriefRequest,
@@ -197,7 +198,64 @@ export interface WorkerRpcResponseMsg {
   error?: string;
 }
 
-export type ContextWorkerOutboundMsg = WorkerReadyMsg | WorkerRpcResponseMsg;
+/**
+ * Fire-and-forget: a skill activation was recorded by the worker's own
+ * (process-local) `SkillAttributionService` singleton.
+ *
+ * LT-170: `SkillAttributionService` is a per-process singleton (same
+ * constraint as LT-169's `controlCache`), and `recordActivation()` runs
+ * inside this worker's own `UnifiedMemoryController`
+ * (`unified-controller.ts`), not the main process. Its `emit('activation',
+ * …)` therefore fires on an `EventEmitter` instance the main process never
+ * subscribes to — `registerSkillAttributionHandlers()`'s `attribution.on(
+ * 'activation', …)` listens on the *main* process's own singleton, a
+ * different object in a different OS process. Node's `EventEmitter` cannot
+ * cross a process boundary on its own, so the DB row always lands correctly
+ * (the row is written by this worker's own SQLite connection to the shared
+ * file) while the renderer never saw a live push — only a manual re-fetch
+ * (`skillsActivationsRecent`/`refreshActivations()`) ever picked it up. This
+ * message explicitly re-establishes that missing hop over the existing
+ * worker↔main channel.
+ */
+export interface WorkerSkillActivationMsg {
+  type: 'skill-activation';
+  activation: SkillActivation;
+}
+
+/**
+ * Fire-and-forget: a clone-safe event emitted by a per-process singleton
+ * inside the worker, re-broadcast here for main to re-emit on its own
+ * separate instance of the same class.
+ *
+ * LT-206: `RLMContextManager` and `WakeContextBuilder` are per-process
+ * singletons exactly like `SkillAttributionService` (LT-169/LT-170) — see
+ * `WorkerSkillActivationMsg` above for the cross-process `EventEmitter`
+ * mechanics this reuses. Production RLM store/section activity and the
+ * per-turn wake-context build both happen inside this worker (via
+ * `InstanceContextManager`/`ContextWorkerClient.buildWakeContextText`), so
+ * `main`'s own `RLMContextManager.getInstance()`/`getWakeContextBuilder()`
+ * never observes them directly and the renderer's live-update channels
+ * (`RLM_STORE_UPDATED` et al., `WAKE_EVENT_CONTEXT_GENERATED`) went dead.
+ * `wake:hint-added` is NOT included: `addHint()` has no worker call path in
+ * production, so it already fires correctly from main today.
+ *
+ * See `context-worker-event-forwarding.ts` for the worker-side subscription
+ * allowlist and the main-side re-emit dispatch — the single place that owns
+ * both directions of this mechanism so a future emitter of this shape is a
+ * one-line addition there instead of a new bespoke message type.
+ */
+export interface WorkerForwardedEventMsg {
+  type: 'worker-event';
+  source: 'rlm-context' | 'wake-context';
+  event: string;
+  payload: unknown;
+}
+
+export type ContextWorkerOutboundMsg =
+  | WorkerReadyMsg
+  | WorkerRpcResponseMsg
+  | WorkerSkillActivationMsg
+  | WorkerForwardedEventMsg;
 
 export type {
   HabitTrackerStateSnapshot,

@@ -211,3 +211,48 @@ describe('automation description length (live drop, 2026-08-01)', () => {
     ).toBe(false);
   });
 });
+
+/**
+ * LT-139 — live-reproduced 2026-08-18. `AutomationActionSchema` never
+ * declared `executionProfile`/`containedFallback` even though the shared
+ * `AutomationAction` type and the renderer's Automation builder form both
+ * set them. `z.object()` strips unknown keys by default, so
+ * `validateIpcPayload(AutomationCreatePayloadSchema, ...)` silently dropped
+ * both fields on every create/update — an automation built with "Contained"
+ * selected in the UI persisted and then ran as 'standard' (full host
+ * access, no sandbox) with no error anywhere. Confirmed live: a real
+ * `automationCreate` call with `executionProfile: 'contained'` on a Claude
+ * automation stored an action with no `executionProfile` field at all, and
+ * firing it spawned a completely normal, unsandboxed Claude instance
+ * instead of failing at fire time as WS-C7 requires for a non-Codex
+ * provider.
+ */
+describe('automation execution profile (live drop, LT-139, 2026-08-18)', () => {
+  it('round-trips executionProfile and containedFallback through create', () => {
+    const parsed = AutomationCreatePayloadSchema.parse({
+      ...baseCreatePayload,
+      action: { ...baseAction, executionProfile: 'contained', containedFallback: 'fail' },
+    });
+
+    expect(parsed.action.executionProfile).toBe('contained');
+    expect(parsed.action.containedFallback).toBe('fail');
+  });
+
+  it('round-trips executionProfile through update', () => {
+    const parsed = AutomationUpdatePayloadSchema.parse({
+      id: '11111111-2222-4333-8444-555555555555',
+      updates: { action: { ...baseAction, executionProfile: 'contained' } },
+    });
+
+    expect(parsed.updates.action?.executionProfile).toBe('contained');
+  });
+
+  it('rejects an invalid executionProfile value rather than silently dropping it', () => {
+    expect(
+      AutomationCreatePayloadSchema.safeParse({
+        ...baseCreatePayload,
+        action: { ...baseAction, executionProfile: 'sandboxed' },
+      }).success,
+    ).toBe(false);
+  });
+});

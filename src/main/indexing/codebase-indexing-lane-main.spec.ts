@@ -150,15 +150,90 @@ describe('codebase indexing lane main entrypoint', () => {
     });
   });
 
+  it('LT-207: forwards a section:added fired by this lane\'s own RLMContextManager to main over the transport', async () => {
+    const parentPort = installParentPort();
+
+    // The lane worker owns a process-local `RLMContextManager` singleton
+    // (see codebase-indexing-lane-main.ts's own `RLMContextManager` import).
+    // Stub it as a real EventEmitter so `registerWorkerEventForwarding`
+    // (called from `ensureWorkerEventForwarding`) can subscribe to it for
+    // real, and so the fake indexing service below can emit on the exact
+    // same instance the way `CodebaseIndexingService.addSection()` does in
+    // production.
+    vi.doMock('../rlm/context-manager', () => {
+      const instance = Object.assign(new EventEmitter(), {
+        reloadFromPersistence: vi.fn(),
+      });
+      return { RLMContextManager: { getInstance: () => instance } };
+    });
+    vi.doMock('./indexing-service', () => ({
+      CodebaseIndexingService: class FakeCodebaseIndexingService extends EventEmitter {
+        cancel = vi.fn();
+
+        async indexCodebase(storeId: string): Promise<IndexingStats> {
+          // Simulates CodebaseIndexingService.addSection() calling
+          // `this.contextManager.addSection(...)`, which emits
+          // 'section:added' on this worker's own RLMContextManager instance.
+          const { RLMContextManager } = await import('../rlm/context-manager');
+          RLMContextManager.getInstance().emit('section:added', {
+            store: { id: storeId },
+            section: { id: 'sec-lt207', name: 'lt207-sample.ts' },
+          });
+          return {
+            filesIndexed: 1,
+            chunksCreated: 1,
+            tokensProcessed: 0,
+            duration: 1,
+            errors: [],
+          };
+        }
+      },
+    }));
+
+    await import('./codebase-indexing-lane-main');
+    parentPort.emit('message', {
+      data: {
+        type: 'run-job',
+        jobId: 'job-lt207',
+        jobType: 'index-codebase',
+        payload: {
+          type: 'index-codebase',
+          rootPath: '/repo',
+          storeId: 'codebase:lt207-test',
+          force: true,
+        },
+      },
+    });
+    await flushMicrotasks();
+
+    expect(parentPort.postMessage).toHaveBeenCalledWith({
+      type: 'worker-event',
+      message: {
+        type: 'worker-event',
+        source: 'rlm-context',
+        event: 'section:added',
+        payload: {
+          store: { id: 'codebase:lt207-test' },
+          section: { id: 'sec-lt207', name: 'lt207-sample.ts' },
+        },
+      },
+    });
+  });
+
   it('reloads persisted RLM stores before each background indexing job', async () => {
     const parentPort = installParentPort();
     const events: string[] = [];
 
-    vi.doMock('../rlm/context-manager', () => ({
-      RLMContextManager: {
-        getInstance: () => ({ reloadFromPersistence: () => events.push('reload') }),
-      },
-    }));
+    vi.doMock('../rlm/context-manager', () => {
+      // LT-207: `ensureWorkerEventForwarding()` now calls `getInstance().on(...)`
+      // (via `registerWorkerEventForwarding`) before the first
+      // `reloadFromPersistence()` — the mock must behave like an EventEmitter
+      // or that subscription throws and the job never reaches 'reload'/'index'.
+      const instance = Object.assign(new EventEmitter(), {
+        reloadFromPersistence: () => events.push('reload'),
+      });
+      return { RLMContextManager: { getInstance: () => instance } };
+    });
     vi.doMock('../persistence/rlm-database', () => ({
       RLMDatabase: {
         getInstance: (config: { dbPath: string; contentDir: string }) => {

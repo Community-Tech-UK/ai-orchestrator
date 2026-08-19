@@ -400,3 +400,79 @@ describe('CompactionCoordinator shared safety policy', () => {
     }));
   });
 });
+
+describe('CompactionCoordinator epoch tracking (LT-194 — Workboard decision timeline feed)', () => {
+  beforeEach(() => {
+    CompactionCoordinator._resetForTesting();
+  });
+
+  it('records a compaction-history entry on a successful native compaction', async () => {
+    const coordinator = CompactionCoordinator.getInstance();
+    coordinator.configure({
+      nativeCompact: vi.fn(async () => true),
+      restartCompact: vi.fn(async () => true),
+      supportsNativeCompaction: () => true,
+    });
+
+    expect(coordinator.getEpochTracker('inst-epoch-native').getHistory()).toEqual([]);
+
+    const result = await coordinator.compactInstance('inst-epoch-native');
+
+    expect(result.success).toBe(true);
+    const history = coordinator.getEpochTracker('inst-epoch-native').getHistory();
+    expect(history).toHaveLength(1);
+    expect(history[0]).toMatchObject({ turnsBeforeCompaction: 0 });
+  });
+
+  it('records a compaction-history entry on a successful restart-with-summary compaction', async () => {
+    const coordinator = CompactionCoordinator.getInstance();
+    coordinator.configure({
+      nativeCompact: vi.fn(async () => true),
+      restartCompact: vi.fn(async () => true),
+      supportsNativeCompaction: () => false,
+    });
+
+    const result = await coordinator.compactInstance('inst-epoch-restart');
+
+    expect(result.success).toBe(true);
+    expect(coordinator.getEpochTracker('inst-epoch-restart').getHistory()).toHaveLength(1);
+  });
+
+  it('does NOT record a compaction-history entry when compaction fails', async () => {
+    const coordinator = CompactionCoordinator.getInstance();
+    coordinator.configure({
+      nativeCompact: vi.fn(async () => false),
+      restartCompact: vi.fn(async () => false),
+      supportsNativeCompaction: () => true,
+    });
+
+    const result = await coordinator.compactInstance('inst-epoch-fail');
+
+    expect(result.success).toBe(false);
+    expect(coordinator.getEpochTracker('inst-epoch-fail').getHistory()).toEqual([]);
+  });
+
+  it('counts real turns via onContextUpdate into turnsBeforeCompaction, and starts the next epoch at zero', async () => {
+    const coordinator = CompactionCoordinator.getInstance();
+    coordinator.configure({
+      nativeCompact: vi.fn(async () => true),
+      restartCompact: vi.fn(async () => true),
+      supportsNativeCompaction: () => true,
+    });
+
+    coordinator.onContextUpdate('inst-epoch-turns', { used: 10, total: 100, percentage: 10 });
+    coordinator.onContextUpdate('inst-epoch-turns', { used: 20, total: 100, percentage: 20 });
+    coordinator.onContextUpdate('inst-epoch-turns', { used: 30, total: 100, percentage: 30 });
+
+    await coordinator.compactInstance('inst-epoch-turns');
+
+    const history = coordinator.getEpochTracker('inst-epoch-turns').getHistory();
+    expect(history).toHaveLength(1);
+    expect(history[0].turnsBeforeCompaction).toBe(3);
+
+    // A turn in the NEW epoch should not retroactively touch the closed record.
+    coordinator.onContextUpdate('inst-epoch-turns', { used: 5, total: 100, percentage: 5 });
+    expect(coordinator.getEpochTracker('inst-epoch-turns').getHistory()[0].turnsBeforeCompaction).toBe(3);
+    expect(coordinator.getEpochTracker('inst-epoch-turns').getCurrentEpoch().turnCount).toBe(1);
+  });
+});

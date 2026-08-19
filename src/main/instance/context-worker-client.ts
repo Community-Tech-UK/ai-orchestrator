@@ -22,6 +22,7 @@ import { isOccupancyPressureReading } from '../../shared/utils/context-occupancy
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { getLogger } from '../logging/logger';
+import { dispatchWorkerBroadcast } from './context-worker-event-forwarding';
 import { createIsolatedWorkerProcess, type IsolatedWorkerProcess } from '../runtime/isolated-worker-process';
 import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
@@ -531,6 +532,9 @@ export class ContextWorkerClient implements InstanceContextPort {
   }
 
   private handleMessage(msg: ContextWorkerOutboundMsg): void {
+    // LT-169/170/206: re-emit on main's own singleton — see
+    // context-worker-event-forwarding.ts for the cross-process why.
+    if (msg.type === 'skill-activation' || msg.type === 'worker-event') return void dispatchWorkerBroadcast(msg);
     if (msg.type !== 'rpc-response') return;
     const pending = this.pending.get(msg.id);
     if (!pending) return;

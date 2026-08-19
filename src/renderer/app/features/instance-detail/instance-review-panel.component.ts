@@ -318,11 +318,10 @@ export class InstanceReviewPanelComponent {
     this.dispatchError.set(null);
     try {
       const resp = await this.ipc.getApi()?.reviewStartSession({
-        agentId: agentIds[0],
         instanceId,
-        workingDirectory: this.workingDirectory() || '',
+        agentIds,
         files,
-        options: { agentIds, diffOnly: this.diffOnly() }
+        diffOnly: this.diffOnly(),
       });
       if (!resp?.success) {
         this.error.set(resp?.error?.message || 'Failed to start review');

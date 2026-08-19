@@ -34,6 +34,26 @@ function parseCodexAuthOutput(output: string): CodexCliAuthCheckResult | null {
   }
 
   const normalized = trimmed.toLowerCase();
+
+  // Negative phrasing must be checked BEFORE the positive "logged in" check:
+  // "not logged in" itself contains the substring "logged in", so matching
+  // the positive pattern first would misclassify a genuine sign-out as
+  // authenticated (LT-167 — this exact bug shipped and reached both the
+  // Doctor readiness row and the mid-session auth-repair probe).
+  if (
+    normalized.includes('not logged in')
+    || normalized.includes('login required')
+    || normalized.includes('logged out')
+  ) {
+    return {
+      authenticated: false,
+      message: 'Codex CLI is not logged in',
+      metadata: {
+        rawOutput: trimmed,
+      },
+    };
+  }
+
   if (normalized.includes('logged in')) {
     const authMethod = normalized.includes('chatgpt')
       ? 'chatgpt'
@@ -52,20 +72,6 @@ function parseCodexAuthOutput(output: string): CodexCliAuthCheckResult | null {
       message: `Codex CLI authenticated${authMethodMessage}`,
       metadata: {
         authMethod,
-        rawOutput: trimmed,
-      },
-    };
-  }
-
-  if (
-    normalized.includes('not logged in')
-    || normalized.includes('login required')
-    || normalized.includes('logged out')
-  ) {
-    return {
-      authenticated: false,
-      message: 'Codex CLI is not logged in',
-      metadata: {
         rawOutput: trimmed,
       },
     };

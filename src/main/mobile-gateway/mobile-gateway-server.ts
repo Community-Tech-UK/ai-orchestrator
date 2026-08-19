@@ -254,12 +254,25 @@ export class MobileGatewayServer {
    */
   private readonly inputQueue = new MobileInputQueue({
     getInstance: (instanceId) => this.deps?.instanceManager.getInstance(instanceId),
-    isPaused: () => this.pauseState().isPaused,
+    // LT-181: block a queued delivery while any send is in flight — see `sendInFlight`.
+    isPaused: (instanceId) => this.pauseState().isPaused || this.sendInFlight.has(instanceId),
+    // Routed through `dispatchSend()`, not a raw sendInput call — see its doc comment.
     deliver: (instanceId, message, attachments) =>
-      this.source().sendInput(instanceId, message, attachments),
+      this.dispatchSend(instanceId, message, attachments),
     onChange: () => this.scheduleSnapshotBroadcast(),
     logger,
   });
+  /**
+   * Instances with a send in flight *of any kind* right now — direct
+   * (`handleInput()`) or queue-drained (`MobileInputQueue.deliverNext()`),
+   * both via `dispatchSend()`. Needed because `instance.status` only flips
+   * busy several `await`s deep inside `sendInputImpl`, so a fresh send can
+   * race an already-dispatched one under either pairing (direct-vs-direct or
+   * direct-vs-queue-drain — LT-181; the first fix covered only the former).
+   * `dispatchSend()` is the one place that marks/clears this set for both
+   * callers, so there is one place to get it wrong, not two to keep in step.
+   */
+  private readonly sendInFlight = new Set<string>();
   /** The orchestration handler we attached to, for clean detach on stop. */
   private orchestration: EmitterLike | null = null;
   private attachedPause: GatewayPauseSource | null = null;
@@ -637,6 +650,7 @@ export class MobileGatewayServer {
   private handleInstanceRemoved(instanceId: string): void {
     this.clearPromptsForInstance(instanceId);
     this.inputQueue.clear(instanceId);
+    this.sendInFlight.delete(instanceId);
     this.lastStatusByInstance.delete(instanceId);
     this.unreadCompletions.delete(instanceId);
     // Dismiss any lock-screen Live Activity tracking this session.
@@ -1212,9 +1226,11 @@ export class MobileGatewayServer {
       this.sendJson(res, 200, duplicate);
       return;
     }
-    // Mid-turn (or paused) sends park instead of hitting an adapter that would
-    // reject them — the desktop composer queues for the same statuses.
-    if (shouldQueueInput(instance, this.pauseState().isPaused)) {
+    // Mid-turn (or paused) sends park instead of hitting an adapter that
+    // would reject them — the desktop composer queues for the same statuses.
+    // Also park a send racing another in-flight send, direct or queue-drained
+    // (LT-181 — see `sendInFlight`'s doc comment above).
+    if (shouldQueueInput(instance, this.pauseState().isPaused) || this.sendInFlight.has(instanceId)) {
       const parked = this.inputQueue.enqueue(instanceId, message, attachments);
       if (!parked) {
         this.sendJson(res, 429, {
@@ -1230,9 +1246,32 @@ export class MobileGatewayServer {
       this.sendJson(res, 200, queued);
       return;
     }
-    await this.source().sendInput(instanceId, message, attachments);
+    await this.dispatchSend(instanceId, message, attachments);
     const sent: MobileInputResponse = { ok: true };
     this.sendJson(res, 200, sent);
+  }
+
+  /**
+   * The one place that actually calls `this.source().sendInput()` — used by
+   * both `handleInput()`'s direct-send branch and the `inputQueue`'s
+   * `deliver` dependency (queue drain), so the `sendInFlight` marking below
+   * can never drift out of step between the two callers (LT-181). Marks
+   * synchronously — no `await` between the caller's readiness check and this
+   * call — so a concurrent `handleInput`/`deliverNext` for the same instance
+   * always sees an already-dispatched send in flight, regardless of which of
+   * the two callers got there first.
+   */
+  private async dispatchSend(
+    instanceId: string,
+    message: string,
+    attachments?: FileAttachment[],
+  ): Promise<void> {
+    this.sendInFlight.add(instanceId);
+    try {
+      await this.source().sendInput(instanceId, message, attachments);
+    } finally {
+      this.sendInFlight.delete(instanceId);
+    }
   }
 
   private async handleRespond(

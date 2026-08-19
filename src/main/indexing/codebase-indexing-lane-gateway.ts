@@ -19,6 +19,8 @@ import type {
   CodebaseIndexingLaneJob,
   CodebaseIndexingLaneResult,
 } from './codebase-indexing-lane-protocol';
+import { dispatchWorkerBroadcast } from '../instance/context-worker-event-forwarding';
+import type { ContextWorkerOutboundMsg } from '../instance/context-worker-protocol';
 
 interface RuntimeLike extends EventEmitter {
   enqueueAndWait(submission: BackgroundJobSubmission): Promise<unknown>;
@@ -58,6 +60,15 @@ export class CodebaseIndexingLaneGateway extends EventEmitter implements AutoInd
     this.runtime.on('progress', (event: { job: BackgroundJobRecord; progress: BackgroundJobProgress }) => {
       if (event.job.lane !== 'indexing' || event.job.type !== 'index-codebase') return;
       this.emit('progress', this.toIndexingProgress(event.progress, event.job));
+    });
+    // LT-207: the indexing lane worker constructs its own worker-local
+    // `RLMContextManager.getInstance()` (see `codebase-indexing-lane-main.ts`),
+    // so `section:added` fired by `CodebaseIndexingService.addSection()` is
+    // invisible to main's separate singleton and never reaches the renderer's
+    // `RLM_SECTION_ADDED` channel. Re-emit the forwarded broadcast on main's
+    // singleton via the same LT-206 mechanism used for the context worker.
+    this.runtime.on('worker-event', (message: unknown) => {
+      dispatchWorkerBroadcast(message as ContextWorkerOutboundMsg);
     });
   }
 

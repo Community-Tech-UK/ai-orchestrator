@@ -269,6 +269,14 @@ export class SkillsLoader extends EventEmitter {
    * An explicit control always wins; user-declared skills (manifest or
    * registerSkill) default to 'enabled'; everything else falls back to the
    * source-based default ('enabled' for builtins, 'suggest-only' otherwise).
+   *
+   * LT-169 perf finding: this used to fall through to
+   * `attribution.getEffectiveMode(name, source)`, which re-fetches the same
+   * skill's control via its own internal `getControl()` call — a second DB
+   * round trip for a value this method had already fetched and found empty.
+   * `resolveSourceDefaultMode()` is the same source-default logic
+   * `getEffectiveMode()` uses, exposed without a DB read, so the control
+   * lookup here happens exactly once per call.
    */
   private resolveModeFor(
     name: string,
@@ -278,7 +286,7 @@ export class SkillsLoader extends EventEmitter {
     const control = attribution.getControl(name);
     if (control) return control.mode;
     if (this.explicitlyDeclaredNames.has(name)) return 'enabled';
-    return attribution.getEffectiveMode(name, source);
+    return attribution.resolveSourceDefaultMode(source);
   }
 
   // ============ Skill Detection ============

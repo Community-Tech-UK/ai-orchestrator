@@ -135,6 +135,42 @@ describe('CodebaseIndexingLaneGateway', () => {
     }));
   });
 
+  it('LT-207: dispatches a worker-event broadcast from the indexing lane onto main\'s RLMContextManager', async () => {
+    const { RLMContextManager } = await import('../rlm/context-manager');
+    const rlm = RLMContextManager.getInstance();
+    const received: unknown[] = [];
+    const listener = (payload: unknown) => received.push(payload);
+    rlm.on('section:added', listener);
+
+    try {
+      const runtime = new FakeRuntime();
+      // eslint-disable-next-line no-new -- constructing wires the 'worker-event' subscription under test
+      new CodebaseIndexingLaneGateway({ runtime: runtime as unknown as FakeRuntimeOption });
+
+      // Shape posted by the indexing lane worker (codebase-indexing-lane-main.ts)
+      // over the LaneOutboundMessage 'worker-event' envelope — see
+      // context-worker-event-forwarding.ts's WorkerForwardedEventMsg.
+      runtime.emit('worker-event', {
+        type: 'worker-event',
+        source: 'rlm-context',
+        event: 'section:added',
+        payload: {
+          store: { id: 'codebase:lt207-gateway-test' },
+          section: { id: 'sec-lt207-gw', name: 'lt207-gateway.ts' },
+        },
+      });
+
+      expect(received).toEqual([
+        {
+          store: { id: 'codebase:lt207-gateway-test' },
+          section: { id: 'sec-lt207-gw', name: 'lt207-gateway.ts' },
+        },
+      ]);
+    } finally {
+      rlm.off('section:added', listener);
+    }
+  });
+
   it('implements AutoIndexingTarget.indexCodebase for the auto coordinator', async () => {
     const runtime = new FakeRuntime();
     const gateway = new CodebaseIndexingLaneGateway({

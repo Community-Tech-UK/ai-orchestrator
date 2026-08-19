@@ -252,6 +252,22 @@ export class InstanceStateManager extends EventEmitter {
       currentModel !== undefined
         ? this.instances.get(instanceId)?.runtimeSummary ?? null
         : existing?.runtimeSummary;
+    // LT-160: unlike status/contextUsage/desiredRuntime — which every caller
+    // also assigns directly onto the live Instance object in addition to
+    // routing here for the renderer broadcast — waitReason had no such direct
+    // writer anywhere. It only ever reached `pendingUpdates` (renderer-bound),
+    // so the canonical Instance object's own `waitReason` stayed permanently
+    // undefined. Main-process readers that gate on it synchronously
+    // (SessionAdmissionService.admitAutomatedWrite, the mobile input queue)
+    // were therefore structurally blind to every quota-park / auth-required
+    // wait state. Mirror the same live-object write here, the one function
+    // every waitReason caller already funnels through.
+    if (waitReason !== undefined) {
+      const live = this.instances.get(instanceId);
+      if (live) {
+        live.waitReason = waitReason ?? undefined;
+      }
+    }
     this.pendingUpdates.set(instanceId, {
       instanceId,
       status,

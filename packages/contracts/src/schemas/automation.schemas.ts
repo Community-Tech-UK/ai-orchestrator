@@ -105,6 +105,17 @@ export const AutomationActionSchema = z.object({
       resumePrompt: z.string().max(500000).optional(),
     }),
   ]).optional(),
+  // LT-139: WS-C7's execution profile / contained-fallback fields existed on
+  // the shared `AutomationAction` type and the renderer form
+  // (`automations-page.component.ts`) but were never added here. Because
+  // `z.object()` strips unknown keys by default, `validateIpcPayload()`
+  // silently dropped both fields on every create/update, so an automation
+  // built with "Contained" selected in the UI persisted and ran as
+  // 'standard' (full host access) with no error — the exact silent
+  // downgrade `AutomationExecutionProfile`'s own doc comment says must never
+  // happen.
+  executionProfile: z.enum(['standard', 'contained']).optional(),
+  containedFallback: z.literal('fail').optional(),
 });
 
 export const AutomationDestinationSchema = z.discriminatedUnion('kind', [

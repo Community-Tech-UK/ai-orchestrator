@@ -296,11 +296,22 @@ describe('CodexContextPressureCollector', () => {
   it('classifies items by bounded class without exposing tool names or commands', () => {
     expect([
       'command_execution', 'commandExecution', 'mcpToolCall', 'dynamicToolCall', 'webSearch',
-      'file_change', 'fileChange', 'collabAgentToolCall', 'agent_message', 'agentMessage', 'reasoning', 'unknown',
+      'file_change', 'fileChange', 'collabAgentToolCall', 'agent_message', 'agentMessage', 'reasoning',
+      'user_message', 'userMessage', 'unknown',
     ].map((type) => classifyCodexObservedItem({ type, command: 'not-recorded', tool: 'not-recorded' }))).toEqual([
       'command', 'command', 'mcp', 'dynamic', 'web', 'file-change', 'file-change', 'collaboration',
-      'agent-message', 'agent-message', 'reasoning', 'other',
+      'agent-message', 'agent-message', 'reasoning', 'user-message', 'user-message', 'other',
     ]);
+  });
+
+  it('LT-148: classifies a userMessage item-echo as non-tool-bearing, not the tool-bearing "other" bucket', () => {
+    // The app-server emits item/completed for the user's own turn content, not
+    // only assistant/tool output. Before this fix it fell through to 'other',
+    // which the discovery protocol's own safety bound treats as tool-bearing.
+    expect(classifyCodexObservedItem({ type: 'userMessage', id: 'x', clientId: 'y', content: [] }))
+      .toBe('user-message');
+    expect(classifyCodexObservedItem({ type: 'userMessage', id: 'x', clientId: 'y', content: [] }))
+      .not.toBe('other');
   });
 
   it('caps wide plain-object traversal and returns the exact bounded serialized byte count', () => {

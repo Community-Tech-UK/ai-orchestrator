@@ -387,11 +387,10 @@ export function createOrchestrationDomain(ipcRenderer: IpcRenderer, ch: typeof I
      * Start a review session
      */
     reviewStartSession: (payload: {
-      agentId: string;
       instanceId: string;
-      workingDirectory: string;
-      files?: string[];
-      options?: Record<string, unknown>;
+      agentIds: string[];
+      files: string[];
+      diffOnly?: boolean;
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.REVIEW_START_SESSION, payload);
     },

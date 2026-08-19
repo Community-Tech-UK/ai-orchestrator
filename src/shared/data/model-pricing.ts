@@ -104,6 +104,27 @@ export function hasModelRate(model: string | undefined | null): boolean {
   return !!(model && (overlayRates.has(model) || !!MODEL_PRICING[model]));
 }
 
+/**
+ * Providers whose raw model ids the flat, non-namespaced `MODEL_PRICING`
+ * snapshot actually prices — i.e. the primary vendors that own that raw-id
+ * space. Deliberately an allowlist, not a denylist: a *reseller/proxy*
+ * provider (`copilot`, `cursor`, ...) can and does reuse the exact same raw
+ * id string as a primary vendor for a pass-through model (verified:
+ * `COPILOT_MODELS.CLAUDE_OPUS_5 === CLAUDE_PINNED_MODELS.OPUS_5 ===
+ * 'claude-opus-5'`; `COPILOT_MODELS.GPT53_CODEX === OPENAI_MODELS.GPT53_CODEX`;
+ * `COPILOT_MODELS.GEMINI_3_1_PRO` literally aliases `GOOGLE_MODELS.GEMINI_3_1_PRO`;
+ * Cursor's curated list reuses `'gpt-5.3-codex'` too). Falling through to the
+ * flat table for one of those would silently price it at the *primary
+ * vendor's direct per-token API rate* — wrong not just in magnitude but in
+ * billing model, since Copilot and Cursor here are subscription seats, not
+ * metered API access (LT-190 completion-gate finding, 2026-08-18). A new
+ * provider is unpriced by default until deliberately added here; the
+ * provider-namespaced live overlay (`providerOverlayRates`, checked first)
+ * is unaffected and remains the correct way to give a reseller its own real
+ * rate if one is ever known.
+ */
+const STATIC_TABLE_PROVIDERS = new Set(['claude', 'codex', 'gemini', 'grok']);
+
 /** Resolve pricing only when the model belongs to the supplied provider namespace. */
 export function getProviderModelRate(
   provider: string | undefined | null,
@@ -114,6 +135,7 @@ export function getProviderModelRate(
   if (!normalizedProvider || !normalizedModel) return undefined;
   const overlay = providerOverlayRates.get(`${normalizedProvider}:${normalizedModel}`);
   if (overlay) return overlay;
+  if (!STATIC_TABLE_PROVIDERS.has(normalizedProvider)) return undefined;
   if (!(PROVIDER_MODEL_LIST[normalizedProvider] ?? []).some((entry) => entry.id === normalizedModel)) {
     return undefined;
   }
@@ -200,8 +222,19 @@ function computeCost(
   return cost / 1_000_000;
 }
 
+/**
+ * `PROVIDER_MODEL_LIST`'s own keys (the CLI-facing provider ids: `claude`,
+ * `codex`, `gemini`, `copilot`, ...). Callers that already have one of these
+ * (e.g. `settings.defaultCli`) must pass through unchanged rather than fail
+ * to normalize — see LT-190.
+ */
+const CLI_PROVIDER_KEYS = new Set(Object.keys(PROVIDER_MODEL_LIST));
+
 function normalizePricingProvider(provider: string | undefined | null): string | undefined {
-  switch (provider?.trim().toLowerCase()) {
+  const normalized = provider?.trim().toLowerCase();
+  if (!normalized) return undefined;
+  if (CLI_PROVIDER_KEYS.has(normalized)) return normalized;
+  switch (normalized) {
     case 'anthropic': return 'claude';
     case 'openai': return 'codex';
     case 'google': return 'gemini';

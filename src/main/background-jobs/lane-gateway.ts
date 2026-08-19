@@ -17,6 +17,8 @@ export interface LaneGateway {
   on(event: 'progress', listener: (event: LaneProgressEvent) => void): this;
   on(event: 'heartbeat', listener: (event: LaneHeartbeatEvent) => void): this;
   on(event: 'degraded', listener: (event: LaneDegradedEvent) => void): this;
+  /** LT-207: a worker-event broadcast (see `LaneOutboundMessage`'s `'worker-event'`). */
+  on(event: 'worker-event', listener: (message: unknown) => void): this;
 }
 
 export type {

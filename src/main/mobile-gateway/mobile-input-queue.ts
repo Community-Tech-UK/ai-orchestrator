@@ -106,8 +106,18 @@ export function isTerminalForQueue(status: string): boolean {
 export interface MobileInputQueueDeps {
   /** Live instance lookup; `undefined` means the session is gone. */
   getInstance(instanceId: string): QueueInstanceView | undefined;
-  /** True while the orchestrator is globally paused. */
-  isPaused(): boolean;
+  /**
+   * True when this instance cannot take a queued delivery right now: the
+   * orchestrator is globally paused, OR (LT-181) a send is already in flight
+   * for this instance — either a direct one or this queue's own drained
+   * delivery, since both go through `dispatchSend()`. The latter matters because
+   * `instance.status` does not flip to a busy status until the adapter's
+   * `sendInputImpl` actually runs, so the drain safety-net below — triggered
+   * right after enqueueing, precisely to catch a ready edge that already
+   * passed — must not treat that window as "ready" and redeliver into the
+   * same in-flight send.
+   */
+  isPaused(instanceId: string): boolean;
   /** Actual delivery. Rejects exactly like `InstanceManager.sendInput`. */
   deliver(instanceId: string, message: string, attachments?: FileAttachment[]): Promise<void>;
   /** Called whenever the queue contents changed, so the snapshot can be re-broadcast. */
@@ -260,7 +270,7 @@ export class MobileInputQueue {
       this.failHead(instanceId, head, `Session ended (${instance.status}) before this was sent`);
       return;
     }
-    if (!isReadyForQueuedInput(instance, this.deps.isPaused())) return;
+    if (!isReadyForQueuedInput(instance, this.deps.isPaused(instanceId))) return;
 
     head.attempts += 1;
     try {

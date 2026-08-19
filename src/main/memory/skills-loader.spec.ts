@@ -782,6 +782,34 @@ describe('SkillsLoader control modes and trigger gate', () => {
     expect(result.loadedDetails[0].name).toBe('angular');
     expect(result.loadedDetails[0].tokens).toBeGreaterThan(0);
   });
+
+  it('LT-169 perf finding: resolves a registry-discovered skill\'s mode with exactly one getControl() call', async () => {
+    // 'code-review' is discovered via the registry sync path (mockListSkills),
+    // NOT via registerSkill(), so it is NOT in explicitlyDeclaredNames — this
+    // is what exercises resolveModeFor's final fallback branch (the one that
+    // used to call attribution.getEffectiveMode(), which re-fetched the same
+    // control via its own internal getControl() call: a second DB round trip
+    // for a value resolveModeFor already had in hand).
+    mockListSkills.mockReturnValue([
+      registryBundle('code-review', 'code review please'),
+    ]);
+    mockMatchTrigger.mockReturnValue([
+      { skill: registryBundle('code-review', 'code review please'), trigger: 'code review please', confidence: 0.6 },
+    ]);
+
+    const attribution = getSkillAttribution();
+    const getControlSpy = vi.spyOn(attribution, 'getControl');
+
+    const detected = await loader2.detectRelevantSkills('please do a code review please of this PR');
+
+    expect(detected).toHaveLength(1);
+    // No control was ever set and this skill was never registerSkill()'d, so
+    // it falls through to the project-source D1a default: suggest-only.
+    expect(detected[0].suggestOnly).toBe(true);
+
+    const codeReviewCalls = getControlSpy.mock.calls.filter(([name]) => name === 'code-review');
+    expect(codeReviewCalls).toHaveLength(1);
+  });
 });
 
 describe('SkillsLoader D1a defaults for registry-discovered skills', () => {

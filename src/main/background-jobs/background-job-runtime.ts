@@ -76,6 +76,10 @@ export class BackgroundJobRuntime extends EventEmitter {
     gateway.on('progress', (event) => this.handleProgress(event));
     gateway.on('heartbeat', (event) => this.handleHeartbeat(event));
     gateway.on('degraded', (event) => this.handleDegraded(event));
+    // LT-207: pass a lane worker's forwarded singleton-event broadcasts
+    // straight through — this runtime has no opinion on their shape, only
+    // the lane-specific gateway (e.g. CodebaseIndexingLaneGateway) does.
+    gateway.on('worker-event', (message) => this.emit('worker-event', message));
   }
 
   enqueue(submission: BackgroundJobSubmission): BackgroundJobEnqueueResult {
