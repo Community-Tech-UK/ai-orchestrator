@@ -1,11 +1,21 @@
 :host {
-  display: block;
+  display: flex;
+  flex-direction: column;
   height: 100%;
+  min-height: 0;
 }
 
+/* Fill the Control Center shell's content cell, not the viewport. `100vh` here
+ * predates the shell wrapper: it made the page taller than its container by the
+ * title bar plus the Control Center header, and `.control-content` clips the
+ * overflow. The excess sat below the scroller's own viewport, so the bottom of
+ * every settings tab (and of the nav rail) was unreachable at any scroll
+ * position — worst on short windows, where the fixed overhang is a large share
+ * of the height. */
 .settings-page {
   display: flex;
-  height: 100vh;
+  flex: 1;
+  min-height: 0;
   background: color-mix(in srgb, var(--settings-content-bg) 88%, var(--bg-secondary));
   color: var(--text-primary);
   outline: none;
