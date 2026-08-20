@@ -840,6 +840,57 @@ describe('LT-195 — oneTime retry survives the automation:changed race', () => 
     await Promise.resolve();
     expect(insertRetrySpy).not.toHaveBeenCalled();
   });
+
+  it('LT-208: a genuine disable via active=false ALONE (enabled left true) still cancels an armed retry', async () => {
+    // AutomationUpdatePayloadSchema permits setting `active` independently of
+    // `enabled` — nothing in the schema enforces the "every disable path
+    // flips enabled" invariant the LT-195 comment asserted. This is the
+    // latent case LT-208 hardens against: `enabled` stays true, only `active`
+    // goes false.
+    const automation = await store.create({
+      name: 'Cron job, disabled via active=false alone (LT-208)',
+      schedule: { type: 'cron', expression: '0 * * * *', timezone: 'UTC' },
+      missedRunPolicy: 'notify',
+      concurrencyPolicy: 'skip',
+      action: { prompt: 'Do hourly', workingDirectory: '/tmp' },
+    }, 1_000, 100);
+
+    const runner = new AutomationRunner(
+      store, getAutomationEvents(), () => Date.now(),
+      vi.fn().mockReturnValue({ fireThreadWakeup: vi.fn() }), 3, 100,
+    );
+    const catchUp = new CatchUpCoordinator(store, runner, getAutomationEvents(), () => Date.now());
+    const scheduler = new AutomationScheduler(store, runner, catchUp, getAutomationEvents(), () => Date.now());
+    vi.spyOn(runner, 'fire').mockResolvedValue({ status: 'skipped', reason: 'mocked' });
+    scheduler.initialize();
+
+    const decision = store.decideAndInsertRun(automation, 'scheduled', 1_000, 1_000, {
+      maxAttempts: 3,
+      attempt: 1,
+    });
+    expect(decision.kind).toBe('started');
+    if (decision.kind !== 'started') return;
+
+    const failedRun = store.terminalizeRun(decision.run.id, 'failed', 'Automation instance was removed', undefined, 2_000)!;
+    (runner as unknown as { handleTerminalRun: (r: AutomationRun) => void }).handleTerminalRun(failedRun);
+
+    const retryHandles = (scheduler as unknown as { retryHandles: Map<string, unknown> }).retryHandles;
+    expect(retryHandles.size).toBe(1);
+
+    // Disable via `active: false` alone — `enabled` is left untouched (true).
+    const disabled = await store.update(automation.id, { active: false }, null);
+    expect(disabled.enabled).toBe(true);
+    expect(disabled.active).toBe(false);
+    scheduler.schedule(disabled);
+    getAutomationEvents().emitChanged({ automation: disabled, automationId: automation.id, type: 'updated' });
+
+    expect(retryHandles.size).toBe(0);
+
+    const insertRetrySpy = vi.spyOn(store, 'insertRetryRun');
+    vi.advanceTimersByTime(300);
+    await Promise.resolve();
+    expect(insertRetrySpy).not.toHaveBeenCalled();
+  });
 });
 
 // ──────────────────────────────────────────────────────────────────────────────

@@ -7,6 +7,7 @@ import type {
 import type { BrowserAuditStore, BrowserAuditEntryInput } from './browser-audit-store';
 import { redactAgentString } from './browser-safe-dto';
 import type { BrowserGatewayContext } from './browser-gateway-service-types';
+import { generateId } from '../../shared/utils/id-generator';
 
 export interface BrowserGatewayResultInput<T> {
   context: BrowserGatewayContext;
@@ -25,6 +26,16 @@ export interface BrowserGatewayResultInput<T> {
   requestId?: string;
   grantId?: string;
   autonomous?: boolean;
+  /**
+   * Set to false to skip the audit-table write entirely. Reserved for
+   * high-frequency internal bookkeeping calls that are not an
+   * agent-attributable browser decision (LT-217) — e.g. the extension's
+   * automatic tab-inventory attach and the approvals-banner read poll.
+   * The returned auditId is a non-persisted placeholder in that case;
+   * nothing in production reads auditId back today (verified by repo-wide
+   * grep), so this is safe. Defaults to true.
+   */
+  recordAudit?: boolean;
 }
 
 export class BrowserGatewayResultRecorder {
@@ -53,13 +64,15 @@ export class BrowserGatewayResultRecorder {
       grantId: params.grantId,
       autonomous: params.autonomous,
     };
-    const audit = this.auditStore.record(auditInput);
+    const auditId = params.recordAudit === false
+      ? `unrecorded-${generateId()}`
+      : this.auditStore.record(auditInput).id;
     const result = {
       decision: params.decision,
       outcome: params.outcome,
       data: params.data,
       reason: safeReason,
-      auditId: audit.id,
+      auditId,
     };
     return params.requestId
       ? { ...result, requestId: params.requestId } as BrowserGatewayResult<T>

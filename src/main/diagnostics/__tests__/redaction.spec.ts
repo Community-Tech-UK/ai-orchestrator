@@ -95,6 +95,28 @@ describe('redactValue', () => {
     const redacted = redactValue({ note: 'the build finished in 42 seconds' });
     expect(redacted.note).toBe('the build finished in 42 seconds');
   });
+
+  it('LT-222: passes through null/undefined under a secret-shaped key instead of stringifying to <redacted-secret>', () => {
+    // baselineUsedTokens/previousLastTotalTokens (codex context-pressure
+    // diagnostics) are typed `number | null` and legitimately null on a
+    // session's first turn/request. Their key names contain "token", which
+    // trips SECRET_KEY_PATTERN even though they hold no secret. Numbers
+    // already passed through correctly; null/undefined did not — they fell
+    // into redactSecretField's final `return '<redacted-secret>'`, turning a
+    // real `null` into the literal string "<redacted-secret>" and silently
+    // corrupting a typed `number | null` field into an untyped string for any
+    // downstream consumer (e.g. scripts/analyze-codex-context-pressure.ts,
+    // which then rejects the whole diagnostic record as malformed).
+    const redacted = redactValue({
+      baselineUsedTokens: null,
+      previousLastTotalTokens: undefined,
+      accessToken: 42,
+    });
+
+    expect(redacted.baselineUsedTokens).toBeNull();
+    expect(redacted.previousLastTotalTokens).toBeUndefined();
+    expect(redacted.accessToken).toBe(42);
+  });
 });
 
 describe('redactForSink (Task 14)', () => {

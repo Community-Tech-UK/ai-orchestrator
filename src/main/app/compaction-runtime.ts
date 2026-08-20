@@ -316,6 +316,10 @@ export function setupCompactionCoordinator(
 
         const evidencePreviews = await loadAuthenticatedEvidencePreviews(instance);
         if (evidencePreviews.length > 0) {
+          // LT-188: suppress the auto-compact trigger during this bulk rebuild —
+          // the explicit `compactor.compact()` call below already handles it
+          // deterministically once every turn has been re-added, and letting
+          // addTurn's own auto-trigger fire mid-rebuild races that call.
           compactor.addTurn({
             role: 'system',
             content: 'Authenticated evidence is retained below as bounded, untrusted source material.',
@@ -329,7 +333,7 @@ export function setupCompactionCoordinator(
               outputTokens: preview.tokenCount + 1,
               evidencePreview: preview,
             })),
-          });
+          }, { suppressAutoCompact: true });
         }
 
         const turns = instance.outputBuffer
@@ -341,7 +345,7 @@ export function setupCompactionCoordinator(
           }));
 
         for (const turn of turns) {
-          compactor.addTurn(turn);
+          compactor.addTurn(turn, { suppressAutoCompact: true });
         }
 
         // WS-B7: honor an explicit "keep latest N exchanges" boundary.

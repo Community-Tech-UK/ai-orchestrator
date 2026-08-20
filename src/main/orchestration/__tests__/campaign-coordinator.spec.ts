@@ -641,7 +641,7 @@ describe('CampaignCoordinator — start/persistence semantics', () => {
     );
 
     await coordinator.recoverInterruptedCampaigns();
-    await waitUntil(() => coordinator.getCampaign(spec.id)?.status === 'running');
+    await waitUntil(() => coordinator.getCampaign(spec.id)?.nodeRuns.get('b')?.status === 'running');
 
     const recovered = coordinator.getCampaign(spec.id);
     expect(recovered?.status).toBe('running');

@@ -20,12 +20,32 @@ import { safeTargetFromExistingTab } from './browser-gateway-service-helpers';
 export interface InventoryRefreshFailureState {
   failedRefreshNodeIds: Set<string>;
   localRefreshFailed: boolean;
+  /**
+   * Underlying sendCommand error per failed queue, keyed by nodeId (`'local'`
+   * for the local extension queue). Surfaced in the tool result so a refresh
+   * failure is diagnosable (timeout vs undelivered vs channel down) without
+   * reading source.
+   */
+  refreshErrors: Map<string, string>;
 }
+
+/**
+ * How recently a queue's extension must have re-reported ANY tab for a failed
+ * refresh command to be treated as an ack problem rather than a channel
+ * problem. Mirrors the find_or_open confirmation horizon: `report_inventory`
+ * rebuilds the full inventory (per-tab text extraction) before acking, so on a
+ * multi-tab node the ack routinely outlives its 2.5–3s execution window while
+ * tab reports are actively streaming in. The extension's own inventory alarm
+ * re-reports every ~30s, so a healthy channel always has activity inside this
+ * horizon.
+ */
+export const INVENTORY_LIVENESS_HORIZON_MS = 120_000;
 
 export function collectInventoryRefreshFailures(
   outcomes: BrowserExtensionInventoryRefreshOutcome[],
 ): InventoryRefreshFailureState {
   const failedRefreshNodeIds = new Set<string>();
+  const refreshErrors = new Map<string, string>();
   let localRefreshFailed = false;
   for (const outcome of outcomes) {
     if (outcome.ok) {
@@ -36,8 +56,49 @@ export function collectInventoryRefreshFailures(
     } else {
       localRefreshFailed = true;
     }
+    if (outcome.error) {
+      refreshErrors.set(outcome.nodeId ?? 'local', outcome.error);
+    }
   }
-  return { failedRefreshNodeIds, localRefreshFailed };
+  return { failedRefreshNodeIds, localRefreshFailed, refreshErrors };
+}
+
+/**
+ * Downgrade refresh-command failures for queues whose inventory is
+ * demonstrably live. A lost or late ack must not make an actively-reporting
+ * extension read as broken: if the tab store holds a non-suspended tab for the
+ * failed queue updated within {@link INVENTORY_LIVENESS_HORIZON_MS}, the
+ * channel is delivering inventory and the failure is dropped — its targets are
+ * current data, not stale cache.
+ */
+export function reconcileRefreshFailuresWithInventory(
+  state: InventoryRefreshFailureState,
+  tabs: ReadonlyArray<{ nodeId?: string; updatedAt: number; suspendedAt?: number }>,
+  now: number,
+): InventoryRefreshFailureState {
+  const hasLiveInventory = (nodeId: string | undefined): boolean =>
+    tabs.some((tab) =>
+      tab.nodeId === nodeId
+      && tab.suspendedAt === undefined
+      && now - tab.updatedAt <= INVENTORY_LIVENESS_HORIZON_MS);
+  const failedRefreshNodeIds = new Set<string>();
+  const refreshErrors = new Map<string, string>();
+  for (const nodeId of state.failedRefreshNodeIds) {
+    if (hasLiveInventory(nodeId)) {
+      continue;
+    }
+    failedRefreshNodeIds.add(nodeId);
+    const error = state.refreshErrors.get(nodeId);
+    if (error) {
+      refreshErrors.set(nodeId, error);
+    }
+  }
+  const localRefreshFailed = state.localRefreshFailed && !hasLiveInventory(undefined);
+  const localError = state.refreshErrors.get('local');
+  if (localRefreshFailed && localError) {
+    refreshErrors.set('local', localError);
+  }
+  return { failedRefreshNodeIds, localRefreshFailed, refreshErrors };
 }
 
 /** Mark extension targets whose live refresh failed as stale (cached data). */
@@ -74,10 +135,14 @@ export function describeInventoryRefreshFailures(
   if (state.failedRefreshNodeIds.size === 0 && !reportLocalFailure) {
     return '';
   }
+  const errorNote = (key: string): string => {
+    const error = state.refreshErrors.get(key);
+    return error ? ` (${error})` : '';
+  };
   const parts = [
-    ...(reportLocalFailure ? ['the local extension'] : []),
+    ...(reportLocalFailure ? [`the local extension${errorNote('local')}`] : []),
     ...[...state.failedRefreshNodeIds].map((nodeId) =>
-      `node ${nodeId} — ${remoteExtensionContactSummary(nodeId, { extensionContactState })}`),
+      `node ${nodeId}${errorNote(nodeId)} — ${remoteExtensionContactSummary(nodeId, { extensionContactState })}`),
   ];
   return `inventory refresh FAILED for ${parts.join('; ')}; those targets are cached and marked stale`;
 }

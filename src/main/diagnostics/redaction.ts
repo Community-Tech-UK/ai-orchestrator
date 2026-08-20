@@ -172,6 +172,10 @@ export function redactValue<T>(value: T, opts: RedactionOptions = {}): T {
 }
 
 function redactSecretField(value: unknown, env: NodeJS.ProcessEnv): unknown {
+  if (value === null || value === undefined) {
+    return value;
+  }
+
   if (typeof value === 'string') {
     const envName = Object.entries(env).find(([, envValue]) => envValue === value)?.[0];
     if (envName) {

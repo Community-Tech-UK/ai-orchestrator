@@ -92,6 +92,7 @@ export function makeService(overrides: {
     text?: string;
     screenshotBase64?: string;
     allowedOrigins: BrowserProfile['allowedOrigins'];
+    updatedAt?: number;
   };
   extensionCommandStore?: Pick<BrowserExtensionCommandStore, 'sendCommand'>;
   extensionContactState?: BrowserGatewayServiceOptions['extensionContactState'];

@@ -89,7 +89,7 @@
     "visual:qa": "node scripts/visual-qa-screenshots.mjs --all",
     "release:validate-tag": "node scripts/validate-release-tag.js",
     "release:validate-assets": "node scripts/validate-release-assets.js",
-    "audit:production": "npm audit --package-lock-only --omit=dev --audit-level=high",
+    "audit:production": "node scripts/audit-production-dependencies.js",
     "audit:build": "node scripts/audit-build-dependencies.js && node scripts/verify-release-toolchain.js"
   },
   "keywords": [
@@ -108,7 +108,7 @@
     "@discordjs/rest": {
       "undici": "6.28.0"
     },
-    "brace-expansion@^5": "5.0.8",
+    "brace-expansion@^5": "5.0.9",
     "discord.js": {
       "undici": "6.28.0"
     },

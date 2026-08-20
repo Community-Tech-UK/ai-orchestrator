@@ -19,6 +19,8 @@
  * cannot bypass the renderer's submit gating.
  */
 
+import { stat } from 'node:fs/promises';
+import * as path from 'node:path';
 import { getLogger } from '../logging/logger';
 import {
   defaultCrossModelReviewConfig,
@@ -80,6 +82,7 @@ function finalizeStartConfig<
 export async function prepareLoopStartConfig(
   config: LoopStartConfigLike,
 ): Promise<Partial<LoopConfig> & { initialPrompt: string; workspaceCwd: string }> {
+  config = await normalizeManagedIsolation(config);
   const audit = prepareUserStartedAuditConfig(config);
   // WS6: classify goal intent BEFORE validation — the verification policy
   // depends on it, and this seam runs before `startLoop` derives intent.
@@ -208,6 +211,35 @@ export async function prepareLoopStartConfig(
     goalIntent: resolvedGoalIntent,
     completion: completionFor('gated', { crossModelReview: defaultCrossModelReviewConfig() }),
   });
+}
+
+async function normalizeManagedIsolation<T extends LoopStartConfigLike>(config: T): Promise<T> {
+  if (!config.isolateLoopWorkspaces || config.executionCwd) return config;
+
+  try {
+    const workspace = await stat(config.workspaceCwd);
+    if (!workspace.isDirectory()) return config;
+  } catch {
+    // An unavailable workspace is not evidence that it is non-Git. Preserve
+    // fail-closed isolation so the coordinator surfaces the underlying error.
+    return config;
+  }
+
+  try {
+    await stat(path.join(config.workspaceCwd, '.git'));
+    return config;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return config;
+  }
+
+  logger.info('Managed loop isolation disabled for non-Git workspace', {
+    workspaceCwd: config.workspaceCwd,
+  });
+  return {
+    ...config,
+    isolateLoopWorkspaces: false,
+    autoIntegrateWorktree: false,
+  };
 }
 
 function prepareUserStartedAuditConfig(config: LoopStartConfigLike): LoopConfig['audit'] {

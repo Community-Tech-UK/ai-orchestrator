@@ -16,7 +16,7 @@
     src/main/doc-review/artifact-runtime-csp-hash.spec.ts recomputes the hash from the tracked
     template and fails if this value drifts out of sync with the runtime script's source.
   -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-yx4kjyTOVHK4OxrRqPVdFnG7y42LuQ7CP65Gl8gIFTo='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://api.openai.com wss://api.openai.com stun: turn:; media-src 'self' blob:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-yx4kjyTOVHK4OxrRqPVdFnG7y42LuQ7CP65Gl8gIFTo='; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://api.openai.com wss://api.openai.com stun: turn:; media-src 'self' blob:;">
   <link rel="icon" type="image/x-icon" href="assets/icons/favicon.ico">
 </head>
 <body>

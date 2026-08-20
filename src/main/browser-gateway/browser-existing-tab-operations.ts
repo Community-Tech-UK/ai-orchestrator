@@ -390,7 +390,7 @@ export class BrowserExistingTabOperations {
   async snapshot(
     request: BrowserGatewayTargetRequest,
     attachment: BrowserExistingTabAttachment,
-  ): Promise<BrowserGatewayResult<(BrowserSnapshot & { text: string }) | null>> {
+  ): Promise<BrowserGatewayResult<(BrowserSnapshot & { text: string; textUnavailableReason?: string }) | null>> {
     const originDecision = isOriginAllowed(attachment.url, attachment.allowedOrigins);
     if (!originDecision.allowed) {
       return this.deps.result({
@@ -448,13 +448,14 @@ export class BrowserExistingTabOperations {
         actionClass: 'read',
         decision: 'allowed',
         outcome: 'succeeded',
-        summary: 'Captured fresh snapshot from selected existing Chrome tab',
+        summary: fresh.textUnavailableReason ? `Snapshot succeeded but page text could not be read (${fresh.textUnavailableReason}); title/url are still current` : 'Captured fresh snapshot from selected existing Chrome tab',
         origin: freshOriginDecision.origin,
         url: fresh.url,
         data: {
           title: fresh.title ?? '',
           url: fresh.url,
           text: boundBrowserText(fresh.text ?? ''),
+          ...(fresh.textUnavailableReason ? { textUnavailableReason: fresh.textUnavailableReason } : {}),
         },
       });
     } catch (error) {
@@ -487,13 +488,14 @@ export class BrowserExistingTabOperations {
       actionClass: 'read',
       decision: 'allowed',
       outcome: 'succeeded',
-      summary: 'Read cached snapshot from selected existing Chrome tab',
+      summary: attachment.textUnavailableReason ? `Read cached snapshot but page text could not be read (${attachment.textUnavailableReason}); title/url are still current` : 'Read cached snapshot from selected existing Chrome tab',
       origin: originDecision.origin,
       url: attachment.url,
       data: {
         title: attachment.title ?? '',
         url: attachment.url,
         text: boundBrowserText(attachment.text ?? ''),
+        ...(attachment.textUnavailableReason ? { textUnavailableReason: attachment.textUnavailableReason } : {}),
       },
     });
   }

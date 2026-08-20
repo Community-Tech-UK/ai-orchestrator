@@ -24,6 +24,7 @@ function openDb(): SqliteDriver {
   const migration = RLM_MIGRATIONS_051_055.find((item) => item.name === '054_local_ai_guard');
   if (!migration) throw new Error('Missing migration 054_local_ai_guard');
   db.exec(migration.up);
+  db.exec('ALTER TABLE local_ai_incidents ADD COLUMN unpriced_dispatch_count INTEGER NOT NULL DEFAULT 0;');
   dbs.push(db);
   return db;
 }
@@ -725,6 +726,7 @@ describe('LocalAiIncidentService', () => {
           fallbackCount: 0,
           knownCostUsd: 0,
           estimatedCostUsd: 0,
+          unpricedDispatchCount: 0,
         },
       });
       const clockSamples = [...samples];
@@ -812,6 +814,7 @@ describe('LocalAiIncidentService', () => {
           fallbackCount: 0,
           knownCostUsd: 0,
           estimatedCostUsd: 0,
+          unpricedDispatchCount: 0,
         },
       });
       db.prepare(`
@@ -879,6 +882,7 @@ describe('LocalAiIncidentService', () => {
         fallbackCount: 0,
         knownCostUsd: 0,
         estimatedCostUsd: 0,
+        unpricedDispatchCount: 0,
       },
     });
     db.prepare(`
@@ -928,6 +932,7 @@ describe('LocalAiIncidentService', () => {
         fallbackCount: 0,
         knownCostUsd: 0,
         estimatedCostUsd: 0,
+        unpricedDispatchCount: 0,
       },
     });
     repository.appendRoutingEvent(routingEvent(target.id, opened.id, 2_000, {
@@ -985,6 +990,7 @@ describe('LocalAiIncidentService', () => {
           fallbackCount: 0,
           knownCostUsd: 0,
           estimatedCostUsd: 0,
+          unpricedDispatchCount: 0,
         },
       });
       vi.spyOn(repository, 'claimNotification').mockImplementation(() => {
@@ -1077,6 +1083,7 @@ describe('LocalAiIncidentService', () => {
         fallbackCount: 0,
         knownCostUsd: 0,
         estimatedCostUsd: 0,
+        unpricedDispatchCount: 0,
       },
     });
     db.prepare(`

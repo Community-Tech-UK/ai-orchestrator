@@ -6,12 +6,30 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+
+// LT-29x test setup: the real SettingsManager (`conf` under the hood) throws
+// "Please specify the `projectName` option" outside a real Electron app
+// context, which was silently swallowing `assemblePlanStageContext` in EVERY
+// test in this file before this mock (pre-existing environment limitation,
+// not introduced by the LT-29x fix) — the LF-6 test above never depended on
+// that block, so it never surfaced. Only the lessons-surface test below
+// exercises `loop-coordinator.ts`'s one call site for `getSettingsManager()`.
+vi.mock('../core/config/settings-manager', () => ({
+  getSettingsManager: () => ({
+    getAll: () => ({ loopSurfaceLessons: true, codememEnabled: false, loopSurfaceCodemem: true }),
+  }),
+}));
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
 import { passingVerifyCommand } from './loop-test-commands';
 import { defaultLoopConfig } from '../../shared/types/loop.types';
 import type { LoopMemoryStore } from './loop-memory';
+import { getLessonStore, _resetLessonStoreForTesting } from '../memory/lesson-store';
+import {
+  getRecallTraceStore,
+  _resetRecallTraceStoreForTesting,
+} from '../memory/retrieval-eval/recall-trace-store';
 
 let workspace: string;
 let coordinator: LoopCoordinator;
@@ -72,5 +90,44 @@ describe('LoopCoordinator cross-loop memory wiring (LF-6)', () => {
     const rec = recordLearning.mock.calls[0][0] as { workspaceCwd: string; status: string };
     expect(rec.workspaceCwd).toBe(workspace);
     expect(rec.status).toBe('cancelled');
+  });
+
+  // LT-29x (fable-ws16 livetest, checks 5/lessons + 6): before this fix,
+  // nothing in production ever called `getRecallTraceStore().record({surface:
+  // 'lessons', …})`, so the 'lessons' surface could never hold a trace and
+  // `creditSurfacedLessonUse`'s later `markUsed('lessons', …)` could never
+  // credit anything, however the loop terminated.
+  it('LT-29x: records a recall trace on the lessons surface when a lesson is surfaced at loop start', async () => {
+    _resetLessonStoreForTesting();
+    _resetRecallTraceStoreForTesting();
+    const { lesson } = getLessonStore().capture('Always pass --port for a custom Electron debug port.');
+
+    const stubStore: LoopMemoryStore = {
+      recordLearning: vi.fn(),
+      surfaceLearnings: vi.fn(() => []),
+    };
+    coordinator.setLoopMemoryStore(stubStore);
+    coordinator.on('loop:invoke-iteration', (payload: unknown) => {
+      const p = payload as { callback: (r: LoopChildResult) => void };
+      queueMicrotask(() => p.callback({
+        childInstanceId: null, output: 'working', tokens: 1, filesChanged: [],
+        toolCalls: [], errors: [], testPassCount: null, testFailCount: null, exitedCleanly: true,
+      }));
+    });
+
+    const state = await coordinator.startLoop('lessons-trace', {
+      initialPrompt: 'do the thing',
+      workspaceCwd: workspace,
+      completion: { ...defaultLoopConfig(workspace, 'x').completion, verifyCommand: passingVerifyCommand() },
+      caps: { ...defaultLoopConfig(workspace, 'x').caps, maxCostCents: 100, maxWallTimeMs: 60_000 },
+    });
+
+    const traces = getRecallTraceStore().bySurface('lessons');
+    expect(traces.length).toBeGreaterThan(0);
+    expect(traces[0].returned.some((r) => r.id === lesson.id)).toBe(true);
+
+    await coordinator.cancelLoop(state.id);
+    _resetLessonStoreForTesting();
+    _resetRecallTraceStoreForTesting();
   });
 });

@@ -203,4 +203,130 @@ describe('BrowserExtensionTabStore', () => {
       }),
     );
   });
+
+  it('prunes attachments a live channel stopped re-reporting (superseded generation)', () => {
+    const targetRegistry = new BrowserTargetRegistry();
+    const events = { record: vi.fn() };
+    let now = 1_000;
+    const store = new BrowserExtensionTabStore({
+      targetRegistry,
+      reliabilityEvents: events,
+      now: () => now,
+    });
+    // Old browser-session generation (windowId 7), reported at t=1000.
+    store.attachTab({
+      tabId: 42,
+      windowId: 7,
+      url: 'https://play.google.com/console',
+      title: 'Dead generation',
+    }, { nodeId: 'node-1' });
+
+    // Chrome restarted hours later: the new generation (windowId 8) keeps
+    // reporting while the old ids are never mentioned again.
+    now += 7 * 60 * 60_000;
+    store.attachTab({
+      tabId: 99,
+      windowId: 8,
+      url: 'https://example.com/',
+      title: 'Live generation',
+    }, { nodeId: 'node-1' });
+
+    expect(store.listTabs().map((tab) => tab.targetId)).toEqual([
+      'existing-tab:n.node-1:8:99:target',
+    ]);
+    expect(targetRegistry.listTargets('existing-tab:n.node-1:7:42')[0]).toMatchObject({
+      status: 'closed',
+    });
+    expect(events.record).toHaveBeenCalledWith(
+      'attachment_superseded',
+      expect.objectContaining({
+        nodeId: 'node-1',
+        detail: expect.objectContaining({ count: 1 }),
+      }),
+    );
+  });
+
+  it('keeps every attachment when the whole channel has gone quiet', () => {
+    const targetRegistry = new BrowserTargetRegistry();
+    let now = 1_000;
+    const store = new BrowserExtensionTabStore({
+      targetRegistry,
+      reliabilityEvents: { record: vi.fn() },
+      now: () => now,
+    });
+    store.attachTab({
+      tabId: 42,
+      windowId: 7,
+      url: 'https://play.google.com/console',
+      title: 'Cached',
+    }, { nodeId: 'node-1' });
+
+    // No newer report ever arrives for this channel: silence is a channel
+    // problem (suspension flow), not evidence the tabs closed.
+    now += 7 * 60 * 60_000;
+    expect(store.listTabs().map((tab) => tab.targetId)).toEqual([
+      'existing-tab:n.node-1:7:42:target',
+    ]);
+  });
+
+  it('does not let one channel\'s fresh inventory prune another channel\'s quiet tabs', () => {
+    const targetRegistry = new BrowserTargetRegistry();
+    let now = 1_000;
+    const store = new BrowserExtensionTabStore({
+      targetRegistry,
+      reliabilityEvents: { record: vi.fn() },
+      now: () => now,
+    });
+    store.attachTab({
+      tabId: 42,
+      windowId: 7,
+      url: 'https://play.google.com/console',
+      title: 'Quiet node',
+    }, { nodeId: 'node-quiet' });
+
+    now += 7 * 60 * 60_000;
+    store.attachTab({
+      tabId: 99,
+      windowId: 8,
+      url: 'https://example.com/',
+      title: 'Local tab',
+    });
+
+    expect(store.listTabs().map((tab) => tab.targetId).sort()).toEqual([
+      'existing-tab:8:99:target',
+      'existing-tab:n.node-quiet:7:42:target',
+    ]);
+  });
+
+  it('leaves suspended attachments to the suspension grace window, not the superseded prune', () => {
+    const targetRegistry = new BrowserTargetRegistry();
+    let now = 1_000;
+    const store = new BrowserExtensionTabStore({
+      targetRegistry,
+      reliabilityEvents: { record: vi.fn() },
+      now: () => now,
+    });
+    store.attachTab({
+      tabId: 42,
+      windowId: 7,
+      url: 'https://play.google.com/console',
+      title: 'Suspended',
+    }, { nodeId: 'node-1' });
+    store.suspendNode('node-1');
+
+    // Fresh inventory on another channel; the suspended attachment is inside
+    // its grace window and must survive.
+    now += SUSPENDED_ATTACHMENT_GRACE_MS - 1_000;
+    store.attachTab({
+      tabId: 99,
+      windowId: 8,
+      url: 'https://example.com/',
+      title: 'Local tab',
+    });
+
+    expect(store.listTabs().map((tab) => tab.targetId).sort()).toEqual([
+      'existing-tab:8:99:target',
+      'existing-tab:n.node-1:7:42:target',
+    ]);
+  });
 });

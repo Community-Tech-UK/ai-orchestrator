@@ -5,6 +5,7 @@
  * Add new global rules to the smallest relevant partial under ./styles/.
  */
 
+@use './styles/fonts';
 @use './styles/theme';
 @use './styles/base';
 @use './styles/file-icons';

@@ -62,6 +62,7 @@ const recoveryProcessScript = String.raw`
         if (!migration) throw new Error('Missing migration ' + migrationName);
         db.exec(migration.up);
       }
+      db.exec('ALTER TABLE local_ai_incidents ADD COLUMN unpriced_dispatch_count INTEGER NOT NULL DEFAULT 0;');
       db.prepare(
         "INSERT INTO local_ai_targets (" +
         "id, label, lifecycle, location_type, worker_node_id, provider, endpoint_id, " +
@@ -181,6 +182,7 @@ function openDb(): SqliteDriver {
   const migration = RLM_MIGRATIONS_051_055.find((item) => item.name === '054_local_ai_guard');
   if (!migration) throw new Error('Missing migration 054_local_ai_guard');
   db.exec(migration.up);
+  db.exec('ALTER TABLE local_ai_incidents ADD COLUMN unpriced_dispatch_count INTEGER NOT NULL DEFAULT 0;');
   const recoveryMigration = RLM_MIGRATIONS_051_055.find(
     (item) => item.name === '055_local_ai_recovery_attempts',
   );
@@ -245,6 +247,7 @@ function incident(targetId: string, id = 'incident-1'): LocalAiIncident {
     fallbackCount: 0,
     knownCostUsd: 0,
     estimatedCostUsd: 0,
+    unpricedDispatchCount: 0,
   };
 }
 
@@ -643,6 +646,45 @@ describe('LocalAiHealthRepository', () => {
         { entity: 'routing-event', entityId: 'paid-1', transitionKind: 'paid-dispatch' },
         { entity: 'routing-event', entityId: 'paid-2', transitionKind: 'paid-dispatch' },
       ]));
+  });
+
+  it('LT-193: an unpriced paid dispatch increments unpricedDispatchCount instead of silently rolling in as $0', () => {
+    const db = openDb();
+    const target = new LocalAiTargetRepository(db).create(config());
+    const repository = new LocalAiHealthRepository(db, undefined, () => 3_000);
+    const opened = repository.upsertIncident({
+      kind: 'open-or-update',
+      incident: incident(target.id),
+    });
+    // A deliberately-unpriced provider (e.g. copilot/cursor/ollama/antigravity)
+    // dispatched to frontier with neither a known nor an estimated cost.
+    const unpricedEvent = event('unpriced-1', 2_000, {
+      targetId: target.id,
+      incidentId: opened.id,
+    });
+    const pricedEvent = event('priced-1', 2_100, {
+      targetId: target.id,
+      incidentId: opened.id,
+      knownCostUsd: 0.5,
+    });
+
+    const unpricedResult = repository.accountRoutingEvent(unpricedEvent);
+    expect(unpricedResult).toMatchObject({ accounted: true, paidDispatch: true });
+    expect(unpricedResult?.incident).toMatchObject({
+      fallbackCount: 1,
+      knownCostUsd: 0,
+      estimatedCostUsd: 0,
+      unpricedDispatchCount: 1,
+    });
+
+    const pricedResult = repository.accountRoutingEvent(pricedEvent);
+    expect(pricedResult?.incident).toMatchObject({
+      fallbackCount: 2,
+      knownCostUsd: 0.5,
+      estimatedCostUsd: 0,
+      // A subsequently-priced dispatch must not clear the earlier unpriced count.
+      unpricedDispatchCount: 1,
+    });
   });
 
   it('rejects unowned and mismatched routing events without inserting or mutating anything', () => {
@@ -1368,6 +1410,7 @@ describe('LocalAiHealthRepository', () => {
       blockedFallbacks: 1,
       knownCostUsd: 1.25,
       estimatedCostUsd: 0.75,
+      unpricedDispatchCount: 0,
       avoidedEstimatedTokens: 140,
       avoidedEstimatedCostUsd: 0.5,
       byTarget: { [first.id]: 3, [second.id]: 2 },

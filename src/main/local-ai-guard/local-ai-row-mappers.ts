@@ -74,6 +74,7 @@ export interface LocalAiIncidentRow {
   fallback_count: number;
   known_cost_usd: number;
   estimated_cost_usd: number;
+  unpriced_dispatch_count: number;
   budget_crossed_at: number | null;
   fallback_notification_state: LocalAiNotificationState;
   fallback_notification_claim_token: string | null;
@@ -259,6 +260,12 @@ export function accountLocalAiRoutingEvent(
       fallbackCount: incident.fallbackCount + (paidDispatch ? 1 : 0),
       knownCostUsd: addAccountingCost(incident.knownCostUsd, event.knownCostUsd),
       estimatedCostUsd: addAccountingCost(incident.estimatedCostUsd, event.estimatedCostUsd),
+      // LT-193: a paid dispatch with neither a known nor an estimated cost
+      // (a deliberately-unpriced provider, or usage that never resolved) is
+      // genuinely unpriced, not a $0 dispatch — track it separately so the
+      // display layer can tell the two apart.
+      unpricedDispatchCount: incident.unpricedDispatchCount
+        + (paidDispatch && event.knownCostUsd === undefined && event.estimatedCostUsd === undefined ? 1 : 0),
     });
     if (budgetCrossed) {
       db.prepareCached(`
@@ -470,6 +477,7 @@ export function mapLocalAiIncidentRow(row: LocalAiIncidentRow, logger: LocalAiRe
       fallbackCount: row.fallback_count,
       knownCostUsd: row.known_cost_usd,
       estimatedCostUsd: row.estimated_cost_usd,
+      unpricedDispatchCount: row.unpriced_dispatch_count,
     });
     if (!parsed.success) throw new Error(parsed.error.message);
     return parsed.data;
@@ -578,7 +586,8 @@ function updateAccountedIncident(db: SqliteDriver, incident: LocalAiIncident): v
   db.prepareCached(`
     UPDATE local_ai_incidents SET
       state = ?, severity = ?, failure_code = ?, affected_layers_json = ?, affected_roles_json = ?, updated_at = ?,
-      acknowledged_at = ?, resolved_at = ?, fallback_count = ?, known_cost_usd = ?, estimated_cost_usd = ?
+      acknowledged_at = ?, resolved_at = ?, fallback_count = ?, known_cost_usd = ?, estimated_cost_usd = ?,
+      unpriced_dispatch_count = ?
     WHERE id = ?
   `).run(
     incident.state,
@@ -592,6 +601,7 @@ function updateAccountedIncident(db: SqliteDriver, incident: LocalAiIncident): v
     incident.fallbackCount,
     incident.knownCostUsd,
     incident.estimatedCostUsd,
+    incident.unpricedDispatchCount,
     incident.id,
   );
 }

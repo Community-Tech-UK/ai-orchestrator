@@ -519,13 +519,14 @@ describe('privileged settings CLI writability reporting', () => {
   });
 
   it('holds the operator-only anchor count the docs quote', () => {
-    // docs/AIO_MCP_CLI.md and docs/llm/AIO_MCP_CLI_REFERENCE.md both state 17
-    // anchors and enumerate them by group (WS-B1 phase 1 fresh-eyes fix added
-    // `allowPrCreation` as the 17th). Fail here if an 18th is added without
+    // docs/AIO_MCP_CLI.md and docs/llm/AIO_MCP_CLI_REFERENCE.md both state 18
+    // anchors and enumerate them by group (2026-08-19 fresh-eyes fix added
+    // `providersExcludedFromAutomation` as the 18th, after WS-B1 phase 1 added
+    // `allowPrCreation` as the 17th). Fail here if a 19th is added without
     // updating that prose.
     const anchors = [...privilegedList().values()].filter((setting) => !setting.cliWritable);
 
-    expect(anchors).toHaveLength(17);
+    expect(anchors).toHaveLength(18);
   });
 
   it('refuses an operator-only key before parsing the supplied value', () => {

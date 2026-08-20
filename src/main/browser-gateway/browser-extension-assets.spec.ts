@@ -874,6 +874,106 @@ describe('browser extension assets', () => {
     }));
   });
 
+  // LT-218: browser.snapshot used to swallow a chrome.scripting.executeScript
+  // permission rejection into a successful, empty-text result, which read
+  // identically to a genuinely blank page. It must now resolve with an
+  // explicit textUnavailableReason so a caller (or agent) can tell the two
+  // apart, while still resolving successfully rather than hard-failing (a
+  // page with one inaccessible iframe should not lose an otherwise-readable
+  // snapshot).
+  it('flags browser.snapshot text as unavailable when the page injection is denied host permission, without failing the command', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    relayPort.postMessage.mockClear();
+    harness.chrome.scripting.executeScript.mockImplementation(async (params: { args?: unknown[] }) => {
+      if (params?.args?.[0] === 'snapshot') {
+        throw new Error(
+          'Cannot access contents of the page. Extension manifest must request permission to '
+          + 'access the respective host.',
+        );
+      }
+      return [{ result: { title: 'Example', text: 'Example page' } }];
+    });
+
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: {
+        id: 'snapshot-permission-denied',
+        command: 'snapshot',
+        target: { tabId: 42 },
+      },
+    });
+    await flushPromises();
+
+    expect(relayPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'command_result',
+      commandId: 'snapshot-permission-denied',
+      ok: true,
+      result: expect.objectContaining({
+        text: '',
+        textUnavailableReason: 'host_permission_denied',
+      }),
+    }));
+  });
+
+  it('flags browser.snapshot text as unavailable with a generic reason for a non-permission injection failure', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    relayPort.postMessage.mockClear();
+    harness.chrome.scripting.executeScript.mockImplementation(async (params: { args?: unknown[] }) => {
+      if (params?.args?.[0] === 'snapshot') {
+        throw new Error('The extensions gallery cannot be scripted.');
+      }
+      return [{ result: { title: 'Example', text: 'Example page' } }];
+    });
+
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: {
+        id: 'snapshot-other-failure',
+        command: 'snapshot',
+        target: { tabId: 42 },
+      },
+    });
+    await flushPromises();
+
+    expect(relayPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'command_result',
+      commandId: 'snapshot-other-failure',
+      ok: true,
+      result: expect.objectContaining({
+        text: '',
+        textUnavailableReason: 'page_text_read_failed',
+      }),
+    }));
+  });
+
+  it('does not set textUnavailableReason on a normal browser.snapshot read', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    relayPort.postMessage.mockClear();
+
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: {
+        id: 'snapshot-normal',
+        command: 'snapshot',
+        target: { tabId: 42 },
+      },
+    });
+    await flushPromises();
+
+    const call = relayPort.postMessage.mock.calls
+      .map((args: unknown[]) => args[0] as { type?: string; commandId?: string; result?: { text?: string } })
+      .find((message) => message?.type === 'command_result' && message?.commandId === 'snapshot-normal');
+    expect(call).toEqual(expect.objectContaining({ ok: true }));
+    expect(call?.result).not.toHaveProperty('textUnavailableReason');
+    expect(call?.result?.text).toBe('Example page');
+  });
+
   it('keeps the legacy bridge polling when the relay host is absent and retries relay on the alarm cadence', async () => {
     const harness = loadBackgroundHarnessForTest({
       failConnectHosts: new Set([RELAY_HOST_NAME]),

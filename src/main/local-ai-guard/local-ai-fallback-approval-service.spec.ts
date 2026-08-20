@@ -45,6 +45,7 @@ const remoteResolutionScript = String.raw`
       (item) => item.name === '054_local_ai_guard',
     );
     firstDb.exec(migration.up);
+    firstDb.exec('ALTER TABLE local_ai_incidents ADD COLUMN unpriced_dispatch_count INTEGER NOT NULL DEFAULT 0;');
     const secondDb = defaultDriverFactory(filename);
     firstDb.pragma('busy_timeout = 5000');
     secondDb.pragma('busy_timeout = 5000');
@@ -83,6 +84,7 @@ const remoteResolutionScript = String.raw`
         fallbackCount: 0,
         knownCostUsd: 0,
         estimatedCostUsd: 0,
+        unpricedDispatchCount: 0,
       },
     });
     firstRepository.appendRoutingEvent({
@@ -195,6 +197,7 @@ function openDb(filename = ':memory:'): SqliteDriver {
   const migration = RLM_MIGRATIONS_051_055.find((item) => item.name === '054_local_ai_guard');
   if (!migration) throw new Error('Missing migration 054_local_ai_guard');
   db.exec(migration.up);
+  db.exec('ALTER TABLE local_ai_incidents ADD COLUMN unpriced_dispatch_count INTEGER NOT NULL DEFAULT 0;');
   dbs.push(db);
   return db;
 }

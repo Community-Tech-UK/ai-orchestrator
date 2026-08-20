@@ -22,6 +22,7 @@ function incident(): LocalAiIncident {
     fallbackCount: 3,
     knownCostUsd: 0.06,
     estimatedCostUsd: 0.02,
+    unpricedDispatchCount: 0,
   };
 }
 

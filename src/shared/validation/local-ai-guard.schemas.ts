@@ -385,6 +385,7 @@ export const LocalAiIncidentSchema = z.object({
   fallbackCount: CountSchema,
   knownCostUsd: CostSchema,
   estimatedCostUsd: CostSchema,
+  unpricedDispatchCount: CountSchema,
 }).strict();
 
 export const LocalAiIncidentMutationSchema = z.discriminatedUnion('kind', [
@@ -535,6 +536,9 @@ export const LocalAiEffectivenessSummarySchema = z.object({
   blockedFallbacks: CountSchema,
   knownCostUsd: CostSchema,
   estimatedCostUsd: CostSchema,
+  // LT-193: backward-compat default for daily-aggregate JSON blobs persisted
+  // before this field existed.
+  unpricedDispatchCount: CountSchema.default(0),
   avoidedEstimatedTokens: CountSchema,
   avoidedEstimatedCostUsd: CostSchema,
   byTarget: z.record(z.string(), CountSchema),

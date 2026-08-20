@@ -144,6 +144,7 @@ export class LocalAiIncidentService {
         fallbackCount: existing?.fallbackCount ?? 0,
         knownCostUsd: existing?.knownCostUsd ?? 0,
         estimatedCostUsd: existing?.estimatedCostUsd ?? 0,
+        unpricedDispatchCount: existing?.unpricedDispatchCount ?? 0,
       },
     });
     this.flushOutbox();
@@ -493,7 +494,10 @@ function worseSeverity(
 
 function fallbackImpact(incident: LocalAiIncident): string {
   const dispatches = `${incident.fallbackCount} paid dispatch${incident.fallbackCount === 1 ? '' : 'es'}`;
-  return `${dispatches}; ${formatCost(incident.knownCostUsd)} known; ${formatCost(incident.estimatedCostUsd)} estimated`;
+  const unpriced = incident.unpricedDispatchCount > 0
+    ? `; ${incident.unpricedDispatchCount} unpriced`
+    : '';
+  return `${dispatches}; ${formatCost(incident.knownCostUsd)} known; ${formatCost(incident.estimatedCostUsd)} estimated${unpriced}`;
 }
 
 function formatCost(cost: number): string {

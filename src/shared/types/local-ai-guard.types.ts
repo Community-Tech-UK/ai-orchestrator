@@ -215,6 +215,16 @@ export interface LocalAiIncident {
   fallbackCount: number;
   knownCostUsd: number;
   estimatedCostUsd: number;
+  /**
+   * Count of accounted paid dispatches whose cost could not be priced at
+   * all (both `knownCostUsd` and `estimatedCostUsd` were undefined on the
+   * routing event — e.g. a deliberately-unpriced provider such as
+   * copilot/cursor/ollama/antigravity, or usage that never resolved).
+   * LT-193: distinguishes "no priced dispatches" from "some dispatches were
+   * unpriced" so a UI reading `knownCostUsd`/`estimatedCostUsd` alone does
+   * not render an unknown cost as a confident `$0`.
+   */
+  unpricedDispatchCount: number;
 }
 
 export type LocalAiIncidentMutation =
@@ -309,6 +319,8 @@ export interface LocalAiEffectivenessSummary {
   blockedFallbacks: number;
   knownCostUsd: number;
   estimatedCostUsd: number;
+  /** LT-193: paid-fallback events accounted with no known or estimated cost — see `LocalAiIncident.unpricedDispatchCount`. */
+  unpricedDispatchCount: number;
   avoidedEstimatedTokens: number;
   avoidedEstimatedCostUsd: number;
   byTarget: Record<string, number>;

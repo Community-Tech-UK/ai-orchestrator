@@ -29,10 +29,14 @@ const serviceMocks = vi.hoisted(() => {
     skip: vi.fn(),
     pending: vi.fn(),
   };
+  const credentialVault = {
+    enrolExistingCredential: vi.fn(),
+  };
   return {
     authorizationService,
     campaignService,
     escalationService,
+    credentialVault,
     unlockBrowserCredentialVault: vi.fn(),
     lockBrowserCredentialVault: vi.fn(),
     getBrowserVaultStatus: vi.fn(),
@@ -48,6 +52,7 @@ vi.mock('electron', () => ({
 }));
 
 vi.mock('../../../browser-gateway/browser-unattended-services', () => ({
+  getBrowserCredentialVault: () => serviceMocks.credentialVault,
   getBrowserCredentialAuthorizationService: () => serviceMocks.authorizationService,
   getBrowserCampaignService: () => serviceMocks.campaignService,
   getBrowserEscalationService: () => serviceMocks.escalationService,
@@ -157,6 +162,104 @@ describe('registerBrowserUnattendedHandlers', () => {
     });
   });
 
+  // The enrol channel is the newest and most sensitive surface in this file:
+  // it binds a hand-registered login to an origin. A 2026-08-19 completion gate
+  // found it had no coverage anywhere in the repo, and that this spec's own
+  // service mock omitted `getBrowserCredentialVault`, so any test reaching it
+  // would have thrown rather than failed meaningfully.
+  describe('enrol existing credential', () => {
+    const enrolPayload = {
+      item: 'Report MI login',
+      origin: 'https://auth.reportmi.gca.gov.uk',
+    };
+
+    it('maps the payload field-by-field onto the vault call', async () => {
+      serviceMocks.credentialVault.enrolExistingCredential.mockResolvedValue({
+        vaultItemRef: 'bw:item:abc',
+        username: 'jl@example.invalid',
+        movedIntoFolder: false,
+      });
+
+      await expect(invoke('browser:enrol-credential', enrolPayload)).resolves.toMatchObject({
+        success: true,
+        data: { vaultItemRef: 'bw:item:abc', username: 'jl@example.invalid' },
+      });
+
+      expect(serviceMocks.credentialVault.enrolExistingCredential).toHaveBeenCalledWith({
+        item: 'Report MI login',
+        origin: 'https://auth.reportmi.gca.gov.uk',
+      });
+    });
+
+    it('omits moveIntoFolder entirely when the caller did not supply it', async () => {
+      serviceMocks.credentialVault.enrolExistingCredential.mockResolvedValue({
+        vaultItemRef: 'bw:item:abc',
+        username: 'jl@example.invalid',
+        movedIntoFolder: false,
+      });
+
+      await invoke('browser:enrol-credential', enrolPayload);
+
+      const [arg] = serviceMocks.credentialVault.enrolExistingCredential.mock.calls[0] as [
+        Record<string, unknown>,
+      ];
+      // Not `toBeUndefined()` — the conditional spread exists so the key is
+      // absent, and an explicit `undefined` would still satisfy that.
+      expect(Object.keys(arg)).not.toContain('moveIntoFolder');
+    });
+
+    it('forwards moveIntoFolder when the caller does supply it', async () => {
+      serviceMocks.credentialVault.enrolExistingCredential.mockResolvedValue({
+        vaultItemRef: 'bw:item:abc',
+        username: 'jl@example.invalid',
+        movedIntoFolder: true,
+      });
+
+      await invoke('browser:enrol-credential', { ...enrolPayload, moveIntoFolder: true });
+
+      expect(serviceMocks.credentialVault.enrolExistingCredential).toHaveBeenCalledWith({
+        item: 'Report MI login',
+        origin: 'https://auth.reportmi.gca.gov.uk',
+        moveIntoFolder: true,
+      });
+    });
+
+    it('rejects a payload carrying a password without calling the vault', async () => {
+      const result = await invoke('browser:enrol-credential', {
+        ...enrolPayload,
+        password: 'should-never-be-accepted',
+      });
+
+      expect(result.success).toBe(false);
+      expect(serviceMocks.credentialVault.enrolExistingCredential).not.toHaveBeenCalled();
+    });
+
+    it('surfaces a vault failure as a failed response', async () => {
+      serviceMocks.credentialVault.enrolExistingCredential.mockRejectedValue(
+        new Error('bw_command_failed'),
+      );
+
+      const result = await invoke('browser:enrol-credential', enrolPayload);
+
+      expect(result.success).toBe(false);
+    });
+
+    it('blocks untrusted senders before touching the credential vault', async () => {
+      electronMocks.handlers.clear();
+      registerBrowserUnattendedHandlers({
+        ensureTrustedSender: () => ({
+          success: false,
+          error: { code: 'UNTRUSTED_SENDER', message: 'nope', timestamp: Date.now() },
+        }),
+      });
+
+      const result = await invoke('browser:enrol-credential', enrolPayload);
+
+      expect(result.success).toBe(false);
+      expect(serviceMocks.credentialVault.enrolExistingCredential).not.toHaveBeenCalled();
+    });
+  });
+
   describe('credential authorizations', () => {
     it('creates an authorization with a generated id', async () => {
       serviceMocks.authorizationService.create.mockImplementation(
@@ -171,6 +274,81 @@ describe('registerBrowserUnattendedHandlers', () => {
       expect(input).toMatchObject({ profileId: 'profile-1', vaultFolder: 'AIO-Agent' });
       expect(typeof id).toBe('string');
       expect(id.length).toBeGreaterThan(0);
+    });
+
+    // `allowedSenderDomains` is the cross-domain OTP allowlist this plan added
+    // (change D): it is what lets a one-time code from notifications.service.gov.uk
+    // be accepted while filling a form on auth.reportmi.gca.gov.uk. A 2026-08-19
+    // completion gate deleted the handler's conditional spread for it entirely and
+    // the whole feature suite still passed 69/69 — so the mapping is asserted here.
+    it('forwards allowedSenderDomains to the authorization service when supplied', async () => {
+      serviceMocks.authorizationService.create.mockImplementation(
+        (input: object, id: string) => ({ ...input, id, createdAt: 1 }),
+      );
+
+      await invoke('browser:create-credential-authorization', {
+        ...AUTH_PAYLOAD,
+        allowedSenderDomains: ['notifications.service.gov.uk'],
+      });
+
+      const [input] = serviceMocks.authorizationService.create.mock.calls[0] as [
+        Record<string, unknown>,
+      ];
+      expect(input['allowedSenderDomains']).toEqual(['notifications.service.gov.uk']);
+    });
+
+    it('omits allowedSenderDomains entirely when it is absent', async () => {
+      serviceMocks.authorizationService.create.mockImplementation(
+        (input: object, id: string) => ({ ...input, id, createdAt: 1 }),
+      );
+
+      await invoke('browser:create-credential-authorization', AUTH_PAYLOAD);
+
+      const [input] = serviceMocks.authorizationService.create.mock.calls[0] as [
+        Record<string, unknown>,
+      ];
+      expect(Object.keys(input)).not.toContain('allowedSenderDomains');
+    });
+
+    // An empty array must not reach the store as an empty allowlist: the store
+    // treats a present-but-empty list differently from an absent one, and
+    // "absent" is the fail-closed state.
+    it('omits allowedSenderDomains when supplied as an empty array', async () => {
+      serviceMocks.authorizationService.create.mockImplementation(
+        (input: object, id: string) => ({ ...input, id, createdAt: 1 }),
+      );
+
+      await invoke('browser:create-credential-authorization', {
+        ...AUTH_PAYLOAD,
+        allowedSenderDomains: [],
+      });
+
+      const [input] = serviceMocks.authorizationService.create.mock.calls[0] as [
+        Record<string, unknown>,
+      ];
+      expect(Object.keys(input)).not.toContain('allowedSenderDomains');
+    });
+
+    it('forwards note when supplied and omits it when absent', async () => {
+      serviceMocks.authorizationService.create.mockImplementation(
+        (input: object, id: string) => ({ ...input, id, createdAt: 1 }),
+      );
+
+      await invoke('browser:create-credential-authorization', {
+        ...AUTH_PAYLOAD,
+        note: 'Report MI overnight registration',
+      });
+      const [withNote] = serviceMocks.authorizationService.create.mock.calls[0] as [
+        Record<string, unknown>,
+      ];
+      expect(withNote['note']).toBe('Report MI overnight registration');
+
+      serviceMocks.authorizationService.create.mockClear();
+      await invoke('browser:create-credential-authorization', AUTH_PAYLOAD);
+      const [withoutNote] = serviceMocks.authorizationService.create.mock.calls[0] as [
+        Record<string, unknown>,
+      ];
+      expect(Object.keys(withoutNote)).not.toContain('note');
     });
 
     it('rejects an authorization whose expiry is in the past', async () => {

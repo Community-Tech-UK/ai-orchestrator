@@ -541,6 +541,74 @@ describe('BrowserGatewayService policy', () => {
     });
   });
 
+  it('surfaces the underlying refresh error in the failure reason', async () => {
+    const sendCommand = vi.fn(async () => {
+      throw new Error('browser_extension_command_timeout');
+    });
+    const { service } = makeService({
+      target: makeTarget({
+        id: 'existing-tab:n.node-1:7:42:target',
+        profileId: 'existing-tab:n.node-1:7:42',
+        nodeId: 'node-1',
+        nodeName: 'Windows PC',
+        mode: 'existing-tab',
+        driver: 'extension',
+        status: 'selected',
+        lastSeenAt: 1_000,
+      }),
+      extensionCommandStore: { sendCommand },
+    });
+
+    const result = await service.listTargets({ nodeId: 'node-1', refresh: true });
+
+    expect(result.reason).toContain('inventory refresh FAILED');
+    expect(result.reason).toContain('browser_extension_command_timeout');
+  });
+
+  it('does not report a refresh failure while the extension is actively reporting inventory', async () => {
+    // The report_inventory ack routinely outlives its execution window on a
+    // multi-tab node while tab reports keep streaming in. A lost/late ack with
+    // live inventory must read as success — the false FAILED signal pushed
+    // agents off a healthy remote browser onto worse fallbacks.
+    const sendCommand = vi.fn(async () => {
+      throw new Error('browser_extension_command_timeout');
+    });
+    const { service } = makeService({
+      target: makeTarget({
+        id: 'existing-tab:n.node-1:7:42:target',
+        profileId: 'existing-tab:n.node-1:7:42',
+        nodeId: 'node-1',
+        nodeName: 'Windows PC',
+        mode: 'existing-tab',
+        driver: 'extension',
+        status: 'selected',
+        lastSeenAt: Date.now(),
+      }),
+      existingTab: {
+        profileId: 'existing-tab:n.node-1:7:42',
+        targetId: 'existing-tab:n.node-1:7:42:target',
+        nodeId: 'node-1',
+        title: 'Windows tab',
+        url: 'https://example.com/',
+        origin: 'https://example.com',
+        allowedOrigins: [
+          { scheme: 'https', hostPattern: 'example.com', includeSubdomains: false },
+        ],
+        updatedAt: Date.now(),
+      },
+      extensionCommandStore: { sendCommand },
+    });
+
+    const result = await service.listTargets({ nodeId: 'node-1', refresh: true });
+
+    expect(sendCommand).toHaveBeenCalledTimes(1);
+    expect(result.reason ?? '').not.toContain('inventory refresh FAILED');
+    expect(result.data?.[0]).toMatchObject({
+      id: 'existing-tab:n.node-1:7:42:target',
+    });
+    expect(result.data?.[0]?.stale).not.toBe(true);
+  });
+
   it('does not report a local refresh failure when no local extension targets exist', async () => {
     // Machines with no local extension set up must not see "refresh FAILED for
     // the local extension" on every refreshed listing — the local queue is

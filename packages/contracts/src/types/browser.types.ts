@@ -244,6 +244,10 @@ export interface BrowserAttachExistingTabRequest {
   url: string;
   title?: string;
   text?: string;
+  // Set by the extension when `text` could not be read at all (e.g. no host
+  // permission for this origin), as distinct from a page that legitimately
+  // has no visible text. Absent on a normal read. See LT-218.
+  textUnavailableReason?: string;
   screenshotBase64?: string;
   capturedAt?: number;
   allowedOrigins?: BrowserAllowedOrigin[];

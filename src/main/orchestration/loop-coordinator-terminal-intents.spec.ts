@@ -6,6 +6,24 @@ import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
 import { failingVerifyCommand, passingVerifyCommand } from './loop-test-commands';
 import { defaultLoopConfig, type LoopTerminalIntent } from '../../shared/types/loop.types';
 import { runLoopControlCli } from './loop-control-cli';
+import { getLessonStore, _resetLessonStoreForTesting } from '../memory/lesson-store';
+import {
+  getRecallTraceStore,
+  _resetRecallTraceStoreForTesting,
+} from '../memory/retrieval-eval/recall-trace-store';
+
+// LT-29x test setup: the real SettingsManager (`conf` under the hood) throws
+// "Please specify the `projectName` option" outside a real Electron app
+// context, which silently swallows `assemblePlanStageContext` (the PLAN-stage
+// lesson-surfacing block) in this bare tmpdir workspace — pre-existing
+// environment limitation, unrelated to the LT-29x fix itself. Only the new
+// lessons-reinforcement test below exercises `loop-coordinator.ts`'s one
+// `getSettingsManager()` call site.
+vi.mock('../core/config/settings-manager', () => ({
+  getSettingsManager: () => ({
+    getAll: () => ({ loopSurfaceLessons: true, codememEnabled: false, loopSurfaceCodemem: true }),
+  }),
+}));
 
 let workspace: string;
 let coordinator: LoopCoordinator;
@@ -361,6 +379,63 @@ describe('LoopCoordinator terminal intents', () => {
         statusReason: 'completion accepted via declared-complete',
       }),
     ]);
+  }, 10_000);
+
+  // LT-29x (fable-ws16 livetest, check 6): before this fix, a clean
+  // successful `terminate(state, 'completed', …)` NEVER populated the
+  // convergence note (`evidence-resolver.ts`'s accepted-completion branch
+  // returns `convergenceNote: null` by design, and nothing else sets it on
+  // this path), so `creditSurfacedLessonUse`'s `outcomeText` argument was
+  // always `undefined` and it no-opped on every genuinely successful loop —
+  // contrary to `loop-lesson-use-credit.ts`'s own "always-present" doc
+  // comment. The fix falls back to the accepted terminal intent's own
+  // `summary`, which IS present on this path.
+  it('LT-29x: reinforces a surfaced lesson on use when the declared-complete summary echoes it, on a clean successful completion', async () => {
+    _resetLessonStoreForTesting();
+    _resetRecallTraceStoreForTesting();
+    const lessonText = 'Always pass the --port flag to set a custom Electron remote debugging port.';
+    const { lesson } = getLessonStore().capture(lessonText);
+
+    const completed = waitForEvent<{ signal: string }>(coordinator, 'loop:completed', LOOP_EVENT_TIMEOUT_MS);
+    coordinator.on('loop:invoke-iteration', async (payload: unknown) => {
+      const p = payload as {
+        loopControlEnv: NodeJS.ProcessEnv;
+        callback: (result: LoopChildResult | { error: string }) => void;
+      };
+      const code = await runLoopControlCli(
+        [
+          'node', 'aio-loop-control', 'complete', '--summary',
+          'Applied the surfaced lesson: always pass the --port flag to set a custom Electron remote debugging port.',
+        ],
+        p.loopControlEnv,
+        silentIo(),
+      );
+      expect(code).toBe(0);
+      p.callback(iterationResult('declared complete, applying surfaced lesson'));
+    });
+
+    const state = await coordinator.startLoop('chat-lesson-reinforce', {
+      initialPrompt: 'do the thing',
+      workspaceCwd: workspace,
+      caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 2 },
+      completion: {
+        ...defaultLoopConfig(workspace, 'x').completion,
+        verifyCommand: passingVerifyCommand(),
+        runVerifyTwice: false,
+        requireCompletedFileRename: false,
+        crossModelReview: { enabled: false, blockingSeverities: ['critical'], timeoutSeconds: 10, reviewDepth: 'structured' },
+      },
+    });
+
+    await expect(completed).resolves.toMatchObject({ signal: 'declared-complete' });
+    await waitForCondition(() => coordinator.getLoop(state.id)?.status === 'completed');
+
+    expect(getLessonStore().get(lesson.id)?.uses).toBe(1);
+    const traces = getRecallTraceStore().bySurface('lessons');
+    expect(traces.some((t) => t.usedIds.includes(lesson.id))).toBe(true);
+
+    _resetLessonStoreForTesting();
+    _resetRecallTraceStoreForTesting();
   }, 10_000);
 
   it('pushes verify failure output into the next pending intervention', async () => {

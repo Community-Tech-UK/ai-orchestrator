@@ -478,6 +478,11 @@ export class BrowserGatewayService {
         origin: attachment.origin,
         url: attachment.url,
         data: safeTargetFromExistingTab(attachment),
+        // LT-217: attachExistingTab is invoked exclusively by the extension's
+        // own tab-lifecycle bridge (relay inventory sweep / native host), never
+        // by an agent tool call (verified: no MCP tool exposes attach). It is
+        // internal bookkeeping, not an agent-attributable browser decision.
+        recordAudit: false,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -492,6 +497,8 @@ export class BrowserGatewayService {
         summary: `Existing Chrome tab attachment denied: ${message}`,
         url: input.url,
         data: null,
+        // LT-217: see the success branch above.
+        recordAudit: false,
       });
     }
   }
@@ -835,7 +842,9 @@ export class BrowserGatewayService {
 
   async snapshot(
     request: BrowserGatewaySnapshotRequest,
-  ): Promise<BrowserGatewayResult<(BrowserSnapshot & { text: string }) | null>> {
+  ): Promise<
+    BrowserGatewayResult<(BrowserSnapshot & { text: string; textUnavailableReason?: string }) | null>
+  > {
     const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
     if (existingTab) {
       return this.applySnapshotExtraction(
@@ -934,9 +943,11 @@ export class BrowserGatewayService {
    * capture stays reachable. Best-effort — any failure keeps the raw text.
    */
   private async applySnapshotExtraction(
-    result: BrowserGatewayResult<(BrowserSnapshot & { text: string }) | null>,
+    result: BrowserGatewayResult<(BrowserSnapshot & { text: string; textUnavailableReason?: string }) | null>,
     extractionHint: string | undefined,
-  ): Promise<BrowserGatewayResult<(BrowserSnapshot & { text: string }) | null>> {
+  ): Promise<
+    BrowserGatewayResult<(BrowserSnapshot & { text: string; textUnavailableReason?: string }) | null>
+  > {
     const rawText = result.data?.text;
     if (!rawText || !extractionHint?.trim()) return result;
     const extracted = await maybeExtractPageText(rawText, extractionHint);

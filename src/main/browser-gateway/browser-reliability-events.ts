@@ -26,6 +26,11 @@ export type BrowserReliabilityEventKind =
   | 'attachment_restored'
   | 'attachment_rebound'
   /**
+   * Attachments a live channel stopped re-reporting were pruned (closed tabs
+   * or a superseded browser-session generation after a Chrome restart).
+   */
+  | 'attachment_superseded'
+  /**
    * An extension command was delivered but never answered inside its window.
    * Recorded because a timeout used to leave no trace anywhere except the audit
    * table, so diagnosing one meant querying rlm.db by hand.

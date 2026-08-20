@@ -23,6 +23,7 @@ import {
   stopBrowserCampaignRuntime,
 } from './browser-campaign-runtime';
 import { getBrowserGrantStore } from './browser-grant-store';
+import { initializeBrowserAuditRetentionMaintenance } from './browser-audit-retention-maintenance';
 import {
   applyBrowserAutonomyConfigFromDisk,
   initializeStandingCampaignRenewal,
@@ -40,6 +41,7 @@ import { resolveAioMcpCliPath } from '../util/aio-mcp-cli-path';
 const logger = getLogger('BrowserGatewayRuntime');
 
 export * from './browser-anti-throttle';
+export * from './browser-audit-retention-maintenance';
 export * from './browser-audit-store';
 export * from './browser-action-classifier';
 export * from './browser-auto-approve';
@@ -182,6 +184,16 @@ export async function initializeBrowserGatewayRuntime(
     registerCleanup(() => stopStandingCampaignRenewal());
   } catch (error) {
     logger.warn('Standing campaign renewal unavailable', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  // LT-217: bound retained history of low-value `actionClass: 'read'`
+  // browser_audit_entries rows (list/get calls). Independent of the
+  // recordAudit: false writer-side fix on the two bookkeeping paths.
+  try {
+    initializeBrowserAuditRetentionMaintenance();
+  } catch (error) {
+    logger.warn('Browser audit retention maintenance unavailable', {
       error: error instanceof Error ? error.message : String(error),
     });
   }

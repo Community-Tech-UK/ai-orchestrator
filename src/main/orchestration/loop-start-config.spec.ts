@@ -7,7 +7,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { prepareLoopStartConfig, attachNextObjectivePlanner } from './loop-start-config';
@@ -38,6 +38,18 @@ function mkConfig(overrides: Partial<LoopConfigInput> = {}): LoopConfigInput {
 }
 
 describe('prepareLoopStartConfig (LF-3a)', () => {
+  it('preserves managed isolation for a Git repository root', async () => {
+    mkdirSync(join(workspace, '.git'));
+
+    const prepared = await prepareLoopStartConfig(mkConfig({
+      isolateLoopWorkspaces: true,
+      autoIntegrateWorktree: true,
+    }));
+
+    expect(prepared.isolateLoopWorkspaces).toBe(true);
+    expect(prepared.autoIntegrateWorktree).toBe(true);
+  });
+
   it('defaults user-started loops to review-driven (self-review) — no auto cross-model review, no inferred verify command', async () => {
     // Even with a package.json "verify" script present, we no longer infer or
     // force it. The default is review-driven self-review; cross-model review is

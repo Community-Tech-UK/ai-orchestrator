@@ -165,6 +165,7 @@ function snapshot(targets: LocalAiTargetStatus[] = [status()]): LocalAiGuardSnap
       fallbackCount: 2,
       knownCostUsd: 0.04,
       estimatedCostUsd: 0.02,
+      unpricedDispatchCount: 0,
     }],
     recoveryAttempts: [],
     pendingFallbacks: [],

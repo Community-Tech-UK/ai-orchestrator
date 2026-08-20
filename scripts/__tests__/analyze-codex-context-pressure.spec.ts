@@ -458,6 +458,39 @@ describe('analyze-codex-context-pressure', () => {
     expect(readFileSync(result.reportPath, 'utf8')).toContain('Malformed diagnostic records: 4');
   });
 
+  it('LT-223: accepts an item-completed record with itemClass "user-message" instead of rejecting it as malformed', async () => {
+    // classifyCodexObservedItem() (context-pressure-diagnostics.ts) was fixed
+    // under LT-148 to classify the user's own turn echo as 'user-message'
+    // rather than defaulting it to the tool-bearing 'other'. This analyzer's
+    // own, separately-maintained ITEM_CLASSES allowlist (types.ts) was never
+    // updated to match, so every real 'user-message' record — the exact shape
+    // LT-148 introduced — was silently counted as malformed instead of a
+    // real item-size observation.
+    const root = temporaryDirectory();
+    const inputs = join(root, 'inputs');
+    mkdirSync(inputs);
+    const logPath = join(inputs, 'app.log');
+    const outDir = join(root, 'output');
+    writeFileSync(logPath, lines([
+      {
+        subsystem: 'CodexContextDiagnostics', message: 'context-pressure-observation',
+        data: {
+          kind: 'item-completed', schemaVersion: 1, at: 1, turnSequence: 1,
+          itemSequence: 1, itemClass: 'user-message', rootThread: true,
+          observedPayloadBytes: 500, serializedItemBytes: 550,
+        },
+      },
+    ]));
+
+    const result = await analyzeCodexContextPressure({ logPath, outDir });
+    const summary = JSON.parse(readFileSync(result.summaryPath, 'utf8')) as CodexContextAnalysisSummary;
+
+    expect(summary.sources.diagnosticLog).toEqual({
+      provided: true, available: true, acceptedRecords: 1, malformedRecords: 0,
+    });
+    expect(readFileSync(result.reportPath, 'utf8')).toMatch(/\| user-message \| 1 \| 500 \| 550 \|/);
+  });
+
   it('marks a pre-capture ledger unavailable without mutating or crashing', async () => {
     const root = temporaryDirectory();
     const inputs = join(root, 'inputs');

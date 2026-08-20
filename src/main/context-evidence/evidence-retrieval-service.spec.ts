@@ -386,6 +386,21 @@ describe('EvidenceRetrievalService', () => {
     }));
   });
 
+  it('asks the ledger to include maintenance-state (corrupt/failed/deleted/staging) records, not just complete ones', async () => {
+    // LT-280: the renderer's context-evidence panel and the evidence_list MCP tool both call
+    // through this method, and the panel is explicitly built (context-evidence-panel.component.ts's
+    // own file-header contract) to visibly label degraded evidence statuses rather than hide them.
+    // That only works if list() actually asks the ledger for those records.
+    const h = harness();
+
+    await h.service.list({ requester: requester(), conversationId: 'conversation-1' });
+
+    expect(h.ledger.listEvidence).toHaveBeenCalledWith(
+      'conversation-1',
+      expect.objectContaining({ includeMaintenanceStates: true }),
+    );
+  });
+
   it('audits records filtered from list and search by policy', async () => {
     const h = harness();
     vi.mocked(h.policy.authorize).mockReturnValue({

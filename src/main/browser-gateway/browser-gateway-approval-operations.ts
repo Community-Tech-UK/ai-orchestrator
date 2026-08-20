@@ -91,6 +91,11 @@ export class BrowserGatewayApprovalOperations {
       outcome: 'succeeded',
       summary: `Listed ${approvals.length} Browser Gateway approval requests`,
       data: approvals,
+      // LT-217: BrowserApprovalsBannerComponent polls this every 5s on a
+      // permanent timer purely to read pending state — a read-only UI poll,
+      // not an agent-attributable browser decision. Audit-write it produced
+      // ~1.1M rows with zero forensic value.
+      recordAudit: false,
     });
   }
 

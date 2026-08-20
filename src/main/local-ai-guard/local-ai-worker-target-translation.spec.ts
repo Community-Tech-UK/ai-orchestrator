@@ -32,6 +32,7 @@ function openDb(): SqliteDriver {
     if (!migration) throw new Error(`Missing migration ${name}`);
     db.exec(migration.up);
   }
+  db.exec('ALTER TABLE local_ai_incidents ADD COLUMN unpriced_dispatch_count INTEGER NOT NULL DEFAULT 0;');
   dbs.push(db);
   return db;
 }

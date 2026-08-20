@@ -37,6 +37,7 @@ const reservationProcessScript = String.raw`
       );
       if (!migration) throw new Error('Missing migration 054_local_ai_guard');
       db.exec(migration.up);
+      db.exec('ALTER TABLE local_ai_incidents ADD COLUMN unpriced_dispatch_count INTEGER NOT NULL DEFAULT 0;');
       console.log('AIO_RESERVATION_RESULT:' + JSON.stringify({ setup: true }));
     } else {
       const repository = new LocalAiHealthRepository(db, undefined, () => 1000);
@@ -100,6 +101,7 @@ const dispatchRestartScript = String.raw`
     (item) => item.name === '054_local_ai_guard',
   );
   firstDb.exec(migration.up);
+  firstDb.exec('ALTER TABLE local_ai_incidents ADD COLUMN unpriced_dispatch_count INTEGER NOT NULL DEFAULT 0;');
   firstDb.prepare(
     "INSERT INTO local_ai_targets (" +
     "id, label, lifecycle, location_type, worker_node_id, provider, endpoint_id, " +
@@ -123,6 +125,7 @@ const dispatchRestartScript = String.raw`
       fallbackCount: 0,
       knownCostUsd: 0,
       estimatedCostUsd: 0,
+      unpricedDispatchCount: 0,
     },
   });
   first.repository.appendRoutingEvent({
@@ -212,6 +215,7 @@ describe('Local AI fallback reservation store', () => {
       );
       if (!migration) throw new Error('Missing migration 054_local_ai_guard');
       db.exec(migration.up);
+      db.exec('ALTER TABLE local_ai_incidents ADD COLUMN unpriced_dispatch_count INTEGER NOT NULL DEFAULT 0;');
       db.prepare(`
         INSERT INTO local_ai_targets (
           id, label, lifecycle, location_type, worker_node_id, provider, endpoint_id,
@@ -235,6 +239,7 @@ describe('Local AI fallback reservation store', () => {
           fallbackCount: 0,
           knownCostUsd: 0,
           estimatedCostUsd: 0,
+          unpricedDispatchCount: 0,
         },
       });
       repository.accountRoutingEvent({
@@ -295,6 +300,7 @@ describe('Local AI fallback reservation store', () => {
     );
     if (!migration) throw new Error('Missing migration 054_local_ai_guard');
     db.exec(migration.up);
+    db.exec('ALTER TABLE local_ai_incidents ADD COLUMN unpriced_dispatch_count INTEGER NOT NULL DEFAULT 0;');
     const repository = new LocalAiHealthRepository(db, undefined, () => 1_000);
     repository.appendRoutingEvent({
       id: 'existing-request-event',

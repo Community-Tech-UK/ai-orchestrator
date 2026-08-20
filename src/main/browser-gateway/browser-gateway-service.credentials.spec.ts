@@ -465,6 +465,110 @@ describe('BrowserGatewayService credentials', () => {
     expect(vault.getSecretForFill).not.toHaveBeenCalled();
   });
 
+  // This is the consumption point of the cross-domain OTP allowlist: the wire
+  // that carries an authorization's declared `allowedSenderDomains` from
+  // `authorizations.check()` into `resolveEmailSenderDomains()` at fill time
+  // (`browser-form-fill-operations.ts`, the `purpose === 'email_code'` branch).
+  //
+  // A 2026-08-19 completion gate deleted that branch entirely — so a declared
+  // allowance could never reach the fill — and 883/883 browser-gateway tests
+  // still passed. It is the most load-bearing wire in the feature and the one
+  // the human-only livetest exists to exercise, so it is asserted here.
+  //
+  // Read this together with the sibling test below: same unrelated sender
+  // domain, the only difference being whether the authorization declares it.
+  it('fillCredential accepts an unrelated email_code sender domain that the authorization declares', async () => {
+    const vault = {
+      getSecretForFill: vi.fn(),
+      createAgentCredential: vi.fn(),
+      getGenericSecretForFill: vi.fn(),
+    };
+    const authorizations = {
+      check: vi.fn((input: { purpose: string }) =>
+        input.purpose === 'email_code'
+          ? {
+            authorized: true,
+            authorizationId: 'auth-1',
+            allowedSenderDomains: ['notifications.service.gov.uk'],
+          }
+          : { authorized: true, authorizationId: 'auth-1' },
+      ),
+    };
+    const emailCodeReader = {
+      fetchCode: vi.fn(async () => ({
+        code: '482913',
+        messageId: 'm-1',
+        matchedSender: 'noreply@notifications.service.gov.uk',
+      })),
+    };
+    const { service, driver } = makeService({
+      credentialVault: vault,
+      credentialAuthorizations: authorizations,
+      emailCodeReader,
+    });
+
+    const result = await service.fillCredential({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      instanceId: 'instance-1',
+      provider: 'claude',
+      vaultItemRef: 'item-1',
+      fields: [{ selector: '#otp', kind: 'email_code' }],
+      emailCode: { senderDomains: ['notifications.service.gov.uk'] },
+    });
+
+    expect(result).toMatchObject({ decision: 'allowed', outcome: 'succeeded', data: { filled: 1 } });
+    // The declared domain actually reached the mailbox read — this is the
+    // assertion that fails if the wiring is removed.
+    expect(emailCodeReader.fetchCode).toHaveBeenCalledWith(
+      expect.objectContaining({ expectedSenderDomains: ['notifications.service.gov.uk'] }),
+    );
+    expect(driver.type).toHaveBeenCalledWith('profile-1', 'target-1', '#otp', '482913');
+    expect(JSON.stringify(result)).not.toContain('482913');
+  });
+
+  // The negative half of the pair: an authorization that declares a *different*
+  // domain must not license the requested one. Without this, the test above
+  // could pass merely because the allowlist was ignored and everything allowed.
+  it('fillCredential still rejects a sender domain the authorization does not declare', async () => {
+    const vault = {
+      getSecretForFill: vi.fn(),
+      createAgentCredential: vi.fn(),
+      getGenericSecretForFill: vi.fn(),
+    };
+    const authorizations = {
+      check: vi.fn(() => ({
+        authorized: true,
+        authorizationId: 'auth-1',
+        allowedSenderDomains: ['notifications.service.gov.uk'],
+      })),
+    };
+    const emailCodeReader = { fetchCode: vi.fn() };
+    const { service, driver } = makeService({
+      credentialVault: vault,
+      credentialAuthorizations: authorizations,
+      emailCodeReader,
+    });
+
+    const result = await service.fillCredential({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      instanceId: 'instance-1',
+      provider: 'claude',
+      vaultItemRef: 'item-1',
+      fields: [{ selector: '#otp', kind: 'email_code' }],
+      emailCode: { senderDomains: ['some-bank.com'] },
+    });
+
+    expect(result).toMatchObject({
+      decision: 'denied',
+      outcome: 'not_run',
+      reason: 'email_code_sender_domain_not_allowed',
+    });
+    expect(emailCodeReader.fetchCode).not.toHaveBeenCalled();
+    expect(driver.type).not.toHaveBeenCalled();
+  });
+
   it('fillCredential rejects email_code sender domains unrelated to the live origin', async () => {
     const vault = {
       getSecretForFill: vi.fn(),

@@ -943,6 +943,7 @@ describe('LocalAiHealthScheduler', () => {
       fallbackCount: 0,
       knownCostUsd: 0,
       estimatedCostUsd: 0,
+      unpricedDispatchCount: 0,
     };
     const { scheduler } = harness(
       [value],
@@ -978,6 +979,7 @@ describe('LocalAiHealthScheduler', () => {
       fallbackCount: 0,
       knownCostUsd: 0,
       estimatedCostUsd: 0,
+      unpricedDispatchCount: 0,
     };
     const { scheduler, checks } = harness([value], undefined, { incidents: [incident] });
     scheduler.start();

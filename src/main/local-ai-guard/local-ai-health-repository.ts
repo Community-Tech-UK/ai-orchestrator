@@ -380,15 +380,17 @@ export class LocalAiHealthRepository {
     this.db.prepareCached(`
       INSERT INTO local_ai_incidents (
         id, target_id, state, severity, failure_code, affected_layers_json, affected_roles_json, opened_at,
-        updated_at, acknowledged_at, resolved_at, fallback_count, known_cost_usd, estimated_cost_usd
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        updated_at, acknowledged_at, resolved_at, fallback_count, known_cost_usd, estimated_cost_usd,
+        unpriced_dispatch_count
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(...incidentValues(incident));
   }
   private updateIncident(incident: LocalAiIncident): void {
     this.db.prepareCached(`
       UPDATE local_ai_incidents SET
         state = ?, severity = ?, failure_code = ?, affected_layers_json = ?, affected_roles_json = ?, updated_at = ?,
-        acknowledged_at = ?, resolved_at = ?, fallback_count = ?, known_cost_usd = ?, estimated_cost_usd = ?
+        acknowledged_at = ?, resolved_at = ?, fallback_count = ?, known_cost_usd = ?, estimated_cost_usd = ?,
+        unpriced_dispatch_count = ?
       WHERE id = ?
     `).run(
       incident.state,
@@ -402,6 +404,7 @@ export class LocalAiHealthRepository {
       incident.fallbackCount,
       incident.knownCostUsd,
       incident.estimatedCostUsd,
+      incident.unpricedDispatchCount,
       incident.id,
     );
   }
@@ -569,6 +572,7 @@ function incidentValues(incident: LocalAiIncident): unknown[] {
     incident.fallbackCount,
     incident.knownCostUsd,
     incident.estimatedCostUsd,
+    incident.unpricedDispatchCount,
   ];
 }
 
@@ -595,6 +599,7 @@ function emptySummary(window: LocalAiEffectivenessSummary['window']): LocalAiEff
     blockedFallbacks: 0,
     knownCostUsd: 0,
     estimatedCostUsd: 0,
+    unpricedDispatchCount: 0,
     avoidedEstimatedTokens: 0,
     avoidedEstimatedCostUsd: 0,
     byTarget: {},
@@ -623,6 +628,11 @@ function addEvent(summary: LocalAiEffectivenessSummary, event: LocalAiRoutingEve
   if (event.disposition === 'blocked') summary.blockedFallbacks = addSafeInteger('blockedFallbacks', summary.blockedFallbacks, 1);
   summary.knownCostUsd = addFiniteCost('knownCostUsd', summary.knownCostUsd, event.knownCostUsd ?? 0);
   summary.estimatedCostUsd = addFiniteCost('estimatedCostUsd', summary.estimatedCostUsd, event.estimatedCostUsd ?? 0);
+  // LT-193: an allowed (actually dispatched) fallback with neither a known
+  // nor an estimated cost is genuinely unpriced, not a $0 dispatch.
+  if (event.disposition === 'allowed' && event.knownCostUsd === undefined && event.estimatedCostUsd === undefined) {
+    summary.unpricedDispatchCount = addSafeInteger('unpricedDispatchCount', summary.unpricedDispatchCount, 1);
+  }
 }
 
 function addSummary(target: LocalAiEffectivenessSummary, source: LocalAiEffectivenessSummary): void {
@@ -634,6 +644,7 @@ function addSummary(target: LocalAiEffectivenessSummary, source: LocalAiEffectiv
   target.blockedFallbacks = addSafeInteger('blockedFallbacks', target.blockedFallbacks, source.blockedFallbacks);
   target.knownCostUsd = addFiniteCost('knownCostUsd', target.knownCostUsd, source.knownCostUsd);
   target.estimatedCostUsd = addFiniteCost('estimatedCostUsd', target.estimatedCostUsd, source.estimatedCostUsd);
+  target.unpricedDispatchCount = addSafeInteger('unpricedDispatchCount', target.unpricedDispatchCount, source.unpricedDispatchCount);
   target.avoidedEstimatedTokens = addSafeInteger('avoidedEstimatedTokens', target.avoidedEstimatedTokens, source.avoidedEstimatedTokens);
   target.avoidedEstimatedCostUsd = addFiniteCost('avoidedEstimatedCostUsd', target.avoidedEstimatedCostUsd, source.avoidedEstimatedCostUsd);
   addCounters(target.byTarget, source.byTarget);

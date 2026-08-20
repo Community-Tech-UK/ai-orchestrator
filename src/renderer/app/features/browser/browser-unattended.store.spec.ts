@@ -19,6 +19,7 @@ describe('BrowserUnattendedStore', () => {
     createCredentialAuthorization: ReturnType<typeof vi.fn>;
     listCredentialAuthorizations: ReturnType<typeof vi.fn>;
     revokeCredentialAuthorization: ReturnType<typeof vi.fn>;
+    enrolCredential: ReturnType<typeof vi.fn>;
     createCampaign: ReturnType<typeof vi.fn>;
     listCampaigns: ReturnType<typeof vi.fn>;
     getCampaign: ReturnType<typeof vi.fn>;
@@ -80,6 +81,10 @@ describe('BrowserUnattendedStore', () => {
       createCredentialAuthorization: vi.fn().mockResolvedValue({ success: true, data: authorization }),
       listCredentialAuthorizations: vi.fn().mockResolvedValue({ success: true, data: [authorization] }),
       revokeCredentialAuthorization: vi.fn().mockResolvedValue({ success: true, data: { revoked: true } }),
+      enrolCredential: vi.fn().mockResolvedValue({
+        success: true,
+        data: { vaultItemRef: 'item-1', username: 'someone@example.invalid', movedIntoFolder: false },
+      }),
       createCampaign: vi.fn().mockResolvedValue({ success: true, data: campaign }),
       listCampaigns: vi.fn().mockResolvedValue({ success: true, data: [campaignListItem] }),
       getCampaign: vi.fn().mockResolvedValue({
@@ -164,6 +169,48 @@ describe('BrowserUnattendedStore', () => {
       expect.objectContaining({ profileId: 'profile-1', vaultFolder: 'AIO-Agent' }),
     );
     expect(ipc.listCredentialAuthorizations).toHaveBeenCalled();
+  });
+
+  // `enrolCredential` was the only one of this store's twelve methods with no
+  // test — a 2026-08-19 completion gate replaced its body with one that
+  // discards the IPC response entirely and 23/23 tests still passed. This is
+  // the real production method behind the panel's "Enrol login" button; the
+  // panel's own spec mocks the store, so nothing else exercises it.
+  describe('enrolCredential', () => {
+    const payload = { item: 'Report MI login', origin: 'https://auth.reportmi.gca.gov.uk' };
+
+    it('returns the enrolment result and forwards the payload', async () => {
+      const result = await store.enrolCredential(payload);
+
+      expect(ipc.enrolCredential).toHaveBeenCalledWith(payload);
+      expect(result).toEqual({
+        vaultItemRef: 'item-1',
+        username: 'someone@example.invalid',
+        movedIntoFolder: false,
+      });
+      expect(store.errorMessage()).toBeNull();
+    });
+
+    it('returns null and surfaces the error message when the IPC call fails', async () => {
+      ipc.enrolCredential.mockResolvedValueOnce({
+        success: false,
+        error: { message: 'item_outside_agent_folder' },
+      });
+
+      const result = await store.enrolCredential(payload);
+
+      expect(result).toBeNull();
+      expect(store.errorMessage()).toBe('item_outside_agent_folder');
+    });
+
+    it('returns null and sets a fallback message when the call succeeds with no data', async () => {
+      ipc.enrolCredential.mockResolvedValueOnce({ success: true, data: null });
+
+      const result = await store.enrolCredential(payload);
+
+      expect(result).toBeNull();
+      expect(store.errorMessage()).toBe('Failed to enrol the credential.');
+    });
   });
 
   it('revokes a credential authorization', async () => {

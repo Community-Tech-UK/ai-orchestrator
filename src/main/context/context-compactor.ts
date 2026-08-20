@@ -190,9 +190,23 @@ export class ContextCompactor extends EventEmitter {
   }
 
   /**
-   * Add a conversation turn
+   * Add a conversation turn.
+   *
+   * `options.suppressAutoCompact` (LT-188) lets a caller that is about to
+   * make its own explicit `compact()` call right after a bulk rebuild —
+   * `CompactionRuntime.restartCompact()`'s turn-rebuild loop is the only
+   * production caller of `addTurn()` today — opt that loop out of the
+   * auto-trigger below. Without it, `shouldCompact()` can flip true partway
+   * through the loop and fire an un-awaited background `compact()` that then
+   * races the loop's own subsequent `await compactor.compact()` on this
+   * same singleton's mutable state, producing two independent compactions
+   * (and, when a fallback confirmation is required, two independent paid
+   * fallback approval prompts) for one logical "Compact Now" call.
    */
-  addTurn(turn: Omit<ConversationTurn, 'id' | 'timestamp'>): ConversationTurn {
+  addTurn(
+    turn: Omit<ConversationTurn, 'id' | 'timestamp'>,
+    options?: { suppressAutoCompact?: boolean }
+  ): ConversationTurn {
     const fullTurn: ConversationTurn = {
       ...turn,
       id: this.generateId(),
@@ -213,7 +227,12 @@ export class ContextCompactor extends EventEmitter {
     this.emit('turn-added', fullTurn);
 
     // Check if compaction needed
-    if (this.config.autoCompact && this.shouldCompact() && !this.compactionInProgress) {
+    if (
+      this.config.autoCompact
+      && !options?.suppressAutoCompact
+      && this.shouldCompact()
+      && !this.compactionInProgress
+    ) {
       this.compactionInProgress = true;
       this.compact()
         .catch(err => {

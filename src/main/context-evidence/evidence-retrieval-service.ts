@@ -155,8 +155,12 @@ export class EvidenceRetrievalService {
 
   async list(input: EvidenceListInput): Promise<EvidenceLedgerRecord[]> {
     await this.requireOwnership(input.conversationId, input.requester, 'list');
+    // includeMaintenanceStates: true — corrupt/failed/deleted/staging records must reach every
+    // caller (renderer panel, evidence_list MCP tool) so they can be visibly labeled rather than
+    // silently vanishing (LT-280). Authorization below still governs what a given requester may see.
     const records = await this.options.ledger.listEvidence(input.conversationId, {
       limit: input.limit,
+      includeMaintenanceStates: true,
     });
     const allowed: EvidenceLedgerRecord[] = [];
     for (const record of records) {

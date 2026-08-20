@@ -78,6 +78,9 @@ export function extractTabPayload(result: unknown): BrowserAttachExistingTabRequ
     url,
     ...(typeof value['title'] === 'string' ? { title: value['title'] } : {}),
     ...(typeof value['text'] === 'string' ? { text: value['text'] } : {}),
+    ...(typeof value['textUnavailableReason'] === 'string'
+      ? { textUnavailableReason: value['textUnavailableReason'] }
+      : {}),
     ...(typeof value['screenshotBase64'] === 'string'
       ? { screenshotBase64: value['screenshotBase64'] }
       : {}),

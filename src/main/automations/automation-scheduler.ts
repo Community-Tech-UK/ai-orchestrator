@@ -96,7 +96,11 @@ export class AutomationScheduler {
         && event.automation.enabled
         && event.automation.nextFireAt !== null) {
         this.schedule(event.automation);
-      } else if (event.automation?.enabled === true && this.hasPendingRetry(event.automationId)) {
+      } else if (
+        event.automation?.enabled === true
+        && event.automation.active !== false
+        && this.hasPendingRetry(event.automationId)
+      ) {
         // LT-195: a fired run's own post-fire bookkeeping (e.g. a oneTime
         // schedule's `nextFireAt` going null) reliably races AutomationRunner
         // .handleTerminalRun's synchronous `this.retryScheduler(...)` call —
@@ -121,6 +125,14 @@ export class AutomationScheduler {
         // `undefined === true` (false) for that case too — defensively falls
         // through to the full `deactivate()` below rather than depending on
         // that ordering.
+        //
+        // LT-208: the invariant above ("every disable path flips `enabled`,
+        // never `active` on its own") held for every call site as of the
+        // LT-195 gate, but nothing enforced it — `AutomationUpdatePayloadSchema`
+        // allows a caller to set `active: false` independently. The added
+        // `event.automation.active !== false` clause defends against that
+        // latent case without changing today's behaviour: the LT-195 echo
+        // this branch exists to preserve always carries `active: true`.
         this.deactivateSchedule(event.automationId);
       } else {
         this.deactivate(event.automationId);

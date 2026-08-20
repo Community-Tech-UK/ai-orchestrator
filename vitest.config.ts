@@ -3,6 +3,7 @@ import ts from 'typescript';
 import type { Plugin } from 'vite';
 import { defineConfig } from 'vitest/config';
 import { aliases } from './vitest.aliases';
+import { testHeapExecArgv } from './vitest.heap';
 
 function angularJitPlugin(): Plugin {
   const config = ts.readConfigFile('tsconfig.json', ts.sys.readFile);
@@ -59,6 +60,15 @@ const defaultExcludes = [
 export default defineConfig({
   test: {
     globals: true,
+    // Tinypool is built once for the whole run from the ROOT config, so this is
+    // the only place execArgv reaches the workers — a per-project
+    // poolOptions.forks.execArgv is silently ignored (per-project singleFork is
+    // not: that one is applied by grouping specs). See vitest.heap.ts.
+    poolOptions: {
+      forks: {
+        execArgv: testHeapExecArgv(),
+      },
+    },
     // Multi-project: renderer gets Angular TestBed; everything else skips it
     // but still uses jsdom + zone.js (Worker/MessagePort + microtask fidelity).
     // Both stay singleFork until a dedicated isolation audit unlocks parallel

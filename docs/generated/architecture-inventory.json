@@ -5735,7 +5735,7 @@
     },
     {
       "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 3916
+      "lines": 3920
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-mempalace-knowledge-features_completed.md",
@@ -5743,7 +5743,7 @@
     },
     {
       "path": "resources/browser-extension/background.js",
-      "lines": 3699
+      "lines": 3748
     },
     {
       "path": "docs/superpowers/plans/2026-06-08-50-hour-loop-resilience_completed.md",
@@ -5819,7 +5819,7 @@
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
-      "lines": 2420
+      "lines": 2431
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service-existing-tabs.spec.ts",
@@ -5923,7 +5923,11 @@
     },
     {
       "path": "src/main/browser-gateway/browser-extension-assets.spec.ts",
-      "lines": 1673
+      "lines": 1773
+    },
+    {
+      "path": "src/main/local-ai-guard/local-ai-health-repository.spec.ts",
+      "lines": 1660
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
@@ -5940,10 +5944,6 @@
     {
       "path": "src/main/orchestration/default-invokers.ts",
       "lines": 1623
-    },
-    {
-      "path": "src/main/local-ai-guard/local-ai-health-repository.spec.ts",
-      "lines": 1617
     },
     {
       "path": "docs/superpowers/plans/2026-03-15-session-resume-improvements.md",
@@ -6118,6 +6118,10 @@
       "lines": 1272
     },
     {
+      "path": "src/main/local-ai-guard/local-ai-incident-service.spec.ts",
+      "lines": 1270
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-13-collapsible-system-events_completed.md",
       "lines": 1268
     },
@@ -6130,15 +6134,15 @@
       "lines": 1263
     },
     {
-      "path": "src/main/local-ai-guard/local-ai-incident-service.spec.ts",
-      "lines": 1263
-    },
-    {
       "path": "docs/superpowers/plans/2026-07-08-remote-local-model-runtime_completed.md",
       "lines": 1261
     },
     {
       "path": "docs/plans/2026-03-02-architectural-remediation-plan.md",
+      "lines": 1257
+    },
+    {
+      "path": "src/main/automations/automation-retry-integration.spec.ts",
       "lines": 1257
     },
     {
@@ -6198,10 +6202,6 @@
       "lines": 1207
     },
     {
-      "path": "src/main/automations/automation-retry-integration.spec.ts",
-      "lines": 1206
-    },
-    {
       "path": "docs/plans/2026-06-27-supergoal-inspired-loop-planning-audit_completed.md",
       "lines": 1203
     },
@@ -6227,7 +6227,7 @@
     },
     {
       "path": "src/renderer/app/core/state/local-ai-guard.store.spec.ts",
-      "lines": 1169
+      "lines": 1171
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase3-monorepo-consolidation_completed.md",
@@ -6267,7 +6267,7 @@
     },
     {
       "path": "src/main/ipc/handlers/local-ai-guard-handlers.spec.ts",
-      "lines": 1119
+      "lines": 1123
     },
     {
       "path": "src/renderer/app/features/mcp/mcp-page.component.ts",
@@ -6302,11 +6302,11 @@
       "lines": 1104
     },
     {
-      "path": "src/main/ipc/handlers/session-handlers.ts",
-      "lines": 1094
+      "path": "src/main/local-ai-guard/local-ai-health-scheduler.spec.ts",
+      "lines": 1096
     },
     {
-      "path": "src/main/local-ai-guard/local-ai-health-scheduler.spec.ts",
+      "path": "src/main/ipc/handlers/session-handlers.ts",
       "lines": 1094
     },
     {
@@ -6324,6 +6324,10 @@
     {
       "path": "src/main/review/local-review-tool-runner.spec.ts",
       "lines": 1088
+    },
+    {
+      "path": "src/main/context/__tests__/context-compactor.spec.ts",
+      "lines": 1080
     },
     {
       "path": "src/main/rlm/llm-service.ts",
@@ -6354,10 +6358,6 @@
       "lines": 1035
     },
     {
-      "path": "src/main/context/__tests__/context-compactor.spec.ts",
-      "lines": 1034
-    },
-    {
       "path": "src/renderer/app/features/hooks/hooks-config.component.ts",
       "lines": 1029
     },
@@ -6380,6 +6380,10 @@
     {
       "path": "src/renderer/app/features/plan/plan-page.component.ts",
       "lines": 1015
+    },
+    {
+      "path": "src/main/browser-gateway/browser-gateway-service.credentials.spec.ts",
+      "lines": 1014
     },
     {
       "path": "src/worker-agent/worker-agent.ts",
@@ -6410,6 +6414,10 @@
       "lines": 993
     },
     {
+      "path": "src/main/context/context-compactor.ts",
+      "lines": 991
+    },
+    {
       "path": "src/main/core/error-recovery.ts",
       "lines": 991
     },
@@ -6423,7 +6431,7 @@
     },
     {
       "path": "src/main/local-ai-guard/local-ai-guard.integration.spec.ts",
-      "lines": 984
+      "lines": 986
     },
     {
       "path": "src/preload/domains/orchestration.preload.ts",
@@ -6448,10 +6456,6 @@
     {
       "path": "src/renderer/app/core/state/source-control.store.ts",
       "lines": 976
-    },
-    {
-      "path": "src/main/context/context-compactor.ts",
-      "lines": 972
     },
     {
       "path": "src/main/orchestration/loop-coordinator-review-driven.spec.ts",
@@ -6526,10 +6530,6 @@
       "lines": 911
     },
     {
-      "path": "src/main/browser-gateway/browser-gateway-service.credentials.spec.ts",
-      "lines": 910
-    },
-    {
       "path": "src/main/workspace/lsp-manager.ts",
       "lines": 899
     },
@@ -6563,6 +6563,10 @@
     },
     {
       "path": "src/main/automations/automation-runner.ts",
+      "lines": 881
+    },
+    {
+      "path": "src/main/orchestration/loop-coordinator-terminal-intents.spec.ts",
       "lines": 881
     },
     {
@@ -6764,10 +6768,6 @@
     {
       "path": "src/main/orchestration/orchestration-protocol.spec.ts",
       "lines": 807
-    },
-    {
-      "path": "src/main/orchestration/loop-coordinator-terminal-intents.spec.ts",
-      "lines": 806
     },
     {
       "path": "docs/superpowers/plans/2026-05-02-conversation-ledger-codex-native-adapter_completed.md",

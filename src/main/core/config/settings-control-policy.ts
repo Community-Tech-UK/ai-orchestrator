@@ -52,6 +52,12 @@ const PRIVILEGED_CLI_OPERATOR_ONLY_KEYS = new Set<keyof AppSettings>([
   // is a human/GUI-only decision — the privileged repair CLI's agent-facing
   // `settings set` path must not be able to grant it either.
   'allowPrCreation',
+  // 2026-08-19 fresh-eyes finding: a licence guardrail (e.g. keeping a
+  // work-only Copilot seat out of automatic selection) is worthless if the
+  // very agents it restricts can clear it through the privileged repair CLI.
+  // `readOnly()` alone only blocks the safe `set_setting` MCP tool, not this
+  // surface — same reasoning as `allowPrCreation` above.
+  'providersExcludedFromAutomation',
   'computerUseEnabled',
   'computerUseAllowedAppsJson',
   'computerUseDeniedAppsJson',

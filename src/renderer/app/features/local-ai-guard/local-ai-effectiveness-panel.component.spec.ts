@@ -40,6 +40,7 @@ function summary(
     blockedFallbacks: 0,
     knownCostUsd: 1.25,
     estimatedCostUsd: 0.75,
+    unpricedDispatchCount: 0,
     avoidedEstimatedTokens: 9_000,
     avoidedEstimatedCostUsd: 2.5,
     byTarget: { 'target-1': 4, 'target-2': 1 },

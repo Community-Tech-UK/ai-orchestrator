@@ -23,6 +23,7 @@ import {
   collectInventoryRefreshFailures,
   describeInventoryRefreshFailures,
   notDeliveredOpenTabMessage,
+  reconcileRefreshFailuresWithInventory,
   recoveredFindOrOpenResultInput,
   recoverOpenedTabAfterTimeout,
   withRefreshFailureStaleFlag,
@@ -50,6 +51,25 @@ import {
   selectBrowserTargetForUrl,
   type BrowserTargetPreflightResult,
 } from './browser-target-preflight';
+
+/**
+ * How recently an extension must have re-reported a tab for `find_or_open` to
+ * treat it as live.
+ *
+ * This deliberately does NOT mean "re-reported during the refresh we just
+ * asked for". An extension relay re-reports each tab on a rolling sweep — a
+ * measured 20–55s per tab on a 22-tab remote node — while the refresh command
+ * itself is bounded at 2.5–3s. Requiring confirmation inside the refresh
+ * window therefore rejected roughly nine live tabs in ten (LT-216): with no
+ * URL the agent got `existing_tab_not_confirmed_after_inventory_refresh`, and
+ * with a URL it silently opened a duplicate tab instead of reusing the
+ * logged-in one.
+ *
+ * The horizon must exceed the observed sweep period while still excluding
+ * genuinely dead inventory (ghost tabs from an ended browser session, which
+ * are hours old).
+ */
+const EXISTING_TAB_CONFIRMATION_HORIZON_MS = 120_000;
 
 interface BrowserTargetDiscoveryDeps {
   /**
@@ -93,17 +113,26 @@ export class BrowserTargetDiscoveryOperations {
       });
     }
 
-    const refreshFailures = collectInventoryRefreshFailures(
-      request.refresh === true
-        ? await refreshBrowserExtensionInventory({
-          request: {
-            ...request,
-            ...(computerTarget.target.nodeId ? { nodeId: computerTarget.target.nodeId } : {}),
-          },
-          commandStore: this.deps.extensionCommandStore,
-          localOnly: computerTarget.target.localOnly,
-        })
-        : [],
+    // A refresh-command failure is downgraded when the queue's inventory is
+    // demonstrably live (tabs re-reported inside the liveness horizon): the
+    // ack was lost or outran its window, but the extension is responding, so
+    // reporting "refresh FAILED"/stale would make a healthy channel read as
+    // broken and push callers onto worse fallbacks.
+    const refreshFailures = reconcileRefreshFailuresWithInventory(
+      collectInventoryRefreshFailures(
+        request.refresh === true
+          ? await refreshBrowserExtensionInventory({
+            request: {
+              ...request,
+              ...(computerTarget.target.nodeId ? { nodeId: computerTarget.target.nodeId } : {}),
+            },
+            commandStore: this.deps.extensionCommandStore,
+            localOnly: computerTarget.target.localOnly,
+          })
+          : [],
+      ),
+      this.deps.extensionTabStore.listTabs(),
+      Date.now(),
     );
     const refreshedRegistryTargets = this.deps.targetRegistry.listTargets(request.profileId);
     const liveTargets = request.profileId
@@ -340,7 +369,19 @@ export class BrowserTargetDiscoveryOperations {
       commandStore: this.deps.extensionCommandStore,
       localOnly: target.localOnly,
     }));
-    if (target.nodeId && failures.failedRefreshNodeIds.has(target.nodeId)) {
+    // A failed refresh command is not evidence the tab is gone — a relay-backed
+    // node re-reports each tab on a sweep far longer than the refresh deadline,
+    // so the command routinely times out while the channel is healthy. Loss of
+    // extension *contact* is the signal that inventory can no longer be trusted,
+    // so that — not the command's outcome — is what gates the bail-out here.
+    // Tab-level recency is then enforced separately by the horizon below.
+    if (
+      target.nodeId
+      && failures.failedRefreshNodeIds.has(target.nodeId)
+      && !isRemoteExtensionContactFresh(target.nodeId, {
+        extensionContactState: this.deps.extensionContactState,
+      })
+    ) {
       return null;
     }
     if (target.localOnly && failures.localRefreshFailed) {
@@ -348,7 +389,9 @@ export class BrowserTargetDiscoveryOperations {
     }
     const tabs = this.deps.extensionTabStore.listTabs()
       .filter((tab) => matchesBrowserComputerTarget(tab, target));
-    return findExistingTabCandidate(tabs, url, titleHint, { minUpdatedAt: refreshStartedAt });
+    return findExistingTabCandidate(tabs, url, titleHint, {
+      minUpdatedAt: refreshStartedAt - EXISTING_TAB_CONFIRMATION_HORIZON_MS,
+    });
   }
 
   private cachedTabNotConfirmed(

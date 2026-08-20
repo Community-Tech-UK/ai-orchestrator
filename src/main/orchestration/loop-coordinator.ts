@@ -211,6 +211,7 @@ import { recordLoopLearningForState } from './loop-learning-recorder';
 import { assemblePlanStageContext } from './loop-prior-context';
 import { CodeRetrievalService } from '../codemem/code-retrieval-service';
 import { getLessonStore } from '../memory/lesson-store';
+import { getRecallTraceStore } from '../memory/retrieval-eval/recall-trace-store';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { captureReviewLessonForVerdict } from './loop-review-lesson-capture-wiring';
 import { creditSurfacedLessonUse } from './loop-lesson-use-credit';
@@ -1106,6 +1107,9 @@ export class LoopCoordinator extends EventEmitter {
           // surfaced lessons so a later echo can reinforce them on use.
           const surfaced = getLessonStore().digest(limit);
           surfacedLessonsForRun.push(...surfaced.map((l) => ({ id: l.id, text: l.text })));
+          // LT-29x: record a 'lessons' recall trace so markUsed() has one to credit.
+          if (surfaced.length > 0) getRecallTraceStore().record({ surface: 'lessons', query: config.initialPrompt,
+            returned: surfaced.map((l, i) => ({ id: l.id, score: 1 - i / surfaced.length })) });
           return [
             // loop-memory's renderLearningLine already appends "(N days ago)"
             // per line (P0.3) — no separate timestamp here, so
@@ -3805,11 +3809,11 @@ export class LoopCoordinator extends EventEmitter {
       note: this.completionContext.getConvergenceNote(state.id),
       store: this.loopMemoryStore,
     });
-    // WS16: reinforce-on-use — lessons surfaced this run that the convergence
-    // note / terminal outcome actually echoed get a use bump (fail-soft).
+    // WS16: reinforce-on-use (fail-soft). LT-29x: fall back to the accepted
+    // terminal intent's summary — convergenceNote is null on a clean success.
     creditSurfacedLessonUse(
       this.runtimeContexts.get(state.id)?.surfacedLessons,
-      this.completionContext.getConvergenceNote(state.id),
+      this.completionContext.getConvergenceNote(state.id) ?? state.terminalIntentHistory?.at(-1)?.summary,
     );
     const watcher = this.watchers.get(state.id);
     this.watchers.delete(state.id);

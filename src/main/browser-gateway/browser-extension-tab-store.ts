@@ -23,6 +23,22 @@ import {
  */
 export const SUSPENDED_ATTACHMENT_GRACE_MS = 15 * 60_000;
 
+/**
+ * How far behind its channel's freshest inventory an attachment may lag before
+ * it is treated as gone (a closed tab, or a whole superseded browser session
+ * whose window/tab ids died with a Chrome restart).
+ *
+ * The extension re-reports the FULL tab inventory on a ~30s alarm while its
+ * channel is alive, so anything a live channel has not mentioned for this long
+ * no longer exists. The comparison is relative to the same channel's newest
+ * report — a channel that has gone quiet entirely (Chrome closed, extension
+ * dead) prunes nothing, keeping its cached targets for the suspension flow.
+ * Without this, tabs from an ended browser session accumulated forever and
+ * were served alongside live ones (observed: a dead generation still listed
+ * 7 hours after a Chrome restart).
+ */
+export const SUPERSEDED_ATTACHMENT_LAG_MS = 10 * 60_000;
+
 export interface BrowserExistingTabAttachment {
   profileId: string;
   targetId: string;
@@ -34,6 +50,10 @@ export interface BrowserExistingTabAttachment {
   url: string;
   origin: string;
   text?: string;
+  // Set when the extension could not read `text` at all (e.g. no host
+  // permission for this origin), distinct from a page with legitimately no
+  // visible text. See LT-218.
+  textUnavailableReason?: string;
   screenshotBase64?: string;
   allowedOrigins: BrowserAllowedOrigin[];
   extensionOrigin?: string;
@@ -113,6 +133,7 @@ export class BrowserExtensionTabStore {
       url: input.url,
       origin: parsed.origin,
       text: input.text?.slice(0, 120_000),
+      textUnavailableReason: input.textUnavailableReason,
       screenshotBase64: this.normalizeScreenshot(input.screenshotBase64),
       allowedOrigins,
       extensionOrigin: input.extensionOrigin,
@@ -216,6 +237,47 @@ export class BrowserExtensionTabStore {
         this.attachments.delete(targetId);
         this.targetRegistry.markClosed(targetId);
       }
+    }
+    this.sweepSupersededAttachments();
+  }
+
+  /**
+   * Prune attachments a live channel has stopped reporting — closed tabs and
+   * whole superseded browser-session generations. Scoped per channel
+   * (`nodeId`, or the local extension) and relative to that channel's newest
+   * non-suspended report, so a channel that has gone quiet keeps everything
+   * (that case is the suspension flow's job, not evidence its tabs closed).
+   */
+  private sweepSupersededAttachments(): void {
+    const newestByChannel = new Map<string, number>();
+    for (const attachment of this.attachments.values()) {
+      if (attachment.suspendedAt !== undefined) {
+        continue;
+      }
+      const channel = attachment.nodeId ?? '';
+      newestByChannel.set(
+        channel,
+        Math.max(newestByChannel.get(channel) ?? 0, attachment.updatedAt),
+      );
+    }
+    const prunedByChannel = new Map<string, number>();
+    for (const [targetId, attachment] of this.attachments.entries()) {
+      if (attachment.suspendedAt !== undefined) {
+        continue;
+      }
+      const channel = attachment.nodeId ?? '';
+      const newest = newestByChannel.get(channel) ?? 0;
+      if (newest - attachment.updatedAt > SUPERSEDED_ATTACHMENT_LAG_MS) {
+        this.attachments.delete(targetId);
+        this.targetRegistry.markClosed(targetId);
+        prunedByChannel.set(channel, (prunedByChannel.get(channel) ?? 0) + 1);
+      }
+    }
+    for (const [channel, count] of prunedByChannel.entries()) {
+      this.reliabilityEvents.record('attachment_superseded', {
+        ...(channel ? { nodeId: channel } : {}),
+        detail: { count, lagMs: SUPERSEDED_ATTACHMENT_LAG_MS },
+      });
     }
   }
 

@@ -52,7 +52,53 @@ describe('conversation ledger schema', () => {
     expect(tables).toContain('evidence_deletion_queue');
     expect(tables).toContain('context_evidence_events');
     expect(tables).toContain('conversation_ledger_migrations');
-    expect(CONVERSATION_LEDGER_SCHEMA_VERSION).toBe(4);
+    expect(CONVERSATION_LEDGER_SCHEMA_VERSION).toBe(5);
+  });
+
+  it('LT-221: allows a get-card evidence_access_log row and preserves existing rows across the rebuild', () => {
+    // Runs every migration (1-5) in order, exactly as a real app startup does,
+    // then exercises the shape 005 exists to fix.
+    runConversationLedgerMigrations(db);
+    db.prepare(`
+      INSERT INTO conversation_threads (
+        id, provider, source_kind, created_at, updated_at, writable,
+        native_visibility_mode, sync_status, conflict_status, metadata_json
+      ) VALUES ('thread-lt221', 'codex', 'provider-native', 1, 2, 0, 'none', 'imported', 'none', '{}')
+    `).run();
+    db.prepare(`
+      INSERT INTO evidence_access_log (
+        id, requester, conversation_id, operation, outcome_code, created_at
+      ) VALUES ('pre-existing-row', 'ipc:list:instance', 'thread-lt221', 'list', 'OK', 5)
+    `).run();
+
+    // The bug this migration fixes: EvidenceAccessLogInput's own TypeScript type
+    // (context-evidence-ledger.types.ts) always allowed 'get-card', but the SQL
+    // CHECK constraint never did, so this insert (exactly what
+    // evidence-card-retrieval.ts's audit() performs on every contextEvidenceGetCard
+    // call) threw a CHECK constraint violation prior to migration 005.
+    expect(() => db.prepare(`
+      INSERT INTO evidence_access_log (
+        id, requester, conversation_id, operation, outcome_code, created_at
+      ) VALUES ('get-card-row', 'ipc:get-card:instance', 'thread-lt221', 'get-card', 'OK', 6)
+    `).run()).not.toThrow();
+
+    // The pre-migration-005 row must survive the rebuild-and-copy untouched.
+    expect(db.prepare('SELECT operation FROM evidence_access_log WHERE id = ?')
+      .get<{ operation: string }>('pre-existing-row')?.operation).toBe('list');
+    expect(db.prepare(`SELECT COUNT(*) as count FROM evidence_access_log`)
+      .get<{ count: number }>()!.count).toBe(2);
+
+    // The index dropped and recreated by the rebuild must still exist and be usable.
+    const indexNames = db.prepare(`
+      SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'evidence_access_log'
+    `).all<{ name: string }>().map(row => row.name);
+    expect(indexNames).toContain('idx_evidence_access_log_conversation_created');
+
+    expect(db.prepare('SELECT version, name FROM conversation_ledger_migrations WHERE version = 5')
+      .get<{ version: number; name: string }>()).toEqual({
+      version: 5,
+      name: '005_evidence_access_log_get_card',
+    });
   });
 
   it('migrates schema v3 data to 004_context_evidence without losing existing records', () => {

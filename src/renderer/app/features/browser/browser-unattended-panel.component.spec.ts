@@ -141,6 +141,36 @@ describe('BrowserUnattendedPanelComponent', () => {
     ]);
   });
 
+  // The test above proves the parent *computes* the scopes; it does not prove
+  // they reach the child form. A 2026-08-19 completion gate deleted the
+  // `[sharedTabScopes]="sharedTabScopes()"` binding from this component's
+  // template and all 15 tests still passed — silently removing the ability to
+  // authorize a shared tab from the UI, which is exactly what that binding
+  // exists to enable. Asserted here through the rendered DOM, so the binding
+  // itself is covered rather than the parent signal alone.
+  it('passes the shared-tab scopes through to the authorization form as options', () => {
+    const optionValues = Array.from(
+      fixture.nativeElement.querySelectorAll('option') as NodeListOf<HTMLOptionElement>,
+    ).map((option) => option.value);
+
+    expect(optionValues).toContain('local');
+    expect(optionValues).toContain('node-1');
+  });
+
+  // Pass 9 of the 2026-08-19 gate noted the option *label* text was unqueried:
+  // rendering `.id` instead of `.label` left 78/78 green. It cannot misdirect a
+  // submission — the `[value]` binding asserted above is what determines the
+  // target — so it was judged a legibility-only note rather than a blocker.
+  // Closed here anyway, since it costs one assertion.
+  it('labels the shared-tab options readably, not with raw ids', () => {
+    const labels = Array.from(
+      fixture.nativeElement.querySelectorAll('option') as NodeListOf<HTMLOptionElement>,
+    ).map((option) => option.textContent!.trim());
+
+    expect(labels).toContain('Shared tabs on this machine (local)');
+    expect(labels).toContain('Shared tabs on windows-pc');
+  });
+
   it('falls back to local only when targets cannot be listed', async () => {
     gatewayIpc.listTargets.mockResolvedValue({ success: false });
     await fixture.componentInstance.refreshNow();

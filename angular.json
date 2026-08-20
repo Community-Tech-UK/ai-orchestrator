@@ -32,6 +32,11 @@
                 "glob": "**/*",
                 "input": "src/renderer/assets",
                 "output": "assets"
+              },
+              {
+                "glob": "{LICENSE.md,OFL-*.txt}",
+                "input": "src/renderer/styles/fonts",
+                "output": "assets/fonts"
               }
             ],
             "styles": [

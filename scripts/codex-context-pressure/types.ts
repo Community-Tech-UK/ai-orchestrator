@@ -50,6 +50,7 @@ export type ItemClass =
   | 'collaboration'
   | 'agent-message'
   | 'reasoning'
+  | 'user-message'
   | 'other';
 
 export type LimitationCode =
@@ -165,7 +166,13 @@ export const ROLLOUT_ENTRY_TYPES: readonly RolloutEntryType[] = [
   'session-metadata', 'response-item', 'event-message', 'turn-context', 'compaction', 'other',
 ];
 
+// LT-223: this list must stay a superset of CodexObservedItemClass
+// (src/main/cli/adapters/codex/context-pressure-diagnostics.ts) — LT-148 added
+// 'user-message' there (classifyCodexObservedItem) to stop miscounting the
+// user's own turn echo as a tool-bearing item, but this analyzer's own,
+// separately-maintained allowlist was never updated, so every item-completed
+// record with itemClass 'user-message' was silently rejected as malformed.
 export const ITEM_CLASSES = new Set<ItemClass>([
   'command', 'mcp', 'dynamic', 'web', 'file-change', 'collaboration',
-  'agent-message', 'reasoning', 'other',
+  'agent-message', 'reasoning', 'user-message', 'other',
 ]);

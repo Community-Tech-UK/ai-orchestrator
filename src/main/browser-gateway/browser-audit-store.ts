@@ -115,6 +115,18 @@ export class BrowserAuditStore {
     return rows.map((row) => this.map(row));
   }
 
+  /**
+   * LT-217 retention pruning: deletes `actionClass: 'read'` rows older than
+   * `before`. Scoped to `read` deliberately — mutating/destructive actions
+   * (click, type, navigate, etc.) are the rarer, higher-value forensic record
+   * and are not pruned by this path.
+   */
+  pruneReadEntriesBefore(before: number): number {
+    return this.db
+      .prepare(`DELETE FROM browser_audit_entries WHERE action_class = 'read' AND created_at < ?`)
+      .run(before).changes;
+  }
+
   private map(row: BrowserAuditEntryRow): BrowserAuditEntry {
     return {
       id: row.id,

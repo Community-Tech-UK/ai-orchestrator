@@ -1,7 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { getSettingsManager } from '../core/config/settings-manager';
+import { resolveCliType } from '../cli/adapters/adapter-factory';
 import { DEFAULT_SETTINGS } from '../../shared/types/settings.types';
-import { detectAndroidIntent } from '../channels/android-intent';
+import {
+  assertNodeSatisfiesPlacement,
+  assertNodeSupportsCli,
+  buildRunOnNodePlacement,
+  effectiveSpawnDepth,
+} from './run-on-node-support';
 import { initializeOrchestratorToolsRpcServer } from '../mcp/orchestrator-tools-rpc-server';
 import { buildReadNodeOutputResult } from '../mcp/orchestrator-tools';
 import { defaultOperatorDbPath, getOperatorDatabase } from '../operator/operator-database';
@@ -13,7 +19,6 @@ import {
   getWorkerNodeConnectionServer,
   getRemoteNodeRosterService,
   getWorkerNodeRegistry,
-  isAndroidAutomationReady,
 } from '../remote-node';
 import { COORDINATOR_TO_NODE } from '../remote-node/worker-node-rpc';
 import { ConfigUpdateParamsSchema } from '../remote-node/rpc-schemas';
@@ -38,7 +43,7 @@ import { DocReviewDeliveryCoordinator } from '../doc-review/doc-review-delivery-
 import { getLoopCoordinator } from '../orchestration/loop-coordinator';
 import { getPauseCoordinator } from '../pause/pause-coordinator';
 import type { Instance } from '../../shared/types/instance.types';
-import type { NodePlacementPrefs, WorkerNodeInfo } from '../../shared/types/worker-node.types';
+import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { WindowManager } from '../window-manager';
 import { getLogger } from '../logging/logger';
@@ -48,73 +53,6 @@ import { getContextEvidenceCoordinator } from '../context-evidence/context-evide
 import { createDefaultLocalAiPublicOperations } from '../local-ai-guard/default-local-ai-public-operations';
 
 const logger = getLogger('AppInitialization');
-
-/**
- * Effective spawn depth of an instance for the recursion guard (claude2_todo
- * #18). Unifies the two lineage systems: locally-orchestrated children carry a
- * real `depth` (set from `parent.depth + 1`), while `run_on_node`-spawned
- * instances record their depth in `metadata.spawnDepth` (they deliberately
- * don't set `parentId`, to avoid coupling remote spawns to parent-termination
- * / hibernation cascades). The larger of the two wins.
- */
-export function effectiveSpawnDepth(instance: Instance | undefined): number {
-  if (!instance) return 0;
-  const metaDepth = instance.metadata?.['spawnDepth'];
-  const fromMeta = typeof metaDepth === 'number' && Number.isFinite(metaDepth) ? metaDepth : 0;
-  const fromField = typeof instance.depth === 'number' && Number.isFinite(instance.depth) ? instance.depth : 0;
-  return Math.max(fromMeta, fromField, 0);
-}
-
-interface RunOnNodePlacementArgs {
-  prompt: string;
-  requiresBrowser?: boolean;
-  requiresAndroid?: boolean;
-  androidDeviceKind?: 'emulator' | 'physical' | 'any';
-}
-
-function buildRunOnNodePlacement(args: RunOnNodePlacementArgs): NodePlacementPrefs | undefined {
-  const requiresAndroid = args.requiresAndroid ?? detectAndroidIntent(args.prompt);
-  const placement: NodePlacementPrefs = {
-    ...(args.requiresBrowser === true ? { requiresBrowser: true } : {}),
-    ...(requiresAndroid
-      ? {
-          requiresAndroid: true,
-          androidDeviceKind: args.androidDeviceKind ?? 'any',
-        }
-      : {}),
-  };
-  return Object.keys(placement).length > 0 ? placement : undefined;
-}
-
-function assertNodeSatisfiesPlacement(
-  node: WorkerNodeInfo,
-  placement: NodePlacementPrefs | undefined,
-): void {
-  if (!placement) {
-    return;
-  }
-  if (placement.requiresBrowser && !node.capabilities.hasBrowserMcp) {
-    throw new Error(
-      `Worker node "${node.name}" is not browser-automation ready. Enable browser automation or choose a node with hasBrowserMcp=true.`,
-    );
-  }
-  if (placement.requiresAndroid && !isAndroidAutomationReady(node.capabilities)) {
-    throw new Error(
-      `Worker node "${node.name}" is not Android-automation ready. Enable Android automation and verify adb/AVD/device readiness before running this test.`,
-    );
-  }
-  if (
-    placement.requiresAndroid &&
-    placement.androidDeviceKind === 'physical' &&
-    !node.capabilities.androidAutomation?.connectedDevices.some((device) =>
-      (device.kind === 'usb' || device.kind === 'wifi') && device.state === 'device'
-    )
-  ) {
-    throw new Error(
-      `Worker node "${node.name}" does not report an online physical Android device.`,
-    );
-  }
-}
 
 function parseNonEmptyStringArray(json: string, fallback: readonly string[]): string[] {
   try {
@@ -477,6 +415,14 @@ export function createOrchestratorToolsStep(
             );
           }
           assertNodeSatisfiesPlacement(node, nodePlacement);
+          // Validate the CLI before spawning. When the caller omits provider,
+          // createInstance resolves the app default AGAINST THE COORDINATOR'S
+          // local CLI detection — a CLI the node may not have. Resolve the same
+          // default here so the mismatch is rejected with the node's actual
+          // CLI list instead of producing a silently dead instance.
+          const effectiveProvider = args.provider
+            ?? await resolveCliType(undefined, guardSettings.defaultCli);
+          assertNodeSupportsCli(node, effectiveProvider, args.provider !== undefined);
           const allowedDirs = node.capabilities?.workingDirectories ?? [];
           const workingDirectory = args.workingDirectory || allowedDirs[0] || process.cwd();
           const instance = await instanceManager.createInstance({

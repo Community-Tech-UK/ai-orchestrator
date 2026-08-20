@@ -64,7 +64,33 @@ class FakeBw implements BwRunner {
         return { stdout: '', stderr: 'Not found.', code: 1 };
       }
       const decoded = JSON.parse(Buffer.from(args[3] as string, 'base64').toString('utf-8'));
-      this.items.set(args[2] as string, { ...existing, folderId: decoded.folderId });
+      // `bw edit item <id> <json>` REPLACES the item, it does not patch it.
+      // This fake previously rebuilt the item from its own prior state
+      // (`{ ...existing, folderId }`), so any assertion that the password
+      // survived a move passed no matter what the caller actually transmitted.
+      // A 2026-08-19 completion gate narrowed the real encoder to
+      // `{ folderId }` and 885/885 tests still passed. Model the real replace
+      // semantics so the body that is sent is what gets stored.
+      this.items.set(args[2] as string, {
+        folderId: decoded.folderId ?? null,
+        username: decoded.login?.username ?? '',
+        password: decoded.login?.password ?? '',
+      });
+      // Custom fields live in a separate map here, so they must be replaced
+      // from the payload too — otherwise a body that drops `fields` still
+      // leaves them readable and the fake lies a second time. Pass 6 closed
+      // login/password; pass 7 found `fields` was still `edit`-immune, which
+      // matters because getGenericSecretForFill() reads bank/IBAN/tax values
+      // from exactly these fields on folder-jailed items.
+      this.fieldsById.set(
+        args[2] as string,
+        Array.isArray(decoded.fields)
+          ? (decoded.fields as Array<{ name?: string; value?: string }>).map((field) => ({
+            name: field.name ?? '',
+            value: field.value ?? '',
+          }))
+          : [],
+      );
       return ok(JSON.stringify({ id: args[2], folderId: decoded.folderId, login: decoded.login }));
     }
     if (args[0] === 'sync') {
@@ -185,6 +211,59 @@ describe('CredentialVault.enrolExistingCredential', () => {
     expect(bindings.get('item-personal')).toBeUndefined();
   });
 
+  // Pass 6 closed login/password preservation across a move; pass 7 showed the
+  // same encoder could still drop custom `fields` with 885/885 green. That
+  // matters because getGenericSecretForFill() reads bank account numbers, sort
+  // codes, IBANs and tax ids from exactly these fields on folder-jailed items —
+  // the shape used by the procurement authorizations this plan exists to serve.
+  // Narrowing the encoder would strip them from a real Bitwarden item mid-move.
+  it('preserves custom fields when moving an item into the jail', async () => {
+    const bw = new FakeBw();
+    bw.seedItem('supplier-personal', 'folder-personal', 'supplier@example.invalid', 'Real-Password-2!');
+    bw.seedFields('supplier-personal', [
+      { name: 'IBAN', value: 'GB00EXAMPLE00000000' },
+      { name: 'Account Number', value: '12345678' },
+    ]);
+    const { vault, bindings } = makeVault(bw);
+
+    const result = await vault.enrolExistingCredential({
+      item: 'supplier-personal',
+      origin: 'https://in-tendhost.co.uk',
+      moveIntoFolder: true,
+    });
+
+    expect(result.movedIntoFolder).toBe(true);
+
+    // Assert on the bytes actually transmitted — `bw edit item` replaces the
+    // whole item, so the custom fields must ride along in the body.
+    const editCommand = bw.commands.find((c) => c[0] === 'edit' && c[1] === 'item');
+    expect(editCommand).toBeDefined();
+    const sentBody = JSON.parse(
+      Buffer.from(editCommand![3] as string, 'base64').toString('utf-8'),
+    );
+    expect(sentBody.fields).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'IBAN', value: 'GB00EXAMPLE00000000' }),
+        expect.objectContaining({ name: 'Account Number', value: '12345678' }),
+      ]),
+    );
+
+    // And end-to-end: a generic-secret fill still resolves after the move.
+    bindings.put({
+      vaultItemRef: 'supplier-personal',
+      origin: 'https://in-tendhost.co.uk',
+      username: 'supplier@example.invalid',
+      createdAt: 1,
+    });
+    await expect(
+      vault.getGenericSecretForFill({
+        vaultItemRef: 'supplier-personal',
+        origin: 'https://in-tendhost.co.uk',
+        kind: 'iban',
+      }),
+    ).resolves.toBe('GB00EXAMPLE00000000');
+  });
+
   it('moves an out-of-folder item into the jail when asked, then binds it', async () => {
     const bw = new FakeBw();
     bw.seedItem('item-personal', 'folder-personal', 'james@communitytech.co.uk', 'Real-Password-1!');
@@ -198,7 +277,19 @@ describe('CredentialVault.enrolExistingCredential', () => {
 
     expect(result.movedIntoFolder).toBe(true);
     expect(bindings.get('item-personal')?.username).toBe('james@communitytech.co.uk');
-    expect(bw.commands.some((c) => c[0] === 'edit' && c[1] === 'item')).toBe(true);
+    const editCommand = bw.commands.find((c) => c[0] === 'edit' && c[1] === 'item');
+    expect(editCommand).toBeDefined();
+    // Assert directly on what was transmitted, not only on what the fake
+    // remembers: `bw edit item` replaces the whole item, so the encoded body
+    // must carry the login through unchanged and differ from the original
+    // only by `folderId`.
+    const sentBody = JSON.parse(
+      Buffer.from(editCommand![3] as string, 'base64').toString('utf-8'),
+    );
+    expect(sentBody.login).toMatchObject({
+      username: 'james@communitytech.co.uk',
+      password: 'Real-Password-1!',
+    });
     // The move must preserve the password: a later fill still resolves it.
     await expect(
       vault.getSecretForFill({

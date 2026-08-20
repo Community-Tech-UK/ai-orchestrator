@@ -1,6 +1,6 @@
 import type { SqliteDriver } from '../db/sqlite-driver';
 
-export const CONVERSATION_LEDGER_SCHEMA_VERSION = 4;
+export const CONVERSATION_LEDGER_SCHEMA_VERSION = 5;
 
 interface LedgerMigration {
   version: number;
@@ -283,6 +283,51 @@ const MIGRATIONS: LedgerMigration[] = [
 
       CREATE INDEX idx_context_evidence_events_conversation_created
         ON context_evidence_events(conversation_id, created_at DESC);
+    `,
+  },
+  {
+    // LT-221: 004_context_evidence's evidence_access_log CHECK constraint never
+    // included 'get-card', even though EvidenceAccessLogInput's own TypeScript
+    // type (context-evidence-ledger.types.ts) always declared it as valid — the
+    // SQL and the type drifted apart. Every contextEvidenceGetCard call audits
+    // its access with operation: 'get-card' (evidence-card-retrieval.ts), which
+    // the CHECK constraint rejected outright, so opening any evidence card threw
+    // EVIDENCE_AUDIT_FAILED unconditionally, for every provider and every
+    // instance, live-reproduced 2026-08-19. SQLite cannot ALTER an existing
+    // CHECK constraint, so this rebuilds the table with the corrected list and
+    // copies existing rows across.
+    version: 5,
+    name: '005_evidence_access_log_get_card',
+    up: `
+      ALTER TABLE evidence_access_log RENAME TO evidence_access_log_004;
+      DROP INDEX IF EXISTS idx_evidence_access_log_conversation_created;
+
+      CREATE TABLE evidence_access_log (
+        id TEXT PRIMARY KEY,
+        requester TEXT NOT NULL,
+        conversation_id TEXT NOT NULL REFERENCES conversation_threads(id) ON DELETE CASCADE,
+        operation TEXT NOT NULL CHECK (
+          operation IN ('list', 'get-card', 'search', 'read', 'compare', 'verify')
+        ),
+        evidence_ids_json TEXT NOT NULL DEFAULT '[]',
+        requested_ranges_json TEXT NOT NULL DEFAULT '[]',
+        outcome_code TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX idx_evidence_access_log_conversation_created
+        ON evidence_access_log(conversation_id, created_at DESC);
+
+      INSERT INTO evidence_access_log (
+        id, requester, conversation_id, operation, evidence_ids_json,
+        requested_ranges_json, outcome_code, created_at
+      )
+      SELECT
+        id, requester, conversation_id, operation, evidence_ids_json,
+        requested_ranges_json, outcome_code, created_at
+      FROM evidence_access_log_004;
+
+      DROP TABLE evidence_access_log_004;
     `,
   },
 ];

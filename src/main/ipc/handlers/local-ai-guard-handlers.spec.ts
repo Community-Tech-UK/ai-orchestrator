@@ -407,6 +407,7 @@ describe('registerLocalAiGuardHandlers', () => {
     );
     if (!migration) throw new Error('Missing migration 054_local_ai_guard');
     db.exec(migration.up);
+    db.exec('ALTER TABLE local_ai_incidents ADD COLUMN unpriced_dispatch_count INTEGER NOT NULL DEFAULT 0;');
     let now = 0;
     let discoveredBaseUrl = 'http://127.0.0.1:11434';
     const repository = new LocalAiTargetRepository(db, undefined, () => ++now);
@@ -843,6 +844,7 @@ function harness(options: {
     severity: 'warning' as const, failureCode: 'endpoint-timeout' as const,
     affectedLayers: ['endpoint' as const], affectedRoles: ['compression' as const],
     openedAt: 1, updatedAt: 1, fallbackCount: 0, knownCostUsd: 0, estimatedCostUsd: 0,
+    unpricedDispatchCount: 0,
   };
   const pending = {
     id: 'request-1', routingEventId: 'event-1', slot: 'compression' as const,
@@ -1013,6 +1015,7 @@ function summary(
     blockedFallbacks: number;
     knownCostUsd: number;
     estimatedCostUsd: number;
+    unpricedDispatchCount: number;
     avoidedEstimatedTokens: number;
     avoidedEstimatedCostUsd: number;
     byTarget: Record<string, number>;
@@ -1031,6 +1034,7 @@ function summary(
     blockedFallbacks: 0,
     knownCostUsd: 0,
     estimatedCostUsd: 0,
+    unpricedDispatchCount: 0,
     avoidedEstimatedTokens: 0,
     avoidedEstimatedCostUsd: 0,
     byTarget: {},

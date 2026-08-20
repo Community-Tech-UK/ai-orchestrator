@@ -477,8 +477,14 @@ export class LocalAiTargetCardComponent {
     const known = this.incidents().reduce((total, incident) => total + incident.knownCostUsd, 0);
     const estimated = this.incidents()
       .reduce((total, incident) => total + incident.estimatedCostUsd, 0);
-    if (known > 0) return `$${known.toFixed(2)} measured`;
-    if (estimated > 0) return `$${estimated.toFixed(2)} estimated`;
+    // LT-193: an unpriced dispatch (no known or estimated cost) must not
+    // read as "no recorded cost" — that claims zero, not unknown.
+    const unpriced = this.incidents()
+      .reduce((total, incident) => total + incident.unpricedDispatchCount, 0);
+    const suffix = unpriced > 0 ? ` + ${unpriced} unpriced` : '';
+    if (known > 0) return `$${known.toFixed(2)} measured${suffix}`;
+    if (estimated > 0) return `$${estimated.toFixed(2)} estimated${suffix}`;
+    if (unpriced > 0) return `cost unknown (${unpriced} unpriced)`;
     return 'no recorded cost';
   }
 

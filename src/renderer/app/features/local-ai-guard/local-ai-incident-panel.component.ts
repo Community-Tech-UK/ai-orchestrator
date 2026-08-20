@@ -289,12 +289,17 @@ export class LocalAiIncidentPanelComponent {
   }
 
   protected costImpact(): string {
+    // LT-193: an unpriced dispatch (no known or estimated cost) must not
+    // read as "no recorded cost" — that claims zero, not unknown.
+    const unpriced = this.incident().unpricedDispatchCount;
+    const suffix = unpriced > 0 ? ` + ${unpriced} unpriced` : '';
     if (this.incident().knownCostUsd > 0) {
-      return `$${this.incident().knownCostUsd.toFixed(2)} measured`;
+      return `$${this.incident().knownCostUsd.toFixed(2)} measured${suffix}`;
     }
     if (this.incident().estimatedCostUsd > 0) {
-      return `$${this.incident().estimatedCostUsd.toFixed(2)} estimated`;
+      return `$${this.incident().estimatedCostUsd.toFixed(2)} estimated${suffix}`;
     }
+    if (unpriced > 0) return `cost unknown (${unpriced} unpriced)`;
     return 'no recorded cost';
   }
 

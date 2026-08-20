@@ -49,6 +49,7 @@ function incident(
     fallbackCount: 0,
     knownCostUsd: 0,
     estimatedCostUsd: 0,
+    unpricedDispatchCount: 0,
   };
 }
 
@@ -1157,6 +1158,7 @@ function effectivenessSummary(
     blockedFallbacks: 0,
     knownCostUsd: 1.25,
     estimatedCostUsd: 0.5,
+    unpricedDispatchCount: 0,
     avoidedEstimatedTokens: 900,
     avoidedEstimatedCostUsd: 2,
     byTarget: { 'target-1': 4 },

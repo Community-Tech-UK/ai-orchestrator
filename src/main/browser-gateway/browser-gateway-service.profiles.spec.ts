@@ -79,8 +79,8 @@ describe('BrowserGatewayService profiles', () => {
     });
   });
 
-  it('attaches a selected existing Chrome tab and audits it as an extension target', async () => {
-    const { service, extensionTabStore } = makeService();
+  it('LT-217: attaches a selected existing Chrome tab without writing an audit row (internal bookkeeping, not an agent-attributable decision)', async () => {
+    const { service, extensionTabStore, audits } = makeService();
 
     const result = await service.attachExistingTab({
       tabId: 42,
@@ -120,6 +120,24 @@ describe('BrowserGatewayService profiles', () => {
       },
     });
     expect(JSON.stringify(result)).not.toContain('driverTargetId');
+    expect(audits).toHaveLength(0);
+    expect(result.auditId).toBeTruthy();
+  });
+
+  it('LT-217: a denied existing-tab attach also writes no audit row', async () => {
+    const { service, extensionTabStore, audits } = makeService();
+    extensionTabStore.attachTab.mockImplementationOnce(() => {
+      throw new Error('origin_not_allowed');
+    });
+
+    const result = await service.attachExistingTab({
+      tabId: 42,
+      windowId: 7,
+      url: 'https://not-allowed.example.com',
+    });
+
+    expect(result).toMatchObject({ decision: 'denied', outcome: 'not_run' });
+    expect(audits).toHaveLength(0);
   });
 
   it('recovers a timed-out open_tab as success when the post-timeout probe finds the tab', async () => {

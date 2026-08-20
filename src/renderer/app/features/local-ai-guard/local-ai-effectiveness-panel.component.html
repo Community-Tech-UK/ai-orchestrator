@@ -70,6 +70,12 @@
           <dt>Estimated cloud cost</dt>
           <dd>{{ formatUsd(summary.estimatedCostUsd) }} estimated cloud cost</dd>
         </div>
+        @if (summary.unpricedDispatchCount > 0) {
+          <div class="unpriced">
+            <dt>Unpriced dispatches</dt>
+            <dd>{{ formatInteger(summary.unpricedDispatchCount) }} unpriced — cost unknown, not zero</dd>
+          </div>
+        }
         <div class="estimated">
           <dt>Estimated avoided tokens</dt>
           <dd>{{ formatInteger(summary.avoidedEstimatedTokens) }} estimated avoided tokens</dd>

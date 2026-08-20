@@ -2161,8 +2161,17 @@ async function buildTabPayload(tab, options = {}) {
     throw new Error('Chrome tab is not an http(s) page.');
   }
   const page = options.includeText
-    ? await capturePageText(tab.id).catch(() => ({ title: tab.title, text: '' }))
-    : { title: tab.title, text: '' };
+    // capturePageText() no longer rejects on a permission failure (see below),
+    // so this catch only covers unexpected errors upstream of that call (e.g.
+    // assertGatewayEnabled() throwing if the gateway was disabled mid-flight).
+    // It still needs its own reason so a caller cannot tell those apart from a
+    // genuinely empty page either.
+    ? await capturePageText(tab.id).catch(() => ({
+      title: tab.title,
+      text: '',
+      textUnavailableReason: 'page_text_read_failed',
+    }))
+    : { title: tab.title, text: '', textUnavailableReason: null };
   const screenshotBase64 = options.includeScreenshot
     ? await captureTabScreenshot(tab.id, { fullPage: false }).catch(() => undefined)
     : undefined;
@@ -2173,20 +2182,60 @@ async function buildTabPayload(tab, options = {}) {
     url: tab.url,
     title: page.title || tab.title || tab.url,
     text: page.text || '',
+    // Only present when the page text genuinely could not be read (e.g. the
+    // extension has no host permission for this origin). Omitted entirely on
+    // a normal read, including a legitimately empty page, so existing callers
+    // that only look at `text` are unaffected.
+    ...(page.textUnavailableReason ? { textUnavailableReason: page.textUnavailableReason } : {}),
     ...(screenshotBase64 ? { screenshotBase64 } : {}),
     capturedAt: Date.now(),
   };
+}
+
+// Classifies why chrome.scripting.executeScript rejected outright (as opposed
+// to succeeding with some frames returning no text). Chrome reports a missing
+// host permission with this exact message; anything else is a generic read
+// failure so callers still see *that* something went wrong, even if the exact
+// cause is unrecognized.
+function classifyPageTextError(error) {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  if (/cannot access contents of the page/i.test(message) || /must request permission/i.test(message)) {
+    return 'host_permission_denied';
+  }
+  return 'page_text_read_failed';
 }
 
 async function capturePageText(tabId) {
   assertGatewayEnabled();
   // Inject into every frame so iframe content (e.g. portals embedded in an
   // <iframe>) is included instead of only the top frame's header/footer.
+  // Capture a rejection's error instead of swallowing it to []: a rejection
+  // means the whole injection was refused (most commonly a missing host
+  // permission for this origin), which is a materially different situation
+  // from a page that legitimately has no visible text. Losing that
+  // distinction is exactly LT-218: browser.snapshot would resolve
+  // successfully with an empty string either way, so an agent reading a
+  // permission-denied page and a genuinely blank page could not tell them
+  // apart.
+  let executionError = null;
   const results = await chrome.scripting.executeScript({
     target: { tabId, allFrames: true },
     func: pageBridgeScript,
     args: ['snapshot', []],
-  }).catch(() => []);
+  }).catch((error) => {
+    executionError = error;
+    return null;
+  });
+
+  if (results === null) {
+    // The call itself was rejected, not merely a page with no text. Keep this
+    // resolving with an explicit reason (rather than throwing) so this stays
+    // a soft-fail: `allFrames: true` means one inaccessible frame in an
+    // otherwise-readable page should not turn into a hard failure here, and
+    // this call has no per-frame visibility into partial injection failures
+    // to distinguish that case from a fully-rejected call anyway.
+    return { title: '', text: '', textUnavailableReason: classifyPageTextError(executionError) };
+  }
 
   let title = '';
   const texts = [];
@@ -2203,7 +2252,7 @@ async function capturePageText(tabId) {
       texts.push(value.text);
     }
   }
-  return { title, text: texts.join('\n').slice(0, 120000) };
+  return { title, text: texts.join('\n').slice(0, 120000), textUnavailableReason: null };
 }
 
 const SCREENSHOT_DEFAULT_MAX_WIDTH = 1280;

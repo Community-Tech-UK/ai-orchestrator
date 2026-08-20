@@ -99,4 +99,51 @@ describe('BrowserAuditStore', () => {
     expect(filtered.every((entry) => entry.profileId === 'profile-even')).toBe(true);
     expect(filtered.every((entry) => entry.instanceId === 'instance-even')).toBe(true);
   });
+
+  it('LT-217: pruneReadEntriesBefore deletes only stale read-class rows', () => {
+    vi.setSystemTime(1_000);
+    store.record({
+      instanceId: 'instance-1',
+      provider: 'claude',
+      action: 'attach_existing_tab',
+      toolName: 'browser.extension_attach_tab',
+      actionClass: 'read',
+      decision: 'allowed',
+      outcome: 'succeeded',
+      summary: 'stale read row',
+      redactionApplied: true,
+    });
+    store.record({
+      instanceId: 'instance-1',
+      provider: 'claude',
+      action: 'click',
+      toolName: 'browser.click',
+      actionClass: 'navigate',
+      decision: 'allowed',
+      outcome: 'succeeded',
+      summary: 'stale non-read row, must survive',
+      redactionApplied: true,
+    });
+    vi.setSystemTime(10_000);
+    store.record({
+      instanceId: 'instance-1',
+      provider: 'claude',
+      action: 'get_health',
+      toolName: 'browser.health',
+      actionClass: 'read',
+      decision: 'allowed',
+      outcome: 'succeeded',
+      summary: 'fresh read row, must survive',
+      redactionApplied: true,
+    });
+
+    const removed = store.pruneReadEntriesBefore(5_000);
+
+    expect(removed).toBe(1);
+    const remaining = store.list({}).map((entry) => entry.summary);
+    expect(remaining).toEqual(
+      expect.arrayContaining(['stale non-read row, must survive', 'fresh read row, must survive']),
+    );
+    expect(remaining).not.toContain('stale read row');
+  });
 });

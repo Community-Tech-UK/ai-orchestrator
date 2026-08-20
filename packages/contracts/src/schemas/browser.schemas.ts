@@ -351,6 +351,7 @@ export const BrowserAttachExistingTabRequestSchema = z
     url: webUrlSchema,
     title: z.string().min(1).max(500).optional(),
     text: z.string().max(120_000).optional(),
+    textUnavailableReason: z.string().min(1).max(200).optional(),
     screenshotBase64: z.string().max(2_000_000).optional(),
     capturedAt: z.number().int().nonnegative().optional(),
     allowedOrigins: z.array(BrowserAllowedOriginSchema).optional(),

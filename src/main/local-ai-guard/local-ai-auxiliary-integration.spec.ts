@@ -56,6 +56,7 @@ function openDb(): SqliteDriver {
   const migration = RLM_MIGRATIONS_051_055.find((item) => item.name === '054_local_ai_guard');
   if (!migration) throw new Error('Missing migration 054_local_ai_guard');
   db.exec(migration.up);
+  db.exec('ALTER TABLE local_ai_incidents ADD COLUMN unpriced_dispatch_count INTEGER NOT NULL DEFAULT 0;');
   dbs.push(db);
   return db;
 }

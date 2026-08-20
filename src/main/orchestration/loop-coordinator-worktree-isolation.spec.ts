@@ -4,7 +4,7 @@
  * write BLOCKED.md) rather than silently falling back to the shared root.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -19,6 +19,7 @@ import { getWorktreeManager } from '../workspace/git/worktree-manager';
 import type { WorktreeManager } from '../workspace/git/worktree-manager';
 import { LoopCoordinator } from './loop-coordinator';
 import { CompletedFileWatcher } from './loop-completion-detector';
+import { prepareLoopStartConfig } from './loop-start-config';
 
 let workspace: string;
 let coordinator: LoopCoordinator;
@@ -42,6 +43,32 @@ afterEach(async () => {
 });
 
 describe('LoopCoordinator — P2 worktree isolation fail-closed', () => {
+  it('prepared starts run directly in a non-Git workspace without arming auto-integration', async () => {
+    mkdirSync(join(workspace, 'child-repository', '.git'), { recursive: true });
+    const createWorktreeMock = vi.fn().mockRejectedValue(new Error('should not be called'));
+    vi.mocked(getWorktreeManager).mockReturnValue({
+      createWorktree: createWorktreeMock,
+    } as unknown as WorktreeManager);
+    coordinator.on('loop:invoke-iteration', () => {
+      // Keep the loop live until the normalized config is inspected.
+    });
+
+    const prepared = await prepareLoopStartConfig({
+      initialPrompt: 'do work',
+      workspaceCwd: workspace,
+      isolateLoopWorkspaces: true,
+      autoIntegrateWorktree: true,
+      completion: { verifyCommand: 'true' },
+    });
+    const state = await coordinator.startLoop('chat-non-git-workspace', prepared);
+
+    expect(createWorktreeMock).not.toHaveBeenCalled();
+    expect(state.config.isolateLoopWorkspaces).toBe(false);
+    expect(state.config.autoIntegrateWorktree).toBe(false);
+    expect(state.config.executionCwd).toBeUndefined();
+    expect(existsSync(join(workspace, 'BLOCKED.md'))).toBe(false);
+  });
+
   it('createWorktree failure → rejects startLoop and writes BLOCKED.md (never falls back to root)', async () => {
     // Arrange: createWorktree throws (e.g. disk full, lock exists).
     vi.mocked(getWorktreeManager).mockReturnValue({

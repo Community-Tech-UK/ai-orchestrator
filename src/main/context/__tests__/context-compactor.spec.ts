@@ -163,6 +163,52 @@ describe('ContextCompactor', () => {
     });
   });
 
+  describe('addTurn auto-compact suppression (LT-188)', () => {
+    beforeEach(() => {
+      compactor.updateConfig({ maxContextTokens: 10000, triggerThreshold: 0.85, autoCompact: true });
+    });
+
+    it('does not auto-fire compaction when suppressAutoCompact is true, even over threshold', async () => {
+      const startedHandler = vi.fn();
+      compactor.on('compaction-started', startedHandler);
+
+      compactor.addTurn(makeTurn({ tokenCount: 9000 }), { suppressAutoCompact: true });
+      await new Promise(resolve => setImmediate(resolve));
+
+      expect(compactor.shouldCompact()).toBe(true);
+      expect(startedHandler).not.toHaveBeenCalled();
+    });
+
+    it('still auto-fires compaction over threshold when not suppressed (baseline, unchanged)', async () => {
+      const startedHandler = vi.fn();
+      compactor.on('compaction-started', startedHandler);
+
+      compactor.addTurn(makeTurn({ tokenCount: 9000 }));
+      await new Promise(resolve => setImmediate(resolve));
+
+      expect(startedHandler).toHaveBeenCalledOnce();
+    });
+
+    it('a bulk-rebuild loop (CompactionRuntime.restartCompact shape) never races its own trailing explicit compact() call', async () => {
+      const startedHandler = vi.fn();
+      compactor.on('compaction-started', startedHandler);
+
+      // Mirrors restartCompact()'s own loop: many addTurn calls that cross
+      // the threshold partway through, each suppressed, followed by exactly
+      // one explicit compact() call — the shape LT-188 reproduced as two
+      // independent `Compaction started` events from one manual compaction.
+      for (let i = 0; i < 10; i++) {
+        compactor.addTurn(makeTurn({ tokenCount: 900 }), { suppressAutoCompact: true });
+      }
+      await new Promise(resolve => setImmediate(resolve));
+      expect(startedHandler).not.toHaveBeenCalled();
+
+      await compactor.compact();
+
+      expect(startedHandler).toHaveBeenCalledOnce();
+    });
+  });
+
   describe('shouldCompact', () => {
     it('returns false below threshold', () => {
       compactor.updateConfig({ maxContextTokens: 10000, triggerThreshold: 0.85 });

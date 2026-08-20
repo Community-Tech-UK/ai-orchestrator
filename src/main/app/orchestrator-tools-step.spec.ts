@@ -65,6 +65,7 @@ const captured = vi.hoisted(() => ({
     },
   },
   discoverLocalAiCandidates: vi.fn(),
+  resolveCliType: vi.fn(),
 }));
 
 vi.mock('../core/config/settings-manager', () => ({
@@ -180,6 +181,12 @@ vi.mock('../rlm/auxiliary-llm-service', () => ({
   }),
 }));
 
+// The real resolveCliType runs local CLI detection (spawns `which`); tests
+// pin the resolved default explicitly instead.
+vi.mock('../cli/adapters/adapter-factory', () => ({
+  resolveCliType: captured.resolveCliType,
+}));
+
 import { createOrchestratorToolsStep } from './orchestrator-tools-step';
 import { COORDINATOR_TO_NODE } from '../remote-node/worker-node-rpc';
 
@@ -202,6 +209,7 @@ describe('createOrchestratorToolsStep settings node-config integration', () => {
       decidedBy: 'user',
       decidedAt: Date.now(),
     });
+    captured.resolveCliType.mockResolvedValue('claude');
     captured.roster.list.mockImplementation(() => captured.registry.getAllNodes());
   });
 
@@ -507,6 +515,83 @@ describe('createOrchestratorToolsStep settings node-config integration', () => {
     }));
   });
 
+  it('rejects run_on_node when the explicit provider is not installed on the node', async () => {
+    const node = makeNode({ supportedClis: ['antigravity', 'copilot', 'cursor'] });
+    const createInstance = vi.fn();
+    captured.registry.getAllNodes.mockReturnValue([node]);
+    await startStep({ createInstance });
+
+    await expect(
+      captured.initializeOptions!.spawnRemoteInstance!({
+        node: 'windows-pc',
+        prompt: 'say hi',
+        provider: 'claude',
+      } as never),
+    ).rejects.toThrow(
+      /provider "claude" is not installed on worker node "windows-pc".*antigravity, copilot, cursor/,
+    );
+    expect(createInstance).not.toHaveBeenCalled();
+  });
+
+  it('rejects run_on_node when the resolved default provider is not installed on the node', async () => {
+    const node = makeNode({ supportedClis: ['antigravity', 'copilot', 'cursor'] });
+    const createInstance = vi.fn();
+    captured.registry.getAllNodes.mockReturnValue([node]);
+    captured.resolveCliType.mockResolvedValue('claude');
+    await startStep({ createInstance });
+
+    await expect(
+      captured.initializeOptions!.spawnRemoteInstance!({
+        node: 'windows-pc',
+        prompt: 'say hi',
+      }),
+    ).rejects.toThrow(
+      /no provider was given and the default resolved to "claude".*antigravity, copilot, cursor/,
+    );
+    expect(createInstance).not.toHaveBeenCalled();
+  });
+
+  it('spawns when the explicit provider is installed on the node (case-insensitive)', async () => {
+    const node = makeNode({ supportedClis: ['Cursor'] });
+    const createInstance = vi.fn(async (config: Record<string, unknown>) => ({
+      id: 'inst-1',
+      status: 'initializing',
+      ...config,
+    }));
+    captured.registry.getAllNodes.mockReturnValue([node]);
+    await startStep({ createInstance });
+
+    await captured.initializeOptions!.spawnRemoteInstance!({
+      node: 'windows-pc',
+      prompt: 'say hi',
+      provider: 'cursor',
+    } as never);
+
+    expect(createInstance).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'cursor',
+      forceNodeId: 'node-1',
+    }));
+  });
+
+  it('skips CLI validation for nodes that do not advertise supported CLIs', async () => {
+    const node = makeNode({ supportedClis: [] });
+    const createInstance = vi.fn(async (config: Record<string, unknown>) => ({
+      id: 'inst-1',
+      status: 'initializing',
+      ...config,
+    }));
+    captured.registry.getAllNodes.mockReturnValue([node]);
+    await startStep({ createInstance });
+
+    await captured.initializeOptions!.spawnRemoteInstance!({
+      node: 'windows-pc',
+      prompt: 'say hi',
+      provider: 'claude',
+    } as never);
+
+    expect(createInstance).toHaveBeenCalled();
+  });
+
   it('rejects Android run_on_node spawns on nodes without Android readiness', async () => {
     const node = makeNode({ hasAndroidMcp: false });
     const createInstance = vi.fn();
@@ -527,6 +612,7 @@ describe('createOrchestratorToolsStep settings node-config integration', () => {
 function makeNode(overrides: {
   hasAndroidMcp?: boolean;
   hasBrowserMcp?: boolean;
+  supportedClis?: string[];
   workerAgent?: { version: string; startedAt: number };
   extensionRelay?: {
     enabled: boolean;
@@ -546,7 +632,7 @@ function makeNode(overrides: {
     capabilities: {
       platform: 'win32',
       arch: 'x64',
-      supportedClis: ['claude'],
+      supportedClis: overrides.supportedClis ?? ['claude'],
       hasBrowserRuntime: true,
       hasBrowserMcp,
       ...(overrides.workerAgent ? { workerAgent: overrides.workerAgent } : {}),

@@ -8,6 +8,7 @@
 
 import { defineConfig } from 'vitest/config';
 import { aliases } from './vitest.aliases';
+import { testHeapExecArgv } from './vitest.heap';
 
 export default defineConfig({
   test: {
@@ -26,6 +27,8 @@ export default defineConfig({
       forks: {
         // Real git / FS soak work is heavy; keep serial to avoid repo contention.
         singleFork: true,
+        // One process runs every soak spec; see vitest.heap.ts.
+        execArgv: testHeapExecArgv(),
       },
     },
     testTimeout: 60_000,

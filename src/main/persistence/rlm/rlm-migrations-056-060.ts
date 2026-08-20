@@ -132,4 +132,27 @@ export const RLM_MIGRATIONS_056_060: Migration[] = [
       -- additive analytics column in place on rollback.
     `,
   },
+  {
+    // LT-193: an *unpriced* fallback dispatch (a deliberately-unpriced
+    // provider such as copilot/cursor/ollama/antigravity, or any provider
+    // whose usage never resolved) was silently coalesced into the incident's
+    // running `known_cost_usd`/`estimated_cost_usd` totals via `+ 0`, so
+    // "cost unknown" was indistinguishable from "cost was zero" once the
+    // event rolled into the incident. `unpriced_dispatch_count` is a running
+    // counter — incremented alongside the existing cost totals in the same
+    // accounting transaction — so it survives `local_ai_routing_events`
+    // retention pruning exactly like `fallback_count`/`known_cost_usd`/
+    // `estimated_cost_usd` already do. Existing rows default to 0, which is
+    // correct: every dispatch accounted before this migration either had a
+    // measured or estimated cost, or predates the field entirely and cannot
+    // be reclassified retroactively.
+    name: '060_local_ai_incidents_unpriced_dispatch_count',
+    up: `
+      ALTER TABLE local_ai_incidents ADD COLUMN unpriced_dispatch_count INTEGER NOT NULL DEFAULT 0;
+    `,
+    down: `
+      -- SQLite cannot drop columns portably on older runtimes; leave the
+      -- additive analytics column in place on rollback.
+    `,
+  },
 ];
