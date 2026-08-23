@@ -61,6 +61,17 @@ export interface LoopPreflightResult {
     status: 'passed' | 'failed' | 'skipped';
     durationMs: number;
     outputExcerpt: string;
+    /**
+     * Why a `failed` command failed. `VerifyOutcome` has always distinguished a
+     * non-zero exit (`command`) from a wall-clock kill (`timeout`) and a spawn
+     * failure (`infra`), but this result type used to collapse all three into
+     * `status: 'failed'` — so the UI reported "Preflight failed" identically for
+     * "your tests are red" and "your verify command cannot finish inside
+     * `verifyTimeoutMs`". Those need very different fixes from the operator.
+     * Undefined for `passed` / `skipped` commands, and for results persisted
+     * before this field existed.
+     */
+    failureKind?: 'command' | 'timeout' | 'infra';
   }>;
 }
 

@@ -98,6 +98,31 @@ describe('LocalAiIncidentPanelComponent', () => {
     );
   });
 
+  it('LT-193: distinguishes an unpriced incident cost from a zero-cost one', () => {
+    fixture.componentRef.setInput('incident', incident());
+    fixture.componentRef.setInput('automaticRepairEnabled', false);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('$0.06 measured');
+    expect(fixture.nativeElement.textContent).not.toContain('unpriced');
+
+    fixture.componentRef.setInput('incident', {
+      ...incident(),
+      knownCostUsd: 0,
+      estimatedCostUsd: 0,
+      unpricedDispatchCount: 5,
+    });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('cost unknown (5 unpriced)');
+    expect(fixture.nativeElement.textContent).not.toContain('$0 ');
+
+    fixture.componentRef.setInput('incident', {
+      ...incident(),
+      unpricedDispatchCount: 2,
+    });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('$0.06 measured + 2 unpriced');
+  });
+
   it('announces unsupported guided recovery without claiming guidance is ready', async () => {
     store.repairTarget.mockResolvedValueOnce({
       ...repair('restart-ollama'),

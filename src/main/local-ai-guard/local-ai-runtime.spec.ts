@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { LocalAiTarget } from '../../shared/types/local-ai-guard.types';
+import type { LocalAiRoutingEvent, LocalAiTarget } from '../../shared/types/local-ai-guard.types';
 import {
   compareLocalAiRevisionCursors,
   incrementLocalAiRevisionCursor,
@@ -15,6 +15,7 @@ import {
   getLocalAiGuardRuntime,
   initializeLocalAiGuardRuntime,
   LocalAiGuardRuntime,
+  notifyFallbackInto,
 } from './local-ai-runtime';
 
 function services(
@@ -32,6 +33,22 @@ function services(
     recovery: {},
     activity: {},
   } as never;
+}
+
+function routingEvent(id: string, overrides: Partial<LocalAiRoutingEvent> = {}): LocalAiRoutingEvent {
+  return {
+    id,
+    slot: 'compression',
+    intendedRoute: 'local',
+    actualRoute: 'frontier',
+    policy: 'notify-and-allow',
+    disposition: 'allowed',
+    decisionReason: 'policy',
+    inputTokens: 100,
+    outputTokens: 50,
+    createdAt: 1,
+    ...overrides,
+  };
 }
 
 function target(lifecycle: LocalAiTarget['lifecycle'] = 'enrolled'): LocalAiTarget {
@@ -494,5 +511,66 @@ describe('Local AI Guard runtime', () => {
     expect(secondDisposer).toHaveBeenCalledOnce();
     expect(scheduler.stop).toHaveBeenCalledOnce();
     expect(incidents.dispose).toHaveBeenCalledOnce();
+  });
+});
+
+describe('LT-189: notify-and-allow fallback notifications', () => {
+  function bareRuntime(): LocalAiGuardRuntime {
+    return new LocalAiGuardRuntime(
+      services(schedulerDouble(), { dispose: vi.fn() }, { subscribe: () => () => undefined }),
+    );
+  }
+
+  it('records a notify-and-allow event, most-recent first, and pulses a revision change', () => {
+    const runtime = bareRuntime();
+    const before = runtime.revision;
+
+    runtime.recordFallbackNotification(routingEvent('event-1'));
+    expect(runtime.fallbackNotifications).toEqual([routingEvent('event-1')]);
+    expect(runtime.revision).not.toBe(before);
+
+    runtime.recordFallbackNotification(routingEvent('event-2'));
+    // Newest first, so the renderer banner shows the latest fallback.
+    expect(runtime.fallbackNotifications.map((event) => event.id)).toEqual(['event-2', 'event-1']);
+  });
+
+  it('bounds the notification list instead of growing it unboundedly', () => {
+    const runtime = bareRuntime();
+    for (let i = 0; i < 60; i += 1) {
+      runtime.recordFallbackNotification(routingEvent(`event-${i}`));
+    }
+    expect(runtime.fallbackNotifications).toHaveLength(50);
+    // Most recent 50 survive; the oldest ten are dropped.
+    expect(runtime.fallbackNotifications[0]?.id).toBe('event-59');
+    expect(runtime.fallbackNotifications.at(-1)?.id).toBe('event-10');
+  });
+
+  it('does not record after disposal', () => {
+    const runtime = bareRuntime();
+    runtime.dispose();
+    runtime.recordFallbackNotification(routingEvent('event-1'));
+    expect(runtime.fallbackNotifications).toEqual([]);
+  });
+
+  describe('notifyFallbackInto', () => {
+    it('forwards a fired event to whichever runtime the getter currently returns', () => {
+      const runtime = bareRuntime();
+      const notify = notifyFallbackInto(() => runtime);
+
+      notify(routingEvent('event-1'));
+
+      expect(runtime.fallbackNotifications).toEqual([routingEvent('event-1')]);
+    });
+
+    it('tolerates a getter that has not yet resolved a runtime (deferred-closure construction order)', () => {
+      let current: LocalAiGuardRuntime | undefined;
+      const notify = notifyFallbackInto(() => current);
+
+      expect(() => notify(routingEvent('event-1'))).not.toThrow();
+
+      current = bareRuntime();
+      notify(routingEvent('event-2'));
+      expect(current.fallbackNotifications).toEqual([routingEvent('event-2')]);
+    });
   });
 });

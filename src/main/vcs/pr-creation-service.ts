@@ -304,7 +304,7 @@ export class PrCreationService {
     if (!optedIn) {
       return this.fail(
         'optIn',
-        'PR creation is not enabled for this project. Enable "Allow PR creation" in project settings first.',
+        'PR creation is not enabled for this project. Enable "Allow PR creation" in the Source Control panel for this repository first.',
       );
     }
 

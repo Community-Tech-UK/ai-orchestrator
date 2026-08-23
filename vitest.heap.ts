@@ -3,16 +3,23 @@ import { totalmem } from 'os';
 /**
  * Old-space ceiling for the Vitest fork workers.
  *
- * Every project in this repo runs `singleFork`, so ONE Node process executes a
- * project's whole spec list back to back. Retained state (module graphs, fakes,
- * listeners) accumulates across ~1.5k files, and a full run on 2026-08-20 hit
+ * Both projects ran `singleFork` until 2026-08-20, so ONE Node process executed
+ * a project's whole spec list back to back. Retained state (module graphs,
+ * fakes, listeners) accumulated across ~1.5k files, and a full run that day hit
  * V8's default ~4 GB old-space ceiling after 771 files and died mid-suite:
  *
  *   FATAL ERROR: Ineffective mark-compacts near heap limit - JS heap OOM
  *   ... followed by ERR_IPC_CHANNEL_CLOSED in the parent's ProcessWorker.send
  *
+ * The accumulation itself is gone: the default suite now runs parallel isolated
+ * forks (vitest.pool.ts), so a worker holds one file's state, measured at
+ * ~350 MB RSS. This ceiling still covers the cases that stayed serial — the
+ * slow tier is deliberately `singleFork` for repo contention — and any single
+ * unusually heavy spec file.
+ *
  * `--max-old-space-size` is a ceiling, not an allocation: V8 only grows into it
- * under real pressure, so raising it costs nothing on a run that stays small.
+ * under real pressure, so raising it costs nothing on a run that stays small,
+ * and N parallel workers sharing one ceiling value does not multiply real use.
  *
  * It is only raised on hosts with room to spare. On a small CI runner a ceiling
  * at or above physical memory trades a clean V8 OOM for an OS OOM-kill, which

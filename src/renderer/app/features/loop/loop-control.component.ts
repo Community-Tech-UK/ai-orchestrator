@@ -632,10 +632,17 @@ export class LoopControlComponent implements OnDestroy {
     const finalAuditMode = auditConfig?.finalAuditMode ?? 'off';
     const preflightStatus = a.preflight?.status ?? (preflightMode === 'off' ? 'off' : 'pending');
     const finalAuditStatus = a.latestFinalAudit?.status ?? (finalAuditMode === 'off' ? 'skipped' : 'pending');
+    // A verify command that blew its wall-clock budget and one whose tests are
+    // red are both `status: 'failed'`, but they need opposite fixes from the
+    // operator (shorten the command vs fix the code). Say which it was.
+    const preflightTimedOut = preflightStatus === 'failed'
+      && (a.preflight?.commands?.some((c) => c.failureKind === 'timeout') ?? false);
     return {
       preflightState: preflightStatus,
       finalAuditState: finalAuditStatus,
-      preflightLabel: `Preflight ${this.auditStatusLabel(preflightStatus)}`,
+      preflightLabel: preflightTimedOut
+        ? 'Preflight timed out'
+        : `Preflight ${this.auditStatusLabel(preflightStatus)}`,
       finalAuditLabel: `Audit ${finalAuditMode} ${this.auditStatusLabel(finalAuditStatus)}`,
       reportFile: a.latestFinalAudit?.reportPath
         ? this.basename(a.latestFinalAudit.reportPath)

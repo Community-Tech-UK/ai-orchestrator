@@ -4,6 +4,7 @@ import type { Plugin } from 'vite';
 import { defineConfig } from 'vitest/config';
 import { aliases } from './vitest.aliases';
 import { testHeapExecArgv } from './vitest.heap';
+import { testMaxForks } from './vitest.pool';
 
 function angularJitPlugin(): Plugin {
   const config = ts.readConfigFile('tsconfig.json', ts.sys.readFile);
@@ -61,18 +62,21 @@ export default defineConfig({
   test: {
     globals: true,
     // Tinypool is built once for the whole run from the ROOT config, so this is
-    // the only place execArgv reaches the workers — a per-project
-    // poolOptions.forks.execArgv is silently ignored (per-project singleFork is
-    // not: that one is applied by grouping specs). See vitest.heap.ts.
+    // the only place execArgv and maxForks reach the workers — the per-project
+    // equivalents are silently ignored. (Per-project `singleFork` is the
+    // exception: that one is applied by grouping specs, which is why it used to
+    // live under each project.) See vitest.heap.ts and vitest.pool.ts.
     poolOptions: {
       forks: {
         execArgv: testHeapExecArgv(),
+        maxForks: testMaxForks(),
       },
     },
     // Multi-project: renderer gets Angular TestBed; everything else skips it
     // but still uses jsdom + zone.js (Worker/MessagePort + microtask fidelity).
-    // Both stay singleFork until a dedicated isolation audit unlocks parallel
-    // forks safely. CI still shards across jobs for wall-clock speed.
+    // Neither project is singleFork — files run in parallel, isolated forks, so
+    // no worker accumulates a whole project's retained state. CI still shards
+    // across jobs on top of this.
     projects: [
       {
         plugins: [angularJitPlugin()],
@@ -90,11 +94,6 @@ export default defineConfig({
           exclude: defaultExcludes,
           setupFiles: ['src/test-setup.ts'],
           pool: 'forks',
-          poolOptions: {
-            forks: {
-              singleFork: true,
-            },
-          },
         },
       },
       {
@@ -129,11 +128,6 @@ export default defineConfig({
           ],
           setupFiles: ['src/test-setup-node.ts'],
           pool: 'forks',
-          poolOptions: {
-            forks: {
-              singleFork: true,
-            },
-          },
         },
       },
     ],

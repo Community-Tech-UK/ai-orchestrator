@@ -181,6 +181,9 @@ interface GateAction {
       height: 100%;
     }
 
+    /* overflow-y:auto so that once .content hits its floor the page scrolls as a
+       whole. Without it the Control Center's overflow:hidden content cell just
+       clipped whatever did not fit. */
     .workflow-page {
       display: flex;
       flex-direction: column;
@@ -190,6 +193,7 @@ interface GateAction {
       padding: var(--spacing-lg);
       background: var(--bg-primary);
       color: var(--text-primary);
+      overflow-y: auto;
     }
 
     .page-header {
@@ -287,9 +291,15 @@ interface GateAction {
       font-size: 12px;
     }
 
+    /* flex: 1 0 auto keeps ONE scroll boundary on this page: the region grows
+       to fill a tall window but never shrinks below its content, so the panels
+       stay full height and .workflow-page is the only thing that scrolls.
+       Shrinking it instead (flex: 1) forced the panels to scroll too, which
+       stacked three independent scroll regions on a short window. min-height is
+       the empty-state floor. */
     .content {
-      flex: 1;
-      min-height: 0;
+      flex: 1 0 auto;
+      min-height: 320px;
       display: grid;
       grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
       gap: var(--spacing-md);

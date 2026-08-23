@@ -31,6 +31,18 @@ export const RTK_BUNDLED_VERSION = '0.39.0';
 export const RTK_MIN_VERSION = '0.23.0';
 /** Default timeout for rtk rewrite invocations — RTK benchmarks <10ms; 2s is generous safety margin. */
 const REWRITE_TIMEOUT_MS = 2_000;
+/**
+ * Per-attempt timeouts for the one-off `rtk --version` probe, in order. The
+ * retry is deliberately more patient than the first attempt: by then the binary
+ * is warm, so the only reason to still be waiting is a busy host — and this app
+ * exists to keep hosts busy.
+ *
+ * Budget for a genuinely wedged (not merely cold) binary: 5s per probe, and
+ * resolveBinary() probes twice when it checks a system rtk before the bundled
+ * one, so up to 10s. That is blocking — spawnSync on the spawn path — but it is
+ * paid at most once per process, behind a feature flag that is off by default.
+ */
+const PROBE_TIMEOUTS_MS = [1_000, 4_000];
 
 export type RtkRewriteResult =
   | { kind: 'allow'; rewritten: string }
@@ -44,6 +56,12 @@ export interface RtkRuntimeOptions {
   bundledOnly?: boolean;
   /** Override for testing; resolves binary at this absolute path. */
   binaryPathOverride?: string;
+  /**
+   * Override for testing; per-attempt `rtk --version` budgets in ms. A first
+   * entry of 1ms is how a test forces the cold-start timeout branch without
+   * depending on how loaded the host happens to be.
+   */
+  probeTimeoutsMs?: number[];
 }
 
 export interface RtkRuntime {
@@ -122,18 +140,40 @@ function getBundledBinaryCandidate(): string {
 
 /**
  * Probe `rtk --version` at a given path. Returns parsed version or null on failure.
+ *
+ * Retries once when the first attempt times out. The first execution of a
+ * binary the kernel has not seen before is far more expensive than every
+ * subsequent one — on macOS the initial exec pays Gatekeeper/code-signing
+ * evaluation, measured here at a ~290ms median and a >1s tail for a
+ * freshly-written file, against ~3ms once warm. Resolution happens once per
+ * process and is cached, so without the retry a single cold-start stall
+ * disables rtk for the entire app session (and made the rtk specs flake as
+ * soon as test files ran in parallel forks).
  */
-function probeVersion(binaryPath: string): string | null {
-  try {
-    const result = spawnSync(binaryPath, ['--version'], {
-      encoding: 'utf8',
-      timeout: 1_000,
-    });
-    if (result.status !== 0) return null;
-    return parseVersion(result.stdout || '');
-  } catch {
-    return null;
+function probeVersion(binaryPath: string, timeouts: number[] = PROBE_TIMEOUTS_MS): string | null {
+  for (let attempt = 0; attempt < timeouts.length; attempt++) {
+    const timeoutMs = timeouts[attempt];
+    try {
+      const result = spawnSync(binaryPath, ['--version'], {
+        encoding: 'utf8',
+        timeout: timeoutMs,
+      });
+      // spawnSync reports a timeout as a null status plus the killing signal.
+      const timedOut = result.status === null && result.signal !== null;
+      if (timedOut && attempt < timeouts.length - 1) {
+        logger.debug('rtk --version timed out; retrying against the now-warm binary', {
+          path: binaryPath,
+          timeoutMs,
+        });
+        continue;
+      }
+      if (result.status !== 0) return null;
+      return parseVersion(result.stdout || '');
+    } catch {
+      return null;
+    }
   }
+  return null;
 }
 
 /**
@@ -167,7 +207,7 @@ function resolveBinary(opts: RtkRuntimeOptions): ResolvedBinary | null {
       logger.warn('rtk binary override does not exist', { path: opts.binaryPathOverride });
       return null;
     }
-    const version = probeVersion(opts.binaryPathOverride);
+    const version = probeVersion(opts.binaryPathOverride, opts.probeTimeoutsMs);
     if (!version) {
       logger.warn('rtk binary override did not respond to --version', { path: opts.binaryPathOverride });
       return null;
@@ -187,7 +227,7 @@ function resolveBinary(opts: RtkRuntimeOptions): ResolvedBinary | null {
   if (!opts.bundledOnly) {
     const systemPath = findSystemBinary();
     if (systemPath) {
-      const version = probeVersion(systemPath);
+      const version = probeVersion(systemPath, opts.probeTimeoutsMs);
       if (version && compareVersions(version, RTK_MIN_VERSION) >= 0) {
         systemCandidate = { path: systemPath, source: 'system', version };
       }
@@ -200,7 +240,7 @@ function resolveBinary(opts: RtkRuntimeOptions): ResolvedBinary | null {
     try {
       // Sanity check: must be a regular file, not a stale directory.
       if (statSync(bundledPath).isFile()) {
-        const version = probeVersion(bundledPath);
+        const version = probeVersion(bundledPath, opts.probeTimeoutsMs);
         if (version && compareVersions(version, RTK_MIN_VERSION) >= 0) {
           bundledCandidate = { path: bundledPath, source: 'bundled', version };
         }

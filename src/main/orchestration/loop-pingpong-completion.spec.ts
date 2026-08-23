@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { LoopIteration, LoopState } from '../../shared/types/loop.types';
+import type { CompletionSignalEvidence, LoopIteration, LoopState } from '../../shared/types/loop.types';
 import {
   defaultLoopConfig,
   defaultPingPongState,
@@ -54,9 +54,13 @@ function makeState(workspace: string, overrides: Partial<LoopState> = {}): LoopS
   return state;
 }
 
-function makeIteration(filesChanged: { path: string }[] = []): LoopIteration {
+function makeIteration(
+  filesChanged: { path: string }[] = [],
+  completionSignalsFired: CompletionSignalEvidence[] = [],
+): LoopIteration {
   return {
     filesChanged: filesChanged.map((f) => ({ path: f.path, additions: 1, deletions: 0, contentHash: 'h' })),
+    completionSignalsFired,
   } as unknown as LoopIteration;
 }
 
@@ -111,6 +115,55 @@ describe('evaluatePingPongCompletion', () => {
     const state = makeState(workspace);
     const reviewer = vi.fn<PingPongReviewer>();
     const result = await evaluatePingPongCompletion(baseDeps(state, reviewer, false));
+    expect(result).toBeNull();
+    expect(reviewer).not.toHaveBeenCalled();
+  });
+
+  // Regression: a loop whose ledger was fully resolved fired `ledger-complete`
+  // on every iteration but never opened a round, because the gate consulted only
+  // the prose classifier — which cannot return clean without the sentinel. With
+  // ping-pong enabled that branch owns the ONLY terminal path, so the loop ran
+  // to its iteration cap. Observed live: 5 iterations, 2h40m, $20.25, round 0/15.
+  it('opens a round on a sufficient completion signal even when the prose classifier says not-clean', async () => {
+    const state = makeState(workspace);
+    const reviewer = vi.fn<PingPongReviewer>().mockResolvedValue(reviewResult({ verdict: 'APPROVED' }));
+    const deps = {
+      ...baseDeps(state, reviewer, false),
+      iteration: makeIteration([], [{
+        id: 'ledger-complete',
+        sufficient: true,
+        detail: 'All 15 LOOP_TASKS.md leaf items resolved (done/deferred) during this run',
+        openCount: 0,
+        openLeafIds: [],
+      }]),
+    };
+
+    const result = await evaluatePingPongCompletion(deps);
+
+    expect(reviewer).toHaveBeenCalledOnce();
+    expect(result?.status).toBe('completed');
+    expect(state.pingPong?.roundCount).toBe(1);
+    expect(deps.classifyCleanReview).not.toHaveBeenCalled();
+    expect(deps.emit).toHaveBeenCalledWith(
+      'loop:activity',
+      expect.objectContaining({
+        message: "Ping-pong round opened on completion signal 'ledger-complete'",
+      }),
+    );
+  });
+
+  it('does not open a round on an insufficient completion signal', async () => {
+    const state = makeState(workspace);
+    const reviewer = vi.fn<PingPongReviewer>();
+    const result = await evaluatePingPongCompletion({
+      ...baseDeps(state, reviewer, false),
+      iteration: makeIteration([], [{
+        id: 'self-declared',
+        sufficient: false,
+        detail: 'Output mentions TASK COMPLETE / DONE',
+      }]),
+    });
+
     expect(result).toBeNull();
     expect(reviewer).not.toHaveBeenCalled();
   });

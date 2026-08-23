@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   LocalAiFallbackRequest,
   LocalAiFallbackResolution,
+  LocalAiRoutingEvent,
 } from '../../../../shared/types/local-ai-guard.types';
 import { LocalAiGuardStore } from '../../core/state/local-ai-guard.store';
 import { LocalAiFallbackBannerComponent } from './local-ai-fallback-banner.component';
@@ -39,6 +40,26 @@ function request(
   };
 }
 
+function notification(
+  id: string,
+  overrides: Partial<LocalAiRoutingEvent> = {},
+): LocalAiRoutingEvent {
+  return {
+    id,
+    slot: 'compression',
+    intendedRoute: 'local',
+    actualRoute: 'frontier',
+    policy: 'notify-and-allow',
+    disposition: 'allowed',
+    decisionReason: 'policy',
+    inputTokens: 500,
+    outputTokens: 100,
+    estimatedCostUsd: 0.0125,
+    createdAt: 1_000,
+    ...overrides,
+  };
+}
+
 describe('LocalAiFallbackBannerComponent', () => {
   const pendingFallbacks = signal<LocalAiFallbackRequest[]>([]);
   const resolvingFallbackId = signal<string | null>(null);
@@ -56,6 +77,10 @@ describe('LocalAiFallbackBannerComponent', () => {
   const resolveFallback = vi.fn(
     async (_id: string, _resolution: LocalAiFallbackResolution) => undefined,
   );
+  const fallbackNotifications = signal<LocalAiRoutingEvent[]>([]);
+  const dismissFallbackNotification = vi.fn((eventId: string) => {
+    fallbackNotifications.update((events) => events.filter((event) => event.id !== eventId));
+  });
   const store = {
     pendingFallbacks: pendingFallbacks.asReadonly(),
     resolvingFallbackId: resolvingFallbackId.asReadonly(),
@@ -64,6 +89,8 @@ describe('LocalAiFallbackBannerComponent', () => {
     hasAuthoritativeSnapshot: hasAuthoritativeSnapshot.asReadonly(),
     aggregate: aggregate.asReadonly(),
     resolveFallback,
+    fallbackNotifications: fallbackNotifications.asReadonly(),
+    dismissFallbackNotification,
   };
   const router = { navigateByUrl: vi.fn(async () => true) };
   let fixture: ComponentFixture<LocalAiFallbackBannerComponent>;
@@ -74,6 +101,7 @@ describe('LocalAiFallbackBannerComponent', () => {
     pendingFallbacks.set([]);
     resolvingFallbackId.set(null);
     error.set(null);
+    fallbackNotifications.set([]);
     TestBed.configureTestingModule({
       imports: [LocalAiFallbackBannerComponent],
       providers: [
@@ -233,6 +261,62 @@ describe('LocalAiFallbackBannerComponent', () => {
       'Fallback decision could not be saved. Try again.',
     );
     expect(fixture.nativeElement.textContent).not.toContain('/Users/');
+  });
+
+  it('LT-189: renders a passive notify-and-allow notification alongside the require-confirmation banner', () => {
+    pendingFallbacks.set([request('oldest', 1_000)]);
+    fallbackNotifications.set([notification('event-1')]);
+    fixture.detectChanges();
+
+    // Both surfaces render at once — the notification is not blocked or
+    // hidden by an unrelated pending confirmation.
+    expect(fixture.nativeElement.querySelector('.local-ai-fallback-banner')).not.toBeNull();
+    const row = fixture.nativeElement.querySelector(
+      '.fallback-notification[data-event-id="event-1"]',
+    ) as HTMLElement;
+    expect(row).not.toBeNull();
+    expect(row.textContent).toContain('Paid fallback happened automatically');
+    expect(row.textContent).toContain('Compression');
+    expect(row.textContent).toContain('$0.0125 estimated');
+    // Informational only — no accept/reject controls, only a dismiss.
+    expect(row.querySelectorAll('button')).toHaveLength(1);
+    expect(row.querySelector('button')?.textContent?.trim()).toBe('Dismiss');
+  });
+
+  it('LT-189: shows "Cost unknown" for an unpriced notify-and-allow event rather than a confident $0', () => {
+    fallbackNotifications.set([notification('event-1', { estimatedCostUsd: undefined })]);
+    fixture.detectChanges();
+
+    const row = fixture.nativeElement.querySelector(
+      '.fallback-notification[data-event-id="event-1"]',
+    ) as HTMLElement;
+    expect(row.textContent).toContain('Cost unknown');
+    expect(row.textContent).not.toContain('$0.0000');
+  });
+
+  it('LT-189: dismissing one notification removes only that one from the DOM', () => {
+    fallbackNotifications.set([notification('event-1'), notification('event-2', { createdAt: 2_000 })]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.fallback-notification')).toHaveLength(2);
+
+    const firstDismiss = fixture.nativeElement
+      .querySelector('.fallback-notification[data-event-id="event-1"] button') as HTMLButtonElement;
+    firstDismiss.click();
+    fixture.detectChanges();
+
+    expect(dismissFallbackNotification).toHaveBeenCalledExactlyOnceWith('event-1');
+    expect(fixture.nativeElement.querySelector(
+      '.fallback-notification[data-event-id="event-1"]',
+    )).toBeNull();
+    expect(fixture.nativeElement.querySelector(
+      '.fallback-notification[data-event-id="event-2"]',
+    )).not.toBeNull();
+  });
+
+  it('LT-189: renders nothing for the notification section when there are no undismissed notifications', () => {
+    fallbackNotifications.set([]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.local-ai-fallback-notifications')).toBeNull();
   });
 
   function button(label: string): HTMLButtonElement {

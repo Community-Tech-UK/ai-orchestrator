@@ -145,6 +145,22 @@ describe('LocalAiEffectivenessPanelComponent', () => {
     expect(costText[3]).toBe('$1e-21 estimated avoided cost');
   });
 
+  it('LT-193: shows the unpriced-dispatch metric only when it is nonzero, and it never claims zero cost', async () => {
+    expect(fixture.nativeElement.querySelector('.unpriced')).toBeNull();
+
+    store.effectiveness.mockReturnValue(summary({
+      knownCostUsd: 0,
+      estimatedCostUsd: 0,
+      unpricedDispatchCount: 7,
+    }));
+    await recreate();
+
+    const unpriced = fixture.nativeElement.querySelector('.unpriced') as HTMLElement | null;
+    expect(unpriced).not.toBeNull();
+    expect(unpriced?.textContent).toContain('7 unpriced');
+    expect(unpriced?.textContent).toContain('cost unknown, not zero');
+  });
+
   it('gives every visual an accessible text equivalent and renders every breakdown', () => {
     const visuals = Array.from(
       fixture.nativeElement.querySelectorAll('[data-effectiveness-visual]') as

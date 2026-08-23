@@ -98,11 +98,16 @@
 
 /* Panel / Tabs */
 
+/* overflow:hidden is here to clip the tab strip to the rounded corners, but it
+   also zeroes the flex item's automatic minimum size, so on a short window the
+   panel was squashed and silently swallowed its own tab content. Keep the
+   clipping, refuse the squash, and let `.page` scroll instead. */
 .panel {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   background: var(--bg-secondary);
   overflow: hidden;
+  flex-shrink: 0;
 }
 
 /* Info / Explainer */

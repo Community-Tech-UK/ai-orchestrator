@@ -137,6 +137,9 @@ const SEVERITY_ORDER: SeverityLevel[] = ['critical', 'high', 'medium', 'low', 'i
         height: 100%;
       }
 
+      /* overflow-y:auto so that once .content hits its floor the page scrolls as
+         a whole. Without it the Control Center's overflow:hidden content cell
+         just clipped whatever did not fit. */
       .page {
         width: 100%;
         height: 100%;
@@ -146,6 +149,7 @@ const SEVERITY_ORDER: SeverityLevel[] = ['critical', 'high', 'medium', 'low', 'i
         padding: var(--spacing-lg);
         background: var(--bg-primary);
         color: var(--text-primary);
+        overflow-y: auto;
       }
 
       .page-header {
@@ -340,9 +344,16 @@ const SEVERITY_ORDER: SeverityLevel[] = ['critical', 'high', 'medium', 'low', 'i
         color: var(--text-primary);
       }
 
+      /* Grow to fill a tall window, never shrink below the content, so .page
+         stays the single scroll boundary instead of this region shrinking and
+         scrolling inside a scrolling page. min-height is the empty-state floor.
+         The pre-existing overflow:auto no longer scrolls vertically (the region
+         always tracks its content height) but is kept for the horizontal axis —
+         CSS computes overflow-y:visible to auto whenever the other axis is not
+         visible, so there is no way to keep one without the other. */
       .content {
-        flex: 1;
-        min-height: 0;
+        flex: 1 0 auto;
+        min-height: 320px;
         overflow: auto;
       }
 

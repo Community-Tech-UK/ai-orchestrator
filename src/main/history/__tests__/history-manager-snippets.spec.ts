@@ -69,6 +69,20 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
 describe('HistoryManager.archiveInstance snippets', () => {
   let userDataDir = '';
 
+  const pendingStartups: Promise<void>[] = [];
+
+  /**
+   * `new HistoryManager()` starts `startupTasks` (backfill -> orphan recovery)
+   * and returns before they finish. Deleting the temp dir underneath a still
+   * running task makes it write into a removed directory: ENOENT on write,
+   * ENOTEMPTY on rmSync, and a failure in whichever test the scheduler happened
+   * to interleave with. Track every manager so teardown can wait for it.
+   */
+  function track<T extends { startupTasks: Promise<void> }>(manager: T): T {
+    pendingStartups.push(manager.startupTasks);
+    return manager;
+  }
+
   beforeEach(() => {
     vi.resetModules();
     userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'history-manager-snippets-'));
@@ -85,7 +99,8 @@ describe('HistoryManager.archiveInstance snippets', () => {
     }));
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await Promise.allSettled(pendingStartups.splice(0));
     vi.doUnmock('electron');
     vi.resetModules();
     if (userDataDir) {
@@ -95,7 +110,7 @@ describe('HistoryManager.archiveInstance snippets', () => {
 
   it('writes precomputed snippets onto archived entries', async () => {
     const { HistoryManager } = await import('../history-manager');
-    const manager = new HistoryManager();
+    const manager = track(new HistoryManager());
 
     await manager.archiveInstance(makeInstance());
 

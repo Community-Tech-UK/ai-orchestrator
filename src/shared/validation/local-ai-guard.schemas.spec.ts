@@ -30,9 +30,38 @@ const validSnapshot = {
   incidents: [],
   recoveryAttempts: [],
   pendingFallbacks: [],
+  fallbackNotifications: [],
 };
 
 describe('LocalAiGuardSnapshotSchema', () => {
+  it('LT-189: requires fallbackNotifications and bounds it to 50 entries', () => {
+    expect(LocalAiGuardSnapshotSchema.parse(validSnapshot).fallbackNotifications).toEqual([]);
+
+    const { fallbackNotifications: _omitted, ...withoutField } = validSnapshot;
+    expect(() => LocalAiGuardSnapshotSchema.parse(withoutField)).toThrow();
+
+    const routingEvent = {
+      id: 'event-1',
+      slot: 'compression',
+      intendedRoute: 'local',
+      actualRoute: 'frontier',
+      policy: 'notify-and-allow',
+      disposition: 'allowed',
+      decisionReason: 'policy',
+      inputTokens: 1,
+      outputTokens: 1,
+      createdAt: 1,
+    };
+    expect(() => LocalAiGuardSnapshotSchema.parse({
+      ...validSnapshot,
+      fallbackNotifications: Array.from({ length: 51 }, (_, i) => ({ ...routingEvent, id: `event-${i}` })),
+    })).toThrow();
+    expect(LocalAiGuardSnapshotSchema.parse({
+      ...validSnapshot,
+      fallbackNotifications: [routingEvent],
+    }).fallbackNotifications).toEqual([routingEvent]);
+  });
+
   it('requires a canonical bounded decimal-string revision cursor', () => {
     expect(LocalAiGuardSnapshotSchema.parse(validSnapshot).revision).toBe('0');
     expect(LocalAiGuardSnapshotSchema.parse({

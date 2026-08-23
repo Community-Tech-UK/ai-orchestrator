@@ -609,6 +609,14 @@ export const LocalAiGuardSnapshotSchema = z.object({
   incidents: z.array(LocalAiIncidentSchema).max(100),
   recoveryAttempts: z.array(LocalAiPublicRecoveryAttemptSchema).max(1_000),
   pendingFallbacks: z.array(LocalAiFallbackRequestSchema).max(1_000),
+  /**
+   * LT-189 — bounded, most-recent-first `notify-and-allow` fallback events,
+   * for a passive/dismissible renderer banner. Distinct from
+   * `pendingFallbacks`: these already resolved (no decision is pending) and
+   * this list is a live discovery aid, not the durable record — the
+   * effectiveness dashboard remains that.
+   */
+  fallbackNotifications: z.array(LocalAiRoutingEventSchema).max(50),
 }).strict();
 
 export const LocalAiEmptyRequestSchema = z.undefined();

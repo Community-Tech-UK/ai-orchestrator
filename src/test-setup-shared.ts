@@ -52,10 +52,12 @@ vi.mock('better-sqlite3', () => {
 // ============================================================================
 // Global timer-state reset
 //
-// Forks may still run multiple files in one process. Any test that (a) calls
-// `vi.useFakeTimers()` without `vi.useRealTimers()`, (b) spies `setTimeout`
-// without `mockRestore()`, or (c) fails mid-test before teardown, can leave
-// fake/stubbed timers engaged for later files in the same fork.
+// Forks may still run multiple files in one process: the default suite gets one
+// file per fork since 2026-08-20, but the slow tier is `singleFork`, and there
+// Vitest hands its whole file list to a single pool task. Any test that (a)
+// calls `vi.useFakeTimers()` without `vi.useRealTimers()`, (b) spies
+// `setTimeout` without `mockRestore()`, or (c) fails mid-test before teardown,
+// can leave fake/stubbed timers engaged for later files in the same fork.
 // ============================================================================
 
 interface TimerGlobals {

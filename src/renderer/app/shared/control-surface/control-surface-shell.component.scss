@@ -80,10 +80,16 @@
   line-height: 1.2;
 }
 
+/* grid-template-rows is explicit because the implicit `auto` row was sized by
+   its tallest item, so a long page grew `.control-content` past this container
+   and out of the window, where `.app-main`'s overflow:hidden clipped it. The
+   row must track the container instead: minmax(0, 1fr) both fills the height
+   and refuses to be pushed taller by content. */
 .control-body {
   flex: 1 1 auto;
   display: grid;
   grid-template-columns: minmax(210px, 250px) minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr);
   min-height: 0;
 }
 
@@ -237,9 +243,14 @@
     padding: 0.75rem;
   }
 
+  /* Stacked layout: nav strip above, content below, help pane under that. Those
+     implicit auto rows already share the container's height correctly here, so
+     drop the wide layout's single explicit row — inheriting it would hand the
+     whole cell to the nav and crush the content to nothing. */
   .control-shell.nav-collapsed .control-body,
   .control-body {
     grid-template-columns: 1fr;
+    grid-template-rows: none;
   }
 
   .control-nav {

@@ -5718,6 +5718,10 @@
   },
   "largeFiles": [
     {
+      "path": "docs/plans/livetest-remediation-register.md",
+      "lines": 7175
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-21-mcp-multi-provider-management_completed.md",
       "lines": 5547
     },
@@ -5735,7 +5739,7 @@
     },
     {
       "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 3920
+      "lines": 3922
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-mempalace-knowledge-features_completed.md",
@@ -6186,6 +6190,10 @@
       "lines": 1231
     },
     {
+      "path": "src/renderer/app/core/state/local-ai-guard.store.spec.ts",
+      "lines": 1228
+    },
+    {
       "path": "src/main/orchestration/__tests__/campaign-coordinator.spec.ts",
       "lines": 1214
     },
@@ -6218,6 +6226,10 @@
       "lines": 1185
     },
     {
+      "path": "src/main/history/history-manager.spec.ts",
+      "lines": 1180
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-02-streaming-tool-executor.COMPLETED.md",
       "lines": 1177
     },
@@ -6226,19 +6238,11 @@
       "lines": 1177
     },
     {
-      "path": "src/renderer/app/core/state/local-ai-guard.store.spec.ts",
-      "lines": 1171
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-08-phase3-monorepo-consolidation_completed.md",
       "lines": 1167
     },
     {
       "path": "docs/superpowers/specs/2026-04-28-wave3-workflow-resume-history-recovery-design_completed.md",
-      "lines": 1165
-    },
-    {
-      "path": "src/main/history/history-manager.spec.ts",
       "lines": 1165
     },
     {
@@ -6258,16 +6262,16 @@
       "lines": 1139
     },
     {
+      "path": "src/main/ipc/handlers/local-ai-guard-handlers.spec.ts",
+      "lines": 1131
+    },
+    {
       "path": "docs/superpowers/specs/2026-04-28-wave1-command-registry-and-overlay-design_completed.md",
       "lines": 1127
     },
     {
       "path": "docs/superpowers/plans/2026-04-20-ai-orchestrator-cross-repo-remediation-plan_completed.md",
       "lines": 1126
-    },
-    {
-      "path": "src/main/ipc/handlers/local-ai-guard-handlers.spec.ts",
-      "lines": 1123
     },
     {
       "path": "src/renderer/app/features/mcp/mcp-page.component.ts",
@@ -6302,6 +6306,10 @@
       "lines": 1104
     },
     {
+      "path": "src/renderer/app/features/loop/loop-control.component.ts",
+      "lines": 1098
+    },
+    {
       "path": "src/main/local-ai-guard/local-ai-health-scheduler.spec.ts",
       "lines": 1096
     },
@@ -6315,10 +6323,6 @@
     },
     {
       "path": "src/main/workspace/git/worktree-manager.ts",
-      "lines": 1091
-    },
-    {
-      "path": "src/renderer/app/features/loop/loop-control.component.ts",
       "lines": 1091
     },
     {
@@ -6482,16 +6486,16 @@
       "lines": 953
     },
     {
+      "path": "src/renderer/app/features/tasks/tasks-page.component.ts",
+      "lines": 952
+    },
+    {
       "path": "src/main/plugins/plugin-manager.spec.ts",
       "lines": 951
     },
     {
       "path": "src/main/orchestration/cli-verification-extension.ts",
       "lines": 948
-    },
-    {
-      "path": "src/renderer/app/features/tasks/tasks-page.component.ts",
-      "lines": 947
     },
     {
       "path": "src/worker-agent/worker-local-ai-health.spec.ts",
@@ -6534,12 +6538,12 @@
       "lines": 899
     },
     {
-      "path": "docs/superpowers/plans/2026-04-09-remote-session-latency.md",
-      "lines": 897
+      "path": "src/renderer/app/features/replay/session-replay-page.component.ts",
+      "lines": 899
     },
     {
-      "path": "src/renderer/app/features/replay/session-replay-page.component.ts",
-      "lines": 894
+      "path": "docs/superpowers/plans/2026-04-09-remote-session-latency.md",
+      "lines": 897
     },
     {
       "path": "benchmarks/external-benchmarks/swe-bench/runner.ts",
@@ -6674,6 +6678,10 @@
       "lines": 838
     },
     {
+      "path": "src/renderer/app/features/mcp/mcp-page.component.scss",
+      "lines": 838
+    },
+    {
       "path": "src/renderer/app/features/review/review-results.component.ts",
       "lines": 838
     },
@@ -6688,10 +6696,6 @@
     {
       "path": "src/renderer/app/features/settings/remote-nodes-settings-tab.component.html",
       "lines": 836
-    },
-    {
-      "path": "src/renderer/app/features/mcp/mcp-page.component.scss",
-      "lines": 835
     },
     {
       "path": "src/renderer/app/core/state/instance/instance-messaging.store.spec.ts",

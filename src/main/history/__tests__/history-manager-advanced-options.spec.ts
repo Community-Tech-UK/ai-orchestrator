@@ -32,8 +32,24 @@ function seedIndex(userDataDir: string, entries: ConversationHistoryEntry[]): vo
   );
 }
 
+/**
+ * `new HistoryManager()` kicks off `startupTasks` (backfill -> orphan recovery)
+ * and returns before they finish. Tearing the temp dir down underneath a still
+ * running task made it write into a deleted directory, which surfaced as ENOENT
+ * warnings, an ENOTEMPTY rmSync, and a failed assertion in whichever test the
+ * scheduler happened to interleave with. Every manager built here is tracked so
+ * teardown can wait for it; `history-manager.spec.ts` and
+ * `history-manager-snippets.spec.ts` carry the same helper, and
+ * `history-manager-native-import.spec.ts` awaits `startupTasks` per test.
+ */
 describe('HistoryManager.getEntries advanced options', () => {
   let userDataDir = '';
+  const pendingStartups: Promise<void>[] = [];
+
+  function track<T extends { startupTasks: Promise<void> }>(manager: T): T {
+    pendingStartups.push(manager.startupTasks);
+    return manager;
+  }
 
   beforeEach(() => {
     vi.resetModules();
@@ -51,7 +67,8 @@ describe('HistoryManager.getEntries advanced options', () => {
     }));
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await Promise.allSettled(pendingStartups.splice(0));
     vi.doUnmock('electron');
     vi.resetModules();
     if (userDataDir) {
@@ -68,7 +85,7 @@ describe('HistoryManager.getEntries advanced options', () => {
       })),
     );
     const { HistoryManager } = await import('../history-manager');
-    const manager = new HistoryManager();
+    const manager = track(new HistoryManager());
 
     const page1 = manager.getEntries({ page: { pageSize: 10, pageNumber: 1 } });
     const page2 = manager.getEntries({ page: { pageSize: 10, pageNumber: 2 } });
@@ -87,7 +104,7 @@ describe('HistoryManager.getEntries advanced options', () => {
       })),
     );
     const { HistoryManager } = await import('../history-manager');
-    const manager = new HistoryManager();
+    const manager = track(new HistoryManager());
 
     expect(manager.countEntries({
       workingDirectory: '/tmp/a',
@@ -101,7 +118,7 @@ describe('HistoryManager.getEntries advanced options', () => {
       entry({ id: 'recent', endedAt: 9_000_000 }),
     ]);
     const { HistoryManager } = await import('../history-manager');
-    const manager = new HistoryManager();
+    const manager = track(new HistoryManager());
 
     expect(manager.getEntries({ timeRange: { from: 5000 } }).map(item => item.id))
       .toEqual(['recent']);
@@ -113,7 +130,7 @@ describe('HistoryManager.getEntries advanced options', () => {
       entry({ id: 'b', workingDirectory: '/tmp/b' }),
     ]);
     const { HistoryManager } = await import('../history-manager');
-    const manager = new HistoryManager();
+    const manager = track(new HistoryManager());
 
     expect(manager.getEntries({ workingDirectory: '/tmp/a', projectScope: 'current' }).map(item => item.id))
       .toEqual(['a']);
@@ -129,7 +146,7 @@ describe('HistoryManager.getEntries advanced options', () => {
       entry({ id: 'other-project', workingDirectory: path.join(userDataDir, 'other-project') }),
     ]);
     const { HistoryManager } = await import('../history-manager');
-    const manager = new HistoryManager();
+    const manager = track(new HistoryManager());
 
     expect(manager.getEntries({ workingDirectory: `${linkedProject}/`, projectScope: 'current' }).map(item => item.id))
       .toEqual(['same-project']);
@@ -141,7 +158,7 @@ describe('HistoryManager.getEntries advanced options', () => {
       entry({ id: 'b', workingDirectory: '/tmp/b' }),
     ]);
     const { HistoryManager } = await import('../history-manager');
-    const manager = new HistoryManager();
+    const manager = track(new HistoryManager());
 
     expect(manager.getEntries({ workingDirectory: '/tmp/a', projectScope: 'all' }))
       .toHaveLength(2);
@@ -153,7 +170,7 @@ describe('HistoryManager.getEntries advanced options', () => {
       entry({ id: 'b', snippets: [{ position: 0, excerpt: 'layout tweaks', score: 0.5 }] }),
     ]);
     const { HistoryManager } = await import('../history-manager');
-    const manager = new HistoryManager();
+    const manager = track(new HistoryManager());
 
     expect(manager.getEntries({ snippetQuery: 'auth' }).map(item => item.id))
       .toEqual(['a']);
@@ -164,7 +181,7 @@ describe('HistoryManager.getEntries advanced options', () => {
       entry({ id: 'a', snippets: [{ position: 1, excerpt: 'auth bug fixed', score: 0.9 }] }),
     ]);
     const { HistoryManager } = await import('../history-manager');
-    const manager = new HistoryManager();
+    const manager = track(new HistoryManager());
 
     expect(manager.getEntries({ source: 'child_result' })).toEqual([]);
   });

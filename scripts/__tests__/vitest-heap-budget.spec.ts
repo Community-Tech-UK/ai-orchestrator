@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { testHeapBudgetMb, testHeapExecArgv } from '../../vitest.heap';
 
 /**
- * A full suite run on 2026-08-20 died at file 771 of 848 with
+ * A run on 2026-08-20 died after 771 files (of the 848 that run collected) with
  * `FATAL ERROR: Ineffective mark-compacts near heap limit`: the singleFork
  * worker had grown into V8's default ~4 GB old-space ceiling, and the parent
  * then blew up with ERR_IPC_CHANNEL_CLOSED talking to the dead worker. The

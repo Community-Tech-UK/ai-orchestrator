@@ -179,6 +179,35 @@ describe('rtk-runtime', () => {
       expect(runtime.isAvailable()).toBe(false);
     });
 
+    it.runIf(process.platform !== 'win32')(
+      'retries the version probe when the first exec times out',
+      () => {
+        // The first execution of a binary the kernel has not seen before is far
+        // more expensive than the next one (on macOS it pays Gatekeeper /
+        // code-signing evaluation), and resolution is cached per process — so
+        // without a retry, one cold-start stall disables rtk for the session.
+        //
+        // A 1ms first budget forces that timeout no matter how loaded the host
+        // is. An earlier version of this test used a stub that slept on its
+        // first run instead, which raced the very cost it stood in for: under
+        // parallel forks the exec itself blew the budget before the script
+        // could run, and the test failed with the fix in place.
+        const stubPath = makeStubBinary(tempRoot, { version: '0.39.0' });
+
+        const oneAttempt = getRtkRuntime({ binaryPathOverride: stubPath, probeTimeoutsMs: [1] });
+        expect(oneAttempt.isAvailable()).toBe(false); // no retry -> stays unavailable
+
+        _resetForTesting();
+
+        const withRetry = getRtkRuntime({
+          binaryPathOverride: stubPath,
+          probeTimeoutsMs: [1, 4_000],
+        });
+        expect(withRetry.isAvailable()).toBe(true);
+        expect(withRetry.version()).toBe('0.39.0');
+      },
+    );
+
     it.runIf(process.platform !== 'win32')('rejects an override below the minimum version', () => {
       const stubPath = makeStubBinary(tempRoot, { version: '0.10.0' });
       const runtime = getRtkRuntime({ binaryPathOverride: stubPath });

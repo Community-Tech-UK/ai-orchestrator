@@ -27,6 +27,7 @@ import {
 } from '@angular/core';
 import { OverlayModule, type ConnectedPosition } from '@angular/cdk/overlay';
 import { SourceControlStore } from '../../core/state/source-control.store';
+import { SettingsStore } from '../../core/state/settings.store';
 import { VcsIpcService } from '../../core/services/ipc/vcs-ipc.service';
 import type { BranchInfo, RepoState } from './source-control.types';
 
@@ -129,6 +130,28 @@ import type { BranchInfo, RepoState } from './source-control.types';
           </div>
         </ng-template>
       </div>
+    </div>
+
+    <!-- ============================================================
+         Allow PR creation (LT-138). Per-repo capability opt-in for
+         PrCreationService's Gate 1 — off by default, always visible so
+         the setting the error message points at actually exists here.
+         Toggling this alone does not create a PR: Gate 2's
+         never-delegable approval dialog still runs on every attempt.
+         ============================================================ -->
+    <div class="pr-creation-row">
+      <label class="pr-creation-toggle">
+        <input
+          type="checkbox"
+          [checked]="prCreationAllowed()"
+          (change)="onTogglePrCreation($event)"
+        />
+        <span>Allow PR creation</span>
+      </label>
+      <span class="pr-creation-hint">
+        Lets AI Orchestrator push a branch and open a GitHub pull request for this
+        repo. Each attempt still needs your explicit approval.
+      </span>
     </div>
 
     <!-- ============================================================
@@ -345,6 +368,35 @@ import type { BranchInfo, RepoState } from './source-control.types';
       border-color: var(--secondary-color);
     }
 
+    .pr-creation-row {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .pr-creation-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .pr-creation-toggle input[type='checkbox'] {
+      margin: 0;
+    }
+
+    .pr-creation-hint {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+
     .commit-block {
       display: flex;
       flex-direction: column;
@@ -405,6 +457,7 @@ import type { BranchInfo, RepoState } from './source-control.types';
 export class SourceControlRepoActionsComponent {
   private store = inject(SourceControlStore);
   private vcs = inject(VcsIpcService);
+  private settingsStore = inject(SettingsStore);
 
   repo = input.required<RepoState>();
 
@@ -443,6 +496,15 @@ export class SourceControlRepoActionsComponent {
 
   protected commitMessageValue = computed(() => this.store.getCommitMessage(this.repo().absolutePath));
 
+  /**
+   * LT-138: PrCreationService's Gate 1 (`resolvePrCreationOptIn`) — off by
+   * default, keyed by the repo's absolute path exactly as it is written
+   * here, so read and write always agree regardless of main-process path
+   * canonicalization.
+   */
+  protected readonly prCreationAllowed = computed(() =>
+    this.settingsStore.settings().allowPrCreation[this.repo().absolutePath] === true);
+
   isWriting(): boolean {
     return this.store.isWriting(this.repo().absolutePath);
   }
@@ -479,6 +541,12 @@ export class SourceControlRepoActionsComponent {
 
   protected onCancelOp(): void {
     void this.store.cancelLongRunningOp(this.repo().absolutePath);
+  }
+
+  protected onTogglePrCreation(event: Event): void {
+    const allowed = (event.target as HTMLInputElement).checked;
+    const next = { ...this.settingsStore.settings().allowPrCreation, [this.repo().absolutePath]: allowed };
+    void this.settingsStore.set('allowPrCreation', next);
   }
 
   protected onToggleSignoff(event: Event): void {

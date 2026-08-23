@@ -79,6 +79,7 @@ describe('registerLocalAiGuardHandlers', () => {
           recovered: false,
         }],
         pendingFallbacks: [h.pending],
+        fallbackNotifications: [h.notified],
       },
     });
     expect(h.runtime.health.listIncidents).toHaveBeenCalledWith({ limit: 100 });
@@ -850,6 +851,12 @@ function harness(options: {
     id: 'request-1', routingEventId: 'event-1', slot: 'compression' as const,
     status: 'pending' as const, estimatedInputTokens: 100, createdAt: 1, expiresAt: 10_000,
   };
+  const notified = {
+    id: 'event-2', slot: 'compression' as const, intendedRoute: 'local' as const,
+    actualRoute: 'frontier' as const, policy: 'notify-and-allow' as const,
+    disposition: 'allowed' as const, decisionReason: 'policy' as const,
+    inputTokens: 200, outputTokens: 40, estimatedCostUsd: 0.01, createdAt: 1,
+  };
   let revision = 0n;
   let changedDuringSnapshot = false;
   let remainingSnapshotDrifts = options.snapshotDriftCount ?? 0;
@@ -935,6 +942,7 @@ function harness(options: {
       listPending: vi.fn(() => [pending]),
       resolve: vi.fn(() => ({ ...pending, status: 'deferred', resolution: 'defer' })),
     },
+    fallbackNotifications: [notified],
     notifyChanged: vi.fn(() => {
       revision += 1n;
       emitListener?.();
@@ -960,7 +968,7 @@ function harness(options: {
       healthy: true,
     }]) as never));
   return {
-    runtime, target, status, incident, pending, ensureTrustedSender, sendToRenderer,
+    runtime, target, status, incident, pending, notified, ensureTrustedSender, sendToRenderer,
     discoverCandidates, unsubscribe,
     emit: () => runtime.notifyChanged(),
     register: () => {

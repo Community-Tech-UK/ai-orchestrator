@@ -186,6 +186,7 @@ import {
   canRegenerateLoopPlanOnStall,
   checkLoopHardCaps,
   cloneLoopStateForBroadcast,
+  emitNonGitReviewWorkspaceWarning,
   materializeLoopConfig,
   moveBlockedFileAside as moveBlockedFileAsideHelper,
   preflightBlockedSignal,
@@ -1158,6 +1159,7 @@ export class LoopCoordinator extends EventEmitter {
     } catch {
       // Ledger unreadable / absent — lint inactive, no effect.
     }
+    emitNonGitReviewWorkspaceWarning(config, repoBaseline.source, id, initialStage, (e, p) => this.emit(e, p));
 
     // Run the loop in the background. Errors propagate via 'loop:error'.
     void this.runLoop(state, stageMachine).catch((err) => {

@@ -169,6 +169,7 @@ function snapshot(targets: LocalAiTargetStatus[] = [status()]): LocalAiGuardSnap
     }],
     recoveryAttempts: [],
     pendingFallbacks: [],
+    fallbackNotifications: [],
   };
 }
 

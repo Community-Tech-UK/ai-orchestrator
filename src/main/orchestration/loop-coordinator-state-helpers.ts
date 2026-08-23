@@ -1,5 +1,6 @@
 import * as path from 'path';
 import { createHash } from 'crypto';
+import { getLogger } from '../logging/logger';
 import type {
   LoopConfig,
   LoopPreflightResult,
@@ -17,6 +18,8 @@ import {
 import { resolveLoopArtifactPaths } from './loop-artifact-paths';
 import { LOOP_TEXT_FILE_MAX_BYTES, readUtf8FileHead, readUtf8FileHeadSync } from './bounded-file-read';
 import { parseOutstandingSections } from './loop-stage-markdown';
+
+const logger = getLogger('LoopCoordinatorStateHelpers');
 
 function normalizeLoopCaps(
   base: LoopConfig['caps'],
@@ -398,4 +401,72 @@ export function preflightBlockedSignal(
     message: reason,
     detail: { preflight },
   };
+}
+
+/**
+ * Does this loop run a reviewer that is fed a git diff?
+ *
+ * The only two `collectWorkspaceDiff` consumers on the loop path are the
+ * ping-pong reviewer (`loop-pingpong-completion.ts`) and the fresh-eyes review
+ * gate (`loop-coordinator-completion-gates.ts`), and the fresh-eyes gate only
+ * runs when `crossModelReview.enabled` is set. `mode: 'review-driven'` on its
+ * own does NOT build a diff, so it deliberately does not qualify — warning on
+ * it would be a false positive that devalues the advisory.
+ */
+export function isReviewerBackedLoop(config: LoopConfig): boolean {
+  return config.completion.crossModelReview?.enabled === true
+    || config.completion.crossModelReview?.pingPong?.enabled === true;
+}
+
+/**
+ * Advisory text for a reviewer-backed loop whose workspace is not a git
+ * repository, or null when that does not apply.
+ *
+ * `collectWorkspaceDiff` returns an empty diff with `source: 'none'` outside a
+ * repository, so the reviewer is handed nothing — which reads as "no
+ * objections" unless it is told otherwise. Previously the only trace was an
+ * `info` log from `normalizeManagedIsolation`, so a loop pointed at a parent
+ * directory of the real repo got silently rubber-stamped reviews.
+ *
+ * Advisory only: a non-git workspace is legitimate, it just must not be
+ * invisible.
+ */
+export function nonGitReviewWorkspaceWarning(
+  config: LoopConfig,
+  baselineSource: 'git' | 'none',
+): string | null {
+  if (baselineSource !== 'none' || !isReviewerBackedLoop(config)) return null;
+  return 'Workspace is not a git repository — review rounds will receive no diff. '
+    + 'Point the loop at the repository itself if you want diff-based review.';
+}
+
+/**
+ * Log + emit the non-git review-workspace advisory, when it applies.
+ *
+ * Kept out of the coordinator so the whole advisory (predicate, wording, log,
+ * event) lives in one place and the coordinator keeps a single call.
+ */
+export function emitNonGitReviewWorkspaceWarning(
+  config: LoopConfig,
+  baselineSource: 'git' | 'none',
+  loopRunId: string,
+  stage: string,
+  emit: (eventName: string, payload: unknown) => void,
+): void {
+  const message = nonGitReviewWorkspaceWarning(config, baselineSource);
+  if (!message) return;
+  const workspaceCwd = config.executionCwd?.trim() || config.workspaceCwd;
+  logger.warn('Loop start: workspace is not a git repository — reviewers will receive no diff', {
+    loopRunId,
+    workspaceCwd,
+  });
+  emit('loop:activity', {
+    loopRunId,
+    seq: 0,
+    stage,
+    timestamp: Date.now(),
+    kind: 'status',
+    message,
+    detail: { workspaceCwd },
+  });
 }

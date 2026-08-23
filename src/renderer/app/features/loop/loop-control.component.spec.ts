@@ -257,6 +257,38 @@ describe('LoopControlComponent', () => {
     expect(text).not.toContain('/tmp/project/.aio-loop-state/loop-1/AUDIT.md');
   });
 
+  // Regression: a verify command that blew its wall-clock budget rendered as
+  // "Preflight failed", indistinguishable from red tests. The operator fix is
+  // the opposite one (shorten the command, not fix the code).
+  it('labels a preflight that timed out distinctly from one whose command failed', () => {
+    const state = activeState();
+    state.config.audit = {
+      finalAuditMode: 'off',
+      preflightMode: 'record',
+      planPacketMode: 'prompted',
+      cleanlinessScan: true,
+    };
+    state.preflight = {
+      status: 'failed',
+      ranAt: 1778310001000,
+      commands: [{
+        label: 'verify',
+        command: 'npm run verify',
+        status: 'failed',
+        durationMs: 599_998,
+        outputExcerpt: '(verify timed out after 600000ms)',
+        failureKind: 'timeout',
+      }],
+    };
+
+    listeners.stateChanged.forEach((cb) => cb({ loopRunId: 'loop-1', state }));
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Preflight timed out');
+    expect(text).not.toContain('Preflight failed');
+  });
+
   it('routes visible no-progress banner controls to the loop id', async () => {
     listeners.stateChanged.forEach((cb) => cb({
       loopRunId: 'loop-1',

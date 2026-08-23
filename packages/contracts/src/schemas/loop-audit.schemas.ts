@@ -61,6 +61,7 @@ export const LoopPreflightResultSchema = z.object({
     status: z.enum(['passed', 'failed', 'skipped']),
     durationMs: z.number().int().nonnegative(),
     outputExcerpt: z.string(),
+    failureKind: z.enum(['command', 'timeout', 'infra']).optional(),
   })),
 });
 

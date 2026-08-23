@@ -66,6 +66,13 @@ export class LocalAiGuardStore {
     signal<LocalAiEffectivenessSummary['window']>('24h');
   private readonly _effectivenessLoading = signal(false);
   private readonly _effectivenessError = signal<string | null>(null);
+  /**
+   * LT-189 — locally dismissed `notify-and-allow` fallback-notification ids.
+   * Dismissal is a session-scoped UI affordance, not a durable decision —
+   * the effectiveness dashboard remains the durable record — so this never
+   * round-trips to the main process.
+   */
+  private readonly _dismissedFallbackNotificationIds = signal(new Set<string>());
   private readonly invalidatedTargetIds = new Set<string>();
 
   private unsubscribe: (() => void) | null = null;
@@ -110,6 +117,17 @@ export class LocalAiGuardStore {
     (this._snapshot()?.incidents ?? []).filter((incident) => incident.state !== 'resolved'));
   readonly pendingFallbacks = computed(() =>
     (this._snapshot()?.pendingFallbacks ?? []).filter((request) => request.status === 'pending'));
+  /**
+   * LT-189 — undismissed `notify-and-allow` fallback events, most-recent
+   * first (the main process already orders them that way). Distinct from
+   * `pendingFallbacks`: these already resolved, so there's nothing to
+   * decide — only to notice.
+   */
+  readonly fallbackNotifications = computed(() => {
+    const dismissed = this._dismissedFallbackNotificationIds();
+    return (this._snapshot()?.fallbackNotifications ?? [])
+      .filter((event) => !dismissed.has(event.id));
+  });
   readonly recoveryAttempts = computed(() => this._snapshot()?.recoveryAttempts ?? []);
   readonly effectiveness = this._effectiveness.asReadonly();
   readonly effectivenessWindow = this._effectivenessWindow.asReadonly();
@@ -144,6 +162,19 @@ export class LocalAiGuardStore {
     });
     this.refreshInFlight = refresh;
     return this.refreshInFlight;
+  }
+
+  /**
+   * LT-189 — dismiss a `notify-and-allow` banner row. Local-only: there is
+   * no decision to record, so this never calls the main process.
+   */
+  dismissFallbackNotification(eventId: string): void {
+    this._dismissedFallbackNotificationIds.update((current) => {
+      if (current.has(eventId)) return current;
+      const next = new Set(current);
+      next.add(eventId);
+      return next;
+    });
   }
 
   resolveFallback(

@@ -395,6 +395,13 @@ export interface LocalAiGuardSnapshot {
   /** Durable, bounded recovery history projected without raw messages or errors. */
   recoveryAttempts: LocalAiPublicRecoveryAttempt[];
   pendingFallbacks: LocalAiFallbackRequest[];
+  /**
+   * LT-189 — bounded, most-recent-first `notify-and-allow` fallback events
+   * for a passive/dismissible renderer banner. These already resolved (no
+   * decision pending); the effectiveness dashboard remains the durable
+   * record.
+   */
+  fallbackNotifications: LocalAiRoutingEvent[];
 }
 
 export interface LocalAiPublicRecoveryAttempt {

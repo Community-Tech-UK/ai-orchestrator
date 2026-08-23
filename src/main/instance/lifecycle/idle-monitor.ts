@@ -162,8 +162,9 @@ export class IdleMonitor {
   start(intervalMs: number = DEFAULT_INTERVAL_MS): void {
     if (this.timer !== null) return;
     this.timer = setInterval(() => {
-      // Defensive try/catch: vitest runs with `singleFork: true`, so this
-      // interval can fire across test-file boundaries. If a downstream test
+      // Defensive try/catch: an un-stopped interval can fire after the test
+      // that started it, and (before the pool moved to per-file forks) even
+      // across test-file boundaries. If a downstream test
       // file has mocked (and subsequently reset) dependencies like
       // ErrorRecoveryManager, getRecoveryEngine() throws synchronously.
       // Swallowing the error here prevents an uncaught exception from

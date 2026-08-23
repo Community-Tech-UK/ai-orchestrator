@@ -42,6 +42,8 @@ const SNAPSHOT_INCIDENT_LIMIT = 100;
 const SNAPSHOT_TARGET_LIMIT = 1_000;
 const SNAPSHOT_FALLBACK_LIMIT = 1_000;
 const SNAPSHOT_RECOVERY_ATTEMPT_LIMIT = 1_000;
+/** LT-189 — matches `LocalAiGuardRuntime.FALLBACK_NOTIFICATION_LIMIT`/the schema's `.max(50)`. */
+const SNAPSHOT_FALLBACK_NOTIFICATION_LIMIT = 50;
 const SNAPSHOT_BUILD_MAX_ATTEMPTS = 3;
 
 type EnsureTrustedSender = (
@@ -321,6 +323,8 @@ function buildSnapshot(runtime: LocalAiGuardRuntime, now: number): LocalAiGuardS
         runtime.health.listRecoveryAttempts(target.id).slice(-10))
         .slice(-SNAPSHOT_RECOVERY_ATTEMPT_LIMIT),
       pendingFallbacks: runtime.approvals.listPending().slice(0, SNAPSHOT_FALLBACK_LIMIT),
+      fallbackNotifications: runtime.fallbackNotifications
+        .slice(0, SNAPSHOT_FALLBACK_NOTIFICATION_LIMIT),
     };
     if (revision === runtime.revision) {
       return LocalAiGuardSnapshotSchema.parse(snapshot);

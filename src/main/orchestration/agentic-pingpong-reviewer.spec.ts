@@ -329,6 +329,60 @@ describe('agenticPingPongReviewer', () => {
     expect(prompt.match(/<\/diff>/g)).toHaveLength(1);
   });
 
+  // Regression: `diffSource` was plumbed to this reviewer and never read, so an
+  // impl review in a non-git workspace silently got an empty diff while still
+  // being told "the git diff below is your STARTING POINT" — a rubber stamp.
+  it('tells the reviewer when no diff is available and forbids reading that as correctness', async () => {
+    mockApprovedReviewSession();
+    await agenticPingPongReviewer({
+      loopRunId: 'loop-1',
+      workspaceCwd: '/repo',
+      goal: 'finish the widget',
+      subject: 'impl',
+      builderProvider: 'claude',
+      reviewerProviderSetting: 'codex',
+      triedReviewerProviders: [],
+      ledger: [],
+      roundNumber: 1,
+      maxRounds: 15,
+      diff: '',
+      diffSource: 'none',
+      blockingSeverities: ['critical', 'high'],
+      timeoutMs: 90_000,
+    });
+
+    const prompt = runReviewSession.mock.calls[0][0].prompt as string;
+    expect(prompt).toContain('No diff is available');
+    expect(prompt).toContain('NOT a git repository');
+    expect(prompt).toContain('Do NOT treat that absence as evidence');
+    // The impl-mode instructions must not point at a diff that is not there.
+    expect(prompt).not.toContain('The git diff below is your STARTING POINT');
+  });
+
+  it('distinguishes an empty git diff from a non-git workspace', async () => {
+    mockApprovedReviewSession();
+    await agenticPingPongReviewer({
+      loopRunId: 'loop-1',
+      workspaceCwd: '/repo',
+      goal: 'finish the widget',
+      subject: 'impl',
+      builderProvider: 'claude',
+      reviewerProviderSetting: 'codex',
+      triedReviewerProviders: [],
+      ledger: [],
+      roundNumber: 1,
+      maxRounds: 15,
+      diff: '',
+      diffSource: 'git',
+      blockingSeverities: ['critical', 'high'],
+      timeoutMs: 90_000,
+    });
+
+    const prompt = runReviewSession.mock.calls[0][0].prompt as string;
+    expect(prompt).toContain('Git produced an empty diff against HEAD');
+    expect(prompt).not.toContain('NOT a git repository');
+  });
+
   it('classifies a Copilot monthly-quota notice as rate-limited without format repair', async () => {
     runReviewSession.mockResolvedValueOnce({
       outcome: 'settled',

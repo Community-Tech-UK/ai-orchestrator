@@ -91,5 +91,6 @@ function snapshot(): LocalAiGuardSnapshot {
     incidents: [],
     recoveryAttempts: [],
     pendingFallbacks: [],
+    fallbackNotifications: [],
   };
 }

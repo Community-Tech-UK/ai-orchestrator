@@ -12,6 +12,7 @@ import {
   cloneLoopStateForBroadcast,
   firstExistingBlockedFile,
   materializeLoopConfig,
+  nonGitReviewWorkspaceWarning,
   reconcileRestoredLoopState,
 } from './loop-coordinator-state-helpers';
 
@@ -263,5 +264,51 @@ describe('reconcileRestoredLoopState', () => {
 
   it('returns no notes for an already-clean paused state', () => {
     expect(reconcileRestoredLoopState(makeRestoredState())).toEqual([]);
+  });
+});
+
+describe('nonGitReviewWorkspaceWarning', () => {
+  // Regression: `collectWorkspaceDiff` yields an empty diff with source 'none'
+  // outside a git repo, so a reviewer-backed loop pointed at a parent directory
+  // of the real repo got silently rubber-stamped reviews. The only trace was an
+  // `info` log from `normalizeManagedIsolation`.
+  function withCrossModelReview(overrides: Record<string, unknown> = {}) {
+    const config = defaultLoopConfig('/tmp/not-a-repo', 'do work');
+    config.completion.mode = 'review-driven';
+    config.completion.crossModelReview = {
+      enabled: true,
+      blockingSeverities: ['critical', 'high'],
+      timeoutSeconds: 90,
+      reviewDepth: 'structured',
+      ...overrides,
+    } as typeof config.completion.crossModelReview;
+    return config;
+  }
+
+  it('warns when a cross-model reviewer will be fed a diff git cannot produce', () => {
+    expect(nonGitReviewWorkspaceWarning(withCrossModelReview(), 'none'))
+      .toContain('not a git repository');
+  });
+
+  it('warns for ping-pong even when cross-model review itself is off', () => {
+    const config = withCrossModelReview({
+      enabled: false,
+      pingPong: { enabled: true, reviewerProvider: 'auto', subject: 'impl', maxRounds: 15 },
+    });
+    expect(nonGitReviewWorkspaceWarning(config, 'none')).not.toBeNull();
+  });
+
+  it('stays silent when the workspace is a git repo', () => {
+    expect(nonGitReviewWorkspaceWarning(withCrossModelReview(), 'git')).toBeNull();
+  });
+
+  // `mode: 'review-driven'` alone never builds a diff — the fresh-eyes gate that
+  // does is itself gated on `crossModelReview.enabled`. Warning here would be a
+  // false positive.
+  it('stays silent for a review-driven loop that runs no diff-backed reviewer', () => {
+    const config = defaultLoopConfig('/tmp/not-a-repo', 'do work');
+    config.completion.mode = 'review-driven';
+    config.completion.crossModelReview = undefined;
+    expect(nonGitReviewWorkspaceWarning(config, 'none')).toBeNull();
   });
 });

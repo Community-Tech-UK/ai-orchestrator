@@ -171,6 +171,9 @@ import { ChannelIpcService } from '../../../../core/services/ipc/channel-ipc.ser
     </div>
   `,
   styles: [`
+    /* The Control Center content cell is overflow:hidden, so this page must own
+       its scrolling or everything past the fold is unreachable. */
+    :host { display: block; height: 100%; min-height: 0; overflow-y: auto; }
     .channels-page { padding: 1.5rem; max-width: 800px; }
     .page-header { margin-bottom: 1.5rem; }
     .page-header h2 { margin: 0 0 0.25rem; font-size: 1.5rem; }

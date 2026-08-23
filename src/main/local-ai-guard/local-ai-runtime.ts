@@ -1,3 +1,4 @@
+import type { LocalAiRoutingEvent } from '../../shared/types/local-ai-guard.types';
 import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
 import { computeProviderTokenCost } from '../../shared/data/model-pricing';
 import { getSettingsManager } from '../core/config/settings-manager';
@@ -61,6 +62,13 @@ export class LocalAiGuardRuntime {
   private disposed = false;
   private readonly listeners = new Set<() => void>();
   private statusRevision = 0n;
+  /**
+   * LT-189 — bounded, most-recent-first `notify-and-allow` events for the
+   * renderer's passive banner. Live discovery only; the durable record is
+   * the effectiveness dashboard, not this list.
+   */
+  private readonly _fallbackNotifications: LocalAiRoutingEvent[] = [];
+  private static readonly FALLBACK_NOTIFICATION_LIMIT = 50;
 
   constructor(
     services: LocalAiGuardRuntimeServices,
@@ -90,6 +98,27 @@ export class LocalAiGuardRuntime {
 
   get revision(): string {
     return this.statusRevision.toString();
+  }
+
+  /** Most-recent-first, bounded. See `_fallbackNotifications` for scope. */
+  get fallbackNotifications(): LocalAiRoutingEvent[] {
+    return this._fallbackNotifications;
+  }
+
+  /**
+   * LT-189 — records a `notify-and-allow` fallback event for the passive
+   * renderer banner and pulses a revision change so it reaches the
+   * renderer on the next status delta, the same path every other guard
+   * mutation already uses.
+   */
+  recordFallbackNotification(event: LocalAiRoutingEvent): void {
+    if (this.disposed) return;
+    this._fallbackNotifications.unshift(event);
+    this._fallbackNotifications.length = Math.min(
+      this._fallbackNotifications.length,
+      LocalAiGuardRuntime.FALLBACK_NOTIFICATION_LIMIT,
+    );
+    this.notifyChanged();
   }
 
   subscribe(listener: () => void): () => void {
@@ -137,6 +166,24 @@ export class LocalAiGuardRuntime {
     runCleanupStep(() => this.approvals.dispose());
     runCleanupStep(() => this.incidents.dispose());
   }
+}
+
+/**
+ * LT-189 — builds the `notifyFallback` dependency `LocalAiRoutingGuard` calls
+ * on every `notify-and-allow` fallback. Previously the only production
+ * construction site (below) never supplied this callback at all, so the
+ * guard's own `notify()` call was always a silent no-op. Isolated as a pure
+ * function, taking a getter rather than the runtime directly, so it can be
+ * unit-tested without the singleton-heavy default construction path this
+ * runs inside (real settings manager, notification service, worker
+ * registry, and DB-backed repositories) — and so it tolerates being called
+ * before `runtime` is assigned, the same deferred-closure pattern the
+ * `targetChanged`/`workerStatusChanged` listeners further down already use.
+ */
+export function notifyFallbackInto(
+  getRuntime: () => LocalAiGuardRuntime | undefined,
+): (event: LocalAiRoutingEvent) => void {
+  return (event) => getRuntime()?.recordFallbackNotification(event);
 }
 
 let runtimeInstance: LocalAiGuardRuntime | undefined;
@@ -232,6 +279,7 @@ export function initializeLocalAiGuardRuntime(
           const model = settings.defaultModelByProvider[provider] ?? settings.defaultModel;
           return provider !== 'auto' && model ? { provider, model } : undefined;
         },
+        notifyFallback: notifyFallbackInto(() => runtime),
       });
       services = {
         targets,

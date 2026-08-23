@@ -109,6 +109,7 @@ export async function runLoopPreflight(
       status: quick.status,
       durationMs: quick.durationMs,
       outputExcerpt: excerpt(quick.output, 4096),
+      ...(quick.status === 'failed' ? { failureKind: quick.failureKind } : {}),
     });
     if (quick.status === 'failed') return { status: 'failed', ranAt, commands };
   }
@@ -122,6 +123,7 @@ export async function runLoopPreflight(
       status: verify.status,
       durationMs: verify.durationMs,
       outputExcerpt: excerpt(verify.output, 4096),
+      ...(verify.status === 'failed' ? { failureKind: verify.failureKind } : {}),
     });
   }
   const status = commands.some((command) => command.status === 'failed')

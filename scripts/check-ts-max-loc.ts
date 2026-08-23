@@ -307,6 +307,14 @@ const ALLOWLIST: Record<string, number> = {
   // buildPrompt/buildReviewDrivenPrompt; recipe stage-work now resolves via
   // loop-recipes.ts). Re-tighten after the prompt-builder extraction.
   'src/main/orchestration/loop-stage-machine.ts': 714,
+  // Sat at exactly 700 — the hard limit — so any correctness fix touching it
+  // trips this gate. The +3 is the ledger-complete route into the ping-pong
+  // builder-done gate, without which a loop whose task ledger was fully
+  // resolved could never open a review round and therefore never terminate
+  // (ping-pong owns the only terminal path when enabled). The resolution logic
+  // and its activity emit were extracted to loop-pingpong-builder-done.ts to
+  // keep the addition to 3 lines; the residue is one import and the call.
+  'src/main/orchestration/loop-pingpong-completion.ts': 703,
   'src/main/orchestration/multi-verify-coordinator.ts': 1177,
   // Raised 1458 -> 1500 (2026-07-17 small-fix batch on the handler).
   'src/main/orchestration/orchestration-handler.ts': 1500,

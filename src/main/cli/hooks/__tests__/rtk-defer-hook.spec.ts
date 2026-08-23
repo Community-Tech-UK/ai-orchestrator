@@ -41,6 +41,13 @@ function makeStubRtk(
   lines.push(`exit ${spec.exit}`);
   writeFileSync(stubPath, lines.join('\n') + '\n', 'utf-8');
   chmodSync(stubPath, 0o755);
+  // Pay the first-exec cost here rather than inside the hook's `rtk rewrite`
+  // call. The first execution of a file the kernel has not seen before costs a
+  // ~290ms median and a >1s tail on macOS (Gatekeeper / code-signing
+  // evaluation) against ~3ms once warm; the hook gives that call 2s and
+  // degrades to "no rewrite" when it expires, so on a busy host these tests
+  // were measuring exec cold-start rather than hook behaviour.
+  spawnSync(stubPath, ['--version'], { encoding: 'utf8' });
   return stubPath;
 }
 

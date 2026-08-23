@@ -45,6 +45,65 @@ describe('runLoopPreflight', () => {
     })]);
   });
 
+  // Regression: the result type collapsed every failure to `status: 'failed'`,
+  // so a verify command that could not finish inside `verifyTimeoutMs` was
+  // reported identically to one whose tests were red. Those need opposite fixes.
+  it('carries the timeout failure kind through so a blown time budget is not reported as a red build', async () => {
+    const state = makeLoopState({
+      id: 'loop-preflight-timeout',
+      config: {
+        ...defaultLoopConfig('/workspace', 'verify before work'),
+        completion: {
+          ...defaultLoopConfig('/workspace', 'verify before work').completion,
+          verifyCommand: 'npm run verify',
+        },
+      },
+    });
+
+    const result = await runLoopPreflight(state, {
+      runQuickVerify: async () => ({ status: 'skipped', output: '', durationMs: 0 }),
+      runVerify: async () => ({
+        status: 'failed',
+        output: '(verify timed out after 600000ms)',
+        durationMs: 599_998,
+        exitCode: null,
+        failureKind: 'timeout',
+      }),
+    });
+
+    expect(result.status).toBe('failed');
+    expect(result.commands).toEqual([expect.objectContaining({
+      label: 'verify',
+      failureKind: 'timeout',
+    })]);
+  });
+
+  it('records a non-zero exit as a command failure, not a timeout', async () => {
+    const state = makeLoopState({
+      id: 'loop-preflight-command-failure',
+      config: {
+        ...defaultLoopConfig('/workspace', 'verify before work'),
+        completion: {
+          ...defaultLoopConfig('/workspace', 'verify before work').completion,
+          verifyCommand: 'npm test',
+        },
+      },
+    });
+
+    const result = await runLoopPreflight(state, {
+      runQuickVerify: async () => ({ status: 'skipped', output: '', durationMs: 0 }),
+      runVerify: async () => ({
+        status: 'failed',
+        output: '3 tests failed',
+        durationMs: 4_000,
+        exitCode: 1,
+        failureKind: 'command',
+      }),
+    });
+
+    expect(result.commands[0]?.failureKind).toBe('command');
+  });
+
   it('does not turn a passing preflight red when ledger reporting fails', async () => {
     const state = makeLoopState({
       config: {

@@ -3,9 +3,28 @@
  *
  * Replaces the retired Google Gemini CLI adapter. Antigravity runs one process
  * per message in non-interactive print mode (`agy --print <prompt>`) and emits
- * PLAIN TEXT on stdout (it has no `--output-format stream-json` mode), so this
- * adapter parses raw text rather than JSON event streams. It exposes the same
- * spawn/sendInput surface the InstanceManager expects.
+ * PLAIN TEXT on stdout, so this adapter parses raw text rather than JSON event
+ * streams. It exposes the same spawn/sendInput surface the InstanceManager
+ * expects.
+ *
+ * CORRECTION (LT-220, 2026-08-20): this comment previously claimed `agy` "has
+ * no `--output-format stream-json` mode". That is false — `agy --help` lists
+ * `text, json, stream-json`, confirmed live against the installed binary. The
+ * plain-text parsing below is therefore a *choice*, not a constraint.
+ *
+ * The consequence is not cosmetic. Because this adapter never emits
+ * `type: 'tool_result'` OutputMessages (nor raw `captureToolResult` adapter
+ * events), context-evidence capture is **always empty for Antigravity, in every
+ * mode** — the capture pipeline is never entered at all, with no error to
+ * signal it. Contrast `gemini-cli-adapter.ts`, which does emit real
+ * `tool_result` events and is captured normally: the two share a capability
+ * *label*, not the underlying instrumentation.
+ *
+ * This gap is KNOWN AND ACCEPTED, not an oversight — rewriting the output
+ * pipeline to `--output-format stream-json` is substantial work with real
+ * regression risk on a secondary provider, for capture nothing currently
+ * depends on. Revisit if Antigravity becomes a primary provider or evidence
+ * capture becomes load-bearing for it.
  *
  * agy reports no token usage or dollar cost, so usage is estimated from the
  * response length and priced via the shared pricing table.

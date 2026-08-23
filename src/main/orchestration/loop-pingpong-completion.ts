@@ -19,6 +19,7 @@ import { redactForEgress } from '../security/content-egress-gate';
 import { isReviewDrivenProductionChange } from './loop-coordinator-completion-gates';
 import { resolvePingPongSubject } from './pingpong-intent-classifier';
 import type { LoopCleanReviewClassifier } from './loop-clean-review-classifier';
+import { emitBuilderDoneSignalActivity, resolvePingPongBuilderDone } from './loop-pingpong-builder-done';
 import {
   agenticPingPongReviewer,
   type PingPongLedgerClassification,
@@ -260,7 +261,7 @@ export async function evaluatePingPongCompletion(
   }
 
   // 1) Has the builder declared done this iteration? (one side of mutual convergence)
-  const builderVerdict = await classifyCleanReview({
+  const builderVerdict = await resolvePingPongBuilderDone(iteration.completionSignalsFired, classifyCleanReview, {
     goal: state.config.initialPrompt,
     workspaceCwd: state.config.workspaceCwd,
     iterationOutput: fullOutput ?? '',
@@ -332,6 +333,8 @@ export async function evaluatePingPongCompletion(
   const reviewer = deps.reviewer ?? agenticPingPongReviewer;
   const localAdvisoryReviewer = deps.localAdvisoryReviewer ?? runLocalOnlyFreshEyesReview;
   const timeoutMs = Math.max(60_000, (reviewCfg.timeoutSeconds || 0) * 1000 || DEFAULT_REVIEWER_TIMEOUT_MS);
+
+  emitBuilderDoneSignalActivity(emit, { loopRunId: state.id, seq, stage, verdict: builderVerdict });
 
   emit('loop:fresh-eyes-review-started', {
     loopRunId: state.id,

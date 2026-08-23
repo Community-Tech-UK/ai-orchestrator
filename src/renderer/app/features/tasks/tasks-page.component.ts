@@ -322,9 +322,14 @@ interface RepoInfo {
     </div>
   `,
   styles: [`
+    /* The Control Center content cell is overflow:hidden, so this page must own
+       its scrolling. With min-height:100% and no scroller it simply grew past
+       the cell and everything below the fold was unreachable. */
     :host {
       display: block;
-      min-height: 100%;
+      height: 100%;
+      min-height: 0;
+      overflow-y: auto;
       background: linear-gradient(180deg, #07111c 0%, #091521 100%);
       color: #e5eef6;
     }

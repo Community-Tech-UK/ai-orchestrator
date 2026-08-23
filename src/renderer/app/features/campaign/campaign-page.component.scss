@@ -1,3 +1,6 @@
+/* The Control Center content cell is overflow:hidden, so this page must own its
+   scrolling or everything past the fold is unreachable. */
+:host { display: block; height: 100%; min-height: 0; overflow-y: auto; }
 .campaign-page { padding: 20px; max-width: 1200px; color: var(--text-primary, #eef2e8); }
 .cp-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
 .cp-title-block { display: flex; align-items: center; gap: 10px; min-width: 0; }

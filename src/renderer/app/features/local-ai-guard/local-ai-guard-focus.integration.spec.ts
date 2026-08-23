@@ -238,6 +238,7 @@ function snapshot(
     incidents,
     recoveryAttempts: [],
     pendingFallbacks: [],
+    fallbackNotifications: [],
   };
 }
 

@@ -73,6 +73,20 @@ function message(
 describe('HistoryManager', () => {
   let userDataDir = '';
 
+  const pendingStartups: Promise<void>[] = [];
+
+  /**
+   * `new HistoryManager()` starts `startupTasks` (backfill -> orphan recovery)
+   * and returns before they finish. Deleting the temp dir underneath a still
+   * running task makes it write into a removed directory: ENOENT on write,
+   * ENOTEMPTY on rmSync, and a failure in whichever test the scheduler happened
+   * to interleave with. Track every manager so teardown can wait for it.
+   */
+  function track<T extends { startupTasks: Promise<void> }>(manager: T): T {
+    pendingStartups.push(manager.startupTasks);
+    return manager;
+  }
+
   beforeEach(() => {
     vi.resetModules();
     userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'history-manager-'));
@@ -89,7 +103,8 @@ describe('HistoryManager', () => {
     }));
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await Promise.allSettled(pendingStartups.splice(0));
     vi.doUnmock('electron');
     vi.resetModules();
     if (userDataDir) {
@@ -145,7 +160,7 @@ describe('HistoryManager', () => {
     );
 
     const { HistoryManager } = await import('./history-manager');
-    const manager = new HistoryManager();
+    const manager = track(new HistoryManager());
 
     await manager.clearAll();
 
@@ -211,7 +226,7 @@ describe('HistoryManager', () => {
     );
 
     const { HistoryManager } = await import('./history-manager');
-    const manager = new HistoryManager();
+    const manager = track(new HistoryManager());
     await manager.startupTasks;
 
     const supersededSource = makeInstance({
@@ -283,7 +298,7 @@ describe('HistoryManager', () => {
     );
 
     const { HistoryManager } = await import('./history-manager');
-    const manager = new HistoryManager();
+    const manager = track(new HistoryManager());
 
     await expect(manager.archiveEntry(entry.id)).resolves.toBe(true);
 
@@ -297,7 +312,7 @@ describe('HistoryManager', () => {
 
   it('carries automation provenance from instance metadata into the archived entry', async () => {
     const { HistoryManager } = await import('./history-manager');
-    const manager = new HistoryManager();
+    const manager = track(new HistoryManager());
 
     const automationInstance = makeInstance({
       id: 'instance-auto',
@@ -327,7 +342,7 @@ describe('HistoryManager', () => {
 
   it('carries hidden-automation visibility into the archived entry', async () => {
     const { HistoryManager } = await import('./history-manager');
-    const manager = new HistoryManager();
+    const manager = track(new HistoryManager());
 
     const hiddenInstance = makeInstance({
       id: 'instance-hidden',
@@ -362,7 +377,7 @@ describe('HistoryManager', () => {
     // ConversationEndStatus, so the archived entry cannot infer the outcome
     // itself. Anything short of a recorded success must stay visible.
     const { HistoryManager } = await import('./history-manager');
-    const manager = new HistoryManager();
+    const manager = track(new HistoryManager());
 
     const failedInstance = makeInstance({
       id: 'instance-hidden-failed',
@@ -389,7 +404,7 @@ describe('HistoryManager', () => {
     // exist yet. Recording success (rather than failure) is what makes this
     // unknown state resolve to "visible".
     const { HistoryManager } = await import('./history-manager');
-    const manager = new HistoryManager();
+    const manager = track(new HistoryManager());
 
     const inFlight = makeInstance({
       id: 'instance-hidden-inflight',
@@ -416,7 +431,7 @@ describe('HistoryManager', () => {
     // deliberately reopened — and that may since have failed in front of them —
     // would silently drop out of the rail again.
     const { HistoryManager } = await import('./history-manager');
-    const manager = new HistoryManager();
+    const manager = track(new HistoryManager());
 
     const original = makeInstance({
       id: 'instance-hidden-restore',
@@ -449,7 +464,7 @@ describe('HistoryManager', () => {
 
   it('persists local-model runtime summaries in history entries and conversation data', async () => {
     const { HistoryManager } = await import('./history-manager');
-    const manager = new HistoryManager();
+    const manager = track(new HistoryManager());
 
     const runtimeSummary = {
       kind: 'local-model' as const,
@@ -483,7 +498,7 @@ describe('HistoryManager', () => {
 
   it('carries project rail hide provenance from internal worker metadata into the archived entry', async () => {
     const { HistoryManager } = await import('./history-manager');
-    const manager = new HistoryManager();
+    const manager = track(new HistoryManager());
 
     const workerInstance = makeInstance({
       id: 'instance-worker',
@@ -549,7 +564,7 @@ describe('HistoryManager', () => {
     );
 
     const { HistoryManager } = await import('./history-manager');
-    const manager = new HistoryManager();
+    const manager = track(new HistoryManager());
 
     const entries = manager.getEntries();
     expect(entries.find((e) => e.id === 'entry-legacy-auto')?.isAutomation).toBe(true);
@@ -558,7 +573,7 @@ describe('HistoryManager', () => {
 
   it('upserts history by stable thread identity when a restored session falls back to a new CLI session', async () => {
     const { HistoryManager } = await import('./history-manager');
-    const manager = new HistoryManager();
+    const manager = track(new HistoryManager());
 
     const firstInstance: Instance = {
       id: 'instance-original',
@@ -661,7 +676,7 @@ describe('HistoryManager', () => {
 
   it('preserves the failed native session id when archiving an unresolved replay fallback', async () => {
     const { HistoryManager } = await import('./history-manager');
-    const manager = new HistoryManager();
+    const manager = track(new HistoryManager());
 
     const originalMessages = [
       message('message-user-1', 'user', 'Continue the refactor plan', 101),
@@ -715,7 +730,7 @@ describe('HistoryManager', () => {
 
   it('uses the fresh session id once replay fallback receives new assistant output', async () => {
     const { HistoryManager } = await import('./history-manager');
-    const manager = new HistoryManager();
+    const manager = track(new HistoryManager());
 
     const originalMessages = [
       message('message-user-1', 'user', 'Continue the refactor plan', 101),
@@ -769,7 +784,7 @@ describe('HistoryManager', () => {
 
   it('marks archived sessions as non-resumable when resume failures were never followed by assistant output', async () => {
     const { HistoryManager } = await import('./history-manager');
-    const manager = new HistoryManager();
+    const manager = track(new HistoryManager());
 
     const instance: Instance = {
       id: 'instance-resume-failed',
@@ -849,7 +864,7 @@ describe('HistoryManager', () => {
 
   it('keeps archived sessions resumable after assistant output lands post-recovery', async () => {
     const { HistoryManager } = await import('./history-manager');
-    const manager = new HistoryManager();
+    const manager = track(new HistoryManager());
 
     const instance: Instance = {
       id: 'instance-resume-recovered',
@@ -976,7 +991,7 @@ describe('HistoryManager', () => {
     }
 
     const { HistoryManager } = await import('./history-manager');
-    const manager = new HistoryManager();
+    const manager = track(new HistoryManager());
     await manager.startupTasks;
 
     const entries = manager.getEntries();
@@ -985,7 +1000,7 @@ describe('HistoryManager', () => {
     expect(entries.every((entry) => entry.historyThreadId !== 'session-central-auth')).toBe(true);
 
     const persistedIds = new Map(entries.map((entry) => [entry.id, entry.historyThreadId]));
-    const reloaded = new HistoryManager();
+    const reloaded = track(new HistoryManager());
     await reloaded.startupTasks;
     expect(new Map(reloaded.getEntries().map((entry) => [entry.id, entry.historyThreadId])))
       .toEqual(persistedIds);
@@ -1025,7 +1040,7 @@ describe('HistoryManager', () => {
     }
 
     const { HistoryManager } = await import('./history-manager');
-    const manager = new HistoryManager();
+    const manager = track(new HistoryManager());
     await manager.startupTasks;
     const byId = new Map(manager.getEntries().map((entry) => [entry.id, entry]));
 
@@ -1033,7 +1048,7 @@ describe('HistoryManager', () => {
     expect(byId.get(independent.id)?.historyThreadId).toBe(independent.historyThreadId);
 
     const stableAlias = byId.get(aliased.id)?.historyThreadId;
-    const reloaded = new HistoryManager();
+    const reloaded = track(new HistoryManager());
     await reloaded.startupTasks;
     expect(reloaded.getEntries().find((entry) => entry.id === aliased.id)?.historyThreadId)
       .toBe(stableAlias);
@@ -1058,14 +1073,14 @@ describe('HistoryManager', () => {
     );
 
     const { HistoryManager } = await import('./history-manager');
-    const manager = new HistoryManager();
+    const manager = track(new HistoryManager());
     await manager.startupTasks;
     const recovered = manager.getEntries()[0];
 
     expect(recovered.historyThreadId).not.toBe(orphan.sessionId);
     expect((await manager.loadConversation(orphan.id))?.entry.historyThreadId)
       .toBe(recovered.historyThreadId);
-    const reloaded = new HistoryManager();
+    const reloaded = track(new HistoryManager());
     await reloaded.startupTasks;
     expect(reloaded.getEntries()[0]?.historyThreadId).toBe(recovered.historyThreadId);
   });
@@ -1102,7 +1117,7 @@ describe('HistoryManager', () => {
     );
 
     const { HistoryManager } = await import('./history-manager');
-    const manager = new HistoryManager();
+    const manager = track(new HistoryManager());
 
     expect(await manager.setEntryAiTitle('entry-ai', '  UnstablePvP coin audit  ')).toBe(true);
     expect(manager.getEntries()[0]?.aiTitle).toBe('UnstablePvP coin audit');
@@ -1141,7 +1156,7 @@ describe('HistoryManager', () => {
     );
 
     const { HistoryManager } = await import('./history-manager');
-    const manager = new HistoryManager();
+    const manager = track(new HistoryManager());
 
     const seen: string[] = [];
     const generate = vi.fn(async (text: string) => {

@@ -281,9 +281,12 @@
 
 /* ── 2-column body ────────────────────────── */
 
+/* min-height is a floor, not 0: on a short window this region collapsed to zero
+   height, leaving the server list unusable while `.page` reported itself fully
+   scrolled. The floor makes `.page` scroll instead. */
 .body-grid {
   flex: 1;
-  min-height: 0;
+  min-height: 320px;
   display: grid;
   grid-template-columns: 280px 1fr;
   gap: var(--spacing-md);

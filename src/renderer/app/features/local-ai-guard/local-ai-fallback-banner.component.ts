@@ -13,6 +13,7 @@ import type { AuxiliaryLlmSlot } from '../../../../shared/types/auxiliary-llm.ty
 import type {
   LocalAiFallbackRequest,
   LocalAiFallbackResolution,
+  LocalAiRoutingEvent,
 } from '../../../../shared/types/local-ai-guard.types';
 import {
   LOCAL_AI_RESOLUTION_ERROR,
@@ -103,6 +104,43 @@ const SLOT_LABELS: Record<AuxiliaryLlmSlot, string> = {
             <span class="saving-label">Saving decision…</span>
           }
         </div>
+      </section>
+    }
+
+    <!-- ============================================================
+         LT-189: notify-and-allow fallbacks. These already resolved —
+         there is no decision left to make — so this is a passive,
+         dismissible discovery aid, not a blocking prompt. Renders
+         independently of, and alongside, the require-confirmation
+         banner above.
+         ============================================================ -->
+    @if (undismissedNotifications().length > 0) {
+      <section
+        class="local-ai-fallback-notifications"
+        aria-live="polite"
+        aria-labelledby="local-ai-fallback-notifications-title"
+      >
+        <h2 id="local-ai-fallback-notifications-title" class="visually-hidden">
+          Paid fallback notifications
+        </h2>
+        @for (event of undismissedNotifications(); track event.id) {
+          <div class="fallback-notification" [attr.data-event-id]="event.id">
+            <span class="notification-mark" aria-hidden="true">↑</span>
+            <div class="notification-copy">
+              <strong>Paid fallback happened automatically</strong>
+              <span class="notification-detail">
+                {{ slotLabel(event.slot) }}
+                <span aria-hidden="true">·</span>
+                {{ notificationCostLabel(event) }}
+              </span>
+            </div>
+            <button
+              type="button"
+              class="notification-dismiss"
+              (click)="dismissNotification(event.id)"
+            >Dismiss</button>
+          </div>
+        }
       </section>
     }
   `,
@@ -214,6 +252,79 @@ const SLOT_LABELS: Record<AuxiliaryLlmSlot, string> = {
       font-size: var(--text-xs);
     }
 
+    .local-ai-fallback-notifications {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      padding: 0.5rem 1rem;
+    }
+
+    .fallback-notification {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.7rem;
+      padding: 0.5rem 0.8rem;
+      border: 1px solid var(--info-border);
+      border-radius: var(--radius-sm);
+      background: color-mix(in srgb, var(--info-bg) 82%, var(--bg-elevated));
+      color: var(--text-primary);
+    }
+
+    .notification-mark {
+      display: grid;
+      place-items: center;
+      width: 22px;
+      height: 22px;
+      flex: 0 0 auto;
+      border: 1px solid var(--pill-info-border);
+      border-radius: var(--radius-full);
+      background: var(--pill-info-bg);
+      color: var(--pill-info-fg);
+      font-size: 0.85rem;
+      font-weight: 800;
+    }
+
+    .notification-copy {
+      display: flex;
+      flex: 1 1 auto;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 0.15rem 0.65rem;
+      min-width: 0;
+      font-size: 0.8rem;
+    }
+
+    .notification-detail {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      color: var(--text-secondary);
+    }
+
+    .notification-dismiss {
+      flex: 0 0 auto;
+      height: 27px;
+      padding: 0 0.6rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      background: var(--glass-medium);
+      color: var(--text-secondary);
+      cursor: pointer;
+      font: inherit;
+      font-size: 0.74rem;
+    }
+
+    .notification-dismiss:hover {
+      background: var(--glass-strong);
+      color: var(--text-primary);
+    }
+
+    .notification-dismiss:focus-visible {
+      outline: 2px solid var(--primary-color);
+      outline-offset: 2px;
+    }
+
     .visually-hidden {
       position: absolute;
       width: 1px;
@@ -253,6 +364,8 @@ export class LocalAiFallbackBannerComponent {
         left.createdAt - right.createdAt || left.id.localeCompare(right.id))[0];
   });
   protected readonly isResolving = computed(() => this.store.resolvingFallbackId() !== null);
+  /** LT-189 — passive, dismissible `notify-and-allow` fallback events. */
+  protected readonly undismissedNotifications = computed(() => this.store.fallbackNotifications());
 
   constructor() {
     effect(() => {
@@ -308,6 +421,18 @@ export class LocalAiFallbackBannerComponent {
     return this.store.error() === LOCAL_AI_STATUS_ERROR
       ? LOCAL_AI_STATUS_ERROR
       : LOCAL_AI_RESOLUTION_ERROR;
+  }
+
+  /** LT-189 — mirrors `costEstimate` but reads a raw routing event, which
+   * (unlike a fallback request) can also carry a settled `knownCostUsd`. */
+  protected notificationCostLabel(event: LocalAiRoutingEvent): string {
+    if (event.knownCostUsd !== undefined) return `$${event.knownCostUsd.toFixed(4)} measured`;
+    if (event.estimatedCostUsd !== undefined) return `$${event.estimatedCostUsd.toFixed(4)} estimated`;
+    return 'Cost unknown';
+  }
+
+  protected dismissNotification(eventId: string): void {
+    this.store.dismissFallbackNotification(eventId);
   }
 
   protected async resolve(
