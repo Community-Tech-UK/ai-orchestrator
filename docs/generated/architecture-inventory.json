@@ -6034,6 +6034,10 @@
       "lines": 1391
     },
     {
+      "path": "src/worker-agent/__tests__/worker-agent.spec.ts",
+      "lines": 1380
+    },
+    {
       "path": "src/main/mcp/orchestrator-tools-rpc-server.spec.ts",
       "lines": 1362
     },
@@ -6104,10 +6108,6 @@
     {
       "path": "src/main/workspace/git/vcs-manager.ts",
       "lines": 1296
-    },
-    {
-      "path": "src/worker-agent/__tests__/worker-agent.spec.ts",
-      "lines": 1285
     },
     {
       "path": "src/main/ipc/handlers/__tests__/instance-handlers.spec.ts",

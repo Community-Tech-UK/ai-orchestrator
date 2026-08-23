@@ -31,6 +31,10 @@ const workerConfigMockState = vi.hoisted(() => ({
   persistConfig: vi.fn(),
 }));
 
+const networkReadinessMockState = vi.hoisted(() => ({
+  firstReachableCoordinatorCandidate: vi.fn(),
+}));
+
 const extensionRegistrationMockState = vi.hoisted(() => ({
   checkAndRepair: vi.fn(() => ({
     registration: 'ok',
@@ -102,6 +106,15 @@ vi.mock('../worker-config', () => ({
     : config,
   normalizeFileTransferConfig: vi.fn((config) => config),
 }));
+
+vi.mock('../coordinator-network-readiness', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../coordinator-network-readiness')>();
+  return {
+    ...actual,
+    firstReachableCoordinatorCandidate:
+      networkReadinessMockState.firstReachableCoordinatorCandidate,
+  };
+});
 
 vi.mock('../extension-relay-native-registration', () => ({
   ExtensionRelayNativeRegistration: vi.fn().mockImplementation(() => ({
@@ -198,6 +211,10 @@ describe('WorkerAgent', () => {
     wsMockState.instances.length = 0;
     discoveryMockState.onUp = null;
     workerConfigMockState.persistConfig.mockClear();
+    networkReadinessMockState.firstReachableCoordinatorCandidate.mockReset();
+    networkReadinessMockState.firstReachableCoordinatorCandidate.mockImplementation(
+      async (candidates: string[]) => candidates[0] ?? null,
+    );
     extensionRegistrationMockState.checkAndRepair.mockClear();
     vi.mocked(reportCapabilities).mockClear();
     providerDiagnostics.diagnoseProviderRuntime.mockReset();
@@ -533,6 +550,84 @@ describe('WorkerAgent', () => {
 
     // Registration is sent over the surviving connection.
     expect(secondSocket.send).toHaveBeenCalled();
+  });
+
+  it('dials the first network-ready route instead of a stale configured primary', async () => {
+    const config: WorkerConfig = {
+      ...mockConfig,
+      coordinatorUrl: 'ws://macbook-pro.tail4fc107.ts.net:4878',
+      coordinatorUrls: [
+        'ws://100.68.10.5:4878',
+        'ws://192.168.0.156:4878',
+      ],
+    };
+    networkReadinessMockState.firstReachableCoordinatorCandidate.mockResolvedValueOnce(
+      'ws://100.68.10.5:4878',
+    );
+    agent = new WorkerAgent(config);
+
+    const connect = agent.connect();
+    const socket = await waitForSocket();
+    socket.emit('open');
+    await connect;
+
+    expect(socket.url).toBe('ws://100.68.10.5:4878');
+  });
+
+  it('defers WebSocket dialing when every coordinator route is still offline', async () => {
+    const config: WorkerConfig = {
+      ...mockConfig,
+      coordinatorUrl: 'ws://macbook-pro.tail4fc107.ts.net:4878',
+      coordinatorUrls: [
+        'ws://100.68.10.5:4878',
+        'ws://192.168.0.156:4878',
+      ],
+    };
+    networkReadinessMockState.firstReachableCoordinatorCandidate.mockResolvedValueOnce(null);
+    agent = new WorkerAgent(config);
+
+    const connect = agent.connect();
+    for (let attempt = 0; attempt < 20; attempt++) {
+      await Promise.resolve();
+    }
+
+    // Cleanup keeps the red-phase behavior from leaving pending socket timers.
+    if (wsMockState.instances.length > 0) {
+      for (let index = 0; index < 3; index++) {
+        const socket = await waitForSocket(index);
+        socket.emit('error', new Error('network not ready'));
+        socket.emit('close');
+      }
+    }
+    await connect;
+
+    expect(wsMockState.instances).toHaveLength(0);
+  });
+
+  it('re-probes remaining routes after a TCP-ready endpoint rejects WebSocket', async () => {
+    const config: WorkerConfig = {
+      ...mockConfig,
+      coordinatorUrl: 'ws://macbook-pro.tail4fc107.ts.net:4878',
+      coordinatorUrls: [
+        'ws://192.168.0.156:4878',
+        'ws://100.68.10.5:4878',
+      ],
+    };
+    networkReadinessMockState.firstReachableCoordinatorCandidate
+      .mockResolvedValueOnce('ws://macbook-pro.tail4fc107.ts.net:4878')
+      .mockResolvedValueOnce('ws://100.68.10.5:4878');
+    agent = new WorkerAgent(config);
+
+    const connect = agent.connect();
+    const firstSocket = await waitForSocket();
+    firstSocket.emit('error', new Error('WebSocket upgrade rejected'));
+    firstSocket.emit('close');
+
+    const secondSocket = await waitForSocket(1);
+    secondSocket.emit('open');
+    await connect;
+
+    expect(secondSocket.url).toBe('ws://100.68.10.5:4878');
   });
 
   it('falls back to the pairing token when a persisted node token is rejected', async () => {
