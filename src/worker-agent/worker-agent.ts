@@ -52,6 +52,12 @@ import {
 } from './extension-relay-native-registration';
 import type { RpcMessage } from './worker-rpc-types';
 import type { DiscoveredCoordinator } from './discovery-client';
+import {
+  buildCoordinatorCandidates,
+  firstReachableCoordinatorCandidate,
+} from './coordinator-network-readiness';
+
+export { buildCoordinatorCandidates } from './coordinator-network-readiness';
 
 const DEFAULT_CONFIG_PATH = path.join(os.homedir(), '.orchestrator', 'worker-node.json');
 
@@ -61,20 +67,6 @@ const EXTENSION_RELAY_REGISTRATION_CHECK_INTERVAL_MS = 60_000;
 const BROWSER_DOWNLOADS_TRANSFER_ROOT_ID = 'browserDownloads';
 
 interface PendingCoordinatorRequest { resolve: (value: unknown) => void; reject: (error: Error) => void; timeout: ReturnType<typeof setTimeout>; method: string }
-
-/**
- * Ordered, de-duplicated list of coordinator URLs to try: the most recently
- * discovered address first, then the paired primary, then static fallbacks.
- * Empty strings/nullish entries are dropped.
- */
-export function buildCoordinatorCandidates(
-  active: string | null | undefined,
-  primary: string | undefined,
-  fallbacks: string[] | undefined,
-): string[] {
-  const ordered = [active, primary, ...(fallbacks ?? [])];
-  return [...new Set(ordered.filter((url): url is string => typeof url === 'string' && url.length > 0))];
-}
 
 /**
  * Worker node agent — connects to coordinator, handles RPC commands,
@@ -219,14 +211,20 @@ export class WorkerAgent extends EventEmitter {
 
       const token = this.config.nodeToken ?? this.config.authToken;
 
-      // Try each known address in order, failing over on timeout/refusal. This
-      // is what lets the worker recover when the host's LAN IP changes but a
-      // stable fallback (e.g. a Tailscale name) is still reachable.
-      for (const url of candidates) {
-        if (await this.tryConnect(url, token)) {
+      // Probe routes concurrently before authenticating. A stale LAN address
+      // must not add its full socket timeout to every startup retry.
+      let remainingCandidates = candidates;
+      while (remainingCandidates.length > 0) {
+        const readyCandidate = await firstReachableCoordinatorCandidate(remainingCandidates);
+        if (!readyCandidate) {
+          console.log('Coordinator network not ready; deferring WebSocket connection');
+          break;
+        }
+        if (await this.tryConnect(readyCandidate, token)) {
           return;
         }
-        console.warn(`Coordinator candidate unreachable: ${url}`);
+        console.warn(`Coordinator candidate unreachable: ${readyCandidate}`);
+        remainingCandidates = remainingCandidates.filter((url) => url !== readyCandidate);
       }
 
       // Every known address failed — re-probe mDNS in case the host moved and

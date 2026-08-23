@@ -6391,7 +6391,7 @@
     },
     {
       "path": "src/worker-agent/worker-agent.ts",
-      "lines": 1011
+      "lines": 1009
     },
     {
       "path": "src/main/app/initialization-steps.ts",
