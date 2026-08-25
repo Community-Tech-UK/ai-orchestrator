@@ -7,7 +7,11 @@ import {
 import {
   initializeBrowserGatewayRpcServer,
 } from './browser-gateway-rpc-server';
-import { prepareBrowserExtensionNativeHostRuntime } from './browser-extension-native-runtime';
+import {
+  browserExtensionNativeHostPaths,
+  mayClaimBrowserExtensionNativeHostManifest,
+  prepareBrowserExtensionNativeHostRuntime,
+} from './browser-extension-native-runtime';
 import { setBrowserGatewayMcpBridgeAvailabilityProvider } from './browser-health-service';
 import { setBrowserLocalExtensionUserDataPathProvider } from './browser-local-extension-health';
 import * as fs from 'node:fs';
@@ -250,14 +254,33 @@ export async function initializeBrowserGatewayRuntime(
         'aio-mcp SEA binary not found — Chrome native-messaging host wrapper not installed',
       );
     } else {
+      const userDataPath = options.userDataPath ?? app.getPath('userData');
+      const nativeHostPaths = browserExtensionNativeHostPaths({ userDataPath });
+      // One manifest per Chrome profile: an unpackaged dev app must not take it
+      // off the packaged install the user actually runs.
+      const claimChromeManifest = mayClaimBrowserExtensionNativeHostManifest({
+        manifestPath: nativeHostPaths.manifestPath,
+        nativeDir: nativeHostPaths.nativeDir,
+        isPackaged: app.isPackaged,
+        forceClaim: process.env['AIO_CLAIM_LOCAL_BROWSER_MANIFEST'] === '1',
+      });
+      if (!claimChromeManifest) {
+        logger.warn(
+          'Another Harness install owns the Chrome native-messaging manifest — leaving it alone. '
+          + 'This dev app has no local browser extension channel. '
+          + 'Set AIO_CLAIM_LOCAL_BROWSER_MANIFEST=1 to take it over.',
+          { manifestPath: nativeHostPaths.manifestPath },
+        );
+      }
       prepareBrowserExtensionNativeHostRuntime({
-        userDataPath: options.userDataPath ?? app.getPath('userData'),
+        userDataPath,
         socketPath,
         extensionToken: server.getExtensionToken(),
         hostCommand: {
           exe: aioMcpCliPath,
           args: ['native-host'],
         },
+        claimChromeManifest,
       });
     }
   }

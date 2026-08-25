@@ -678,7 +678,7 @@ Begin.`;
   }): Promise<void> {
     const logPath = this.paths.iterationLog;
     const lines = [
-      `## Iteration ${entry.seq} — ${entry.stage} — ${entry.verdict}`,
+      `## Iteration ${entry.seq + 1} — ${entry.stage} — ${entry.verdict}`,
       `- duration: ${(entry.durationMs / 1000).toFixed(1)}s`,
       `- tokens: ${entry.tokens}`,
       `- files changed: ${entry.filesChanged}`,

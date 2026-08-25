@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
+  AUXILIARY_MODEL_FAILURE_TTL_MS,
+  AuxiliaryModelFailureCache,
   modelSizeScore,
   pickModelForTier,
   resolveSlotModel,
@@ -298,5 +300,71 @@ describe('DEFAULT_SLOT_TIERS', () => {
     expect(DEFAULT_SLOT_TIERS.memoryDistillation).toBe('quality');
     expect(DEFAULT_SLOT_TIERS.webExtract).toBe('quality');
     expect(DEFAULT_SLOT_TIERS.retrievalHypothesis).toBe('quick');
+  });
+});
+
+describe('AuxiliaryModelFailureCache', () => {
+  // The live LT-370 shape: windows-pc's Ollama advertises these eight ids, the
+  // quality tier auto-picks the largest, and a 120B model cannot load in the
+  // node's reported 32607 MB of GPU memory.
+  const OLLAMA_MODELS = [
+    'gemma4:31b',
+    'gpt-oss:20b',
+    'deepseek-r1:32b',
+    'qwen3-coder:30b',
+    'gpt-oss:120b',
+    'deepseek-r1:14b',
+    'llama3.3:latest',
+    'deepseek-r1:7b',
+  ];
+
+  it('steps the quality auto-pick down to the next model after the largest fails', () => {
+    const cache = new AuxiliaryModelFailureCache();
+    const now = 1_000_000;
+
+    // Before any failure the quality tier takes the biggest advertised model.
+    expect(pickModelForTier(cache.usable('ep1', OLLAMA_MODELS, now), 'quality')).toBe('gpt-oss:120b');
+
+    cache.record('ep1', 'gpt-oss:120b', now);
+
+    // After the failure it steps down to the next largest rather than retrying.
+    expect(pickModelForTier(cache.usable('ep1', OLLAMA_MODELS, now + 1), 'quality')).toBe('deepseek-r1:32b');
+  });
+
+  it('scopes a failure to the endpoint it happened on', () => {
+    const cache = new AuxiliaryModelFailureCache();
+    const now = 1_000_000;
+    cache.record('ep1', 'gpt-oss:120b', now);
+
+    expect(cache.usable('ep1', OLLAMA_MODELS, now)).not.toContain('gpt-oss:120b');
+    expect(cache.usable('ep2', OLLAMA_MODELS, now)).toContain('gpt-oss:120b');
+  });
+
+  it('lets a model back in once the TTL has elapsed', () => {
+    const cache = new AuxiliaryModelFailureCache();
+    const now = 1_000_000;
+    cache.record('ep1', 'gpt-oss:120b', now);
+
+    expect(cache.usable('ep1', OLLAMA_MODELS, now + AUXILIARY_MODEL_FAILURE_TTL_MS - 1))
+      .not.toContain('gpt-oss:120b');
+    expect(cache.usable('ep1', OLLAMA_MODELS, now + AUXILIARY_MODEL_FAILURE_TTL_MS))
+      .toContain('gpt-oss:120b');
+  });
+
+  it('never empties the candidate list — a degraded endpoint must not become no endpoint', () => {
+    const cache = new AuxiliaryModelFailureCache();
+    const now = 1_000_000;
+    for (const id of OLLAMA_MODELS) cache.record('ep1', id, now);
+
+    expect(cache.usable('ep1', OLLAMA_MODELS, now)).toEqual(OLLAMA_MODELS);
+  });
+
+  it('forgets everything on clear, so a config change re-tries every model', () => {
+    const cache = new AuxiliaryModelFailureCache();
+    const now = 1_000_000;
+    cache.record('ep1', 'gpt-oss:120b', now);
+    cache.clear();
+
+    expect(cache.usable('ep1', OLLAMA_MODELS, now)).toContain('gpt-oss:120b');
   });
 });

@@ -20,6 +20,12 @@ import {
 } from '../../rlm/auxiliary-llm-utils';
 import { getLogger } from '../../logging/logger';
 import { migrateLegacyCustomModelOverride } from './settings-custom-models';
+import { COPILOT_LEGACY_PROFILE_ID } from '../../../shared/types/copilot-account.types';
+// Static, not `require`: the legacy profile must resolve to the SAME directory
+// the adapter uses, and a second copy of that derivation here would drift.
+// adapter-spawn-helpers has no path back to the settings manager, so this
+// introduces no cycle.
+import { getCopilotOrchestratorHome } from '../../cli/adapters/adapter-spawn-helpers';
 
 const logger = getLogger('SettingsMigrations');
 
@@ -39,6 +45,8 @@ const AUX_TITLE_BUDGET_MIGRATION_KEY =
   '__migration_auxiliary_title_budget_20260609';
 const REVIEWER_MODEL_DEFAULTS_MIGRATION_KEY =
   '__migration_reviewer_model_defaults_20260712';
+const COPILOT_LEGACY_PROFILE_MIGRATION_KEY =
+  '__migration_copilot_legacy_profile_20260825';
 
 /**
  * Narrow store surface the migrations need. `get` reads both AppSettings keys
@@ -347,6 +355,90 @@ function seedDefaultModelByProvider(store: SettingsMigrationStore): void {
  * and before the dirty-diff baseline snapshot is captured, so migration writes
  * keep their wholesale-write semantics.
  */
+
+/**
+ * Create the legacy GitHub Copilot account profile.
+ *
+ * Existing installs already have one signed-in Copilot state directory at
+ * `<userData>/copilot-cli-home` (or the exact `AI_ORCHESTRATOR_COPILOT_HOME`
+ * override). Account routing needs a profile record to point at it, so this
+ * creates one bound to that EXACT directory. Nothing is copied or moved: a
+ * single-account install must behave identically after the upgrade.
+ *
+ * Deliberately does NOT create routing rules. With one profile there is
+ * nothing to route between, and an invented rule would be a decision the user
+ * never made.
+ *
+ * The profile's identity is read from the existing config where present, so an
+ * already-signed-in install does not have to sign in again. Where absent, the
+ * profile is created unauthenticated and `expectedLogin` is adopted at the
+ * first verified login.
+ */
+function migrateCopilotLegacyProfile(store: SettingsMigrationStore): void {
+  if (store.get(COPILOT_LEGACY_PROFILE_MIGRATION_KEY)) {
+    return;
+  }
+  const existing = store.get('copilotAccountProfiles');
+  if (Array.isArray(existing) && existing.length > 0) {
+    // Already configured (a re-run, or a restored settings file). Mark done so
+    // this never re-adds a profile the user may have deliberately removed.
+    store.persistRawSetting(COPILOT_LEGACY_PROFILE_MIGRATION_KEY, true);
+    return;
+  }
+
+  const identity = readLegacyCopilotIdentity();
+  const now = Date.now();
+  const profile = {
+    id: COPILOT_LEGACY_PROFILE_ID,
+    label: 'Existing Copilot account',
+    expectedLogin: identity?.login ?? null,
+    host: identity?.host ?? 'github.com',
+    accountKind: 'personal' as const,
+    // Preserves current behaviour exactly: this account services every
+    // workspace, matched or not.
+    scopePolicy: 'default-eligible' as const,
+    automationPolicy: 'allow-routed' as const,
+    isDefault: true,
+    isLegacy: true,
+    createdAt: now,
+    updatedAt: now,
+  };
+  store.persistSetting('copilotAccountProfiles', [profile]);
+  store.persistRawSetting(COPILOT_LEGACY_PROFILE_MIGRATION_KEY, true);
+  logger.info('Created the legacy GitHub Copilot account profile', {
+    authenticated: identity !== null,
+  });
+}
+
+/**
+ * Bounded identity read from the pre-existing Copilot home.
+ *
+ * Field-picks `{host, login}` and nothing else — that file can contain
+ * plaintext tokens (`copilotTokens`), so the parsed object is never retained
+ * or logged. Returns `null` on any problem; an unreadable config simply means
+ * the profile starts unauthenticated.
+ */
+function readLegacyCopilotIdentity(): { login?: string; host?: string } | null {
+  try {
+    const configPath = path.join(getCopilotOrchestratorHome(), 'config.json');
+    const stats = fs.statSync(configPath);
+    if (stats.size > 1024 * 1024) {
+      return null;
+    }
+    const raw = fs.readFileSync(configPath, 'utf8').replace(/^[ \t]*\/\/.*$/gm, '');
+    const parsed = JSON.parse(raw) as {
+      lastLoggedInUser?: { host?: unknown; login?: unknown };
+      loggedInUsers?: { host?: unknown; login?: unknown }[];
+    };
+    const candidate = parsed.lastLoggedInUser ?? parsed.loggedInUsers?.[0];
+    const login = typeof candidate?.login === 'string' ? candidate.login : undefined;
+    const host = typeof candidate?.host === 'string' ? candidate.host.toLowerCase() : undefined;
+    return login || host ? { login, host } : null;
+  } catch {
+    return null;
+  }
+}
+
 export function runSettingsMigrations(store: SettingsMigrationStore): void {
   // Migrate stale model names to bare shorthand names
   migrateModelNames(store);
@@ -380,6 +472,9 @@ export function runSettingsMigrations(store: SettingsMigrationStore): void {
   migrateAuxiliaryMissingSlots(store);
   // Seed per-provider model memory from existing defaultModel/defaultCli.
   seedDefaultModelByProvider(store);
+  // Bind the pre-existing Copilot state directory to an account profile so
+  // routing has something to resolve to, without moving any files.
+  migrateCopilotLegacyProfile(store);
   migrateLegacyCustomModelOverride({
     // The generic deps read/write concrete AppSettings keys; this store surface
     // is deliberately untyped (it also reads raw migration markers), so bridge

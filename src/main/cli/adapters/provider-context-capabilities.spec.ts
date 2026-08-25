@@ -62,6 +62,17 @@ const expected = {
   },
 } satisfies Record<string, ProviderContextCapabilities>;
 
+/**
+ * Every Copilot spawn requires a resolved account route — the factory fails
+ * closed without one. The legacy profile keeps the pre-existing Copilot home,
+ * so this changes nothing these tests assert.
+ */
+const COPILOT_TEST_ROUTE = {
+  profileId: 'legacy',
+  source: 'legacy',
+  executionNodeId: 'local',
+} as const;
+
 describe('provider context-capability matrix', () => {
   it('locks Codex app-server and exec to different proof-backed capabilities', () => {
     const adapter = new CodexCliAdapter();
@@ -116,7 +127,10 @@ describe('provider context-capability matrix', () => {
   });
 
   it('locks the factory-produced Copilot ACP adapter without upgrading generic ACP', () => {
-    const adapter = createCopilotAdapter({ workingDirectory: '/tmp' });
+    const adapter = createCopilotAdapter({
+      workingDirectory: '/tmp',
+      copilotAccountRoute: COPILOT_TEST_ROUTE,
+    });
 
     expect(adapter.getName()).toBe('copilot-acp');
     expect(adapter.getContextCapabilities()).toEqual(expected.copilotAcp);
@@ -125,7 +139,10 @@ describe('provider context-capability matrix', () => {
   it('never treats provider thread/session identifiers as proof', () => {
     const codex = new CodexCliAdapter();
     const gemini = new GeminiCliAdapter();
-    const copilot = createCopilotAdapter({ workingDirectory: '/tmp' });
+    const copilot = createCopilotAdapter({
+      workingDirectory: '/tmp',
+      copilotAccountRoute: COPILOT_TEST_ROUTE,
+    });
 
     for (const adapter of [codex, gemini, copilot]) {
       const before = adapter.getContextCapabilities();

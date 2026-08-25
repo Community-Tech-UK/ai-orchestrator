@@ -235,6 +235,25 @@ export const InstanceSpawnParamsSchema = z.object({
     requiresCli: z.string().optional(),
     requiresWorkingDirectory: z.string().optional(),
   }).optional(),
+  /**
+   * GitHub Copilot account routing (spec §13).
+   *
+   * SAFE METADATA ONLY. The worker derives its own profile home from
+   * `profileId` under its own AIO state directory and verifies its own local
+   * binding before spawning. A controller path or a token must never appear
+   * here — the whole point of node-local binding is that credentials do not
+   * travel.
+   *
+   * Optional for wire compatibility: an older worker ignores it, which means an
+   * unrouted Copilot spawn — the controller-side fail-closed check in
+   * `createCliAdapter` is what stops that reaching a worker at all.
+   */
+  copilotAccountRoute: z.object({
+    profileId: z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/),
+    expectedLogin: z.string().max(64).nullable().optional(),
+    host: z.string().max(253).optional(),
+    source: z.string().max(32).optional(),
+  }).optional(),
 });
 
 export const InstanceSendInputParamsSchema = z.object({

@@ -38,7 +38,7 @@ import { getLogger } from '../logging/logger';
 import { retryAuxiliaryGeneration } from './auxiliary-generation-retry';
 import { AuxiliaryDailySpendCap } from './auxiliary-daily-spend-cap';
 import { resolveAuxiliaryEndpointApiKey } from './auxiliary-api-key-resolver';
-import { computeNumCtx, localhostOllamaEndpoint, resolveSlotModel, pickModelForTier, workerEndpointHealthy, workerLoadedContexts, endpointAdvertisesModel, DEFAULT_SLOT_TIERS } from './auxiliary-llm-utils';
+import { AuxiliaryModelFailureCache, computeNumCtx, localhostOllamaEndpoint, resolveSlotModel, pickModelForTier, workerEndpointHealthy, workerLoadedContexts, endpointAdvertisesModel, DEFAULT_SLOT_TIERS } from './auxiliary-llm-utils';
 import { sanitizeProviderText } from '../security/surrogate-sanitizer';
 import {
   buildAuthorizedAuxiliaryFallback,
@@ -117,6 +117,9 @@ export class AuxiliaryLlmService extends EventEmitter {
   // endpointId → health cache entry
   private healthCache = new Map<string, HealthCacheEntry>();
 
+  // Auto-picked models that recently failed, so the next pick steps down.
+  private readonly modelFailures = new AuxiliaryModelFailureCache();
+
   private constructor() {
     super();
   }
@@ -164,6 +167,7 @@ export class AuxiliaryLlmService extends EventEmitter {
 
     // Invalidate health cache when config changes
     this.healthCache.clear();
+    this.modelFailures.clear();
     logger.info('AuxiliaryLlmService configured', {
       enabled: this.enabled,
       routingMode: this.routingMode,
@@ -260,7 +264,7 @@ export class AuxiliaryLlmService extends EventEmitter {
         localAiContext.intendedTargetId, slotConfig.maxOutputTokens);
     }
 
-    const { endpoint, model, intendedTargetId } = resolved;
+    const { endpoint, model, intendedTargetId, autoPicked } = resolved;
 
     const source = classifyAuxiliarySource(endpoint, intendedTargetId);
 
@@ -303,6 +307,10 @@ export class AuxiliaryLlmService extends EventEmitter {
       return { text, decision };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      // Only auto-picked models are remembered. A pinned model must keep
+      // surfacing its own error, and must not poison the auto-pick that another
+      // slot on the same endpoint would otherwise make.
+      if (autoPicked) this.modelFailures.record(endpoint.id, model);
       logger.warn(`Auxiliary generation failed for slot "${slot}": ${message}`);
       return fallback(`Generation error: ${message}`,
         slotConfig.allowFrontierFallback, truncated,
@@ -443,11 +451,12 @@ export class AuxiliaryLlmService extends EventEmitter {
     const loaded = ep.source === 'worker-node'
       ? workerLoadedContexts(auxiliaryRemoteHooks.connectedWorkerNodes(), ep.workerNodeId, ep.provider, ep.baseUrl)
       : undefined;
-    const picked = pickModelForTier(ids, tier, loaded);
+    const picked = pickModelForTier(this.modelFailures.usable(ep.id, ids), tier, loaded);
     return picked
       ? {
           endpoint: ep,
           model: picked,
+          autoPicked: true,
           ...(managedTarget ? { intendedTargetId: managedTarget.targetId } : {}),
         }
       : null;

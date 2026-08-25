@@ -69,6 +69,7 @@ import { RpcEventRouter } from '../rpc-event-router';
 import type { WorkerNodeCapabilities, WorkerNodeInfo } from '../../../shared/types/worker-node.types';
 import { LOCAL_AI_TARGET_NUMERIC_LIMITS } from '../../../shared/types/local-ai-guard.types';
 import type { RpcRequest } from '../worker-node-rpc';
+import { BrowserExtensionCommandStore } from '../../browser-gateway/browser-extension-command-store';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -128,6 +129,8 @@ describe('RpcEventRouter', () => {
   let mockBrowserBridge: {
     attachTab: ReturnType<typeof vi.fn>;
     pollCommand: ReturnType<typeof vi.fn>;
+    confirmCommandHandoff: ReturnType<typeof vi.fn>;
+    requeueUndeliveredCommand: ReturnType<typeof vi.fn>;
     commandResult: ReturnType<typeof vi.fn>;
     expireNode: ReturnType<typeof vi.fn>;
   };
@@ -140,7 +143,7 @@ describe('RpcEventRouter', () => {
     registry = WorkerNodeRegistry.getInstance();
 
     mockConnection = Object.assign(new EventEmitter(), {
-      sendResponse: vi.fn(),
+      sendResponse: vi.fn(() => true),
       disconnectNode: vi.fn(),
       sendNotification: vi.fn(() => true),
       sendRpc: vi.fn(async () => ({ cursors: [] })),
@@ -148,6 +151,8 @@ describe('RpcEventRouter', () => {
     mockBrowserBridge = {
       attachTab: vi.fn(),
       pollCommand: vi.fn(),
+      confirmCommandHandoff: vi.fn(),
+      requeueUndeliveredCommand: vi.fn(),
       commandResult: vi.fn(),
       expireNode: vi.fn(),
     };
@@ -346,7 +351,155 @@ describe('RpcEventRouter', () => {
           result: queued,
         }),
       );
+      expect(mockBrowserBridge.confirmCommandHandoff).toHaveBeenCalledWith(
+        'node-ext',
+        'cmd-1',
+      );
+      expect(mockBrowserBridge.requeueUndeliveredCommand).not.toHaveBeenCalled();
     });
+  });
+
+  it('LT-371: requeues a browser poll command when its response has no open node socket', async () => {
+    const queued = {
+      id: 'cmd-unsent',
+      command: 'query_elements',
+      createdAt: 1,
+    };
+    mockBrowserBridge.pollCommand.mockResolvedValue(queued);
+    const respond = vi.fn(() => false);
+    const request = makeRpcRequest('browser.ext.pollCommand', {
+      token: 'session-token',
+      timeoutMs: 250,
+    }, 'req-unsent');
+
+    mockConnection.emit('rpc:request', 'node-ext', request, respond);
+
+    await vi.waitFor(() => {
+      expect(respond).toHaveBeenCalled();
+      expect(mockBrowserBridge.requeueUndeliveredCommand).toHaveBeenCalledOnce();
+      expect(mockBrowserBridge.requeueUndeliveredCommand).toHaveBeenCalledWith(
+        'node-ext',
+        'cmd-unsent',
+      );
+    });
+  });
+
+  it('LT-371: does not requeue a null long-poll response when the node socket is gone', async () => {
+    mockBrowserBridge.pollCommand.mockResolvedValue(null);
+    const respond = vi.fn(() => false);
+    const request = makeRpcRequest('browser.ext.pollCommand', {
+      token: 'session-token',
+      timeoutMs: 250,
+    }, 'req-empty');
+
+    mockConnection.emit('rpc:request', 'node-ext', request, respond);
+
+    await vi.waitFor(() => {
+      expect(respond).toHaveBeenCalled();
+    });
+    expect(mockBrowserBridge.requeueUndeliveredCommand).not.toHaveBeenCalled();
+  });
+
+  it('LT-371: serves once on the new poll when a command resolves an old-socket poll', async () => {
+    router.stop();
+    const store = new BrowserExtensionCommandStore();
+    const queueKey = 'node:node-ext';
+    const bridge = {
+      attachTab: vi.fn(),
+      pollCommand: (_nodeId: string, params: { timeoutMs?: number }) =>
+        store.pollCommand(queueKey, { ...params, deferHandoffConfirmation: true }),
+      confirmCommandHandoff: (_nodeId: string, commandId: string) =>
+        store.confirmCommandHandoff(queueKey, commandId),
+      requeueUndeliveredCommand: (_nodeId: string, commandId: string) =>
+        store.requeueUndeliveredCommand(queueKey, commandId),
+      commandResult: vi.fn(),
+      expireNode: vi.fn(),
+    };
+    const integrationRouter = new RpcEventRouter(
+      mockConnection as never,
+      registry,
+      bridge as never,
+    );
+    integrationRouter.start();
+
+    try {
+      let activeSocketGeneration = 1;
+      const oldSocketRespond = vi.fn(() => activeSocketGeneration === 1);
+      mockConnection.emit('rpc:request', 'node-ext', makeRpcRequest(
+        'browser.ext.pollCommand',
+        { token: 'session-token', timeoutMs: 25_000 },
+        'old-poll',
+      ), oldSocketRespond);
+
+      activeSocketGeneration = 2;
+      let replacementDelivery: { id: string; command: string } | null = null;
+      const replacementSocketRespond = vi.fn((response: {
+        result?: { id: string; command: string } | null;
+      }) => {
+        replacementDelivery = response.result ?? null;
+        return activeSocketGeneration === 2;
+      });
+      mockConnection.emit('rpc:request', 'node-ext', makeRpcRequest(
+        'browser.ext.pollCommand',
+        { token: 'session-token', timeoutMs: 25_000 },
+        'replacement-poll',
+      ), replacementSocketRespond);
+
+      const firstPending = store.sendCommand({
+        queueKey,
+        command: 'navigate',
+        timeoutMs: 30_000,
+        undeliveredWaitMs: 90_000,
+      });
+      const secondPending = store.sendCommand({
+        queueKey,
+        command: 'click',
+        timeoutMs: 30_000,
+        undeliveredWaitMs: 90_000,
+      });
+
+      await vi.waitFor(() => {
+        expect(oldSocketRespond).toHaveBeenCalled();
+        expect(replacementSocketRespond).toHaveBeenCalledOnce();
+        expect(replacementDelivery).toMatchObject({ command: 'navigate' });
+      });
+      store.resolveCommand({
+        queueKey,
+        commandId: replacementDelivery!.id,
+        ok: true,
+        result: { navigated: true },
+      });
+
+      let nextDelivery: { id: string; command: string } | null = null;
+      const nextSocketRespond = vi.fn((response: {
+        result?: { id: string; command: string } | null;
+      }) => {
+        nextDelivery = response.result ?? null;
+        return activeSocketGeneration === 2;
+      });
+      mockConnection.emit('rpc:request', 'node-ext', makeRpcRequest(
+        'browser.ext.pollCommand',
+        { token: 'session-token', timeoutMs: 25_000 },
+        'next-poll',
+      ), nextSocketRespond);
+
+      await vi.waitFor(() => {
+        expect(nextSocketRespond).toHaveBeenCalledOnce();
+        expect(nextDelivery).toMatchObject({ command: 'click' });
+      });
+      store.resolveCommand({
+        queueKey,
+        commandId: nextDelivery!.id,
+        ok: true,
+        result: { clicked: true },
+      });
+
+      await expect(firstPending).resolves.toEqual({ navigated: true });
+      await expect(secondPending).resolves.toEqual({ clicked: true });
+      expect(store.describeQueue(queueKey)).toMatchObject({ queuedCount: 0, inFlightCount: 0 });
+    } finally {
+      integrationRouter.stop();
+    }
   });
 
   // -------------------------------------------------------------------------

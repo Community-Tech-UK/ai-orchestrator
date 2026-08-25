@@ -494,3 +494,16 @@
         0%, 100% { opacity: 0.5; }
         50% { opacity: 1; }
       }
+
+/* The GitHub Copilot account this session is pinned to. Sits beside the
+   provider badge so "which seat is this running under?" is answerable at a
+   glance, which is the whole point of account routing. */
+.copilot-account-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  font-size: 11px;
+  white-space: nowrap;
+}

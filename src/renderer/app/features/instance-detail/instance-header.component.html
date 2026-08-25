@@ -146,6 +146,11 @@
           >
             {{ providerDisplayName() }}
           </span>
+          @if (copilotAccountBadge(); as copilotAccount) {
+            <span class="copilot-account-badge" [title]="copilotAccount.title">
+              {{ copilotAccount.label }}
+            </span>
+          }
           @if (isRemote()) {
             <span
               class="node-badge"

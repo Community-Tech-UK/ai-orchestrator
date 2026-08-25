@@ -64,6 +64,11 @@ import {
 } from './lifecycle/initial-prompt-recovery';
 import { DeferredPermissionHandler } from './lifecycle/deferred-permission-handler';
 import {
+  attachCopilotRoute,
+  isCopilotRoutingError,
+  stampCopilotRouteOnInstance,
+} from './lifecycle/copilot-route-preflight';
+import {
   buildInstanceRecord,
 } from './lifecycle/instance-create-builder';
 import { createModelSelectionDegradationNotice, type ModelSelectionDegradation } from './lifecycle/model-selection-degradation';
@@ -330,7 +335,7 @@ export class InstanceLifecycleManager extends EventEmitter {
     });
     this.spawner = new InstanceSpawner({
       createAdapter: async (config) => {
-        const adapter = this.createRuntimeAdapter(config.provider as CliType, {
+        const adapter = await this.createRuntimeAdapter(config.provider as CliType, {
           sessionId: config.sessionId,
           workingDirectory: config.workingDirectory,
           model: config.model,
@@ -751,11 +756,23 @@ export class InstanceLifecycleManager extends EventEmitter {
     return resolveCliType(instance.provider, settingsAll.defaultCli);
   }
 
-  private createRuntimeAdapter(
+  /**
+   * The single adapter-construction chokepoint for this instance's whole
+   * lifecycle: first spawn, hibernate/wake, unexpected-exit respawn, native
+   * resume, fresh restart, runtime/model change, and deferred-permission
+   * respawn all land here.
+   *
+   * Async purely so Copilot account routing can run. A respawn must keep the
+   * account the session was created under (`instance.copilotAccountProfileId`)
+   * AND re-verify that the profile is still signed in as the expected
+   * identity — a `/user switch` inside that profile home between two spawns
+   * would otherwise silently move the session to another GitHub account.
+   */
+  private async createRuntimeAdapter(
     cliType: CliType,
     options: UnifiedSpawnOptions,
     executionLocation?: ExecutionLocation,
-  ): CliAdapter {
+  ): Promise<CliAdapter> {
     const instance = options.instanceId ? this.deps.getInstance(options.instanceId) : undefined;
     const harnessCliEnv = this.spawnConfigBuilder.getHarnessCliEnv(
       executionLocation,
@@ -766,7 +783,17 @@ export class InstanceLifecycleManager extends EventEmitter {
       ...options,
       ...(harnessCliEnv ? { env: harnessCliEnv } : {}),
     });
-    return getProviderRuntimeService().createAdapter({ cliType, options: durableOptions, executionLocation });
+    const routedOptions = await attachCopilotRoute(cliType, durableOptions, 'interactive', {
+      persistedProfileId: instance?.copilotAccountProfileId,
+      executionNodeId: executionLocation?.type === 'remote' ? executionLocation.nodeId : undefined,
+      instanceId: options.instanceId,
+    });
+    // Stamp BEFORE the adapter exists, so a spawn that dies mid-construction
+    // still leaves the session pinned to the account it resolved to.
+    if (instance) {
+      stampCopilotRouteOnInstance(instance, routedOptions);
+    }
+    return getProviderRuntimeService().createAdapter({ cliType, options: routedOptions, executionLocation });
   }
 
   private addAdapterRollback(transaction: SpawnTransaction, instanceId: string, adapter: CliAdapter): void {
@@ -1591,7 +1618,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           const executionLocation = preflight.executionLocation;
           spawnOptions = preflight.spawnOptions;
           instance.executionLocation = executionLocation;
-          adapter = this.createRuntimeAdapter(resolvedCliType, spawnOptions, executionLocation);
+          adapter = await this.createRuntimeAdapter(resolvedCliType, spawnOptions, executionLocation);
 
           // Set up adapter events
           this.deps.setupAdapterEvents(instance.id, adapter);
@@ -1935,6 +1962,14 @@ export class InstanceLifecycleManager extends EventEmitter {
           // `used` counts as evidence of a real measurement.
           instance.contextUsage = restoreContextUsage(sessionState.contextUsage);
         }
+        if (sessionState?.copilotAccountProfileId) {
+          // A woken session keeps the GitHub account it was created under.
+          // States written before this field existed restore as undefined,
+          // which routing resolves to the migration-created legacy profile.
+          instance.copilotAccountProfileId = sessionState.copilotAccountProfileId;
+          instance.copilotRoutingSource = sessionState.copilotRoutingSource;
+          instance.copilotRoutingRuleId = sessionState.copilotRoutingRuleId;
+        }
 
         await initializeInstanceEvidenceOwnership(instance, this.settings.getAll());
 
@@ -1973,6 +2008,8 @@ export class InstanceLifecycleManager extends EventEmitter {
             provider: instance.provider,
             model: instance.currentModel,
             cwd: instance.workingDirectory,
+            // Cross-account resume guard — see session-recovery.ts.
+            copilotProfileId: instance.copilotAccountProfileId,
           }),
           capabilities: {
             supportsResume: Boolean(nativeSessionId) && !sessionState?.nativeResumeFailedAt,
@@ -2023,7 +2060,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
         };
 
-        let adapter = this.createRuntimeAdapter(cliType, spawnOptions, instance.executionLocation);
+        let adapter = await this.createRuntimeAdapter(cliType, spawnOptions, instance.executionLocation);
         this.deps.setupAdapterEvents(instanceId, adapter);
         this.deps.setAdapter(instanceId, adapter);
         if (this.deps.setDiffTracker) {
@@ -2086,7 +2123,7 @@ export class InstanceLifecycleManager extends EventEmitter {
               resume: false,
               forkSession: false,
             };
-            adapter = this.createRuntimeAdapter(cliType, fallbackOptions, instance.executionLocation);
+            adapter = await this.createRuntimeAdapter(cliType, fallbackOptions, instance.executionLocation);
             this.deps.setupAdapterEvents(instanceId, adapter);
             this.deps.setAdapter(instanceId, adapter);
             if (this.deps.setDiffTracker) {
@@ -2147,6 +2184,12 @@ export class InstanceLifecycleManager extends EventEmitter {
       } catch (error) {
         await spawnTransaction.rollback(error);
         this.transitionState(instance, 'failed');
+        // A stamped Copilot account that is gone, signed out, or signed in as
+        // a different identity parks the session with an actionable reason
+        // instead of a generic failure. It NEVER falls back to the current
+        // default — that is enforced structurally in the resolver; this only
+        // makes the required action visible.
+        this.parkOnCopilotRoutingFailure(instanceId, error);
         this.deps.queueUpdate(instanceId, 'failed', instance.contextUsage);
         logger.error('Failed to wake instance', error instanceof Error ? error : undefined, { instanceId });
         throw error;
@@ -2165,6 +2208,40 @@ export class InstanceLifecycleManager extends EventEmitter {
     } finally {
       this.wakesInFlight.delete(instanceId);
     }
+  }
+
+  /**
+   * Surface a blocked Copilot account route as `auth-required` so the renderer
+   * offers the sign-in/reauthenticate repair rather than a generic error. Only
+   * fires for a real routing failure; every other error falls through
+   * unchanged.
+   */
+  private parkOnCopilotRoutingFailure(instanceId: string, error: unknown): void {
+    if (!isCopilotRoutingError(error)) {
+      return;
+    }
+    const instance = this.deps.getInstance(instanceId);
+    if (!instance) {
+      return;
+    }
+    logger.warn('Copilot account route blocked; parking the session', {
+      instanceId,
+      code: error.code,
+      profileId: error.profileId,
+    });
+    this.deps.queueUpdate(
+      instanceId,
+      instance.status,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { kind: 'auth-required', provider: 'copilot', since: Date.now() },
+    );
   }
 
   private createSessionBoundaryMessage(): OutputMessage {
@@ -2199,7 +2276,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       return { success: false, error: 'Native resume unavailable for this session' };
     }
 
-    const adapter = this.createRuntimeAdapter(
+    const adapter = await this.createRuntimeAdapter(
       cliType,
       {
         instanceId: instance.id,
@@ -2277,7 +2354,7 @@ export class InstanceLifecycleManager extends EventEmitter {
     instance.sessionId = newProviderSessionId;
     instance.sessionResumeBlacklisted = false;
 
-    const adapter = this.createRuntimeAdapter(
+    const adapter = await this.createRuntimeAdapter(
       cliType,
       {
         instanceId: instance.id,
@@ -2556,7 +2633,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       });
       const spawnTransaction = createSpawnTransaction(`restart-fresh:${instanceId}`);
 
-      const adapter = this.createRuntimeAdapter(
+      const adapter = await this.createRuntimeAdapter(
         cliType,
         {
           instanceId: instance.id,
@@ -2761,7 +2838,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
       };
 
-      let adapter = this.createRuntimeAdapter(cliType, spawnOptions, instance.executionLocation);
+      let adapter = await this.createRuntimeAdapter(cliType, spawnOptions, instance.executionLocation);
 
       this.deps.setupAdapterEvents(instanceId, adapter);
       this.deps.setAdapter(instanceId, adapter);
@@ -2785,7 +2862,7 @@ export class InstanceLifecycleManager extends EventEmitter {
 
             const fallbackOptions = { ...spawnOptions, resume: false, forkSession: false, sessionId: generateId() };
             instance.sessionId = fallbackOptions.sessionId;
-            adapter = this.createRuntimeAdapter(cliType, fallbackOptions, instance.executionLocation);
+            adapter = await this.createRuntimeAdapter(cliType, fallbackOptions, instance.executionLocation);
             this.deps.setupAdapterEvents(instanceId, adapter);
             this.deps.setAdapter(instanceId, adapter);
 

@@ -96,6 +96,8 @@ export interface BrowserExtensionQueueSnapshot {
 
 export interface BrowserExtensionPollRequest {
   timeoutMs?: number;
+  /** Remote relay polls wait for the RPC transport to confirm socket handoff. */
+  deferHandoffConfirmation?: boolean;
 }
 
 export interface BrowserExtensionCommandResult {
@@ -114,11 +116,18 @@ interface PendingCommand {
   timeout: NodeJS.Timeout;
   /** Full execution window granted once a poller picks the command up. */
   executionWindowMs: number;
+  /** Absolute limit for safe delivery/re-delivery before extension execution. */
+  undeliveredDeadlineAt: number;
   /** Set when a poller takes the command; undefined while still queued. */
   dequeuedAt?: number;
   /** Set when the extension acknowledges receiving the command. */
   receivedAt?: number;
   describeChannelState?: () => BrowserExtensionCommandChannelState;
+}
+
+interface CommandPoller {
+  deferHandoffConfirmation: boolean;
+  resolve: (command: BrowserExtensionQueuedCommand | null) => void;
 }
 
 export class BrowserExtensionCommandStore {
@@ -131,10 +140,9 @@ export class BrowserExtensionCommandStore {
    * have every command rejected as receipt-missing.
    */
   private readonly receiptCapableQueues = new Set<BrowserExtensionCommandQueueKey>();
-  private readonly pollers = new Map<
-    BrowserExtensionCommandQueueKey,
-    Array<(command: BrowserExtensionQueuedCommand | null) => void>
-  >();
+  private readonly pollers = new Map<BrowserExtensionCommandQueueKey, CommandPoller[]>();
+  /** One remote command per queue may wait for its poll response socket handoff. */
+  private readonly handoffPending = new Map<BrowserExtensionCommandQueueKey, string>();
 
   static getInstance(): BrowserExtensionCommandStore {
     if (!this.instance) {
@@ -167,11 +175,12 @@ export class BrowserExtensionCommandStore {
       // undelivered budget, it is removed from the queue BEFORE rejecting, so a
       // `not_delivered` failure guarantees the command never ran — callers may
       // retry it safely, even mutations.
-      const timeout = setTimeout(() => {
-        this.pending.delete(command.id);
-        this.removeQueuedCommand(queueKey, command.id);
-        reject(new Error('browser_extension_command_not_delivered'));
-      }, undeliveredWaitMs);
+      const timeout = this.createUndeliveredTimeout(
+        queueKey,
+        command.id,
+        reject,
+        undeliveredWaitMs,
+      );
       this.pending.set(command.id, {
         queueKey,
         command,
@@ -179,6 +188,7 @@ export class BrowserExtensionCommandStore {
         reject,
         timeout,
         executionWindowMs: timeoutMs,
+        undeliveredDeadlineAt: command.createdAt + undeliveredWaitMs,
         describeChannelState: request.describeChannelState,
       });
       this.enqueue(queueKey, command);
@@ -196,19 +206,17 @@ export class BrowserExtensionCommandStore {
   ): Promise<BrowserExtensionQueuedCommand | null> {
     const queueKey = typeof queueKeyOrRequest === 'string' ? queueKeyOrRequest : 'local';
     const request = typeof queueKeyOrRequest === 'string' ? maybeRequest : queueKeyOrRequest;
-    const queued = this.queueFor(queueKey).shift();
-    if (queued) {
-      this.markDelivered(queued.id);
-      return Promise.resolve(queued);
-    }
-
     const timeoutMs = Math.max(0, Math.min(request.timeoutMs ?? 1_000, 25_000));
     return new Promise<BrowserExtensionQueuedCommand | null>((resolve) => {
-      const poller = (command: BrowserExtensionQueuedCommand | null): void => {
-        clearTimeout(timeout);
-        resolve(command);
+      let timeout: NodeJS.Timeout;
+      const poller: CommandPoller = {
+        deferHandoffConfirmation: request.deferHandoffConfirmation ?? false,
+        resolve: (command) => {
+          clearTimeout(timeout);
+          resolve(command);
+        },
       };
-      const timeout = setTimeout(() => {
+      timeout = setTimeout(() => {
         const pollers = this.pollersFor(queueKey);
         const index = pollers.indexOf(poller);
         if (index >= 0) {
@@ -217,7 +225,20 @@ export class BrowserExtensionCommandStore {
         resolve(null);
       }, timeoutMs);
       this.pollersFor(queueKey).push(poller);
+      this.dispatchQueuedCommands(queueKey);
     });
+  }
+
+  confirmCommandHandoff(
+    queueKey: BrowserExtensionCommandQueueKey,
+    commandId: string,
+  ): boolean {
+    if (this.handoffPending.get(queueKey) !== commandId) {
+      return false;
+    }
+    this.handoffPending.delete(queueKey);
+    this.dispatchQueuedCommands(queueKey);
+    return true;
   }
 
   resolveCommand(result: BrowserExtensionCommandResult): void {
@@ -238,6 +259,51 @@ export class BrowserExtensionCommandStore {
     pending.reject(new Error(result.error || 'browser_extension_command_failed'));
   }
 
+  /**
+   * Return a command to its queue when the coordinator knows the poll RPC
+   * response never reached an open node socket. This transition is safe only
+   * before an extension receipt; all other delivered states are ambiguous and
+   * must never be replayed.
+   */
+  requeueUndeliveredCommand(
+    queueKey: BrowserExtensionCommandQueueKey,
+    commandId: string,
+  ): boolean {
+    const pending = this.pending.get(commandId);
+    if (
+      !pending
+      || pending.queueKey !== queueKey
+      || pending.dequeuedAt === undefined
+      || pending.receivedAt !== undefined
+    ) {
+      return false;
+    }
+
+    clearTimeout(pending.timeout);
+    pending.dequeuedAt = undefined;
+    if (this.handoffPending.get(queueKey) === commandId) {
+      this.handoffPending.delete(queueKey);
+    }
+    const remainingMs = pending.undeliveredDeadlineAt - Date.now();
+    if (remainingMs <= 0) {
+      this.pending.delete(commandId);
+      this.removeQueuedCommand(queueKey, commandId);
+      pending.reject(new Error('browser_extension_command_not_delivered'));
+      this.dispatchQueuedCommands(queueKey);
+      return false;
+    }
+
+    pending.timeout = this.createUndeliveredTimeout(
+      queueKey,
+      commandId,
+      pending.reject,
+      remainingMs,
+    );
+    this.queueFor(queueKey).unshift(pending.command);
+    this.dispatchQueuedCommands(queueKey);
+    return true;
+  }
+
   /** Point-in-time channel load for health/pre-flight reporting. */
   describeQueue(queueKey: BrowserExtensionCommandQueueKey): BrowserExtensionQueueSnapshot {
     let inFlightCount = 0;
@@ -256,6 +322,7 @@ export class BrowserExtensionCommandStore {
 
   rejectQueue(queueKey: BrowserExtensionCommandQueueKey, reason: string): void {
     this.queues.delete(queueKey);
+    this.handoffPending.delete(queueKey);
     // A rejected queue usually means the node disconnected. The channel that
     // reconnects may be a different extension build, so receipt capability
     // must be re-proven rather than assumed.
@@ -264,7 +331,7 @@ export class BrowserExtensionCommandStore {
     if (pollers) {
       this.pollers.delete(queueKey);
       for (const poller of pollers) {
-        poller(null);
+        poller.resolve(null);
       }
     }
     for (const [commandId, pending] of this.pending.entries()) {
@@ -281,13 +348,28 @@ export class BrowserExtensionCommandStore {
     queueKey: BrowserExtensionCommandQueueKey,
     command: BrowserExtensionQueuedCommand,
   ): void {
-    const poller = this.pollersFor(queueKey).shift();
-    if (poller) {
-      this.markDelivered(command.id);
-      poller(command);
+    this.queueFor(queueKey).push(command);
+    this.dispatchQueuedCommands(queueKey);
+  }
+
+  private dispatchQueuedCommands(queueKey: BrowserExtensionCommandQueueKey): void {
+    if (this.handoffPending.has(queueKey)) {
       return;
     }
-    this.queueFor(queueKey).push(command);
+    const queue = this.queueFor(queueKey);
+    const pollers = this.pollersFor(queueKey);
+    while (queue.length > 0 && pollers.length > 0) {
+      const command = queue.shift()!;
+      const poller = pollers.shift()!;
+      this.markDelivered(command.id);
+      if (poller.deferHandoffConfirmation) {
+        this.handoffPending.set(queueKey, command.id);
+      }
+      poller.resolve(command);
+      if (this.handoffPending.has(queueKey)) {
+        return;
+      }
+    }
   }
 
   /**
@@ -359,6 +441,19 @@ export class BrowserExtensionCommandStore {
     }, pending.executionWindowMs);
   }
 
+  private createUndeliveredTimeout(
+    queueKey: BrowserExtensionCommandQueueKey,
+    commandId: string,
+    reject: (error: Error) => void,
+    delayMs: number,
+  ): NodeJS.Timeout {
+    return setTimeout(() => {
+      this.pending.delete(commandId);
+      this.removeQueuedCommand(queueKey, commandId);
+      reject(new Error('browser_extension_command_not_delivered'));
+    }, delayMs);
+  }
+
   private removeQueuedCommand(
     queueKey: BrowserExtensionCommandQueueKey,
     commandId: string,
@@ -387,7 +482,7 @@ export class BrowserExtensionCommandStore {
 
   private pollersFor(
     queueKey: BrowserExtensionCommandQueueKey,
-  ): Array<(command: BrowserExtensionQueuedCommand | null) => void> {
+  ): CommandPoller[] {
     let pollers = this.pollers.get(queueKey);
     if (!pollers) {
       pollers = [];

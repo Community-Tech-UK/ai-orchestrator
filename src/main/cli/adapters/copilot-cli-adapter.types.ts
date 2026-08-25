@@ -26,6 +26,18 @@ export interface CopilotCliConfig {
   yoloMode?: boolean;
   /** Timeout in milliseconds for a single message call. */
   timeout?: number;
+  /**
+   * GitHub Copilot account profile this adapter belongs to.
+   *
+   * Model discovery and model-failure marking are keyed by it: an account
+   * policy can deny an individual model, and a denial under one seat must not
+   * mark that model unavailable for every Copilot account (spec §14.4).
+   */
+  accountProfileId?: string;
+  /** Normalized host for that profile, used to set `COPILOT_GH_HOST`. */
+  accountHost?: string;
+  /** True for the migration-created profile bound to the pre-existing home. */
+  accountIsLegacy?: boolean;
 }
 
 /**

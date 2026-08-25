@@ -14,6 +14,13 @@ export interface NewSessionDraftState {
   yoloMode: boolean | null;
   /** WS13 — run the CLI inside the macOS Seatbelt jail. null = off. */
   hardened: boolean | null;
+  /**
+   * The GitHub Copilot account this draft resolved to, as shown in the
+   * composer's account chip. Carried on the draft so the session is created
+   * under the account the user was actually shown, rather than whatever the
+   * rules resolve to a moment later.
+   */
+  copilotAccountProfileId: string | null;
   launchMode: InstanceLaunchMode | null;
   agentId: string;
   pendingFolders: string[];
@@ -36,6 +43,7 @@ export interface PersistedNewSessionDraft {
   nodeId?: string | null;
   yoloMode?: boolean | null;
   hardened?: boolean | null;
+  copilotAccountProfileId?: string | null;
   launchMode?: InstanceLaunchMode | null;
   agentId?: string;
   pendingFolders: string[];

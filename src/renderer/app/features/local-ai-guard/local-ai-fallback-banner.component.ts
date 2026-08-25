@@ -13,13 +13,16 @@ import type { AuxiliaryLlmSlot } from '../../../../shared/types/auxiliary-llm.ty
 import type {
   LocalAiFallbackRequest,
   LocalAiFallbackResolution,
-  LocalAiRoutingEvent,
 } from '../../../../shared/types/local-ai-guard.types';
 import {
   LOCAL_AI_RESOLUTION_ERROR,
   LOCAL_AI_STATUS_ERROR,
   LocalAiGuardStore,
 } from '../../core/state/local-ai-guard.store';
+import {
+  fallbackNotificationGroupCostLabel,
+  groupLocalAiFallbackNotifications,
+} from './local-ai-fallback-notification-groups';
 
 const SLOT_LABELS: Record<AuxiliaryLlmSlot, string> = {
   compression: 'Compression',
@@ -114,7 +117,7 @@ const SLOT_LABELS: Record<AuxiliaryLlmSlot, string> = {
          independently of, and alongside, the require-confirmation
          banner above.
          ============================================================ -->
-    @if (undismissedNotifications().length > 0) {
+    @if (notificationGroups().length > 0) {
       <section
         class="local-ai-fallback-notifications"
         aria-live="polite"
@@ -123,21 +126,34 @@ const SLOT_LABELS: Record<AuxiliaryLlmSlot, string> = {
         <h2 id="local-ai-fallback-notifications-title" class="visually-hidden">
           Paid fallback notifications
         </h2>
-        @for (event of undismissedNotifications(); track event.id) {
-          <div class="fallback-notification" [attr.data-event-id]="event.id">
+        @for (group of notificationGroups(); track group.key) {
+          <div
+            class="fallback-notification"
+            [attr.data-event-id]="group.events.length === 1 ? group.eventIds[0] : null"
+            [attr.data-event-ids]="group.eventIds.join(',')"
+          >
             <span class="notification-mark" aria-hidden="true">↑</span>
             <div class="notification-copy">
-              <strong>Paid fallback happened automatically</strong>
+              <strong>
+                @if (group.events.length === 1) {
+                  Paid fallback happened automatically
+                } @else {
+                  {{ group.events.length }} paid fallbacks happened automatically
+                }
+              </strong>
               <span class="notification-detail">
-                {{ slotLabel(event.slot) }}
+                {{ slotLabel(group.slot) }}
                 <span aria-hidden="true">·</span>
-                {{ notificationCostLabel(event) }}
+                {{ notificationGroupCostLabel(group.events) }}
               </span>
             </div>
             <button
               type="button"
               class="notification-dismiss"
-              (click)="dismissNotification(event.id)"
+              [attr.aria-label]="group.events.length === 1
+                ? 'Dismiss paid fallback notification'
+                : 'Dismiss ' + group.events.length + ' paid fallback notifications'"
+              (click)="dismissNotifications(group.eventIds)"
             >Dismiss</button>
           </div>
         }
@@ -364,8 +380,10 @@ export class LocalAiFallbackBannerComponent {
         left.createdAt - right.createdAt || left.id.localeCompare(right.id))[0];
   });
   protected readonly isResolving = computed(() => this.store.resolvingFallbackId() !== null);
-  /** LT-189 — passive, dismissible `notify-and-allow` fallback events. */
-  protected readonly undismissedNotifications = computed(() => this.store.fallbackNotifications());
+  /** Passive, dismissible `notify-and-allow` fallbacks grouped into operational bursts. */
+  protected readonly notificationGroups = computed(() =>
+    groupLocalAiFallbackNotifications(this.store.fallbackNotifications()));
+  protected readonly notificationGroupCostLabel = fallbackNotificationGroupCostLabel;
 
   constructor() {
     effect(() => {
@@ -423,16 +441,8 @@ export class LocalAiFallbackBannerComponent {
       : LOCAL_AI_RESOLUTION_ERROR;
   }
 
-  /** LT-189 — mirrors `costEstimate` but reads a raw routing event, which
-   * (unlike a fallback request) can also carry a settled `knownCostUsd`. */
-  protected notificationCostLabel(event: LocalAiRoutingEvent): string {
-    if (event.knownCostUsd !== undefined) return `$${event.knownCostUsd.toFixed(4)} measured`;
-    if (event.estimatedCostUsd !== undefined) return `$${event.estimatedCostUsd.toFixed(4)} estimated`;
-    return 'Cost unknown';
-  }
-
-  protected dismissNotification(eventId: string): void {
-    this.store.dismissFallbackNotification(eventId);
+  protected dismissNotifications(eventIds: readonly string[]): void {
+    for (const eventId of eventIds) this.store.dismissFallbackNotification(eventId);
   }
 
   protected async resolve(

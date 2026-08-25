@@ -159,6 +159,18 @@ export class WorkerNodeRegistry extends EventEmitter {
       score += 20;
     }
 
+    // Copilot account binding (+40). Deliberately a PREFERENCE, not a hard
+    // filter: placement may prefer a node already signed in to the resolved
+    // account, but it must never change the account to suit a node (spec §13).
+    // A forced node that lacks the binding parks the session on the worker's
+    // own fail-closed check instead of quietly running under another seat.
+    if (
+      prefs.prefersCopilotAccountProfileId
+      && caps.copilotAccountProfileIds?.includes(prefs.prefersCopilotAccountProfileId)
+    ) {
+      score += 40;
+    }
+
     // Available memory ratio (+30)
     if (caps.totalMemoryMB > 0) {
       score += (caps.availableMemoryMB / caps.totalMemoryMB) * 30;

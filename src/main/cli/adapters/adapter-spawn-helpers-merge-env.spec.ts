@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mergeSpawnEnv } from './adapter-spawn-helpers';
+import {
+  buildCopilotSpawnEnv,
+  COPILOT_STRIPPED_AUTH_ENV_VARS,
+  mergeSpawnEnv,
+} from './adapter-spawn-helpers';
 import type { UnifiedSpawnOptions } from './adapter-factory.types';
 
 /**
@@ -55,5 +59,41 @@ describe('mergeSpawnEnv', () => {
     expect(merged['OPENAI_API_KEY']).toBeUndefined();
     expect(merged['GH_TOKEN']).toBeUndefined();
     expect(merged['MY_VAR']).toBe('1');
+  });
+});
+
+/**
+ * Copilot account routing: an ambient GitHub token variable outranks Copilot's
+ * stored OAuth credentials, so leaving one in the child environment would
+ * silently defeat profile selection — the child would authenticate as whoever
+ * the token belongs to, whatever profile home it was handed.
+ */
+describe('buildCopilotSpawnEnv', () => {
+  it('removes every ambient GitHub token variable at construction', () => {
+    const parent: NodeJS.ProcessEnv = {
+      PATH: '/usr/bin',
+      COPILOT_GITHUB_TOKEN: 'placeholder',
+      GH_TOKEN: 'placeholder',
+      GITHUB_TOKEN: 'placeholder',
+      GITHUB_COPILOT_GITHUB_TOKEN: 'placeholder',
+      GITHUB_COPILOT_API_TOKEN: 'placeholder',
+      GITHUB_TOKEN_VARNAME: 'GITHUB_TOKEN',
+    };
+    const env = buildCopilotSpawnEnv(parent);
+    for (const key of COPILOT_STRIPPED_AUTH_ENV_VARS) {
+      expect(env[key], key).toBeUndefined();
+    }
+    expect(env['PATH']).toBe('/usr/bin');
+  });
+
+  it('leaves GH_HOST alone — COPILOT_GH_HOST outranks it and the adapter sets that', () => {
+    const env = buildCopilotSpawnEnv({ GH_HOST: 'ghe.example.com' });
+    expect(env['GH_HOST']).toBe('ghe.example.com');
+  });
+
+  it('preserves the NODE_OPTIONS openssl-ca workaround', () => {
+    expect(buildCopilotSpawnEnv({ NODE_OPTIONS: '--max-old-space-size=4096' })['NODE_OPTIONS'])
+      .toBe('--max-old-space-size=4096 --use-openssl-ca');
+    expect(buildCopilotSpawnEnv({})['NODE_OPTIONS']).toBe('--use-openssl-ca');
   });
 });

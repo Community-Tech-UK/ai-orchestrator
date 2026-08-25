@@ -265,12 +265,13 @@ function describeAdapterOutput(output: unknown): LoopInvocationActivity {
         : undefined;
     return {
       kind: 'tool_use',
-      message: summarizeActivityText(name ? `Using tool: ${name}` : content || 'Using tool'),
+      message: summarizeActivityText(content || (name ? `Using tool: ${name}` : 'Using tool')),
       detail: {
         ...metadata,
         ...(id ? { id } : {}),
         ...(name ? { name } : {}),
         ...(input ? { input } : {}),
+        ...(!input && content ? { sourceContent: content } : {}),
       },
     };
   }

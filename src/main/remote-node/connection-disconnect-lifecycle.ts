@@ -18,10 +18,11 @@ const logger = getLogger('WorkerNodeConnection');
  * How long a node's registry entry and in-flight RPCs are held after the
  * active socket closes, waiting for a re-registration. A flapping link (or a
  * worker doing a fast reconnect) that re-registers within this window is
- * treated as a single continuous session. Kept short so a genuine disconnect
- * is still noticed promptly.
+ * treated as a single continuous session. Thirty seconds covers ordinary
+ * route and transport recovery while still surfacing a sustained disconnect
+ * promptly.
  */
-export const DISCONNECT_GRACE_MS = 2_500;
+export const DISCONNECT_GRACE_MS = 30_000;
 
 /**
  * WS15 — how long WORK RPCs (unbounded dispatches like instance.sendInput)

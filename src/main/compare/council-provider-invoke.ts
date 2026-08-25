@@ -13,6 +13,7 @@ import { isCliAvailable, type CliType } from '../cli/cli-detection';
 import { isProviderNotice } from '../cli/provider-notice';
 import { resolveModelForTier } from '../../shared/types/provider.types';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
+import { attachCopilotRoute } from '../instance/lifecycle/copilot-route-preflight';
 
 /** Wall-clock cap for a single provider's one-shot response. */
 export const PROVIDER_INVOKE_TIMEOUT = 60_000;
@@ -97,12 +98,21 @@ export async function invokeProviderOneShot(
   const model = resolveModelForTier('balanced', cliType);
   let adapter: CliAdapter;
   try {
-    adapter = deps.createAdapter(cliType, {
-      workingDirectory: options.workingDirectory ?? process.cwd(),
-      model,
-      yoloMode: false,
-      timeout: PROVIDER_INVOKE_TIMEOUT,
-    });
+    // Copilot account routing: a council/compare fan-out picks providers on
+    // the user's behalf.
+    adapter = deps.createAdapter(
+      cliType,
+      await attachCopilotRoute(
+        cliType,
+        {
+          workingDirectory: options.workingDirectory ?? process.cwd(),
+          model,
+          yoloMode: false,
+          timeout: PROVIDER_INVOKE_TIMEOUT,
+        },
+        'consensus',
+      ),
+    );
   } catch (error) {
     return { ok: false, model, error: errMsg(error), durationMs: elapsed() };
   }

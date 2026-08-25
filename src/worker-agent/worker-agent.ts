@@ -127,6 +127,11 @@ export class WorkerAgent extends EventEmitter {
       userDataPath: path.dirname(this.configPath),
       hostCommand: this.currentWorkerNativeHostCommand(),
     });
+    // Copilot account state (per-profile sign-in) belongs beside this node's own
+    // config, not in a temp directory a reboot clears — which would silently
+    // sign every routed account out on this node. Set before any spawn so the
+    // profile-home resolver picks it up.
+    process.env['AI_ORCHESTRATOR_STATE_ROOT'] = path.dirname(this.configPath);
     this.instanceManager = new LocalInstanceManager(
       config.workingDirectories,
       config.maxConcurrentInstances,

@@ -196,6 +196,7 @@ describe('createLoopCommitRatchetHook', () => {
       workspaceCwd: repo,
       executionCwd: '/tmp/worktree',
       previousScore: 0,
+      message: 'loop loop-hook iteration 3 ratchet',
       config: enabledConfig(),
     });
   });

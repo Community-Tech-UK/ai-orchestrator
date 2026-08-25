@@ -617,5 +617,38 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
         updatedInput,
       });
     },
+
+    /**
+     * Workspace Secret Card.
+     *
+     * Deliberately NOT routed through `respondToInputRequired`. That path ends at
+     * `adapter.sendRaw`, logs a response preview, and persists a `user` message to
+     * conversation history — all three are sinks a credential must never reach.
+     * These use their own channels, which have no path to the CLI.
+     */
+    submitSecretCard: (payload: {
+      instanceId: string;
+      requestId: string;
+      name: string;
+      label?: string;
+      purpose?: string;
+      value: string;
+    }): Promise<IpcResponse> => ipcRenderer.invoke(ch.SECRET_CARD_SUBMIT, payload),
+
+    declineSecretCard: (payload: {
+      instanceId: string;
+      requestId: string;
+      name: string;
+      reason?: string;
+    }): Promise<IpcResponse> => ipcRenderer.invoke(ch.SECRET_CARD_DECLINE, payload),
+
+    listWorkspaceSecrets: (workingDirectory: string): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.SECRET_CARD_LIST, { workingDirectory }),
+
+    forgetWorkspaceSecret: (workingDirectory: string, name: string): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.SECRET_CARD_FORGET, { workingDirectory, name }),
+
+    getWorkspaceSecretAudit: (workingDirectory: string, limit?: number): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.SECRET_CARD_AUDIT, { workingDirectory, limit }),
   };
 }

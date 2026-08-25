@@ -552,6 +552,54 @@ describe('LT-189: notify-and-allow fallback notifications', () => {
     expect(runtime.fallbackNotifications).toEqual([]);
   });
 
+  it('refreshes a live notification from the durable event after cost attribution', () => {
+    const original = routingEvent('event-1');
+    const untouched = routingEvent('event-2');
+    const enriched = routingEvent('event-1', {
+      inputTokens: 640,
+      outputTokens: 24,
+      estimatedCostUsd: 0.0015,
+    });
+    const runtime = new LocalAiGuardRuntime({
+      scheduler: schedulerDouble(),
+      incidents: { dispose: vi.fn() },
+      targets: { subscribe: () => () => undefined },
+      health: { getRoutingEvent: vi.fn(() => enriched) },
+      probes: {},
+      engine: {},
+      recovery: {},
+      activity: {},
+    } as never);
+    runtime.recordFallbackNotification(untouched);
+    runtime.recordFallbackNotification(original);
+
+    runtime.refreshFallbackNotification('event-1');
+
+    expect(runtime.fallbackNotifications).toEqual([enriched, untouched]);
+  });
+
+  it('leaves live notifications unchanged when the event or durable row is missing', () => {
+    const original = routingEvent('event-1');
+    const getRoutingEvent = vi.fn(() => undefined);
+    const runtime = new LocalAiGuardRuntime({
+      scheduler: schedulerDouble(),
+      incidents: { dispose: vi.fn() },
+      targets: { subscribe: () => () => undefined },
+      health: { getRoutingEvent },
+      probes: {},
+      engine: {},
+      recovery: {},
+      activity: {},
+    } as never);
+    runtime.recordFallbackNotification(original);
+
+    runtime.refreshFallbackNotification('missing-event');
+    runtime.refreshFallbackNotification('event-1');
+
+    expect(getRoutingEvent).toHaveBeenCalledExactlyOnceWith('event-1');
+    expect(runtime.fallbackNotifications).toEqual([original]);
+  });
+
   describe('notifyFallbackInto', () => {
     it('forwards a fired event to whichever runtime the getter currently returns', () => {
       const runtime = bareRuntime();

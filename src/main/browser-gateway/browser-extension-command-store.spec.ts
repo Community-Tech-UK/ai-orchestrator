@@ -247,6 +247,165 @@ describe('BrowserExtensionCommandStore', () => {
     await thirdRejected;
   });
 
+  it('LT-371: requeues a poll result that provably never left the coordinator', async () => {
+    vi.useFakeTimers();
+    const store = new BrowserExtensionCommandStore();
+    const queueKey = 'node:node-1';
+
+    const warmup = store.sendCommand({ queueKey, command: 'snapshot', timeoutMs: 10_000 });
+    const warmupCommand = await store.pollCommand(queueKey, { timeoutMs: 1 });
+    store.markReceived(queueKey, warmupCommand!.id);
+    store.resolveCommand({ queueKey, commandId: warmupCommand!.id, ok: true, result: {} });
+    await warmup;
+
+    const pending = store.sendCommand({
+      queueKey,
+      command: 'query_elements',
+      timeoutMs: 30_000,
+      undeliveredWaitMs: 90_000,
+    });
+    const firstDelivery = await store.pollCommand(queueKey, { timeoutMs: 1 });
+
+    expect(store.requeueUndeliveredCommand(queueKey, firstDelivery!.id)).toBe(true);
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    const secondDelivery = await store.pollCommand(queueKey, { timeoutMs: 1 });
+    expect(secondDelivery!.id).toBe(firstDelivery!.id);
+    store.markReceived(queueKey, secondDelivery!.id);
+    store.resolveCommand({
+      queueKey,
+      commandId: secondDelivery!.id,
+      ok: true,
+      result: { matched: 2 },
+    });
+
+    await expect(pending).resolves.toEqual({ matched: 2 });
+  });
+
+  it('LT-371: a requeued command keeps its original absolute delivery deadline', async () => {
+    vi.useFakeTimers();
+    const store = new BrowserExtensionCommandStore();
+    const queueKey = 'node:node-1';
+    const pending = store.sendCommand({
+      queueKey,
+      command: 'snapshot',
+      timeoutMs: 30_000,
+      undeliveredWaitMs: 20_000,
+    });
+    const rejected = expect(pending).rejects.toThrow('browser_extension_command_not_delivered');
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    const firstDelivery = await store.pollCommand(queueKey, { timeoutMs: 1 });
+    expect(store.requeueUndeliveredCommand(queueKey, firstDelivery!.id)).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(store.describeQueue(queueKey).queuedCount).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await rejected;
+    expect(store.describeQueue(queueKey).queuedCount).toBe(0);
+  });
+
+  it('LT-371: never requeues a command after the extension receipt makes execution ambiguous', async () => {
+    const store = new BrowserExtensionCommandStore();
+    const queueKey = 'node:node-1';
+    const pending = store.sendCommand({ queueKey, command: 'click', timeoutMs: 30_000 });
+    const command = await store.pollCommand(queueKey, { timeoutMs: 1 });
+
+    store.markReceived(queueKey, command!.id);
+    expect(store.requeueUndeliveredCommand(queueKey, command!.id)).toBe(false);
+
+    store.resolveCommand({ queueKey, commandId: command!.id, ok: true, result: { clicked: true } });
+    await expect(pending).resolves.toEqual({ clicked: true });
+  });
+
+  it('LT-371: preserves FIFO order across overlapping old and replacement-socket polls', async () => {
+    const store = new BrowserExtensionCommandStore();
+    const queueKey = 'node:node-1';
+    const deferredPoll = { timeoutMs: 10_000, deferHandoffConfirmation: true } as never;
+    const oldSocketPoll = store.pollCommand(queueKey, deferredPoll);
+    const replacementSocketPoll = store.pollCommand(queueKey, deferredPoll);
+
+    const firstPending = store.sendCommand({
+      queueKey,
+      command: 'navigate',
+      timeoutMs: 30_000,
+      undeliveredWaitMs: 90_000,
+    });
+    const firstDelivery = await oldSocketPoll;
+    const secondPending = store.sendCommand({
+      queueKey,
+      command: 'click',
+      timeoutMs: 30_000,
+      undeliveredWaitMs: 90_000,
+    });
+
+    expect(store.requeueUndeliveredCommand(queueKey, firstDelivery!.id)).toBe(true);
+    const recoveredFirst = await replacementSocketPoll;
+    expect(recoveredFirst).toMatchObject({ id: firstDelivery!.id, command: 'navigate' });
+    expect(store.confirmCommandHandoff(queueKey, recoveredFirst!.id)).toBe(true);
+    store.resolveCommand({
+      queueKey,
+      commandId: recoveredFirst!.id,
+      ok: true,
+      result: { navigated: true },
+    });
+
+    const secondDelivery = await store.pollCommand(queueKey, deferredPoll);
+    expect(secondDelivery).toMatchObject({ command: 'click' });
+    expect(store.confirmCommandHandoff(queueKey, secondDelivery!.id)).toBe(true);
+    store.resolveCommand({
+      queueKey,
+      commandId: secondDelivery!.id,
+      ok: true,
+      result: { clicked: true },
+    });
+
+    await expect(firstPending).resolves.toEqual({ navigated: true });
+    await expect(secondPending).resolves.toEqual({ clicked: true });
+  });
+
+  it('LT-371: releases later work when an uncertain handoff has already exhausted its delivery budget', async () => {
+    vi.useFakeTimers();
+    const store = new BrowserExtensionCommandStore();
+    const queueKey = 'node:node-1';
+    const deferredPoll = { timeoutMs: 30_000, deferHandoffConfirmation: true } as never;
+    const oldSocketPoll = store.pollCommand(queueKey, deferredPoll);
+    const replacementSocketPoll = store.pollCommand(queueKey, deferredPoll);
+
+    const expiredPending = store.sendCommand({
+      queueKey,
+      command: 'navigate',
+      timeoutMs: 30_000,
+      undeliveredWaitMs: 20_000,
+    });
+    const expiredRejection = expect(expiredPending).rejects.toThrow(
+      'browser_extension_command_not_delivered',
+    );
+    const expiredDelivery = await oldSocketPoll;
+    const laterPending = store.sendCommand({
+      queueKey,
+      command: 'click',
+      timeoutMs: 30_000,
+      undeliveredWaitMs: 90_000,
+    });
+
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(store.requeueUndeliveredCommand(queueKey, expiredDelivery!.id)).toBe(false);
+    await expiredRejection;
+
+    const laterDelivery = await replacementSocketPoll;
+    expect(laterDelivery).toMatchObject({ command: 'click' });
+    expect(store.confirmCommandHandoff(queueKey, laterDelivery!.id)).toBe(true);
+    store.resolveCommand({
+      queueKey,
+      commandId: laterDelivery!.id,
+      ok: true,
+      result: { clicked: true },
+    });
+    await expect(laterPending).resolves.toEqual({ clicked: true });
+  });
+
   it('gives a receipt-acked command its full execution window', async () => {
     vi.useFakeTimers();
     const store = new BrowserExtensionCommandStore();

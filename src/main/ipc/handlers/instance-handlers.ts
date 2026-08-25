@@ -98,6 +98,10 @@ export function registerInstanceHandlers(deps: {
           nodePlacement: validatedPayload.nodePlacement,
           browserToolsMode: validatedPayload.browserToolsMode,
           hardened: validatedPayload.hardened,
+          // Explicit Copilot account for this session, from the composer's
+          // account chip. A validated safe slug, never a path.
+          copilotAccountProfileId: validatedPayload.copilotAccountProfileId,
+          copilotConfirmProtectedOverride: validatedPayload.copilotConfirmProtectedOverride,
         });
 
         return {

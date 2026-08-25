@@ -39,6 +39,8 @@ import { CONTEXT_EVIDENCE_CHANNELS } from './context-evidence.channels';
 import { LOCAL_AI_GUARD_CHANNELS } from './local-ai-guard.channels';
 import { WORKBOARD_CHANNELS } from './workboard.channels';
 import { PERMISSION_REGISTRY_CHANNELS } from './permission-registry.channels';
+import { SECRET_CHANNELS } from './secret.channels';
+import { COPILOT_ACCOUNT_CHANNELS } from './copilot-account.channels';
 
 export {
   INSTANCE_CHANNELS,
@@ -74,6 +76,8 @@ export {
   LOCAL_AI_GUARD_CHANNELS,
   WORKBOARD_CHANNELS,
   PERMISSION_REGISTRY_CHANNELS,
+  SECRET_CHANNELS,
+  COPILOT_ACCOUNT_CHANNELS,
 };
 
 /**
@@ -114,6 +118,8 @@ export const IPC_CHANNELS = {
   ...LOCAL_AI_GUARD_CHANNELS,
   ...WORKBOARD_CHANNELS,
   ...PERMISSION_REGISTRY_CHANNELS,
+  ...SECRET_CHANNELS,
+  ...COPILOT_ACCOUNT_CHANNELS,
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

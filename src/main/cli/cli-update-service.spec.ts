@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { CliUpdateService, type CliUpdateServiceDeps } from './cli-update-service';
+import { CLI_UPDATE_SPECS, CliUpdateService, type CliUpdateServiceDeps } from './cli-update-service';
 import type { CliInfo, CliType, DetectionResult } from './cli-detection';
 
 function makeInfo(type: CliType, path: string, version = '1.0.0'): CliInfo {
@@ -107,6 +107,34 @@ describe('CliUpdateService', () => {
       command: '/Users/test/.local/bin/cursor-agent',
       args: ['update'],
     });
+  });
+
+  it('uses the Grok native updater and knows its npm package for latest-version checks', async () => {
+    // `grok` was in SUPPORTED_CLIS with no CLI_UPDATE_SPECS entry, so CLI
+    // Health answered "no automatic updater is configured" and skipped it.
+    const detection = makeDetection({
+      one: {
+        grok: makeInfo('grok', '/Users/test/.nvm/versions/node/v24/bin/grok', '1.0.5'),
+      },
+      installs: {
+        grok: [{ path: '/Users/test/.nvm/versions/node/v24/bin/grok', version: '1.0.5' }],
+      },
+    });
+
+    const service = new CliUpdateService({
+      detection,
+      exists: (path) => path === '/Users/test/.nvm/versions/node/v24/bin/grok',
+      platform: 'darwin',
+    });
+
+    await expect(service.getUpdatePlan('grok')).resolves.toMatchObject({
+      cli: 'grok',
+      supported: true,
+      strategy: 'self-update',
+      command: '/Users/test/.nvm/versions/node/v24/bin/grok',
+      args: ['update'],
+    });
+    expect(CLI_UPDATE_SPECS.grok?.npmPackage).toBe('@xai-official/grok');
   });
 
   it('uses the GitHub CLI extension updater when Copilot is provided by gh', async () => {

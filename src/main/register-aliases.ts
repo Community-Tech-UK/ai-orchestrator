@@ -31,6 +31,7 @@ const exactAliases: Record<string, string> = {
   '@contracts/schemas/settings':                 path.join(baseContracts, 'schemas', 'settings.schemas'),
   '@contracts/schemas/file-operations':          path.join(baseContracts, 'schemas', 'file-operations.schemas'),
   '@contracts/schemas/security':                 path.join(baseContracts, 'schemas', 'security.schemas'),
+  '@contracts/schemas/copilot-account':          path.join(baseContracts, 'schemas', 'copilot-account.schemas'),
   '@contracts/schemas/observability':            path.join(baseContracts, 'schemas', 'observability.schemas'),
   '@contracts/schemas/workspace-tools':          path.join(baseContracts, 'schemas', 'workspace-tools.schemas'),
   '@contracts/schemas/knowledge':                path.join(baseContracts, 'schemas', 'knowledge.schemas'),

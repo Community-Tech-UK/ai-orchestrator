@@ -24,6 +24,7 @@ import type { MobileMcpConfigOptions } from '../../browser-gateway/mobile-mcp-co
 import type { AcpMcpServerConfig } from '../../../shared/types/cli.types';
 import type { NodePlacementPrefs } from '../../../shared/types/worker-node.types';
 import type { ModelRuntimeTarget } from '../../../shared/types/local-model-runtime.types';
+import type { ResolvedCopilotAccountRoute } from '../../../shared/types/copilot-account.types';
 
 /**
  * Unified spawn options that work across all adapters
@@ -139,6 +140,20 @@ export interface UnifiedSpawnOptions {
   nodePlacement?: NodePlacementPrefs;
   /** Optional explicit runtime target selected from the unified model picker. */
   modelRuntimeTarget?: ModelRuntimeTarget;
+  /**
+   * The GitHub Copilot account profile this spawn resolved to.
+   *
+   * Safe metadata only — a profile ID, a routing reason, and the expected
+   * identity. No filesystem path and no credential: every execution node
+   * derives the profile home itself from the validated ID (see
+   * `copilot-account-home-resolver.ts`).
+   *
+   * Required for `cliType === 'copilot'`. Resolution needs git and filesystem
+   * I/O and the adapter factory is synchronous, so the factory only *enforces*
+   * presence — `attachCopilotRoute()` (instance/lifecycle/copilot-route-preflight)
+   * is what populates it, ahead of every spawn path.
+   */
+  copilotAccountRoute?: ResolvedCopilotAccountRoute;
   /** Direct Ollama server endpoint for REST-only ollama spawns (scaffolding
    *  local-first: localhost or a connected worker node's address). Defaults
    *  to localhost:11434 when omitted. */

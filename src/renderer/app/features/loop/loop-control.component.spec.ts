@@ -19,6 +19,7 @@ describe('LoopControlComponent', () => {
   let fixture: ComponentFixture<LoopControlComponent>;
   let listeners: {
     stateChanged: Listener<{ loopRunId: string; state: LoopStatePayload }>[];
+    iterationStarted: Listener<{ loopRunId: string; seq: number; stage: string }>[];
     activity: Listener<LoopActivityPayload>[];
     pausedNoProgress: Listener<{ loopRunId: string; signal: { id: string; message: string; verdict: string } }>[];
   };
@@ -57,6 +58,7 @@ describe('LoopControlComponent', () => {
     TestBed.resetTestingModule();
     listeners = {
       stateChanged: [],
+      iterationStarted: [],
       activity: [],
       pausedNoProgress: [],
     };
@@ -72,7 +74,7 @@ describe('LoopControlComponent', () => {
         data: { iterations: [loopIteration()] },
       }),
       onStateChanged: vi.fn((cb) => subscribe(listeners.stateChanged, cb)),
-      onIterationStarted: vi.fn(() => noop),
+      onIterationStarted: vi.fn((cb) => subscribe(listeners.iterationStarted, cb)),
       onOutstandingChanged: vi.fn(() => noop),
       onActivity: vi.fn((cb) => subscribe(listeners.activity, cb)),
       onIterationComplete: vi.fn(() => noop),
@@ -216,6 +218,67 @@ describe('LoopControlComponent', () => {
     expect(text).toContain('claude');           // provider value
     expect(text).toContain('same-session');     // context strategy value
     expect(text).toContain('1.00M tok');        // configured maxTokens is an active cap
+  });
+
+  it('shows human iteration numbers, the effective execution path, and an unambiguous prior verdict', async () => {
+    const state = activeState();
+    state.config.executionCwd = '/tmp/project/.worktrees/loop-1';
+    state.lastIteration = { ...loopIteration(), id: 'iter-loop-1-0', seq: 0 };
+    listeners.stateChanged.forEach((cb) => cb({ loopRunId: 'loop-1', state }));
+    listeners.iterationStarted.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      seq: 1,
+      stage: 'IMPLEMENT',
+    }));
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('iteration 2 running');
+    expect(text).toContain('/tmp/project/.worktrees/loop-1');
+    const activityPath = fixture.nativeElement.querySelector('.la-title code') as HTMLElement;
+    expect(activityPath.textContent?.trim()).toBe('/tmp/project/.worktrees/loop-1');
+    const verdict = fixture.nativeElement.querySelector('.ls-verdict') as HTMLElement;
+    expect(verdict.textContent?.trim()).toBe('LAST ITER · WARN');
+    expect(verdict.title).toBe('Last completed iteration progress verdict');
+
+    const inspect = fixture.nativeElement.querySelector('.ls-actions button[title="Show loop trace"]') as HTMLButtonElement;
+    inspect.click();
+    await settle(fixture);
+    const inspectorText = fixture.nativeElement.querySelector('.loop-inspector').textContent as string;
+    expect(inspectorText).toContain('iter 2 · IMPLEMENT · in progress');
+    expect(inspectorText).toContain('iter 2 · IMPLEMENT · WARN');
+  });
+
+  it('labels a completed verdict as prior when running state hydrates without an iteration-start event', () => {
+    const state = activeState();
+    state.lastIteration = { ...loopIteration(), id: 'iter-loop-1-0', seq: 0 };
+    listeners.stateChanged.forEach((cb) => cb({ loopRunId: 'loop-1', state }));
+    fixture.detectChanges();
+
+    const verdict = fixture.nativeElement.querySelector('.ls-verdict') as HTMLElement;
+    expect(verdict.textContent?.trim()).toBe('LAST ITER · WARN');
+    expect(verdict.title).toBe('Last completed iteration progress verdict');
+  });
+
+  it('uses one-based summary labels and plain-language prompt roles', () => {
+    const state = activeState();
+    state.status = 'completed';
+    state.endedAt = 1778310060000;
+    state.lastIteration = loopIteration();
+    listeners.stateChanged.forEach((cb) => cb({ loopRunId: 'loop-1', state }));
+    fixture.detectChanges();
+
+    const showPrompt = Array.from(
+      fixture.nativeElement.querySelectorAll('.lsum-prompt-actions button'),
+    ).find((button) => (button as HTMLButtonElement).textContent?.trim() === 'Show prompt') as HTMLButtonElement;
+    showPrompt.click();
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Final response (iter 2 · IMPLEMENT)');
+    expect(text).toContain('First iteration prompt');
+    expect(text).toContain('Later-iteration continuation');
+    expect(text).not.toContain('Iteration 0 prompt');
   });
 
   it('shows compact preflight and final-audit status without exposing absolute artifact paths', () => {

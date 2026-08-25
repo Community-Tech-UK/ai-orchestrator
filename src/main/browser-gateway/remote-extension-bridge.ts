@@ -43,6 +43,8 @@ interface RemoteExtensionCommandStore {
     queueKey: string,
     request?: BrowserExtensionPollRequest,
   ): Promise<BrowserExtensionQueuedCommand | null>;
+  confirmCommandHandoff(queueKey: string, commandId: string): boolean;
+  requeueUndeliveredCommand(queueKey: string, commandId: string): boolean;
   resolveCommand(result: BrowserExtensionCommandResult): void;
   markReceived(queueKey: string, commandId: string): void;
   rejectQueue(queueKey: string, reason: string): void;
@@ -146,7 +148,21 @@ export class RemoteBrowserExtensionBridge {
     this.recordExtensionContact(nodeId);
     return this.commandStore.pollCommand(
       browserExtensionQueueKeyForNode(nodeId),
-      { timeoutMs: params.timeoutMs },
+      { timeoutMs: params.timeoutMs, deferHandoffConfirmation: true },
+    );
+  }
+
+  confirmCommandHandoff(nodeId: string, commandId: string): boolean {
+    return this.commandStore.confirmCommandHandoff(
+      browserExtensionQueueKeyForNode(nodeId),
+      commandId,
+    );
+  }
+
+  requeueUndeliveredCommand(nodeId: string, commandId: string): boolean {
+    return this.commandStore.requeueUndeliveredCommand(
+      browserExtensionQueueKeyForNode(nodeId),
+      commandId,
     );
   }
 

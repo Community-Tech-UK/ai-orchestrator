@@ -304,3 +304,54 @@ export function pickModelForTier(
       : known.reduce((a, b) => (b.score > a.score ? b : a));
   return winner.id;
 }
+
+/**
+ * How long an auto-picked model stays out of the running after it failed on a
+ * given endpoint. Short on purpose: the point is to route around a model the
+ * host cannot actually load (LT-370 — a 120B pick on a 32 GB GPU), not to
+ * permanently blacklist one that failed for a transient reason.
+ */
+export const AUXILIARY_MODEL_FAILURE_TTL_MS = 600_000;
+
+/**
+ * Per-endpoint memory of auto-picked models that failed to generate.
+ *
+ * Tier auto-pick orders purely by apparent parameter count, so `quality` takes
+ * the largest advertised id whether or not the endpoint's host can load it.
+ * Recording the failure lets the next call step down to the next candidate
+ * instead of burning the same several seconds on the same doomed load.
+ *
+ * Only ever consulted for auto-picked models: an explicit per-slot or tier pin
+ * must keep surfacing its own error rather than being silently substituted.
+ */
+export class AuxiliaryModelFailureCache {
+  private readonly failedAt = new Map<string, number>();
+
+  // JSON rather than a joined string: an endpoint id or model id containing the
+  // separator could otherwise alias two different pairs onto one key.
+  private static key(endpointId: string, model: string): string {
+    return JSON.stringify([endpointId, model]);
+  }
+
+  record(endpointId: string, model: string, now = Date.now()): void {
+    this.failedAt.set(AuxiliaryModelFailureCache.key(endpointId, model), now);
+  }
+
+  /**
+   * `ids` minus those that failed on this endpoint inside the TTL. Returns the
+   * original list unchanged when filtering would leave nothing, so this can
+   * only ever reorder a choice — never remove the last remaining option and
+   * turn a degraded endpoint into no endpoint at all.
+   */
+  usable(endpointId: string, ids: string[], now = Date.now()): string[] {
+    const kept = ids.filter((id) => {
+      const at = this.failedAt.get(AuxiliaryModelFailureCache.key(endpointId, id));
+      return at === undefined || now - at >= AUXILIARY_MODEL_FAILURE_TTL_MS;
+    });
+    return kept.length > 0 ? kept : ids;
+  }
+
+  clear(): void {
+    this.failedAt.clear();
+  }
+}

@@ -18,6 +18,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { DOCUMENT } from '@angular/common';
+import { CopilotAccountChipComponent } from '../../shared/components/copilot-account-chip.component';
 import { CommandStore } from '../../core/state/command.store';
 import type { ExtendedCommand } from '../../core/state/command.store';
 import { ActionDispatchService } from '../../core/services/action-dispatch.service';
@@ -137,6 +138,7 @@ const LOOP_START_ACK_TIMEOUT_MS = 30_000;
     LoopToggleComponent,
     LoopConfigPanelComponent,
     ImageLightboxComponent,
+    CopilotAccountChipComponent,
   ],
   templateUrl: './input-panel.component.html',
   styleUrl: './input-panel.component.scss',
@@ -544,6 +546,22 @@ export class InputPanelComponent implements OnDestroy {
    * picker via `[selection]`; writes flow back through
    * `onCompactPickerSelectionChange`.
    */
+  /** Set by <app-copilot-account-chip> when Copilot routing is unresolved. */
+  readonly copilotRouteBlocked = signal(false);
+  /** The Copilot account this draft resolved to, sent with the create. */
+  readonly copilotAccountProfileId = signal<string | null>(null);
+
+  onCopilotRouteBlocked(blocked: boolean): void {
+    this.copilotRouteBlocked.set(blocked);
+  }
+
+  onCopilotAccountResolved(profileId: string | null): void {
+    this.copilotAccountProfileId.set(profileId);
+    // Carried on the draft so the create sends the account the user was shown,
+    // not whatever the rules resolve to a moment later.
+    this.newSessionDraft.setCopilotAccountProfileId(profileId);
+  }
+
   readonly draftPickerSelection = computed<PendingSelection>(() => {
     const modelRuntimeTarget = this.newSessionDraft.modelRuntimeTarget();
     if (modelRuntimeTarget?.kind === 'local-model') {
@@ -877,6 +895,16 @@ export class InputPanelComponent implements OnDestroy {
     if (this.loopStarting()) return false; // double-start dedupe
     if (this.submission.submitting()) return false; // one in-flight submission at a time
     if (this.runReadiness.blocking()) return false; // WS-C3: readiness checkpoint
+    // A Copilot session whose GitHub account cannot be resolved must not
+    // start: the chip already shows the specific fix, and starting anyway
+    // would either fail at spawn or run under an account the user did not
+    // choose.
+    //
+    // Scoped to the draft composer deliberately. The chip only renders there,
+    // so it only ever CLEARS this flag there — without the guard, a blocked
+    // draft would leave a stale `true` behind and disable sending in an
+    // existing session that shares this panel.
+    if (this.isDraftComposer() && this.copilotRouteBlocked()) return false;
     if (this.loopArmed()) {
       // When the loop panel is open, Send means "start loop". Validity is
       // owned by the panel's config, not the textarea. Keep the button

@@ -100,6 +100,13 @@ export function buildInstanceRecord(
     ...(config.browserToolsMode ? { browserToolsMode: config.browserToolsMode } : {}),
     ...(config.hardened ? { hardened: true } : {}),
     ...(config.containedExecution ? { containedExecution: true } : {}),
+    // Copilot account profile carried from the create config. This is the
+    // pre-spawn seed (a user override, or the profile a restore was archived
+    // under); the resolved route stamps the authoritative value in
+    // `stampCopilotRouteOnInstance` once preflight has run.
+    ...(config.copilotAccountProfileId
+      ? { copilotAccountProfileId: config.copilotAccountProfileId }
+      : {}),
     // WS7 Phase B: per-instance override wins; else seed from the global list.
     ...((config.failoverProviders ?? options.defaultFailoverProviders)?.length
       ? { failoverProviders: config.failoverProviders ?? options.defaultFailoverProviders }

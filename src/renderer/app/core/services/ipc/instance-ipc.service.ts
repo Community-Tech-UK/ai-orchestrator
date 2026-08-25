@@ -35,6 +35,11 @@ export interface CreateInstanceConfig {
   browserToolsMode?: 'eager' | 'deferred' | 'off';
   /** WS13 — spawn the CLI inside the macOS Seatbelt jail. */
   hardened?: boolean;
+  /** Explicit GitHub Copilot account for this session (validated safe slug). */
+  copilotAccountProfileId?: string;
+  /** The user confirmed an override that leaves a protected Copilot scope. */
+  copilotConfirmProtectedOverride?: boolean;
+
 }
 
 export interface CreateInstanceWithMessageConfig {
@@ -54,6 +59,11 @@ export interface CreateInstanceWithMessageConfig {
   forceNodeId?: string;
   /** WS13 — spawn the CLI inside the macOS Seatbelt jail. */
   hardened?: boolean;
+  /** Explicit GitHub Copilot account for this session (validated safe slug). */
+  copilotAccountProfileId?: string;
+  /** The user confirmed an override that leaves a protected Copilot scope. */
+  copilotConfirmProtectedOverride?: boolean;
+
   /** Stable per-submission key; a retry with the same key is deduplicated. */
   idempotencyKey?: string;
 }

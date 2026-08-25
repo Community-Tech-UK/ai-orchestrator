@@ -41,6 +41,19 @@ describe('ConnectionDisconnectLifecycle', () => {
     expect(onTrueDisconnect).toHaveBeenCalledWith('n1');
   });
 
+  it('LT-371: treats reconnects inside the documented 30-second window as continuous', () => {
+    const { lifecycle, rejectPending, onTrueDisconnect } = makeLifecycle({ durable: false });
+    lifecycle.beginGrace('n1');
+
+    vi.advanceTimersByTime(29_999);
+    expect(rejectPending).not.toHaveBeenCalled();
+    expect(onTrueDisconnect).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1);
+    expect(rejectPending).toHaveBeenCalledWith('n1', 'Node disconnected: n1', 'all');
+    expect(onTrueDisconnect).toHaveBeenCalledWith('n1');
+  });
+
   it('re-registration within grace cancels everything (continuous session)', () => {
     const { lifecycle, rejectPending, onTrueDisconnect } = makeLifecycle({ durable: false });
     lifecycle.beginGrace('n1');

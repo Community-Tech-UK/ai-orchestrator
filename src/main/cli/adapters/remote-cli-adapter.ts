@@ -189,6 +189,21 @@ export class RemoteCliAdapter extends EventEmitter {
           forkSession: this.spawnOptions.forkSession,
           mcpConfig: this.spawnOptions.mcpConfig,
           nodePlacement: this.spawnOptions.nodePlacement,
+          // Copilot account routing: profile ID, expected identity, host, and
+          // how it was chosen. Deliberately NOT the controller's profile home —
+          // the worker derives its own and verifies its own local binding.
+          ...(this.spawnOptions.copilotAccountRoute
+            ? {
+                copilotAccountRoute: {
+                  profileId: this.spawnOptions.copilotAccountRoute.profileId,
+                  expectedLogin: this.spawnOptions.copilotAccountRoute.expectedLogin ?? null,
+                  ...(this.spawnOptions.copilotAccountRoute.host
+                    ? { host: this.spawnOptions.copilotAccountRoute.host }
+                    : {}),
+                  source: this.spawnOptions.copilotAccountRoute.source,
+                },
+              }
+            : {}),
         },
       );
 

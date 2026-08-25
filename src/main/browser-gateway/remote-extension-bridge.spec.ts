@@ -18,6 +18,8 @@ function makeBridge() {
   };
   const commandStore = {
     pollCommand: vi.fn(async () => null),
+    confirmCommandHandoff: vi.fn(() => true),
+    requeueUndeliveredCommand: vi.fn(() => true),
     resolveCommand: vi.fn(),
     rejectQueue: vi.fn(),
     markReceived: vi.fn(),
@@ -99,13 +101,36 @@ describe('RemoteBrowserExtensionBridge', () => {
       result: { value: 1 },
     });
 
-    expect(commandStore.pollCommand).toHaveBeenCalledWith('node:node-1', { timeoutMs: 500 });
+    expect(commandStore.pollCommand).toHaveBeenCalledWith('node:node-1', {
+      timeoutMs: 500,
+      deferHandoffConfirmation: true,
+    });
     expect(commandStore.resolveCommand).toHaveBeenCalledWith({
       queueKey: 'node:node-1',
       commandId: 'cmd-1',
       ok: true,
       result: { value: 1 },
     });
+  });
+
+  it('LT-371: requeues an unsent poll result through the node queue key', () => {
+    const { bridge, commandStore } = makeBridge();
+
+    expect(bridge.requeueUndeliveredCommand('node-1', 'cmd-1')).toBe(true);
+    expect(commandStore.requeueUndeliveredCommand).toHaveBeenCalledWith(
+      'node:node-1',
+      'cmd-1',
+    );
+  });
+
+  it('LT-371: confirms a sent poll result through the node queue key', () => {
+    const { bridge, commandStore } = makeBridge();
+
+    expect(bridge.confirmCommandHandoff('node-1', 'cmd-1')).toBe(true);
+    expect(commandStore.confirmCommandHandoff).toHaveBeenCalledWith(
+      'node:node-1',
+      'cmd-1',
+    );
   });
 
   it('records remote extension contact on polls and classifies stale nodes', async () => {

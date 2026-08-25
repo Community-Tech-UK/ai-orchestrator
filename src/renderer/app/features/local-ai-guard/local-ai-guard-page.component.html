@@ -14,9 +14,11 @@
       <button type="button" class="button secondary" [disabled]="loading()" (click)="recover()">
         Refresh
       </button>
-      <button type="button" class="button primary" (click)="beginEnrolment()">
-        Enrol target
-      </button>
+      @if (store.targets().length > 0) {
+        <button type="button" class="button primary" (click)="beginEnrolment()">
+          Add local AI
+        </button>
+      }
     </div>
   </header>
 
@@ -53,10 +55,9 @@
       <section class="state-card empty">
         <strong>No enrolled targets</strong>
         <span>
-          Discovered endpoints remain unmanaged until you validate and enrol one.
-          They do not create checks, incidents, or unhealthy status.
+          Choose a discovered endpoint below. Recommended settings are applied for you,
+          and monitoring starts only after its live connection test passes.
         </span>
-        <button type="button" class="button primary" (click)="beginEnrolment()">Review discovery</button>
       </section>
     } @else {
       <section class="targets-section" aria-labelledby="enrolled-targets-title">

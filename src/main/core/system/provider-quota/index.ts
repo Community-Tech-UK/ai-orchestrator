@@ -20,6 +20,9 @@ import { GrokBillingProbe } from './grok-billing-probe';
 import { CompositeQuotaProbe } from './composite-quota-probe';
 import { FallbackQuotaProbe } from './fallback-quota-probe';
 import { UsageMonitorSource } from './usage-monitor-source';
+import { getCopilotAccountRoutingService } from '../../../providers/copilot/copilot-account-routing-service';
+import { resolveCopilotProfileHome } from '../../../cli/adapters/copilot/copilot-account-home-resolver';
+import { COPILOT_LEGACY_PROFILE_ID } from '../../../../shared/types/copilot-account.types';
 
 export { ClaudeUsageEndpointProbe, parseUsagePayload } from './claude-usage-endpoint-probe';
 export type {
@@ -127,6 +130,24 @@ export type {
  * run when the renderer calls `quotaRefresh(provider)` or when polling is
  * explicitly enabled via `quotaSetPollInterval(provider, ms)`.
  */
+/**
+ * The Copilot home whose login state represents "Copilot" on the provider card:
+ * the default profile's, or the legacy home when no profiles are configured.
+ * Never `~/.copilot`.
+ */
+function resolveDefaultCopilotProfileHome(): string | undefined {
+  try {
+    const profiles = getCopilotAccountRoutingService().listProfiles();
+    const profile = profiles.find((candidate) => candidate.isDefault) ?? profiles[0];
+    return resolveCopilotProfileHome(profile?.id ?? COPILOT_LEGACY_PROFILE_ID, {
+      isLegacy: profile ? profile.isLegacy : true,
+      createIfMissing: false,
+    });
+  } catch {
+    return undefined;
+  }
+}
+
 export function registerDefaultQuotaProbes(): void {
   const service = getProviderQuotaService();
   // One shared reader for the optional standalone-monitor state.json so the
@@ -154,8 +175,25 @@ export function registerDefaultQuotaProbes(): void {
   // windows the native poll can't populate yet (Codex live WS, etc.). The
   // native poll always wins when it has real windows.
   service.registerProbe(new CompositeQuotaProbe(new ClaudeUsageEndpointProbe(), usageMonitor));
+  // Copilot quota is account-sensitive (spec §14.3).
+  //
+  // Login state reads the RESOLVED account profile's home, not `~/.copilot` —
+  // the latter is the editor/CLI default, an account this app never routed to.
+  //
+  // Usage numbers come from the editor credential store, which cannot be tied
+  // to an AIO profile without reading a token AIO must not touch. Once account
+  // profiles exist, that probe reports unavailable rather than presenting one
+  // account's allowance as another's (decision D15).
   service.registerProbe(new CompositeQuotaProbe(
-    new FallbackQuotaProbe(new CopilotUsageEndpointProbe(), new CopilotQuotaProbe()),
+    new FallbackQuotaProbe(
+      new CopilotUsageEndpointProbe({
+        attributionCheck: () =>
+          getCopilotAccountRoutingService().listProfiles().length > 0
+            ? 'Copilot usage quota is unavailable per account: the usage endpoint reads the editor Copilot credential, which cannot be attributed to a Harness account profile.'
+            : null,
+      }),
+      new CopilotQuotaProbe({ resolveConfigDir: resolveDefaultCopilotProfileHome }),
+    ),
     usageMonitor,
   ));
   service.registerProbe(new CompositeQuotaProbe(

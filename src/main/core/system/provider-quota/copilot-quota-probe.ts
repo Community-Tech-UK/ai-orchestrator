@@ -48,6 +48,16 @@ export type CopilotConfigReader = (filePath: string) => Promise<string>;
 export interface CopilotQuotaProbeOptions {
   /** Override for the Copilot config directory. Defaults to `~/.copilot`. */
   configDir?: string;
+  /**
+   * Lazily resolve the config directory per probe, so login state is read from
+   * the CURRENTLY resolved account profile's home rather than `~/.copilot`.
+   *
+   * `~/.copilot` is the editor/CLI default home — an account this app never
+   * routed to. Reporting its login state as "Copilot" was the misattribution
+   * this hook exists to remove. Returning `undefined` falls back to
+   * `configDir` / `~/.copilot`.
+   */
+  resolveConfigDir?: () => string | undefined;
   /** Injected reader for testability. Defaults to `fs/promises.readFile`. */
   readFile?: CopilotConfigReader;
 }
@@ -61,20 +71,28 @@ interface CopilotConfigJson {
 export class CopilotQuotaProbe implements ProviderQuotaProbe {
   readonly provider = 'copilot' as const;
 
-  private readonly configPath: string;
+  private readonly fallbackConfigDir: string;
+  private readonly resolveConfigDir?: () => string | undefined;
   private readonly readFile: CopilotConfigReader;
 
   constructor(opts: CopilotQuotaProbeOptions = {}) {
-    const configDir = opts.configDir ?? path.join(os.homedir(), '.copilot');
-    this.configPath = path.join(configDir, 'config.json');
+    this.fallbackConfigDir = opts.configDir ?? path.join(os.homedir(), '.copilot');
+    this.resolveConfigDir = opts.resolveConfigDir;
     this.readFile = opts.readFile ?? defaultReader;
+  }
+
+  /** Recomputed per probe: the resolved account profile can change at runtime. */
+  private currentConfigPath(): string {
+    const resolved = this.resolveConfigDir?.();
+    return path.join(resolved && resolved.trim() ? resolved : this.fallbackConfigDir, 'config.json');
   }
 
   async probe(): Promise<ProviderQuotaSnapshot | null> {
     const takenAt = Date.now();
+    const configPath = this.currentConfigPath();
     let raw: string;
     try {
-      raw = await this.readFile(this.configPath);
+      raw = await this.readFile(configPath);
     } catch (err) {
       return failedSnapshot(takenAt, classifyReadError(err));
     }

@@ -58,6 +58,150 @@ form {
   gap: var(--spacing-md);
 }
 
+.enrolment-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--spacing-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.enrolment-steps li {
+  display: flex;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+}
+
+.enrolment-steps li[data-state='current'] {
+  border-color: var(--primary-muted);
+  background: color-mix(in srgb, var(--primary-color) 8%, transparent);
+}
+
+.enrolment-steps li[data-state='failed'] {
+  border-color: var(--error-border);
+  background: color-mix(in srgb, var(--error-color) 8%, transparent);
+}
+
+.enrolment-steps li[data-state='complete'] .step-number {
+  border-color: var(--success-color);
+  background: var(--success-color);
+  color: var(--bg-primary);
+}
+
+.enrolment-steps li[data-state='failed'] .step-number {
+  border-color: var(--error-color);
+  color: var(--error-color);
+}
+
+.enrolment-steps li > div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.enrolment-steps strong {
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+}
+
+.enrolment-steps li > div > span {
+  font-size: var(--text-xs);
+}
+
+.step-number {
+  display: grid;
+  flex: 0 0 1.6rem;
+  width: 1.6rem;
+  height: 1.6rem;
+  place-items: center;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+  font-weight: 700;
+}
+
+.recommended-setup {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.2fr);
+  gap: var(--spacing-lg);
+  padding: var(--spacing-md);
+  border: 1px solid var(--primary-muted);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--primary-color) 6%, var(--bg-primary));
+}
+
+.recommended-setup h3,
+.recommended-setup p {
+  margin: 0;
+}
+
+.recommended-setup p:not(.eyebrow) {
+  margin-top: var(--spacing-xs);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.recommended-setup dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-sm);
+  margin: 0;
+}
+
+.recommended-setup dl > div {
+  min-width: 0;
+  padding: var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+}
+
+.recommended-setup dt {
+  color: var(--text-muted);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.recommended-setup dd {
+  margin: 0.2rem 0 0;
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: 650;
+}
+
+.advanced-settings {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+}
+
+.advanced-settings > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  color: var(--text-primary);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.advanced-settings > summary small {
+  font-weight: 400;
+  text-align: right;
+}
+
+.advanced-settings-content {
+  display: grid;
+  gap: var(--spacing-md);
+  padding: 0 var(--spacing-md) var(--spacing-md);
+}
+
 .discovery-row {
   align-items: center;
   padding: var(--spacing-md);
@@ -258,6 +402,13 @@ small {
   justify-content: flex-end;
 }
 
+.action-help {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  text-align: right;
+}
+
 .button {
   min-height: 34px;
   padding: 0.4rem 0.8rem;
@@ -317,6 +468,22 @@ small {
 
   .form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .enrolment-steps,
+  .recommended-setup,
+  .recommended-setup dl {
+    grid-template-columns: 1fr;
+  }
+
+  .advanced-settings > summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .advanced-settings > summary small,
+  .action-help {
+    text-align: left;
   }
 
   .validation-rail {

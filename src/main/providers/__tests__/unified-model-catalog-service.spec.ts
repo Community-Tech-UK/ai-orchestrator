@@ -22,6 +22,7 @@ import {
 } from '../unified-model-catalog-service';
 import { clearModelRateOverlay, registerModelRates } from '../../../shared/data/model-pricing';
 import {
+  GROK_MODELS,
   normalizeModelForProvider,
   type ModelDisplayInfo,
 } from '../../../shared/types/provider.types';
@@ -855,6 +856,52 @@ describe('UnifiedModelCatalogService — FIX 1: models.dev-only entries included
     expect(normalizeModelForProvider('claude', 'claude-upstream-only-opus')).toBe(
       'claude-upstream-only-opus',
     );
+  });
+
+  it('maps the models.dev "xai" namespace onto the grok provider bucket', () => {
+    // models.dev publishes Grok under `xai`, but the picker filters on the
+    // CLI-facing `grok` id. Before this mapping a newly published xAI model
+    // was fetched every 6h, parked at catalog key `xai:<id>`, and never shown
+    // — which is how Grok 4.6 was downloaded and still invisible.
+    const devEntries: ModelsDevEntry[] = [
+      {
+        id: 'grok-99-upstream-only',
+        provider: 'xai',
+        rate: { input: 2, output: 6 },
+        contextWindow: 500_000,
+      },
+    ];
+    const svc = makeServiceWithMock({}, devEntries);
+
+    const entry = svc.getModel('grok-99-upstream-only');
+    expect(entry).toBeDefined();
+    expect(entry!.provider).toBe('grok');
+    expect(svc.getModelsByProvider('grok').map((model) => model.id)).toContain(
+      'grok-99-upstream-only',
+    );
+    expect(svc.getModelsByProvider('xai')).toHaveLength(0);
+  });
+
+  it('does NOT re-admit a retired id that models.dev still publishes', () => {
+    // models.dev still lists `xai/grok-4.5` even though `grok models` dropped
+    // it and the CLI exits 1 on it. With the xai->grok mapping in place, the
+    // models.dev-only layer would otherwise hand it back to the `grok` bucket
+    // as a fully valid entry — before CLI discovery has run, that makes
+    // normalizeModelForProvider trust it again and the spawn fails exactly as
+    // it did before this fix.
+    const devEntries: ModelsDevEntry[] = [
+      { id: GROK_MODELS.GROK_45, provider: 'xai', rate: { input: 2, output: 6 } },
+      { id: GROK_MODELS.GROK_46, provider: 'xai', rate: { input: 2, output: 6 } },
+    ];
+    const svc = makeServiceWithMock({}, devEntries);
+
+    expect(svc.getModel(GROK_MODELS.GROK_45)).toBeUndefined();
+    expect(svc.getModelsByProvider('grok').map((model) => model.id)).not.toContain(
+      GROK_MODELS.GROK_45,
+    );
+    // ...and the shared snapshot the spawn-time validators read agrees, so a
+    // stale stored selection still degrades to the current default.
+    expect(normalizeModelForProvider('grok', GROK_MODELS.GROK_45)).toBe(GROK_MODELS.GROK_46);
   });
 
   it('does NOT add a models.dev entry whose id already exists in the static catalog', () => {

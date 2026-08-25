@@ -27,6 +27,8 @@ export interface CreateWithMessageInput {
   nodePlacement?: unknown;
   browserToolsMode?: 'eager' | 'deferred' | 'off';
   hardened?: boolean;
+  copilotAccountProfileId?: string;
+  copilotConfirmProtectedOverride?: boolean;
 }
 
 /**
@@ -74,6 +76,8 @@ export async function createInstanceWithMessage(
     nodePlacement: validated.nodePlacement as never,
     browserToolsMode: validated.browserToolsMode,
     hardened: validated.hardened,
+    copilotAccountProfileId: validated.copilotAccountProfileId,
+    copilotConfirmProtectedOverride: validated.copilotConfirmProtectedOverride,
   });
 
   return { success: true, data: serializeInstance(instance) };

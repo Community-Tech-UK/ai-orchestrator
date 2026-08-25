@@ -43,6 +43,11 @@ export interface CreateInstanceWithMessageOptions {
   fastMode?: boolean;
   /** WS13 — run the CLI inside the macOS Seatbelt jail. */
   hardened?: boolean;
+  /** Explicit GitHub Copilot account for this session (validated safe slug). */
+  copilotAccountProfileId?: string;
+  /** The user confirmed an override that leaves a protected Copilot scope. */
+  copilotConfirmProtectedOverride?: boolean;
+
   launchMode?: Instance['launchMode'];
   forceNodeId?: string;
   /**
@@ -180,6 +185,12 @@ export class InstanceListStore {
         forceNodeId: config.forceNodeId,
         ...(config.browserToolsMode ? { browserToolsMode: config.browserToolsMode } : {}),
         ...(config.hardened ? { hardened: true } : {}),
+        ...(config.copilotAccountProfileId
+          ? { copilotAccountProfileId: config.copilotAccountProfileId }
+          : {}),
+        ...(config.copilotConfirmProtectedOverride
+          ? { copilotConfirmProtectedOverride: true }
+          : {}),
       };
       const result = await Promise.race([
         this.ipc.createInstance(payload).then((response) => ({

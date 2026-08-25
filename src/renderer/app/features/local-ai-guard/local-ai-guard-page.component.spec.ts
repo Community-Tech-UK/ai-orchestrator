@@ -234,6 +234,7 @@ describe('LocalAiGuardPageComponent', () => {
   it('loads inventory and renders worker → endpoint → model → canary evidence', () => {
     expect(store.initialize).toHaveBeenCalledOnce();
     expect(store.loadInventory).toHaveBeenCalledOnce();
+    expect(button('Add local AI')).not.toBeNull();
 
     const card = fixture.nativeElement.querySelector('[data-target-id="target-1"]') as HTMLElement;
     expect(card.textContent).toContain('Studio worker');
@@ -424,17 +425,27 @@ describe('LocalAiGuardPageComponent', () => {
     await fixture.whenStable();
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('No enrolled targets');
-    expect(fixture.nativeElement.textContent).toContain('Discovered endpoints remain unmanaged');
+    expect(fixture.nativeElement.textContent).toContain('Choose a discovered endpoint below');
+    expect(buttons().some((candidate) => candidate.textContent?.trim() === 'Add local AI')).toBe(false);
   });
 
   function click(label: string): void {
-    const buttons = Array.from(
-      fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>,
-    );
-    const button = buttons.find((candidate) => candidate.textContent?.trim() === label);
+    const button = buttons().find((candidate) => candidate.textContent?.trim() === label);
     if (!button) throw new Error(`Missing button: ${label}`);
     button.click();
     fixture.detectChanges();
+  }
+
+  function button(label: string): HTMLButtonElement {
+    const match = buttons().find((candidate) => candidate.textContent?.trim() === label);
+    if (!match) throw new Error(`Missing button: ${label}`);
+    return match;
+  }
+
+  function buttons(): HTMLButtonElement[] {
+    return Array.from(
+      fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>,
+    );
   }
 
   async function recreateFixture(): Promise<void> {

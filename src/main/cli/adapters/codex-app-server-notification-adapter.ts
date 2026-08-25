@@ -11,10 +11,12 @@ import type {
 import {
   getCommandAggregatedOutput,
   getCommandExitCode,
+  getFileChangeInput,
   getFileChangePath,
   getToolCallInput,
   getToolCallName,
   isCommandExecutionItem,
+  isFailedThreadItemStatus,
 } from './codex/thread-item-accessors';
 import {
   extractCodexAppServerError,
@@ -29,7 +31,16 @@ import { resolveCodexTurnUsageBreakdown } from './codex/token-usage-breakdown';
 
 const logger = getLogger('CodexCliAdapter');
 const INFERRED_COMPLETION_MS = 250;
-const VERIFICATION_CMD_PATTERN = /\\b(test|tests|lint|build|typecheck|type-check|check|verify|validate|pytest|jest|vitest|cargo test|npm test|pnpm test|yarn test|go test|mvn test|gradle test|tsc|eslint|ruff)\\b/i;
+const VERIFICATION_CMD_PATTERN = /\b(test|tests|lint|build|typecheck|type-check|check|verify|validate|pytest|jest|vitest|cargo test|npm test|pnpm test|yarn test|go test|mvn test|gradle test|tsc|eslint|ruff)\b/i;
+
+function toolMetadata(
+  item: ThreadItem,
+  name: string,
+  input: Record<string, unknown> | undefined,
+  metadata: Record<string, unknown>,
+): Record<string, unknown> {
+  return { ...(item.id ? { id: item.id } : {}), name, ...(input ? { input } : {}), ...metadata };
+}
 
 /** App-server notification routing and streamed-message reconciliation. */
 export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAdapter {
@@ -137,24 +148,28 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
             timestamp: Date.now(),
             type: 'tool_use',
             content: `Running command: ${shorten(item.command, 96)}`,
-            metadata: { name: 'Bash', streaming: true, phase },
+            metadata: toolMetadata(item, 'Bash', { command: item.command }, { streaming: true, phase }),
           });
         } else if (item.type === 'file_change' || item.type === 'fileChange') {
           const path = getFileChangePath(item);
+          const input = getFileChangeInput(item);
           this.emit('output', {
             id: generateId(),
             timestamp: Date.now(),
             type: 'tool_use',
             content: `Editing file: ${path}`,
-            metadata: { name: 'Edit', streaming: true, phase: 'editing' as TurnPhase },
+            metadata: toolMetadata(item, 'Edit', input, {
+              streaming: true,
+              phase: 'editing' as TurnPhase,
+            }),
           });
         } else if (item.type === 'enteredReviewMode') {
           this.emit('output', {
             id: generateId(),
             timestamp: Date.now(),
-            type: 'tool_use',
+            type: 'system',
             content: `Reviewer started: ${item.review || 'code review'}`,
-            metadata: { name: 'other', streaming: true, phase: 'reviewing' as TurnPhase },
+            metadata: { phase: 'reviewing' as TurnPhase },
           });
         } else if (item.type === 'mcpToolCall') {
           const toolName = getToolCallName(item);
@@ -163,7 +178,10 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
             timestamp: Date.now(),
             type: 'tool_use',
             content: `Calling ${item.server || 'mcp'}/${toolName}`,
-            metadata: { name: toolName, input: getToolCallInput(item), streaming: true, phase: 'investigating' as TurnPhase },
+            metadata: toolMetadata(item, toolName, getToolCallInput(item), {
+              streaming: true,
+              phase: 'investigating' as TurnPhase,
+            }),
           });
         } else if (item.type === 'dynamicToolCall') {
           const toolName = getToolCallName(item);
@@ -172,7 +190,10 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
             timestamp: Date.now(),
             type: 'tool_use',
             content: `Running tool: ${toolName}`,
-            metadata: { name: toolName, input: getToolCallInput(item), streaming: true, phase: 'investigating' as TurnPhase },
+            metadata: toolMetadata(item, toolName, getToolCallInput(item), {
+              streaming: true,
+              phase: 'investigating' as TurnPhase,
+            }),
           });
         } else if (item.type === 'collabAgentToolCall') {
           const subagentLabels = (item.receiverThreadIds ?? [])
@@ -185,7 +206,14 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
             timestamp: Date.now(),
             type: 'tool_use',
             content: summary,
-            metadata: { name: 'Task', streaming: true, phase: 'investigating' as TurnPhase },
+            metadata: toolMetadata(item, 'Task', {
+              tool: item.tool || 'unknown',
+              receiverThreadIds: item.receiverThreadIds ?? [],
+              ...(item.prompt ? { prompt: item.prompt } : {}),
+            }, {
+              streaming: true,
+              phase: 'investigating' as TurnPhase,
+            }),
           });
         } else if (item.type === 'webSearch') {
           this.emit('output', {
@@ -193,7 +221,10 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
             timestamp: Date.now(),
             type: 'tool_use',
             content: `Searching: ${shorten(item.query, 96)}`,
-            metadata: { name: 'WebSearch', streaming: true, phase: 'investigating' as TurnPhase },
+            metadata: toolMetadata(item, 'WebSearch', { query: item.query ?? '' }, {
+              streaming: true,
+              phase: 'investigating' as TurnPhase,
+            }),
           });
         }
         break;
@@ -228,7 +259,7 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
             timestamp: Date.now(),
             type: 'tool_result',
             content: summary,
-            metadata: { is_error: false },
+            metadata: toolMetadata(item, 'Task', undefined, { is_error: isFailedThreadItemStatus(item) }),
           });
         }
 
@@ -236,20 +267,21 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
         if (isCommandExecutionItem(item)) {
           state.commandExecutions.push(item);
           const output = getCommandAggregatedOutput(item);
-          if (output) {
-            const exitCode = getCommandExitCode(item);
-            this.emit('output', {
-              id: generateId(),
-              timestamp: Date.now(),
-              type: 'tool_result',
-              content: output,
-              metadata: {
-                command: item.command,
-                exitCode,
-                is_error: exitCode !== undefined && exitCode !== 0,
-              },
-            });
-          }
+          const exitCode = getCommandExitCode(item);
+          const isError = isFailedThreadItemStatus(item) || (exitCode !== undefined && exitCode !== 0);
+          this.emit('output', {
+            id: generateId(),
+            timestamp: Date.now(),
+            type: 'tool_result',
+            content: output || (exitCode !== undefined ? `Command exited with code ${exitCode}`
+              : isError ? `Command ${item.status}` : 'Command completed'),
+            metadata: toolMetadata(item, 'Bash', undefined, {
+              command: item.command,
+              exitCode,
+              status: item.status,
+              is_error: isError,
+            }),
+          });
         }
 
         // ── Agent message ──
@@ -277,12 +309,20 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
         if (item.type === 'file_change' || item.type === 'fileChange') {
           state.fileChanges.push(item);
           const path = getFileChangePath(item);
+          const input = getFileChangeInput(item);
+          const isError = isFailedThreadItemStatus(item);
+          const changeType = item.changeType ?? (typeof item['change_type'] === 'string' ? item['change_type'] : undefined);
           this.emit('output', {
             id: generateId(),
             timestamp: Date.now(),
             type: 'tool_result',
-            content: `File ${item.changeType || 'modified'}: ${path}`,
-            metadata: { path, changeType: item.changeType, is_error: false },
+            content: isError ? `File change ${item.status}: ${path}` : `File ${changeType || 'modified'}: ${path}`,
+            metadata: toolMetadata(item, 'Edit', input, {
+              path,
+              changeType,
+              status: item.status,
+              is_error: isError,
+            }),
           });
         }
 
@@ -301,9 +341,9 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
           this.emit('output', {
             id: generateId(),
             timestamp: Date.now(),
-            type: 'tool_result',
+            type: 'system',
             content: item.review || 'Review completed',
-            metadata: { is_error: false, phase: 'reviewing' },
+            metadata: { phase: 'reviewing' as TurnPhase },
           });
         }
 
@@ -315,7 +355,10 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
             timestamp: Date.now(),
             type: 'tool_result',
             content: `Tool ${item.server || 'mcp'}/${toolName} ${item.status || 'completed'}`,
-            metadata: { name: toolName, input: getToolCallInput(item), is_error: false, phase: 'investigating' },
+            metadata: toolMetadata(item, toolName, getToolCallInput(item), {
+              is_error: isFailedThreadItemStatus(item),
+              phase: 'investigating',
+            }),
           });
         }
 
@@ -327,7 +370,10 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
             timestamp: Date.now(),
             type: 'tool_result',
             content: `Tool ${toolName} ${item.status || 'completed'}`,
-            metadata: { name: toolName, input: getToolCallInput(item), is_error: false, phase: 'investigating' },
+            metadata: toolMetadata(item, toolName, getToolCallInput(item), {
+              is_error: isFailedThreadItemStatus(item),
+              phase: 'investigating',
+            }),
           });
         }
 
@@ -338,7 +384,10 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
             timestamp: Date.now(),
             type: 'tool_result',
             content: `Search completed: ${shorten(item.query, 96)}`,
-            metadata: { is_error: false, phase: 'investigating' },
+            metadata: toolMetadata(item, 'WebSearch', undefined, {
+              is_error: false,
+              phase: 'investigating',
+            }),
           });
         }
 
@@ -459,7 +508,8 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
       }
       case 'item/reasoning/summaryPartAdded':
       case 'item/reasoning/summaryTextDelta': {
-        this.emit('heartbeat');
+        // The app-server thread runtime emits exactly one heartbeat for every
+        // provider notification before dispatching it here.
         break;
       }
 

@@ -37,6 +37,7 @@ import { PermissionsSettingsTabComponent } from './permissions-settings-tab.comp
 import { EcosystemSettingsTabComponent } from './ecosystem-settings-tab.component';
 import { ReviewSettingsTabComponent } from './review-settings-tab.component';
 import { ConnectionsSettingsTabComponent } from './connections-settings-tab.component';
+import { CopilotAccountsTabComponent } from './copilot-accounts-tab.component';
 import { RemoteNodesSettingsTabComponent } from './remote-nodes-settings-tab.component';
 import { MobileSettingsTabComponent } from './mobile-settings-tab.component';
 import { CliHealthSettingsTabComponent } from './cli-health-settings-tab.component';
@@ -86,6 +87,7 @@ import {
     PermissionsSettingsTabComponent,
     ComputerUseSettingsTabComponent,
     ConnectionsSettingsTabComponent,
+    CopilotAccountsTabComponent,
     NetworkSettingsTabComponent,
     DoctorSettingsTabComponent,
     RemoteNodesSettingsTabComponent,

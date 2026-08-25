@@ -294,8 +294,31 @@ export const CURSOR_MODELS = {
 } as const;
 
 export const GROK_MODELS = {
+  GROK_46: 'grok-4.6',
+  /**
+   * Retired: `grok models` on CLI 1.0.5 no longer lists 4.5, and passing it
+   * fails the spawn outright ("unknown model id", exit 1). Kept only so cost
+   * lookups over historical sessions still resolve a rate — never offer it.
+   * See {@link RETIRED_PROVIDER_MODELS}.
+   */
   GROK_45: 'grok-4.5',
 } as const;
+
+/**
+ * Model ids a provider has retired: absent from `PROVIDER_MODEL_LIST` so they
+ * are never offered or spawned, but still priced.
+ *
+ * `getProviderModelRate` gates the flat `MODEL_PRICING` table on membership of
+ * the provider's model list, so that a reseller cannot be billed at a primary
+ * vendor's rate just because the raw id string collides (LT-190). Dropping a
+ * retired id from that list therefore also drops its price, which would make
+ * historical sessions — and the local-AI-guard's budget estimate for anyone
+ * still holding a stale default — silently cost `undefined`, i.e. `$0`. This
+ * map re-admits exactly those ids to pricing, and nothing else.
+ */
+export const RETIRED_PROVIDER_MODELS: Readonly<Record<string, readonly string[]>> = {
+  grok: [GROK_MODELS.GROK_45],
+};
 
 /**
  * Default models for each provider
@@ -328,7 +351,7 @@ export const DEFAULT_MODELS: Record<ProviderType, string> = {
   'amazon-bedrock': 'anthropic.claude-sonnet-4-6-20260401-v1:0',
   'azure': OPENAI_MODELS.GPT55,
   cursor: CURSOR_MODELS.AUTO,
-  grok: GROK_MODELS.GROK_45,
+  grok: GROK_MODELS.GROK_46,
 };
 
 /**
@@ -390,8 +413,12 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
   [GOOGLE_MODELS.GEMINI_3_FLASH]: { input: 0.15, output: 0.60 },
   [GOOGLE_MODELS.GEMINI_25_PRO]: { input: 1.25, output: 10.0 },
   [GOOGLE_MODELS.GEMINI_25_FLASH]: { input: 0.15, output: 0.60 },
-  // Grok Build / xAI (subscription-backed CLI; rates are approximate API list prices)
-  [GROK_MODELS.GROK_45]: { input: 2.0, output: 10.0 },
+  // Grok Build / xAI (subscription-backed CLI; rates are the xAI API list prices
+  // for prompts under 200k tokens — both models double to 4.0/12.0 above that,
+  // which this flat table cannot express. The live models.dev overlay, now
+  // namespaced to `grok`, takes precedence at runtime.)
+  [GROK_MODELS.GROK_46]: { input: 2.0, output: 6.0 },
+  [GROK_MODELS.GROK_45]: { input: 2.0, output: 6.0 },
 };
 
 /**
@@ -541,8 +568,12 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     { id: 'gpt-5.5-high', name: 'GPT 5.5 High', tier: 'balanced', pinned: true, family: 'GPT' },
     // cursor-models:generated:end
   ],
+  // Offline fallback only. `GrokCliDiscoveryService` re-reads `grok models`
+  // from the installed CLI and that list wins in the unified catalog, so a new
+  // xAI release surfaces without a code edit. 4.5 is deliberately absent: the
+  // CLI rejects it outright, so listing it would only offer a broken choice.
   grok: [
-    { id: GROK_MODELS.GROK_45, name: 'Grok 4.5', tier: 'powerful', pinned: true, family: 'Grok' },
+    { id: GROK_MODELS.GROK_46, name: 'Grok 4.6', tier: 'powerful', pinned: true, family: 'Grok' },
   ],
 };
 

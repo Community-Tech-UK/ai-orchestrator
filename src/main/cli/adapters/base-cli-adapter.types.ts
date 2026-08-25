@@ -16,6 +16,17 @@ export interface CliAdapterConfig {
   timeout?: number;
   /** Environment variables */
   env?: Record<string, string>;
+  /**
+   * Environment variables to DELETE from the child's environment, applied
+   * after `env` is layered over the safe base.
+   *
+   * `env` can only add or overwrite, so it cannot remove a variable the
+   * generic secret filter let through. Copilot needs this: its account
+   * selection is defeated by ambient GitHub token variables, and
+   * `GITHUB_TOKEN_VARNAME` in particular does not match the generic
+   * `_TOKEN$` block pattern.
+   */
+  envRemove?: readonly string[];
   /** Maximum retry count on failure */
   maxRetries?: number;
   /** Support session persistence/resumption */

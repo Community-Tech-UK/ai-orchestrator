@@ -57,6 +57,11 @@ export { COPILOT_DEFAULT_MODELS } from './copilot-cli-adapter.models';
 import { COPILOT_AUTO_MODEL_ID } from './copilot-cli-adapter.types';
 import type { CopilotCliConfig, CopilotModelInfo } from './copilot-cli-adapter.types';
 import {
+  COPILOT_STRIPPED_AUTH_ENV_VARS,
+} from './adapter-spawn-helpers';
+import { COPILOT_LEGACY_PROFILE_ID } from '../../../shared/types/copilot-account.types';
+import { resolveCopilotProfileHome } from './copilot/copilot-account-home-resolver';
+import {
   DEFAULT_CONTEXT_WINDOW,
   COPILOT_MODEL_DISCOVERY_CACHE_TTL_MS,
   toCopilotModelInfo,
@@ -67,9 +72,44 @@ import {
 
 const logger = getLogger('CopilotCliAdapter');
 
-let cachedCopilotModels: CopilotModelInfo[] | null = null;
-let cachedCopilotModelsAt = 0;
-let copilotModelDiscoveryPromise: Promise<CopilotModelInfo[]> | null = null;
+/**
+ * Model-discovery cache, keyed by GitHub Copilot ACCOUNT PROFILE.
+ *
+ * The installed CLI's model vocabulary is provider-wide, but an account policy
+ * can deny individual models at runtime — so a discovery result obtained under
+ * one seat is not a fact about another (spec §14.4). Keying by profile also
+ * stops an in-flight discovery for one account from being handed to another.
+ */
+interface CopilotModelCacheEntry {
+  models: CopilotModelInfo[] | null;
+  at: number;
+  inFlight: Promise<CopilotModelInfo[]> | null;
+}
+
+const copilotModelCacheByProfile = new Map<string, CopilotModelCacheEntry>();
+
+/** Cache key for a profile-less adapter (installation probes, tests). */
+const COPILOT_UNSCOPED_MODEL_CACHE_KEY = '__unscoped__';
+
+function copilotModelCacheFor(profileId: string | undefined): CopilotModelCacheEntry {
+  const key = profileId?.trim() || COPILOT_UNSCOPED_MODEL_CACHE_KEY;
+  const existing = copilotModelCacheByProfile.get(key);
+  if (existing) {
+    return existing;
+  }
+  const created: CopilotModelCacheEntry = { models: null, at: 0, inFlight: null };
+  copilotModelCacheByProfile.set(key, created);
+  return created;
+}
+
+/** Drop discovery results for one profile, or all of them when omitted. */
+export function resetCopilotModelDiscoveryCache(profileId?: string): void {
+  if (profileId === undefined) {
+    copilotModelCacheByProfile.clear();
+    return;
+  }
+  copilotModelCacheByProfile.delete(profileId.trim() || COPILOT_UNSCOPED_MODEL_CACHE_KEY);
+}
 
 /**
  * Copilot CLI Adapter - Spawns the `copilot` binary per message.
@@ -93,17 +133,46 @@ export class CopilotCliAdapter extends BaseCliAdapter {
   private serverSession: CopilotServerSession | null = null;
   private serverBridge: CopilotServerTurnBridge | null = null;
 
+  /**
+   * Node-local Copilot home for the routed account, or `null` for an
+   * installation-only probe (`checkStatus`, `listAvailableModels`) which
+   * issues no model request and therefore needs no account.
+   */
+  private readonly accountHomeDir: string | null;
+
   constructor(config: CopilotCliConfig = {}) {
     const launch = getDefaultCopilotCliLaunch();
+    // Account routing for the exec/server path (spec §10.3: "Both ACP mode and
+    // any exec/server fallback receive the same profile home and sanitized
+    // environment"). Without this, every turn through CopilotCliProvider runs
+    // against the ambient ~/.copilot account — the shared, racy selection this
+    // whole feature exists to replace.
+    const accountHomeDir = config.accountProfileId
+      ? resolveCopilotProfileHome(config.accountProfileId, {
+          isLegacy: config.accountIsLegacy || config.accountProfileId === COPILOT_LEGACY_PROFILE_ID,
+        })
+      : null;
     const adapterConfig: CliAdapterConfig = {
       command: launch.command,
       args: [...launch.argsPrefix],
       cwd: config.workingDir,
       timeout: config.timeout ?? 300_000,
       sessionPersistence: true,
+      ...(accountHomeDir
+        ? {
+            env: {
+              COPILOT_HOME: accountHomeDir,
+              ...(config.accountHost ? { COPILOT_GH_HOST: config.accountHost } : {}),
+            },
+            // An ambient token outranks Copilot's stored OAuth credentials, so
+            // leaving one in place would silently defeat the profile home.
+            envRemove: COPILOT_STRIPPED_AUTH_ENV_VARS,
+          }
+        : {}),
     };
     super(adapterConfig);
 
+    this.accountHomeDir = accountHomeDir;
     this.cliConfig = { ...config };
     this.sessionId = `copilot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   }
@@ -686,6 +755,13 @@ export class CopilotCliAdapter extends BaseCliAdapter {
     args.push('--output-format', 'json');
     args.push('--stream', 'on');
 
+    // Pin the CLI to the routed account's own state directory. `--config-dir`
+    // outranks COPILOT_HOME in the installed CLI, and both are set so neither
+    // an ambient COPILOT_HOME nor a missing flag can retarget the account.
+    if (this.accountHomeDir) {
+      args.push('--config-dir', this.accountHomeDir);
+    }
+
     // Keep startup fast: disable auto-update check and suppress the log file.
     args.push('--no-auto-update');
     args.push('--log-level', 'none');
@@ -763,6 +839,23 @@ export class CopilotCliAdapter extends BaseCliAdapter {
 
   /** WS14: attempt to open the persistent server-mode session (fail-soft). */
   private async tryStartServerMode(): Promise<void> {
+    // Account routing wins over server mode. The SDK's `CopilotClient` spawns
+    // its own runtime over a stdio connection and inherits this process's
+    // environment; its options are an opaque `Record<string, unknown>` and
+    // nothing in the installed bundle proves it forwards an env or a config
+    // directory. Spec §10.3 forbids process-global mutation as the workaround,
+    // so a routed session uses exec-per-message, where `--config-dir` and the
+    // child environment are both things this adapter sets explicitly.
+    //
+    // Cost: a routed session loses server-mode steering and real occupancy
+    // reporting. That is the correct trade against running a turn under an
+    // unverified GitHub account. Revisit if the SDK documents an env option.
+    if (this.accountHomeDir) {
+      logger.debug('Skipping Copilot server mode for a routed account session', {
+        reason: 'sdk-runtime-env-not-controllable',
+      });
+      return;
+    }
     const result = await startCopilotServerMode({
       workingDir: this.cliConfig.workingDir,
       model: this.cliConfig.model,
@@ -799,6 +892,22 @@ export class CopilotCliAdapter extends BaseCliAdapter {
   protected override async sendInputImpl(message: string, attachments?: unknown[]): Promise<void> {
     if (!this.isSpawned) {
       throw new Error('Adapter not spawned - call spawn() first');
+    }
+
+    // Fail closed on the request-producing path.
+    //
+    // `checkStatus()` (`--version`) and `listAvailableModels()` (`help config`)
+    // deliberately keep working without an account — they are
+    // installation-only probes that issue no model request, which is the
+    // exemption spec §10.2 grants them. A conversation turn is not exempt:
+    // without a routed account it would run against the ambient ~/.copilot
+    // selection, which is precisely the failure this feature removes.
+    if (!this.accountHomeDir) {
+      throw new Error(
+        'GitHub Copilot cannot send a message without a resolved account profile. '
+        + 'This is an internal routing error: the caller must resolve an account with '
+        + 'attachCopilotRoute() and pass `accountProfileId` when constructing the adapter.',
+      );
     }
 
     if (attachments && attachments.length > 0) {
@@ -921,15 +1030,16 @@ export class CopilotCliAdapter extends BaseCliAdapter {
    */
   async listAvailableModels(): Promise<CopilotModelInfo[]> {
     const now = Date.now();
-    if (cachedCopilotModels && (now - cachedCopilotModelsAt) < COPILOT_MODEL_DISCOVERY_CACHE_TTL_MS) {
-      return cachedCopilotModels;
+    const cache = copilotModelCacheFor(this.cliConfig.accountProfileId);
+    if (cache.models && (now - cache.at) < COPILOT_MODEL_DISCOVERY_CACHE_TTL_MS) {
+      return cache.models;
     }
 
-    if (copilotModelDiscoveryPromise) {
-      return copilotModelDiscoveryPromise;
+    if (cache.inFlight) {
+      return cache.inFlight;
     }
 
-    copilotModelDiscoveryPromise = new Promise<CopilotModelInfo[]>((resolve, reject) => {
+    cache.inFlight = new Promise<CopilotModelInfo[]>((resolve, reject) => {
       const proc = this.spawnProcess(['--no-auto-update', '--log-level', 'none', 'help', 'config']);
       let output = '';
       let errorOutput = '';
@@ -959,8 +1069,8 @@ export class CopilotCliAdapter extends BaseCliAdapter {
         const discoveredIds = parseCopilotModelIdsFromHelpConfig(output);
         if (code === 0 && discoveredIds.length > 0) {
           const models = ensureCopilotAutoModel(discoveredIds.map(toCopilotModelInfo));
-          cachedCopilotModels = models;
-          cachedCopilotModelsAt = Date.now();
+          cache.models = models;
+          cache.at = Date.now();
           resolve(models);
           return;
         }
@@ -982,10 +1092,10 @@ export class CopilotCliAdapter extends BaseCliAdapter {
       });
       return COPILOT_DEFAULT_MODELS;
     }).finally(() => {
-      copilotModelDiscoveryPromise = null;
+      cache.inFlight = null;
     });
 
-    return copilotModelDiscoveryPromise;
+    return cache.inFlight;
   }
 }
 

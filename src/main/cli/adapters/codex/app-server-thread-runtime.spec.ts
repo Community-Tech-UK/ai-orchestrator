@@ -177,6 +177,31 @@ describe('CodexAppServerThreadRuntime', () => {
     expect(permanent).toHaveBeenCalledTimes(3);
   });
 
+  it('emits exactly one heartbeat for each provider notification, including reasoning', async () => {
+    const runtime = new CodexAppServerThreadRuntime();
+    const client = new FakeClient();
+    runtime.attach(client, { threadId: 'thread-1', resumeCursor: cursor, resumeProof });
+    const options = captureOptions();
+    client.request.mockImplementation(async (method: string) => {
+      if (method !== 'turn/start') throw new Error(`unexpected method ${method}`);
+      client.emit('turn/started', { threadId: 'thread-1', turn: { id: 'turn-1' } });
+      client.emit('item/reasoning/summaryTextDelta', {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        delta: 'still reasoning',
+      });
+      client.emit('turn/completed', {
+        threadId: 'thread-1',
+        turn: { id: 'turn-1', status: 'completed' },
+      });
+      return { turn: { id: 'turn-1', status: 'inProgress' } };
+    });
+
+    await runtime.captureTurn(options);
+
+    expect(options.onHeartbeat).toHaveBeenCalledTimes(3);
+  });
+
   it('closes the owned client and connection observer exactly once', async () => {
     const runtime = new CodexAppServerThreadRuntime();
     const client = new FakeClient();

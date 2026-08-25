@@ -23,6 +23,7 @@ import { EventEmitter } from 'events';
 import { getLogger } from '../logging/logger';
 import {
   PROVIDER_MODEL_LIST,
+  RETIRED_PROVIDER_MODELS,
   clearKnownModelCatalogSnapshotForTesting,
   replaceKnownModelCatalogSnapshot,
   type ModelDisplayInfo,
@@ -417,6 +418,17 @@ export class UnifiedModelCatalogService extends EventEmitter {
       // `claude`). If so, skip — the static entry took precedence.
       const alreadyPresent = Array.from(next.values()).some((e) => e.id === devEntry.id);
       if (alreadyPresent) {
+        continue;
+      }
+      // A registry listing is not proof the provider's CLI still accepts the
+      // model. models.dev keeps publishing `xai/grok-4.5` after `grok models`
+      // dropped it, and `grok agent -m grok-4.5` exits 1 with "unknown model
+      // id". Re-adding it here would put it back in the picker and back in the
+      // snapshot the spawn-time validators trust — undoing the removal from
+      // PROVIDER_MODEL_LIST for the whole window before CLI discovery lands.
+      // Only this registry layer is filtered: a live CLI list or an explicit
+      // operator override saying the id is back is authoritative, this is not.
+      if ((RETIRED_PROVIDER_MODELS[provider] ?? []).includes(devEntry.id)) {
         continue;
       }
 

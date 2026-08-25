@@ -130,6 +130,14 @@
             [selectedAgentId]="selectedAgentId()"
             (agentSelected)="onAgentSelected($event)"
           />
+          <!-- Which GitHub Copilot account this session will use, and why.
+               Renders nothing for every other provider. -->
+          <app-copilot-account-chip
+            [provider]="draftPickerSelection().provider"
+            [workingDirectory]="workingDirectory()"
+            (blocked)="onCopilotRouteBlocked($event)"
+            (accountResolved)="onCopilotAccountResolved($event)"
+          />
           @if (showLaunchModeSelector()) {
             <div class="launch-mode-segments" role="group" aria-label="Claude launch mode">
               <button

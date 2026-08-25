@@ -86,3 +86,48 @@ export const PermissionAnalyzeShadowedRulesPayloadSchema = z.object({
 export const BashCommandPayloadSchema = z.object({
   command: z.string().min(1).max(100_000),
 });
+
+// ============ Workspace Secret Card ============
+//
+// The submit payload is the one place a plaintext credential legitimately crosses
+// the IPC boundary. Its handler must never forward it to an adapter, a logger, or
+// conversation history — see `secret.channels.ts` for why this lives on its own
+// channel rather than on INPUT_REQUIRED_RESPOND.
+
+/** Slug identifying a secret within a workspace (`github-pat`). */
+export const SecretNameSchema = z.string().min(1).max(64);
+
+export const SecretCardSubmitPayloadSchema = z.object({
+  instanceId: z.string().min(1),
+  requestId: z.string().min(1),
+  name: SecretNameSchema,
+  label: z.string().max(200).optional(),
+  purpose: z.string().max(500).optional(),
+  /**
+   * The credential. Bounded generously — an RSA private key is legitimately long —
+   * but bounded, so a runaway paste cannot be used to exhaust memory.
+   */
+  value: z.string().min(1).max(20_000),
+});
+
+export const SecretCardDeclinePayloadSchema = z.object({
+  instanceId: z.string().min(1),
+  requestId: z.string().min(1),
+  name: SecretNameSchema,
+  /** Optional short reason surfaced to the agent. Never a credential. */
+  reason: z.string().max(500).optional(),
+});
+
+export const SecretCardListPayloadSchema = z.object({
+  workingDirectory: z.string().min(1),
+});
+
+export const SecretCardForgetPayloadSchema = z.object({
+  workingDirectory: z.string().min(1),
+  name: SecretNameSchema,
+});
+
+export const SecretCardAuditPayloadSchema = z.object({
+  workingDirectory: z.string().min(1),
+  limit: z.number().int().min(1).max(1000).optional(),
+});

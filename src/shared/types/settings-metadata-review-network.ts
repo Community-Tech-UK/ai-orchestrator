@@ -74,6 +74,25 @@ export const REVIEW_NETWORK_SETTINGS_METADATA: SettingMetadata[] = [
     })),
   },
   {
+    // Managed from the dedicated GitHub Copilot Accounts settings section, which
+    // enforces the identity/verification flow. Hidden from the generic settings
+    // list so a raw JSON edit can't create a profile that was never signed in.
+    key: 'copilotAccountProfiles',
+    label: 'Copilot account profiles',
+    description: 'Which GitHub accounts AI Orchestrator may use for Copilot, each with its own isolated sign-in. Managed from the GitHub Copilot Accounts section. Set only from there — not changeable by agents.',
+    type: 'json',
+    category: 'review',
+    hidden: true,
+  },
+  {
+    key: 'copilotAccountRoutingRules',
+    label: 'Copilot routing rules',
+    description: 'Which GitHub repositories, owners, and work folders go to which Copilot account. Managed from the GitHub Copilot Accounts section. Set only from there — not changeable by agents.',
+    type: 'json',
+    category: 'review',
+    hidden: true,
+  },
+  {
     key: 'crossModelReviewLocalEnabled',
     label: 'Enable local reviewer',
     description: 'Run an additional review with the selected local model when one is available.',

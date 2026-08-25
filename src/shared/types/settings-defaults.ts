@@ -48,7 +48,7 @@ export const DEFAULT_REVIEWER_MODEL_BY_PROVIDER: Readonly<Record<RemoteReviewerP
   antigravity: 'Gemini 3.5 Flash (Medium)',
   copilot: COPILOT_MODELS.CLAUDE_SONNET_46,
   cursor: 'composer-2.5',
-  grok: GROK_MODELS.GROK_45,
+  grok: GROK_MODELS.GROK_46,
 };
 
 /**
@@ -240,6 +240,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
   crossModelReviewLocalTimeout: 120,
   crossModelReviewLocalMaxToolRounds: 12,
   providersExcludedFromAutomation: [],
+
+  // GitHub Copilot account routing. Empty until the legacy-profile migration
+  // runs on first launch (settings-migrations.ts), which binds the existing
+  // copilot-cli-home directory to a default profile without moving any files.
+  copilotAccountProfiles: [],
+  copilotAccountRoutingRules: [],
 
   // Conversational ping-pong review
   pingPongReviewerProvider: 'auto',

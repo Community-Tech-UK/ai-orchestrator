@@ -11,6 +11,7 @@ import type { ExecutionLocation } from '../../../shared/types/worker-node.types'
 import { requiresFreshConfiguredModelSpawn } from './create-validation-helpers';
 import { resolveSpawnReasoningEffort } from './reasoning-effort-resolution';
 import { resolveExecutionLocation } from './execution-location-resolver';
+import { attachCopilotRoute } from './copilot-route-preflight';
 
 export interface InstanceSpawnPreflightDeps {
   consumeWarmAdapter: (provider: CliType, workingDirectory: string) => CliAdapter | null;
@@ -55,6 +56,11 @@ export class InstanceSpawnPreflightChain {
     // sentinel — must spawn fresh instead of silently inheriting the default.
     const warmEffortMismatch =
       spawnOptions.reasoningEffort !== resolveSpawnReasoningEffort({}, provider);
+    // A warm adapter was spawned with whatever Copilot profile was current at
+    // warm time; reusing it for a session that resolves to a different account
+    // would send this workspace's prompts through the wrong GitHub identity.
+    // Cheap and unconditional: any Copilot create spawns fresh and routes.
+    const copilotRouteRequired = provider === 'copilot';
     const warmStartBlocked = Boolean(
       config.resume
       || config.forceNodeId
@@ -63,6 +69,7 @@ export class InstanceSpawnPreflightChain {
       || spawnOptions.browserGatewayMcp
       || needsFreshConfiguredModel
       || warmEffortMismatch
+      || copilotRouteRequired
       || instance.bareMode === true,
     );
 
@@ -76,12 +83,32 @@ export class InstanceSpawnPreflightChain {
     const executionLocation = resolveExecutionLocation(config);
     await this.deps.assertLocalModelRuntimeAvailable(config.modelRuntimeTarget);
 
+    // Copilot account resolution happens here, before adapter construction:
+    // the factory is synchronous and routing needs git/fs I/O. Covers
+    // interactive creation, respawn, and automations — every path that
+    // reaches instance creation. Throws `CopilotRoutingError` when no account
+    // can be resolved or verified, which the caller surfaces as an actionable
+    // state rather than a generic "Copilot unavailable".
+    const routedSpawnOptions = await attachCopilotRoute(
+      provider,
+      spawnOptions,
+      config.metadata?.['automationId'] ? 'automation' : 'interactive',
+      {
+        explicitProfileId: config.copilotAccountProfileId,
+        confirmProtectedOverride: config.copilotConfirmProtectedOverride,
+        // A resume/restore keeps the profile the session was created under.
+        persistedProfileId: config.resume ? config.copilotAccountProfileId : undefined,
+        executionNodeId:
+          executionLocation.type === 'remote' ? executionLocation.nodeId : undefined,
+      },
+    );
+
     if (executionLocation.type === 'remote') {
       return {
         kind: 'fresh',
         executionLocation,
         spawnOptions: {
-          ...spawnOptions,
+          ...routedSpawnOptions,
           mcpConfig: [],
           browserGatewayMcp: undefined,
         },
@@ -89,6 +116,6 @@ export class InstanceSpawnPreflightChain {
     }
 
     await this.deps.warmCodememWorkspace(instance.workingDirectory);
-    return { kind: 'fresh', executionLocation, spawnOptions };
+    return { kind: 'fresh', executionLocation, spawnOptions: routedSpawnOptions };
   }
 }

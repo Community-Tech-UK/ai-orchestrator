@@ -397,3 +397,36 @@ export const COMPUTER_USE_TAB_HELP: HelpEntry = {
     },
   ],
 };
+
+export const COPILOT_ACCOUNTS_TAB_HELP: HelpEntry = {
+  sections: [
+    {
+      kind: 'callout',
+      variant: 'info',
+      heading: 'What this does',
+      body: 'Lets you use more than one GitHub account for Copilot and decide which repositories go to which account. Each account signs in separately and keeps its own Copilot state, so two sessions can run at once under different accounts.',
+    },
+    {
+      kind: 'steps',
+      heading: 'Key actions',
+      items: [
+        'Add an account, then Sign in — a terminal opens running the GitHub sign-in for that account only.',
+        'Use Check the current workspace to see which account a checkout would use, and map its repository or owner.',
+        'Protect a work folder so anything inside it can never fall back to your personal account.',
+        'Set which account handles repositories you have not mapped.',
+      ],
+    },
+    {
+      kind: 'callout',
+      variant: 'warning',
+      heading: 'A protected scope blocks rather than falls back',
+      body: 'If a repository sits inside a protected folder or owner and its account cannot be worked out, Copilot is blocked for that session instead of quietly using another account. Fix the overlapping rules rather than removing the protection.',
+    },
+    {
+      kind: 'callout',
+      variant: 'info',
+      heading: 'Harness never holds your token',
+      body: 'Sign-in happens in GitHub’s own flow and the token stays in Copilot’s credential storage. Removing an account here does not sign you out of GitHub or cancel the subscription.',
+    },
+  ],
+};

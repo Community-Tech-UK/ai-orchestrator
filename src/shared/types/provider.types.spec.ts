@@ -5,6 +5,7 @@ import {
   CLAUDE_PINNED_MODELS,
   COPILOT_MODELS,
   DEFAULT_MODELS,
+  GROK_MODELS,
   MODEL_PRICING,
   MAX_MODEL_ID_LENGTH,
   OPENAI_MODELS,
@@ -278,6 +279,25 @@ describe('catalog-backed model normalization', () => {
     expect(normalizeModelForProvider('codex', 'not a model id')).toBe(
       getPrimaryModelForProvider('codex'),
     );
+  });
+
+  it('repairs a retired Grok id and trusts a catalog-only one', () => {
+    // `grok agent -m grok-4.5` exits 1 with "unknown model id" — xAI retired it
+    // from the CLI — so a stored selection must resolve to the current default
+    // rather than be forwarded and kill the spawn. A model `grok models` reports
+    // but the static list has not caught up with is trusted via the catalog.
+    replaceKnownModelCatalogSnapshot([
+      { provider: 'grok', id: 'grok-4.7' },
+    ]);
+
+    expect(normalizeModelForProvider('grok', 'grok-4.5')).toBe(
+      getPrimaryModelForProvider('grok'),
+    );
+    expect(getPrimaryModelForProvider('grok')).toBe(GROK_MODELS.GROK_46);
+    expect(normalizeModelForProvider('grok', GROK_MODELS.GROK_46)).toBe(GROK_MODELS.GROK_46);
+    expect(normalizeModelForProvider('grok', 'grok-4.7')).toBe('grok-4.7');
+    // The adapter reads `auto` as "omit -m"; normalization must not resolve it.
+    expect(normalizeModelForProvider('grok', 'auto')).toBe('auto');
   });
 
   it('degrades overlong dynamic model IDs before they reach runtime boundaries', () => {

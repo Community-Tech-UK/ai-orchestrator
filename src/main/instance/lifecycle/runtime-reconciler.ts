@@ -101,6 +101,7 @@ export class RuntimeReconciler {
       const oldProvider = instance.provider;
       const oldFastMode = instance.fastMode;
       const oldReasoningEffort = instance.reasoningEffort;
+      const oldCopilotProfileId = instance.copilotAccountProfileId;
       const localModelTarget = desired.modelRuntimeTarget?.kind === 'local-model'
         ? desired.modelRuntimeTarget
         : null;
@@ -210,6 +211,23 @@ export class RuntimeReconciler {
         }
       }
 
+      // Copilot account handoff. Terminating the old provider session and
+      // creating a new one is the ONLY way to move a conversation between
+      // GitHub accounts: a native resume would replay this conversation's
+      // context through the new seat under the old session's identity.
+      // Requires explicit confirmation because the context does cross.
+      if (diff.copilotAccountChanged) {
+        if (!desired.copilotAccountHandoffConfirmed) {
+          throw new Error(
+            'Switching this conversation to another GitHub Copilot account needs explicit confirmation: '
+            + 'the existing provider session is ended and the conversation context is sent through the new account.',
+          );
+        }
+        instance.copilotAccountProfileId = desired.copilotAccountProfileId;
+        instance.copilotRoutingSource = 'explicit';
+        instance.copilotRoutingRuleId = undefined;
+      }
+
       const cliType = await this.deps.resolveCliTypeForInstance(instance);
       const continuity = isYoloOnlyChange
         ? (hasConversation && oldAdapterCapabilities.supportsResume
@@ -234,7 +252,13 @@ export class RuntimeReconciler {
       // Mirrors spawn-time validation against CLI discovery + unified catalog snapshot.
       const modelToValidate = validatedModel;
       if (!localModelTarget && modelToValidate !== undefined) {
-        const knownModelIds = await getKnownModelsForCli(cliType);
+        // Keyed by the session's Copilot account: an account policy can deny an
+        // individual model, so a denial under one seat must not decide what is
+        // valid for the other.
+        const knownModelIds = await getKnownModelsForCli(
+          cliType,
+          instance.copilotAccountProfileId,
+        );
         const selection = resolveRuntimeChangeModel({
           provider: cliType,
           requestedModel: modelToValidate,
@@ -318,7 +342,7 @@ export class RuntimeReconciler {
         ...(localModelTarget ? { modelRuntimeTarget: localModelTarget } : {}),
       };
 
-      let adapter = this.deps.createRuntimeAdapter(cliType, spawnOptions, instance.executionLocation);
+      let adapter = await this.deps.createRuntimeAdapter(cliType, spawnOptions, instance.executionLocation);
       this.deps.setupAdapterEvents(instanceId, adapter);
       this.deps.setAdapter(instanceId, adapter);
 
@@ -347,7 +371,7 @@ export class RuntimeReconciler {
             instance.sessionId = fallbackOptions.sessionId;
             // LT-018: resume failed, identity is fresh — recompute occupancy.
             instance.contextUsage = resolveSwapContextUsage(instance.contextUsage, contextTotal, false);
-            adapter = this.deps.createRuntimeAdapter(cliType, fallbackOptions, instance.executionLocation);
+            adapter = await this.deps.createRuntimeAdapter(cliType, fallbackOptions, instance.executionLocation);
             this.deps.setupAdapterEvents(instanceId, adapter);
             this.deps.setAdapter(instanceId, adapter);
 
@@ -433,6 +457,14 @@ export class RuntimeReconciler {
             newModel: validatedModel,
             oldReasoningEffort,
             newReasoningEffort: nextReasoningEffort,
+            ...(diff.copilotAccountChanged
+              ? {
+                  copilotAccountChange: {
+                    oldProfileLabel: oldCopilotProfileId,
+                    newProfileLabel: instance.copilotAccountProfileId,
+                  },
+                }
+              : {}),
           }),
           divergence: isProviderSwap
             ? this.deps.describeLoopProviderDivergence?.(instanceId, instance.provider)
@@ -449,6 +481,12 @@ export class RuntimeReconciler {
           instance.fastMode = oldFastMode;
           instance.currentModel = oldCurrentModel;
           instance.reasoningEffort = oldReasoningEffort;
+        }
+        if (diff.copilotAccountChanged) {
+          // Same reasoning as the provider rollback above: a failed handoff
+          // must leave the session pointed at the account it can actually
+          // resume under, not the one it never reached.
+          instance.copilotAccountProfileId = oldCopilotProfileId;
         }
         this.deps.transitionState(instance, 'error');
         logger.error('Failed to apply runtime change', error instanceof Error ? error : undefined, { instanceId, newModel, targetProvider });
@@ -566,7 +604,7 @@ export class RuntimeReconciler {
       );
     }
 
-    let adapter = this.deps.createRuntimeAdapter(
+    let adapter = await this.deps.createRuntimeAdapter(
       request.cliType,
       request.spawnOptions,
       instance.executionLocation,
@@ -623,7 +661,7 @@ export class RuntimeReconciler {
         forkSession: false,
         sessionId: fallbackSessionId,
       };
-      adapter = this.deps.createRuntimeAdapter(
+      adapter = await this.deps.createRuntimeAdapter(
         request.cliType,
         fallbackOptions,
         instance.executionLocation,

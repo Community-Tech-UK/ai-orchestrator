@@ -31,6 +31,7 @@ import { ErrorCategory } from '../../shared/types/error-recovery.types';
 import { createAbortController, createChildAbortController } from '../util/abort-controller-tree';
 import { observeAdapterRuntimeEvents } from '../providers/adapter-runtime-event-bridge';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
+import { attachCopilotRoute } from '../instance/lifecycle/copilot-route-preflight';
 import {
   filterProvidersForAutomation,
   isProviderExcludedFromAutomation,
@@ -206,7 +207,12 @@ export class ConsensusCoordinator extends EventEmitter {
         yoloMode: false,
       };
 
-      adapter = getProviderRuntimeService().createAdapter({ cliType, options: spawnOptions });
+      // Copilot account routing: consensus fan-out picks providers on the
+      // user's behalf, so it carries the `consensus` origin.
+      adapter = getProviderRuntimeService().createAdapter({
+        cliType,
+        options: await attachCopilotRoute(cliType, spawnOptions, 'consensus'),
+      });
 
       // Spawn the process
       await adapter.spawn();

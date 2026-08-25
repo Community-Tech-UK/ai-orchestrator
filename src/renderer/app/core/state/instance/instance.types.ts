@@ -6,6 +6,7 @@ import type { AgentMode } from '../../../../../shared/types/agent.types';
 import type { ActivityState } from '../../../../../shared/types/activity.types';
 import type { HistoryRestoreMode } from '../../../../../shared/types/history.types';
 import type { ReasoningEffort } from '../../../../../shared/types/provider.types';
+import type { CopilotRouteSource } from '../../../../../shared/types/copilot-account.types';
 import type {
   InstanceRuntimeSummary,
   ModelRuntimeTarget,
@@ -109,6 +110,14 @@ export interface Instance {
   agentId: string; // Agent profile ID ('build', 'plan', 'review', etc.)
   agentMode: AgentMode; // Agent mode type
   provider: InstanceProvider; // CLI provider being used
+  /**
+   * The GitHub Copilot account profile this session was created under, mirrored
+   * from the main-process record (see `serializeInstance`). The renderer shows
+   * it as provenance; it never derives a home path or re-routes from it.
+   */
+  copilotAccountProfileId?: string;
+  /** How that account was chosen, for the badge tooltip. */
+  copilotRoutingSource?: CopilotRouteSource;
   status: InstanceStatus;
   contextUsage: ContextUsage;
   lastActivity: number;
@@ -230,6 +239,10 @@ export interface CreateInstanceConfig {
   browserToolsMode?: 'eager' | 'deferred' | 'off';
   /** WS13 — spawn the CLI inside the macOS Seatbelt jail. */
   hardened?: boolean;
+  /** Explicit GitHub Copilot account for this session (validated safe slug). */
+  copilotAccountProfileId?: string;
+  /** The user confirmed an override that leaves a protected Copilot scope. */
+  copilotConfirmProtectedOverride?: boolean;
 }
 
 // ============================================

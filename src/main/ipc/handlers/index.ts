@@ -19,6 +19,8 @@ export { registerPermissionRegistryHandlers } from './permission-registry-handle
 export { registerTodoHandlers } from './todo-handlers';
 export { registerDocReviewHandlers } from './doc-review-handlers';
 export { registerSecurityHandlers } from './security-handlers';
+export { registerSecretCardHandlers } from './secret-card-handlers';
+export { registerCopilotAccountHandlers } from './copilot-account-handlers';
 export { registerDebugHandlers } from './debug-handlers';
 export { registerCostHandlers } from './cost-handlers';
 export { registerQuotaHandlers } from './quota-handlers';

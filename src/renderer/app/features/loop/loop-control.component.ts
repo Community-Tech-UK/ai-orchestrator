@@ -19,12 +19,15 @@ import {
   activityKindLabel,
   buildInspectorProgress,
   completionGateSteps,
+  displayIterationNumber,
+  effectiveLoopExecutionPath,
   formatCostCents,
   humanDuration,
   humanTokens,
   loopPauseReason,
   loopStatusPill,
   managedWorktreeStatus,
+  progressVerdictView,
   shortTime,
   summaryHasDistinctIterationPrompt as hasDistinctIterationPrompt,
   summarizeToolDetail,
@@ -119,10 +122,10 @@ import { RendererPollSchedulerService } from '../../core/services/renderer-poll-
           <span class="ls-pill" [attr.data-pill]="pill.kind">{{ pill.label }}</span>
         }
         @if (latestVerdict(); as verdict) {
-          <span class="ls-verdict" [attr.data-verdict]="verdict" title="Latest progress verdict">{{ verdict }}</span>
+          <span class="ls-verdict" [attr.data-verdict]="verdict.value" [title]="verdict.title">{{ verdict.label }}</span>
         }
         <span class="ls-text">
-          {{ runningIteration() ? ('iteration ' + runningIteration()!.seq + ' running') : (a.totalIterations + ' iterations run') }}/{{ iterationCapLabel(a.config.caps.maxIterations) }}
+          {{ runningIteration() ? ('iteration ' + iterationNumber(runningIteration()!.seq) + ' running') : (a.totalIterations + ' iterations run') }}/{{ iterationCapLabel(a.config.caps.maxIterations) }}
           · stage {{ runningIteration()?.stage ?? a.currentStage }}
           · current {{ runningIteration() ? duration(currentIterationElapsed()) : 'idle' }}
           · total {{ duration(elapsed()) }}
@@ -228,7 +231,7 @@ import { RendererPollSchedulerService } from '../../core/services/renderer-poll-
       <div class="loop-activity">
         <div class="la-title">
           <span>Live loop activity</span>
-          <code>{{ a.config.workspaceCwd }}</code>
+          <code>{{ executionPath(a.config) }}</code>
         </div>
         @if (activity().length > 0) {
           <div class="la-list">
@@ -276,7 +279,7 @@ import { RendererPollSchedulerService } from '../../core/services/renderer-poll-
           @if (currentIterationStats(); as cur) {
             <div class="li-current">
               <div class="li-current-head">
-                <span>iter {{ cur.seq }} · {{ cur.stage }} · in progress…</span>
+                <span>iter {{ iterationNumber(cur.seq) }} · {{ cur.stage }} · in progress…</span>
                 <span>{{ duration(currentIterationElapsed()) }} · {{ cur.toolCount }} tool calls</span>
               </div>
               @if (cur.toolBreakdown) {
@@ -298,7 +301,7 @@ import { RendererPollSchedulerService } from '../../core/services/renderer-poll-
               @for (iter of inspectorIterations(); track iter.id) {
                 <details class="li-iter" [open]="iter.seq === latestIterationSeq()">
                   <summary>
-                    <span>iter {{ iter.seq }} · {{ iter.stage }} · {{ iter.progressVerdict }}</span>
+                    <span>iter {{ iterationNumber(iter.seq) }} · {{ iter.stage }} · {{ iter.progressVerdict }}</span>
                     <span>{{ duration(iterationDuration(iter)) }} · {{ tokens(iter.tokens) }} · {{ cost(iter.costCents) }}</span>
                   </summary>
                   <div class="li-grid">
@@ -430,7 +433,7 @@ import { RendererPollSchedulerService } from '../../core/services/renderer-poll-
             @if (li.outputFull || li.outputExcerpt) {
               <div class="lsum-recap-output">
                 <div class="lsum-recap-output-head">
-                  <div class="lsum-recap-label">Final response (iter {{ li.seq }} · {{ li.stage }})</div>
+                  <div class="lsum-recap-label">Final response (iter {{ iterationNumber(li.seq) }} · {{ li.stage }})</div>
                   <button
                     type="button"
                     class="lsum-recap-copy"
@@ -462,23 +465,23 @@ import { RendererPollSchedulerService } from '../../core/services/renderer-poll-
             class="lsum-prompt-btn"
             (click)="onCopyInitialPrompt(s.initialPrompt)"
             [disabled]="!s.initialPrompt"
-            [title]="copiedSummaryPart() === 'initial' ? 'Copied!' : 'Copy the iteration-0 prompt'"
+            [title]="copiedSummaryPart() === 'initial' ? 'Copied!' : 'Copy the first-iteration prompt'"
           >{{ copiedSummaryPart() === 'initial' ? 'Copied ✓' : 'Copy prompt' }}</button>
           @if (summaryHasDistinctIterationPrompt(s)) {
             <button
               type="button"
               class="lsum-prompt-btn"
               (click)="onCopyIterationPrompt(s.iterationPrompt!)"
-              [title]="copiedSummaryPart() === 'iteration' ? 'Copied!' : 'Copy the iteration-1+ continuation directive'"
+              [title]="copiedSummaryPart() === 'iteration' ? 'Copied!' : 'Copy the later-iteration continuation directive'"
             >{{ copiedSummaryPart() === 'iteration' ? 'Copied ✓' : 'Copy continuation' }}</button>
           }
         </div>
         @if (promptExpanded()) {
           <div class="lsum-prompt-block">
-            <div class="lsum-prompt-label">Iteration 0 prompt</div>
+            <div class="lsum-prompt-label">First iteration prompt</div>
             <pre class="lsum-prompt-pre">{{ s.initialPrompt }}</pre>
             @if (summaryHasDistinctIterationPrompt(s)) {
-              <div class="lsum-prompt-label">Iteration 1+ continuation</div>
+              <div class="lsum-prompt-label">Later-iteration continuation</div>
               <pre class="lsum-prompt-pre">{{ s.iterationPrompt }}</pre>
             }
           </div>
@@ -598,8 +601,13 @@ export class LoopControlComponent implements OnDestroy {
     });
   });
 
-  /** Latest per-iteration progress verdict (OK / WARN / CRITICAL), or null. */
-  latestVerdict = computed(() => this.active()?.lastIteration?.progressVerdict ?? null);
+  /** Latest completed-iteration verdict, labelled explicitly during an in-flight iteration. */
+  latestVerdict = computed(() => {
+    const active = this.active();
+    const value = active?.lastIteration?.progressVerdict;
+    if (!value) return null;
+    return { value, ...progressVerdictView(value, active.status === 'running') };
+  });
 
   /** Completion-gate stepper steps for the active loop. */
   gateSteps = computed(() => {
@@ -890,7 +898,7 @@ export class LoopControlComponent implements OnDestroy {
   // ────── summary card actions ──────
 
   async onCopyInitialPrompt(prompt: string): Promise<void> {
-    await this.copySummaryPrompt(prompt, 'initial', 'iteration-0 prompt');
+    await this.copySummaryPrompt(prompt, 'initial', 'first-iteration prompt');
   }
 
   async onCopyIterationPrompt(prompt: string): Promise<void> {
@@ -1090,6 +1098,8 @@ export class LoopControlComponent implements OnDestroy {
   protected readonly time = shortTime;
   protected readonly kindLabel = activityKindLabel;
   protected readonly toolDetail = summarizeToolDetail;
+  protected readonly iterationNumber = displayIterationNumber;
+  protected readonly executionPath = effectiveLoopExecutionPath;
   protected readonly iterationCapLabel = (maxIterations: number | null): string =>
     maxIterations === null ? '∞' : String(maxIterations);
   protected readonly summaryStatusLabel = terminalStatusLabel;

@@ -49,6 +49,11 @@ describe('initializeUnifiedModelCatalogRuntime', () => {
         events.push('cursorCopilotDiscovery');
       }),
     };
+    const grokDiscovery = {
+      start: vi.fn(() => {
+        events.push('grokDiscovery');
+      }),
+    };
 
     await initializeUnifiedModelCatalogRuntime({
       userDataPath: '/tmp/aio-user-data',
@@ -58,6 +63,7 @@ describe('initializeUnifiedModelCatalogRuntime', () => {
       modelsDevService: modelsDev,
       codexDiscoveryService: codexDiscovery,
       cursorCopilotDiscoveryService: cursorCopilotDiscovery,
+      grokDiscoveryService: grokDiscovery,
       localModelInventoryService: localModelInventoryService(),
       logger: { warn: vi.fn() },
     });
@@ -71,6 +77,10 @@ describe('initializeUnifiedModelCatalogRuntime', () => {
     ]);
     expect(codexDiscovery.start).toHaveBeenCalledOnce();
     expect(cursorCopilotDiscovery.start).toHaveBeenCalledOnce();
+    // Every discovery service must be injected here: an un-mocked one falls
+    // through to its real singleton and spawns the actual provider CLI from a
+    // unit test, making the run depend on what happens to be installed.
+    expect(grokDiscovery.start).toHaveBeenCalledOnce();
     expect(attachedEntries.map((entry) => `${entry.provider}:${entry.id}`)).toEqual([
       'claude:claude-local-opus',
       'gemini:gemini-remote-pro',
@@ -114,6 +124,7 @@ describe('initializeUnifiedModelCatalogRuntime', () => {
       modelsDevService: modelsDevService(),
       codexDiscoveryService: { start: vi.fn() },
       cursorCopilotDiscoveryService: { start: vi.fn() },
+      grokDiscoveryService: { start: vi.fn() },
       localModelInventoryService,
       logger: { warn: vi.fn() },
     });
@@ -167,6 +178,7 @@ describe('initializeUnifiedModelCatalogRuntime', () => {
       modelsDevService: modelsDevService(),
       codexDiscoveryService: { start: vi.fn() },
       cursorCopilotDiscoveryService: { start: vi.fn() },
+      grokDiscoveryService: { start: vi.fn() },
       localModelInventoryService,
       logger,
     });

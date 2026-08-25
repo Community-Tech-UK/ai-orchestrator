@@ -761,6 +761,12 @@ describe('Loop Mode invoker plumbing', () => {
         expect.objectContaining({
           loopRunId: 'loop-1',
           seq: 0,
+          kind: 'status',
+          message: 'Iteration 1 starting in /Users/test/Minecraft',
+        }),
+        expect.objectContaining({
+          loopRunId: 'loop-1',
+          seq: 0,
           kind: 'tool_use',
           message: 'Using tool: Read',
         }),

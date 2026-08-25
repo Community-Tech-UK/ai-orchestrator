@@ -35,6 +35,33 @@ import {
 
 export const COPILOT_ORCHESTRATOR_HOME_ENV = 'AI_ORCHESTRATOR_COPILOT_HOME';
 export const COPILOT_ORCHESTRATOR_HOME_DIR = 'copilot-cli-home';
+/** Worker-agent state root override; unset on the Electron controller. */
+export const COPILOT_STATE_ROOT_ENV = 'AI_ORCHESTRATOR_STATE_ROOT';
+
+/**
+ * Ambient authentication variables removed from every Copilot child.
+ *
+ * Copilot CLI resolves credentials as
+ * `authFindClassicPatEnvVar(COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN)`
+ * BEFORE consulting stored OAuth credentials, so any of the first three
+ * inherited from the AIO process would override the account the profile home
+ * selects. The CLI additionally promotes `GITHUB_COPILOT_GITHUB_TOKEN` into
+ * `GITHUB_TOKEN` for its own children and forwards `GITHUB_COPILOT_API_TOKEN`,
+ * and `GITHUB_TOKEN_VARNAME` is a name-indirection that can point at any of
+ * them — so all six go.
+ *
+ * `GH_HOST` is deliberately NOT stripped: host selection is
+ * `githubGetHost(COPILOT_GH_HOST, GH_HOST)`, and the adapter sets
+ * `COPILOT_GH_HOST` from the resolved profile, which outranks it.
+ */
+export const COPILOT_STRIPPED_AUTH_ENV_VARS = [
+  'COPILOT_GITHUB_TOKEN',
+  'GH_TOKEN',
+  'GITHUB_TOKEN',
+  'GITHUB_COPILOT_GITHUB_TOKEN',
+  'GITHUB_COPILOT_API_TOKEN',
+  'GITHUB_TOKEN_VARNAME',
+] as const;
 
 const BROWSER_GATEWAY_SYSTEM_PROMPT = [
   '[Browser Gateway]',
@@ -115,11 +142,27 @@ export function buildCopilotSpawnEnv(parent: NodeJS.ProcessEnv = process.env): R
       env[key] = value;
     }
   }
+  // Removed at CONSTRUCTION, before anything can log this object. A token
+  // variable outranks Copilot's stored OAuth credentials, so leaving one in
+  // place would silently defeat account routing — the child would authenticate
+  // as whoever the ambient token belongs to, whatever profile home it was
+  // given. `mergeSpawnEnv`'s secret filter is not a substitute: it only runs
+  // when `options.filterEnv` is set, which is true for contained-execution
+  // instances alone.
+  for (const key of COPILOT_STRIPPED_AUTH_ENV_VARS) {
+    delete env[key];
+  }
   env['NODE_OPTIONS'] = merged;
   return env;
 }
 
-function getElectronUserDataPath(): string | undefined {
+/**
+ * Electron's userData directory, or `undefined` outside Electron (tests, the
+ * worker agent). Exported so the Copilot profile-home resolver derives its
+ * profiles root from the same base as the legacy home rather than a second,
+ * drifting copy of this lookup.
+ */
+export function getElectronUserDataPath(): string | undefined {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const electron = require('electron') as {
@@ -134,12 +177,31 @@ function getElectronUserDataPath(): string | undefined {
   }
 }
 
+/**
+ * Root directory that Copilot state lives under.
+ *
+ * Order matters:
+ *   1. `AI_ORCHESTRATOR_STATE_ROOT` — set by the WORKER AGENT, which runs
+ *      outside Electron and whose state belongs in `~/.orchestrator` rather
+ *      than a temp directory that a reboot clears (which would silently
+ *      un-sign-in every Copilot account on that node).
+ *   2. Electron's userData — the controller.
+ *   3. A temp fallback for tests and any other non-Electron context.
+ *
+ * Unset on the controller, so controller behaviour is byte-identical to before
+ * this variable existed.
+ */
+export function getCopilotStateRoot(parent: NodeJS.ProcessEnv = process.env): string {
+  const workerRoot = parent[COPILOT_STATE_ROOT_ENV]?.trim();
+  if (workerRoot) {
+    return workerRoot;
+  }
+  return getElectronUserDataPath() ?? join(tmpdir(), 'ai-orchestrator');
+}
+
 export function getCopilotOrchestratorHome(parent: NodeJS.ProcessEnv = process.env): string {
   const explicit = parent[COPILOT_ORCHESTRATOR_HOME_ENV]?.trim();
-  const homeDir = explicit || join(
-    getElectronUserDataPath() ?? join(tmpdir(), 'ai-orchestrator'),
-    COPILOT_ORCHESTRATOR_HOME_DIR
-  );
+  const homeDir = explicit || join(getCopilotStateRoot(parent), COPILOT_ORCHESTRATOR_HOME_DIR);
   mkdirSync(homeDir, { recursive: true });
   return homeDir;
 }

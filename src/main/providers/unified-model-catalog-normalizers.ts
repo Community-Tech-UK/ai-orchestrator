@@ -94,6 +94,8 @@ export function normalizeModelsDevProviderNamespace(provider: string): string {
       return 'codex';
     case 'github-copilot':
       return 'copilot';
+    case 'xai':
+      return 'grok';
     default:
       return normalized;
   }

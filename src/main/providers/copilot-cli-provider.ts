@@ -25,6 +25,7 @@
 
 import { BaseProvider } from './provider-interface';
 import { CopilotCliAdapter, CopilotCliConfig } from '../cli/adapters/copilot-cli-adapter';
+import { attachCopilotRoute } from '../instance/lifecycle/copilot-route-preflight';
 import type {
   ProviderType,
   ProviderCapabilities,
@@ -123,6 +124,22 @@ export class CopilotCliProvider extends BaseProvider {
 
     this.instanceId = options.instanceId ?? '';
 
+    // Resolve the GitHub Copilot account BEFORE constructing the adapter.
+    //
+    // This provider is the exec-mode entry point (the CLI verification
+    // dashboard reaches it through `verification:start-cli`), and it is a
+    // genuine request-producing path — so it routes like every other one.
+    // `attachCopilotRoute` throws a typed `CopilotRoutingError` when no account
+    // can be resolved or verified, which surfaces as this provider failing to
+    // initialize rather than a turn silently running under the ambient
+    // ~/.copilot account.
+    const routedOptions = await attachCopilotRoute(
+      'copilot',
+      { workingDirectory: options.workingDirectory },
+      'verification',
+    );
+    const route = routedOptions.copilotAccountRoute;
+
     // Map session options to Copilot CLI config. Copilot sessions now default
     // to Gemini 3.1 Pro unless the caller explicitly overrides the model.
     const copilotConfig: CopilotCliConfig = {
@@ -131,6 +148,13 @@ export class CopilotCliProvider extends BaseProvider {
       systemPrompt: options.systemPrompt,
       yoloMode: options.yoloMode,
       timeout: 300000,
+      ...(route
+        ? {
+            accountProfileId: route.profileId,
+            ...(route.host ? { accountHost: route.host } : {}),
+            accountIsLegacy: route.source === 'legacy',
+          }
+        : {}),
     };
 
     this.adapter = new CopilotCliAdapter(copilotConfig);

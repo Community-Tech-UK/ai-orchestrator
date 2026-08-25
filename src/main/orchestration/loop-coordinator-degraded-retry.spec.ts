@@ -415,6 +415,7 @@ describe('LoopCoordinator degraded iteration retry', () => {
       // NO replay happened — the writes-observed attempt sealed the run.
       expect(invokeCount).toBe(1);
       const final = coordinator.getLoop(state.id);
+      expect(final?.endReason).toContain('Iteration 1 paused for review');
       expect(final?.endReason).toContain('double-apply');
       expect(final?.endEvidence?.['workspaceEffect']).toBe('writes-observed');
       expect(final?.endEvidence?.['changedPaths']).toEqual(['src/half-written.ts']);

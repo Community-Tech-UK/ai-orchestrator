@@ -5,6 +5,7 @@ export type SettingsTab =
   | 'general'
   | 'orchestration'
   | 'connections'
+  | 'copilot-accounts'
   | 'network'
   | 'voice'
   | 'memory'
@@ -199,6 +200,13 @@ export const NAV_ITEMS: SettingsNavItem[] = [
     summary: 'Connect external services that can control Orchestrator remotely.',
     group: 'Network & Remote',
     keywords: 'providers accounts auth login',
+  },
+  {
+    id: 'copilot-accounts',
+    label: 'Copilot Accounts',
+    summary: 'Decide which GitHub account Copilot uses for which repositories.',
+    group: 'Network & Remote',
+    keywords: 'copilot github account enterprise personal routing repository owner seat licence login',
   },
   {
     id: 'voice',

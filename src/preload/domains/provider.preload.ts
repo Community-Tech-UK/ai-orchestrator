@@ -127,9 +127,20 @@ export function createProviderDomain(
      * Open a terminal running the provider's interactive sign-in command.
      * The renderer sends only the provider id; the main process owns the
      * command table.
+     *
+     * `copilotProfile` scopes a Copilot sign-in to one account profile. It
+     * carries a validated profile ID and host ONLY — main derives that
+     * profile's COPILOT_HOME itself, so the renderer never supplies a path,
+     * a command, or an environment map.
      */
-    runProviderLogin: (provider: string): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.PROVIDER_RUN_LOGIN, withAuth({ provider }));
+    runProviderLogin: (
+      provider: string,
+      copilotProfile?: { profileId: string; host?: string },
+    ): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(
+        ch.PROVIDER_RUN_LOGIN,
+        withAuth({ provider, ...(copilotProfile ? { copilotProfile } : {}) }),
+      );
     },
 
     /**

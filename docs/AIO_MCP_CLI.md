@@ -157,12 +157,13 @@ Because of that, the two surfaces have different write boundaries:
 The `CLI-Write` column (`cliWritable` under `--json`) answers "can this CLI
 change it". The `Policy` column reports the safe MCP tool tier instead, so a
 `read-only` policy does not imply the CLI is blocked. `CLI-Write: no` marks the
-18 operator-only authorization anchors — the two credential-vault unlock keys,
+20 operator-only authorization anchors — the two credential-vault unlock keys,
 shared-tab credential fill, the five Computer Use policy keys, the four
 Microsoft Graph OAuth and calendar-allowlist keys, the context-evidence rollout
 mode, the three Local AI Guard fallback-policy and budget keys, the
-WS-B1 per-project PR-creation opt-in map (`allowPrCreation`), and the
-licence-scoping automation-provider block-list (`providersExcludedFromAutomation`).
+WS-B1 per-project PR-creation opt-in map (`allowPrCreation`), the licence-scoping
+automation-provider block-list (`providersExcludedFromAutomation`), and the two GitHub
+Copilot account-routing keys (`copilotAccountProfiles`, `copilotAccountRoutingRules`).
 Those are changed from the Settings UI by the operator, never by an agent.
 `PRIVILEGED_CLI_OPERATOR_ONLY_KEYS` in
 `src/main/core/config/settings-control-policy.ts` is the authoritative list.

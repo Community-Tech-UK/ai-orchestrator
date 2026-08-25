@@ -1,5 +1,8 @@
+import { EventEmitter } from 'events';
 import { describe, it, expect } from 'vitest';
-import { boundActivityDetail } from './loop-invocation-activity';
+import type { CliAdapter } from '../cli/adapters/adapter-factory';
+import { createLoopInvocationCapture } from './loop-invoker-capture';
+import { attachInvocationActivity, boundActivityDetail } from './loop-invocation-activity';
 
 /**
  * LT-021 follow-up. Widening the renderer-boundary schema means `tool_use` and
@@ -67,5 +70,55 @@ describe('boundActivityDetail', () => {
     boundActivityDetail(original);
     expect(original.result).toBe(snapshot);
     expect(original.result.length).toBe(2500);
+  });
+});
+
+describe('attachInvocationActivity', () => {
+  it('preserves adapter tool identity so a matching result settles the capture', () => {
+    const emitter = new EventEmitter();
+    const capture = createLoopInvocationCapture({ workspaceDir: '/workspace/project' });
+    const detach = attachInvocationActivity(emitter as unknown as CliAdapter, capture.recordActivity);
+
+    emitter.emit('output', {
+      type: 'tool_use',
+      content: 'Running command: npm run test:quiet',
+      metadata: {
+        id: 'cmd-1',
+        name: 'Bash',
+        input: { command: 'npm run test:quiet' },
+      },
+    });
+    emitter.emit('output', {
+      type: 'tool_result',
+      content: 'Command exited with code 0',
+      metadata: { id: 'cmd-1', name: 'Bash', is_error: false },
+    });
+    detach();
+
+    expect(capture.finalize()).toMatchObject({
+      unresolvedToolCalls: false,
+      toolCalls: [{ toolName: 'Bash', success: true, resultHash: expect.any(String) }],
+    });
+  });
+
+  it('preserves distinct output content when tool input metadata is missing', () => {
+    const emitter = new EventEmitter();
+    const capture = createLoopInvocationCapture({ workspaceDir: '/workspace/project' });
+    const detach = attachInvocationActivity(emitter as unknown as CliAdapter, capture.recordActivity);
+
+    emitter.emit('output', {
+      type: 'tool_use',
+      content: 'Running command: npm run lint',
+      metadata: { id: 'cmd-1', name: 'Bash' },
+    });
+    emitter.emit('output', {
+      type: 'tool_use',
+      content: 'Running command: npm run test:quiet',
+      metadata: { id: 'cmd-2', name: 'Bash' },
+    });
+    detach();
+
+    const [lintCall, testCall] = capture.finalize().toolCalls;
+    expect(lintCall.argsHash).not.toBe(testCall.argsHash);
   });
 });

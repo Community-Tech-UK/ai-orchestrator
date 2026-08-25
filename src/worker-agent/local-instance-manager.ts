@@ -30,6 +30,20 @@ export interface SpawnParams {
   forkSession?: boolean;
   mcpConfig?: string[];
   nodePlacement?: NodePlacementPrefs;
+  /**
+   * GitHub Copilot account routing metadata from the controller (spec §13).
+   *
+   * Safe metadata only: a profile ID, the identity the controller expects, and
+   * the normalized host. This worker derives its OWN profile home under its own
+   * AIO state directory and verifies its OWN local binding — credentials and
+   * controller paths never travel.
+   */
+  copilotAccountRoute?: {
+    profileId: string;
+    expectedLogin?: string | null;
+    host?: string;
+    source?: string;
+  };
 }
 
 type WorkerManagedAdapter = EventEmitter & {
@@ -209,6 +223,51 @@ export class LocalInstanceManager extends EventEmitter {
     inst.watchdogTimer = null;
   }
 
+  /**
+   * Verify this node's own Copilot binding for the requested profile.
+   *
+   * Dynamic imports throughout: the worker agent must not pull Electron in at
+   * module load time, and these modules sit in the main-process tree.
+   *
+   * @throws when the profile is not signed in HERE as the expected identity.
+   */
+  private async assertCopilotBinding(route: {
+    profileId: string;
+    expectedLogin?: string | null;
+    host?: string;
+  }): Promise<void> {
+    const { CopilotAccountBindingService } = await import(
+      '../main/providers/copilot/copilot-account-binding-service'
+    );
+    const status = await new CopilotAccountBindingService().checkBinding(
+      {
+        id: route.profileId,
+        label: route.profileId,
+        expectedLogin: route.expectedLogin ?? null,
+        host: route.host ?? 'github.com',
+        accountKind: 'personal',
+        scopePolicy: 'default-eligible',
+        automationPolicy: 'allow-routed',
+        isDefault: false,
+        createdAt: 0,
+        updatedAt: 0,
+      },
+      'worker',
+    );
+    if (status.state === 'authenticated') {
+      return;
+    }
+    const remedy = status.state === 'identity-mismatch'
+      ? `it is signed in as a different GitHub identity here${status.observedLogin ? ` (${status.observedLogin})` : ''}`
+      : status.state === 'unauthenticated'
+        ? 'it is not signed in on this node'
+        : `its state could not be read on this node (${status.errorCode ?? 'unavailable'})`;
+    throw new Error(
+      `GitHub Copilot account "${route.profileId}" cannot run on this node: ${remedy}. `
+      + 'Sign in for that account on this node, or place the session elsewhere.',
+    );
+  }
+
   async spawn(params: SpawnParams): Promise<void> {
     // Enforce working directory sandboxing
     const resolved = path.resolve(params.workingDirectory);
@@ -262,6 +321,14 @@ export class LocalInstanceManager extends EventEmitter {
       // only include the CLI adapters that are used.
       const { createCliAdapter } = await import('../main/cli/adapters/adapter-factory');
       this.assertSpawnNotShuttingDown(params.instanceId);
+      // Node-local Copilot binding. The controller cannot read this machine's
+      // Copilot state, so the account it resolved is only a REQUEST until this
+      // worker confirms the profile is signed in here as the expected
+      // identity. Failing closed here is what stops a worker silently running
+      // the request under whatever account its Copilot home happens to hold.
+      if (params.cliType === 'copilot' && params.copilotAccountRoute) {
+        await this.assertCopilotBinding(params.copilotAccountRoute);
+      }
       const adapter: WorkerManagedAdapter = createCliAdapter(params.cliType, {
         sessionId: params.instanceId,
         workingDirectory: params.workingDirectory,
@@ -276,6 +343,19 @@ export class LocalInstanceManager extends EventEmitter {
         mcpConfig: params.mcpConfig,
         env: Object.keys(env).length > 0 ? env : undefined,
         nodePlacement: params.nodePlacement,
+        ...(params.copilotAccountRoute
+          ? {
+              copilotAccountRoute: {
+                profileId: params.copilotAccountRoute.profileId,
+                source: 'persisted' as const,
+                executionNodeId: 'worker',
+                expectedLogin: params.copilotAccountRoute.expectedLogin ?? null,
+                ...(params.copilotAccountRoute.host
+                  ? { host: params.copilotAccountRoute.host }
+                  : {}),
+              },
+            }
+          : {}),
         ...(chromeDevtoolsMcp ? { chromeDevtoolsMcp } : {}),
         ...(mobileMcp ? { mobileMcp } : {}),
       });

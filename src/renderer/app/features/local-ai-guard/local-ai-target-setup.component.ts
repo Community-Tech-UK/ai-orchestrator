@@ -21,69 +21,17 @@ import type {
 } from '../../../../shared/types/local-ai-guard.types';
 import { LOCAL_AI_TARGET_NUMERIC_LIMITS } from '../../../../shared/types/local-ai-guard.types';
 import { LocalAiGuardStore } from '../../core/state/local-ai-guard.store';
-
-interface SetupForm {
-  expectedModels: string[];
-  expectedModelRules: LocalAiTargetConfig['expectedModels'];
-  canaryModel: string;
-  endpointIntervalSeconds: number;
-  canaryIntervalMinutes: number;
-  canaryTimeoutSeconds: number;
-  freshnessSeconds: number;
-  warningLatencyMs: number;
-  routingRoles: AuxiliaryLlmSlot[];
-  fallbackPolicy: LocalAiFallbackPolicy;
-  slotFallbackPolicies: LocalAiTargetConfig['slotFallbackPolicies'];
-  confirmAboveInputTokens?: number;
-  dailyFallbackBudgetUsd?: number;
-  incidentFallbackBudgetUsd?: number;
-  automaticRepair: boolean;
-  maxAttempts: number;
-  cooldownMinutes: number;
-}
-
-interface RoleOption {
-  value: AuxiliaryLlmSlot;
-  label: string;
-}
+import {
+  DEFAULT_LOCAL_AI_TARGET_SETUP_FORM,
+  LOCAL_AI_ROLE_OPTIONS,
+  type LocalAiTargetSetupForm,
+} from './local-ai-target-setup.defaults';
 
 interface ValidationLayer {
   id: 'worker' | 'endpoint' | 'model' | 'canary';
   label: string;
   result?: LocalAiProbeResult;
 }
-
-const ROLE_OPTIONS: readonly RoleOption[] = [
-  { value: 'compression', label: 'Compression' },
-  { value: 'memoryDistillation', label: 'Memory distillation' },
-  { value: 'webExtract', label: 'Web extraction' },
-  { value: 'titleGeneration', label: 'Title generation' },
-  { value: 'routingClassification', label: 'Routing classification' },
-  { value: 'approvalScoring', label: 'Approval scoring' },
-  { value: 'approvalAdjudication', label: 'Approval adjudication' },
-  { value: 'loopScoring', label: 'Loop scoring' },
-  { value: 'retrievalHypothesis', label: 'Retrieval hypothesis' },
-  { value: 'branchScoring', label: 'Branch scoring' },
-  { value: 'subQueryExecution', label: 'Sub-query execution' },
-  { value: 'verifyOutputSummary', label: 'Output verification' },
-];
-
-const DEFAULT_FORM: SetupForm = {
-  expectedModels: [],
-  expectedModelRules: [],
-  canaryModel: '',
-  endpointIntervalSeconds: 60,
-  canaryIntervalMinutes: 10,
-  canaryTimeoutSeconds: 30,
-  freshnessSeconds: 120,
-  warningLatencyMs: 2_000,
-  routingRoles: [],
-  fallbackPolicy: 'notify-and-allow',
-  slotFallbackPolicies: {},
-  automaticRepair: false,
-  maxAttempts: 2,
-  cooldownMinutes: 5,
-};
 
 @Component({
   selector: 'app-local-ai-target-setup',
@@ -102,10 +50,12 @@ export class LocalAiTargetSetupComponent {
   readonly saved = output<void>();
   readonly cancelled = output<void>();
 
-  protected readonly roleOptions = ROLE_OPTIONS;
+  protected readonly roleOptions = LOCAL_AI_ROLE_OPTIONS;
   protected readonly limits = LOCAL_AI_TARGET_NUMERIC_LIMITS;
   protected readonly selectedEndpoint = signal<LocalAiDiscoveredEndpoint | null>(null);
-  protected readonly form = signal<SetupForm>({ ...DEFAULT_FORM });
+  protected readonly form = signal<LocalAiTargetSetupForm>({
+    ...DEFAULT_LOCAL_AI_TARGET_SETUP_FORM,
+  });
   protected readonly validationResults = signal<LocalAiProbeResult[] | null>(null);
   protected readonly announcement = signal('');
   private readonly modelContextInputErrors = signal<Record<string, string>>({});
@@ -198,6 +148,27 @@ export class LocalAiTargetSetupComponent {
       )
     );
   });
+  protected readonly enrolmentHint = computed(() => {
+    if (this.isBusy()) return 'Testing the endpoint…';
+    const issue = this.currentFormIssue();
+    if (issue) return issue;
+    const results = this.validationResults();
+    if (!results || this.lastValidationFingerprint !== this.configFingerprint()) {
+      return `Test the endpoint to unlock ${this.isEditing() ? 'saving' : 'enrolment'}.`;
+    }
+    const failed = results.find((result) => result.required && !result.ok);
+    if (failed) {
+      return `${this.validationLayerLabel(failed.layer)} failed. Fix it, then test again.`;
+    }
+    return this.isEditing()
+      ? 'All required checks passed. You can save these changes.'
+      : 'All required checks passed. You can enrol this target.';
+  });
+  protected readonly validationStepState = computed(() => {
+    const results = this.validationResults();
+    if (!results) return 'current';
+    return results.some((result) => result.required && !result.ok) ? 'failed' : 'complete';
+  });
   protected readonly validationLayers = computed<ValidationLayer[]>(() => {
     const results = this.validationResults() ?? [];
     const resultFor = (layer: LocalAiHealthLayer) =>
@@ -206,7 +177,7 @@ export class LocalAiTargetSetupComponent {
       { id: 'worker', label: 'Worker', result: resultFor('worker') },
       { id: 'endpoint', label: 'Endpoint', result: resultFor('endpoint') },
       { id: 'model', label: 'Model', result: resultFor('model') },
-      { id: 'canary', label: 'Canary', result: resultFor('inference') },
+      { id: 'canary', label: 'Test response', result: resultFor('inference') },
     ];
   });
 
@@ -237,7 +208,7 @@ export class LocalAiTargetSetupComponent {
     this.modelContextInputErrors.set({});
     const defaultModel = endpoint.models[0] ?? '';
     this.form.set(persisted ? this.formFromTarget(persisted) : {
-      ...DEFAULT_FORM,
+      ...DEFAULT_LOCAL_AI_TARGET_SETUP_FORM,
       expectedModels: defaultModel ? [defaultModel] : [],
       expectedModelRules: defaultModel ? [{ modelId: defaultModel, required: true }] : [],
       canaryModel: defaultModel,
@@ -299,7 +270,7 @@ export class LocalAiTargetSetupComponent {
     });
   }
 
-  protected updateNumber(field: keyof SetupForm, event: Event): void {
+  protected updateNumber(field: keyof LocalAiTargetSetupForm, event: Event): void {
     const value = Number((event.target as HTMLInputElement).value);
     if (!Number.isFinite(value)) return;
     this.patchForm({ [field]: value });
@@ -394,7 +365,17 @@ export class LocalAiTargetSetupComponent {
   }
 
   protected roleLabel(role: AuxiliaryLlmSlot): string {
-    return ROLE_OPTIONS.find((option) => option.value === role)?.label ?? role;
+    return LOCAL_AI_ROLE_OPTIONS.find((option) => option.value === role)?.label ?? role;
+  }
+
+  protected fallbackPolicySummary(): string {
+    switch (this.form().fallbackPolicy) {
+      case 'notify-and-allow': return 'Notify on paid fallback';
+      case 'require-confirmation': return 'Ask before paid fallback';
+      case 'defer-locally': return 'Keep work local';
+      case 'block-paid-fallback': return 'Block paid fallback';
+      case 'allow-silently': return 'Allow paid fallback silently';
+    }
   }
 
   protected modelContextError(modelId: string): string | null {
@@ -465,7 +446,7 @@ export class LocalAiTargetSetupComponent {
       : null;
   }
 
-  private patchForm(patch: Partial<SetupForm>): void {
+  private patchForm(patch: Partial<LocalAiTargetSetupForm>): void {
     this.form.update((current) => ({ ...current, ...patch }));
     this.invalidateValidation();
   }
@@ -542,7 +523,7 @@ export class LocalAiTargetSetupComponent {
     }
   }
 
-  private formFromTarget(target: LocalAiTarget): SetupForm {
+  private formFromTarget(target: LocalAiTarget): LocalAiTargetSetupForm {
     return {
       expectedModels: target.expectedModels.map((model) => model.modelId),
       expectedModelRules: target.expectedModels.map((model) => ({ ...model })),
@@ -573,5 +554,31 @@ export class LocalAiTargetSetupComponent {
 
   private numberInRange(value: number, min: number, max: number): boolean {
     return Number.isFinite(value) && value >= min && value <= max;
+  }
+
+  private currentFormIssue(): string | null {
+    const value = this.form();
+    if (value.expectedModels.length === 0) return 'Choose at least one model in Advanced settings.';
+    if (!value.canaryModel || !value.expectedModels.includes(value.canaryModel)) {
+      return 'Choose a test model in Advanced settings.';
+    }
+    if (value.routingRoles.length === 0) return 'Choose at least one local AI job in Advanced settings.';
+    if (this.endpointIntervalError()) return this.endpointIntervalError();
+    if (this.canaryIntervalError()) return this.canaryIntervalError();
+    const contextError = value.expectedModels
+      .map((modelId) => this.modelContextError(modelId))
+      .find((error) => error !== null);
+    if (contextError) return contextError;
+    return this.formValid() ? null : 'Review the highlighted values in Advanced settings.';
+  }
+
+  private validationLayerLabel(layer: LocalAiHealthLayer): string {
+    switch (layer) {
+      case 'worker': return 'Worker connection';
+      case 'endpoint': return 'Local AI service';
+      case 'model': return 'Model check';
+      case 'inference': return 'Test response';
+      case 'effectiveness': return 'Effectiveness check';
+    }
   }
 }

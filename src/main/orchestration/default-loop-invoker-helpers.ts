@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 import type { LoopErrorRecord, LoopProvider } from '../../shared/types/loop.types';
 import { resolveCliType } from '../cli/adapters/adapter-factory';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
+import { attachCopilotRoute } from '../instance/lifecycle/copilot-route-preflight';
 import { resolveAutomationDefaultModel } from './automation-model-defaults';
 
 export function enableAdapterResume(adapter: unknown): void {
@@ -25,9 +26,11 @@ export async function createPersistentLoopAdapter(opts: {
 }): Promise<unknown> {
   const cliType = await resolveCliType(opts.provider as Parameters<typeof resolveCliType>[0], 'claude');
   const model = opts.model ?? resolveAutomationDefaultModel(cliType);
-  const adapter = getProviderRuntimeService().createAdapter({
+  // Copilot account routing: a persistent loop session is an automatic
+  // surface, and the loop's workspace is what decides the account.
+  const spawnOptions = await attachCopilotRoute(
     cliType,
-    options: {
+    {
       workingDirectory: opts.workingDirectory,
       model,
       ...(cliType === 'codex' ? { ephemeral: false } : {}),
@@ -36,7 +39,9 @@ export async function createPersistentLoopAdapter(opts: {
       maxTurns: opts.maxTurns,
       env: opts.env,
     },
-  });
+    'loop',
+  );
+  const adapter = getProviderRuntimeService().createAdapter({ cliType, options: spawnOptions });
   if (typeof opts.streamIdleTimeoutMs === 'number') {
     const setter = (adapter as { setStreamIdleTimeoutMs?: (ms: number) => void }).setStreamIdleTimeoutMs;
     if (typeof setter === 'function') setter.call(adapter, opts.streamIdleTimeoutMs);

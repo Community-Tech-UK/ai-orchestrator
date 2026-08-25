@@ -3,6 +3,7 @@
  */
 
 import type { BrowserToolsMode, InstanceProvider, OutputMessage } from './instance.types';
+import type { CopilotRouteSource } from './copilot-account.types';
 import type { InstanceRuntimeSummary } from './local-model-runtime.types';
 import type { SessionRecallResult } from './session-recall.types';
 import { deriveAttachmentTaskTitle, extractAttachmentPreamble, sanitizeGeneratedTitle } from './title-derivation';
@@ -135,6 +136,20 @@ export interface ConversationHistoryEntry {
 
   /** WS13 hardened (Seatbelt) flag captured at archive time so a restored session keeps its jail. */
   hardened?: boolean;
+
+  /**
+   * GitHub Copilot account profile the conversation ran under.
+   *
+   * Restoring a thread must resume under the SAME account it was created with
+   * — a native Copilot session belongs to one identity, and resuming it under
+   * another is a cross-account leak, not a convenience. Absent on threads
+   * archived before this field existed; those resolve to the migration-created
+   * legacy profile and are then stamped.
+   */
+  copilotAccountProfileId?: string;
+
+  /** How that profile was chosen, for display in history. */
+  copilotRoutingSource?: CopilotRouteSource;
 
   /** Where the instance ran (local or remote node) */
   executionLocation?: ExecutionLocation;

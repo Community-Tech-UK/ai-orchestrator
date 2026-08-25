@@ -50,6 +50,7 @@ vi.mock('../core/config/settings-manager', () => ({
   }),
 }));
 
+import { LEGACY_REDACTED_TOOL_OUTPUT } from './redacted-tool-output';
 import { SessionContinuityManager as ImportedSessionContinuityManager } from './session-continuity';
 import { getSessionMutex, _resetSessionMutexForTesting } from './session-mutex';
 
@@ -515,7 +516,12 @@ describe('SessionContinuityManager logging', () => {
     ]);
   });
 
-  it('redacts tool conversation entries before keeping them in continuity state', async () => {
+  it('drops tool conversation entries entirely when redaction is enabled', async () => {
+    // Redaction used to keep the entry with a '[REDACTED TOOL OUTPUT]' body.
+    // Those placeholders carried no information and showed up as noise in
+    // restored history, so redaction now omits the entry altogether. The old
+    // marker survives only as LEGACY_REDACTED_TOOL_OUTPUT, for stripping
+    // placeholders written by earlier versions.
     const manager = createManager({
       redactToolOutputs: true,
     });
@@ -534,11 +540,67 @@ describe('SessionContinuityManager logging', () => {
 
     const exported = await manager.exportSession('tool-redaction');
 
+    expect(exported?.state.conversationHistory).toEqual([]);
+  });
+
+  it('keeps tool conversation entries when redaction is disabled', async () => {
+    // Guards the other half of the flag: dropping must be opt-in, not the
+    // unconditional behaviour of the persistence path.
+    const manager = createManager({
+      redactToolOutputs: false,
+    });
+    await manager.readyPromise;
+
+    const state = makeState('tool-kept');
+    state.conversationHistory = [];
+    await manager.importSession({ state });
+
+    await manager.addConversationEntry('tool-kept', {
+      id: 'tool-result-1',
+      role: 'tool',
+      content: 'tool output worth keeping',
+      timestamp: 1,
+    });
+
+    const exported = await manager.exportSession('tool-kept');
+
     expect(exported?.state.conversationHistory).toEqual([
       expect.objectContaining({
         id: 'tool-result-1',
-        content: '[REDACTED TOOL OUTPUT]',
+        content: 'tool output worth keeping',
       }),
+    ]);
+  });
+
+  it('strips legacy redaction placeholders written by earlier versions', async () => {
+    // State files on disk still contain these, whatever the current flag says,
+    // so they must be removed on the way through rather than resurfacing.
+    const manager = createManager({
+      redactToolOutputs: false,
+    });
+    await manager.readyPromise;
+
+    const state = makeState('legacy-placeholder');
+    state.conversationHistory = [];
+    await manager.importSession({ state });
+
+    await manager.addConversationEntry('legacy-placeholder', {
+      id: 'legacy-1',
+      role: 'assistant',
+      content: LEGACY_REDACTED_TOOL_OUTPUT,
+      timestamp: 1,
+    });
+    await manager.addConversationEntry('legacy-placeholder', {
+      id: 'real-1',
+      role: 'assistant',
+      content: 'a real message',
+      timestamp: 2,
+    });
+
+    const exported = await manager.exportSession('legacy-placeholder');
+
+    expect(exported?.state.conversationHistory).toEqual([
+      expect.objectContaining({ id: 'real-1', content: 'a real message' }),
     ]);
   });
 

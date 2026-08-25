@@ -33,6 +33,13 @@ export interface BrowserExtensionNativeRuntimeOptions {
   registerInOS?: boolean;
   windowsRegistry?: WindowsNativeMessagingRegistry;
   now?: () => number;
+  /**
+   * Write the Chrome native-messaging manifest (and register it with the OS).
+   * Defaults to true. Set false to lay down this install's own native-host
+   * files without taking the machine's single shared manifest off another
+   * install — see `mayClaimBrowserExtensionNativeHostManifest`.
+   */
+  claimChromeManifest?: boolean;
 }
 
 export interface BrowserExtensionNativeRuntimeInstallResult {
@@ -77,23 +84,25 @@ export function prepareBrowserExtensionNativeHostRuntime(
   });
 
   const chromeNativeMessagingDirWasDefaulted = options.chromeNativeMessagingDir === undefined;
-  fs.mkdirSync(paths.chromeNativeMessagingDir, { recursive: true });
-  fs.writeFileSync(
-    manifestPath,
-    `${JSON.stringify({
-      name: hostName,
-      description: 'Harness Browser Gateway native host',
-      path: wrapperPath,
-      type: 'stdio',
-      allowed_origins: [`chrome-extension://${BROWSER_EXTENSION_ID}/`],
-    }, null, 2)}\n`,
-  );
-  if (options.registerInOS ?? chromeNativeMessagingDirWasDefaulted) {
-    assertWindowsRegistrationPathIsSafe(manifestPath);
-    const registered = (options.windowsRegistry ?? createWindowsNativeMessagingRegistry())
-      .registerHost(hostName, manifestPath);
-    if (!registered) {
-      throw new Error(`windows_native_messaging_registration_failed:${hostName}`);
+  if (options.claimChromeManifest !== false) {
+    fs.mkdirSync(paths.chromeNativeMessagingDir, { recursive: true });
+    fs.writeFileSync(
+      manifestPath,
+      `${JSON.stringify({
+        name: hostName,
+        description: 'Harness Browser Gateway native host',
+        path: wrapperPath,
+        type: 'stdio',
+        allowed_origins: [`chrome-extension://${BROWSER_EXTENSION_ID}/`],
+      }, null, 2)}\n`,
+    );
+    if (options.registerInOS ?? chromeNativeMessagingDirWasDefaulted) {
+      assertWindowsRegistrationPathIsSafe(manifestPath);
+      const registered = (options.windowsRegistry ?? createWindowsNativeMessagingRegistry())
+        .registerHost(hostName, manifestPath);
+      if (!registered) {
+        throw new Error(`windows_native_messaging_registration_failed:${hostName}`);
+      }
     }
   }
 
@@ -193,6 +202,37 @@ export function assertBrowserExtensionNativeHostManifestWritable(input: {
   throw new Error(
     `Refusing to overwrite existing Chrome native host manifest at ${input.manifestPath}; use --force if this machine should use the worker extension relay.`,
   );
+}
+
+/**
+ * Whether this install may claim the machine's Chrome native-messaging
+ * manifest.
+ *
+ * There is exactly one manifest per Chrome profile, so two Harness installs on
+ * one machine compete for it — typically the packaged app and a `npm run dev`
+ * app with its own `AIO_DEV_USER_DATA_PATH`. The write is unconditional, so the
+ * last starter silently takes the user's local extension channel; and a dev app
+ * whose profile is then deleted leaves the manifest pointing at a binary that
+ * no longer exists, breaking the local channel until the packaged app restarts.
+ *
+ * The packaged install therefore always wins — it is the one the user actually
+ * uses, and because it rewrites on every start a stale entry self-heals. An
+ * unpackaged install only claims a manifest that is absent or already its own,
+ * unless the operator opts in explicitly.
+ */
+export function mayClaimBrowserExtensionNativeHostManifest(input: {
+  manifestPath: string;
+  nativeDir: string;
+  isPackaged: boolean;
+  forceClaim?: boolean;
+}): boolean {
+  if (input.forceClaim === true || input.isPackaged) {
+    return true;
+  }
+  if (!fs.existsSync(input.manifestPath)) {
+    return true;
+  }
+  return isBrowserExtensionNativeHostManifestOwned(input);
 }
 
 export function isBrowserExtensionNativeHostManifestOwned(input: {

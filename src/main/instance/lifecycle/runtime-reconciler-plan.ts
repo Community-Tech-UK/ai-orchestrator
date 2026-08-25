@@ -38,6 +38,12 @@ export function computeRuntimeDiff(instance: Instance, desired: DesiredRuntime):
     && (desired.reasoningEffort ?? undefined) !== instance.reasoningEffort;
   const yoloModeChanged =
     desired.yoloMode !== undefined && desired.yoloMode !== instance.yoloMode;
+  // A Copilot account handoff is a runtime change in its own right: the
+  // provider and model can be identical and the session still has to be torn
+  // down, because the native session belongs to the old GitHub identity.
+  const copilotAccountChanged =
+    desired.copilotAccountProfileId !== undefined
+    && desired.copilotAccountProfileId !== instance.copilotAccountProfileId;
 
   return {
     providerChanged,
@@ -45,8 +51,14 @@ export function computeRuntimeDiff(instance: Instance, desired: DesiredRuntime):
     reasoningChanged,
     runtimeTargetChanged,
     yoloModeChanged,
+    copilotAccountChanged,
     hasChanges:
-      providerChanged || modelChanged || reasoningChanged || runtimeTargetChanged || yoloModeChanged,
+      providerChanged
+      || modelChanged
+      || reasoningChanged
+      || runtimeTargetChanged
+      || yoloModeChanged
+      || copilotAccountChanged,
   };
 }
 
@@ -69,7 +81,12 @@ export function planContinuity(params: {
     && params.capabilities.supportsResume
     && params.cliType !== 'claude'
     && !params.isLocalModelTarget
-    && !params.diff.providerChanged;
+    && !params.diff.providerChanged
+    // A native Copilot session belongs to the GitHub identity that created it.
+    // Resuming it under a different account would send this conversation's
+    // context through the wrong seat, so a handoff always replays into a
+    // brand-new provider session.
+    && !params.diff.copilotAccountChanged;
   if (!canNativeResume) return 'replay';
   return params.capabilities.supportsForkSession ? 'native-resume-fork' : 'native-resume';
 }

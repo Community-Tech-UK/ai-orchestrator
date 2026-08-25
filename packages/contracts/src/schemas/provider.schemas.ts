@@ -6,6 +6,7 @@ import {
   RequiredModelIdSchema,
   WorkingDirectorySchema,
 } from './common.schemas';
+import { CopilotHostSchema, CopilotProfileIdSchema } from './copilot-account.schemas';
 
 // ============ Provider & Plugin Payloads ============
 
@@ -15,11 +16,23 @@ export const ProviderStatusPayloadSchema = z.object({
 });
 
 /**
- * Sign-in launch request. Only the provider id crosses IPC — the main process
- * maps it to a fixed login command, so no caller string reaches a shell.
+ * Sign-in launch request.
+ *
+ * The provider id maps to a fixed login command in main, so no caller string
+ * reaches a shell. The optional Copilot block is the one structured exception:
+ * a profile-scoped sign-in needs that profile's `COPILOT_HOME`, so the renderer
+ * sends a validated profile ID and host — never a command, a path, or an
+ * environment map. Main derives the home from the ID.
  */
 export const ProviderRunLoginPayloadSchema = z.object({
   provider: z.string().min(1).max(50),
+  copilotProfile: z
+    .object({
+      profileId: CopilotProfileIdSchema,
+      host: CopilotHostSchema.optional(),
+    })
+    .strict()
+    .optional(),
 });
 
 export const ProviderUpdateConfigPayloadSchema = z.object({

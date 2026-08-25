@@ -108,12 +108,36 @@ describe('CopilotCliAdapter server mode', () => {
 
     const statuses: string[] = [];
     adapter.on('status', (s: string) => statuses.push(s));
-    await adapter.sendInput('hello there');
+    // An adapter with no account route cannot send at all (account routing,
+    // 2026-08-25) — the send path below is the server-mode wiring this suite
+    // covers, so assert the refusal here and the wiring in the routed test.
+    await expect(adapter.sendInput('hello there')).rejects.toThrow(
+      /without a resolved account profile/,
+    );
+    expect(session.send).not.toHaveBeenCalled();
+  });
 
-    expect(session.send).toHaveBeenCalledWith('Be terse.\n\nhello there');
-    // busy on submit; idle arrives later via the session.idle effect.
-    expect(statuses).toContain('busy');
-    expect(statuses).not.toContain('idle');
+  it('skips server mode entirely for a routed account session', async () => {
+    // Copilot account routing takes precedence over server mode. The SDK's
+    // CopilotClient spawns its own runtime over stdio and inherits this
+    // process's environment; nothing in the installed bundle proves its
+    // options forward a COPILOT_HOME or a --config-dir, and spec §10.3 rules
+    // out mutating the process environment as a workaround. So a routed
+    // session uses exec-per-message, where --config-dir and the child
+    // environment are both set explicitly by this adapter.
+    //
+    // Consequence, deliberately asserted so it cannot regress silently: a
+    // routed Copilot session has no server-mode steering or occupancy
+    // reporting. Revisit if the SDK documents an environment option.
+    loadCopilotSdkMock.mockReturnValue(FAKE_SDK);
+    serverStartMock.mockResolvedValue(makeFakeServerSession());
+    const adapter = new CopilotCliAdapter({
+      systemPrompt: 'Be terse.',
+      accountProfileId: 'legacy',
+    });
+    await spawnAdapter(adapter);
+
+    expect(serverStartMock).not.toHaveBeenCalled();
   });
 
   it('interrupt aborts the in-flight turn and resolves interrupted', async () => {

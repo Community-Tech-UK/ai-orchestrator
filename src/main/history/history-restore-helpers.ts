@@ -1,6 +1,7 @@
 import type { ConversationHistoryEntry } from '../../shared/types/history.types';
 import type { InstanceProvider, OutputMessage } from '../../shared/types/instance.types';
 import { isSessionNotFoundText } from '../cli/adapters/resume-error-classifier';
+import { isLegacyRedactedToolOutput } from '../session/redacted-tool-output';
 const RESTORE_FALLBACK_NOTICE_MESSAGE = /^Previous .+ CLI session could not be restored natively\./;
 
 /**
@@ -42,7 +43,11 @@ export function isRestoreInfrastructureMessage(message: OutputMessage): boolean 
 }
 
 export function getMessagesForRestoreTranscript(messages: OutputMessage[]): OutputMessage[] {
-  return (messages || []).filter((message) => !isRestoreInfrastructureMessage(message));
+  return (messages || []).filter(
+    (message) =>
+      !isRestoreInfrastructureMessage(message)
+      && !isLegacyRedactedToolOutput(message.content),
+  );
 }
 
 function normalizeSessionId(value: string | null | undefined): string | undefined {

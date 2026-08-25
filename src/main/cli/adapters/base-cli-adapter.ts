@@ -588,6 +588,11 @@ export abstract class BaseCliAdapter extends EventEmitter {
     const safeEnv = getSafeEnvForTrustedProcess();
     delete safeEnv['CLAUDECODE'];
     const mergedEnv = { ...safeEnv, ...this.config.env };
+    // Applied AFTER the merge: `config.env` can only add, and the generic
+    // filter above does not catch every provider-specific auth variable.
+    for (const key of this.config.envRemove ?? []) {
+      delete mergedEnv[key];
+    }
     const spawnOptions = buildCliSpawnOptions(mergedEnv);
 
     // WS13 hardened mode: wrap the CLI in the macOS Seatbelt jail. Fail-closed

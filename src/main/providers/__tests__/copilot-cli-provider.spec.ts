@@ -71,6 +71,30 @@ class FakeAdapter extends EventEmitter {
   async checkStatus(): Promise<{ available: boolean }> { return { available: true }; }
 }
 
+// Copilot account routing reaches the real settings manager, which has no
+// electron-store in a unit-test process. This spec is about envelope-shape
+// parity ACROSS providers, not about which GitHub account Copilot resolves —
+// that is covered in copilot-cli-adapter.account-routing.spec.ts and
+// copilot-account-routing-service.spec.ts. Stub the route so the provider
+// initializes; production still fails closed when settings are unreadable.
+vi.mock('../../instance/lifecycle/copilot-route-preflight', () => ({
+  attachCopilotRoute: async (
+    cliType: string,
+    options: Record<string, unknown>,
+  ) =>
+    cliType === 'copilot'
+      ? {
+          ...options,
+          copilotAccountRoute: {
+            profileId: 'legacy',
+            source: 'legacy',
+            executionNodeId: 'local',
+            host: 'github.com',
+          },
+        }
+      : options,
+}));
+
 vi.mock('../../cli/adapters/copilot-cli-adapter', () => ({
   CopilotCliAdapter: vi.fn().mockImplementation(() => new FakeAdapter()),
 }));

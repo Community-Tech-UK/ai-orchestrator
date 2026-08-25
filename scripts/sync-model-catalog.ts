@@ -16,10 +16,10 @@
  * fully offline. The live fetch then overwrites individual entries when it lands.
  *
  * Scope: only the provider namespaces this app actually drives (Claude/Codex/
- * Gemini/Copilot → anthropic/openai/google/github-copilot). Mirrors the curated
- * "just the useful models" philosophy of generate-cursor-models.ts and keeps the
- * generated file small enough to read in a diff. Extend SUPPORTED_PROVIDERS to
- * widen the offline coverage.
+ * Gemini/Grok/Copilot → anthropic/openai/google/xai/github-copilot). Mirrors the
+ * curated "just the useful models" philosophy of generate-cursor-models.ts and
+ * keeps the generated file small enough to read in a diff. Extend
+ * SUPPORTED_PROVIDERS (in sync-model-catalog.parse.ts) to widen offline coverage.
  *
  * Usage:
  *   npm run sync:model-catalog            # regenerate the snapshot in place
@@ -35,27 +35,17 @@ import { get as httpsGet } from 'node:https';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  SUPPORTED_PROVIDERS,
+  parseSnapshot,
+  type SnapshotEntry,
+} from './sync-model-catalog.parse';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const TARGET_FILE = resolve(SCRIPT_DIR, '../src/main/providers/models-dev-snapshot.generated.ts');
 const MODELS_DEV_API_URL = 'https://models.dev/api.json';
 const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
-
-/**
- * Provider namespaces (as keyed by models.dev) for the CLIs this app supports.
- * Cursor and Ollama have no models.dev pricing namespace we consume here
- * (Cursor is discovered live; Ollama is local/free).
- */
-const SUPPORTED_PROVIDERS = ['anthropic', 'openai', 'google', 'github-copilot'] as const;
-
-interface SnapshotEntry {
-  provider: string;
-  input: number;
-  output: number;
-  contextWindow?: number;
-  maxOutputTokens?: number;
-}
 
 // ---------------------------------------------------------------------------
 // Fetch + parse
@@ -89,70 +79,6 @@ function fetchApiJson(): Promise<string | null> {
     });
     req.on('error', () => resolve(null));
   });
-}
-
-/**
- * Parse models.dev `api.json` into a sorted snapshot map. Mirrors
- * `ModelsDevService.parseModel` (kept self-contained so this build script has
- * no app-runtime import chain). Only priced models in SUPPORTED_PROVIDERS are
- * kept; anything missing finite input/output cost is skipped.
- */
-function parseSnapshot(raw: string): Record<string, SnapshotEntry> | null {
-  let root: unknown;
-  try {
-    root = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  if (!root || typeof root !== 'object') return null;
-
-  const supported = new Set<string>(SUPPORTED_PROVIDERS);
-  const out: Record<string, SnapshotEntry> = {};
-
-  for (const [providerKey, provider] of Object.entries(root as Record<string, unknown>)) {
-    if (!supported.has(providerKey)) continue;
-    if (!provider || typeof provider !== 'object') continue;
-    const models = (provider as { models?: unknown }).models;
-    if (!models || typeof models !== 'object') continue;
-
-    const modelValues = Array.isArray(models)
-      ? (models as unknown[])
-      : Object.values(models as Record<string, unknown>);
-
-    for (const model of modelValues) {
-      const entry = parseModel(model, providerKey);
-      if (entry) out[entry.id] = entry.snapshot;
-    }
-  }
-  return out;
-}
-
-function parseModel(
-  model: unknown,
-  providerKey: string,
-): { id: string; snapshot: SnapshotEntry } | null {
-  if (!model || typeof model !== 'object') return null;
-  const record = model as Record<string, unknown>;
-  const id = typeof record['id'] === 'string' ? record['id'] : undefined;
-  if (!id) return null;
-
-  const cost = record['cost'];
-  if (!cost || typeof cost !== 'object') return null;
-  const costRecord = cost as Record<string, unknown>;
-  const input = costRecord['input'];
-  const output = costRecord['output'];
-  if (typeof input !== 'number' || typeof output !== 'number') return null;
-  if (!Number.isFinite(input) || !Number.isFinite(output)) return null;
-
-  const limit = record['limit'];
-  const limitRecord = limit && typeof limit === 'object' ? (limit as Record<string, unknown>) : undefined;
-  const contextWindow = typeof limitRecord?.['context'] === 'number' ? limitRecord['context'] : undefined;
-  const maxOutputTokens = typeof limitRecord?.['output'] === 'number' ? limitRecord['output'] : undefined;
-
-  return {
-    id,
-    snapshot: { provider: providerKey, input, output, contextWindow, maxOutputTokens },
-  };
 }
 
 // ---------------------------------------------------------------------------

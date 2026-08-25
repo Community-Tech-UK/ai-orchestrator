@@ -158,7 +158,7 @@ const ALLOWLIST: Record<string, number> = {
   // per-call token-usage-breakdown capture (extracted the field parsing
   // itself to codex/token-usage-breakdown.ts to keep the addition to 3 lines).
   'src/main/cli/adapters/codex-app-server-notification-adapter.ts': 699,
-  'src/main/cli/adapters/copilot-cli-adapter.ts': 1110,
+  'src/main/cli/adapters/copilot-cli-adapter.ts': 1221,
   'src/main/cli/adapters/cursor-cli-adapter.ts': 1083,
   'src/main/cli/adapters/gemini-cli-adapter.ts': 892,
   // Main process — chats
@@ -171,10 +171,11 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/context/jit-loader.ts': 773,
   // Main process — core
   'src/main/core/config/claude-md-loader.ts': 804,
-  'src/main/core/config/settings-control-policy.ts': 717,
+  'src/main/core/config/settings-control-policy.ts': 776,
   'src/main/core/error-recovery.ts': 990,
   // Main process — history
-  'src/main/history/history-manager.ts': 1478,
+  'src/main/history/history-manager.ts': 1582,
+  'src/main/history/history-restore-coordinator.ts': 708,
   // Main process — indexing
   'src/main/indexing/benchmarks/benchmark-utils.ts': 820,
   'src/main/indexing/tree-sitter-chunker.ts': 716,
@@ -250,6 +251,7 @@ const ALLOWLIST: Record<string, number> = {
   // Main process — remote node file transfer
   // Crossed 700 adding the sync_to_node/sync_from_node MCP handlers, which
   // must share this service's node/root/workspace validation helpers.
+  'src/main/remote-node/rpc-schemas.ts': 708,
   'src/main/remote-node/remote-node-file-transfer-mcp-service.ts': 830,
   // Crossed 700 adding readFileChunk/writeFileChunk for streamed transfers,
   // which must share this handler's path/root/symlink write validations.
@@ -391,7 +393,7 @@ const ALLOWLIST: Record<string, number> = {
   // the composer auto-growing for the rest of the session. The fix is an import
   // plus one comment; splitting a 1787-line component is real work that should
   // not ride on a bug fix.
-  'src/renderer/app/features/instance-detail/input-panel.component.ts': 1790,
+  'src/renderer/app/features/instance-detail/input-panel.component.ts': 1857,
   'src/renderer/app/features/instance-detail/instance-detail.component.ts': 1582,
   // Raised 1266 -> 1297 (2026-07-17 thread-resilience stream updates).
   'src/renderer/app/features/instance-detail/output-stream.component.ts': 1297,
@@ -455,12 +457,12 @@ const ALLOWLIST: Record<string, number> = {
   // Shared
   // Crossed 700 from the WS-C7 `containedExecution` field (Instance +
   // InstanceCreateConfig) — re-tighten with a dedicated split if it grows further.
-  'src/shared/types/instance.types.ts': 702,
+  'src/shared/types/instance.types.ts': 780,
   'src/shared/types/loop.types.ts': 780,
   // Crossed 700 from the WS-B3 `approvalAdjudicationEnabled` field alongside a
   // concurrent, unrelated primitive-type extraction into settings-primitives.types.ts
   // already in progress in this working tree; re-tighten once that split lands.
-  'src/shared/types/settings.types.ts': 711,
+  'src/shared/types/settings.types.ts': 767,
   // Worker agent
   // Raised 989 -> 990 (one-line drift; re-tighten at the next worker split).
   'src/worker-agent/worker-agent.ts': 990,

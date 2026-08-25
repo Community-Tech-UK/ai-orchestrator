@@ -48,6 +48,10 @@ export class NewSessionDraftService {
   readonly pendingFolders = computed(() => this.activeDraft().pendingFolders);
   readonly yoloMode = computed(() => this.activeDraft().yoloMode);
   readonly hardened = computed(() => this.activeDraft().hardened);
+  /** The Copilot account the composer's chip resolved to for this draft. */
+  readonly copilotAccountProfileId = computed(
+    () => this.activeDraft().copilotAccountProfileId,
+  );
   readonly launchMode = computed(() => this.activeDraft().launchMode);
   readonly agentId = computed(() => this.activeDraft().agentId);
   readonly nodeId = computed(() => this.activeDraft().nodeId);
@@ -116,6 +120,7 @@ export class NewSessionDraftService {
           nodeId: currentDraft.nodeId,
           yoloMode: currentDraft.yoloMode,
           hardened: currentDraft.hardened,
+      copilotAccountProfileId: currentDraft.copilotAccountProfileId ?? null,
           launchMode: currentDraft.launchMode,
           agentId: currentDraft.agentId,
           pendingFolders: [...currentDraft.pendingFolders],
@@ -131,6 +136,7 @@ export class NewSessionDraftService {
           nodeId: null,
           yoloMode: null,
           hardened: null,
+          copilotAccountProfileId: null,
           launchMode: null,
           agentId: getDefaultAgent().id,
           pendingFolders: [],
@@ -321,6 +327,14 @@ export class NewSessionDraftService {
     this.updateActiveDraft((draft) => ({
       ...draft,
       hardened,
+      updatedAt: Date.now(),
+    }));
+  }
+
+  setCopilotAccountProfileId(copilotAccountProfileId: string | null): void {
+    this.updateActiveDraft((draft) => ({
+      ...draft,
+      copilotAccountProfileId,
       updatedAt: Date.now(),
     }));
   }
@@ -575,6 +589,8 @@ export class NewSessionDraftService {
         : hadPersistedLocalModelTarget ? null : persistedNodeId,
       yoloMode: typeof draft?.yoloMode === 'boolean' ? draft.yoloMode : null,
       hardened: typeof draft?.hardened === 'boolean' ? draft.hardened : null,
+      copilotAccountProfileId:
+        typeof draft?.copilotAccountProfileId === 'string' ? draft.copilotAccountProfileId : null,
       launchMode: this.resolveDraftLaunchMode(provider, draft?.launchMode),
       agentId: isKnownAgent ? persistedAgentId : getDefaultAgent().id,
       pendingFolders: Array.isArray(draft?.pendingFolders)
@@ -665,6 +681,7 @@ export class NewSessionDraftService {
       nodeId: null,
       yoloMode: null,
       hardened: null,
+      copilotAccountProfileId: null,
       launchMode: null,
       agentId: getDefaultAgent().id,
       pendingFolders: [],

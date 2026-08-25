@@ -47,12 +47,52 @@
       <div>
         <p class="eyebrow">{{ isEditing() ? 'Target settings' : 'New enrolment' }}</p>
         <h2 id="local-ai-setup-title">{{ endpoint.label }}</h2>
-        <p>Validate the complete local path once before saving.</p>
+        <p>Use the recommended setup, run one live test, then enrol.</p>
       </div>
       <button type="button" class="button secondary" [disabled]="isBusy()" (click)="close()">Cancel</button>
     </div>
 
     <form (submit)="$event.preventDefault(); validate()" novalidate>
+      <ol class="enrolment-steps" aria-label="Enrolment steps">
+        <li data-state="complete">
+          <span class="step-number">1</span>
+          <div><strong>Review setup</strong><span>Sensible defaults are already applied.</span></div>
+        </li>
+        <li [attr.data-state]="validationStepState()">
+          <span class="step-number">2</span>
+          <div><strong>Test endpoint</strong><span>Prove the worker, service, model, and response.</span></div>
+        </li>
+        <li [attr.data-state]="canSave() ? 'current' : 'pending'">
+          <span class="step-number">3</span>
+          <div><strong>Enrol and monitor</strong><span>Start health checks and protected routing.</span></div>
+        </li>
+      </ol>
+
+      <section class="recommended-setup" aria-labelledby="recommended-setup-title">
+        <div>
+          <p class="eyebrow">Ready to test</p>
+          <h3 id="recommended-setup-title">Recommended setup</h3>
+          <p>You can enrol with these settings. Open Advanced settings only if you need to change them.</p>
+        </div>
+        <dl>
+          <div><dt>Model</dt><dd>{{ form().canaryModel || 'Choose a model' }}</dd></div>
+          <div><dt>Local AI jobs</dt><dd>{{ form().routingRoles.length }} enabled</dd></div>
+          <div><dt>Live test timeout</dt><dd>{{ form().canaryTimeoutSeconds }} seconds</dd></div>
+          <div>
+            <dt>Safety</dt>
+            <dd>
+              {{ fallbackPolicySummary() }} · Automatic repair {{ form().automaticRepair ? 'on' : 'off' }}
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      <details class="advanced-settings" [open]="isEditing()">
+        <summary>
+          <span>Advanced settings</span>
+          <small>Models, schedules, routing, fallback limits, and recovery</small>
+        </summary>
+        <div class="advanced-settings-content">
       <fieldset>
         <legend>Expected models</legend>
         <p class="field-help">Required models are checked for drift before this target can route work.</p>
@@ -136,7 +176,7 @@
           >
             <option value="">Select a model</option>
             @for (model of form().expectedModels; track model) {
-              <option [value]="model">{{ model }}</option>
+              <option [value]="model" [selected]="model === form().canaryModel">{{ model }}</option>
             }
           </select>
         </label>
@@ -349,18 +389,20 @@
           </div>
         }
       </fieldset>
+        </div>
+      </details>
 
       <section class="validation" aria-labelledby="validation-title">
         <div class="validation-heading">
           <div>
-            <h3 id="validation-title">Validation evidence</h3>
-            <p>Each layer is reported separately; a missing result is not treated as healthy.</p>
+            <h3 id="validation-title">Connection test</h3>
+            <p>Run one live request through every layer. Enrolment unlocks only when required checks pass.</p>
           </div>
           <button
             type="submit"
             class="button secondary"
             [disabled]="!formValid() || isBusy()"
-          >{{ isEditing() ? 'Validate changes' : 'Validate endpoint' }}</button>
+          >{{ isEditing() ? 'Test changes' : 'Test endpoint' }}</button>
         </div>
 
         <ol class="validation-rail">
@@ -376,7 +418,7 @@
                   {{ layer.result.ok ? 'Passed' : 'Needs attention' }}
                   · {{ layer.result.durationMs }} ms
                 } @else {
-                  Not checked
+                  Waiting
                 }
               </span>
             </li>
@@ -388,11 +430,19 @@
         <p class="operation-error" role="alert">{{ safeOperationError() }}</p>
       }
 
+      <p class="action-help" id="local-ai-enrolment-help" role="status">{{ enrolmentHint() }}</p>
+
       <div class="form-actions">
         <button type="button" class="button secondary" [disabled]="isBusy()" (click)="close()">
           Cancel
         </button>
-        <button type="button" class="button primary" [disabled]="!canSave() || isBusy()" (click)="save()">
+        <button
+          type="button"
+          class="button primary"
+          aria-describedby="local-ai-enrolment-help"
+          [disabled]="!canSave() || isBusy()"
+          (click)="save()"
+        >
           {{ isEditing() ? 'Save changes' : 'Enrol target' }}
         </button>
       </div>

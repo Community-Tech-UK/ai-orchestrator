@@ -716,7 +716,15 @@ export class LoopStore {
 
   private addActivity(activity: LoopActivityPayload): void {
     const map = new Map(this.activityByLoop());
-    const next = [...(map.get(activity.loopRunId) ?? []), activity].slice(-80);
+    const current = map.get(activity.loopRunId) ?? [];
+    const previous = current.at(-1);
+    const replacesPreviousHeartbeat = activity.kind === 'heartbeat'
+      && previous?.kind === 'heartbeat'
+      && previous.seq === activity.seq
+      && previous.stage === activity.stage;
+    const next = replacesPreviousHeartbeat
+      ? [...current.slice(0, -1), activity]
+      : [...current, activity].slice(-80);
     map.set(activity.loopRunId, next);
     this.activityByLoop.set(map);
   }

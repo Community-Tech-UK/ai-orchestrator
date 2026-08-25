@@ -36,12 +36,30 @@ describe('adapter factory — grok', () => {
   it('spawns `grok agent -m <id> --always-approve stdio`', () => {
     const args = grokArgs(createCliAdapter('grok', {
       workingDirectory: '/tmp',
-      model: 'grok-4.5',
+      model: 'grok-4.6',
     }));
     expect(args[0]).toBe('agent');
     expect(args).toContain('-m');
-    expect(args[args.indexOf('-m') + 1]).toBe('grok-4.5');
+    expect(args[args.indexOf('-m') + 1]).toBe('grok-4.6');
     expect(args).toContain('--always-approve');
+    expect(args.at(-1)).toBe('stdio');
+  });
+
+  it('repairs a retired model at the spawn boundary, not just at session create', () => {
+    // Hibernate wake, restart, and native resume all rebuild spawn options from
+    // the persisted `instance.currentModel`. An instance stored before xAI
+    // retired grok-4.5 would otherwise keep re-sending an id the CLI rejects
+    // with "unknown model id" (exit 1) and could never come back.
+    const args = grokArgs(createCliAdapter('grok', {
+      workingDirectory: '/tmp',
+      model: 'grok-4.5',
+    }));
+    expect(args[args.indexOf('-m') + 1]).toBe('grok-4.6');
+  });
+
+  it('omits -m entirely when no model is requested, so the CLI picks its own default', () => {
+    const args = grokArgs(createCliAdapter('grok', { workingDirectory: '/tmp' }));
+    expect(args).not.toContain('-m');
     expect(args.at(-1)).toBe('stdio');
   });
 
@@ -54,7 +72,7 @@ describe('adapter factory — grok', () => {
   it('forwards mapped reasoning effort before stdio', () => {
     const args = grokArgs(createCliAdapter('grok', {
       workingDirectory: '/tmp',
-      model: 'grok-4.5',
+      model: 'grok-4.6',
       reasoningEffort: 'medium',
     }));
     expect(args).toContain('--reasoning-effort');

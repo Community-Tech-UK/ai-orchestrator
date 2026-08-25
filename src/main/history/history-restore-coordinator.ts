@@ -267,6 +267,10 @@ export class HistoryRestoreCoordinator {
     const restoreRuntimeSummary = data.entry.runtimeSummary;
     const restoreBrowserToolsMode = data.entry.browserToolsMode;
     const restoreHardened = data.entry.hardened;
+    // A Copilot thread resumes under the SAME GitHub account it was created
+    // with. Restoring it under the current default would send this
+    // conversation's context through a different identity.
+    const restoreCopilotProfileId = data.entry.copilotAccountProfileId;
     const nativeResumeSessionId = opts.forkAs || opts.forceFallback
       ? undefined
       : getNativeResumeSessionId(data.entry);
@@ -315,6 +319,7 @@ export class HistoryRestoreCoordinator {
         restoreRuntimeSummary,
         restoreBrowserToolsMode,
         restoreHardened,
+        restoreCopilotProfileId,
         restoreNodeId,
       });
       if (attempt.kind === 'restored') {
@@ -356,6 +361,7 @@ export class HistoryRestoreCoordinator {
       restoreRuntimeSummary,
       restoreBrowserToolsMode,
       restoreHardened,
+      restoreCopilotProfileId,
       restoreNodeId,
       remoteNodeAvailable,
       canAttemptNativeResume,
@@ -395,6 +401,7 @@ export class HistoryRestoreCoordinator {
     restoreRuntimeSummary?: Instance['runtimeSummary'];
     restoreBrowserToolsMode?: Instance['browserToolsMode'];
     restoreHardened?: boolean;
+    restoreCopilotProfileId?: string;
     restoreNodeId?: string;
   }): Promise<NativeResumeAttempt> {
     let resumeInstanceId: string | undefined;
@@ -415,6 +422,7 @@ export class HistoryRestoreCoordinator {
         runtimeSummary: params.restoreRuntimeSummary,
         browserToolsMode: params.restoreBrowserToolsMode,
         hardened: params.restoreHardened,
+      copilotAccountProfileId: params.restoreCopilotProfileId,
         forceNodeId: params.restoreNodeId,
       });
       resumeInstanceId = instance.id;
@@ -591,6 +599,7 @@ export class HistoryRestoreCoordinator {
     restoreRuntimeSummary?: Instance['runtimeSummary'];
     restoreBrowserToolsMode?: Instance['browserToolsMode'];
     restoreHardened?: boolean;
+    restoreCopilotProfileId?: string;
     restoreNodeId?: string;
     remoteNodeAvailable: boolean;
     canAttemptNativeResume: boolean;
@@ -621,6 +630,7 @@ export class HistoryRestoreCoordinator {
       runtimeSummary: params.restoreRuntimeSummary,
       browserToolsMode: params.restoreBrowserToolsMode,
       hardened: params.restoreHardened,
+      copilotAccountProfileId: params.restoreCopilotProfileId,
       forceNodeId: fallbackNodeId,
     });
 

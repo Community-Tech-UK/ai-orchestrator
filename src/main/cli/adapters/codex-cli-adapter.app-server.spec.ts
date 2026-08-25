@@ -26,6 +26,8 @@ import { createMockProcess } from './codex-cli-adapter.test-helpers';
 import { getLogger } from '../../logging/logger';
 import type { CliAdapter } from './adapter-factory';
 import { isStatelessExecAdapter } from '../../instance/instance-communication-adapter-helpers';
+import { createLoopInvocationCapture } from '../../orchestration/loop-invoker-capture';
+import { attachInvocationActivity } from '../../orchestration/loop-invocation-activity';
 
 // These tests drive the adapter through real PassThrough streams and real
 // `setTimeout`-scheduled process output rather than fake timers, so the default
@@ -1311,6 +1313,364 @@ describe('CodexCliAdapter', () => {
   });
 
   describe('app-server assistant streaming', () => {
+    it('emits correlation-safe command and file telemetry with truthful phases', () => {
+      const adapter = new CodexCliAdapter();
+      const internals = adapter as unknown as {
+        createTurnCaptureState(threadId: string): unknown;
+        handleTurnNotification(
+          state: unknown,
+          notification: { method: string; params: Record<string, unknown> },
+        ): void;
+      };
+      const state = internals.createTurnCaptureState('thread-1');
+      const outputs: Array<{
+        content: string;
+        metadata?: Record<string, unknown>;
+        type: string;
+      }> = [];
+      adapter.on('output', (output) => outputs.push(output as typeof outputs[number]));
+
+      for (const notification of [
+        {
+          method: 'item/started',
+          params: {
+            threadId: 'thread-1',
+            item: { id: 'cmd-1', type: 'commandExecution', command: 'npm run test:quiet' },
+          },
+        },
+        {
+          method: 'item/completed',
+          params: {
+            threadId: 'thread-1',
+            item: {
+              id: 'cmd-1',
+              type: 'commandExecution',
+              command: 'npm run test:quiet',
+              aggregatedOutput: '',
+              exitCode: 0,
+            },
+          },
+        },
+        {
+          method: 'item/started',
+          params: {
+            threadId: 'thread-1',
+            item: { id: 'edit-1', type: 'fileChange', path: 'src/main/example.ts' },
+          },
+        },
+        {
+          method: 'item/completed',
+          params: {
+            threadId: 'thread-1',
+            item: { id: 'edit-1', type: 'fileChange', path: 'src/main/example.ts', changeType: 'modified' },
+          },
+        },
+      ]) {
+        internals.handleTurnNotification(state, notification);
+      }
+
+      expect(outputs).toHaveLength(4);
+      expect(outputs[0]).toMatchObject({
+        type: 'tool_use',
+        metadata: {
+          id: 'cmd-1',
+          name: 'Bash',
+          input: { command: 'npm run test:quiet' },
+          phase: 'verifying',
+        },
+      });
+      expect(outputs[1]).toMatchObject({
+        type: 'tool_result',
+        metadata: { id: 'cmd-1', name: 'Bash', is_error: false },
+      });
+      expect(outputs[2]).toMatchObject({
+        type: 'tool_use',
+        metadata: {
+          id: 'edit-1',
+          name: 'Edit',
+          input: { file_path: 'src/main/example.ts' },
+          phase: 'editing',
+        },
+      });
+      expect(outputs[3]).toMatchObject({
+        type: 'tool_result',
+        metadata: { id: 'edit-1', name: 'Edit', is_error: false },
+      });
+    });
+
+    it('reports review-mode transitions without inventing an unresolved tool call', () => {
+      const adapter = new CodexCliAdapter();
+      const internals = adapter as unknown as {
+        createTurnCaptureState(threadId: string): unknown;
+        handleTurnNotification(
+          state: unknown,
+          notification: { method: string; params: Record<string, unknown> },
+        ): void;
+      };
+      const state = internals.createTurnCaptureState('thread-1');
+      const outputs: Array<{ type: string; metadata?: Record<string, unknown> }> = [];
+      const capture = createLoopInvocationCapture({ workspaceDir: '/workspace/project' });
+      const detach = attachInvocationActivity(adapter as unknown as CliAdapter, capture.recordActivity);
+      adapter.on('output', (output) => outputs.push(output as typeof outputs[number]));
+
+      internals.handleTurnNotification(state, {
+        method: 'item/started',
+        params: {
+          threadId: 'thread-1',
+          item: { id: 'review-enter-1', type: 'enteredReviewMode', review: 'fresh review' },
+        },
+      });
+      internals.handleTurnNotification(state, {
+        method: 'item/completed',
+        params: {
+          threadId: 'thread-1',
+          item: { id: 'review-exit-1', type: 'exitedReviewMode', review: 'review passed' },
+        },
+      });
+      detach();
+
+      expect(outputs).toEqual([
+        expect.objectContaining({ type: 'system', metadata: { phase: 'reviewing' } }),
+        expect.objectContaining({ type: 'system', metadata: { phase: 'reviewing' } }),
+      ]);
+      expect(capture.finalize()).toMatchObject({
+        unresolvedToolCalls: false,
+        toolCalls: [],
+      });
+    });
+
+    it('preserves every native file-change path in end-to-end tool hashing', () => {
+      const adapter = new CodexCliAdapter();
+      const internals = adapter as unknown as {
+        createTurnCaptureState(threadId: string): unknown;
+        handleTurnNotification(
+          state: unknown,
+          notification: { method: string; params: Record<string, unknown> },
+        ): void;
+      };
+      const state = internals.createTurnCaptureState('thread-1');
+      const capture = createLoopInvocationCapture({ workspaceDir: '/workspace/project' });
+      const detach = attachInvocationActivity(adapter as unknown as CliAdapter, capture.recordActivity);
+
+      for (const item of [
+        {
+          id: 'edit-multi-1',
+          type: 'fileChange',
+          changes: [
+            { path: 'src/shared.ts', kind: { type: 'update', move_path: null }, diff: '@@ shared a' },
+            { path: 'src/a.ts', kind: { type: 'add' }, diff: '+a' },
+          ],
+        },
+        {
+          id: 'edit-multi-2',
+          type: 'fileChange',
+          changes: [
+            { path: 'src/shared.ts', kind: { type: 'update', move_path: null }, diff: '@@ shared b' },
+            { path: 'src/b.ts', kind: { type: 'add' }, diff: '+b' },
+          ],
+        },
+        {
+          id: 'edit-camel-add',
+          type: 'fileChange',
+          changes: [{ path: 'src/same.ts', kind: { type: 'add' }, diff: '+same' }],
+        },
+        {
+          id: 'edit-camel-delete',
+          type: 'fileChange',
+          changes: [{ path: 'src/same.ts', kind: { type: 'delete' }, diff: '-same' }],
+        },
+        { id: 'edit-snake-1', type: 'file_change', path: 'src/same.ts', change_type: 'add' },
+        { id: 'edit-snake-2', type: 'file_change', path: 'src/same.ts', change_type: 'delete' },
+      ]) {
+        internals.handleTurnNotification(state, {
+          method: 'item/started',
+          params: { threadId: 'thread-1', item },
+        });
+      }
+      detach();
+
+      const [first, second, camelAdd, camelDelete, snakeAdd, snakeDelete] = capture.finalize().toolCalls;
+      expect(first.argsHash).not.toBe(second.argsHash);
+      expect(camelAdd.argsHash).not.toBe(camelDelete.argsHash);
+      expect(snakeAdd.argsHash).not.toBe(snakeDelete.argsHash);
+    });
+
+    it('maps every native failed or declined tool status to an unsuccessful result', () => {
+      const adapter = new CodexCliAdapter();
+      const internals = adapter as unknown as {
+        createTurnCaptureState(threadId: string): unknown;
+        handleTurnNotification(
+          state: unknown,
+          notification: { method: string; params: Record<string, unknown> },
+        ): void;
+      };
+      const state = internals.createTurnCaptureState('thread-1');
+      const capture = createLoopInvocationCapture({ workspaceDir: '/workspace/project' });
+      const detach = attachInvocationActivity(adapter as unknown as CliAdapter, capture.recordActivity);
+
+      for (const notification of [
+        {
+          method: 'item/started',
+          params: {
+            threadId: 'thread-1',
+            item: { id: 'cmd-declined', type: 'commandExecution', command: 'npm test', status: 'inProgress' },
+          },
+        },
+        {
+          method: 'item/completed',
+          params: {
+            threadId: 'thread-1',
+            item: {
+              id: 'cmd-declined',
+              type: 'commandExecution',
+              command: 'npm test',
+              status: 'declined',
+              aggregatedOutput: null,
+              exitCode: null,
+            },
+          },
+        },
+        {
+          method: 'item/started',
+          params: {
+            threadId: 'thread-1',
+            item: {
+              id: 'edit-failed',
+              type: 'fileChange',
+              status: 'inProgress',
+              changes: [{ path: 'src/app.ts', kind: { type: 'update', move_path: null }, diff: '@@ broken' }],
+            },
+          },
+        },
+        {
+          method: 'item/completed',
+          params: {
+            threadId: 'thread-1',
+            item: {
+              id: 'edit-failed',
+              type: 'fileChange',
+              status: 'failed',
+              changes: [{ path: 'src/app.ts', kind: { type: 'update', move_path: null }, diff: '@@ broken' }],
+            },
+          },
+        },
+        {
+          method: 'item/started',
+          params: {
+            threadId: 'thread-1',
+            item: {
+              id: 'mcp-failed',
+              type: 'mcpToolCall',
+              server: 'docs',
+              tool: 'lookup',
+              status: 'inProgress',
+              arguments: { query: 'loop status' },
+            },
+          },
+        },
+        {
+          method: 'item/completed',
+          params: {
+            threadId: 'thread-1',
+            item: {
+              id: 'mcp-failed',
+              type: 'mcpToolCall',
+              server: 'docs',
+              tool: 'lookup',
+              status: 'failed',
+              arguments: { query: 'loop status' },
+            },
+          },
+        },
+        {
+          method: 'item/started',
+          params: {
+            threadId: 'thread-1',
+            item: {
+              id: 'dynamic-failed',
+              type: 'dynamicToolCall',
+              tool: 'render',
+              status: 'inProgress',
+              arguments: { format: 'svg' },
+            },
+          },
+        },
+        {
+          method: 'item/completed',
+          params: {
+            threadId: 'thread-1',
+            item: {
+              id: 'dynamic-failed',
+              type: 'dynamicToolCall',
+              tool: 'render',
+              status: 'failed',
+              arguments: { format: 'svg' },
+            },
+          },
+        },
+        {
+          method: 'item/started',
+          params: {
+            threadId: 'thread-1',
+            item: {
+              id: 'collab-failed',
+              type: 'collabAgentToolCall',
+              tool: 'spawnAgent',
+              status: 'inProgress',
+              receiverThreadIds: [],
+            },
+          },
+        },
+        {
+          method: 'item/completed',
+          params: {
+            threadId: 'thread-1',
+            item: {
+              id: 'collab-failed',
+              type: 'collabAgentToolCall',
+              tool: 'spawnAgent',
+              status: 'failed',
+              receiverThreadIds: [],
+            },
+          },
+        },
+      ]) {
+        internals.handleTurnNotification(state, notification);
+      }
+      detach();
+
+      expect(capture.finalize().toolCalls).toEqual([
+        expect.objectContaining({ toolName: 'Bash', success: false }),
+        expect.objectContaining({ toolName: 'Edit', success: false }),
+        expect.objectContaining({ toolName: 'lookup', success: false }),
+        expect.objectContaining({ toolName: 'render', success: false }),
+        expect.objectContaining({ toolName: 'Task', success: false }),
+      ]);
+    });
+
+    it('leaves provider-notification heartbeat ownership to the app-server runtime', () => {
+      const adapter = new CodexCliAdapter();
+      const internals = adapter as unknown as {
+        createTurnCaptureState(threadId: string): unknown;
+        handleTurnNotification(
+          state: unknown,
+          notification: { method: string; params: Record<string, unknown> },
+        ): void;
+      };
+      const heartbeat = vi.fn();
+      adapter.on('heartbeat', heartbeat);
+
+      internals.handleTurnNotification(
+        internals.createTurnCaptureState('thread-1'),
+        {
+          method: 'item/reasoning/summaryTextDelta',
+          params: { threadId: 'thread-1', turnId: 'turn-1', delta: 'still reasoning' },
+        },
+      );
+
+      expect(heartbeat).not.toHaveBeenCalled();
+    });
+
     it('keeps retrying app-server error notifications as warnings instead of poisoning the turn', () => {
       const adapter = new CodexCliAdapter();
       const internals = adapter as unknown as {

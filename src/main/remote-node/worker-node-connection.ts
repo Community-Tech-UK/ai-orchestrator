@@ -50,6 +50,8 @@ interface PendingRpc {
   isWork: boolean;
 }
 
+export type RpcRequestResponder = (response: RpcResponse) => boolean;
+
 export class WorkerNodeConnectionServer extends EventEmitter {
   private static instance: WorkerNodeConnectionServer;
 
@@ -342,11 +344,12 @@ export class WorkerNodeConnectionServer extends EventEmitter {
     }
   }
 
-  sendResponse(nodeId: string, response: RpcResponse): void {
+  /** Returns false only when no open node socket accepted the response. */
+  sendResponse(nodeId: string, response: RpcResponse): boolean {
     const ws = this.nodeToSocket.get(nodeId);
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       logger.warn('sendResponse: node not connected', { nodeId });
-      return;
+      return false;
     }
 
     ws.send(JSON.stringify(response), (err) => {
@@ -354,6 +357,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
         logger.error('sendResponse failed', err, { nodeId });
       }
     });
+    return true;
   }
 
   // ---------------------------------------------------------------------------
@@ -402,7 +406,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
         return;
       }
 
-      this.handleMessage(nodeId, msg);
+      this.handleMessage(nodeId, ws, msg);
     });
 
     ws.on('close', (code, reason) => {
@@ -437,7 +441,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       logger.info('Worker WebSocket closed', { nodeId, closeCode, closeReason });
       // Defensive depth against a flap storm: do NOT immediately deregister the
       // node or fail its in-flight RPCs. A flapping link (or a fast worker
-      // reconnect) frequently re-registers within a couple seconds; the node's
+      // reconnect) frequently re-registers within the grace window; the node's
       // CLIs keep running locally the whole time. Start a short grace window and
       // only treat this as a true disconnect if no re-registration arrives.
       this.disconnectLifecycle.beginGrace(nodeId);
@@ -573,8 +577,8 @@ export class WorkerNodeConnectionServer extends EventEmitter {
     // Forward the registration to the RPC router so it registers the node
     // in the registry and starts health monitoring.
     const request = withConnectionAddress(msg as RpcRequest, remoteAddress);
-    this.emit('rpc:request', newNodeId, request);
-    this.sendResponse(newNodeId, {
+    this.emit('rpc:request', newNodeId, request, this.createRequestResponder(newNodeId, ws));
+    this.sendResponseToSocket(newNodeId, ws, {
       jsonrpc: '2.0',
       id: msg.id,
       result: {
@@ -586,14 +590,14 @@ export class WorkerNodeConnectionServer extends EventEmitter {
     });
   }
 
-  private handleMessage(nodeId: string, msg: unknown): void {
+  private handleMessage(nodeId: string, ws: WebSocket, msg: unknown): void {
     if (isRpcResponse(msg)) {
       this.handleRpcResponse(msg);
       return;
     }
 
     if (isRpcRequest(msg)) {
-      this.emit('rpc:request', nodeId, msg as RpcRequest);
+      this.emit('rpc:request', nodeId, msg as RpcRequest, this.createRequestResponder(nodeId, ws));
       return;
     }
 
@@ -603,6 +607,41 @@ export class WorkerNodeConnectionServer extends EventEmitter {
     }
 
     logger.warn('Received unrecognised message from node', { nodeId, msg });
+  }
+
+  private createRequestResponder(nodeId: string, requestSocket: WebSocket): RpcRequestResponder {
+    let responded = false;
+    return (response) => {
+      if (responded) {
+        logger.warn('RPC request already answered', { nodeId, requestId: response.id });
+        return false;
+      }
+      responded = true;
+      return this.sendResponseToSocket(nodeId, requestSocket, response);
+    };
+  }
+
+  private sendResponseToSocket(
+    nodeId: string,
+    requestSocket: WebSocket,
+    response: RpcResponse,
+  ): boolean {
+    if (
+      this.nodeToSocket.get(nodeId) !== requestSocket
+      || requestSocket.readyState !== WebSocket.OPEN
+    ) {
+      logger.warn('sendResponse: requesting socket is no longer active', {
+        nodeId,
+        requestId: response.id,
+      });
+      return false;
+    }
+    requestSocket.send(JSON.stringify(response), (err) => {
+      if (err) {
+        logger.error('sendResponse failed', err, { nodeId });
+      }
+    });
+    return true;
   }
 
   private handleRpcResponse(response: RpcResponse): void {

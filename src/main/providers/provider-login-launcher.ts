@@ -12,6 +12,12 @@
 
 import { execFile, spawn } from 'node:child_process';
 import { getLogger } from '../logging/logger';
+import {
+  assertSafeCopilotProfileId,
+  resolveCopilotProfileHome,
+} from '../cli/adapters/copilot/copilot-account-home-resolver';
+import { COPILOT_LEGACY_PROFILE_ID } from '../../shared/types/copilot-account.types';
+import { emitCopilotAccountEvent } from './copilot/copilot-account-events';
 
 const logger = getLogger('ProviderLoginLauncher');
 
@@ -56,6 +62,88 @@ const PROVIDER_ALIASES: Record<string, string> = {
 
 /** Only ever letters, digits, spaces and `-_.` — asserted before shell embedding. */
 const SAFE_COMMAND = /^[A-Za-z0-9 ._-]+$/;
+
+/**
+ * Exact lowercase hostname. Mirrors `CopilotHostSchema` in the contracts
+ * package; duplicated as a plain regex here so the launcher validates even when
+ * called from a path that skipped IPC schema validation.
+ */
+const SAFE_HOST = /^(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))*$/;
+
+/**
+ * Characters that make a derived path unsafe to embed in ANY of the three
+ * terminal wrappers (POSIX shell, cmd.exe, AppleScript). The Copilot profile
+ * home is `<userData>/copilot-cli-profiles/<safe-slug>`, so hitting this means
+ * the user's own userData path contains a quote or shell metacharacter —
+ * pathological, and better refused loudly than escaped cleverly.
+ */
+const UNSAFE_PATH_CHARS = /["'`$;&|<>\n\r\0]/;
+/** Backslash is a path separator on Windows, but an escape everywhere else. */
+const POSIX_UNSAFE_PATH_CHARS = /\\/;
+
+/**
+ * The ONE audited quoting helper (spec §17). Every platform's terminal wrapper
+ * gets its path through here; nothing else interpolates a path into a command.
+ */
+export function quotePathForTerminal(value: string, platform: NodeJS.Platform): string {
+  if (
+    UNSAFE_PATH_CHARS.test(value)
+    || (platform !== 'win32' && POSIX_UNSAFE_PATH_CHARS.test(value))
+  ) {
+    throw new Error(
+      'Refusing to build a sign-in command: the Copilot profile directory contains a character that cannot be safely quoted.',
+    );
+  }
+  // Post-validation the value has no quote of either kind, so a single pair of
+  // quotes is sufficient and unambiguous on every platform. Quoting is still
+  // required: the macOS userData path contains a space.
+  return platform === 'win32' ? `"${value}"` : `'${value}'`;
+}
+
+export interface CopilotProfileLoginRequest {
+  /** Validated safe slug. Never a path. */
+  profileId: string;
+  /** Normalized lowercase hostname. Defaults to the CLI's own default. */
+  host?: string;
+  /** True for the migration-created profile bound to the pre-existing home. */
+  isLegacy?: boolean;
+}
+
+/**
+ * Build `COPILOT_HOME=<derived home> copilot login [--host <host>]` for one
+ * account profile.
+ *
+ * The renderer supplies a profile ID and (optionally) a host — never a command,
+ * a path, or an environment map. The home is derived in main from the validated
+ * ID, so no caller-controlled fragment reaches a shell.
+ */
+export function buildCopilotProfileLoginCommand(
+  request: CopilotProfileLoginRequest,
+  platform: NodeJS.Platform = process.platform,
+): ProviderLoginCommand {
+  assertSafeCopilotProfileId(request.profileId);
+  const host = request.host?.trim();
+  if (host !== undefined && host !== '' && !SAFE_HOST.test(host)) {
+    throw new Error('Refusing to build a sign-in command: the Copilot host is not a valid hostname.');
+  }
+  const home = resolveCopilotProfileHome(request.profileId, {
+    isLegacy: request.isLegacy || request.profileId === COPILOT_LEGACY_PROFILE_ID,
+  });
+  const quotedHome = quotePathForTerminal(home, platform);
+  const hostArgs = host ? ` --host ${host}` : '';
+  // cmd.exe's `set "VAR=value"` form must wrap the WHOLE assignment, so the
+  // validated raw path goes inside those quotes rather than being quoted again.
+  // `quotePathForTerminal` still runs above on both platforms — it is the
+  // validation gate as well as the quoter.
+  const command = platform === 'win32'
+    ? `set "COPILOT_HOME=${home}" && copilot login${hostArgs}`
+    : `COPILOT_HOME=${quotedHome} copilot login${hostArgs}`;
+  return {
+    provider: 'copilot',
+    command,
+    hint: 'Complete the GitHub sign-in in your browser. Harness never sees the token.',
+  };
+}
 
 export function getProviderLoginCommand(provider: string): ProviderLoginCommand | null {
   const key = PROVIDER_ALIASES[provider] ?? provider;
@@ -135,12 +223,23 @@ export interface ProviderLoginLaunchResult {
  * Throws when the provider has no known login command or no terminal could be
  * launched — the caller surfaces the message to the user.
  */
-export async function launchProviderLogin(provider: string): Promise<ProviderLoginLaunchResult> {
-  const login = getProviderLoginCommand(provider);
+export async function launchProviderLogin(
+  provider: string,
+  copilotProfile?: CopilotProfileLoginRequest,
+): Promise<ProviderLoginLaunchResult> {
+  // A Copilot profile sign-in is built here rather than looked up, because it
+  // has to carry that profile's derived COPILOT_HOME. Everything caller-supplied
+  // (the profile ID, the host) is validated before it becomes a command.
+  const login = copilotProfile
+    ? buildCopilotProfileLoginCommand(copilotProfile)
+    : getProviderLoginCommand(provider);
   if (!login) {
     throw new Error(`No known sign-in command for provider "${provider}".`);
   }
-  if (!SAFE_COMMAND.test(login.command)) {
+  // The Copilot profile command legitimately carries quotes and `=` from the
+  // audited quoting helper, so it is exempt from the fixed-table character
+  // allowlist — its own inputs were validated above.
+  if (!copilotProfile && !SAFE_COMMAND.test(login.command)) {
     // Unreachable with the table above; guards future edits from smuggling
     // shell metacharacters into the AppleScript/cmd wrappers.
     throw new Error(`Refusing to run an unsafe login command for "${provider}".`);
@@ -156,7 +255,14 @@ export async function launchProviderLogin(provider: string): Promise<ProviderLog
       logger.info('Launched provider sign-in in a terminal', {
         provider: login.provider,
         terminal: candidate.terminal,
+        ...(copilotProfile ? { profileId: copilotProfile.profileId } : {}),
       });
+      if (copilotProfile) {
+        emitCopilotAccountEvent({
+          event: 'copilot_account_login_launched',
+          profileId: copilotProfile.profileId,
+        });
+      }
       return {
         provider: login.provider,
         command: login.command,

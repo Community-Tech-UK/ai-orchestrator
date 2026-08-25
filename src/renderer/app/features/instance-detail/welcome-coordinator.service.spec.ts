@@ -77,6 +77,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
     agentId: ReturnType<typeof signal<string>>;
     yoloMode: ReturnType<typeof signal<boolean | null>>;
     hardened: ReturnType<typeof signal<boolean | null>>;
+    copilotAccountProfileId: ReturnType<typeof signal<string | null>>;
     launchMode: ReturnType<typeof signal<'orchestrated' | 'interactive' | null>>;
     nodeId: ReturnType<typeof signal<string | null>>;
     updatedAt: ReturnType<typeof signal<number>>;
@@ -120,6 +121,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
       agentId: signal('build'),
       yoloMode: signal<boolean | null>(null),
       hardened: signal<boolean | null>(null),
+      copilotAccountProfileId: signal<string | null>(null),
       launchMode: signal<'orchestrated' | 'interactive' | null>('orchestrated'),
       nodeId: signal<string | null>(null),
       updatedAt: signal(1),

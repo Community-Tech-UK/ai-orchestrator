@@ -46,6 +46,7 @@ import {
   isWorkerNodeWorkDispatchMethod,
   WorkerNodeConnectionServer,
 } from '../worker-node-connection';
+import { DISCONNECT_GRACE_MS } from '../connection-disconnect-lifecycle';
 import { COORDINATOR_TO_NODE } from '../worker-node-rpc';
 
 // ---------------------------------------------------------------------------
@@ -129,7 +130,7 @@ describe('WorkerNodeConnectionServer — socket replacement race', () => {
     try {
       wsB.emit('close');
       expect(disconnected).toEqual([]);
-      vi.advanceTimersByTime(3_000);
+      vi.advanceTimersByTime(DISCONNECT_GRACE_MS);
       expect(disconnected).toEqual([NODE_ID]);
       expect(internals.nodeToSocket.has(NODE_ID)).toBe(false);
     } finally {
@@ -221,6 +222,52 @@ describe('WorkerNodeConnectionServer — sendRpc timeout & disconnect', () => {
     return { server, internals, ws };
   }
 
+  it('LT-371: reports whether an open node socket accepted an RPC response', () => {
+    const disconnected = WorkerNodeConnectionServer.getInstance();
+    const response = { jsonrpc: '2.0' as const, id: 1, result: { ok: true } };
+
+    expect(disconnected.sendResponse(NODE_ID, response)).toBe(false);
+
+    const { server, ws } = connectNode();
+    ws.send.mockClear();
+    expect(server.sendResponse(NODE_ID, response)).toBe(true);
+    expect(ws.send).toHaveBeenCalledOnce();
+  });
+
+  it('LT-371: an inbound request responder never writes onto a replacement socket', () => {
+    const { server, internals, ws: firstSocket } = connectNode();
+    let respond: ((response: {
+      jsonrpc: '2.0';
+      id: number;
+      result: { commandId: string };
+    }) => boolean) | undefined;
+    server.on('rpc:request', (_nodeId, request, requestResponder) => {
+      if (request.method === 'browser.ext.pollCommand') {
+        respond = requestResponder;
+      }
+    });
+    firstSocket.emit('message', JSON.stringify({
+      jsonrpc: '2.0',
+      id: 42,
+      method: 'browser.ext.pollCommand',
+      params: { token: 'session-token', timeoutMs: 25_000 },
+    }));
+
+    firstSocket.emit('close');
+    const replacementSocket = makeFakeWs();
+    internals.handleConnection(replacementSocket);
+    replacementSocket.emit('message', registerMessage());
+    replacementSocket.send.mockClear();
+
+    expect(respond).toBeDefined();
+    expect(respond!({
+      jsonrpc: '2.0',
+      id: 42,
+      result: { commandId: 'cmd-1' },
+    })).toBe(false);
+    expect(replacementSocket.send).not.toHaveBeenCalled();
+  });
+
   it('does not time out an RPC when the timeout is disabled (timeoutMs <= 0)', async () => {
     vi.useFakeTimers();
     const { server, internals } = connectNode();
@@ -275,7 +322,7 @@ describe('WorkerNodeConnectionServer — sendRpc timeout & disconnect', () => {
     expect(internals.pending.size).toBe(1);
 
     // …and only fails it once the grace window elapses with no re-registration.
-    await vi.advanceTimersByTimeAsync(3_000);
+    await vi.advanceTimersByTimeAsync(DISCONNECT_GRACE_MS);
 
     const message = await rejection;
     expect(message).toContain('Node disconnected');

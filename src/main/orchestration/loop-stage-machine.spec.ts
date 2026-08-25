@@ -504,7 +504,7 @@ describe('LoopStageMachine', () => {
     const cfg = defaultLoopConfig(tmpDir, 'x');
     await m.bootstrap(cfg);
     await m.appendIterationLog({
-      seq: 3,
+      seq: 0,
       stage: 'IMPLEMENT',
       verdict: 'WARN',
       tokens: 1234,
@@ -514,7 +514,8 @@ describe('LoopStageMachine', () => {
       completionNotes: [],
     });
     const log = fs.readFileSync(paths.iterationLog, 'utf8');
-    expect(log).toContain('## Iteration 3');
+    expect(log).toContain('## Iteration 1');
+    expect(log).not.toContain('## Iteration 0');
     expect(log).toContain('IMPLEMENT');
     expect(log).toContain('WARN');
     expect(log).toContain('[A/WARN] identical hash');

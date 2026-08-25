@@ -11,6 +11,7 @@ import type {
   TerminationPolicy,
   ContextInheritanceConfig,
 } from './supervision.types';
+import type { CopilotRouteSource } from './copilot-account.types';
 import type { ExecutionLocation, NodePlacementPrefs } from './worker-node.types';
 import type { InstanceRuntimeSummary, ModelRuntimeTarget } from './local-model-runtime.types';
 import { createDefaultContextInheritance } from './supervision.types';
@@ -309,6 +310,18 @@ export interface DesiredRuntime {
   fastMode?: boolean;
   modelRuntimeTarget?: ModelRuntimeTarget;
   yoloMode?: boolean;
+  /**
+   * Move this conversation to a different GitHub Copilot account.
+   *
+   * This is an explicit ACCOUNT HANDOFF, never an automatic resume: the
+   * existing provider session is terminated, a fresh one is created under the
+   * new account, and the transcript records the change. The user has to accept
+   * that the conversation's context will be sent through the new account, so
+   * `copilotAccountHandoffConfirmed` must accompany it.
+   */
+  copilotAccountProfileId?: string;
+  /** Explicit confirmation that context may cross to the new account. */
+  copilotAccountHandoffConfirmed?: boolean;
 }
 
 /**
@@ -470,6 +483,21 @@ export interface Instance {
   hardened?: boolean; // WS13 — spawn the CLI inside the macOS Seatbelt jail (fail-closed when unavailable)
   containedExecution?: boolean; // WS-C7 — see the matching field on InstanceCreateConfig below
   /**
+   * The GitHub Copilot account profile this session was created under.
+   *
+   * DELIBERATELY a first-class field rather than an entry in `metadata`:
+   * `instanceToState()` (session-continuity.ts) builds `SessionState`
+   * field-by-field and does NOT copy `metadata`, so a profile stamped there
+   * would be silently lost across hibernate/wake — and a session that comes
+   * back with no profile is a session that could resume under the wrong
+   * GitHub account.
+   */
+  copilotAccountProfileId?: string;
+  /** How that profile was chosen, for display and audit. */
+  copilotRoutingSource?: CopilotRouteSource;
+  /** The routing rule that decided it, when a rule did. */
+  copilotRoutingRuleId?: string;
+  /**
    * WS7 Phase B — ordered fallback providers this session may fail over to when
    * its recovery ladder exhausts on a provider-fault category. Empty/undefined
    * = failover off. Seeded from the global `sessionFailoverProviders` at create.
@@ -604,6 +632,10 @@ export interface InstanceCreateConfig {
   browserToolsMode?: BrowserToolsMode; // WS9 per-instance browser tool surface; undefined = global setting decides
   hardened?: boolean; // WS13 — spawn the CLI inside the macOS Seatbelt jail (fail-closed when unavailable)
   containedExecution?: boolean; // WS-C7 — filtered spawn env via getSafeEnv(); see contained-execution-scoping.ts
+  /** Explicit Copilot account profile for this session (user override). */
+  copilotAccountProfileId?: string;
+  /** Set when the user confirmed an override that leaves a protected scope. */
+  copilotConfirmProtectedOverride?: boolean;
   /** WS7 Phase B — ordered fallback providers; undefined = seed from global `sessionFailoverProviders`. */
   failoverProviders?: string[];
 
@@ -717,6 +749,7 @@ export function createInstance(config: InstanceCreateConfig): Instance {
     requestCount: 0,
     errorCount: 0,
     restartCount: 0,
+    copilotAccountProfileId: config.copilotAccountProfileId,
     metadata: config.metadata,
   };
 }

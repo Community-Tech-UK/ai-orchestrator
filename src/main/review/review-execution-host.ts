@@ -2,6 +2,7 @@ import { resolveCliType } from '../cli/adapters/adapter-factory';
 import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
 import type { ReviewResult } from '../../shared/types/cross-model-review.types';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
+import { attachCopilotRoute } from '../instance/lifecycle/copilot-route-preflight';
 import { getSettingsManager } from '../core/config/settings-manager';
 import type { CliType as SettingsCliType } from '../../shared/types/settings.types';
 import { getProviderQuotaService } from '../core/system/provider-quota-service';
@@ -170,9 +171,10 @@ export class ProviderReviewExecutionHost implements ReviewExecutionHost {
             getProviderQuotaService().getSnapshot('antigravity'),
           )[0]
         : configuredModel;
-    const adapter = getProviderRuntimeService().createAdapter({
-      cliType: resolvedCli,
-      options: {
+    // Copilot account routing: reviews are an automatic surface.
+    const reviewerSpawnOptions = await attachCopilotRoute(
+      resolvedCli,
+      {
         workingDirectory: cwd,
         yoloMode: false,
         // When no override is configured, leave `model` unset so the reviewer
@@ -182,6 +184,11 @@ export class ProviderReviewExecutionHost implements ReviewExecutionHost {
         // keep prompt-steered JSON (their flags differ; parser stays strict).
         ...(resolvedCli === 'claude' && options?.jsonSchema ? { jsonSchema: options.jsonSchema } : {}),
       },
+      'review',
+    );
+    const adapter = getProviderRuntimeService().createAdapter({
+      cliType: resolvedCli,
+      options: reviewerSpawnOptions,
     });
 
     let cancelled = false;

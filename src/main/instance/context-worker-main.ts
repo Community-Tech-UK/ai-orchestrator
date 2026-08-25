@@ -135,20 +135,27 @@ function createTransport(): ContextWorkerTransport {
 
 const transport = createTransport();
 
+// ── RLM database pre-init ─────────────────────────────────────────────────────
+
+// Pre-initialise with explicit paths so RLMContextManager.getInstance() picks
+// up the correct singleton (with busy_timeout) on first access. This MUST run
+// before registerWorkerEventForwarding() below: RLMDatabase.getInstance() is
+// itself a getInstance()-style singleton where the first caller's config wins,
+// and registerWorkerEventForwarding() calls RLMContextManager.getInstance(),
+// whose constructor eagerly resolves RLMDatabase.getInstance() with NO config.
+// LT-207 already documented and avoided this exact ordering hazard for the
+// codebase-indexing lane worker; LT-480 found the original context worker
+// still had it — reversed here to match.
+RLMDatabase.getInstance({
+  dbPath: path.join(userDataPath, 'rlm', 'rlm.db'),
+  contentDir: path.join(userDataPath, 'rlm', 'content'),
+});
+
 // LT-169/170/206: forward every allowlisted worker-local singleton event
 // (skill activations, RLM store/section/query activity, wake-context
 // generation) to the main process — see context-worker-event-forwarding.ts
 // for the full cross-process EventEmitter rationale and the allowlist.
 registerWorkerEventForwarding(transport);
-
-// ── RLM database pre-init ─────────────────────────────────────────────────────
-
-// Pre-initialise with explicit paths so RLMContextManager.getInstance() picks
-// up the correct singleton (with busy_timeout) on first access.
-RLMDatabase.getInstance({
-  dbPath: path.join(userDataPath, 'rlm', 'rlm.db'),
-  contentDir: path.join(userDataPath, 'rlm', 'content'),
-});
 
 // ── Context manager ───────────────────────────────────────────────────────────
 

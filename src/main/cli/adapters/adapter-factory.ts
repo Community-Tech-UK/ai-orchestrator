@@ -27,6 +27,7 @@ import { RemoteLocalModelAdapter } from './remote-local-model-adapter';
 import { CliDetectionService, CliType } from '../cli-detection';
 import { getDefaultCopilotCliLaunch } from '../copilot-cli-launch';
 import type { CliType as SettingsCliType } from '../../../shared/types/settings.types';
+import { normalizeModelForProvider } from '../../../shared/types/provider.types';
 import type { ExecutionLocation } from '../../../shared/types/worker-node.types';
 import { getWorkerNodeConnectionServer } from '../../remote-node/worker-node-connection';
 import { getLogger } from '../../logging/logger';
@@ -50,6 +51,12 @@ import {
   buildMobileMcpCodexConfigToml,
 } from '../../browser-gateway/mobile-mcp-config';
 import type { UnifiedSpawnOptions, CliAdapter } from './adapter-factory.types';
+import { COPILOT_LEGACY_PROFILE_ID } from '../../../shared/types/copilot-account.types';
+import { resolveCopilotProfileHome } from './copilot/copilot-account-home-resolver';
+import {
+  assertRoutableCopilotLaunchShape,
+  requireCopilotAccountRoute,
+} from './copilot/copilot-adapter-guards';
 import {
   buildInlineMcpServersCodexConfigToml,
   buildStaticMcpServersCodexConfigToml,
@@ -60,8 +67,8 @@ import {
   buildCopilotAdditionalMcpConfig,
   buildCopilotSpawnEnv,
   buildInlineMcpServersAcpMcpServers,
+  COPILOT_STRIPPED_AUTH_ENV_VARS,
   extendEnvWithRtk,
-  getCopilotOrchestratorHome,
   mergeSpawnEnv,
   toCodexReasoningEffort,
   withBrowserGatewayProvider,
@@ -321,7 +328,9 @@ export function createAntigravityAdapter(options: UnifiedSpawnOptions): Antigrav
  * Copilot session actually runs a different one.
  */
 export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapter {
+  const route = requireCopilotAccountRoute(options, 'local');
   const launch = getDefaultCopilotCliLaunch();
+  assertRoutableCopilotLaunchShape(launch);
   const modelArgs: string[] = [];
   const requestedModel = options.model?.trim();
   if (requestedModel) {
@@ -329,17 +338,37 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
       requestedModel.toLowerCase() === 'auto' ? 'auto' : requestedModel;
     modelArgs.push('--model', normalizedModel);
   }
+  // Unlike other providers, provider-state isolation is NOT optional here.
+  // `ephemeral: false` used to mean "no --config-dir, no COPILOT_HOME", which
+  // sends the child to ~/.copilot — an account this app never resolved. Once
+  // account routing owns the home, every Copilot spawn gets its profile's home
+  // regardless of `ephemeral`; `ephemeral` keeps its original meaning for the
+  // `--no-remote` session-visibility flag only.
   const isolateProviderState = options.ephemeral ?? true;
-  const copilotHomeDir = isolateProviderState ? getCopilotOrchestratorHome() : undefined;
-  const providerStateArgs = copilotHomeDir
-    ? ['--config-dir', copilotHomeDir, '--no-remote']
-    : [];
+  const copilotHomeDir = resolveCopilotProfileHome(route.profileId, {
+    isLegacy: route.profileId === COPILOT_LEGACY_PROFILE_ID,
+  });
+  const providerStateArgs = [
+    '--config-dir',
+    copilotHomeDir,
+    ...(isolateProviderState ? ['--no-remote'] : []),
+  ];
   const env = mergeSpawnEnv(options, buildCopilotSpawnEnv());
-  if (copilotHomeDir) {
-    // Harness owns its own session/history surface. Copilot ACP
-    // sessions created here should not write into ~/.copilot, because VS
-    // Code's Copilot Chat session list indexes that state directory.
-    env['COPILOT_HOME'] = copilotHomeDir;
+  // `mergeSpawnEnv` layers `options.env` over the sanitized base, so re-strip:
+  // a caller-supplied token would otherwise walk back in behind the profile.
+  for (const key of COPILOT_STRIPPED_AUTH_ENV_VARS) {
+    delete env[key];
+  }
+  // Harness owns its own session/history surface. Copilot ACP sessions
+  // created here should not write into ~/.copilot, because VS Code's Copilot
+  // Chat session list indexes that state directory — and, since this feature,
+  // because ~/.copilot is a shared account selection two AIO sessions could
+  // race on.
+  env['COPILOT_HOME'] = copilotHomeDir;
+  if (route.host) {
+    // `githubGetHost(COPILOT_GH_HOST, GH_HOST)` — setting the higher-priority
+    // variable is what stops an ambient GH_HOST retargeting the child.
+    env['COPILOT_GH_HOST'] = route.host;
   }
   extendEnvWithRtk(env, options.rtk);
   const browserGatewayMcpServers = options.browserGatewayMcp
@@ -494,7 +523,14 @@ export function createGrokAdapter(options: UnifiedSpawnOptions): AcpCliAdapter {
     : [];
   const inlineMcpServers = buildInlineMcpServersAcpMcpServers(options.mcpConfig);
   const agentArgs: string[] = ['agent'];
-  const requestedModel = options.model?.trim();
+  // Normalized at the spawn boundary, not only at session-create: wake/restart/
+  // resume rebuild spawn options from the persisted `instance.currentModel`, and
+  // an id xAI has retired fails the spawn outright ("unknown model id", exit 1).
+  // Only an EXPLICIT model is normalized — absent one, `-m` stays off so the CLI
+  // picks its own default rather than us pinning the last id we hard-coded.
+  const requestedModel = options.model?.trim()
+    ? normalizeModelForProvider('grok', options.model)?.trim()
+    : undefined;
   if (requestedModel && requestedModel.toLowerCase() !== 'auto') {
     agentArgs.push('-m', requestedModel);
   }
@@ -628,8 +664,13 @@ export function createCliAdapter(
     });
   }
 
-  // If remote, create a RemoteCliAdapter regardless of CLI type
+  // If remote, create a RemoteCliAdapter regardless of CLI type. This returns
+  // BEFORE the cliType switch below, so the Copilot fail-closed check has to
+  // run here too — otherwise a remote Copilot spawn would skip it entirely.
   if (executionLocation?.type === 'remote') {
+    if (cliType === 'copilot') {
+      requireCopilotAccountRoute(effectiveOptions, 'remote');
+    }
     const connection = getWorkerNodeConnectionServer();
     return new RemoteCliAdapter(connection, executionLocation.nodeId, cliType, effectiveOptions);
   }

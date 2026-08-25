@@ -47,6 +47,59 @@ export function getFileChangePath(item: ThreadItem): string {
   return 'unknown';
 }
 
+export function getFileChangeInput(item: ThreadItem): Record<string, unknown> {
+  if (Array.isArray(item.changes)) {
+    const changes = item.changes.flatMap((change) => {
+      if (!change || typeof change !== 'object') return [];
+      const record = change as Record<string, unknown>;
+      const path = typeof record['path'] === 'string' && record['path'].trim()
+        ? record['path']
+        : undefined;
+      if (!path) return [];
+      const kind = normalizeFileChangeKind(record['kind'])
+        ?? readFirstNonEmptyString(record, ['changeType', 'change_type', 'type']);
+      const diff = typeof record['diff'] === 'string' ? record['diff'] : undefined;
+      return [{ path, ...(kind ? { kind } : {}), ...(diff !== undefined ? { diff } : {}) }];
+    });
+    if (changes.length > 0) return { changes };
+  }
+  const path = getFileChangePath(item);
+  const changeType = item.changeType
+    ?? (typeof item['change_type'] === 'string' ? item['change_type'] : undefined);
+  return {
+    file_path: path,
+    ...(changeType ? { change_type: changeType } : {}),
+  };
+}
+
+export function isFailedThreadItemStatus(item: ThreadItem): boolean {
+  return item.status === 'failed' || item.status === 'declined';
+}
+
+function normalizeFileChangeKind(value: unknown): string | Record<string, unknown> | undefined {
+  if (typeof value === 'string' && value.trim()) return value;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const type = typeof record['type'] === 'string' && record['type'].trim()
+    ? record['type']
+    : undefined;
+  if (!type) return undefined;
+  const movePath = record['move_path'];
+  return {
+    type,
+    ...((typeof movePath === 'string' || movePath === null) ? { move_path: movePath } : {}),
+  };
+}
+
+function readFirstNonEmptyString(
+  record: Record<string, unknown>,
+  keys: string[],
+): string | undefined {
+  return keys
+    .map((key) => record[key])
+    .find((value): value is string => typeof value === 'string' && value.trim().length > 0);
+}
+
 export function getToolCallName(item: ThreadItem): string {
   for (const value of [item.tool, item.toolName, item['name']]) {
     if (typeof value === 'string' && value.trim()) {

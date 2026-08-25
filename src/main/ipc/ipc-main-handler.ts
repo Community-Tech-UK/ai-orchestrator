@@ -54,6 +54,8 @@ import {
   registerTodoHandlers,
   registerDocReviewHandlers,
   registerSecurityHandlers,
+  registerSecretCardHandlers,
+  registerCopilotAccountHandlers,
   registerDebugHandlers,
   registerCostHandlers,
   registerQuotaHandlers,
@@ -237,6 +239,27 @@ export class IpcMainHandler {
       executeCommand: createThinClientCommandExecutor({
         instanceManager: this.instanceManager,
       }),
+    });
+
+    // Workspace Secret Card. Registered with the adapter reach injected rather
+    // than imported, so the handler module itself has no path to the CLI — see the
+    // security contract at the top of secret-card-handlers.ts.
+    registerSecretCardHandlers({
+      ensureTrustedSender: this.ensureTrustedSender.bind(this),
+      getWorkingDirectory: (id) => this.instanceManager.getInstance(id)?.workingDirectory,
+      notifyAgent: async (id, message) => { await this.instanceManager.sendInput(id, message); },
+    });
+
+    // GitHub Copilot account profiles and routing rules. The live-session
+    // list is injected rather than imported so the handler module has no
+    // dependency on the instance manager.
+    registerCopilotAccountHandlers({
+      ensureTrustedSender: this.ensureTrustedSender.bind(this),
+      profilesInUse: () =>
+        this.instanceManager
+          .getAllInstances()
+          .map((instance) => instance.copilotAccountProfileId)
+          .filter((profileId): profileId is string => Boolean(profileId)),
     });
 
     // Settings, config, and remote config handlers

@@ -85,8 +85,9 @@ The operator-only anchors are the credential-vault unlock settings
 credential-fill switch, the five Computer Use policy keys, the four Microsoft
 Graph OAuth and calendar-allowlist keys, the context-evidence rollout mode,
 the three Local AI Guard fallback-policy and budget keys, the WS-B1
-per-project PR-creation opt-in map (`allowPrCreation`), and the licence-scoping
-automation-provider block-list (`providersExcludedFromAutomation`).
+per-project PR-creation opt-in map (`allowPrCreation`), the licence-scoping
+automation-provider block-list (`providersExcludedFromAutomation`), and the two GitHub
+Copilot account-routing keys (`copilotAccountProfiles`, `copilotAccountRoutingRules`).
 `PRIVILEGED_CLI_OPERATOR_ONLY_KEYS` in
 `src/main/core/config/settings-control-policy.ts` is the authoritative list.
 

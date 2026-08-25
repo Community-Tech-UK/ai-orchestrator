@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { deriveReattemptSeed } from './loop-past-runs-panel.component';
+import {
+  deriveReattemptSeed,
+  LATER_ITERATION_CONTINUATION_LABEL,
+} from './loop-past-runs-panel.component';
 
 /**
  * Tests for the pure reattempt-mapping helper that powers the
@@ -20,6 +23,10 @@ import { deriveReattemptSeed } from './loop-past-runs-panel.component';
  * and via manual UI testing.
  */
 describe('deriveReattemptSeed', () => {
+  it('uses human wording for the later-iteration prompt role', () => {
+    expect(LATER_ITERATION_CONTINUATION_LABEL).toBe('Later-iteration continuation');
+  });
+
   it('splits goal + continuation when the past run had a distinct iterationPrompt', () => {
     const seed = deriveReattemptSeed({
       initialPrompt: 'implement feature X',

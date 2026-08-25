@@ -42,6 +42,32 @@ export function shortTime(timestamp: number): string {
   ].join(':');
 }
 
+/** Persisted loop sequence numbers are zero-based; operator-facing labels are not. */
+export function displayIterationNumber(seq: number): number {
+  return seq + 1;
+}
+
+/** The directory the child actually executes in, including an AIO-managed worktree. */
+export function effectiveLoopExecutionPath(config: {
+  workspaceCwd: string;
+  executionCwd?: string | null;
+}): string {
+  return config.executionCwd || config.workspaceCwd;
+}
+
+/** Prevent a completed iteration's verdict from looking current mid-iteration. */
+export function progressVerdictView(
+  verdict: string,
+  hasRunningIteration: boolean,
+): { label: string; title: string } {
+  return hasRunningIteration
+    ? {
+      label: `LAST ITER · ${verdict}`,
+      title: 'Last completed iteration progress verdict',
+    }
+    : { label: verdict, title: 'Latest progress verdict' };
+}
+
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
@@ -587,9 +613,10 @@ export function buildInspectorProgress(input: {
 
   let headline: string;
   if (input.runningSeq !== null) {
+    const displaySeq = displayIterationNumber(input.runningSeq);
     headline = input.totalIterations === 0
-      ? `Iteration ${input.runningSeq} running · just getting started`
-      : `Iteration ${input.runningSeq} running`;
+      ? `Iteration ${displaySeq} running · just getting started`
+      : `Iteration ${displaySeq} running`;
   } else if (input.status === 'paused' || input.statusPillKind === 'paused') {
     headline = `Paused after ${input.totalIterations} iteration${input.totalIterations === 1 ? '' : 's'}`;
   } else {

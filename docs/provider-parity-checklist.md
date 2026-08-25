@@ -145,10 +145,11 @@ Legend: ✅ Implemented · ⚠️ Partial · ❌ Not supported · 🔲 Untested
   on close), no resume/session ID (stateless per message), no token usage (estimated from
   length), no permission prompts (yolo only), and no vision/attachment support.
 - `copilot` / `cursor`: no attachment support — CLI APIs do not expose file input paths.
-- `grok`: ACP-transport adapter (`grok agent … stdio`) with a fixed model list
-  (`grok-4.5`) and no vision/image support. Error normalization, context-overflow
-  detection, and thinking-event surfacing over ACP are declared but not yet exercised
-  end-to-end (🔲 rows).
+- `grok`: ACP-transport adapter (`grok agent … stdio`) with no vision/image support.
+  Models come from `grok models` via `GrokCliDiscoveryService`, with
+  `PROVIDER_MODEL_LIST.grok` (`grok-4.6`) as the offline fallback. Error
+  normalization, context-overflow detection, and thinking-event surfacing over
+  ACP are declared but not yet exercised end-to-end (🔲 rows).
 - `acp`: error normalization not implemented — ACP error codes are provider-specific.
 - All providers: metrics instrumentation is wired (`initMetrics` runs at startup) but
   `withMetrics` call sites have not yet been added to individual adapter hot paths

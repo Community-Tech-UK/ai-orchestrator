@@ -4,6 +4,8 @@ import {
   activityKindLabel,
   buildInspectorProgress,
   completionGateSteps,
+  displayIterationNumber,
+  effectiveLoopExecutionPath,
   formatCostCents,
   formatTimestamp,
   humanDuration,
@@ -12,6 +14,7 @@ import {
   loopStatusLabel,
   loopStatusPill,
   managedWorktreeStatus,
+  progressVerdictView,
   relativeTime,
   shortTime,
   summaryHasDistinctIterationPrompt,
@@ -69,6 +72,33 @@ describe('shortTime', () => {
     // Avoid timezone drift by constructing from individual components.
     const ts = new Date(2024, 0, 1, 5, 7, 9).getTime();
     expect(shortTime(ts)).toBe('05:07:09');
+  });
+});
+
+describe('operator-facing loop projections', () => {
+  it('converts persisted zero-based sequences to one-based display numbers', () => {
+    expect(displayIterationNumber(0)).toBe(1);
+    expect(displayIterationNumber(18)).toBe(19);
+  });
+
+  it('prefers the managed execution directory over the source workspace', () => {
+    expect(effectiveLoopExecutionPath({
+      workspaceCwd: '/workspace/project',
+      executionCwd: '/workspace/project/.worktrees/loop-1',
+    })).toBe('/workspace/project/.worktrees/loop-1');
+    expect(effectiveLoopExecutionPath({ workspaceCwd: '/workspace/project' }))
+      .toBe('/workspace/project');
+  });
+
+  it('labels an in-flight run verdict as belonging to the last completed iteration', () => {
+    expect(progressVerdictView('CRITICAL', true)).toEqual({
+      label: 'LAST ITER · CRITICAL',
+      title: 'Last completed iteration progress verdict',
+    });
+    expect(progressVerdictView('OK', false)).toEqual({
+      label: 'OK',
+      title: 'Latest progress verdict',
+    });
   });
 });
 
@@ -410,9 +440,9 @@ describe('buildInspectorProgress', () => {
     caps: baseCaps,
   };
 
-  it('flags a just-started run (iteration 0 running, nothing completed)', () => {
+  it('flags a just-started run with a one-based label (nothing completed)', () => {
     const p = buildInspectorProgress({ ...base, runningSeq: 0 });
-    expect(p.headline).toBe('Iteration 0 running · just getting started');
+    expect(p.headline).toBe('Iteration 1 running · just getting started');
     const iter = p.metrics.find((m) => m.key === 'iterations')!;
     // The in-flight iteration counts: 1 of 20 → 5%.
     expect(iter.valueText).toBe('1 / 20');

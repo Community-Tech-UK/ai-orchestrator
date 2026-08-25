@@ -84,6 +84,41 @@ describe('LocalAiTargetSetupComponent', () => {
     fixture.detectChanges();
   });
 
+  it('starts a new target with a ready-to-test recommended setup and explains the locked action', () => {
+    click('Configure Studio worker');
+
+    expect(fixture.nativeElement.textContent).toContain('Recommended setup');
+    expect(fixture.nativeElement.textContent).toContain('Review setup');
+    expect(fixture.nativeElement.textContent).toContain('Test endpoint');
+    expect(fixture.nativeElement.textContent).toContain('Enrol and monitor');
+    expect(selectInput('Canary model').value).toBe('qwen3:8b');
+    expect(numberInput('Canary timeout (seconds)').value).toBe('120');
+    expect(numberInput('Latency warning (milliseconds)').value).toBe('60000');
+    for (const role of [
+      'Compression',
+      'Memory distillation',
+      'Web extraction',
+      'Title generation',
+      'Routing classification',
+      'Approval scoring',
+      'Approval adjudication',
+      'Loop scoring',
+      'Retrieval hypothesis',
+      'Branch scoring',
+      'Sub-query execution',
+      'Output verification',
+    ]) {
+      expect(checkboxInput(role).checked).toBe(true);
+    }
+    expect((fixture.nativeElement.querySelector('details.advanced-settings') as HTMLDetailsElement).open)
+      .toBe(false);
+    expect(button('Test endpoint').disabled).toBe(false);
+    expect(button('Enrol target').disabled).toBe(true);
+    expect(fixture.nativeElement.textContent).toContain(
+      'Test the endpoint to unlock enrolment.',
+    );
+  });
+
   it('keeps discovery read-only until validation and enrolment are explicitly submitted', async () => {
     expect(fixture.nativeElement.textContent).toContain('Unmanaged');
     expect(store.createTarget).not.toHaveBeenCalled();
@@ -92,7 +127,7 @@ describe('LocalAiTargetSetupComponent', () => {
     setCheckbox('Expected model qwen3:8b', true);
     selectValue('Canary model', 'qwen3:8b');
     setCheckbox('Compression', true);
-    click('Validate endpoint');
+    click('Test endpoint');
     await fixture.whenStable();
     fixture.detectChanges();
 
@@ -109,7 +144,7 @@ describe('LocalAiTargetSetupComponent', () => {
     const config = store.createTarget.mock.calls[0]?.[0] as LocalAiTargetConfig;
     expect(config.expectedModels).toEqual([{ modelId: 'qwen3:8b', required: true }]);
     expect(config.canary.model).toBe('qwen3:8b');
-    expect(config.routingRoles).toEqual(['compression']);
+    expect(config.routingRoles).toHaveLength(12);
   });
 
   it('validates an unchanged configuration once and invalidates validation after edits', async () => {
@@ -118,10 +153,10 @@ describe('LocalAiTargetSetupComponent', () => {
     selectValue('Canary model', 'qwen3:8b');
     setCheckbox('Compression', true);
 
-    click('Validate endpoint');
+    click('Test endpoint');
     await fixture.whenStable();
     fixture.detectChanges();
-    click('Validate endpoint');
+    click('Test endpoint');
     await fixture.whenStable();
     expect(store.validateTarget).toHaveBeenCalledOnce();
 
@@ -129,7 +164,7 @@ describe('LocalAiTargetSetupComponent', () => {
     selectValue('Canary model', 'qwen3:14b');
     fixture.detectChanges();
     expect(button('Enrol target').disabled).toBe(true);
-    click('Validate endpoint');
+    click('Test endpoint');
     await fixture.whenStable();
     expect(store.validateTarget).toHaveBeenCalledTimes(2);
   });
@@ -150,7 +185,7 @@ describe('LocalAiTargetSetupComponent', () => {
     expect(fixture.nativeElement.textContent).toContain(
       'Automatic repair may restart only a named, supported local service.',
     );
-    expect(button('Validate endpoint').disabled).toBe(true);
+    expect(button('Test endpoint').disabled).toBe(true);
     expect(numberInput('Endpoint check interval (seconds)')).toMatchObject({
       min: '30',
       max: '900',
@@ -178,7 +213,7 @@ describe('LocalAiTargetSetupComponent', () => {
     expect(fixture.nativeElement.textContent).toContain(
       'Minimum context length must be a whole number between 1 and 100000000.',
     );
-    expect(button('Validate endpoint').disabled).toBe(true);
+    expect(button('Test endpoint').disabled).toBe(true);
     expect(button('Enrol target').disabled).toBe(true);
     form.dispatchEvent(new Event('submit'));
     await fixture.whenStable();
@@ -187,18 +222,18 @@ describe('LocalAiTargetSetupComponent', () => {
     for (const value of [1, 100_000_000]) {
       setNumber('qwen3:8b minimum context length', value);
       expect(context.getAttribute('aria-invalid')).toBeNull();
-      expect(button('Validate endpoint').disabled).toBe(false);
+      expect(button('Test endpoint').disabled).toBe(false);
     }
 
     for (const value of [0, 1.5]) {
       setNumber('qwen3:8b minimum context length', value);
       expect(context.getAttribute('aria-invalid')).toBe('true');
-      expect(button('Validate endpoint').disabled).toBe(true);
+      expect(button('Test endpoint').disabled).toBe(true);
     }
 
     updateModelContextWithRawValue('qwen3:8b', 'NaN');
     expect(context.getAttribute('aria-invalid')).toBe('true');
-    expect(button('Validate endpoint').disabled).toBe(true);
+    expect(button('Test endpoint').disabled).toBe(true);
   });
 
   it('blocks enrolment when validation reports insufficient required model context', async () => {
@@ -221,18 +256,34 @@ describe('LocalAiTargetSetupComponent', () => {
     selectValue('Canary model', 'qwen3:8b');
     setCheckbox('Compression', true);
 
-    click('Validate endpoint');
+    click('Test endpoint');
     await fixture.whenStable();
     fixture.detectChanges();
 
     expect(fixture.nativeElement.querySelector('[data-validation-layer="model"]')?.textContent)
       .toContain('Needs attention');
+    expect(fixture.nativeElement.querySelector('.enrolment-steps li:nth-child(2)')
+      ?.getAttribute('data-state')).toBe('failed');
     expect(button('Enrol target').disabled).toBe(true);
     expect(store.createTarget).not.toHaveBeenCalled();
   });
 
   it('persists role ownership for an optional expected model', async () => {
     click('Configure Studio worker');
+    for (const role of [
+      'Memory distillation',
+      'Web extraction',
+      'Routing classification',
+      'Approval scoring',
+      'Approval adjudication',
+      'Loop scoring',
+      'Retrieval hypothesis',
+      'Branch scoring',
+      'Sub-query execution',
+      'Output verification',
+    ]) {
+      setCheckbox(role, false);
+    }
     setCheckbox('Expected model qwen3:14b', true);
     selectValue('Canary model', 'qwen3:8b');
     setCheckbox('Compression', true);
@@ -240,7 +291,7 @@ describe('LocalAiTargetSetupComponent', () => {
     setCheckbox('qwen3:14b required', false);
     setCheckbox('qwen3:14b uses Compression', false);
 
-    click('Validate endpoint');
+    click('Test endpoint');
     await fixture.whenStable();
     fixture.detectChanges();
     click('Enrol target');
@@ -264,7 +315,7 @@ describe('LocalAiTargetSetupComponent', () => {
     setCheckbox('Expected model qwen3:8b', true);
     selectValue('Canary model', 'qwen3:8b');
     setCheckbox('Compression', true);
-    click('Validate changes');
+    click('Test changes');
     await fixture.whenStable();
     fixture.detectChanges();
     click('Save changes');
@@ -309,7 +360,11 @@ describe('LocalAiTargetSetupComponent', () => {
     fixture.componentRef.setInput('editingLifecycle', 'paused');
     fixture.detectChanges();
 
-    click('Validate changes');
+    expect(fixture.nativeElement.textContent).toContain(
+      'Ask before paid fallback · Automatic repair on',
+    );
+
+    click('Test changes');
     await fixture.whenStable();
     fixture.detectChanges();
     click('Save changes');
@@ -368,7 +423,7 @@ describe('LocalAiTargetSetupComponent', () => {
     expect(fixture.nativeElement.textContent).toContain(
       'Minimum context length must be a whole number between 1 and 100000000.',
     );
-    expect(button('Validate changes').disabled).toBe(true);
+    expect(button('Test changes').disabled).toBe(true);
     expect(button('Save changes').disabled).toBe(true);
     expect(store.validateTarget).not.toHaveBeenCalled();
     expect(store.updateTarget).not.toHaveBeenCalled();
@@ -392,18 +447,14 @@ describe('LocalAiTargetSetupComponent', () => {
   }
 
   function setCheckbox(label: string, checked: boolean): void {
-    const input = fixture.nativeElement.querySelector(
-      `input[aria-label="${label}"]`,
-    ) as HTMLInputElement;
+    const input = checkboxInput(label);
     input.checked = checked;
     input.dispatchEvent(new Event('change'));
     fixture.detectChanges();
   }
 
   function selectValue(label: string, value: string): void {
-    const select = fixture.nativeElement.querySelector(
-      `select[aria-label="${label}"]`,
-    ) as HTMLSelectElement;
+    const select = selectInput(label);
     select.value = value;
     select.dispatchEvent(new Event('change'));
     fixture.detectChanges();
@@ -430,5 +481,17 @@ describe('LocalAiTargetSetupComponent', () => {
     return fixture.nativeElement.querySelector(
       `input[aria-label="${label}"]`,
     ) as HTMLInputElement;
+  }
+
+  function checkboxInput(label: string): HTMLInputElement {
+    return fixture.nativeElement.querySelector(
+      `input[aria-label="${label}"]`,
+    ) as HTMLInputElement;
+  }
+
+  function selectInput(label: string): HTMLSelectElement {
+    return fixture.nativeElement.querySelector(
+      `select[aria-label="${label}"]`,
+    ) as HTMLSelectElement;
   }
 });

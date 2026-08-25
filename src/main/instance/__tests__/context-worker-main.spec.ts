@@ -38,6 +38,9 @@ describe('context worker main', () => {
     vi.doMock('../../persistence/rlm-database', () => ({
       RLMDatabase: { getInstance: vi.fn(() => ({})) },
     }));
+    vi.doMock('../context-worker-event-forwarding', () => ({
+      registerWorkerEventForwarding: vi.fn(),
+    }));
     vi.doMock('../../memory/wake-context-builder', () => ({
       // LT-206: registerWorkerEventForwarding() subscribes to
       // 'wake:context-generated' at module load, so the mock must expose the
@@ -107,6 +110,47 @@ describe('context worker main', () => {
         id: 42,
         result: expect.objectContaining({ context: 'from rlm' }),
       }));
+    } finally {
+      delete process.env['AIO_USER_DATA_PATH'];
+      if (originalSendDescriptor) {
+        Object.defineProperty(process, 'send', originalSendDescriptor);
+      } else {
+        Reflect.deleteProperty(process, 'send');
+      }
+    }
+  });
+
+  it('LT-480: pre-initialises RLMDatabase with explicit dbPath before wiring worker event forwarding', async () => {
+    const originalSendDescriptor = Object.getOwnPropertyDescriptor(process, 'send');
+    Object.defineProperty(process, 'send', { configurable: true, value: vi.fn() });
+    vi.spyOn(process, 'on').mockImplementation(() => process);
+    process.env['AIO_USER_DATA_PATH'] = '/tmp/aio-context-ordering-test';
+
+    try {
+      await import('../context-worker-main');
+
+      const { RLMDatabase } = await import('../../persistence/rlm-database');
+      const { registerWorkerEventForwarding } = await import('../context-worker-event-forwarding');
+      const getInstanceMock = RLMDatabase.getInstance as unknown as ReturnType<typeof vi.fn>;
+      const forwardingMock = registerWorkerEventForwarding as unknown as ReturnType<typeof vi.fn>;
+
+      expect(getInstanceMock).toHaveBeenCalled();
+      expect(forwardingMock).toHaveBeenCalled();
+
+      // RLMDatabase.getInstance() must be called with the real dbPath/contentDir
+      // BEFORE registerWorkerEventForwarding() runs — otherwise
+      // RLMContextManager's eager, no-config getRLMDatabase() call (triggered
+      // from inside registerWorkerEventForwarding) wins the getInstance()
+      // singleton race and permanently pins the RLM database to its
+      // process.cwd()-hashed fallback path instead of this worker's real
+      // per-profile userData path (LT-480).
+      const firstGetInstanceCall = getInstanceMock.mock.calls[0]?.[0] as
+        | { dbPath?: string }
+        | undefined;
+      expect(firstGetInstanceCall?.dbPath).toContain('aio-context-ordering-test');
+      expect(getInstanceMock.mock.invocationCallOrder[0]).toBeLessThan(
+        forwardingMock.mock.invocationCallOrder[0],
+      );
     } finally {
       delete process.env['AIO_USER_DATA_PATH'];
       if (originalSendDescriptor) {

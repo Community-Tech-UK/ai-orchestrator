@@ -11,6 +11,10 @@ import type {
 } from '../../../shared/types/auxiliary-llm.types';
 import { REMOTE_REVIEWER_PROVIDER_IDS } from '../../../shared/types/reviewer-provider.types';
 import { AUTOMATION_PROVIDER_IDS } from '../../../shared/types/automation-provider.types';
+import {
+  CopilotAccountProfilesSchema,
+  CopilotAccountRoutingRulesSchema,
+} from '@contracts/schemas/copilot-account';
 
 export type SettingsToolPolicyTier = 'open' | 'read-only' | 'secret';
 
@@ -58,6 +62,15 @@ const PRIVILEGED_CLI_OPERATOR_ONLY_KEYS = new Set<keyof AppSettings>([
   // `readOnly()` alone only blocks the safe `set_setting` MCP tool, not this
   // surface — same reasoning as `allowPrCreation` above.
   'providersExcludedFromAutomation',
+  // Copilot account routing (2026-08-25). Same class of authority as the
+  // exclusion list above, one step further: these decide WHICH GitHub identity
+  // services a repository. An agent that could add a profile, move the default,
+  // weaken a protected scope, or relax an automation policy could route
+  // enterprise code through a personal seat — the exact mistake the feature
+  // exists to prevent. Human/GUI-only, on both the safe tool and repair-CLI
+  // surfaces.
+  'copilotAccountProfiles',
+  'copilotAccountRoutingRules',
   'computerUseEnabled',
   'computerUseAllowedAppsJson',
   'computerUseDeniedAppsJson',
@@ -396,6 +409,14 @@ export const SETTINGS_TOOL_POLICY = {
     false,
     z.array(z.enum(AUTOMATION_PROVIDER_IDS)).max(AUTOMATION_PROVIDER_IDS.length),
   ),
+  // Copilot account routing. Read-only to the safe tool surface AND listed in
+  // PRIVILEGED_CLI_OPERATOR_ONLY_KEYS above, because `readOnly()` alone still
+  // leaves the privileged repair CLI able to write — same precedent as
+  // providersExcludedFromAutomation. The explicit schema also keeps these
+  // array-of-object settings off `coerceRendererSettingValue`'s primitive-only
+  // fallback, which refuses non-primitive closed-tier keys outright.
+  copilotAccountProfiles: readOnly(false, CopilotAccountProfilesSchema),
+  copilotAccountRoutingRules: readOnly(false, CopilotAccountRoutingRulesSchema),
   pingPongReviewerProvider: open(
     z.enum(['auto', ...REMOTE_REVIEWER_PROVIDER_IDS]),
   ),

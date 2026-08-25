@@ -20,6 +20,8 @@ export interface ResolvedAuxiliaryEndpoint {
   endpoint: AuxiliaryLlmEndpointConfig;
   model: string;
   intendedTargetId?: string;
+  /** True when `model` came from the tier auto-pick rather than an explicit or tier pin. */
+  autoPicked?: boolean;
 }
 
 const EMPTY_FALLBACK_SLOTS = new Set<AuxiliaryLlmSlot>([

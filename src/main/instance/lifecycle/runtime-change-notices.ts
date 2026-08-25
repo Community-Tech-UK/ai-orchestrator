@@ -25,7 +25,8 @@ const logger = getLogger('RuntimeChangeNotices');
 export type RuntimeChangeNoticeKind =
   | 'yolo-mode-changed'
   | 'provider-changed'
-  | 'model-changed';
+  | 'model-changed'
+  | 'copilot-account-changed';
 
 const PROVIDER_DEFAULT = 'provider default';
 
@@ -78,6 +79,24 @@ export function modelChangeNoticeText(params: {
   );
 }
 
+/**
+ * GitHub Copilot account handoff. Deliberately explicit that the conversation
+ * crossed accounts and that the provider session is new — a reader looking at
+ * a Copilot transcript later must be able to tell which seat served which
+ * turns, and the model must know its prior session no longer exists.
+ */
+export function copilotAccountChangeNoticeText(params: {
+  oldProfileLabel: string | undefined;
+  newProfileLabel: string | undefined;
+}): string {
+  return (
+    `[System: GitHub Copilot account changed from ${params.oldProfileLabel ?? 'the previous account'} `
+    + `to ${params.newProfileLabel ?? 'a different account'}. `
+    + 'The previous Copilot session was ended and a new one started under the new account; '
+    + 'conversation context has been carried over and is now being sent through that account.]'
+  );
+}
+
 /** One notice to deliver and render. */
 export interface RuntimeChangeNotice {
   text: string;
@@ -102,18 +121,41 @@ export function runtimeChangeNoticesFor(params: {
   newModel: string | undefined;
   oldReasoningEffort: ReasoningEffort | null | undefined;
   newReasoningEffort: ReasoningEffort | null | undefined;
+  /** Set only on an explicit GitHub Copilot account handoff. */
+  copilotAccountChange?: {
+    oldProfileLabel: string | undefined;
+    newProfileLabel: string | undefined;
+  };
 }): RuntimeChangeNotice[] {
   const yolo: RuntimeChangeNotice = {
     text: yoloNoticeText(params.nextYoloMode),
     kind: 'yolo-mode-changed',
   };
-  if (params.isYoloOnlyChange) return [yolo];
+  const accountNotices: RuntimeChangeNotice[] = params.copilotAccountChange
+    ? [{
+        text: copilotAccountChangeNoticeText(params.copilotAccountChange),
+        kind: 'copilot-account-changed',
+      }]
+    : [];
+  // An account handoff that changes nothing else still has to be announced —
+  // otherwise the only visible signal that a conversation crossed GitHub seats
+  // would be absent from the transcript entirely.
+  if (params.isYoloOnlyChange) return [...accountNotices, yolo];
+  if (
+    accountNotices.length > 0
+    && !params.isProviderSwap
+    && params.oldModel === params.newModel
+    && params.oldReasoningEffort === params.newReasoningEffort
+  ) {
+    return params.yoloModeChanged ? [...accountNotices, yolo] : accountNotices;
+  }
 
   const primary: RuntimeChangeNotice = params.isProviderSwap
     ? { text: providerChangeNoticeText(params), kind: 'provider-changed' }
     : { text: modelChangeNoticeText(params), kind: 'model-changed' };
 
-  return params.yoloModeChanged ? [primary, yolo] : [primary];
+  const base = [...accountNotices, primary];
+  return params.yoloModeChanged ? [...base, yolo] : base;
 }
 
 /** How long to wait for the CLI to accept a notice before giving up on it. */

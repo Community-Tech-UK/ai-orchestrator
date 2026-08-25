@@ -110,8 +110,8 @@ export function getPrimaryModelForProvider(provider: string): string | undefined
  * Normalize a model selection so stale cross-provider values do not leak into
  * a different CLI.
  *
- * Strict providers (Claude, Gemini, Antigravity) accept static or live-catalog
- * model ids.
+ * Strict providers (Claude, Gemini, Antigravity, Grok) accept static or
+ * live-catalog model ids.
  * Codex accepts any OpenAI/Codex-style model id because its list evolves
  * faster than our static allowlist.
  * Dynamic providers (Copilot, Cursor, Auto) preserve explicit non-empty ids.
@@ -159,6 +159,24 @@ export function normalizeModelForProvider(
         || isKnownCatalogModelForProvider(normalizedProvider, normalizedModel)
         ? normalizedModel
         : fallback;
+    case 'grok': {
+      // Validated like the fixed-catalog providers above, for a blunter reason:
+      // `grok agent -m <unknown id>` does not fall back, it exits 1 with
+      // "unknown model id" and the session never starts. A stored selection xAI
+      // has since retired (`grok-4.5`) must resolve to the current default
+      // rather than be forwarded verbatim. The live `grok models` list feeds the
+      // catalog snapshot, so a newly released id is accepted as soon as
+      // discovery sees it, with no code edit. `auto` is kept as-is: the adapter
+      // reads it as "omit -m and let the CLI choose".
+      if (normalizedModel.toLowerCase() === GROK_AUTO_MODEL_ID) {
+        return normalizedModel;
+      }
+      const providerModels = getModelsForProvider(normalizedProvider);
+      return providerModels.some((model) => model.id === normalizedModel)
+        || isKnownCatalogModelForProvider(normalizedProvider, normalizedModel)
+        ? normalizedModel
+        : fallback;
+    }
     default:
       return normalizedModel;
   }
@@ -172,6 +190,13 @@ export function looksLikeCodexModelId(modelId: string): boolean {
   const normalized = modelId.trim().toLowerCase();
   return /^(gpt|o[1-9]|codex)([.-][a-z0-9]+)*$/i.test(normalized);
 }
+
+/**
+ * Grok's "let the CLI choose" sentinel. `createGrokAdapter` omits `-m` entirely
+ * for this value, so it must survive normalization rather than resolve to a
+ * concrete id.
+ */
+const GROK_AUTO_MODEL_ID = 'auto';
 
 /**
  * Model tier names that can be used as shorthand in spawn commands.

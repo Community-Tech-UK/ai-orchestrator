@@ -1,4 +1,5 @@
 import type { InstanceProvider } from '../../shared/types/instance.types';
+import type { CopilotRouteSource } from '../../shared/types/copilot-account.types';
 
 export interface SessionSnapshot {
   id: string;
@@ -90,6 +91,22 @@ export interface SessionState {
   lastWriteSource?: string;
   /** Persisted resume cursor for crash-resilient session restore */
   resumeCursor?: ResumeCursor | null;
+  /**
+   * The GitHub Copilot account profile this session was created under.
+   *
+   * A FIRST-CLASS field, not an entry in a metadata bag: `instanceToState()`
+   * below builds this object field-by-field and does not copy
+   * `instance.metadata`, so a profile stamped there would vanish across
+   * hibernate/wake — and a woken session with no profile is a session that
+   * could resume under the wrong GitHub account. Absent on records written
+   * before this field existed; those restore as `undefined` and resolve to the
+   * migration-created legacy profile.
+   */
+  copilotAccountProfileId?: string;
+  /** How that profile was chosen, for display after restore. */
+  copilotRoutingSource?: CopilotRouteSource;
+  /** The routing rule that decided it, when a rule did. */
+  copilotRoutingRuleId?: string;
 }
 
 export interface ConversationEntry {

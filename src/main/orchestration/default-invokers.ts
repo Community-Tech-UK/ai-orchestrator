@@ -16,6 +16,11 @@ import { getReviewCoordinator } from '../agents/review-coordinator';
 import { getDebateCoordinator } from './debate-coordinator';
 import { getWorkflowManager } from '../workflows/workflow-manager';
 import { resolveCliType, type CliAdapter, type UnifiedSpawnOptions } from '../cli/adapters/adapter-factory';
+import {
+  attachCopilotRoute,
+  copilotOriginForRoutingIntent,
+} from '../instance/lifecycle/copilot-route-preflight';
+import type { CopilotInvocationOrigin } from '../../shared/types/copilot-account.types';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 import { readCodexAuthMode } from '../providers/codex-auth-mode';
 import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
@@ -128,6 +133,9 @@ async function invokeCliTextResponse(params: {
    * Routing also requires the router to be enabled and `payloadModel` unset.
    */
   routingIntent?: RoutingIntent;
+  /** Copilot account-routing origin for this call. Every automatic surface
+   *  passes its own so per-profile automation policy can distinguish them. */
+  copilotOrigin?: CopilotInvocationOrigin;
   /**
    * Which orchestration gate this is, for the operator routing policy
    * (`orchestrationRoutingPolicyJson`). Finer-grained than `routingIntent`:
@@ -275,13 +283,24 @@ async function invokeCliTextResponse(params: {
     trackSlowCalls: false,
   });
 
+  // Copilot account routing. This is the shared entry point for multi-verify,
+  // review, debate, workflow and loop invocations, so resolving here covers
+  // all five; a reused adapter already carries the route it spawned with.
+  const routedSpawnOptions = params.reusedAdapter
+    ? spawnOptions
+    : await attachCopilotRoute(
+        cliType,
+        spawnOptions,
+        params.copilotOrigin ?? copilotOriginForRoutingIntent(params.routingIntent),
+      );
+
   const prompt = buildUserPrompt(params.prompt, params.context);
   const response = await breaker.execute(async () => {
     // Either reuse the caller's adapter (same-session loop) or create a
     // fresh one (one-shot — chat orchestration, debate, fresh-child loop).
     const ownsAdapter = !params.reusedAdapter;
     const adapter: CliAdapter = (params.reusedAdapter as CliAdapter | undefined)
-      ?? getProviderRuntimeService().createAdapter({ cliType, options: spawnOptions });
+      ?? getProviderRuntimeService().createAdapter({ cliType, options: routedSpawnOptions });
     const untrackAdapter = params.onAdapterReady?.(adapter) ?? (() => { /* noop */ });
     const detachActivity = params.activity
       ? attachInvocationActivity(adapter, params.activity, {
@@ -1202,7 +1221,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     };
     emitActivity({
       kind: 'status',
-      message: `Iteration ${p.seq} starting in ${p.executionCwd ?? p.workspaceCwd}`,
+      message: `Iteration ${p.seq + 1} starting in ${p.executionCwd ?? p.workspaceCwd}`,
       detail: { provider: p.provider, contextStrategy: p.config?.contextStrategy ?? 'same-session' },
     });
     // Agentic-turn backstop: `null` disables, `undefined` falls back to the

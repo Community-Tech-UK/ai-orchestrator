@@ -84,6 +84,43 @@ export class InstanceHeaderComponent implements OnInit {
     const provider = this.instance().provider;
     return provider === 'claude' || provider === 'codex';
   });
+  /**
+   * The GitHub Copilot account this session was STAMPED with at creation.
+   *
+   * Read from the instance record rather than re-resolved: the session is
+   * already pinned, and re-running the rules here would show what a NEW
+   * session would get, which is exactly the confusion this badge exists to
+   * prevent when rules change mid-conversation.
+   */
+  readonly copilotAccountBadge = computed<{ label: string; title: string } | null>(() => {
+    const instance = this.instance();
+    if (instance.provider !== 'copilot' || !instance.copilotAccountProfileId) {
+      return null;
+    }
+    const reason = (() => {
+      switch (instance.copilotRoutingSource) {
+        case 'repository':
+          return 'matched this repository';
+        case 'owner':
+          return 'matched this GitHub owner';
+        case 'path-prefix':
+          return 'matched this folder';
+        case 'explicit':
+          return 'you chose this account';
+        case 'persisted':
+          return 'carried over from when this conversation started';
+        case 'legacy':
+          return 'your existing Copilot sign-in';
+        default:
+          return 'the default account';
+      }
+    })();
+    return {
+      label: instance.copilotAccountProfileId,
+      title: `GitHub Copilot account: ${instance.copilotAccountProfileId} — ${reason}`,
+    };
+  });
+
   activeSkillCount = computed(() => this.skillStore.activeSkillCount());
   enabledHookCount = computed(() => this.hookStore.enabledHookCount());
   showOpenMenu = signal(false);

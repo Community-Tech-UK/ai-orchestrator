@@ -10,6 +10,10 @@ import { getLogger } from '../logging/logger';
 import type { HealthStatus } from '../core/system/health-checker';
 import { buildCliSpawnOptions } from '../cli/cli-environment';
 import { resolveCopilotCliLaunch } from '../cli/copilot-cli-launch';
+import {
+  buildCopilotAccountDoctorReport,
+  summarizeCopilotAccountReport,
+} from './copilot/copilot-account-doctor';
 import { checkClaudeCliAuthentication } from './claude-cli-auth';
 import { checkCodexCliAuthentication } from './codex-cli-auth';
 import { checkGeminiCliAuthentication } from './gemini-cli-auth';
@@ -252,7 +256,7 @@ export class ProviderDoctor {
         name: 'authenticated',
         description: 'Check if the provider has valid credentials',
         critical: false,
-        appliesTo: ['claude-cli', 'codex-cli', 'gemini-cli', 'anthropic-api'],
+        appliesTo: ['claude-cli', 'codex-cli', 'gemini-cli', 'anthropic-api', 'copilot'],
         run: async (provider) => {
           if (provider === 'claude-cli') {
             const start = Date.now();
@@ -299,6 +303,30 @@ export class ProviderDoctor {
               ...(status === 'fail'
                 ? { errorKind: classifyAuthKind(authStatus.message) }
                 : {}),
+            };
+          }
+
+          if (provider === 'copilot') {
+            // Aggregate presentation only (spec §14.1). Session admission uses
+            // the RESOLVED PROFILE's status, not this — "some account is
+            // signed in" is not permission to run a given workspace's request
+            // through it.
+            const start = Date.now();
+            const report = await buildCopilotAccountDoctorReport();
+            // `ProbeStatus` has no `warn`, and a partially-configured install
+            // IS usable — the unhealthy accounts are named in the message and
+            // the full per-profile report rides in `metadata` for the UI.
+            // Only "no account is signed in at all" is a failure.
+            const status = report.aggregate === 'auth-required'
+              ? ('fail' as const)
+              : ('pass' as const);
+            return {
+              name: 'authenticated',
+              status,
+              message: summarizeCopilotAccountReport(report),
+              latencyMs: Date.now() - start,
+              metadata: report as unknown as Record<string, unknown>,
+              ...(status === 'fail' ? { errorKind: 'auth_missing' as const } : {}),
             };
           }
 

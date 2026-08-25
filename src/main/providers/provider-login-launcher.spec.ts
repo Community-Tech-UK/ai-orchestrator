@@ -5,9 +5,11 @@ vi.mock('../logging/logger', () => ({
 }));
 
 import {
+  buildCopilotProfileLoginCommand,
   buildTerminalLaunchCandidates,
   getProviderLoginCommand,
   launchProviderLogin,
+  quotePathForTerminal,
 } from './provider-login-launcher';
 
 // These tests never exercise the spawn path: `launchProviderLogin` is only
@@ -81,5 +83,89 @@ describe('provider-login-launcher', () => {
     await expect(launchProviderLogin('plugin:acme')).rejects.toThrow(
       /No known sign-in command/,
     );
+  });
+});
+
+/**
+ * Copilot profile sign-in. The renderer supplies a profile ID and a host; main
+ * derives that profile's COPILOT_HOME. Nothing caller-controlled may reach a
+ * shell, and the derived path must be quoted — the macOS userData path
+ * contains a space, so an unquoted form would silently sign in to the wrong
+ * (truncated) directory.
+ */
+describe('buildCopilotProfileLoginCommand', () => {
+  it('rejects an invalid profile ID before any command is built', () => {
+    for (const profileId of ['../escape', 'a/b', 'Upper', '', '/etc', 'a;rm -rf /']) {
+      expect(() => buildCopilotProfileLoginCommand({ profileId }), profileId).toThrow(
+        /Invalid Copilot account profile ID/,
+      );
+    }
+  });
+
+  it('rejects an invalid host before any command is built', () => {
+    for (const host of [
+      'GitHub.com',
+      'github.com; rm -rf /',
+      'https://github.com',
+      'github.com/owner',
+      '$(whoami)',
+    ]) {
+      expect(() => buildCopilotProfileLoginCommand({ profileId: 'legacy', host }), host).toThrow(
+        /not a valid hostname/,
+      );
+    }
+  });
+
+  it('builds a quoted POSIX command with no interpolated caller fragment', () => {
+    const built = buildCopilotProfileLoginCommand(
+      { profileId: 'legacy', host: 'ghe.example.com' },
+      'darwin',
+    );
+    expect(built.provider).toBe('copilot');
+    expect(built.command).toMatch(/^COPILOT_HOME='.*' copilot login --host ghe\.example\.com$/);
+    // The AppleScript wrapper embeds the command inside a double-quoted string,
+    // so a double quote here would break out of it.
+    expect(built.command).not.toContain('"');
+  });
+
+  it('omits --host when none is supplied', () => {
+    const built = buildCopilotProfileLoginCommand({ profileId: 'legacy' }, 'darwin');
+    expect(built.command).not.toContain('--host');
+    expect(built.command.endsWith('copilot login')).toBe(true);
+  });
+
+  it('uses the cmd.exe set-assignment form on win32', () => {
+    const built = buildCopilotProfileLoginCommand({ profileId: 'legacy' }, 'win32');
+    expect(built.command).toMatch(/^set "COPILOT_HOME=.*" && copilot login$/);
+  });
+});
+
+describe('quotePathForTerminal', () => {
+  it('quotes so a path containing a space survives the shell', () => {
+    expect(quotePathForTerminal('/Users/me/Application Support/x', 'darwin')).toBe(
+      "'/Users/me/Application Support/x'",
+    );
+    expect(quotePathForTerminal('C:\\Users\\me\\x', 'win32')).toBe('"C:\\Users\\me\\x"');
+  });
+
+  it('refuses a path carrying a quote or shell metacharacter', () => {
+    for (const value of [
+      "/tmp/it's",
+      '/tmp/"x"',
+      '/tmp/$(whoami)',
+      '/tmp/a;rm -rf /',
+      '/tmp/a`id`',
+      '/tmp/a|b',
+      '/tmp/a\nb',
+    ]) {
+      expect(() => quotePathForTerminal(value, 'darwin'), value).toThrow(
+        /cannot be safely quoted/,
+      );
+    }
+  });
+
+  it('accepts a backslash on win32 but not on POSIX', () => {
+    expect(() => quotePathForTerminal('C:\\Users\\me', 'win32')).not.toThrow();
+    expect(() => quotePathForTerminal('/tmp/a\\b', 'linux')).toThrow(/cannot be safely quoted/);
   });
 });

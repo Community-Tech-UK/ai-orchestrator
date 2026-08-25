@@ -17,8 +17,11 @@ import {
   CLAUDE_PINNED_MODELS,
   COPILOT_MODELS,
   CURSOR_MODELS,
+  GROK_MODELS,
   MODEL_PRICING,
   OPENAI_MODELS,
+  PROVIDER_MODEL_LIST,
+  RETIRED_PROVIDER_MODELS,
 } from '../types/provider.types';
 
 describe('getCacheWriteMultiplier', () => {
@@ -188,11 +191,59 @@ describe('getProviderModelRate provider-id aliasing (LT-190)', () => {
     // for this one colliding id.
     expect(getProviderModelRate('cursor', CURSOR_MODELS.AUTO)).toBeUndefined();
   });
+
+  it('keeps pricing a retired id that is no longer offered for the provider', () => {
+    // grok-4.5 was dropped from PROVIDER_MODEL_LIST because the CLI rejects it
+    // on spawn, but it still appears in historical sessions and in any stale
+    // persisted `defaultModelByProvider.grok`. The local-AI-guard budget path
+    // (computeProviderTokenCost in local-ai-routing-guard.ts) accumulates an
+    // undefined estimate as $0, so losing the rate would silently defeat that
+    // ceiling rather than fail loudly.
+    expect(PROVIDER_MODEL_LIST['grok'].some((m) => m.id === GROK_MODELS.GROK_45)).toBe(false);
+    expect(RETIRED_PROVIDER_MODELS['grok']).toContain(GROK_MODELS.GROK_45);
+    expect(getProviderModelRate('grok', GROK_MODELS.GROK_45)).toEqual(
+      MODEL_PRICING[GROK_MODELS.GROK_45],
+    );
+    expect(
+      computeProviderTokenCost('grok', GROK_MODELS.GROK_45, { inputTokens: 1_000_000 }),
+    ).toBeCloseTo(MODEL_PRICING[GROK_MODELS.GROK_45].input, 6);
+  });
+
+  it('does not let the retired-id allowance leak an id across providers', () => {
+    // The allowance is scoped per provider: it must not reopen the flat table
+    // to ids the provider never owned (the LT-190 hazard above).
+    expect(getProviderModelRate('claude', GROK_MODELS.GROK_45)).toBeUndefined();
+    expect(getProviderModelRate('grok', CLAUDE_MODELS.OPUS)).toBeUndefined();
+  });
+
+  it('maps the models.dev "xai" namespace onto the grok CLI id', () => {
+    // models.dev publishes Grok under `xai` while the CLI-facing provider id
+    // is `grok`. Without that mapping normalizePricingProvider returned
+    // undefined for the whole xAI namespace, so every live xAI rate was
+    // silently dropped and Grok could only ever be priced from the static
+    // table. xAI is a primary vendor billing per token, so unlike the
+    // Copilot/Cursor reseller cases above, the static fallback is correct.
+    expect(getProviderModelRate('xai', GROK_MODELS.GROK_46)).toEqual(
+      MODEL_PRICING[GROK_MODELS.GROK_46],
+    );
+    expect(getProviderModelRate('grok', GROK_MODELS.GROK_46)).toEqual(
+      MODEL_PRICING[GROK_MODELS.GROK_46],
+    );
+  });
 });
 
 describe('model-pricing live overlay (models.dev)', () => {
   afterEach(() => {
     clearModelRateOverlay();
+  });
+
+  it('files an xAI overlay rate under the grok provider namespace', () => {
+    // A model xAI ships tomorrow must be priceable with no code edit: the 6h
+    // models.dev sync registers it as `xai`, and Grok sessions ask for `grok`.
+    registerProviderModelRates([
+      { provider: 'xai', id: 'grok-9.9', rate: { input: 7, output: 21 } },
+    ]);
+    expect(getProviderModelRate('grok', 'grok-9.9')).toEqual({ input: 7, output: 21 });
   });
 
   it('prefers an overlay rate over the static snapshot', () => {

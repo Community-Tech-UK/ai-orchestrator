@@ -41,14 +41,14 @@
 
   @if (firstMessageHint().trim().length > 0) {
     <div class="prepend-hint">
-      <span class="prepend-label">Iteration 0 — your goal</span>
+      <span class="prepend-label">First iteration — your goal</span>
       <span class="prepend-body">{{ firstMessageHint().trim() }}</span>
-      <span class="prepend-foot">↓ then iterations 1+ use the directive below</span>
+      <span class="prepend-foot">↓ then later iterations use the directive below</span>
     </div>
   }
 
   <section class="row">
-    <label for="loop-cfg-prompt">{{ firstMessageHint().trim() ? 'Loop continuation directive (iter 1+)' : 'Prompt' }}</label>
+    <label for="loop-cfg-prompt">{{ firstMessageHint().trim() ? 'Loop continuation directive (later iterations)' : 'Prompt' }}</label>
     <textarea
       id="loop-cfg-prompt"
       rows="3"

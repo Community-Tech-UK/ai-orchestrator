@@ -29,6 +29,8 @@ export interface RuntimeDiff {
   reasoningChanged: boolean;
   runtimeTargetChanged: boolean;
   yoloModeChanged: boolean;
+  /** An explicit GitHub Copilot account handoff (never an automatic resume). */
+  copilotAccountChanged: boolean;
   hasChanges: boolean;
 }
 
@@ -126,11 +128,12 @@ export interface RuntimeReconcilerDeps {
     target: Extract<NonNullable<Instance['modelRuntimeTarget']>, { kind: 'local-model' }>,
   ): Promise<void>;
   residentClaudeForSpawn(instance: Instance): boolean;
+  /** Async so Copilot account routing can resolve before the adapter exists. */
   createRuntimeAdapter(
     cliType: CliType,
     options: UnifiedSpawnOptions,
     executionLocation?: ExecutionLocation,
-  ): CliAdapter;
+  ): Promise<CliAdapter>;
   /**
    * Three-way native-resume verdict. Both reconciler paths (recovery respawn
    * and runtime change) use it to keep a possibly-healthy session alive on an

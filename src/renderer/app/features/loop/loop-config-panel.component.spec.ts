@@ -401,6 +401,18 @@ describe('LoopConfigPanelComponent', () => {
     expect(verifyInput).not.toBeNull();
   });
 
+  it('uses human iteration wording when the first message becomes the loop goal', () => {
+    fixture.componentRef.setInput('firstMessageHint', 'Implement the requested change');
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('First iteration — your goal');
+    expect(text).toContain('then later iterations use the directive below');
+    expect(text).toContain('Loop continuation directive (later iterations)');
+    expect(text).not.toContain('Iteration 0');
+    expect(text).not.toContain('iter 1+');
+  });
+
   it('can opt into operator-reviewed completion for loops without a verifier', () => {
     component.maxDollars.set(500);
     component.operatorReviewedCompletion.set(true);

@@ -185,7 +185,7 @@ export function createLoopCommitRatchetHook(deps: LoopCommitRatchetHookDeps = {}
       lastKeptCommit: tracker.lastKeptCommit,
       previousScore: tracker.previousScore,
       candidateScore,
-      message: `loop ${state.id} iteration ${iteration.seq} ratchet`,
+      message: `loop ${state.id} iteration ${iteration.seq + 1} ratchet`,
       config: phase4.commitRatchet,
     });
 

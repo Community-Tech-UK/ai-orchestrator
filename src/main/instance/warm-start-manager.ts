@@ -50,6 +50,19 @@ export class WarmStartManager {
       return;
     }
 
+    // Copilot is never pre-warmed. A warm process is spawned before the next
+    // create exists, so it cannot know which GitHub account that create will
+    // resolve to — and a Copilot child is pinned to one account's state
+    // directory at spawn time. `InstanceSpawnPreflightChain` refuses to consume
+    // a warm Copilot adapter for the same reason; skipping the spawn as well
+    // avoids burning a process that can never be handed off.
+    if (provider === 'copilot') {
+      logger.debug('preWarm skipped — Copilot spawns are pinned to a resolved account', {
+        provider,
+      });
+      return;
+    }
+
     // Never spawn into a directory that doesn't exist locally. This protects
     // every caller — remote-node working directories (e.g. `C:\...` paths on
     // macOS) and worktrees deleted after instance creation would otherwise

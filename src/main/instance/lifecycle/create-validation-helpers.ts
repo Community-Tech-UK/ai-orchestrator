@@ -23,11 +23,19 @@ const logger = getLogger('InstanceLifecycle');
  * query the CLI dynamically (results are cached in the adapter), falling back to
  * the static list only when the CLI is unreachable.
  */
-export async function getKnownModelsForCli(cliType: string): Promise<string[]> {
+export async function getKnownModelsForCli(
+  cliType: string,
+  /** Copilot account profile whose model vocabulary to discover. Keeps a
+   *  denial under one seat from marking a model unavailable for the other
+   *  (spec §14.4). */
+  copilotAccountProfileId?: string,
+): Promise<string[]> {
   const catalogIds = getKnownCatalogModelIdsForProvider(cliType);
   if (cliType === 'copilot') {
     try {
-      const models = await new CopilotCliAdapter().listAvailableModels();
+      const models = await new CopilotCliAdapter({
+        ...(copilotAccountProfileId ? { accountProfileId: copilotAccountProfileId } : {}),
+      }).listAvailableModels();
       return mergeModelIds(models.map(model => model.id), catalogIds);
     } catch (error) {
       logger.warn('Falling back to static Copilot model list during validation', {

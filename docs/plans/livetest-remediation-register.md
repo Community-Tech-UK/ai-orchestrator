@@ -93,7 +93,7 @@ evidence records.
 | LT-100 | P2 | **FIXED + LIVE-VERIFIED 2026-08-12** — Cursor and Grok (shared `AcpCliAdapter`) recorded zero cost for real turns because `toCliUsage()` returned `{ duration }` only when the ACP server sent no `usage`. James's decision: estimate, but never silently. `AcpCliAdapter` now falls back to `estimateTokens()` over the turn's prompt/response/tool-call material (extracted to `acp-usage-estimator.ts`) and tags the result `isEstimated: true`; `CostEntry`/`CostSummary` carry the flag through persistence (migration 059) to every read surface (cost page totals/model/session/entry rows, the `cost-recorded` renderer event schema, the cost-attribution JSONL sink) so an estimate never blends into a total that reads as measured. Guarded two adjacent surfaces that would otherwise have silently corrupted on estimated data: token-counter calibration (would have compared the heuristic against itself) and WS8 prompt-cache analytics (no real cache signal exists for an estimated turn). Live-verified: a real Cursor turn now records a `costGetEntries` row with `isEstimated: true`, non-zero cost, and the LT-018 context bar still shows `used: 0` (occupancy stays honest); a real resident-Claude turn in the same session still records `isEstimated: false` with real cache-token accounting (LT-047/LT-090 unaffected). Copilot verified source-level only (same `AcpCliAdapter` code path via `createCopilotAdapter()`; no seat available this session) | [LT-100 section](livetest-remediation-register.md#lt-100-acp-transport-providers-cursor-and-grok-confirmed-record-zero-cost-when-the-acp-server-omits-usage) | `acp-usage-estimator.spec.ts`, `acp-cli-adapter.spec.ts` (LT-100 describe block), `cost-tracker.spec.ts`, `instance-communication.spec.ts` (LT-100 describe block), `cost-attribution.spec.ts`, `renderer-event-validation.spec.ts`, `cost-page.component.spec.ts` — all mutation-verified |
 | LT-136 | P2 | **FIXED + VERIFIED LIVE 2026-08-18** — `SnapshotManager.listSnapshots()` (the only source for the checkpoint timeline UI and its badge count) reads from an in-memory `SnapshotIndex` that never carried `name`/`description`/`trigger`, so it hardcoded `trigger: 'auto'` and omitted `name` for every entry regardless of what was actually persisted to disk. A manual pre-compaction checkpoint (WS-B7's `applyCompaction()`, labeled e.g. "Before manual compaction (keep latest 1 exchange)", `trigger: 'checkpoint'` on disk) was therefore indistinguishable in the timeline from a routine per-turn safety checkpoint — both rendered as an unnamed "Checkpoint {id}" tagged "Auto". Live-verified: confirmed the correct `name`/`trigger: "checkpoint"` on disk (`session-continuity/snapshots/*.json`) for both a manual-compaction checkpoint and the app's own routine "Before: {message}" per-turn checkpoints, while the running renderer showed "Auto" with no name for every one of them. Fixed by carrying `name`/`description`/`trigger` through `SnapshotMeta` and all three `SnapshotIndex.add()` call sites (create, startup disk rebuild, session import), and reading them back in `listSnapshots()` instead of hardcoding. Re-verified live post-fix (rebuilt `dist/main`, restarted the dev app so the index rebuilt from disk): the checkpoint timeline now correctly shows "Checkpoint" (not "Auto") with the real label for both a `previewCompaction`→Confirm run and a plain `compactInstance` ("Compact Now") run | [Sibling-audit check B7](2026-07-30-sibling-audit-round2_livetest.md#lt-check-b7--compaction-preview-dialog-ws-b7) | `src/main/session/__tests__/snapshot-manager.spec.ts` (extended existing test, reverted the fix and watched it fail on the pre-fix hardcoded `trigger: 'auto'`/missing `name`, then pass) |
 | LT-137 | P3 | **FOUND, NOT FIXED, 2026-08-18** — interrupting an instance while a Claude deferred-permission auto-resume is in flight can drop the just-approved action. Live-observed: approved a Bash permission prompt with `decisionScope: 'session'`, then called `interruptInstance` before the auto-resume completed; `app.log` shows `DeferredPermissionHandler.resumeAfterDeferredPermission` attempting `waiting_for_permission → respawning`, which the state machine correctly rejected (`IllegalTransitionError`) and logged as `Auto-resume after deferred permission failed` — no crash, but the approved tool call was never executed and the instance needed a further explicit prompt-response to recover. Not chased further (root cause of the race, and whether it needs a state-machine allowance or an interrupt-side guard, not established) — recorded as an edge-case race for a future session, not a P0/P1 in normal (non-adversarially-timed) usage | [Sibling-audit check A5](2026-07-30-sibling-audit-round2_livetest.md#lt-check-a5--admission-suppression-in-the-live-app-ws-a1a5) | Not yet — reproduce via a fresh yolo:false instance, approve a pending Bash permission with `decisionScope: 'session'`, then immediately call `interruptInstance` before the resume settles; watch `app.log` for `Illegal lifecycle transition blocked` |
-| LT-138 | P2 | **FOUND, NOT FIXED, 2026-08-18** — no Settings UI exists anywhere to grant the per-project `allowPrCreation` opt-in that Gate 1 of `PrCreationService.createPullRequest()` requires before a PR-creation attempt can even reach the (correctly implemented) never-delegable approval dialog. Confirmed by grepping the entire renderer for `allowPrCreation` (zero matches) and for "project settings"/"projectSettings" (one unrelated bullet-point mention in `advanced-settings-tab.component.ts`, no actual control). Live-reproduced the resulting dead end: with the opt-in map empty, `vcsCreatePullRequest` fails with `"PR creation is not enabled for this project. Enable \"Allow PR creation\" in project settings first."` — a message that points a user at a settings location that does not exist. The setting IS writable through the generic renderer `setSetting` IPC channel (confirmed: `{'/tmp/...': true}` persisted and read back), so the backend and the `$AIO_MCP settings set` CLI refusal (confirmed `policy=read-only cliWritable=no` on the packaged app) are both correctly wired — only the human-facing UI control is missing, same shape as LT-095 (no UI to resolve a pending Computer Use grant) | [Sibling-audit check B1](2026-07-30-sibling-audit-round2_livetest.md#lt-check-b1--pr-creation-round-trip-ws-b1) | Add a per-project toggle (Source Control panel or a project-settings surface) that calls the existing `setSetting('allowPrCreation', {...})` write path; no backend change needed |
+| LT-138 | P2 | **FOUND 2026-08-18, FIXED (found already implemented and independently verified live) 2026-08-24.** No Settings UI existed anywhere to grant the per-project `allowPrCreation` opt-in that Gate 1 of `PrCreationService.createPullRequest()` requires before a PR-creation attempt can even reach the (correctly implemented) never-delegable approval dialog; a user hit a dead end pointed at "project settings" that did not exist. **Fix (landed in the working tree between the 2026-08-18 finding and this session, decided in `2026-08-19-open-decisions-resolved.md`: "build the control"):** a real "Allow PR creation" checkbox in `SourceControlRepoActionsComponent` (`prCreationAllowed` computed, `onTogglePrCreation` handler), writing `settingsStore.set('allowPrCreation', {...})` keyed by the repo's absolute path — the exact same key/shape `resolvePrCreationOptIn()` reads, canonicalized on both ends so read and write always agree. The refusal message was also corrected to `"...in the Source Control panel for this repository first."`, pointing at the control that now exists. Batch E (2026-08-24) verified this live rather than trusting the diff: `npm run test:quiet` on the component's spec — 6/6 pass; a real `vcsCreatePullRequest` call with the opt-in map empty reproduced the exact corrected refusal message live; `setSetting('allowPrCreation', {<path>: true})` persisted and read back correctly via `getSettings()`. Did not proceed past Gate 1 to the native OS approval dialog (Gate 2), matching the original finding's own reasoning — a CDP `Runtime.evaluate` call cannot click a native `dialog.showMessageBox`, and clicking it would need local Mac UI control this session was not granted; Gate 1↔UI wiring is fully verified live, Gate 2 itself was already known-correct from the original 2026-08-18 finding and is unchanged by this fix | [Sibling-audit check B1](2026-07-30-sibling-audit-round2_livetest.md#lt-check-b1--pr-creation-round-trip-ws-b1) | `src/renderer/app/features/source-control/source-control-repo-actions.component.ts` (+68 lines), new `source-control-repo-actions.component.spec.ts` coverage (+155 lines), `src/main/vcs/pr-creation-service.ts` (refusal-message text only) |
 | LT-139 | P1 | **FIXED + VERIFIED LIVE 2026-08-18** — `AutomationActionSchema` (`packages/contracts/src/schemas/automation.schemas.ts`) never declared WS-C7's `executionProfile`/`containedFallback` fields, even though the shared `AutomationAction` type and the renderer's Automation builder form (`automations-page.component.ts`) both set them. `z.object()` strips unknown keys by default, so `validateIpcPayload(AutomationCreatePayloadSchema, ...)` silently dropped both fields on every create/update — an automation built with "Contained" selected in the UI persisted and then **ran as `'standard'` (full, unsandboxed host access) with no error anywhere**, exactly the silent downgrade `AutomationExecutionProfile`'s own doc comment says must never happen. Live-reproduced end-to-end: created a real `contained`+Claude automation via `automationCreate`; the stored `action` had no `executionProfile` field at all, and firing it (`automationRunNow`) spawned a completely normal, unsandboxed Claude instance that ran to completion — the WS-C7 requirement ("contained on Claude → run fails at fire time, never spawns") was structurally unreachable. Fixed by adding both fields to `AutomationActionSchema` (consumed by create, update, and the full read/broadcast `AutomationSchema`, so one fix covers all three). Re-verified live post-fix (rebuilt `dist/main`, restarted dev app): the same contained+Claude automation now correctly fails at fire time with `"Contained runs require Codex — claude cannot enforce isolation."`, `instanceId: null` (never spawned); a contained+Codex automation now runs and its child process's Bash tool call to write outside the workspace failed with `Operation not permitted` (real OS-level sandbox enforcement confirmed, not just a config flag), and `ps eww` on the spawned `codex app-server` process showed no `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`/`GH_TOKEN`/`AWS_*` env vars. **Batch V2 (2026-08-19):** re-confirmed the schema-persistence half specifically, against an isolated dev app (production automations unaffected — `list_automations` read 33 before and 33 after) — created a real `contained`+Claude automation via `automationCreate`, then read it back with a *separate* `automationGet` call (not the create echo) which still returned `executionProfile:'contained'`/`containedFallback:'fail'` on the stored `action`, confirming genuine persistence; deleted it and confirmed `automationGet` then returned `{success:true, data:null}` | [Sibling-audit check C5/C7](2026-07-30-sibling-audit-round2_livetest.md#lt-check-c5c7--authority-cards--contained-runs) | `packages/contracts/src/schemas/__tests__/automation.schemas.spec.ts` (3 new tests: create round-trip, update round-trip, invalid-value rejection — reverted the schema to `HEAD` and watched all 3 fail with the pre-fix silent-drop behavior, then pass restored) |
 | LT-130 | P2 | **FIXED + REGRESSION-TESTED 2026-08-12 (not live-verified against the packaged app)** — the packaged app's `app.log` shows `RendererHeartbeat` logging thousands of `error`-level "Renderer heartbeat stalled — UI event loop likely blocked" / "recovered" pairs, continuously, every single day since at least 2026-08-08, not confined to one 17-minute window. Every burst starts within ~60-90s of a `RuntimeDiagnostics` "System power event observed" (`source: lock-screen`) entry and stops shortly after the matching `unlock-screen`/`resume`. Root cause: Chromium throttles a backgrounded/locked-screen renderer's timers to roughly once a minute (`stalledMs` is consistently ~60000ms, `missedBeats: 0` — a single coalesced tick, not a real freeze), and `RendererHeartbeatMonitor` — unlike `RuntimeDiagnostics`'s own main-process stall detector, which already has a `systemSuspended` gate for exactly this case — has no suspend/lock-screen awareness, so it misreports every lock-screen period as a genuine renderer freeze. Fixed by adding `handleSystemSuspend()`/`handleSystemResume()` to `RendererHeartbeatMonitor`, gating `scan()` while suspended and rebasing `lastBeatAt` to now on resume, wired from `RuntimeDiagnostics`'s existing `noteSystemSuspend`/`noteSystemResume` alongside the other services it already notifies | [LT-130 section](livetest-remediation-register.md#lt-130-rendererheartbeat-misreports-every-lock-screen-period-as-a-ui-freeze) | `src/main/logging/renderer-heartbeat-monitor.spec.ts` (3 new tests, mutation-verified) |
 | LT-160 | P1 | **FIXED + VERIFIED LIVE 2026-08-18** — `instance.waitReason` (quota-park / auth-required) was never written onto the canonical main-process `Instance` object, only onto the renderer-bound `pendingUpdates` batch. Every other field the same batch queue carries (`status`, `contextUsage`, `desiredRuntime`, …) is *also* assigned directly onto the live object by its own caller; `waitReason` (added Phase 6/§G) was the one exception, across all three of its call sites (`InstanceProviderLimitHandler`, `InstanceAuthRepairHandler`, and the loop coordinator's D7 quota-park wiring). Consequence: `SessionAdmissionService.admitAutomatedWrite()` and the mobile gateway's input queue both gate synchronously on `instance.waitReason?.kind`, and both were structurally blind to every quota-park/auth-required wait state. Reproduced live: parked a real instance via the actual production `InstanceProviderLimitHandler.maybePark()` call (not a mock) — `isParked()` correctly returned `true` and the real "parked until …" offer notification fired — yet `SessionAdmissionService.admitAutomatedWrite()` against the same instance still returned `{kind: 'admitted'}` instead of `{kind: 'suppressed', reason: 'quota-parked'}`, meaning an automated/orchestration/mobile-queued write would have been sent straight through to a CLI mid-park. Fixed by writing `waitReason` directly onto the live `Instance` in `InstanceStateManager.queueUpdate()` — the single function every caller already funnels through — mirroring the existing status/contextUsage pattern | [WS7 Phase B evidence, check 6](../plans/2026-07-13-fable-ws7-phaseb_livetest.md#check-6--offered-switch-on-a-long-park--pass-defect-found-lt-160-fixed) | `src/main/instance/instance-state.spec.ts` ("LT-160: writes waitReason directly onto the live instance, not only the pending broadcast", reverted the fix and watched it fail with `expected undefined to match object`, then pass) |
@@ -128,8 +128,14 @@ evidence records.
 | LT-302 | P2 | **FIXED + REGRESSION-TESTED 2026-08-20.** A preflight verify that blew its wall-clock budget was reported as "Preflight failed", indistinguishable from red tests, though the operator fix is the opposite one (shorten the command vs fix the code). `VerifyOutcome` has always distinguished `failureKind: 'timeout'` (`loop-completion-detector.ts:713-722`) from `'command'` (726-736), but `LoopPreflightResult` (`loop-audit.types.ts`, from line 55) collapsed every failure to `status: 'failed'`, dropping the distinction before it reached the UI. Observed on the same live loop: `PRE_FLIGHT.md` recorded `Duration: 599998ms` and `(verify timed out after 600000ms)` for `npm --prefix "ai-orchestrator" run verify` — a 14-command chain (full lint, two typechecks, whole test suite, `rebuild:native`, `smoke:electron`) against the non-configurable 600s default (`loop-config-defaults.ts:102`), which cannot finish. Fixed by carrying `failureKind` through `LoopPreflightResult.commands[]` (type + Zod schema + `runLoopPreflight`) and labelling the chip "Preflight timed out". The red state is retained deliberately — a timeout *is* a failure to verify; only the wording was wrong | Same live loop — `.aio-loop-state/loop-1787241037235-b6fe2309/PRE_FLIGHT.md` | `src/main/orchestration/loop-audit-runtime.spec.ts` (2 new tests) + `src/renderer/app/features/loop/loop-control.component.spec.ts` (1 new test). All three reverted in a `/tmp` copy and watched to fail; restored, green |
 | LT-303 | P2 | **FIXED + REGRESSION-TESTED 2026-08-20.** A loop pointed at a non-git workspace degraded silently. `normalizeManagedIsolation` (`loop-start-config.ts:216-243`) already detected the case and disabled isolation, but only at `info` log level, and nothing told the operator that diff-backed review had been reduced to nothing — the observed loop ran for 2h40m against `/Users/suas/work/orchestrat0r` while the actual repository was the `ai-orchestrator` subdirectory. Fixed by `emitNonGitReviewWorkspaceWarning` (`loop-coordinator-state-helpers.ts`), called at loop start from `startLoop` once the repo baseline is captured: for reviewer-backed loops only — ping-pong or cross-model review; `mode: 'review-driven'` alone deliberately does NOT qualify, because the fresh-eyes gate that builds a diff is itself gated on `crossModelReview.enabled`, so warning on it would be a false positive (pinned by a regression test asserting silence) — it logs a warning and emits a `loop:activity` status line so the gap is visible in the loop feed. Advisory, not blocking: a non-git workspace is legitimate, it just must not be invisible. Known gap, not closable by a start-time predicate: `runFreshEyesReviewGate`'s `forcedByContradiction` escape valve (`loop-coordinator-completion-gates.ts:341,345`) synthesises a default review config and collects a diff even when `crossModelReview.enabled` is false, but it is driven by `state.freshEyesForcedByContradiction`, a runtime condition unknowable at loop start | Same live loop — `repo-baseline.json` `"source": "none"` | `src/main/orchestration/loop-coordinator-state-helpers.spec.ts` (4 new `nonGitReviewWorkspaceWarning` tests). Reverted in a `/tmp` copy and watched 2 fail; restored, 20/20 green |
 
-| LT-370 | P2 | **FOUND, NOT FIXED, 2026-08-20.** Every auxiliary-LLM slot is configured with model ids that do not exist on the only healthy local-AI endpoint, so aux generation fails with a raw upstream 500. Live-observed while driving the browser-gateway-reliability doc's check 1: with `browserAuxExtractionEnabled` flipped ON, a `browser.snapshot` carrying an `extractionHint` produced `AuxiliaryLlmService: Auxiliary generation failed for slot "webExtract": RPC error -32603: Ollama generate failed: 500` in `app.log`, timestamped between the ON and OFF settings changes. Config: the `webExtract` slot is `{enabled: true, provider: 'auto', tier: 'quality', …}` (`auxiliaryLlmSlotsJson`), and `auxiliaryLlmQualityModel` is `qwen/qwen3.6-35b-a3b` (`auxiliaryLlmQuickModel` is `qwen/qwen3.5-9b`). Neither exists on the `windows-pc` Ollama endpoint, whose 8 models are `gemma4:31b`, `gpt-oss:20b`, `deepseek-r1:32b`, `qwen3-coder:30b`, `gpt-oss:120b`, `deepseek-r1:14b`, `llama3.3:latest`, `deepseek-r1:7b`. **The naming convention is the tell**: the configured ids use LM Studio's `vendor/model` form while Ollama uses `name:tag`, so these were almost certainly configured against the `openai-compatible` (LM Studio) endpoint — which `local-ai discover` currently reports as `healthy: false, models: []`. Routing therefore selects the one healthy endpoint (Ollama) and asks it for a model it has never had. **Untested link, stated rather than glossed:** the log proves the request reached Ollama and that Ollama 500'd, and the config proves the model is absent, but the exact model string sent on that call was not captured — a context-length overflow (`maxInputTokens: 64000` against a large page) is not fully excluded. The discriminating test is one aux call against a model that *is* present. **Impact:** every aux slot on this machine is affected, not just `webExtract` — compression, memory distillation, title generation, routing classification and approval scoring all resolve through the same tier models. It fails safe (the never-worse guard returns the raw dump, see below) so nothing is wrong-answered, but the entire local-AI cost-saving path is silently inert | [Browser-gateway reliability check 1](2026-07-17-browser-gateway-reliability_livetest.md) | Not yet written — recommended: either point `auxiliaryLlmQualityModel`/`auxiliaryLlmQuickModel` at ids the healthy endpoint actually serves, or make endpoint selection reject an endpoint that cannot serve the requested model rather than sending it and surfacing a bare upstream 500. A pre-flight model-availability check at slot-resolution time would turn this from a runtime 500 into a clear configuration error |
+| LT-370 | P2 | **ROOT CAUSE CORRECTED, FIXED + REGRESSION-TESTED 2026-08-24; LIVE CHECK PENDING A REBUILD.** The 2026-08-20 diagnosis was wrong. The model that failed was **not** an absent one. Correlating the two halves of the same request in `app.log` settles it: `coord-8438` was dispatched at `1787345477010` as `{method: "auxiliaryModel.generate", provider: "ollama", model: "gpt-oss:120b"}`, failed at `1787345485971` after **8961 ms** with `-32603: Ollama generate failed: 500`, and one millisecond later at `1787345485972` `AuxiliaryLlmService` logged `Auxiliary generation failed for slot "webExtract"`. `gpt-oss:120b` **is** one of the eight models that endpoint serves. The configured `qwen/qwen3.6-35b-a3b` was never sent: `tryEndpointForSlot` (`src/main/rlm/auxiliary-llm-service.ts`) gates the tier pin behind `endpointAdvertisesModel()`, which is false for a worker-node endpoint whose non-empty model list lacks the id, so it falls through to `pickModelForTier(ids, tier, loaded)` — i.e. the code already does the thing the old entry recommended as its fix. **The actual defect is the auto-pick rule.** With no model resident, `pickModelForTier` orders by `modelSizeScore` and `quality` takes the *largest* advertised id (`gpt-oss:120b`, score 120) with no regard for whether the host can load it; `windows-pc` reports `gpuMemoryMB: 32607`, so a 120B model cannot be resident and Ollama 500s. The 8961 ms latency is consistent with an attempted load that failed, not an instant unknown-model rejection. `pickModelForTier`'s existing `loaded` restriction is the intended guard against exactly this, but it only engages when something is *already* resident. **Impact correction: the aux path is not "silently inert".** The same log holds **143** successful `ollama deepseek-r1:7b` dispatches — quick tier auto-picks the *smallest* model and works. Only the six **quality**-tier slots are affected (`compression`, `memoryDistillation`, `webExtract`, `approvalAdjudication`, `subQueryExecution`, `verifyOutputSummary`); `titleGeneration`, `routingClassification`, `approvalScoring`, `loopScoring`, `retrievalHypothesis` and `branchScoring` are quick tier and are demonstrably working. It still fails safe (frontier fallback / never-worse guard), so nothing is wrong-answered — the cost is ~9 s wasted per quality-tier call and no local saving on those slots | [Browser-gateway reliability check 1](2026-07-17-browser-gateway-reliability_livetest.md); correlation evidence in this register's LT-370 section | Fixed by `AuxiliaryModelFailureCache` (`src/main/rlm/auxiliary-llm-utils.ts`): an **auto-picked** model that fails to generate is remembered per endpoint for 10 minutes, so the next `pickModelForTier` steps down to the next candidate instead of re-attempting the same doomed load. Explicit per-slot and tier pins are deliberately excluded — a pin must keep surfacing its own error rather than being silently substituted — and the filter returns the unfiltered list when it would otherwise empty, so a degraded endpoint can never become no endpoint. 9 regression tests (5 in `auxiliary-llm-utils.spec.ts`, 4 in `auxiliary-llm-service.spec.ts`); the load-bearing one was mutation-checked by reverting the `usable()` call and watching it fail with `expected '' to be 'distilled text'`, then restored. 124 tests green across the three touched spec files |
+| LT-371 | P1 | **FIXED + REGRESSION-TESTED, LIVE CHECK PENDING, 2026-08-23.** `windows-pc`'s worker-node WebSocket suffers short, random transport losses; the coordinator's former 2.5-second disconnect grace turned ordinary reconnects into 30 true node disconnects, repeatedly suspending/restoring 21 browser attachments and rejecting browser commands. A second seam marked a long-poll command delivered before its RPC response was known to have left the coordinator; because responses were addressed only by node id, an old poll response could even be written to a replacement socket where that request id no longer existed, producing a false `browser_extension_command_receipt_missing`. Fixed with a 30-second grace, one-shot originating-socket responders, bounded same-id requeue, and a FIFO handoff barrier. This is not MV3 service-worker eviction or native-host cycling: read-only worker logs show one continuous worker process, continuous extension poll heartbeats, no native-host errors, 63 coordinator-socket closes (61 code 1006), and the coordinator log places `WorkerNodeConnection Node WebSocket disconnected` immediately before every reliability `node_disconnect`. Timing is non-periodic; 24/30 sockets re-registered inside 30 seconds. The 53-vs-30 asymmetry is expected from first-contact/duplicate no-attachment reconnect telemetry plus replacement sockets, not duplicate workers | [Investigation prompt](2026-08-23-browser-extension-channel-flapping-prompt.md), [owning check-6 evidence](2026-08-19-remote-node-false-negative-fixes_livetest.md), [completed implementation plan](../superpowers/plans/2026-08-23-browser-extension-channel-flapping_plan_completed.md) | 6 focused files / 90 tests pass; both TypeScript checks, lint, and `build:main` pass; fresh completion gate `VERDICT: PASS`. Rebuilt-runtime verification is deferred to the implementation livetest |
 | LT-350 | P1 | **FOUND, NOT FIXED, 2026-08-21.** Cancelling a loop while its start-of-run preflight verify command is in flight does not kill that verify child process — it keeps running, unattended, to its own timeout regardless of cancellation. `runLoop` (`loop-coordinator.ts:1821-1828`) `await`s `runLoopPreflight(state, this.completionDetector, …)` synchronously before the first iteration; `runLoopPreflight` → `completionDetector.runVerify(config)` → `spawnVerify` (`loop-completion-detector.ts:648-745`) does a raw `child_process.spawn` tracked only by a local closure (`child`, its own `setTimeout`), never registered with any lifecycle/instance-tracking `cancelLoop` can reach. `cancelLoop` (`loop-coordinator.ts:1494-1520`) sets the cancelled flag, calls `this.terminate(state, 'cancelled', …)`, `awaitTerminalCleanup`, and `confirmStablyStopped` — all of which operate on the active iteration/instance, none of which touch an in-flight preflight-verify subprocess, because no instance has been spawned yet at that point in a run. Reproduced live and by accident while testing an unrelated check (2026-08-19 non-git-workspace-warning livetest, check 2): started a loop with `workspaceCwd: /Users/suas/work/orchestrat0r` and a blank `completion.verifyCommand`, which `resolveLoopVerification` auto-inferred to `npm --prefix "ai-orchestrator" run verify` (a 14-command chain including the full test suite, `rebuild:native`, `smoke:electron`) from the workspace's own package.json; called `loopCancel(loopRunId)` ~2.5s after start, well before any iteration/instance had spawned. The IPC call resolved `success: true` and `LoopState.status` became `'cancelled'` (`endedAt` ≈4s after start). Despite that, the spawned `npm run verify` chain kept running unattended: at T+5 minutes its `npm run test` step's vitest workers were still executing on the shared campaign host, driving 1-minute loadavg from ~6 to 27.9 — had to be killed manually (`kill -9` on the whole subtree; verified via `ps` that the chain's root pid's parent was this very dev app's own Electron main process, ruling out a concurrent agent's unrelated run). Required behaviour: `cancelLoop` (and any other loop-terminal transition reached while `runLoopPreflight`/`runVerify`/`runQuickVerify` is in flight) must also abort that spawned child promptly (SIGKILL/SIGTERM), not just the per-iteration CLI instance — `cancelLoop`'s returned promise should not represent the loop as fully stopped while a verify child it started is still alive. This is a resource-safety gap, not cosmetic: a legitimately slow verify command (the workspace's own multi-minute test suite is the common case) left running past a user's cancel can starve a shared or laptop host for the remainder of its timeout (up to `verifyTimeoutMs`, default 600s) | Reproduced live 2026-08-21 while running [Remote-node false-negative fixes / pingpong-loop-cannot-terminate livetest, batch Q1](2026-08-20-pingpong-loop-cannot-terminate_livetest.md#evidence-run--2026-08-21) | Not yet written — recommended: thread an `AbortSignal` (or the existing `isCancelled(loopRunId)` lifecycle check) into `spawnVerify` so its `child_process` is killed the moment cancellation is observed, and have `cancelLoop`/`confirmStablyStopped` await that kill before resolving |
+| LT-441 | P2 | **FOUND, NOT FIXED, 2026-08-24.** A hardened (Seatbelt) Claude instance's own resident-mode startup bootstrap writes its config state (`.claude.json`, a timestamped backup, and a `sessions/` dir) to whatever directory `CLAUDE_CONFIG_DIR` points at, even when that directory is **not** one of the jail's granted `WRITABLE_ROOT_n` paths — while an agent-driven tool-call write to a different non-granted path (`~/Desktop`, the same probe check 3 already uses) is correctly denied in the same instance. Reproduced 3/3 times via a scoped `ClaudeCliAdapter.prototype.spawnProcess` monkeypatch (Node Inspector, `this.config.cwd`-scoped to one throwaway `/tmp` instance only) that set `CLAUDE_CONFIG_DIR=~/Desktop/aio-lt-C-ws13-c10-cfg` — a path never in `defaultHardenedWritableRoots`. `app.log`'s `"Spawning CLI under Seatbelt hardened mode"` line confirmed hardening engaged with the correct 7-root set each time, and an independent `child_process.spawn` capture (patched separately, decoupled from the adapter patch) confirmed the OS-level `sandbox-exec` invocation carried the exact expected policy text and `-D WRITABLE_ROOT_n=` params with no Desktop path among them — yet `~/Desktop/aio-lt-C-ws13-c10-cfg/.claude.json` (528 bytes, real content: `firstStartTime`, `machineID`, etc.) and `backups/.claude.json.backup.<ts>` existed afterward. A byte-identical manual `sandbox-exec` replay of the captured policy/roots from an unsandboxed shell, run in Claude's one-shot `--print` mode, correctly **denied** the same write (`Not logged in`, target directory never created) — the gap is specific to resident/stream-json mode reaching some later-lifecycle write, not a hole in the policy text or the roots computed. Root cause **not isolated further** in this session (would need `fs_usage`/DTrace with sudo, or reading Claude Code's own closed-source startup path — out of scope for a livetest run); ruled out as an AIO-side cause: no production file under `src/main/` references `CLAUDE_CONFIG_DIR` at all (grepped), so AIO's own (unsandboxed) main process is not the one performing the write — it is the sandboxed child itself. **Not currently exploitable through any AIO-exposed surface**: `InstanceCreatePayloadSchema` has no per-instance env-override field, so no user or agent action through the product's own IPC can set `CLAUDE_CONFIG_DIR` (or influence whatever internal state follows the same path) — this was only reachable via a Node Inspector monkeypatch this session used as a legitimate but instrumented fault-injection technique, not a stock AIO capability. Filed as a real confinement gap in the hardened-mode "fail closed" contract (`resolveHardenedSpawn`'s own docstring), worth root-causing before any future feature adds a legitimate per-instance-env surface, which would make it reachable | [WS13 hardened-mode livetest, 2026-08-24 evidence](2026-07-13-fable-ws13_livetest.md#evidence-run--2026-08-24-batch-c--checks-1011-crash-lever-attempt-surfaces-a-real-confinement-gap-lt-441-not-the-crash) | Not yet written — recommended starting point: `fs_usage -w -f filesys sandbox-exec` (sudo) during a repeat of this reproduction to see which pid/syscall actually performs the write, then decide whether resident-mode's bootstrap path needs its own explicit writable-root binding or whether the CLI is using a non-`file-write*` IPC mechanism (e.g. an XPC-proxied preference write) that the policy needs to explicitly deny |
+| LT-480 | P1 | **FIXED + REGRESSION-TESTED 2026-08-24, verified live end-to-end against a rebuilt dev app.** Every real, worker-recorded skill activation was silently persisted to the wrong SQLite file — a shared, per-checkout fallback path, not the profile's own `rlm.db` — because `context-worker-main.ts` called `registerWorkerEventForwarding(transport)` (which eagerly resolves `RLMContextManager.getInstance()` → an unconfigured `RLMDatabase.getInstance()`) before its own explicit, correctly-pathed `RLMDatabase.getInstance({dbPath, contentDir})` pre-init; `RLMDatabase.getInstance()` is itself a singleton where the first caller's config wins. This is the exact ordering hazard LT-207 documented and avoided for the codebase-indexing lane worker, left unfixed in the original context worker. Fixed by reordering the two calls | [Skill observability + design skills livetest, evidence run 2026-08-24 (Batch E)](../../2026-07-23-skill-observability-and-design-skills_livetest.md#evidence-run--2026-08-24-batch-e--lt-480-real-auto-injected-skill-activations-silently-persisted-to-the-wrong-db-found-and-fixed) | `src/main/instance/context-worker-main.ts`; new test `src/main/instance/__tests__/context-worker-main.spec.ts` ("LT-480: pre-initialises RLMDatabase with explicit dbPath before wiring worker event forwarding"), watched failing on revert (`expected 11 to be less than 10`), restored and green. `tsc --noEmit` ×2 clean, `ng lint` clean, `build:main` green, targeted `test:quiet` 70/70 across `context-worker-client.spec.ts` + `context-worker-event-forwarding.spec.ts` + `skill-attribution-service.spec.ts` + `skills-loader.spec.ts` + `unified-controller.spec.ts` |
+| LT-481 | P3 | **FOUND, NOT FIXED, 2026-08-24 — a genuine product-decision fork, not a snap fix.** The Workboard's per-card "Snooze" button is rendered and clickable on every card in every lane, including the Needs You lane, but it cannot durably hide a card that was *already* blocked/failed/review when snoozed: `WorkboardStore.snoozeItem()` stores only an item id (no baseline attention level), and the hand-raise effect's `attentionLevelClearsSnooze(level)` checks only the item's *current* level (`level !== 'working' && level !== 'waiting'`), which is unconditionally true for every Needs You card by construction — so the very next reactive `items()` recompute (a routine instance-list refresh, observed within 2-5s) silently un-snoozes it again, with no error and no visible feedback. Live-reproduced: a real `waiting_for_permission` instance, clicked the real DOM Snooze button (card correctly disappeared for a moment), then it silently reappeared on its own a few seconds later while remaining in the exact same `waiting_for_permission` state — no new event, no escalation. Confirmed at the signal level too (`store.isSnoozed(id)` flips `true` → `false` on its own within ~2s with the instance status held constant throughout). **This is not an accidental regression** — every existing `workboard.store.spec.ts` test for this mechanism deliberately snoozes a *working* item and asserts it un-snoozes on a transition *into* blocked/failed/idle ("hand-raise: auto-clears a snooze once the item becomes blocked/fails/completes"), which is the mechanism working exactly as designed and tested; none of those tests (or any other) cover snoozing an item that is *already* in the Needs You lane, which is precisely this livetest doc's own check scenario ("put instances into failed/error/degraded states... snooze hides a card until it raises its hand"). The gap is between the check's literal precondition and a deliberately narrower, well-tested design intent (mute a non-urgent item; auto-reveal on a genuine transition into urgency) — not a wiring mistake. Two candidate fixes, neither applied: (a) make the hand-raise comparison baseline-aware — record the attention level at snooze time and only auto-clear on a genuine escalation from that baseline, which would make the button work as the check expects; or (b) don't offer a Snooze control on Needs You cards at all, since the mechanism was only ever built and tested for working/waiting items. Deciding between "broaden the mechanism" and "don't offer the control where it can't work" is a product call, not an agent's, per this campaign's established precedent for the same shape of gap (see LT-220, doc 2's check 2/4) | [Sibling-audit round 2, evidence run 2026-08-24 (Batch E)](2026-07-30-sibling-audit-round2_livetest.md#lt-check-c2--attention-scale--mobile-parity) | Not fixed. Candidate touch points if (a) is chosen: `attentionLevelClearsSnooze()` (`workboard-projection.ts`) needs a baseline parameter, `WorkboardStore`'s `snoozedIdsSignal` (`workboard.store.ts`) needs to become a `Map<string, AttentionLevel>` capturing the level at snooze time |
+| LT-520 | P2 | **FIXED + REGRESSION-TESTED 2026-08-24; live confirmation pending a rebuild.** A Harness install writes the machine's single Chrome native-messaging manifest **unconditionally**, so whichever install started last silently takes the local browser-extension channel off the other — and if that was a dev app whose profile is later deleted, the manifest points at a binary that no longer exists and the user's local channel stays broken until the packaged app restarts. Reproduced live during this campaign: `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.ai_orchestrator.browser_gateway.json` was rewritten at 00:51 with `"path": "/tmp/aio-lt-E/browser-gateway/native-host/ai-orchestrator-browser-host"` by a batch agent's isolated dev app, while the packaged app (started 00:38) owns `~/Library/Application Support/harness/browser-gateway/native-host/`. `browser.health` on the packaged app then reported `localExtension: {state: "not_installed", installed: false, registered: false}` with remediation text telling the user to reinstall the extension — misdirecting advice, since nothing about the extension changed. **The guard already existed but was not on this path**: `assertBrowserExtensionNativeHostManifestWritable` is called only from `src/worker-agent/extension-relay-native-registration.ts` and `src/worker-agent/cli/service-cli.ts`; the Electron main path (`src/main/browser-gateway/index.ts` → `prepareBrowserExtensionNativeHostRuntime`) had no ownership check at all. Note this also means `AIO_DEV_USER_DATA_PATH` profile isolation is incomplete — the manifest is machine-global and was never isolated | Reproduced live 2026-08-24 while reading `browser.health` for [local + remote shared-browser control](2026-07-22-local-shared-browser-control_livetest.md) check 1 | `mayClaimBrowserExtensionNativeHostManifest()` + a `claimChromeManifest` option on `prepareBrowserExtensionNativeHostRuntime` (`src/main/browser-gateway/browser-extension-native-runtime.ts`), wired in `src/main/browser-gateway/index.ts`. 6 regression tests; the behavioural one was mutation-checked by forcing the branch true and watching it fail |
+
 ## LT-001: Existing-Tab Browser Grant Scope Mismatch
 
 ### Observed behavior
@@ -7172,3 +7178,631 @@ date) landing in the `controlled-recovery` → `observed-compaction` → `same-t
 sequence, with a subsequent paired on/off comparison showing the cost reduction the doc's check 4
 expects. Until such a build is observed, the ≥60% target is not achievable through this code path by
 construction, not merely difficult to trigger.
+
+## LT-371: short worker-socket losses churn the entire remote-browser channel and can strand a command before handoff
+
+### Observed behaviour
+
+The packaged app's reliability log contains 30 `node_disconnect`, 53 `node_reconnect`, 27
+`attachment_suspended`, 22 `attachment_restored`, and 14 `attachment_superseded` events. A disconnect
+with active inventory suspends all 21 shared `windows-pc` tabs; many reconnects restore the same 21.
+Re-deriving worker-socket registration times rather than pairing reliability events by eye found all
+30 disconnects eventually re-registered: minimum 1.556 seconds, median 10.556 seconds, 75th percentile
+24.739 seconds, and 24/30 inside 30 seconds. The intervals between drops vary from about 1 minute to
+more than a day, with no 30-second cadence and no general load correlation. One long event coincided
+with coordinator sleep; the rest are short, randomly spaced transport losses.
+
+The discriminating test was to compare all three channel layers over the same window. `browser.health`
+reported `serviceWorkerRestarts: 0`; read-only worker logs showed thousands of continuous extension
+poll-heartbeat records, no native-host errors, one continuous worker process across the main event
+window, and 63 coordinator-socket closes (61 with WebSocket code 1006). In the coordinator log,
+`WorkerNodeConnection Node WebSocket disconnected` immediately precedes every reliability
+`node_disconnect`. `RemoteBrowserExtensionBridge.expireNode()` is also only called by the
+`node:ws-disconnected` route. Therefore the dropping side is the worker-node WebSocket transport, not
+Chrome MV3 eviction and not the extension/native-host hop. `list_remote_nodes` showing a healthy node
+seconds later proved recovery, not continuity.
+
+The 53-vs-30 asymmetry has two source-backed causes: `node_reconnect` records both a lost-channel
+recovery and first extension contact after re-registration when attachments are restored, including
+zero-attachment transitions; and the coordinator logged 36 replacement sockets whose superseded
+socket later closed while the new socket remained active. The worker logs show sequential lifecycle
+streams with one instance id, ruling out concurrent duplicate worker processes.
+
+The same socket boundary explains the intermittent command symptom. `pollCommand()` shifts a command
+and arms its delivered/receipt timer before `RpcEventRouter` sends the poll RPC response. Responses
+were addressed only by `nodeId`, so there were two losing cases: no socket was open, or the old poll
+resolved after the node re-registered and `sendResponse()` wrote the old request id onto the replacement
+socket. The worker had already removed the old request on close and ignored that response id. In both
+cases the command was no longer queued even though it never reached the extension, so a receipt-capable
+queue later raised `browser_extension_command_receipt_missing`.
+
+### Root cause
+
+The worker connection lifecycle allows only 2.5 seconds for re-registration, despite the remote-node
+UX contract's 30-second grace and an observed median recovery above 10 seconds. Once that undersized
+timer expires, the router deregisters the node and `expireNode()` suspends every attachment and
+rejects the browser-command queue. Separately, inbound requests lost their source-socket identity at
+the connection event boundary. A response selected whichever socket was currently mapped to the node
+id, so the browser poll route could neither distinguish no socket from a replacement socket nor undo
+its delivered transition safely.
+
+### Required behaviour
+
+- Hold the worker registry entry, browser attachments, and pending RPC state for 30 seconds after an
+  active socket closes; cancel the disconnect if the same node re-registers inside that window.
+- Bind every inbound RPC response to its requesting socket. When a non-null browser poll result cannot
+  be handed to that still-active socket, return the exact command to its original queue and its
+  original absolute undelivered deadline.
+- Preserve FIFO order while handoff is uncertain: later commands and replacement pollers must wait;
+  a failed handoff puts the original command at the queue head, while an already-expired original
+  deadline rejects that command and releases later work.
+- Never replay a command after its response was accepted by an open socket or after a receipt arrived;
+  those states are execution-ambiguous and must retain the existing receipt/execution semantics.
+- A sustained disconnect beyond 30 seconds must still emit the true disconnect, suspend attachments,
+  and reject the queue as before.
+
+### Acceptance
+
+- A fake-timer regression proves no true-disconnect callbacks at 29,999 ms and the existing
+  disconnect behaviour at 30,000 ms.
+- Connection, command-store, and RPC-router regressions prove an old request never writes onto a
+  replacement socket; an unsent poll result is requeued once with the same command id, remains bounded
+  by its original delivery deadline, retains FIFO order ahead of later work, survives the receipt
+  window, and resolves normally on the new poll; an expired uncertain command releases later work;
+  a null poll and a response accepted by its requesting socket are not requeued.
+- Focused tests, both TypeScript checks, lint, LOC ratchet, main build, and the full test suite pass,
+  followed by a fresh independent completion-gate PASS.
+- Live closure requires the rebuilt/restarted coordinator; LT-371 itself does not require a new worker,
+  extension, or native-host build. Observe that
+  a natural or James-approved sub-30-second worker-socket loss produces no `node_disconnect`, no
+  21-attachment suspend/restore churn, and no false receipt-missing failure. The separate superseded-
+  generation check remains pending until its deliberate restart-and-wait sequence is observed.
+
+## LT-370: the quality-tier auto-pick chooses the largest advertised model, which the host cannot load
+
+**Status: FIXED + REGRESSION-TESTED 2026-08-24; live confirmation pending a rebuilt app. Root cause
+corrected the same day — the 2026-08-20 diagnosis was wrong and would have sent the next reader the
+wrong way.**
+
+### Observed behaviour
+
+One `browser.snapshot` carrying an `extractionHint`, taken on 2026-08-20 with
+`browserAuxExtractionEnabled` ON, produced in `~/Library/Application Support/harness/logs/app.log`:
+
+```
+1787345477010 info  WorkerNodeConnection  Remote node: dispatching work
+                    {method: "auxiliaryModel.generate", requestId: "coord-8438",
+                     provider: "ollama", model: "gpt-oss:120b"}
+1787345485971 warn  WorkerNodeConnection  Remote node: work failed
+                    {requestId: "coord-8438", latencyMs: 8961,
+                     error: "-32603: Ollama generate failed: 500"}
+1787345485972 warn  AuxiliaryLlmService   Auxiliary generation failed for slot "webExtract":
+                    RPC error -32603: Ollama generate failed: 500
+```
+
+The two records are the same request (`coord-8438`) one millisecond apart, which is what the original
+entry was missing when it wrote *"the exact model string sent on that call was not captured"*.
+
+Across the whole log the tally is:
+
+| provider / model | dispatches |
+| --- | --- |
+| `ollama` / `deepseek-r1:7b` | 143 |
+| `ollama` / `gpt-oss:120b` | 1 |
+
+The single `gpt-oss:120b` dispatch is the one that failed. Every other auxiliary dispatch on this
+machine succeeded.
+
+### Root cause
+
+`gpt-oss:120b` **is** advertised by the endpoint — it is one of the eight models `windows-pc`'s Ollama
+serves. So the failure is not "asked for a model it has never had".
+
+The configured tier model is never sent at all. `tryEndpointForSlot`
+(`src/main/rlm/auxiliary-llm-service.ts`) resolves `preferred = resolveSlotModel(...)` and then gates
+it:
+
+```ts
+if (preferred && endpointAdvertisesModel(ep.source, preferred, ids)) { return { endpoint: ep, model: preferred, … }; }
+if (ids.length === 0) return null;
+const picked = pickModelForTier(ids, tier, loaded);
+```
+
+`endpointAdvertisesModel` (`auxiliary-llm-utils.ts:22`) returns false for a **worker-node** endpoint
+whose non-empty list lacks the id — the worker's list comes from its heartbeat and is treated as
+authoritative. So `qwen/qwen3.6-35b-a3b` is silently and correctly discarded, and the code falls
+through to the auto-pick. **The originally recommended fix — "point the tier models at ids the
+endpoint actually serves" — would therefore have changed nothing about this failure**, because the
+configured id was already being bypassed.
+
+The defect is in the auto-pick. `pickModelForTier` (`auxiliary-llm-utils.ts:266`) restricts the pool
+to **resident** models when any are resident, precisely to avoid a JIT-load at a bad context size. When
+nothing is resident that restriction does not engage, and `quality` then takes the *largest* candidate
+by `modelSizeScore`:
+
+- `gpt-oss:120b` → 120 ← chosen
+- `deepseek-r1:32b` → 32, `gemma4:31b` → 31, `qwen3-coder:30b` → 30, `gpt-oss:20b` → 20, `deepseek-r1:14b` → 14, `deepseek-r1:7b` → 7, `llama3.3:latest` → 0
+
+`list_remote_nodes` reports `windows-pc` as `gpuName: "NVIDIA GeForce RTX 5090", gpuMemoryMB: 32607`.
+A 120B model cannot be made resident in 32 GB, so Ollama attempts the load and fails. The **8961 ms**
+latency is the tell: an unknown-model rejection returns immediately, a failed load takes seconds.
+
+### Impact — narrower than the original entry claimed
+
+The original entry said "the entire local-AI cost-saving path is silently inert" and "every aux slot on
+this machine is affected". Both are false. The 143 successful `deepseek-r1:7b` dispatches are quick-tier
+slots working normally — quick tier auto-picks the *smallest* candidate, which loads fine.
+
+- **Broken (quality tier):** `compression`, `memoryDistillation`, `webExtract`, `approvalAdjudication`,
+  `subQueryExecution`, `verifyOutputSummary`.
+- **Working (quick tier):** `titleGeneration`, `routingClassification`, `approvalScoring`,
+  `loopScoring`, `retrievalHypothesis`, `branchScoring`.
+
+It still fails safe — the slot falls back to the frontier model and, for `webExtract`, the never-worse
+guard returns the full raw capture. The real cost is ~9 s of dead wall-clock per quality-tier call plus
+the lost local saving on those six slots.
+
+### Required behaviour
+
+A tier auto-pick must not choose a model the endpoint's host cannot actually run. Either of these, or
+both:
+
+1. **Negative-cache a model that fails on an endpoint** and re-pick the next candidate down, so the
+   first failure is self-correcting rather than permanent. This must apply only to *auto-picked*
+   models — an explicit per-slot pin or tier pin should keep surfacing its error rather than silently
+   substituting a different model.
+2. **Bound the auto-pick by the endpoint host's reported capacity.** `WorkerNodeInfo` already carries
+   `gpuMemoryMB`, and `modelSizeScore` already approximates parameter count, so a candidate whose
+   estimated working set exceeds the reported memory can be excluded before it is ever tried.
+
+Fix 1 is preferable on its own terms: it needs no hardware heuristic and it degrades correctly on any
+endpoint, including ones that report no capacity at all.
+
+### Acceptance
+
+- With no model resident on a 32 GB endpoint advertising `gpt-oss:120b`, a `quality`-tier slot resolves
+  to a model that loads, and the generate succeeds rather than returning a 500.
+- A pinned model that genuinely fails still surfaces its error; it is not silently replaced.
+- A regression test pins the auto-pick behaviour with a candidate list containing an over-large model,
+  and fails if `gpt-oss:120b` is selected under the fixed rule.
+
+### As built (2026-08-24)
+
+`AuxiliaryModelFailureCache` in `src/main/rlm/auxiliary-llm-utils.ts` implements option 1. Three call
+sites in `src/main/rlm/auxiliary-llm-service.ts`:
+
+- `tryEndpointForSlot` filters the candidate list through `this.modelFailures.usable(ep.id, ids)`
+  before `pickModelForTier`, and tags the result `autoPicked: true`.
+- `generate`'s catch records `(endpoint.id, model)` **only when `autoPicked`** is set.
+- `configure` clears the memo alongside the health cache, so any settings change re-tries everything.
+
+Two properties are deliberate and both are pinned by tests. `usable()` returns the **unfiltered** list
+when filtering would leave nothing, so the memo can only ever reorder a choice — it can never turn a
+degraded endpoint into no endpoint. And a pinned model is never consulted against the memo, because
+substituting an operator's explicit choice would hide the very error they need to see.
+
+Option 2 (bounding by the node's reported `gpuMemoryMB`) was **not** implemented. It needs a
+parameter-count-to-VRAM heuristic that would be wrong for quantisation levels and for partial CPU
+offload, and option 1 reaches the same end state after one cheap failure with no hardware guessing.
+
+The first independent completion gate returned PASS but caught a real test gap worth recording,
+because it is the kind that reads as covered when it is not: the `if (autoPicked)` guard on the
+`record` call was **inert**, and dropping it broke no test. A stray write had no observable effect,
+because the pinned resolution path does not read the memo either — so the guard was defence in depth
+with nothing pinning it.
+
+Closing it needed a two-slot scenario, since the guard is invisible within any single slot: pin
+`webExtract` to the over-large model with an explicit per-slot `model`, let it fail, then call the
+**unpinned** quality-tier `compression` slot and assert it still attempts that same model on its own
+evidence. With the guard dropped, `compression` inherits `webExtract`'s failure and steps down, so the
+test fails — verified by mutation. The cache key was also changed from a space-joined string to
+`JSON.stringify([endpointId, model])`, removing a theoretical case where an id containing the
+separator could alias two different pairs onto one key.
+
+**Not yet observed live.** The running packaged app predates this change, and closing the
+browser-gateway-reliability doc's check 1 additionally needs `browserAuxExtractionEnabled` ON, which
+is `policyTier: read-only` and not writable from the settings CLI.
+
+## LT-520: a dev app silently steals the machine's Chrome native-messaging manifest from the packaged install
+
+**Status: FIXED + REGRESSION-TESTED 2026-08-24. Live confirmation pending a rebuilt app.**
+
+### Observed behaviour
+
+While reading `browser.health` from the packaged app during this campaign, the `localExtension` block
+reported a state that contradicted itself:
+
+```
+localExtension: { state: "not_installed", installed: false, registered: false,
+                  polling: true, contactAgeMs: 8206, extensionVersion: "0.2.2",
+                  summary: "No local Harness browser extension registration owned by this install.",
+                  remediation: "Install the Harness Chrome extension and restart AI Orchestrator …" }
+```
+
+Not installed, yet polling, with a live extension version and contact eight seconds earlier. The
+machine's manifest explained it:
+
+```
+$ cat ~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.ai_orchestrator.browser_gateway.json
+{ "name": "com.ai_orchestrator.browser_gateway",
+  "path": "/tmp/aio-lt-E/browser-gateway/native-host/ai-orchestrator-browser-host", … }
+```
+
+`/tmp/aio-lt-E` is a **batch agent's isolated dev profile**, created minutes earlier. The packaged
+app started at 00:38 and owns `~/Library/Application Support/harness/browser-gateway/native-host/`;
+the manifest was rewritten at 00:51 by the dev app.
+
+The user-visible harm has two parts. While both are running, the last starter owns the local channel
+and the other reports itself uninstalled with remediation text that tells the user to reinstall a
+perfectly healthy extension. And when the dev profile is deleted — which every campaign batch is
+instructed to do — the manifest is left pointing at a path that no longer exists, so the local
+channel stays broken until the packaged app is restarted.
+
+### Root cause
+
+There is exactly one native-messaging manifest per Chrome profile, and it is machine-global: it lives
+under `~/Library/Application Support/Google/Chrome/`, **not** under the app's `userData`. So
+`AIO_DEV_USER_DATA_PATH` isolation, which the campaign runbook relies on to run several dev apps at
+once, never covered this file.
+
+`prepareBrowserExtensionNativeHostRuntime` (`src/main/browser-gateway/browser-extension-native-runtime.ts`)
+wrote it unconditionally. The codebase already had the right guard —
+`assertBrowserExtensionNativeHostManifestWritable`, which refuses to overwrite a manifest this install
+does not own — but it is called only from `src/worker-agent/extension-relay-native-registration.ts`
+and `src/worker-agent/cli/service-cli.ts`. The Electron main path
+(`src/main/browser-gateway/index.ts` → `initializeBrowserGatewayRuntime`) had no ownership check at
+all. This is the classic existence-is-not-behaviour shape: the guard is in the tree, and is not on
+this path.
+
+**The mirror-image bug was checked for and does not exist.** `removeBrowserExtensionNativeHostRuntime`
+unlinks the same shared manifest, so a dev app deleting it on quit would be equally damaging — but it
+is called only from `src/worker-agent/cli/service-cli.ts` (an explicit `service uninstall` command),
+never from the Electron quit path, and it targets `BROWSER_EXTENSION_RELAY_NATIVE_HOST_NAME`, a
+different file. The one place that CLI touches the main host's manifest
+(`removeLegacyExtensionRelayNativeHostIfOwned`) checks
+`isBrowserExtensionNativeHostManifestOwned()` first. So the write path was the only unguarded one.
+
+### Required behaviour
+
+- A **packaged** install always claims the manifest. It is the one the user actually runs, and
+  because it rewrites on every start, a stale entry left by a dev app self-heals on the next launch.
+- An **unpackaged** install claims the manifest only when it is absent or already its own, and
+  otherwise leaves it alone and says so in the log — a dev app with no local extension channel is the
+  correct outcome, and is what the campaign runbook already assumes.
+- An explicit operator opt-in (`AIO_CLAIM_LOCAL_BROWSER_MANIFEST=1`) still allows a dev app to take
+  over deliberately.
+- Declining the claim must not stop the install laying down its own native-host files, so nothing
+  else about startup changes.
+
+### Acceptance
+
+- With a foreign manifest present, an unpackaged install leaves it byte-identical and still writes its
+  own runtime config and wrapper.
+- A packaged install overwrites a foreign manifest.
+- An unpackaged install rewrites a manifest it already owns.
+- Regression tests cover all four arbitration outcomes plus the force-claim opt-in.
+
+### As built (2026-08-24)
+
+`mayClaimBrowserExtensionNativeHostManifest()` decides, `prepareBrowserExtensionNativeHostRuntime`
+takes a `claimChromeManifest` option (default `true`, so no existing caller changes behaviour), and
+`src/main/browser-gateway/index.ts` computes the decision from `app.isPackaged` plus the env opt-in
+and logs a warning when it declines. 6 regression tests in
+`browser-extension-native-runtime.spec.ts`; the behavioural one was mutation-checked by forcing the
+branch true, which made it fail on the manifest bytes, then restored. 15 tests green in that file.
+
+### Live confirmation of the premise (2026-08-24)
+
+Restoring the manifest to the packaged install's native host and re-calling `browser.health` — with
+nothing else on the machine changed and the extension untouched — flipped the block straight back:
+
+```
+state: "ready", installed: true, registered: true, polling: true, contactAgeMs: 1671,
+extensionVersion: "0.2.2", summary: "Local extension channel is polling (last contact 2s ago)."
+warnings: []
+```
+
+So `installed`/`state` are driven entirely by manifest ownership, exactly as the root cause says. As a
+side effect this closed check §1 of
+[local + remote shared-browser control](2026-07-22-local-shared-browser-control_livetest.md), which had
+been open since 2026-07-22.
+
+Worth recording precisely because it is the worst case rather than the average one: at the moment of
+the restore the manifest pointed at `/tmp/aio-lt-F`, a batch profile that had **already been deleted**
+during that batch's normal cleanup. The machine was therefore sitting on a manifest aimed at a binary
+that no longer existed — the exact end state a campaign leaves behind if nobody restores it, and one
+that persists until the packaged app is restarted.
+
+**Campaign note:** `_scratch/lt-2026-08-24/orchestrator/restore-native-manifest.sh` performs the
+restore. Until the packaged app is rebuilt with this fix, every dev app launched by a batch will
+re-take the manifest, so the restore must be the last step of a campaign, not an early one.
+
+## LT-480: real auto-injected skill activations silently persisted to the wrong database
+
+**Status: FIXED + REGRESSION-TESTED 2026-08-24, verified live end-to-end against a rebuilt dev app.**
+
+### Observed behaviour
+
+While re-confirming the skill-observability livetest's "recording" check (a real `sendInput`
+containing the `test-stabilizer` trigger "flaky test"), the live `skills:activation-delta` push to
+the renderer fired correctly with the right payload (`skillName: 'test-stabilizer'`,
+`matchedTrigger: 'flaky test'`, ...) — but neither a direct `sqlite3` query against the profile's own
+`<userData>/rlm/rlm.db` nor the app's own `skillsActivationsRecent()` IPC call showed the row.
+`skill_activations` read **0 rows** through every profile-scoped path, immediately after a live push
+had just delivered exactly that activation to the renderer.
+
+The row was not lost — it landed in the wrong file. `~/.aio/<sha256(process.cwd()).slice(0,12)>/rlm/rlm.db`
+(a per-checkout fallback location keyed only on the repo's working directory, shared across **every**
+dev-app profile regardless of `AIO_DEV_USER_DATA_PATH`) held it:
+
+```
+$ sqlite3 ~/.aio/1b6165d33911/rlm/rlm.db "SELECT skill_name, instance_id, matched_trigger, match_score, created_at FROM skill_activations ORDER BY created_at;"
+test-stabilizer|cv0wyntqp|flaky test|0.12987012987013|1787129391961
+test-stabilizer|cfz4gtvj0|flaky test|0.125|1787529691884
+test-stabilizer|cfz4gtvj0|flaky test|1.0|1787529744985
+```
+
+The first row (`cv0wyntqp`, ~4.6 days older) shows this is not new to this session — it has been
+silently swallowing real activation history since the bug was introduced.
+
+### Root cause
+
+`context-worker-main.ts` (module load order):
+
+```ts
+const transport = createTransport();
+
+// (previously) ran FIRST:
+registerWorkerEventForwarding(transport);   // subscribes RLMContextManager.getInstance() among others
+
+// (previously) ran SECOND:
+RLMDatabase.getInstance({ dbPath: path.join(userDataPath, 'rlm', 'rlm.db'), contentDir: ... });
+```
+
+`registerWorkerEventForwarding()` calls `RLMContextManager.getInstance()` (`context-manager.ts:122`),
+whose private constructor eagerly calls `this.db = getRLMDatabase()` (`context-manager.ts:183`) —
+i.e. `RLMDatabase.getInstance()` with **no config** — as part of synchronous construction, not
+lazily. `RLMDatabase.getInstance()` (`rlm-database.ts:104`) is itself a `getInstance()`-style
+singleton: `if (!this.instance) { this.instance = new RLMDatabase(config); }` — only the **first**
+caller's config is ever honored. Because the no-config call happened first, the private constructor's
+own fallback path resolution ran:
+
+```ts
+const userDataPath = getElectronUserDataPath() ?? (() => {
+  const hash = createHash('sha256').update(process.cwd()).digest('hex').slice(0, 12);
+  return path.join(os.homedir(), '.aio', hash);
+})();
+```
+
+`getElectronUserDataPath()` here (`rlm-database.ts:62-70`) only tries
+`require('electron').app?.getPath?.('userData')` — it does not check `AIO_USER_DATA_PATH`, the env
+var `context-worker-main.ts` actually receives, at all. The context worker runs as an Electron
+`utilityProcess` of type `node` (confirmed via `ps` during LT-169's investigation:
+`node.mojom.NodeService`), which does not expose the browser-side `app` module the same way the main
+process does, so `app?.getPath?.('userData')` resolves to `undefined` there and the fallback fires:
+`~/.aio/<hash of process.cwd()>` — a location keyed only on the repository's working directory, not
+on any per-instance or per-profile identity. By the time the worker's own explicit, correctly-pathed
+pre-init call ran second, the singleton was already constructed and the config argument was silently
+ignored.
+
+This is the same class of bug as LT-169 (`SkillAttributionService`'s per-process `controlCache`) and
+LT-170/LT-206 (worker-local `EventEmitter`s that cannot cross a process boundary), and LT-207's own
+register entry explicitly named and avoided this exact ordering hazard for the codebase-indexing lane
+worker's copy of the same singleton — but the fix was never carried back to the original context
+worker that introduced the pattern in the same commit.
+
+### Impact
+
+- Every real (non-synthetic) skill activation recorded via the actual auto-injection hot path
+  (`SkillsLoader.detectRelevantSkills` → `UnifiedMemoryController.fetchSkills` →
+  `SkillAttributionService.recordActivation`, which all run inside the context worker) was invisible
+  to `skillsActivationsRecent()`, `skillsHealthSummary()`, the Skills page health panel, the
+  error-correlation outlier badge (check 6), and any doctor-lint signal keyed on real activation
+  counts — for as long as this ordering bug has been present (at least since the LT-206 fix commit
+  that introduced `registerWorkerEventForwarding`, 2026-08-19).
+- The live toast/badge push (LT-170's fix) was **not** affected, because it is a direct
+  `EventEmitter`/IPC forward that does not depend on where the DB write landed — only the persisted,
+  queryable activation history was silently wrong. This is why the bug went undetected across
+  multiple prior evidence-run sessions that verified the live push but did not independently
+  cross-check the DB file the write actually reached.
+- Scope is not dev-profile-specific: the same eager-singleton-race mechanism applies to the packaged
+  app's context worker identically (the `utilityProcess`/`app` module gap is structural, not
+  environment-gated), so real production `skill_activations` telemetry is plausibly affected too,
+  though this session did not independently confirm against the packaged app's own fallback file.
+
+### Required behaviour
+
+`RLMDatabase.getInstance()` inside the context worker must be seeded with the worker's real,
+per-profile `dbPath`/`contentDir` before any other code path can trigger an unconfigured call to the
+same singleton.
+
+### Acceptance
+
+- `context-worker-main.ts` calls `RLMDatabase.getInstance({dbPath, contentDir})` before
+  `registerWorkerEventForwarding(transport)`.
+- A real `sendInput` turn containing a builtin trigger phrase produces a `skill_activations` row in
+  the profile's own `<userData>/rlm/rlm.db`, visible via `skillsActivationsRecent()`, with zero rows
+  added to the `~/.aio/<hash>` fallback file for that instance.
+- Regression test proving the ordering invariant, watched failing on revert.
+
+### As built (2026-08-24)
+
+Swapped the two top-level statements in `context-worker-main.ts` so the RLM database pre-init (with
+explicit `dbPath`/`contentDir`) runs first, and `registerWorkerEventForwarding(transport)` runs
+second — mirroring LT-207's fix for the codebase-indexing lane worker. Added
+`src/main/instance/__tests__/context-worker-main.spec.ts` → *"LT-480: pre-initialises RLMDatabase with
+explicit dbPath before wiring worker event forwarding"*, which mocks both `RLMDatabase.getInstance`
+and `registerWorkerEventForwarding` and asserts (a) the first `getInstance()` call's argument contains
+the real `dbPath`, and (b) `getInstance`'s first `invocationCallOrder` precedes
+`registerWorkerEventForwarding`'s. Reverted only the ordering (via an in-place edit immediately
+restored from a `/tmp` backup, diff-verified identical before and after) and watched it fail:
+`AssertionError: expected 11 to be less than 10`; restored, both tests in the file pass.
+
+**Live end-to-end re-verification (not just the unit test):** rebuilt `dist/main`
+(`npm run build:main`), restarted the dev app fresh (`AIO_DEV_USER_DATA_PATH=/tmp/aio-lt-E`, port
+9455 — a real new context-worker process), created a fresh instance, sent a real `sendInput` turn
+containing "flaky test". The activation row landed correctly in `/tmp/aio-lt-E/rlm/rlm.db`, was
+returned by `skillsActivationsRecent()`, and the shared fallback DB gained **zero** new rows for that
+instance. Also re-confirmed LT-169's kill-switch fix on top of the now-correctly-persisting path:
+disabled `test-stabilizer`, sent a second real "flaky test" turn, activation count stayed at exactly
+1 after the turn settled — no regression.
+
+Gates: `npx tsc --noEmit` clean, `npx tsc --noEmit -p tsconfig.spec.json` clean, `ng lint` clean,
+`npm run build:main` green, `test:quiet` 70/70 across `context-worker-client.spec.ts` +
+`context-worker-event-forwarding.spec.ts` + `skill-attribution-service.spec.ts` +
+`skills-loader.spec.ts` + `unified-controller.spec.ts` (including the 2 new/updated
+`context-worker-main.spec.ts` tests, counted separately as 2/2). `check:ts-max-loc` unaffected (files
+touched: 402 and 154 lines respectively, both far under ceiling).
+
+## LT-481: the Workboard's Snooze control cannot durably hide a Needs You card — deliberate design, not a wiring bug, but it contradicts this doc's own check scenario
+
+**Status: FOUND, NOT FIXED, 2026-08-24. A product-decision fork, not a snap fix.**
+
+### Observed behaviour
+
+Driving check C2 ("put instances into failed/error/degraded states... snooze hides a card until it
+raises its hand") for the first time in this doc's history (five prior evidence-run sessions all
+bucketed C2 as "NOT RUN — needs a mobile client", without separating its agent-driveable
+Workboard/session-picker half from the genuinely-blocked mobile half):
+
+1. A real Claude instance was driven to a genuine `waiting_for_permission` status (asked it to run a
+   Bash command with `yoloMode: false`) — attention level `blocked`, in the Needs You lane.
+2. The Workboard's real "Needs You" lane and the real session picker's "Needs You" group both showed
+   the same instance consistently — **that half of check C2 passes.**
+3. Clicked the real DOM `Snooze` button on the card. It disappeared (`"Needs You 0 All clear"`),
+   exactly as expected.
+4. **Within 2-5 seconds, with the instance's status unchanged the entire time, the card silently
+   reappeared** and the button reverted to reading `Snooze` (not `Un-snooze`). Confirmed at the
+   signal level, not just the DOM: `WorkboardStore.isSnoozed('instance:c28lwyh77')` read `true`
+   immediately after `snoozeItem()`, then `false` again a couple of seconds later, with `store.items()`
+   showing the same instance still at `attentionLevel: 'blocked'` throughout — no new event, no
+   escalation, nothing changed except time passing.
+
+### Root cause
+
+`WorkboardStore.snoozeItem(itemId)` (`workboard.store.ts`) stores only the item's id in a
+`ReadonlySet<string>` — no record of what the item's attention level *was* when it was snoozed. The
+"hand-raise" effect that is supposed to auto-clear a snooze "once the item's attention rises" instead
+calls `attentionLevelClearsSnooze(item.attentionLevel)` (`workboard-projection.ts:103-105`), which
+takes only the item's *current* level:
+
+```ts
+export function attentionLevelClearsSnooze(level: AttentionLevel): boolean {
+  return level !== 'working' && level !== 'waiting';
+}
+```
+
+Every item in the Needs You lane is, by construction, `blocked`/`failed`/`review` — none of which is
+`'working'` or `'waiting'` — so this function returns `true` unconditionally for anything already in
+that lane, regardless of whether its level has genuinely changed since the snooze was set. The
+function's name and its doc comment ("auto-clears the moment the item's attention **rises**") imply a
+before/after comparison the implementation has no data to make.
+
+### Why this was never caught
+
+Deliberately, not by accident: every existing test in `workboard.store.spec.ts`'s "WS-C2 snooze with
+hand-raise" describe block snoozes an item while it is `'busy'` (`working`) and asserts it correctly
+un-snoozes on a transition *into* `blocked`/`error`/`idle` — that is the mechanism working exactly as
+designed and tested (mute a non-urgent item; reveal it the instant it becomes something you'd want to
+know about). Not one test — and, per the store's own doc comment ("callers never need to un-snooze a
+genuinely urgent item themselves"), not the original design intent either — covers snoozing an item
+that is *already* urgent, which is precisely this doc's own check C2 scenario. The gap is between the
+check's literal steps and a narrower, intentional design, not a broken implementation of the intended
+design.
+
+### Not filed as a simple fix — two candidate directions, a product call
+
+**(a) Make the comparison baseline-aware.** Record the attention level at the moment of snoozing
+(`snoozedIdsSignal` would need to become a `Map<string, AttentionLevel>` rather than a
+`Set<string>`), and only auto-clear when the item's *current* level is a genuine change from that
+baseline — this would make the Snooze button behave the way check C2's steps assume, and would still
+preserve every existing test's semantics for the working→blocked transition (a baseline of `working`
+compared against a new `blocked` level is still a change, so it would still clear).
+
+**(b) Don't offer a Snooze control on Needs You cards at all.** The mechanism was only ever built and
+tested for working/waiting items; a control that visibly appears to work for a second or two and then
+silently reverts, with no error and no indication to the user, is arguably worse than not offering the
+control there in the first place.
+
+Choosing between "broaden the mechanism to support the check's scenario" and "don't expose a control
+that structurally cannot do what a user would expect it to do" is a product decision, not an agent's
+call — matching this campaign's established precedent for the same shape of gap (LT-220's Antigravity
+premise correction, doc 2's check 2/check 4 threshold and precondition questions).
+
+### Required behaviour (once decided)
+
+If (a): a card snoozed from the Needs You lane stays hidden until its attention level genuinely
+changes (escalates or resolves) from what it was at snooze time — not merely "is currently non-working".
+
+If (b): the Snooze control is not rendered (or is disabled with an explanatory tooltip) for cards in
+the Needs You lane specifically.
+
+### Acceptance (once decided)
+
+- Whichever direction is chosen, add a new `workboard.store.spec.ts` test that snoozes an item while
+  it is already `blocked`/`failed` and asserts the chosen behaviour (stays hidden vs. control absent),
+  alongside the existing working→blocked tests, which must continue to pass unmodified.
+
+## LT-441: hardened mode does not confine a resident Claude session's own `CLAUDE_CONFIG_DIR` writes
+
+**Status: FOUND, NOT FIXED, 2026-08-24. Root cause narrowed but not isolated to a syscall.**
+Section added by the orchestrating session so this item is not left as an index row with no entry —
+the full investigation and its reasoning live in the
+[implementation-status section](2026-07-19-livetest-failure-remediation_plan.md).
+
+### Observed behaviour
+
+A hardened (Seatbelt) Claude instance, started with `CLAUDE_CONFIG_DIR` pointed at a fresh directory
+under `~/Desktop` — deliberately outside every granted `WRITABLE_ROOT_n` — wrote its own config
+bootstrap there successfully: `.claude.json`, a timestamped backup, and `sessions/`. Reproduced 3 of
+3 times across independent throwaway instances. The expected denial (and the denial-crash the WS13
+checks were trying to stage) never occurred.
+
+### Root cause — what was ruled out, and what remains
+
+The jail is engaged and is not globally bypassed. Each of these was checked rather than assumed:
+
+- `app.log` recorded `Spawning CLI under Seatbelt hardened mode` with the correct 7-root default set
+  on every spawn.
+- An independent `child_process.spawn` capture recorded the literal `sandbox-exec` argv: the base
+  policy byte-diffed clean against `resources/sandbox/aio-seatbelt-base.sbpl`, the correct
+  `-D WRITABLE_ROOT_n=` params, none of them the Desktop path, and `CLAUDE_CONFIG_DIR` correctly
+  threaded through.
+- A byte-identical manual replay of that captured policy and root set, via `sandbox-exec` from an
+  unsandboxed shell against Claude's one-shot `--print` mode, **correctly denied** the same write.
+  So the policy text and the root list are both sound.
+- In the same live instance, an ordinary agent-driven tool-call write to a different ungranted path
+  was **correctly denied**.
+- No file under `src/main/` references `CLAUDE_CONFIG_DIR` in production code, so AIO's own
+  unsandboxed main process is not performing the write.
+
+What is left is specific to something the **resident/stream-json** mode reaches that one-shot mode
+does not. Which syscall, which process in the tree, and whether it is a plain `file-write*` the policy
+should be denying or an XPC-proxied preference write executed by another process on the client's
+behalf, was not isolated — that needs `fs_usage`/DTrace with sudo, or Claude Code's own source.
+
+### Required behaviour
+
+A hardened instance's CLI-internal writes must be confined by the same Seatbelt policy as its
+agent-driven tool writes. If a config-bootstrap path genuinely must be writable, it should be an
+explicit granted root, not an escape.
+
+### Severity and why it is P2 today
+
+**Not currently reachable through any AIO-exposed surface.** `InstanceCreatePayloadSchema` has no
+per-instance env-override field, so nothing in the product's IPC can set `CLAUDE_CONFIG_DIR`; this was
+reachable only through a Node Inspector monkeypatch used as instrumented fault injection. It is
+recorded now so the gap is known **before** any future feature adds a legitimate per-instance
+env-override surface — at which point it becomes reachable and the severity needs re-assessing upward.
+
+### Acceptance
+
+- With `CLAUDE_CONFIG_DIR` pointed outside every granted root, a hardened resident session either
+  fails to write there, or the path is an explicitly granted root.
+- The existing correct behaviours stay: agent-driven writes to ungranted paths remain denied, and
+  one-shot mode remains denied.
+
+### Effect on the checks that found it
+
+WS13 checks 10/11 remain open for a *different* reason than before: this lever does not produce the
+denial-crash they need, because the CLI's own config write is not confined the way the check assumed.

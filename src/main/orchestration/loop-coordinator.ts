@@ -3611,7 +3611,7 @@ export class LoopCoordinator extends EventEmitter {
     reason: string,
   ): void {
     const fullReason =
-      `Iteration ${seq} paused for review instead of an automatic replay: ${reason}`;
+      `Iteration ${seq + 1} paused for review instead of an automatic replay: ${reason}`;
     state.endEvidence = buildAttemptReviewEndEvidence(evidence, seq);
     this.clearInFlightIteration(state, seq);
     logger.warn('Pausing loop for attempt review (side-effect-aware retry)', {

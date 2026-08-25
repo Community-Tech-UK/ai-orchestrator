@@ -23,6 +23,7 @@ import {
 } from '../../shared/types/title-derivation';
 import { getLogger } from '../logging/logger';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
+import { attachCopilotRoute } from './lifecycle/copilot-route-preflight';
 import { getAuxiliaryLlmService } from '../rlm/auxiliary-llm-service';
 import type { AuxiliaryLlmDecision } from '../../shared/types/auxiliary-llm.types';
 import {
@@ -268,9 +269,11 @@ export class AutoTitleService {
 
     const model = resolveModelForTier('fast', cliType);
 
-    const adapter = getProviderRuntimeService().createAdapter({
+    // Copilot account routing: title generation runs unattended, so it uses
+    // the `internal` origin and is blocked for a manual-only profile.
+    const titleSpawnOptions = await attachCopilotRoute(
       cliType,
-      options: {
+      {
         workingDirectory: process.cwd(),
         model,
         systemPrompt: CLI_TITLE_SYSTEM_PROMPT,
@@ -281,6 +284,11 @@ export class AutoTitleService {
         yoloMode: false,
         timeout: AI_TITLE_TIMEOUT,
       },
+      'internal',
+    );
+    const adapter = getProviderRuntimeService().createAdapter({
+      cliType,
+      options: titleSpawnOptions,
     });
 
     if (!hasSendMessage(adapter)) {

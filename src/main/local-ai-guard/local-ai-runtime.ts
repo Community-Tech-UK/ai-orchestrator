@@ -121,6 +121,20 @@ export class LocalAiGuardRuntime {
     this.notifyChanged();
   }
 
+  /**
+   * Replaces a live notification with its latest durable routing event after
+   * provider cost attribution. The subsequent normal revision pulse publishes
+   * the enriched event without turning this session-only list into another
+   * source of truth.
+   */
+  refreshFallbackNotification(eventId: string): void {
+    if (this.disposed) return;
+    const index = this._fallbackNotifications.findIndex((event) => event.id === eventId);
+    if (index < 0) return;
+    const refreshed = this.health.getRoutingEvent(eventId);
+    if (refreshed) this._fallbackNotifications[index] = refreshed;
+  }
+
   subscribe(listener: () => void): () => void {
     if (this.disposed) return () => undefined;
     this.listeners.add(listener);
@@ -330,6 +344,7 @@ export function initializeLocalAiGuardRuntime(
     runtime.addDisposer(installLocalAiAuxiliaryRuntimeHooks(runtime));
     runtime.addDisposer(subscribeCostAttribution((record) => {
       applyLocalAiRoutingCostAttribution(runtime!, record);
+      if (record.correlationId) runtime!.refreshFallbackNotification(record.correlationId);
       runtime!.notifyChanged();
     }));
     runtime.addDisposer(acquireWorkerListener(workers, 'node:connected', workerStatusChanged));

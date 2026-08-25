@@ -36,6 +36,7 @@ import {
 } from './native-claude-importer';
 import { projectMemoryKeysEqual } from '../memory/project-memory-key';
 import { isSessionNotFoundText } from '../cli/adapters/resume-error-classifier';
+import { isLegacyRedactedToolOutput } from '../session/redacted-tool-output';
 
 const gzip = promisify(zlib.gzip);
 const gunzip = promisify(zlib.gunzip);
@@ -247,6 +248,16 @@ export class HistoryManager {
         // WS9: keep the per-instance browser tool surface across archive → restore (carried across re-archival like runtimeSummary).
         browserToolsMode: instance.browserToolsMode ?? previousEntries.find((e) => e.browserToolsMode)?.browserToolsMode,
         hardened: instance.hardened ?? previousEntries.find((e) => e.hardened)?.hardened,
+        // Copilot account provenance. Carried across re-archival like
+        // runtimeSummary so a restored-then-re-archived thread keeps the
+        // account it was created under — restoring it under a different
+        // GitHub identity would be a cross-account leak, not a convenience.
+        copilotAccountProfileId:
+          instance.copilotAccountProfileId
+          ?? previousEntries.find((e) => e.copilotAccountProfileId)?.copilotAccountProfileId,
+        copilotRoutingSource:
+          instance.copilotRoutingSource
+          ?? previousEntries.find((e) => e.copilotRoutingSource)?.copilotRoutingSource,
         executionLocation,
         snippets,
         // Net line-change summary for the completed session, shown as the
@@ -813,8 +824,10 @@ export class HistoryManager {
     );
 
     const parsedTranscripts: ImportedTranscript[] = [];
+    const legacyRepairSessionIds = new Set<string>();
     const nonMainSessionIds = new Set<string>();
     let imported = 0;
+    let repaired = 0;
     let skipped = 0;
     let collapsed = 0;
     let removedNonMain = 0;
@@ -828,8 +841,16 @@ export class HistoryManager {
         continue;
       }
 
+      const existingAppEntry = this.index.entries.find((entry) =>
+        entry.sessionId.trim() === stem
+        && !this.isNativeClaudeImportedEntry(entry)
+      );
+
       try {
-        const result = await parseClaudeJsonlTranscriptDetailed(filePath);
+        const result = await parseClaudeJsonlTranscriptDetailed(filePath, {
+          allowNonMainEntrypoint: Boolean(existingAppEntry),
+          preserveToolMessages: Boolean(existingAppEntry),
+        });
         const parsed = result.transcript;
         if (!parsed) {
           if (
@@ -845,6 +866,10 @@ export class HistoryManager {
         if (tombstonedSessionIds.has(parsed.sessionId)) {
           skipped++;
           continue;
+        }
+
+        if (existingAppEntry && parsed.sessionId === existingAppEntry.sessionId.trim()) {
+          legacyRepairSessionIds.add(parsed.sessionId);
         }
 
         parsedTranscripts.push(parsed);
@@ -878,6 +903,17 @@ export class HistoryManager {
         collapsed++;
         continue;
       }
+      const existingEntry = this.index.entries.find(
+        (entry) => entry.sessionId.trim() === parsed.sessionId
+      );
+      if (
+        existingEntry
+        && legacyRepairSessionIds.has(parsed.sessionId)
+        && await this.repairLegacyRedactedArchive(existingEntry, parsed)
+      ) {
+        repaired++;
+        continue;
+      }
       if (knownSessionIds.has(parsed.sessionId)) {
         skipped++;
         continue;
@@ -904,7 +940,7 @@ export class HistoryManager {
       }
     }
 
-    if (imported > 0 || removedNonMain > 0 || removedSuperseded > 0) {
+    if (imported > 0 || repaired > 0 || removedNonMain > 0 || removedSuperseded > 0) {
       this.index.entries.sort((a, b) => b.endedAt - a.endedAt);
       this.index.lastUpdated = Date.now();
       if (imported > 0) {
@@ -915,6 +951,7 @@ export class HistoryManager {
 
     logger.info('Native Claude transcript import complete', {
       imported,
+      repaired,
       skipped,
       collapsed,
       removedNonMain,
@@ -922,6 +959,58 @@ export class HistoryManager {
       failed,
       total: files.length,
     });
+  }
+
+  private async repairLegacyRedactedArchive(
+    entry: ConversationHistoryEntry,
+    parsed: ImportedTranscript,
+  ): Promise<boolean> {
+    const conversation = await this.loadConversation(entry.id);
+    if (
+      !conversation
+      || !conversation.messages.some((message) => isLegacyRedactedToolOutput(message.content))
+    ) {
+      return false;
+    }
+
+    const repairedMessages = parsed.messages.filter(
+      (message) => !isLegacyRedactedToolOutput(message.content)
+    );
+    if (!repairedMessages.some((message) => message.type === 'user')) {
+      return false;
+    }
+
+    const conversationPath = this.getConversationPath(entry.id);
+    const backupPath = `${conversationPath}.legacy-redacted-backup`;
+    if (!fs.existsSync(backupPath)) {
+      await fs.promises.copyFile(conversationPath, backupPath);
+    }
+
+    const repairedEntry: ConversationHistoryEntry = {
+      ...entry,
+      createdAt: Math.min(entry.createdAt, parsed.createdAt),
+      endedAt: Math.max(entry.endedAt, parsed.endedAt),
+      workingDirectory: parsed.workingDirectory || entry.workingDirectory,
+      messageCount: repairedMessages.length,
+      firstUserMessage: this.truncatePreview(parsed.firstUserMessage),
+      lastUserMessage: this.truncatePreview(parsed.lastUserMessage),
+      snippets: getTranscriptSnippetService().extractAtArchiveTime({ messages: repairedMessages }),
+    };
+
+    await this.saveConversation(entry.id, {
+      entry: repairedEntry,
+      messages: repairedMessages,
+    });
+    Object.assign(entry, repairedEntry);
+
+    logger.info('Repaired legacy redacted Claude history from native transcript', {
+      entryId: entry.id,
+      sessionId: parsed.sessionId,
+      previousMessageCount: conversation.messages.length,
+      repairedMessageCount: repairedMessages.length,
+      backupPath,
+    });
+    return true;
   }
 
   private findSupersededNativeTranscriptSessionIds(

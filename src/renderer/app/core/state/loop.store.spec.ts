@@ -202,6 +202,37 @@ describe('LoopStore', () => {
     expect(store.activityForLoop('loop-1')()).toEqual(store.activityForChat('chat-1')());
   });
 
+  it('coalesces only consecutive heartbeat activity for the same iteration scope', () => {
+    store.ensureWired();
+    listeners.stateChanged.forEach((cb) => cb({ loopRunId: 'loop-1', state: activeState() }));
+
+    const emit = (activity: LoopActivityPayload) => {
+      listeners.activity.forEach((cb) => cb(activity));
+    };
+    emit({
+      loopRunId: 'loop-1', seq: 1, stage: 'IMPLEMENT', kind: 'heartbeat',
+      message: 'CLI heartbeat received', timestamp: 100,
+    });
+    emit({
+      loopRunId: 'loop-1', seq: 1, stage: 'IMPLEMENT', kind: 'heartbeat',
+      message: 'CLI heartbeat received', timestamp: 200,
+    });
+    emit({
+      loopRunId: 'loop-1', seq: 1, stage: 'IMPLEMENT', kind: 'tool_use',
+      message: 'Using tool: Bash', timestamp: 300,
+    });
+    emit({
+      loopRunId: 'loop-1', seq: 1, stage: 'IMPLEMENT', kind: 'heartbeat',
+      message: 'CLI heartbeat received', timestamp: 400,
+    });
+
+    expect(store.activityForLoop('loop-1')()).toEqual([
+      expect.objectContaining({ kind: 'heartbeat', timestamp: 200 }),
+      expect.objectContaining({ kind: 'tool_use', timestamp: 300 }),
+      expect.objectContaining({ kind: 'heartbeat', timestamp: 400 }),
+    ]);
+  });
+
   it('surfaces fresh-eyes review lifecycle events as loop activity', () => {
     store.ensureWired();
     listeners.stateChanged.forEach((cb) => cb({

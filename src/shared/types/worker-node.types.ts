@@ -138,6 +138,15 @@ export interface WorkerNodeCapabilities {
   gpuName?: string;
   gpuMemoryMB?: number;
   supportedClis: CanonicalCliType[];
+  /**
+   * GitHub Copilot account profiles this node is signed in to.
+   *
+   * Reported by the node because a Copilot binding is NODE-LOCAL: the
+   * controller cannot read another machine's Copilot state. Used only to
+   * PREFER a node that already has the resolved account; it never changes
+   * which account a workspace resolves to.
+   */
+  copilotAccountProfileIds?: string[];
   hasBrowserRuntime: boolean;
   hasBrowserMcp: boolean;
   /** Present when the node reports browser-automation config (newer workers). */
@@ -276,6 +285,14 @@ export interface NodePlacementPrefs {
   preferNodeId?: string;
   requiresCli?: CanonicalCliType;
   requiresWorkingDirectory?: string;
+  /**
+   * Prefer a node already signed in to this GitHub Copilot account.
+   *
+   * A PREFERENCE only. Placement must never change the resolved account to
+   * satisfy a node — if the chosen node lacks the binding, the session parks
+   * and explains the required sign-in (spec §13).
+   */
+  prefersCopilotAccountProfileId?: string;
 }
 
 export interface NodeIdentity {

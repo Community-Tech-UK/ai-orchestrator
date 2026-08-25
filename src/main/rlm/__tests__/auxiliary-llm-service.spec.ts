@@ -1610,3 +1610,115 @@ describe('computeNumCtx', () => {
     expect(result).toBeGreaterThanOrEqual(200_000 + 4_096);
   });
 });
+
+// LT-370: the quality tier auto-picks the largest advertised model with no
+// regard for whether the host can load it. On the live node that meant
+// gpt-oss:120b on a 32 GB GPU — a 500 after ~9s, every single call.
+describe('AuxiliaryLlmService — auto-picked model that fails is not picked again', () => {
+  // Largest first so the assertions cannot pass by list order alone.
+  const MODELS = ['gpt-oss:120b', 'deepseek-r1:32b', 'deepseek-r1:7b'];
+
+  function ollamaModels() {
+    return MODELS.map((id) => ({ id, name: id, provider: 'ollama' as const, endpointId: 'aaa' }));
+  }
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    const { AuxiliaryLlmService } = await import('../auxiliary-llm-service');
+    AuxiliaryLlmService._resetForTesting();
+  });
+
+  it('steps down to the next candidate after the auto-pick fails', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOllama.mockResolvedValue(true);
+    mocks.listOllama.mockResolvedValue(ollamaModels());
+    mocks.generateOllama.mockReset().mockImplementation((_baseUrl, request) =>
+      (request as { model: string }).model === 'gpt-oss:120b'
+        ? Promise.reject(new Error('Ollama generate failed: 500'))
+        : Promise.resolve('distilled text'));
+    // No tier pins, so `compression` (quality) resolves purely by auto-pick.
+    service.configure(baseSettings());
+
+    const first = await service.generate('compression', 'sys', 'user');
+    expect(first.decision.source).not.toBe('local');
+    expect(mocks.generateOllama.mock.calls.every(
+      ([, req]) => (req as { model: string }).model === 'gpt-oss:120b')).toBe(true);
+
+    const second = await service.generate('compression', 'sys', 'user');
+
+    expect(second.text).toBe('distilled text');
+    expect(second.decision.model).toBe('deepseek-r1:32b');
+  });
+
+  it('keeps surfacing the error for an explicitly pinned tier model', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOllama.mockResolvedValue(true);
+    mocks.listOllama.mockResolvedValue(ollamaModels());
+    mocks.generateOllama.mockReset().mockImplementation((_baseUrl, request) =>
+      (request as { model: string }).model === 'gpt-oss:120b'
+        ? Promise.reject(new Error('Ollama generate failed: 500'))
+        : Promise.resolve('distilled text'));
+    service.configure(baseSettings({ auxiliaryLlmQualityModel: 'gpt-oss:120b' }));
+
+    await service.generate('compression', 'sys', 'user');
+    mocks.generateOllama.mockClear();
+    const second = await service.generate('compression', 'sys', 'user');
+
+    // A pin is the operator's explicit choice: it must not be silently swapped.
+    expect(second.decision.source).not.toBe('local');
+    expect(mocks.generateOllama.mock.calls.every(
+      ([, req]) => (req as { model: string }).model === 'gpt-oss:120b')).toBe(true);
+  });
+
+  // The `if (autoPicked)` guard on the record call is only observable across two
+  // slots: a pinned slot fails first, then an UNPINNED slot on the same endpoint
+  // must still make its own auto-pick as if nothing had been remembered. Without
+  // this, dropping that guard is a silent no-op that no test notices.
+  it('does not let a pinned slot\'s failure poison another slot\'s auto-pick', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOllama.mockResolvedValue(true);
+    mocks.listOllama.mockResolvedValue(ollamaModels());
+    mocks.generateOllama.mockReset().mockImplementation((_baseUrl, request) =>
+      (request as { model: string }).model === 'gpt-oss:120b'
+        ? Promise.reject(new Error('Ollama generate failed: 500'))
+        : Promise.resolve('distilled text'));
+    // webExtract pins the model outright; compression has no pin and is quality
+    // tier, so it auto-picks the largest — the same id webExtract pinned.
+    const slots = JSON.parse(baseSettings().auxiliaryLlmSlotsJson) as Record<string, unknown>;
+    slots['webExtract'] = { ...(slots['webExtract'] as object), model: 'gpt-oss:120b' };
+    service.configure(baseSettings({ auxiliaryLlmSlotsJson: JSON.stringify(slots) }));
+
+    await service.generate('webExtract', 'sys', 'user');
+    mocks.generateOllama.mockClear();
+    const second = await service.generate('compression', 'sys', 'user');
+
+    // compression must still try gpt-oss:120b itself and fall back on its own
+    // evidence, not inherit webExtract's pinned failure.
+    expect(mocks.generateOllama.mock.calls.some(
+      ([, req]) => (req as { model: string }).model === 'gpt-oss:120b')).toBe(true);
+    expect(second.decision.source).not.toBe('local');
+  });
+
+  it('re-tries a previously failing model after configure clears the memo', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOllama.mockResolvedValue(true);
+    mocks.listOllama.mockResolvedValue(ollamaModels());
+    mocks.generateOllama.mockReset().mockImplementation((_baseUrl, request) =>
+      (request as { model: string }).model === 'gpt-oss:120b'
+        ? Promise.reject(new Error('Ollama generate failed: 500'))
+        : Promise.resolve('distilled text'));
+    service.configure(baseSettings());
+
+    await service.generate('compression', 'sys', 'user');
+    service.configure(baseSettings());
+    mocks.generateOllama.mockClear();
+    await service.generate('compression', 'sys', 'user');
+
+    expect(mocks.generateOllama.mock.calls.some(
+      ([, req]) => (req as { model: string }).model === 'gpt-oss:120b')).toBe(true);
+  });
+});

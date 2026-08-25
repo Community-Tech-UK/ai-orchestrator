@@ -39,6 +39,7 @@ interface WelcomeLaunchConfig {
   yoloMode?: boolean;
   /** WS13 — run the CLI inside the macOS Seatbelt jail. */
   hardened?: boolean;
+  copilotAccountProfileId?: string;
   launchMode?: InstanceLaunchMode;
   forceNodeId?: string;
 }
@@ -364,6 +365,7 @@ export class WelcomeCoordinatorService {
       : this.newSessionDraft.reasoningEffort();
     const yoloMode = this.newSessionDraft.yoloMode();
     const hardened = this.newSessionDraft.hardened();
+    const copilotAccountProfileId = this.newSessionDraft.copilotAccountProfileId();
     const pendingFolders = content?.pendingFolders ?? this.pendingFolders();
     const finalMessage = this.fileAttachment.prependPendingFolders(
       message,
@@ -410,6 +412,7 @@ export class WelcomeCoordinatorService {
         ...(modelRuntimeTarget ? { modelRuntimeTarget } : {}),
         ...(typeof yoloMode === 'boolean' ? { yoloMode } : {}),
         ...(hardened ? { hardened: true } : {}),
+        ...(copilotAccountProfileId ? { copilotAccountProfileId } : {}),
         launchMode,
         forceNodeId,
       },

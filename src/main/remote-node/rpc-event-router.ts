@@ -2,7 +2,7 @@ import { getLogger } from '../logging/logger';
 import { NODE_TO_COORDINATOR, createRpcResponse, createRpcError, RPC_ERROR_CODES } from './worker-node-rpc';
 import { getWorkerNodeHealth } from './worker-node-health';
 import { BROWSER_CDP_MAX_FRAME_BYTES, validateRpcParams, RPC_PARAM_SCHEMAS } from './rpc-schemas';
-import type { WorkerNodeConnectionServer } from './worker-node-connection';
+import type { RpcRequestResponder, WorkerNodeConnectionServer } from './worker-node-connection';
 import type { WorkerNodeRegistry } from './worker-node-registry';
 import type { RpcRequest, RpcNotification } from './worker-node-rpc';
 import type { WorkerNodeCapabilities } from '../../shared/types/worker-node.types';
@@ -25,7 +25,11 @@ export class RpcEventRouter {
   // Bound handler references so stop() can cleanly remove them
   private readonly onWsConnected: (nodeId: string) => void;
   private readonly onWsDisconnected: (nodeId: string) => void;
-  private readonly onRpcRequest: (nodeId: string, request: RpcRequest) => void;
+  private readonly onRpcRequest: (
+    nodeId: string,
+    request: RpcRequest,
+    respond?: RpcRequestResponder,
+  ) => void;
   private readonly onRpcNotification: (nodeId: string, notification: RpcNotification) => void;
 
   /** Methods handled as trusted notifications — skip per-message auth validation. */
@@ -77,8 +81,12 @@ export class RpcEventRouter {
     });
     this.onWsConnected = this.handleWsConnected.bind(this);
     this.onWsDisconnected = this.handleWsDisconnected.bind(this);
-    this.onRpcRequest = (nodeId, request) => {
-      void this.handleRpcRequest(nodeId, request);
+    this.onRpcRequest = (nodeId, request, respond) => {
+      void this.handleRpcRequest(
+        nodeId,
+        request,
+        respond ?? ((response) => this.connection.sendResponse(nodeId, response)),
+      );
     };
     this.onRpcNotification = this.handleRpcNotification.bind(this);
   }
@@ -138,7 +146,11 @@ export class RpcEventRouter {
   // RPC request dispatcher
   // ---------------------------------------------------------------------------
 
-  private async handleRpcRequest(nodeId: string, request: RpcRequest): Promise<void> {
+  private async handleRpcRequest(
+    nodeId: string,
+    request: RpcRequest,
+    respond: RpcRequestResponder,
+  ): Promise<void> {
     // node.register is authenticated during the initial WebSocket handshake.
     const params = request.params as Record<string, unknown> | undefined;
     const token = typeof params?.['token'] === 'string' ? params['token'] : undefined;
@@ -146,8 +158,7 @@ export class RpcEventRouter {
       request.method !== NODE_TO_COORDINATOR.REGISTER
       && !getRemoteAuthService().validateSessionToken(token, nodeId)
     ) {
-      this.connection.sendResponse(
-        nodeId,
+      respond(
         createRpcError(request.id, RPC_ERROR_CODES.UNAUTHORIZED, 'Invalid auth token'),
       );
       return;
@@ -160,8 +171,7 @@ export class RpcEventRouter {
         validateRpcParams(schema, request.params);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Validation failed';
-        this.connection.sendResponse(
-          nodeId,
+        respond(
           createRpcError(request.id, RPC_ERROR_CODES.INVALID_PARAMS, message),
         );
         return;
@@ -174,33 +184,32 @@ export class RpcEventRouter {
           this.handleNodeRegister(nodeId, request);
           break;
         case NODE_TO_COORDINATOR.HEARTBEAT:
-          this.handleNodeHeartbeat(nodeId, request);
+          this.handleNodeHeartbeat(nodeId, request, respond);
           break;
         case NODE_TO_COORDINATOR.INSTANCE_STATE_CHANGE:
-          this.handleInstanceStateChange(nodeId, request);
+          this.handleInstanceStateChange(nodeId, request, respond);
           break;
         case NODE_TO_COORDINATOR.INSTANCE_PERMISSION_REQUEST:
-          this.handleInstancePermissionRequest(nodeId, request);
+          this.handleInstancePermissionRequest(nodeId, request, respond);
           break;
         case NODE_TO_COORDINATOR.BROWSER_EXT_ATTACH_TAB:
-          await this.handleBrowserExtAttachTab(nodeId, request);
+          await this.handleBrowserExtAttachTab(nodeId, request, respond);
           break;
         case NODE_TO_COORDINATOR.BROWSER_EXT_POLL_COMMAND:
-          await this.handleBrowserExtPollCommand(nodeId, request);
+          await this.handleBrowserExtPollCommand(nodeId, request, respond);
           break;
         case NODE_TO_COORDINATOR.BROWSER_EXT_COMMAND_RESULT:
-          this.handleBrowserExtCommandResult(nodeId, request);
+          this.handleBrowserExtCommandResult(nodeId, request, respond);
           break;
         case NODE_TO_COORDINATOR.BROWSER_EXT_COMMAND_RECEIVED:
-          this.handleBrowserExtCommandReceived(nodeId, request);
+          this.handleBrowserExtCommandReceived(nodeId, request, respond);
           break;
         case NODE_TO_COORDINATOR.BROWSER_EXT_DISCONNECTED:
-          this.handleBrowserExtDisconnected(nodeId, request);
+          this.handleBrowserExtDisconnected(nodeId, request, respond);
           break;
         default:
           logger.warn('Unknown RPC method received', { nodeId, method: request.method });
-          this.connection.sendResponse(
-            nodeId,
+          respond(
             createRpcError(
               request.id,
               RPC_ERROR_CODES.METHOD_NOT_FOUND,
@@ -214,8 +223,7 @@ export class RpcEventRouter {
         nodeId,
         method: request.method,
       });
-      this.connection.sendResponse(
-        nodeId,
+      respond(
         createRpcError(request.id, RPC_ERROR_CODES.INTERNAL_ERROR, message),
       );
     }
@@ -355,11 +363,10 @@ export class RpcEventRouter {
     });
   }
 
-  private handleNodeHeartbeat(nodeId: string, request: RpcRequest): void {
+  private handleNodeHeartbeat(nodeId: string, request: RpcRequest, respond: RpcRequestResponder): void {
     const node = this.registry.getNode(nodeId);
     if (!node) {
-      this.connection.sendResponse(
-        nodeId,
+      respond(
         createRpcError(request.id, RPC_ERROR_CODES.NODE_NOT_FOUND, `Unknown node: ${nodeId}`),
       );
       // Same stale-socket zombie as the notification path: close so the
@@ -377,7 +384,7 @@ export class RpcEventRouter {
         ? params['activeInstances']
         : node.activeInstances,
     });
-    this.connection.sendResponse(nodeId, createRpcResponse(request.id, { ok: true }));
+    respond(createRpcResponse(request.id, { ok: true }));
   }
 
   private handleInstanceOutputNotification(nodeId: string, notification: RpcNotification): void {
@@ -554,10 +561,9 @@ export class RpcEventRouter {
     this.registry.emit('remote:browser-cdp-closed', { nodeId, sessionId });
   }
 
-  private handleInstanceStateChange(nodeId: string, request: RpcRequest): void {
+  private handleInstanceStateChange(nodeId: string, request: RpcRequest, respond: RpcRequestResponder): void {
     if (!this.registry.getNode(nodeId)) {
-      this.connection.sendResponse(
-        nodeId,
+      respond(
         createRpcError(request.id, RPC_ERROR_CODES.NODE_NOT_FOUND, `Unknown node: ${nodeId}`),
       );
       return;
@@ -567,7 +573,7 @@ export class RpcEventRouter {
 
     // Discard stale state changes that arrive out-of-order after reconnection
     if (!this.acceptSeq(nodeId, params)) {
-      this.connection.sendResponse(nodeId, createRpcResponse(request.id, { ok: true, stale: true }));
+      respond(createRpcResponse(request.id, { ok: true, stale: true }));
       return;
     }
 
@@ -577,13 +583,12 @@ export class RpcEventRouter {
       state: params?.['state'],
       info: params?.['info'],
     });
-    this.connection.sendResponse(nodeId, createRpcResponse(request.id, { ok: true }));
+    respond(createRpcResponse(request.id, { ok: true }));
   }
 
-  private handleInstancePermissionRequest(nodeId: string, request: RpcRequest): void {
+  private handleInstancePermissionRequest(nodeId: string, request: RpcRequest, respond: RpcRequestResponder): void {
     if (!this.registry.getNode(nodeId)) {
-      this.connection.sendResponse(
-        nodeId,
+      respond(
         createRpcError(request.id, RPC_ERROR_CODES.NODE_NOT_FOUND, `Unknown node: ${nodeId}`),
       );
       return;
@@ -593,7 +598,7 @@ export class RpcEventRouter {
 
     // Discard stale permission requests that arrive out-of-order after reconnection
     if (!this.acceptSeq(nodeId, params)) {
-      this.connection.sendResponse(nodeId, createRpcResponse(request.id, { ok: true, stale: true }));
+      respond(createRpcResponse(request.id, { ok: true, stale: true }));
       return;
     }
 
@@ -602,47 +607,55 @@ export class RpcEventRouter {
       instanceId: params?.['instanceId'],
       permission: params?.['permission'],
     });
-    this.connection.sendResponse(nodeId, createRpcResponse(request.id, { ok: true }));
+    respond(createRpcResponse(request.id, { ok: true }));
   }
 
-  private async handleBrowserExtAttachTab(nodeId: string, request: RpcRequest): Promise<void> {
+  private async handleBrowserExtAttachTab(nodeId: string, request: RpcRequest, respond: RpcRequestResponder): Promise<void> {
     const result = await this.getBrowserExtensionBridge().attachTab(
       nodeId,
       request.params as never,
     );
-    this.connection.sendResponse(nodeId, createRpcResponse(request.id, result));
+    respond(createRpcResponse(request.id, result));
   }
 
-  private async handleBrowserExtPollCommand(nodeId: string, request: RpcRequest): Promise<void> {
-    const result = await this.getBrowserExtensionBridge().pollCommand(
+  private async handleBrowserExtPollCommand(nodeId: string, request: RpcRequest, respond: RpcRequestResponder): Promise<void> {
+    const bridge = this.getBrowserExtensionBridge();
+    const result = await bridge.pollCommand(
       nodeId,
       request.params as never,
     );
-    this.connection.sendResponse(nodeId, createRpcResponse(request.id, result));
+    const sent = respond(createRpcResponse(request.id, result));
+    if (result) {
+      if (sent) {
+        bridge.confirmCommandHandoff(nodeId, result.id);
+      } else {
+        bridge.requeueUndeliveredCommand(nodeId, result.id);
+      }
+    }
   }
 
-  private handleBrowserExtCommandResult(nodeId: string, request: RpcRequest): void {
+  private handleBrowserExtCommandResult(nodeId: string, request: RpcRequest, respond: RpcRequestResponder): void {
     const result = this.getBrowserExtensionBridge().commandResult(
       nodeId,
       request.params as never,
     );
-    this.connection.sendResponse(nodeId, createRpcResponse(request.id, result));
+    respond(createRpcResponse(request.id, result));
   }
 
-  private handleBrowserExtCommandReceived(nodeId: string, request: RpcRequest): void {
+  private handleBrowserExtCommandReceived(nodeId: string, request: RpcRequest, respond: RpcRequestResponder): void {
     const result = this.getBrowserExtensionBridge().commandReceived(
       nodeId,
       request.params as never,
     );
-    this.connection.sendResponse(nodeId, createRpcResponse(request.id, result));
+    respond(createRpcResponse(request.id, result));
   }
 
-  private handleBrowserExtDisconnected(nodeId: string, request: RpcRequest): void {
+  private handleBrowserExtDisconnected(nodeId: string, request: RpcRequest, respond: RpcRequestResponder): void {
     const result = this.getBrowserExtensionBridge().extensionDisconnected(
       nodeId,
       request.params as never,
     );
-    this.connection.sendResponse(nodeId, createRpcResponse(request.id, result));
+    respond(createRpcResponse(request.id, result));
   }
 
   private getBrowserExtensionBridge(): RemoteBrowserExtensionBridge {

@@ -98,7 +98,7 @@ describe('Local AI Guard disappearing-card focus integration', () => {
 
     expect(fixture.nativeElement.querySelector('[data-target-id="target-1"]')).toBeNull();
     await vi.waitFor(() => {
-      expect(document.activeElement?.textContent?.trim()).toBe('Enrol target');
+      expect(document.activeElement?.textContent?.trim()).toBe('Local capacity, proven end to end');
     });
   });
 

@@ -191,7 +191,7 @@ export function registerProviderHandlers(
         const validated = validateIpcPayload(ProviderRunLoginPayloadSchema, payload, 'PROVIDER_RUN_LOGIN');
         return {
           success: true,
-          data: await launchProviderLogin(validated.provider),
+          data: await launchProviderLogin(validated.provider, validated.copilotProfile),
         };
       } catch (error) {
         return {

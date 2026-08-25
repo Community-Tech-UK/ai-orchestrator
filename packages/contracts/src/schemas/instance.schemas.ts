@@ -8,6 +8,7 @@ import {
   ModelIdSchema,
   RequiredModelIdSchema,
 } from './common.schemas';
+import { CopilotProfileIdSchema } from './copilot-account.schemas';
 
 const ReasoningEffortSchema = z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'workflow']);
 export const InstanceLaunchModeSchema = z.enum(['orchestrated', 'interactive']);
@@ -186,6 +187,13 @@ export const InstanceCreatePayloadSchema = z.object({
   nodePlacement: NodePlacementPrefsSchema.optional(),
   browserToolsMode: z.enum(['eager', 'deferred', 'off']).optional(),
   hardened: z.boolean().optional(),
+  /**
+   * Explicit GitHub Copilot account for this session. A validated safe slug,
+   * never a path — main derives that profile's Copilot home itself.
+   */
+  copilotAccountProfileId: CopilotProfileIdSchema.optional(),
+  /** The user confirmed an override that leaves a protected Copilot scope. */
+  copilotConfirmProtectedOverride: z.boolean().optional(),
 });
 
 export type ValidatedInstanceCreatePayload = z.infer<typeof InstanceCreatePayloadSchema>;
@@ -208,6 +216,13 @@ export const InstanceCreateWithMessagePayloadSchema = z.object({
   nodePlacement: NodePlacementPrefsSchema.optional(),
   browserToolsMode: z.enum(['eager', 'deferred', 'off']).optional(),
   hardened: z.boolean().optional(),
+  /**
+   * Explicit GitHub Copilot account for this session. A validated safe slug,
+   * never a path — main derives that profile's Copilot home itself.
+   */
+  copilotAccountProfileId: CopilotProfileIdSchema.optional(),
+  /** The user confirmed an override that leaves a protected Copilot scope. */
+  copilotConfirmProtectedOverride: z.boolean().optional(),
   /**
    * Stable per-submission key. A retry carrying the same key must return the
    * original instance rather than spawning a second session — see

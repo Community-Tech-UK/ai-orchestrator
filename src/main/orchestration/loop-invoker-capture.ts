@@ -87,7 +87,11 @@ export function createLoopInvocationCapture(options: {
       const input = readToolInput(detail);
       const id = readString(detail, 'id') ?? `anonymous-${anonymousSeq++}`;
       const startedAt = now();
-      const argsHash = hashStable(`${toolName}:${stableStringify(input ?? scrubToolDetail(detail))}`);
+      const hashMaterial = input ?? {
+        message: activity.message,
+        detail: scrubToolDetail(detail),
+      };
+      const argsHash = hashStable(`${toolName}:${stableStringify(hashMaterial)}`);
       const index = toolCalls.length;
       // E2 (#12) capture half: persist the agent-declared timeout on the
       // sealed record so post-hoc consumers (watchdog tuning, progress

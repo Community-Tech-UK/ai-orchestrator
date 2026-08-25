@@ -48,6 +48,18 @@ export interface CopilotUsageEndpointProbeOptions {
   readFile?: CopilotAppsReader;
   fetchUsage?: CopilotUsageFetch;
   timeoutMs?: number;
+  /**
+   * Return a reason string when this probe's usage numbers CANNOT be attributed
+   * to the account AIO routed to; `null` when they can.
+   *
+   * The token this probe reads comes from the EDITOR Copilot credential store
+   * (`~/.config/github-copilot/apps.json`), which has no relationship to an AIO
+   * account profile home — so with account profiles configured, the numbers
+   * would be some other account's. Per spec decision D15, unavailable beats
+   * misattribution, and AIO must not read or export a profile's token to fix
+   * it.
+   */
+  attributionCheck?: () => string | null;
 }
 
 interface CopilotAppsJson {
@@ -74,6 +86,7 @@ export class CopilotUsageEndpointProbe implements ProviderQuotaProbe {
   private readonly readFile: CopilotAppsReader;
   private readonly fetchUsage: CopilotUsageFetch;
   private readonly timeoutMs: number;
+  private readonly attributionCheck?: () => string | null;
 
   constructor(opts: CopilotUsageEndpointProbeOptions = {}) {
     this.appsPaths = opts.appsPaths ?? (
@@ -82,10 +95,15 @@ export class CopilotUsageEndpointProbe implements ProviderQuotaProbe {
     this.readFile = opts.readFile ?? ((p) => fsReadFile(p, 'utf8'));
     this.fetchUsage = opts.fetchUsage ?? defaultFetchUsage;
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.attributionCheck = opts.attributionCheck;
   }
 
   async probe({ signal }: { signal: AbortSignal }): Promise<ProviderQuotaSnapshot | null> {
     const takenAt = Date.now();
+    const unattributable = this.attributionCheck?.();
+    if (unattributable) {
+      return failedSnapshot(takenAt, unattributable);
+    }
     const token = await this.readToken();
     if (!token) {
       return failedSnapshot(takenAt, 'Copilot CLI is not signed in (no usable github-copilot apps.json token)');

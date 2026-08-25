@@ -788,6 +788,10 @@ export class InterruptRespawnHandler {
           provider: instance.provider,
           model: instance.currentModel,
           cwd: instance.workingDirectory,
+          // Cross-account resume guard: a native Copilot session belongs to one
+          // GitHub identity. Empty for every other provider, which keeps the
+          // hash byte-identical to pre-existing cursors.
+          copilotProfileId: instance.copilotAccountProfileId,
         }),
       });
       const canAttemptNativeResume =
@@ -1124,6 +1128,10 @@ export class InterruptRespawnHandler {
           provider: instance.provider,
           model: instance.currentModel,
           cwd: instance.workingDirectory,
+          // Cross-account resume guard: a native Copilot session belongs to one
+          // GitHub identity. Empty for every other provider, which keeps the
+          // hash byte-identical to pre-existing cursors.
+          copilotProfileId: instance.copilotAccountProfileId,
         }),
       });
       const shouldResume =

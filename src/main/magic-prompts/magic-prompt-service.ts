@@ -18,6 +18,7 @@ import { isProviderNotice } from '../cli/provider-notice';
 import { resolveModelForTier } from '../../shared/types/provider.types';
 import { getLogger } from '../logging/logger';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
+import { attachCopilotRoute } from '../instance/lifecycle/copilot-route-preflight';
 import {
   filterProvidersForAutomation,
   isProviderExcludedFromAutomation,
@@ -134,13 +135,22 @@ export class MagicPromptService {
     }
 
     const model = resolveModelForTier('fast', cliType);
-    const adapter = this.deps.createAdapter(cliType, {
-      workingDirectory: input.workingDirectory ?? process.cwd(),
-      model,
-      systemPrompt: def.systemPrompt,
-      yoloMode: false,
-      timeout: MAGIC_PROMPT_TIMEOUT,
-    });
+    // Copilot account routing: magic prompts pick a provider on the user's
+    // behalf, so they carry the `internal` automatic origin.
+    const adapter = this.deps.createAdapter(
+      cliType,
+      await attachCopilotRoute(
+        cliType,
+        {
+          workingDirectory: input.workingDirectory ?? process.cwd(),
+          model,
+          systemPrompt: def.systemPrompt,
+          yoloMode: false,
+          timeout: MAGIC_PROMPT_TIMEOUT,
+        },
+        'internal',
+      ),
+    );
 
     if (!hasSendMessage(adapter)) {
       return { ok: false, id: def.id, error: `Provider ${cliType} does not support one-shot prompts` };

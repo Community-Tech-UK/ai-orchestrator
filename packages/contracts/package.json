@@ -19,6 +19,7 @@
     "./schemas/settings":         { "types": "./src/schemas/settings.schemas.ts",      "default": "./src/schemas/settings.schemas.ts" },
     "./schemas/file-operations":  { "types": "./src/schemas/file-operations.schemas.ts", "default": "./src/schemas/file-operations.schemas.ts" },
     "./schemas/security":         { "types": "./src/schemas/security.schemas.ts",      "default": "./src/schemas/security.schemas.ts" },
+    "./schemas/copilot-account": { "types": "./src/schemas/copilot-account.schemas.ts", "default": "./src/schemas/copilot-account.schemas.ts" },
     "./schemas/observability":    { "types": "./src/schemas/observability.schemas.ts", "default": "./src/schemas/observability.schemas.ts" },
     "./schemas/workspace-tools":  { "types": "./src/schemas/workspace-tools.schemas.ts", "default": "./src/schemas/workspace-tools.schemas.ts" },
     "./schemas/knowledge":        { "types": "./src/schemas/knowledge.schemas.ts",     "default": "./src/schemas/knowledge.schemas.ts" },

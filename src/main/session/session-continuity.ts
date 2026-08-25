@@ -32,6 +32,7 @@ import { SessionAutoSaveCoordinator } from './autosave-coordinator';
 import { getSessionPersistenceQueue } from './session-persistence-queue';
 import { computeResumeConfigFingerprint } from '../instance/lifecycle/session-recovery';
 import type { ProviderRuntimeSnapshot } from '../cli/adapters/base-cli-adapter';
+import { isLegacyRedactedToolOutput } from './redacted-tool-output';
 import type {
   ContinuityConfig,
   ConversationEntry,
@@ -121,7 +122,7 @@ const DEFAULT_CONFIG: ContinuityConfig = {
   maxLoadedStateFiles: 250,
   encryptOnDisk: false,
   persistSessionContent: true,
-  redactToolOutputs: true
+  redactToolOutputs: false
 };
 
 /**
@@ -329,14 +330,17 @@ export class SessionContinuityManager extends EventEmitter {
       ?? this.getLastConversationTimestamp(state);
   }
 
-  private normalizeConversationEntryForPersistence(entry: ConversationEntry): ConversationEntry {
-    return {
-      ...entry,
-      content:
-        this.config.redactToolOutputs && entry.role === 'tool'
-          ? '[REDACTED TOOL OUTPUT]'
-          : entry.content,
-    };
+  private normalizeConversationEntryForPersistence(
+    entry: ConversationEntry,
+  ): ConversationEntry | null {
+    if (
+      isLegacyRedactedToolOutput(entry.content)
+      || (this.config.redactToolOutputs && entry.role === 'tool')
+    ) {
+      return null;
+    }
+
+    return { ...entry };
   }
 
   private normalizeConversationHistory(entries: ConversationEntry[]): ConversationEntry[] {
@@ -345,6 +349,9 @@ export class SessionContinuityManager extends EventEmitter {
 
     for (const rawEntry of entries) {
       const entry = this.normalizeConversationEntryForPersistence(rawEntry);
+      if (!entry) {
+        continue;
+      }
       if (!entry.id) {
         normalized.push(entry);
         continue;
@@ -847,6 +854,7 @@ export class SessionContinuityManager extends EventEmitter {
     // appended — re-normalizing the whole array (an object spread per entry
     // plus a rebuilt Map) would be pure waste on a hot path.
     const normalizedEntry = this.normalizeConversationEntryForPersistence(entry);
+    if (!normalizedEntry) return;
     const history = state.conversationHistory;
     const duplicateIndex = normalizedEntry.id
       ? findLastIndexById(history, normalizedEntry.id)
@@ -1226,7 +1234,6 @@ export class SessionContinuityManager extends EventEmitter {
    */
   private instanceToState(instance: Instance): SessionState {
     const persistContent = this.config.persistSessionContent;
-    const redactToolOutputs = this.config.redactToolOutputs;
 
     const state: SessionState = {
       instanceId: instance.id,
@@ -1243,7 +1250,7 @@ export class SessionContinuityManager extends EventEmitter {
       temperature: undefined,
       maxTokens: undefined,
       conversationHistory: persistContent
-        ? instance.outputBuffer.map((msg, idx) => ({
+        ? this.normalizeConversationHistory(instance.outputBuffer.map((msg, idx) => ({
             id: `msg-${idx}`,
             role:
               msg.type === 'user'
@@ -1253,13 +1260,10 @@ export class SessionContinuityManager extends EventEmitter {
                   : msg.type === 'tool_use' || msg.type === 'tool_result'
                     ? ('tool' as const)
                     : ('system' as const),
-            content:
-              redactToolOutputs && msg.type === 'tool_result'
-                ? '[REDACTED TOOL OUTPUT]'
-                : msg.content,
+            content: msg.content,
             timestamp: msg.timestamp,
             tokens: undefined
-          }))
+          })))
         : [],
       contextUsage: {
         used: instance.contextUsage.used,
@@ -1277,7 +1281,15 @@ export class SessionContinuityManager extends EventEmitter {
       gitBranch: undefined,
       customInstructions: undefined,
       skillsLoaded: [],
-      hooksActive: []
+      hooksActive: [],
+      // Copied EXPLICITLY, like every other field here. This function is the
+      // reason the profile is a first-class field rather than a `metadata`
+      // entry: `instance.metadata` is not copied, so a profile stamped there
+      // would be silently dropped on hibernate and the woken session could
+      // resume under a different GitHub account.
+      copilotAccountProfileId: instance.copilotAccountProfileId,
+      copilotRoutingSource: instance.copilotRoutingSource,
+      copilotRoutingRuleId: instance.copilotRoutingRuleId
     };
 
     return state;
@@ -1769,6 +1781,8 @@ export class SessionContinuityManager extends EventEmitter {
           provider: state.provider,
           model: state.modelId,
           cwd: state.workingDirectory,
+          // Cross-account resume guard — see session-recovery.ts.
+          copilotProfileId: state.copilotAccountProfileId,
         });
       }
       state.resumeCursor = cursor;

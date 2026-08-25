@@ -139,6 +139,24 @@ describe('createLoopInvocationCapture', () => {
 
     expect(capture.finalize().toolRwLockConflicts).toEqual([]);
   });
+
+  it('does not collapse distinct missing-input activities to one tool-call hash', () => {
+    const capture = createLoopInvocationCapture({ workspaceDir: '/workspace/project' });
+
+    capture.recordActivity({
+      kind: 'tool_use',
+      message: 'Running command: npm run lint',
+      detail: { id: 'bash-1', name: 'Bash', phase: 'running', streaming: true },
+    });
+    capture.recordActivity({
+      kind: 'tool_use',
+      message: 'Running command: npm run test:quiet',
+      detail: { id: 'bash-2', name: 'Bash', phase: 'running', streaming: true },
+    });
+
+    const [lintCall, testCall] = capture.finalize().toolCalls;
+    expect(lintCall.argsHash).not.toBe(testCall.argsHash);
+  });
 });
 
 describe('extractFinishReasonFromResponse', () => {

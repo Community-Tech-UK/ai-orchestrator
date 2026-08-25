@@ -3,6 +3,7 @@ import { getLogger } from '../logging/logger';
 import { getCatalogOverrideSource, type CatalogOverrideEntry } from '../providers/catalog-override-source';
 import { getCodexCliDiscoveryService } from '../providers/codex-cli-discovery-service';
 import { getCursorCopilotCliDiscoveryService } from '../providers/cursor-copilot-cli-discovery-service';
+import { getGrokCliDiscoveryService } from '../providers/grok-cli-discovery-service';
 import { getModelsDevService } from '../providers/models-dev-service';
 import { getUnifiedModelCatalog } from '../providers/unified-model-catalog-service';
 import {
@@ -51,6 +52,10 @@ interface CursorCopilotDiscoveryRuntimeService {
   start(): void;
 }
 
+interface GrokDiscoveryRuntimeService {
+  start(): void;
+}
+
 interface LocalModelInventoryRuntimeService {
   list(): LocalModelInventoryEntry[];
   refresh?(): Promise<LocalModelInventoryEntry[]> | LocalModelInventoryEntry[];
@@ -72,6 +77,7 @@ export interface UnifiedModelCatalogRuntimeOptions {
   modelsDevService?: ModelsDevRuntimeService;
   codexDiscoveryService?: CodexDiscoveryRuntimeService;
   cursorCopilotDiscoveryService?: CursorCopilotDiscoveryRuntimeService;
+  grokDiscoveryService?: GrokDiscoveryRuntimeService;
   localModelInventoryService?: LocalModelInventoryRuntimeService;
   logger?: RuntimeLogger;
 }
@@ -86,6 +92,7 @@ export async function initializeUnifiedModelCatalogRuntime(
   const codexDiscoveryService = options.codexDiscoveryService ?? getCodexCliDiscoveryService();
   const cursorCopilotDiscoveryService = options.cursorCopilotDiscoveryService
     ?? getCursorCopilotCliDiscoveryService();
+  const grokDiscoveryService = options.grokDiscoveryService ?? getGrokCliDiscoveryService();
   const localModelInventoryService = options.localModelInventoryService ?? getLocalModelInventoryService();
   const logger = options.logger ?? getLogger('AppInitialization');
 
@@ -119,6 +126,7 @@ export async function initializeUnifiedModelCatalogRuntime(
   });
   codexDiscoveryService.start();
   cursorCopilotDiscoveryService.start();
+  grokDiscoveryService.start();
 
   modelsDevService.refresh().catch(() => {
     // Suppressed; failure is already logged inside ModelsDevService.

@@ -17,7 +17,7 @@
  * accounting. Use this helper only to price token counts when no authoritative
  * cost is reported.
  */
-import { MODEL_PRICING, PROVIDER_MODEL_LIST } from '../types/provider.types';
+import { MODEL_PRICING, PROVIDER_MODEL_LIST, RETIRED_PROVIDER_MODELS } from '../types/provider.types';
 
 export interface TokenCostInput {
   inputTokens?: number;
@@ -136,7 +136,14 @@ export function getProviderModelRate(
   const overlay = providerOverlayRates.get(`${normalizedProvider}:${normalizedModel}`);
   if (overlay) return overlay;
   if (!STATIC_TABLE_PROVIDERS.has(normalizedProvider)) return undefined;
-  if (!(PROVIDER_MODEL_LIST[normalizedProvider] ?? []).some((entry) => entry.id === normalizedModel)) {
+  // Retired ids stay priceable: they are gone from the offer list but still
+  // appear in historical sessions and stale persisted defaults, where an
+  // undefined rate is accumulated downstream as $0.
+  const offered = (PROVIDER_MODEL_LIST[normalizedProvider] ?? []).some(
+    (entry) => entry.id === normalizedModel,
+  );
+  const retired = (RETIRED_PROVIDER_MODELS[normalizedProvider] ?? []).includes(normalizedModel);
+  if (!offered && !retired) {
     return undefined;
   }
   return MODEL_PRICING[normalizedModel];
@@ -238,6 +245,10 @@ function normalizePricingProvider(provider: string | undefined | null): string |
     case 'anthropic': return 'claude';
     case 'openai': return 'codex';
     case 'google': return 'gemini';
+    // models.dev namespaces xAI as `xai`; the CLI-facing provider id is `grok`.
+    // Without this the whole xAI namespace was discarded from the live overlay,
+    // so Grok sessions could only ever be priced from the static table.
+    case 'xai': return 'grok';
     default: return undefined;
   }
 }

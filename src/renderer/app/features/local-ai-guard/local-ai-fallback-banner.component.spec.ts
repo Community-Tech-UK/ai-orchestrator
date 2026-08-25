@@ -294,8 +294,54 @@ describe('LocalAiFallbackBannerComponent', () => {
     expect(row.textContent).not.toContain('$0.0000');
   });
 
+  it('groups a same-slot burst into one notification with an aggregate cost', () => {
+    fallbackNotifications.set([
+      notification('event-1', { slot: 'titleGeneration', createdAt: 1_000, estimatedCostUsd: 0.001 }),
+      notification('event-2', { slot: 'titleGeneration', createdAt: 2_000, estimatedCostUsd: 0.002 }),
+      notification('event-3', { slot: 'titleGeneration', createdAt: 3_000, knownCostUsd: 0.003 }),
+    ]);
+    fixture.detectChanges();
+
+    const rows = fixture.nativeElement.querySelectorAll('.fallback-notification');
+    expect(rows).toHaveLength(1);
+    const row = rows[0] as HTMLElement;
+    expect(row.getAttribute('data-event-id')).toBeNull();
+    expect(row.getAttribute('data-event-ids')).toBe('event-3,event-2,event-1');
+    expect(row.textContent).toContain('3 paid fallbacks happened automatically');
+    expect(row.textContent).toContain('Title generation');
+    expect(row.textContent).toContain('$0.0060 estimated');
+    expect(row.querySelector('button')?.getAttribute('aria-label')).toBe(
+      'Dismiss 3 paid fallback notifications',
+    );
+  });
+
+  it('dismissing a grouped notification dismisses every event in the burst', () => {
+    fallbackNotifications.set([
+      notification('event-1', { createdAt: 1_000 }),
+      notification('event-2', { createdAt: 2_000 }),
+      notification('event-3', { createdAt: 3_000 }),
+    ]);
+    fixture.detectChanges();
+
+    const dismiss = fixture.nativeElement.querySelector(
+      '.fallback-notification[data-event-ids="event-3,event-2,event-1"] button',
+    ) as HTMLButtonElement;
+    dismiss.click();
+    fixture.detectChanges();
+
+    expect(dismissFallbackNotification.mock.calls).toEqual([
+      ['event-3'],
+      ['event-2'],
+      ['event-1'],
+    ]);
+    expect(fixture.nativeElement.querySelector('.local-ai-fallback-notifications')).toBeNull();
+  });
+
   it('LT-189: dismissing one notification removes only that one from the DOM', () => {
-    fallbackNotifications.set([notification('event-1'), notification('event-2', { createdAt: 2_000 })]);
+    fallbackNotifications.set([
+      notification('event-1'),
+      notification('event-2', { createdAt: 7_000 }),
+    ]);
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelectorAll('.fallback-notification')).toHaveLength(2);
 

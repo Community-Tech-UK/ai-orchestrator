@@ -1,6 +1,10 @@
 /** Application settings shared by the main and renderer processes. */
 
 import type { AuxiliaryLlmRoutingMode } from './auxiliary-llm.types';
+import type {
+  CopilotAccountProfile,
+  CopilotAccountRoutingRule,
+} from './copilot-account.types';
 import type { DesktopComputerUseSettings } from './desktop-gateway-settings.types';
 import type { LocalAiFallbackPolicy } from './local-ai-guard.types';
 import type { ModelUsageEntry } from './model-usage.types';
@@ -434,6 +438,26 @@ export interface AppSettings extends DesktopComputerUseSettings {
    * (the default) means no restriction.
    */
   providersExcludedFromAutomation: string[];
+
+  // GitHub Copilot account routing (2026-08-25-copilot-account-routing spec)
+  /**
+   * Copilot account profiles. Each one is an isolated Copilot CLI state
+   * directory bound to exactly one GitHub identity, so a personal and an
+   * enterprise seat can serve different repositories without a global switch.
+   *
+   * Contains no token, keychain reference, or filesystem path — the home
+   * directory is derived on the execution node from the validated profile ID.
+   * Operator-only: an agent that could add a profile or move the default could
+   * route enterprise code through a personal seat.
+   */
+  copilotAccountProfiles: CopilotAccountProfile[];
+  /**
+   * Rules mapping a GitHub repository, owner, or canonical path prefix to a
+   * Copilot account profile. Exact repository beats owner, owner beats the
+   * longest matching path prefix, and a protected scope that cannot be resolved
+   * blocks Copilot rather than falling back to the default account.
+   */
+  copilotAccountRoutingRules: CopilotAccountRoutingRule[];
 
   // Conversational ping-pong review (bigchange_pingpong_review)
   /**

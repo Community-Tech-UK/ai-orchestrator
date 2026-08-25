@@ -53,7 +53,12 @@ export interface DeferredPermissionLifecycleOps {
   ) => ChromeDevtoolsMcpConfigOptions | null;
   getPermissionHookPath: (yoloMode: boolean) => string | undefined;
   waitForResumeHealth: (instanceId: string) => Promise<boolean>;
-  createCliAdapter: (cliType: string, options: UnifiedSpawnOptions, executionLocation?: ExecutionLocation) => CliAdapter;
+  /** Async so Copilot account routing can resolve before the respawn. */
+  createCliAdapter: (
+    cliType: string,
+    options: UnifiedSpawnOptions,
+    executionLocation?: ExecutionLocation,
+  ) => Promise<CliAdapter>;
   acquireSessionMutex: (instanceId: string, label: string) => Promise<() => void>;
 }
 
@@ -160,6 +165,10 @@ export class DeferredPermissionHandler {
           provider: instance.provider,
           model: instance.currentModel,
           cwd: instance.workingDirectory,
+          // Cross-account resume guard: a native Copilot session belongs to one
+          // GitHub identity. Empty for every other provider, which keeps the
+          // hash byte-identical to pre-existing cursors.
+          copilotProfileId: instance.copilotAccountProfileId,
         }),
       });
       if (recoveryPlan.kind !== 'native-resume' && recoveryPlan.kind !== 'provider-fork') {
@@ -206,7 +215,7 @@ export class DeferredPermissionHandler {
       });
 
       // 4. Create and spawn new adapter
-      const adapter = this.ops.createCliAdapter(cliType, spawnOptions, instance.executionLocation);
+      const adapter = await this.ops.createCliAdapter(cliType, spawnOptions, instance.executionLocation);
 
       // Inject the decision directory into the adapter's environment so the hook
       // can find the decision file.

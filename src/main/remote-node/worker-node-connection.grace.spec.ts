@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkerNodeConnectionServer } from './worker-node-connection';
+import { DISCONNECT_GRACE_MS } from './connection-disconnect-lifecycle';
 
 const mocks = vi.hoisted(() => ({
   logger: {
@@ -127,7 +128,7 @@ describe('WorkerNodeConnectionServer disconnect grace window', () => {
     ws.close();
 
     // Advance to just before the grace window elapses.
-    await vi.advanceTimersByTimeAsync(2_400);
+    await vi.advanceTimersByTimeAsync(DISCONNECT_GRACE_MS - 100);
     expect(disconnected).not.toHaveBeenCalled();
     expect(rejected).toBeNull();
 
@@ -137,13 +138,13 @@ describe('WorkerNodeConnectionServer disconnect grace window', () => {
     expect(server.isNodeConnected('node-1')).toBe(true);
 
     // Even well past the original grace window, no disconnect / no RPC failure.
-    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(DISCONNECT_GRACE_MS + 1);
     expect(disconnected).not.toHaveBeenCalled();
     expect(rejected).toBeNull();
 
     // Clean up the still-pending RPC by fully disconnecting.
     ws2.close();
-    await vi.advanceTimersByTimeAsync(3_000);
+    await vi.advanceTimersByTimeAsync(DISCONNECT_GRACE_MS);
     expect(disconnected).toHaveBeenCalledTimes(1);
     await inflight;
     expect(rejected).toBeInstanceOf(Error);
@@ -166,12 +167,12 @@ describe('WorkerNodeConnectionServer disconnect grace window', () => {
     ws.close();
 
     // Before grace elapses: still holding.
-    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(DISCONNECT_GRACE_MS - 1);
     expect(disconnected).not.toHaveBeenCalled();
     expect(rejected).toBeNull();
 
     // After grace elapses: true disconnect.
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(1);
     expect(disconnected).toHaveBeenCalledTimes(1);
     await inflight;
     expect(rejected).toBeInstanceOf(Error);
@@ -193,6 +194,6 @@ describe('WorkerNodeConnectionServer disconnect grace window', () => {
     expect(meta['closeReason']).toBe('abnormal closure');
 
     // Clean up the grace timer this close scheduled.
-    await vi.advanceTimersByTimeAsync(3_000);
+    await vi.advanceTimersByTimeAsync(DISCONNECT_GRACE_MS);
   });
 });

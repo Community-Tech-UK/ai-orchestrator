@@ -3,7 +3,14 @@ import type { AskUserQuestionEntry } from '../../../../shared/types/ask-user-que
 export interface UserActionRequest {
   id: string;
   instanceId: string;
-  requestType: 'switch_mode' | 'approve_action' | 'confirm' | 'select_option' | 'input_required' | 'ask_questions';
+  requestType:
+    | 'switch_mode'
+    | 'approve_action'
+    | 'confirm'
+    | 'select_option'
+    | 'input_required'
+    | 'ask_questions'
+    | 'secret_required';
   title: string;
   message: string;
   targetMode?: 'build' | 'plan' | 'review';
@@ -22,6 +29,24 @@ export interface UserActionRequest {
    * response path.
    */
   askQuestions?: AskUserQuestionEntry[];
+  /**
+   * For `secret_required`: what the agent is asking for. The agent supplies the
+   * name/label/purpose and never a value.
+   *
+   * The value the user types is submitted on the dedicated `secret-card:submit`
+   * channel, NOT through `respond()` — it must not reach the CLI, the log, or
+   * conversation history. See `secret.channels.ts`.
+   */
+  secretRequest?: {
+    /** Slug, unique within the workspace. e.g. 'github-pat'. */
+    name: string;
+    /** Human label for the card. e.g. 'GitHub personal access token'. */
+    label: string;
+    /** What it will be used for. Shown to the user and recorded in the audit trail. */
+    purpose: string;
+    /** Shape hint used only for a client-side format warning. */
+    expectedFormat?: 'github_pat' | 'openai_key' | 'bearer' | 'opaque';
+  };
   context?: Record<string, unknown>;
   createdAt: number;
   /** Permission metadata for input_required requests (action, path, etc.) */

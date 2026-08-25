@@ -56,6 +56,18 @@ export const CLI_UPDATE_SPECS: Partial<Record<CliType, CliUpdateSpec>> = {
   cursor: {
     selfUpdateArgs: ['update'],
   },
+  // Grok Build ships as npm `@xai-official/grok` and also carries its own
+  // updater (`grok update`, `grok update --check --json`). `grok` was already
+  // in SUPPORTED_CLIS, so without this entry getUpdatePlan() answered
+  // "no automatic updater is configured" and CLI Health silently skipped it.
+  // Both fields earn their place: `selfUpdateArgs` wins for the update plan
+  // (checked first below, and `grok update` handles its own npm reinstall),
+  // while `npmPackage` is what CliLatestVersionService reads to learn there is
+  // a newer version at all.
+  grok: {
+    npmPackage: '@xai-official/grok',
+    selfUpdateArgs: ['update'],
+  },
   ollama: {
     brewFormula: 'ollama',
   },

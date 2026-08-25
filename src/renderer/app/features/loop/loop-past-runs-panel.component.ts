@@ -31,6 +31,8 @@ export interface ReattemptSourceRun {
   iterationPrompt: string | null;
 }
 
+export const LATER_ITERATION_CONTINUATION_LABEL = 'Later-iteration continuation';
+
 /** Pure derivation of `seedMessage` (textarea / iter-0 goal) and
  *  `seedPrompt` (panel / iter-1+ continuation) from a past loop run.
  *
@@ -146,7 +148,7 @@ export function deriveReattemptSeed(
                 @if (run.initialPrompt) {
                   <div class="pr-prompt-preview" [class.expanded]="isRowExpanded(run.id)">{{ run.initialPrompt }}</div>
                   @if (isRowExpanded(run.id) && hasDistinctIterationPrompt(run)) {
-                    <div class="pr-prompt-label">Iteration 1+ continuation</div>
+                    <div class="pr-prompt-label">{{ continuationLabel }}</div>
                     <div class="pr-prompt-preview expanded">{{ run.iterationPrompt }}</div>
                   }
                 } @else {
@@ -263,6 +265,7 @@ export function deriveReattemptSeed(
   `],
 })
 export class LoopPastRunsPanelComponent implements OnDestroy {
+  protected readonly continuationLabel = LATER_ITERATION_CONTINUATION_LABEL;
   /** The chat the panel is showing past runs for. Null while no chat is
    *  selected — yields an empty list without errors. */
   chatId = input<string | null>(null);

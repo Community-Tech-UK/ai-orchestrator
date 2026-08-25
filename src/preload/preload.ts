@@ -23,6 +23,7 @@ import { createPauseDomain } from './domains/pause.preload';
 import { createDiagnosticsDomain } from './domains/diagnostics.preload';
 import { createMemoryDomain } from './domains/memory.preload';
 import { createProviderDomain } from './domains/provider.preload';
+import { createCopilotAccountDomain } from './domains/copilot-account.preload';
 import { createInfrastructureDomain } from './domains/infrastructure.preload';
 import { createCommunicationDomain } from './domains/communication.preload';
 import { createLearningDomain } from './domains/learning.preload';
@@ -75,6 +76,7 @@ const electronAPI = {
   ...createDiagnosticsDomain(ipcRenderer, IPC_CHANNELS),
   ...createMemoryDomain(ipcRenderer, IPC_CHANNELS),
   ...createProviderDomain(ipcRenderer, IPC_CHANNELS, withAuth),
+  ...createCopilotAccountDomain(ipcRenderer, IPC_CHANNELS, withAuth),
   ...createInfrastructureDomain(ipcRenderer, IPC_CHANNELS, withAuth),
   ...createCommunicationDomain(ipcRenderer, IPC_CHANNELS),
   ...createLearningDomain(ipcRenderer, IPC_CHANNELS),
