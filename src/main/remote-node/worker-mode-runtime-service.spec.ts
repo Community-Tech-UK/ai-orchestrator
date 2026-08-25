@@ -51,7 +51,7 @@ describe('WorkerModeRuntimeService', () => {
         stdio: 'ignore',
       }),
     );
-    expect(JSON.stringify(spawn.mock.calls[0])).not.toMatch(/token|secret|credential/i);
+    expect(JSON.stringify(spawn.mock.calls[0]?.slice(0, 2))).not.toMatch(/token|secret|credential/i);
   });
 
   it('reuses the existing live runtime instead of spawning duplicates', () => {

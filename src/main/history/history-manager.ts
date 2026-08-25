@@ -31,10 +31,12 @@ import { getTranscriptSnippetService } from './transcript-snippet-service';
 import {
   findClaudeJsonlFiles,
   getDefaultClaudeProjectsDir,
+  isNativeTranscriptTailExtension,
   parseClaudeJsonlTranscriptDetailed,
   type ImportedTranscript,
 } from './native-claude-importer';
 import { projectMemoryKeysEqual } from '../memory/project-memory-key';
+import { getOutputStorageManager } from '../memory/output-storage';
 import { isSessionNotFoundText } from '../cli/adapters/resume-error-classifier';
 import { isLegacyRedactedToolOutput } from '../session/redacted-tool-output';
 
@@ -139,8 +141,7 @@ export class HistoryManager {
     this.archivingInstances.add(instance.id);
 
     try {
-      // Snapshot the output buffer to avoid issues if it's modified during async operations
-      const messages = [...instance.outputBuffer];
+      const messages = await this.getCompleteArchiveMessages(instance);
       const threadKey = this.getInstanceThreadKey(instance);
       const previousEntries = this.index.entries.filter(
         (existingEntry) => this.getEntryThreadKey(existingEntry) === threadKey
@@ -391,6 +392,25 @@ export class HistoryManager {
       logger.error('Failed to load conversation', error instanceof Error ? error : undefined, { entryId });
       return null;
     }
+  }
+
+  /**
+   * The live buffer is bounded, so its older messages may already be in
+   * output storage. Flush pending asynchronous writes and join that prefix to
+   * the retained tail before creating permanent history.
+   */
+  private async getCompleteArchiveMessages(instance: Instance): Promise<OutputMessage[]> {
+    const retainedMessages = [...instance.outputBuffer];
+    const outputStorage = getOutputStorageManager();
+    await outputStorage.flushInstance(instance.id);
+    const storedMessages = await outputStorage.loadMessages(instance.id);
+
+    const messagesById = new Map<string, OutputMessage>();
+    for (const message of [...storedMessages, ...retainedMessages]) {
+      messagesById.set(message.id, message);
+    }
+
+    return Array.from(messagesById.values());
   }
 
   /**
@@ -909,7 +929,7 @@ export class HistoryManager {
       if (
         existingEntry
         && legacyRepairSessionIds.has(parsed.sessionId)
-        && await this.repairLegacyRedactedArchive(existingEntry, parsed)
+        && await this.repairArchiveFromNativeTranscript(existingEntry, parsed)
       ) {
         repaired++;
         continue;
@@ -961,27 +981,35 @@ export class HistoryManager {
     });
   }
 
-  private async repairLegacyRedactedArchive(
+  private async repairArchiveFromNativeTranscript(
     entry: ConversationHistoryEntry,
     parsed: ImportedTranscript,
   ): Promise<boolean> {
     const conversation = await this.loadConversation(entry.id);
-    if (
-      !conversation
-      || !conversation.messages.some((message) => isLegacyRedactedToolOutput(message.content))
-    ) {
+    if (!conversation) {
       return false;
     }
 
-    const repairedMessages = parsed.messages.filter(
-      (message) => !isLegacyRedactedToolOutput(message.content)
+    const hasLegacyRedactedOutput = conversation.messages.some(
+      (message) => isLegacyRedactedToolOutput(message.content),
     );
+    const hasTruncatedTail = isNativeTranscriptTailExtension(
+      parsed.messages,
+      conversation.messages,
+    );
+    if (!hasLegacyRedactedOutput && !hasTruncatedTail) {
+      return false;
+    }
+
+    const repairedMessages = hasLegacyRedactedOutput
+      ? parsed.messages.filter((message) => !isLegacyRedactedToolOutput(message.content))
+      : parsed.messages;
     if (!repairedMessages.some((message) => message.type === 'user')) {
       return false;
     }
 
     const conversationPath = this.getConversationPath(entry.id);
-    const backupPath = `${conversationPath}.legacy-redacted-backup`;
+    const backupPath = `${conversationPath}.${hasLegacyRedactedOutput ? 'legacy-redacted' : 'truncated'}-backup`;
     if (!fs.existsSync(backupPath)) {
       await fs.promises.copyFile(conversationPath, backupPath);
     }
@@ -1003,11 +1031,12 @@ export class HistoryManager {
     });
     Object.assign(entry, repairedEntry);
 
-    logger.info('Repaired legacy redacted Claude history from native transcript', {
+    logger.info('Repaired Claude history from native transcript', {
       entryId: entry.id,
       sessionId: parsed.sessionId,
       previousMessageCount: conversation.messages.length,
       repairedMessageCount: repairedMessages.length,
+      repairKind: hasLegacyRedactedOutput ? 'legacy-redacted-output' : 'truncated-tail',
       backupPath,
     });
     return true;

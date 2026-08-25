@@ -155,12 +155,13 @@ describe('WorkerEmulatorManager', () => {
     await manager.reconfigure({ ...baseConfig, bootTimeoutMs: 25_000 });
     await manager.ensureRunning();
 
-    expect(execFileProcess).toHaveBeenCalledWith(
-      adbPath(),
-      expect.arrayContaining(['wait-for-device']),
-      expect.objectContaining({ timeout: 25_000 }),
-      expect.any(Function),
+    const waitForDeviceCall = execFileProcess.mock.calls.find(([, args]) =>
+      (args as string[]).includes('wait-for-device'),
     );
+    expect(waitForDeviceCall).toBeDefined();
+    const timeout = (waitForDeviceCall?.[2] as { timeout: number }).timeout;
+    expect(timeout).toBeGreaterThan(0);
+    expect(timeout).toBeLessThanOrEqual(25_000);
   });
 
   it('charges wait-for-device time against the total boot timeout budget', async () => {

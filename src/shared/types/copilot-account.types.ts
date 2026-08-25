@@ -181,3 +181,30 @@ export const COPILOT_PROFILE_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
 export const COPILOT_LEGACY_PROFILE_ID = 'legacy';
 
 export const COPILOT_DEFAULT_HOST = 'github.com';
+
+/**
+ * Normalize a GitHub host to a bare, lowercase hostname.
+ *
+ * The installed Copilot CLI writes `lastLoggedInUser.host` **with a scheme**
+ * (`https://github.com`), while git remotes parse to a bare hostname
+ * (`github.com`) and routing rules store bare hostnames. Comparing the two
+ * spellings directly meant a freshly added account read as `identity-mismatch`
+ * and no repository rule could ever match. Everything that persists or compares
+ * a host goes through here.
+ *
+ * Accepts and strips: a scheme, a trailing slash, a trailing dot, surrounding
+ * whitespace, and case. Deliberately does NOT strip a port or userinfo — those
+ * would change which host is meant, so a value carrying them is left alone and
+ * fails the exact-hostname schema loudly instead.
+ */
+export function normalizeCopilotHost(host: string | null | undefined): string {
+  if (!host) {
+    return '';
+  }
+  return host
+    .trim()
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//i, '')
+    .replace(/\/+$/, '')
+    .replace(/\.$/, '')
+    .toLowerCase();
+}

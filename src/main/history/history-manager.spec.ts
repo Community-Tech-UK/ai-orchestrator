@@ -182,6 +182,47 @@ describe('HistoryManager', () => {
     expect(fs.existsSync(path.join(storageDir, `${entry.id}.json.gz`))).toBe(false);
   });
 
+  it('archives disk-backed overflow before the retained output tail', async () => {
+    const { getOutputStorageManager } = await import('../memory/output-storage');
+    const { HistoryManager } = await import('./history-manager');
+    const manager = track(new HistoryManager());
+    const overflow = [
+      message('prompt-1', 'user', 'Original prompt that must remain in history', 1),
+      message('response-1', 'assistant', 'Initial response', 2),
+    ];
+    const retained = [
+      message('prompt-2', 'user', 'Follow-up prompt', 3),
+      message('response-2', 'assistant', 'Final response', 4),
+    ];
+
+    // Simulate a live bounded buffer: storeMessages is intentionally not
+    // awaited by the overflow path, so archiveInstance must flush it itself.
+    void getOutputStorageManager().storeMessages('instance-complete-history', overflow);
+
+    await manager.archiveInstance(makeInstance({
+      id: 'instance-complete-history',
+      historyThreadId: 'thread-complete-history',
+      outputBuffer: retained,
+    }));
+
+    const entry = manager.getEntries().find(
+      (item) => item.historyThreadId === 'thread-complete-history',
+    );
+    expect(entry?.messageCount).toBe(4);
+    expect(entry?.firstUserMessage).toBe('Original prompt that must remain in history');
+
+    if (!entry) {
+      throw new Error('Expected complete history entry to be archived');
+    }
+    const conversation = await manager.loadConversation(entry.id);
+    expect(conversation?.messages.map((item) => item.id)).toEqual([
+      'prompt-1',
+      'response-1',
+      'prompt-2',
+      'response-2',
+    ]);
+  });
+
   it('does not let a superseded source clobber the fork-owned thread entry', async () => {
     // Regression: an edit-and-resend fork inherits the source's historyThreadId
     // and archives the full conversation. If the superseded source later archives

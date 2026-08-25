@@ -65,6 +65,7 @@ export function toPromptRefs(messages: OutputMessage[]): UserPromptRef[] {
 export class OutputStorageManager {
   private storageDir: string;
   private indices: Map<string, StorageIndex> = new Map();
+  private pendingWrites = new Map<string, Promise<void>>();
   private maxDiskStorageMB: number = 500;
   private chunkSize: number = 100; // messages per chunk
 
@@ -89,9 +90,38 @@ export class OutputStorageManager {
   /**
    * Store messages to disk for an instance
    */
-  async storeMessages(instanceId: string, messages: OutputMessage[]): Promise<void> {
-    if (messages.length === 0) return;
+  storeMessages(instanceId: string, messages: OutputMessage[]): Promise<void> {
+    if (messages.length === 0) return Promise.resolve();
 
+    // Output overflows are emitted without awaiting their disk write. Keep each
+    // instance ordered so an archive can flush an exact, complete transcript.
+    const previousWrite = this.pendingWrites.get(instanceId) ?? Promise.resolve();
+    const write = previousWrite
+      .catch(() => undefined)
+      .then(() => this.writeMessages(instanceId, messages));
+    const queued: Promise<void> = write.then(
+      () => {
+        if (this.pendingWrites.get(instanceId) === queued) {
+          this.pendingWrites.delete(instanceId);
+        }
+      },
+      (error: unknown) => {
+        if (this.pendingWrites.get(instanceId) === queued) {
+          this.pendingWrites.delete(instanceId);
+        }
+        throw error;
+      },
+    );
+    this.pendingWrites.set(instanceId, queued);
+    return queued;
+  }
+
+  /** Wait until all previously queued overflow writes for an instance finish. */
+  async flushInstance(instanceId: string): Promise<void> {
+    await this.pendingWrites.get(instanceId);
+  }
+
+  private async writeMessages(instanceId: string, messages: OutputMessage[]): Promise<void> {
     const index = this.getOrCreateIndex(instanceId);
     const chunkIndex = index.chunks.length;
 

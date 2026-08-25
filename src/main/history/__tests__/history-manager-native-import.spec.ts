@@ -117,6 +117,92 @@ describe('HistoryManager — native Claude transcript import', () => {
     expect(conversation!.messages[1].content).toBe('Here is the answer.');
   });
 
+  it('repairs an archived transcript that contains only the native transcript tail', async () => {
+    const sessionId = 'tail-repair-session';
+    const storageDir = path.join(userDataDir, 'conversation-history');
+    const entry = {
+      id: 'archive-tail',
+      displayName: 'Truncated archive',
+      createdAt: 3_000,
+      endedAt: 4_000,
+      workingDirectory: '/Users/me/Demo',
+      messageCount: 2,
+      firstUserMessage: 'Follow-up prompt',
+      lastUserMessage: 'Follow-up prompt',
+      status: 'completed' as const,
+      originalInstanceId: 'instance-tail',
+      parentId: null,
+      sessionId,
+      provider: 'claude' as const,
+    };
+    fs.mkdirSync(storageDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(storageDir, 'index.json'),
+      JSON.stringify({ version: 1, entries: [entry], lastUpdated: 0 }),
+    );
+    fs.writeFileSync(
+      path.join(storageDir, `${entry.id}.json.gz`),
+      zlib.gzipSync(JSON.stringify({
+        entry,
+        messages: [
+          { id: 'old-u2', timestamp: 3_000, type: 'user', content: 'Follow-up prompt' },
+          { id: 'old-a2', timestamp: 4_000, type: 'assistant', content: 'Final answer' },
+        ],
+      })),
+    );
+
+    const projectsDir = path.join(homeDir, '.claude', 'projects');
+    writeJsonl(path.join(projectsDir, '-Users-me-Demo', `${sessionId}.jsonl`), [
+      {
+        type: 'user',
+        uuid: 'u1',
+        timestamp: '2026-04-10T09:00:00.000Z',
+        cwd: '/Users/me/Demo',
+        sessionId,
+        message: { role: 'user', content: 'Original prompt' },
+      },
+      {
+        type: 'assistant',
+        uuid: 'a1',
+        timestamp: '2026-04-10T09:00:05.000Z',
+        sessionId,
+        message: { role: 'assistant', content: [{ type: 'text', text: 'Initial answer' }] },
+      },
+      {
+        type: 'user',
+        uuid: 'u2',
+        timestamp: '2026-04-10T09:01:00.000Z',
+        sessionId,
+        message: { role: 'user', content: 'Follow-up prompt' },
+      },
+      {
+        type: 'assistant',
+        uuid: 'a2',
+        timestamp: '2026-04-10T09:01:05.000Z',
+        sessionId,
+        message: { role: 'assistant', content: [{ type: 'text', text: 'Final answer' }] },
+      },
+    ]);
+
+    const { HistoryManager } = await import('../history-manager');
+    const manager = new HistoryManager();
+    await manager.startupTasks;
+    await (manager as unknown as {
+      importNativeClaudeTranscripts: (projectsDir: string) => Promise<void>;
+    }).importNativeClaudeTranscripts(projectsDir);
+
+    const repaired = await manager.loadConversation(entry.id);
+    expect(repaired?.messages.map((message) => message.content)).toEqual([
+      'Original prompt',
+      'Initial answer',
+      'Follow-up prompt',
+      'Final answer',
+    ]);
+    expect(repaired?.entry.firstUserMessage).toBe('Original prompt');
+    expect(repaired?.entry.messageCount).toBe(4);
+    expect(fs.existsSync(path.join(storageDir, `${entry.id}.json.gz.truncated-backup`))).toBe(true);
+  });
+
   it('keeps a native provider ID collision out of ownership across import and repeated restore', async () => {
     const providerSessionId = 'provider-native-collision';
     const projectsDir = path.join(homeDir, '.claude', 'projects');

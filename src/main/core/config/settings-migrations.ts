@@ -20,7 +20,10 @@ import {
 } from '../../rlm/auxiliary-llm-utils';
 import { getLogger } from '../../logging/logger';
 import { migrateLegacyCustomModelOverride } from './settings-custom-models';
-import { COPILOT_LEGACY_PROFILE_ID } from '../../../shared/types/copilot-account.types';
+import {
+  COPILOT_LEGACY_PROFILE_ID,
+  normalizeCopilotHost,
+} from '../../../shared/types/copilot-account.types';
 // Static, not `require`: the legacy profile must resolve to the SAME directory
 // the adapter uses, and a second copy of that derivation here would drift.
 // adapter-spawn-helpers has no path back to the settings manager, so this
@@ -432,7 +435,9 @@ function readLegacyCopilotIdentity(): { login?: string; host?: string } | null {
     };
     const candidate = parsed.lastLoggedInUser ?? parsed.loggedInUsers?.[0];
     const login = typeof candidate?.login === 'string' ? candidate.login : undefined;
-    const host = typeof candidate?.host === 'string' ? candidate.host.toLowerCase() : undefined;
+    // The CLI records this with a scheme; store the bare hostname so it matches
+    // git remotes and routing rules (and passes the exact-hostname schema).
+    const host = typeof candidate?.host === 'string' ? normalizeCopilotHost(candidate.host) : undefined;
     return login || host ? { login, host } : null;
   } catch {
     return null;

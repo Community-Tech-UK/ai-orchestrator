@@ -105,6 +105,41 @@ describe('CopilotAccountBindingService.checkBinding', () => {
     expect(status.errorCode).toBe('login-mismatch');
   });
 
+it('matches the scheme-prefixed host the CLI actually writes', async () => {
+    // Observed live on 2026-08-25: the installed CLI records
+    // `lastLoggedInUser.host` as "https://github.com", while routing rules and
+    // git remotes use the bare hostname. Comparing the raw strings made every
+    // freshly added account read as identity-mismatch.
+    writeConfig(
+      'personal',
+      JSON.stringify({ lastLoggedInUser: { host: 'https://github.com', login: 'octocat' } }),
+    );
+    const status = await makeService().checkBinding(makeProfile({ host: 'github.com' }));
+    expect(status.state).toBe('authenticated');
+    expect(status.observedHost).toBe('github.com');
+  });
+
+  it('still reports a genuine host mismatch once schemes are normalized away', async () => {
+    writeConfig(
+      'personal',
+      JSON.stringify({ lastLoggedInUser: { host: 'https://ghe.example.com', login: 'octocat' } }),
+    );
+    const status = await makeService().checkBinding(makeProfile({ host: 'github.com' }));
+    expect(status.state).toBe('identity-mismatch');
+    expect(status.errorCode).toBe('host-mismatch');
+  });
+
+  it('tolerates a legacy profile record that still carries a scheme', async () => {
+    writeConfig(
+      'personal',
+      JSON.stringify({ lastLoggedInUser: { host: 'https://github.com', login: 'octocat' } }),
+    );
+    const status = await makeService().checkBinding(
+      makeProfile({ host: 'https://github.com' }),
+    );
+    expect(status.state).toBe('authenticated');
+  });
+
   it('reports identity-mismatch when the host differs', async () => {
     writeConfig(
       'personal',

@@ -62,6 +62,32 @@ export interface ClaudeJsonlTranscriptParseOptions {
   preserveToolMessages?: boolean;
 }
 
+/**
+ * True when an archived display transcript is a strict tail of a longer native
+ * Claude transcript. Tool results and app-generated system notices are omitted
+ * because they are not consistently persisted by both sources.
+ */
+export function isNativeTranscriptTailExtension(
+  nativeMessages: OutputMessage[],
+  archivedMessages: OutputMessage[],
+): boolean {
+  const comparableTypes = new Set<OutputMessage['type']>(['user', 'assistant', 'tool_use']);
+  const native = nativeMessages.filter(
+    (message) => comparableTypes.has(message.type) && message.content.trim().length > 0,
+  );
+  const archived = archivedMessages.filter(
+    (message) => comparableTypes.has(message.type) && message.content.trim().length > 0,
+  );
+  if (archived.length === 0 || native.length <= archived.length) {
+    return false;
+  }
+
+  return archived.every((message, index) => {
+    const nativeMessage = native[native.length - archived.length + index];
+    return nativeMessage?.type === message.type && nativeMessage.content === message.content;
+  });
+}
+
 export function getDefaultClaudeProjectsDir(): string {
   return path.join(os.homedir(), '.claude', 'projects');
 }

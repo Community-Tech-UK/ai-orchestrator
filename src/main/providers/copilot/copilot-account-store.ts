@@ -23,6 +23,7 @@ import type {
 import {
   COPILOT_DEFAULT_HOST,
   COPILOT_PROFILE_ID_PATTERN,
+  normalizeCopilotHost,
 } from '../../../shared/types/copilot-account.types';
 import {
   CopilotAccountProfilesSchema,
@@ -191,7 +192,7 @@ export class CopilotAccountStore {
       id,
       label: input.label.trim(),
       expectedLogin: null,
-      host: (input.host ?? COPILOT_DEFAULT_HOST).toLowerCase(),
+      host: normalizeCopilotHost(input.host) || COPILOT_DEFAULT_HOST,
       accountKind: input.accountKind,
       scopePolicy,
       automationPolicy: input.automationPolicy ?? 'allow-routed',
@@ -243,7 +244,7 @@ export class CopilotAccountStore {
     return this.updateProfile(profileId, (profile) => ({
       ...profile,
       expectedLogin: observed.login.toLowerCase(),
-      ...(observed.host ? { host: observed.host.toLowerCase() } : {}),
+      ...(observed.host ? { host: normalizeCopilotHost(observed.host) } : {}),
     }));
   }
 

@@ -27,6 +27,7 @@ import type {
   CopilotAccountBindingStatus,
   CopilotAccountProfile,
 } from '../../../shared/types/copilot-account.types';
+import { normalizeCopilotHost } from '../../../shared/types/copilot-account.types';
 import { resolveCopilotProfileHome } from '../../cli/adapters/copilot/copilot-account-home-resolver';
 import { getLogger } from '../../logging/logger';
 
@@ -219,7 +220,7 @@ export class CopilotAccountBindingService {
       return status;
     }
 
-    const hostMatches = sameIdentity(observed.host, profile.host);
+    const hostMatches = sameIdentity(observed.host, normalizeCopilotHost(profile.host));
     // `expectedLogin === null` means "not yet verified" — the first verified
     // login adopts the observed identity, so a null expectation is not a
     // mismatch. Every later difference is.
@@ -264,12 +265,15 @@ export class CopilotAccountBindingService {
     if (!result.success) {
       return null;
     }
+    // The CLI writes `host` WITH a scheme (`https://github.com`); rules and git
+    // remotes use a bare hostname. Normalize on the way out so every comparison
+    // downstream is like-for-like.
     const last = result.data.lastLoggedInUser;
     if (last?.login || last?.host) {
-      return { host: last.host, login: last.login };
+      return { host: normalizeCopilotHost(last.host), login: last.login };
     }
     const first = result.data.loggedInUsers?.find((user) => user.login || user.host);
-    return first ? { host: first.host, login: first.login } : null;
+    return first ? { host: normalizeCopilotHost(first.host), login: first.login } : null;
   }
 
   /**
