@@ -37,6 +37,7 @@ import {
 } from './native-claude-importer';
 import { projectMemoryKeysEqual } from '../memory/project-memory-key';
 import { getOutputStorageManager } from '../memory/output-storage';
+import { retainedPromptsMissingFrom } from '../instance/prompt-retention';
 import { isSessionNotFoundText } from '../cli/adapters/resume-error-classifier';
 import { isLegacyRedactedToolOutput } from '../session/redacted-tool-output';
 
@@ -398,6 +399,11 @@ export class HistoryManager {
    * The live buffer is bounded, so its older messages may already be in
    * output storage. Flush pending asynchronous writes and join that prefix to
    * the retained tail before creating permanent history.
+   *
+   * The instance's retained prompts are folded in as well. They are normally
+   * already in output storage, but not when disk storage is disabled or its
+   * write failed — and an archive that lost the user's own prompts is the
+   * exact failure this path exists to prevent.
    */
   private async getCompleteArchiveMessages(instance: Instance): Promise<OutputMessage[]> {
     const retainedMessages = [...instance.outputBuffer];
@@ -405,12 +411,25 @@ export class HistoryManager {
     await outputStorage.flushInstance(instance.id);
     const storedMessages = await outputStorage.loadMessages(instance.id);
 
+    // Ids are trustworthy between disk and the live buffer — both hold the
+    // original message objects. They are NOT trustworthy for retained prompts:
+    // a hibernate/wake round trip renumbers persisted entries positionally and
+    // wake re-derives the prompt's id from that, so the same prompt can reach
+    // here under a different id than its on-disk copy and would archive twice.
+    const persisted = [...storedMessages, ...retainedMessages];
     const messagesById = new Map<string, OutputMessage>();
-    for (const message of [...storedMessages, ...retainedMessages]) {
+    for (const message of [
+      ...storedMessages,
+      ...retainedPromptsMissingFrom(instance.retainedPrompts, persisted),
+      ...retainedMessages,
+    ]) {
       messagesById.set(message.id, message);
     }
 
-    return Array.from(messagesById.values());
+    // The three sources overlap, so none of them is a clean chronological
+    // prefix of the others. Sort is stable, so equal timestamps keep source
+    // order.
+    return Array.from(messagesById.values()).sort((a, b) => a.timestamp - b.timestamp);
   }
 
   /**

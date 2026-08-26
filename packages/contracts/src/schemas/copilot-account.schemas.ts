@@ -236,8 +236,20 @@ export type CopilotRoutingMatcherInput = z.infer<typeof CopilotRoutingMatcherSch
  * directory.
  */
 
+/**
+ * The preload bridge stamps every authenticated invoke with `ipcAuthToken`
+ * (`withAuth()` in `src/preload/preload.ts`), so a `.strict()` payload schema
+ * must declare it or reject every real renderer call before a handler ever
+ * runs. It is accepted and then ignored: main authorises from the sender via
+ * `ensureTrustedSender`, never from this value, and no store here spreads a
+ * payload into a persisted record. Same convention as `provider.schemas.ts`
+ * and `voice.schemas.ts`.
+ */
+const ipcAuthTokenField = { ipcAuthToken: z.string().optional() };
+
 export const CopilotAccountCreatePayloadSchema = z
   .object({
+    ...ipcAuthTokenField,
     label: z.string().trim().min(1).max(64),
     accountKind: CopilotAccountKindSchema,
     host: CopilotHostSchema.optional(),
@@ -248,11 +260,12 @@ export const CopilotAccountCreatePayloadSchema = z
   .strict();
 
 export const CopilotAccountIdPayloadSchema = z
-  .object({ profileId: CopilotProfileIdSchema })
+  .object({ ...ipcAuthTokenField, profileId: CopilotProfileIdSchema })
   .strict();
 
 export const CopilotAccountRenamePayloadSchema = z
   .object({
+    ...ipcAuthTokenField,
     profileId: CopilotProfileIdSchema,
     label: z.string().trim().min(1).max(64),
   })
@@ -260,6 +273,7 @@ export const CopilotAccountRenamePayloadSchema = z
 
 export const CopilotAccountUpdatePolicyPayloadSchema = z
   .object({
+    ...ipcAuthTokenField,
     profileId: CopilotProfileIdSchema,
     scopePolicy: CopilotAccountScopePolicySchema.optional(),
     automationPolicy: CopilotAutomationPolicySchema.optional(),
@@ -272,6 +286,7 @@ export const CopilotAccountUpdatePolicyPayloadSchema = z
 
 export const CopilotAccountAdoptIdentityPayloadSchema = z
   .object({
+    ...ipcAuthTokenField,
     profileId: CopilotProfileIdSchema,
     login: CopilotOwnerSchema,
     host: CopilotHostSchema.optional(),
@@ -280,6 +295,7 @@ export const CopilotAccountAdoptIdentityPayloadSchema = z
 
 export const CopilotAccountRuleCreatePayloadSchema = z
   .object({
+    ...ipcAuthTokenField,
     profileId: CopilotProfileIdSchema,
     matcher: CopilotRoutingMatcherSchema,
     isProtected: z.boolean().optional(),
@@ -287,7 +303,7 @@ export const CopilotAccountRuleCreatePayloadSchema = z
   .strict();
 
 export const CopilotAccountRuleIdPayloadSchema = z
-  .object({ ruleId: CopilotRuleIdSchema })
+  .object({ ...ipcAuthTokenField, ruleId: CopilotRuleIdSchema })
   .strict();
 
 /**
@@ -297,6 +313,7 @@ export const CopilotAccountRuleIdPayloadSchema = z
  */
 export const CopilotAccountPreviewRoutePayloadSchema = z
   .object({
+    ...ipcAuthTokenField,
     workingDirectory: z.string().min(1).max(4096).optional(),
     explicitProfileId: CopilotProfileIdSchema.optional(),
     confirmProtectedOverride: z.boolean().optional(),
@@ -317,7 +334,10 @@ export const CopilotAccountPreviewRoutePayloadSchema = z
   .strict();
 
 export const CopilotAccountSuggestRulesPayloadSchema = z
-  .object({ workingDirectory: z.string().min(1).max(4096) })
+  .object({ ...ipcAuthTokenField, workingDirectory: z.string().min(1).max(4096) })
   .strict();
 
-export const CopilotAccountEmptyPayloadSchema = z.object({}).strict().or(z.undefined());
+export const CopilotAccountEmptyPayloadSchema = z
+  .object({ ...ipcAuthTokenField })
+  .strict()
+  .or(z.undefined());

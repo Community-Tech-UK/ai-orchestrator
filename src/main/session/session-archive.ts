@@ -9,6 +9,7 @@ import * as path from 'path';
 import { app } from 'electron';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import { getLogger } from '../logging/logger';
+import { retainedPromptsMissingFrom } from '../instance/prompt-retention';
 
 const logger = getLogger('SessionArchive');
 
@@ -106,6 +107,14 @@ export class SessionArchiveManager {
    * Archive a session
    */
   archiveSession(instance: Instance, tags?: string[]): ArchivedSessionMeta {
+    // A trim may already have evicted the opening prompt from the buffer, and
+    // an archive that lost the user's own prompts defeats the point of keeping
+    // it. Same merge the history archive and session export use.
+    const messages = [
+      ...retainedPromptsMissingFrom(instance.retainedPrompts, instance.outputBuffer),
+      ...instance.outputBuffer,
+    ].sort((a, b) => a.timestamp - b.timestamp);
+
     const meta: ArchivedSessionMeta = {
       id: instance.id,
       displayName: instance.displayName,
@@ -113,7 +122,7 @@ export class SessionArchiveManager {
       archivedAt: Date.now(),
       workingDirectory: instance.workingDirectory,
       agentId: instance.agentId,
-      messageCount: instance.outputBuffer.length,
+      messageCount: messages.length,
       totalTokensUsed: instance.totalTokensUsed,
       lastActivity: instance.lastActivity,
       tags,
@@ -121,7 +130,7 @@ export class SessionArchiveManager {
 
     const archived: ArchivedSession = {
       meta,
-      messages: instance.outputBuffer,
+      messages,
       // LT-018: archive the whole object. The narrowed form dropped
       // `occupancyReported`/`percentage`, so a restored archive could not tell a
       // real measurement from the placeholder. Dormant today (the renderer does

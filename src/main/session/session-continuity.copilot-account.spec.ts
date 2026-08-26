@@ -25,6 +25,7 @@ vi.mock('../core/config/settings-manager', () => ({
   getSettingsManager: () => ({ get: vi.fn(() => true) }),
 }));
 
+import type { OutputMessage } from '../../shared/types/instance.types';
 import { SessionContinuityManager } from './session-continuity';
 
 /**
@@ -149,5 +150,35 @@ describe('instanceToState — Copilot account continuity', () => {
     ) as SessionState;
     expect(legacy.copilotAccountProfileId).toBeUndefined();
     expect('copilotAccountProfileId' in legacy).toBe(false);
+  });
+});
+
+describe('instanceToState — retained prompts survive hibernation', () => {
+  const message = (id: string, type: OutputMessage['type'], content: string, timestamp: number) =>
+    ({ id, type, content, timestamp }) as OutputMessage;
+
+  it('persists a prompt a trim already evicted from the live buffer', () => {
+    // Without this the live buffer is all a checkpoint ever captured, so a
+    // hibernate/wake round trip loses the original request permanently.
+    const state = createManager().instanceToState(
+      makeInstance({
+        outputBuffer: [message('a9', 'assistant', 'carrying on', 20)],
+        retainedPrompts: [message('p0', 'user', 'Migrate the billing service.', 1)],
+      }),
+    );
+
+    expect(state.conversationHistory.map((entry) => entry.content)).toEqual([
+      'Migrate the billing service.',
+      'carrying on',
+    ]);
+  });
+
+  it('does not duplicate a retained prompt the buffer still holds', () => {
+    const opening = message('p0', 'user', 'Migrate the billing service.', 1);
+    const state = createManager().instanceToState(
+      makeInstance({ outputBuffer: [opening], retainedPrompts: [opening] }),
+    );
+
+    expect(state.conversationHistory).toHaveLength(1);
   });
 });

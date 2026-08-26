@@ -1,5 +1,9 @@
 import type { Instance, InstanceCreateConfig, OutputMessage } from '../../../shared/types/instance.types';
 import type { SessionState } from '../../session/session-continuity.types';
+import { promptsDiscardedByTruncation } from '../prompt-retention';
+
+/** Messages a revived continuity session restores into its visible buffer. */
+const REVIVED_MESSAGES = 100;
 
 export interface ContinuityReviveRequest {
   sourceInstanceId: string;
@@ -31,12 +35,20 @@ export async function reviveContinuitySession(
   });
   if (!state) throw new Error(`No archived continuity state exists for ${request.sourceInstanceId}`);
 
-  const initialOutputBuffer: OutputMessage[] = state.conversationHistory.slice(-100).map((entry) => ({
+  const history = state.conversationHistory;
+  const initialOutputBuffer: OutputMessage[] = history.slice(-REVIVED_MESSAGES).map((entry) => ({
     id: `continuity-${entry.id}`,
     timestamp: entry.timestamp,
     type: entry.role === 'user' ? 'user' : entry.role === 'assistant' ? 'assistant' : 'system',
     content: entry.content,
   }));
+  // Revival keeps only the newest messages, so carry the prompts it drops or
+  // the revived thread cannot state what it was originally asked to do.
+  const initialRetainedPrompts = promptsDiscardedByTruncation(
+    history,
+    REVIVED_MESSAGES,
+    'continuity-prompt-',
+  );
   const nativeSessionId = !state.nativeResumeFailedAt ? state.sessionId?.trim() : undefined;
   const instance = await deps.createInstance({
     workingDirectory: state.workingDirectory,
@@ -46,6 +58,7 @@ export async function reviveContinuitySession(
     historyThreadId: state.historyThreadId?.trim() || request.sourceInstanceId,
     ...(nativeSessionId ? { sessionId: nativeSessionId, resume: true } : {}),
     initialOutputBuffer,
+    initialRetainedPrompts,
     initialPrompt: request.initialPrompt,
     agentId: state.agentId,
     provider: state.provider,

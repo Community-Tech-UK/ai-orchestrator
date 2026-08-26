@@ -130,6 +130,7 @@ import { getOrCreateTurnSupervisor } from '../session/session-turn-supervisor';
 import { applyProviderSessionDurability } from './lifecycle/provider-session-durability';
 import { getLocalModelInventoryService } from '../local-models/local-model-inventory-service';
 import { assembleInstanceSystemPrompt } from './instance-system-prompt';
+import { restoreWokenOutputBuffer } from './lifecycle/wake-buffer-restore';
 import type {
   LocalModelInventoryEntry,
   ModelRuntimeTarget,
@@ -1973,17 +1974,8 @@ export class InstanceLifecycleManager extends EventEmitter {
 
         await initializeInstanceEvidenceOwnership(instance, this.settings.getAll());
 
-        if (sessionState && sessionState.conversationHistory.length > 0) {
-          // Restore recent messages into the output buffer so the UI can show them.
-          const restored = sessionState.conversationHistory.slice(-50).map((entry, idx) => ({
-            id: `restored-${idx}-${Date.now()}`,
-            timestamp: entry.timestamp,
-            type: (entry.role === 'user' ? 'user'
-              : entry.role === 'assistant' ? 'assistant'
-              : 'system') as OutputMessage['type'],
-            content: entry.content,
-          }));
-          instance.outputBuffer = restored;
+        if (sessionState) {
+          restoreWokenOutputBuffer(instance, sessionState.conversationHistory, Date.now());
         }
 
         if (signal.aborted) return;

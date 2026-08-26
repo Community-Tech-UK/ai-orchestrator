@@ -816,17 +816,14 @@ export function registerInstanceHandlers(deps: {
           'INSTANCE_GET_PROMPT_INDEX'
         );
 
-        const { getOutputStorageManager, toPromptRefs } = await import('../../memory/output-storage');
+        const { getOutputStorageManager, mergePromptIndex } = await import('../../memory/output-storage');
         const stored = await getOutputStorageManager().getUserPrompts(validated.instanceId);
-        const buffered = toPromptRefs(
-          instanceManager.getInstance(validated.instanceId)?.outputBuffer ?? []
+        const instance = instanceManager.getInstance(validated.instanceId);
+        const prompts = mergePromptIndex(
+          stored,
+          instance?.outputBuffer ?? [],
+          instance?.retainedPrompts,
         );
-
-        const byId = new Map(stored.map((prompt) => [prompt.id, prompt]));
-        for (const prompt of buffered) {
-          byId.set(prompt.id, prompt);
-        }
-        const prompts = [...byId.values()].sort((a, b) => a.timestamp - b.timestamp);
 
         return { success: true, data: { prompts } };
       } catch (error) {

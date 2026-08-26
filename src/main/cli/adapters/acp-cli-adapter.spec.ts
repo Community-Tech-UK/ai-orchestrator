@@ -1095,6 +1095,283 @@ describe('AcpCliAdapter', () => {
     proc.exit();
   });
 
+  it('keeps a prompt alive past promptTimeoutMs while an ACP tool is pending', async () => {
+    const proc = createInitializedAgentHarness();
+
+    proc.onRequest('session/prompt', (message) => {
+      proc.notify('session/update', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'long-suite',
+          title: 'Run complete test suite',
+          kind: 'execute',
+          status: 'pending',
+        },
+      });
+
+      setTimeout(() => {
+        proc.notify('session/update', {
+          sessionId: 'sess-acp-1',
+          update: {
+            sessionUpdate: 'tool_call_update',
+            toolCallId: 'long-suite',
+            status: 'completed',
+          },
+        });
+        proc.notify('session/update', {
+          sessionId: 'sess-acp-1',
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: 'suite complete' },
+          },
+        });
+        proc.respond(message.id, { stopReason: 'end_turn' });
+      }, 90);
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      promptTimeoutMs: 40,
+      activeToolTimeoutMs: 160,
+      stallWarningMs: 0,
+    });
+    await adapter.spawn();
+
+    const response = await adapter.sendMessage({ role: 'user', content: 'run tests' });
+
+    expect(response.content).toBe('suite complete');
+    proc.exit();
+  });
+
+  it('refreshes activeToolTimeoutMs while an ACP tool remains in progress', async () => {
+    const proc = createInitializedAgentHarness();
+
+    proc.onRequest('session/prompt', (message) => {
+      proc.notify('session/update', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'active-tool',
+          title: 'Long active command',
+          kind: 'execute',
+          status: 'in_progress',
+        },
+      });
+
+      setTimeout(() => {
+        proc.notify('session/update', {
+          sessionId: 'sess-acp-1',
+          update: {
+            sessionUpdate: 'tool_call_update',
+            toolCallId: 'active-tool',
+            status: 'in_progress',
+          },
+        });
+      }, 40);
+      setTimeout(() => {
+        proc.notify('session/update', {
+          sessionId: 'sess-acp-1',
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: 'still alive' },
+          },
+        });
+        proc.respond(message.id, { stopReason: 'end_turn' });
+      }, 90);
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      promptTimeoutMs: 25,
+      activeToolTimeoutMs: 70,
+      stallWarningMs: 0,
+    });
+    await adapter.spawn();
+
+    const response = await adapter.sendMessage({ role: 'user', content: 'run it' });
+
+    expect(response.content).toBe('still alive');
+    proc.exit();
+  });
+
+  it('cancels a pending ACP tool at activeToolTimeoutMs when it stays silent', async () => {
+    const proc = createInitializedAgentHarness();
+
+    proc.onRequest('session/prompt', () => {
+      proc.notify('session/update', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'stuck-tool',
+          title: 'Stuck command',
+          kind: 'execute',
+          status: 'pending',
+        },
+      });
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      promptTimeoutMs: 120,
+      activeToolTimeoutMs: 50,
+      stallWarningMs: 0,
+    });
+    await adapter.spawn();
+
+    await expect(adapter.sendMessage({ role: 'user', content: 'run it' }))
+      .rejects.toThrow(/session\/prompt request timed out after 50ms/);
+    expect(proc.receivedMessages).toContainEqual(
+      expect.objectContaining({ method: 'session/cancel' }),
+    );
+    proc.exit();
+  });
+
+  it.each(['completed', 'failed', 'cancelled'] as const)(
+    'restores promptTimeoutMs after the last active ACP tool becomes %s',
+    async (terminalStatus) => {
+      const proc = createInitializedAgentHarness();
+
+      proc.onRequest('session/prompt', () => {
+        proc.notify('session/update', {
+          sessionId: 'sess-acp-1',
+          update: {
+            sessionUpdate: 'tool_call',
+            toolCallId: 'completed-tool',
+            title: 'Run command',
+            kind: 'execute',
+            status: 'pending',
+          },
+        });
+
+        setTimeout(() => {
+          proc.notify('session/update', {
+            sessionId: 'sess-acp-1',
+            update: {
+              sessionUpdate: 'tool_call_update',
+              toolCallId: 'completed-tool',
+              status: terminalStatus,
+            },
+          });
+        }, 20);
+      });
+
+      const adapter = new TestAcpCliAdapter(proc, {
+        command: process.execPath,
+        workingDirectory: '/tmp',
+        promptTimeoutMs: 40,
+        activeToolTimeoutMs: 160,
+        stallWarningMs: 0,
+      });
+      await adapter.spawn();
+
+      await expect(adapter.sendMessage({ role: 'user', content: 'run it' }))
+        .rejects.toThrow(/session\/prompt request timed out after 40ms/);
+      proc.exit();
+    },
+  );
+
+  it('keeps the active-tool lease until every overlapping tool settles', async () => {
+    const proc = createInitializedAgentHarness();
+
+    proc.onRequest('session/prompt', (message) => {
+      for (const toolCallId of ['first-tool', 'second-tool']) {
+        proc.notify('session/update', {
+          sessionId: 'sess-acp-1',
+          update: {
+            sessionUpdate: 'tool_call',
+            toolCallId,
+            title: toolCallId,
+            kind: 'execute',
+            status: 'pending',
+          },
+        });
+      }
+
+      setTimeout(() => {
+        proc.notify('session/update', {
+          sessionId: 'sess-acp-1',
+          update: {
+            sessionUpdate: 'tool_call_update',
+            toolCallId: 'first-tool',
+            status: 'completed',
+          },
+        });
+      }, 20);
+      setTimeout(() => {
+        proc.notify('session/update', {
+          sessionId: 'sess-acp-1',
+          update: {
+            sessionUpdate: 'tool_call_update',
+            toolCallId: 'second-tool',
+            status: 'completed',
+          },
+        });
+        proc.notify('session/update', {
+          sessionId: 'sess-acp-1',
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: 'both complete' },
+          },
+        });
+        proc.respond(message.id, { stopReason: 'end_turn' });
+      }, 90);
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      promptTimeoutMs: 40,
+      activeToolTimeoutMs: 160,
+      stallWarningMs: 0,
+    });
+    await adapter.spawn();
+
+    const response = await adapter.sendMessage({ role: 'user', content: 'run both' });
+
+    expect(response.content).toBe('both complete');
+    proc.exit();
+  });
+
+  it('does not carry an unterminated tool lease into the next prompt', async () => {
+    const proc = createInitializedAgentHarness();
+    let promptCount = 0;
+
+    proc.onRequest('session/prompt', (message) => {
+      promptCount += 1;
+      if (promptCount !== 1) return;
+
+      proc.notify('session/update', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'unterminated-tool',
+          title: 'Provider omitted terminal update',
+          kind: 'execute',
+          status: 'pending',
+        },
+      });
+      proc.respond(message.id, { stopReason: 'end_turn' });
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      promptTimeoutMs: 40,
+      activeToolTimeoutMs: 160,
+      stallWarningMs: 0,
+    });
+    await adapter.spawn();
+
+    await adapter.sendMessage({ role: 'user', content: 'first turn' });
+    await expect(adapter.sendMessage({ role: 'user', content: 'second turn' }))
+      .rejects.toThrow(/session\/prompt request timed out after 40ms/);
+    proc.exit();
+  });
+
   it('sendInput leaves session/prompt timeouts retryable and returns to idle', async () => {
     const proc = createInitializedAgentHarness();
 

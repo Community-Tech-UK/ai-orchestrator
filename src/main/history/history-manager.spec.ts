@@ -223,6 +223,102 @@ describe('HistoryManager', () => {
     ]);
   });
 
+  it('archives retained prompts that never reached disk storage', async () => {
+    const { HistoryManager } = await import('./history-manager');
+    const manager = track(new HistoryManager());
+    // enableDiskStorage off ⇒ the trim persisted nothing; the evicted prompt
+    // survives only on the instance's retained set.
+    const retainedPrompts = [message('prompt-1', 'user', 'The ask that outlived the buffer', 1)];
+    const retained = [
+      message('prompt-2', 'user', 'Follow-up prompt', 3),
+      message('response-2', 'assistant', 'Final response', 4),
+    ];
+
+    await manager.archiveInstance(makeInstance({
+      id: 'instance-retained-prompts',
+      historyThreadId: 'thread-retained-prompts',
+      outputBuffer: retained,
+      retainedPrompts,
+    }));
+
+    const entry = manager.getEntries().find(
+      (item) => item.historyThreadId === 'thread-retained-prompts',
+    );
+    expect(entry?.firstUserMessage).toBe('The ask that outlived the buffer');
+
+    if (!entry) {
+      throw new Error('Expected retained-prompt entry to be archived');
+    }
+    const conversation = await manager.loadConversation(entry.id);
+    expect(conversation?.messages.map((item) => item.id)).toEqual([
+      'prompt-1',
+      'prompt-2',
+      'response-2',
+    ]);
+  });
+
+  it('does not archive a retained prompt twice when its id was renumbered by a wake', async () => {
+    const { getOutputStorageManager } = await import('../memory/output-storage');
+    const { HistoryManager } = await import('./history-manager');
+    const manager = track(new HistoryManager());
+    // Disk keeps the original id; a hibernate/wake round trip renumbers the
+    // persisted entry positionally, so `retainedPrompts` now holds the SAME
+    // prompt under a derived id. Id-keyed dedup cannot see they are one prompt.
+    void getOutputStorageManager().storeMessages('instance-renumbered', [
+      message('prompt-1', 'user', 'Opening ask', 1),
+    ]);
+
+    await manager.archiveInstance(makeInstance({
+      id: 'instance-renumbered',
+      historyThreadId: 'thread-renumbered',
+      outputBuffer: [message('response-2', 'assistant', 'Final response', 4)],
+      retainedPrompts: [message('restored-prompt-msg-0', 'user', 'Opening ask', 1)],
+    }));
+
+    const entry = manager.getEntries().find(
+      (item) => item.historyThreadId === 'thread-renumbered',
+    );
+    if (!entry) {
+      throw new Error('Expected renumbered entry to be archived');
+    }
+    const conversation = await manager.loadConversation(entry.id);
+    expect(conversation?.messages.filter((m) => m.content === 'Opening ask')).toHaveLength(1);
+  });
+
+  it('orders the merged archive chronologically when the sources overlap', async () => {
+    const { getOutputStorageManager } = await import('../memory/output-storage');
+    const { HistoryManager } = await import('./history-manager');
+    const manager = track(new HistoryManager());
+    const opening = message('prompt-1', 'user', 'Opening ask', 1);
+    // The same prompt is on disk AND in the retained set — the real steady
+    // state once a trim has both persisted and retained it.
+    void getOutputStorageManager().storeMessages('instance-overlap', [
+      opening,
+      message('response-1', 'assistant', 'Early response', 2),
+    ]);
+
+    await manager.archiveInstance(makeInstance({
+      id: 'instance-overlap',
+      historyThreadId: 'thread-overlap',
+      outputBuffer: [message('response-2', 'assistant', 'Final response', 4)],
+      retainedPrompts: [opening],
+    }));
+
+    const entry = manager.getEntries().find(
+      (item) => item.historyThreadId === 'thread-overlap',
+    );
+    if (!entry) {
+      throw new Error('Expected overlap entry to be archived');
+    }
+    const conversation = await manager.loadConversation(entry.id);
+    // Deduplicated to one copy of the prompt, in timestamp order.
+    expect(conversation?.messages.map((item) => item.id)).toEqual([
+      'prompt-1',
+      'response-1',
+      'response-2',
+    ]);
+  });
+
   it('does not let a superseded source clobber the fork-owned thread entry', async () => {
     // Regression: an edit-and-resend fork inherits the source's historyThreadId
     // and archives the full conversation. If the superseded source later archives

@@ -151,4 +151,59 @@ describe('SessionShareService', () => {
     expect(bundle.summary.continuitySnapshotCount).toBe(1);
     expect(bundle.summary.fileSnapshotSessionCount).toBe(1);
   });
+
+  it('carries a prompt the live buffer no longer holds into the bundle', async () => {
+    // A replayed bundle is imported as a live session, so a bundle built from
+    // the trimmed buffer alone resumes without the original request.
+    childResultsMock.mockResolvedValue([]);
+    listSnapshotsMock.mockReturnValue([]);
+    getSessionsForInstanceMock.mockReturnValue([]);
+
+    const instance = {
+      id: 'instance-2',
+      displayName: 'Long Session',
+      createdAt: 1,
+      status: 'idle',
+      workingDirectory: os.tmpdir(),
+      outputBuffer: [
+        { id: 'a9', timestamp: 20, type: 'assistant', content: 'carrying on' },
+      ] as OutputMessage[],
+      retainedPrompts: [
+        { id: 'p0', timestamp: 1, type: 'user', content: 'Migrate the billing service.' },
+      ] as OutputMessage[],
+    } as Instance;
+
+    const { getSessionShareService } = await import('../session-share-service');
+    const bundle = await getSessionShareService().createBundle({ instance });
+
+    expect(bundle.messages.map((m) => m.content)).toEqual([
+      'Migrate the billing service.',
+      'carrying on',
+    ]);
+  });
+
+  it('does not duplicate a prompt the buffer still holds under a renumbered id', async () => {
+    childResultsMock.mockResolvedValue([]);
+    listSnapshotsMock.mockReturnValue([]);
+    getSessionsForInstanceMock.mockReturnValue([]);
+
+    const opening: OutputMessage = {
+      id: 'p0', timestamp: 1, type: 'user', content: 'Migrate the billing service.',
+    };
+    const instance = {
+      id: 'instance-3',
+      displayName: 'Long Session',
+      createdAt: 1,
+      status: 'idle',
+      workingDirectory: os.tmpdir(),
+      outputBuffer: [opening],
+      // Same prompt, id renumbered by a hibernate/wake round trip.
+      retainedPrompts: [{ ...opening, id: 'restored-prompt-msg-0' }],
+    } as Instance;
+
+    const { getSessionShareService } = await import('../session-share-service');
+    const bundle = await getSessionShareService().createBundle({ instance });
+
+    expect(bundle.messages).toHaveLength(1);
+  });
 });

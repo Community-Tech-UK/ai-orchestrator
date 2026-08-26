@@ -274,3 +274,89 @@ describe('Copilot account IPC — response safety', () => {
     );
   });
 });
+
+/**
+ * Regression cover for LT-522.
+ *
+ * Every one of these channels is reached through `createCopilotAccountDomain`,
+ * which the preload constructs WITH `withAuth` — so the payload main actually
+ * receives always carries an `ipcAuthToken` key. The payload schemas are
+ * `.strict()`, and originally did not declare it, so all fifteen channels
+ * rejected every real renderer call while this spec (which sent bare payloads)
+ * stayed green. These tests send what the preload sends.
+ */
+describe('Copilot account IPC — accepts the preload auth stamp (LT-522)', () => {
+  beforeEach(() => registerCopilotAccountHandlers({ store: fakeStore() }));
+
+  // Mirrors withAuth() in src/preload/preload.ts: the key is ALWAYS present,
+  // and is `undefined` until a token has been issued. An `undefined` value
+  // still counts as an own key, which is what `.strict()` refuses.
+  const withAuth = (
+    payload: Record<string, unknown> = {},
+    token: string | null = null,
+  ): Record<string, unknown> => ({ ...payload, ipcAuthToken: token || undefined });
+
+  const channelPayloads: Array<[string, Record<string, unknown>]> = [
+    [IPC_CHANNELS.COPILOT_ACCOUNT_LIST, {}],
+    [IPC_CHANNELS.COPILOT_ACCOUNT_CREATE, { label: 'Enterprise', accountKind: 'enterprise' }],
+    [IPC_CHANNELS.COPILOT_ACCOUNT_RENAME, { profileId: 'personal', label: 'Renamed' }],
+    [IPC_CHANNELS.COPILOT_ACCOUNT_UPDATE_POLICY, { profileId: 'personal', scopePolicy: 'matched-only' }],
+    [IPC_CHANNELS.COPILOT_ACCOUNT_REMOVE, { profileId: 'personal' }],
+    [IPC_CHANNELS.COPILOT_ACCOUNT_SET_DEFAULT, { profileId: 'personal' }],
+    [IPC_CHANNELS.COPILOT_ACCOUNT_VERIFY_BINDING, { profileId: 'personal' }],
+    [IPC_CHANNELS.COPILOT_ACCOUNT_ADOPT_IDENTITY, { profileId: 'personal', login: 'octocat' }],
+    [IPC_CHANNELS.COPILOT_ACCOUNT_RULE_LIST, {}],
+    [
+      IPC_CHANNELS.COPILOT_ACCOUNT_RULE_CREATE,
+      { profileId: 'personal', matcher: { type: 'owner', host: 'github.com', owner: 'octocat' } },
+    ],
+    [IPC_CHANNELS.COPILOT_ACCOUNT_RULE_REMOVE, { ruleId: 'rule-1' }],
+    [IPC_CHANNELS.COPILOT_ACCOUNT_PREVIEW_ROUTE, { workingDirectory: '/Users/me/work/repo' }],
+    [IPC_CHANNELS.COPILOT_ACCOUNT_SUGGEST_RULES, { workingDirectory: '/Users/me/work/repo' }],
+    [IPC_CHANNELS.COPILOT_ACCOUNT_NODE_MATRIX, {}],
+    [IPC_CHANNELS.COPILOT_ACCOUNT_DIAGNOSTICS, {}],
+  ];
+
+  it('covers every channel the preload domain exposes', () => {
+    // Guards against a new channel being added without auth-stamp cover.
+    expect(channelPayloads).toHaveLength(15);
+  });
+
+  it.each(channelPayloads)(
+    'accepts an auth-stamped payload on %s (token not yet issued)',
+    async (channel, payload) => {
+      const result = await invoke(channel, withAuth(payload));
+      expect(result.error?.code, `${channel}: ${result.error?.message}`).not.toBe('VALIDATION_FAILED');
+      expect(result.success, `${channel}: ${result.error?.message}`).toBe(true);
+    },
+  );
+
+  it.each(channelPayloads)(
+    'accepts an auth-stamped payload on %s (token issued)',
+    async (channel, payload) => {
+      const result = await invoke(channel, withAuth(payload, 'issued-token'));
+      expect(result.error?.code, `${channel}: ${result.error?.message}`).not.toBe('VALIDATION_FAILED');
+      expect(result.success, `${channel}: ${result.error?.message}`).toBe(true);
+    },
+  );
+
+  // The fix must not have traded strictness away: admitting the auth stamp is
+  // not the same as admitting arbitrary keys, and these are exactly the keys
+  // the schema header says must never cross.
+  it('still rejects an unexpected key alongside the auth stamp', async () => {
+    for (const rogue of [{ copilotHome: '/tmp' }, { env: { GITHUB_TOKEN: 'x' } }, { configPath: '/tmp/c' }]) {
+      const result = await invoke(
+        IPC_CHANNELS.COPILOT_ACCOUNT_PREVIEW_ROUTE,
+        withAuth({ workingDirectory: '/Users/me/work/repo', ...rogue }, 'issued-token'),
+      );
+      expect(result.success, JSON.stringify(rogue)).toBe(false);
+      expect(result.error?.code).toBe('VALIDATION_FAILED');
+    }
+  });
+
+  it('still rejects a non-string auth stamp', async () => {
+    const result = await invoke(IPC_CHANNELS.COPILOT_ACCOUNT_LIST, { ipcAuthToken: { evil: true } });
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('VALIDATION_FAILED');
+  });
+});

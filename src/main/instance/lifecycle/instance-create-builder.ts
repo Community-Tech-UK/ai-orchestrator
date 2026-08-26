@@ -134,6 +134,9 @@ export function buildInstanceRecord(
     // array let later pushes (e.g. a restore-fallback notice) leak back into
     // the array the caller still reads from, duplicating messages.
     outputBuffer: config.initialOutputBuffer ? [...config.initialOutputBuffer] : [],
+    ...(config.initialRetainedPrompts?.length
+      ? { retainedPrompts: [...config.initialRetainedPrompts] }
+      : {}),
     outputBufferMaxSize: LIMITS.OUTPUT_BUFFER_MAX_SIZE,
 
     communicationTokens: new Map(),

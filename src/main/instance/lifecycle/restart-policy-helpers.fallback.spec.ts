@@ -105,3 +105,40 @@ describe('RestartPolicyHelpers.buildFallbackHistory degradation preamble', () =>
     expect(result).not.toContain('still alive and attached to you');
   });
 });
+
+describe('buildFallbackHistory prompt retention', () => {
+  it('includes an evicted prompt that never reached disk storage', async () => {
+    const opening = { ...message('p0', 'user', 'Migrate the billing service.'), timestamp: 1 };
+    const instance = {
+      ...makeInstance([
+        { ...message('u9', 'user', 'carry on'), timestamp: 20 },
+        { ...message('a9', 'assistant', 'carrying on'), timestamp: 21 },
+      ]),
+      retainedPrompts: [opening],
+    } as Instance;
+
+    // loadMessages resolves empty: disk storage off, or its write failed.
+    const result = await makeHelpers().buildFallbackHistory(instance, 'resume-failed');
+
+    expect(result).toContain('Migrate the billing service.');
+  });
+
+  it('does not duplicate a prompt that disk storage already returned', async () => {
+    const opening = { ...message('p0', 'user', 'Migrate the billing service.'), timestamp: 1 };
+    const buffer = [{ ...message('a9', 'assistant', 'carrying on'), timestamp: 21 }];
+    const count = (text: string) => text.split('Migrate the billing service.').length - 1;
+
+    // Disk already has the prompt, so retaining it too must change nothing.
+    const withRetained = await makeHelpers({
+      loadMessages: vi.fn().mockResolvedValue([opening]),
+    }).buildFallbackHistory(
+      { ...makeInstance(buffer), retainedPrompts: [opening] } as Instance,
+      'resume-failed',
+    );
+    const withoutRetained = await makeHelpers({
+      loadMessages: vi.fn().mockResolvedValue([opening]),
+    }).buildFallbackHistory(makeInstance(buffer), 'resume-failed');
+
+    expect(count(withRetained)).toBe(count(withoutRetained));
+  });
+});

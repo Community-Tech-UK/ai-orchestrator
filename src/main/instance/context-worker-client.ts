@@ -28,6 +28,7 @@ import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import type { RlmContextInfo, ContextBudget, UnifiedMemoryContextInfo } from './instance-types';
 import type { InstanceContextPort } from './instance-context-port';
+import { COMPACTION_KEEP_RECENT, trimBufferRetainingPrompts } from './prompt-retention';
 import {
   buildMcpRuntimeToolContextSelection as selectMcpRuntimeToolContext,
   MCPToolSearchSnapshot,
@@ -469,12 +470,9 @@ export class ContextWorkerClient implements InstanceContextPort {
       id,
       snapshot: snapshotFromInstance(instance),
     });
-    // Output buffer trimming must happen in the main process since the worker
-    // cannot mutate the Instance that lives here.
-    const MAX_RECENT = 50;
-    if (instance.outputBuffer && instance.outputBuffer.length > MAX_RECENT) {
-      instance.outputBuffer = instance.outputBuffer.slice(-MAX_RECENT);
-    }
+    // Trimming happens here, not in the worker, which cannot mutate the
+    // Instance. Compaction persists nothing, so prompts are retained.
+    trimBufferRetainingPrompts(instance, COMPACTION_KEEP_RECENT);
     void instanceId; // used implicitly through instance.id in snapshot
   }
 

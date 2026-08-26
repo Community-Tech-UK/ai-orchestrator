@@ -32,6 +32,7 @@ import {
   isUnsupportedOrchestratorAttachmentError,
 } from './orchestrator-attachment-fallback';
 import { IllegalTransitionError, isInstanceSettledStatus } from './instance-state-machine';
+import { mergeRetainedPrompts } from './prompt-retention';
 import { generateId } from '../../shared/utils/id-generator';
 import { classifyContextOverflow, extractOverflowTokenCount } from '../context/ptl-retry';
 import { BudgetAction } from '../context/token-budget-tracker.js';
@@ -2563,16 +2564,22 @@ export class InstanceCommunicationManager extends EventEmitter {
     const bufferSize = settings.outputBufferSize;
 
     if (instance.outputBuffer.length > bufferSize) {
+      const overflow = instance.outputBuffer.slice(
+        0,
+        instance.outputBuffer.length - bufferSize
+      );
       if (settings.enableDiskStorage) {
-        const overflow = instance.outputBuffer.slice(
-          0,
-          instance.outputBuffer.length - bufferSize
-        );
         this.outputStorage.storeMessages(instance.id, overflow).catch((err) => {
           logger.error('Failed to store output to disk', err instanceof Error ? err : undefined, { instanceId: instance.id });
         });
       }
 
+      // The prompts are the task. Keep a bounded copy beside the buffer so a
+      // swapped or restarted session can still state the original request —
+      // this survives disk storage being off, and a failed disk write. It is
+      // deliberately not re-seated into outputBuffer, which is addressed by
+      // position by fork and rewind.
+      instance.retainedPrompts = mergeRetainedPrompts(instance.retainedPrompts, overflow);
       instance.outputBuffer = instance.outputBuffer.slice(-bufferSize);
     }
 

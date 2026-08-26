@@ -23,6 +23,7 @@ import type { ConversationTurn } from '../context/context-compactor';
 import { generateLocalSummary } from '../context/context-local-summary';
 import { redactSecrets } from '../context/context-compaction-prompt';
 import { extractUnresolvedItems, truncateTranscriptContent } from './replay-continuity';
+import { findOriginalRequest } from '../instance/prompt-retention';
 import {
   extractFileOperationsFromTurns,
   summarizeFileOperations,
@@ -36,6 +37,8 @@ const FOLD_BATCH = 8;
 const MAX_CHARS_PER_TURN = 800;
 const MAX_UNRESOLVED = 5;
 const MAX_DOCUMENT_CHARS = 14_000;
+/** The opening request is load-bearing, so it gets a larger slice than a turn. */
+const MAX_ORIGINAL_REQUEST_CHARS = 4_000;
 const MAX_TRACKED_INSTANCES = 300;
 
 interface HandoffTurn {
@@ -86,6 +89,7 @@ export interface HandoffDocumentMeta {
 
 function renderDocument(parts: {
   meta: HandoffDocumentMeta;
+  originalRequest: string | null;
   rollingSummary: string | null;
   foldedTurnCount: number;
   ring: readonly HandoffTurn[];
@@ -110,6 +114,14 @@ function renderDocument(parts: {
     `Resume mode: maintained handoff document (${parts.meta.reason}). Native session state was unavailable, so this incrementally maintained handoff is being provided as context.`,
     'Tool calls and tool results from the earlier conversation were already executed. Do not repeat them unless the user explicitly asks you to rerun something.',
   ];
+
+  // The ring is the newest 24 turns and the rolling summary is refolded from
+  // batches, so on a long session neither reliably still carries the opening
+  // request. Anchor it explicitly, and early enough to survive the document's
+  // own truncation.
+  if (parts.originalRequest) {
+    lines.push('', 'Original request:', truncateTranscriptContent(parts.originalRequest, MAX_ORIGINAL_REQUEST_CHARS));
+  }
 
   if (parts.rollingSummary) {
     lines.push('', `Rolling summary (${parts.foldedTurnCount} earlier turns folded):`, parts.rollingSummary);
@@ -189,7 +201,7 @@ export class HandoffStateService {
    * callers must fall through to the existing replay-preamble builder.
    */
   buildHandoffDocument(
-    instance: Pick<Instance, 'id' | 'outputBuffer' | 'workingDirectory' | 'provider' | 'currentModel'>,
+    instance: Pick<Instance, 'id' | 'outputBuffer' | 'retainedPrompts' | 'workingDirectory' | 'provider' | 'currentModel'>,
     reason: string,
   ): string | null {
     const state = this.states.get(instance.id);
@@ -204,6 +216,10 @@ export class HandoffStateService {
           provider: instance.provider,
           model: instance.currentModel,
         },
+        originalRequest: findOriginalRequest(
+          instance.retainedPrompts,
+          instance.outputBuffer as OutputMessage[],
+        )?.content ?? null,
         rollingSummary: state.rollingSummary,
         foldedTurnCount: state.foldedTurnCount,
         ring: state.ring,
@@ -258,6 +274,9 @@ export function buildHandoffDocumentFromMessages(
 
   return renderDocument({
     meta,
+    // This path holds the whole transcript, so the opening prompt is simply
+    // its first user message — no retained set needed.
+    originalRequest: findOriginalRequest(undefined, messages)?.content ?? null,
     rollingSummary,
     foldedTurnCount: folded.length,
     ring,

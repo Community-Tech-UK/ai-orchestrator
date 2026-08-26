@@ -10,6 +10,13 @@ const mocks = vi.hoisted(() => ({
     error: vi.fn(),
     debug: vi.fn(),
   },
+  // Extra registry fields the close-forensics snapshot reads. Empty by default
+  // so every pre-existing test keeps exercising the "registry knows nothing but
+  // the name" path.
+  nodeExtras: {} as Record<string, unknown>,
+  // When true the registry reports no node at all — the one reachable "unknown"
+  // state (deregistered before the socket's close event fired).
+  nodeMissing: false,
 }));
 
 vi.mock('../logging/logger', () => ({
@@ -32,7 +39,8 @@ vi.mock('../auth/remote-auth', () => ({
 
 vi.mock('./worker-node-registry', () => ({
   getWorkerNodeRegistry: () => ({
-    getNode: (id: string) => ({ id, name: id }),
+    getNode: (id: string) =>
+      mocks.nodeMissing ? undefined : { id, name: id, ...mocks.nodeExtras },
     getAllNodes: () => [],
     on: vi.fn(),
     off: vi.fn(),
@@ -97,6 +105,8 @@ describe('WorkerNodeConnectionServer disconnect grace window', () => {
     mocks.logger.warn.mockClear();
     mocks.logger.error.mockClear();
     mocks.logger.debug.mockClear();
+    mocks.nodeExtras = {};
+    mocks.nodeMissing = false;
     WorkerNodeConnectionServer._resetForTesting();
     server = WorkerNodeConnectionServer.getInstance() as unknown as WorkerNodeConnectionServer &
       TestServer;
@@ -195,5 +205,168 @@ describe('WorkerNodeConnectionServer disconnect grace window', () => {
 
     // Clean up the grace timer this close scheduled.
     await vi.advanceTimersByTimeAsync(DISCONNECT_GRACE_MS);
+  });
+
+  /**
+   * Regression cover for the 2026-08-25 windows-pc outage. The worker died at
+   * 16:06:44Z and stayed dead 9.3 hours; the coordinator had logged only
+   * `{closeCode: 1006, closeReason: ''}`, so reconstructing even the shape of
+   * the failure required pulling the node's own log off the machine afterwards.
+   * A 1006 never carries a reason, so the close code can never say why — these
+   * four fields are what actually discriminate the cases.
+   */
+  describe('close forensics', () => {
+    const findCloseMeta = (): Record<string, unknown> => {
+      const call = mocks.logger.info.mock.calls.find(
+        ([message]) => message === 'Worker WebSocket closed',
+      );
+      expect(call).toBeDefined();
+      return (call as [string, Record<string, unknown>])[1];
+    };
+
+    it('records a fresh heartbeat and a long session — the abrupt-kill signature', async () => {
+      const now = Date.now();
+      mocks.nodeExtras = {
+        connectedAt: now - 9 * 60 * 60 * 1000,
+        lastHeartbeat: now - 3_700,
+        activeInstances: 1,
+      };
+      const ws = new FakeSocket();
+      registerNode(server, ws);
+
+      ws.close(1006, '');
+
+      const meta = findCloseMeta();
+      // Healthy right up to the instant it vanished: points at an external
+      // kill (TerminateProcess, closed parent console, power loss) rather than
+      // a wedged process.
+      expect(meta['heartbeatAgeMs']).toBe(3_700);
+      expect(meta['sessionMs']).toBe(9 * 60 * 60 * 1000);
+      expect(meta['activeInstances']).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(DISCONNECT_GRACE_MS);
+    });
+
+    it('records a stale heartbeat — the already-wedged signature', async () => {
+      const now = Date.now();
+      mocks.nodeExtras = { connectedAt: now - 60_000, lastHeartbeat: now - 240_000 };
+      const ws = new FakeSocket();
+      registerNode(server, ws);
+
+      ws.close(1006, '');
+
+      // The discriminating value: the worker had stopped heartbeating long
+      // before the socket dropped, so the drop is a symptom, not the event.
+      expect(findCloseMeta()['heartbeatAgeMs']).toBe(240_000);
+
+      await vi.advanceTimersByTimeAsync(DISCONNECT_GRACE_MS);
+    });
+
+    it('reports in-flight work and its oldest age, so "died mid-task" is visible at the close', async () => {
+      mocks.nodeExtras = { connectedAt: Date.now() - 1000, lastHeartbeat: Date.now() };
+      const ws = new FakeSocket();
+      registerNode(server, ws);
+
+      const settled: Error[] = [];
+      const work = server
+        .sendRpc('node-1', 'instance.sendInput', {}, 0)
+        .catch((err: Error) => void settled.push(err));
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      ws.close(1006, '');
+
+      const meta = findCloseMeta();
+      expect(meta['inFlightWork']).toBe(1);
+      expect(meta['inFlightMethods']).toEqual(['instance.sendInput']);
+      expect(meta['oldestInFlightMs']).toBe(5_000);
+
+      await vi.advanceTimersByTimeAsync(DISCONNECT_GRACE_MS);
+      await work;
+      expect(settled).toHaveLength(1);
+    });
+
+    it('reports zero in-flight work on an idle close, and omits the method list entirely', async () => {
+      mocks.nodeExtras = { connectedAt: Date.now() - 1000, lastHeartbeat: Date.now() };
+      const ws = new FakeSocket();
+      registerNode(server, ws);
+
+      ws.close(1000, 'going away');
+
+      const meta = findCloseMeta();
+      expect(meta['inFlightWork']).toBe(0);
+      expect(meta['inFlightControl']).toBe(0);
+      // Absent rather than an empty array: nothing outstanding is the common
+      // case and should not add noise to every clean shutdown line.
+      expect(meta).not.toHaveProperty('inFlightMethods');
+
+      await vi.advanceTimersByTimeAsync(DISCONNECT_GRACE_MS);
+    });
+
+    it('says registryNode: absent instead of silently dropping the registry fields', async () => {
+      // The only reachable "unknown" case. `registerNode` (rpc-event-router)
+      // seeds connectedAt/lastHeartbeat/activeInstances in one object, so a
+      // known node always has all three; the sole way to have none is the
+      // registry having already dropped the node before this close fired.
+      // Reported explicitly so "could not measure" is distinguishable from
+      // "measured, and it was zero".
+      mocks.nodeMissing = true;
+      const ws = new FakeSocket();
+      registerNode(server, ws);
+
+      ws.close(1006, '');
+
+      const meta = findCloseMeta();
+      expect(meta['registryNode']).toBe('absent');
+      expect(meta).not.toHaveProperty('sessionMs');
+      expect(meta).not.toHaveProperty('heartbeatAgeMs');
+      expect(meta).not.toHaveProperty('activeInstances');
+      // The in-flight half does not come from the registry, so it survives.
+      expect(meta['inFlightWork']).toBe(0);
+
+      await vi.advanceTimersByTimeAsync(DISCONNECT_GRACE_MS);
+    });
+
+    it('emits the three registry fields together, never a partial set', async () => {
+      const now = Date.now();
+      mocks.nodeExtras = { connectedAt: now - 5_000, lastHeartbeat: now - 1_000, activeInstances: 2 };
+      const ws = new FakeSocket();
+      registerNode(server, ws);
+
+      ws.close(1006, '');
+
+      const meta = findCloseMeta();
+      expect(meta).toMatchObject({ sessionMs: 5_000, heartbeatAgeMs: 1_000, activeInstances: 2 });
+      expect(meta).not.toHaveProperty('registryNode');
+
+      await vi.advanceTimersByTimeAsync(DISCONNECT_GRACE_MS);
+    });
+
+    it('keeps the close line content-free — counts, ages and method names only', async () => {
+      mocks.nodeExtras = { connectedAt: Date.now() - 1000, lastHeartbeat: Date.now() };
+      const ws = new FakeSocket();
+      registerNode(server, ws);
+
+      const settled: Error[] = [];
+      const work = server
+        .sendRpc('node-1', 'instance.sendInput', { message: 'SENSITIVE-PAYLOAD' }, 0)
+        .catch((err: Error) => void settled.push(err));
+
+      ws.close(1006, '');
+
+      const meta = findCloseMeta();
+      // Assert the forensics were actually produced BEFORE checking what they
+      // omit. Without this the whole test passes against an empty object, so it
+      // would go on passing if the snapshot were removed entirely — proving
+      // nothing about the real implementation.
+      expect(meta['inFlightWork']).toBe(1);
+      expect(meta['inFlightMethods']).toEqual(['instance.sendInput']);
+      expect(meta).toHaveProperty('heartbeatAgeMs');
+      // The method name crosses; the params it carried do not.
+      expect(JSON.stringify(meta)).not.toContain('SENSITIVE-PAYLOAD');
+
+      await vi.advanceTimersByTimeAsync(DISCONNECT_GRACE_MS);
+      await work;
+      expect(settled).toHaveLength(1);
+    });
   });
 });

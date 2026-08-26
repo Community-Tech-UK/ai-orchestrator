@@ -76,6 +76,7 @@ import { buildCliSpawnOptions } from '../cli-environment';
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
 import type { ProviderConcurrencyLimiter } from '../provider-concurrency-limiter';
 import { toAcpPromptBlockFromAttachment } from './acp-attachment-blocks';
+import { DEFAULT_ACTIVE_TOOL_TIMEOUT_MS, hasActiveAcpToolCall } from './acp-prompt-timeout-policy';
 import { buildRetryRecoveredMessage, buildRetryStateMessage } from './acp-retry-state';
 import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
 const logger = getLogger('AcpCliAdapter');
@@ -237,6 +238,8 @@ export interface AcpCliAdapterConfig extends Omit<CliAdapterConfig, 'command' | 
    *  this is intentionally looser than `requestTimeoutMs`. Defaults to
    *  {@link DEFAULT_PROMPT_TIMEOUT_MS}. */
   promptTimeoutMs?: number;
+  /** Inactivity timeout while an ACP tool call is pending or in progress. */
+  activeToolTimeoutMs?: number;
   /** Provider concurrency gate. When set, `spawn()` will block until a
    *  slot keyed on `concurrencyKey` is available. Prevents unbounded
    *  ACP fan-out (observed: 5+ Copilot children spawned simultaneously,
@@ -326,6 +329,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       permissionRequestTimeoutMs: 60_000,
       requestTimeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
       promptTimeoutMs: DEFAULT_PROMPT_TIMEOUT_MS,
+      activeToolTimeoutMs: DEFAULT_ACTIVE_TOOL_TIMEOUT_MS,
       stallWarningMs: DEFAULT_STALL_WARNING_MS,
       ...config,
     };
@@ -549,6 +553,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
     };
 
     const responseId = this.generateResponseId();
+    this.toolCalls.clear();
     this.currentPrompt = {
       responseId,
       startedAt: Date.now(),
@@ -601,6 +606,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
     } finally {
       this.currentPrompt = null;
       this.currentPromptRequestId = null;
+      this.toolCalls.clear();
       this.clearStallWatchdog();
     }
   }
@@ -1230,6 +1236,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
           sessionUpdate,
         });
     }
+    this.refreshCurrentPromptTimeout();
   }
 
   private handleMessageChunk(update: Extract<AcpSessionUpdate, { sessionUpdate: 'agent_message_chunk' | 'user_message_chunk' }>): void {
@@ -2129,17 +2136,16 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
   private refreshCurrentPromptTimeout(): void {
     const id = this.currentPromptRequestId;
-    if (!id) {
-      return;
-    }
+    if (!id) return;
 
     const pending = this.pendingRequests.get(id);
-    if (!pending || pending.method !== 'session/prompt') {
-      return;
-    }
+    if (!pending || pending.method !== 'session/prompt') return;
 
+    const timeoutMs = hasActiveAcpToolCall(this.toolCalls.values())
+      ? this.acpConfig.activeToolTimeoutMs ?? DEFAULT_ACTIVE_TOOL_TIMEOUT_MS
+      : pending.timeoutMs;
     clearTimeout(pending.timer);
-    pending.timer = this.createRequestTimeout(id, pending.method, pending.timeoutMs);
+    pending.timer = this.createRequestTimeout(id, pending.method, timeoutMs);
   }
 
   private cancelTimedOutPrompt(id: string, timeoutMs: number): void {

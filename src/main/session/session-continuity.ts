@@ -33,6 +33,7 @@ import { getSessionPersistenceQueue } from './session-persistence-queue';
 import { computeResumeConfigFingerprint } from '../instance/lifecycle/session-recovery';
 import type { ProviderRuntimeSnapshot } from '../cli/adapters/base-cli-adapter';
 import { isLegacyRedactedToolOutput } from './redacted-tool-output';
+import { retainedPromptsMissingFrom } from '../instance/prompt-retention';
 import type {
   ContinuityConfig,
   ConversationEntry,
@@ -1250,7 +1251,13 @@ export class SessionContinuityManager extends EventEmitter {
       temperature: undefined,
       maxTokens: undefined,
       conversationHistory: persistContent
-        ? this.normalizeConversationHistory(instance.outputBuffer.map((msg, idx) => ({
+        // Prompts a trim already evicted are still part of the conversation.
+        // Without them a hibernate/wake round trip loses the original request
+        // for good — the live buffer is all this ever captured.
+        ? this.normalizeConversationHistory([
+            ...retainedPromptsMissingFrom(instance.retainedPrompts, instance.outputBuffer),
+            ...instance.outputBuffer,
+          ].map((msg, idx) => ({
             id: `msg-${idx}`,
             role:
               msg.type === 'user'

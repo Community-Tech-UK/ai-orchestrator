@@ -549,6 +549,13 @@ export interface Instance {
   // Output
   outputBuffer: OutputMessage[];
   outputBufferMaxSize: number;
+  /**
+   * Bounded copy of user prompts already evicted from `outputBuffer`, kept so
+   * continuity can still state the original request after a trim. Held beside
+   * the buffer rather than in it: `outputBuffer` is addressed by position by
+   * fork and rewind. See `main/instance/prompt-retention.ts`.
+   */
+  retainedPrompts?: OutputMessage[];
 
   // Communication
   communicationTokens: Map<string, CommunicationToken>;
@@ -604,6 +611,13 @@ export interface InstanceCreateConfig {
   yoloMode?: boolean;
   launchMode?: InstanceLaunchMode;
   initialOutputBuffer?: OutputMessage[]; // Pre-populate output buffer (for history restore)
+  /**
+   * Pre-populate {@link Instance.retainedPrompts}. Used by fork so a branch
+   * inherits an original request its source had already trimmed out of the
+   * buffer. Kept separate from `initialOutputBuffer` because that array is
+   * addressed by position.
+   */
+  initialRetainedPrompts?: OutputMessage[];
   /**
    * True when this instance is a restored/resumed continuation of an existing
    * thread (history restore, native resume, thread wakeup). A restored session

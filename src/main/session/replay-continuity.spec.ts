@@ -75,4 +75,52 @@ describe('buildReplayContinuityMessage', () => {
       buildReplayContinuityMessage([message('s1', 'system', 'noise')], { reason: 'x' }),
     ).toBeNull();
   });
+
+  describe('original request anchor', () => {
+    it('keeps the opening prompt when it falls outside the scrollback window', () => {
+      const opening = 'Migrate the billing service off the legacy gateway.';
+      const turns = [
+        message('u0', 'user', opening),
+        ...Array.from({ length: 60 }, (_, index) =>
+          message(`a${index}`, 'assistant', `step ${index}`)),
+        message('u-last', 'user', 'carry on'),
+      ];
+
+      const preamble = buildReplayContinuityMessage(turns, {
+        reason: 'provider-change',
+        maxTurns: 4,
+      }) as string;
+
+      // The window genuinely excluded it...
+      expect(preamble).toContain('earlier turns omitted for brevity');
+      // ...but the task itself still survives.
+      expect(preamble).toContain('Original request:');
+      expect(preamble).toContain(opening);
+    });
+
+    it('omits the anchor when the opening prompt is the current objective', () => {
+      const preamble = buildReplayContinuityMessage(
+        [message('u0', 'user', 'only ever asked this')],
+        { reason: 'provider-change' },
+      ) as string;
+
+      expect(preamble).not.toContain('Original request:');
+    });
+
+    it('gives the opening prompt the larger budget rather than the scrollback one', () => {
+      // Longer than the scrollback budget, shorter than the last-turn budget,
+      // so only the anchor can reproduce it whole.
+      const opening = `OPENING-HEAD${'z'.repeat(2_000)}OPENING-TAIL`;
+      const preamble = buildReplayContinuityMessage(
+        [
+          message('u0', 'user', opening),
+          message('a0', 'assistant', 'working'),
+          message('u1', 'user', 'continue'),
+        ],
+        { reason: 'provider-change', maxCharsPerMessage: 200, maxCharsForLastTurn: 4_000 },
+      ) as string;
+
+      expect(preamble).toContain(`Original request:\n${opening}`);
+    });
+  });
 });

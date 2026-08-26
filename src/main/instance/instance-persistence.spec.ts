@@ -359,3 +359,153 @@ describe('InstancePersistenceManager', () => {
     );
   });
 });
+
+describe('InstancePersistenceManager fork prompt inheritance', () => {
+  let sourceInstance: Instance;
+  let createInstanceMock: ReturnType<typeof vi.fn>;
+  let manager: InstancePersistenceManager;
+
+  const prompt = (id: string, content: string, timestamp: number): OutputMessage =>
+    ({ id, timestamp, type: 'user', content });
+  const at = (id: string, timestamp: number): OutputMessage =>
+    ({ id, timestamp, type: 'assistant', content: id });
+
+  beforeEach(() => {
+    loadMessagesMock.mockReset().mockResolvedValue([]);
+    createInstanceMock = vi.fn(async (config: InstanceCreateConfig) =>
+      createInstance({ id: 'forked-instance', outputBuffer: config.initialOutputBuffer ?? [] }),
+    );
+    // Compaction evicted the opening prompt and wrote nothing to disk, so the
+    // retained set is the only remaining record of the original ask.
+    sourceInstance = createInstance({
+      outputBuffer: [at('live-1', 10), at('live-2', 11), at('live-3', 12)],
+      retainedPrompts: [prompt('p0', 'Migrate the billing service.', 1)],
+    });
+    manager = new InstancePersistenceManager({
+      getInstance: (id) => (id === sourceInstance.id ? sourceInstance : undefined),
+      createInstance: createInstanceMock,
+    });
+  });
+
+  it('passes the source retained prompts to the fork', async () => {
+    await manager.forkInstance({ instanceId: sourceInstance.id, atMessageIndex: 3 });
+
+    expect(createInstanceMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialRetainedPrompts: [expect.objectContaining({ id: 'p0' })],
+      }),
+    );
+  });
+
+  it('keeps them out of the forked buffer so fork indices stay addressable', async () => {
+    await manager.forkInstance({ instanceId: sourceInstance.id, atMessageIndex: 3 });
+
+    const config = createInstanceMock.mock.calls[0][0] as InstanceCreateConfig;
+    expect(config.initialOutputBuffer?.map((m) => m.id)).toEqual(['live-1', 'live-2', 'live-3']);
+  });
+
+  it('inherits the opening prompt when editing the oldest still-visible message', async () => {
+    // The reachable regression: compaction shrank the buffer, the user edits
+    // the oldest message they can still see, so forkIndex resolves to 0 and the
+    // forked slice is empty — the original ask must still survive.
+    sourceInstance.outputBuffer = [prompt('u5', 'oldest visible ask', 10), at('live-2', 11)];
+
+    await manager.forkInstance({
+      instanceId: sourceInstance.id,
+      sourceMessageId: 'u5',
+      initialPrompt: 'Actually, do it the other way.',
+      supersedeSource: true,
+    });
+
+    const config = createInstanceMock.mock.calls[0][0] as InstanceCreateConfig;
+    expect(config.initialOutputBuffer).toEqual([]);
+    expect(config.initialRetainedPrompts?.map((m) => m.id)).toEqual(['p0']);
+  });
+
+  it('drops a retained prompt the fork branched away before', async () => {
+    // Reachable only when the prompt is also on disk, since retained prompts
+    // are by construction older than anything still in the live buffer.
+    const later = prompt('p5', 'A later ask.', 5);
+    loadMessagesMock.mockResolvedValue([at('older-1', 1), later, at('older-3', 6)]);
+    sourceInstance.retainedPrompts = [later];
+
+    // forkIndex 1 keeps only 'older-1', so 'p5' is the excluded boundary.
+    await manager.forkInstance({ instanceId: sourceInstance.id, atMessageIndex: 1 });
+
+    const config = createInstanceMock.mock.calls[0][0] as InstanceCreateConfig;
+    expect(config.initialOutputBuffer?.map((m) => m.id)).toEqual(['older-1']);
+    expect(config.initialRetainedPrompts ?? []).toEqual([]);
+  });
+
+  it('anchors the original request in an edit-and-resend context block', async () => {
+    // A later prompt in the forked window, so the opening ask is no longer the
+    // current objective and must be anchored separately to survive.
+    sourceInstance.outputBuffer = [
+      at('live-1', 10),
+      prompt('u9', 'carry on', 11),
+      at('live-3', 12),
+    ];
+
+    await manager.forkInstance({
+      instanceId: sourceInstance.id,
+      atMessageIndex: 3,
+      initialPrompt: 'Actually, do it the other way.',
+      supersedeSource: true,
+    });
+
+    const config = createInstanceMock.mock.calls[0][0] as InstanceCreateConfig;
+    expect(config.initialContextBlock).toContain('Original request:');
+    expect(config.initialContextBlock).toContain('Migrate the billing service.');
+  });
+});
+
+describe('InstancePersistenceManager export prompt retention', () => {
+  const prompt = (id: string, content: string, timestamp: number): OutputMessage =>
+    ({ id, timestamp, type: 'user', content });
+  const at = (id: string, timestamp: number): OutputMessage =>
+    ({ id, timestamp, type: 'assistant', content: id });
+
+  function managerFor(instance: Instance) {
+    return new InstancePersistenceManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      createInstance: vi.fn(),
+    });
+  }
+
+  it('includes an opening prompt the live buffer no longer holds', () => {
+    const instance = createInstance({
+      outputBuffer: [at('live-1', 10)],
+      retainedPrompts: [prompt('p0', 'Migrate the billing service.', 1)],
+    });
+
+    const exported = managerFor(instance).exportSession(instance.id);
+
+    expect(exported.messages.map((m) => m.content)).toEqual([
+      'Migrate the billing service.',
+      'live-1',
+    ]);
+    expect(exported.metadata.totalMessages).toBe(2);
+  });
+
+  it('does not duplicate a prompt the buffer still holds, even under a renumbered id', () => {
+    const opening = prompt('p0', 'Migrate the billing service.', 1);
+    const instance = createInstance({
+      outputBuffer: [opening, at('live-1', 10)],
+      retainedPrompts: [prompt('restored-prompt-msg-0', 'Migrate the billing service.', 1)],
+    });
+
+    const exported = managerFor(instance).exportSession(instance.id);
+
+    expect(exported.messages).toHaveLength(2);
+  });
+
+  it('carries the retained prompt into the Markdown export too', () => {
+    const instance = createInstance({
+      outputBuffer: [at('live-1', 10)],
+      retainedPrompts: [prompt('p0', 'Migrate the billing service.', 1)],
+    });
+
+    expect(managerFor(instance).exportSessionMarkdown(instance.id))
+      .toContain('Migrate the billing service.');
+  });
+});

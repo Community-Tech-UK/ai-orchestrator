@@ -90,3 +90,48 @@ describe('SessionArchiveManager.archiveSession contextUsage (LT-018)', () => {
     expect(archivedPayload().contextUsage['occupancyReported']).toBeUndefined();
   });
 });
+
+describe('SessionArchiveManager.archiveSession prompt retention', () => {
+  beforeEach(() => {
+    writes.clear();
+    vi.resetModules();
+  });
+
+  function archivedMessages(): { content: string }[] {
+    const entry = [...writes.entries()].find(([p]) => p.endsWith('inst-archive-1.json'));
+    if (!entry) throw new Error('archive file was never written');
+    return (JSON.parse(entry[1]) as { messages: { content: string }[] }).messages;
+  }
+
+  it('archives a prompt the live buffer no longer holds', async () => {
+    const { SessionArchiveManager } = await import('./session-archive');
+    const instance = makeInstance({ used: 0, total: 200_000, percentage: 0 });
+    instance.outputBuffer = [
+      { id: 'a9', timestamp: 20, type: 'assistant', content: 'carrying on' },
+    ] as Instance['outputBuffer'];
+    instance.retainedPrompts = [
+      { id: 'p0', timestamp: 1, type: 'user', content: 'Migrate the billing service.' },
+    ] as Instance['outputBuffer'];
+
+    new SessionArchiveManager().archiveSession(instance);
+
+    expect(archivedMessages().map((m) => m.content)).toEqual([
+      'Migrate the billing service.',
+      'carrying on',
+    ]);
+  });
+
+  it('does not duplicate a prompt the buffer still holds under a renumbered id', async () => {
+    const { SessionArchiveManager } = await import('./session-archive');
+    const opening = { id: 'p0', timestamp: 1, type: 'user', content: 'Migrate the billing service.' };
+    const instance = makeInstance({ used: 0, total: 200_000, percentage: 0 });
+    instance.outputBuffer = [opening] as Instance['outputBuffer'];
+    instance.retainedPrompts = [
+      { ...opening, id: 'restored-prompt-msg-0' },
+    ] as Instance['outputBuffer'];
+
+    new SessionArchiveManager().archiveSession(instance);
+
+    expect(archivedMessages()).toHaveLength(1);
+  });
+});

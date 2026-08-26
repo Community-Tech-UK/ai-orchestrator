@@ -56,7 +56,7 @@ import {
   auxiliaryWorkerSourceKeys,
   collectAuxiliaryWorkerEndpointConfigs,
   collectAuxiliaryWorkerEndpoints,
-  modelsForAuxiliaryWorkerEndpoint,
+  resolveAuxiliaryWorkerModels,
   settleBeforeAbort,
 } from './auxiliary-discovery';
 // remote-node imports are lazy — worker-node-connection and service-rpc-client
@@ -332,12 +332,15 @@ export class AuxiliaryLlmService extends EventEmitter {
         ? await evaluateManagedAuxiliaryEndpoint(ep, slot, localAiContext)
         : undefined;
       if (ep && managedTarget !== null) {
-        const healthy = await this.isEndpointHealthy(ep);
+        // A managed target's fresh scheduler verdict is authoritative. Worker
+        // heartbeat capability data is only a discovery hint and can lag it.
+        const healthy = managedTarget ? true : await this.isEndpointHealthy(ep);
         if (!healthy) {
           invalidateManagedAuxiliaryTarget(managedTarget);
           return null;
         }
-        const ids = (await this.listModels(ep)).map((m) => m.id);
+        const ids = (await this.listModels(ep, undefined, managedTarget !== undefined))
+          .map((m) => m.id);
         if (!managedAuxiliaryModelsAvailable(managedTarget, ids)) return null;
         if (endpointAdvertisesModel(ep.source, slotConfig.model, ids)) {
           return {
@@ -426,7 +429,10 @@ export class AuxiliaryLlmService extends EventEmitter {
   ): Promise<ResolvedAuxiliaryEndpoint | null> {
     const managedTarget = await evaluateManagedAuxiliaryEndpoint(ep, slot, localAiContext);
     if (managedTarget === null) return null;
-    const healthy = await this.isEndpointHealthy(ep);
+    // Enrolled targets just passed the authoritative health engine. Do not
+    // veto that result with the worker's shorter, independently timed
+    // heartbeat probe; refresh the model inventory over RPC below instead.
+    const healthy = managedTarget ? true : await this.isEndpointHealthy(ep);
     if (!healthy) {
       invalidateManagedAuxiliaryTarget(managedTarget);
       return null;
@@ -434,7 +440,8 @@ export class AuxiliaryLlmService extends EventEmitter {
 
     // Effective tier: explicit tier, or name-based default for legacy configs.
     const tier = slotConfig.tier ?? DEFAULT_SLOT_TIERS[slot];
-    const ids = (await this.listModels(ep)).map((m) => m.id);
+    const ids = (await this.listModels(ep, undefined, managedTarget !== undefined))
+      .map((m) => m.id);
     if (!managedAuxiliaryModelsAvailable(managedTarget, ids)) return null;
     const preferred = resolveSlotModel(slotConfig, tier, this.quickModel, this.qualityModel);
     // Use a pinned/tier model only if the endpoint advertises it (see helper for
@@ -504,15 +511,12 @@ export class AuxiliaryLlmService extends EventEmitter {
   private async listModels(
     ep: AuxiliaryLlmEndpointConfig,
     signal?: AbortSignal,
+    refreshManagedWorker = false,
   ): Promise<AuxiliaryLlmModelInfo[]> {
     if (signal?.aborted) return [];
     try {
       if (ep.source === 'worker-node') {
-        // Never dial the worker's localhost — use the models reported on heartbeat.
-        return modelsForAuxiliaryWorkerEndpoint(
-          auxiliaryRemoteHooks.connectedWorkerNodes(),
-          ep,
-        );
+        return resolveAuxiliaryWorkerModels(ep, refreshManagedWorker, PROBE_TIMEOUT_MS);
       }
       if (ep.provider === 'ollama') {
         return signal

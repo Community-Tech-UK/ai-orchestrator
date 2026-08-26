@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import type { SessionDiffTracker } from './session-diff-tracker';
+import { PINNED_PROMPT_LIMIT } from './prompt-retention';
 
 // Mutable so LT-046's regression tests can flip `sessionHandoffStateEnabled`
 // without disturbing every other test's fixed defaults (outputBufferSize /
@@ -19,11 +20,14 @@ vi.mock('../core/config/settings-manager', () => ({
   }),
 }));
 
+const outputStorageMocks = vi.hoisted(() => ({
+  storeMessages: vi.fn<(instanceId: string, messages: unknown[]) => Promise<void>>(
+    () => Promise.resolve(),
+  ),
+  deleteInstance: vi.fn().mockResolvedValue(undefined),
+}));
 vi.mock('../memory', () => ({
-  getOutputStorageManager: () => ({
-    storeMessages: vi.fn(),
-    deleteInstance: vi.fn().mockResolvedValue(undefined),
-  }),
+  getOutputStorageManager: () => outputStorageMocks,
 }));
 
 vi.mock('../hooks/hook-manager', () => ({
@@ -2771,5 +2775,95 @@ describe('InstanceCommunicationManager – adapter status during wake', () => {
 
     expect(() => adapter.emit('status', 'waiting_for_input')).not.toThrow();
     expect(instance.status).toBe('waking');
+  });
+});
+
+describe('prompt retention across output buffer overflow', () => {
+  let instance: Instance;
+  let manager: InstanceCommunicationManager;
+  const bufferSize = 100;
+
+  beforeEach(() => {
+    outputStorageMocks.storeMessages.mockClear();
+    settingsManagerState.outputBufferSize = bufferSize;
+    instance = createInstance();
+    manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: () => undefined,
+      setAdapter: () => undefined,
+      deleteAdapter: () => false,
+      queueUpdate: vi.fn(),
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+      emitProviderRuntimeEvent: vi.fn(),
+      captureProviderRuntimeEvent: vi.fn(),
+    });
+  });
+
+  afterEach(() => {
+    settingsManagerState.enableDiskStorage = false;
+  });
+
+  /** Push an opening prompt, then enough tool traffic to overflow the buffer. */
+  function overflowWithOpeningPrompt(opening: string, extra = bufferSize * 2): OutputMessage {
+    const prompt = createMessage('user', opening);
+    manager.addToOutputBuffer(instance, prompt);
+    for (let i = 0; i < extra; i++) {
+      manager.addToOutputBuffer(instance, createMessage('tool_result', `noise ${i}`));
+    }
+    return prompt;
+  }
+
+  it('retains the opening prompt after it is evicted from the buffer', () => {
+    const prompt = overflowWithOpeningPrompt('Migrate the billing service.');
+
+    expect(instance.outputBuffer.some((m) => m.id === prompt.id)).toBe(false);
+    expect(instance.retainedPrompts?.map((m) => m.content)).toEqual(['Migrate the billing service.']);
+  });
+
+  it('retains the opening prompt even when disk storage is disabled', () => {
+    settingsManagerState.enableDiskStorage = false;
+
+    const prompt = overflowWithOpeningPrompt('Disk storage is off.');
+
+    expect(outputStorageMocks.storeMessages).not.toHaveBeenCalled();
+    expect(instance.retainedPrompts?.some((m) => m.id === prompt.id)).toBe(true);
+  });
+
+  it('leaves outputBuffer positions untouched so fork and rewind stay addressable', () => {
+    overflowWithOpeningPrompt('First thing asked.');
+
+    // Exactly the newest bufferSize messages, nothing spliced in front.
+    expect(instance.outputBuffer).toHaveLength(bufferSize);
+    expect(instance.outputBuffer.every((m) => m.type === 'tool_result')).toBe(true);
+  });
+
+  it('keeps the retained set bounded under sustained prompt traffic', () => {
+    manager.addToOutputBuffer(instance, createMessage('user', 'opening'));
+    for (let i = 0; i < bufferSize * 5; i++) {
+      manager.addToOutputBuffer(instance, createMessage('user', `prompt ${i}`));
+    }
+
+    expect(instance.retainedPrompts!.length).toBeLessThanOrEqual(PINNED_PROMPT_LIMIT);
+    expect(instance.retainedPrompts![0].content).toBe('opening');
+  });
+
+  it('does not touch retainedPrompts when the buffer never overflows', () => {
+    manager.addToOutputBuffer(instance, createMessage('user', 'short session'));
+
+    expect(instance.retainedPrompts).toBeUndefined();
+  });
+
+  it('still persists overflow to disk when disk storage is on', () => {
+    settingsManagerState.enableDiskStorage = true;
+
+    const prompt = overflowWithOpeningPrompt('Anything.');
+
+    const persisted = outputStorageMocks.storeMessages.mock.calls
+      .flatMap(([, messages]) => messages as OutputMessage[]);
+    expect(persisted.some((m) => m.id === prompt.id)).toBe(true);
+    expect(persisted.some((m) => m.type === 'tool_result')).toBe(true);
   });
 });

@@ -46,6 +46,7 @@ import type {
 } from './instance-types';
 import type { InstanceContextPort } from './instance-context-port';
 import { isOccupancyPressureReading } from '../../shared/utils/context-occupancy';
+import { COMPACTION_KEEP_RECENT, trimBufferRetainingPrompts } from './prompt-retention';
 import {
   buildMcpRuntimeToolContextSelection,
   type MCPToolSearchSnapshot,
@@ -255,14 +256,11 @@ export class InstanceContextManager implements InstanceContextPort {
     this.cleanupInstanceJIT(instanceId);
     logger.info('JIT cache cleared during compaction', { instanceId });
 
-    // 3. Trim the output buffer to keep only recent messages
-    const maxRecentMessages = 50; // Keep last 50 messages
-    if (instance.outputBuffer.length > maxRecentMessages) {
-      const trimCount = instance.outputBuffer.length - maxRecentMessages;
+    // 3. Trim the output buffer to keep only recent messages, retaining the
+    // prompts it evicts — compaction persists nothing to output storage.
+    const trimCount = trimBufferRetainingPrompts(instance, COMPACTION_KEEP_RECENT);
+    if (trimCount > 0) {
       logger.info('Trimming older messages from buffer during compaction', { instanceId, trimCount });
-
-      // Keep only the most recent messages
-      instance.outputBuffer = instance.outputBuffer.slice(-maxRecentMessages);
     }
 
     logger.info('Context compaction complete', { instanceId });

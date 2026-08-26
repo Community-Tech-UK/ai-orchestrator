@@ -8,6 +8,9 @@ import {
 } from '../../shared/types/auxiliary-llm.types';
 import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
 import { hostKeyFromUrl } from './auxiliary-llm-utils';
+import { auxiliaryRemoteHooks } from './auxiliary-remote-hooks';
+
+const AUXILIARY_MODEL_LIST_METHOD = 'auxiliaryModel.list';
 
 export interface AuxiliaryWorkerEndpoint {
   endpoint: AuxiliaryLlmEndpointConfig;
@@ -99,6 +102,38 @@ export function modelsForAuxiliaryWorkerEndpoint(
     }
   }
   return [];
+}
+
+/**
+ * Resolve a worker model inventory without ever dialing the worker's localhost
+ * from the coordinator. Managed targets refresh over service RPC after their
+ * authoritative health check; unmanaged targets retain heartbeat discovery.
+ */
+export async function resolveAuxiliaryWorkerModels(
+  endpoint: AuxiliaryLlmEndpointConfig,
+  refreshManagedWorker: boolean,
+  timeoutMs: number,
+): Promise<AuxiliaryLlmModelInfo[]> {
+  if (!refreshManagedWorker) {
+    return modelsForAuxiliaryWorkerEndpoint(
+      auxiliaryRemoteHooks.connectedWorkerNodes(),
+      endpoint,
+    );
+  }
+  if (!endpoint.workerNodeId) return [];
+
+  const result = await auxiliaryRemoteHooks.sendServiceRpc<{ models?: unknown }>(
+    endpoint.workerNodeId,
+    AUXILIARY_MODEL_LIST_METHOD,
+    { provider: endpoint.provider },
+    timeoutMs,
+  );
+  const modelIds = Array.isArray(result.models)
+    ? result.models
+        .slice(0, AUXILIARY_DISCOVERY_MAX_MODELS)
+        .filter((model): model is string => typeof model === 'string')
+    : [];
+  return materializeAuxiliaryWorkerModels(modelIds, endpoint);
 }
 
 function collectAuxiliaryWorkerEndpointSources(

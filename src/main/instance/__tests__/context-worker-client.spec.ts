@@ -549,6 +549,27 @@ describe('ContextWorkerClient', () => {
     expect((instance.outputBuffer[0] as { id: string }).id).toBe('m10');
   });
 
+  it('compactContext retains evicted prompts so the original ask survives', async () => {
+    // Compaction writes nothing to disk storage, so the retained set is the
+    // only place an evicted prompt can survive.
+    const instance = makeInstance({
+      outputBuffer: [
+        { id: 'p0', type: 'user', content: 'Migrate the billing service.', timestamp: 1 },
+        ...Array.from({ length: 60 }, (_, i) => ({
+          id: `m${i}`, type: 'tool_result', content: `noise ${i}`, timestamp: i + 2,
+        })),
+      ],
+    });
+
+    const promise = client.compactContext('inst-1', instance);
+    const postedMsg = fakeWorker.postMessage.mock.calls[0]?.[0] as { id: number };
+    fakeWorker.emit('message', { type: 'rpc-response', id: postedMsg.id });
+
+    await promise;
+    expect(instance.outputBuffer.some((m) => (m as { id: string }).id === 'p0')).toBe(false);
+    expect(instance.retainedPrompts?.map((m) => m.content)).toEqual(['Migrate the billing service.']);
+  });
+
   it('compactContext does not trim if buffer is under 50 messages', async () => {
     const instance = makeInstance({
       outputBuffer: Array.from({ length: 30 }, (_, i) => ({ id: `m${i}` })),

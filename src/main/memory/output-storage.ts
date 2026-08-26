@@ -51,6 +51,41 @@ function promptExcerpt(content: string): string {
   return `${text.slice(0, PROMPT_EXCERPT_MAX_LENGTH - 1).trimEnd()}…`;
 }
 
+/**
+ * Build the transcript jump-rail's prompt index from every source that can hold
+ * a user prompt.
+ *
+ * Disk storage plus the live buffer is not enough: compaction evicts messages
+ * without writing anything to output storage, so a prompt it dropped is in
+ * neither and the rail would simply stop listing it. Retained prompts can also
+ * arrive under a renumbered id after a hibernate/wake cycle, so they are
+ * matched on timestamp rather than id.
+ */
+export function mergePromptIndex(
+  stored: readonly UserPromptRef[],
+  outputBuffer: readonly OutputMessage[],
+  retainedPrompts: readonly OutputMessage[] | undefined,
+): UserPromptRef[] {
+  const byId = new Map<string, UserPromptRef>(stored.map((prompt) => [prompt.id, prompt]));
+  for (const prompt of toPromptRefs(outputBuffer as OutputMessage[])) {
+    byId.set(prompt.id, prompt);
+  }
+
+  const seenAt = new Set([...byId.values()].map((prompt) => prompt.timestamp));
+  const bufferIdentities = new Set(
+    outputBuffer.map((message) => `${message.timestamp}\u0000${message.content}`),
+  );
+  for (const message of retainedPrompts ?? []) {
+    if (bufferIdentities.has(`${message.timestamp}\u0000${message.content}`)) continue;
+    const [ref] = toPromptRefs([message]);
+    if (!ref || seenAt.has(ref.timestamp)) continue;
+    seenAt.add(ref.timestamp);
+    byId.set(ref.id, ref);
+  }
+
+  return [...byId.values()].sort((a, b) => a.timestamp - b.timestamp);
+}
+
 /** Map user messages to prompt refs — shared with the prompt-index IPC handler. */
 export function toPromptRefs(messages: OutputMessage[]): UserPromptRef[] {
   return messages

@@ -25,6 +25,7 @@ import {
   trustedPlatformFromParams,
   summarizeRpcParams,
   withConnectionAddress,
+  describeWorkerCloseForensics,
 } from './worker-node-connection-helpers';
 import { bindWorkerNodeRosterUpdates } from './worker-node-roster-updates';
 import { ConnectionDisconnectLifecycle } from './connection-disconnect-lifecycle';
@@ -438,7 +439,13 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       }
       this.nodeToSocket.delete(nodeId);
       this.socketToNode.delete(ws);
-      logger.info('Worker WebSocket closed', { nodeId, closeCode, closeReason });
+      const node = getWorkerNodeRegistry().getNode(nodeId);
+      const forensics = describeWorkerCloseForensics({
+        node,
+        pending: [...this.pending.values()],
+        nodeId,
+      });
+      logger.info('Worker WebSocket closed', { nodeId, closeCode, closeReason, ...forensics });
       // Defensive depth against a flap storm: do NOT immediately deregister the
       // node or fail its in-flight RPCs. A flapping link (or a fast worker
       // reconnect) frequently re-registers within the grace window; the node's

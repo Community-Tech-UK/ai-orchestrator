@@ -14,6 +14,7 @@ import type { CliType } from '../../cli/cli-detection';
 import { getProviderModelContextWindow } from '../../../shared/types/provider.types';
 import { generateId } from '../../../shared/utils/id-generator';
 import { buildReplayContinuityMessage as buildSharedReplayContinuityMessage } from '../../session/replay-continuity';
+import { retainedPromptsMissingFrom } from '../prompt-retention';
 import {
   buildFallbackHistoryMessage,
   buildFreshFallbackDegradationNotice,
@@ -116,7 +117,15 @@ export class RestartPolicyHelpers {
         error: error instanceof Error ? error.message : String(error),
       });
     }
-    const replay = buildSharedReplayContinuityMessage(this.activeMessages.getActiveMessages(instance), { reason })
+    // Prompts evicted by a buffer trim live beside the buffer, so restore them
+    // ahead of the active window — otherwise the preamble's original-request
+    // anchor has nothing older than the retained tail to anchor to.
+    const activeMessages = this.activeMessages.getActiveMessages(instance);
+    const replayMessages = [
+      ...retainedPromptsMissingFrom(instance.retainedPrompts, activeMessages),
+      ...activeMessages,
+    ];
+    const replay = buildSharedReplayContinuityMessage(replayMessages, { reason })
       || [
         '[SYSTEM CONTINUITY NOTICE]',
         `Native resume is unavailable for this provider. Continuity mode is replay-based (${reason}).`,
@@ -145,6 +154,14 @@ export class RestartPolicyHelpers {
       if (seenIds.has(m.id)) continue;
       seenIds.add(m.id);
       deduped.push(m);
+    }
+    // Prompts evicted by a trim are on disk only when disk storage is on and
+    // its fire-and-forget write succeeded, and compaction never writes at all —
+    // so the retained set is the only guaranteed source for the original ask.
+    const missingPrompts = retainedPromptsMissingFrom(instance.retainedPrompts, deduped);
+    if (missingPrompts.length > 0) {
+      deduped.push(...missingPrompts);
+      deduped.sort((a, b) => a.timestamp - b.timestamp);
     }
     const activeMessages = this.activeMessages.getActiveMessages({
       outputBuffer: deduped,

@@ -5,6 +5,7 @@
 import { getOutputStorageManager } from '../memory';
 import { getLogger } from '../logging/logger';
 import { buildReplayContinuityMessage } from '../session/replay-continuity';
+import { retainedPromptsForFork, retainedPromptsMissingFrom } from './prompt-retention';
 import type {
   Instance,
   InstanceCreateConfig,
@@ -95,9 +96,19 @@ export class InstancePersistenceManager {
     //      for this thread on disk.
     // Non-supersede forks (explicit divergent branches) keep getting a fresh
     // threadId so both branches remain independently visible.
+    // A trim may have evicted the original ask from every source
+    // buildForkSourceMessages can see, so carry the source's retained prompts
+    // across. Kept out of forkedMessages itself: `atMessageIndex` addresses
+    // that array by position.
+    const inheritedPrompts = retainedPromptsForFork(
+      sourceInstance.retainedPrompts,
+      forkedMessages,
+      forkSourceMessages[forkIndex],
+    );
     const initialContextBlock = this.buildInitialContextBlockForFork(
       forkedMessages,
       config,
+      inheritedPrompts,
     );
     const forkedInstance = await this.deps.createInstance({
       workingDirectory: sourceInstance.workingDirectory,
@@ -124,6 +135,7 @@ export class InstancePersistenceManager {
         ? undefined
         : { ...sourceInstance.metadata },
       initialOutputBuffer: forkedMessages,
+      initialRetainedPrompts: inheritedPrompts,
       initialPrompt: config.initialPrompt,
       initialContextBlock,
       attachments: config.attachments ?? sourceMessage?.attachments,
@@ -185,6 +197,7 @@ export class InstancePersistenceManager {
   private buildInitialContextBlockForFork(
     forkedMessages: OutputMessage[],
     config: ForkConfig,
+    inheritedPrompts: readonly OutputMessage[] = [],
   ): string | undefined {
     const hasInitialPayload =
       (typeof config.initialPrompt === 'string' && config.initialPrompt.length > 0)
@@ -196,7 +209,10 @@ export class InstancePersistenceManager {
     const reason = config.supersedeSource === true
       ? 'edit-and-resend-fork'
       : 'session-fork';
-    const continuity = buildReplayContinuityMessage(forkedMessages, { reason });
+    const continuity = buildReplayContinuityMessage(
+      [...inheritedPrompts, ...forkedMessages],
+      { reason },
+    );
     if (!continuity) {
       return undefined;
     }
@@ -246,6 +262,14 @@ export class InstancePersistenceManager {
       throw new Error(`Instance ${instanceId} not found`);
     }
 
+    // A trim may already have evicted the opening prompt from the live buffer.
+    // Exporting the buffer alone would hand the user a transcript missing the
+    // request that started the conversation.
+    const messages = [
+      ...retainedPromptsMissingFrom(instance.retainedPrompts, instance.outputBuffer),
+      ...instance.outputBuffer,
+    ].sort((a, b) => a.timestamp - b.timestamp);
+
     return {
       version: '1.0',
       exportedAt: Date.now(),
@@ -255,10 +279,10 @@ export class InstancePersistenceManager {
         workingDirectory: instance.workingDirectory,
         agentId: instance.agentId,
         agentMode: instance.agentMode,
-        totalMessages: instance.outputBuffer.length,
+        totalMessages: messages.length,
         contextUsage: instance.contextUsage
       },
-      messages: instance.outputBuffer
+      messages
     };
   }
 

@@ -16,6 +16,7 @@ import { getChildResultStorage } from '../orchestration/child-result-storage';
 import { getSnapshotManager } from '../persistence/snapshot-manager';
 import { redactAllSecrets, redactLogOutput } from '../security/secret-redaction';
 import { getSessionContinuityManager } from './session-continuity';
+import { retainedPromptsMissingFrom } from '../instance/prompt-retention';
 
 const logger = getLogger('SessionShareService');
 
@@ -133,7 +134,13 @@ export class SessionShareService {
     return this.buildBundle({
       source,
       workingDirectory: instance.workingDirectory,
-      messages: instance.outputBuffer,
+      // A trim may already have evicted the opening prompt from the buffer, and
+      // a replayed bundle is imported as a live session — one built from the
+      // buffer alone resumes with no idea what was originally asked.
+      messages: [
+        ...retainedPromptsMissingFrom(instance.retainedPrompts, instance.outputBuffer),
+        ...instance.outputBuffer,
+      ].sort((a, b) => a.timestamp - b.timestamp),
       parentId: instance.id,
     });
   }

@@ -30,6 +30,7 @@ import { getLoopCoordinator } from '../orchestration/loop-coordinator';
 import { getLoopStore } from '../orchestration/loop-store';
 import { prepareLoopStartConfig as prepareDefaultLoopStartConfig } from '../orchestration/loop-start-config';
 import { buildReplayContinuityMessage } from '../session/replay-continuity';
+import { retainedPromptsMissingFrom } from '../instance/prompt-retention';
 import {
   buildLoopInterveneChatEvent,
   buildLoopStartChatEvent,
@@ -487,7 +488,13 @@ function buildExistingSessionContext(
     return undefined;
   }
 
-  const context = buildReplayContinuityMessage(outputBuffer, {
+  // A trim may already have evicted the opening prompt from the buffer; the
+  // retained set is what still carries it.
+  const messages = [
+    ...retainedPromptsMissingFrom(instance.retainedPrompts, outputBuffer),
+    ...outputBuffer,
+  ];
+  const context = buildReplayContinuityMessage(messages, {
     reason: 'loop-existing-session',
     maxTurns: 24,
     maxCharsPerMessage: 1000,

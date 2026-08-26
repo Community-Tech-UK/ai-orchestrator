@@ -5868,7 +5868,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3363
+      "lines": 3355
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase1-contracts-package_completed.md",
@@ -5883,6 +5883,10 @@
       "lines": 2904
     },
     {
+      "path": "src/main/instance/instance-communication.spec.ts",
+      "lines": 2870
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-16-worker-agent-autostart-service.md",
       "lines": 2867
     },
@@ -5895,10 +5899,6 @@
       "lines": 2829
     },
     {
-      "path": "src/main/instance/instance-communication.spec.ts",
-      "lines": 2776
-    },
-    {
       "path": "docs/superpowers/plans/2026-03-20-cross-model-review_completed.md",
       "lines": 2734
     },
@@ -5908,7 +5908,7 @@
     },
     {
       "path": "src/main/instance/instance-communication.ts",
-      "lines": 2719
+      "lines": 2726
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave5-orchestration-hud-verification-verdicts-plan_completed.md",
@@ -5944,7 +5944,7 @@
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.ts",
-      "lines": 2205
+      "lines": 2211
     },
     {
       "path": "src/main/cli/adapters/claude-cli-adapter.ts",
@@ -5995,6 +5995,10 @@
       "lines": 1957
     },
     {
+      "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
+      "lines": 1912
+    },
+    {
       "path": "src/main/orchestration/default-invokers.loop.spec.ts",
       "lines": 1872
     },
@@ -6011,12 +6015,12 @@
       "lines": 1863
     },
     {
-      "path": "docs/superpowers/plans/2026-04-01-claude-code-hardening.md",
-      "lines": 1830
+      "path": "src/main/session/session-continuity.ts",
+      "lines": 1832
     },
     {
-      "path": "src/main/session/session-continuity.ts",
-      "lines": 1825
+      "path": "docs/superpowers/plans/2026-04-01-claude-code-hardening.md",
+      "lines": 1830
     },
     {
       "path": "packages/contracts/src/types/transport.types.ts",
@@ -6027,12 +6031,12 @@
       "lines": 1803
     },
     {
-      "path": "src/main/browser-gateway/browser-extension-assets.spec.ts",
-      "lines": 1773
+      "path": "src/main/rlm/__tests__/auxiliary-llm-service.spec.ts",
+      "lines": 1784
     },
     {
-      "path": "src/main/rlm/__tests__/auxiliary-llm-service.spec.ts",
-      "lines": 1725
+      "path": "src/main/browser-gateway/browser-extension-assets.spec.ts",
+      "lines": 1773
     },
     {
       "path": "src/main/local-ai-guard/local-ai-health-repository.spec.ts",
@@ -6047,8 +6051,8 @@
       "lines": 1635
     },
     {
-      "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
-      "lines": 1635
+      "path": "src/main/history/history-manager.ts",
+      "lines": 1631
     },
     {
       "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
@@ -6061,10 +6065,6 @@
     {
       "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
       "lines": 1613
-    },
-    {
-      "path": "src/main/history/history-manager.ts",
-      "lines": 1612
     },
     {
       "path": "docs/superpowers/plans/2026-05-02-full-voice-conversation_completed.md",
@@ -6187,6 +6187,10 @@
       "lines": 1324
     },
     {
+      "path": "src/main/history/history-manager.spec.ts",
+      "lines": 1317
+    },
+    {
       "path": "src/main/cli/adapters/__tests__/cursor-cli-adapter.spec.ts",
       "lines": 1315
     },
@@ -6216,11 +6220,11 @@
     },
     {
       "path": "src/main/ipc/handlers/instance-handlers.ts",
-      "lines": 1280
+      "lines": 1277
     },
     {
       "path": "src/main/instance/instance-context.ts",
-      "lines": 1272
+      "lines": 1270
     },
     {
       "path": "src/main/local-ai-guard/local-ai-incident-service.spec.ts",
@@ -6297,10 +6301,6 @@
     {
       "path": "src/main/cli/adapters/copilot-cli-adapter.ts",
       "lines": 1222
-    },
-    {
-      "path": "src/main/history/history-manager.spec.ts",
-      "lines": 1221
     },
     {
       "path": "src/main/orchestration/__tests__/campaign-coordinator.spec.ts",

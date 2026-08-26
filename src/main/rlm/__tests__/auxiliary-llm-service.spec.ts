@@ -1028,6 +1028,10 @@ describe('AuxiliaryLlmService — worker-node discovery and routing', () => {
     // Restore production seams so other spec files in this fork aren't affected.
     const { __resetAuxiliaryRemoteHooksForTesting } = await import('../auxiliary-llm-service');
     __resetAuxiliaryRemoteHooksForTesting();
+    const { __resetLocalAiAuxiliaryHooksForTesting } = await import(
+      '../../local-ai-guard/local-ai-auxiliary-bridge'
+    );
+    __resetLocalAiAuxiliaryHooksForTesting();
   });
 
   function seedConnectedWorker() {
@@ -1104,6 +1108,61 @@ describe('AuxiliaryLlmService — worker-node discovery and routing', () => {
     // its ~4k default for long-input slots.
     expect((params as { numCtx: number }).numCtx).toBeGreaterThanOrEqual(4096);
     expect(mocks.generateOllama).not.toHaveBeenCalled();
+  });
+
+  it('routes through a freshly healthy managed worker when its heartbeat health is stale', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOllama.mockResolvedValue(false);
+    remoteState.nodes = [{
+      id: 'node-stale-heartbeat',
+      name: 'Windows 5090',
+      status: 'connected',
+      capabilities: {
+        localModelEndpoints: [{
+          provider: 'ollama',
+          baseUrl: 'http://127.0.0.1:11434',
+          models: [],
+          healthy: false,
+        }],
+      },
+    }];
+    remoteState.connected = new Set(['node-stale-heartbeat']);
+    remoteState.rpc = vi.fn(async (_nodeId: string, method: string) => (
+      method === 'auxiliaryModel.list'
+        ? { models: ['gemma4:26b'] }
+        : { text: 'title from worker' }
+    ));
+    const { __setLocalAiAuxiliaryHooksForTesting } = await import(
+      '../../local-ai-guard/local-ai-auxiliary-bridge'
+    );
+    __setLocalAiAuxiliaryHooksForTesting({
+      findTarget: () => ({
+        id: 'managed-worker-target',
+        expectedModels: [{ modelId: 'gemma4:26b', required: true }],
+      }) as never,
+      evaluateLocalTarget: async () => ({ eligible: true, reason: 'fresh health passed' }),
+      acquireTarget: () => () => undefined,
+      invalidateTarget: vi.fn(),
+      authorizeFallback: async () => ({
+        allowed: false,
+        disposition: 'blocked',
+        policy: 'block-paid-fallback',
+        routingEventId: 'unused',
+      }),
+      markFallbackDispatched: vi.fn(),
+    });
+    service.configure(baseSettings({ auxiliaryLlmUseLocalhostOllama: false }));
+
+    const result = await service.generate('titleGeneration', 'Name the session.', 'Fix title routing.');
+
+    expect(result.text).toBe('title from worker');
+    expect(result.decision.source).toBe('local');
+    expect(result.decision.model).toBe('gemma4:26b');
+    expect(remoteState.rpc.mock.calls.map(([, method]) => method)).toEqual([
+      'auxiliaryModel.list',
+      'auxiliaryModel.generate',
+    ]);
   });
 
   it('normalizes at most 100 worker heartbeat models across auto-routing', async () => {

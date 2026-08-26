@@ -42,6 +42,8 @@ const AUX_SLOT_TIMEOUT_MIGRATION_KEY =
   '__migration_auxiliary_slot_timeouts_20260606';
 const AUX_FRONTIER_FALLBACK_MIGRATION_KEY =
   '__migration_auxiliary_frontier_fallback_20260606';
+const AUX_TITLE_FRONTIER_FALLBACK_DISABLED_MIGRATION_KEY =
+  '__migration_auxiliary_title_frontier_fallback_disabled_20260825';
 const AUX_SLOT_TIERS_MIGRATION_KEY =
   '__migration_auxiliary_slot_tiers_20260609';
 const AUX_TITLE_BUDGET_MIGRATION_KEY =
@@ -273,6 +275,42 @@ function migrateAuxiliaryFrontierFallbackDefault(store: SettingsMigrationStore):
   store.persistRawSetting(AUX_FRONTIER_FALLBACK_MIGRATION_KEY, true);
 }
 
+/**
+ * Disable paid fallback for title generation on existing installs.
+ *
+ * Titles are advisory and already have a deterministic fallback, so a transient
+ * local-worker miss must not silently spend money. New installs inherit the
+ * disabled default; this one-shot brings forward profiles that persisted the
+ * earlier opt-in value. A user can explicitly re-enable it after migration.
+ */
+function migrateTitleGenerationFrontierFallbackDefault(
+  store: SettingsMigrationStore,
+): void {
+  if (store.get(AUX_TITLE_FRONTIER_FALLBACK_DISABLED_MIGRATION_KEY) === true) {
+    return;
+  }
+
+  const raw = store.get('auxiliaryLlmSlotsJson');
+  if (typeof raw === 'string') {
+    try {
+      const slots = JSON.parse(raw) as Record<
+        string,
+        { allowFrontierFallback?: boolean } | undefined
+      >;
+      const titleGeneration = slots['titleGeneration'];
+      if (titleGeneration?.allowFrontierFallback === true) {
+        logger.info('Disabling persisted paid fallback for title generation');
+        titleGeneration.allowFrontierFallback = false;
+        store.persistSetting('auxiliaryLlmSlotsJson', JSON.stringify(slots));
+      }
+    } catch {
+      // Malformed JSON — leave as-is; AuxiliaryLlmService falls back to defaults.
+    }
+  }
+
+  store.persistRawSetting(AUX_TITLE_FRONTIER_FALLBACK_DISABLED_MIGRATION_KEY, true);
+}
+
 function migrateAuxiliarySlotTiers(store: SettingsMigrationStore): void {
   if (store.get(AUX_SLOT_TIERS_MIGRATION_KEY) === true) {
     return;
@@ -464,6 +502,9 @@ export function runSettingsMigrations(store: SettingsMigrationStore): void {
   // `false` while it was inert; flip the two text slots back to the new `true`
   // default so they don't silently lose primary-LLM quality on upgrade.
   migrateAuxiliaryFrontierFallbackDefault(store);
+  // Titles have a deterministic fallback and should never incur an automatic
+  // paid call merely because a local worker was momentarily unavailable.
+  migrateTitleGenerationFrontierFallbackDefault(store);
   // Existing installs persisted slot configs before the quick/quality tier
   // feature; backfill each slot's `tier` so the model-tier selection and UI
   // reflect sensible defaults instead of "none".

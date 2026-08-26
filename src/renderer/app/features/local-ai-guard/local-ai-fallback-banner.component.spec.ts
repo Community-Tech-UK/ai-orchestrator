@@ -263,106 +263,15 @@ describe('LocalAiFallbackBannerComponent', () => {
     expect(fixture.nativeElement.textContent).not.toContain('/Users/');
   });
 
-  it('LT-189: renders a passive notify-and-allow notification alongside the require-confirmation banner', () => {
+  it('does not render passive automatic-fallback messages alongside a decision prompt', () => {
     pendingFallbacks.set([request('oldest', 1_000)]);
     fallbackNotifications.set([notification('event-1')]);
     fixture.detectChanges();
 
-    // Both surfaces render at once — the notification is not blocked or
-    // hidden by an unrelated pending confirmation.
     expect(fixture.nativeElement.querySelector('.local-ai-fallback-banner')).not.toBeNull();
-    const row = fixture.nativeElement.querySelector(
-      '.fallback-notification[data-event-id="event-1"]',
-    ) as HTMLElement;
-    expect(row).not.toBeNull();
-    expect(row.textContent).toContain('Paid fallback happened automatically');
-    expect(row.textContent).toContain('Compression');
-    expect(row.textContent).toContain('$0.0125 estimated');
-    // Informational only — no accept/reject controls, only a dismiss.
-    expect(row.querySelectorAll('button')).toHaveLength(1);
-    expect(row.querySelector('button')?.textContent?.trim()).toBe('Dismiss');
-  });
-
-  it('LT-189: shows "Cost unknown" for an unpriced notify-and-allow event rather than a confident $0', () => {
-    fallbackNotifications.set([notification('event-1', { estimatedCostUsd: undefined })]);
-    fixture.detectChanges();
-
-    const row = fixture.nativeElement.querySelector(
-      '.fallback-notification[data-event-id="event-1"]',
-    ) as HTMLElement;
-    expect(row.textContent).toContain('Cost unknown');
-    expect(row.textContent).not.toContain('$0.0000');
-  });
-
-  it('groups a same-slot burst into one notification with an aggregate cost', () => {
-    fallbackNotifications.set([
-      notification('event-1', { slot: 'titleGeneration', createdAt: 1_000, estimatedCostUsd: 0.001 }),
-      notification('event-2', { slot: 'titleGeneration', createdAt: 2_000, estimatedCostUsd: 0.002 }),
-      notification('event-3', { slot: 'titleGeneration', createdAt: 3_000, knownCostUsd: 0.003 }),
-    ]);
-    fixture.detectChanges();
-
-    const rows = fixture.nativeElement.querySelectorAll('.fallback-notification');
-    expect(rows).toHaveLength(1);
-    const row = rows[0] as HTMLElement;
-    expect(row.getAttribute('data-event-id')).toBeNull();
-    expect(row.getAttribute('data-event-ids')).toBe('event-3,event-2,event-1');
-    expect(row.textContent).toContain('3 paid fallbacks happened automatically');
-    expect(row.textContent).toContain('Title generation');
-    expect(row.textContent).toContain('$0.0060 estimated');
-    expect(row.querySelector('button')?.getAttribute('aria-label')).toBe(
-      'Dismiss 3 paid fallback notifications',
-    );
-  });
-
-  it('dismissing a grouped notification dismisses every event in the burst', () => {
-    fallbackNotifications.set([
-      notification('event-1', { createdAt: 1_000 }),
-      notification('event-2', { createdAt: 2_000 }),
-      notification('event-3', { createdAt: 3_000 }),
-    ]);
-    fixture.detectChanges();
-
-    const dismiss = fixture.nativeElement.querySelector(
-      '.fallback-notification[data-event-ids="event-3,event-2,event-1"] button',
-    ) as HTMLButtonElement;
-    dismiss.click();
-    fixture.detectChanges();
-
-    expect(dismissFallbackNotification.mock.calls).toEqual([
-      ['event-3'],
-      ['event-2'],
-      ['event-1'],
-    ]);
     expect(fixture.nativeElement.querySelector('.local-ai-fallback-notifications')).toBeNull();
-  });
-
-  it('LT-189: dismissing one notification removes only that one from the DOM', () => {
-    fallbackNotifications.set([
-      notification('event-1'),
-      notification('event-2', { createdAt: 7_000 }),
-    ]);
-    fixture.detectChanges();
-    expect(fixture.nativeElement.querySelectorAll('.fallback-notification')).toHaveLength(2);
-
-    const firstDismiss = fixture.nativeElement
-      .querySelector('.fallback-notification[data-event-id="event-1"] button') as HTMLButtonElement;
-    firstDismiss.click();
-    fixture.detectChanges();
-
-    expect(dismissFallbackNotification).toHaveBeenCalledExactlyOnceWith('event-1');
-    expect(fixture.nativeElement.querySelector(
-      '.fallback-notification[data-event-id="event-1"]',
-    )).toBeNull();
-    expect(fixture.nativeElement.querySelector(
-      '.fallback-notification[data-event-id="event-2"]',
-    )).not.toBeNull();
-  });
-
-  it('LT-189: renders nothing for the notification section when there are no undismissed notifications', () => {
-    fallbackNotifications.set([]);
-    fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('.local-ai-fallback-notifications')).toBeNull();
+    expect(fixture.nativeElement.textContent).not.toContain('Paid fallback happened automatically');
+    expect(dismissFallbackNotification).not.toHaveBeenCalled();
   });
 
   function button(label: string): HTMLButtonElement {

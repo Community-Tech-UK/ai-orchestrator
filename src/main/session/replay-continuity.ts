@@ -99,6 +99,7 @@ export function buildReplayContinuityMessage(
   const latestUserMessage = [...conversationalTurns]
     .reverse()
     .find((message) => message.type === 'user');
+  const firstUserMessage = conversationalTurns.find((message) => message.type === 'user');
   const unresolvedItems = extractUnresolvedItems(messages, maxUnresolvedItems);
 
   const lines: string[] = [
@@ -111,9 +112,20 @@ export function buildReplayContinuityMessage(
       latestUserMessage?.content || 'Continue the previous task.',
       maxCharsPerMessage,
     ),
-    '',
-    'Unresolved items:',
   ];
+
+  // The scrollback window is the newest N turns, so on a long session the
+  // opening prompt — the one that states the actual task — falls outside it
+  // and the resumed session has no idea what it was asked to do. Anchor it
+  // explicitly instead of leaving it to survive the window by luck.
+  if (firstUserMessage && firstUserMessage.id !== latestUserMessage?.id) {
+    lines.push('');
+    lines.push('Original request:');
+    lines.push(truncateTranscriptContent(firstUserMessage.content, maxCharsForLastTurn));
+  }
+
+  lines.push('');
+  lines.push('Unresolved items:');
 
   if (unresolvedItems.length > 0) {
     for (const item of unresolvedItems) {

@@ -34,7 +34,8 @@ vi.mock('../logging/logger', () => ({
   })),
 }));
 
-import { OutputStorageManager } from './output-storage';
+import type { UserPromptRef } from '../../shared/types/prompt-index.types';
+import { OutputStorageManager, mergePromptIndex } from './output-storage';
 
 let nextId = 0;
 
@@ -127,5 +128,55 @@ describe('OutputStorageManager user-prompt tally', () => {
 
   it('returns an empty tally for unknown instances', async () => {
     expect(await storage.getUserPrompts('nope')).toEqual([]);
+  });
+});
+
+describe('mergePromptIndex', () => {
+  const prompt = (id: string, content: string, timestamp: number) =>
+    ({ id, type: 'user', content, timestamp }) as OutputMessage;
+  const ref = (id: string, excerpt: string, timestamp: number) =>
+    ({ id, excerpt, timestamp }) as UserPromptRef;
+
+  it('lists a prompt compaction evicted without ever writing it to disk', () => {
+    // Compaction persists nothing, so this prompt is in neither disk storage
+    // nor the live buffer — only the retained set.
+    const prompts = mergePromptIndex(
+      [],
+      [prompt('u9', 'carry on', 20)],
+      [prompt('p0', 'Migrate the billing service.', 1)],
+    );
+
+    expect(prompts.map((p) => p.excerpt)).toEqual([
+      'Migrate the billing service.',
+      'carry on',
+    ]);
+  });
+
+  it('does not double-list a prompt disk storage already returned', () => {
+    const prompts = mergePromptIndex(
+      [ref('p0', 'Migrate the billing service.', 1)],
+      [],
+      [prompt('restored-prompt-msg-0', 'Migrate the billing service.', 1)],
+    );
+
+    expect(prompts).toHaveLength(1);
+  });
+
+  it('does not double-list a prompt the live buffer still holds', () => {
+    const opening = prompt('p0', 'Migrate the billing service.', 1);
+
+    const prompts = mergePromptIndex([], [opening], [{ ...opening, id: 'restored-prompt-msg-0' }]);
+
+    expect(prompts).toHaveLength(1);
+  });
+
+  it('returns the index in chronological order', () => {
+    const prompts = mergePromptIndex(
+      [ref('mid', 'middle ask', 50)],
+      [prompt('late', 'late ask', 90)],
+      [prompt('early', 'early ask', 1)],
+    );
+
+    expect(prompts.map((p) => p.excerpt)).toEqual(['early ask', 'middle ask', 'late ask']);
   });
 });
