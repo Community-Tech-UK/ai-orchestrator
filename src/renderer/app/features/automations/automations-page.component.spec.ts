@@ -14,6 +14,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Automation } from '../../../../shared/types/automation.types';
+import { CLAUDE_MODELS } from '../../../../shared/types/provider.types';
 import type { PendingSelection } from '../models/compact-model-picker.types';
 import { AutomationStore } from '../../core/state/automation.store';
 import { InstanceStore } from '../../core/state/instance/instance.store';
@@ -372,10 +373,47 @@ describe('AutomationsPageComponent row actions', () => {
     const component = fixture.componentInstance;
     component.startCreate();
 
-    component.pinModelSelection();
-
     expect(component.form().provider).toBe('claude');
-    expect(component.form().model).toBe('opus[1m]');
+    expect(component.form().model).toBe(CLAUDE_MODELS.OPUS_1M);
+  });
+
+  it.each([undefined, 'auto', 'claude'] as const)(
+    'keeps the Opus 1M default when a generated draft requests provider %s',
+    (provider) => {
+      const component = fixture.componentInstance;
+      component.startChat();
+      component.chatWorkingDir.set('/repo');
+      component.chatDraft.set({
+        name: 'Daily check',
+        scheduleType: 'cron',
+        cronExpression: '0 9 * * *',
+        prompt: 'Check the repo',
+        provider,
+      });
+
+      component.useDraft();
+
+      expect(component.form().provider).toBe('claude');
+      expect(component.form().model).toBe(CLAUDE_MODELS.OPUS_1M);
+    },
+  );
+
+  it('leaves an explicitly non-Claude generated draft unpinned', () => {
+    const component = fixture.componentInstance;
+    component.startChat();
+    component.chatWorkingDir.set('/repo');
+    component.chatDraft.set({
+      name: 'Daily check',
+      scheduleType: 'cron',
+      cronExpression: '0 9 * * *',
+      prompt: 'Check the repo',
+      provider: 'codex',
+    });
+
+    component.useDraft();
+
+    expect(component.form().provider).toBe('codex');
+    expect(component.form().model).toBe('');
   });
 
   it('shows a concrete-provider + empty-model automation as Auto (not Pinned), never a phantom pinned model', () => {

@@ -16,6 +16,8 @@ import type {
   DesktopGrantStore,
 } from './desktop-grant-store';
 import { allowed, denied, errorReason } from './desktop-gateway-service-helpers';
+import type { ResolvedComputerUseAutonomy } from '../instance/lifecycle/computer-use-scoping';
+import { withResolvedComputerUseAutonomy } from './desktop-computer-use-policy';
 
 const DEFAULT_GRANT_TTL_MS = 60 * 60 * 1000;
 const APPROVAL_REQUEST_TTL_MS = 60_000;
@@ -37,8 +39,9 @@ export interface DesktopGrantApprovalControllerDeps {
   isEnabled: () => boolean;
   now: () => number;
   tokenBytes: () => string;
-  annotateApp: (app: DesktopAppDescriptor) => DesktopAppDescriptor;
-  findAnnotatedApp: (appId: string) => Promise<DesktopAppDescriptor | null>;
+  autonomy: (context: DesktopGatewayContext) => ResolvedComputerUseAutonomy;
+  annotateApp: (context: DesktopGatewayContext, app: DesktopAppDescriptor, autonomy: ResolvedComputerUseAutonomy) => DesktopAppDescriptor;
+  findAnnotatedApp: (context: DesktopGatewayContext, appId: string, autonomy: ResolvedComputerUseAutonomy) => Promise<DesktopAppDescriptor | null>;
   audit: (
     context: DesktopGatewayContext,
     toolName: string,
@@ -67,17 +70,18 @@ export class DesktopGrantApprovalController {
     context: DesktopGatewayContext,
     request: DesktopGrantRequest,
   ): Promise<DesktopGatewayResult<DesktopGrantRequestStatus>> {
+    const autonomy = this.deps.autonomy(context);
     if (!this.deps.isEnabled()) {
-      await this.deps.audit(context, 'computer.request_app_grant', 'denied', 'not_run', 'computer_use_disabled');
+      await this.deps.audit(context, 'computer.request_app_grant', 'denied', 'not_run', 'computer_use_disabled', withResolvedComputerUseAutonomy(autonomy));
       return denied('computer_use_disabled');
     }
-    const requestedApp = await this.deps.findAnnotatedApp(request.appId)
-      ?? this.deps.annotateApp({
+    const requestedApp = await this.deps.findAnnotatedApp(context, request.appId, autonomy)
+      ?? this.deps.annotateApp(context, {
         appId: request.appId,
         displayName: request.appId,
         platform: process.platform,
         visibleWindowCount: 0,
-      });
+      }, autonomy);
     if (requestedApp.policyStatus === 'denied') {
       await this.deps.audit(
         context,
@@ -85,7 +89,7 @@ export class DesktopGrantApprovalController {
         'denied',
         'not_run',
         'computer_use_app_denied',
-        { appId: request.appId, reason: request.reason },
+        withResolvedComputerUseAutonomy(autonomy, { appId: request.appId, reason: request.reason }),
         requestedApp.appId,
       );
       return denied('computer_use_app_denied');
@@ -112,7 +116,7 @@ export class DesktopGrantApprovalController {
       'allowed',
       'ok',
       undefined,
-      { appId: request.appId, capability: request.capability, reason: request.reason },
+      withResolvedComputerUseAutonomy(autonomy, { appId: request.appId, capability: request.capability, reason: request.reason }),
       grantRequest.appId,
     );
     this.requestPermissionRegistryApproval(context, requestedApp, grantRequest, status);

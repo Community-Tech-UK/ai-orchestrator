@@ -26,7 +26,10 @@ import {
   type CopilotAccountRuleView,
   type CopilotAccountView,
   type CopilotRemoteSuggestion,
+  type DiscoveredCopilotAccount,
 } from '../../core/services/ipc/copilot-account-ipc.service';
+import { RecentDirectoriesIpcService } from '../../core/services/ipc/recent-directories-ipc.service';
+import type { RecentDirectoryEntry } from '../../../../shared/types/recent-directories.types';
 import type {
   CopilotAccountKind,
   CopilotAutomationPolicy,
@@ -221,8 +224,37 @@ interface RuleGroup {
         }
       </section>
 
+      @if (discovered().length > 0) {
+        <section class="discovered">
+          <h4>Already signed in to Copilot on this Mac</h4>
+          <p class="hint">
+            Add one and Harness gives it its own isolated Copilot state. Your
+            sign-in is already stored, so this is a one-time setup step — not a
+            fresh login.
+          </p>
+          @for (candidate of discovered(); track candidate.login) {
+            <div class="rule-row">
+              <span class="rule-target">{{ candidate.login }}</span>
+              <span class="chip">{{ candidate.host }}</span>
+              @if (candidate.alreadyAdded) {
+                <span class="chip">Already added</span>
+              } @else {
+                <button
+                  type="button"
+                  class="btn"
+                  (click)="addDiscovered(candidate)"
+                  [disabled]="busy()"
+                >
+                  Add {{ candidate.login }}
+                </button>
+              }
+            </div>
+          }
+        </section>
+      }
+
       <section class="add-account">
-        <h4>Add an account</h4>
+        <h4>Add an account manually</h4>
         <div class="add-row">
           <input
             type="text"
@@ -251,8 +283,26 @@ interface RuleGroup {
       </section>
 
       <section class="route-workspace">
-        <h4>Route the current workspace</h4>
+        <h4>Route a workspace</h4>
+        <p class="hint">
+          Pick a folder you have worked in, or paste any path. Harness reads its
+          GitHub remotes and offers the mapping — you do not have to know the
+          owner or repository name.
+        </p>
         <div class="add-row">
+          @if (recentWorkspaces().length > 0) {
+            <select
+              aria-label="Recent workspace"
+              [ngModel]="workspacePath"
+              (ngModelChange)="onWorkspacePicked($event)"
+              [disabled]="busy()"
+            >
+              <option value="">Choose a recent folder…</option>
+              @for (entry of recentWorkspaces(); track entry.path) {
+                <option [value]="entry.path">{{ entry.displayName }} — {{ entry.path }}</option>
+              }
+            </select>
+          }
           <input
             type="text"
             [(ngModel)]="workspacePath"
@@ -268,6 +318,15 @@ interface RuleGroup {
             Check
           </button>
         </div>
+
+        @if (checkedWorkspace() && remoteSuggestions().length === 0 && !busy()) {
+          <p class="hint">
+            No GitHub remote was found here. Use
+            <strong>Protect this folder and everything under it</strong> below to
+            route it by location instead — that is the right option for a
+            checkout with no remote yet.
+          </p>
+        }
 
         @if (routePreview(); as outcome) {
           <p class="route-preview" [class.blocked]="!outcome.ok">
@@ -333,6 +392,7 @@ interface RuleGroup {
     .error-banner { border-color: var(--error-color, #d33); }
     .empty-state, .hint, .empty-rules { color: var(--text-secondary); margin: 4px 0 0; }
     .accounts { display: flex; flex-direction: column; gap: 16px; }
+    .discovered { border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; }
     .account-card {
       border: 1px solid var(--border-color); border-radius: 8px; padding: 14px;
       display: flex; flex-direction: column; gap: 12px;
@@ -361,6 +421,7 @@ interface RuleGroup {
 })
 export class CopilotAccountsTabComponent implements OnInit {
   private readonly ipc = inject(CopilotAccountIpcService);
+  private readonly recentDirectories = inject(RecentDirectoriesIpcService);
 
   private readonly accountsSignal = signal<CopilotAccountView[]>([]);
   private readonly rulesSignal = signal<CopilotAccountRuleView[]>([]);
@@ -369,12 +430,20 @@ export class CopilotAccountsTabComponent implements OnInit {
   private readonly errorSignal = signal<string | null>(null);
   private readonly routePreviewSignal = signal<CopilotRouteOutcome | null>(null);
   private readonly remoteSuggestionsSignal = signal<CopilotRemoteSuggestion[]>([]);
+  private readonly discoveredSignal = signal<DiscoveredCopilotAccount[]>([]);
+  private readonly recentWorkspacesSignal = signal<RecentDirectoryEntry[]>([]);
+  /** Set once Check has run, so "no remotes" can be distinguished from "not asked yet". */
+  private readonly checkedWorkspaceSignal = signal(false);
 
   readonly accounts = this.accountsSignal.asReadonly();
   readonly busy = this.busySignal.asReadonly();
   readonly error = this.errorSignal.asReadonly();
   readonly routePreview = this.routePreviewSignal.asReadonly();
   readonly remoteSuggestions = this.remoteSuggestionsSignal.asReadonly();
+  /** Accounts Copilot is already signed in to that have no profile here yet. */
+  readonly discovered = this.discoveredSignal.asReadonly();
+  readonly recentWorkspaces = this.recentWorkspacesSignal.asReadonly();
+  readonly checkedWorkspace = this.checkedWorkspaceSignal.asReadonly();
   readonly diagnosticsWarnings = computed(() => this.diagnosticsSignal()?.warnings ?? []);
 
   /** Grouped for the template; rules always render under their own account. */
@@ -394,6 +463,29 @@ export class CopilotAccountsTabComponent implements OnInit {
 
   ngOnInit(): void {
     void this.refresh();
+    void this.loadRecentWorkspaces();
+  }
+
+  private async loadRecentWorkspaces(): Promise<void> {
+    try {
+      // Local folders only: a remote node's path is not inspectable from here,
+      // and offering one would produce a confusing "no remotes found".
+      const entries = await this.recentDirectories.getDirectories({ limit: 25 });
+      this.recentWorkspacesSignal.set(
+        entries.filter((entry) => !entry.nodeId || entry.nodeId === 'local'),
+      );
+    } catch {
+      // A missing recents list just means the picker is hidden.
+      this.recentWorkspacesSignal.set([]);
+    }
+  }
+
+  /** Picking a recent folder fills the path and checks it immediately. */
+  onWorkspacePicked(path: string): void {
+    this.workspacePath = path;
+    if (path) {
+      void this.inspectWorkspace();
+    }
   }
 
   rulesFor(profileId: string): CopilotAccountRuleView[] {
@@ -437,15 +529,38 @@ export class CopilotAccountsTabComponent implements OnInit {
 
   async refresh(): Promise<void> {
     await this.run(async () => {
-      const [accounts, rules, diagnostics] = await Promise.all([
+      const [accounts, rules, diagnostics, discovered] = await Promise.all([
         this.ipc.list(),
         this.ipc.listRules(),
         this.ipc.diagnostics(),
+        this.ipc.discover(),
       ]);
       this.accountsSignal.set(accounts);
       this.rulesSignal.set(rules);
       this.diagnosticsSignal.set(diagnostics);
+      this.discoveredSignal.set(discovered);
     });
+  }
+
+  /**
+   * Add an account Copilot is already signed in to.
+   *
+   * Pre-fills the identity from what Copilot already knows, so the host and
+   * login cannot be mistyped — those are exactly the fields identity
+   * verification then checks, and a typo there reads as a mismatch.
+   */
+  async addDiscovered(candidate: DiscoveredCopilotAccount): Promise<void> {
+    await this.mutate(() =>
+      this.ipc.create({
+        label: candidate.login,
+        // An account discovered this way is almost always the second one, so it
+        // starts matched-only — it cannot pick up unrelated repositories until
+        // you map something to it.
+        accountKind: this.accountsSignal().length === 0 ? 'personal' : 'enterprise',
+        host: candidate.host,
+        makeDefault: this.accountsSignal().length === 0,
+      }),
+    );
   }
 
   async addAccount(): Promise<void> {
@@ -518,6 +633,7 @@ export class CopilotAccountsTabComponent implements OnInit {
       ]);
       this.routePreviewSignal.set(outcome);
       this.remoteSuggestionsSignal.set(remotes);
+      this.checkedWorkspaceSignal.set(true);
     });
   }
 
@@ -576,14 +692,16 @@ export class CopilotAccountsTabComponent implements OnInit {
         throw new Error(response.error?.message ?? 'That change could not be applied.');
       }
       if (options.refresh !== false) {
-        const [accounts, rules, diagnostics] = await Promise.all([
+        const [accounts, rules, diagnostics, discovered] = await Promise.all([
           this.ipc.list(),
           this.ipc.listRules(),
           this.ipc.diagnostics(),
+          this.ipc.discover(),
         ]);
         this.accountsSignal.set(accounts);
         this.rulesSignal.set(rules);
         this.diagnosticsSignal.set(diagnostics);
+        this.discoveredSignal.set(discovered);
       }
     });
   }

@@ -836,6 +836,11 @@ vi.mock('../../codemem', () => {
 // ---------------------------------------------------------------------------
 
 import { InstanceManager } from '../instance-manager';
+import {
+  _resetComputerUseModeRegistryForTesting,
+  getInstanceComputerUseMode,
+  setInstanceComputerUseMode,
+} from '../lifecycle/computer-use-scoping';
 import { generateChildPrompt } from '../../orchestration/orchestration-protocol';
 import { getWorkerNodeRegistry, WorkerNodeRegistry } from '../../remote-node/worker-node-registry';
 import type { RoutingDecision } from '../../routing';
@@ -886,6 +891,7 @@ describe('InstanceManager', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    _resetComputerUseModeRegistryForTesting();
     idCounter = 0;
     originalHome = process.env['HOME'];
     originalUserProfile = process.env['USERPROFILE'];
@@ -1082,6 +1088,28 @@ describe('InstanceManager', () => {
       expect(mockSupervisorTree.unregisterInstance).toHaveBeenCalledWith(instance.id);
       expect(mockAdapterTerminate).toHaveBeenCalled();
       expect(removedPayloads).toContain(instance.id);
+    });
+
+    it('clears the computer-use override when an instance ID is removed and reused', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Original Instance',
+      });
+      await instance.readyPromise;
+      setInstanceComputerUseMode(instance.id, 'unrestricted');
+
+      await manager.terminateInstance(instance.id);
+
+      expect(getInstanceComputerUseMode(instance.id)).toBeUndefined();
+
+      idCounter = 0;
+      const reused = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Reused ID Instance',
+      });
+
+      expect(reused.id).toBe(instance.id);
+      expect(getInstanceComputerUseMode(reused.id)).toBeUndefined();
     });
 
     it('assigns a unique ID to each instance', async () => {

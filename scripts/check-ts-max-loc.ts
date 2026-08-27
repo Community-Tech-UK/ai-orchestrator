@@ -436,6 +436,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/settings/ecosystem-settings-tab.component.ts': 733,
   // Crossed 700 with the WS-B3 `approvalAdjudication` auxiliary slot entry.
   'src/renderer/app/features/settings/auxiliary-models-settings-tab.component.ts': 702,
+  'src/renderer/app/features/settings/copilot-accounts-tab.component.ts': 720,
   'src/renderer/app/features/settings/permissions-settings-tab.component.ts': 413,
   'src/renderer/app/features/skills/skill-browser.component.ts': 766,
   'src/renderer/app/features/stats/stats-page.component.ts': 868,

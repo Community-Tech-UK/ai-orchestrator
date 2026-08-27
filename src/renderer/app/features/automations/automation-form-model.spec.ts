@@ -3,7 +3,17 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { CLAUDE_MODELS } from '../../../../shared/types/provider.types';
 import { emptyForm, formToLoopAction, formToTrigger } from './automation-form-model';
+
+describe('emptyForm', () => {
+  it('pins new automations to Claude Opus latest with the 1M context window', () => {
+    expect(emptyForm()).toMatchObject({
+      provider: 'claude',
+      model: CLAUDE_MODELS.OPUS_1M,
+    });
+  });
+});
 
 describe('formToTrigger', () => {
   it('defaults to schedule', () => {

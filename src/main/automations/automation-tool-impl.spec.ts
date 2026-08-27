@@ -14,6 +14,7 @@ import {
   type AutomationToolImplementations,
 } from './automation-tool-impl';
 import type { Automation, CreateAutomationInput } from '../../shared/types/automation.types';
+import { CLAUDE_MODELS } from '../../shared/types/provider.types';
 
 function createDb(): SqliteDriver {
   const db = defaultDriverFactory(':memory:');
@@ -257,7 +258,20 @@ describe('createAutomationToolImplementations', () => {
       const input = createWithScheduling.mock.calls[0]?.[0] as CreateAutomationInput;
       expect(input.schedule).toMatchObject({ type: 'cron', expression: '0 9 * * 1-5' });
       expect(input.action.workingDirectory).toBe('/repo');
+      expect(input.action.provider).toBe('claude');
+      expect(input.action.model).toBe(CLAUDE_MODELS.OPUS_1M);
       expect(result).toMatchObject({ name: 'PR sweep', workingDirectory: '/repo' });
+    });
+
+    it('does not apply the Claude model when the caller explicitly chooses another provider', async () => {
+      await impls.createAutomation(
+        { name: 'PR sweep', prompt: 'Review PRs', cron: '0 9 * * 1-5', provider: 'codex' },
+        { callerInstanceId: 'chat-1' },
+      );
+
+      const input = createWithScheduling.mock.calls[0]?.[0] as CreateAutomationInput;
+      expect(input.action.provider).toBe('codex');
+      expect(input.action.model).toBeUndefined();
     });
 
     /**

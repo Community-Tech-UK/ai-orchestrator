@@ -1,0 +1,62 @@
+.computer-use-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+
+  select {
+    max-width: 148px;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  &:focus-within {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+  }
+
+  &.elevated {
+    border-color: rgba(245, 179, 66, 0.55);
+    background: rgba(245, 179, 66, 0.12);
+    color: #f5b342;
+  }
+
+  &.lowered {
+    border-color: rgba(96, 165, 250, 0.45);
+    background: rgba(96, 165, 250, 0.1);
+    color: #93c5fd;
+  }
+
+  &.has-error {
+    border-color: var(--error-color, #ef4444);
+  }
+
+  select:disabled {
+    cursor: progress;
+    opacity: 0.6;
+  }
+}
+
+.computer-use-lifecycle {
+  color: var(--text-muted);
+  font-size: 8px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.computer-use-error {
+  color: var(--error-color, #ef4444);
+  font-size: 8px;
+  white-space: nowrap;
+}

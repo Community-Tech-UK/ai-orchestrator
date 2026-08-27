@@ -3,14 +3,20 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { DesktopGatewayService, type DesktopGatewayServiceOptions } from './desktop-gateway-service';
+import type { ComputerUseAutonomyLevel } from '../../shared/types/desktop-gateway-settings.types';
 import { InMemoryDesktopGatewayAuditStore } from './desktop-gateway-audit-store';
 import { InMemoryDesktopGrantStore } from './desktop-grant-store';
 import type { DesktopDriver } from './platform/desktop-driver';
 import type {
   DesktopAccessibilitySnapshotResult,
+  DesktopActionResult,
   DesktopAppDescriptor,
   DesktopScreenshotResult,
 } from '../../shared/types/desktop-gateway.types';
+import {
+  removeInstanceComputerUseMode,
+  setInstanceComputerUseMode,
+} from '../instance/lifecycle/computer-use-scoping';
 
 const APP: DesktopAppDescriptor = {
   appId: 'darwin-window:preview:1',
@@ -728,6 +734,340 @@ describe('DesktopGatewayService', () => {
     expect(driver.click).not.toHaveBeenCalled();
   });
 
+  it('at trusted, drives a sign-in control and presses Space, but still refuses cmd+q', async () => {
+    // The counterpart to the guarded test below. Same fixture, same controls —
+    // only the autonomy level differs, which is what makes this a policy test
+    // rather than a restatement of the implementation.
+    const driver = makeDriver({
+      apps: [APP],
+      snapshot: {
+        appId: APP.appId,
+        nodes: [{
+          uid: 'ax-sign-in',
+          role: 'AXButton',
+          label: 'Sign In',
+          focused: true,
+          bounds: { x: 10, y: 10, width: 100, height: 30 },
+        }],
+        focusedUid: 'ax-sign-in',
+        capturedAt: 1,
+      },
+    });
+    const service = makeService({
+      allowedApps: [APP.appId],
+      driver,
+      requireApprovalForInput: false,
+      autonomyLevel: 'trusted',
+    });
+    const snapshot = await service.accessibilitySnapshot(context(), { appId: APP.appId });
+    const base = {
+      appId: APP.appId,
+      observationToken: snapshot.data!.observationToken!,
+    };
+
+    await expect(service.click(context(), {
+      ...base,
+      elementUid: 'ax-sign-in',
+    })).resolves.toMatchObject({ decision: 'allowed' });
+    await expect(service.hotkey(context(), {
+      ...base,
+      keys: ['space'],
+    })).resolves.toMatchObject({ decision: 'allowed' });
+    await expect(service.hotkey(context(), {
+      ...base,
+      keys: ['cmd', 'q'],
+    })).resolves.toMatchObject({
+      decision: 'denied',
+      reason: 'computer_use_sensitive_action_blocked',
+    });
+  });
+
+  it('at unrestricted, even a quit hotkey is permitted', async () => {
+    const driver = makeDriver({
+      apps: [APP],
+      snapshot: {
+        appId: APP.appId,
+        nodes: [{
+          uid: 'ax-sign-in',
+          role: 'AXButton',
+          label: 'Sign In',
+          focused: true,
+          bounds: { x: 10, y: 10, width: 100, height: 30 },
+        }],
+        focusedUid: 'ax-sign-in',
+        capturedAt: 1,
+      },
+    });
+    const service = makeService({
+      allowedApps: [APP.appId],
+      driver,
+      requireApprovalForInput: false,
+      autonomyLevel: 'unrestricted',
+    });
+    const snapshot = await service.accessibilitySnapshot(context(), { appId: APP.appId });
+
+    await expect(service.hotkey(context(), {
+      appId: APP.appId,
+      observationToken: snapshot.data!.observationToken!,
+      keys: ['cmd', 'q'],
+    })).resolves.toMatchObject({ decision: 'allowed' });
+  });
+
+  it('isolates an unrestricted Harness override to one session', async () => {
+    const harnessApp: DesktopAppDescriptor = {
+      appId: 'darwin-window:harness:1',
+      displayName: 'AI Orchestrator',
+      platform: 'darwin',
+      bundleId: 'com.ai.orchestrator',
+      visibleWindowCount: 1,
+    };
+    const service = makeService({
+      autonomyLevel: 'trusted',
+      apps: [harnessApp],
+      allowedApps: [harnessApp.appId],
+    });
+    setInstanceComputerUseMode('elevated-session', 'unrestricted');
+
+    try {
+      await expect(service.listApps({ instanceId: 'elevated-session' })).resolves.toMatchObject({
+        data: { apps: [{ policyStatus: 'allowed' }] },
+      });
+      await expect(service.listApps({ instanceId: 'sibling-session' })).resolves.toMatchObject({
+        data: { apps: [{ policyStatus: 'denied' }] },
+      });
+    } finally {
+      removeInstanceComputerUseMode('elevated-session');
+    }
+  });
+
+  it('keeps an in-flight decision and its audit attribution on the captured override', async () => {
+    const harnessApp: DesktopAppDescriptor = {
+      appId: 'darwin-window:harness:in-flight',
+      displayName: 'AI Orchestrator',
+      platform: 'darwin',
+      bundleId: 'com.ai.orchestrator',
+      visibleWindowCount: 1,
+    };
+    let finishScreenshot!: (value: DesktopScreenshotResult) => void;
+    const screenshotResult = new Promise<DesktopScreenshotResult>((resolve) => {
+      finishScreenshot = resolve;
+    });
+    const driver = makeDriver({ apps: [harnessApp] });
+    vi.mocked(driver.screenshot).mockImplementation(() => screenshotResult);
+    const auditStore = new InMemoryDesktopGatewayAuditStore();
+    const service = makeService({
+      autonomyLevel: 'trusted',
+      allowedApps: [harnessApp.appId],
+      driver,
+      auditStore,
+    });
+    const sessionContext = { instanceId: 'in-flight-session' };
+    setInstanceComputerUseMode(sessionContext.instanceId, 'unrestricted');
+
+    const pending = service.screenshot(sessionContext, { appId: harnessApp.appId });
+    await vi.waitFor(() => expect(driver.screenshot).toHaveBeenCalledOnce());
+    removeInstanceComputerUseMode(sessionContext.instanceId);
+    finishScreenshot({
+      appId: harnessApp.appId,
+      data: 'iVBORw0KGgo=',
+      mimeType: 'image/png',
+      width: 20,
+      height: 10,
+      capturedAt: 1783468800000,
+    });
+
+    await expect(pending).resolves.toMatchObject({ decision: 'allowed', outcome: 'ok' });
+    const entries = await auditStore.list({ limit: 10 });
+    expect(entries).toContainEqual(expect.objectContaining({
+      toolName: 'computer.screenshot',
+      decision: 'allowed',
+      redactedMetadata: expect.objectContaining({
+        autonomyLevel: 'unrestricted',
+        autonomySource: 'session',
+      }),
+    }));
+    await expect(service.listApps({ instanceId: sessionContext.instanceId })).resolves.toMatchObject({
+      data: { apps: [{ policyStatus: 'denied' }] },
+    });
+  });
+
+  it('keeps captured override attribution when an in-flight input action fails', async () => {
+    let rejectClick!: (reason: Error) => void;
+    const clickResult = new Promise<DesktopActionResult>((_resolve, reject) => {
+      rejectClick = reject;
+    });
+    const driver = makeDriver({
+      apps: [APP],
+      snapshot: {
+        appId: APP.appId,
+        nodes: [{
+          uid: 'ax-safe',
+          role: 'AXButton',
+          label: 'Continue',
+          bounds: { x: 10, y: 10, width: 100, height: 30 },
+        }],
+        capturedAt: 1,
+      },
+    });
+    vi.mocked(driver.click).mockImplementation(() => clickResult);
+    const auditStore = new InMemoryDesktopGatewayAuditStore();
+    const service = makeService({
+      autonomyLevel: 'trusted',
+      allowedApps: [APP.appId],
+      driver,
+      auditStore,
+      requireApprovalForInput: false,
+    });
+    const sessionContext = { instanceId: 'in-flight-input-session' };
+    setInstanceComputerUseMode(sessionContext.instanceId, 'unrestricted');
+    const snapshot = await service.accessibilitySnapshot(sessionContext, { appId: APP.appId });
+
+    const pending = service.click(sessionContext, {
+      appId: APP.appId,
+      observationToken: snapshot.data!.observationToken!,
+      elementUid: 'ax-safe',
+    });
+    await vi.waitFor(() => expect(driver.click).toHaveBeenCalledOnce());
+    removeInstanceComputerUseMode(sessionContext.instanceId);
+    rejectClick(new Error('input driver failed'));
+
+    await expect(pending).resolves.toMatchObject({ decision: 'denied', outcome: 'failed' });
+    const entries = await auditStore.list({ limit: 10 });
+    expect(entries).toContainEqual(expect.objectContaining({
+      toolName: 'computer.click',
+      decision: 'denied',
+      resultCode: 'failed',
+      redactedMetadata: expect.objectContaining({
+        autonomyLevel: 'unrestricted',
+        autonomySource: 'session',
+      }),
+    }));
+  });
+
+  it('keeps captured override attribution when in-flight input readiness fails', async () => {
+    const harnessApp: DesktopAppDescriptor = {
+      appId: 'darwin-window:harness:readiness',
+      displayName: 'AI Orchestrator',
+      platform: 'darwin',
+      bundleId: 'com.ai.orchestrator',
+      visibleWindowCount: 1,
+    };
+    const driver = makeDriver({
+      apps: [harnessApp],
+      snapshot: {
+        appId: harnessApp.appId,
+        nodes: [{
+          uid: 'ax-safe',
+          role: 'AXButton',
+          label: 'Continue',
+          bounds: { x: 10, y: 10, width: 100, height: 30 },
+        }],
+        capturedAt: 1,
+      },
+    });
+    const auditStore = new InMemoryDesktopGatewayAuditStore();
+    const service = makeService({
+      autonomyLevel: 'trusted',
+      allowedApps: [harnessApp.appId],
+      driver,
+      auditStore,
+      requireApprovalForInput: false,
+    });
+    const sessionContext = { instanceId: 'in-flight-readiness-session' };
+    setInstanceComputerUseMode(sessionContext.instanceId, 'unrestricted');
+    const snapshot = await service.accessibilitySnapshot(sessionContext, {
+      appId: harnessApp.appId,
+    });
+    let finishAppLookup!: (apps: DesktopAppDescriptor[]) => void;
+    vi.mocked(driver.listApps).mockImplementationOnce(() =>
+      new Promise<DesktopAppDescriptor[]>((resolve) => {
+        finishAppLookup = resolve;
+      }));
+
+    const pending = service.click(sessionContext, {
+      appId: harnessApp.appId,
+      observationToken: snapshot.data!.observationToken!,
+      elementUid: 'ax-safe',
+    });
+    await vi.waitFor(() => expect(finishAppLookup).toBeTypeOf('function'));
+    removeInstanceComputerUseMode(sessionContext.instanceId);
+    finishAppLookup([harnessApp]);
+
+    await expect(pending).resolves.toMatchObject({
+      decision: 'denied',
+      reason: 'computer_use_target_changed',
+    });
+    const entries = await auditStore.list({ limit: 10 });
+    expect(entries).toContainEqual(expect.objectContaining({
+      toolName: 'computer.click',
+      decision: 'denied',
+      reason: 'computer_use_target_changed',
+      redactedMetadata: expect.objectContaining({
+        autonomyLevel: 'unrestricted',
+        autonomySource: 'session',
+      }),
+    }));
+  });
+
+  it('attributes live-session actions and override decisions in the audit log', async () => {
+    const auditStore = new InMemoryDesktopGatewayAuditStore();
+    const driver = makeDriver({
+      apps: [APP],
+      snapshot: {
+        appId: APP.appId,
+        nodes: [{
+          uid: 'ax-safe',
+          role: 'AXButton',
+          label: 'Continue',
+          bounds: { x: 10, y: 10, width: 100, height: 30 },
+        }],
+        capturedAt: 1,
+      },
+    });
+    const service = makeService({
+      autonomyLevel: 'trusted',
+      allowedApps: [APP.appId],
+      driver,
+      auditStore,
+      requireApprovalForInput: false,
+    });
+    const sessionContext = { instanceId: 'audit-session', provider: 'codex' as const };
+    setInstanceComputerUseMode(sessionContext.instanceId, 'unrestricted');
+
+    try {
+      const snapshot = await service.accessibilitySnapshot(sessionContext, { appId: APP.appId });
+      await service.click(sessionContext, {
+        appId: APP.appId,
+        observationToken: snapshot.data!.observationToken!,
+        elementUid: 'ax-safe',
+      });
+      await service.recordComputerUseModeChange(sessionContext, undefined, 'unrestricted');
+
+      const entries = await auditStore.list({ limit: 20 });
+      expect(entries).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          toolName: 'computer.click',
+          redactedMetadata: expect.objectContaining({
+            autonomyLevel: 'unrestricted',
+            autonomySource: 'session',
+          }),
+        }),
+        expect.objectContaining({
+          toolName: 'computer.set_session_autonomy',
+          redactedMetadata: expect.objectContaining({
+            previousLevel: 'trusted',
+            previousSource: 'global',
+            newLevel: 'unrestricted',
+            newSource: 'session',
+            decidedBy: 'user',
+          }),
+        }),
+      ]));
+    } finally {
+      removeInstanceComputerUseMode(sessionContext.instanceId);
+    }
+  });
+
   it('blocks credential-submit labels and hotkeys on focused sensitive controls', async () => {
     const driver = makeDriver({
       apps: [APP],
@@ -1318,6 +1658,11 @@ function makeService(options: {
   now?: () => number;
   requireApprovalForInput?: boolean;
   permissionRegistry?: DesktopGatewayServiceOptions['permissionRegistry'];
+  // These tests predate the autonomy level and assert the original denials, so
+  // the harness pins `guarded` (which reproduces that behaviour exactly).
+  // Level-sensitive coverage lives in desktop-app-policy.spec.ts and the
+  // autonomy-level cases below, which pass the level explicitly.
+  autonomyLevel?: ComputerUseAutonomyLevel;
 } = {}): DesktopGatewayService {
   return new DesktopGatewayService({
     driver: options.driver ?? makeDriver({
@@ -1339,6 +1684,7 @@ function makeService(options: {
         if (key === 'computerUseDeniedAppsJson') return JSON.stringify(options.deniedApps ?? []);
         if (key === 'computerUseRequireApprovalForInput') return options.requireApprovalForInput ?? true;
         if (key === 'computerUseStoreScreenshotsForEscalations') return false;
+        if (key === 'computerUseAutonomyLevel') return options.autonomyLevel ?? 'guarded';
         return undefined;
       }) as unknown as NonNullable<DesktopGatewayServiceOptions['settings']>['get'],
     },

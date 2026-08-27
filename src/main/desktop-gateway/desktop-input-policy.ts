@@ -1,14 +1,28 @@
+import type { ComputerUseAutonomyLevel } from '../../shared/types/desktop-gateway-settings.types';
 import type {
   DesktopAccessibilitySnapshotResult,
   DesktopInputActionRequest,
   DesktopWaitForRequest,
 } from '../../shared/types/desktop-gateway.types';
 
-export function isDeniedHotkey(keys: string[]): boolean {
-  const normalized = new Set(keys.map((key) => key.trim().toLowerCase()));
-  if (normalized.has('enter') || normalized.has('return') || normalized.has('space')) {
-    return true;
-  }
+/**
+ * Enter, Return and Space. Denied at `guarded` only.
+ *
+ * These were previously denied unconditionally, which made the desktop tools
+ * unusable for their stated purpose: no form can be submitted and no dialog
+ * confirmed without one of them.
+ */
+export function isConfirmHotkey(keys: string[]): boolean {
+  const normalized = normalizeKeys(keys);
+  return normalized.has('enter') || normalized.has('return') || normalized.has('space');
+}
+
+/**
+ * Quit, force-quit, log-out and power combinations. Denied at `guarded` and
+ * `trusted`; permitted only at `unrestricted`.
+ */
+export function isDestructiveHotkey(keys: string[]): boolean {
+  const normalized = normalizeKeys(keys);
   const hasCommand = normalized.has('cmd') || normalized.has('command') || normalized.has('meta');
   if (hasCommand && normalized.has('q')) {
     return true;
@@ -26,6 +40,24 @@ export function isDeniedHotkey(keys: string[]): boolean {
     || normalized.has('eject')
     || normalized.has('delete')
   );
+}
+
+/** Whether the autonomy level forbids this key combination. */
+export function isDeniedHotkeyAtLevel(
+  keys: string[],
+  level: ComputerUseAutonomyLevel,
+): boolean {
+  if (level === 'unrestricted') {
+    return false;
+  }
+  if (isDestructiveHotkey(keys)) {
+    return true;
+  }
+  return level === 'guarded' && isConfirmHotkey(keys);
+}
+
+function normalizeKeys(keys: string[]): Set<string> {
+  return new Set(keys.map((key) => key.trim().toLowerCase()));
 }
 
 export function isSecretLikeInput(request: DesktopInputActionRequest): boolean {

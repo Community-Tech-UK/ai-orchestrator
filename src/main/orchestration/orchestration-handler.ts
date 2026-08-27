@@ -61,6 +61,7 @@ import type {
 import { emitPluginHook } from '../plugins/hook-emitter';
 import { evaluateOrchestrationCapability, inferRoleFromContext } from './role-capability-policy';
 import { createAutomationWithScheduling } from '../automations/automation-create-service';
+import { resolveNewAutomationModelSelection } from '../../shared/automations/new-automation-model-default';
 import type {
   OrchestrationContext,
   UserActionRequest,
@@ -916,10 +917,12 @@ export class OrchestrationHandler extends EventEmitter {
     if (!ctx) return;
 
     try {
+      const modelSelection = resolveNewAutomationModelSelection(command.automation.action);
       const payload = {
         ...command.automation,
         action: {
           ...command.automation.action,
+          ...modelSelection,
           workingDirectory: command.automation.action.workingDirectory?.trim() || ctx.workingDirectory,
         },
       };

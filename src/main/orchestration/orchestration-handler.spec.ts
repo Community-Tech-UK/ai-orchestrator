@@ -46,6 +46,7 @@ import {
   CONSENSUS_INTENT_REMINDER,
   SCHEDULING_INTENT_REMINDER,
 } from './orchestration-protocol';
+import { CLAUDE_MODELS } from '../../shared/types/provider.types';
 
 function commandBlock(command: Record<string, unknown>): string {
   return [
@@ -370,7 +371,8 @@ describe('OrchestrationHandler.processOutput (streaming markers)', () => {
       action: {
         prompt: 'Check the repo status and summarize issues.',
         workingDirectory: '/repo/current',
-        provider: 'auto',
+        provider: 'claude',
+        model: CLAUDE_MODELS.OPUS_1M,
       },
       nextFireAt: 1_000,
       lastFiredAt: null,
@@ -405,7 +407,8 @@ describe('OrchestrationHandler.processOutput (streaming markers)', () => {
       action: {
         prompt: 'Check the repo status and summarize issues.',
         workingDirectory: '/repo/current',
-        provider: 'auto',
+        provider: 'claude',
+        model: CLAUDE_MODELS.OPUS_1M,
       },
     });
 

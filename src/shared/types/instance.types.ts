@@ -16,6 +16,7 @@ import type { ExecutionLocation, NodePlacementPrefs } from './worker-node.types'
 import type { InstanceRuntimeSummary, ModelRuntimeTarget } from './local-model-runtime.types';
 import { createDefaultContextInheritance } from './supervision.types';
 import { getProviderModelContextWindow, type ReasoningEffort } from './provider.types';
+import type { ComputerUseAutonomyLevel } from './desktop-gateway-settings.types';
 
 /**
  * CLI provider type for instances
@@ -479,6 +480,8 @@ export interface Instance {
   autoRespawnSuppressedUntil?: number;
   workingDirectory: string;
   yoloMode: boolean; // Auto-approve all permissions
+  /** Process-local Computer Use policy override for this live session. */
+  computerUseMode?: ComputerUseAutonomyLevel;
   browserToolsMode?: BrowserToolsMode; // WS9 per-instance browser tool surface; undefined = global setting decides
   hardened?: boolean; // WS13 — spawn the CLI inside the macOS Seatbelt jail (fail-closed when unavailable)
   containedExecution?: boolean; // WS-C7 — see the matching field on InstanceCreateConfig below
@@ -609,6 +612,8 @@ export interface InstanceCreateConfig {
   initialContextBlock?: string;
   attachments?: FileAttachment[];
   yoloMode?: boolean;
+  /** Process-local Computer Use policy override; never restored from history. */
+  computerUseMode?: ComputerUseAutonomyLevel;
   launchMode?: InstanceLaunchMode;
   initialOutputBuffer?: OutputMessage[]; // Pre-populate output buffer (for history restore)
   /**

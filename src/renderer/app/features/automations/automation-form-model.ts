@@ -6,6 +6,7 @@ import type {
   AutomationWebhookFilter,
 } from '../../../../shared/types/automation.types';
 import type { FileAttachment } from '../../../../shared/types/instance.types';
+import { resolveNewAutomationModelSelection } from '../../../../shared/automations/new-automation-model-default';
 
 export interface AutomationFormModel {
   id?: string;
@@ -43,6 +44,13 @@ export interface AutomationFormModel {
   hidden: boolean;
 }
 
+export function newAutomationFormModelSelection(
+  provider?: AutomationAction['provider'],
+): Pick<AutomationFormModel, 'provider' | 'model'> {
+  const selection = resolveNewAutomationModelSelection({ provider });
+  return { provider: selection.provider, model: selection.model ?? '' };
+}
+
 export function emptyForm(): AutomationFormModel {
   return {
     name: '',
@@ -59,8 +67,7 @@ export function emptyForm(): AutomationFormModel {
     webhookFilters: [],
     prompt: '',
     workingDirectory: '',
-    provider: 'auto',
-    model: '',
+    ...newAutomationFormModelSelection(),
     agentId: 'build',
     yoloMode: false,
     reasoningEffort: '',

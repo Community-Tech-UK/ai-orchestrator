@@ -124,6 +124,8 @@ function makeMockInstanceManager(): InstanceManager {
 
   return {
     createInstance: vi.fn(),
+    getInstance: vi.fn(),
+    setComputerUseMode: vi.fn(),
     getAllInstancesForIpc: vi.fn(),
     terminateInstance: vi.fn(),
     terminateAllInstances: vi.fn(),
@@ -173,6 +175,147 @@ describe('instance-handlers', () => {
     registerInstanceHandlers({
       instanceManager: mockInstanceManager,
       windowManager: makeMockWindowManager(),
+    });
+  });
+
+  describe('INSTANCE_SET_COMPUTER_USE_MODE', () => {
+    it('sets the live override once and records the user decision', async () => {
+      const instance = { id: 'instance-1', status: 'idle', computerUseMode: 'trusted' };
+      vi.mocked(mockInstanceManager.getInstance).mockReturnValue(instance as never);
+      vi.mocked(mockInstanceManager.setComputerUseMode).mockReturnValue({
+        ...instance,
+        computerUseMode: 'unrestricted',
+      } as never);
+      const recordComputerUseModeChange = vi.fn().mockResolvedValue(undefined);
+      handlers.clear();
+      registerInstanceHandlers({
+        instanceManager: mockInstanceManager,
+        windowManager: makeMockWindowManager(),
+        recordComputerUseModeChange,
+      });
+
+      const response = await invoke(IPC_CHANNELS.INSTANCE_SET_COMPUTER_USE_MODE, {
+        instanceId: 'instance-1',
+        mode: 'unrestricted',
+        ipcAuthToken: 'preload-stamped-token',
+      });
+
+      expect(response.success).toBe(true);
+      expect(mockInstanceManager.setComputerUseMode).toHaveBeenCalledOnce();
+      expect(mockInstanceManager.setComputerUseMode).toHaveBeenCalledWith(
+        'instance-1',
+        'unrestricted',
+      );
+      expect(recordComputerUseModeChange).toHaveBeenCalledWith(
+        'instance-1',
+        'trusted',
+        'unrestricted',
+      );
+    });
+
+    it('maps null to clearing the live override', async () => {
+      const instance = { id: 'instance-1', status: 'idle', computerUseMode: 'guarded' };
+      vi.mocked(mockInstanceManager.getInstance).mockReturnValue(instance as never);
+      vi.mocked(mockInstanceManager.setComputerUseMode).mockReturnValue({
+        ...instance,
+        computerUseMode: undefined,
+      } as never);
+      handlers.clear();
+      registerInstanceHandlers({
+        instanceManager: mockInstanceManager,
+        windowManager: makeMockWindowManager(),
+        recordComputerUseModeChange: vi.fn().mockResolvedValue(undefined),
+      });
+
+      const response = await invoke(IPC_CHANNELS.INSTANCE_SET_COMPUTER_USE_MODE, {
+        instanceId: 'instance-1',
+        mode: null,
+      });
+
+      expect(response.success).toBe(true);
+      expect(mockInstanceManager.setComputerUseMode).toHaveBeenCalledWith('instance-1', undefined);
+    });
+
+    it('rejects invalid modes before touching the instance manager', async () => {
+      const response = await invoke(IPC_CHANNELS.INSTANCE_SET_COMPUTER_USE_MODE, {
+        instanceId: 'instance-1',
+        mode: 'dangerously-unbounded',
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error?.code).toBe('VALIDATION_FAILED');
+      expect(mockInstanceManager.setComputerUseMode).not.toHaveBeenCalled();
+    });
+
+    it('returns a structured error when the instance no longer exists', async () => {
+      const response = await invoke(IPC_CHANNELS.INSTANCE_SET_COMPUTER_USE_MODE, {
+        instanceId: 'missing-instance',
+        mode: 'guarded',
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error).toMatchObject({
+        code: 'SET_COMPUTER_USE_MODE_FAILED',
+        message: 'Instance missing-instance not found',
+      });
+    });
+
+    it('does not activate an override when its required audit write fails', async () => {
+      vi.mocked(mockInstanceManager.getInstance).mockReturnValue({
+        id: 'instance-1',
+        status: 'idle',
+        computerUseMode: undefined,
+      } as never);
+      const recordComputerUseModeChange = vi.fn().mockRejectedValue(new Error('audit unavailable'));
+      handlers.clear();
+      registerInstanceHandlers({
+        instanceManager: mockInstanceManager,
+        windowManager: makeMockWindowManager(),
+        recordComputerUseModeChange,
+      });
+
+      const response = await invoke(IPC_CHANNELS.INSTANCE_SET_COMPUTER_USE_MODE, {
+        instanceId: 'instance-1',
+        mode: 'unrestricted',
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error?.message).toBe('audit unavailable');
+      expect(mockInstanceManager.setComputerUseMode).not.toHaveBeenCalled();
+    });
+
+    it('rejects a non-string preload token as an invalid strict payload', async () => {
+      const response = await invoke(IPC_CHANNELS.INSTANCE_SET_COMPUTER_USE_MODE, {
+        instanceId: 'instance-1',
+        mode: 'trusted',
+        ipcAuthToken: 123,
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error?.code).toBe('VALIDATION_FAILED');
+      expect(mockInstanceManager.setComputerUseMode).not.toHaveBeenCalled();
+    });
+
+    it('rejects an untrusted renderer before validation or mutation', async () => {
+      const ensureTrustedSender = vi.fn().mockReturnValue({
+        success: false,
+        error: { code: 'IPC_TRUST_FAILED', message: 'Untrusted sender', timestamp: 1 },
+      });
+      handlers.clear();
+      registerInstanceHandlers({
+        instanceManager: mockInstanceManager,
+        windowManager: makeMockWindowManager(),
+        ensureTrustedSender,
+      });
+
+      const response = await invoke(IPC_CHANNELS.INSTANCE_SET_COMPUTER_USE_MODE, {
+        instanceId: 'instance-1',
+        mode: 'unrestricted',
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error?.code).toBe('IPC_TRUST_FAILED');
+      expect(mockInstanceManager.setComputerUseMode).not.toHaveBeenCalled();
     });
   });
 

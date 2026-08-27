@@ -82,7 +82,7 @@ operator-only, so it is not. See "Redaction And Secrets" below.
 
 The operator-only anchors are the credential-vault unlock settings
 (`browserVaultMasterPasswordFile`, `browserVaultAutoUnlock`), the shared-tab
-credential-fill switch, the five Computer Use policy keys, the four Microsoft
+credential-fill switch, the six Computer Use policy keys, the four Microsoft
 Graph OAuth and calendar-allowlist keys, the context-evidence rollout mode,
 the three Local AI Guard fallback-policy and budget keys, the WS-B1
 per-project PR-creation opt-in map (`allowPrCreation`), the licence-scoping

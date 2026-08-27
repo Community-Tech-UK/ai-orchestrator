@@ -12,6 +12,8 @@ export const INSTANCE_CHANNELS = {
   INSTANCE_RENAME: 'instance:rename',
   INSTANCE_CHANGE_AGENT_MODE: 'instance:change-agent-mode',
   INSTANCE_TOGGLE_YOLO_MODE: 'instance:toggle-yolo-mode',
+  /** Trusted renderer → main: set or clear live-session Computer Use autonomy. */
+  INSTANCE_SET_COMPUTER_USE_MODE: 'instance:set-computer-use-mode',
   /** Main → renderer: yolo mode changed, or a change was queued/cancelled while busy. */
   INSTANCE_YOLO_TOGGLED: 'instance:yolo-toggled',
   INSTANCE_TOGGLE_FAST_MODE: 'instance:toggle-fast-mode',

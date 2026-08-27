@@ -9,6 +9,7 @@ import type {
   AuxiliaryLlmProvider,
   AuxiliaryLlmSlot,
 } from '../../../shared/types/auxiliary-llm.types';
+import { COMPUTER_USE_AUTONOMY_LEVELS } from '../../../shared/types/desktop-gateway-settings.types';
 import { REMOTE_REVIEWER_PROVIDER_IDS } from '../../../shared/types/reviewer-provider.types';
 import { AUTOMATION_PROVIDER_IDS } from '../../../shared/types/automation-provider.types';
 import {
@@ -76,6 +77,7 @@ const PRIVILEGED_CLI_OPERATOR_ONLY_KEYS = new Set<keyof AppSettings>([
   'computerUseDeniedAppsJson',
   'computerUseRequireApprovalForInput',
   'computerUseStoreScreenshotsForEscalations',
+  'computerUseAutonomyLevel',
   'contextEvidenceModeByProvider',
   'graphClientId',
   'graphAuthority',
@@ -481,6 +483,9 @@ export const SETTINGS_TOOL_POLICY = {
   computerUseDeniedAppsJson: readOnly(),
   computerUseRequireApprovalForInput: readOnly(),
   computerUseStoreScreenshotsForEscalations: readOnly(),
+  // Human/GUI-only like every other computerUse* key. An agent that could raise
+  // its own autonomy level would make the level meaningless.
+  computerUseAutonomyLevel: readOnly(false, z.enum(COMPUTER_USE_AUTONOMY_LEVELS)),
   rtkEnabled: open(z.boolean(), true),
   rtkBundledOnly: open(z.boolean(), true),
   notifyOnAgentCompletion: open(z.boolean()),

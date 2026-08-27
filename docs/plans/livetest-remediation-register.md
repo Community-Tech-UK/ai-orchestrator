@@ -134,7 +134,14 @@ evidence records.
 | LT-441 | P2 | **FOUND, NOT FIXED, 2026-08-24.** A hardened (Seatbelt) Claude instance's own resident-mode startup bootstrap writes its config state (`.claude.json`, a timestamped backup, and a `sessions/` dir) to whatever directory `CLAUDE_CONFIG_DIR` points at, even when that directory is **not** one of the jail's granted `WRITABLE_ROOT_n` paths — while an agent-driven tool-call write to a different non-granted path (`~/Desktop`, the same probe check 3 already uses) is correctly denied in the same instance. Reproduced 3/3 times via a scoped `ClaudeCliAdapter.prototype.spawnProcess` monkeypatch (Node Inspector, `this.config.cwd`-scoped to one throwaway `/tmp` instance only) that set `CLAUDE_CONFIG_DIR=~/Desktop/aio-lt-C-ws13-c10-cfg` — a path never in `defaultHardenedWritableRoots`. `app.log`'s `"Spawning CLI under Seatbelt hardened mode"` line confirmed hardening engaged with the correct 7-root set each time, and an independent `child_process.spawn` capture (patched separately, decoupled from the adapter patch) confirmed the OS-level `sandbox-exec` invocation carried the exact expected policy text and `-D WRITABLE_ROOT_n=` params with no Desktop path among them — yet `~/Desktop/aio-lt-C-ws13-c10-cfg/.claude.json` (528 bytes, real content: `firstStartTime`, `machineID`, etc.) and `backups/.claude.json.backup.<ts>` existed afterward. A byte-identical manual `sandbox-exec` replay of the captured policy/roots from an unsandboxed shell, run in Claude's one-shot `--print` mode, correctly **denied** the same write (`Not logged in`, target directory never created) — the gap is specific to resident/stream-json mode reaching some later-lifecycle write, not a hole in the policy text or the roots computed. Root cause **not isolated further** in this session (would need `fs_usage`/DTrace with sudo, or reading Claude Code's own closed-source startup path — out of scope for a livetest run); ruled out as an AIO-side cause: no production file under `src/main/` references `CLAUDE_CONFIG_DIR` at all (grepped), so AIO's own (unsandboxed) main process is not the one performing the write — it is the sandboxed child itself. **Not currently exploitable through any AIO-exposed surface**: `InstanceCreatePayloadSchema` has no per-instance env-override field, so no user or agent action through the product's own IPC can set `CLAUDE_CONFIG_DIR` (or influence whatever internal state follows the same path) — this was only reachable via a Node Inspector monkeypatch this session used as a legitimate but instrumented fault-injection technique, not a stock AIO capability. Filed as a real confinement gap in the hardened-mode "fail closed" contract (`resolveHardenedSpawn`'s own docstring), worth root-causing before any future feature adds a legitimate per-instance-env surface, which would make it reachable | [WS13 hardened-mode livetest, 2026-08-24 evidence](2026-07-13-fable-ws13_livetest.md#evidence-run--2026-08-24-batch-c--checks-1011-crash-lever-attempt-surfaces-a-real-confinement-gap-lt-441-not-the-crash) | Not yet written — recommended starting point: `fs_usage -w -f filesys sandbox-exec` (sudo) during a repeat of this reproduction to see which pid/syscall actually performs the write, then decide whether resident-mode's bootstrap path needs its own explicit writable-root binding or whether the CLI is using a non-`file-write*` IPC mechanism (e.g. an XPC-proxied preference write) that the policy needs to explicitly deny |
 | LT-480 | P1 | **FIXED + REGRESSION-TESTED 2026-08-24, verified live end-to-end against a rebuilt dev app.** Every real, worker-recorded skill activation was silently persisted to the wrong SQLite file — a shared, per-checkout fallback path, not the profile's own `rlm.db` — because `context-worker-main.ts` called `registerWorkerEventForwarding(transport)` (which eagerly resolves `RLMContextManager.getInstance()` → an unconfigured `RLMDatabase.getInstance()`) before its own explicit, correctly-pathed `RLMDatabase.getInstance({dbPath, contentDir})` pre-init; `RLMDatabase.getInstance()` is itself a singleton where the first caller's config wins. This is the exact ordering hazard LT-207 documented and avoided for the codebase-indexing lane worker, left unfixed in the original context worker. Fixed by reordering the two calls | [Skill observability + design skills livetest, evidence run 2026-08-24 (Batch E)](../../2026-07-23-skill-observability-and-design-skills_livetest.md#evidence-run--2026-08-24-batch-e--lt-480-real-auto-injected-skill-activations-silently-persisted-to-the-wrong-db-found-and-fixed) | `src/main/instance/context-worker-main.ts`; new test `src/main/instance/__tests__/context-worker-main.spec.ts` ("LT-480: pre-initialises RLMDatabase with explicit dbPath before wiring worker event forwarding"), watched failing on revert (`expected 11 to be less than 10`), restored and green. `tsc --noEmit` ×2 clean, `ng lint` clean, `build:main` green, targeted `test:quiet` 70/70 across `context-worker-client.spec.ts` + `context-worker-event-forwarding.spec.ts` + `skill-attribution-service.spec.ts` + `skills-loader.spec.ts` + `unified-controller.spec.ts` |
 | LT-481 | P3 | **FOUND, NOT FIXED, 2026-08-24 — a genuine product-decision fork, not a snap fix.** The Workboard's per-card "Snooze" button is rendered and clickable on every card in every lane, including the Needs You lane, but it cannot durably hide a card that was *already* blocked/failed/review when snoozed: `WorkboardStore.snoozeItem()` stores only an item id (no baseline attention level), and the hand-raise effect's `attentionLevelClearsSnooze(level)` checks only the item's *current* level (`level !== 'working' && level !== 'waiting'`), which is unconditionally true for every Needs You card by construction — so the very next reactive `items()` recompute (a routine instance-list refresh, observed within 2-5s) silently un-snoozes it again, with no error and no visible feedback. Live-reproduced: a real `waiting_for_permission` instance, clicked the real DOM Snooze button (card correctly disappeared for a moment), then it silently reappeared on its own a few seconds later while remaining in the exact same `waiting_for_permission` state — no new event, no escalation. Confirmed at the signal level too (`store.isSnoozed(id)` flips `true` → `false` on its own within ~2s with the instance status held constant throughout). **This is not an accidental regression** — every existing `workboard.store.spec.ts` test for this mechanism deliberately snoozes a *working* item and asserts it un-snoozes on a transition *into* blocked/failed/idle ("hand-raise: auto-clears a snooze once the item becomes blocked/fails/completes"), which is the mechanism working exactly as designed and tested; none of those tests (or any other) cover snoozing an item that is *already* in the Needs You lane, which is precisely this livetest doc's own check scenario ("put instances into failed/error/degraded states... snooze hides a card until it raises its hand"). The gap is between the check's literal precondition and a deliberately narrower, well-tested design intent (mute a non-urgent item; auto-reveal on a genuine transition into urgency) — not a wiring mistake. Two candidate fixes, neither applied: (a) make the hand-raise comparison baseline-aware — record the attention level at snooze time and only auto-clear on a genuine escalation from that baseline, which would make the button work as the check expects; or (b) don't offer a Snooze control on Needs You cards at all, since the mechanism was only ever built and tested for working/waiting items. Deciding between "broaden the mechanism" and "don't offer the control where it can't work" is a product call, not an agent's, per this campaign's established precedent for the same shape of gap (see LT-220, doc 2's check 2/4) | [Sibling-audit round 2, evidence run 2026-08-24 (Batch E)](2026-07-30-sibling-audit-round2_livetest.md#lt-check-c2--attention-scale--mobile-parity) | Not fixed. Candidate touch points if (a) is chosen: `attentionLevelClearsSnooze()` (`workboard-projection.ts`) needs a baseline parameter, `WorkboardStore`'s `snoozedIdsSignal` (`workboard.store.ts`) needs to become a `Map<string, AttentionLevel>` capturing the level at snooze time |
-| LT-520 | P2 | **FIXED + REGRESSION-TESTED 2026-08-24; live confirmation pending a rebuild.** A Harness install writes the machine's single Chrome native-messaging manifest **unconditionally**, so whichever install started last silently takes the local browser-extension channel off the other — and if that was a dev app whose profile is later deleted, the manifest points at a binary that no longer exists and the user's local channel stays broken until the packaged app restarts. Reproduced live during this campaign: `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.ai_orchestrator.browser_gateway.json` was rewritten at 00:51 with `"path": "/tmp/aio-lt-E/browser-gateway/native-host/ai-orchestrator-browser-host"` by a batch agent's isolated dev app, while the packaged app (started 00:38) owns `~/Library/Application Support/harness/browser-gateway/native-host/`. `browser.health` on the packaged app then reported `localExtension: {state: "not_installed", installed: false, registered: false}` with remediation text telling the user to reinstall the extension — misdirecting advice, since nothing about the extension changed. **The guard already existed but was not on this path**: `assertBrowserExtensionNativeHostManifestWritable` is called only from `src/worker-agent/extension-relay-native-registration.ts` and `src/worker-agent/cli/service-cli.ts`; the Electron main path (`src/main/browser-gateway/index.ts` → `prepareBrowserExtensionNativeHostRuntime`) had no ownership check at all. Note this also means `AIO_DEV_USER_DATA_PATH` profile isolation is incomplete — the manifest is machine-global and was never isolated | Reproduced live 2026-08-24 while reading `browser.health` for [local + remote shared-browser control](2026-07-22-local-shared-browser-control_livetest.md) check 1 | `mayClaimBrowserExtensionNativeHostManifest()` + a `claimChromeManifest` option on `prepareBrowserExtensionNativeHostRuntime` (`src/main/browser-gateway/browser-extension-native-runtime.ts`), wired in `src/main/browser-gateway/index.ts`. 6 regression tests; the behavioural one was mutation-checked by forcing the branch true and watching it fail |
+| LT-520 | P2 | **FIXED, REGRESSION-TESTED 2026-08-24, and CONFIRMED LIVE 2026-08-25 (both halves).** Live confirmation: the packaged app was rebuilt (`app.asar` mtime 2026-08-25T13:36:15Z, started 13:44:42Z, guard string present 4x in the bundle) and claimed the manifest 35 s after start (manifest mtime 2026-08-25T13:45:17.933Z, pointing at the packaged native host); seven separate dev apps then launched over ~25 minutes and **every one declined**, logging `Another Harness install owns the Chrome native-messaging manifest — leaving it alone … Set AIO_CLAIM_LOCAL_BROWSER_MANIFEST=1 to take it over`, with zero claims and no further write to the manifest. On 2026-08-24 a single dev app had rewritten it within minutes, which is the contrast that makes this a measurement rather than an absence of news. Original finding below. A Harness install writes the machine's single Chrome native-messaging manifest **unconditionally**, so whichever install started last silently takes the local browser-extension channel off the other — and if that was a dev app whose profile is later deleted, the manifest points at a binary that no longer exists and the user's local channel stays broken until the packaged app restarts. Reproduced live during this campaign: `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.ai_orchestrator.browser_gateway.json` was rewritten at 00:51 with `"path": "/tmp/aio-lt-E/browser-gateway/native-host/ai-orchestrator-browser-host"` by a batch agent's isolated dev app, while the packaged app (started 00:38) owns `~/Library/Application Support/harness/browser-gateway/native-host/`. `browser.health` on the packaged app then reported `localExtension: {state: "not_installed", installed: false, registered: false}` with remediation text telling the user to reinstall the extension — misdirecting advice, since nothing about the extension changed. **The guard already existed but was not on this path**: `assertBrowserExtensionNativeHostManifestWritable` is called only from `src/worker-agent/extension-relay-native-registration.ts` and `src/worker-agent/cli/service-cli.ts`; the Electron main path (`src/main/browser-gateway/index.ts` → `prepareBrowserExtensionNativeHostRuntime`) had no ownership check at all. Note this also means `AIO_DEV_USER_DATA_PATH` profile isolation is incomplete — the manifest is machine-global and was never isolated | Reproduced live 2026-08-24 while reading `browser.health` for [local + remote shared-browser control](2026-07-22-local-shared-browser-control_livetest.md) check 1 | `mayClaimBrowserExtensionNativeHostManifest()` + a `claimChromeManifest` option on `prepareBrowserExtensionNativeHostRuntime` (`src/main/browser-gateway/browser-extension-native-runtime.ts`), wired in `src/main/browser-gateway/index.ts`. 6 regression tests; the behavioural one was mutation-checked by forcing the branch true and watching it fail |
+| LT-521 | P3 | **FOUND, NOT FIXED, 2026-08-25 — a doc-vs-code wording gap, not a behavioural defect.** The provider-agnostic-context-evidence livetest's check 1 expects: *"logs show shadow decisions (policy computed, action NOT executed)"*. No such log line exists anywhere in the shadow/enforce decision path, confirmed by reading every file on it, not just grepping runtime output: `src/main/context/output-persistence.ts` (the file that actually implements the shadow-mode short-circuit, `maybeExternalize()` line 170, `if (mode === 'shadow') return output;`) has exactly one `logger` call in the whole file, an unrelated migration-error `warn`; `src/main/context-evidence/context-evidence-diagnostics.ts`, `src/main/context/context-policy-runtime.ts`, and `src/main/context-evidence/context-safety-policy.ts` (the other plausible homes for a policy-decision log) have **zero** `logger` calls between them. This was first observed as "0 grep matches on a real log" in the 2026-08-12 evidence run and confirmed as "no such line exists in source" by the 2026-08-18 run, both of which deliberately left it unfiled as cosmetic; filed here per this session's explicit brief instruction not to silently accept a real (if cosmetic) gap. Shadow mode's actual behaviour (capture without alteration) is correct and unaffected — this is purely an observability/wording gap between the check's Expected Result and the implementation | [Provider-agnostic context evidence check 1, evidence runs 2026-08-12 and 2026-08-18](../superpowers/plans/2026-07-15-provider-agnostic-context-evidence-plan_livetest.md#check-1--codex-shadow-run--evidence-captured-partial) | Not yet written — this is a documentation-vs-implementation decision (add an `info`/`debug` log line when a shadow-mode decision is computed but not executed, vs. correct the check's Expected Result wording to describe shadow mode's real, silent behaviour), not something to decide unilaterally; see this doc's own precedent for the same shape of call on LT-220 |
+| LT-523 | P1 | **FOUND, NOT FIXED, 2026-08-25.** Injecting an orchestration-protocol response (`respondToUserAction()`, and every other `OrchestrationHandler` command response) writes directly to the CLI's stdin via `adapter.sendInput()` (`instance-orchestration.ts`'s `'inject-response'` listener) without ever calling `SessionAdmissionService.admitAutomatedWrite()` — the same gate that correctly suppresses automations and channel messages when an instance is `waiting_for_permission`/`interrupting`/`respawning`. Live-reproduced: approving a real `approve_action` Workboard card while the same instance was genuinely `waiting_for_permission` on an unrelated real Bash tool call fed the "User responded" text straight into Claude's stdin mid-wait; Claude abandoned/duplicated its pending tool call, orphaning the original deferred-permission request with no way to ever resolve it, and a subsequent stream-idle-timeout auto-respawn attempt then collided with a late permission decision (`Illegal lifecycle transition blocked: waiting_for_permission → respawning`) | [Sibling-audit round 2, evidence run 2026-08-25 (Batch F)](2026-07-30-sibling-audit-round2_livetest.md#evidence-run--2026-08-25-batch-f) | [Sibling-audit round 2, check C2](2026-07-30-sibling-audit-round2_livetest.md#lt-check-c2--attention-scale--mobile-parity) |
+| LT-522 | P1 | **FIXED + MUTATION-CHECKED 2026-08-25.** Every one of the 15 `copilot-account:*` IPC channels rejected every real renderer call, so the GitHub Copilot Accounts feature shipped in commit `20f534775` was completely unreachable from the UI. The preload constructs this domain **with** `withAuth` (`src/preload/preload.ts:79`), so main always receives a payload carrying an `ipcAuthToken` key — present even before a token is issued, because `withAuth` sets it to `undefined`, and an `undefined` value is still an own key. All 10 payload schemas in `packages/contracts/src/schemas/copilot-account.schemas.ts` were `.strict()` and none declared the field, and `validatedHandler` (`src/main/ipc/validated-handler.ts`) validates the raw payload without stripping it. Production evidence: **239,644** `IPC validation failed` warnings across the retained `app.log` set, split exactly 119,822 / 119,822 between `copilot-account:preview-route` (`Unrecognized key: "ipcAuthToken"`) and `copilot-account:list` (`Invalid input` — the union `z.object({}).strict().or(z.undefined())` failing both arms), i.e. a 1:1 retry loop hammering IPC. The sibling domains got this right: `provider.schemas.ts` and `voice.schemas.ts` both declare `ipcAuthToken: z.string().optional()`. **How it shipped green:** `copilot-account-handlers.spec.ts` contained zero occurrences of `ipcAuthToken` — it invoked every handler with bare payloads the preload never sends | Reproduced 2026-08-25 from the packaged app's own `app.log` while sweeping Copilot instance provenance for [automation provider exclusions](../superpowers/plans/2026-07-30-automation-provider-exclusions_livetest.md) check 6; root cause confirmed by parsing the real exported schemas against the real `withAuth()` output, with a passing control | Shared `ipcAuthTokenField` spread into all 10 payload schemas, keeping `.strict()` so rogue keys (`env`, `copilotHome`, `configPath`) are still refused and a non-string token is still rejected. 32 regression tests in `src/main/ipc/handlers/copilot-account-handlers.spec.ts` covering all 15 channels in both token states; mutation-checked by reverting the schema change and watching 13 of them fail |
+| LT-524 | P1 | **FOUND, NOT FIXED, 2026-08-25.** `StreamDurabilityCoordinator.resumeNode()` (`src/main/remote-node/stream-durability-coordinator.ts:97-100`) returns immediately when it has no recorded cursor for the (node, instance) pair (`state.cursors.size === 0`), so a durable worker reconnecting after a real link drop is never even asked to replay an instance whose entire turn — first byte to last — was produced while the link was down. Live-reproduced twice against a genuinely isolated worker paired to its own coordinator: a remote Claude turn's real, complete response (confirmed via the CLI's own on-disk session transcript, a substantive 5,643-character essay) was fully generated while the link was down, yet after the node fully reconnected the coordinator never logged "Durable stream resume completed" and the instance's transcript never received the response — total, silent loss, no gap marker, no error | [WS15 evidence run 2026-08-25 (Batch E)](2026-07-13-fable-ws15_livetest.md#evidence-run--2026-08-25-batch-e) | [WS15 check 2](2026-07-13-fable-ws15_livetest.md#2-gap-free-delivery-across-a-real-drop) |
+| LT-525 | P1 | **FOUND, NOT FIXED, 2026-08-25.** A remote instance that is mid-turn (`processing`/`busy`) when its worker node disconnects gets permanently stuck in `degraded` status after the node fully reconnects, with no automatic recovery. `WorkerNodeRegistry`'s `onReconnect` handler (`src/main/remote-node/node-failover.ts:119-140`) tries to restore the instance's pre-disconnect `originalStatus` directly (`instanceManager.updateInstanceStatus(id, originalStatus, ...)`), but `InstanceStateMachine`'s allowed transitions FROM `degraded` are only `['ready', 'idle', 'error', 'initializing']` (`src/main/instance/instance-state-machine.ts:161`) — `processing` is not among them, so the restore throws `IllegalTransitionError`. `onReconnect` is a one-shot listener already unregistered (`cleanup()`) before the throwing call, and the exception is swallowed generically by `RpcEventRouter.handleRpcRequest`'s outer catch, which just forces the node's *first* re-registration attempt to be rejected (code 4001, "Retry registration with recovery token") — the retry then succeeds because the (already-consumed) reconciliation listener no longer runs at all, leaving the instance stuck in `degraded` indefinitely even though its node is fully healthy and connected. Reproduced twice; the instance only recovered once a further, unrelated `sendInput()` was issued by hand | [WS15 evidence run 2026-08-25 (Batch E)](2026-07-13-fable-ws15_livetest.md#evidence-run--2026-08-25-batch-e) | [WS15 check 3](2026-07-13-fable-ws15_livetest.md#3-parked-work-rpc-completes-after-reconnect) |
+| LT-526 | P0 | **FOUND, NOT FIXED, 2026-08-25.** `createInstance({ hardened: true, forceNodeId: <connected node> })` silently succeeds and runs **completely unsandboxed** on the remote worker — the exact "unsandboxed remote session" WS13's own design explicitly set out to prevent. `adapter-factory.ts`'s remote branch (`if (executionLocation?.type === 'remote') { ...; return new RemoteCliAdapter(...); }`, ~line 667-672) returns **before** reaching the hardened-mode fail-closed guard (`isInstanceHardened(...)` at line 712, which throws `'Hardened mode is not supported for remote instances'` — but only for adapters that fall through the `cliType` switch below the early remote return). The code sitting immediately above the remote-return branch is a comment explicitly describing this exact bug shape already fixed once for Copilot ("This returns BEFORE the cliType switch below, so the Copilot fail-closed check has to run here too — otherwise a remote Copilot spawn would skip it entirely") — the hardened-mode check was never given the same treatment. Live-reproduced: a `hardened: true`, `forceNodeId`-targeted instance reached `status: 'idle'` normally, `executionLocation: { type: 'remote' }`, with `hardened: true` still recorded on the instance (so the UI/data model claims sandboxing); the worker's own log shows **zero** mentions of `sandbox`/`seatbelt` anywhere in its lifecycle — the CLI ran fully unsandboxed on the remote node with no error, no warning, no fallback to local | [WS13 evidence run 2026-08-25 (Batch E)](2026-07-13-fable-ws13_livetest.md#evidence-run--2026-08-25-batch-e) | [WS13 check 5](2026-07-13-fable-ws13_livetest.md#5-remote-placement-fails-closed) |
+| LT-527 | P2 | **FIXED 2026-08-26.** `CopilotCliAdapter`'s constructor called `getDefaultCopilotCliLaunch()`, which runs up to three synchronous child processes — `which copilot`, `which gh`, and a `gh copilot --help` probe bounded at 5000ms. On any machine without the standalone `copilot` binary (every CI runner, and any user who installed Copilot only through `gh`) merely *constructing* the adapter blocked for as long as that probe took, measured at **5007ms**, on the Electron main thread. It also exceeded vitest's 5000ms default timeout, failing the first test in each Copilot adapter spec file and turning `main`'s CI red intermittently. Present since 2026-04-23; load-sensitive, hence the green/red flapping | [CI run 32947812436](https://github.com/Community-Tech-UK/ai-orchestrator/actions/runs/32947812436) | `src/main/cli/adapters/copilot-cli-adapter.lazy-launch.spec.ts` |
 
 ## LT-001: Existing-Tab Browser Grant Scope Mismatch
 
@@ -7806,3 +7813,621 @@ env-override surface — at which point it becomes reachable and the severity ne
 
 WS13 checks 10/11 remain open for a *different* reason than before: this lever does not produce the
 denial-crash they need, because the CLI's own config write is not confined the way the check assumed.
+
+## LT-521: check 1's "logs show shadow decisions" wording describes a log line that does not exist anywhere in the shadow/enforce decision path
+
+**Status: FOUND, NOT FIXED, 2026-08-25 — a doc-vs-code wording gap, not a behavioural defect.**
+
+### Observed behaviour
+
+The provider-agnostic-context-evidence livetest's check 1 ("Codex `shadow` run") expects: *"Turn
+behaves identically to `off` (no working-set rewriting); evidence records + cards appear in the
+Evidence panel; occupancy/cumulative figures shown separately; logs show shadow decisions (policy
+computed, action NOT executed)."* The first three clauses are proven live and unchanged since
+2026-08-12/2026-08-18. The fourth ("logs show shadow decisions") is not.
+
+The 2026-08-12 evidence run grepped a real shadow-mode session's log for `shadow` and found zero
+matches. The 2026-08-18 run went further and read every plausible source location rather than
+re-testing live, and concluded no such log line exists in the codebase at all — but left it
+deliberately unfiled ("a cosmetic observability gap in a doc-only phrase... this campaign reserves LT
+filings for reproduced behavioural gaps"). This session re-confirmed that source read directly rather
+than trusting the carried-forward claim, and files it per this campaign's explicit instruction not to
+silently accept a real (if cosmetic) gap.
+
+### Root cause
+
+Read every file on the shadow/enforce decision path:
+
+- `src/main/context/output-persistence.ts` — the file that actually implements the shadow-mode
+  short-circuit (`maybeExternalize()` line 170: `if (mode === 'shadow') return output;`) — has exactly
+  **one** `logger` call in the entire file, an unrelated `logger.warn('Large-output evidence migration
+  could not externalize safely', …)` for a migration error path, nothing resembling a per-decision log.
+- `src/main/context-evidence/context-evidence-diagnostics.ts` — zero `logger` calls.
+- `src/main/context/context-policy-runtime.ts` — zero `logger` calls.
+- `src/main/context-evidence/context-safety-policy.ts` — zero `logger` calls.
+
+No file on the path that computes or applies a shadow/enforce decision ever calls `logger.info`,
+`logger.debug`, or any other logging method describing "policy computed, action NOT executed" or
+anything semantically equivalent. The check's Expected Result describes a log line that was never
+implemented, not a log line that regressed.
+
+### Required behaviour (a decision, not a unilateral fix)
+
+Either:
+(a) add an `info`/`debug` log line at the point a shadow-mode decision is computed but not executed
+(the natural home is `output-persistence.ts`'s `maybeExternalize()`, immediately before the
+`mode === 'shadow'` early return), so the check's literal wording becomes true; or
+(b) correct check 1's Expected Result to describe shadow mode's real, silent behaviour (capture
+without alteration, no decision-level logging), matching how this same doc's 2026-08-20 evidence run
+already handled the analogous LT-220 gap ("accept the gap, correct the false claim rather than rewrite
+a provider adapter").
+
+Not decided here — editing a check's acceptance criteria, or adding new production logging as scope,
+is not this session's call per this campaign's own established precedent (LT-147, LT-220, LT-270 all
+left the same shape of question to James).
+
+### Acceptance
+
+Either the log line exists and is observed live in a real shadow-mode session, or check 1's Expected
+Result is edited to drop the "logs show shadow decisions" clause and the doc records why. Whichever is
+chosen, re-run check 1 against the corrected contract and record the result in the owning livetest
+doc's evidence log.
+
+## LT-522: every `copilot-account:*` IPC channel rejected every renderer call, because `.strict()` schemas did not declare the preload's auth stamp
+
+**Status: FIXED + MUTATION-CHECKED 2026-08-25.** Live UI confirmation still needs a rebuilt app — see
+[the Copilot account routing livetest](../superpowers/plans/2026-08-25-copilot-account-routing_plan_livetest.md).
+
+### Observed behaviour
+
+While sweeping Copilot instance-creation provenance for the automation-provider-exclusions doc, the
+packaged app's own logs turned out to contain an error storm on the channels belonging to the account
+routing feature committed earlier the same day (`20f534775 copilot routing`):
+
+```
+2026-08-25T14:00:24.221Z IPC  IPC validation failed for copilot-account:preview-route
+                              {"errors":": Unrecognized key: \"ipcAuthToken\""}
+2026-08-25T14:00:24.221Z IPC  IPC validation failed for copilot-account:list
+                              {"errors":": Invalid input"}
+```
+
+Across the whole retained `app.log` set: **239,644** such warnings, split **119,822 / 119,822** between
+exactly those two channels. The perfect 1:1 balance is a single renderer caller issuing both in a hot
+retry loop; the entries are ~1 ms apart.
+
+The user-visible consequence is that **Settings › GitHub Copilot Accounts cannot work at all** — listing
+profiles, creating one, adding a routing rule, previewing a route, and the Doctor report all fail before
+any handler runs.
+
+### Root cause
+
+Three facts that are individually reasonable and jointly fatal:
+
+1. `src/preload/preload.ts:79` builds this domain **with** `withAuth`:
+   `...createCopilotAccountDomain(ipcRenderer, IPC_CHANNELS, withAuth)`, and all **15** `ipcRenderer.invoke`
+   calls in `src/preload/domains/copilot-account.preload.ts` use it (15 invokes, 15 `withAuth(` uses).
+2. `withAuth` (`preload.ts:58-63`) returns `{...payload, ipcAuthToken: ipcAuthToken || undefined}`. The key
+   is **always present**, even before sign-in, because an explicitly-`undefined` property is still an own
+   key — and that is what `.strict()` refuses. This is why the failure was total rather than intermittent,
+   and why it is easy to miss when reading a payload printed by `JSON.stringify`, which omits the key.
+3. All 10 payload schemas in `packages/contracts/src/schemas/copilot-account.schemas.ts` were `.strict()`
+   and none declared `ipcAuthToken`. `validatedHandler` (`src/main/ipc/validated-handler.ts:38`) runs
+   `schema.safeParse(payload)` on the raw payload; nothing strips the stamp first.
+
+`copilot-account:list` fails differently from the rest and the difference is diagnostic:
+`CopilotAccountEmptyPayloadSchema` was `z.object({}).strict().or(z.undefined())`, so the stamped payload
+fails the strict-object arm *and* the undefined arm, and Zod reports the union failure as the much less
+helpful `Invalid input`.
+
+**The convention already existed and this domain missed it.** `packages/contracts/src/schemas/provider.schemas.ts`
+and `voice.schemas.ts` — the other two domains preload wires through `withAuth` — both declare
+`ipcAuthToken: z.string().optional()` on their payloads.
+
+### Why the test suite stayed green
+
+`src/main/ipc/handlers/copilot-account-handlers.spec.ts` contained **zero** occurrences of `ipcAuthToken`.
+It registers the real handlers against a mocked `ipcMain` and invokes them directly — but with bare
+payloads (`{ workingDirectory: '/Users/me/work/repo' }`) that the preload never sends. The test double was
+faithful to the handler and unfaithful to the caller, so it exercised a payload shape that cannot occur in
+production. Same shape of gap as the one recorded for a test double that answered from its own state.
+
+### Required behaviour
+
+Every channel the preload exposes must accept the payload the preload actually sends, in both token states
+(not yet issued, and issued), while still refusing keys that have no business crossing this boundary.
+
+### Acceptance
+
+- All 15 `copilot-account:*` channels return a non-`VALIDATION_FAILED` result for an auth-stamped payload,
+  with the token both absent and present.
+- `.strict()` behaviour is retained: `env`, `copilotHome` and `configPath` are still rejected, and a
+  non-string `ipcAuthToken` is still rejected.
+- The regression fails if the schema change is reverted.
+
+### Fix
+
+A shared `ipcAuthTokenField = { ipcAuthToken: z.string().optional() }` spread into all 10 payload schemas,
+documented in place with why the stamp is accepted and then ignored (main authorises from the sender via
+`ensureTrustedSender`, never from this value). Admitting it into the parsed payload was checked to be safe
+before choosing this over stripping centrally: `store.createProfile()` and `store.createRule()`
+(`src/main/providers/copilot/copilot-account-store.ts:179,298`) build their persisted records field by
+field and never spread the input, so the stamp cannot reach disk. A central strip in `validatedHandler`
+would have touched every channel in the app for no additional benefit here.
+
+32 regression tests were added covering all 15 channels in both token states plus the strictness controls.
+**Mutation-checked:** reverting `copilot-account.schemas.ts` to its committed state and re-running produced
+**13 failures** naming `Unrecognized key: "ipcAuthToken"`; restoring it returned 45/45 green.
+
+### Gates
+
+`npx tsc --noEmit`, `npx tsc --noEmit -p tsconfig.spec.json`, `npm run lint`, `npm run check:ts-max-loc`
+and `npm run build:main` all clean; targeted spec 45/45.
+
+## LT-523: orchestration-protocol response injection (`respondToUserAction` and every other `OrchestrationHandler` command reply) bypasses `SessionAdmissionService`, corrupting a genuinely blocked session
+
+**Status: FOUND, NOT FIXED, 2026-08-25.**
+
+### Observed behaviour
+
+Driving check C2's "approve/confirm works from the Workboard card" sub-assertion (this doc's own
+five prior evidence-run sessions had left it untested, needing "a `confirm`/`approve_action`-shaped
+request... not attempted this session"). Rather than needing Guardian adjudication or the auxiliary
+LLM (both unreachable this session — see B3), a real `approve_action`-shaped `UserActionRequest` was
+produced the same way the app itself produces one: a real, live Claude instance was asked to emit the
+documented orchestration marker text verbatim
+(`:::ORCHESTRATOR_COMMAND:::{"action":"request_user_action","requestType":"approve_action",...}:::END_COMMAND:::`)
+in a plain assistant reply. `OrchestrationHandler.processOutput()` parsed it correctly (confirmed via
+`app.log`: `"Executing orchestrator command" action: 'request_user_action'`), creating a real pending
+`UserActionRequest` (`uar-1787674988272-yw9dwdm`) for the instance. The same instance was then sent a
+second, ordinary message asking it to run `ls -la /tmp` via Bash with `yoloMode: false`, driving it to
+a genuine `waiting_for_permission` status (`deferred_permission`, `toolUseId:
+toolu_01Vdai7yRQW2oAXsXMrHjqso`) — exactly the check's own "put instances into failed/error/degraded
+[or blocked] states" scenario, and exactly the condition needed for the Workboard card's Approve/Reject
+buttons to render at all (`item().attentionLevel === 'blocked'`).
+
+The real Workboard card (`app-workboard-card`) correctly rendered `Approve Reject Snooze` for the
+pending `approve_action` request. Clicking the real DOM `Approve` button correctly called
+`respondToUserAction()`, which cleared the card's `pendingRequest` signal (`null`) — the happy-path
+half of the check genuinely works. But `app.log` immediately after shows the injected
+`"**User responded** to \"approve_action\" - Approved"` system message was delivered straight to
+Claude's stdin **while the instance was still `waiting_for_permission` on the unrelated, earlier Bash
+call** — the instance's own `outputBuffer` recorded a **second, duplicate** `tool_use` entry for the
+identical command (`toolu_017XN7dQsRb5HvKgykPAUGVF`, same `ls -la /tmp`) immediately following the
+injected system message, with the original `toolu_01Vdai7...` deferred-permission request never
+mentioned again in the log — orphaned, with no route left to answer it (the app tracks only the
+current/latest pending permission per instance). Roughly 90 seconds later, `BaseCliAdapter`'s stream-idle
+watchdog (unrelated pre-existing mechanism, triggered because the CLI process had gone quiet mid-wait)
+attempted an auto-respawn; when the orphaned second permission was then answered via
+`respondToInputRequired()`, `DeferredPermissionHandler` correctly wrote the allow decision but the
+lifecycle transition was refused: `"Illegal lifecycle transition blocked { instanceId, from:
+'waiting_for_permission', to: 'respawning' }"` — the state machine guard prevented a crash, but the
+approved permission decision was dropped and the instance was left in `waiting_for_permission`
+indefinitely with no live path to recover other than a manual restart/interrupt. (This final collision
+shape overlaps LT-137's territory — a late deferred-permission decision racing an in-flight
+respawn/interrupt — but LT-137 was reproduced via an explicit `interruptInstance()` call; here nothing
+was interrupted, and the race was created upstream, by the unguarded stdin write documented below.)
+
+### Root cause
+
+`OrchestrationHandler.injectResponse()` (`src/main/orchestration/orchestration-handler.ts:1055-1080`)
+does nothing but `this.emit('inject-response', instanceId, response)`. The sole listener,
+`InstanceOrchestrationManager`'s wiring in `src/main/instance/instance-orchestration.ts:513-560`, calls
+`adapter.sendInput(response)` **directly** — serialized per-instance to avoid stdin corruption, but with
+**no status check and no call to `SessionAdmissionService`** at any point. Every other automated writer
+in the app (automations via `AutomationRunner`, channel/Discord messages, and the `consensus_query`
+result path — which explicitly calls `getSessionAdmissionService().registerRedeliveryHandler('consensus',
+...)` in this same class's constructor, `orchestration-handler.ts:112-119`) is required to call
+`SessionAdmissionService.admitAutomatedWrite()` first, which returns `{kind: 'suppressed', reason:
+'awaiting-human'}` for exactly `status === 'waiting_for_permission'`
+(`src/main/session/session-admission-service.ts:216-218`) and several other not-ready states
+(`interrupting`, `cancelling`, `respawning`, `error`, `terminated`, quota-parked, auth-required). A5's
+2026-08-18 evidence run in this same doc live-verified that gate works correctly for automations and
+channel messages. But `injectResponse()`/`'inject-response'` — used for **every** `OrchestrationHandler`
+command reply, not just `request_user_action`: `spawn_child`, `message_child`, `terminate_child`,
+`call_tool`, `report_task_complete`, `report_error`, `get_task_status`, `create_automation`,
+`report_result`, `get_child_summary/artifacts/section` — was never wired to it. This is the one
+automated-write path in the orchestration subsystem that was missed when `SessionAdmissionService` was
+built, structurally, not just for `request_user_action`.
+
+### Measured impact — the storm destroyed the app's retained log history
+
+Quantified after the root cause was settled, because the first pass understated it:
+
+| file | errors | span | rate |
+| --- | --- | --- | --- |
+| `app.log.4` | 9,098 | 3.3 s | **2,790/s** |
+| `app.log.3` | 61,298 | 20.2 s | **3,032/s** |
+| `app.log.2` | 61,300 | 22.0 s | **2,781/s** |
+| `app.log.1` | 61,262 | 21.5 s | **2,849/s** |
+| `app.log` | 46,686 | 5,083.8 s | 9/s |
+
+Full window **13:59:17.194Z → 15:25:08.051Z (85.8 minutes)**. The first ~67 seconds ran at roughly
+**2,800–3,000 errors per second**, which rotated **four** ~10 MB log files in about a minute.
+
+That is the part worth flagging beyond the broken feature: **the app's entire retained diagnostic
+history was overwritten.** Every rotated file now begins at 13:59:17Z. Two separate live-test batches
+this same afternoon hit the consequence without knowing the cause — one recorded that "`app.log` has
+rotated past its creation time" and could not establish the provenance of a production record, and a
+Copilot-provenance sweep that had previously reached back four weeks could only reach 2026-08-23.
+A logging path that can erase the evidence trail this quickly is a second-order defect in its own
+right, whatever the triggering caller.
+
+The storm stopped at **15:25:08Z**, 34 seconds after the last Copilot instance creation at 15:24:34Z,
+which places the retry loop in a renderer surface that was open at the time rather than in a
+background service. It is **not** currently running.
+
+**The running packaged app contains the defect — verified in the shipped bundle, not inferred.**
+`app.asar` mtime **2026-08-25T13:36:15Z**, process started **13:44:42Z**. A `strings` grep for the
+channel name only proves the channel exists, so the compiled schema itself was extracted:
+
+```
+asar extract-file app.asar dist/packages/contracts/src/schemas/copilot-account.schemas.js
+grep -c "strict()"      → 15
+grep -c "ipcAuthToken"  →  0
+```
+
+Fifteen `.strict()` calls and **zero** references to the stamp the preload always sends. So this is
+not a source-only finding: the broken schema shipped into the build James is running, and the storm
+above is that build's own log.
+
+### Required behaviour
+
+Before `instance-orchestration.ts`'s `'inject-response'` handler calls `adapter.sendInput()`, it must
+call `getSessionAdmissionService().admitAutomatedWrite({instanceId, origin: 'orchestration', message:
+response, ...})` (or equivalent) and only send when `kind === 'admitted'`. On suppression, register for
+redelivery (the same `registerRedeliveryHandler` mechanism already used for `consensus_query`) so the
+response is delivered once the instance returns to a ready state, rather than being silently dropped or
+corrupting an in-flight tool-permission wait. The Workboard/session-picker card's `Approve`/`Reject`
+handlers should reflect this too — e.g. disable or relabel the action, or show a "will deliver once
+ready" state, rather than implying the response was delivered immediately when the instance was already
+blocked on something else.
+
+### Acceptance
+
+1. A regression test reproducing this run's exact shape: an instance `waiting_for_permission`, a pending
+   `request_user_action` response for the same instance — `respondToUserAction()` must not write to the
+   adapter's stdin while suppressed, and the original deferred-permission request must remain answerable
+   afterward (no duplicate tool_use, no orphaned permission).
+2. `SessionAdmissionService.admitAutomatedWrite()` (or equivalent) is called on the `'inject-response'`
+   path for every `OrchestratorAction`, mutation-verified (revert the gate call, watch the new test fail).
+3. A suppressed orchestration response is redelivered once the instance returns to a ready state,
+   verified live (not just by reading code), the same standard A5 already met for automations/channels.
+4. Existing `orchestration-handler.spec.ts` / `instance-orchestration` suites still pass; `tsc` ×2,
+   `eslint`, `build:main` clean.
+
+Not fixed this session — found via live reproduction while driving check C2's approve/confirm-from-card
+sub-assertion; scoped and written up for the next implementation pass rather than fixed unilaterally
+mid-livetest-campaign, per this campaign's standard practice for higher-risk session-corruption findings.
+
+## LT-524: WS15 durable resume never fires for a turn whose entire output occurred before the coordinator had accepted any frame — silent total loss
+
+**Status: FOUND, NOT FIXED, 2026-08-25.**
+
+### Observed behaviour
+
+Reproduced against a genuinely isolated worker node: a fresh dev-app coordinator
+(`AIO_DEV_USER_DATA_PATH=/tmp/aio-lt-E`) with `remoteNodesEnabled`/`remoteNodesServerPort` set to a
+private loopback port, paired to a disposable `dist/worker-agent/index.js` process running under
+`node --inspect` on the same machine — not `windows-pc`, not any of James's real nodes. This gave full,
+non-destructive control over the link: a `net.Socket.prototype.write` monkeypatch (installed via the
+Node Inspector Protocol) that silently swallows outbound frames from the worker to the coordinator only
+while `globalThis.__ltBlockNet` is true, leaving the worker process itself, and its spawned CLI child,
+fully alive and running throughout — the same shape of lever this campaign's sibling docs (WS13 Batch C)
+already established as legitimate.
+
+Created a remote Claude instance on this worker (`forceNodeId`, `executionLocation.type: 'remote'`
+confirmed), sent a real prompt ("write a 900-word essay on the history of lighthouses"), and enabled the
+block ~8-12s later — before any output notification had reached the coordinator. Held the block until the
+coordinator's own heartbeat-timeout mechanism (`worker-node-health.ts`, `DEGRADED_THRESHOLD_MS`=60s,
+`DISCONNECT_THRESHOLD_MS`=90s) genuinely fired ("Node exceeded disconnect threshold, deregistering",
+confirmed in `app.log`) and force-closed the connection, then released the block and let the worker's own
+reconnect logic bring it back ("Registration accepted" logged again on the coordinator).
+
+**The essay was fully generated while the link was down.** Confirmed independently of AIO entirely: the
+Claude CLI's own on-disk session transcript (`~/.claude/projects/-private-tmp-aio-lt-E-worker-ws/<sessionId>.jsonl`)
+contains a complete, real 5,643-character assistant message ("# Guiding Lights: A History of
+Lighthouses…") timestamped 23 seconds after the block was enabled — well before the coordinator ever
+detected the drop. Reproduced a second time in the same session with a trivial "ping" turn (216-byte real
+reply, same pattern).
+
+**None of that output ever reached the coordinator.** After the node fully reconnected:
+- `app.log` contains **zero** occurrences of `"Durable stream resume completed"`, `"Parking in-flight
+  work RPCs"`, or the gap-marker text, across either reproduction.
+- The instance's `outputBuffer` (queried live via `listInstances()`) contained only the two **user**
+  messages ("essay prompt", "ping") — no assistant content at all, in either case.
+- No error, no "Node disconnected" message, no gap marker (`'⚠️ Some output … was lost'`) was ever shown
+  — the turn simply completed (`status: 'idle'`) with an invisible, silently-dropped response.
+
+### Root cause
+
+`StreamDurabilityCoordinator.resumeNode(nodeId, streamDurability)`
+(`src/main/remote-node/stream-durability-coordinator.ts:97-100`):
+
+```ts
+resumeNode(nodeId: string, streamDurability: unknown): void {
+  if (typeof streamDurability !== 'number' || streamDurability < 1) return;
+  const state = this.nodes.get(nodeId);
+  if (!state || state.cursors.size === 0) return;   // <-- early return
+  ...
+}
+```
+
+`state.cursors` is populated **only** by `accept()`, which runs only when the coordinator has already
+received and processed at least one `NODE_TO_COORDINATOR.INSTANCE_OUTPUT`/`INSTANCE_OUTPUT_BATCH`
+notification for that instance. If the link goes down before the very first output notification for a
+turn arrives — a realistic, common real-world shape (send a message, then lose Wi-Fi/VPN before the first
+token streams back) — `resumeNode()` never asks the worker to replay anything at all, even though the
+worker's own local ring buffer (the thing `node.streamResume` exists to query) holds the complete,
+real output the whole time. The coordinator simply never asks.
+
+This is a different failure mode from the documented "cursors are in-memory, a worker **process**
+restart resets them" deviation noted at the top of the same file — that deviation is about a worker
+process dying; here the **worker process and its CLI child never stopped running**, and the data was
+never lost worker-side. It is purely a coordinator-side gating bug: no baseline cursor ⇒ no resume
+request ⇒ total, silent, permanent loss.
+
+### Required behaviour
+
+On a durable worker (re-)registration, the coordinator should request a replay for **every** instance it
+still has associated with that node — including instances with no recorded cursor yet — not only ones
+with `state.cursors.size > 0`. A worker replaying "from the start" for an instance the coordinator has no
+cursor for is a strict improvement over never asking: worst case the worker has nothing buffered either
+(also fine, matches today's behaviour); best case the user's real, already-generated response is
+recovered instead of silently vanishing.
+
+### Acceptance
+
+- A regression test creates a remote instance, sends a turn, and disconnects it before the coordinator
+  accepts any output frame for that instance (`state.cursors.size === 0` at disconnect); on reconnect
+  with a durable worker that has real buffered output for that instance, `resumeNode()` must issue a
+  `sendResume` call for it and the replayed content must reach the instance transcript.
+- The existing "replay only what's cursored" behaviour for instances that already had at least one
+  accepted frame before the drop must be unaffected (no regression on WS15 check 4/8's existing
+  evidence).
+- `npx tsc --noEmit`, `npx tsc --noEmit -p tsconfig.spec.json`, `npm run lint`, `npm run build:main`, and
+  the targeted `stream-durability-coordinator.spec.ts` suite all pass.
+
+Not fixed this session — found via live reproduction while driving WS15 checks 2/3; scoped and written
+up for the next implementation pass rather than fixed unilaterally mid-livetest-campaign, per this
+campaign's standard practice for higher-risk data-loss findings.
+
+## LT-525: a mid-turn instance whose worker node disconnects gets permanently stuck in `degraded` after the node reconnects
+
+**Status: FOUND, NOT FIXED, 2026-08-25.**
+
+### Observed behaviour
+
+Found in the same WS15 checks 2/3 session as LT-524, using the same isolated worker-to-coordinator
+pairing. In both reproductions, the remote instance was actively `processing` a real turn when the
+link was cut (via the `net.Socket.prototype.write` monkeypatch described in LT-524) and the coordinator
+eventually force-disconnected the node on its own 90s heartbeat timeout.
+
+`app.log` shows the expected first half of recovery working correctly:
+
+```
+"Node failover: marking instances degraded (recoverable)"   { nodeId, count: 1 }
+"Instance status updated"  { instanceId, status: 'degraded', reason: 'worker-node-disconnected' }
+```
+
+But once the worker reconnected and re-registered, the FIRST registration attempt threw:
+
+```
+IllegalTransitionError: Illegal transition: degraded → processing
+    at InstanceStateMachine.transition (dist/main/instance/instance-state-machine.js:181)
+    at InstanceLifecycleManager.transitionState (dist/main/instance/instance-lifecycle.js:388)
+    at InstanceManager.updateInstanceStatus (dist/main/instance/instance-manager.js:1341)
+    at WorkerNodeRegistry.onReconnect (dist/main/remote-node/node-failover.js:119)
+    at WorkerNodeRegistry.emit (node:events:521)
+    at WorkerNodeRegistry.registerNode (dist/main/remote-node/worker-node-registry.js:38)
+    at RpcEventRouter.handleNodeRegister (dist/main/remote-node/rpc-event-router.js:275)
+```
+
+logged only as a generic `"RPC request handler failed"`, and the coordinator rejected that first
+registration attempt (WS close code 4001, `"Retry registration with recovery token"`). The worker's own
+client-side retry logic then re-registered a few seconds later and that **second** attempt succeeded —
+but the instance was left at `status: 'degraded'` and **stayed there** for over a minute of the node
+being fully connected and heartbeating normally (`WorkerNodeHealth` showed no further degraded/disconnect
+warnings). Confirmed live via `listInstances()` well after reconnection: `status: 'degraded'` still,
+with no automatic recovery in sight. Only issuing a further, unrelated `sendInput()` (a plain "ping")
+finally moved the instance back to `idle` — an accidental, undocumented recovery path, not a designed
+one.
+
+### Root cause
+
+`WorkerNodeRegistry`'s reconnect-reconciliation handler (`src/main/remote-node/node-failover.ts:119-140`,
+`onReconnect`) unconditionally restores each affected instance's pre-disconnect `originalStatus`:
+
+```ts
+function onReconnect(node: { id: string }): void {
+  if (node.id !== nodeId) return;
+  if (settled) return;
+  settled = true;
+  cleanup();                                    // <-- listener already removed here
+  for (const { id, originalStatus } of affected) {
+    const inst = instanceManager.getInstance(id);
+    if (inst && !isTerminalFailoverStatus(inst.status)) {
+      instanceManager.updateInstanceStatus(id, originalStatus, {   // <-- throws
+        reason: 'worker-node-reconnected',
+        nodeId,
+      });
+    }
+  }
+}
+```
+
+`instance-state-machine.ts:161` deliberately restricts transitions FROM `degraded` to
+`['ready', 'idle', 'error', 'initializing']` — its own inline comment reads *"Reconnected →
+ready/idle, grace period expired → error"* — i.e. the state machine's author already anticipated
+"reconnected" as a `degraded` exit case, but `node-failover.ts` was never updated to route through
+`idle`/`ready` when `originalStatus` is one of the active/busy family (`processing`, `busy`,
+`thinking_deeply`, …). Because `cleanup()` (which unregisters the `node:connected` listener) runs
+**before** the throwing call, and the whole reconciliation is a synchronous `for` loop with no
+per-instance try/catch, a single illegal transition aborts reconciliation for every remaining instance
+in `affected` too, and the listener is gone — there is no second chance for this specific reconnect
+event. Nothing else in the codebase re-attempts the restore.
+
+### Required behaviour
+
+`onReconnect`'s restore should never throw. Either:
+(a) wrap `originalStatus` restoration in a state-machine-aware mapping (e.g. any of the busy/processing
+family maps to `idle`/`ready` when restoring from `degraded`, since the actual live turn state is
+whatever the CLI resumes reporting once its output starts flowing again), or
+(b) guard the transition call itself and fall back to `idle` on an `IllegalTransitionError`, logging a
+warning instead of letting the exception propagate into the RPC handler and bounce the node's own
+registration.
+Either way, a single failed restore must not silently abort reconciliation for the rest of `affected`,
+and an instance must never require an incidental, unrelated user action to leave `degraded` once its
+node is healthy again.
+
+### Acceptance
+
+- A regression test drives an instance to `processing`, disconnects its node, and reconnects it; the
+  instance must land in a non-`degraded`, non-error, live status automatically, with no thrown
+  exception anywhere in the reconnect path.
+- A regression test with **multiple** affected instances on the same node, where an earlier one's
+  restore would throw, confirms the later ones are still reconciled (no early abort).
+- `npx tsc --noEmit`, `npx tsc --noEmit -p tsconfig.spec.json`, `npm run lint`, `npm run build:main`, and
+  the targeted `node-failover.spec.ts`/`instance-state-machine.spec.ts` suites all pass.
+
+Not fixed this session — found via the same live reproduction as LT-524; scoped and written up for the
+next implementation pass rather than fixed unilaterally mid-livetest-campaign.
+
+## LT-526: `hardened: true` + a remote node silently runs completely unsandboxed — the fail-closed guard is unreachable dead code
+
+**Status: FOUND, NOT FIXED, 2026-08-25. P0 — silently defeats a security control the user believes is active.**
+
+### Observed behaviour
+
+Driving [WS13 check 5](2026-07-13-fable-ws13_livetest.md), which five prior sessions had left open
+for the stated reason "no agent-reachable path anywhere sets `hardened: true` on a `forceNodeId`
+create, dev app or packaged app alike" — true for every *exposed* path (IPC schema, MCP
+`run_on_node`), but `createInstance` itself has always accepted both fields together
+(`InstanceCreatePayloadSchema` has both `hardened` and `forceNodeId` as plain optional fields; this
+is not a schema gap, only a UI-composer gap — no combination of the real create-instance dialog
+lets a user pick both a remote node and Hardened together today).
+
+Using the same disposable worker paired to an isolated dev-app coordinator built for the sibling
+WS15 checks in this session (never touching any of James's real nodes), called `createInstance`
+directly via `window.electronAPI` with both fields set:
+
+```js
+createInstance({ provider: 'claude', hardened: true, forceNodeId: '<connected worker node id>', workingDirectory: '...' })
+```
+
+**It did not fail closed.** The instance reached `status: 'idle'` normally
+(`adapterGeneration: 1`, `residentClaude: true`), with `executionLocation: { type: 'remote', nodeId:
+'<the node>' }` **and** `hardened: true` both recorded on the live instance object — i.e. the data
+model and any UI reading it would show this as a successfully hardened remote session. `app.log`
+shows a completely ordinary remote spawn (`"Remote node: dispatching work" method: 'instance.spawn'`
+→ `"Remote instance spawned"` → `"CLI spawned successfully"`), no error, no rejection, no fallback
+to local. The worker's own log (independent of the coordinator) contains **zero** occurrences of
+`sandbox`/`seatbelt` anywhere across the instance's full lifecycle — definitive confirmation the CLI
+ran completely unsandboxed on the remote node, not merely that the coordinator's guard was silent.
+
+### Root cause
+
+`adapter-factory.ts` builds the CLI adapter for a new instance in two disjoint branches. The remote
+branch returns unconditionally and early:
+
+```ts
+// If remote, create a RemoteCliAdapter regardless of CLI type. This returns
+// BEFORE the cliType switch below, so the Copilot fail-closed check has to
+// run here too — otherwise a remote Copilot spawn would skip it entirely.
+if (executionLocation?.type === 'remote') {
+  if (cliType === 'copilot') {
+    requireCopilotAccountRoute(effectiveOptions, 'remote');
+  }
+  const connection = getWorkerNodeConnectionServer();
+  return new RemoteCliAdapter(connection, executionLocation.nodeId, cliType, effectiveOptions);
+}
+
+const adapter = (() => { switch (cliType) { /* local adapters only */ } })();
+
+// WS13 hardened mode: ...
+if (isInstanceHardened(effectiveOptions.instanceId)) {
+  if (!(adapter instanceof BaseCliAdapter)) {
+    // Remote adapters spawn on a worker node, outside the local Seatbelt choke point. FAIL CLOSED.
+    throw new Error('Hardened mode is not supported for remote instances (Phase A is local macOS only).');
+  }
+  ...
+}
+```
+
+The comment directly above the remote branch already documents this exact bug shape — an early
+`return` skipping a fail-closed check below it — and was fixed for the Copilot case by duplicating
+that one check into the remote branch. **The hardened-mode check received no equivalent
+duplication**, so for every remote instance the `isInstanceHardened(...)` block, including its own
+inline `// FAIL CLOSED` comment, is unreachable dead code. The function returns a bare
+`RemoteCliAdapter` regardless of whether hardened mode was requested, and nothing downstream ever
+checks it again.
+
+### Required behaviour
+
+The remote branch must check `isInstanceHardened(effectiveOptions.instanceId)` itself and throw the
+same `'Hardened mode is not supported for remote instances (Phase A is local macOS only).'` error
+before constructing a `RemoteCliAdapter` — the same fix shape already applied to the Copilot
+fail-closed check in the same branch. No unsandboxed remote session should ever be creatable while
+`hardened: true` is set.
+
+### Acceptance
+
+- A regression test asserts `adapter-factory`'s remote branch throws for `hardened: true` +
+  `executionLocation.type === 'remote'`, for every `cliType`, **before** any `RemoteCliAdapter` is
+  constructed (verify via a spy/mock that the worker connection is never dispatched to).
+- The existing local hardened-mode regression coverage (`hardened-mode-scoping.spec.ts`) must be
+  unaffected.
+- `npx tsc --noEmit`, `npx tsc --noEmit -p tsconfig.spec.json`, `npm run lint`, `npm run build:main`
+  all clean.
+
+Not fixed this session — found via live reproduction while driving WS13 check 5; scoped and written
+up for the next implementation pass given its severity (a silently-defeated security control) rather
+than risk a rushed fix mid-livetest-campaign.
+
+
+## LT-527: Copilot Adapter Constructor Blocked on CLI Discovery
+
+**Observed behaviour.** CI on `main` failed on 2026-08-25 and 2026-08-26 with exactly one failing
+test in each of two shards: `copilot-cli-adapter.spec.ts › ... recovers assistant content from a
+repaired stream-json line` (shard 1) and `copilot-cli-adapter.server-mode.spec.ts › ... stays in
+exec mode when the bundled SDK is unavailable` (shard 2). In both cases the failing test was the
+**first** test in its file and the first to construct a `CopilotCliAdapter`; later constructions in
+the same file passed. The quiet runner reported the message as `STACK_TRACE_ERROR`, which hid the
+real cause.
+
+**Root cause.** `CopilotCliAdapter`'s constructor called `getDefaultCopilotCliLaunch()`
+(`src/main/cli/copilot-cli-launch.ts:54`). That resolves the standalone `copilot` binary via
+`resolveCommandOnPath` (a `which` subprocess), and when it is absent falls back to probing
+`gh copilot --help` through `commandRuns()` — a `spawnSync` with `timeout: 5000`. So on a machine
+without the standalone binary, constructing the adapter costs up to three synchronous child
+processes, bounded only by that 5s timeout.
+
+**Reproduction (2026-08-26).** With `HOME` pointed at a scratch directory and a `gh` shim on
+`$HOME/.local/bin` that burns six seconds, a probe of `resolveCopilotCliLaunch()` returned after
+**5007ms**, and both spec files failed 10/10 with `Test timed out in 5000ms` — the CI signature.
+With the fix applied and the same environment, the same 10 tests pass in 551ms.
+
+**Why it flapped rather than failing consistently.** The probe has been in the constructor since
+`a7dfcaa8c` (2026-04-23). Its cost depends on how long a cold `gh`/`which` exec takes under load,
+so a lightly-loaded runner stays under the 5s budget and a heavily-loaded four-way-sharded one does
+not. CI was green on 2026-08-23 and red on 2026-08-25/26 with no relevant code change between.
+
+**Required behaviour.** Constructing an adapter must not perform blocking subprocess I/O. Discovery
+must happen at most once per adapter, at the point a child process is actually spawned.
+
+**Fix.** The constructor now sets an inert placeholder command, and a private
+`ensureLaunchResolved()` performs discovery exactly once, called from an overridden
+`protected spawnProcess()` — the single path every Copilot child process (`checkStatus`, each
+exec-per-message turn, `listAvailableModels`) already goes through. This is behaviour-equivalent to
+the old code, which also resolved exactly once per adapter, just deferred.
+
+**Acceptance.** `src/main/cli/adapters/copilot-cli-adapter.lazy-launch.spec.ts` asserts that
+construction and `parseOutput()` trigger no discovery, that the first `spawnProcess()` triggers
+exactly one, that a second does not repeat it, and that the discovered command and `argsPrefix` are
+in place before the child is spawned. Reverting the fix fails 3 of its 4 tests.
+
+**Residual, deliberately not fixed here.** `createCopilotAdapter()`
+(`src/main/cli/adapters/adapter-factory.ts:332`) still calls `getDefaultCopilotCliLaunch()`
+synchronously on the ACP spawn path, where it genuinely needs the command at construction. That is
+the same up-to-5s main-thread block, once per spawn rather than per adapter, and needs a larger
+change.
+

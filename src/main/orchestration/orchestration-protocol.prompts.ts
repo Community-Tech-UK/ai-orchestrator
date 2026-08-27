@@ -159,7 +159,7 @@ When the user asks for recurring or deferred work — for example "every morning
 
 Example:
 ${ORCHESTRATION_MARKER_START}
-{"action":"create_automation","automation":{"name":"Daily CI check","schedule":{"type":"cron","expression":"0 9 * * *","timezone":"Europe/London"},"missedRunPolicy":"notify","concurrencyPolicy":"skip","action":{"prompt":"Check the current repo CI status and summarize any failures for the user.","provider":"auto"}}}
+{"action":"create_automation","automation":{"name":"Daily CI check","schedule":{"type":"cron","expression":"0 9 * * *","timezone":"Europe/London"},"missedRunPolicy":"notify","concurrencyPolicy":"skip","action":{"prompt":"Check the current repo CI status and summarize any failures for the user.","provider":"claude","model":"opus[1m]"}}}
 ${ORCHESTRATION_MARKER_END}
 
 **Managing existing automations.** Once an automation exists, manage it with the orchestrator tools — never edit it by hand or recreate a duplicate:

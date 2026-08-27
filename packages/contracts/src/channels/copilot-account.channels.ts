@@ -38,6 +38,12 @@ export const COPILOT_ACCOUNT_CHANNELS = {
   COPILOT_ACCOUNT_SUGGEST_RULES: 'copilot-account:suggest-rules',
   /** Renderer → main: profile-by-node authentication matrix. */
   COPILOT_ACCOUNT_NODE_MATRIX: 'copilot-account:node-matrix',
+  /**
+   * Renderer → main: GitHub accounts Copilot is ALREADY signed in to on this
+   * machine, that Harness has no profile for yet. Bounded identity metadata
+   * only — the credentials stay where Copilot put them.
+   */
+  COPILOT_ACCOUNT_DISCOVER: 'copilot-account:discover',
   /** Renderer → main: the full Doctor report for the accounts section. */
   COPILOT_ACCOUNT_DIAGNOSTICS: 'copilot-account:diagnostics',
 } as const;

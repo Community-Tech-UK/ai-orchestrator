@@ -34,9 +34,7 @@ import type {
   DesktopWaitForRequest,
   DesktopWaitForResult,
 } from '../../shared/types/desktop-gateway.types';
-import type { AppSettings } from '../../shared/types/settings.types';
 import { getSettingsManager } from '../core/config/settings-manager';
-import { decideDesktopAppPolicy } from './desktop-app-policy';
 import {
   FileDesktopGatewayAuditStore,
   type DesktopGatewayAuditStore,
@@ -53,6 +51,7 @@ import {
   type DesktopPermissionRegistry,
 } from './desktop-grant-approval-controller';
 import { redactDesktopMetadata } from './desktop-redaction';
+import type { ComputerUseAutonomyLevel } from '../../shared/types/desktop-gateway-settings.types';
 import {
   describeLockHolder,
   FileDesktopSessionLock,
@@ -76,17 +75,12 @@ import {
   annotateInputEligibility,
   findApprovedWindowBounds,
 } from './desktop-accessibility-actionability';
-
-interface DesktopGatewaySettingsReader {
-  get<K extends keyof Pick<
-    AppSettings,
-    | 'computerUseEnabled'
-    | 'computerUseAllowedAppsJson'
-    | 'computerUseDeniedAppsJson'
-    | 'computerUseRequireApprovalForInput'
-    | 'computerUseStoreScreenshotsForEscalations'
-  >>(key: K): AppSettings[K];
-}
+import type { ResolvedComputerUseAutonomy } from '../instance/lifecycle/computer-use-scoping';
+import {
+  DesktopComputerUsePolicy,
+  type DesktopGatewaySettingsReader,
+  withResolvedComputerUseAutonomy,
+} from './desktop-computer-use-policy';
 
 export interface DesktopGatewayServiceOptions {
   driver?: DesktopDriver;
@@ -120,11 +114,13 @@ export class DesktopGatewayService {
   private readonly now: () => number;
   private readonly tokenBytes: () => string;
   private readonly observations: DesktopObservationStore;
+  private readonly computerUsePolicy: DesktopComputerUsePolicy;
 
   constructor(options: DesktopGatewayServiceOptions = {}) {
     const userDataPath = options.userDataPath ?? app?.getPath?.('userData') ?? os.tmpdir();
     this.driver = options.driver ?? createDefaultDesktopDriver();
     this.settings = options.settings ?? getSettingsManager();
+    this.computerUsePolicy = new DesktopComputerUsePolicy(this.settings);
     this.auditStore = options.auditStore
       ?? new FileDesktopGatewayAuditStore(userDataPath);
     this.grantStore = options.grantStore ?? new FileDesktopGrantStore(userDataPath);
@@ -138,9 +134,10 @@ export class DesktopGatewayService {
       driver: this.driver,
       sessionLock: this.sessionLock,
       requireApprovalForInput: () => this.settings.get('computerUseRequireApprovalForInput') !== false,
+      autonomy: (context) => this.computerUsePolicy.resolve(context),
       now: this.now,
-      requireObservableApp: (context, toolName, appId) =>
-        this.requireObservableApp(context, toolName, appId),
+      requireObservableApp: (context, toolName, appId, autonomy) =>
+        this.requireObservableApp(context, toolName, appId, autonomy),
       validateObservationToken: (token, appId, currentWindowId) =>
         this.observations.validate(token, appId, currentWindowId),
       getObservationWindowId: (token, appId) =>
@@ -163,8 +160,9 @@ export class DesktopGatewayService {
       isEnabled: () => this.isEnabled(),
       now: this.now,
       tokenBytes: this.tokenBytes,
-      annotateApp: (app) => this.annotateApp(app),
-      findAnnotatedApp: (appId) => this.findAnnotatedApp(appId),
+      autonomy: (context) => this.computerUsePolicy.resolve(context),
+      annotateApp: (context, app, autonomy) => this.computerUsePolicy.annotate(context, app, autonomy),
+      findAnnotatedApp: (context, appId, autonomy) => this.findAnnotatedApp(context, appId, autonomy),
       audit: (context, toolName, decision, resultCode, reason, metadata, appId, grantId) =>
         this.audit(context, toolName, decision, resultCode, reason, metadata, appId, grantId),
     });
@@ -193,10 +191,15 @@ export class DesktopGatewayService {
       await this.audit(context, 'computer.list_apps', 'denied', 'not_run', 'computer_use_disabled');
       return denied('computer_use_disabled');
     }
+    const autonomy = this.computerUsePolicy.resolve(context);
     const apps = (await this.driver.listApps())
       .slice(0, request.limit ?? 200)
-      .map((candidate) => this.annotateApp(candidate));
-    await this.audit(context, 'computer.list_apps', 'allowed', 'ok', undefined, { count: apps.length });
+      .map((candidate) => this.computerUsePolicy.annotate(context, candidate, autonomy));
+    await this.audit(context, 'computer.list_apps', 'allowed', 'ok', undefined, {
+      count: apps.length,
+      autonomyLevel: autonomy.level,
+      autonomySource: autonomy.source,
+    });
     return allowed({ apps });
   }
 
@@ -221,6 +224,15 @@ export class DesktopGatewayService {
     return this.grantApproval.resolveAppGrant(context, request);
   }
 
+  async recordComputerUseModeChange(context: DesktopGatewayContext,
+    previousMode: ComputerUseAutonomyLevel | undefined,
+    nextMode: ComputerUseAutonomyLevel | undefined,
+  ): Promise<void> {
+    await this.audit(
+      context, 'computer.set_session_autonomy', 'allowed', 'ok', undefined,
+      this.computerUsePolicy.describeChange(previousMode, nextMode),
+    );
+  }
   async screenshot(
     context: DesktopGatewayContext,
     request: DesktopScreenshotRequest,
@@ -237,10 +249,10 @@ export class DesktopGatewayService {
         ...(targetWindowId ? { windowId: targetWindowId } : {}),
       });
       if (policy.app && result.appId !== policy.app.appId) {
-        await this.audit(context, 'computer.screenshot', 'denied', 'failed', 'computer_use_target_changed', {
+        await this.audit(context, 'computer.screenshot', 'denied', 'failed', 'computer_use_target_changed', withResolvedComputerUseAutonomy(policy.autonomy, {
           expectedAppId: policy.app.appId,
           actualAppId: result.appId,
-        }, policy.app.appId, policy.grantId);
+        }), policy.app.appId, policy.grantId);
         return denied('computer_use_target_changed', 'failed');
       }
       const resultWindowId = normalizeDesktopWindowId(result.windowId, targetWindowId);
@@ -251,7 +263,7 @@ export class DesktopGatewayService {
           'denied',
           'failed',
           'computer_use_target_changed',
-          { expectedWindowId: targetWindowId, actualWindowId: result.windowId },
+          withResolvedComputerUseAutonomy(policy.autonomy, { expectedWindowId: targetWindowId, actualWindowId: result.windowId }),
           result.appId,
           policy.grantId,
         );
@@ -266,14 +278,14 @@ export class DesktopGatewayService {
           contentHash: DesktopObservationStore.hashContent(result.data),
         }),
       };
-      await this.audit(context, 'computer.screenshot', 'allowed', 'ok', undefined, {
+      await this.audit(context, 'computer.screenshot', 'allowed', 'ok', undefined, withResolvedComputerUseAutonomy(policy.autonomy, {
         appId: result.appId,
         ...request.metadata,
-      }, result.appId, policy.grantId);
+      }), result.appId, policy.grantId);
       return allowed(data);
     } catch (error) {
       const reason = errorReason(error, 'computer_use_driver_failed');
-      await this.audit(context, 'computer.screenshot', 'denied', 'failed', reason, metadataFromObject(request));
+      await this.audit(context, 'computer.screenshot', 'denied', 'failed', reason, withResolvedComputerUseAutonomy(policy.autonomy, metadataFromObject(request)));
       return denied(reason, 'failed');
     }
   }
@@ -294,10 +306,10 @@ export class DesktopGatewayService {
         ...(targetWindowId ? { windowId: targetWindowId } : {}),
       });
       if (policy.app && result.appId !== policy.app.appId) {
-        await this.audit(context, 'computer.accessibility_snapshot', 'denied', 'failed', 'computer_use_target_changed', {
+        await this.audit(context, 'computer.accessibility_snapshot', 'denied', 'failed', 'computer_use_target_changed', withResolvedComputerUseAutonomy(policy.autonomy, {
           expectedAppId: policy.app.appId,
           actualAppId: result.appId,
-        }, policy.app.appId, policy.grantId);
+        }), policy.app.appId, policy.grantId);
         return denied('computer_use_target_changed', 'failed');
       }
       const resultWindowId = normalizeDesktopWindowId(result.windowId, targetWindowId);
@@ -308,7 +320,7 @@ export class DesktopGatewayService {
           'denied',
           'failed',
           'computer_use_target_changed',
-          { expectedWindowId: targetWindowId, actualWindowId: result.windowId },
+          withResolvedComputerUseAutonomy(policy.autonomy, { expectedWindowId: targetWindowId, actualWindowId: result.windowId }),
           result.appId,
           policy.grantId,
         );
@@ -330,11 +342,11 @@ export class DesktopGatewayService {
           snapshot: nodes,
         }),
       };
-      await this.audit(context, 'computer.accessibility_snapshot', 'allowed', 'ok', undefined, metadataFromObject(request), result.appId, policy.grantId);
+      await this.audit(context, 'computer.accessibility_snapshot', 'allowed', 'ok', undefined, withResolvedComputerUseAutonomy(policy.autonomy, metadataFromObject(request)), result.appId, policy.grantId);
       return allowed(data);
     } catch (error) {
       const reason = errorReason(error, 'computer_use_driver_failed');
-      await this.audit(context, 'computer.accessibility_snapshot', 'denied', 'failed', reason, metadataFromObject(request));
+      await this.audit(context, 'computer.accessibility_snapshot', 'denied', 'failed', reason, withResolvedComputerUseAutonomy(policy.autonomy, metadataFromObject(request)));
       return denied(reason, 'failed');
     }
   }
@@ -613,49 +625,47 @@ export class DesktopGatewayService {
     context: DesktopGatewayContext,
     toolName: string,
     appId: string | undefined,
-  ): Promise<{ app?: DesktopAppDescriptor; grantId?: string; reason?: string }> {
+    autonomy: ResolvedComputerUseAutonomy = this.computerUsePolicy.resolve(context),
+  ): Promise<{ app?: DesktopAppDescriptor; grantId?: string; reason?: string; autonomy: ResolvedComputerUseAutonomy }> {
     if (!this.isEnabled()) {
-      await this.audit(context, toolName, 'denied', 'not_run', 'computer_use_disabled');
-      return { reason: 'computer_use_disabled' };
+      await this.audit(context, toolName, 'denied', 'not_run', 'computer_use_disabled', withResolvedComputerUseAutonomy(autonomy));
+      return { reason: 'computer_use_disabled', autonomy };
     }
     if (!appId) {
-      await this.audit(context, toolName, 'denied', 'not_run', 'computer_use_target_not_found');
-      return { reason: 'computer_use_target_not_found' };
+      await this.audit(context, toolName, 'denied', 'not_run', 'computer_use_target_not_found', withResolvedComputerUseAutonomy(autonomy));
+      return { reason: 'computer_use_target_not_found', autonomy };
     }
-    const apps = (await this.driver.listApps()).map((candidate) => this.annotateApp(candidate));
+    const apps = (await this.driver.listApps()).map((candidate) =>
+      this.computerUsePolicy.annotate(context, candidate, autonomy));
     const app = apps.find((candidate) =>
       candidate.appId === appId || candidate.windowId === appId,
     );
     if (!app) {
-      await this.audit(context, toolName, 'denied', 'not_run', 'computer_use_target_not_found', { appId });
-      return { reason: 'computer_use_target_not_found' };
+      await this.audit(context, toolName, 'denied', 'not_run', 'computer_use_target_not_found', withResolvedComputerUseAutonomy(autonomy, { appId }));
+      return { reason: 'computer_use_target_not_found', autonomy };
     }
     if (app.policyStatus === 'denied') {
-      await this.audit(context, toolName, 'denied', 'not_run', 'computer_use_app_denied', { appId }, app.appId);
-      return { app, reason: 'computer_use_app_denied' };
+      await this.audit(context, toolName, 'denied', 'not_run', 'computer_use_app_denied', withResolvedComputerUseAutonomy(autonomy, { appId }), app.appId);
+      return { app, reason: 'computer_use_app_denied', autonomy };
     }
     if (app.policyStatus !== 'allowed') {
       const grant = await this.findActiveGrant(context, app.appId, grantAllowsObservation);
       if (grant) {
-        return { app, grantId: grant.id };
+        return { app, grantId: grant.id, autonomy };
       }
-      await this.audit(context, toolName, 'denied', 'not_run', 'computer_use_grant_required', { appId }, app.appId);
-      return { app, reason: 'computer_use_grant_required' };
+      await this.audit(context, toolName, 'denied', 'not_run', 'computer_use_grant_required', withResolvedComputerUseAutonomy(autonomy, { appId }), app.appId);
+      return { app, reason: 'computer_use_grant_required', autonomy };
     }
-    return { app };
+    return { app, autonomy };
   }
 
-  private annotateApp(app: DesktopAppDescriptor): DesktopAppDescriptor {
-    const decision = decideDesktopAppPolicy(app, this.settings);
-    return {
-      ...app,
-      policyStatus: decision.status,
-      ...(decision.reason ? { blockedReason: decision.reason } : {}),
-    };
-  }
-
-  private async findAnnotatedApp(appId: string): Promise<DesktopAppDescriptor | null> {
-    const apps = (await this.driver.listApps()).map((candidate) => this.annotateApp(candidate));
+  private async findAnnotatedApp(
+    context: DesktopGatewayContext,
+    appId: string,
+    autonomy: ResolvedComputerUseAutonomy = this.computerUsePolicy.resolve(context),
+  ): Promise<DesktopAppDescriptor | null> {
+    const apps = (await this.driver.listApps()).map((candidate) =>
+      this.computerUsePolicy.annotate(context, candidate, autonomy));
     return apps.find((candidate) =>
       candidate.appId === appId
       || candidate.windowId === appId
@@ -692,6 +702,7 @@ export class DesktopGatewayService {
     appId?: string,
     grantId?: string,
   ): Promise<void> {
+    const autonomy = this.computerUsePolicy.resolve(context);
     await this.auditStore.append({
       id: `audit_${this.tokenBytes()}_${this.now()}`,
       timestamp: this.now(),
@@ -703,7 +714,11 @@ export class DesktopGatewayService {
       decision,
       resultCode,
       ...(reason ? { reason } : {}),
-      redactedMetadata: redactDesktopMetadata(metadata),
+      redactedMetadata: redactDesktopMetadata({
+        autonomyLevel: autonomy.level,
+        autonomySource: autonomy.source,
+        ...metadata,
+      }),
     });
   }
 }

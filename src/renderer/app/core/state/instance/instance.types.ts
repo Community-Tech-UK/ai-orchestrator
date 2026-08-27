@@ -24,6 +24,7 @@ import type {
   ThinkingContent,
 } from '../../../../../shared/types/instance.types';
 import type { ExecutionLocation } from '../../../../../shared/types/worker-node.types';
+import type { ComputerUseAutonomyLevel } from '../../../../../shared/types/desktop-gateway-settings.types';
 
 // ============================================
 // Core Types
@@ -139,6 +140,8 @@ export interface Instance {
   archivedUpToMessageId?: string;
   workingDirectory: string;
   yoloMode: boolean;
+  /** Process-local Computer Use policy override for this live session. */
+  computerUseMode?: ComputerUseAutonomyLevel;
   /**
    * Desired YOLO mode queued while the instance is busy; applied automatically
    * once it goes idle. Undefined when no change is pending. Drives the ⚡ button's

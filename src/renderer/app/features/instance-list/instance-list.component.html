@@ -286,6 +286,11 @@
                         >
                           Open in {{ systemFileManagerLabel }}
                         </button>
+                        <app-copilot-project-routing-menu
+                          #copilotRouting
+                          [projectPath]="group.path"
+                          (mapped)="closeProjectMenu()"
+                        />
                         <div class="project-menu-divider"></div>
                         <button
                           type="button"

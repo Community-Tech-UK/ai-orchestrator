@@ -214,7 +214,8 @@ export class IpcMainHandler {
     // Instance management handlers
     registerInstanceHandlers({
       instanceManager: this.instanceManager,
-      windowManager: this.windowManager
+      windowManager: this.windowManager,
+      ensureTrustedSender: this.ensureTrustedSender.bind(this),
     });
 
     // App handlers

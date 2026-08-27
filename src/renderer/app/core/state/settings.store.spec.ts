@@ -139,6 +139,7 @@ describe('SettingsStore system theme listener', () => {
       'computerUseAllowedAppsJson',
       'computerUseDeniedAppsJson',
       'computerUseRequireApprovalForInput',
+      'computerUseAutonomyLevel',
       'computerUseStoreScreenshotsForEscalations',
     ]);
   });

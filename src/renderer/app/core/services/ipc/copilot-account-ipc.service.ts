@@ -59,6 +59,12 @@ export interface CopilotRemoteSuggestion {
   displayPath: string;
 }
 
+export interface DiscoveredCopilotAccount {
+  login: string;
+  host: string;
+  alreadyAdded: boolean;
+}
+
 export interface CopilotAccountDiagnosticsView {
   aggregate: 'available' | 'partially-configured' | 'auth-required' | 'not-configured';
   nodeId: string;
@@ -171,6 +177,16 @@ export class CopilotAccountIpcService {
     );
     return response.success
       ? ((response.data as { remotes: CopilotRemoteSuggestion[] }).remotes ?? [])
+      : [];
+  }
+
+  /** Accounts Copilot is already signed in to that have no Harness profile yet. */
+  async discover(): Promise<DiscoveredCopilotAccount[]> {
+    const response = await (
+      this.api?.discoverCopilotAccounts() ?? Promise.resolve(NOT_ELECTRON)
+    );
+    return response.success
+      ? ((response.data as { accounts: DiscoveredCopilotAccount[] }).accounts ?? [])
       : [];
   }
 

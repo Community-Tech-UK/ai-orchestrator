@@ -35,6 +35,7 @@ import { getModelShortName } from '../../../../shared/types/provider.types';
 import type { ModelDisplayInfo } from '../../../../shared/types/provider.types';
 import { resolveEffectiveInstanceTitle } from '../../../../shared/types/history.types';
 import type { InstanceRuntimeSummary } from '../../../../shared/types/local-model-runtime.types';
+import { SessionComputerUseControlComponent } from './session-computer-use-control.component';
 
 interface EditorMenuItem {
   type: string;
@@ -44,7 +45,7 @@ interface EditorMenuItem {
 @Component({
   selector: 'app-instance-header',
   standalone: true,
-  imports: [StatusIndicatorComponent, RecentDirectoriesDropdownComponent, ContextBarComponent, CrossModelReviewIndicatorComponent, CompactModelPickerComponent, SessionSkillsBadgeComponent],
+  imports: [StatusIndicatorComponent, RecentDirectoriesDropdownComponent, ContextBarComponent, CrossModelReviewIndicatorComponent, CompactModelPickerComponent, SessionSkillsBadgeComponent, SessionComputerUseControlComponent],
   templateUrl: './instance-header.component.html',
   styleUrl: './instance-header.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush

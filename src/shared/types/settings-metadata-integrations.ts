@@ -79,6 +79,18 @@ export const INTEGRATION_SETTINGS_METADATA: SettingMetadata[] = [
     category: 'mcp',
   },
   {
+    key: 'computerUseAutonomyLevel',
+    label: 'Computer Use autonomy level',
+    description: 'How much of the desktop agents may drive. Guarded blocks terminals, provider apps, System Settings, password managers, the Enter and Space keys, and any sign-in or payment control. Trusted permits all of those but still refuses to drive Harness\u2019s own window and refuses quit/force-quit hotkeys. Unrestricted removes both remaining limits \u2014 including letting an agent click its own approval prompts.',
+    type: 'select',
+    options: [
+      { value: 'guarded', label: 'Guarded' },
+      { value: 'trusted', label: 'Trusted (default)' },
+      { value: 'unrestricted', label: 'Unrestricted' },
+    ],
+    category: 'mcp',
+  },
+  {
     key: 'computerUseStoreScreenshotsForEscalations',
     label: 'Store Computer Use escalation screenshots',
     description: 'Allow Computer Use to retain screenshot artifacts only when an escalation is raised. Screenshot bytes are never written to the audit log.',

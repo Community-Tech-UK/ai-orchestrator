@@ -23,7 +23,9 @@ import { getActionCircuitBreaker } from '../security/action-circuit-breaker';
 import { forgetLspFeedbackInstance } from '../codemem/lsp-feedback-registration';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getTaskManager } from '../orchestration/task-manager';
-import { removeInstanceBrowserToolsMode } from './lifecycle/browser-tool-scoping'; import { removeInstanceHardened } from './lifecycle/hardened-mode-scoping';
+import { removeInstanceBrowserToolsMode } from './lifecycle/browser-tool-scoping';
+import { removeInstanceComputerUseMode } from './lifecycle/computer-use-scoping';
+import { removeInstanceHardened } from './lifecycle/hardened-mode-scoping';
 import { removeInstanceContainedExecution } from './lifecycle/contained-execution-scoping';
 import { getHandoffStateService } from '../session/handoff-state-service';
 import { getNotificationService } from '../notifications/notification-service';
@@ -671,7 +673,11 @@ export class InstanceManager extends EventEmitter {
       const instance = this.state.getInstance(instanceId);
       this.providerEventBus.removeInstance(instanceId);
       this.settledTracker.clear(instanceId);
-      removeInstanceBrowserToolsMode(instanceId); removeInstanceHardened(instanceId); removeInstanceContainedExecution(instanceId); getHandoffStateService().removeInstance(instanceId);
+      removeInstanceBrowserToolsMode(instanceId);
+      removeInstanceComputerUseMode(instanceId);
+      removeInstanceHardened(instanceId);
+      removeInstanceContainedExecution(instanceId);
+      getHandoffStateService().removeInstance(instanceId);
       this.emit('instance:event', this.lifecycleEvents.recordRemoved(instanceId, instance?.status));
       this.emit('instance:removed', instanceId);
     });
@@ -1492,6 +1498,13 @@ export class InstanceManager extends EventEmitter {
 
   async toggleYoloMode(instanceId: string): Promise<Instance> {
     return this.lifecycle.toggleYoloMode(instanceId);
+  }
+
+  setComputerUseMode(
+    instanceId: string,
+    mode: Instance['computerUseMode'],
+  ): Instance {
+    return this.lifecycle.setComputerUseMode(instanceId, mode);
   }
 
   /**

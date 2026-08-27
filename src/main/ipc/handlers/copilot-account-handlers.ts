@@ -32,6 +32,7 @@ import type {
   CopilotAccountBindingStatus,
   CopilotAccountProfile,
 } from '../../../shared/types/copilot-account.types';
+import { normalizeCopilotHost } from '../../../shared/types/copilot-account.types';
 import { getLogger } from '../../logging/logger';
 import {
   LOCAL_COPILOT_NODE_ID,
@@ -43,6 +44,7 @@ import {
   CopilotAccountStore,
   getCopilotAccountStore,
 } from '../../providers/copilot/copilot-account-store';
+import { discoverCopilotAccounts } from '../../providers/copilot/copilot-account-discovery';
 import { collectFetchRemoteIdentities } from '../../vcs/remotes/github-remote-identity';
 import { validatedHandler, type IpcResponse } from '../validated-handler';
 
@@ -98,7 +100,7 @@ function toSafeProfile(
     id: profile.id,
     label: profile.label,
     expectedLogin: profile.expectedLogin,
-    host: profile.host,
+    host: normalizeCopilotHost(profile.host),
     accountKind: profile.accountKind,
     scopePolicy: profile.scopePolicy,
     automationPolicy: profile.automationPolicy,
@@ -346,6 +348,22 @@ export function registerCopilotAccountHandlers(
       return { success: true, data: { nodeIds, rows } };
     },
     'COPILOT_ACCOUNT_NODE_MATRIX_FAILED',
+  );
+
+  handle(
+    IPC_CHANNELS.COPILOT_ACCOUNT_DISCOVER,
+    CopilotAccountEmptyPayloadSchema,
+    async () => {
+      // Suggest accounts Copilot is already signed in to, minus the ones
+      // Harness already has a profile for. Read-only: the shared Copilot home
+      // is inspected, never routed through and never written.
+      const existing = store.listProfiles().map((profile) => ({
+        login: profile.expectedLogin,
+        host: profile.host,
+      }));
+      return { success: true, data: { accounts: await discoverCopilotAccounts({ existing }) } };
+    },
+    'COPILOT_ACCOUNT_DISCOVER_FAILED',
   );
 
   handle(

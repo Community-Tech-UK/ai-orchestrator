@@ -104,6 +104,10 @@ export function createCopilotAccountDomain(
     getCopilotAccountNodeMatrix: (): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.COPILOT_ACCOUNT_NODE_MATRIX, withAuth({})),
 
+    /** GitHub accounts Copilot is already signed in to on this machine. */
+    discoverCopilotAccounts: (): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.COPILOT_ACCOUNT_DISCOVER, withAuth({})),
+
     /** Full diagnostics for the accounts section (secret-free by construction). */
     getCopilotAccountDiagnostics: (): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.COPILOT_ACCOUNT_DIAGNOSTICS, withAuth({})),

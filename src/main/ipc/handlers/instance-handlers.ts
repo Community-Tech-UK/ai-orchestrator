@@ -48,14 +48,26 @@ import {
   logCreateWithMessageReceived,
 } from './instance-create-with-message';
 import { getInstanceCreateIdempotencyCache } from './instance-create-idempotency';
+import type { ComputerUseAutonomyLevel } from '../../../shared/types/desktop-gateway-settings.types';
+import { registerInstanceComputerUseHandler } from './instance-computer-use-handler';
 
 const logger = getLogger('InstanceHandlers');
 
 export function registerInstanceHandlers(deps: {
   instanceManager: InstanceManager;
   windowManager: WindowManager;
+  ensureTrustedSender?: (
+    event: IpcMainInvokeEvent,
+    channel: string,
+  ) => IpcResponse | null;
+  recordComputerUseModeChange?: (
+    instanceId: string,
+    previousMode: ComputerUseAutonomyLevel | undefined,
+    nextMode: ComputerUseAutonomyLevel | undefined,
+  ) => Promise<void>;
 }): void {
   const { instanceManager } = deps;
+  registerInstanceComputerUseHandler(deps);
 
   // ============================================
   // Instance Lifecycle Handlers

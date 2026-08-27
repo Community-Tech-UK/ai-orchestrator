@@ -7,6 +7,8 @@ import type {
   DesktopGatewayResult,
 } from '../../shared/types/desktop-gateway.types';
 import type { DesktopDriver } from './platform/desktop-driver';
+import type { ResolvedComputerUseAutonomy } from '../instance/lifecycle/computer-use-scoping';
+import { withResolvedComputerUseAutonomy } from './desktop-computer-use-policy';
 
 /**
  * Bring an already-observed window of an already-granted app to the front.
@@ -26,7 +28,7 @@ export interface DesktopWindowActivationDeps {
     context: DesktopGatewayContext,
     toolName: string,
     appId: string | undefined,
-  ) => Promise<{ app?: DesktopAppDescriptor; grantId?: string; reason?: string }>;
+  ) => Promise<{ app?: DesktopAppDescriptor; grantId?: string; reason?: string; autonomy: ResolvedComputerUseAutonomy }>;
   validateObservationToken: (
     token: string,
     appId: string,
@@ -64,7 +66,7 @@ export async function activateObservedWindow(
     resultCode: DesktopAuditEntry['resultCode'],
     reason?: string,
   ): Promise<void> =>
-    deps.audit(context, TOOL_NAME, decision, resultCode, reason, { ...request }, app.appId, policy.grantId);
+    deps.audit(context, TOOL_NAME, decision, resultCode, reason, withResolvedComputerUseAutonomy(policy.autonomy, { ...request }), app.appId, policy.grantId);
 
   // Validate against the OBSERVED window, not the app's current front window:
   // requiring the target to already be frontmost is precisely the deadlock this

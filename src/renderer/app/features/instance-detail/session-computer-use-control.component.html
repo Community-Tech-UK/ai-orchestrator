@@ -1,0 +1,25 @@
+<label
+  class="computer-use-badge"
+  [class.elevated]="presentation().relation === 'elevated'"
+  [class.lowered]="presentation().relation === 'lowered'"
+  [class.has-error]="error()"
+  [title]="title()"
+>
+  <span aria-hidden="true">CU</span>
+  <select
+    aria-label="Computer Use policy for this session"
+    [attr.aria-describedby]="error() ? descriptionId() + ' ' + errorId() : descriptionId()"
+    [value]="presentation().selection"
+    [disabled]="pending()"
+    (change)="changeMode($event)"
+  >
+    <option value="global">Global · {{ globalLevel() }}</option>
+    <option value="guarded">Session · guarded</option>
+    <option value="trusted">Session · trusted</option>
+    <option value="unrestricted">Session · unrestricted</option>
+  </select>
+  <span class="computer-use-lifecycle" [id]="descriptionId()">next call · no restart · session only</span>
+  @if (error(); as message) {
+    <span class="computer-use-error" [id]="errorId()" role="status" aria-live="polite">{{ message }}</span>
+  }
+</label>

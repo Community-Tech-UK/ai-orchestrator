@@ -357,6 +357,10 @@ export class InstanceStore implements OnDestroy {
             update.desiredRuntime !== undefined
               ? (update.desiredRuntime ?? undefined)
               : inst.desiredRuntime,
+          computerUseMode:
+            update.computerUseMode !== undefined
+              ? (update.computerUseMode ?? undefined)
+              : inst.computerUseMode,
           ...(update.displayName ? { displayName: update.displayName } : {}),
           ...(update.executionLocation ? { executionLocation: update.executionLocation } : {}),
         });
@@ -462,6 +466,10 @@ export class InstanceStore implements OnDestroy {
               update.desiredRuntime !== undefined
                 ? (update.desiredRuntime ?? undefined)
                 : instance.desiredRuntime,
+            computerUseMode:
+              update.computerUseMode !== undefined
+                ? (update.computerUseMode ?? undefined)
+                : instance.computerUseMode,
             ...(update.displayName ? { displayName: update.displayName } : {}),
             ...(update.executionLocation ? { executionLocation: update.executionLocation } : {}),
           });

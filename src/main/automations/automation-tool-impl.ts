@@ -33,6 +33,7 @@ import { validateCronExpression } from './automation-schedule';
 import { findEquivalentAutomation } from './automation-equivalence';
 import type { AutomationStore } from './automation-store';
 import type { AutomationEventMap } from './automation-events';
+import { resolveNewAutomationModelSelection } from '../../shared/automations/new-automation-model-default';
 
 /** Minimal scheduler surface the automation tools depend on. */
 export interface AutomationToolScheduler {
@@ -205,7 +206,7 @@ export function createAutomationToolImplementations(
         action: {
           prompt: args.prompt,
           workingDirectory,
-          provider: args.provider,
+          ...resolveNewAutomationModelSelection({ provider: args.provider }),
         },
         ...(args.hidden !== undefined ? { hidden: args.hidden } : {}),
       };

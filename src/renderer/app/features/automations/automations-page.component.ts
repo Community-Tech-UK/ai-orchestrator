@@ -39,6 +39,7 @@ import {
   formToLoopAction,
   formToTrigger,
   fromLocalDateInput,
+  newAutomationFormModelSelection,
   toLocalDateInput,
   type AutomationFormModel,
 } from './automation-form-model';
@@ -723,7 +724,7 @@ export class AutomationsPageComponent {
         ? toLocalDateInput(oneTimeTs)
         : base.runAtLocal,
       prompt: draft.prompt,
-      provider: (draft.provider ?? 'auto') as AutomationFormModel['provider'],
+      ...newAutomationFormModelSelection(draft.provider),
     };
   }
 

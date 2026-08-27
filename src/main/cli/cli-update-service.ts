@@ -13,6 +13,7 @@ import {
 } from './cli-detection';
 import {
   resolveCopilotCliLaunch,
+  resetCopilotCliLaunchCache,
   type CopilotCliLaunchConfig,
 } from './copilot-cli-launch';
 import type { CliUpdateStrategy } from '../../shared/types/diagnostics.types';
@@ -312,6 +313,15 @@ export class CliUpdateService {
         );
 
         this.detection.clearCache();
+        // An update can move the CLI (a `gh` extension install, or a first npm
+        // global install), and the launch resolution is memoized for the default
+        // env/platform. Dropped AFTER the command succeeds, so the next spawn
+        // re-probes and finds the new location instead of reusing a pre-install
+        // answer — a cached `null` would otherwise report Copilot as missing for
+        // the rest of the process lifetime.
+        if (type === 'copilot') {
+          resetCopilotCliLaunchCache();
+        }
         const afterInfo = await this.detection.detectOne(type).catch(() => null);
         const afterVersion = afterInfo?.version;
 

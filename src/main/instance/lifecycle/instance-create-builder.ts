@@ -94,6 +94,7 @@ export function buildInstanceRecord(
     adapterGeneration: 0,
     workingDirectory: parentContext.workingDirectory,
     yoloMode: parentContext.yoloMode,
+    ...(config.computerUseMode ? { computerUseMode: config.computerUseMode } : {}),
     launchMode: config.launchMode ?? 'orchestrated',
     provider: config.provider || 'auto',
     bareMode: config.bareMode ?? false,

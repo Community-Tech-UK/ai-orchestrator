@@ -26,6 +26,7 @@ import { RecentDirectoriesIpcService } from '../../core/services/ipc/recent-dire
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import { HistoryIpcService } from '../../core/services/ipc/history-ipc.service';
 import { InstanceRowComponent } from './instance-row.component';
+import { CopilotProjectRoutingMenuComponent } from './copilot-project-routing-menu.component';
 import { ContextMenuComponent, type ContextMenuItem } from '../../shared/components/context-menu/context-menu.component';
 import { PromptModalComponent } from '../../shared/components/prompt-modal/prompt-modal.component';
 import type { ConversationHistoryEntry } from '../../../../shared/types/history.types';
@@ -77,7 +78,7 @@ import { getSystemFileManagerLabel } from '../instance-detail/output-stream.util
 @Component({
   selector: 'app-instance-list',
   standalone: true,
-  imports: [NgTemplateOutlet, ScrollingModule, InstanceRowComponent, DragDropModule, ContextMenuComponent, PromptModalComponent],
+  imports: [NgTemplateOutlet, ScrollingModule, InstanceRowComponent, DragDropModule, ContextMenuComponent, PromptModalComponent, CopilotProjectRoutingMenuComponent],
   templateUrl: './instance-list.component.html',
   styleUrl: './instance-list.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -1315,7 +1316,7 @@ export class InstanceListComponent implements OnDestroy {
     );
   }
 
-  private closeProjectMenu(options: { restoreFocus?: boolean } = {}): void {
+  protected closeProjectMenu(options: { restoreFocus?: boolean } = {}): void {
     const restoreFocus = options.restoreFocus ?? true;
     if (!this.openProjectMenuKey()) {
       return;

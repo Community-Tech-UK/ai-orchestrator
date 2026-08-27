@@ -18,6 +18,7 @@ import type {
   DesktopWaitForRequest,
   DesktopWaitForResult,
 } from '../../shared/types/desktop-gateway.types';
+import type { ResolvedComputerUseAutonomy } from '../instance/lifecycle/computer-use-scoping';
 import { isSensitiveObservedElement } from './desktop-action-classifier';
 import { activateObservedWindow } from './desktop-window-activation';
 import {
@@ -32,21 +33,24 @@ import {
 } from './desktop-accessibility-actionability';
 import { normalizeDesktopWindowId } from './desktop-window-identity';
 import {
-  isDeniedHotkey,
+  isDeniedHotkeyAtLevel,
   isSecretLikeInput,
   matchesWaitCondition,
 } from './desktop-input-policy';
+import { withResolvedComputerUseAutonomy } from './desktop-computer-use-policy';
 
 interface DesktopInputControllerDeps {
   driver: DesktopDriver;
   sessionLock: DesktopSessionLock;
   requireApprovalForInput: () => boolean;
+  autonomy: (context: DesktopGatewayContext) => ResolvedComputerUseAutonomy;
   now: () => number;
   requireObservableApp: (
     context: DesktopGatewayContext,
     toolName: string,
     appId: string | undefined,
-  ) => Promise<{ app?: DesktopAppDescriptor; grantId?: string; reason?: string }>;
+    autonomy?: ResolvedComputerUseAutonomy,
+  ) => Promise<{ app?: DesktopAppDescriptor; grantId?: string; reason?: string; autonomy: ResolvedComputerUseAutonomy }>;
   validateObservationToken: (
     token: string,
     appId: string,
@@ -98,7 +102,8 @@ export class DesktopInputController {
     context: DesktopGatewayContext,
     request: DesktopClickRequest,
   ): Promise<DesktopGatewayResult<DesktopActionResult>> {
-    const resolved = await this.resolveObservedPoint(context, 'computer.click', request);
+    const autonomy = this.deps.autonomy(context);
+    const resolved = await this.resolveObservedPoint(context, 'computer.click', request, autonomy);
     if (!resolved.ok) {
       return denied(resolved.reason);
     }
@@ -107,6 +112,7 @@ export class DesktopInputController {
       'computer.click',
       resolved.request,
       (request) => this.deps.driver.click(request),
+      autonomy,
     );
   }
 
@@ -114,7 +120,8 @@ export class DesktopInputController {
     context: DesktopGatewayContext,
     request: DesktopTypeTextRequest,
   ): Promise<DesktopGatewayResult<DesktopActionResult>> {
-    const resolved = await this.resolveTextTarget(context, request);
+    const autonomy = this.deps.autonomy(context);
+    const resolved = await this.resolveTextTarget(context, request, autonomy);
     if (!resolved.ok) {
       return denied(resolved.reason);
     }
@@ -129,15 +136,16 @@ export class DesktopInputController {
         });
       }
       return this.deps.driver.typeText(request);
-    });
+    }, autonomy);
   }
 
   async hotkey(
     context: DesktopGatewayContext,
     request: DesktopHotkeyRequest,
   ): Promise<DesktopGatewayResult<DesktopActionResult>> {
-    if (isDeniedHotkey(request.keys)) {
-      await this.deps.audit(context, 'computer.hotkey', 'denied', 'not_run', 'computer_use_sensitive_action_blocked', metadataFromObject(request), request.appId);
+    const autonomy = this.deps.autonomy(context);
+    if (isDeniedHotkeyAtLevel(request.keys, autonomy.level)) {
+      await this.deps.audit(context, 'computer.hotkey', 'denied', 'not_run', 'computer_use_sensitive_action_blocked', { ...metadataFromObject(request), autonomyLevel: autonomy.level, autonomySource: autonomy.source }, request.appId);
       return denied('computer_use_sensitive_action_blocked');
     }
     const observed = this.deps.findFocusedObservedElement(
@@ -151,7 +159,7 @@ export class DesktopInputController {
         'denied',
         'not_run',
         observed.reason,
-        metadataFromObject(request),
+        withResolvedComputerUseAutonomy(autonomy, metadataFromObject(request)),
         request.appId,
       );
       return denied(observed.reason);
@@ -164,7 +172,7 @@ export class DesktopInputController {
         'denied',
         'not_run',
         reason,
-        metadataFromObject(request),
+        withResolvedComputerUseAutonomy(autonomy, metadataFromObject(request)),
         request.appId,
       );
       return denied(reason);
@@ -178,6 +186,7 @@ export class DesktopInputController {
       'computer.hotkey',
       resolvedRequest,
       (boundRequest) => this.deps.driver.hotkey(boundRequest),
+      autonomy,
     );
   }
 
@@ -185,7 +194,8 @@ export class DesktopInputController {
     context: DesktopGatewayContext,
     request: DesktopScrollRequest,
   ): Promise<DesktopGatewayResult<DesktopActionResult>> {
-    const resolved = await this.resolveObservedPoint(context, 'computer.scroll', request);
+    const autonomy = this.deps.autonomy(context);
+    const resolved = await this.resolveObservedPoint(context, 'computer.scroll', request, autonomy);
     if (!resolved.ok) {
       return denied(resolved.reason);
     }
@@ -194,6 +204,7 @@ export class DesktopInputController {
       'computer.scroll',
       resolved.request,
       (boundRequest) => this.deps.driver.scroll(boundRequest),
+      autonomy,
     );
   }
 
@@ -201,6 +212,7 @@ export class DesktopInputController {
     context: DesktopGatewayContext,
     request: DesktopDragRequest,
   ): Promise<DesktopGatewayResult<DesktopActionResult>> {
+    const autonomy = this.deps.autonomy(context);
     const start = this.deps.findObservedElementAtPoint(
       request.observationToken,
       request.appId,
@@ -218,7 +230,7 @@ export class DesktopInputController {
         'denied',
         'not_run',
         start.reason,
-        metadataFromObject(request),
+        withResolvedComputerUseAutonomy(autonomy, metadataFromObject(request)),
         request.appId,
       );
       return denied(start.reason);
@@ -230,7 +242,7 @@ export class DesktopInputController {
         'denied',
         'not_run',
         end.reason,
-        metadataFromObject(request),
+        withResolvedComputerUseAutonomy(autonomy, metadataFromObject(request)),
         request.appId,
       );
       return denied(end.reason);
@@ -243,6 +255,7 @@ export class DesktopInputController {
       'computer.drag',
       resolvedRequest,
       (boundRequest) => this.deps.driver.drag(boundRequest),
+      autonomy,
     );
   }
 
@@ -255,9 +268,11 @@ export class DesktopInputController {
     context: DesktopGatewayContext,
     request: DesktopActivateWindowRequest,
   ): Promise<DesktopGatewayResult<DesktopActivateWindowResult>> {
+    const autonomy = this.deps.autonomy(context);
     return activateObservedWindow(context, request, {
       driver: this.deps.driver,
-      requireObservableApp: this.deps.requireObservableApp,
+      requireObservableApp: (targetContext, toolName, appId) =>
+        this.deps.requireObservableApp(targetContext, toolName, appId, autonomy),
       validateObservationToken: this.deps.validateObservationToken,
       getObservationWindowId: this.deps.getObservationWindowId,
       audit: this.deps.audit,
@@ -268,7 +283,13 @@ export class DesktopInputController {
     context: DesktopGatewayContext,
     request: DesktopWaitForRequest,
   ): Promise<DesktopGatewayResult<DesktopWaitForResult>> {
-    const policy = await this.deps.requireObservableApp(context, 'computer.wait_for', request.appId);
+    const autonomy = this.deps.autonomy(context);
+    const policy = await this.deps.requireObservableApp(
+      context,
+      'computer.wait_for',
+      request.appId,
+      autonomy,
+    );
     if (policy.reason || !policy.app) {
       return denied(policy.reason ?? 'computer_use_target_not_found');
     }
@@ -297,7 +318,7 @@ export class DesktopInputController {
               'denied',
               'failed',
               'computer_use_target_changed',
-              metadataFromObject(request),
+              withResolvedComputerUseAutonomy(policy.autonomy, metadataFromObject(request)),
               policy.app.appId,
               policy.grantId,
             );
@@ -311,7 +332,7 @@ export class DesktopInputController {
             windowId: observedWindowId,
             snapshot: nodes,
           });
-          await this.deps.audit(context, 'computer.wait_for', 'allowed', 'ok', undefined, metadataFromObject(request), policy.app.appId, policy.grantId);
+          await this.deps.audit(context, 'computer.wait_for', 'allowed', 'ok', undefined, withResolvedComputerUseAutonomy(policy.autonomy, metadataFromObject(request)), policy.app.appId, policy.grantId);
           return allowed({
             matched: true,
             explanation: 'Matched accessibility snapshot condition',
@@ -321,12 +342,12 @@ export class DesktopInputController {
         }
       } catch (error) {
         const reason = errorReason(error, 'computer_use_driver_failed');
-        await this.deps.audit(context, 'computer.wait_for', 'denied', 'failed', reason, metadataFromObject(request), policy.app.appId, policy.grantId);
+        await this.deps.audit(context, 'computer.wait_for', 'denied', 'failed', reason, withResolvedComputerUseAutonomy(policy.autonomy, metadataFromObject(request)), policy.app.appId, policy.grantId);
         return denied(reason, 'failed');
       }
       await sleep(100);
     } while (this.deps.now() < deadline);
-    await this.deps.audit(context, 'computer.wait_for', 'denied', 'failed', 'computer_use_wait_timeout', metadataFromObject(request), policy.app.appId, policy.grantId);
+    await this.deps.audit(context, 'computer.wait_for', 'denied', 'failed', 'computer_use_wait_timeout', withResolvedComputerUseAutonomy(policy.autonomy, metadataFromObject(request)), policy.app.appId, policy.grantId);
     return denied('computer_use_wait_timeout', 'failed');
   }
 
@@ -335,8 +356,9 @@ export class DesktopInputController {
     toolName: string,
     request: TRequest,
     driverAction: (request: TRequest) => Promise<DesktopActionResult>,
+    autonomy: ResolvedComputerUseAutonomy,
   ): Promise<DesktopGatewayResult<DesktopActionResult>> {
-    const readiness = await this.requireInputAction(context, toolName, request);
+    const readiness = await this.requireInputAction(context, toolName, request, autonomy);
     if (readiness.reason || !readiness.app) {
       return denied(readiness.reason ?? 'computer_use_target_not_found');
     }
@@ -350,18 +372,18 @@ export class DesktopInputController {
       appId: readiness.app.appId,
     });
     if (lock.kind === 'blocked') {
-      await this.deps.audit(context, toolName, 'denied', 'not_run', 'computer_use_lock_held', {
+      await this.deps.audit(context, toolName, 'denied', 'not_run', 'computer_use_lock_held', withResolvedComputerUseAutonomy(autonomy, {
         holder: lock.holder,
-      }, readiness.app.appId, readiness.grantId);
+      }), readiness.app.appId, readiness.grantId);
       return denied('computer_use_lock_held');
     }
     try {
       const result = await driverAction(boundRequest);
       if (result.appId && result.appId !== readiness.app.appId) {
-        await this.deps.audit(context, toolName, 'denied', 'failed', 'computer_use_target_changed', {
+        await this.deps.audit(context, toolName, 'denied', 'failed', 'computer_use_target_changed', withResolvedComputerUseAutonomy(autonomy, {
           expectedAppId: readiness.app.appId,
           actualAppId: result.appId,
-        }, readiness.app.appId, readiness.grantId);
+        }), readiness.app.appId, readiness.grantId);
         return denied('computer_use_target_changed', 'failed');
       }
       const data = {
@@ -369,11 +391,11 @@ export class DesktopInputController {
         appId: result.appId ?? readiness.app.appId,
         completedAt: result.completedAt ?? this.deps.now(),
       };
-      await this.deps.audit(context, toolName, 'allowed', 'ok', undefined, metadataFromObject(request), readiness.app.appId, readiness.grantId);
+      await this.deps.audit(context, toolName, 'allowed', 'ok', undefined, withResolvedComputerUseAutonomy(autonomy, metadataFromObject(request)), readiness.app.appId, readiness.grantId);
       return allowed(data);
     } catch (error) {
       const reason = errorReason(error, 'computer_use_driver_failed');
-      await this.deps.audit(context, toolName, 'denied', 'failed', reason, metadataFromObject(request), readiness.app.appId, readiness.grantId);
+      await this.deps.audit(context, toolName, 'denied', 'failed', reason, withResolvedComputerUseAutonomy(autonomy, metadataFromObject(request)), readiness.app.appId, readiness.grantId);
       return denied(reason, 'failed');
     } finally {
       await lock.release();
@@ -390,6 +412,7 @@ export class DesktopInputController {
     context: DesktopGatewayContext,
     toolName: string,
     request: TRequest,
+    autonomy: ResolvedComputerUseAutonomy,
   ): Promise<
     | { ok: true; request: TRequest; point?: { x: number; y: number } }
     | { ok: false; reason: string }
@@ -415,7 +438,7 @@ export class DesktopInputController {
         'denied',
         'not_run',
         reason,
-        metadataFromObject(request),
+        withResolvedComputerUseAutonomy(autonomy, metadataFromObject(request)),
         request.appId,
       );
       return { ok: false, reason };
@@ -427,7 +450,7 @@ export class DesktopInputController {
         'denied',
         'not_run',
         observed.reason,
-        metadataFromObject(request),
+        withResolvedComputerUseAutonomy(autonomy, metadataFromObject(request)),
         request.appId,
       );
       return { ok: false, reason: observed.reason };
@@ -440,7 +463,7 @@ export class DesktopInputController {
         'denied',
         'not_run',
         reason,
-        metadataFromObject(request),
+        withResolvedComputerUseAutonomy(autonomy, metadataFromObject(request)),
         request.appId,
       );
       return { ok: false, reason };
@@ -453,7 +476,7 @@ export class DesktopInputController {
         'denied',
         'not_run',
         reason,
-        metadataFromObject(request),
+        withResolvedComputerUseAutonomy(autonomy, metadataFromObject(request)),
         request.appId,
       );
       return { ok: false, reason };
@@ -478,7 +501,7 @@ export class DesktopInputController {
         'denied',
         'not_run',
         pointObserved.reason,
-        metadataFromObject(request),
+        withResolvedComputerUseAutonomy(autonomy, metadataFromObject(request)),
         request.appId,
       );
       return { ok: false, reason: pointObserved.reason };
@@ -499,6 +522,7 @@ export class DesktopInputController {
   private async resolveTextTarget(
     context: DesktopGatewayContext,
     request: DesktopTypeTextRequest,
+    autonomy: ResolvedComputerUseAutonomy,
   ): Promise<
     | { ok: true; request: DesktopTypeTextRequest; point?: { x: number; y: number } }
     | { ok: false; reason: string }
@@ -513,7 +537,7 @@ export class DesktopInputController {
         'denied',
         'not_run',
         observed.reason,
-        metadataFromObject(request),
+        withResolvedComputerUseAutonomy(autonomy, metadataFromObject(request)),
         request.appId,
       );
       return { ok: false, reason: observed.reason };
@@ -526,7 +550,7 @@ export class DesktopInputController {
         'denied',
         'not_run',
         reason,
-        metadataFromObject(request),
+        withResolvedComputerUseAutonomy(autonomy, metadataFromObject(request)),
         request.appId,
       );
       return { ok: false, reason };
@@ -548,7 +572,7 @@ export class DesktopInputController {
         'denied',
         'not_run',
         reason,
-        metadataFromObject(request),
+        withResolvedComputerUseAutonomy(autonomy, metadataFromObject(request)),
         request.appId,
       );
       return { ok: false, reason };
@@ -569,7 +593,7 @@ export class DesktopInputController {
         'denied',
         'not_run',
         pointObserved.reason,
-        metadataFromObject(request),
+        withResolvedComputerUseAutonomy(autonomy, metadataFromObject(request)),
         request.appId,
       );
       return { ok: false, reason: pointObserved.reason };
@@ -590,13 +614,19 @@ export class DesktopInputController {
     context: DesktopGatewayContext,
     toolName: string,
     request: DesktopInputActionRequest,
+    autonomy: ResolvedComputerUseAutonomy,
   ): Promise<{
     app?: DesktopAppDescriptor;
     grantId?: string;
     observationWindowId?: string;
     reason?: string;
   }> {
-    const policy = await this.deps.requireObservableApp(context, toolName, request.appId);
+    const policy = await this.deps.requireObservableApp(
+      context,
+      toolName,
+      request.appId,
+      autonomy,
+    );
     if (policy.reason || !policy.app) {
       return policy;
     }
@@ -606,7 +636,7 @@ export class DesktopInputController {
       policy.app.windowId,
     );
     if (tokenReason) {
-      await this.deps.audit(context, toolName, 'denied', 'not_run', tokenReason, metadataFromObject(request), policy.app.appId, policy.grantId);
+      await this.deps.audit(context, toolName, 'denied', 'not_run', tokenReason, withResolvedComputerUseAutonomy(autonomy, metadataFromObject(request)), policy.app.appId, policy.grantId);
       return { app: policy.app, reason: tokenReason };
     }
     const observationWindowId = this.deps.getObservationWindowId(
@@ -621,19 +651,19 @@ export class DesktopInputController {
         'denied',
         'not_run',
         reason,
-        metadataFromObject(request),
+        withResolvedComputerUseAutonomy(autonomy, metadataFromObject(request)),
         policy.app.appId,
         policy.grantId,
       );
       return { app: policy.app, reason };
     }
-    if (request.sensitive || isSecretLikeInput(request)) {
-      await this.deps.audit(context, toolName, 'denied', 'not_run', 'computer_use_sensitive_action_blocked', metadataFromObject(request), policy.app.appId, policy.grantId);
+    if (autonomy.level === 'guarded' && (request.sensitive || isSecretLikeInput(request))) {
+      await this.deps.audit(context, toolName, 'denied', 'not_run', 'computer_use_sensitive_action_blocked', withResolvedComputerUseAutonomy(autonomy, metadataFromObject(request)), policy.app.appId, policy.grantId);
       return { app: policy.app, reason: 'computer_use_sensitive_action_blocked' };
     }
     const grant = await this.deps.findActiveGrant(context, policy.app.appId, grantAllowsInput);
     if (!grant && this.deps.requireApprovalForInput()) {
-      await this.deps.audit(context, toolName, 'denied', 'not_run', 'computer_use_grant_required', metadataFromObject(request), policy.app.appId, policy.grantId);
+      await this.deps.audit(context, toolName, 'denied', 'not_run', 'computer_use_grant_required', withResolvedComputerUseAutonomy(autonomy, metadataFromObject(request)), policy.app.appId, policy.grantId);
       return { app: policy.app, reason: 'computer_use_grant_required' };
     }
     return {

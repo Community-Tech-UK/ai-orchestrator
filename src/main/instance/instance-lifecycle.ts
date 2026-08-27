@@ -78,6 +78,7 @@ import { InstanceSpawnPreflightChain } from './lifecycle/instance-spawn-prefligh
 import { resolveFastMode } from './lifecycle/resolve-fast-mode';
 import { computeRuntimeDiff } from './lifecycle/runtime-reconciler-plan';
 import { setInstanceBrowserToolsMode } from './lifecycle/browser-tool-scoping';
+import { setInstanceComputerUseMode } from './lifecycle/computer-use-scoping';
 import { setInstanceHardened } from './lifecycle/hardened-mode-scoping';
 import { setInstanceContainedExecution } from './lifecycle/contained-execution-scoping';
 import { attemptInstanceFailover } from './instance-failover';
@@ -1233,6 +1234,9 @@ export class InstanceLifecycleManager extends EventEmitter {
     // WS9: register the per-instance browser tool surface before the first
     // spawn-config build reads it (undefined = global setting decides).
     setInstanceBrowserToolsMode(instance.id, instance.browserToolsMode);
+    // Computer Use autonomy is a process-local live-session override. Register
+    // it before any gateway call can observe the new instance.
+    setInstanceComputerUseMode(instance.id, instance.computerUseMode);
     // WS13: register hardened mode before the first adapter build reads it.
     setInstanceHardened(instance.id, instance.hardened);
     // WS-C7: register the contained execution profile before the first
@@ -2924,6 +2928,30 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
   // ============================================
   // YOLO Mode Toggle
   // ============================================
+
+  /**
+   * Change only the live session's Computer Use policy. This deliberately
+   * avoids the runtime reconciler: the next gateway call reads the registry,
+   * while an already-running call keeps the decision it started with.
+   */
+  setComputerUseMode(
+    instanceId: string,
+    mode: Instance['computerUseMode'],
+  ): Instance {
+    const instance = this.deps.getInstance(instanceId);
+    if (!instance) {
+      throw new Error(`Instance ${instanceId} not found`);
+    }
+    instance.computerUseMode = mode;
+    setInstanceComputerUseMode(instanceId, mode);
+    this.emit('state-update', {
+      instanceId,
+      status: instance.status,
+      computerUseMode: mode ?? null,
+      timestamp: Date.now(),
+    });
+    return instance;
+  }
 
   /**
    * Toggle YOLO mode for an instance while preserving conversation context

@@ -36,6 +36,7 @@ import { SessionContinuityManager } from './session-continuity';
  * profile is one that could resume under the wrong GitHub account.
  */
 interface TestableManager {
+  readyPromise: Promise<void>;
   instanceToState(instance: Instance): SessionState;
   shutdown(): void;
 }
@@ -84,6 +85,7 @@ function createManager(): TestableManager {
   tempDirs.push(dir);
   mockState.userDataDir = dir;
   const manager = new SessionContinuityManager({
+    autoSaveEnabled: false,
     autoSaveIntervalMs: 0,
     persistSessionContent: true,
   }) as unknown as TestableManager;
@@ -95,12 +97,13 @@ beforeEach(() => {
   mockState.logger.info.mockClear();
 });
 
-afterEach(() => {
+afterEach(async () => {
   for (const manager of managers.splice(0)) {
+    await manager.readyPromise;
     manager.shutdown();
   }
   for (const dir of tempDirs.splice(0)) {
-    fs.rmSync(dir, { recursive: true, force: true });
+    await fs.promises.rm(dir, { recursive: true, force: true });
   }
 });
 

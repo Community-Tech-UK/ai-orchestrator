@@ -125,6 +125,7 @@ describe('HistoryRestoreCoordinator', () => {
     });
     expect(config['resume']).toBeUndefined();
     expect(config['sessionId']).toBeUndefined();
+    expect(config['computerUseMode']).toBeUndefined();
     expect(config['initialOutputBuffer']).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'u1' }),
     ]));
@@ -204,6 +205,8 @@ describe('HistoryRestoreCoordinator', () => {
       const result = await coordinator.restore(manager, 'entry-1');
 
       expect(result.restoreMode).toBe('native-resume');
+      const config = createInstance.mock.calls[0]?.[0] as Record<string, unknown>;
+      expect(config['computerUseMode']).toBeUndefined();
     });
 
     it('returns resume-unconfirmed when adapter confirms a different session ID', async () => {

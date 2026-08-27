@@ -4,7 +4,11 @@ import type { IpcResponse } from './types';
 import type { ModelRuntimeTarget } from '../../shared/types/local-model-runtime.types';
 import type { ReasoningEffort } from '../../shared/types/provider.types';
 
-export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNELS) {
+export function createInstanceDomain(
+  ipcRenderer: IpcRenderer,
+  ch: typeof IPC_CHANNELS,
+  withAuth: (payload?: Record<string, unknown>) => Record<string, unknown> & { ipcAuthToken?: string } = (payload = {}) => payload,
+) {
   return {
     // ============================================
     // Instance Management
@@ -254,6 +258,14 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
       instanceId: string;
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.INSTANCE_TOGGLE_YOLO_MODE, payload);
+    },
+
+    /** Set or clear the process-local Computer Use policy for this live session. */
+    setComputerUseMode: (payload: {
+      instanceId: string;
+      mode: 'guarded' | 'trusted' | 'unrestricted' | null;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.INSTANCE_SET_COMPUTER_USE_MODE, withAuth(payload));
     },
 
     /**

@@ -341,6 +341,17 @@ export const InstanceToggleFastModePayloadSchema = z.object({
 
 export type InstanceToggleFastModePayload = z.infer<typeof InstanceToggleFastModePayloadSchema>;
 
+export const InstanceSetComputerUseModePayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  mode: z.enum(['guarded', 'trusted', 'unrestricted']).nullable(),
+  /** Added by the preload bridge; sender trust remains the authority boundary. */
+  ipcAuthToken: z.string().optional(),
+}).strict();
+
+export type InstanceSetComputerUseModePayload = z.infer<
+  typeof InstanceSetComputerUseModePayloadSchema
+>;
+
 // ============ Input Required Response ============
 
 export const InputRequiredResponsePayloadSchema = z.object({

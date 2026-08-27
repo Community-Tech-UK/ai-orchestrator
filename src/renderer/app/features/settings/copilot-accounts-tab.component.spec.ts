@@ -6,6 +6,7 @@ import {
   type CopilotAccountRuleView,
   type CopilotAccountView,
 } from '../../core/services/ipc/copilot-account-ipc.service';
+import { RecentDirectoriesIpcService } from '../../core/services/ipc/recent-directories-ipc.service';
 import { CopilotAccountsTabComponent } from './copilot-accounts-tab.component';
 
 function account(overrides: Partial<CopilotAccountView> = {}): CopilotAccountView {
@@ -68,6 +69,30 @@ const ipc = {
   previewRoute: vi.fn(async () => null),
   suggestRules: vi.fn(async () => []),
   signIn: vi.fn(async () => ({ success: true })),
+  discover: vi.fn(async () => []),
+};
+
+const recentDirectories = {
+  getDirectories: vi.fn(async () => [
+    {
+      path: '/Users/me/work/widgets',
+      displayName: 'widgets',
+      lastAccessed: 2,
+      accessCount: 3,
+      isPinned: false,
+    },
+    // A remote-node folder is deliberately excluded from the picker: its path
+    // cannot be inspected from here, so offering it would only ever produce a
+    // confusing "no remotes found".
+    {
+      path: 'C:\\work\\remote',
+      displayName: 'remote',
+      lastAccessed: 1,
+      accessCount: 1,
+      isPinned: false,
+      nodeId: 'worker-1',
+    },
+  ]),
 };
 
 async function settle(fixture: ComponentFixture<CopilotAccountsTabComponent>): Promise<void> {
@@ -89,9 +114,13 @@ beforeEach(async () => {
   for (const spy of Object.values(ipc)) spy.mockClear();
   ipc.list.mockResolvedValue([account()]);
   ipc.listRules.mockResolvedValue([rule]);
+  recentDirectories.getDirectories.mockClear();
   await TestBed.configureTestingModule({
     imports: [CopilotAccountsTabComponent],
-    providers: [{ provide: CopilotAccountIpcService, useValue: ipc }],
+    providers: [
+      { provide: CopilotAccountIpcService, useValue: ipc },
+      { provide: RecentDirectoriesIpcService, useValue: recentDirectories },
+    ],
   }).compileComponents();
 });
 
@@ -194,5 +223,42 @@ describe('CopilotAccountsTabComponent', () => {
     const fixture = await render();
     await fixture.componentInstance.signIn(fixture.componentInstance.accounts()[0]);
     expect(ipc.signIn).toHaveBeenCalledWith('personal', 'github.com');
+  });
+
+  it('offers recent local folders so a path never has to be typed', async () => {
+    const fixture = await render();
+    // Typing a path was the actual barrier to mapping a workspace: the folder
+    // is known to the app, and the owner/repo are derived from its remotes.
+    expect(fixture.componentInstance.recentWorkspaces().map((e) => e.path)).toEqual([
+      '/Users/me/work/widgets',
+    ]);
+    expect(fixture.nativeElement.textContent).toContain('widgets');
+  });
+
+  it('checks the workspace immediately when one is picked', async () => {
+    const fixture = await render();
+    fixture.componentInstance.onWorkspacePicked('/Users/me/work/widgets');
+    await settle(fixture);
+    expect(ipc.suggestRules).toHaveBeenCalledWith('/Users/me/work/widgets');
+    expect(fixture.componentInstance.workspacePath).toBe('/Users/me/work/widgets');
+  });
+
+  it('does not check when the picker is cleared', async () => {
+    const fixture = await render();
+    fixture.componentInstance.onWorkspacePicked('');
+    await settle(fixture);
+    expect(ipc.suggestRules).not.toHaveBeenCalled();
+  });
+
+  it('points at the folder rule when a checkout has no GitHub remote', async () => {
+    ipc.suggestRules.mockResolvedValue([]);
+    const fixture = await render();
+    // Before Check runs, the "no remote" guidance must NOT be shown — absence
+    // of results is not the same as a result of none.
+    expect(fixture.nativeElement.textContent).not.toContain('No GitHub remote was found');
+
+    fixture.componentInstance.onWorkspacePicked('/Users/me/work/widgets');
+    await settle(fixture);
+    expect(fixture.nativeElement.textContent).toContain('No GitHub remote was found');
   });
 });

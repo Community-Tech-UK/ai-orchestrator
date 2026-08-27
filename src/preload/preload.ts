@@ -66,7 +66,7 @@ const withAuth = (
  * Electron API exposed to renderer — composed from 10 domain modules.
  */
 const electronAPI = {
-  ...createInstanceDomain(ipcRenderer, IPC_CHANNELS),
+  ...createInstanceDomain(ipcRenderer, IPC_CHANNELS, withAuth),
   ...createFileDomain(ipcRenderer, IPC_CHANNELS),
   ...createSessionDomain(ipcRenderer, IPC_CHANNELS),
   ...createOrchestrationDomain(ipcRenderer, IPC_CHANNELS),

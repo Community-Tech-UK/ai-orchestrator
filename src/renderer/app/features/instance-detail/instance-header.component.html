@@ -228,6 +228,7 @@
             YOLO {{ instance().yoloMode ? 'ON' : 'OFF'
             }}{{ yoloPending() ? (instance().pendingYoloMode ? ' → ON' : ' → OFF') : '' }}
           </button>
+          <app-session-computer-use-control [instance]="instance()" />
           @if (supportsFastMode()) {
             <button
               class="fast-badge"

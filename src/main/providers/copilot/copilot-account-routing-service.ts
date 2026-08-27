@@ -23,7 +23,10 @@ import type {
   CopilotInvocationOrigin,
   CopilotRouteOutcome,
 } from '../../../shared/types/copilot-account.types';
-import { COPILOT_LEGACY_PROFILE_ID } from '../../../shared/types/copilot-account.types';
+import {
+  COPILOT_LEGACY_PROFILE_ID,
+  normalizeCopilotHost,
+} from '../../../shared/types/copilot-account.types';
 import type { AppSettings } from '../../../shared/types/settings.types';
 import { getSettingsManager } from '../../core/config/settings-manager';
 import { getLogger } from '../../logging/logger';
@@ -109,9 +112,19 @@ export class CopilotAccountRoutingService {
     const read =
       this.deps.readSettings ?? (() => getSettingsManager().getAll());
     const settings = read();
-    const profiles = Array.isArray(settings.copilotAccountProfiles)
+    // Normalize on READ, not just on write. The installed CLI records
+    // `lastLoggedInUser.host` with a scheme ("https://github.com"), and the
+    // first migration persisted that verbatim — while git remotes parse to a
+    // bare hostname. An un-normalized profile host silently matches NO remote,
+    // so every routing rule quietly stops firing. Repairing here means records
+    // written before the fix heal themselves without a second migration.
+    const profiles = (Array.isArray(settings.copilotAccountProfiles)
       ? settings.copilotAccountProfiles
-      : [];
+      : []
+    ).map((profile) => {
+      const host = normalizeCopilotHost(profile.host);
+      return host === profile.host ? profile : { ...profile, host };
+    });
     const rules = Array.isArray(settings.copilotAccountRoutingRules)
       ? settings.copilotAccountRoutingRules
       : [];

@@ -46,7 +46,7 @@ export const CreateAutomationArgsSchema = z
     workingDirectory: WorkingDirectorySchema.optional(),
     /** Optional human-readable description. */
     description: z.string().max(2000).optional(),
-    /** CLI provider to run with (defaults to the app default). */
+    /** CLI provider to run with (defaults to Claude Opus latest, 1M). */
     provider: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']).optional(),
     /** Whether the automation is active immediately. Defaults to true. */
     enabled: z.boolean().optional(),
@@ -342,7 +342,7 @@ export function createAutomationToolDefinitions(
             type: 'string',
             enum: ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok'],
             description:
-              'CLI provider to run with (defaults to the app default). Omitting the model is a legitimate, supported state: an automation with no pinned model follows the user\'s favourite model for its provider, resolved at fire time, so reordering favourites redirects it on its next run. Only pin a model when the user explicitly wants that exact model every run.',
+              'CLI provider to run with. When omitted, new automations default to Claude Opus latest with the 1M context window. An explicitly selected provider uses that provider\'s model resolution.',
           },
           enabled: {
             type: 'boolean',

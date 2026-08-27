@@ -213,6 +213,7 @@ describe('generateOrchestrationPrompt', () => {
     it('documents create_automation for recurring and deferred work', () => {
       expect(prompt).toContain('create_automation');
       expect(prompt).toMatch(/every morning[\s\S]*daily[\s\S]*on repeat[\s\S]*on a loop/);
+      expect(prompt).toContain('"provider":"claude","model":"opus[1m]"');
     });
 
     it('requires a clarifying question when loop cadence is ambiguous', () => {

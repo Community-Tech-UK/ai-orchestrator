@@ -41,6 +41,7 @@ const COMPUTER_USE_SETTING_KEYS = new Set<string>([
   'computerUseDeniedAppsJson',
   'computerUseRequireApprovalForInput',
   'computerUseStoreScreenshotsForEscalations',
+  'computerUseAutonomyLevel',
 ]);
 
 interface CapabilityRow {

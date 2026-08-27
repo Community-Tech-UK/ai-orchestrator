@@ -17,6 +17,7 @@
  * upstream.
  */
 
+import type { ChildProcess } from 'child_process';
 import {
   BaseCliAdapter,
   AdapterRuntimeCapabilities,
@@ -140,8 +141,15 @@ export class CopilotCliAdapter extends BaseCliAdapter {
    */
   private readonly accountHomeDir: string | null;
 
+  /**
+   * True once `ensureLaunchResolved()` has written the discovered launch into
+   * `this.config`. Resolution happens at most once per adapter — exactly as
+   * often as the old constructor call did, just deferred to the point the
+   * command is actually needed.
+   */
+  private launchResolved = false;
+
   constructor(config: CopilotCliConfig = {}) {
-    const launch = getDefaultCopilotCliLaunch();
     // Account routing for the exec/server path (spec §10.3: "Both ACP mode and
     // any exec/server fallback receive the same profile home and sanitized
     // environment"). Without this, every turn through CopilotCliProvider runs
@@ -153,8 +161,14 @@ export class CopilotCliAdapter extends BaseCliAdapter {
         })
       : null;
     const adapterConfig: CliAdapterConfig = {
-      command: launch.command,
-      args: [...launch.argsPrefix],
+      // Placeholder only. Discovering the real launch runs `which copilot`,
+      // `which gh` and a `gh copilot --help` probe bounded at 5s — three
+      // synchronous child processes. Doing that here blocked the Electron main
+      // thread on every construction and, on any machine without the
+      // standalone `copilot` binary (CI included), made construction cost up to
+      // five seconds. `ensureLaunchResolved()` performs it lazily instead.
+      command: 'copilot',
+      args: [],
       cwd: config.workingDir,
       timeout: config.timeout ?? 300_000,
       sessionPersistence: true,
@@ -175,6 +189,37 @@ export class CopilotCliAdapter extends BaseCliAdapter {
     this.accountHomeDir = accountHomeDir;
     this.cliConfig = { ...config };
     this.sessionId = `copilot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  /**
+   * Discover the real Copilot launch (standalone `copilot`, else `gh copilot`)
+   * and write it into the adapter config. Runs once per adapter, immediately
+   * before the first child process is spawned, so an adapter that is only
+   * constructed — or only parses output — pays nothing.
+   */
+  private ensureLaunchResolved(): void {
+    if (this.launchResolved) {
+      return;
+    }
+
+    // Resolution runs exactly once per adapter — the same frequency as the old
+    // constructor call, just deferred. `getDefaultCopilotCliLaunch()` does not
+    // throw: it falls back to a bare `copilot` when nothing is discoverable, so
+    // there is no failure path to retry here.
+    const launch = getDefaultCopilotCliLaunch();
+    this.config.command = launch.command;
+    this.config.args = [...launch.argsPrefix];
+    this.launchResolved = true;
+  }
+
+  /**
+   * Every Copilot child process goes through here (`checkStatus`, each
+   * exec-per-message turn, `listAvailableModels`), which makes it the one
+   * place that needs a resolved command.
+   */
+  protected override spawnProcess(args: string[]): ChildProcess {
+    this.ensureLaunchResolved();
+    return super.spawnProcess(args);
   }
 
   // ============ BaseCliAdapter Abstract Implementations ============
