@@ -37,7 +37,9 @@ async function main(): Promise<void> {
 
   const suffix = process.platform === 'win32' ? '.exe' : '';
   const binOut = path.join(outDir, `aio-mcp${suffix}`);
+  fs.rmSync(binOut, { force: true });
   fs.copyFileSync(process.execPath, binOut);
+  fs.chmodSync(binOut, 0o755);
 
   const postjectArgs = [
     binOut,
