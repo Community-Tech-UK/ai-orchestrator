@@ -243,6 +243,25 @@ describe('InstanceMessagingStore', () => {
     expect(currentStore.getQueuedMessageCount('inst-1')).toBe(0);
   });
 
+  it('parks an active-turn collision until a genuine ready edge without timed retries', async () => {
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    currentStateService.addInstance(createInstance({ provider: 'codex' }));
+    ipcMock.sendInput.mockResolvedValue({
+      success: false,
+      error: { message: 'Codex app-server runtime already has an active turn' },
+    });
+
+    await currentStore.sendInput('inst-1', 'continue');
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(ipcMock.sendInput).toHaveBeenCalledTimes(1);
+    expect(currentStateService.getInstance('inst-1')?.status).toBe('busy');
+    expect(currentStore.getMessageQueue('inst-1')).toEqual([
+      { message: 'continue', files: undefined, retryCount: 1 },
+    ]);
+  });
+
   it('restores optimistic busy state when sendInput IPC never resolves', async () => {
     const currentStore = store!;
     const currentStateService = stateService!;

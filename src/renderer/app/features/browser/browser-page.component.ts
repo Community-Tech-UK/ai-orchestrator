@@ -8,24 +8,42 @@ import {
   signal,
 } from '@angular/core';
 import type {
-  BrowserActionClass,
-  BrowserAllowedOrigin,
   BrowserApprovalRequest,
   BrowserAuditEntry,
-  BrowserElementContext,
   BrowserGatewayResult,
   BrowserGrantMode,
-  BrowserGrantProposal,
   BrowserPermissionGrant,
   BrowserProfile,
   BrowserTarget,
 } from '@contracts/types/browser';
-import type { RemoteNodeRosterEntry } from '../../../../shared/types/worker-node.types';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { BrowserGatewayIpcService } from '../../core/services/ipc/browser-gateway-ipc.service';
 import { AuxiliaryLlmIpcService } from '../../core/services/ipc/auxiliary-llm-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import { BrowserUnattendedPanelComponent } from './browser-unattended-panel.component';
+import {
+  browserApprovalConfirmationPhrase,
+  browserNodeReadinessLabel,
+  browserGrantRequiresAutonomousConfirmation,
+  buildBrowserGrantProposal,
+  filterBrowserTargets,
+  formatBrowserApprovalScope,
+  formatBrowserAuditAction,
+  formatBrowserAuditAge,
+  formatBrowserElementContext,
+  formatBrowserGrantExpiry,
+  formatBrowserUploadRoots,
+  isBrowserProfileNodeSelectable,
+  LatestBrowserRequestGate,
+  nextBrowserPageView,
+  normalizeBrowserAllowedOrigins,
+  presentBrowserGatewayHealth,
+  reconcileBrowserProfileSelection,
+  selectBrowserTarget,
+  sortBrowserNodes,
+  withoutBrowserRecordKey,
+  type BrowserPageView,
+} from './browser-page-view.utils';
 
 interface BrowserSnapshotView { title: string; url: string; text: string }
 
@@ -43,6 +61,7 @@ export class BrowserPageComponent implements OnInit {
   private readonly ipc = inject(BrowserGatewayIpcService);
   private readonly auxIpc = inject(AuxiliaryLlmIpcService);
   private readonly remoteNodes = inject(RemoteNodeStore);
+  private detailGeneration = 0;
 
   readonly profiles = signal<BrowserProfile[]>([]);
   readonly targets = signal<BrowserTarget[]>([]);
@@ -64,11 +83,15 @@ export class BrowserPageComponent implements OnInit {
   readonly loading = signal(false);
   readonly working = signal(false);
   readonly errorMessage = signal<string | null>(null);
+  private readonly latestRequests = new LatestBrowserRequestGate((error) => {
+    this.errorMessage.set(error instanceof Error ? error.message : 'Browser Gateway request failed.');
+  });
   readonly autonomousSubmitEnabled = signal<Record<string, boolean>>({});
   readonly autonomousDestructiveEnabled = signal<Record<string, boolean>>({});
   readonly autonomousConfirmations = signal<Record<string, string>>({});
   readonly showAuditHistory = signal(false);
-  readonly showUnattendedSection = signal(false);
+  readonly activeView = signal<BrowserPageView>('browser');
+  readonly targetFilter = signal('');
 
   readonly runningProfileCount = computed(
     () => this.profiles().filter((profile) => profile.status === 'running').length,
@@ -78,14 +101,18 @@ export class BrowserPageComponent implements OnInit {
     () => this.profiles().find((profile) => profile.id === this.selectedProfileId()) ?? null,
   );
 
-  readonly browserNodeOptions = computed(() => [...this.remoteNodes.nodes()].sort((a, b) => {
-    const rank = (node: RemoteNodeRosterEntry): number =>
-      node.capabilities.hasBrowserMcp ? 0 : node.capabilities.hasBrowserRuntime ? 1 : 2;
-    return rank(a) - rank(b) || a.name.localeCompare(b.name);
-  }));
+  readonly openTargets = computed(() =>
+    this.targets().filter((target) => target.status !== 'closed'),
+  );
+
+  readonly browserNodeOptions = computed(() => sortBrowserNodes(this.remoteNodes.nodes()));
 
   readonly selectedTarget = computed(
-    () => this.targets().find((target) => target.id === this.selectedTargetId()) ?? null,
+    () => this.openTargets().find((target) => target.id === this.selectedTargetId()) ?? null,
+  );
+
+  readonly filteredTargets = computed(
+    () => filterBrowserTargets(this.openTargets(), this.targetFilter()),
   );
 
   readonly canNavigate = computed(
@@ -98,6 +125,7 @@ export class BrowserPageComponent implements OnInit {
   );
 
   readonly healthJson = computed(() => JSON.stringify(this.health() ?? {}, null, 2));
+  readonly healthPresentation = computed(() => presentBrowserGatewayHealth(this.health()));
 
   readonly canSaveProfileExecutionNode = computed(() => {
     const profile = this.selectedProfile();
@@ -115,23 +143,7 @@ export class BrowserPageComponent implements OnInit {
     () => this.auditEntries().filter((entry) => !this.isRecentAuditEntry(entry)),
   );
 
-  readonly providerCapabilityRows = computed(() => {
-    const details = (this.health() as {
-      providerCapabilityDetails?: Record<string, {
-        available?: boolean;
-        message?: string;
-        status?: string;
-      }>;
-    } | null)?.providerCapabilityDetails;
-    if (!details) {
-      return [];
-    }
-    return Object.entries(details).map(([name, detail]) => ({
-      name,
-      available: Boolean(detail.available),
-      message: detail.message ?? detail.status ?? 'Unavailable',
-    }));
-  });
+  readonly providerCapabilityRows = computed(() => this.healthPresentation().providers.rows);
 
   async ngOnInit(): Promise<void> {
     void this.remoteNodes.initialize();
@@ -139,6 +151,7 @@ export class BrowserPageComponent implements OnInit {
   }
 
   async refresh(): Promise<void> {
+    const isCurrent = this.latestRequests.begin('refresh');
     this.loading.set(true);
     this.errorMessage.set(null);
     try {
@@ -150,51 +163,103 @@ export class BrowserPageComponent implements OnInit {
         this.refreshGrants(),
         this.refreshHealth(),
       ]);
+      if (isCurrent()) {
+        this.selectedProfileId.set(reconcileBrowserProfileSelection(
+          this.profiles(),
+          this.selectedProfileId(),
+          this.selectedTarget(),
+        ));
+        this.syncProfileExecutionNodeDraft();
+      }
     } finally {
-      this.loading.set(false);
+      if (isCurrent()) {
+        this.loading.set(false);
+      }
     }
   }
 
   async refreshProfiles(): Promise<void> {
-    const response = await this.ipc.listProfiles();
+    const response = await this.latestRequests.run('profiles', () => this.ipc.listProfiles());
+    if (!response) {
+      return;
+    }
     this.applyGatewayArray(response, this.profiles);
     const current = this.selectedProfileId();
-    if (!current || !this.profiles().some((profile) => profile.id === current)) {
+    const targetProfileId = this.selectedTarget()?.profileId;
+    if (targetProfileId) {
+      this.selectedProfileId.set(targetProfileId);
+    } else if (!current || !this.profiles().some((profile) => profile.id === current)) {
       this.selectedProfileId.set(this.profiles()[0]?.id ?? null);
     }
     this.syncProfileExecutionNodeDraft();
   }
 
-  async refreshTargets(): Promise<void> {
-    const response = await this.ipc.listTargets({});
+  async refreshTargets(preferredProfileId?: string): Promise<void> {
+    const previousTarget = this.selectedTarget();
+    const response = await this.latestRequests.run('targets', () => this.ipc.listTargets({}));
+    if (!response) {
+      return;
+    }
     this.applyGatewayArray(response, this.targets);
-    const selected = this.targets().find((target) => target.status === 'selected') ?? this.targets()[0];
+    const selected = selectBrowserTarget(
+      this.openTargets(),
+      this.selectedTargetId(),
+      preferredProfileId,
+    );
+    if (selected?.id !== previousTarget?.id || selected?.url !== previousTarget?.url) {
+      this.resetTargetDetailState(selected?.url ?? '');
+    }
     this.selectedTargetId.set(selected?.id ?? null);
-    if (selected?.url) {
+    if (selected?.profileId) {
+      this.selectedProfileId.set(selected.profileId);
+      this.syncProfileExecutionNodeDraft();
+    }
+    if (selected?.url && !this.navigateUrl()) {
       this.navigateUrl.set(selected.url);
     }
   }
 
   async refreshAudit(): Promise<void> {
-    const response = await this.ipc.getAuditLog({ limit: 50 });
+    const response = await this.latestRequests.run(
+      'audit', () => this.ipc.getAuditLog({ limit: 50 }),
+    );
+    if (!response) {
+      return;
+    }
     this.applyGatewayArray(response, this.auditEntries);
   }
 
   async refreshApprovals(): Promise<void> {
-    const response = await this.ipc.listApprovalRequests({ status: 'pending', limit: 25 });
+    const response = await this.latestRequests.run(
+      'approvals', () => this.ipc.listApprovalRequests({ status: 'pending', limit: 25 }),
+    );
+    if (!response) {
+      return;
+    }
     this.applyGatewayArray(response, this.approvalRequests);
   }
 
   async refreshGrants(): Promise<void> {
-    const response = await this.ipc.listGrants({ limit: 25 });
+    const response = await this.latestRequests.run(
+      'grants', () => this.ipc.listGrants({ limit: 25 }),
+    );
+    if (!response) {
+      return;
+    }
     this.applyGatewayArray(response, this.activeGrants);
   }
 
   async refreshHealth(): Promise<void> {
-    const response = await this.ipc.getHealth();
-    if (response.success) {
-      this.health.set(response.data?.data ?? null);
+    const response = await this.latestRequests.run('health', () => this.ipc.getHealth());
+    if (!response) {
+      return;
     }
+    if (!response.success) {
+      this.health.set(null);
+      this.errorMessage.set(response.error?.message ?? 'Browser Gateway health check failed.');
+      return;
+    }
+    this.health.set(response.data?.data ?? null);
   }
 
   onCreateField(field: 'label' | 'defaultUrl' | 'allowedOrigins', event: Event): void {
@@ -215,6 +280,24 @@ export class BrowserPageComponent implements OnInit {
 
   onNavigateUrlInput(event: Event): void {
     this.navigateUrl.set((event.target as HTMLInputElement).value);
+  }
+
+  onTargetFilterInput(event: Event): void {
+    this.targetFilter.set((event.target as HTMLInputElement).value);
+  }
+
+  selectView(view: BrowserPageView): void {
+    this.activeView.set(view);
+  }
+
+  onViewTabKeydown(event: KeyboardEvent): void {
+    const nextView = nextBrowserPageView(this.activeView(), event.key);
+    if (!nextView) {
+      return;
+    }
+    event.preventDefault();
+    this.selectView(nextView);
+    queueMicrotask(() => document.getElementById(`${nextView}-view-tab`)?.focus());
   }
 
   onAutonomousConfirmationInput(approval: BrowserApprovalRequest, event: Event): void {
@@ -246,9 +329,9 @@ export class BrowserPageComponent implements OnInit {
       return;
     }
 
-    let allowedOrigins: BrowserAllowedOrigin[];
+    let allowedOrigins;
     try {
-      allowedOrigins = this.normalizeAllowedOrigins(this.createAllowedOrigins());
+      allowedOrigins = normalizeBrowserAllowedOrigins(this.createAllowedOrigins());
     } catch (error) {
       this.errorMessage.set(
         error instanceof Error ? error.message : 'Allowed origins could not be parsed.',
@@ -277,13 +360,12 @@ export class BrowserPageComponent implements OnInit {
     }
   }
 
-  selectProfile(profileId: string): void {
+  async selectProfile(profileId: string): Promise<void> {
     this.selectedProfileId.set(profileId);
     this.syncProfileExecutionNodeDraft();
     this.selectedTargetId.set(null);
-    this.snapshot.set(null);
-    this.screenshotDataUrl.set(null);
-    void this.refreshTargets();
+    this.resetTargetDetailState();
+    await this.refreshTargets(profileId);
   }
 
   async updateProfileExecutionNode(): Promise<void> {
@@ -313,7 +395,7 @@ export class BrowserPageComponent implements OnInit {
   async openProfile(profileId: string): Promise<void> {
     await this.runGatewayAction(() => this.ipc.openProfile({ profileId }));
     this.selectedProfileId.set(profileId);
-    await this.refreshTargets();
+    await this.refreshTargets(profileId);
   }
 
   async closeProfile(profileId: string): Promise<void> {
@@ -326,11 +408,10 @@ export class BrowserPageComponent implements OnInit {
     if (!target.profileId) {
       return;
     }
+    this.latestRequests.invalidate('targets');
     this.selectedProfileId.set(target.profileId);
     this.selectedTargetId.set(target.id);
-    if (target.url) {
-      this.navigateUrl.set(target.url);
-    }
+    this.resetTargetDetailState(target.url ?? '');
     await this.runGatewayAction(() =>
       this.ipc.selectTarget({ profileId: target.profileId!, targetId: target.id }),
     );
@@ -341,8 +422,10 @@ export class BrowserPageComponent implements OnInit {
     if (!request) {
       return;
     }
+    const url = this.navigateUrl().trim();
+    this.resetTargetDetailState(url);
     await this.runGatewayAction(() =>
-      this.ipc.navigate({ ...request, url: this.navigateUrl().trim() }),
+      this.ipc.navigate({ ...request, url }),
     );
     await this.refreshTargets();
     await this.refreshAudit();
@@ -353,7 +436,18 @@ export class BrowserPageComponent implements OnInit {
     if (!request) {
       return;
     }
-    const response = await this.ipc.snapshot(request);
+    const detailGeneration = this.detailGeneration;
+    const isCurrentRequest = this.latestRequests.begin('snapshot');
+    this.latestRequests.invalidate('extraction');
+    this.extractedText.set(null);
+    this.extracting.set(false);
+    const response = await this.latestRequests.resolve(
+      () => isCurrentRequest() && detailGeneration === this.detailGeneration,
+      () => this.ipc.snapshot(request),
+    );
+    if (!response) {
+      return;
+    }
     if (!response.success) {
       this.errorMessage.set(response.error?.message ?? 'Failed to load snapshot.');
       return;
@@ -363,27 +457,38 @@ export class BrowserPageComponent implements OnInit {
     await this.refreshAudit();
   }
 
-  /**
-   * Distill the loaded snapshot's raw page text into clean main content via the
-   * auxiliary `webExtract` slot (local/cheap model). Advisory; leaves the raw
-   * snapshot intact and surfaces an error rather than throwing.
-   */
+  /** Distill the loaded snapshot text into clean main content via the auxiliary LLM. */
   async extractMainContent(): Promise<void> {
     const snap = this.snapshot();
     if (!snap?.text) {
       return;
     }
+    const detailGeneration = this.detailGeneration;
+    const isCurrentRequest = this.latestRequests.begin('extraction');
     this.extracting.set(true);
     this.extractedText.set(null);
     try {
-      const response = await this.auxIpc.extractWeb({ text: snap.text });
+      const response = await this.latestRequests.resolve(
+        () => isCurrentRequest() && detailGeneration === this.detailGeneration
+          && this.snapshot() === snap,
+        () => this.auxIpc.extractWeb({ text: snap.text }),
+      );
+      if (!response) {
+        return;
+      }
       if (!response.success) {
         this.errorMessage.set(response.error?.message ?? 'Failed to extract main content.');
         return;
       }
       this.extractedText.set(response.data?.text ?? '');
     } finally {
-      this.extracting.set(false);
+      if (
+        isCurrentRequest() &&
+        detailGeneration === this.detailGeneration &&
+        this.snapshot() === snap
+      ) {
+        this.extracting.set(false);
+      }
     }
   }
 
@@ -392,7 +497,15 @@ export class BrowserPageComponent implements OnInit {
     if (!request) {
       return;
     }
-    const response = await this.ipc.screenshot({ ...request, fullPage: true });
+    const detailGeneration = this.detailGeneration;
+    const isCurrentRequest = this.latestRequests.begin('screenshot');
+    const response = await this.latestRequests.resolve(
+      () => isCurrentRequest() && detailGeneration === this.detailGeneration,
+      () => this.ipc.screenshot({ ...request, fullPage: true }),
+    );
+    if (!response) {
+      return;
+    }
     if (!response.success) {
       this.errorMessage.set(response.error?.message ?? 'Failed to capture screenshot.');
       return;
@@ -403,12 +516,12 @@ export class BrowserPageComponent implements OnInit {
   }
 
   async requestUserLogin(): Promise<void> {
-    const profileId = this.selectedProfileId();
+    const selectedTarget = this.selectedTarget();
+    const profileId = selectedTarget?.profileId ?? this.selectedProfileId();
     if (!profileId) {
       return;
     }
-    const selectedTarget = this.selectedTarget();
-    const targetId = selectedTarget?.profileId === profileId ? selectedTarget.id : undefined;
+    const targetId = selectedTarget?.profileId ? selectedTarget.id : undefined;
     const response = await this.runGatewayAction(() =>
       this.ipc.requestUserLogin({
         profileId,
@@ -426,9 +539,14 @@ export class BrowserPageComponent implements OnInit {
     mode: BrowserGrantMode,
   ): Promise<void> {
     const phrase = this.confirmationPhrase(approval);
-    const grant = this.grantProposalForApproval(approval, mode);
+    const grant = buildBrowserGrantProposal(
+      approval,
+      mode,
+      this.autonomousSubmitIsEnabled(approval),
+      this.autonomousDestructiveIsEnabled(approval),
+    );
     if (
-      this.grantRequiresAutonomousConfirmation(grant) &&
+      browserGrantRequiresAutonomousConfirmation(grant) &&
       this.autonomousConfirmation(approval).trim() !== phrase
     ) {
       this.errorMessage.set(
@@ -473,35 +591,10 @@ export class BrowserPageComponent implements OnInit {
     }
   }
 
-  formatGrantExpiry(expiresAt: number): string {
-    return new Date(expiresAt).toLocaleString();
-  }
-
-  formatApprovalScope(approval: BrowserApprovalRequest): string {
-    const origins = approval.proposedGrant.allowedOrigins
-      .map((origin) =>
-        `${origin.scheme}://${origin.includeSubdomains ? '*.' : ''}${origin.hostPattern}${origin.port ? `:${origin.port}` : ''}`,
-      )
-      .join(', ');
-    const actions = approval.proposedGrant.allowedActionClasses.join(', ');
-    return `${approval.proposedGrant.mode} · ${actions}${origins ? ` · ${origins}` : ''}`;
-  }
-
-  formatElementContext(element: BrowserElementContext): string {
-    return [
-      element.accessibleName,
-      element.label,
-      element.visibleText,
-      element.role,
-      element.inputType,
-      element.inputName,
-      element.placeholder,
-      element.nearbyText,
-    ].filter(Boolean).join(' · ');
-  }
-  formatUploadRoots(approval: BrowserApprovalRequest): string {
-    return approval.proposedGrant.uploadRoots?.join(', ') ?? '';
-  }
+  readonly formatGrantExpiry = formatBrowserGrantExpiry;
+  readonly formatApprovalScope = formatBrowserApprovalScope;
+  readonly formatElementContext = formatBrowserElementContext;
+  readonly formatUploadRoots = formatBrowserUploadRoots;
   autonomousSubmitIsEnabled(approval: BrowserApprovalRequest): boolean {
     return Boolean(this.autonomousSubmitEnabled()[approval.requestId]);
   }
@@ -512,23 +605,15 @@ export class BrowserPageComponent implements OnInit {
     return this.autonomousConfirmations()[approval.requestId] ?? '';
   }
   requiresAutonomousConfirmation(approval: BrowserApprovalRequest): boolean {
-    const grant = this.grantProposalForApproval(approval, 'autonomous');
-    return this.grantRequiresAutonomousConfirmation(grant);
+    const grant = buildBrowserGrantProposal(
+      approval, 'autonomous',
+      this.autonomousSubmitIsEnabled(approval),
+      this.autonomousDestructiveIsEnabled(approval),
+    );
+    return browserGrantRequiresAutonomousConfirmation(grant);
   }
   confirmationPhrase(approval: BrowserApprovalRequest): string {
-    const profileLabel = this.profiles().find((profile) => profile.id === approval.profileId)?.label;
-    if (profileLabel) {
-      return profileLabel;
-    }
-    const location = approval.origin ?? approval.url;
-    if (location) {
-      try {
-        return new URL(location).host;
-      } catch {
-        return location;
-      }
-    }
-    return approval.profileId;
+    return browserApprovalConfirmationPhrase(approval, this.profiles());
   }
   profileExecutionLocationLabel(profile: BrowserProfile): string {
     const nodeId = profile.executionNodeId;
@@ -539,70 +624,38 @@ export class BrowserPageComponent implements OnInit {
     return node ? `${node.name} · ${this.nodeReadinessLabel(node)}` : `${nodeId} · Missing`;
   }
 
-  nodeReadinessLabel(node: RemoteNodeRosterEntry): string {
-    if (node.status === 'disconnected') {
-      return 'Disconnected';
-    }
-    if (node.capabilities.hasBrowserMcp) {
-      return 'Ready';
-    }
-    if (node.capabilities.hasBrowserRuntime) {
-      return 'Chrome only';
-    }
-    return 'Off';
-  }
-
-  isProfileNodeSelectable(node: RemoteNodeRosterEntry): boolean {
-    return node.capabilities.hasBrowserMcp && node.status !== 'disconnected';
-  }
+  readonly nodeReadinessLabel = browserNodeReadinessLabel;
+  readonly isProfileNodeSelectable = isBrowserProfileNodeSelectable;
 
   toggleAuditHistory(): void {
     this.showAuditHistory.set(!this.showAuditHistory());
   }
 
-  toggleUnattendedSection(): void {
-    this.showUnattendedSection.set(!this.showUnattendedSection());
-  }
-
-  formatAuditAction(action: string): string {
-    return action
-      .split(/[_\s-]+/)
-      .filter(Boolean)
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
-  }
-
-  formatAuditAge(createdAt: number): string {
-    const elapsedMs = Math.max(0, Date.now() - createdAt);
-    if (elapsedMs < 60_000) {
-      return 'now';
-    }
-    const elapsedMinutes = Math.floor(elapsedMs / 60_000);
-    if (elapsedMinutes < 60) {
-      return `${elapsedMinutes}m`;
-    }
-    const elapsedHours = Math.floor(elapsedMinutes / 60);
-    if (elapsedHours < 24) {
-      return `${elapsedHours}h`;
-    }
-    const elapsedDays = Math.floor(elapsedHours / 24);
-    if (elapsedDays < 7) {
-      return `${elapsedDays}d`;
-    }
-    return new Date(createdAt).toLocaleDateString();
-  }
+  readonly formatAuditAction = formatBrowserAuditAction;
+  readonly formatAuditAge = formatBrowserAuditAge;
 
   private selectedTargetRequest(): { profileId: string; targetId: string } | null {
-    const profileId = this.selectedProfileId();
-    const targetId = this.selectedTargetId();
-    if (!profileId || !targetId) {
+    const target = this.selectedTarget();
+    if (!target?.profileId) {
       return null;
     }
-    return { profileId, targetId };
+    return { profileId: target.profileId, targetId: target.id };
   }
 
   private syncProfileExecutionNodeDraft(): void {
     this.profileExecutionNodeDraft.set(this.selectedProfile()?.executionNodeId ?? null);
+  }
+
+  private resetTargetDetailState(navigateUrl = ''): void {
+    ++this.detailGeneration;
+    this.latestRequests.invalidate('snapshot');
+    this.latestRequests.invalidate('screenshot');
+    this.latestRequests.invalidate('extraction');
+    this.snapshot.set(null);
+    this.extractedText.set(null);
+    this.screenshotDataUrl.set(null);
+    this.extracting.set(false);
+    this.navigateUrl.set(navigateUrl);
   }
 
   private async runGatewayAction(
@@ -634,67 +687,13 @@ export class BrowserPageComponent implements OnInit {
     target.set(Array.isArray(response.data?.data) ? response.data.data : []);
   }
 
-  private normalizeAllowedOrigins(raw: string): BrowserAllowedOrigin[] {
-    return raw
-      .split(/[\n,]+/)
-      .map((entry) => entry.trim())
-      .filter(Boolean)
-      .map((entry) => {
-        let parsed: URL;
-        try {
-          const withScheme = /^https?:\/\//i.test(entry) ? entry : `https://${entry}`;
-          parsed = new URL(withScheme.replace('://*.', '://wildcard.'));
-        } catch {
-          throw new Error(`Allowed origin is invalid: ${entry}`);
-        }
-        const wildcard = parsed.hostname.startsWith('wildcard.');
-        return {
-          scheme: parsed.protocol === 'http:' ? 'http' : 'https',
-          hostPattern: wildcard ? parsed.hostname.replace(/^wildcard\./, '') : parsed.hostname,
-          port: parsed.port ? Number(parsed.port) : undefined,
-          includeSubdomains: wildcard || entry.includes('*.'),
-        };
-      });
-  }
-
   private isRecentAuditEntry(entry: BrowserAuditEntry): boolean {
     return Date.now() - entry.createdAt <= recentAuditWindowMs;
   }
 
-  private grantProposalForApproval(
-    approval: BrowserApprovalRequest,
-    mode: BrowserGrantMode,
-  ): BrowserGrantProposal {
-    const allowedActionClasses = mode === 'autonomous'
-      ? this.autonomousActionClasses(approval)
-      : new Set(approval.proposedGrant.allowedActionClasses);
-    return {
-      ...approval.proposedGrant,
-      mode,
-      allowedActionClasses: Array.from(allowedActionClasses),
-      autonomous: mode === 'autonomous',
-    };
-  }
-  private autonomousActionClasses(approval: BrowserApprovalRequest): Set<BrowserActionClass> {
-    const allowedActionClasses = new Set(approval.proposedGrant.allowedActionClasses);
-    if (this.autonomousSubmitIsEnabled(approval)) {
-      allowedActionClasses.add('submit');
-    }
-    if (this.autonomousDestructiveIsEnabled(approval)) {
-      allowedActionClasses.add('destructive');
-    }
-    return allowedActionClasses;
-  }
-  private grantRequiresAutonomousConfirmation(grant: BrowserGrantProposal): boolean {
-    return grant.allowedActionClasses.some((actionClass) =>
-      actionClass === 'submit' || actionClass === 'destructive');
-  }
   private clearAutonomousDraft(requestId: string): void {
-    this.autonomousSubmitEnabled.update((current) => this.withoutKey(current, requestId));
-    this.autonomousDestructiveEnabled.update((current) => this.withoutKey(current, requestId));
-    this.autonomousConfirmations.update((current) => this.withoutKey(current, requestId));
-  }
-  private withoutKey<T>(record: Record<string, T>, key: string): Record<string, T> {
-    return Object.fromEntries(Object.entries(record).filter(([entryKey]) => entryKey !== key));
+    this.autonomousSubmitEnabled.update((current) => withoutBrowserRecordKey(current, requestId));
+    this.autonomousDestructiveEnabled.update((current) => withoutBrowserRecordKey(current, requestId));
+    this.autonomousConfirmations.update((current) => withoutBrowserRecordKey(current, requestId));
   }
 }

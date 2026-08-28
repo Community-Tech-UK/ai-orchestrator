@@ -5930,7 +5930,7 @@
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
-      "lines": 2546
+      "lines": 2574
     },
     {
       "path": "docs/superpowers/plans/2026-04-07-remote-folder-browsing.md",
@@ -6066,18 +6066,18 @@
     },
     {
       "path": "src/main/history/history-manager.ts",
-      "lines": 1631
+      "lines": 1626
     },
     {
       "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
       "lines": 1626
     },
     {
-      "path": "docs/superpowers/plans/2026-03-15-session-resume-improvements.md",
-      "lines": 1613
+      "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
+      "lines": 1620
     },
     {
-      "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
+      "path": "docs/superpowers/plans/2026-03-15-session-resume-improvements.md",
       "lines": 1613
     },
     {
@@ -6099,6 +6099,10 @@
     {
       "path": "src/main/orchestration/orchestration-handler.ts",
       "lines": 1532
+    },
+    {
+      "path": "src/renderer/app/features/browser/browser-page.component.spec.ts",
+      "lines": 1524
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.send-input.spec.ts",
@@ -6165,11 +6169,11 @@
       "lines": 1351
     },
     {
-      "path": "src/renderer/app/features/instance-detail/output-stream.component.ts",
-      "lines": 1347
+      "path": "src/main/memory/unified-controller.ts",
+      "lines": 1346
     },
     {
-      "path": "src/main/memory/unified-controller.ts",
+      "path": "src/renderer/app/features/instance-detail/output-stream.component.ts",
       "lines": 1346
     },
     {
@@ -6313,6 +6317,10 @@
       "lines": 1228
     },
     {
+      "path": "src/main/browser-gateway/browser-gateway-rpc-server.spec.ts",
+      "lines": 1217
+    },
+    {
       "path": "src/main/orchestration/__tests__/campaign-coordinator.spec.ts",
       "lines": 1214
     },
@@ -6335,6 +6343,10 @@
     {
       "path": "src/main/instance/__tests__/instance-manager.yolo-mode.spec.ts",
       "lines": 1202
+    },
+    {
+      "path": "src/renderer/app/features/browser/browser-page.component.scss",
+      "lines": 1187
     },
     {
       "path": "docs/superpowers/plans/2026-04-03-remote-nodes-phase5-integration.COMPLETED.md",
@@ -6367,10 +6379,6 @@
     {
       "path": "src/main/orchestration/multi-verify-coordinator.ts",
       "lines": 1156
-    },
-    {
-      "path": "src/main/browser-gateway/browser-gateway-rpc-server.spec.ts",
-      "lines": 1149
     },
     {
       "path": "docs/plans/completed/claude2_completed.md",
@@ -6633,6 +6641,10 @@
       "lines": 933
     },
     {
+      "path": "src/main/history/__tests__/history-manager-native-import.spec.ts",
+      "lines": 926
+    },
+    {
       "path": "src/renderer/app/features/memory/memory-browser.component.ts",
       "lines": 926
     },
@@ -6697,12 +6709,12 @@
       "lines": 876
     },
     {
-      "path": "src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts",
-      "lines": 872
+      "path": "src/renderer/app/core/state/instance/instance-messaging.store.ts",
+      "lines": 876
     },
     {
-      "path": "src/renderer/app/core/state/instance/instance-messaging.store.ts",
-      "lines": 870
+      "path": "src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts",
+      "lines": 872
     },
     {
       "path": "src/renderer/app/features/verification/config/api-key-manager.component.ts",
@@ -6754,6 +6766,10 @@
     },
     {
       "path": "src/main/session/session-continuity.spec.ts",
+      "lines": 853
+    },
+    {
+      "path": "src/renderer/app/core/state/instance/instance-messaging.store.spec.ts",
       "lines": 853
     },
     {
@@ -6815,10 +6831,6 @@
     {
       "path": "src/renderer/app/features/settings/remote-nodes-settings-tab.component.html",
       "lines": 836
-    },
-    {
-      "path": "src/renderer/app/core/state/instance/instance-messaging.store.spec.ts",
-      "lines": 834
     },
     {
       "path": "docs/plans/2026-07-30-sibling-audit-round2_plan_completed.md",

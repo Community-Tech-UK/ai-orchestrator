@@ -203,6 +203,336 @@ describe('HistoryManager — native Claude transcript import', () => {
     expect(fs.existsSync(path.join(storageDir, `${entry.id}.json.gz.truncated-backup`))).toBe(true);
   });
 
+  it('preserves legacy-redacted repair behavior after repair classification is extracted', async () => {
+    const sessionId = 'legacy-redacted-repair-session';
+    const storageDir = path.join(userDataDir, 'conversation-history');
+    const entry = {
+      id: 'legacy-redacted-archive',
+      displayName: 'Legacy redacted archive',
+      createdAt: Date.parse('2026-04-10T09:00:00.000Z'),
+      endedAt: Date.parse('2026-04-10T09:00:05.000Z'),
+      workingDirectory: '/Users/me/Demo',
+      messageCount: 2,
+      firstUserMessage: 'Original prompt',
+      lastUserMessage: 'Original prompt',
+      status: 'completed' as const,
+      originalInstanceId: 'legacy-redacted-instance',
+      parentId: null,
+      sessionId,
+      provider: 'claude' as const,
+    };
+    const archivePath = path.join(storageDir, `${entry.id}.json.gz`);
+    fs.mkdirSync(storageDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(storageDir, 'index.json'),
+      JSON.stringify({ version: 1, entries: [entry], lastUpdated: 0 }),
+    );
+    fs.writeFileSync(
+      archivePath,
+      zlib.gzipSync(JSON.stringify({
+        entry,
+        messages: [
+          { id: 'app-u1', timestamp: entry.createdAt, type: 'user', content: 'Original prompt' },
+          { id: 'app-a1', timestamp: entry.endedAt, type: 'assistant', content: '[REDACTED TOOL OUTPUT]' },
+        ],
+      })),
+    );
+
+    const projectsDir = path.join(homeDir, '.claude', 'projects');
+    writeJsonl(path.join(projectsDir, '-Users-me-Demo', `${sessionId}.jsonl`), [
+      {
+        type: 'user',
+        uuid: 'native-u1',
+        timestamp: '2026-04-10T09:00:00.000Z',
+        cwd: '/Users/me/Demo',
+        sessionId,
+        message: { role: 'user', content: 'Original prompt' },
+      },
+      {
+        type: 'assistant',
+        uuid: 'native-a1',
+        timestamp: '2026-04-10T09:00:03.000Z',
+        sessionId,
+        message: { role: 'assistant', content: [{ type: 'text', text: '[REDACTED TOOL OUTPUT]' }] },
+      },
+      {
+        type: 'assistant',
+        uuid: 'native-a2',
+        timestamp: '2026-04-10T09:00:05.000Z',
+        sessionId,
+        message: { role: 'assistant', content: [{ type: 'text', text: 'Recovered answer' }] },
+      },
+    ]);
+
+    const { HistoryManager } = await import('../history-manager');
+    const manager = new HistoryManager();
+    await manager.startupTasks;
+    await (manager as unknown as {
+      importNativeClaudeTranscripts: (projectsDir: string) => Promise<void>;
+    }).importNativeClaudeTranscripts(projectsDir);
+
+    const repaired = await manager.loadConversation(entry.id);
+    expect(repaired?.messages.map((message) => message.content)).toEqual([
+      'Original prompt',
+      'Recovered answer',
+    ]);
+    expect(fs.existsSync(`${archivePath}.legacy-redacted-backup`)).toBe(true);
+  });
+
+  it('repairs a non-tail app archive when it lost the native opening prompt', async () => {
+    const sessionId = 'missing-opening-prompt-session';
+    const storageDir = path.join(userDataDir, 'conversation-history');
+    const entry = {
+      id: 'app-owned-archive',
+      displayName: 'Bounded app archive',
+      createdAt: Date.parse('2026-04-10T09:01:00.000Z'),
+      endedAt: Date.parse('2026-04-10T09:02:00.000Z'),
+      workingDirectory: '/Users/me/OldDemo',
+      messageCount: 3,
+      firstUserMessage: 'Later quoted prompt',
+      lastUserMessage: 'Later quoted prompt',
+      status: 'completed' as const,
+      originalInstanceId: 'instance-owned-by-app',
+      historyThreadId: 'thread-owned-by-app',
+      parentId: null,
+      sessionId,
+      provider: 'claude' as const,
+    };
+    const archivePath = path.join(storageDir, `${entry.id}.json.gz`);
+    fs.mkdirSync(storageDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(storageDir, 'index.json'),
+      JSON.stringify({ version: 1, entries: [entry], lastUpdated: 0 }),
+    );
+    fs.writeFileSync(
+      archivePath,
+      zlib.gzipSync(JSON.stringify({
+        entry,
+        messages: [
+          { id: 'tool-1', timestamp: entry.createdAt, type: 'tool_use', content: 'Using tool: Agent' },
+          { id: 'sidechain-1', timestamp: entry.createdAt + 1, type: 'assistant', content: 'Subagent-only activity' },
+          { id: 'later-user', timestamp: entry.endedAt, type: 'user', content: 'Later quoted prompt' },
+        ],
+      })),
+    );
+
+    const projectsDir = path.join(homeDir, '.claude', 'projects');
+    writeJsonl(path.join(projectsDir, '-Users-me-Demo', `${sessionId}.jsonl`), [
+      {
+        type: 'user',
+        uuid: 'native-u1',
+        timestamp: '2026-04-10T09:00:00.000Z',
+        cwd: '/Users/me/Demo',
+        sessionId,
+        message: { role: 'user', content: 'Original native prompt' },
+      },
+      {
+        type: 'assistant',
+        uuid: 'native-a1',
+        timestamp: '2026-04-10T09:00:05.000Z',
+        sessionId,
+        message: { role: 'assistant', content: [{ type: 'text', text: 'Native answer' }] },
+      },
+    ]);
+
+    const { HistoryManager } = await import('../history-manager');
+    const manager = new HistoryManager();
+    await manager.startupTasks;
+    await (manager as unknown as {
+      importNativeClaudeTranscripts: (projectsDir: string) => Promise<void>;
+    }).importNativeClaudeTranscripts(projectsDir);
+
+    const repaired = await manager.loadConversation(entry.id);
+    expect(repaired?.messages.map((message) => message.content)).toEqual([
+      'Original native prompt',
+      'Native answer',
+    ]);
+    expect(repaired?.entry).toMatchObject({
+      id: entry.id,
+      originalInstanceId: entry.originalInstanceId,
+      historyThreadId: entry.historyThreadId,
+      workingDirectory: '/Users/me/Demo',
+      messageCount: 2,
+      firstUserMessage: 'Original native prompt',
+      lastUserMessage: 'Original native prompt',
+    });
+    expect(fs.existsSync(`${archivePath}.missing-opening-prompt-backup`)).toBe(true);
+  });
+
+  it('repairs a provider-less legacy Claude archive after an explicit non-Claude collision', async () => {
+    const sessionId = 'non-claude-session-collision';
+    const storageDir = path.join(userDataDir, 'conversation-history');
+    const nonClaudeEntry = {
+      id: 'codex-owned-archive',
+      displayName: 'Codex archive',
+      createdAt: Date.parse('2026-04-10T09:01:00.000Z'),
+      endedAt: Date.parse('2026-04-10T09:02:00.000Z'),
+      workingDirectory: '/Users/me/Demo',
+      messageCount: 1,
+      firstUserMessage: 'Codex-owned prompt',
+      lastUserMessage: 'Codex-owned prompt',
+      status: 'completed' as const,
+      originalInstanceId: 'codex-instance',
+      parentId: null,
+      sessionId,
+      provider: 'codex' as const,
+    };
+    const claudeEntry = {
+      ...nonClaudeEntry,
+      id: 'legacy-owned-archive',
+      displayName: 'Legacy archive',
+      firstUserMessage: 'Later Claude prompt',
+      lastUserMessage: 'Later Claude prompt',
+      originalInstanceId: 'claude-instance',
+      provider: undefined,
+    };
+    const nonClaudeArchivePath = path.join(storageDir, `${nonClaudeEntry.id}.json.gz`);
+    const claudeArchivePath = path.join(storageDir, `${claudeEntry.id}.json.gz`);
+    const nonClaudeMessages = [
+      {
+        id: 'codex-u1',
+        timestamp: nonClaudeEntry.createdAt,
+        type: 'user',
+        content: 'Codex-owned prompt',
+      },
+    ];
+    const claudeMessages = [
+      {
+        id: 'claude-u2',
+        timestamp: claudeEntry.createdAt,
+        type: 'user',
+        content: 'Later Claude prompt',
+      },
+    ];
+    fs.mkdirSync(storageDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(storageDir, 'index.json'),
+      JSON.stringify({ version: 1, entries: [nonClaudeEntry, claudeEntry], lastUpdated: 0 }),
+    );
+    const nonClaudeArchiveBytes = zlib.gzipSync(JSON.stringify({
+      entry: nonClaudeEntry,
+      messages: nonClaudeMessages,
+    }));
+    fs.writeFileSync(nonClaudeArchivePath, nonClaudeArchiveBytes);
+    fs.writeFileSync(
+      claudeArchivePath,
+      zlib.gzipSync(JSON.stringify({ entry: claudeEntry, messages: claudeMessages })),
+    );
+
+    const { HistoryManager } = await import('../history-manager');
+    const manager = new HistoryManager();
+    await manager.startupTasks;
+    const stableNonClaudeArchiveBytes = fs.readFileSync(nonClaudeArchivePath);
+
+    const projectsDir = path.join(homeDir, '.claude', 'projects');
+    writeJsonl(path.join(projectsDir, '-Users-me-Demo', `${sessionId}.jsonl`), [
+      {
+        type: 'user',
+        uuid: 'native-u1',
+        timestamp: '2026-04-10T09:00:00.000Z',
+        cwd: '/Users/me/Demo',
+        sessionId,
+        message: { role: 'user', content: 'Claude opening prompt' },
+      },
+      {
+        type: 'assistant',
+        uuid: 'native-a1',
+        timestamp: '2026-04-10T09:00:05.000Z',
+        sessionId,
+        message: { role: 'assistant', content: [{ type: 'text', text: 'Claude answer' }] },
+      },
+    ]);
+
+    await (manager as unknown as {
+      importNativeClaudeTranscripts: (projectsDir: string) => Promise<void>;
+    }).importNativeClaudeTranscripts(projectsDir);
+
+    const preserved = await manager.loadConversation(nonClaudeEntry.id);
+    expect(preserved?.messages).toEqual(nonClaudeMessages);
+    expect(preserved?.entry).toMatchObject(nonClaudeEntry);
+    expect(fs.readFileSync(nonClaudeArchivePath)).toEqual(stableNonClaudeArchiveBytes);
+    expect(fs.existsSync(`${nonClaudeArchivePath}.missing-opening-prompt-backup`)).toBe(false);
+
+    const repaired = await manager.loadConversation(claudeEntry.id);
+    expect(repaired?.messages.map((message) => message.content)).toEqual([
+      'Claude opening prompt',
+      'Claude answer',
+    ]);
+    expect(repaired?.entry).toMatchObject({
+      id: claudeEntry.id,
+      originalInstanceId: claudeEntry.originalInstanceId,
+      firstUserMessage: 'Claude opening prompt',
+      messageCount: 2,
+    });
+    expect(fs.existsSync(`${claudeArchivePath}.missing-opening-prompt-backup`)).toBe(true);
+  });
+
+  it('leaves a non-tail app archive untouched when it still contains the native opening prompt', async () => {
+    const sessionId = 'healthy-app-archive-session';
+    const storageDir = path.join(userDataDir, 'conversation-history');
+    const entry = {
+      id: 'healthy-app-archive',
+      displayName: 'Healthy app archive',
+      createdAt: Date.parse('2026-04-10T09:00:00.000Z'),
+      endedAt: Date.parse('2026-04-10T09:02:00.000Z'),
+      workingDirectory: '/Users/me/Demo',
+      messageCount: 3,
+      firstUserMessage: 'Original native prompt',
+      lastUserMessage: 'Follow-up kept by app',
+      status: 'completed' as const,
+      originalInstanceId: 'healthy-instance',
+      parentId: null,
+      sessionId,
+      provider: 'claude' as const,
+    };
+    const archivePath = path.join(storageDir, `${entry.id}.json.gz`);
+    const originalMessages = [
+      { id: 'app-u1', timestamp: entry.createdAt, type: 'user', content: '  Original   native prompt  ' },
+      { id: 'app-sidechain', timestamp: entry.createdAt + 1, type: 'assistant', content: 'Subagent-only activity' },
+      { id: 'app-u2', timestamp: entry.endedAt, type: 'user', content: 'Follow-up kept by app' },
+    ];
+    fs.mkdirSync(storageDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(storageDir, 'index.json'),
+      JSON.stringify({ version: 1, entries: [entry], lastUpdated: 0 }),
+    );
+    fs.writeFileSync(
+      archivePath,
+      zlib.gzipSync(JSON.stringify({ entry, messages: originalMessages })),
+    );
+
+    const projectsDir = path.join(homeDir, '.claude', 'projects');
+    writeJsonl(path.join(projectsDir, '-Users-me-Demo', `${sessionId}.jsonl`), [
+      {
+        type: 'user',
+        uuid: 'native-u1',
+        timestamp: '2026-04-10T09:00:00.000Z',
+        cwd: '/Users/me/Demo',
+        sessionId,
+        message: { role: 'user', content: 'Original native prompt' },
+      },
+      {
+        type: 'assistant',
+        uuid: 'native-a1',
+        timestamp: '2026-04-10T09:00:05.000Z',
+        sessionId,
+        message: { role: 'assistant', content: [{ type: 'text', text: 'Native answer' }] },
+      },
+    ]);
+
+    const { HistoryManager } = await import('../history-manager');
+    const manager = new HistoryManager();
+    await manager.startupTasks;
+    await (manager as unknown as {
+      importNativeClaudeTranscripts: (projectsDir: string) => Promise<void>;
+    }).importNativeClaudeTranscripts(projectsDir);
+
+    const preserved = await manager.loadConversation(entry.id);
+    expect(preserved?.messages).toEqual(originalMessages);
+    expect(preserved?.entry).toMatchObject(entry);
+    expect(fs.existsSync(`${archivePath}.missing-opening-prompt-backup`)).toBe(false);
+  });
+
   it('keeps a native provider ID collision out of ownership across import and repeated restore', async () => {
     const providerSessionId = 'provider-native-collision';
     const projectsDir = path.join(homeDir, '.claude', 'projects');

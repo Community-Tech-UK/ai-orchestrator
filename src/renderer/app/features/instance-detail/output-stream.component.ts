@@ -81,10 +81,7 @@ interface OlderMessagesLoadResult {
   totalStored: number;
 }
 
-interface OlderMessagesProbeResult {
-  hasMore: boolean;
-  totalStored: number;
-}
+interface OlderMessagesProbeResult { hasMore: boolean; totalStored: number }
 
 @Component({
   selector: 'app-output-stream',
@@ -117,6 +114,7 @@ export class OutputStreamComponent {
   findShortcutEnabled = input<boolean>(true);
   olderMessagesLoader = input<(() => Promise<OlderMessagesLoadResult | null>) | null>(null);
   olderMessagesProbe = input<(() => Promise<OlderMessagesProbeResult | null>) | null>(null);
+  livePromptIndexEnabled = input(true);
 
   /**
    * Emitted when the user resends an inline-edited user message. The parent
@@ -818,6 +816,7 @@ export class OutputStreamComponent {
    * prompts harvested from messages() while the fetch was in flight survive.
    */
   private async fetchPromptIndex(instanceId: string): Promise<void> {
+    if (!this.livePromptIndexEnabled()) return;
     try {
       const result = await this.instanceIpc.getPromptIndex(instanceId);
       if (this.instanceId() !== instanceId) return; // switched away mid-fetch

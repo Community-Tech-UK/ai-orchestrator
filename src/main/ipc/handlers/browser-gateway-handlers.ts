@@ -194,7 +194,7 @@ export function registerBrowserGatewayHandlers(
     BrowserApproveRequestPayloadSchema,
     async (service, payload) => {
       const result = await service.approveRequest(payload);
-      resumeInstanceAfterBrowserDecision(deps.instanceManager, 'approved', result);
+      resumeInstanceAfterBrowserDecision(deps.instanceManager, 'approved', payload.requestId, result);
       return result;
     },
     deps,
@@ -204,7 +204,7 @@ export function registerBrowserGatewayHandlers(
     BrowserDenyRequestPayloadSchema,
     async (service, payload) => {
       const result = await service.denyRequest(payload);
-      resumeInstanceAfterBrowserDecision(deps.instanceManager, 'denied', result);
+      resumeInstanceAfterBrowserDecision(deps.instanceManager, 'denied', payload.requestId, result);
       return result;
     },
     deps,
@@ -365,6 +365,7 @@ function register<TPayload extends BrowserGatewayIpcPayload>(
 function resumeInstanceAfterBrowserDecision(
   instanceManager: InstanceManager | undefined,
   decision: 'approved' | 'denied',
+  requestId: string,
   result: unknown,
 ): void {
   if (!instanceManager) {
@@ -383,10 +384,9 @@ function resumeInstanceAfterBrowserDecision(
     return;
   }
 
-  const message =
-    decision === 'approved'
-      ? 'The browser action you requested was just approved by the user in the approval dialog. Retry the action now and continue.'
-      : 'The browser action you requested was just denied by the user in the approval dialog. Do not retry it; continue without it.';
+  const message = decision === 'approved'
+    ? `Browser Gateway approval request ${requestId} was approved by the user. Retry this approved browser action now and continue.`
+    : `Browser Gateway approval request ${requestId} was denied by the user. Do not retry this denied browser action; continue without it.`;
 
   // A5: re-check live instance state — the agent's turn may have moved on
   // (interrupted, respawning, quota-parked) between the approval dialog
@@ -399,6 +399,8 @@ function resumeInstanceAfterBrowserDecision(
     origin: 'browser-gateway',
     message,
     sourceMetadata: { decision },
+    requireReadyForInput: true,
+    coalesceKey: 'browser-approval-resume',
   });
   if (outcome.kind === 'suppressed') {
     logger.info('Browser gateway resume nudge suppressed pending instance readiness', {

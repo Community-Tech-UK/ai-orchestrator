@@ -7,6 +7,7 @@ import {
   _resetSessionAdmissionServiceForTesting,
   type SessionAdmissionInstanceHost,
   type AdmissionInstanceView,
+  type AdmitAutomatedWriteRequest,
   type RedeliveryContext,
 } from './session-admission-service';
 import { SessionAdmissionStore } from './session-admission-store';
@@ -23,6 +24,10 @@ vi.mock('../persistence/rlm-database', () => ({
 
 class FakeInstanceManager extends EventEmitter implements SessionAdmissionInstanceHost {
   private instances = new Map<string, AdmissionInstanceView>();
+  private runtimeSnapshots = new Map<string, {
+    activeTurnId: string | null;
+    turnPhase: string;
+  }>();
 
   setInstance(id: string, view: AdmissionInstanceView): void {
     this.instances.set(id, view);
@@ -34,6 +39,21 @@ class FakeInstanceManager extends EventEmitter implements SessionAdmissionInstan
 
   getInstance(id: string): AdmissionInstanceView | undefined {
     return this.instances.get(id);
+  }
+
+  setRuntimeSnapshot(
+    id: string,
+    snapshot: { activeTurnId: string | null; turnPhase: string },
+  ): void {
+    this.runtimeSnapshots.set(id, snapshot);
+  }
+
+  getAdapter(id: string): { getRuntimeSnapshot: () => {
+    activeTurnId: string | null;
+    turnPhase: string;
+  } } | undefined {
+    const snapshot = this.runtimeSnapshots.get(id);
+    return snapshot ? { getRuntimeSnapshot: () => snapshot } : undefined;
   }
 
   emitStateUpdate(instanceId: string, status: string): void {
@@ -160,6 +180,31 @@ describe('SessionAdmissionService', () => {
         instanceId: 'i1', origin: 'consensus', message: 'hi',
       });
       expect(outcome.kind).toBe('admitted');
+    });
+
+    it('opt-in ready admission suppresses while lifecycle or provider runtime still owns a turn', () => {
+      const strictRequest = {
+        instanceId: 'i1',
+        origin: 'browser-gateway',
+        message: 'resume after approval',
+        requireReadyForInput: true,
+      } as const;
+
+      im.setInstance('i1', { status: 'busy' as never });
+      im.setRuntimeSnapshot('i1', { activeTurnId: 'turn-1', turnPhase: 'running' });
+      expect(getSessionAdmissionService().admitAutomatedWrite(strictRequest)).toMatchObject({
+        kind: 'suppressed',
+      });
+
+      im.setInstance('i1', { status: 'idle' as never });
+      expect(getSessionAdmissionService().admitAutomatedWrite(strictRequest)).toMatchObject({
+        kind: 'suppressed',
+      });
+
+      im.setRuntimeSnapshot('i1', { activeTurnId: null, turnPhase: 'starting' });
+      expect(getSessionAdmissionService().admitAutomatedWrite(strictRequest)).toMatchObject({
+        kind: 'suppressed',
+      });
     });
   });
 
@@ -294,6 +339,45 @@ describe('SessionAdmissionService', () => {
       im.setInstance('i1', { status: 'ready' as never });
       im.emitBatchUpdate([{ instanceId: 'i1', status: 'ready' }]);
 
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it('coalesces strict redelivery until a ready edge with no active provider turn', () => {
+      im.setInstance('i1', { status: 'busy' as never });
+      im.setRuntimeSnapshot('i1', { activeTurnId: 'turn-1', turnPhase: 'running' });
+      const firstRequest = {
+        instanceId: 'i1',
+        origin: 'browser-gateway',
+        message: 'Browser approval request request-1 was approved.',
+        requireReadyForInput: true,
+        coalesceKey: 'browser-approval-resume',
+      } as AdmitAutomatedWriteRequest & { coalesceKey: string };
+      const secondRequest = {
+        ...firstRequest,
+        message: 'Browser approval request request-2 was denied.',
+      };
+      const first = getSessionAdmissionService().admitAutomatedWrite(firstRequest);
+      const second = getSessionAdmissionService().admitAutomatedWrite(secondRequest);
+      expect(first.kind).toBe('suppressed');
+      expect(second.kind).toBe('suppressed');
+
+      const handler = vi.fn();
+      getSessionAdmissionService().registerRedeliveryHandler('browser-gateway', handler);
+
+      im.setInstance('i1', { status: 'idle' as never });
+      im.emitStateUpdate('i1', 'idle');
+      expect(handler).not.toHaveBeenCalled();
+
+      im.setRuntimeSnapshot('i1', { activeTurnId: null, turnPhase: 'idle' });
+      im.emitStateUpdate('i1', 'idle');
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler).toHaveBeenCalledWith(expect.objectContaining({
+        instanceId: 'i1',
+        message: expect.stringContaining('request-1 was approved'),
+      }));
+      expect(handler.mock.calls[0][0].message).toContain('request-2 was denied');
+
+      im.emitStateUpdate('i1', 'idle');
       expect(handler).toHaveBeenCalledTimes(1);
     });
 

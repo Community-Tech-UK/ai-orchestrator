@@ -49,6 +49,7 @@ const READY_STATUSES = new Set<string>(['idle', 'ready', 'waiting_for_input']);
  * outlast normal IPC round-trip jitter.
  */
 const PROMOTED_SEND_MATCH_WINDOW_MS = 30_000;
+const MAX_COALESCED_MESSAGE_CHARS = 20_000;
 
 /** Origins for AUTOMATED writers routed through {@link admitAutomatedWrite}. */
 export type AdmissionOrigin =
@@ -66,6 +67,8 @@ export type SuppressReason =
   | 'awaiting-human'
   | 'interrupting'
   | 'respawning'
+  | 'not-ready'
+  | 'active-turn'
   | 'quota-parked'
   | 'auth-required'
   | 'terminal'
@@ -87,6 +90,14 @@ export interface AdmitAutomatedWriteRequest {
   attachments?: FileAttachment[];
   contextBlock?: string;
   sourceMetadata?: Record<string, unknown>;
+  /**
+   * Opt-in for writers that start a new provider turn. Unlike tool-result-style
+   * injections, these writes must wait for both a ready lifecycle status and
+   * an idle provider-owned runtime.
+   */
+  requireReadyForInput?: boolean;
+  /** Combine pending message bodies with the same instance/origin/key. */
+  coalesceKey?: string;
 }
 
 /** Payload handed to a registered redelivery handler on a ready edge. */
@@ -108,6 +119,13 @@ export interface AdmissionInstanceView {
   interruptPhase?: string;
 }
 
+interface AdmissionRuntimeAdapter {
+  getRuntimeSnapshot?(): {
+    activeTurnId?: string | null;
+    turnPhase?: string;
+  };
+}
+
 /**
  * Minimal InstanceManager surface this service depends on. Kept loose
  * (string event names) to avoid a hard dependency on the concrete
@@ -117,6 +135,7 @@ export interface AdmissionInstanceView {
  */
 export interface SessionAdmissionInstanceHost {
   getInstance(instanceId: string): AdmissionInstanceView | undefined;
+  getAdapter?(instanceId: string): unknown;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   on(event: string, listener: (...args: any[]) => void): unknown;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -132,6 +151,8 @@ interface PendingRedelivery {
   attachments?: FileAttachment[];
   contextBlock?: string;
   sourceMetadata?: Record<string, unknown>;
+  requireReadyForInput?: boolean;
+  coalesceKey?: string;
 }
 
 function toAttachmentRefs(attachments?: FileAttachment[]): string[] {
@@ -207,7 +228,10 @@ export class SessionAdmissionService {
 
   // ---- Core admission decision ------------------------------------------
 
-  private decide(instanceId: string): { kind: 'admitted' } | { kind: 'suppressed'; reason: SuppressReason } {
+  private decide(
+    instanceId: string,
+    requireReadyForInput = false,
+  ): { kind: 'admitted' } | { kind: 'suppressed'; reason: SuppressReason } {
     if (!this.instanceManager) {
       logger.warn('admitAutomatedWrite called before setInstanceManager(); suppressing', { instanceId });
       return { kind: 'suppressed', reason: 'unknown-instance' };
@@ -241,6 +265,23 @@ export class SessionAdmissionService {
     if (instance.interruptPhase === 'requested' || instance.interruptPhase === 'accepted') {
       return { kind: 'suppressed', reason: 'interrupting' };
     }
+    if (requireReadyForInput && !READY_STATUSES.has(instance.status)) {
+      return { kind: 'suppressed', reason: 'not-ready' };
+    }
+    if (requireReadyForInput) {
+      const adapter = this.instanceManager.getAdapter?.(instanceId) as
+        | AdmissionRuntimeAdapter
+        | undefined;
+      const snapshot = adapter?.getRuntimeSnapshot?.();
+      if (
+        snapshot?.activeTurnId
+        || snapshot?.turnPhase === 'starting'
+        || snapshot?.turnPhase === 'running'
+        || snapshot?.turnPhase === 'interrupting'
+      ) {
+        return { kind: 'suppressed', reason: 'active-turn' };
+      }
+    }
     return { kind: 'admitted' };
   }
 
@@ -251,7 +292,7 @@ export class SessionAdmissionService {
    * itself.
    */
   admitAutomatedWrite(request: AdmitAutomatedWriteRequest): AdmissionOutcome {
-    const decision = this.decide(request.instanceId);
+    const decision = this.decide(request.instanceId, request.requireReadyForInput);
     const admissionId = this.persist({
       admissionId: generateId(),
       instanceId: request.instanceId,
@@ -278,6 +319,22 @@ export class SessionAdmissionService {
   }
 
   private rememberForRedelivery(admissionId: string, request: AdmitAutomatedWriteRequest): void {
+    let message = request.message;
+    if (request.coalesceKey) {
+      for (const [existingId, entry] of this.pendingRedeliveries) {
+        if (
+          entry.instanceId === request.instanceId
+          && entry.origin === request.origin
+          && entry.coalesceKey === request.coalesceKey
+        ) {
+          const combined = entry.message === message ? message : `${entry.message}\n${message}`;
+          message = combined.slice(-MAX_COALESCED_MESSAGE_CHARS);
+          this.pendingRedeliveries.delete(existingId);
+          this.markExpired(existingId);
+        }
+      }
+    }
+
     // Cap in-memory pending entries per instance (mirrors the store's
     // per-instance cap) so a runaway suppressed writer cannot grow this map
     // unbounded between restarts.
@@ -292,10 +349,12 @@ export class SessionAdmissionService {
     this.pendingRedeliveries.set(admissionId, {
       instanceId: request.instanceId,
       origin: request.origin,
-      message: request.message,
+      message,
       attachments: request.attachments,
       contextBlock: request.contextBlock,
       sourceMetadata: request.sourceMetadata,
+      requireReadyForInput: request.requireReadyForInput,
+      coalesceKey: request.coalesceKey,
     });
   }
 
@@ -441,13 +500,14 @@ export class SessionAdmissionService {
     const candidates = [...this.pendingRedeliveries.entries()].filter(([, e]) => e.instanceId === instanceId);
     if (candidates.length === 0) return;
 
-    // Re-decide rather than trusting the ready status alone: a status of
-    // `idle` can still coexist with a quota-park/auth-required waitReason
-    // (mirrors mobile-input-queue's isQuotaParked guard).
-    const decision = this.decide(instanceId);
-    if (decision.kind !== 'admitted') return;
-
     for (const [admissionId, entry] of candidates) {
+      // Re-decide per entry rather than trusting the ready status alone: a
+      // strict new-turn writer also requires the provider runtime to have
+      // released ownership, while legacy mid-turn writers retain their
+      // existing admission policy.
+      const decision = this.decide(instanceId, entry.requireReadyForInput);
+      if (decision.kind !== 'admitted') continue;
+
       const handler = this.redeliveryHandlers.get(entry.origin);
       if (!handler) continue; // left pending; sweep() expires unhandled origins.
       this.pendingRedeliveries.delete(admissionId);

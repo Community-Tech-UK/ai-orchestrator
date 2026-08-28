@@ -27,6 +27,7 @@ import {
   CopilotAccountIpcService,
   type CopilotAccountRuleView,
   type CopilotAccountView,
+  type DiscoveredCopilotAccount,
 } from '../../core/services/ipc/copilot-account-ipc.service';
 import type { CopilotRouteOutcome } from '../../../../shared/types/copilot-account.types';
 
@@ -58,6 +59,25 @@ import type { CopilotRouteOutcome } from '../../../../shared/types/copilot-accou
         </button>
       }
 
+      @for (candidate of addable(); track candidate.login) {
+        <button
+          type="button"
+          class="project-menu-item"
+          role="menuitem"
+          [disabled]="busy()"
+          (click)="addAndMapTo(candidate, $event)"
+        >
+          <span class="copilot-tick" aria-hidden="true"></span>Use {{ candidate.login }} here…
+        </button>
+      }
+
+      @if (onlyOneAccount()) {
+        <div class="copilot-hint">
+          Only one Copilot account is set up. Add another in Settings › Copilot
+          Accounts to route projects between them.
+        </div>
+      }
+
       @if (mappedRules().length > 0) {
         <button
           type="button"
@@ -83,6 +103,7 @@ import type { CopilotRouteOutcome } from '../../../../shared/types/copilot-accou
     }
     .copilot-current { text-transform: none; letter-spacing: 0; font-size: 11px; }
     .copilot-error { padding: 4px 12px 6px; font-size: 11px; color: var(--error-color, #d33); }
+    .copilot-hint { padding: 2px 12px 6px; font-size: 11px; color: var(--text-secondary); }
     /* Fixed-width gutter keeps the labels aligned whether or not a tick shows,
        without leaning on padding characters in the template. */
     .copilot-tick { display: inline-block; width: 12px; }
@@ -99,6 +120,7 @@ export class CopilotProjectRoutingMenuComponent {
   private readonly accountsSignal = signal<CopilotAccountView[]>([]);
   private readonly rulesSignal = signal<CopilotAccountRuleView[]>([]);
   private readonly outcomeSignal = signal<CopilotRouteOutcome | null>(null);
+  private readonly addableSignal = signal<DiscoveredCopilotAccount[]>([]);
   private readonly busySignal = signal(false);
   private readonly errorSignal = signal<string | null>(null);
   private loadedFor: string | null = null;
@@ -108,10 +130,27 @@ export class CopilotProjectRoutingMenuComponent {
   readonly error = this.errorSignal.asReadonly();
 
   /**
-   * Hidden entirely until a second account exists. With one account there is
-   * nothing to choose between, and an inert menu item is just noise.
+   * Shown whenever Copilot has ANY account.
+   *
+   * An earlier version required two, which hid this in precisely the state
+   * where it is most needed: with one account you cannot map anything, and a
+   * silent menu gives you no way to find out why. Where a second account is
+   * already signed in to Copilot but has no Harness profile, it is offered here
+   * directly — adding and mapping in one action.
    */
-  readonly visible = computed(() => this.accountsSignal().length > 1);
+  readonly visible = computed(
+    () => this.accountsSignal().length > 0 || this.addableSignal().length > 0,
+  );
+
+  /** Signed in to Copilot, but no Harness profile yet. */
+  readonly addable = computed(() =>
+    this.addableSignal().filter((candidate) => !candidate.alreadyAdded),
+  );
+
+  /** True when there is nothing to choose between and nothing to add. */
+  readonly onlyOneAccount = computed(
+    () => this.accountsSignal().length <= 1 && this.addable().length === 0,
+  );
 
   readonly activeProfileId = computed(() => {
     const outcome = this.outcomeSignal();
@@ -156,14 +195,16 @@ export class CopilotProjectRoutingMenuComponent {
     this.loadedFor = path;
     this.busySignal.set(true);
     try {
-      const [accounts, rules, outcome] = await Promise.all([
+      const [accounts, rules, outcome, addable] = await Promise.all([
         this.ipc.list(),
         this.ipc.listRules(),
         this.ipc.previewRoute({ workingDirectory: path }),
+        this.ipc.discover(),
       ]);
       this.accountsSignal.set(accounts);
       this.rulesSignal.set(rules);
       this.outcomeSignal.set(outcome);
+      this.addableSignal.set(addable);
     } catch {
       this.errorSignal.set('Could not read Copilot accounts.');
     } finally {
@@ -204,6 +245,48 @@ export class CopilotProjectRoutingMenuComponent {
       this.loadedFor = null;
       await this.load();
       this.mapped.emit();
+    } catch (error) {
+      this.errorSignal.set(error instanceof Error ? error.message : String(error));
+    } finally {
+      this.busySignal.set(false);
+    }
+  }
+
+  /**
+   * Add an account Copilot already holds, then route this project to it.
+   *
+   * The two-step version (Settings → add → back → map) is where this flow was
+   * losing people: the account exists, the project is in front of you, and the
+   * only thing missing is a profile record.
+   */
+  async addAndMapTo(candidate: DiscoveredCopilotAccount, event: Event): Promise<void> {
+    event.preventDefault();
+    event.stopPropagation();
+    const path = this.projectPath();
+    if (!path) return;
+
+    this.busySignal.set(true);
+    this.errorSignal.set(null);
+    try {
+      const created = await this.ipc.create({
+        label: candidate.login,
+        // Anything added at this point is a second account, so it starts
+        // matched-only: it serves this project and whatever else you map, and
+        // can never pick up unrelated work.
+        accountKind: 'enterprise',
+        host: candidate.host,
+      });
+      if (!created.success) {
+        this.errorSignal.set(created.error?.message ?? 'That account could not be added.');
+        return;
+      }
+      const profileId = (created.data as { id?: string } | undefined)?.id;
+      if (!profileId) {
+        this.errorSignal.set('That account was added but could not be mapped. Use Settings.');
+        return;
+      }
+      this.loadedFor = null;
+      await this.mapTo({ id: profileId } as CopilotAccountView, event);
     } catch (error) {
       this.errorSignal.set(error instanceof Error ? error.message : String(error));
     } finally {

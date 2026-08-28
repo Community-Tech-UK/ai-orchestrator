@@ -534,7 +534,11 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
         !this.useAppServer ||
         isProviderNotice(errorText) ||
         this.isRecoverableTurnError(error);
-      this.emit('status', (recoverable ? 'idle' : 'error') as InstanceStatus);
+      const activeAppServerTurn = this.useAppServer && this.appServerRuntime.hasActiveTurn();
+      this.emit(
+        'status',
+        (recoverable ? (activeAppServerTurn ? 'busy' : 'idle') : 'error') as InstanceStatus,
+      );
       throw error;
     }
   }

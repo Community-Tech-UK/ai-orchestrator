@@ -748,6 +748,12 @@ export class InstanceMessagingStore {
       return { shouldRetry: false, nextStatus: 'idle' };
     }
 
+    // Park behind the provider-owned Codex turn. Only a real ready edge may
+    // drain this message; a timer would collide with the same owner again.
+    if (normalized.includes('codex app-server runtime already has an active turn')) {
+      return { shouldRetry: true, nextStatus: 'busy' };
+    }
+
     // Transient: instance is recovering from interrupt/respawn.
     if (
       isInterruptRecoveryStatus(status)

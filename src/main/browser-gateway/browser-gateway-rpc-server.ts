@@ -43,6 +43,7 @@ import {
   getBrowserToolRevealStore,
   type BrowserToolRevealStore,
 } from './browser-tool-reveal-store';
+import { routeBrowserGatewayRequest } from './browser-remote-offload-policy';
 
 interface BrowserGatewayRpcRequest {
   jsonrpc?: '2.0';
@@ -89,6 +90,10 @@ export interface BrowserGatewayRpcServerOptions {
     maxBytes?: number;
     windowMs: number;
   };
+  routeBrowserRequest?: (
+    method: string,
+    payload: Record<string, unknown>,
+  ) => Record<string, unknown>;
 }
 
 const DEFAULT_MAX_PAYLOAD_BYTES = 1024 * 1024;
@@ -116,6 +121,10 @@ export class BrowserGatewayRpcServer {
   private readonly extensionToken: string;
   private readonly maxPayloadBytes: number;
   private readonly rateLimit: { maxRequests: number; maxBytes: number; windowMs: number };
+  private readonly routeBrowserRequest: (
+    method: string,
+    payload: Record<string, unknown>,
+  ) => Record<string, unknown>;
   private readonly buckets = new Map<string, BrowserGatewayRateBucketEntry[]>();
   private server: net.Server | null = null;
   private socketPath: string | null = null;
@@ -147,6 +156,7 @@ export class BrowserGatewayRpcServer {
       maxBytes: options.rateLimit?.maxBytes ?? this.maxPayloadBytes * 10,
       windowMs: options.rateLimit?.windowMs ?? 10_000,
     };
+    this.routeBrowserRequest = options.routeBrowserRequest ?? routeBrowserGatewayRequest;
     const register = options.registerCleanup ?? registerGlobalCleanup;
     register(() => this.stop());
   }
@@ -216,12 +226,13 @@ export class BrowserGatewayRpcServer {
     }
     const payloadBytes = this.enforcePayloadSize(params.payload);
     this.enforceRateLimit(params.instanceId, payloadBytes);
+    const routedPayload = this.routeBrowserRequest(request.method, params.payload);
 
     // Unattended-layer runtime methods (escalations, campaign leases, session
     // sentinel) validate their own payloads and dispatch to the unattended
     // singletons rather than per-tool service methods.
     if (isUnattendedRpcMethod(request.method)) {
-      return handleUnattendedRpcMethod(request.method, params.payload, {
+      return handleUnattendedRpcMethod(request.method, routedPayload, {
         instanceId: params.instanceId,
         ...(params.provider ? { provider: params.provider } : {}),
         service: this.service,
@@ -239,7 +250,7 @@ export class BrowserGatewayRpcServer {
     if (request.method === 'browser.tool_reveal_record') {
       this.getToolRevealStore().recordRevealed(
         params.instanceId,
-        parseBoundedNameList(params.payload['names']),
+        parseBoundedNameList(routedPayload['names']),
       );
       return { ok: true };
     }
@@ -247,11 +258,11 @@ export class BrowserGatewayRpcServer {
       return handleReportToolSurface(
         this.getToolRevealStore(),
         params.instanceId,
-        params.payload,
+        routedPayload,
       );
     }
 
-    const payload = this.validatePayload(request.method, params.payload);
+    const payload = this.validatePayload(request.method, routedPayload);
     const withContext = {
       ...payload,
       instanceId: params.instanceId,

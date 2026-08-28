@@ -19,27 +19,27 @@ import * as zlib from 'zlib';
 import { promisify } from 'util';
 import { getLogger } from '../logging/logger';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
-import type {
-  ConversationHistoryEntry,
-  ConversationData,
-  HistoryIndex,
-  HistoryLoadOptions,
-  ConversationEndStatus,
-  HistorySearchSource,
+import {
+  inferConversationHistoryProvider,
+  type ConversationHistoryEntry,
+  type ConversationData,
+  type HistoryIndex,
+  type HistoryLoadOptions,
+  type ConversationEndStatus,
+  type HistorySearchSource,
 } from '../../shared/types/history.types';
 import { getTranscriptSnippetService } from './transcript-snippet-service';
 import {
   findClaudeJsonlFiles,
   getDefaultClaudeProjectsDir,
-  isNativeTranscriptTailExtension,
   parseClaudeJsonlTranscriptDetailed,
   type ImportedTranscript,
 } from './native-claude-importer';
+import { createNativeClaudeArchiveRepairPlan } from './native-claude-archive-repair';
 import { projectMemoryKeysEqual } from '../memory/project-memory-key';
 import { getOutputStorageManager } from '../memory/output-storage';
 import { retainedPromptsMissingFrom } from '../instance/prompt-retention';
 import { isSessionNotFoundText } from '../cli/adapters/resume-error-classifier';
-import { isLegacyRedactedToolOutput } from '../session/redacted-tool-output';
 
 const gzip = promisify(zlib.gzip);
 const gunzip = promisify(zlib.gunzip);
@@ -882,6 +882,7 @@ export class HistoryManager {
 
       const existingAppEntry = this.index.entries.find((entry) =>
         entry.sessionId.trim() === stem
+        && inferConversationHistoryProvider(entry) === 'claude'
         && !this.isNativeClaudeImportedEntry(entry)
       );
 
@@ -944,6 +945,8 @@ export class HistoryManager {
       }
       const existingEntry = this.index.entries.find(
         (entry) => entry.sessionId.trim() === parsed.sessionId
+          && inferConversationHistoryProvider(entry) === 'claude'
+          && !this.isNativeClaudeImportedEntry(entry)
       );
       if (
         existingEntry
@@ -1009,26 +1012,18 @@ export class HistoryManager {
       return false;
     }
 
-    const hasLegacyRedactedOutput = conversation.messages.some(
-      (message) => isLegacyRedactedToolOutput(message.content),
-    );
-    const hasTruncatedTail = isNativeTranscriptTailExtension(
+    const repairPlan = createNativeClaudeArchiveRepairPlan(
       parsed.messages,
       conversation.messages,
+      parsed.firstUserMessage,
     );
-    if (!hasLegacyRedactedOutput && !hasTruncatedTail) {
+    if (!repairPlan) {
       return false;
     }
 
-    const repairedMessages = hasLegacyRedactedOutput
-      ? parsed.messages.filter((message) => !isLegacyRedactedToolOutput(message.content))
-      : parsed.messages;
-    if (!repairedMessages.some((message) => message.type === 'user')) {
-      return false;
-    }
-
+    const { backupLabel, repairedMessages, repairKind } = repairPlan;
     const conversationPath = this.getConversationPath(entry.id);
-    const backupPath = `${conversationPath}.${hasLegacyRedactedOutput ? 'legacy-redacted' : 'truncated'}-backup`;
+    const backupPath = `${conversationPath}.${backupLabel}-backup`;
     if (!fs.existsSync(backupPath)) {
       await fs.promises.copyFile(conversationPath, backupPath);
     }
@@ -1055,7 +1050,7 @@ export class HistoryManager {
       sessionId: parsed.sessionId,
       previousMessageCount: conversation.messages.length,
       repairedMessageCount: repairedMessages.length,
-      repairKind: hasLegacyRedactedOutput ? 'legacy-redacted-output' : 'truncated-tail',
+      repairKind,
       backupPath,
     });
     return true;

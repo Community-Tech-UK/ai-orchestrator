@@ -192,6 +192,13 @@ export class InstanceDetailComponent {
       error: this.historyPreviewError(),
     };
   });
+  readonly historyPreviewOlderMessagesProbe = async (): Promise<{
+    hasMore: boolean;
+    totalStored: number;
+  }> => ({
+    hasMore: false,
+    totalStored: this.historyPreview()?.messages.length ?? 0,
+  });
   currentActivity = this.store.selectedInstanceActivity;
   busySince = computed(() => this.store.getSelectedInstanceBusySince());
   currentReview = computed(() => {

@@ -1,441 +1,419 @@
 <div class="browser-page">
   <header class="page-header">
-    <div class="page-header-main">
+    <div class="page-heading">
+      <div
+        class="live-pill"
+        [class.ready]="healthPresentation().gateway.tone === 'ready'"
+        [class.warning]="healthPresentation().gateway.tone === 'warning'"
+        [class.error]="healthPresentation().gateway.tone === 'error'"
+        aria-live="polite"
+      >
+        <span class="live-dot" aria-hidden="true"></span>
+        {{ healthPresentation().gateway.label }}
+      </div>
       <div>
-        <h1>Browser Control & Diagnostics</h1>
-        <p>Control Browser Gateway profiles, approvals, and live Chrome tab bridge status; this is not the browser itself.</p>
+        <h1>Browser Gateway</h1>
+        <p>Control live browser sessions, access requests, and connection health.</p>
       </div>
     </div>
-    <button class="btn" type="button" [disabled]="loading()" (click)="refresh()">Refresh</button>
+    <button class="btn" type="button" [disabled]="loading()" (click)="refresh()">
+      {{ loading() ? 'Refreshing…' : 'Refresh all' }}
+    </button>
   </header>
 
   @if (errorMessage()) {
-    <div class="error-banner">{{ errorMessage() }}</div>
+    <div class="error-banner" role="alert">{{ errorMessage() }}</div>
   }
 
-  <section class="status-strip">
-    <div>
-      <span class="metric">{{ profiles().length }}</span>
-      <span class="label">Profiles</span>
+  <section class="status-strip" aria-label="Browser Gateway status">
+    <div class="status-item">
+      <span class="metric">{{ runningProfileCount() }}<small>/{{ profiles().length }}</small></span>
+      <span class="label">Profiles live</span>
     </div>
-    <div>
-      <span class="metric">{{ runningProfileCount() }}</span>
-      <span class="label">Running</span>
+    <div class="status-item">
+      <span class="metric">{{ openTargets().length }}</span>
+      <span class="label">Open targets</span>
     </div>
-    <div>
-      <span class="metric">{{ targets().length }}</span>
-      <span class="label">Targets</span>
+    <div class="status-item" [class.needs-attention]="approvalRequests().length">
+      <span class="metric">{{ approvalRequests().length }}</span>
+      <span class="label">Awaiting approval</span>
     </div>
-    <div>
-      <span class="metric">{{ auditEntries().length }}</span>
-      <span class="label">Audit Events</span>
+    <div class="status-item">
+      <span class="metric">{{ activeGrants().length }}</span>
+      <span class="label">Active grants</span>
     </div>
   </section>
 
-  <main class="browser-grid">
-    <section class="profiles-panel">
-      <div class="section-heading">
-        <h2>Profiles</h2>
-        <button class="btn small" type="button" [disabled]="loading()" (click)="refreshProfiles()">Reload</button>
-      </div>
-
-      <div class="create-form">
-        <label>
-          <span>Label</span>
-          <input type="text" [value]="createLabel()" (input)="onCreateField('label', $event)" />
-        </label>
-        <label>
-          <span>Default URL</span>
-          <input type="url" [value]="createDefaultUrl()" (input)="onCreateField('defaultUrl', $event)" />
-        </label>
-        <label>
-          <span>Allowed origins</span>
-          <textarea [value]="createAllowedOrigins()" (input)="onCreateField('allowedOrigins', $event)"></textarea>
-        </label>
-        <button class="btn primary" type="button" [disabled]="working()" (click)="createProfile()">Create Profile</button>
-      </div>
-
-      @if (selectedProfile(); as profile) {
-        <div class="profile-binding">
-          <div class="binding-summary">
-            <span>Run browser on</span>
-            <strong>{{ profileExecutionLocationLabel(profile) }}</strong>
-          </div>
-          <label>
-            <span>Execution node</span>
-            <select
-              data-testid="profile-node-select"
-              [value]="profileExecutionNodeDraft() ?? ''"
-              [disabled]="working()"
-              (change)="onProfileExecutionNodeChange($event)"
-            >
-              <option value="">Local coordinator</option>
-              @for (node of browserNodeOptions(); track node.id) {
-                <option [value]="node.id" [disabled]="!isProfileNodeSelectable(node)">
-                  {{ node.name }} · {{ nodeReadinessLabel(node) }}
-                </option>
-              }
-            </select>
-          </label>
-          <button
-            class="btn small"
-            type="button"
-            [disabled]="working() || !canSaveProfileExecutionNode()"
-            (click)="updateProfileExecutionNode()"
-          >
-            Save Node
-          </button>
-        </div>
+  <nav class="view-tabs" role="tablist" aria-label="Browser Gateway controls">
+    <button
+      id="browser-view-tab"
+      class="view-tab"
+      data-testid="browser-view-tab"
+      role="tab"
+      type="button"
+      [class.active]="activeView() === 'browser'"
+      [attr.aria-selected]="activeView() === 'browser'"
+      [attr.tabindex]="activeView() === 'browser' ? 0 : -1"
+      [attr.aria-controls]="activeView() === 'browser' ? 'browser-view-panel' : null"
+      (click)="selectView('browser')"
+      (keydown)="onViewTabKeydown($event)"
+    >
+      Browser
+      <span>{{ openTargets().length }}</span>
+    </button>
+    <button
+      id="permissions-view-tab"
+      class="view-tab"
+      data-testid="permissions-view-tab"
+      role="tab"
+      type="button"
+      [class.active]="activeView() === 'permissions'"
+      [attr.aria-selected]="activeView() === 'permissions'"
+      [attr.tabindex]="activeView() === 'permissions' ? 0 : -1"
+      [attr.aria-controls]="activeView() === 'permissions' ? 'permissions-view-panel' : null"
+      (click)="selectView('permissions')"
+      (keydown)="onViewTabKeydown($event)"
+    >
+      Permissions
+      @if (approvalRequests().length) {
+        <span class="attention-count">{{ approvalRequests().length }}</span>
       }
+    </button>
+    <button
+      id="diagnostics-view-tab"
+      class="view-tab"
+      data-testid="diagnostics-view-tab"
+      role="tab"
+      type="button"
+      [class.active]="activeView() === 'diagnostics'"
+      [attr.aria-selected]="activeView() === 'diagnostics'"
+      [attr.tabindex]="activeView() === 'diagnostics' ? 0 : -1"
+      [attr.aria-controls]="activeView() === 'diagnostics' ? 'diagnostics-view-panel' : null"
+      (click)="selectView('diagnostics')"
+      (keydown)="onViewTabKeydown($event)"
+    >
+      Diagnostics
+    </button>
+    <button
+      id="unattended-view-tab"
+      class="view-tab"
+      data-testid="unattended-view-tab"
+      role="tab"
+      type="button"
+      [class.active]="activeView() === 'unattended'"
+      [attr.aria-selected]="activeView() === 'unattended'"
+      [attr.tabindex]="activeView() === 'unattended' ? 0 : -1"
+      [attr.aria-controls]="activeView() === 'unattended' ? 'unattended-view-panel' : null"
+      (click)="selectView('unattended')"
+      (keydown)="onViewTabKeydown($event)"
+    >
+      Unattended
+    </button>
+  </nav>
 
-      <div class="profile-list">
-        @for (profile of profiles(); track profile.id) {
-          <article class="profile-row" [class.selected]="selectedProfileId() === profile.id">
-            <button class="profile-main" type="button" (click)="selectProfile(profile.id)">
-              <span class="profile-label">{{ profile.label }}</span>
-              <span class="profile-meta">{{ profile.browser }} · {{ profile.mode }} · {{ profile.status }}</span>
-              <span class="profile-meta">{{ profileExecutionLocationLabel(profile) }}</span>
-              @if (profile.lastLoginCheckAt) {
-                <span class="profile-meta">Login checked {{ formatGrantExpiry(profile.lastLoginCheckAt) }}</span>
-              }
-            </button>
-            <div class="row-actions">
-              <button class="btn small" type="button" [disabled]="working()" (click)="openProfile(profile.id)">Launch</button>
-              <button class="btn small" type="button" [disabled]="working()" (click)="closeProfile(profile.id)">Stop</button>
-            </div>
-          </article>
-        } @empty {
-          <div class="empty">No managed browser profiles.</div>
-        }
-      </div>
-    </section>
-
-    <section class="work-panel">
-      <div class="section-heading">
-        <h2>Target</h2>
-        <button class="btn small" type="button" [disabled]="!selectedProfileId()" (click)="refreshTargets()">Refresh Targets</button>
-      </div>
-
-      <div class="target-list">
-        @for (target of targets(); track target.id) {
-          <button
-            class="target-row"
-            type="button"
-            [class.selected]="selectedTargetId() === target.id"
-            (click)="selectTarget(target)"
-          >
-            <span>{{ target.title || target.url || target.id }}</span>
-            <small>{{ target.status }} · {{ target.url || 'about:blank' }}</small>
-          </button>
-        } @empty {
-          <div class="empty">Launch a profile to load browser targets.</div>
-        }
-      </div>
-
-      <div class="navigate-bar">
-        <input type="url" [value]="navigateUrl()" (input)="onNavigateUrlInput($event)" />
-        <button
-          class="btn primary"
-          data-testid="navigate-button"
-          type="button"
-          [disabled]="!canNavigate() || working()"
-          (click)="navigate()"
-        >
-          Navigate
-        </button>
-      </div>
-
-      <div class="toolbar">
-        <button class="btn" type="button" [disabled]="!selectedTargetId() || working()" (click)="loadSnapshot()">Snapshot</button>
-        <button class="btn" type="button" [disabled]="!selectedTargetId() || working()" (click)="captureScreenshot()">Screenshot</button>
-        <button
-          class="btn"
-          data-testid="request-login-button"
-          type="button"
-          [disabled]="!selectedProfileId() || working()"
-          (click)="requestUserLogin()"
-        >
-          Login Check
-        </button>
-      </div>
-
-      <div class="preview-grid">
-        <section class="preview-panel">
-          <h3>Screenshot</h3>
-          @if (screenshotDataUrl()) {
-            <img data-testid="screenshot-preview" [src]="screenshotDataUrl()" alt="Browser screenshot preview" />
-          } @else {
-            <div class="empty">No screenshot captured.</div>
-          }
-        </section>
-        <section class="preview-panel">
-          <h3>Text Snapshot</h3>
-          @if (snapshot(); as snap) {
-            <div class="snapshot-title">{{ snap.title }}</div>
-            <div class="snapshot-url">{{ snap.url }}</div>
-            <button
-              class="btn"
-              type="button"
-              [disabled]="extracting() || !snap.text"
-              (click)="extractMainContent()"
-            >
-              {{ extracting() ? 'Extracting…' : 'Extract main content' }}
-            </button>
-            @if (extractedText(); as extracted) {
-              <div class="snapshot-extracted">
-                <div class="snapshot-extracted-label">Main content (distilled)</div>
-                <pre>{{ extracted }}</pre>
-              </div>
-            }
-            <pre>{{ snap.text }}</pre>
-          } @else {
-            <div class="empty">No snapshot loaded.</div>
-          }
-        </section>
-      </div>
-    </section>
-
-    <aside class="side-panel">
-      <section>
-        <h2>Live Chrome Extension Bridge</h2>
-        <div class="bridge-list">
-          <div>
-            <span>Extension</span>
-            <code>resources/browser-extension</code>
-          </div>
-          <div>
-            <span>Agent entrypoint</span>
-            <strong>browser.find_or_open</strong>
-          </div>
-          <div>
-            <span>Chrome action</span>
-            <strong>Automatic tab inventory + Share Current Tab fallback</strong>
-          </div>
-          <div>
-            <span>Target mode</span>
-            <small>Live extension target for authenticated Chrome tabs</small>
-          </div>
-        </div>
-      </section>
-      <section>
-        <h2>Health</h2>
-        @if (providerCapabilityRows().length) {
-          <div class="provider-health-list">
-            @for (row of providerCapabilityRows(); track row.name) {
-              <div class="provider-health-row" [class.available]="row.available">
-                <span>{{ row.name }}</span>
-                <small>{{ row.message }}</small>
-              </div>
-            }
-          </div>
-        }
-        <pre>{{ healthJson() }}</pre>
-      </section>
-      <section>
+  @if (activeView() === 'browser') {
+    <main
+      id="browser-view-panel"
+      class="view-panel browser-workspace"
+      data-testid="browser-view-panel"
+      role="tabpanel"
+      aria-labelledby="browser-view-tab"
+    >
+      <aside class="panel profiles-panel">
         <div class="section-heading">
-          <h2>Pending Approvals</h2>
-          <button class="btn small" type="button" [disabled]="working()" (click)="refreshApprovals()">Reload</button>
+          <div>
+            <h2>Profiles</h2>
+            <p>{{ profiles().length }} saved browser environments</p>
+          </div>
+          <button class="btn small" type="button" [disabled]="loading()" (click)="refreshProfiles()">Reload</button>
         </div>
+
+        <details class="disclosure profile-creator" data-testid="new-profile-disclosure">
+          <summary>
+            <span>New profile</span>
+            <small>Create an isolated Chrome environment</small>
+          </summary>
+          <div class="create-form">
+            <label><span>Profile name</span><input type="text" [value]="createLabel()" (input)="onCreateField('label', $event)" /></label>
+            <label><span>Starting URL <small>Optional</small></span><input type="url" [value]="createDefaultUrl()" (input)="onCreateField('defaultUrl', $event)" /></label>
+            <label><span>Allowed origins <small>One per line</small></span><textarea [value]="createAllowedOrigins()" (input)="onCreateField('allowedOrigins', $event)"></textarea></label>
+            <button class="btn primary" type="button" [disabled]="working()" (click)="createProfile()">Create profile</button>
+          </div>
+        </details>
+
+        <div class="profile-list" role="list" aria-label="Browser profiles">
+          @for (profile of profiles(); track profile.id) {
+            <article class="profile-row" role="listitem" [class.selected]="selectedProfileId() === profile.id">
+              <button class="profile-main" type="button" [attr.aria-pressed]="selectedProfileId() === profile.id" (click)="selectProfile(profile.id)">
+                <span class="profile-row-heading">
+                  <span class="profile-label">{{ profile.label }}</span>
+                  <span class="status-badge" [class.running]="profile.status === 'running'">{{ profile.status }}</span>
+                </span>
+                <span class="profile-meta">{{ profile.browser }} · {{ profile.mode }}</span>
+                <span class="profile-meta">{{ profileExecutionLocationLabel(profile) }}</span>
+                @if (profile.lastLoginCheckAt) {
+                  <span class="profile-meta">Login checked {{ formatGrantExpiry(profile.lastLoginCheckAt) }}</span>
+                }
+              </button>
+              <div class="row-actions">
+                <button class="btn small" type="button" [disabled]="working()" (click)="openProfile(profile.id)">Launch</button>
+                <button class="btn small ghost" type="button" [disabled]="working()" (click)="closeProfile(profile.id)">Stop</button>
+              </div>
+            </article>
+          } @empty {
+            <div class="empty-state"><strong>No profiles yet</strong><span>Create one to start a managed browser session.</span></div>
+          }
+        </div>
+
+        @if (selectedProfile(); as profile) {
+          <section class="profile-binding" aria-label="Profile execution location">
+            <div class="binding-summary"><span>Run browser on</span><strong>{{ profileExecutionLocationLabel(profile) }}</strong></div>
+            <label>
+              <span>Execution node</span>
+              <select data-testid="profile-node-select" [value]="profileExecutionNodeDraft() ?? ''" [disabled]="working()" (change)="onProfileExecutionNodeChange($event)">
+                <option value="">Local coordinator</option>
+                @for (node of browserNodeOptions(); track node.id) {
+                  <option [value]="node.id" [disabled]="!isProfileNodeSelectable(node)">{{ node.name }} · {{ nodeReadinessLabel(node) }}</option>
+                }
+              </select>
+            </label>
+            <button class="btn small" type="button" [disabled]="working() || !canSaveProfileExecutionNode()" (click)="updateProfileExecutionNode()">Save node</button>
+          </section>
+        }
+      </aside>
+
+      <section class="panel work-panel">
+        <div class="section-heading target-heading">
+          <div><h2>Browser targets</h2><p>{{ filteredTargets().length }} of {{ openTargets().length }} open tabs and pages</p></div>
+          <button class="btn small" type="button" [disabled]="!selectedProfileId()" (click)="refreshTargets(selectedProfileId() ?? undefined)">Refresh targets</button>
+        </div>
+
+        <label class="search-field">
+          <span class="visually-hidden">Filter browser targets</span>
+          <input data-testid="target-filter" type="search" placeholder="Filter targets by title or URL" [value]="targetFilter()" (input)="onTargetFilterInput($event)" />
+        </label>
+
+        <div class="target-list" role="list" aria-label="Browser targets">
+          @for (target of filteredTargets(); track target.id) {
+            <div class="target-list-item" role="listitem">
+              <button class="target-row" data-testid="target-row" type="button" [attr.aria-pressed]="selectedTargetId() === target.id" [class.selected]="selectedTargetId() === target.id" (click)="selectTarget(target)">
+                <span class="target-row-heading"><strong>{{ target.title || target.url || target.id }}</strong><span class="status-badge" [class.running]="target.status === 'selected'">{{ target.status }}</span></span>
+                <small>{{ target.url || 'about:blank' }}</small>
+              </button>
+            </div>
+          } @empty {
+            <div class="empty-state">
+              <strong>{{ targetFilter() ? 'No matching targets' : 'No browser targets' }}</strong>
+              <span>{{ targetFilter() ? 'Try a different title or URL.' : 'Launch a profile to load open tabs.' }}</span>
+            </div>
+          }
+        </div>
+
+        @if (selectedTarget(); as target) {
+          <section class="target-console" aria-label="Selected target controls">
+            <div class="target-console-heading">
+              <div><span class="eyebrow">Selected target</span><h3>{{ target.title || target.url || target.id }}</h3></div>
+              <span class="driver-badge">{{ target.driver }}</span>
+            </div>
+            <label class="navigate-field">
+              <span>Address</span>
+              <div class="navigate-bar">
+                <input type="url" [value]="navigateUrl()" (input)="onNavigateUrlInput($event)" />
+                <button class="btn primary" data-testid="navigate-button" type="button" [disabled]="!canNavigate() || working()" (click)="navigate()">Navigate</button>
+              </div>
+            </label>
+            <div class="toolbar" aria-label="Target inspection actions">
+              <button class="btn" type="button" [disabled]="!selectedTargetId() || working()" (click)="loadSnapshot()">Read page</button>
+              <button class="btn" type="button" [disabled]="!selectedTargetId() || working()" (click)="captureScreenshot()">Capture screenshot</button>
+              <button class="btn" data-testid="request-login-button" type="button" [disabled]="!selectedProfileId() || working()" (click)="requestUserLogin()">Check login</button>
+            </div>
+          </section>
+
+          @if (screenshotDataUrl() || snapshot()) {
+            <div class="preview-grid">
+              <section class="preview-panel">
+                <div class="preview-heading"><h3>Screenshot</h3><span>Full page</span></div>
+                @if (screenshotDataUrl()) {
+                  <img data-testid="screenshot-preview" [src]="screenshotDataUrl()" alt="Browser screenshot preview" />
+                } @else {
+                  <div class="empty-state compact"><span>No screenshot captured.</span></div>
+                }
+              </section>
+              <section class="preview-panel">
+                <div class="preview-heading"><h3>Page text</h3><span>Snapshot</span></div>
+                @if (snapshot(); as snap) {
+                  <div class="snapshot-title">{{ snap.title }}</div>
+                  <div class="snapshot-url">{{ snap.url }}</div>
+                  <button class="btn" type="button" [disabled]="extracting() || !snap.text" (click)="extractMainContent()">{{ extracting() ? 'Extracting…' : 'Extract main content' }}</button>
+                  @if (extractedText(); as extracted) {
+                    <div class="snapshot-extracted"><div class="snapshot-extracted-label">Main content</div><pre>{{ extracted }}</pre></div>
+                  }
+                  <details class="disclosure raw-snapshot"><summary>Raw page text</summary><pre>{{ snap.text }}</pre></details>
+                } @else {
+                  <div class="empty-state compact"><span>No page text loaded.</span></div>
+                }
+              </section>
+            </div>
+          }
+        } @else {
+          <div class="empty-state large">
+            <strong>Select a browser target</strong>
+            <span>Choose an open tab to navigate, inspect, or check its login state.</span>
+            @if (selectedProfileId()) {
+              <button class="btn" data-testid="request-login-button" type="button" [disabled]="working()" (click)="requestUserLogin()">Check profile login</button>
+            }
+          </div>
+        }
+      </section>
+    </main>
+  }
+
+  @if (activeView() === 'permissions') {
+    <main id="permissions-view-panel" class="view-panel permissions-workspace" data-testid="permissions-view-panel" role="tabpanel" aria-labelledby="permissions-view-tab">
+      <section class="panel approvals-panel">
+        <div class="section-heading"><div><h2>Pending approvals</h2><p>Requests waiting for your decision</p></div><button class="btn small" type="button" [disabled]="working()" (click)="refreshApprovals()">Reload</button></div>
         <div class="approval-list">
           @for (approval of approvalRequests(); track approval.requestId) {
             <article class="approval-row">
-              <div>
-                <span class="audit-action">{{ approval.requestId }}</span>
-                <span class="audit-tool">{{ approval.toolName }}</span>
-              </div>
-              <div class="audit-state">{{ approval.status }} · {{ approval.actionClass }}</div>
-              <p>{{ approval.origin || approval.url || approval.profileId }}</p>
+              <div class="permission-heading"><div><span class="audit-action">{{ approval.toolName }}</span><span class="audit-tool">{{ approval.requestId }}</span></div><span class="status-badge warning">{{ approval.actionClass }}</span></div>
+              <p class="permission-origin">{{ approval.origin || approval.url || approval.profileId }}</p>
               <dl class="approval-context">
-                <div>
-                  <dt>Scope</dt>
-                  <dd>{{ formatApprovalScope(approval) }}</dd>
-                </div>
-                <div>
-                  <dt>Expires</dt>
-                  <dd>{{ formatGrantExpiry(approval.expiresAt) }}</dd>
-                </div>
-                @if (approval.selector) {
-                  <div>
-                    <dt>Selector</dt>
-                    <dd>{{ approval.selector }}</dd>
-                  </div>
-                }
-                @if (approval.elementContext; as element) {
-                  <div>
-                    <dt>Element</dt>
-                    <dd>{{ formatElementContext(element) }}</dd>
-                  </div>
-                }
-                @if (approval.filePath) {
-                  <div>
-                    <dt>File</dt>
-                    <dd>{{ approval.filePath }}</dd>
-                  </div>
-                }
-                @if (approval.detectedFileType) {
-                  <div>
-                    <dt>Type</dt>
-                    <dd>{{ approval.detectedFileType }}</dd>
-                  </div>
-                }
-                @if (approval.proposedGrant.uploadRoots?.length) {
-                  <div>
-                    <dt>Upload Roots</dt>
-                    <dd>{{ formatUploadRoots(approval) }}</dd>
-                  </div>
-                }
+                <div><dt>Scope</dt><dd>{{ formatApprovalScope(approval) }}</dd></div>
+                <div><dt>Expires</dt><dd>{{ formatGrantExpiry(approval.expiresAt) }}</dd></div>
+                @if (approval.selector) { <div><dt>Selector</dt><dd>{{ approval.selector }}</dd></div> }
+                @if (approval.elementContext; as element) { <div><dt>Element</dt><dd>{{ formatElementContext(element) }}</dd></div> }
+                @if (approval.filePath) { <div><dt>File</dt><dd>{{ approval.filePath }}</dd></div> }
+                @if (approval.detectedFileType) { <div><dt>Type</dt><dd>{{ approval.detectedFileType }}</dd></div> }
+                @if (approval.proposedGrant.uploadRoots?.length) { <div><dt>Upload roots</dt><dd>{{ formatUploadRoots(approval) }}</dd></div> }
               </dl>
-              <details
-                class="autonomous-controls"
-                [attr.open]="requiresAutonomousConfirmation(approval) ? '' : null"
-              >
+              <details class="disclosure autonomous-controls" [attr.open]="requiresAutonomousConfirmation(approval) ? '' : null">
                 <summary>Unattended options</summary>
-                <p>Add publishing or deleting only if this browser task genuinely needs it.</p>
-                <label class="inline-toggle">
-                  <input
-                    type="checkbox"
-                    [checked]="autonomousSubmitIsEnabled(approval)"
-                    (change)="toggleAutonomousSubmit(approval)"
-                  />
-                  <span>Publish, send, or submit</span>
-                </label>
-                <label class="inline-toggle">
-                  <input
-                    type="checkbox"
-                    [checked]="autonomousDestructiveIsEnabled(approval)"
-                    (change)="toggleAutonomousDestructive(approval)"
-                  />
-                  <span>Delete or make destructive changes</span>
-                </label>
-                @if (requiresAutonomousConfirmation(approval)) {
-                  <label class="autonomous-confirmation">
-                    <span>
-                      Type <strong>{{ confirmationPhrase(approval) }}</strong> to allow these actions without another prompt.
-                    </span>
-                    <input
-                      type="text"
-                      [attr.data-testid]="'autonomous-confirmation-' + approval.requestId"
-                      [placeholder]="confirmationPhrase(approval)"
-                      [value]="autonomousConfirmation(approval)"
-                      (input)="onAutonomousConfirmationInput(approval, $event)"
-                    />
-                  </label>
-                }
+                <div class="autonomous-controls-content">
+                  <p>Add publishing or deleting only if this browser task genuinely needs it.</p>
+                  <label class="inline-toggle"><input type="checkbox" [checked]="autonomousSubmitIsEnabled(approval)" (change)="toggleAutonomousSubmit(approval)" /><span>Publish, send, or submit</span></label>
+                  <label class="inline-toggle danger-toggle"><input type="checkbox" [checked]="autonomousDestructiveIsEnabled(approval)" (change)="toggleAutonomousDestructive(approval)" /><span>Delete or make destructive changes</span></label>
+                  @if (requiresAutonomousConfirmation(approval)) {
+                    <label class="autonomous-confirmation">
+                      <span>Type <strong>{{ confirmationPhrase(approval) }}</strong> to allow these actions without another prompt.</span>
+                      <input type="text" [attr.data-testid]="'autonomous-confirmation-' + approval.requestId" [placeholder]="confirmationPhrase(approval)" [value]="autonomousConfirmation(approval)" (input)="onAutonomousConfirmationInput(approval, $event)" />
+                    </label>
+                  }
+                </div>
               </details>
-              <div class="row-actions wrap">
-                <button class="btn small" type="button" [disabled]="working()" (click)="approveApprovalRequest(approval, 'per_action')">Allow once</button>
+              <div class="row-actions wrap permission-actions">
+                <button class="btn small primary" type="button" [disabled]="working()" (click)="approveApprovalRequest(approval, 'per_action')">Allow once</button>
                 <button class="btn small" type="button" [disabled]="working()" (click)="approveApprovalRequest(approval, 'session')">Allow for session</button>
                 <button class="btn small" type="button" [disabled]="working()" (click)="approveApprovalRequest(approval, 'autonomous')">Allow unattended</button>
                 <button class="btn small danger" type="button" [disabled]="working()" (click)="denyApprovalRequest(approval.requestId)">Deny</button>
               </div>
             </article>
           } @empty {
-            <div class="empty">No pending browser approvals.</div>
+            <div class="empty-state large"><strong>No approvals waiting</strong><span>Browser actions that need your decision will appear here.</span></div>
           }
         </div>
       </section>
-      <section>
-        <div class="section-heading">
-          <h2>Active Grants</h2>
-          <button class="btn small" type="button" [disabled]="working()" (click)="refreshGrants()">Reload</button>
-        </div>
+
+      <aside class="panel grants-panel">
+        <div class="section-heading"><div><h2>Active grants</h2><p>Access currently available to agents</p></div><button class="btn small" type="button" [disabled]="working()" (click)="refreshGrants()">Reload</button></div>
         <div class="grant-list">
           @for (grant of activeGrants(); track grant.id) {
             <article class="grant-row">
-              <div>
-                <span class="audit-action">{{ grant.id }}</span>
-                <span class="audit-tool">{{ grant.mode }}</span>
-              </div>
-              <div class="audit-state">{{ grant.autonomous ? 'autonomous' : 'user approved' }}</div>
-              <p>{{ grant.allowedActionClasses.join(', ') }} · expires {{ formatGrantExpiry(grant.expiresAt) }}</p>
-              <button class="btn small danger" type="button" [disabled]="working()" (click)="revokeGrant(grant.id)">Revoke</button>
+              <div class="permission-heading"><span class="audit-action">{{ grant.id }}</span><span class="status-badge" [class.warning]="grant.autonomous">{{ grant.autonomous ? 'autonomous' : 'user approved' }}</span></div>
+              <span class="audit-tool">{{ grant.mode }}</span>
+              <p>{{ grant.allowedActionClasses.join(', ') }}</p>
+              <p class="grant-expiry">Expires {{ formatGrantExpiry(grant.expiresAt) }}</p>
+              <button class="btn small danger" type="button" [disabled]="working()" (click)="revokeGrant(grant.id)">Revoke grant</button>
             </article>
           } @empty {
-            <div class="empty">No active browser grants.</div>
+            <div class="empty-state"><strong>No active grants</strong><span>Approved browser access will appear here.</span></div>
           }
         </div>
+      </aside>
+    </main>
+  }
+
+  @if (activeView() === 'diagnostics') {
+    <main id="diagnostics-view-panel" class="view-panel diagnostics-workspace" data-testid="diagnostics-view-panel" role="tabpanel" aria-labelledby="diagnostics-view-tab">
+      <section class="panel health-panel">
+        <div class="section-heading">
+          <div><h2>Provider health</h2><p>Which agents can reach the gateway</p></div>
+          <span
+            class="status-badge"
+            data-testid="provider-health-summary"
+            [class.running]="healthPresentation().providers.tone === 'ready'"
+            [class.warning]="healthPresentation().providers.tone === 'warning'"
+            [class.error]="healthPresentation().providers.tone === 'error'"
+          >{{ healthPresentation().providers.label }}</span>
+        </div>
+        <div class="provider-health-list">
+          @for (row of providerCapabilityRows(); track row.name) {
+            <div class="provider-health-row" [class.available]="row.available"><span class="health-indicator" aria-hidden="true"></span><div><strong>{{ row.name }}</strong><small>{{ row.message }}</small></div></div>
+          } @empty {
+            <div class="empty-state"><span>No provider health details reported.</span></div>
+          }
+        </div>
+        <details class="disclosure raw-health" data-testid="raw-health-disclosure"><summary>Raw health data</summary><pre>{{ healthJson() }}</pre></details>
       </section>
-      <section class="audit-panel">
+
+      <section class="panel bridge-panel">
+        <div class="section-heading">
+          <div><h2>Live Chrome Extension Bridge</h2><p>Authenticated tabs shared from Chrome</p></div>
+          <span
+            class="status-badge"
+            data-testid="channel-health-summary"
+            [class.running]="healthPresentation().channels.tone === 'ready'"
+            [class.warning]="healthPresentation().channels.tone === 'warning'"
+            [class.error]="healthPresentation().channels.tone === 'error'"
+          >{{ healthPresentation().channels.label }}</span>
+        </div>
+        <dl class="bridge-list">
+          <div><dt>Provider bridge</dt><dd><strong>{{ healthPresentation().channels.mcpBridgeLabel }}</strong></dd></div>
+          <div><dt>Local extension</dt><dd><strong>{{ healthPresentation().channels.localExtensionLabel }}</strong><small>{{ healthPresentation().channels.localExtensionSummary }}</small></dd></div>
+          <div><dt>Extension</dt><dd><code>resources/browser-extension</code></dd></div>
+          <div><dt>Agent entrypoint</dt><dd><strong>browser.find_or_open</strong></dd></div>
+          <div><dt>Chrome action</dt><dd>Automatic tab inventory + Share Current Tab fallback</dd></div>
+          <div><dt>Target mode</dt><dd>Live extension target for authenticated Chrome tabs</dd></div>
+        </dl>
+      </section>
+
+      <section class="panel audit-panel">
         <div class="section-heading audit-heading">
-          <div>
-            <h2>Audit</h2>
-            <p class="section-subtitle">
-              {{ recentAuditEntries().length }} recent · {{ olderAuditEntries().length }} older
-            </p>
-          </div>
+          <div><h2>Activity audit</h2><p>{{ recentAuditEntries().length }} recent · {{ olderAuditEntries().length }} older</p></div>
           @if (olderAuditEntries().length) {
-            <button
-              class="btn small"
-              data-testid="audit-history-toggle"
-              type="button"
-              [attr.aria-expanded]="showAuditHistory()"
-              (click)="toggleAuditHistory()"
-            >
-              {{ showAuditHistory() ? 'Hide' : 'Older events' }} ({{ olderAuditEntries().length }})
-            </button>
+            <button class="btn small" data-testid="audit-history-toggle" type="button" [attr.aria-expanded]="showAuditHistory()" (click)="toggleAuditHistory()">{{ showAuditHistory() ? 'Hide older' : 'Older events' }} ({{ olderAuditEntries().length }})</button>
           }
         </div>
         <div class="audit-list">
           @for (entry of recentAuditEntries(); track entry.id) {
-            <article
-              class="audit-row compact"
-              [class.warning]="entry.decision !== 'allowed'"
-              [class.failed]="entry.outcome === 'failed'"
-            >
-              <div class="audit-row-header">
-                <span class="audit-status-dot" aria-hidden="true"></span>
-                <span class="audit-action">{{ formatAuditAction(entry.action) }}</span>
-                <time>{{ formatAuditAge(entry.createdAt) }}</time>
-              </div>
-              <div class="audit-state">{{ entry.decision }} · {{ entry.outcome }}</div>
-              <span class="audit-tool">{{ entry.toolName }}</span>
-              <p>{{ entry.summary }}</p>
+            <article class="audit-row" [class.warning]="entry.decision !== 'allowed'" [class.failed]="entry.outcome === 'failed'">
+              <span class="audit-status-dot" aria-hidden="true"></span>
+              <div class="audit-content"><div class="audit-row-header"><span class="audit-action">{{ formatAuditAction(entry.action) }}</span><time>{{ formatAuditAge(entry.createdAt) }}</time></div><div class="audit-state">{{ entry.decision }} · {{ entry.outcome }}</div><span class="audit-tool">{{ entry.toolName }}</span><p>{{ entry.summary }}</p></div>
             </article>
           } @empty {
-            <div class="empty">
-              {{ olderAuditEntries().length ? 'No recent Browser Gateway audit entries.' : 'No Browser Gateway audit entries.' }}
-            </div>
+            <div class="empty-state"><span>{{ olderAuditEntries().length ? 'No recent Browser Gateway audit entries.' : 'No Browser Gateway audit entries.' }}</span></div>
           }
         </div>
         @if (showAuditHistory() && olderAuditEntries().length) {
           <div class="audit-history">
-            <div class="audit-history-title">Older events</div>
+            <h3>Older events</h3>
             <div class="audit-list">
               @for (entry of olderAuditEntries(); track entry.id) {
-                <article
-                  class="audit-row compact muted"
-                  [class.warning]="entry.decision !== 'allowed'"
-                  [class.failed]="entry.outcome === 'failed'"
-                >
-                  <div class="audit-row-header">
-                    <span class="audit-status-dot" aria-hidden="true"></span>
-                    <span class="audit-action">{{ formatAuditAction(entry.action) }}</span>
-                    <time>{{ formatAuditAge(entry.createdAt) }}</time>
-                  </div>
-                  <div class="audit-state">{{ entry.decision }} · {{ entry.outcome }}</div>
-                  <span class="audit-tool">{{ entry.toolName }}</span>
-                  <p>{{ entry.summary }}</p>
+                <article class="audit-row muted" [class.warning]="entry.decision !== 'allowed'" [class.failed]="entry.outcome === 'failed'">
+                  <span class="audit-status-dot" aria-hidden="true"></span>
+                  <div class="audit-content"><div class="audit-row-header"><span class="audit-action">{{ formatAuditAction(entry.action) }}</span><time>{{ formatAuditAge(entry.createdAt) }}</time></div><div class="audit-state">{{ entry.decision }} · {{ entry.outcome }}</div><span class="audit-tool">{{ entry.toolName }}</span><p>{{ entry.summary }}</p></div>
                 </article>
               }
             </div>
           </div>
         }
       </section>
-    </aside>
-  </main>
+    </main>
+  }
 
-  <section class="unattended-section">
-    <div class="section-heading">
-      <div>
-        <h2>Unattended Automation</h2>
-        <p class="section-subtitle">Vault, standing credential authorizations, overnight campaigns, and escalation triage.</p>
-      </div>
-      <button class="btn small" type="button" (click)="toggleUnattendedSection()">
-        {{ showUnattendedSection() ? 'Hide' : 'Show' }}
-      </button>
-    </div>
-    @if (showUnattendedSection()) {
+  @if (activeView() === 'unattended') {
+    <main id="unattended-view-panel" class="view-panel panel unattended-workspace" data-testid="unattended-view-panel" role="tabpanel" aria-labelledby="unattended-view-tab">
+      <div class="section-heading unattended-heading"><div><h2>Unattended automation</h2><p>Vault access, standing credential authorizations, overnight campaigns, and escalation triage.</p></div><span class="status-badge warning">Advanced</span></div>
       <app-browser-unattended-panel />
-    }
-  </section>
+    </main>
+  }
 </div>

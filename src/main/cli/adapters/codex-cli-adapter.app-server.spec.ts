@@ -2287,6 +2287,34 @@ describe('CodexCliAdapter', () => {
       expect(statuses).toEqual(['busy', 'idle']);
     });
 
+    it('does not emit idle for a second-send collision while the first app-server turn is active', async () => {
+      const adapter = await spawnExecAdapter();
+      const client = createSyntheticTurnClient([]);
+      (adapter as unknown as { useAppServer: boolean }).useAppServer = true;
+      (adapter as unknown as { appServerClient: SyntheticTurnClient }).appServerClient = client;
+      (adapter as unknown as { appServerThreadId: string }).appServerThreadId = 'thread-1';
+
+      const statuses = collectStatuses(adapter);
+      const firstTurn = adapter.sendInput('first turn');
+      await vi.waitFor(() => expect(client.request).toHaveBeenCalledTimes(1));
+
+      await expect(adapter.sendInput('second turn')).rejects.toThrow(
+        /already has an active turn/i,
+      );
+      expect(statuses).not.toContain('idle');
+      expect(statuses.at(-1)).toBe('busy');
+
+      client.notificationHandler?.({
+        method: 'turn/completed',
+        params: {
+          threadId: 'thread-1',
+          turn: { id: 'turn-1', status: 'completed' },
+        },
+      });
+      await firstTurn;
+      expect(statuses.at(-1)).toBe('idle');
+    });
+
     it('emits status=idle in app-server mode for response stream disconnect failures', async () => {
       const adapter = await spawnExecAdapter();
       (adapter as unknown as { useAppServer: boolean }).useAppServer = true;

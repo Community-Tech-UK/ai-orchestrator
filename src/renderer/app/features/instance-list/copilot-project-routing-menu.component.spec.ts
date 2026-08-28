@@ -61,6 +61,13 @@ const ipc = {
       displayPath: 'acme/widgets',
     },
   ]),
+  discover: vi.fn(async (): Promise<
+    { login: string; host: string; alreadyAdded: boolean }[]
+  > => []),
+  create: vi.fn<() => Promise<MutationResult & { data?: { id?: string } }>>(async () => ({
+    success: true,
+    data: { id: 'work' },
+  })),
   createRule: vi.fn<() => Promise<MutationResult>>(async () => ({ success: true })),
   removeRule: vi.fn<() => Promise<MutationResult>>(async () => ({ success: true })),
 };
@@ -90,12 +97,71 @@ beforeEach(async () => {
 });
 
 describe('CopilotProjectRoutingMenuComponent', () => {
-  it('stays hidden until a second account exists', async () => {
+  it('is visible with only one account, and says why nothing can be routed', async () => {
+    // Regression: an earlier version required TWO accounts, which hid this in
+    // exactly the state where it is most needed — you cannot map, and a silent
+    // menu gives you no way to find out why.
     ipc.list.mockResolvedValueOnce([account('personal', 'Personal', true)]);
     const fixture = await render('/work/widgets');
-    // One account means nothing to choose between; an inert item is just noise.
-    expect(fixture.componentInstance.visible()).toBe(false);
-    expect(fixture.nativeElement.textContent.trim()).toBe('');
+    expect(fixture.componentInstance.visible()).toBe(true);
+    expect(fixture.componentInstance.onlyOneAccount()).toBe(true);
+    expect(fixture.nativeElement.textContent).toContain('Only one Copilot account');
+  });
+
+  it('offers an account Copilot already holds but Harness has not added', async () => {
+    ipc.list.mockResolvedValueOnce([account('personal', 'Personal', true)]);
+    ipc.discover.mockResolvedValueOnce([
+      { login: 'LAWRENCJ_PE1', host: 'github.com', alreadyAdded: false },
+    ]);
+    const fixture = await render('/work/widgets');
+    expect(fixture.componentInstance.addable().map((c) => c.login)).toEqual(['LAWRENCJ_PE1']);
+    expect(fixture.nativeElement.textContent).toContain('Use LAWRENCJ_PE1 here…');
+    // Something IS actionable, so the dead-end hint must not show.
+    expect(fixture.componentInstance.onlyOneAccount()).toBe(false);
+  });
+
+  it('adds the account and maps the project in one action', async () => {
+    ipc.list.mockResolvedValueOnce([account('personal', 'Personal', true)]);
+    ipc.discover.mockResolvedValueOnce([
+      { login: 'LAWRENCJ_PE1', host: 'github.com', alreadyAdded: false },
+    ]);
+    const fixture = await render('/work/widgets');
+    await fixture.componentInstance.addAndMapTo(
+      { login: 'LAWRENCJ_PE1', host: 'github.com', alreadyAdded: false },
+      new Event('click'),
+    );
+    expect(ipc.create).toHaveBeenCalledWith({
+      label: 'LAWRENCJ_PE1',
+      accountKind: 'enterprise',
+      host: 'github.com',
+    });
+    expect(ipc.createRule).toHaveBeenCalledWith({
+      profileId: 'work',
+      matcher: { type: 'owner', host: 'github.com', owner: 'acme' },
+    });
+  });
+
+  it('does not map when adding the account fails', async () => {
+    ipc.list.mockResolvedValueOnce([account('personal', 'Personal', true)]);
+    ipc.create.mockResolvedValueOnce({
+      success: false,
+      error: { message: 'At most one Copilot account profile may be the default' },
+    });
+    const fixture = await render('/work/widgets');
+    await fixture.componentInstance.addAndMapTo(
+      { login: 'LAWRENCJ_PE1', host: 'github.com', alreadyAdded: false },
+      new Event('click'),
+    );
+    expect(ipc.createRule).not.toHaveBeenCalled();
+    expect(fixture.componentInstance.error()).toContain('At most one');
+  });
+
+  it('hides an account that is already added', async () => {
+    ipc.discover.mockResolvedValueOnce([
+      { login: 'shutupandshave', host: 'github.com', alreadyAdded: true },
+    ]);
+    const fixture = await render('/work/widgets');
+    expect(fixture.componentInstance.addable()).toHaveLength(0);
   });
 
   it('lists accounts and marks the one this project currently resolves to', async () => {

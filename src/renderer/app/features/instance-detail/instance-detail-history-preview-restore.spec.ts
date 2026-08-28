@@ -16,6 +16,7 @@ import { TodoStore } from '../../core/state/todo.store';
 import { WelcomeCoordinatorService } from './welcome-coordinator.service';
 import { FileAttachmentService } from './file-attachment.service';
 import { InstanceDetailComponent } from './instance-detail.component';
+import { OutputStreamComponent } from './output-stream.component';
 import { LoopStore } from '../../core/state/loop.store';
 import { LoopPromptHistoryService } from '../loop/loop-prompt-history.service';
 import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
@@ -181,6 +182,43 @@ describe('InstanceDetailComponent history preview restore send', () => {
 
   it('wires loop starts from the history preview composer', () => {
     expect(instanceDetailTemplate).toContain('(loopStartRequested)="onHistoryPreviewLoopStartRequested($event)"');
+  });
+
+  it('keeps history preview prompt and pagination probes off live instance storage', async () => {
+    expect(instanceDetailTemplate).toContain(
+      '[olderMessagesProbe]="historyPreviewOlderMessagesProbe"',
+    );
+    expect(instanceDetailTemplate).toContain('[livePromptIndexEnabled]="false"');
+    await expect(
+      fixture.componentInstance.historyPreviewOlderMessagesProbe(),
+    ).resolves.toEqual({ hasMore: false, totalStored: 1 });
+
+    const liveOlderMessages = vi.fn();
+    const customOlderMessagesProbe = vi.fn().mockResolvedValue({
+      hasMore: false,
+      totalStored: 1,
+    });
+    const outputStreamInternals = OutputStreamComponent.prototype as unknown as {
+      fetchPromptIndex: (instanceId: string) => Promise<void>;
+      probeForOlderMessages: (instanceId: string) => Promise<void>;
+    };
+    await outputStreamInternals.probeForOlderMessages.call({
+      olderMessagesProbe: () => customOlderMessagesProbe,
+      instanceIpc: { loadOlderMessages: liveOlderMessages },
+      hasOlderMessages: signal(false),
+      olderMessagesHiddenCount: signal(0),
+      messages: () => createConversation().messages,
+    }, 'history-preview:history-1');
+
+    const livePromptIndex = vi.fn().mockResolvedValue({ success: false });
+    await outputStreamInternals.fetchPromptIndex.call({
+      livePromptIndexEnabled: () => false,
+      instanceIpc: { getPromptIndex: livePromptIndex },
+    }, 'history-preview:history-1');
+
+    expect(customOlderMessagesProbe).toHaveBeenCalledOnce();
+    expect(liveOlderMessages).not.toHaveBeenCalled();
+    expect(livePromptIndex).not.toHaveBeenCalled();
   });
 
   it('restores a history preview before starting a loop', async () => {

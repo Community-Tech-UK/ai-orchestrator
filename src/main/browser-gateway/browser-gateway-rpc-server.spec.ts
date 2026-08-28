@@ -388,6 +388,74 @@ describe('BrowserGatewayRpcServer', () => {
     ).rejects.toThrow(/Invalid browser gateway RPC payload/);
   });
 
+  it('routes authenticated browser payloads before validation and dispatch', async () => {
+    const findOrOpen = vi.fn().mockResolvedValue({ decision: 'allowed' });
+    const routeBrowserRequest = vi.fn((_method: string, payload: Record<string, unknown>) => ({
+      ...payload,
+      computer: 'windows-pc',
+      nodeId: 'windows-node',
+    }));
+    const server = new BrowserGatewayRpcServer({
+      service: { findOrOpen },
+      userDataPath: '/tmp',
+      isKnownLocalInstance: () => true,
+      registerCleanup: vi.fn(),
+      routeBrowserRequest,
+    });
+
+    await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'browser.find_or_open',
+      params: {
+        instanceId: 'instance-1',
+        provider: 'codex',
+        payload: { url: 'https://example.test', computer: 'local' },
+      },
+    });
+
+    expect(routeBrowserRequest).toHaveBeenCalledWith(
+      'browser.find_or_open',
+      { url: 'https://example.test', computer: 'local' },
+    );
+    expect(findOrOpen).toHaveBeenCalledWith({
+      instanceId: 'instance-1',
+      provider: 'codex',
+      url: 'https://example.test',
+      computer: 'windows-pc',
+      nodeId: 'windows-node',
+    });
+  });
+
+  it('applies routing before unattended check-session dispatch', async () => {
+    const routeBrowserRequest = vi.fn(() => {
+      throw new Error('browser_local_target_blocked_by_remote_auto_offload');
+    });
+    const snapshot = vi.fn();
+    const server = new BrowserGatewayRpcServer({
+      service: { snapshot },
+      userDataPath: '/tmp',
+      isKnownLocalInstance: () => true,
+      registerCleanup: vi.fn(),
+      routeBrowserRequest,
+    });
+
+    await expect(server.handleRequest({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'browser.check_session',
+      params: {
+        instanceId: 'instance-1',
+        payload: { profileId: 'local-profile', targetId: 'local-target' },
+      },
+    })).rejects.toThrow('browser_local_target_blocked_by_remote_auto_offload');
+    expect(routeBrowserRequest).toHaveBeenCalledWith(
+      'browser.check_session',
+      { profileId: 'local-profile', targetId: 'local-target' },
+    );
+    expect(snapshot).not.toHaveBeenCalled();
+  });
+
   it('validates native-host token and forwards existing-tab attachment calls without a provider instance id', async () => {
     const attachExistingTab = vi.fn().mockResolvedValue({ decision: 'allowed' });
     const server = new BrowserGatewayRpcServer({
