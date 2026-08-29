@@ -162,6 +162,54 @@ describe('CredentialVault.createAgentCredential', () => {
     expect(bw.commands.some((c) => c[0] === 'sync')).toBe(true);
   });
 
+  it('stores explicit non-secret item metadata while preserving the normalized origin binding', async () => {
+    const bw = new FakeBw();
+    const { vault, bindings } = makeVault(bw);
+
+    const result = await vault.createAgentCredential({
+      origin: 'https://www.instagram.com',
+      itemTitle: 'Instagram — 12 Steps',
+      loginUri: 'https://www.instagram.com/',
+      username: '12steps.life',
+    });
+
+    const createCommand = bw.commands.find((args) => args[0] === 'create' && args[1] === 'item');
+    const item = JSON.parse(Buffer.from(createCommand?.[2] ?? '', 'base64').toString('utf-8'));
+    expect(item).toMatchObject({
+      name: 'Instagram — 12 Steps',
+      login: {
+        username: '12steps.life',
+        uris: [{ uri: 'https://www.instagram.com/', match: null }],
+      },
+    });
+    expect(bindings.get(result.vaultItemRef)?.origin).toBe('https://www.instagram.com');
+    expect(JSON.stringify(result)).not.toContain('Test-Password-123!');
+  });
+
+  it('never includes a secret-bearing Bitwarden payload in a command failure', async () => {
+    const bw = new FakeBw();
+    const originalRun = bw.run.bind(bw);
+    bw.run = async (args: string[]) => {
+      if (args[0] === 'create' && args[1] === 'item') {
+        bw.commands.push(args);
+        return { stdout: '', stderr: `request rejected: ${args[2]}`, code: 1 };
+      }
+      return originalRun(args);
+    };
+    const { vault } = makeVault(bw);
+
+    const error = await vault.createAgentCredential({
+      origin: 'https://www.instagram.com',
+      username: '12steps.life',
+    }).catch((caught: unknown) => caught);
+    const createCommand = bw.commands.find((args) => args[0] === 'create' && args[1] === 'item');
+
+    expect(error).toBeInstanceOf(CredentialVaultError);
+    expect(createCommand?.[2]).toBeTypeOf('string');
+    expect((error as Error).message).not.toContain('Test-Password-123!');
+    expect((error as Error).message).not.toContain(createCommand![2] as string);
+  });
+
   it('reuses the existing agent folder rather than recreating it', async () => {
     const bw = new FakeBw({ folderExists: true });
     const { vault } = makeVault(bw);

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 // jsdom ships no type declarations and @types/jsdom is not installed. A
@@ -32,6 +33,7 @@ interface BrowserExtensionBackgroundHarness {
   forceReleaseCommandResources: (command: {
     target?: { tabId?: number };
   }) => Promise<void>;
+  markSecretTaint: (tabId: number, origin: string) => Promise<void>;
   reportTabInventory: () => Promise<void>;
   selfHealIfWedged: () => Promise<void>;
   startControlledTab: (tabId: number) => Promise<unknown>;
@@ -104,6 +106,52 @@ const LEGACY_HOST_NAME = 'com.ai_orchestrator.browser_gateway';
 const RELAY_HOST_NAME = 'com.ai_orchestrator.browser_gateway_relay';
 
 describe('browser extension assets', () => {
+  // `extensionVersion` is the ONLY thing a node reports about which bundle it is
+  // running, so shipping a changed background.js under an unchanged version makes
+  // a stale service worker indistinguishable from a fresh one -- every downstream
+  // live check then validates OLD code while reporting success.
+  //
+  // This map is APPEND-ONLY: when background.js changes, bump manifest.version
+  // and add a NEW row. Never edit an existing row. A test cannot force a human to
+  // bump a version, but an append-only history makes the wrong edit obvious in
+  // review, and the uniqueness assertion below catches a hash reused across two
+  // versions.
+  const BACKGROUND_BUNDLE_HISTORY: Record<string, string> = {
+    '0.2.2': 'c4dad58073f6',
+    '0.2.3': '09d67fe82bd1',
+    '0.2.4': 'd79fb24024c5',
+    '0.2.5': '4a3aa3952f3a',
+    '0.2.6': 'bd4b33105c0b',
+    '0.2.7': '76c5a5907444',
+    '0.2.8': '2d8a7f6deace',
+    '0.2.9': 'dc509385ad4c',
+    '0.2.10': '7ef561cc2b93',
+    '0.2.11': '989f25aa79d1',
+    '0.2.12': 'c6a978482d8d',
+    '0.2.13': '26da96987d22',
+    '0.2.14': '86aad34ccca7',
+    '0.2.15': '1ba43175cf4a',
+    '0.2.16': '4c63cd971f28',
+    '0.2.17': '4a7787047e99',
+    '0.2.18': '77c922098b1c',
+  };
+
+  it('ships each background bundle under its own manifest version', () => {
+    const manifest = JSON.parse(
+      readFileSync('resources/browser-extension/manifest.json', 'utf-8'),
+    );
+    const backgroundHash = createHash('sha256')
+      .update(readFileSync('resources/browser-extension/background.js'))
+      .digest('hex')
+      .slice(0, 12);
+
+    expect(BACKGROUND_BUNDLE_HISTORY[manifest.version]).toBe(backgroundHash);
+
+    const hashes = Object.values(BACKGROUND_BUNDLE_HISTORY);
+    expect(new Set(hashes).size).toBe(hashes.length);
+  });
+
+
   it('ships a live authenticated-tab bridge with command polling and page access', () => {
     const background = readFileSync('resources/browser-extension/background.js', 'utf-8');
     const manifest = JSON.parse(
@@ -208,7 +256,13 @@ describe('browser extension assets', () => {
     expect(background).toContain('function selectValue');
     expect(background).toContain('function findOptionByText');
     expect(background).toContain("element.tagName === 'SELECT'");
-    expect(background).toContain('custom_select_option_not_found');
+    // This used to assert the string `custom_select_option_not_found`, which was
+    // a `note` on a RESOLVED result: the dropdown was clicked open, nothing was
+    // selected, and the caller was told the selection succeeded because the
+    // gateway discards a mutation's payload. The timeout must now REJECT, so the
+    // failure is the outcome rather than a footnote nobody receives.
+    expect(background).not.toContain('custom_select_option_not_found');
+    expect(background).toContain('nothing was selected');
   });
 
   it('serializes commands and per-tab debugger sessions to prevent double CDP attach', () => {
@@ -848,6 +902,40 @@ describe('browser extension assets', () => {
     }));
   });
 
+  it('sanitizes autonomous inventory for every same-origin sibling of a vault-filled tab', async () => {
+    const marker = 'TEST_ONLY_SIBLING_SECRET_MARKER';
+    const harness = loadBackgroundHarnessForTest({
+      additionalTabs: [{ tabId: 43, groupId: -1 }],
+    });
+    await flushPromises();
+    await harness.markSecretTaint(42, 'https://example.test');
+    const sibling = harness.tabState(43)!;
+    sibling.url = `https://example.test/reflected?value=${marker}`;
+    sibling.title = marker;
+    harness.chrome.scripting.executeScript.mockImplementation(async () => [{
+      result: { title: marker, text: marker },
+    }]);
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    relayPort.postMessage.mockClear();
+
+    await harness.reportTabInventory();
+
+    const inventory = relayPort.postMessage.mock.calls
+      .map((args: unknown[]) => args[0] as {
+        type?: string;
+        tabs?: Array<Record<string, unknown>>;
+      })
+      .find((message) => message.type === 'tab_inventory');
+    expect(inventory?.tabs).toContainEqual(expect.objectContaining({
+      tabId: 43,
+      url: 'https://example.test/',
+      title: 'Secret-filled tab',
+      text: '',
+      textUnavailableReason: 'browser_secret_observation_blocked_for_tainted_origin',
+    }));
+    expect(JSON.stringify(inventory)).not.toContain(marker);
+  });
+
   it('supports an explicit report_inventory command for live target refreshes', async () => {
     const harness = loadBackgroundHarnessForTest();
     await flushPromises();
@@ -1474,6 +1562,7 @@ function loadBackgroundHarnessForTest(options: {
         this.height = height;
       }
     },
+    URL,
     Uint8ClampedArray,
     chrome: {
       action: {
@@ -1582,7 +1671,7 @@ function loadBackgroundHarnessForTest(options: {
     __backgroundHarness: undefined as BrowserExtensionBackgroundHarness | undefined,
   };
   runInNewContext(
-    `${background}\n;globalThis.__backgroundHarness = { bridges, captureAccessibilitySnapshot, captureTabScreenshot, deriveToolbarBadgeState, forceReleaseCommandResources, reportTabInventory, selfHealIfWedged, startControlledTab, stopControlledTab, tabDebuggerChains };`,
+    `${background}\n;globalThis.__backgroundHarness = { bridges, captureAccessibilitySnapshot, captureTabScreenshot, deriveToolbarBadgeState, forceReleaseCommandResources, markSecretTaint, reportTabInventory, selfHealIfWedged, startControlledTab, stopControlledTab, tabDebuggerChains };`,
     context,
     { filename: 'resources/browser-extension/background.js' },
   );

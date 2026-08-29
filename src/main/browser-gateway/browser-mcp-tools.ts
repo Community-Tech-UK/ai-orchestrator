@@ -317,7 +317,10 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
         'Opaque credential vault item reference (NOT a secret). The secret is '
         + 'resolved in the main process and typed directly into the page — it is '
         + 'never sent to or returned from the model. Requires a standing credential '
-        + 'authorization for the live origin; managed profiles only.',
+        + 'authorization for the live origin. Managed profiles use their profile scope. '
+        + 'For shared extension tabs, filling additionally requires operator opt-in, a stable node-scoped '
+        + 'login authorization, a compatible secure extension runtime, and the exact '
+        + 'vault-bound live origin.',
     },
     fields: {
       type: 'array',
@@ -398,13 +401,25 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
   'browser.create_agent_credential': objectSchema({
     profileId: profileIdProp,
     targetId: targetIdProp,
+    itemTitle: {
+      ...stringProp,
+      description: 'Optional non-secret Bitwarden item title for the new credential.',
+    },
+    loginUri: {
+      ...stringProp,
+      description:
+        'Optional http(s) login URI stored in Bitwarden. Its exact normalized origin '
+        + "must carry the 'register' authorization and becomes the vault binding; this "
+        + 'does not authorize filling the credential into the current tab or another origin.',
+    },
     username: {
       ...stringProp,
       description:
         'Username/email for a NEW agent-owned account. A strong password is '
         + 'generated and stored in the credential vault (Bitwarden); only a vault '
         + 'reference + the username are returned — never the password. Requires a '
-        + "'register' credential authorization for the live origin; managed profiles only.",
+        + "'register' credential authorization for the login URI origin (or live origin "
+        + 'when loginUri is omitted). Shared extension tabs authorize by stable worker scope.',
     },
   }, ['profileId', 'targetId', 'username']),
   'browser.upload_file': objectSchema({
@@ -535,10 +550,18 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
       description:
         'When true (default) only semantically meaningful nodes are returned, like '
         + 'the DevTools accessibility tree. The tree pierces open AND closed shadow '
-        + 'roots (and same-origin iframes), so it surfaces inputs/buttons that '
-        + 'browser.query_elements cannot see. Each node has a uid usable as the target '
-        + 'for click/type/select/fill_form; a uid stays valid until that node is removed '
-        + 'or the page navigates (a stale uid returns a clear "could not be resolved" error).',
+        + 'roots, and merges same-origin iframes. Several things can still withhold '
+        + 'iframe content: cross-origin OOPIFs are skipped, at most 25 frames are '
+        + 'walked, frames still unread when the snapshot time budget expires are '
+        + 'dropped, and main-frame nodes come FIRST so a small limit can be used up '
+        + 'before any iframe content is reached. If a control you expect inside an '
+        + 'iframe is missing, raise the limit or address it with a CSS selector from '
+        + 'browser.query_elements, which is injected into every frame. A rich-text '
+        + 'editor body appears as a node carrying an `editable` field (e.g. "richtext"), '
+        + 'not necessarily as role textbox. '
+        + 'Each node has a uid usable as the target for click/type/select/fill_form; '
+        + 'a uid stays valid until that node is removed or the page navigates (a stale uid '
+        + 'returns a clear "could not be resolved" error).',
     },
     limit: numberProp,
   }, ['profileId', 'targetId']),

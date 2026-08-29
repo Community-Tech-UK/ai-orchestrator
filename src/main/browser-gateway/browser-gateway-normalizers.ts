@@ -44,6 +44,13 @@ export function normalizeAccessibilityNodes(result: unknown, limit: number): Bro
     if (typeof value['level'] === 'number') {
       node.level = value['level'];
     }
+    // Without this the editable HOST -- which Chrome reports as role `generic`
+    // with an EMPTY accessible name -- arrives as a bare { uid, role: 'generic' }
+    // among other unnamed generics, and the caller cannot pick the rich-text
+    // editor body out of the tree it was just taught to merge.
+    if (typeof value['editable'] === 'string' && value['editable']) {
+      node.editable = value['editable'].slice(0, 40);
+    }
     nodes.push(node);
   }
   return nodes;

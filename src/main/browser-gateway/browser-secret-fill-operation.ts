@@ -70,6 +70,12 @@ export async function fillSecretOperation(
       `${toolName} runs on agent-owned managed profiles only, not shared tabs`,
     );
   }
+  if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId)) {
+    return deny(
+      'shared_tab_secure_credential_fill_unavailable',
+      `${toolName} requires a current secure Browser Gateway extension on this shared tab`,
+    );
+  }
 
   let origin: string;
   try {
@@ -79,6 +85,12 @@ export async function fillSecretOperation(
   }
   if (!origin) {
     return deny('origin_unknown', `${toolName} could not determine the live page origin`);
+  }
+  if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId)) {
+    return deny(
+      'shared_tab_secure_credential_fill_unavailable',
+      `${toolName} requires a current secure Browser Gateway extension on this shared tab`,
+    );
   }
 
   // Managed profiles authorize by their own id; a shared existing tab authorizes
@@ -106,8 +118,18 @@ export async function fillSecretOperation(
 
   let filled = 0;
   let verified = 0;
+  let secretObservationBlocked = false;
   try {
     for (const field of request.fields) {
+      // Revalidate at the last secret-free boundary. A disconnect or service-
+      // worker replacement during origin/authorization work must prevent the
+      // vault resolver from being called for the now-untrusted generation.
+      if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId)) {
+        return deny(
+          'shared_tab_secure_credential_fill_unavailable',
+          `${toolName} requires a current secure Browser Gateway extension on this shared tab`,
+        );
+      }
       // Resolve the secret first (no page contact) so the origin re-check sits
       // back-to-back with the type command. It exists only in this scope.
       const secret = await vault.getGenericSecretForFill({
@@ -119,7 +141,7 @@ export async function fillSecretOperation(
 
       // TOCTOU: a shared tab is the user's real browser — re-confirm the live
       // origin still matches immediately before typing.
-      if (isExistingTab) {
+      if (isExistingTab && !secretObservationBlocked) {
         let liveOrigin: string;
         try {
           liveOrigin = await deps.refreshTargetOrigin(request.profileId, request.targetId);
@@ -136,20 +158,42 @@ export async function fillSecretOperation(
           );
         }
       }
+      if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId)) {
+        return deny(
+          'shared_tab_secure_credential_fill_unavailable',
+          `${toolName} aborted because the secure Browser Gateway extension changed before filling`,
+        );
+      }
 
-      await deps.driverType(request.profileId, request.targetId, field.selector, secret);
+      const writeResult = await deps.driverType(
+        request.profileId,
+        request.targetId,
+        field.selector,
+        secret,
+        origin,
+        'secret',
+      );
+      secretObservationBlocked = isExistingTab;
       filled += 1;
 
       // Worker-side verification: read the control back IN-PROCESS and compare by
       // non-reversible digest. The read-back value never leaves this function —
       // only the boolean result is kept.
-      let readbackValue: string | undefined;
-      try {
-        readbackValue = (await deps.readControl(request.profileId, request.targetId, field.selector)).value;
-      } catch {
-        readbackValue = undefined; // unverifiable → counts as not verified
+      let writeVerified = writeResult?.valueApplied === true;
+      if (!isExistingTab) {
+        let readbackValue: string | undefined;
+        try {
+          readbackValue = (await deps.readControl(
+            request.profileId,
+            request.targetId,
+            field.selector,
+          )).value;
+        } catch {
+          readbackValue = undefined; // unverifiable → counts as not verified
+        }
+        writeVerified = verifyFilledSecret(secret, readbackValue);
       }
-      if (verifyFilledSecret(secret, readbackValue)) {
+      if (writeVerified) {
         verified += 1;
       }
     }
@@ -163,8 +207,9 @@ export async function fillSecretOperation(
       actionClass: opActionClass,
       decision: 'denied',
       outcome: 'failed',
-      // Vault errors are code-only (never a value); safe to surface.
-      reason: error instanceof Error ? error.message : 'secret_fill_failed',
+      // A driver/DOM error may quote the value it was asked to write. Never
+      // surface an exception from a secret-bearing operation.
+      reason: 'secret_fill_failed',
       summary: `${toolName} failed after filling ${filled} field(s)`,
       data: null,
     });

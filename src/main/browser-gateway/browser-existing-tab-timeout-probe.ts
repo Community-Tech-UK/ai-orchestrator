@@ -32,6 +32,12 @@ export async function postTimeoutMutationProbe(
   attachment: BrowserExistingTabAttachment,
   sendCommand: (request: BrowserExtensionSendCommandRequest) => Promise<unknown>,
 ): Promise<string> {
+  // Password and generic-secret fields deliberately suppress read-back values,
+  // so the ordinary type probe cannot distinguish "not applied" from "applied
+  // but hidden". Never turn that ambiguity into a retry invitation.
+  if (typeof payload?.['credentialOrigin'] === 'string') {
+    return 'unknown_origin_bound_secret_write_may_have_applied_DO_NOT_retry_without_verifying_page_state';
+  }
   const probes = timeoutMutationProbes(command, payload);
   if (probes.length > 0) {
     const status = await readTimeoutMutationStatus(attachment, probes, sendCommand);

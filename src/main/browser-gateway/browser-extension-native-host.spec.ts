@@ -44,6 +44,8 @@ describe('browser extension native host', () => {
     await expect(handleBrowserExtensionNativeMessage({
       message: {
         type: 'attach_tab',
+        extensionVersion: '0.2.17',
+        extensionStartedAt: 1_700_000_000_000,
         tab: {
           tabId: 42,
           windowId: 7,
@@ -79,6 +81,8 @@ describe('browser extension native host', () => {
         text: 'Release dashboard',
         screenshotBase64: 'cG5n',
         capturedAt: 1000,
+        extensionVersion: '0.2.17',
+        extensionStartedAt: 1_700_000_000_000,
       },
     });
   });
@@ -91,6 +95,8 @@ describe('browser extension native host', () => {
     await expect(handleBrowserExtensionNativeMessage({
       message: {
         type: 'tab_inventory',
+        extensionVersion: '0.2.17',
+        extensionStartedAt: 1_700_000_000_000,
         tabs: [
           {
             tabId: 42,
@@ -134,6 +140,8 @@ describe('browser extension native host', () => {
         windowId: 7,
         url: 'https://play.google.com/console',
         title: 'Google Play Console',
+        extensionVersion: '0.2.17',
+        extensionStartedAt: 1_700_000_000_000,
       },
     });
     expect(send).toHaveBeenNthCalledWith(2, {
@@ -146,6 +154,8 @@ describe('browser extension native host', () => {
         windowId: 7,
         url: 'https://example.com/settings',
         title: 'Settings',
+        extensionVersion: '0.2.17',
+        extensionStartedAt: 1_700_000_000_000,
       },
     });
   });

@@ -28,6 +28,8 @@ import {
   BrowserExtAttachTabParamsSchema,
   BrowserExtPollCommandParamsSchema,
   BrowserExtCommandResultParamsSchema,
+  BrowserExtCommandReceivedParamsSchema,
+  BrowserExtDisconnectedParamsSchema,
   RPC_PARAM_SCHEMAS,
   COORDINATOR_TO_NODE_PARAM_SCHEMAS,
   validateRpcParams,
@@ -589,6 +591,40 @@ describe('rpc-schemas', () => {
         token: 'session-token',
         timeoutMs: 10_001,
       }).success).toBe(false);
+    });
+
+    it('carries bounded runtime identity on every authenticated extension RPC', () => {
+      const cases = [
+        [BrowserExtAttachTabParamsSchema, {
+          token: 'session-token',
+          payload: { tabId: 42, windowId: 7, url: 'https://example.test/' },
+        }],
+        [BrowserExtPollCommandParamsSchema, { token: 'session-token', timeoutMs: 500 }],
+        [BrowserExtCommandResultParamsSchema, {
+          token: 'session-token', commandId: 'command-1', ok: true,
+        }],
+        [BrowserExtCommandReceivedParamsSchema, {
+          token: 'session-token', commandId: 'command-1',
+        }],
+        [BrowserExtDisconnectedParamsSchema, {
+          token: 'session-token', reason: 'native_host_stdin_eof',
+        }],
+      ] as const;
+
+      for (const [schema, base] of cases) {
+        expect(schema.safeParse({
+          ...base,
+          extensionVersion: '0.2.17',
+          extensionStartedAt: 1_700_000_000_000,
+        }).success).toBe(true);
+        for (const extensionStartedAt of [-1, 1.5]) {
+          expect(schema.safeParse({
+            ...base,
+            extensionVersion: '0.2.17',
+            extensionStartedAt,
+          }).success).toBe(false);
+        }
+      }
     });
   });
 

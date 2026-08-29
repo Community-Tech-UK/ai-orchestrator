@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 // @ts-expect-error No type declarations available for 'jsdom' in this repo.
 import { JSDOM } from 'jsdom';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { extractFunctionSource } from './browser-extension-function-source.testutil';
 
 // The console/network capture buffer is injected into the page's MAIN world as
 // a serialized function (chrome.scripting.executeScript { world: 'MAIN', func }).
@@ -11,34 +12,6 @@ import { beforeEach, describe, expect, it } from 'vitest';
 // faithful equivalent of how Chrome runs them — and assert the observable
 // capture behavior the console-read prompt requires (structured output +
 // preservation across in-page navigations).
-
-/**
- * Extract a top-level `function name() { … }` verbatim from the extension source
- * by brace-matching. The two capture functions contain no braces inside string
- * or template literals, so a plain depth counter is exact for them.
- */
-function extractFunctionSource(source: string, name: string): string {
-  const start = source.indexOf(`function ${name}(`);
-  if (start === -1) {
-    throw new Error(`function ${name} not found in background.js`);
-  }
-  let depth = 0;
-  let seenBrace = false;
-  let i = source.indexOf('{', start);
-  for (; i < source.length; i++) {
-    const ch = source[i];
-    if (ch === '{') {
-      depth++;
-      seenBrace = true;
-    } else if (ch === '}') {
-      depth--;
-      if (seenBrace && depth === 0) {
-        return source.slice(start, i + 1);
-      }
-    }
-  }
-  throw new Error(`Unbalanced braces extracting ${name}`);
-}
 
 const background = readFileSync('resources/browser-extension/background.js', 'utf-8');
 const installSource = extractFunctionSource(background, 'installCaptureScript');

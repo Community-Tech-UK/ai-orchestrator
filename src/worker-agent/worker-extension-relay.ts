@@ -186,8 +186,9 @@ export class WorkerExtensionRelay {
         return this.sendRequest(
           NODE_TO_COORDINATOR.BROWSER_EXT_ATTACH_TAB,
           {
+            ...this.extensionRuntimeEvidence(params.payload),
             ...(params.extensionOrigin ? { extensionOrigin: params.extensionOrigin } : {}),
-            payload: params.payload,
+            payload: this.withoutExtensionRuntimeEvidence(params.payload),
           },
         );
       case 'browser.extension_poll_command':
@@ -211,6 +212,7 @@ export class WorkerExtensionRelay {
   private async forwardPollCommand(params: AuthorizedExtensionParams): Promise<unknown> {
     const pollPayload = this.pollCommandPayload(params.payload);
     const payload = {
+      ...this.extensionRuntimeEvidence(params.payload),
       ...(params.extensionOrigin ? { extensionOrigin: params.extensionOrigin } : {}),
       ...pollPayload,
     };
@@ -237,6 +239,7 @@ export class WorkerExtensionRelay {
 
   private async forwardCommandResult(params: AuthorizedExtensionParams): Promise<unknown> {
     const payload = {
+      ...this.extensionRuntimeEvidence(params.payload),
       ...(params.extensionOrigin ? { extensionOrigin: params.extensionOrigin } : {}),
       ...this.commandResultPayload(params.payload),
     };
@@ -257,6 +260,7 @@ export class WorkerExtensionRelay {
       throw new Error('invalid_extension_relay_command_received');
     }
     const payload = {
+      ...this.extensionRuntimeEvidence(params.payload),
       ...(params.extensionOrigin ? { extensionOrigin: params.extensionOrigin } : {}),
       commandId,
     };
@@ -346,14 +350,36 @@ export class WorkerExtensionRelay {
   }
 
   private recordExtensionRuntimeEvidence(payload: Record<string, unknown>): void {
+    const evidence = this.extensionRuntimeEvidence(payload);
+    this.extensionVersion = evidence.extensionVersion as string | undefined;
+    this.extensionReloadedAt = evidence.extensionStartedAt as number | undefined;
+  }
+
+  private extensionRuntimeEvidence(payload: Record<string, unknown>): {
+    extensionVersion?: string;
+    extensionStartedAt?: number;
+  } {
     const version = payload['extensionVersion'];
-    if (typeof version === 'string' && version.length > 0) {
-      this.extensionVersion = version;
-    }
     const startedAt = payload['extensionStartedAt'];
-    if (typeof startedAt === 'number' && Number.isFinite(startedAt) && startedAt >= 0) {
-      this.extensionReloadedAt = Math.floor(startedAt);
-    }
+    return {
+      ...(typeof version === 'string' && version.length > 0
+        ? { extensionVersion: version }
+        : {}),
+      ...(typeof startedAt === 'number' && Number.isInteger(startedAt) && startedAt >= 0
+        ? { extensionStartedAt: startedAt }
+        : {}),
+    };
+  }
+
+  private withoutExtensionRuntimeEvidence(
+    payload: Record<string, unknown>,
+  ): Record<string, unknown> {
+    const {
+      extensionVersion: _extensionVersion,
+      extensionStartedAt: _extensionStartedAt,
+      ...rest
+    } = payload;
+    return rest;
   }
 
   private updateExtensionContactHealth(now: number): void {

@@ -35,6 +35,8 @@ interface HarnessOpts {
   originSequence?: string[]; // successive refreshTargetOrigin results
   readbackOverride?: string | undefined; // force a wrong/absent read-back
   vaultValue?: string;
+  driverError?: string;
+  downgradeOnOriginRefresh?: boolean;
 }
 
 function makeHarness(opts: HarnessOpts = {}) {
@@ -60,16 +62,22 @@ function makeHarness(opts: HarnessOpts = {}) {
   const dom = new Map<string, string>();
   const typed: Array<{ selector: string; value: string }> = [];
   const driverType = vi.fn(async (_p: string, _t: string, selector: string, value: string) => {
+    if (opts.driverError) throw new Error(opts.driverError);
     dom.set(selector, value);
     typed.push({ selector, value });
+    return opts.existingTab ? { valueApplied: true } : undefined;
   });
   const readControl = vi.fn(async (_p: string, _t: string, selector: string) => ({
     value: opts.readbackOverride !== undefined ? opts.readbackOverride : dom.get(selector),
   }));
 
+  let secureExtensionSupported = true;
   const origins = opts.originSequence ?? [ORIGIN, ORIGIN];
   let originCall = 0;
-  const refreshTargetOrigin = vi.fn(async () => origins[Math.min(originCall++, origins.length - 1)] ?? '');
+  const refreshTargetOrigin = vi.fn(async () => {
+    if (opts.downgradeOnOriginRefresh) secureExtensionSupported = false;
+    return origins[Math.min(originCall++, origins.length - 1)] ?? '';
+  });
 
   const result = vi.fn(<T>(input: unknown) => input as BrowserGatewayResult<T>);
 
@@ -77,6 +85,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     result: result as FillOperationDeps['result'],
     hasExistingTab: () => Boolean(opts.existingTab),
     sharedTabCredentialFillAllowed: () => Boolean(opts.sharedTabAllowed),
+    sharedTabSecureCredentialFillSupported: () => secureExtensionSupported,
     resolveCredentialProfileScope: (profileId) => profileId,
     type: vi.fn(),
     select: vi.fn(),
@@ -92,7 +101,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     credentialAuthorizations: authorizations,
   };
 
-  return { deps, driverType, typed, result };
+  return { deps, driverType, readControl, typed, result };
 }
 
 const REQUEST: BrowserGatewayFillSecretRequest = {
@@ -115,7 +124,7 @@ describe('fillSecretOperation', () => {
     expect(result.data).toEqual({ filled: 1, verified: 1 });
 
     // The secret WAS typed into the page...
-    expect(driverType).toHaveBeenCalledWith('p1', 't1', '#iban', SECRET);
+    expect(driverType).toHaveBeenCalledWith('p1', 't1', '#iban', SECRET, ORIGIN, 'secret');
     // ...but appears NOWHERE in the model-visible result (data, summary, reason).
     expect(JSON.stringify(result)).not.toContain(SECRET);
     expect(withEcho(result).summary).not.toContain(SECRET);
@@ -168,6 +177,26 @@ describe('fillSecretOperation', () => {
     expect(driverType).not.toHaveBeenCalled();
   });
 
+  it('uses only the extension boolean for shared-tab verification', async () => {
+    const { deps, readControl } = makeHarness({ existingTab: true, sharedTabAllowed: true });
+
+    const result = await fillSecretOperation(deps, REQUEST);
+
+    expect(result.outcome).toBe('succeeded');
+    expect(result.data).toEqual({ filled: 1, verified: 1 });
+    expect(readControl).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain(SECRET);
+  });
+
+  it('never surfaces a secret-bearing driver exception', async () => {
+    const { deps } = makeHarness({ driverError: `driver rejected ${SECRET}` });
+
+    const result = await fillSecretOperation(deps, REQUEST);
+
+    expect(result.reason).toBe('secret_fill_failed');
+    expect(JSON.stringify(result)).not.toContain(SECRET);
+  });
+
   it('aborts (TOCTOU) if a shared tab navigates away between authorization and fill', async () => {
     const { deps, driverType } = makeHarness({
       existingTab: true,
@@ -179,6 +208,25 @@ describe('fillSecretOperation', () => {
 
     expect(result.decision).toBe('denied');
     expect(result.reason).toBe('origin_changed_during_fill');
+    expect(driverType).not.toHaveBeenCalled();
+  });
+
+  it('rechecks extension compatibility after origin refresh before resolving a generic secret', async () => {
+    const { deps, driverType } = makeHarness({
+      existingTab: true,
+      sharedTabAllowed: true,
+      downgradeOnOriginRefresh: true,
+    });
+    const vaultRead = vi.mocked(deps.credentialVault!.getGenericSecretForFill!);
+
+    const result = await fillSecretOperation(deps, REQUEST);
+
+    expect(result).toMatchObject({
+      decision: 'denied',
+      outcome: 'not_run',
+      reason: 'shared_tab_secure_credential_fill_unavailable',
+    });
+    expect(vaultRead).not.toHaveBeenCalled();
     expect(driverType).not.toHaveBeenCalled();
   });
 

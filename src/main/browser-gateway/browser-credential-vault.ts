@@ -104,6 +104,10 @@ function normalizeFieldName(name: string): string {
 
 export interface CreateAgentCredentialInput {
   origin: string;
+  /** Optional non-secret Bitwarden item title. */
+  itemTitle?: string;
+  /** Optional login URI shown to Bitwarden; defaults to the bound origin. */
+  loginUri?: string;
   username: string;
 }
 
@@ -208,13 +212,13 @@ export class CredentialVault {
     const password = this.makePassword();
     const item = {
       type: 1,
-      name: `aio/${hostOf(input.origin)}/${input.username}`,
+      name: input.itemTitle ?? `aio/${hostOf(input.origin)}/${input.username}`,
       folderId,
       notes: null,
       login: {
         username: input.username,
         password,
-        uris: [{ uri: input.origin, match: null }],
+        uris: [{ uri: input.loginUri ?? input.origin, match: null }],
       },
     };
     const encoded = Buffer.from(JSON.stringify(item), 'utf-8').toString('base64');
@@ -434,10 +438,10 @@ export class CredentialVault {
     }
     const result = await this.runner.run(args, { session });
     if (result.code !== 0) {
-      // Never echo item bodies (they can contain the encoded secret) — report
-      // only the subcommand verb and bw's own stderr.
+      // Neither argv nor stderr is safe to echo: a failed Bitwarden command may
+      // repeat the encoded item body, which contains the generated password.
       throw new CredentialVaultError(
-        `bw ${args[0] ?? ''} failed: ${result.stderr.trim() || `exit ${result.code}`}`,
+        `bw ${args[0] ?? ''} failed (exit ${result.code})`,
         'bw_command_failed',
       );
     }

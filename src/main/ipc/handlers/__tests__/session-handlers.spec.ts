@@ -52,7 +52,7 @@ const mockDeleteEntry = vi.fn();
 const mockArchiveEntry = vi.fn();
 const mockGetEntries = vi.fn().mockReturnValue([]);
 const mockBackfillMissingAiTitles = vi.fn();
-const mockGenerateTitle = vi.fn();
+const mockGenerateLocalTitle = vi.fn();
 const mockListArchivedSessions = vi.fn().mockReturnValue([]);
 const mockRestoreArchivedSession = vi.fn();
 const mockDeleteArchivedSession = vi.fn();
@@ -77,7 +77,7 @@ vi.mock('../../../history', () => ({
 
 vi.mock('../../../instance/auto-title-service', () => ({
   getAutoTitleService: () => ({
-    generateTitle: mockGenerateTitle,
+    generateLocalTitle: mockGenerateLocalTitle,
   }),
 }));
 
@@ -166,7 +166,7 @@ describe('session-handlers', () => {
     mockDeleteArchivedSession.mockReset();
     mockGetArchiveStats.mockReset();
     mockBackfillMissingAiTitles.mockReset();
-    mockGenerateTitle.mockReset();
+    mockGenerateLocalTitle.mockReset();
     mockIsRemoteNodeReachable.mockReset();
     mockGetResumableSessions.mockReset();
     mockGetResumableSessions.mockResolvedValue([]);
@@ -187,7 +187,7 @@ describe('session-handlers', () => {
   });
 
   describe('history maintenance', () => {
-    it('does not start AI title backfill while listing history', async () => {
+    it('starts bounded local-only title backfill while listing history', async () => {
       const originalVitest = process.env['VITEST'];
       process.env['VITEST'] = 'false';
       try {
@@ -213,8 +213,14 @@ describe('session-handlers', () => {
 
         expect(result.success).toBe(true);
         expect(result.data).toBe(entries);
-        expect(mockBackfillMissingAiTitles).not.toHaveBeenCalled();
-        expect(mockGenerateTitle).not.toHaveBeenCalled();
+        expect(mockBackfillMissingAiTitles).toHaveBeenCalledWith(entries, expect.any(Function));
+
+        mockGenerateLocalTitle.mockResolvedValue('Session title repair');
+        const generate = mockBackfillMissingAiTitles.mock.calls[0]?.[1] as
+          | ((text: string) => Promise<string | null>)
+          | undefined;
+        await expect(generate?.(entries[0].firstUserMessage)).resolves.toBe('Session title repair');
+        expect(mockGenerateLocalTitle).toHaveBeenCalledWith(entries[0].firstUserMessage);
       } finally {
         process.env['VITEST'] = originalVitest;
       }

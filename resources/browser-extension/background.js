@@ -31,6 +31,19 @@ const MAX_COMMAND_TIMEOUT_MS = 120000;
 const POLL_TIMEOUT_REASON = 'browser_extension_poll_timeout';
 const GATEWAY_ENABLED_STORAGE_KEY = 'browserGatewayEnabled';
 const SAFE_MODE_ERROR = 'browser_safe_mode_enabled';
+const SECRET_TAINT_STORAGE_KEY = 'browserGatewaySecretTaints';
+const SECRET_OBSERVATION_COMMANDS = new Set([
+  'snapshot',
+  'accessibility_snapshot',
+  'evaluate',
+  'screenshot',
+  'download_file',
+  'console_messages',
+  'network_requests',
+  'query_elements',
+  'read_control',
+  'wait_for',
+]);
 
 // Last-resort self-heal ladder. An MV3 service worker with an open native
 // messaging port is kept alive by Chrome INDEFINITELY — so if its in-memory
@@ -51,14 +64,19 @@ const SELF_RELOAD_STORAGE_KEY = 'browserGatewayLastSelfReloadAt';
 const SW_STARTED_AT = Date.now();
 let lastSelfHealRecycleAt = 0;
 
-let inventoryInFlight = false;
+let inventoryPromise = null;
 let gatewayEnabled = false;
 let gatewayStateLoaded = false;
 let gatewayStatePromise = null;
+let secretObservationBoundary = Promise.resolve();
 const sharedTabs = [];
 const bridges = BRIDGE_DEFINITIONS.map(createBridge);
 const controlledTabLeases = new Map();
 const controlledTabRestoreLineages = new Map();
+const secretTaintedTabs = new Map();
+const secretTaintedOrigins = new Set();
+let secretTaintsLoaded = false;
+let secretTaintLoadPromise = null;
 
 chrome.runtime.onInstalled.addListener(() => {
   // 0.5 = 30s, the MV3 minimum (Chrome ≥120). This alarm is the recovery path
@@ -144,6 +162,11 @@ async function selfHealIfWedged() {
 }
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  // A page that has received a vault value can mirror it into a navigation
+  // URL, response body, title, control, or later mutation result. A document
+  // load is therefore NOT a safe declassification boundary. Keep the tab
+  // tainted across every navigation and clear it only when Chrome destroys the
+  // tab (onRemoved below).
   if (!gatewayEnabled) {
     return;
   }
@@ -153,7 +176,11 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   void reportTab(tab);
 });
 
-chrome.tabs.onRemoved.addListener(() => {
+chrome.tabs.onRemoved.addListener((tabId) => {
+  // Remove only the tab lineage. The origin remains tainted because a page can
+  // persist the filled value in same-origin storage and reveal it from a future
+  // tab. There is no safe automatic origin declassification boundary.
+  void clearSecretTaint(tabId).catch(() => undefined);
   if (!gatewayEnabled) {
     return;
   }
@@ -899,25 +926,271 @@ function isNativeHostErrorReply(message) {
   );
 }
 
+async function loadSecretTaints() {
+  if (secretTaintsLoaded) return;
+  if (!secretTaintLoadPromise) {
+    secretTaintLoadPromise = (async () => {
+      const values = await chrome.storage.local.get(SECRET_TAINT_STORAGE_KEY);
+      const stored = values?.[SECRET_TAINT_STORAGE_KEY];
+      if (stored && typeof stored === 'object' && !Array.isArray(stored)) {
+        const versioned = stored.version === 2
+          && stored.tabs
+          && typeof stored.tabs === 'object'
+          && !Array.isArray(stored.tabs);
+        const storedTabs = versioned ? stored.tabs : stored;
+        for (const [tabId, origin] of Object.entries(storedTabs)) {
+          if (/^\d+$/.test(tabId) && typeof origin === 'string') {
+            secretTaintedTabs.set(tabId, origin);
+            secretTaintedOrigins.add(origin);
+          }
+        }
+        if (versioned && Array.isArray(stored.origins)) {
+          for (const origin of stored.origins) {
+            if (typeof origin === 'string' && normalizeCredentialOrigin(origin) === origin) {
+              secretTaintedOrigins.add(origin);
+            }
+          }
+        }
+      }
+      secretTaintsLoaded = true;
+    })().finally(() => {
+      secretTaintLoadPromise = null;
+    });
+  }
+  await secretTaintLoadPromise;
+}
+
+async function persistSecretTaints() {
+  await chrome.storage.local.set({
+    [SECRET_TAINT_STORAGE_KEY]: {
+      version: 2,
+      origins: [...secretTaintedOrigins].sort(),
+      tabs: Object.fromEntries(
+        [...secretTaintedTabs.entries()].sort(([left], [right]) => left.localeCompare(right)),
+      ),
+    },
+  });
+}
+
+function runWithSecretObservationBoundary(operation) {
+  const result = secretObservationBoundary.then(operation, operation);
+  secretObservationBoundary = result.catch(() => undefined);
+  return result;
+}
+
+function markSecretTaint(tabId, origin) {
+  return runWithSecretObservationBoundary(() => markSecretTaintLocked(tabId, origin));
+}
+
+async function markSecretTaintLocked(tabId, origin) {
+  await loadSecretTaints();
+  secretTaintedOrigins.add(origin);
+  secretTaintedTabs.set(String(tabId), origin);
+  // Tag every current same-origin tab before the secret-bearing injection.
+  // Those tabs can receive the value synchronously through BroadcastChannel,
+  // localStorage events, SharedWorker, or an existing window reference and can
+  // then navigate before a later inventory pass sees their original origin.
+  const tabs = await chrome.tabs.query({});
+  for (const tab of tabs) {
+    if (typeof tab?.id !== 'number') {
+      continue;
+    }
+    if (browserTabOrigin(tab) === origin) {
+      secretTaintedTabs.set(String(tab.id), origin);
+      continue;
+    }
+    if (/^https?:\/\//i.test(tab?.url ?? '')) {
+      const frameOrigin = await taintedFrameOriginForTabId(tab.id);
+      if (typeof frameOrigin === 'string') {
+        secretTaintedTabs.set(String(tab.id), frameOrigin);
+      }
+    }
+  }
+  // Persistence completes BEFORE the secret-bearing injection. If storage is
+  // unavailable the write fails closed instead of becoming observable after a
+  // service-worker restart.
+  await persistSecretTaints();
+}
+
+async function clearSecretTaint(tabId) {
+  await loadSecretTaints();
+  if (!secretTaintedTabs.delete(String(tabId))) return;
+  await persistSecretTaints();
+}
+
+function browserTabOrigin(tab) {
+  try {
+    return new URL(tab?.url ?? '').origin;
+  } catch {
+    return '';
+  }
+}
+
+async function taintedFrameOriginForTabId(tabId) {
+  if (secretTaintedOrigins.size === 0) {
+    return null;
+  }
+  let frameResults;
+  try {
+    frameResults = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      func: credentialFrameOriginProbe,
+    });
+  } catch {
+    // Once any origin is tainted, an uninspectable web tab cannot be proved not
+    // to contain a frame from it. Fail closed instead of capturing text or a
+    // screenshot that may contain a value restored from same-origin storage.
+    return secretTaintedOrigins.values().next().value ?? null;
+  }
+  for (const entry of frameResults ?? []) {
+    const origin = entry?.result?.origin;
+    if (typeof origin === 'string' && secretTaintedOrigins.has(origin)) {
+      return origin;
+    }
+  }
+  return null;
+}
+
+async function secretTaintOriginForTab(tab) {
+  await loadSecretTaints();
+  const tabKey = String(tab?.id);
+  const existing = secretTaintedTabs.get(tabKey);
+  if (typeof existing === 'string') {
+    return existing;
+  }
+  const openerOrigin = typeof tab?.openerTabId === 'number'
+    ? secretTaintedTabs.get(String(tab.openerTabId))
+    : undefined;
+  const currentOrigin = browserTabOrigin(tab);
+  let inheritedOrigin = typeof openerOrigin === 'string'
+    ? openerOrigin
+    : secretTaintedOrigins.has(currentOrigin)
+      ? currentOrigin
+      : null;
+  if (inheritedOrigin === null && typeof tab?.id === 'number') {
+    inheritedOrigin = await taintedFrameOriginForTabId(tab.id);
+  }
+  if (inheritedOrigin === null) {
+    return null;
+  }
+  // Persist the lineage before emitting any payload. Once inherited, it stays
+  // tainted across navigation even if the descendant immediately leaves the
+  // origin or embeds the value in its new URL/title/DOM.
+  secretTaintedTabs.set(tabKey, inheritedOrigin);
+  await persistSecretTaints();
+  return inheritedOrigin;
+}
+
+async function secretTaintOriginForTabId(tabId) {
+  await loadSecretTaints();
+  const existing = secretTaintedTabs.get(String(tabId));
+  if (typeof existing === 'string') {
+    return existing;
+  }
+  return secretTaintOriginForTab(await chrome.tabs.get(tabId));
+}
+
+async function assertSecretObservationAllowed(command) {
+  if (!SECRET_OBSERVATION_COMMANDS.has(command?.command)) return;
+  const tabId = requireTargetTabId(command);
+  if (typeof await secretTaintOriginForTabId(tabId) === 'string') {
+    throw new Error('browser_secret_observation_blocked_for_tainted_origin');
+  }
+}
+
+async function targetSecretTaintOrigin(command) {
+  const tabId = command?.target?.tabId;
+  if (typeof tabId !== 'number') {
+    return null;
+  }
+  try {
+    return await secretTaintOriginForTabId(tabId);
+  } catch {
+    // Storage uncertainty fails closed. The empty string is deliberately an
+    // opaque sentinel: callers check only whether the result is a string and
+    // never serialize it.
+    return '';
+  }
+}
+
+function browserCommandErrorMessage(command, error, targetSecretTainted = false) {
+  if (
+    command?.command === 'type'
+    && typeof command?.payload?.credentialOrigin === 'string'
+  ) {
+    // A vault-resolved value is intentionally present inside this trusted
+    // process. Never let an exception produced after that point cross the
+    // native-command boundary: DOM/Chrome errors may quote their arguments.
+    // The caller must treat the write as ambiguous because an authorized frame
+    // could have accepted the value before a sibling or reporting step failed.
+    return 'credential_write_failed_or_may_have_applied_DO_NOT_retry_without_verifying_page_state';
+  }
+  if (targetSecretTainted) {
+    // After a vault write, every page-derived exception is untrusted secret
+    // material: an input handler can mirror the value into validation text,
+    // option labels, element text, or a thrown message. The fixed failure also
+    // prevents an agent from blindly retrying a mutation that may have landed.
+    return 'secret_tainted_command_failed_or_may_have_applied_DO_NOT_retry_without_user_verification';
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
 async function runBrowserCommand(command, bridge) {
+  // The internal origin-bound writer is itself proof that this command may
+  // carry a vault value. Preclassify every non-public credential write before
+  // dispatch so a synchronous page-driven tab close cannot clear storage and
+  // make the first write's result look untainted.
+  let secretTaintOrigin = command?.command === 'type'
+    && typeof command?.payload?.credentialOrigin === 'string'
+    && command?.payload?.credentialProtection !== 'public'
+    ? command.payload.credentialOrigin
+    : null;
   try {
     assertGatewayEnabled();
+    // Snapshot taint BEFORE dispatch as well as afterward. A later mutation can
+    // close the tab, which fires onRemoved and legitimately clears persisted
+    // state; that must not declassify the still-in-flight command result.
+    if (secretTaintOrigin === null) {
+      secretTaintOrigin = await targetSecretTaintOrigin(command);
+    }
     const result = await runCommandWithWatchdog(command);
-    if (isTabPayload(result)) {
-      broadcastNativeMessage({ type: 'attach_tab', tab: result });
+    if (secretTaintOrigin === null) {
+      // The origin-bound credential command arms taint during execution, so an
+      // initially clean tab needs one post-dispatch check too.
+      secretTaintOrigin = await targetSecretTaintOrigin(command);
+    }
+    // A tainted page can copy the vault value into ANY later mutation result,
+    // including selector and UID click/type/select results. Preserve the fact
+    // that a resolved command completed, but discard its entire page-controlled
+    // payload at the one native-channel boundary shared by every command.
+    const safeResult = typeof secretTaintOrigin === 'string'
+      ? {
+          completed: true,
+          observationBlocked: 'browser_secret_observation_blocked_for_tainted_origin',
+        }
+      : result;
+    if (isTabPayload(safeResult)) {
+      broadcastNativeMessage({ type: 'attach_tab', tab: safeResult });
     }
     postNativeMessage(bridge, {
       type: 'command_result',
       commandId: command.id,
       ok: true,
-      result,
+      result: safeResult,
     });
   } catch (error) {
+    if (secretTaintOrigin === null) {
+      secretTaintOrigin = await targetSecretTaintOrigin(command);
+    }
     postNativeMessage(bridge, {
       type: 'command_result',
       commandId: command.id,
       ok: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: browserCommandErrorMessage(
+        command,
+        error,
+        typeof secretTaintOrigin === 'string',
+      ),
     });
   } finally {
     // Only now is the extension ready for the next command. Clearing the poll
@@ -1016,11 +1289,10 @@ async function reportTabInventory() {
   if (!gatewayEnabled) {
     return;
   }
-  if (inventoryInFlight) {
-    return;
+  if (inventoryPromise) {
+    return inventoryPromise;
   }
-  inventoryInFlight = true;
-  try {
+  inventoryPromise = (async () => {
     const tabs = (await chrome.tabs.query({}))
       .filter(isWebTab)
       .slice(0, MAX_INVENTORY_TABS);
@@ -1034,8 +1306,11 @@ async function reportTabInventory() {
         tabs: tabPayloads,
       });
     }
+  })();
+  try {
+    await inventoryPromise;
   } finally {
-    inventoryInFlight = false;
+    inventoryPromise = null;
   }
 }
 
@@ -1128,6 +1403,7 @@ async function findActiveWebTabForSharing() {
 
 async function executeBrowserCommand(command) {
   assertGatewayEnabled();
+  await assertSecretObservationAllowed(command);
   switch (command.command) {
     case 'report_inventory':
       await reportTabInventory();
@@ -1184,6 +1460,18 @@ async function executeBrowserCommand(command) {
     case 'type': {
       const uid = optionalUidValue(command.payload?.uid);
       const value = requirePayloadString(command, 'value');
+      if (command.payload?.credentialOrigin !== undefined) {
+        if (uid !== null) {
+          throw new Error('Origin-bound credential typing requires a selector, not a uid.');
+        }
+        return runOriginBoundType(
+          command,
+          requirePayloadString(command, 'selector'),
+          value,
+          requirePayloadString(command, 'credentialOrigin'),
+          command.payload?.credentialProtection,
+        );
+      }
       if (uid !== null) {
         return typeByUid(requireTargetTabId(command), uid, value);
       }
@@ -1371,8 +1659,18 @@ async function downloadFileFromTargetTab(command) {
     if (!selector) {
       throw new Error('Browser download requires selector or url.');
     }
+    // Armed BEFORE the click so a fast download cannot be missed.
     const download = waitForNextDownloadComplete(timeoutMs);
-    await runInTargetTab(command, 'click', [selector]);
+    try {
+      await runInTargetTab(command, 'click', [selector]);
+    } catch (error) {
+      // Nothing will ever settle the watcher now. Without this the promise
+      // rejects unhandled at the timeout -- far more reachable since an invalid
+      // selector started raising -- so absorb it and surface the click failure,
+      // which is the real reason.
+      download.catch(() => undefined);
+      throw error;
+    }
     return download;
   } finally {
     await stopControlledTab(tabId, controlToken);
@@ -1662,14 +1960,31 @@ async function fillFormCommand(command) {
         for (const field of fields) {
           const value = String(field?.value ?? '');
           const uid = optionalUidValue(field?.uid);
-          if (uid !== null) {
-            const applied = await resolveAndCallOnDebuggee(debuggee, uid, typeFn, [value]);
-            out.push({ ...(field?.selector ? { selector: field.selector } : {}), uid, ...applied });
-          } else if (typeof field?.selector === 'string' && field.selector) {
-            const applied = await typeBySelectorInTab(tabId, field.selector, value);
-            out.push({ selector: field.selector, ...applied });
-          } else {
-            throw new Error('Browser fill_form field requires a selector or uid.');
+          try {
+            if (uid !== null) {
+              const applied = await resolveAndCallOnDebuggee(debuggee, uid, typeFn, [value]);
+              out.push({ ...(field?.selector ? { selector: field.selector } : {}), uid, ...applied });
+            } else if (typeof field?.selector === 'string' && field.selector) {
+              const applied = await typeBySelectorInTab(tabId, field.selector, value);
+              out.push({ selector: field.selector, ...applied });
+            } else {
+              throw new Error('Browser fill_form field requires a selector or uid.');
+            }
+          } catch (error) {
+            // Stop at the first failure -- writing the remaining fields into a
+            // half-filled form is worse -- but never discard the record of what
+            // already landed. A partial write on a live portal form with no list
+            // of which fields changed is unauditable, and the new type refusals
+            // make hitting this mid-form far more likely than a stale uid did.
+            const done = out
+              .map((entry) => entry.uid ?? entry.selector)
+              .filter((label) => typeof label === 'string' && label);
+            const reason = error instanceof Error ? error.message : String(error);
+            throw new Error(
+              reason
+              + ' | fill_form stopped at field ' + (out.length + 1) + ' of ' + fields.length
+              + '; already applied: ' + (done.length ? done.join(', ') : 'none'),
+            );
           }
         }
       } finally {
@@ -1693,6 +2008,18 @@ async function fillFormCommand(command) {
 
 function uidClickFn() {
   const element = this;
+  // A uid can resolve to a #document, not only an Element: every frame in the
+  // merged tree contributes a RootWebArea node. Calling scrollIntoView on that
+  // throws an opaque "not a function" TypeError, so name the real problem.
+  if (!element || element.nodeType !== 1) {
+    throw new Error(
+      'uid click target is not an element (it resolved to '
+      + (element && element.nodeName ? String(element.nodeName) : 'a non-element')
+      + '). Frame documents appear as RootWebArea/#document nodes and text runs as '
+      + 'StaticText/#text nodes -- target the control element itself, or use a CSS '
+      + 'selector from query_elements.',
+    );
+  }
   element.scrollIntoView({ block: 'center', inline: 'center' });
   const rect = element.getBoundingClientRect
     ? element.getBoundingClientRect()
@@ -1724,6 +2051,74 @@ function uidClickFn() {
 
 function uidTypeFn(value) {
   const element = this;
+  // A uid can resolve to a #document, not only an Element: every frame in the
+  // merged tree contributes a RootWebArea node. Calling scrollIntoView on that
+  // throws an opaque "not a function" TypeError, so name the real problem.
+  if (!element || element.nodeType !== 1) {
+    throw new Error(
+      'uid type target is not an element (it resolved to '
+      + (element && element.nodeName ? String(element.nodeName) : 'a non-element')
+      + '). Frame documents appear as RootWebArea/#document nodes and text runs as '
+      + 'StaticText/#text nodes -- target the control element itself, or use a CSS '
+      + 'selector from query_elements.',
+    );
+  }
+  // Sample this BEFORE any assignment: on an element with no value property,
+  // `element.value = ...` silently creates an expando that the read-back below
+  // would happily report as applied.
+  const hadValueProperty = 'value' in element;
+  // A <select> reached through `type` (directly, or through fill_form) hits the
+  // same destructive assignment: the writer special-cases HTMLSelectElement and
+  // writes the raw string, which sets selectedIndex to -1. Resolve the option
+  // first and refuse if there is none.
+  if (element.tagName === 'SELECT') {
+    // Matching mirrors resolveSelectOption (browser-select-resolver.ts) so the
+    // shared tab and the managed profile agree on the same page: NFC, collapse
+    // INTERNAL whitespace (indented markup puts a newline inside the label),
+    // strip trailing .:* decoration. Disabled options are excluded -- a value no
+    // human could pick must never be submitted.
+    const normaliseOptionText = (text) => String(text == null ? '' : text)
+      .normalize('NFC')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/[.:*]+$/, '')
+      .trim();
+    const wantedOption = normaliseOptionText(value);
+    const options = Array.from(element.options || []).filter((option) => !option.disabled);
+    const match = options.find((option) => option.value === value)
+      || options.find((option) => normaliseOptionText(option.label) === wantedOption)
+      || options.find((option) => normaliseOptionText(option.textContent).toLowerCase()
+        === wantedOption.toLowerCase());
+    if (!match) {
+      const available = options
+        .map((option) => (option.label || option.textContent || option.value || '').trim())
+        .filter(Boolean)
+        .slice(0, 20)
+        .join(' | ');
+      throw new Error(
+        'no <select> option matches "' + String(value).slice(0, 100)
+        + '". Nothing was changed (assigning an unknown value sets selectedIndex to -1, '
+        + 'which CLEARS the control and destroys whatever was already selected). '
+        + 'Available options: ' + (available || '(none)'),
+      );
+    }
+    if (element.multiple) {
+      // The `value` setter deselects EVERY option first, so on a multi-select it
+      // silently drops the other choices -- and the payload is discarded, so it
+      // reported success. Set this option directly and leave the rest alone.
+      match.selected = true;
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+      element.dispatchEvent(new Event('change', { bubbles: true }));
+      return {
+        tagName: element.tagName,
+        valueAfter: match.value,
+        valueApplied: true,
+        disabled: Boolean(element.disabled),
+        readOnly: Boolean(element.readOnly),
+      };
+    }
+    value = match.value;
+  }
   element.scrollIntoView({ block: 'center', inline: 'center' });
   try { if (element.focus) element.focus(); } catch (error) { void error; }
   const prototype = typeof HTMLTextAreaElement !== 'undefined' && element instanceof HTMLTextAreaElement
@@ -1761,8 +2156,28 @@ function uidTypeFn(value) {
     }
   } else if (descriptor && typeof descriptor.set === 'function') {
     descriptor.set.call(element, value);
-  } else {
+  } else if (hadValueProperty && String(element.tagName || '').includes('-')) {
+    // Custom elements must contain a dash, and may expose their own `value`
+    // accessor. Keep supporting those; the dash is what separates them from
+    // built-ins like <button>/<option>/<data>, which also carry a `value` IDL
+    // attribute that typing into changes nothing a human can see.
     element.value = value;
+  } else {
+    // Assigning to an element that cannot accept typed text either sets an
+    // expando or writes an invisible IDL attribute, and `valueApplied` below
+    // reads it straight back as true -- a confident success for having typed
+    // nothing. That is how an approved tender message would have gone out blank
+    // on 2026-08-28: the uid resolved to the <iframe> wrapping a rich-text
+    // editor. Refuse honestly, the way uidSelectFn does for a custom dropdown.
+    throw new Error(
+      'uid type target cannot accept typed text: <'
+      + String(element.tagName || 'unknown').toLowerCase()
+      + '> is not an input, textarea, select, contenteditable host, or a custom '
+      + 'element exposing a value accessor. A rich-text editor body is exposed in '
+      + 'the accessibility tree as an editable node inside the editor frame -- '
+      + 'target that node, or use a CSS selector from query_elements, which is '
+      + 'injected into every frame.',
+    );
   }
   element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
   element.dispatchEvent(new Event('change', { bubbles: true }));
@@ -1780,25 +2195,65 @@ function uidTypeFn(value) {
 
 function uidSelectFn(value) {
   const element = this;
+  if (!element || element.nodeType !== 1) {
+    throw new Error(
+      'uid select target is not an element (it resolved to '
+      + (element && element.nodeName ? String(element.nodeName) : 'a non-element')
+      + '). Frame documents appear as RootWebArea/#document nodes and text runs as '
+      + 'StaticText/#text nodes -- target the control element itself.',
+    );
+  }
   element.scrollIntoView({ block: 'center', inline: 'center' });
   if (element.tagName === 'SELECT') {
-    try { if (element.focus) element.focus(); } catch (error) { void error; }
-    const options = Array.from(element.options || []);
+    // Inlined rather than shared: this function is serialized with toString()
+    // and injected, so it must be self-contained.
+    // Matching mirrors resolveSelectOption (browser-select-resolver.ts) so the
+    // shared tab and the managed profile agree on the same page: NFC, collapse
+    // INTERNAL whitespace (indented markup puts a newline inside the label),
+    // strip trailing .:* decoration. Disabled options are excluded -- a value no
+    // human could pick must never be submitted.
+    const normaliseOptionText = (text) => String(text == null ? '' : text)
+      .normalize('NFC')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/[.:*]+$/, '')
+      .trim();
+    const wantedOption = normaliseOptionText(value);
+    const options = Array.from(element.options || []).filter((option) => !option.disabled);
     const match = options.find((option) => option.value === value)
-      || options.find((option) => (option.label || '').trim() === String(value).trim())
-      || options.find((option) => (option.textContent || '').trim().toLowerCase() === String(value).trim().toLowerCase());
-    const descriptor = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
-    if (descriptor && typeof descriptor.set === 'function') {
-      descriptor.set.call(element, match ? match.value : value);
+      || options.find((option) => normaliseOptionText(option.label) === wantedOption)
+      || options.find((option) => normaliseOptionText(option.textContent).toLowerCase()
+        === wantedOption.toLowerCase());
+    if (!match) {
+      const available = options
+        .map((option) => (option.label || option.textContent || option.value || '').trim())
+        .filter(Boolean)
+        .slice(0, 20)
+        .join(' | ');
+      throw new Error(
+        'no <select> option matches "' + String(value).slice(0, 100)
+        + '". Nothing was changed (assigning an unknown value sets selectedIndex to -1, '
+        + 'which CLEARS the control and destroys whatever was already selected). '
+        + 'Available options: ' + (available || '(none)'),
+      );
+    }
+    if (element.multiple) {
+      // See above: the value setter clears every other selection.
+      match.selected = true;
     } else {
-      element.value = match ? match.value : value;
+      const descriptor = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+      if (descriptor && typeof descriptor.set === 'function') {
+        descriptor.set.call(element, match.value);
+      } else {
+        element.value = match.value;
+      }
     }
     element.dispatchEvent(new Event('input', { bubbles: true }));
     element.dispatchEvent(new Event('change', { bubbles: true }));
     return {
       tagName: element.tagName,
       selectedValue: typeof element.value === 'string' ? element.value : undefined,
-      matchedOption: match ? (match.label || match.textContent || match.value || '').trim().slice(0, 200) : null,
+      matchedOption: (match.label || match.textContent || match.value || '').trim().slice(0, 200),
     };
   }
   // A uid points at a single node, but a custom dropdown's option is a SEPARATE
@@ -1810,17 +2265,84 @@ function uidSelectFn(value) {
   );
 }
 
+// Hard cap on frames walked for one snapshot. A page that frames itself dozens
+// of times (ad tech, nested portals) must not turn one snapshot into dozens of
+// CDP round trips. This bounds the NUMBER of calls only; wall-clock is bounded
+// separately by the single snapshot deadline in captureAccessibilitySnapshot.
+const ACCESSIBILITY_MAX_FRAMES = 25;
+
+// Collect the frame ids whose accessibility trees make up this tab.
+//
+// `null` stands for the main frame: `getFullAXTree` with no `frameId` is the
+// original single-frame call, so the common no-iframe page behaves exactly as
+// before and costs one extra `Page.getFrameTree`.
+async function collectAccessibilityFrameIds(debuggee) {
+  const frameIds = [null];
+  let frameTree;
+  try {
+    frameTree = await withCdpDeadline(
+      chrome.debugger.sendCommand(debuggee, 'Page.getFrameTree'),
+      'Page.getFrameTree',
+      CDP_CONTROL_TIMEOUT_MS,
+    );
+  } catch {
+    // No frame tree means no iframes we can reach. Degrade to the main frame
+    // rather than failing a snapshot that is still perfectly usable.
+    return frameIds;
+  }
+  const walk = (entry) => {
+    if (!entry || frameIds.length >= ACCESSIBILITY_MAX_FRAMES) {
+      return;
+    }
+    for (const child of entry.childFrames ?? []) {
+      const id = child?.frame?.id;
+      if (typeof id === 'string' && id && !frameIds.includes(id)) {
+        frameIds.push(id);
+      }
+      if (frameIds.length >= ACCESSIBILITY_MAX_FRAMES) {
+        return;
+      }
+      walk(child);
+    }
+  };
+  walk(frameTree?.frameTree);
+  return frameIds;
+}
+
 // Capture a flattened accessibility tree via CDP. The AX tree pierces open AND
-// closed shadow roots (and same-origin iframes; cross-origin OOPIFs are not
-// traversed), so it surfaces inputs that deepQuerySelector (which can only walk
-// node.shadowRoot) cannot see when the page attached a closed shadow root before
-// our content-script patch ran. Each node carries a `uid` (the backendDOMNodeId)
-// usable as the robust target for click/type/etc.
+// closed shadow roots, so it surfaces inputs that deepQuerySelector (which can
+// only walk node.shadowRoot) cannot see when the page attached a closed shadow
+// root before our content-script patch ran. Each node carries a `uid` (the
+// backendDOMNodeId) usable as the robust target for click/type/etc.
+//
+// IFRAMES: `Accessibility.getFullAXTree` returns ONE frame's tree. Called with
+// no `frameId` -- as this did until 2026-08-28 -- it returns the main frame
+// only, and every iframe shows up as a childless `Iframe` node. That silently
+// broke uid targeting inside iframes: the caller got a node it could not act
+// on, and `type` reported success while writing nothing (observed against a
+// TinyMCE body editor on a live tender portal, which cost a submission). So
+// walk the frame tree and merge a per-frame call. `DOM.resolveNode` already
+// resolves a backendDOMNodeId cross-frame within the target, so uid click/type
+// work inside those frames with no further change.
 async function captureAccessibilitySnapshot(tabId, options) {
   const interestingOnly = options.interestingOnly !== false;
   const limit = Math.max(1, Math.min(typeof options.limit === 'number' ? options.limit : 2000, 2000));
   const pageWorkTimeoutMs = cdpPageWorkTimeoutMs(options.timeoutMs);
+  // Armed HERE, before withDebugger, so the debugger attach (up to
+  // CDP_ATTACH_TIMEOUT_MS) and the two keep-alive sendCommands (5s each) are
+  // inside the budget. Arming it inside the callback left up to 20s of CDP work
+  // outside the bound, which is how the worst case still overran the outer
+  // command watchdog after the first attempt at this fix.
+  const snapshotDeadlineAt = Date.now() + pageWorkTimeoutMs;
   return withDebugger(tabId, async (debuggee) => {
+    // ONE budget for the WHOLE snapshot, armed before the first CDP call.
+    // Re-arming pageWorkTimeoutMs per frame let 25 frames x a 24s budget run to
+    // ~600s against an outer command watchdog of at most 120s, and starting the
+    // clock after the enable/getFrameTree hops left those 15s outside the budget
+    // entirely -- 0.8x budget + 15s overruns a 30s watchdog on its own. Blowing
+    // that watchdog surfaces as a bare browser_extension_command_timeout naming
+    // no CDP step, precisely the undecorated failure bounded hops exist to
+    // prevent, and force-detaches the debugger mid-loop.
     await withCdpDeadline(
       chrome.debugger.sendCommand(debuggee, 'DOM.enable'),
       'DOM.enable',
@@ -1835,12 +2357,66 @@ async function captureAccessibilitySnapshot(tabId, options) {
     // so on a very large or wedged page it is the step that stalls. Bound it so
     // the failure names this call instead of surfacing as an anonymous
     // end-of-window command timeout.
-    const tree = await withCdpDeadline(
-      chrome.debugger.sendCommand(debuggee, 'Accessibility.getFullAXTree', {}),
-      'Accessibility.getFullAXTree',
-      pageWorkTimeoutMs,
-    );
-    const nodes = Array.isArray(tree?.nodes) ? tree.nodes : [];
+    // Deliberately NO `Page.enable`: `Page.getFrameTree` is a plain read that
+    // does not need the domain (this file already issues Page.getLayoutMetrics,
+    // Page.captureScreenshot and Page.setWebLifecycleState without enabling it),
+    // and enabling Page routes javascript dialogs to the debugger client. This
+    // extension has no Page.handleJavaScriptDialog, so a beforeunload or alert
+    // raised during a snapshot would be held open instead of shown to James.
+    const frameIds = await collectAccessibilityFrameIds(debuggee);
+    const nodes = [];
+    const seenBackendNodeIds = new Set();
+    for (let frameIndex = 0; frameIndex < frameIds.length; frameIndex++) {
+      const frameId = frameIds[frameIndex];
+      const remainingMs = snapshotDeadlineAt - Date.now();
+      if (frameId !== null && remainingMs <= 0) {
+        // Budget spent on child frames. Return what we did read rather than
+        // failing the snapshot; the main frame is always read first.
+        break;
+      }
+      // The main frame is never skipped for time. A slow attach could otherwise
+      // burn the whole budget and make this return a confidently EMPTY tree,
+      // which is worse than any error: the caller cannot tell "no controls" from
+      // "never looked".
+      const sliceMs = frameId === null
+        ? Math.max(remainingMs, MIN_CDP_PAGE_WORK_TIMEOUT_MS)
+        : remainingMs;
+      let tree;
+      try {
+        tree = await withCdpDeadline(
+          chrome.debugger.sendCommand(
+            debuggee,
+            'Accessibility.getFullAXTree',
+            frameId === null ? {} : { frameId },
+          ),
+          'Accessibility.getFullAXTree',
+          sliceMs,
+        );
+      } catch (error) {
+        if (frameId === null) {
+          // The main frame failing is a real failure -- surface it rather than
+          // returning a confidently empty tree.
+          throw error;
+        }
+        // A cross-origin OOPIF lives in another target and legitimately refuses
+        // this call. One unreachable subframe must not lose the frames that did
+        // answer, so skip it.
+        continue;
+      }
+      for (const node of Array.isArray(tree?.nodes) ? tree.nodes : []) {
+        if (typeof node?.backendDOMNodeId !== 'number') {
+          continue;
+        }
+        // Some Chrome versions already include child-frame nodes in the main
+        // frame's tree; de-duplicate so those pages do not report each node
+        // twice and waste the caller's limit.
+        if (seenBackendNodeIds.has(node.backendDOMNodeId)) {
+          continue;
+        }
+        seenBackendNodeIds.add(node.backendDOMNodeId);
+        nodes.push(node);
+      }
+    }
     const out = [];
     for (const node of nodes) {
       if (out.length >= limit) {
@@ -1856,7 +2432,42 @@ async function captureAccessibilitySnapshot(tabId, options) {
       if (typeof role !== 'string' || !role) {
         continue;
       }
-      if (interestingOnly && (role === 'none' || role === 'generic' || role === 'InlineTextBox')) {
+      // Chrome exposes a contenteditable host -- the body of every rich-text
+      // editor -- as role `generic` carrying an `editable` property, NOT as
+      // `textbox`, unless the page also sets an explicit role. Dropping every
+      // `generic` node therefore filtered the editable body straight back out of
+      // the merged tree and defeated the entire point of walking frames: the
+      // caller saw the Iframe and its StaticText and no typeable control at all.
+      const editableProperty = (node.properties ?? []).find(
+        (candidate) => candidate?.name === 'editable',
+      );
+      const focusableProperty = (node.properties ?? []).find(
+        (candidate) => candidate?.name === 'focusable',
+      );
+      const editableValue = editableProperty?.value?.value;
+      const focusableValue = focusableProperty?.value?.value;
+      // `editable` alone is inherited by EVERYTHING inside an editable region --
+      // every paragraph, wrapper div, StaticText and InlineTextBox -- and Chrome
+      // also stamps it on the shadow-internal div of each <input>. Probed live:
+      // among the roles this filter can drop, only the editable HOST also
+      // reports `focusable`. (The frame's RootWebArea reports both but is never
+      // in the drop set, hence the explicit role check below.) Requiring both
+      // keeps <body id=tinymce contenteditable> and the contenteditable div, and
+      // drops the descendants that would otherwise eat the caller's node limit.
+      // `editable` alone is inherited by every node inside an editable region.
+      // `focusable` narrows it to things a caret can land on -- but the FRAME
+      // DOCUMENT (RootWebArea) reports both, and it is not a typeable target, so
+      // exclude it explicitly.
+      const isEditableHost = editableProperty !== undefined
+        && editableValue !== false
+        && editableValue !== 'false'
+        && (focusableValue === true || focusableValue === 'true')
+        && role !== 'RootWebArea';
+      if (
+        interestingOnly
+        && !isEditableHost
+        && (role === 'none' || role === 'generic' || role === 'InlineTextBox')
+      ) {
         continue;
       }
       const entry = { uid: String(node.backendDOMNodeId), role };
@@ -1890,6 +2501,7 @@ async function captureAccessibilitySnapshot(tabId, options) {
           case 'focused':
             entry.focused = raw === true || raw === 'true';
             break;
+
           case 'level':
             if (typeof raw === 'number') {
               entry.level = raw;
@@ -1898,6 +2510,18 @@ async function captureAccessibilitySnapshot(tabId, options) {
           default:
             break;
         }
+      }
+      // Emit `editable` ONLY on the host. The property switch above runs for
+      // every retained node, and `editable` is inherited, so emitting it there
+      // marked the frame document, every paragraph and every text run as well.
+      // A paragraph inside a contenteditable ACCEPTS a write and reports
+      // success, so a marker on it points an unattended agent at overwriting one
+      // paragraph of the editor and being told it worked -- the same class of
+      // confident-wrong-write this whole change set exists to remove.
+      if (isEditableHost && typeof editableValue === 'string' && editableValue) {
+        entry.editable = editableValue;
+      } else if (isEditableHost && editableValue === true) {
+        entry.editable = 'plaintext';
       }
       out.push(entry);
     }
@@ -2083,11 +2707,166 @@ async function runInTargetTab(command, action, args) {
   }
 }
 
+/**
+ * Accept only a canonical, exact http(s) origin. The coordinator derives this
+ * value from a live target and an origin-bound credential authorization; it is
+ * never supplied by the model-facing browser.type schema.
+ */
+function normalizeCredentialOrigin(value) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  try {
+    const parsed = new URL(value);
+    if (
+      (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')
+      || parsed.username !== ''
+      || parsed.password !== ''
+      || parsed.origin !== value
+    ) {
+      return null;
+    }
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
+
+/** Secret-free discovery pass. Chrome supplies the authoritative frameId. */
+function credentialFrameOriginProbe() {
+  return { origin: location.origin };
+}
+
+/**
+ * Type a vault-resolved value into a shared extension tab without ever
+ * exposing it to an unrelated frame. Frame discovery carries no secret. The
+ * top-level tab is checked both before and after discovery, then the secret is
+ * injected only into exact-origin frameIds. pageBridgeScript checks origin once
+ * more inside each isolated execution immediately before touching the DOM.
+ */
+async function runOriginBoundType(
+  command,
+  selector,
+  value,
+  expectedOriginValue,
+  credentialProtectionValue,
+) {
+  assertGatewayEnabled();
+  const expectedOrigin = normalizeCredentialOrigin(expectedOriginValue);
+  if (!expectedOrigin) {
+    throw new Error('invalid_credential_origin');
+  }
+  const credentialProtection = credentialProtectionValue === undefined
+    ? 'secret'
+    : credentialProtectionValue;
+  if (!['public', 'password', 'secret'].includes(credentialProtection)) {
+    throw new Error('invalid_credential_protection');
+  }
+  const tabId = requireTargetTabId(command);
+  const readTopLevelOrigin = async () => {
+    const tab = await chrome.tabs.get(tabId);
+    try {
+      return new URL(tab?.url ?? '').origin;
+    } catch {
+      return '';
+    }
+  };
+  const controlToken = await startControlledTab(tabId);
+  try {
+    if (await readTopLevelOrigin() !== expectedOrigin) {
+      throw new Error('credential_origin_changed_before_write');
+    }
+
+    const originResults = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      func: credentialFrameOriginProbe,
+    });
+    const authorizedFrameIds = (originResults ?? [])
+      .filter((entry) => entry?.result?.origin === expectedOrigin)
+      .map((entry) => entry.frameId)
+      .filter((frameId) => typeof frameId === 'number');
+    if (!authorizedFrameIds.includes(0)) {
+      throw new Error('credential_top_level_origin_not_authorized');
+    }
+    if (await readTopLevelOrigin() !== expectedOrigin) {
+      throw new Error('credential_origin_changed_before_write');
+    }
+
+    if (credentialProtection !== 'public') {
+      await markSecretTaint(tabId, expectedOrigin);
+    }
+
+    let injectionResults;
+    try {
+      injectionResults = await chrome.scripting.executeScript({
+        target: { tabId, frameIds: authorizedFrameIds },
+        func: pageBridgeScript,
+        args: ['type', [selector, value], expectedOrigin, credentialProtection],
+        world: 'ISOLATED',
+      });
+    } catch {
+      if (credentialProtection !== 'public') {
+        // A navigation may have cleared the pre-write taint while Chrome was
+        // dispatching. Re-arm it even on an ambiguous injection failure because
+        // an authorized frame may already have accepted the value.
+        await markSecretTaint(tabId, expectedOrigin).catch(() => undefined);
+      }
+      // Chrome may include serialized function arguments in an injection
+      // failure. Discard the original exception before it can enter logs,
+      // traces, or the native command response. Some frames may already have
+      // applied the write, so the result is deliberately non-retryable.
+      throw new Error(
+        'credential_write_dispatch_failed_or_may_have_applied_DO_NOT_retry_without_verifying_page_state',
+      );
+    }
+    if (credentialProtection !== 'public') {
+      // Close the loading-event race: navigation can clear the pre-write mark
+      // after the final origin check but before the injected function settles.
+      await markSecretTaint(tabId, expectedOrigin);
+    }
+    const frameResults = (injectionResults ?? [])
+      .map((entry) => entry?.result)
+      .filter((result) => result != null)
+      .map((result) => result?.__refusal
+        ? { ...result, __refusal: 'credential_write_refused' }
+        : result);
+    const originMismatches = frameResults.filter(
+      (result) => result?.__credentialOriginMismatch === true,
+    ).length;
+    if (originMismatches > 0) {
+      const applied = frameResults.filter(
+        (result) => result?.__found === true && !result?.__refusal,
+      ).length;
+      if (applied > 0) {
+        throw new Error(
+          'credential_origin_changed_during_write: the value WAS applied in '
+          + applied + ' authorized frame(s), so DO NOT retry; another frame navigated away.',
+        );
+      }
+      throw new Error('credential_origin_changed_before_write');
+    }
+    const merged = mergeFrameResults('type', frameResults, [selector]);
+    await reportTab(await chrome.tabs.get(tabId)).catch(() => undefined);
+    return merged;
+  } finally {
+    await stopControlledTab(tabId, controlToken);
+  }
+}
+
 // Reduce per-frame page-bridge results to a single value. For mutating actions
 // this also enforces that the selector matched in at least one frame, so the
 // gateway reports failure (#10) instead of a misleading success when nothing
 // was clicked/typed.
 function mergeFrameResults(action, frameResults, args) {
+  // An invalid selector is a caller error, not a missing element, and it is the
+  // same in every frame. Raise it whatever the action -- including the read and
+  // wait_for paths, where "not found" or "timed out" would send an unattended
+  // agent to wait for a page state that can never arrive.
+  const invalidSelector = frameResults.find((result) => result && result.__invalidSelector);
+  if (invalidSelector) {
+    throw new Error(invalidSelector.__invalidSelector);
+  }
+
   if (action === 'query_elements') {
     const limit = typeof args?.[1] === 'number' ? args[1] : 50;
     const elements = [];
@@ -2101,11 +2880,77 @@ function mergeFrameResults(action, frameResults, args) {
 
   if (action === 'fill_form') {
     const fields = Array.isArray(args?.[0]) ? args[0] : [];
+    // The page bridge is injected into EVERY frame and each frame runs the whole
+    // field loop independently, so a refusal only stops the frame that refused --
+    // sibling frames have already written their matching fields by the time the
+    // merge runs, and we cannot call them back. One frame's `__applied` is
+    // therefore a single-frame view of a multi-frame write. Union it across all
+    // frames so the error names everything that actually landed; under-reporting
+    // a write into a live submission body is exactly the unaudited change this
+    // work exists to prevent.
+    const appliedAcrossFrames = [];
+    for (const result of frameResults) {
+      const perFields = result && Array.isArray(result.__fields) ? result.__fields : [];
+      for (const perField of perFields) {
+        if (
+          perField
+          && perField.__found
+          && !perField.__refusal
+          && typeof perField.selector === 'string'
+          && !appliedAcrossFrames.includes(perField.selector)
+        ) {
+          appliedAcrossFrames.push(perField.selector);
+        }
+      }
+    }
     const merged = fields.map((field, index) => {
+      // Prefer a frame that actually applied this field. Throwing on the first
+      // frame that refused reported a failed fill for a form whose every field
+      // landed -- the same masking that `type` above had to fix -- and an
+      // unattended retry then writes the whole form twice.
+      const appliedForField = [];
+      for (const result of frameResults) {
+        const perField = result && Array.isArray(result.__fields) ? result.__fields[index] : undefined;
+        if (perField?.__found && !perField.__refusal && !perField.invalid) {
+          appliedForField.push(perField);
+        }
+      }
+      if (appliedForField.length > 1) {
+        // Same hazard `type` raises: a generic selector present in both the page
+        // and an editor iframe is written TWICE and would be reported as one
+        // write. fill_form has its own branch, so it needs its own check --
+        // without it the identical form failed loudly or silently depending only
+        // on whether any field happened to use a uid.
+        throw new Error(
+          'Ambiguous selector for fill_form field ' + (index + 1) + ' of ' + fields.length
+          + ': it matched and was written in ' + appliedForField.length
+          + ' frames. DO NOT retry -- retrying writes again. Narrow the selector to a '
+          + 'single frame, or target the control by uid.',
+        );
+      }
+      if (appliedForField.length === 1) {
+        const { __found, __applied, ...rest } = appliedForField[0];
+        return rest;
+      }
       for (const result of frameResults) {
         const perField = result && Array.isArray(result.__fields) ? result.__fields[index] : undefined;
         if (perField?.invalid) {
-          throw new Error('Invalid form field selector.');
+          const applied = appliedAcrossFrames.length ? appliedAcrossFrames.join(', ') : 'none';
+          throw new Error(
+            'Invalid form field selector (no selector or uid) | fill_form stopped at field '
+            + (index + 1) + ' of ' + fields.length
+            + ' in this frame; fields already applied across all frames: ' + applied + '.',
+          );
+        }
+        if (perField?.__refusal) {
+          const applied = appliedAcrossFrames.length ? appliedAcrossFrames.join(', ') : 'none';
+          throw new Error(
+            perField.__refusal
+            + ' | fill_form stopped at field ' + (index + 1) + ' of ' + fields.length
+            + ' in this frame; fields already applied across all frames: ' + applied
+            + '. Injection is per-frame, so a refusal in one frame does not stop'
+            + ' another frame that matched a later field.',
+          );
         }
         if (perField?.__found) {
           const { __found, ...rest } = perField;
@@ -2118,8 +2963,68 @@ function mergeFrameResults(action, frameResults, args) {
   }
 
   // click / type / select: take the first frame that found the element.
+  // Injection is per-frame, so one selector can match in several frames at once.
+  // Two shapes are dangerous and BOTH must be loud:
+  //   - a wrapper in the main frame refuses while the real control in an editor
+  //     frame is written: throwing the refusal alone says nothing happened when
+  //     the tender body was in fact overwritten;
+  //   - the same selector matches in two frames and BOTH are written.
+  // Returning success cannot express either, because the gateway discards a
+  // mutation's payload and only the thrown message reaches the caller. So raise
+  // an error that states plainly that the write DID land and must not be
+  // retried -- a silent success hides it, and a bare failure invites a retry
+  // that writes twice.
+  const appliedFrames = frameResults.filter(
+    (result) => result && result.__found === true && !result.__refusal,
+  );
+  const refusals = frameResults
+    .filter((result) => result && result.__refusal)
+    .map((result) => result.__refusal);
+  // Restricted to the value-carrying mutations. `read_control` and `find` route
+  // through this branch too and write NOTHING, so raising "the value WAS
+  // applied" there broke assert_persisted and -- worse -- made a `type` that
+  // genuinely landed report as failed when its independent `verify` selector
+  // matched in two frames. `click` is excluded because a generic selector like
+  // `body` legitimately matches every frame and previously worked; a click also
+  // carries no value that can overwrite content.
+  const isValueMutation = action === 'type' || action === 'select';
+  // `click` carries no value, so a duplicate match cannot overwrite content --
+  // but it CAN activate twice, and every matching frame has already dispatched a
+  // real click by the time this runs. Excluding click wholesale (round 8) meant
+  // `click('button[type=submit]')` on a page with a same-origin iframed form
+  // submitted BOTH and reported one success. Raise only when a duplicate match
+  // is an activating control, which keeps the routine `click('body')` working.
+  const ACTIVATING_TAGS = ['BUTTON', 'A', 'INPUT', 'SUMMARY', 'OPTION'];
+  const duplicateActivation = action === 'click'
+    && appliedFrames.length > 1
+    && appliedFrames.some((result) => ACTIVATING_TAGS.includes(String(result.tagName || '').toUpperCase()));
+  if (duplicateActivation) {
+    throw new Error(
+      'Ambiguous selector: it matched an activating control in '
+      + appliedFrames.length + ' frames, and every match was ALREADY clicked. '
+      + 'DO NOT retry -- retrying activates them again. Narrow the selector to a '
+      + 'single frame, or target the control by uid.',
+    );
+  }
+  if (isValueMutation
+    && (appliedFrames.length > 1 || (appliedFrames.length === 1 && refusals.length > 0))) {
+    throw new Error(
+      'Ambiguous selector: it matched in '
+      + (appliedFrames.length + refusals.length) + ' frames. The value WAS applied in '
+      + appliedFrames.length + ' of them, so DO NOT retry -- retrying writes again.'
+      + (refusals.length ? ' Other frames refused: ' + refusals.join('; ') + '.' : '')
+      + ' Narrow the selector to a single frame, or target the control by uid.',
+    );
+  }
+  if (appliedFrames.length === 1) {
+    const { __found, ...rest } = appliedFrames[0];
+    return rest;
+  }
   const hit = frameResults.find((result) => result && result.__found === true);
   if (hit) {
+    if (hit.__refusal) {
+      throw new Error(hit.__refusal);
+    }
     const { __found, ...rest } = hit;
     return rest;
   }
@@ -2141,9 +3046,14 @@ async function waitForSelectorAcrossFrames(tabId, selector, timeoutMs) {
       func: pageBridgeScript,
       args: ['find', [selector]],
     }).catch(() => []);
-    const hit = (injectionResults ?? [])
-      .map((entry) => entry?.result)
-      .find((value) => value && value.__found === true);
+    const pollResults = (injectionResults ?? []).map((entry) => entry?.result);
+    const invalidPollSelector = pollResults.find((value) => value && value.__invalidSelector);
+    if (invalidPollSelector) {
+      // Polling a malformed selector can never succeed; fail now rather than
+      // burning the whole timeout and then reporting a plain timeout.
+      throw new Error(invalidPollSelector.__invalidSelector);
+    }
+    const hit = pollResults.find((value) => value && value.__found === true);
     if (hit) {
       await reportTab(await chrome.tabs.get(tabId));
       const { __found, ...rest } = hit;
@@ -2156,11 +3066,29 @@ async function waitForSelectorAcrossFrames(tabId, selector, timeoutMs) {
   }
 }
 
-async function buildTabPayload(tab, options = {}) {
+function buildTabPayload(tab, options = {}) {
+  return runWithSecretObservationBoundary(() => buildTabPayloadLocked(tab, options));
+}
+
+async function buildTabPayloadLocked(tab, options = {}) {
   if (!isWebTab(tab)) {
     throw new Error('Chrome tab is not an http(s) page.');
   }
-  const page = options.includeText
+  // Inventory and post-mutation attach reports are emitted autonomously, not
+  // only in response to a model read tool. Apply the same persisted taint at
+  // this shared payload boundary so a vault-filled value can never hitchhike
+  // through page text or screenshot bytes.
+  let secretTainted = true;
+  let secretTaintedOrigin = '';
+  try {
+    const storedOrigin = await secretTaintOriginForTab(tab);
+    secretTainted = typeof storedOrigin === 'string';
+    secretTaintedOrigin = storedOrigin ?? '';
+  } catch {
+    // Storage uncertainty fails closed for observation; URL/title metadata is
+    // still safe and keeps target discovery operational.
+  }
+  let page = options.includeText && !secretTainted
     // capturePageText() no longer rejects on a permission failure (see below),
     // so this catch only covers unexpected errors upstream of that call (e.g.
     // assertGatewayEnabled() throwing if the gateway was disabled mid-flight).
@@ -2172,21 +3100,42 @@ async function buildTabPayload(tab, options = {}) {
       textUnavailableReason: 'page_text_read_failed',
     }))
     : { title: tab.title, text: '', textUnavailableReason: null };
-  const screenshotBase64 = options.includeScreenshot
+  let screenshotBase64 = options.includeScreenshot && !secretTainted
     ? await captureTabScreenshot(tab.id, { fullPage: false }).catch(() => undefined)
     : undefined;
+  if (!secretTainted) {
+    // Close the in-flight inventory race: this payload may have started before
+    // markSecretTaint tagged sibling tabs, then captured page text while the
+    // secret-bearing input handler was running. Recheck after every page read
+    // and discard the entire capture if the tab became tainted meanwhile.
+    const postCaptureOrigin = await secretTaintOriginForTab(tab);
+    if (typeof postCaptureOrigin === 'string') {
+      secretTainted = true;
+      secretTaintedOrigin = postCaptureOrigin;
+      page = { title: tab.title, text: '', textUnavailableReason: null };
+      screenshotBase64 = undefined;
+    }
+  }
+  const safeUrl = secretTainted ? secretTaintedOrigin + '/' : tab.url;
 
   return {
     tabId: tab.id,
     windowId: tab.windowId,
-    url: tab.url,
-    title: page.title || tab.title || tab.url,
+    url: safeUrl,
+    // document.title and the URL path/query/hash are page-controlled. A page
+    // can mirror an input value into either synchronously from its input event,
+    // so tainted payloads expose only fixed metadata plus the canonical origin.
+    title: secretTainted ? 'Secret-filled tab' : page.title || tab.title || tab.url,
     text: page.text || '',
     // Only present when the page text genuinely could not be read (e.g. the
     // extension has no host permission for this origin). Omitted entirely on
     // a normal read, including a legitimately empty page, so existing callers
     // that only look at `text` are unaffected.
-    ...(page.textUnavailableReason ? { textUnavailableReason: page.textUnavailableReason } : {}),
+    ...(secretTainted
+      ? { textUnavailableReason: 'browser_secret_observation_blocked_for_tainted_origin' }
+      : page.textUnavailableReason
+        ? { textUnavailableReason: page.textUnavailableReason }
+        : {}),
     ...(screenshotBase64 ? { screenshotBase64 } : {}),
     capturedAt: Date.now(),
   };
@@ -3162,7 +4111,11 @@ function removeControlGlowScript() {
   document.getElementById('aio-browser-control-glow')?.remove();
 }
 
-function pageBridgeScript(action, args) {
+function pageBridgeScript(action, args, expectedCredentialOrigin, credentialProtection) {
+  const originBound = typeof expectedCredentialOrigin === 'string';
+  if (originBound && location.origin !== expectedCredentialOrigin) {
+    return { __credentialOriginMismatch: true };
+  }
   function deepQuerySelector(selector, root = document) {
     const direct = root.querySelector?.(selector);
     if (direct) {
@@ -3285,6 +4238,19 @@ function pageBridgeScript(action, args) {
   // Non-throwing lookup used by per-frame action handlers: a frame that does not
   // contain the element returns a not-found sentinel instead of throwing, so the
   // background script can pick whichever frame actually matched.
+  // querySelector THROWS on an invalid selector, which would otherwise discard
+  // this frame's entire result. The merge then reports "No element matches
+  // selector", telling an unattended agent to wait for a page state that will
+  // never arrive instead of that its selector is malformed. Report it as a
+  // refusal so the real reason travels back.
+  function findElementSafe(selector) {
+    try {
+      return { element: findElement(selector) };
+    } catch (error) {
+      return { invalidSelector: 'invalid CSS selector: ' + String((error && error.message) || error) };
+    }
+  }
+
   function findElement(selector) {
     return deepQuerySelector(selector);
   }
@@ -3332,6 +4298,84 @@ function pageBridgeScript(action, args) {
   }
 
   function applyType(element, value) {
+    // Same honesty as the uid path. setNativeValue below ends in
+    // `element.value = value`, which on an <iframe> or <div> only creates an
+    // expando that valueApplied then reads straight back as true. The uid path's
+    // refusal tells callers to retry with a CSS selector, so leaving this path
+    // unguarded routed them from an honest error into an identical silent
+    // failure -- the 2026-08-28 blank-message incident, reachable through the
+    // fix's own recommended remedy.
+    if (!element || element.nodeType !== 1) {
+      throw new Error(
+        'type target is not an element (it resolved to '
+        + (element && element.nodeName ? String(element.nodeName) : 'a non-element')
+        + '). Target the control element itself.',
+      );
+    }
+    const acceptsTypedText = element.isContentEditable
+      || (typeof HTMLInputElement !== 'undefined' && element instanceof HTMLInputElement)
+      || (typeof HTMLTextAreaElement !== 'undefined' && element instanceof HTMLTextAreaElement)
+      || (typeof HTMLSelectElement !== 'undefined' && element instanceof HTMLSelectElement)
+      || ('value' in element && String(element.tagName || '').includes('-'));
+    // applyType does NO option matching, so even a CORRECT visible label ("Yes"
+    // where the option value is "1") cleared the control -- and fill_form's flat
+    // {selector, value} schema gives an agent no reason to route a dropdown
+    // through browser.select instead.
+    if (typeof HTMLSelectElement !== 'undefined' && element instanceof HTMLSelectElement) {
+      // Matching mirrors resolveSelectOption (browser-select-resolver.ts) so the
+      // shared tab and the managed profile agree on the same page: NFC, collapse
+      // INTERNAL whitespace (indented markup puts a newline inside the label),
+      // strip trailing .:* decoration. Disabled options are excluded -- a value no
+      // human could pick must never be submitted.
+      const normaliseOptionText = (text) => String(text == null ? '' : text)
+        .normalize('NFC')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/[.:*]+$/, '')
+        .trim();
+      const wantedOption = normaliseOptionText(value);
+      const options = Array.from(element.options || []).filter((option) => !option.disabled);
+      const match = options.find((option) => option.value === value)
+        || options.find((option) => normaliseOptionText(option.label) === wantedOption)
+        || options.find((option) => normaliseOptionText(option.textContent).toLowerCase()
+          === wantedOption.toLowerCase());
+      if (!match) {
+        const available = options
+          .map((option) => (option.label || option.textContent || option.value || '').trim())
+          .filter(Boolean)
+          .slice(0, 20)
+          .join(' | ');
+        throw new Error(
+          'no <select> option matches "' + String(value).slice(0, 100)
+          + '". Nothing was changed (assigning an unknown value sets selectedIndex to -1, '
+          + 'which CLEARS the control and destroys whatever was already selected). '
+          + 'Available options: ' + (available || '(none)'),
+        );
+      }
+      if (element.multiple) {
+        match.selected = true;
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+        return {
+          ...describeElement(element),
+          valueAfter: match.value,
+          valueApplied: true,
+          disabled: Boolean(element.disabled),
+          readOnly: Boolean(element.readOnly),
+        };
+      }
+      value = match.value;
+    }
+    if (!acceptsTypedText) {
+      throw new Error(
+        'type target cannot accept typed text: <'
+        + String(element.tagName || 'unknown').toLowerCase()
+        + '> is not an input, textarea, select, contenteditable host, or a custom '
+        + 'element exposing a value accessor. A rich-text editor keeps its editable '
+        + 'body inside an iframe -- select that body (e.g. the contenteditable '
+        + 'element), not the iframe wrapping it.',
+      );
+    }
     element.scrollIntoView({ block: 'center', inline: 'center' });
     element.focus();
     if (element.isContentEditable) {
@@ -3393,12 +4437,45 @@ function pageBridgeScript(action, args) {
     element.scrollIntoView({ block: 'center', inline: 'center' });
     // Native <select>: match by value, then label, then visible option text.
     if (element.tagName === 'SELECT') {
-      element.focus();
-      const options = Array.from(element.options || []);
+      // Matching mirrors resolveSelectOption (browser-select-resolver.ts) so the
+      // shared tab and the managed profile agree on the same page: NFC, collapse
+      // INTERNAL whitespace (indented markup puts a newline inside the label),
+      // strip trailing .:* decoration. Disabled options are excluded -- a value no
+      // human could pick must never be submitted.
+      const normaliseOptionText = (text) => String(text == null ? '' : text)
+        .normalize('NFC')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/[.:*]+$/, '')
+        .trim();
+      const wantedOption = normaliseOptionText(value);
+      const options = Array.from(element.options || []).filter((option) => !option.disabled);
       const match = options.find((option) => option.value === value)
-        || options.find((option) => (option.label || '').trim() === String(value).trim())
-        || options.find((option) => (option.textContent || '').trim().toLowerCase() === String(value).trim().toLowerCase());
-      setNativeValue(element, match ? match.value : value);
+        || options.find((option) => normaliseOptionText(option.label) === wantedOption)
+        || options.find((option) => normaliseOptionText(option.textContent).toLowerCase()
+          === wantedOption.toLowerCase());
+      if (!match) {
+        // Assigning an unknown value sets selectedIndex to -1, CLEARING the
+        // control and destroying any correct selection already there -- and the
+        // gateway discards the payload, so `matchedOption: null` went nowhere
+        // and this was reported as success. Change nothing and say so.
+        const available = options
+          .map((option) => (option.label || option.textContent || option.value || '').trim())
+          .filter(Boolean)
+          .slice(0, 20)
+          .join(' | ');
+        throw new Error(
+          'select found no option matching "' + String(value).slice(0, 100)
+          + '" in this <select>. Nothing was changed (assigning an unknown value would '
+          + 'have cleared the current selection). Available options: '
+          + (available || '(none)'),
+        );
+      }
+      if (element.multiple) {
+        match.selected = true;
+      } else {
+        setNativeValue(element, match.value);
+      }
       element.dispatchEvent(new Event('input', { bubbles: true }));
       element.dispatchEvent(new Event('change', { bubbles: true }));
       return {
@@ -3410,7 +4487,7 @@ function pageBridgeScript(action, args) {
 
     // Custom dropdown: open it, then wait briefly for async-rendered options.
     dispatchRealClick(element);
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const deadline = Date.now() + 2000;
       const attempt = () => {
         const option = findOptionByText(value);
@@ -3424,12 +4501,18 @@ function pageBridgeScript(action, args) {
           return;
         }
         if (Date.now() >= deadline) {
-          resolve({
-            ...describeElement(element),
-            selectedOption: null,
-            matchedOption: null,
-            note: 'custom_select_option_not_found',
-          });
+          // Resolving here reported SUCCESS for a selection that never
+          // happened: the gateway discards a mutation's payload, so the `note`
+          // went nowhere and the agent was told the option was chosen while the
+          // dropdown sat open with nothing selected. Reject so the failure is
+          // the outcome, not a footnote -- uidSelectFn already refuses a custom
+          // dropdown outright rather than pretending.
+          reject(new Error(
+            'select found no option matching "' + String(value).slice(0, 100)
+            + '" in this custom dropdown within 2000ms. The dropdown was opened '
+            + 'and left open; nothing was selected. Check the option text, or '
+            + 'click the option element directly.',
+          ));
           return;
         }
         setTimeout(attempt, 100);
@@ -3633,7 +4716,14 @@ function pageBridgeScript(action, args) {
 
   if (action === 'read_control') {
     const [selector] = args;
-    const element = findElement(selector);
+    const found = findElementSafe(selector);
+    if (found.invalidSelector) {
+      // NOT `__found: true`: the wait_for poll selects purely on `__found` and
+      // would report that the awaited element had appeared. A distinct sentinel
+      // keeps "your selector is malformed" separate from "it matched".
+      return { __invalidSelector: found.invalidSelector };
+    }
+    const element = found.element;
     if (!element) {
       return { __found: false };
     }
@@ -3649,7 +4739,14 @@ function pageBridgeScript(action, args) {
   // Per-frame existence probe used by the background all-frames wait_for poll.
   if (action === 'find') {
     const [selector] = args;
-    const element = findElement(selector);
+    const found = findElementSafe(selector);
+    if (found.invalidSelector) {
+      // NOT `__found: true`: the wait_for poll selects purely on `__found` and
+      // would report that the awaited element had appeared. A distinct sentinel
+      // keeps "your selector is malformed" separate from "it matched".
+      return { __invalidSelector: found.invalidSelector };
+    }
+    const element = found.element;
     return element
       ? { __found: true, ...describeElement(element) }
       : { __found: false };
@@ -3657,7 +4754,14 @@ function pageBridgeScript(action, args) {
 
   if (action === 'click') {
     const [selector] = args;
-    const element = findElement(selector);
+    const found = findElementSafe(selector);
+    if (found.invalidSelector) {
+      // NOT `__found: true`: the wait_for poll selects purely on `__found` and
+      // would report that the awaited element had appeared. A distinct sentinel
+      // keeps "your selector is malformed" separate from "it matched".
+      return { __invalidSelector: found.invalidSelector };
+    }
+    const element = found.element;
     if (!element) {
       return { __found: false };
     }
@@ -3673,38 +4777,137 @@ function pageBridgeScript(action, args) {
 
   if (action === 'type') {
     const [selector, value] = args;
-    const element = findElement(selector);
+    const found = findElementSafe(selector);
+    if (found.invalidSelector) {
+      // NOT `__found: true`: the wait_for poll selects purely on `__found` and
+      // would report that the awaited element had appeared. A distinct sentinel
+      // keeps "your selector is malformed" separate from "it matched".
+      return { __invalidSelector: found.invalidSelector };
+    }
+    const element = found.element;
     if (!element) {
       return { __found: false };
     }
-    return { __found: true, ...applyType(element, value) };
+    if (
+      originBound
+      && credentialProtection === 'password'
+      && !(
+        typeof HTMLInputElement !== 'undefined'
+        && element instanceof HTMLInputElement
+        && String(element.type || '').toLowerCase() === 'password'
+      )
+    ) {
+      return { __found: true, __refusal: 'credential_password_requires_masked_input' };
+    }
+    try {
+      const applied = applyType(element, value);
+      if (originBound) {
+        // Every element property is page-controlled and can be redefined by an
+        // input handler after the value is dispatched. Return fixed status only;
+        // never copy tagName, disabled, readOnly, or any other DOM field into a
+        // credential response.
+        return { __found: true, valueApplied: true };
+      }
+      return { __found: true, ...applied };
+    } catch (error) {
+      // The element MATCHED and was deliberately refused. Throwing here loses
+      // the reason: the frame contributes no result, and mergeFrameResults then
+      // reports "No element matches selector", which is false and sends the
+      // caller hunting the wrong problem. Carry the reason back instead.
+      return {
+        __found: true,
+        __refusal: originBound
+          ? 'credential_write_refused'
+          : String((error && error.message) || error),
+      };
+    }
   }
 
   if (action === 'fill_form') {
     const [fields] = args;
-    const fieldResults = (Array.isArray(fields) ? fields : []).map((field) => {
+    const fieldResults = [];
+    const appliedSoFar = () => fieldResults
+      .filter((entry) => entry.__found && !entry.__refusal)
+      .map((entry) => entry.selector);
+    for (const field of Array.isArray(fields) ? fields : []) {
       if (!field || typeof field.selector !== 'string') {
-        return { __found: false, invalid: true };
+        // STOP. Continuing wrote the remaining fields and then reported a bare
+        // "Invalid form field selector." with no index and no list of what had
+        // already landed -- a partial write into a live form, unaudited.
+        fieldResults.push({ __found: false, invalid: true, __applied: appliedSoFar() });
+        break;
       }
-      const element = findElement(field.selector);
+      let element;
+      try {
+        element = findElement(field.selector);
+      } catch (error) {
+        // querySelector THROWS on an invalid selector (`div:contains(x)` is the
+        // classic). Uncaught, that discards this frame's entire result, the
+        // merge falls through to "No element matches selector" naming FIELD 1,
+        // and every field already written in this frame stays written while the
+        // caller is told nothing matched.
+        fieldResults.push({
+          selector: field.selector,
+          __refusal: 'invalid CSS selector: ' + String((error && error.message) || error),
+          __applied: appliedSoFar(),
+        });
+        break;
+      }
       if (!element) {
-        return { __found: false, selector: field.selector };
+        fieldResults.push({ __found: false, selector: field.selector });
+        continue;
       }
-      return { __found: true, selector: field.selector, ...applyType(element, String(field.value ?? '')) };
-    });
+      try {
+        fieldResults.push({
+          __found: true,
+          selector: field.selector,
+          ...applyType(element, String(field.value ?? '')),
+        });
+      } catch (error) {
+        // Stop writing -- the remaining fields must not go into a half-filled
+        // form -- but record which selectors already landed. The uid path got
+        // this in an earlier round; this selector path is the one the uid
+        // refusal actively steers callers towards, so it needs it more.
+        fieldResults.push({
+          __found: true,
+          selector: field.selector,
+          __refusal: String((error && error.message) || error),
+          __applied: appliedSoFar(),
+        });
+        break;
+      }
+    }
     return { __fields: fieldResults };
   }
 
   if (action === 'select') {
     const [selector, value] = args;
-    const element = findElement(selector);
+    const found = findElementSafe(selector);
+    if (found.invalidSelector) {
+      // NOT `__found: true`: the wait_for poll selects purely on `__found` and
+      // would report that the awaited element had appeared. A distinct sentinel
+      // keeps "your selector is malformed" separate from "it matched".
+      return { __invalidSelector: found.invalidSelector };
+    }
+    const element = found.element;
     if (!element) {
       return { __found: false };
     }
-    return Promise.resolve(selectValue(element, value)).then((result) => ({
-      __found: true,
-      ...result,
-    }));
+    // A throw or rejection escaping the injected function makes this frame
+    // contribute NO result, and the merge then reports "No element matches
+    // selector" -- telling the caller the control does not exist while the
+    // dropdown sits open. Carry the real reason back instead, both for a
+    // synchronous throw and an async rejection.
+    try {
+      return Promise.resolve(selectValue(element, value))
+        .then((result) => ({ __found: true, ...result }))
+        .catch((error) => ({
+          __found: true,
+          __refusal: String((error && error.message) || error),
+        }));
+    } catch (error) {
+      return { __found: true, __refusal: String((error && error.message) || error) };
+    }
   }
 
   throw new Error(`Unsupported page bridge action: ${action}`);

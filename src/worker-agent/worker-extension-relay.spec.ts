@@ -168,7 +168,7 @@ describe('WorkerExtensionRelay', () => {
   });
 
   it('records extension version and service-worker start time from authenticated messages', async () => {
-    const { relay } = makeRelay();
+    const { relay, sendRequest } = makeRelay();
 
     await relay.handleExtensionRpcRequest({
       method: 'browser.extension_poll_command',
@@ -186,7 +186,63 @@ describe('WorkerExtensionRelay', () => {
       extensionVersion: '0.2.1',
       extensionReloadedAt: 1_700_000_000_000,
     });
+    expect(sendRequest).toHaveBeenLastCalledWith(
+      NODE_TO_COORDINATOR.BROWSER_EXT_POLL_COMMAND,
+      {
+        timeoutMs: 1000,
+        extensionVersion: '0.2.1',
+        extensionStartedAt: 1_700_000_000_000,
+      },
+      11_000,
+    );
+
+    await relay.handleExtensionRpcRequest({
+      method: 'browser.extension_poll_command',
+      params: {
+        extensionToken: 'extension-token',
+        payload: { timeoutMs: 1000, extensionStartedAt: 1_700_000_000_100 },
+      },
+    });
+
+    expect(relay.getSummary()).not.toHaveProperty('extensionVersion');
+    expect(relay.getSummary()).toMatchObject({
+      extensionReloadedAt: 1_700_000_000_100,
+    });
+    expect(sendRequest).toHaveBeenLastCalledWith(
+      NODE_TO_COORDINATOR.BROWSER_EXT_POLL_COMMAND,
+      {
+        timeoutMs: 1000,
+        extensionStartedAt: 1_700_000_000_100,
+      },
+      11_000,
+    );
   });
+
+  it.each([-1, 1.5])(
+    'does not normalize malformed extension start evidence at %s',
+    async (extensionStartedAt) => {
+      const { relay, sendRequest } = makeRelay();
+
+      await relay.handleExtensionRpcRequest({
+        method: 'browser.extension_poll_command',
+        params: {
+          extensionToken: 'extension-token',
+          payload: {
+            timeoutMs: 1000,
+            extensionVersion: '0.2.17',
+            extensionStartedAt,
+          },
+        },
+      });
+
+      expect(relay.getSummary()).not.toHaveProperty('extensionReloadedAt');
+      expect(sendRequest).toHaveBeenLastCalledWith(
+        NODE_TO_COORDINATOR.BROWSER_EXT_POLL_COMMAND,
+        { timeoutMs: 1000, extensionVersion: '0.2.17' },
+        11_000,
+      );
+    },
+  );
 
   it('logs extension first-contact, contact lost, contact resumed, and poll heartbeats', async () => {
     const { relay, logger, setNow } = makeRelay();

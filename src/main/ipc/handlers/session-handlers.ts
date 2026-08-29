@@ -40,6 +40,7 @@ import {
 } from '@contracts/schemas/session';
 import type { ExportedSession } from '../../../shared/types/instance.types';
 import type { InstanceManager } from '../../instance/instance-manager';
+import { getAutoTitleService } from '../../instance/auto-title-service';
 import { getHistoryManager } from '../../history';
 import { getSessionArchiveManager } from '../../session/session-archive';
 import { getSessionShareService } from '../../session/session-share-service';
@@ -818,6 +819,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
       try {
         const validated = validateIpcPayload(HistoryListPayloadSchema, payload, 'HISTORY_LIST');
         const entries = history.getEntries(validated);
+        if (process.env['VITEST'] !== 'true') void history.backfillMissingAiTitles(entries, (text) => getAutoTitleService().generateLocalTitle(text));
         return {
           success: true,
           data: entries

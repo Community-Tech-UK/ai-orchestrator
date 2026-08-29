@@ -61,6 +61,23 @@ describe('BrowserExistingTabOperations mutation guards', () => {
     expect(sendCommand).toHaveBeenCalledTimes(1);
   });
 
+  it('never reports a timed-out origin-bound secret write as definitely unapplied', async () => {
+    const sendCommand = vi.fn().mockRejectedValue(
+      new Error('browser_extension_command_timeout'),
+    );
+    const { ops } = makeOps({ sendCommand });
+
+    await expect(ops.sendCommand(makeAttachment(), 'type', {
+      selector: '#password',
+      value: 'TEST_ONLY_SECRET',
+      credentialOrigin: 'https://ads.google.com',
+    })).rejects.toThrow(
+      /unknown_origin_bound_secret_write_may_have_applied_DO_NOT_retry_without_verifying_page_state/,
+    );
+    // No read_control or snapshot probe can safely infer a password value.
+    expect(sendCommand).toHaveBeenCalledTimes(1);
+  });
+
   it('skips guards for read commands even with a sentinel', async () => {
     const sentinel = {
       scan: vi.fn(),

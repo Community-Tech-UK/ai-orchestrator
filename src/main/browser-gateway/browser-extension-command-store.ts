@@ -98,6 +98,8 @@ export interface BrowserExtensionPollRequest {
   timeoutMs?: number;
   /** Remote relay polls wait for the RPC transport to confirm socket handoff. */
   deferHandoffConfirmation?: boolean;
+  /** True only when this exact authenticated poll can enforce origin-bound credential writes. */
+  allowSecureCredentialCommands?: boolean;
 }
 
 export interface BrowserExtensionCommandResult {
@@ -127,6 +129,7 @@ interface PendingCommand {
 
 interface CommandPoller {
   deferHandoffConfirmation: boolean;
+  allowSecureCredentialCommands: boolean;
   resolve: (command: BrowserExtensionQueuedCommand | null) => void;
 }
 
@@ -211,6 +214,7 @@ export class BrowserExtensionCommandStore {
       let timeout: NodeJS.Timeout;
       const poller: CommandPoller = {
         deferHandoffConfirmation: request.deferHandoffConfirmation ?? false,
+        allowSecureCredentialCommands: request.allowSecureCredentialCommands ?? false,
         resolve: (command) => {
           clearTimeout(timeout);
           resolve(command);
@@ -361,6 +365,11 @@ export class BrowserExtensionCommandStore {
     while (queue.length > 0 && pollers.length > 0) {
       const command = queue.shift()!;
       const poller = pollers.shift()!;
+      if (isOriginBoundCredentialCommand(command) && !poller.allowSecureCredentialCommands) {
+        this.rejectBeforeDelivery(command.id, 'shared_tab_secure_credential_fill_unavailable');
+        poller.resolve(null);
+        continue;
+      }
       this.markDelivered(command.id);
       if (poller.deferHandoffConfirmation) {
         this.handoffPending.set(queueKey, command.id);
@@ -409,6 +418,16 @@ export class BrowserExtensionCommandStore {
       return;
     }
     this.armExecutionTimeout(pending, commandId);
+  }
+
+  private rejectBeforeDelivery(commandId: string, reason: string): void {
+    const pending = this.pending.get(commandId);
+    if (!pending || pending.dequeuedAt !== undefined) {
+      return;
+    }
+    this.pending.delete(commandId);
+    clearTimeout(pending.timeout);
+    pending.reject(new Error(reason));
   }
 
   /**
@@ -490,6 +509,14 @@ export class BrowserExtensionCommandStore {
     }
     return pollers;
   }
+}
+
+function isOriginBoundCredentialCommand(command: BrowserExtensionQueuedCommand): boolean {
+  if (command.command !== 'type') {
+    return false;
+  }
+  const credentialOrigin = command.payload?.['credentialOrigin'];
+  return typeof credentialOrigin === 'string';
 }
 
 function formatDeliveredCommandTimeout(

@@ -8,10 +8,16 @@ import {
   initializeBrowserCampaignRuntime,
   stopBrowserCampaignRuntime,
 } from './browser-campaign-runtime';
-import { makeGrant, makeProfile, makeService, makeTarget } from './browser-gateway-service.test-helpers';
+import {
+  makeGrant,
+  makeProfile,
+  makeService,
+  makeTarget,
+} from './browser-gateway-service.test-helpers';
 import { WorkerNodeRegistry } from '../remote-node/worker-node-registry';
 import type { FillControlReadback } from './browser-fill-plan-executor';
 import type { BrowserNetworkRequestEntry } from './puppeteer-browser-driver';
+import { BrowserExtensionContactState } from './browser-extension-contact-state';
 
 /**
  * `makeService()`'s default driver mocks (browser-gateway-service.test-helpers.ts)
@@ -56,11 +62,44 @@ function sharedPortalTab() {
  * else (type/read_control) acks. */
 function portalExtensionCommandStore() {
   return {
+    sendCommand: vi.fn(async (req: { command: string; payload?: Record<string, unknown> }) => {
+      if (req.command === 'snapshot') {
+        return { tab: { tabId: 42, windowId: 7, url: 'https://portal.example.gov.uk/login' } };
+      }
+      if (req.command === 'type' && req.payload?.['credentialProtection'] === 'public') {
+        return { valueApplied: true };
+      }
+      return {
+        completed: true,
+        observationBlocked: 'browser_secret_observation_blocked_for_tainted_origin',
+      };
+    }),
+  };
+}
+
+function metaExtensionCommandStore() {
+  return {
     sendCommand: vi.fn(async (req: { command: string }) =>
       req.command === 'snapshot'
-        ? { tab: { tabId: 42, windowId: 7, url: 'https://portal.example.gov.uk/login' } }
+        ? { tab: { tabId: 42, windowId: 7, url: 'https://business.facebook.com/latest/home' } }
         : {},
     ),
+  };
+}
+
+function extensionContactState(extensionVersion: string | undefined) {
+  return {
+    getLastExtensionContactAt: vi.fn(() => Date.now()),
+    isExtensionContactFresh: vi.fn(() => true),
+    describeExtensionContact: vi.fn((nodeId: string) => ({
+      nodeId,
+      lastContactAt: Date.now(),
+      silent: false,
+    })),
+    getContactGapStats: vi.fn(() => ({ gapCount: 0, longestGapMs: 0 })),
+    getExtensionRuntime: vi.fn(() => extensionVersion
+      ? { extensionVersion, extensionStartedAt: 1_000 }
+      : undefined),
   };
 }
 
@@ -702,6 +741,171 @@ describe('BrowserGatewayService credentials', () => {
     });
   });
 
+  it('createAgentCredential creates an explicitly origin-bound credential from a remote extension tab without exposing a secret', async () => {
+    const SECRET_MARKER = 'TEST_ONLY_VAULT_SECRET_MARKER';
+    const vault = {
+      getSecretForFill: vi.fn(),
+      createAgentCredential: vi.fn(async () => ({
+        vaultItemRef: 'item-instagram',
+        username: '12steps.life',
+        // A faulty adapter returning an extra secret must not widen the
+        // model-facing result shape.
+        password: SECRET_MARKER,
+      })),
+      getGenericSecretForFill: vi.fn(),
+    };
+    const authorizations = { check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-instagram' })) };
+    const existingTab = {
+      ...sharedPortalTab(),
+      profileId: 'existing-tab:n.windows-pc:7:42',
+      targetId: 'existing-tab:n.windows-pc:7:42:target',
+      nodeId: 'windows-pc',
+      nodeName: 'Windows PC',
+      title: 'Meta Business Suite',
+      url: 'https://business.facebook.com/latest/home',
+      origin: 'https://business.facebook.com',
+      allowedOrigins: [
+        { scheme: 'https' as const, hostPattern: 'business.facebook.com', includeSubdomains: false },
+      ],
+    };
+    const { service, audits } = makeService({
+      credentialVault: vault,
+      credentialAuthorizations: authorizations,
+      extensionCommandStore: metaExtensionCommandStore(),
+      existingTab,
+    });
+
+    const result = await service.createAgentCredential({
+      profileId: existingTab.profileId,
+      targetId: existingTab.targetId,
+      instanceId: 'instance-1',
+      provider: 'codex',
+      itemTitle: 'Instagram — 12 Steps',
+      loginUri: 'https://www.instagram.com/',
+      username: '12steps.life',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      data: { vaultItemRef: 'item-instagram', username: '12steps.life' },
+    });
+    expect(authorizations.check).toHaveBeenCalledWith({
+      profileId: 'windows-pc',
+      origin: 'https://www.instagram.com',
+      purpose: 'register',
+    });
+    expect(vault.createAgentCredential).toHaveBeenCalledWith({
+      origin: 'https://www.instagram.com',
+      itemTitle: 'Instagram — 12 Steps',
+      loginUri: 'https://www.instagram.com/',
+      username: '12steps.life',
+    });
+    expect(JSON.stringify({ result, audits })).not.toContain(SECRET_MARKER);
+  });
+
+  it('createAgentCredential fails closed on an extension tab without an origin-bound register authorization', async () => {
+    const vault = {
+      getSecretForFill: vi.fn(),
+      createAgentCredential: vi.fn(),
+      getGenericSecretForFill: vi.fn(),
+    };
+    const authorizations = {
+      check: vi.fn(() => ({ authorized: false as const, reason: 'origin_not_authorized' as const })),
+    };
+    const existingTab = {
+      ...sharedPortalTab(),
+      profileId: 'existing-tab:n.windows-pc:7:42',
+      targetId: 'existing-tab:n.windows-pc:7:42:target',
+      nodeId: 'windows-pc',
+    };
+    const { service } = makeService({
+      credentialVault: vault,
+      credentialAuthorizations: authorizations,
+      extensionCommandStore: metaExtensionCommandStore(),
+      existingTab,
+    });
+
+    const result = await service.createAgentCredential({
+      profileId: existingTab.profileId,
+      targetId: existingTab.targetId,
+      instanceId: 'instance-1',
+      provider: 'codex',
+      loginUri: 'https://www.instagram.com/',
+      username: '12steps.life',
+    });
+
+    expect(result).toMatchObject({ decision: 'denied', outcome: 'not_run' });
+    expect(authorizations.check).toHaveBeenCalledWith({
+      profileId: 'windows-pc',
+      origin: 'https://www.instagram.com',
+      purpose: 'register',
+    });
+    expect(vault.createAgentCredential).not.toHaveBeenCalled();
+  });
+
+  it('createAgentCredential rejects a forged extension profile before a node authorization can create a vault item', async () => {
+    const vault = {
+      getSecretForFill: vi.fn(),
+      createAgentCredential: vi.fn(async () => ({
+        vaultItemRef: 'must-not-exist',
+        username: '12steps.life',
+      })),
+      getGenericSecretForFill: vi.fn(),
+    };
+    const authorizations = { check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-instagram' })) };
+    const { service } = makeService({
+      credentialVault: vault,
+      credentialAuthorizations: authorizations,
+    });
+
+    const result = await service.createAgentCredential({
+      profileId: 'existing-tab:n.windows-pc:999:999',
+      targetId: 'existing-tab:n.windows-pc:999:999:target',
+      instanceId: 'instance-1',
+      provider: 'codex',
+      loginUri: 'https://www.instagram.com/',
+      username: '12steps.life',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'denied',
+      outcome: 'not_run',
+      reason: 'target_unavailable',
+    });
+    expect(authorizations.check).not.toHaveBeenCalled();
+    expect(vault.createAgentCredential).not.toHaveBeenCalled();
+  });
+
+  it('createAgentCredential rejects a non-http or credential-bearing login URI before authorization', async () => {
+    const vault = {
+      getSecretForFill: vi.fn(),
+      createAgentCredential: vi.fn(),
+      getGenericSecretForFill: vi.fn(),
+    };
+    const authorizations = { check: vi.fn() };
+    const { service } = makeService({ credentialVault: vault, credentialAuthorizations: authorizations });
+
+    for (const loginUri of ['file:///tmp/not-a-login', 'https://user:pass@www.instagram.com/']) {
+      const result = await service.createAgentCredential({
+        profileId: 'profile-1',
+        targetId: 'target-1',
+        instanceId: 'instance-1',
+        provider: 'codex',
+        loginUri,
+        username: '12steps.life',
+      });
+      expect(result).toMatchObject({
+        decision: 'denied',
+        outcome: 'not_run',
+        reason: 'invalid_login_uri',
+      });
+    }
+
+    expect(authorizations.check).not.toHaveBeenCalled();
+    expect(vault.createAgentCredential).not.toHaveBeenCalled();
+  });
+
   it('createAgentCredential records a new-account budget hit under a campaign lease', async () => {
     const vault = {
       getSecretForFill: vi.fn(),
@@ -825,6 +1029,7 @@ describe('BrowserGatewayService credentials', () => {
       credentialVault: vault,
       credentialAuthorizations: authorizations,
       extensionCommandStore,
+      extensionContactState: extensionContactState('0.2.18'),
       allowSharedTabCredentialFill: () => true,
       existingTab: sharedPortalTab(),
     });
@@ -852,13 +1057,329 @@ describe('BrowserGatewayService credentials', () => {
     expect(extensionCommandStore.sendCommand).toHaveBeenCalledWith(
       expect.objectContaining({
         command: 'type',
-        payload: expect.objectContaining({ selector: '#pass', value: SECRET }),
+        payload: expect.objectContaining({
+          selector: '#pass',
+          value: SECRET,
+          credentialOrigin: 'https://portal.example.gov.uk',
+          credentialProtection: 'password',
+        }),
+      }),
+    );
+    expect(extensionCommandStore.sendCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'type',
+        payload: expect.objectContaining({
+          selector: '#user',
+          credentialProtection: 'public',
+        }),
       }),
     );
     expect(driver.type).not.toHaveBeenCalled();
     // ...but never leaks into the model-visible result or the audit log.
     expect(JSON.stringify(result)).not.toContain(SECRET);
     expect(JSON.stringify(audits)).not.toContain(SECRET);
+  });
+
+  it('accepts the fixed taint sentinel for a public username written after a password', async () => {
+    const vault = {
+      getSecretForFill: vi.fn(async ({ kind }: { kind: string }) =>
+        kind === 'username' ? 'test-only-user' : 'TEST_ONLY_PASSWORD_PLACEHOLDER'),
+      createAgentCredential: vi.fn(),
+      getGenericSecretForFill: vi.fn(),
+    };
+    const extensionCommandStore = {
+      sendCommand: vi.fn(async (request: { command: string }) =>
+        request.command === 'snapshot'
+          ? { tab: { tabId: 42, windowId: 7, url: 'https://portal.example.gov.uk/login' } }
+          : {
+              completed: true,
+              observationBlocked: 'browser_secret_observation_blocked_for_tainted_origin',
+            }),
+    };
+    const { service } = makeService({
+      credentialVault: vault,
+      credentialAuthorizations: {
+        check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-1' })),
+      },
+      extensionCommandStore,
+      extensionContactState: extensionContactState('0.2.18'),
+      allowSharedTabCredentialFill: () => true,
+      existingTab: sharedPortalTab(),
+    });
+
+    const result = await service.fillCredential({
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      instanceId: 'instance-1',
+      provider: 'codex',
+      vaultItemRef: 'item-1',
+      fields: [
+        { selector: '#pass', kind: 'password' },
+        { selector: '#user', kind: 'username' },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      data: { filled: 2 },
+    });
+    expect(extensionCommandStore.sendCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'type',
+        payload: expect.objectContaining({
+          selector: '#user',
+          credentialProtection: 'public',
+        }),
+      }),
+    );
+  });
+
+  it('rejects an old shared-tab extension before resolving or dispatching a vault secret', async () => {
+    const SECRET = 'TEST_ONLY_MUST_NOT_BE_RESOLVED';
+    const vault = {
+      getSecretForFill: vi.fn(async () => SECRET),
+      createAgentCredential: vi.fn(),
+      getGenericSecretForFill: vi.fn(),
+    };
+    const authorizations = { check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-1' })) };
+    const extensionCommandStore = portalExtensionCommandStore();
+    const contactState = extensionContactState('0.2.2');
+    const existingTab = {
+      ...sharedPortalTab(),
+      profileId: 'existing-tab:n.windows-pc:7:42',
+      targetId: 'existing-tab:n.windows-pc:7:42:target',
+      nodeId: 'windows-pc',
+      nodeName: 'Windows PC',
+    };
+    const { service, audits } = makeService({
+      credentialVault: vault,
+      credentialAuthorizations: authorizations,
+      extensionCommandStore,
+      extensionContactState: contactState,
+      allowSharedTabCredentialFill: () => true,
+      existingTab,
+    });
+
+    const result = await service.fillCredential({
+      profileId: existingTab.profileId,
+      targetId: existingTab.targetId,
+      instanceId: 'instance-1',
+      provider: 'codex',
+      vaultItemRef: 'item-1',
+      fields: [{ selector: '#pass', kind: 'password' }],
+    });
+
+    expect(result).toMatchObject({
+      decision: 'denied',
+      outcome: 'not_run',
+      reason: 'shared_tab_secure_credential_fill_unavailable',
+    });
+    expect(vault.getSecretForFill).not.toHaveBeenCalled();
+    expect(authorizations.check).not.toHaveBeenCalled();
+    expect(extensionCommandStore.sendCommand).not.toHaveBeenCalled();
+    expect(contactState.getExtensionRuntime).toHaveBeenCalledWith('windows-pc');
+    expect(JSON.stringify({ result, audits })).not.toContain(SECRET);
+  });
+
+  it('rejects newer downgrade evidence even after an older secure result is replayed', async () => {
+    const vault = {
+      getSecretForFill: vi.fn(),
+      createAgentCredential: vi.fn(),
+      getGenericSecretForFill: vi.fn(),
+    };
+    const authorizations = { check: vi.fn() };
+    const extensionCommandStore = portalExtensionCommandStore();
+    const contactState = new BrowserExtensionContactState({ now: () => 3_000 });
+    contactState.markExtensionContact('windows-pc', 3_000);
+    contactState.markExtensionRuntime('windows-pc', {
+      extensionVersion: '0.2.2',
+      extensionStartedAt: 2_000,
+    });
+    contactState.markExtensionRuntime('windows-pc', {
+      extensionVersion: '0.2.18',
+      extensionStartedAt: 1_000,
+    });
+    const existingTab = {
+      ...sharedPortalTab(),
+      profileId: 'existing-tab:n.windows-pc:7:42',
+      targetId: 'existing-tab:n.windows-pc:7:42:target',
+      nodeId: 'windows-pc',
+      nodeName: 'Windows PC',
+    };
+    const { service } = makeService({
+      credentialVault: vault,
+      credentialAuthorizations: authorizations,
+      extensionCommandStore,
+      extensionContactState: contactState,
+      allowSharedTabCredentialFill: () => true,
+      existingTab,
+    });
+
+    const result = await service.fillCredential({
+      profileId: existingTab.profileId,
+      targetId: existingTab.targetId,
+      instanceId: 'instance-1',
+      provider: 'codex',
+      vaultItemRef: 'item-1',
+      fields: [{ selector: '#pass', kind: 'password' }],
+    });
+
+    expect(contactState.getExtensionRuntime('windows-pc')).toEqual({
+      extensionVersion: '0.2.2',
+      extensionStartedAt: 2_000,
+    });
+    expect(result).toMatchObject({
+      decision: 'denied',
+      outcome: 'not_run',
+      reason: 'shared_tab_secure_credential_fill_unavailable',
+    });
+    expect(vault.getSecretForFill).not.toHaveBeenCalled();
+    expect(authorizations.check).not.toHaveBeenCalled();
+    expect(extensionCommandStore.sendCommand).not.toHaveBeenCalled();
+  });
+
+  it('fills through a compatible remote extension using exact worker capability evidence', async () => {
+    const SECRET = 'TEST_ONLY_COMPATIBLE_REMOTE_SECRET';
+    const vault = {
+      getSecretForFill: vi.fn(async () => SECRET),
+      createAgentCredential: vi.fn(),
+      getGenericSecretForFill: vi.fn(),
+    };
+    const authorizations = { check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-1' })) };
+    const extensionCommandStore = portalExtensionCommandStore();
+    const contactState = extensionContactState('0.2.18');
+    const existingTab = {
+      ...sharedPortalTab(),
+      profileId: 'existing-tab:n.windows-pc:7:42',
+      targetId: 'existing-tab:n.windows-pc:7:42:target',
+      nodeId: 'windows-pc',
+      nodeName: 'Windows PC',
+    };
+    const { service, audits } = makeService({
+      credentialVault: vault,
+      credentialAuthorizations: authorizations,
+      extensionCommandStore,
+      extensionContactState: contactState,
+      allowSharedTabCredentialFill: () => true,
+      existingTab,
+    });
+
+    const result = await service.fillCredential({
+      profileId: existingTab.profileId,
+      targetId: existingTab.targetId,
+      instanceId: 'instance-1',
+      provider: 'codex',
+      vaultItemRef: 'item-1',
+      fields: [{ selector: '#pass', kind: 'password' }],
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      data: { filled: 1 },
+    });
+    expect(vault.getSecretForFill).toHaveBeenCalledTimes(1);
+    expect(contactState.getExtensionRuntime).toHaveBeenCalledWith('windows-pc');
+    expect(JSON.stringify({ result, audits })).not.toContain(SECRET);
+  });
+
+  it('rejects a legacy page-derived valueApplied response for a sensitive shared-tab write', async () => {
+    const SECRET = 'TEST_ONLY_LEGACY_RESPONSE_SECRET';
+    const vault = {
+      getSecretForFill: vi.fn(),
+      createAgentCredential: vi.fn(),
+      getGenericSecretForFill: vi.fn(async () => SECRET),
+    };
+    const authorizations = { check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-1' })) };
+    const extensionCommandStore = {
+      sendCommand: vi.fn(async (req: { command: string }) =>
+        req.command === 'snapshot'
+          ? { tab: { tabId: 42, windowId: 7, url: 'https://portal.example.gov.uk/login' } }
+          : {
+              valueApplied: true,
+              valueAfter: SECRET,
+              tagName: 'INPUT',
+            }),
+    };
+    const { service, audits } = makeService({
+      credentialVault: vault,
+      credentialAuthorizations: authorizations,
+      extensionCommandStore,
+      extensionContactState: extensionContactState('0.2.18'),
+      allowSharedTabCredentialFill: () => true,
+      existingTab: sharedPortalTab(),
+    });
+
+    const result = await service.fillSecret({
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      instanceId: 'instance-1',
+      provider: 'codex',
+      vaultItemRef: 'item-1',
+      fields: [{ selector: '#iban', secretType: 'iban' }],
+    });
+
+    expect(result).toMatchObject({
+      decision: 'denied',
+      outcome: 'failed',
+      reason: 'secret_fill_failed',
+      data: null,
+    });
+    expect(JSON.stringify({ result, audits })).not.toContain(SECRET);
+  });
+
+  it('accepts only the fixed tainted completion shape as shared-tab secret verification', async () => {
+    const SECRET = 'TEST_ONLY_SHARED_TAB_BANK_VALUE';
+    const vault = {
+      getSecretForFill: vi.fn(),
+      createAgentCredential: vi.fn(),
+      getGenericSecretForFill: vi.fn(async () => SECRET),
+    };
+    const authorizations = { check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-1' })) };
+    const extensionCommandStore = {
+      sendCommand: vi.fn(async (req: { command: string }) =>
+        req.command === 'snapshot'
+          ? { tab: { tabId: 42, windowId: 7, url: 'https://portal.example.gov.uk/login' } }
+          : {
+              completed: true,
+              observationBlocked: 'browser_secret_observation_blocked_for_tainted_origin',
+            }),
+    };
+    const { service, audits } = makeService({
+      credentialVault: vault,
+      credentialAuthorizations: authorizations,
+      extensionCommandStore,
+      extensionContactState: extensionContactState('0.2.18'),
+      allowSharedTabCredentialFill: () => true,
+      existingTab: sharedPortalTab(),
+    });
+
+    const result = await service.fillSecret({
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      instanceId: 'instance-1',
+      provider: 'claude',
+      vaultItemRef: 'item-1',
+      fields: [{ selector: '#iban', secretType: 'iban' }],
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      data: { filled: 1, verified: 1 },
+    });
+    expect(extensionCommandStore.sendCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'type',
+        payload: expect.objectContaining({
+          value: SECRET,
+          credentialOrigin: 'https://portal.example.gov.uk',
+          credentialProtection: 'secret',
+        }),
+      }),
+    );
+    expect(JSON.stringify({ result, audits })).not.toContain(SECRET);
   });
 
   it('fillCredential aborts without typing when the shared tab navigates to a different origin between authorization and fill', async () => {
@@ -889,6 +1410,7 @@ describe('BrowserGatewayService credentials', () => {
       credentialVault: vault,
       credentialAuthorizations: authorizations,
       extensionCommandStore,
+      extensionContactState: extensionContactState('0.2.18'),
       allowSharedTabCredentialFill: () => true,
       existingTab: sharedPortalTab(),
     });
@@ -931,6 +1453,7 @@ describe('BrowserGatewayService credentials', () => {
       credentialVault: vault,
       credentialAuthorizations: authorizations,
       extensionCommandStore,
+      extensionContactState: extensionContactState('0.2.18'),
       allowSharedTabCredentialFill,
       existingTab: sharedPortalTab(),
     });
@@ -963,6 +1486,7 @@ describe('BrowserGatewayService credentials', () => {
       credentialVault: vault,
       credentialAuthorizations: authorizations,
       extensionCommandStore,
+      extensionContactState: extensionContactState('0.2.18'),
       allowSharedTabCredentialFill: () => true,
       existingTab: sharedPortalTab(),
     });

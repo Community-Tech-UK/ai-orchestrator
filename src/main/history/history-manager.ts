@@ -36,6 +36,7 @@ import {
   type ImportedTranscript,
 } from './native-claude-importer';
 import { createNativeClaudeArchiveRepairPlan } from './native-claude-archive-repair';
+import { recoverFalseMissingOpeningPromptRepair } from './native-claude-false-repair-recovery';
 import { projectMemoryKeysEqual } from '../memory/project-memory-key';
 import { getOutputStorageManager } from '../memory/output-storage';
 import { retainedPromptsMissingFrom } from '../instance/prompt-retention';
@@ -550,14 +551,14 @@ export class HistoryManager {
   }
 
   /**
-   * Best-effort backfill of cheap-AI titles for the given (already-listed)
+   * Best-effort backfill of local-AI titles for the given (already-listed)
    * entries that lack one — used so older threads pick up an AI-chosen rail
    * name the next time history loads. Bounded in count and concurrency so
-   * listing history never spawns a flood of CLI title processes, and deduped
-   * against in-flight work.
+   * listing history never floods the local model, and deduped against in-flight
+   * work.
    *
    * Fire-and-forget: callers should not depend on the result. `generate` is
-   * injected so this module stays free of a dependency on the CLI/title layer;
+   * injected so this module stays free of a dependency on the title layer;
    * the IPC caller skips wiring the real generator under Vitest.
    */
   async backfillMissingAiTitles(
@@ -1011,6 +1012,11 @@ export class HistoryManager {
     if (!conversation) {
       return false;
     }
+
+    if (await recoverFalseMissingOpeningPromptRepair({ entry, conversation, parsed,
+      conversationPath: this.getConversationPath(entry.id),
+      saveConversation: (data) => this.saveConversation(entry.id, data),
+      truncatePreview: (text) => this.truncatePreview(text) })) return true;
 
     const repairPlan = createNativeClaudeArchiveRepairPlan(
       parsed.messages,

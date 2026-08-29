@@ -195,6 +195,56 @@ export class AutoTitleService {
   }
 
   /**
+   * Generate a title using only the configured auxiliary model. This path is
+   * used for background history maintenance, where an explicitly authorized
+   * paid frontier fallback must still never launch an external CLI process.
+   */
+  async generateLocalTitle(
+    text: string,
+    attachmentNames: readonly string[] = [],
+  ): Promise<string | null> {
+    const preamble = extractAttachmentPreamble(text);
+    const effectiveText = preamble ? preamble.remainder : text;
+    const effectiveAttachmentNames = preamble
+      ? [...attachmentNames, ...preamble.paths]
+      : attachmentNames;
+    const trimmed = effectiveText.trim();
+    const labels = attachmentLabels(effectiveAttachmentNames);
+    if (trimmed.length < MIN_MESSAGE_LENGTH && labels.length === 0) {
+      return null;
+    }
+
+    const truncatedMessage = trimmed.length > MAX_INPUT_LENGTH
+      ? `${trimmed.slice(0, MAX_INPUT_LENGTH)}...`
+      : trimmed;
+    const systemPrompt =
+      'You generate very short tab titles (3-6 words) that summarize a task. '
+      + 'Lead with the most distinctive word. Reply with ONLY the title — no quotes, no trailing punctuation.';
+    const userPrompt = labels.length > 0
+      ? `${truncatedMessage}\n\nAttached: ${labels.join(', ')}`
+      : truncatedMessage;
+
+    try {
+      const { text: generatedTitle, decision } = await getAuxiliaryLlmService().generate(
+        'titleGeneration',
+        systemPrompt,
+        userPrompt,
+      );
+      const cleaned = sanitizeGeneratedTitle(generatedTitle);
+      if (decision.source === 'fallback' || !cleaned || cleaned.length < 3) {
+        return null;
+      }
+      logger.debug('Auto-title via local auxiliary model', {
+        source: decision.source,
+        model: decision.model,
+      });
+      return cleaned;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Generate a short, front-loaded title for arbitrary text using the fastest
    * available CLI (Haiku tier). Shared by live auto-titling and the history
    * backfill. Attachment file names, when supplied, are given to the model so a

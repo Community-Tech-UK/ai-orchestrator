@@ -106,6 +106,7 @@ export async function handleBrowserExtensionNativeMessage(
     case 'attach_tab': {
       const result = await send(toAttachTabRpcInput({
         tab: message.tab,
+        runtimeEvidence: message,
         extensionOrigin: input.extensionOrigin,
         runtimeConfig: input.runtimeConfig,
       }));
@@ -120,6 +121,7 @@ export async function handleBrowserExtensionNativeMessage(
       for (const tab of message.tabs) {
         results.push(await send(toAttachTabRpcInput({
           tab,
+          runtimeEvidence: message,
           extensionOrigin: input.extensionOrigin,
           runtimeConfig: input.runtimeConfig,
         })));
@@ -440,13 +442,17 @@ function readNativeMessageFrame(): Promise<Buffer> {
 
 function toAttachTabRpcInput(input: {
   tab: BrowserAttachExistingTabRequest;
+  runtimeEvidence: BrowserExtensionRuntimeEvidence;
   extensionOrigin?: string;
   runtimeConfig: BrowserExtensionNativeRuntimeConfig;
 }): ExtensionRpcSendInput {
   return {
     ...toBaseRpcInput(input),
     method: 'browser.extension_attach_tab',
-    payload: input.tab as unknown as Record<string, unknown>,
+    payload: withExtensionRuntimeEvidence(
+      input.tab as unknown as Record<string, unknown>,
+      input.runtimeEvidence,
+    ),
   };
 }
 
@@ -481,8 +487,10 @@ function extensionRuntimeEvidence(message: Record<string, unknown>): BrowserExte
     ...(typeof extensionVersion === 'string' && extensionVersion
       ? { extensionVersion }
       : {}),
-    ...(typeof extensionStartedAt === 'number' && Number.isFinite(extensionStartedAt) && extensionStartedAt >= 0
-      ? { extensionStartedAt: Math.floor(extensionStartedAt) }
+    ...(typeof extensionStartedAt === 'number'
+      && Number.isInteger(extensionStartedAt)
+      && extensionStartedAt >= 0
+      ? { extensionStartedAt }
       : {}),
   };
 }

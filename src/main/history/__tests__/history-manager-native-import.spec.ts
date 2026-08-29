@@ -533,6 +533,192 @@ describe('HistoryManager — native Claude transcript import', () => {
     expect(fs.existsSync(`${archivePath}.missing-opening-prompt-backup`)).toBe(false);
   });
 
+  it('does not misclassify an indexed-context wrapper as a missing opening prompt', async () => {
+    const sessionId = 'indexed-context-healthy-session';
+    const storageDir = path.join(userDataDir, 'conversation-history');
+    const authoredPrompt = 'Fix session titles using the first authored message.';
+    const entry = {
+      id: 'indexed-context-healthy-archive',
+      displayName: 'Existing title',
+      createdAt: Date.parse('2026-08-28T09:00:00.000Z'),
+      endedAt: Date.parse('2026-08-28T09:01:00.000Z'),
+      workingDirectory: '/Users/me/Demo',
+      messageCount: 2,
+      firstUserMessage: authoredPrompt,
+      lastUserMessage: authoredPrompt,
+      status: 'completed' as const,
+      originalInstanceId: 'indexed-context-instance',
+      parentId: null,
+      sessionId,
+      provider: 'claude' as const,
+    };
+    const originalMessages = [
+      { id: 'app-u1', timestamp: entry.createdAt, type: 'user', content: authoredPrompt },
+      { id: 'app-a1', timestamp: entry.endedAt, type: 'assistant', content: 'Finished.' },
+    ];
+    const archivePath = path.join(storageDir, `${entry.id}.json.gz`);
+    fs.mkdirSync(storageDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(storageDir, 'index.json'),
+      JSON.stringify({ version: 1, entries: [entry], lastUpdated: 0 }),
+    );
+    fs.writeFileSync(
+      archivePath,
+      zlib.gzipSync(JSON.stringify({ entry, messages: originalMessages })),
+    );
+
+    const projectsDir = path.join(homeDir, '.claude', 'projects');
+    writeJsonl(path.join(projectsDir, '-Users-me-Demo', `${sessionId}.jsonl`), [
+      {
+        type: 'user',
+        uuid: 'native-u1',
+        timestamp: '2026-08-28T09:00:00.000Z',
+        cwd: '/Users/me/Demo',
+        sessionId,
+        message: {
+          role: 'user',
+          content: [
+            '[Indexed Codebase Context]',
+            'Source: Harness indexed codebase search',
+            '- src/main/history/history-manager.ts:1',
+            '[End Indexed Codebase Context]',
+            '',
+            authoredPrompt,
+          ].join('\n'),
+        },
+      },
+      {
+        type: 'assistant',
+        uuid: 'native-a1',
+        timestamp: '2026-08-28T09:01:00.000Z',
+        cwd: '/Users/me/Demo',
+        sessionId,
+        message: { role: 'assistant', content: 'Finished.' },
+      },
+    ]);
+
+    const { HistoryManager } = await import('../history-manager');
+    const manager = new HistoryManager();
+    await manager.startupTasks;
+    await (manager as unknown as {
+      importNativeClaudeTranscripts: (projectsDir: string) => Promise<void>;
+    }).importNativeClaudeTranscripts(projectsDir);
+
+    const preserved = await manager.loadConversation(entry.id);
+    expect(preserved?.messages).toEqual(originalMessages);
+    expect(preserved?.entry.firstUserMessage).toBe(authoredPrompt);
+    expect(fs.existsSync(`${archivePath}.missing-opening-prompt-backup`)).toBe(false);
+  });
+
+  it('restores a false missing-opening repair from backup and retains its newer tail', async () => {
+    const sessionId = 'indexed-context-recovery-session';
+    const storageDir = path.join(userDataDir, 'conversation-history');
+    const authoredPrompt = 'Restore the authored opening prompt safely.';
+    const contextWrappedPrompt = [
+      '[Indexed Codebase Context]',
+      'Source: Harness indexed codebase search',
+      '- src/main/history/history-manager.ts:1',
+      '[End Indexed Codebase Context]',
+      '',
+      authoredPrompt,
+    ].join('\n');
+    const backupEndedAt = Date.parse('2026-08-28T09:01:00.000Z');
+    const entry = {
+      id: 'indexed-context-recovery-archive',
+      displayName: 'Existing title',
+      aiTitle: 'Local title generated after repair',
+      createdAt: Date.parse('2026-08-28T09:00:00.000Z'),
+      endedAt: Date.parse('2026-08-28T09:02:00.000Z'),
+      workingDirectory: '/Users/me/Demo',
+      messageCount: 3,
+      firstUserMessage: contextWrappedPrompt,
+      lastUserMessage: 'Newer follow-up',
+      status: 'completed' as const,
+      originalInstanceId: 'indexed-context-recovery-instance',
+      parentId: null,
+      sessionId,
+      provider: 'claude' as const,
+    };
+    const currentMessages = [
+      { id: 'native-u1', timestamp: entry.createdAt, type: 'user', content: contextWrappedPrompt },
+      { id: 'native-a1', timestamp: backupEndedAt, type: 'assistant', content: 'Native answer.' },
+      { id: 'native-u2', timestamp: entry.endedAt, type: 'user', content: 'Newer follow-up' },
+    ];
+    const backupEntry = {
+      ...entry,
+      aiTitle: undefined,
+      endedAt: backupEndedAt,
+      messageCount: 2,
+      firstUserMessage: authoredPrompt,
+      lastUserMessage: authoredPrompt,
+    };
+    const backupMessages = [
+      { id: 'app-u1', timestamp: entry.createdAt, type: 'user', content: authoredPrompt },
+      { id: 'app-a1', timestamp: backupEndedAt, type: 'assistant', content: 'App-owned answer.' },
+    ];
+    const archivePath = path.join(storageDir, `${entry.id}.json.gz`);
+    fs.mkdirSync(storageDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(storageDir, 'index.json'),
+      JSON.stringify({ version: 1, entries: [entry], lastUpdated: 0 }),
+    );
+    fs.writeFileSync(
+      archivePath,
+      zlib.gzipSync(JSON.stringify({ entry, messages: currentMessages })),
+    );
+    fs.writeFileSync(
+      `${archivePath}.missing-opening-prompt-backup`,
+      zlib.gzipSync(JSON.stringify({ entry: backupEntry, messages: backupMessages })),
+    );
+
+    const projectsDir = path.join(homeDir, '.claude', 'projects');
+    writeJsonl(path.join(projectsDir, '-Users-me-Demo', `${sessionId}.jsonl`), [
+      {
+        type: 'user',
+        uuid: 'native-u1',
+        timestamp: '2026-08-28T09:00:00.000Z',
+        cwd: '/Users/me/Demo',
+        sessionId,
+        message: { role: 'user', content: contextWrappedPrompt },
+      },
+      {
+        type: 'assistant',
+        uuid: 'native-a1',
+        timestamp: '2026-08-28T09:01:00.000Z',
+        cwd: '/Users/me/Demo',
+        sessionId,
+        message: { role: 'assistant', content: 'Native answer.' },
+      },
+      {
+        type: 'user',
+        uuid: 'native-u2',
+        timestamp: '2026-08-28T09:02:00.000Z',
+        cwd: '/Users/me/Demo',
+        sessionId,
+        message: { role: 'user', content: 'Newer follow-up' },
+      },
+    ]);
+
+    const { HistoryManager } = await import('../history-manager');
+    const manager = new HistoryManager();
+    await manager.startupTasks;
+    await (manager as unknown as {
+      importNativeClaudeTranscripts: (projectsDir: string) => Promise<void>;
+    }).importNativeClaudeTranscripts(projectsDir);
+
+    const recovered = await manager.loadConversation(entry.id);
+    expect(recovered?.messages).toEqual([
+      ...backupMessages,
+      currentMessages[2],
+    ]);
+    expect(recovered?.entry).toMatchObject({
+      firstUserMessage: authoredPrompt,
+      lastUserMessage: 'Newer follow-up',
+      messageCount: 3,
+      aiTitle: 'Local title generated after repair',
+    });
+  });
+
   it('keeps a native provider ID collision out of ownership across import and repeated restore', async () => {
     const providerSessionId = 'provider-native-collision';
     const projectsDir = path.join(homeDir, '.claude', 'projects');

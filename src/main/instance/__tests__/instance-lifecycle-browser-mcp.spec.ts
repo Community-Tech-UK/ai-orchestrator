@@ -25,6 +25,12 @@ const browserGatewayMocks = vi.hoisted(() => ({
   getBrowserGatewayRpcSocketPath: vi.fn(() => '/tmp/browser-gateway.sock'),
   buildChromeDevtoolsMcpConfigJson: vi.fn(() => '{"mcpServers":{"chrome-devtools":{}}}'),
   resolveChromeDevtoolsBrowserUrl: vi.fn(() => 'http://127.0.0.1:31234'),
+  createBrowserMcpTools: vi.fn(() => [{ name: 'browser.full', inputSchema: {} }]),
+  createDeferredBrowserMcpTools: vi.fn(() => [
+    { name: 'browser.visible', inputSchema: {}, hidden: false },
+    { name: 'browser.hidden', inputSchema: {}, hidden: true },
+  ]),
+  measureToolSchemaBytes: vi.fn((tools: unknown[]) => tools.length * 100),
 }));
 
 const desktopGatewayMocks = vi.hoisted(() => ({
@@ -58,11 +64,21 @@ const aioMcpPathMocks = vi.hoisted(() => ({
   resolveAioMcpCliPath: vi.fn(),
 }));
 
+const loggerMocks = vi.hoisted(() => ({
+  debug: vi.fn(),
+  error: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+}));
+
 vi.mock('../../browser-gateway', () => ({
   buildBrowserGatewayMcpConfigJson: browserGatewayMocks.buildBrowserGatewayMcpConfigJson,
   getBrowserGatewayRpcSocketPath: browserGatewayMocks.getBrowserGatewayRpcSocketPath,
   buildChromeDevtoolsMcpConfigJson: browserGatewayMocks.buildChromeDevtoolsMcpConfigJson,
   resolveChromeDevtoolsBrowserUrl: browserGatewayMocks.resolveChromeDevtoolsBrowserUrl,
+  createBrowserMcpTools: browserGatewayMocks.createBrowserMcpTools,
+  createDeferredBrowserMcpTools: browserGatewayMocks.createDeferredBrowserMcpTools,
+  measureToolSchemaBytes: browserGatewayMocks.measureToolSchemaBytes,
 }));
 
 vi.mock('../../desktop-gateway', () => ({
@@ -98,12 +114,7 @@ vi.mock('../../util/aio-mcp-cli-path', () => ({
 }));
 
 vi.mock('../../logging/logger', () => ({
-  getLogger: () => ({
-    debug: vi.fn(),
-    error: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-  }),
+  getLogger: () => loggerMocks,
 }));
 
 import type { SettingsManager } from '../../core/config/settings-manager';
@@ -136,6 +147,26 @@ describe('SpawnConfigBuilder — Browser Gateway MCP config', () => {
         socketPath: FAKE_BROWSER_GATEWAY_SOCKET,
         instanceId: 'instance-browser',
       }),
+    );
+  });
+
+  it('reports and configures the actual eager Browser Gateway surface for Codex', () => {
+    const builder = makeBuilder({ browserMcpToolDeferral: true });
+
+    const options = builder.getBrowserGatewayMcpOptions(
+      { type: 'local' },
+      'instance-codex',
+      'codex',
+    );
+
+    expect(options).not.toHaveProperty('toolDeferral');
+    expect(loggerMocks.info).toHaveBeenCalledWith(
+      'Browser gateway tool schemas injected eagerly',
+      expect.objectContaining({ instanceId: 'instance-codex' }),
+    );
+    expect(loggerMocks.info).not.toHaveBeenCalledWith(
+      'Browser gateway tool schemas deferred',
+      expect.anything(),
     );
   });
 
@@ -396,6 +427,7 @@ function makeBuilder(
     computerUseEnabled?: boolean;
     chromeDevtoolsAttachEnabled?: boolean;
     chromeDevtoolsAttachProfileId?: string;
+    browserMcpToolDeferral?: boolean;
   } = {},
 ): SpawnConfigBuilder {
   const settings = {
@@ -404,6 +436,7 @@ function makeBuilder(
       computerUseEnabled: overrides.computerUseEnabled ?? false,
       chromeDevtoolsAttachEnabled: overrides.chromeDevtoolsAttachEnabled ?? false,
       chromeDevtoolsAttachProfileId: overrides.chromeDevtoolsAttachProfileId ?? '',
+      browserMcpToolDeferral: overrides.browserMcpToolDeferral ?? false,
     }),
     get: () => undefined,
   } as unknown as SettingsManager;

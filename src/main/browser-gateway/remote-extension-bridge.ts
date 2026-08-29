@@ -13,7 +13,9 @@ import type { BrowserGatewayAttachExistingTabRequest } from './browser-gateway-s
 import type { BrowserGatewayResult } from '@contracts/types/browser';
 import type {
   BrowserExtAttachTabParamsSchema,
+  BrowserExtCommandReceivedParamsSchema,
   BrowserExtCommandResultParamsSchema,
+  BrowserExtDisconnectedParamsSchema,
   BrowserExtPollCommandParamsSchema,
 } from '../remote-node/rpc-schemas';
 import {
@@ -27,10 +29,16 @@ import {
   getBrowserReliabilityEvents,
   type BrowserReliabilityEvents,
 } from './browser-reliability-events';
+import {
+  isSecureBrowserExtensionRuntimeEvidence,
+  supportsSecureBrowserExtensionCredentialFill,
+} from './browser-extension-credential-compatibility';
 
 type BrowserExtAttachTabParams = z.infer<typeof BrowserExtAttachTabParamsSchema>;
 type BrowserExtPollCommandParams = z.infer<typeof BrowserExtPollCommandParamsSchema>;
 type BrowserExtCommandResultParams = z.infer<typeof BrowserExtCommandResultParamsSchema>;
+type BrowserExtCommandReceivedParams = z.infer<typeof BrowserExtCommandReceivedParamsSchema>;
+type BrowserExtDisconnectedParams = z.infer<typeof BrowserExtDisconnectedParamsSchema>;
 
 interface RemoteExtensionBridgeService {
   attachExistingTab(
@@ -123,7 +131,7 @@ export class RemoteBrowserExtensionBridge {
     if (!node) {
       throw new Error(`unknown_remote_browser_node:${nodeId}`);
     }
-    this.recordExtensionContact(nodeId);
+    this.recordExtensionContact(nodeId, params);
 
     const {
       allowedOrigins: _allowedOrigins,
@@ -145,10 +153,16 @@ export class RemoteBrowserExtensionBridge {
     params: BrowserExtPollCommandParams,
   ): ReturnType<RemoteExtensionCommandStore['pollCommand']> {
     this.consumeRateLimit(nodeId);
-    this.recordExtensionContact(nodeId);
+    this.recordExtensionContact(nodeId, params);
     return this.commandStore.pollCommand(
       browserExtensionQueueKeyForNode(nodeId),
-      { timeoutMs: params.timeoutMs, deferHandoffConfirmation: true },
+      {
+        timeoutMs: params.timeoutMs,
+        deferHandoffConfirmation: true,
+        allowSecureCredentialCommands:
+          isSecureBrowserExtensionRuntimeEvidence(params)
+          && supportsSecureBrowserExtensionCredentialFill(this.contactState, nodeId),
+      },
     );
   }
 
@@ -168,7 +182,7 @@ export class RemoteBrowserExtensionBridge {
 
   commandResult(nodeId: string, params: BrowserExtCommandResultParams): { ok: true } {
     this.consumeRateLimit(nodeId);
-    this.recordExtensionContact(nodeId);
+    this.recordExtensionContact(nodeId, params);
     this.commandStore.resolveCommand({
       queueKey: browserExtensionQueueKeyForNode(nodeId),
       commandId: params.commandId,
@@ -179,9 +193,9 @@ export class RemoteBrowserExtensionBridge {
     return { ok: true };
   }
 
-  commandReceived(nodeId: string, params: { commandId: string }): { ok: true } {
+  commandReceived(nodeId: string, params: BrowserExtCommandReceivedParams): { ok: true } {
     this.consumeRateLimit(nodeId);
-    this.recordExtensionContact(nodeId);
+    this.recordExtensionContact(nodeId, params);
     this.commandStore.markReceived(
       browserExtensionQueueKeyForNode(nodeId),
       params.commandId,
@@ -195,7 +209,7 @@ export class RemoteBrowserExtensionBridge {
    * because a service-worker replacement recovers within one alarm cycle and
    * queued commands should keep waiting for it.
    */
-  extensionDisconnected(nodeId: string, params: { reason?: string }): { ok: true } {
+  extensionDisconnected(nodeId: string, params: BrowserExtDisconnectedParams): { ok: true } {
     this.consumeRateLimit(nodeId);
     const reason = params.reason ?? 'unknown';
     this.contactState.markExtensionDisconnect(nodeId, reason);
@@ -206,7 +220,7 @@ export class RemoteBrowserExtensionBridge {
   expireNode(nodeId: string): void {
     this.rateBuckets.delete(nodeId);
     this.contactTransitions.delete(nodeId);
-    this.contactState.forgetNode(nodeId);
+    this.contactState.forgetNode(nodeId, { preserveRuntimeWatermark: true });
     // forgetNode wiped the disconnect record — re-record it so post-reconnect
     // writes trigger the persistence sentinel's pre-write session check.
     this.contactState.markExtensionDisconnect(nodeId, 'node_ws_disconnected');
@@ -248,11 +262,15 @@ export class RemoteBrowserExtensionBridge {
     return this.observeExtensionContact(nodeId);
   }
 
-  private recordExtensionContact(nodeId: string): void {
+  private recordExtensionContact(
+    nodeId: string,
+    runtime: { extensionVersion?: string; extensionStartedAt?: number },
+  ): void {
     const contactedAt = this.now();
     this.observeExtensionContact(nodeId, contactedAt);
     const previousState = this.contactTransitions.get(nodeId) ?? 'never';
     this.contactState.markExtensionContact(nodeId, contactedAt);
+    this.contactState.markExtensionRuntime(nodeId, runtime);
     if (previousState !== 'active') {
       // 'lost' → the poll resumed; 'never' → first contact after a node
       // (re)registration. Either way the channel is live again: lift any

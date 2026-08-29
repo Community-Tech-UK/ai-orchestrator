@@ -25,6 +25,7 @@ export const BrowserAccessibilityNodeSchema = z
     disabled: z.boolean().optional(),
     focused: z.boolean().optional(),
     level: z.number().int().min(0).max(20).optional(),
+    editable: z.string().max(40).optional(),
   })
   .strict();
 

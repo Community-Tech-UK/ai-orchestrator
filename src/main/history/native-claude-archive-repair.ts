@@ -1,20 +1,25 @@
 import type { OutputMessage } from '../../shared/types/instance.types';
 import { isLegacyRedactedToolOutput } from '../session/redacted-tool-output';
 import { isNativeTranscriptTailExtension } from './native-claude-importer';
+import {
+  extractAuthoredUserMessage,
+  hasIndexedCodebaseContextPreamble,
+} from './native-user-message';
 
 export type NativeClaudeArchiveRepairKind =
   | 'legacy-redacted-output'
   | 'truncated-tail'
+  | 'runtime-context-pollution'
   | 'missing-opening-prompt';
 
 export interface NativeClaudeArchiveRepairPlan {
-  backupLabel: 'legacy-redacted' | 'truncated' | 'missing-opening-prompt';
+  backupLabel: 'legacy-redacted' | 'truncated' | 'runtime-context-pollution' | 'missing-opening-prompt';
   repairKind: NativeClaudeArchiveRepairKind;
   repairedMessages: OutputMessage[];
 }
 
 function normalizePromptIdentity(content: string): string {
-  return content.replace(/\s+/g, ' ').trim();
+  return extractAuthoredUserMessage(content).replace(/\s+/g, ' ').trim();
 }
 
 export function createNativeClaudeArchiveRepairPlan(
@@ -26,13 +31,22 @@ export function createNativeClaudeArchiveRepairPlan(
     (message) => isLegacyRedactedToolOutput(message.content),
   );
   const hasTruncatedTail = isNativeTranscriptTailExtension(nativeMessages, archivedMessages);
+  const hasRuntimeContextPollution = archivedMessages.some(
+    (message) => message.type === 'user'
+      && hasIndexedCodebaseContextPreamble(message.content),
+  );
   const nativeOpeningPrompt = normalizePromptIdentity(nativeFirstUserMessage);
   const hasNativeOpeningPrompt = archivedMessages.some(
     (message) => message.type === 'user'
       && normalizePromptIdentity(message.content) === nativeOpeningPrompt,
   );
   const hasMissingOpeningPrompt = nativeOpeningPrompt.length > 0 && !hasNativeOpeningPrompt;
-  if (!hasLegacyRedactedOutput && !hasTruncatedTail && !hasMissingOpeningPrompt) {
+  if (
+    !hasLegacyRedactedOutput
+    && !hasTruncatedTail
+    && !hasRuntimeContextPollution
+    && !hasMissingOpeningPrompt
+  ) {
     return null;
   }
 
@@ -48,6 +62,13 @@ export function createNativeClaudeArchiveRepairPlan(
   }
   if (hasTruncatedTail) {
     return { backupLabel: 'truncated', repairKind: 'truncated-tail', repairedMessages };
+  }
+  if (hasRuntimeContextPollution) {
+    return {
+      backupLabel: 'runtime-context-pollution',
+      repairKind: 'runtime-context-pollution',
+      repairedMessages,
+    };
   }
   return { backupLabel: 'missing-opening-prompt', repairKind: 'missing-opening-prompt', repairedMessages };
 }

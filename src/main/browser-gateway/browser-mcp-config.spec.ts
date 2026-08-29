@@ -71,6 +71,7 @@ describe('browser-mcp-config', () => {
   it('sets the tool-deferral env flag only when requested (WS9)', () => {
     const withDeferral = resolveBrowserGatewayBridgeSpec({
       ...options,
+      provider: 'claude',
       toolDeferral: true,
     });
     expect(withDeferral?.env).toMatchObject({
@@ -79,6 +80,16 @@ describe('browser-mcp-config', () => {
 
     const withoutDeferral = resolveBrowserGatewayBridgeSpec(options);
     expect(withoutDeferral?.env).not.toHaveProperty('AI_ORCHESTRATOR_BROWSER_TOOL_DEFERRAL');
+  });
+
+  it('keeps the Codex bridge eager because functions.exec does not install revealed tools', () => {
+    const bridge = resolveBrowserGatewayBridgeSpec({
+      ...options,
+      provider: 'codex',
+      toolDeferral: true,
+    });
+
+    expect(bridge?.env).not.toHaveProperty('AI_ORCHESTRATOR_BROWSER_TOOL_DEFERRAL');
   });
 
   it('builds Codex TOML config pointing at the aio-mcp SEA', () => {

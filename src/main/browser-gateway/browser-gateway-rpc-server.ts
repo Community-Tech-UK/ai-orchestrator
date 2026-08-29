@@ -24,8 +24,14 @@ import {
 import {
   BROWSER_LOCAL_EXTENSION_CHANNEL_ID,
   getBrowserExtensionContactState,
+  type BrowserExtensionContactState,
   type BrowserExtensionRuntimeRecord,
 } from './browser-extension-contact-state';
+import {
+  browserExtensionRuntimeFromPayload,
+  isSecureBrowserExtensionRuntimeEvidence,
+  supportsSecureBrowserExtensionCredentialFill,
+} from './browser-extension-credential-compatibility';
 import {
   handleUnattendedRpcMethod,
   isUnattendedRpcMethod,
@@ -80,6 +86,7 @@ export interface BrowserGatewayRpcServerOptions {
    * evidence against the reserved local channel id.
    */
   onExtensionContact?: (runtime: BrowserExtensionRuntimeRecord) => void;
+  extensionContactState?: BrowserExtensionContactState;
   userDataPath?: string;
   isKnownLocalInstance?: (instanceId: string) => boolean;
   extensionToken?: string;
@@ -116,6 +123,7 @@ export class BrowserGatewayRpcServer {
   private readonly resolveCheckpointOwner: (instanceId: string) => string;
   private readonly onExtensionDisconnected: (reason: string) => void;
   private readonly onExtensionContact: (runtime: BrowserExtensionRuntimeRecord) => void;
+  private readonly extensionContactState: BrowserExtensionContactState;
   private readonly userDataPath: string;
   private readonly isKnownLocalInstance: (instanceId: string) => boolean;
   private readonly extensionToken: string;
@@ -137,16 +145,10 @@ export class BrowserGatewayRpcServer {
     this.checkpointStore = options.checkpointStore;
     this.toolRevealStore = options.toolRevealStore;
     this.resolveCheckpointOwner = options.resolveCheckpointOwner ?? ((instanceId) => instanceId);
-    this.onExtensionDisconnected = options.onExtensionDisconnected
-      ?? ((reason: string) =>
-        getBrowserExtensionContactState()
-          .markExtensionDisconnect(BROWSER_LOCAL_EXTENSION_CHANNEL_ID, reason));
-    this.onExtensionContact = options.onExtensionContact
-      ?? ((runtime: BrowserExtensionRuntimeRecord) => {
-        const contactState = getBrowserExtensionContactState();
-        contactState.markExtensionContact(BROWSER_LOCAL_EXTENSION_CHANNEL_ID);
-        contactState.markExtensionRuntime(BROWSER_LOCAL_EXTENSION_CHANNEL_ID, runtime);
-      });
+    this.extensionContactState = options.extensionContactState
+      ?? getBrowserExtensionContactState();
+    this.onExtensionDisconnected = options.onExtensionDisconnected ?? (() => undefined);
+    this.onExtensionContact = options.onExtensionContact ?? (() => undefined);
     this.userDataPath = options.userDataPath ?? app.getPath('userData');
     this.isKnownLocalInstance = options.isKnownLocalInstance ?? (() => false);
     this.extensionToken = options.extensionToken ?? crypto.randomBytes(32).toString('hex');
@@ -384,7 +386,10 @@ export class BrowserGatewayRpcServer {
    * the same fidelity as a worker node's.
    */
   private recordLocalExtensionContact(payload: Record<string, unknown>): void {
-    this.onExtensionContact(extensionRuntimeFromPayload(payload));
+    const runtime = browserExtensionRuntimeFromPayload(payload);
+    this.extensionContactState.markExtensionContact(BROWSER_LOCAL_EXTENSION_CHANNEL_ID);
+    this.extensionContactState.markExtensionRuntime(BROWSER_LOCAL_EXTENSION_CHANNEL_ID, runtime);
+    this.onExtensionContact(runtime);
   }
 
   private handleExtensionAttachTab(request: BrowserGatewayRpcRequest): unknown {
@@ -406,8 +411,17 @@ export class BrowserGatewayRpcServer {
   ): Promise<BrowserExtensionQueuedCommand | null> {
     const params = this.parseAuthorizedExtensionParams(request.params);
     this.recordLocalExtensionContact(params.payload);
+    const runtime = browserExtensionRuntimeFromPayload(params.payload);
     return this.extensionCommandStore.pollCommand(
-      this.validateExtensionPollPayload(params.payload),
+      {
+        ...this.validateExtensionPollPayload(params.payload),
+        allowSecureCredentialCommands:
+          isSecureBrowserExtensionRuntimeEvidence(runtime)
+          && supportsSecureBrowserExtensionCredentialFill(
+            this.extensionContactState,
+            BROWSER_LOCAL_EXTENSION_CHANNEL_ID,
+          ),
+      },
     );
   }
 
@@ -434,9 +448,12 @@ export class BrowserGatewayRpcServer {
   private handleExtensionDisconnected(request: BrowserGatewayRpcRequest): { ok: true } {
     const params = this.parseAuthorizedExtensionParams(request.params);
     const reason = params.payload['reason'];
-    this.onExtensionDisconnected(
-      typeof reason === 'string' && reason ? reason : 'unknown',
+    const normalizedReason = typeof reason === 'string' && reason ? reason : 'unknown';
+    this.extensionContactState.markExtensionDisconnect(
+      BROWSER_LOCAL_EXTENSION_CHANNEL_ID,
+      normalizedReason,
     );
+    this.onExtensionDisconnected(normalizedReason);
     return { ok: true };
   }
 
@@ -652,25 +669,6 @@ export class BrowserGatewayRpcServer {
     }
     return method.bind(this.service) as (payload: Record<string, unknown>) => unknown;
   }
-}
-
-/**
- * Pull the extension's self-reported build evidence off a native message
- * payload. The native host stamps these onto poll/receipt/result messages
- * (`withExtensionRuntimeEvidence`); attach_tab payloads carry neither, which is
- * why both fields are optional.
- */
-function extensionRuntimeFromPayload(
-  payload: Record<string, unknown>,
-): BrowserExtensionRuntimeRecord {
-  const extensionVersion = payload['extensionVersion'];
-  const extensionStartedAt = payload['extensionStartedAt'];
-  return {
-    ...(typeof extensionVersion === 'string' && extensionVersion ? { extensionVersion } : {}),
-    ...(typeof extensionStartedAt === 'number' && Number.isFinite(extensionStartedAt)
-      ? { extensionStartedAt }
-      : {}),
-  };
 }
 
 let browserGatewayRpcServer: BrowserGatewayRpcServer | null = null;

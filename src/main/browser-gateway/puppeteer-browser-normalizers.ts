@@ -23,7 +23,25 @@ export function normalizeAxTreeNodes(
     if (typeof backendId !== 'number') continue;
     const role = axValueString(node['role']);
     if (!role) continue;
-    if (options.interestingOnly && (role === 'none' || role === 'generic' || role === 'InlineTextBox')) {
+    // Keep the editable HOST: Chrome reports a contenteditable body as role
+    // `generic`, so an unconditional generic drop filters every rich-text editor
+    // out of the tree. `editable` alone is inherited by every descendant, so
+    // require `focusable` too -- live-probed, only the host reports both.
+    const props = axProperties(node['properties']);
+    const editableToken = props.find((property) => property.name === 'editable')?.value;
+    const focusable = props.find((property) => property.name === 'focusable')?.value;
+    // The frame document (RootWebArea) also reports editable+focusable but is
+    // not a typeable target, so exclude it explicitly.
+    const isEditableHost = editableToken !== undefined
+      && editableToken !== false
+      && editableToken !== 'false'
+      && (focusable === true || focusable === 'true')
+      && role !== 'RootWebArea';
+    if (
+      options.interestingOnly
+      && !isEditableHost
+      && (role === 'none' || role === 'generic' || role === 'InlineTextBox')
+    ) {
       continue;
     }
     const entry: BrowserAccessibilityNode = { uid: String(backendId), role };
@@ -54,9 +72,19 @@ export function normalizeAxTreeNodes(
         case 'level':
           if (typeof rawValue === 'number') entry.level = rawValue;
           break;
+
         default:
           break;
       }
+    }
+    // Only the HOST carries `editable`. The switch above runs for every node and
+    // `editable` is inherited, so emitting it there would mark paragraphs and
+    // text runs inside an editor -- and a paragraph accepts a write and reports
+    // success, which is exactly the confident-wrong-write this avoids.
+    if (isEditableHost && typeof editableToken === 'string' && editableToken) {
+      entry.editable = editableToken.slice(0, 40);
+    } else if (isEditableHost && editableToken === true) {
+      entry.editable = 'plaintext';
     }
     nodes.push(entry);
   }

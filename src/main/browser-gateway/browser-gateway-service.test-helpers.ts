@@ -315,6 +315,7 @@ export function makeService(overrides: {
         silent: false,
       }),
       getContactGapStats: () => ({ gapCount: 0, longestGapMs: 0 }),
+      getExtensionRuntime: () => ({ extensionVersion: '0.2.18', extensionStartedAt: 1_000 }),
     },
     // Default to a healthy local channel so existing specs keep their exact
     // command sequences; local-channel specs override it explicitly.
@@ -496,4 +497,3 @@ export function makeRelayNode(id = 'node-1', name = 'Windows PC'): WorkerNodeInf
     },
   };
 }
-

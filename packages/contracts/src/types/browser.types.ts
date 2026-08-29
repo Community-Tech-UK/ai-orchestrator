@@ -435,6 +435,13 @@ export interface BrowserAccessibilityNode {
   disabled?: boolean;
   focused?: boolean;
   level?: number;
+  /**
+   * Present only on an editable HOST (a contenteditable body/div, or a text
+   * input), carrying Chrome's token: "richtext" or "plaintext". A rich-text
+   * editor body is reported as role `generic` with no accessible name, so this
+   * is the only thing that identifies it in the tree.
+   */
+  editable?: string;
 }
 
 export interface BrowserEvaluateRequest extends BrowserTargetRequest {

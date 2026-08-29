@@ -531,6 +531,99 @@ describe('BrowserExtensionCommandStore', () => {
     await expect(store.pollCommand({ timeoutMs: 1 })).resolves.toBeNull();
   });
 
+  it('rejects a queued secret write without returning it to an incompatible poller', async () => {
+    const store = new BrowserExtensionCommandStore();
+    const pending = store.sendCommand({
+      command: 'type',
+      payload: {
+        selector: '#password',
+        value: 'TEST_ONLY_SECRET_VALUE',
+        credentialOrigin: 'https://www.instagram.com',
+        credentialProtection: 'password',
+      },
+      timeoutMs: 1_000,
+    });
+
+    await expect(store.pollCommand({
+      timeoutMs: 1,
+      allowSecureCredentialCommands: false,
+    })).resolves.toBeNull();
+    await expect(pending).rejects.toThrow('shared_tab_secure_credential_fill_unavailable');
+    expect(store.describeQueue('local')).toMatchObject({ queuedCount: 0, inFlightCount: 0 });
+  });
+
+  it('rejects an origin-bound public credential write from an incompatible poller', async () => {
+    const store = new BrowserExtensionCommandStore();
+    const pending = store.sendCommand({
+      command: 'type',
+      payload: {
+        selector: '#username',
+        value: 'test-only-user',
+        credentialOrigin: 'https://www.instagram.com',
+        credentialProtection: 'public',
+      },
+      timeoutMs: 1_000,
+    });
+    const rejection = expect(pending).rejects.toThrow(
+      'shared_tab_secure_credential_fill_unavailable',
+    );
+
+    await expect(store.pollCommand({
+      timeoutMs: 1,
+      allowSecureCredentialCommands: false,
+    })).resolves.toBeNull();
+    await rejection;
+    expect(store.describeQueue('local')).toMatchObject({ queuedCount: 0, inFlightCount: 0 });
+  });
+
+  it('returns a queued secret write only to a compatible exact-runtime poller', async () => {
+    const store = new BrowserExtensionCommandStore();
+    const pending = store.sendCommand({
+      command: 'type',
+      payload: {
+        selector: '#password',
+        value: 'TEST_ONLY_SECRET_VALUE',
+        credentialOrigin: 'https://www.instagram.com',
+        credentialProtection: 'password',
+      },
+      timeoutMs: 1_000,
+    });
+
+    const command = await store.pollCommand({
+      timeoutMs: 1,
+      allowSecureCredentialCommands: true,
+    });
+    expect(command).toMatchObject({
+      command: 'type',
+      payload: { credentialProtection: 'password' },
+    });
+    store.resolveCommand({ commandId: command!.id, ok: true, result: { completed: true } });
+    await expect(pending).resolves.toEqual({ completed: true });
+  });
+
+  it.each([undefined, 'unexpected']) (
+    'fails closed for an origin-bound write with %s credential protection',
+    async (credentialProtection) => {
+      const store = new BrowserExtensionCommandStore();
+      const pending = store.sendCommand({
+        command: 'type',
+        payload: {
+          selector: '#password',
+          value: 'NON_SECRET_TEST_PLACEHOLDER',
+          credentialOrigin: 'https://www.instagram.com',
+          ...(credentialProtection !== undefined ? { credentialProtection } : {}),
+        },
+        timeoutMs: 1_000,
+      });
+      const rejection = expect(pending).rejects.toThrow(
+        'shared_tab_secure_credential_fill_unavailable',
+      );
+
+      await expect(store.pollCommand({ timeoutMs: 1 })).resolves.toBeNull();
+      await rejection;
+    },
+  );
+
   it('isolates local and remote node command queues', async () => {
     const store = new BrowserExtensionCommandStore();
     const pending = store.sendCommand({

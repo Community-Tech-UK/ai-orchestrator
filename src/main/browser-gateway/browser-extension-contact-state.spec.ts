@@ -49,4 +49,98 @@ describe('BrowserExtensionContactState gap telemetry', () => {
     state.forgetNode('node-1');
     expect(state.getContactGapStats('node-1')).toEqual({ gapCount: 0, longestGapMs: 0 });
   });
+
+  it('replaces runtime evidence atomically and clears a missing version on reload', () => {
+    const state = new BrowserExtensionContactState();
+    state.markExtensionRuntime('node-1', {
+      extensionVersion: '0.2.17',
+      extensionStartedAt: 1_000,
+    });
+    expect(state.getExtensionRuntime('node-1')).toEqual({
+      extensionVersion: '0.2.17',
+      extensionStartedAt: 1_000,
+    });
+
+    state.markExtensionRuntime('node-1', { extensionStartedAt: 2_000 });
+
+    expect(state.getExtensionRuntime('node-1')).toEqual({ extensionStartedAt: 2_000 });
+    state.markExtensionRuntime('node-1', {});
+    expect(state.getExtensionRuntime('node-1')).toBeUndefined();
+  });
+
+  it('does not let a delayed older generation overwrite newer runtime evidence', () => {
+    const state = new BrowserExtensionContactState();
+    state.markExtensionRuntime('node-1', {
+      extensionVersion: '0.2.2',
+      extensionStartedAt: 2_000,
+    });
+
+    state.markExtensionRuntime('node-1', {
+      extensionVersion: '0.2.17',
+      extensionStartedAt: 1_000,
+    });
+
+    expect(state.getExtensionRuntime('node-1')).toEqual({
+      extensionVersion: '0.2.2',
+      extensionStartedAt: 2_000,
+    });
+  });
+
+  it('fails closed for inconsistent or incomplete evidence from the same generation', () => {
+    const state = new BrowserExtensionContactState();
+    state.markExtensionRuntime('node-1', {
+      extensionVersion: '0.2.17',
+      extensionStartedAt: 2_000,
+    });
+
+    state.markExtensionRuntime('node-1', { extensionStartedAt: 2_000 });
+    expect(state.getExtensionRuntime('node-1')).toEqual({ extensionStartedAt: 2_000 });
+
+    state.markExtensionRuntime('node-1', {
+      extensionVersion: '0.2.17',
+      extensionStartedAt: 2_000,
+    });
+    expect(state.getExtensionRuntime('node-1')).toEqual({ extensionStartedAt: 2_000 });
+  });
+
+  it('tombstones a disconnected generation and ignores its delayed replay', () => {
+    const state = new BrowserExtensionContactState();
+    state.markExtensionRuntime('node-1', {
+      extensionVersion: '0.2.17',
+      extensionStartedAt: 2_000,
+    });
+
+    state.markExtensionDisconnect('node-1', 'native_port_closed');
+    expect(state.getExtensionRuntime('node-1')).toEqual({ extensionStartedAt: 2_000 });
+
+    state.markExtensionRuntime('node-1', {
+      extensionVersion: '0.2.17',
+      extensionStartedAt: 2_000,
+    });
+    expect(state.getExtensionRuntime('node-1')).toEqual({ extensionStartedAt: 2_000 });
+
+    state.markExtensionRuntime('node-1', {
+      extensionVersion: '0.2.18',
+      extensionStartedAt: 3_000,
+    });
+    expect(state.getExtensionRuntime('node-1')).toEqual({
+      extensionVersion: '0.2.18',
+      extensionStartedAt: 3_000,
+    });
+  });
+
+  it.each([-1, 1.5])('clears malformed generation evidence at %s', (extensionStartedAt) => {
+    const state = new BrowserExtensionContactState();
+    state.markExtensionRuntime('node-1', {
+      extensionVersion: '0.2.17',
+      extensionStartedAt: 1_000,
+    });
+
+    state.markExtensionRuntime('node-1', {
+      extensionVersion: '0.2.17',
+      extensionStartedAt,
+    });
+
+    expect(state.getExtensionRuntime('node-1')).toBeUndefined();
+  });
 });

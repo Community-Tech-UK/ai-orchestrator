@@ -321,7 +321,10 @@ export class SpawnConfigBuilder {
       logger.info('Browser gateway MCP disabled for instance (browserToolsMode=off)', { instanceId });
       return null;
     }
-    const toolDeferral = mode === 'deferred';
+    // Codex does not install functions.exec wrappers after tools/list_changed,
+    // so its actual bridge surface is eager even when the requested UI mode is
+    // deferred. Log and return the effective mode, not the requested one.
+    const toolDeferral = mode === 'deferred' && provider !== 'codex';
     this.logBrowserToolSchemaBytes(instanceId, toolDeferral);
     return {
       aioMcpCliPath,

@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { RemoteBrowserExtensionBridge } from './remote-extension-bridge';
+import { BrowserExtensionContactState } from './browser-extension-contact-state';
 import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
+import { BrowserExtensionCommandStore } from './browser-extension-command-store';
 
 function makeBridge() {
   let now = 1_000;
@@ -34,11 +36,13 @@ function makeBridge() {
   const registry = {
     getNode: vi.fn(() => ({ id: 'node-1', name: 'Windows PC' }) as unknown as WorkerNodeInfo),
   };
+  const contactState = new BrowserExtensionContactState({ now: () => now });
   const bridge = new RemoteBrowserExtensionBridge({
     service,
     commandStore,
     tabStore,
     registry,
+    contactState,
     reliabilityEvents,
     logger,
     now: () => now,
@@ -52,6 +56,7 @@ function makeBridge() {
     registry,
     reliabilityEvents,
     logger,
+    contactState,
     setNow: (value: number) => {
       now = value;
     },
@@ -104,6 +109,7 @@ describe('RemoteBrowserExtensionBridge', () => {
     expect(commandStore.pollCommand).toHaveBeenCalledWith('node:node-1', {
       timeoutMs: 500,
       deferHandoffConfirmation: true,
+      allowSecureCredentialCommands: false,
     });
     expect(commandStore.resolveCommand).toHaveBeenCalledWith({
       queueKey: 'node:node-1',
@@ -111,6 +117,40 @@ describe('RemoteBrowserExtensionBridge', () => {
       ok: true,
       result: { value: 1 },
     });
+  });
+
+  it('returns no queued credential value to a downgraded exact remote poll', async () => {
+    const { service, tabStore, registry, contactState } = makeBridge();
+    const commandStore = new BrowserExtensionCommandStore();
+    const bridge = new RemoteBrowserExtensionBridge({
+      service,
+      commandStore,
+      tabStore,
+      registry,
+      contactState,
+      now: () => 2_000,
+    });
+    const pending = commandStore.sendCommand({
+      queueKey: 'node:node-1',
+      command: 'type',
+      payload: {
+        selector: '#password',
+        value: 'NON_SECRET_TEST_PLACEHOLDER',
+        credentialOrigin: 'https://www.instagram.com',
+        credentialProtection: 'password',
+      },
+      timeoutMs: 1_000,
+    });
+    const rejection = expect(pending).rejects.toThrow(
+      'shared_tab_secure_credential_fill_unavailable',
+    );
+
+    await expect(bridge.pollCommand('node-1', {
+      timeoutMs: 500,
+      extensionVersion: '0.2.2',
+      extensionStartedAt: 2_000,
+    })).resolves.toBeNull();
+    await rejection;
   });
 
   it('LT-371: requeues an unsent poll result through the node queue key', () => {
@@ -150,6 +190,31 @@ describe('RemoteBrowserExtensionBridge', () => {
       silent: true,
       staleForMs: 1,
     });
+  });
+
+  it('records contact and runtime evidence atomically for the exact remote node', async () => {
+    const { bridge, commandStore, contactState } = makeBridge();
+
+    await bridge.pollCommand('node-1', {
+      timeoutMs: 500,
+      extensionVersion: '0.2.18',
+      extensionStartedAt: 1_000,
+    });
+    expect(commandStore.pollCommand).toHaveBeenLastCalledWith('node:node-1', {
+      timeoutMs: 500,
+      deferHandoffConfirmation: true,
+      allowSecureCredentialCommands: true,
+    });
+    expect(contactState.getExtensionRuntime('node-1')).toEqual({
+      extensionVersion: '0.2.18',
+      extensionStartedAt: 1_000,
+    });
+
+    await bridge.pollCommand('node-1', {
+      timeoutMs: 500,
+      extensionStartedAt: 2_000,
+    });
+    expect(contactState.getExtensionRuntime('node-1')).toEqual({ extensionStartedAt: 2_000 });
   });
 
   it('logs remote extension poll lost and resumed transitions once per state change', async () => {
@@ -199,6 +264,29 @@ describe('RemoteBrowserExtensionBridge', () => {
         detail: { suspendedAttachments: 2 },
       }),
     );
+  });
+
+  it('keeps a runtime tombstone across node expiry so delayed polls cannot restore trust', async () => {
+    const { bridge, commandStore, contactState } = makeBridge();
+    await bridge.pollCommand('node-1', {
+      timeoutMs: 500,
+      extensionVersion: '0.2.18',
+      extensionStartedAt: 2_000,
+    });
+
+    bridge.expireNode('node-1');
+    await bridge.pollCommand('node-1', {
+      timeoutMs: 500,
+      extensionVersion: '0.2.18',
+      extensionStartedAt: 2_000,
+    });
+
+    expect(contactState.getExtensionRuntime('node-1')).toEqual({ extensionStartedAt: 2_000 });
+    expect(commandStore.pollCommand).toHaveBeenLastCalledWith('node:node-1', {
+      timeoutMs: 500,
+      deferHandoffConfirmation: true,
+      allowSecureCredentialCommands: false,
+    });
   });
 
   it('restores suspended tabs and records a reconnect when the poll resumes', async () => {

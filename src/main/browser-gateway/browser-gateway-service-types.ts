@@ -145,6 +145,13 @@ export interface BrowserGatewayFillCredentialRequest extends BrowserGatewayConte
 export interface BrowserGatewayCreateAgentCredentialRequest extends BrowserGatewayContext {
   profileId: string;
   targetId: string;
+  /** Optional non-secret Bitwarden item title. */
+  itemTitle?: string;
+  /**
+   * Login URI stored in Bitwarden. When present, its normalized origin is the
+   * origin that must carry the register authorization and vault binding.
+   */
+  loginUri?: string;
   /** The username/email for the new account (e.g. james@communitytech.co.uk). */
   username: string;
 }

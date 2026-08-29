@@ -1,5 +1,11 @@
-import { describe, expect, it } from 'vitest';
-import { resolveEmailSenderDomains } from './browser-form-fill-operations';
+import { describe, expect, it, vi } from 'vitest';
+import type { BrowserGatewayResult } from '@contracts/types/browser';
+import {
+  fillCredentialOperation,
+  resolveEmailSenderDomains,
+  type FillOperationDeps,
+} from './browser-form-fill-operations';
+import type { BrowserGatewayFillCredentialRequest } from './browser-gateway-service-types';
 
 const ORIGIN = 'https://portal.in-tendhost.co.uk';
 
@@ -93,4 +99,66 @@ describe('resolveEmailSenderDomains', () => {
   it('returns null for an unparseable origin', () => {
     expect(resolveEmailSenderDomains('not a url', ['example.com'])).toBeNull();
   });
+});
+
+describe('fillCredentialOperation secure extension revalidation', () => {
+  const makeRequest = (
+    kind: 'password' | 'email_code',
+  ): BrowserGatewayFillCredentialRequest => ({
+    instanceId: 'instance-1',
+    provider: 'codex',
+    profileId: 'existing-tab:node-1:42',
+    targetId: 'extension:node-1:42',
+    vaultItemRef: 'opaque-vault-ref',
+    fields: [{ selector: '#credential', kind }],
+  });
+
+  it.each(['password', 'email_code'] as const)(
+    'rechecks extension compatibility after origin refresh before resolving %s',
+    async (kind) => {
+      let compatible = true;
+      const vaultRead = vi.fn(async () => 'NON_SECRET_TEST_PLACEHOLDER');
+      const mailboxRead = vi.fn(async () => ({
+        code: '000000',
+        messageId: 'message-1',
+        matchedSender: 'no-reply@example.test',
+      }));
+      const deps: FillOperationDeps = {
+        result: (<T>(input: unknown) => input as BrowserGatewayResult<T>) as FillOperationDeps['result'],
+        hasExistingTab: () => true,
+        sharedTabCredentialFillAllowed: () => true,
+        sharedTabSecureCredentialFillSupported: () => compatible,
+        resolveCredentialProfileScope: () => 'node-1',
+        type: vi.fn(),
+        select: vi.fn(),
+        click: vi.fn(),
+        readControl: vi.fn(),
+        driverType: vi.fn(),
+        refreshTargetOrigin: vi.fn(async () => {
+          compatible = false;
+          return 'https://www.instagram.com';
+        }),
+        credentialVault: {
+          getSecretForFill: vaultRead,
+          createAgentCredential: vi.fn(),
+          getGenericSecretForFill: vi.fn(),
+        } as unknown as FillOperationDeps['credentialVault'],
+        credentialAuthorizations: {
+          check: vi.fn(() => ({ authorized: true as const })),
+        } as unknown as FillOperationDeps['credentialAuthorizations'],
+        emailCodeReader: { fetchCode: mailboxRead },
+      };
+
+      const result = await fillCredentialOperation(deps, makeRequest(kind));
+
+      expect(result).toMatchObject({
+        decision: 'denied',
+        outcome: 'not_run',
+        reason: 'shared_tab_secure_credential_fill_unavailable',
+      });
+      expect(vaultRead).not.toHaveBeenCalled();
+      expect(mailboxRead).not.toHaveBeenCalled();
+      expect(deps.driverType).not.toHaveBeenCalled();
+    },
+  );
 });

@@ -117,6 +117,10 @@ import {
   type BrowserExtensionContactStateReader,
 } from './browser-extension-contact-state';
 import {
+  confirmBrowserExtensionCredentialWrite,
+  supportsSecureBrowserExtensionCredentialFill,
+} from './browser-extension-credential-compatibility';
+import {
   getBrowserLocalExtensionHealth,
   type BrowserLocalExtensionHealth,
 } from './browser-local-extension-health';
@@ -1637,6 +1641,11 @@ export class BrowserGatewayService {
       // reader resolves correctly. The global-flag reader ignores the argument.
       sharedTabCredentialFillAllowed: (profileId) =>
         this.allowSharedTabCredentialFill(credentialAuthorizationProfileScope(profileId)),
+      sharedTabSecureCredentialFillSupported: (profileId) =>
+        supportsSecureBrowserExtensionCredentialFill(
+          this.extensionContactState,
+          credentialAuthorizationProfileScope(profileId),
+        ),
       resolveCredentialProfileScope: (profileId) => credentialAuthorizationProfileScope(profileId),
       type: (req) => this.type(req as BrowserGatewayContext & BrowserTypeRequest),
       select: (req) => this.select(req as BrowserGatewayContext & BrowserSelectRequest),
@@ -1645,8 +1654,15 @@ export class BrowserGatewayService {
       // through the extension command channel instead (same channel browser.type
       // uses); the driver path stays for managed profiles.
       readControl: (profileId, targetId, selector) => this.readControlForTarget(profileId, targetId, selector),
-      driverType: (profileId, targetId, selector, value) =>
-        this.driverTypeForTarget(profileId, targetId, selector, value),
+      driverType: (profileId, targetId, selector, value, authorizedOrigin, protection) =>
+        this.driverTypeForTarget(
+          profileId,
+          targetId,
+          selector,
+          value,
+          authorizedOrigin,
+          protection,
+        ),
       refreshTargetOrigin: (profileId, targetId) => this.refreshTargetOrigin(profileId, targetId),
       ...(this.credentialVault ? { credentialVault: this.credentialVault } : {}),
       ...(this.credentialAuthorizations ? { credentialAuthorizations: this.credentialAuthorizations } : {}),
@@ -1685,11 +1701,27 @@ export class BrowserGatewayService {
     targetId: string,
     selector: string,
     value: string,
-  ): Promise<void> {
+    authorizedOrigin: string,
+    protection: 'public' | 'password' | 'secret',
+  ): Promise<{ valueApplied?: boolean } | void> {
     const existingTab = this.extensionTabStore.getTab(profileId, targetId);
     if (existingTab) {
-      await this.existingTabOperations.sendCommand(existingTab, 'type', { selector, value });
-      return;
+      if (!supportsSecureBrowserExtensionCredentialFill(
+        this.extensionContactState,
+        credentialAuthorizationProfileScope(profileId),
+      )) {
+        throw new Error('shared_tab_secure_credential_fill_unavailable');
+      }
+      const raw = await this.existingTabOperations.sendCommand(existingTab, 'type', {
+        selector,
+        value,
+        credentialOrigin: authorizedOrigin,
+        credentialProtection: protection,
+      });
+      // Password/secret writes accept ONLY the extension's fixed two-field
+      // taint sentinel. A legacy page-derived `{ valueApplied: true, ... }`
+      // response is an unsafe protocol mismatch and fails closed.
+      return { valueApplied: confirmBrowserExtensionCredentialWrite(raw, protection) };
     }
     await this.driver.type(profileId, targetId, selector, value);
   }

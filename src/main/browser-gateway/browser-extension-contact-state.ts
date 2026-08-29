@@ -84,6 +84,8 @@ export class BrowserExtensionContactState implements BrowserExtensionContactStat
   private readonly gapStatsByNode = new Map<string, BrowserExtensionContactGapStats>();
   private readonly lastDisconnectByNode = new Map<string, BrowserExtensionDisconnectRecord>();
   private readonly runtimeByNode = new Map<string, BrowserExtensionRuntimeRecord>();
+  private readonly runtimeGenerationWatermarkByNode = new Map<string, number>();
+  private readonly blockedRuntimeGenerationByNode = new Map<string, number>();
 
   constructor(options: BrowserExtensionContactStateOptions = {}) {
     this.now = options.now ?? Date.now;
@@ -129,6 +131,7 @@ export class BrowserExtensionContactState implements BrowserExtensionContactStat
    * health, error messages, and outage telemetry.
    */
   markExtensionDisconnect(nodeId: string, reason: string, at = this.now()): void {
+    this.invalidateExtensionRuntime(nodeId, true);
     this.lastDisconnectByNode.set(nodeId, { at, reason });
   }
 
@@ -137,34 +140,95 @@ export class BrowserExtensionContactState implements BrowserExtensionContactStat
   }
 
   /**
-   * Record build evidence the extension stamped on a native message. Fields are
-   * merged, never cleared: an older message that omits `extensionVersion` must
-   * not erase a version we already learned.
+   * Record build evidence from one authenticated native message without
+   * allowing delayed messages from an older service-worker generation to
+   * restore stale trust. Missing or inconsistent evidence for the current
+   * generation fails closed and cannot be repaired until a newer generation
+   * is observed.
    */
   markExtensionRuntime(nodeId: string, runtime: BrowserExtensionRuntimeRecord): void {
-    const previous = this.runtimeByNode.get(nodeId);
-    const merged: BrowserExtensionRuntimeRecord = {
-      ...previous,
+    const incoming: BrowserExtensionRuntimeRecord = {
       ...(runtime.extensionVersion ? { extensionVersion: runtime.extensionVersion } : {}),
       ...(runtime.extensionStartedAt !== undefined
+        && Number.isInteger(runtime.extensionStartedAt)
+        && runtime.extensionStartedAt >= 0
         ? { extensionStartedAt: runtime.extensionStartedAt }
         : {}),
     };
-    if (merged.extensionVersion === undefined && merged.extensionStartedAt === undefined) {
+
+    const incomingStartedAt = incoming.extensionStartedAt;
+    if (incomingStartedAt === undefined) {
+      this.invalidateExtensionRuntime(nodeId, false);
       return;
     }
-    this.runtimeByNode.set(nodeId, merged);
+
+    const watermark = this.runtimeGenerationWatermarkByNode.get(nodeId);
+    if (watermark !== undefined && incomingStartedAt < watermark) {
+      return;
+    }
+    if (
+      watermark === incomingStartedAt
+      && this.blockedRuntimeGenerationByNode.get(nodeId) === incomingStartedAt
+    ) {
+      return;
+    }
+
+    const current = this.runtimeByNode.get(nodeId);
+    const currentStartedAt = current?.extensionStartedAt;
+    const currentVersion = current?.extensionVersion;
+    if (currentStartedAt === incomingStartedAt) {
+      if (
+        currentVersion !== undefined
+        && incoming.extensionVersion !== undefined
+        && currentVersion === incoming.extensionVersion
+      ) {
+        return;
+      }
+      this.runtimeByNode.set(nodeId, { extensionStartedAt: incomingStartedAt });
+      this.blockedRuntimeGenerationByNode.set(nodeId, incomingStartedAt);
+      return;
+    }
+
+    this.runtimeGenerationWatermarkByNode.set(nodeId, incomingStartedAt);
+    if (incoming.extensionVersion === undefined) {
+      this.blockedRuntimeGenerationByNode.set(nodeId, incomingStartedAt);
+    } else {
+      this.blockedRuntimeGenerationByNode.delete(nodeId);
+    }
+    this.runtimeByNode.set(nodeId, incoming);
+  }
+
+  private invalidateExtensionRuntime(nodeId: string, exposeTombstone: boolean): void {
+    const currentStartedAt = this.runtimeByNode.get(nodeId)?.extensionStartedAt
+      ?? this.runtimeGenerationWatermarkByNode.get(nodeId);
+    if (currentStartedAt === undefined) {
+      this.runtimeByNode.delete(nodeId);
+      return;
+    }
+    this.runtimeGenerationWatermarkByNode.set(nodeId, currentStartedAt);
+    this.blockedRuntimeGenerationByNode.set(nodeId, currentStartedAt);
+    if (exposeTombstone) {
+      this.runtimeByNode.set(nodeId, { extensionStartedAt: currentStartedAt });
+    } else {
+      this.runtimeByNode.delete(nodeId);
+    }
   }
 
   getExtensionRuntime(nodeId: string): BrowserExtensionRuntimeRecord | undefined {
     return this.runtimeByNode.get(nodeId);
   }
 
-  forgetNode(nodeId: string): void {
+  forgetNode(nodeId: string, options: { preserveRuntimeWatermark?: boolean } = {}): void {
     this.lastContactAtByNode.delete(nodeId);
     this.gapStatsByNode.delete(nodeId);
     this.lastDisconnectByNode.delete(nodeId);
-    this.runtimeByNode.delete(nodeId);
+    if (options.preserveRuntimeWatermark) {
+      this.invalidateExtensionRuntime(nodeId, true);
+    } else {
+      this.runtimeByNode.delete(nodeId);
+      this.runtimeGenerationWatermarkByNode.delete(nodeId);
+      this.blockedRuntimeGenerationByNode.delete(nodeId);
+    }
   }
 
   getLastExtensionContactAt(nodeId: string): number | undefined {

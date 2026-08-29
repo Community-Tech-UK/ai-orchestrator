@@ -3,6 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as readline from 'readline';
 import type { OutputMessage, ThinkingContent } from '../../shared/types/instance.types';
+import { extractAuthoredUserMessage } from './native-user-message';
 
 export interface ImportedTranscript {
   sessionId: string;
@@ -173,7 +174,9 @@ function extractStructuredMessages(
   const baseId = parsed.uuid ?? globalThis.crypto.randomUUID();
 
   if (typeof content === 'string') {
-    const trimmed = content.trim();
+    const trimmed = lineType === 'user'
+      ? extractAuthoredUserMessage(content)
+      : content.trim();
     return trimmed
       ? [{ id: baseId, timestamp, type: lineType, content: trimmed }]
       : [];
@@ -232,8 +235,11 @@ function extractStructuredMessages(
       continue;
     }
 
-    if (block.type === 'text' && typeof block.text === 'string' && block.text.trim()) {
-      messages.push({ id: messageId, timestamp, type: 'user', content: block.text.trim() });
+    if (block.type === 'text' && typeof block.text === 'string') {
+      const authoredText = extractAuthoredUserMessage(block.text);
+      if (authoredText) {
+        messages.push({ id: messageId, timestamp, type: 'user', content: authoredText });
+      }
       continue;
     }
 
@@ -329,7 +335,10 @@ export async function parseClaudeJsonlTranscriptDetailed(
         continue;
       }
 
-      const content = extractTextFromContentBlocks(parsed.message?.content);
+      const extractedContent = extractTextFromContentBlocks(parsed.message?.content);
+      const content = lineType === 'user'
+        ? extractAuthoredUserMessage(extractedContent)
+        : extractedContent;
       if (!content) continue;
 
       const id = parsed.uuid ?? globalThis.crypto.randomUUID();

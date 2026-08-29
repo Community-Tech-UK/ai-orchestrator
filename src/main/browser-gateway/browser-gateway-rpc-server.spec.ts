@@ -13,6 +13,8 @@ import {
   computeBrowserToolSurfaceHash,
 } from './browser-rpc-contract';
 import { BrowserToolRevealStore } from './browser-tool-reveal-store';
+import { BrowserExtensionCommandStore } from './browser-extension-command-store';
+import { BrowserExtensionContactState } from './browser-extension-contact-state';
 
 describe('BrowserGatewayRpcServer', () => {
   it('rejects unknown instance ids before reaching the gateway', async () => {
@@ -533,6 +535,8 @@ describe('BrowserGatewayRpcServer', () => {
           extensionToken: 'native-token',
           payload: {
             timeoutMs: 25,
+            extensionVersion: '0.2.18',
+            extensionStartedAt: 1_700_000_000_000,
           },
         },
       }),
@@ -545,7 +549,10 @@ describe('BrowserGatewayRpcServer', () => {
       },
       payload: { selector: '#continue' },
     });
-    expect(extensionCommandStore.pollCommand).toHaveBeenCalledWith({ timeoutMs: 25 });
+    expect(extensionCommandStore.pollCommand).toHaveBeenCalledWith({
+      timeoutMs: 25,
+      allowSecureCredentialCommands: true,
+    });
 
     await expect(
       server.handleRequest({
@@ -570,6 +577,90 @@ describe('BrowserGatewayRpcServer', () => {
       result: {
         text: 'Continue',
       },
+    });
+  });
+
+  it('returns no queued credential value to an incompatible authenticated local poll', async () => {
+    const extensionCommandStore = new BrowserExtensionCommandStore();
+    const pending = extensionCommandStore.sendCommand({
+      command: 'type',
+      payload: {
+        selector: '#password',
+        value: 'NON_SECRET_TEST_PLACEHOLDER',
+        credentialOrigin: 'https://www.instagram.com',
+        credentialProtection: 'password',
+      },
+      timeoutMs: 1_000,
+    });
+    const rejection = expect(pending).rejects.toThrow(
+      'shared_tab_secure_credential_fill_unavailable',
+    );
+    const server = new BrowserGatewayRpcServer({
+      service: {},
+      userDataPath: '/tmp',
+      extensionToken: 'native-token',
+      extensionCommandStore,
+      registerCleanup: vi.fn(),
+    });
+
+    await expect(server.handleRequest({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'browser.extension_poll_command',
+      params: {
+        extensionToken: 'native-token',
+        payload: {
+          timeoutMs: 25,
+          extensionVersion: '0.2.2',
+          extensionStartedAt: 2_000,
+        },
+      },
+    })).resolves.toBeNull();
+    await rejection;
+  });
+
+  it('does not trust a delayed poll from a disconnected local extension generation', async () => {
+    const extensionCommandStore = {
+      pollCommand: vi.fn().mockResolvedValue(null),
+      resolveCommand: vi.fn(),
+      markReceived: vi.fn(),
+    };
+    const contactState = new BrowserExtensionContactState({ now: () => 1_000 });
+    const server = new BrowserGatewayRpcServer({
+      service: {},
+      userDataPath: '/tmp',
+      extensionToken: 'native-token',
+      extensionCommandStore,
+      extensionContactState: contactState,
+      registerCleanup: vi.fn(),
+    } as unknown as ConstructorParameters<typeof BrowserGatewayRpcServer>[0]);
+    const poll = () => server.handleRequest({
+      jsonrpc: '2.0',
+      method: 'browser.extension_poll_command',
+      params: {
+        extensionToken: 'native-token',
+        payload: {
+          timeoutMs: 25,
+          extensionVersion: '0.2.18',
+          extensionStartedAt: 2_000,
+        },
+      },
+    });
+
+    await poll();
+    await server.handleRequest({
+      jsonrpc: '2.0',
+      method: 'browser.extension_disconnected',
+      params: {
+        extensionToken: 'native-token',
+        payload: { reason: 'native_host_stdin_eof' },
+      },
+    });
+    await poll();
+
+    expect(extensionCommandStore.pollCommand).toHaveBeenLastCalledWith({
+      timeoutMs: 25,
+      allowSecureCredentialCommands: false,
     });
   });
 

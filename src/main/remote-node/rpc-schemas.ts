@@ -407,19 +407,27 @@ export const BrowserCdpCloseParamsSchema = z.object({
 // socket. The coordinator assigns node identity from the connection; nodeId is
 // intentionally not accepted from these payloads.
 
+const BrowserExtensionRuntimeEvidenceSchema = {
+  extensionVersion: z.string().min(1).max(128).optional(),
+  extensionStartedAt: z.number().int().nonnegative().optional(),
+} as const;
+
 export const BrowserExtAttachTabParamsSchema = z.object({
+  ...BrowserExtensionRuntimeEvidenceSchema,
   token: z.string().optional(),
   extensionOrigin: z.string().min(1).max(200).optional(),
   payload: BrowserAttachExistingTabRequestSchema,
 });
 
 export const BrowserExtPollCommandParamsSchema = z.object({
+  ...BrowserExtensionRuntimeEvidenceSchema,
   token: z.string().optional(),
   extensionOrigin: z.string().min(1).max(200).optional(),
   timeoutMs: z.number().int().min(0).max(10_000).optional(),
 });
 
 export const BrowserExtCommandResultParamsSchema = z.object({
+  ...BrowserExtensionRuntimeEvidenceSchema,
   token: z.string().optional(),
   extensionOrigin: z.string().min(1).max(200).optional(),
   commandId: z.string().min(1).max(200),
@@ -429,12 +437,14 @@ export const BrowserExtCommandResultParamsSchema = z.object({
 });
 
 export const BrowserExtCommandReceivedParamsSchema = z.object({
+  ...BrowserExtensionRuntimeEvidenceSchema,
   token: z.string().optional(),
   extensionOrigin: z.string().min(1).max(200).optional(),
   commandId: z.string().min(1).max(200),
 });
 
 export const BrowserExtDisconnectedParamsSchema = z.object({
+  ...BrowserExtensionRuntimeEvidenceSchema,
   token: z.string().optional(),
   extensionOrigin: z.string().min(1).max(200).optional(),
   reason: z.string().min(1).max(200).optional(),

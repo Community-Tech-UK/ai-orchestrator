@@ -36,6 +36,7 @@ import type { FillControlReadback } from './browser-fill-plan-executor';
 import { BrowserAntiThrottle, type AntiThrottlePage } from './browser-anti-throttle';
 import { BrowserWedgeRecovery } from './browser-wedge-recovery';
 import { uploadFileAndVerify } from './browser-file-upload-driver';
+import { collectAccessibilityTreeNodes } from './puppeteer-accessibility-tree';
 
 export interface BrowserSnapshot {
   title: string;
@@ -303,10 +304,12 @@ export class PuppeteerBrowserDriver {
     const page = this.getPage(profileId, targetId);
     const session = await this.createPageSession(page);
     try {
-      await session.send('DOM.enable').catch(() => undefined);
-      await session.send('Accessibility.enable').catch(() => undefined);
-      const tree = await session.send('Accessibility.getFullAXTree', {});
-      return normalizeAxTreeNodes(tree, {
+      // DOM.enable / Accessibility.enable are issued inside
+      // collectAccessibilityTreeNodes so they fall within its time budget.
+      // Merge the main and reachable child-frame AX trees so iframe controls
+      // remain uid-addressable on managed profiles as they are in the extension.
+      const merged = await collectAccessibilityTreeNodes(session);
+      return normalizeAxTreeNodes({ nodes: merged }, {
         interestingOnly: options.interestingOnly !== false,
         limit: Math.max(1, Math.min(options.limit ?? 2000, 2000)),
       });

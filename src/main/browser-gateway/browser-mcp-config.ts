@@ -48,11 +48,18 @@ export function resolveBrowserGatewayBridgeSpec(
     return null;
   }
 
+  // Codex currently snapshots its functions.exec nested-tool registry from the
+  // initial MCP tools/list response and does not install wrappers after a
+  // notifications/tools/list_changed refresh. Enabling WS9 deferral there
+  // makes search/describe claim a tool is callable while ALL_TOOLS and the
+  // actual `tools` object still omit it. Keep Codex eager until its client can
+  // consume dynamic MCP tool-list changes; other providers retain deferral.
+  const toolDeferral = options.toolDeferral === true && options.provider !== 'codex';
   const env = {
     AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: options.socketPath,
     AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: options.instanceId,
     ...(options.provider ? { AI_ORCHESTRATOR_BROWSER_PROVIDER: options.provider } : {}),
-    ...(options.toolDeferral ? { [BROWSER_TOOL_DEFERRAL_ENV]: '1' } : {}),
+    ...(toolDeferral ? { [BROWSER_TOOL_DEFERRAL_ENV]: '1' } : {}),
   };
 
   return {

@@ -113,6 +113,10 @@ export const BrowserCreateAgentCredentialRequestSchema = z
   .object({
     profileId: idSchema,
     targetId: idSchema,
+    // Non-secret Bitwarden metadata. The main process derives the credential
+    // authorization origin from loginUri; a password is intentionally absent.
+    itemTitle: z.string().min(1).max(200).optional(),
+    loginUri: z.url().max(2_000).optional(),
     username: z.string().min(1).max(320),
   })
   .strict();

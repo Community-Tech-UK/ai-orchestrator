@@ -76,6 +76,47 @@ describe('native-claude-importer', () => {
       expect(result!.endedAt).toBe(Date.parse('2026-04-10T09:01:00.000Z'));
     });
 
+    it('removes injected indexed-codebase context from native user messages', async () => {
+      const filePath = path.join(tmpDir, 'indexed-context.jsonl');
+      const authoredPrompt = 'Fix session titles using the first authored message.';
+      writeJsonl(filePath, [
+        {
+          type: 'user',
+          uuid: 'u1',
+          timestamp: '2026-08-28T09:00:00.000Z',
+          cwd: '/Users/me/work/Demo',
+          sessionId: 'sess-indexed',
+          message: {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: [
+                  '[Indexed Codebase Context]',
+                  'Source: Harness indexed codebase search',
+                  'This context was selected from the persisted codebase index.',
+                  '- src/main/history/history-manager.ts:1',
+                  '[End Indexed Codebase Context]',
+                  '',
+                  authoredPrompt,
+                ].join('\n'),
+              },
+            ],
+          },
+        },
+      ]);
+
+      const result = await parseClaudeJsonlTranscript(filePath, {
+        preserveToolMessages: true,
+      });
+
+      expect(result?.firstUserMessage).toBe(authoredPrompt);
+      expect(result?.lastUserMessage).toBe(authoredPrompt);
+      expect(result?.messages).toEqual([
+        expect.objectContaining({ type: 'user', content: authoredPrompt }),
+      ]);
+    });
+
     it('returns null for transcripts with no user messages', async () => {
       const filePath = path.join(tmpDir, 'empty.jsonl');
       writeJsonl(filePath, [

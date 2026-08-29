@@ -152,6 +152,28 @@ describe('AutoTitleService', () => {
     expect(mockSendMessage).not.toHaveBeenCalled();
   });
 
+  it('keeps history title generation local even when paid fallback is authorized', async () => {
+    mockAuxGenerate.mockResolvedValue({
+      text: '',
+      decision: {
+        slot: 'titleGeneration',
+        provider: 'local-fallback',
+        source: 'fallback',
+        reason: 'local model unavailable',
+        allowFrontierFallback: true,
+      },
+    });
+
+    const title = await AutoTitleService.getInstance().generateLocalTitle(
+      'Fix session titles using the first authored message.',
+    );
+
+    expect(title).toBeNull();
+    expect(mockIsCliAvailable).not.toHaveBeenCalled();
+    expect(mockCreateAdapter).not.toHaveBeenCalled();
+    expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+
   it('returns null without retrying when the authorized paid title call rejects', async () => {
     mockIsCliAvailable.mockImplementation(async (type: string) => ({
       installed: type === 'claude',

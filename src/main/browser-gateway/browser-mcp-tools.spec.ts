@@ -62,6 +62,15 @@ describe('browser-mcp-tools', () => {
     expect(toolNames).not.toContain('browser.close_profile');
   });
 
+  it('has the expected Codex-normalized function name for the credential tool', () => {
+    const rawName = createBrowserMcpTools({ call: vi.fn() })
+      .find((tool) => tool.name === 'browser.create_agent_credential')?.name;
+    const normalizeSegment = (value: string) => value.replace(/[^A-Za-z0-9]/g, '_');
+    const functionName = `mcp__${normalizeSegment('browser-gateway')}__${normalizeSegment(rawName ?? '')}`;
+
+    expect(functionName).toBe('mcp__browser_gateway__browser_create_agent_credential');
+  });
+
   it('warns that browser content is untrusted and delegates calls to the RPC client', async () => {
     const call = vi.fn().mockResolvedValue({ decision: 'allowed' });
     const [tool] = createBrowserMcpTools({ call });
@@ -83,6 +92,8 @@ describe('browser-mcp-tools', () => {
     const requestUserLogin = tools.find((tool) => tool.name === 'browser.request_user_login');
     const pauseForManualStep = tools.find((tool) => tool.name === 'browser.pause_for_manual_step');
     const checkpointSave = tools.find((tool) => tool.name === 'browser.checkpoint_save');
+    const fillCredential = tools.find((tool) => tool.name === 'browser.fill_credential');
+    const createAgentCredential = tools.find((tool) => tool.name === 'browser.create_agent_credential');
 
     expect(listTargets?.inputSchema).toMatchObject({
       type: 'object',
@@ -171,6 +182,28 @@ describe('browser-mcp-tools', () => {
       },
       additionalProperties: false,
     });
+    expect(createAgentCredential?.inputSchema).toMatchObject({
+      type: 'object',
+      required: ['profileId', 'targetId', 'username'],
+      properties: {
+        profileId: { type: 'string' },
+        targetId: { type: 'string' },
+        itemTitle: { type: 'string' },
+        loginUri: { type: 'string' },
+        username: { type: 'string' },
+      },
+      additionalProperties: false,
+    });
+    expect(createAgentCredential?.inputSchema['properties']).not.toHaveProperty('password');
+    const fillCredentialProperties = fillCredential?.inputSchema['properties'] as
+      | Record<string, { description?: string }>
+      | undefined;
+    expect(fillCredentialProperties?.['vaultItemRef']?.description)
+      .toContain('shared extension tabs');
+    expect(fillCredentialProperties?.['vaultItemRef']?.description)
+      .toContain('stable node-scoped');
+    expect(fillCredentialProperties?.['vaultItemRef']?.description)
+      .not.toContain('managed profiles only');
   });
 
   it('keeps the stdio bridge free of privileged browser/database imports', () => {
