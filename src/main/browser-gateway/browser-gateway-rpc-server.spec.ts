@@ -483,6 +483,8 @@ describe('BrowserGatewayRpcServer', () => {
             text: 'Release dashboard',
             screenshotBase64: 'cG5n',
             capturedAt: 1000,
+            extensionVersion: '0.2.18',
+            extensionStartedAt: 1_700_000_000_000,
           },
         },
       }),
@@ -551,6 +553,7 @@ describe('BrowserGatewayRpcServer', () => {
     });
     expect(extensionCommandStore.pollCommand).toHaveBeenCalledWith({
       timeoutMs: 25,
+      allowBrowserCommands: true,
       allowSecureCredentialCommands: true,
     });
 
@@ -564,6 +567,8 @@ describe('BrowserGatewayRpcServer', () => {
           payload: {
             commandId: 'command-1',
             ok: true,
+            extensionVersion: '0.2.18',
+            extensionStartedAt: 1_700_000_000_000,
             result: {
               text: 'Continue',
             },
@@ -592,9 +597,7 @@ describe('BrowserGatewayRpcServer', () => {
       },
       timeoutMs: 1_000,
     });
-    const rejection = expect(pending).rejects.toThrow(
-      'shared_tab_secure_credential_fill_unavailable',
-    );
+    const rejection = expect(pending).rejects.toThrow('browser_extension_runtime_incompatible');
     const server = new BrowserGatewayRpcServer({
       service: {},
       userDataPath: '/tmp',
@@ -617,6 +620,88 @@ describe('BrowserGatewayRpcServer', () => {
       },
     })).resolves.toBeNull();
     await rejection;
+  });
+
+  it('rejects incompatible local inventory before page-controlled metadata reaches the service', async () => {
+    const attachExistingTab = vi.fn();
+    const server = new BrowserGatewayRpcServer({
+      service: { attachExistingTab },
+      userDataPath: '/tmp',
+      extensionToken: 'native-token',
+      registerCleanup: vi.fn(),
+    });
+
+    await expect(server.handleRequest({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'browser.extension_attach_tab',
+      params: {
+        extensionToken: 'native-token',
+        payload: {
+          tabId: 42,
+          windowId: 7,
+          url: 'https://example.test/MODEL_VISIBLE_TEST_MARKER',
+          title: 'MODEL_VISIBLE_TEST_MARKER',
+          text: 'MODEL_VISIBLE_TEST_MARKER',
+          extensionVersion: '0.2.2',
+          extensionStartedAt: 2_000,
+        },
+      },
+    })).rejects.toThrow('browser_extension_runtime_incompatible');
+    expect(attachExistingTab).not.toHaveBeenCalled();
+  });
+
+  it('discards a downgraded local command result instead of resolving page data', async () => {
+    const extensionCommandStore = {
+      pollCommand: vi.fn().mockResolvedValue(null),
+      resolveCommand: vi.fn(),
+      markReceived: vi.fn(),
+    };
+    const server = new BrowserGatewayRpcServer({
+      service: {},
+      userDataPath: '/tmp',
+      extensionToken: 'native-token',
+      extensionCommandStore,
+      registerCleanup: vi.fn(),
+    } as unknown as ConstructorParameters<typeof BrowserGatewayRpcServer>[0]);
+
+    await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'browser.extension_poll_command',
+      params: {
+        extensionToken: 'native-token',
+        payload: {
+          timeoutMs: 25,
+          extensionVersion: '0.2.18',
+          extensionStartedAt: 1_000,
+        },
+      },
+    });
+    await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'browser.extension_command_result',
+      params: {
+        extensionToken: 'native-token',
+        payload: {
+          commandId: 'command-1',
+          ok: true,
+          extensionVersion: '0.2.2',
+          extensionStartedAt: 2_000,
+          result: { text: 'MODEL_VISIBLE_TEST_MARKER' },
+        },
+      },
+    });
+
+    expect(extensionCommandStore.resolveCommand).toHaveBeenCalledWith({
+      commandId: 'command-1',
+      ok: false,
+      error: 'browser_extension_runtime_incompatible',
+    });
+    expect(JSON.stringify(extensionCommandStore.resolveCommand.mock.calls)).not.toContain(
+      'MODEL_VISIBLE_TEST_MARKER',
+    );
   });
 
   it('does not trust a delayed poll from a disconnected local extension generation', async () => {
@@ -660,6 +745,7 @@ describe('BrowserGatewayRpcServer', () => {
 
     expect(extensionCommandStore.pollCommand).toHaveBeenLastCalledWith({
       timeoutMs: 25,
+      allowBrowserCommands: false,
       allowSecureCredentialCommands: false,
     });
   });
@@ -689,7 +775,11 @@ describe('BrowserGatewayRpcServer', () => {
         method: 'browser.extension_command_received',
         params: {
           extensionToken: 'native-token',
-          payload: { commandId: 'command-1' },
+          payload: {
+            commandId: 'command-1',
+            extensionVersion: '0.2.18',
+            extensionStartedAt: 1_000,
+          },
         },
       }),
     ).resolves.toEqual({ ok: true });
@@ -774,7 +864,7 @@ describe('BrowserGatewayRpcServer', () => {
         payload: { commandId: 'command-1', ok: true },
       },
     });
-    await server.handleRequest({
+    await expect(server.handleRequest({
       jsonrpc: '2.0',
       id: 4,
       method: 'browser.extension_attach_tab',
@@ -782,7 +872,7 @@ describe('BrowserGatewayRpcServer', () => {
         extensionToken: 'native-token',
         payload: { tabId: 42, windowId: 7, url: 'https://example.test/', title: 'Example' },
       },
-    });
+    })).rejects.toThrow('browser_extension_runtime_incompatible');
 
     expect(onExtensionContact).toHaveBeenCalledTimes(4);
     // A result message without build evidence must still count as contact.

@@ -32,11 +32,22 @@ const serviceMocks = vi.hoisted(() => {
   const credentialVault = {
     enrolExistingCredential: vi.fn(),
   };
+  // Added 2026-08-29: the handler now resolves the authorization scope against
+  // the real roster and profile store, so a grant on a scope the fill could
+  // never look up is refused at the point of creation on BOTH doors.
+  const remoteNodeRoster = {
+    list: vi.fn(() => [{ id: 'bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be', name: 'windows-pc' }]),
+  };
+  const profileStore = {
+    listProfiles: vi.fn(() => [{ id: 'profile-1' }]),
+  };
   return {
     authorizationService,
     campaignService,
     escalationService,
     credentialVault,
+    remoteNodeRoster,
+    profileStore,
     unlockBrowserCredentialVault: vi.fn(),
     lockBrowserCredentialVault: vi.fn(),
     getBrowserVaultStatus: vi.fn(),
@@ -49,6 +60,14 @@ vi.mock('electron', () => ({
       electronMocks.handlers.set(channel, handler);
     }),
   },
+}));
+
+vi.mock('../../../remote-node/remote-node-roster-service', () => ({
+  getRemoteNodeRosterService: () => serviceMocks.remoteNodeRoster,
+}));
+
+vi.mock('../../../browser-gateway/browser-profile-store', () => ({
+  getBrowserProfileStore: () => serviceMocks.profileStore,
 }));
 
 vi.mock('../../../browser-gateway/browser-unattended-services', () => ({
@@ -295,6 +314,41 @@ describe('registerBrowserUnattendedHandlers', () => {
         Record<string, unknown>,
       ];
       expect(input['allowedSenderDomains']).toEqual(['notifications.service.gov.uk']);
+    });
+
+    it('refuses a scope the fill could never look up, on this door too', async () => {
+      // F-F from the 2026-08-29 review: the comments claimed both doors enforce
+      // the same rules while only the CLI door checked the scope, so the panel
+      // could still mint an unmatchable grant.
+      const result = await invoke('browser:create-credential-authorization', {
+        ...AUTH_PAYLOAD,
+        profileId: 'not-a-real-scope',
+      });
+
+      expect(result.success).toBe(false);
+      expect(serviceMocks.authorizationService.create).not.toHaveBeenCalled();
+    });
+
+    it('normalises a host the panel accepts rather than rejecting it', async () => {
+      // The panel host field applies no normalisation and the fill-time matcher
+      // lowercases, so mixed case has always worked. Rejecting it would regress.
+      serviceMocks.authorizationService.create.mockImplementation(
+        (input: object, id: string) => ({ ...input, id, createdAt: 1 }),
+      );
+
+      await invoke('browser:create-credential-authorization', {
+        ...AUTH_PAYLOAD,
+        allowedOrigins: [
+          { scheme: 'https', hostPattern: 'In-TendHost.CO.UK', includeSubdomains: true },
+        ],
+      });
+
+      const [input] = serviceMocks.authorizationService.create.mock.calls[0] as [
+        Record<string, unknown>,
+      ];
+      expect(input['allowedOrigins']).toEqual([
+        { scheme: 'https', hostPattern: 'in-tendhost.co.uk', includeSubdomains: true },
+      ]);
     });
 
     it('omits allowedSenderDomains entirely when it is absent', async () => {

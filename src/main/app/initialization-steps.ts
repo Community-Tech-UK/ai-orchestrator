@@ -99,6 +99,7 @@ import { maybeStartWorkerModeOnLaunch } from '../remote-node/worker-mode-autosta
 import { initializeContextEvidenceRuntime } from '../context-evidence/evidence-maintenance-service';
 import { initializeLocalAiGuardRuntime } from '../local-ai-guard';
 import { registerAcpYoloAutoApproval } from './permission-auto-approval';
+import { initializeInstanceAsyncWorkContinuation } from '../instance/instance-async-work-continuation';
 
 const logger = getLogger('AppInitialization');
 const CODEMEM_MAINTENANCE_COOLDOWN_MS = 30 * 60 * 1000;
@@ -383,6 +384,10 @@ export function createInitializationSteps(
         isStatelessExecProvider: context.isStatelessExecProvider,
         getNodeLatencyForInstance: context.getNodeLatencyForInstance,
       }),
+    },
+    {
+      name: 'Background task continuation',
+      fn: () => { initializeInstanceAsyncWorkContinuation(instanceManager); },
     },
     { name: 'Verification invokers', fn: () => registerDefaultMultiVerifyInvoker(instanceManager) },
     { name: 'Automations', fn: () => initializeAutomations(instanceManager) },

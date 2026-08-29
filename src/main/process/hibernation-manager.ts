@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import { getLogger } from '../logging/logger';
 import { registerCleanup } from '../util/cleanup-registry';
 import { getJitterScheduler } from '../tasks/jitter-scheduler';
+import { getInstanceAsyncWorkRegistry } from '../instance/instance-async-work-registry';
 
 const logger = getLogger('HibernationManager');
 
@@ -209,6 +210,7 @@ export class HibernationManager extends EventEmitter {
       inst.status === 'idle' &&
       (now - inst.lastActivity) > this.config.idleThresholdMs &&
       !this.hibernated.has(inst.id) &&
+      !getInstanceAsyncWorkRegistry().hasInhibitor(inst.id) &&
       !this.isInCooldown(inst.id, now)
     ).sort((a, b) => a.lastActivity - b.lastActivity);
   }

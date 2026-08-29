@@ -40,8 +40,13 @@ export const BROWSER_CHANNELS = {
   BROWSER_GET_HEALTH: 'browser:get-health',
   BROWSER_CHANGED: 'browser:changed',
 
-  // Unattended-automation trigger surfaces (renderer-only, James-approved
-  // dialogs — deliberately NOT exposed as MCP tools).
+  // Unattended-automation trigger surfaces. Still NOT exposed as MCP tools.
+  //
+  // 2026-08-29: credential enrolment and authorization are no longer
+  // renderer-only. The operator authorised a privileged
+  // `aio-mcp browser-credentials` CLI over the same services, because a
+  // required GUI step per portal was what blocked unattended operation. Vault
+  // unlock/lock/status, campaigns and escalation triage are unchanged.
   BROWSER_VAULT_UNLOCK: 'browser:vault-unlock',
   BROWSER_VAULT_LOCK: 'browser:vault-lock',
   BROWSER_VAULT_STATUS: 'browser:vault-status',

@@ -18,8 +18,11 @@ import type {
 /**
  * Signal-based store for the unattended browser-automation layer: vault
  * status, standing credential authorizations, overnight campaigns, and the
- * escalation triage queue. All writes go through James-approved dialogs —
- * this store is never driven by an agent.
+ * escalation triage queue. Writes from HERE go through the approval dialogs and
+ * this store is never driven by an agent. Note that credential enrolment and
+ * authorization can also be written by an agent through the
+ * `aio-mcp browser-credentials` CLI (2026-08-29), so what this store DISPLAYS is
+ * not necessarily something a human created.
  */
 @Injectable({ providedIn: 'root' })
 export class BrowserUnattendedStore {

@@ -20,12 +20,15 @@ import { getLogger } from '../logging/logger';
 /**
  * App-root singletons for the unattended browser-automation layer, backed by
  * the SQLite stores (migration 040). These are the ONLY construction points —
- * the IPC handlers (user-approved dialogs) and the gateway service share the
- * same instances, so a James-approved authorization is immediately visible to
+ * the IPC handlers (approval dialogs), the privileged `aio-mcp
+ * browser-credentials` CLI and the gateway service share the same instances, so
+ * a newly granted authorization is immediately visible to
  * browser.fill_credential and a paused campaign immediately stops grants.
  *
- * Authorizations and campaigns are user-approved only: created via renderer
- * IPC, never via an MCP tool.
+ * Campaigns are user-approved only: created via renderer IPC, never via an MCP
+ * tool. Authorizations were too until 2026-08-29, when the operator authorised
+ * a privileged CLI door (`aio-mcp browser-credentials`) so unattended portal
+ * logins need no GUI step; it shares these same instances.
  */
 
 const logger = getLogger('BrowserUnattendedServices');
@@ -237,6 +240,15 @@ export interface BrowserVaultStatus {
   locked: boolean;
   /** Whether a master-password source is configured (env var or setting). */
   passwordSourceConfigured: boolean;
+  /**
+   * Whether autonomous sign-in on the operator's OWN shared Chrome tabs is on.
+   *
+   * Surfaced here so the Browser screen can say so out loud. Since 2026-08-29
+   * an agent can turn this on itself and can grant itself the matching standing
+   * authorization, so the setting row is no longer a reliable place to notice
+   * it: this is the state most worth seeing at a glance.
+   */
+  sharedTabCredentialFillEnabled: boolean;
 }
 
 export function getBrowserVaultStatus(): BrowserVaultStatus {
@@ -250,8 +262,22 @@ export function getBrowserVaultStatus(): BrowserVaultStatus {
       configured = false;
     }
   }
+  let sharedTabCredentialFillEnabled = false;
+  try {
+    sharedTabCredentialFillEnabled = Boolean(
+      getSettingsManager().getAll().browserAllowSharedTabCredentialFill,
+    );
+  } catch (error) {
+    // Defaulting to false hides the banner, and this is the control the whole
+    // 2026-08-29 widening was justified by, so the failure must not be silent.
+    sharedTabCredentialFillEnabled = false;
+    logger.warn('Could not read browserAllowSharedTabCredentialFill for vault status', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
   return {
     locked: getBrowserCredentialSession().locked,
     passwordSourceConfigured: configured,
+    sharedTabCredentialFillEnabled,
   };
 }

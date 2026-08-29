@@ -67,6 +67,11 @@ export interface RawCliPayload {
   error?: { code: string; message: string };
   prompt?: string;
   metadata?: Record<string, unknown>;
+  tool_use_id?: string;
+  parent_tool_use_id?: string;
+  tool_name?: string;
+  elapsed_time_seconds?: number;
+  heartbeat?: boolean;
   /** Present on result messages — indicates why the turn ended. */
   stop_reason?: string;
   /** Present when stop_reason is 'tool_deferred' — the deferred tool details. */

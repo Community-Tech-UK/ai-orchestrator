@@ -74,11 +74,25 @@ describe('maybeAutoUnlockBrowserCredentialVault', () => {
   it('unlocks at startup when enabled with a readable password file', async () => {
     settingsMock.values = { browserVaultAutoUnlock: true, browserVaultMasterPasswordFile: pwFile };
 
-    expect(getBrowserVaultStatus()).toEqual({ locked: true, passwordSourceConfigured: true });
+    // sharedTabCredentialFillEnabled added 2026-08-29: the Browser screen shows a
+    // standing warning while autonomous sign-in on the operator's own tabs is on.
+    expect(getBrowserVaultStatus()).toEqual({
+      locked: true,
+      passwordSourceConfigured: true,
+      sharedTabCredentialFillEnabled: false,
+    });
 
     await maybeAutoUnlockBrowserCredentialVault();
 
     expect(getBrowserCredentialSession().locked).toBe(false);
+  });
+
+  it('reports shared-tab credential fill in the vault status', () => {
+    settingsMock.values = { browserAllowSharedTabCredentialFill: true };
+    expect(getBrowserVaultStatus().sharedTabCredentialFillEnabled).toBe(true);
+
+    settingsMock.values = { browserAllowSharedTabCredentialFill: false };
+    expect(getBrowserVaultStatus().sharedTabCredentialFillEnabled).toBe(false);
   });
 
   it('is a no-op when the vault is already unlocked', async () => {

@@ -67,6 +67,12 @@ export interface BrowserVaultUnlockResult {
 export interface BrowserVaultStatus {
   locked: boolean;
   passwordSourceConfigured: boolean;
+  /**
+   * Required, matching `BrowserVaultStatus` in the main process. Optional here
+   * would let a future main-side rename silently hide the warning banner rather
+   * than break the build, which is the wrong way round for a security surface.
+   */
+  sharedTabCredentialFillEnabled: boolean;
 }
 
 /** Action classes safe to offer in the campaign creation UI. Credential,

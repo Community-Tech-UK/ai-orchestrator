@@ -11,6 +11,8 @@ import {
   getBrowserCredentialAuthorizationService,
 } from './browser-unattended-services';
 import { getLogger } from '../logging/logger';
+import { normaliseAuthorizationOrigin } from './browser-credential-origin';
+import { resolveCredentialScopeForFilter } from './default-browser-credentials-operations';
 
 /**
  * Operator-owned "full autonomy" bootstrap. A single JSON file the local
@@ -236,10 +238,32 @@ export function applyBrowserAutonomyConfig(
     if (existing) {
       continue;
     }
+    // This is the THIRD door onto authorization creation, alongside the renderer
+    // IPC handlers and the `aio-mcp browser-credentials` CLI, and in practice it
+    // is the one that mints them: every authorization on a normal machine has an
+    // `authcfg-` id. Its schema takes `hostPattern` as a free string, so without
+    // this an entry of `{"hostPattern":"com","includeSubdomains":true}` becomes a
+    // login grant over every .com. One bad entry is skipped rather than thrown,
+    // because this runs at app start and a config typo must not stop boot.
+    let allowedOrigins;
+    try {
+      allowedOrigins = auth.allowedOrigins.map(normaliseAuthorizationOrigin);
+    } catch (error) {
+      logger.error('Skipping credential authorization with an invalid origin', undefined, {
+        authorizationId: id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      continue;
+    }
+    // Resolve a friendly node name to the id the fill actually looks up, the
+    // same as the other two doors. Lenient on purpose: this runs at app start,
+    // when the roster may not be populated yet, and an unresolvable value is
+    // left as written rather than failing boot.
+    const profileId = resolveCredentialScopeForFilter(auth.profileId);
     deps.authorizations.create(
       {
-        profileId: auth.profileId,
-        allowedOrigins: auth.allowedOrigins,
+        profileId,
+        allowedOrigins,
         purposes: auth.purposes,
         vaultFolder: auth.vaultFolder,
         expiresAt: now() + auth.expiresInDays * DAY_MS,

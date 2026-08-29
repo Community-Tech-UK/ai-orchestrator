@@ -90,6 +90,7 @@ import { reconcileClaudeSafetyRouteModel } from './claude-model-routing';
 import { bindRawAdapterProviderEvents } from './instance-communication-provider-events';
 import { InstanceContinuityInputQueue } from './instance-continuity-input-queue';
 import { InstanceToolResultProcessor } from './instance-tool-result-processor';
+import { getInstanceAsyncWorkRegistry } from './instance-async-work-registry';
 export type { CommunicationDependencies } from './instance-communication.types';
 
 const logger = getLogger('InstanceCommunication');
@@ -481,6 +482,7 @@ export class InstanceCommunicationManager extends EventEmitter {
     this.continuityInputQueue.cleanup(instanceId);
     this.lastErrorContent.delete(instanceId);
     this.toolResultProcessor.cleanup(instanceId);
+    getInstanceAsyncWorkRegistry().clearInstance(instanceId);
   }
 
   cleanupToolResultDedup(instanceId: string): void {
@@ -1482,6 +1484,13 @@ export class InstanceCommunicationManager extends EventEmitter {
         if (!instance) return;
         this.toolResultProcessor.captureRawEvidence(instance, toolCall);
       },
+      observeAsyncWork: (event) => {
+        const instance = this.deps.getInstance(instanceId);
+        if (!instance) return;
+        instance.lastActivity = Date.now();
+        this.deps.onOutput?.(instanceId);
+        getInstanceAsyncWorkRegistry().observe(instanceId, event);
+      },
     });
 
     adapter.on('status', (status: InstanceStatus) => {
@@ -2214,6 +2223,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         { raw: { source: 'adapter-event:exit', payload: { code, signal } } },
       );
       logger.info('Adapter exit event', { instanceId, code, signal });
+      getInstanceAsyncWorkRegistry().clearInstance(instanceId);
 
       const instance = this.deps.getInstance(instanceId);
       if (!instance) {

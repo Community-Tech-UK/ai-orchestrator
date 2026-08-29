@@ -85,7 +85,7 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'browserVaultMasterPasswordFile',
     label: 'Credential vault master-password file',
-    description: 'Path to a local file holding the Bitwarden master password used to unlock the browser credential vault. Only the path is stored; the password is read at unlock time, kept in memory only, and never logged or shown. Leave empty to disable unlock.',
+    description: 'Path to a local file holding the Bitwarden master password used to unlock the browser credential vault. Only the path is stored; the password is read at unlock time, kept in memory only, and never logged or shown. Leave empty to disable unlock. Since 29 Aug 2026 an agent can set this path through the privileged aio-mcp settings CLI.',
     type: 'string',
     category: 'advanced',
     placeholder: 'e.g., /Users/you/secure/bitwarden-master.txt',
@@ -93,14 +93,14 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'browserVaultAutoUnlock',
     label: 'Auto-unlock the credential vault at startup',
-    description: 'Unlock the browser credential vault automatically when the app starts, reading the master-password file above. Turn this on for hands-free unattended runs so you never click "Unlock vault". Needs a readable master-password file to be set. Set only from here or via the AIO_BW_MASTER_PASSWORD_FILE launch env var — not changeable by agents.',
+    description: 'Unlock the browser credential vault automatically when the app starts, reading the master-password file above. Turn this on for hands-free unattended runs so you never click "Unlock vault". Needs a readable master-password file to be set. Set from here, via the AIO_BW_MASTER_PASSWORD_FILE launch env var, or (since 29 Aug 2026, on your instruction) by an agent through the privileged aio-mcp settings CLI.',
     type: 'boolean',
     category: 'advanced',
   },
   {
     key: 'browserAllowSharedTabCredentialFill',
     label: 'Allow autonomous sign-in on your shared browser tabs',
-    description: 'Let the agent fill saved credentials (and login/registration forms) on your OWN shared Chrome tabs, not just its managed profiles — for portals where your registered accounts live in your real browser. Only origins you have granted a standing credential authorization can be filled; the password is typed straight into the page and never shown to the agent or logged. Off by default. Set only from here or via the privileged operator CLI — not changeable by agents.',
+    description: 'Let the agent fill saved credentials (and login/registration forms) on your OWN shared Chrome tabs, not just its managed profiles — for portals where your registered accounts live in your real browser. Only origins you have granted a standing credential authorization can be filled; the password is typed straight into the page and never shown to the agent or logged. Off by default. CHANGED 29 Aug 2026 on your instruction: an agent can now turn this on itself through the privileged aio-mcp settings CLI, and can also grant itself the standing authorization above via aio-mcp browser-credentials. Turning it on means unattended sign-in on your real browser with no human step remaining.',
     type: 'boolean',
     category: 'advanced',
   },

@@ -16,6 +16,7 @@
 
 import type { CliEvent, CliResponse, CliToolCall, SpawnModeChange } from './base-cli-adapter.types';
 import type { ContextUsage } from '../../../shared/types/instance.types';
+import type { CliAsyncWorkEvent } from './claude-cli-async-work';
 
 /** Maps each adapter event name to the payload recorded for it. */
 export interface ReceiptPayloadMap {
@@ -29,6 +30,7 @@ export interface ReceiptPayloadMap {
   exit: { code: number | null; signal: string | null };
   spawned: number;
   spawn_mode: SpawnModeChange;
+  async_work: CliAsyncWorkEvent;
 }
 
 /** A single recorded lifecycle event. */

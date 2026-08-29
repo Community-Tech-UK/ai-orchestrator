@@ -12,6 +12,15 @@
     }
   </div>
 
+  @if (status()?.sharedTabCredentialFillEnabled) {
+    <p class="vault-alert" role="alert" aria-live="assertive" data-testid="shared-tab-fill-alert">
+      Autonomous sign-in on your own browser tabs is ON. An agent can fill saved
+      credentials on any origin it holds a standing authorization for, and it can
+      grant itself those authorizations. Turn this off in Settings when you are
+      not running unattended work.
+    </p>
+  }
+
   @if (reasonLabel(); as reason) {
     <p class="vault-reason">{{ reason }}</p>
   }

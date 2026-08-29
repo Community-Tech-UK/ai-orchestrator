@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   CredentialAuthorizationService,
   InMemoryCredentialAuthorizationStore,
+  MAX_AUTHORIZATION_LIFETIME_MS,
+  assertAuthorizationExpiry,
   type CredentialAuthorization,
 } from './browser-credential-authorization-store';
 
@@ -267,5 +269,34 @@ describe('CredentialAuthorizationService.check — secret_fill binding', () => {
         secretType: 'iban',
       }),
     ).toMatchObject({ authorized: false, reason: 'purpose_not_authorized' });
+  });
+});
+
+describe('assertAuthorizationExpiry', () => {
+  // Extracted here 2026-08-29 because there are now two doors onto
+  // authorization creation: the renderer IPC handler and the privileged
+  // `aio-mcp browser-credentials authorize` CLI. A duplicated bound would drift
+  // and leave one door able to mint a grant the other refuses.
+  const NOW = 1_700_000_000_000;
+  const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+
+  it('exports the one-year cap both doors share', () => {
+    expect(MAX_AUTHORIZATION_LIFETIME_MS).toBe(YEAR_MS);
+  });
+
+  it('accepts an expiry in the future and inside the cap', () => {
+    expect(() => assertAuthorizationExpiry(NOW + 1, NOW)).not.toThrow();
+    expect(() => assertAuthorizationExpiry(NOW + 90 * 24 * 60 * 60 * 1000, NOW)).not.toThrow();
+    expect(() => assertAuthorizationExpiry(NOW + YEAR_MS, NOW)).not.toThrow();
+  });
+
+  it('refuses an expiry in the past or exactly now', () => {
+    expect(() => assertAuthorizationExpiry(NOW, NOW)).toThrow(/must be in the future/);
+    expect(() => assertAuthorizationExpiry(NOW - 1, NOW)).toThrow(/must be in the future/);
+  });
+
+  it('refuses standing consent beyond a year', () => {
+    expect(() => assertAuthorizationExpiry(NOW + YEAR_MS + 1, NOW))
+      .toThrow(/more than 1 year/);
   });
 });

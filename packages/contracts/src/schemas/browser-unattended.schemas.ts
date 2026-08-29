@@ -5,11 +5,16 @@ import { z } from 'zod';
  * vault unlock/lock/status, standing credential authorizations, overnight
  * browser campaigns, and the escalation triage queue.
  *
- * These are RENDERER-ONLY IPC payloads (James-approved dialogs) — they are
- * deliberately NOT exposed as MCP tools. Authorization + campaign creation is
- * user-approved only. No schema here ever carries a secret: vault unlock reads
- * the master password from a local file configured in settings, never from the
- * renderer payload.
+ * These are IPC payloads for the James-approved dialogs. None is exposed as an
+ * MCP tool. No schema here ever carries a secret: vault unlock reads the master
+ * password from a local file configured in settings, never from the renderer
+ * payload.
+ *
+ * 2026-08-29: these were "renderer-only" without qualification. Credential
+ * enrolment and authorization now ALSO have a privileged local CLI door
+ * (`aio-mcp browser-credentials`), which reuses these exact schemas so the two
+ * doors cannot accept different shapes. Campaign creation and escalation
+ * resolution remain renderer-only.
  *
  * Sibling file to browser.schemas.ts (which sits at the file-size ceiling);
  * self-contained to avoid an import cycle.
@@ -65,8 +70,19 @@ export type BrowserCreateCredentialAuthorizationRequest = z.infer<
 
 /**
  * Bind an EXISTING vault login to an origin so an authorized fill can use it.
- * Renderer-only, like every other standing-consent surface here: an agent must
- * never enrol its own credential.
+ *
+ * This previously read "an agent must never enrol its own credential", and was
+ * renderer-only for that reason. The operator overruled that on 2026-08-29:
+ * requiring him at a GUI for every portal login was the one thing preventing
+ * unattended operation, and the work being blocked was always authentication
+ * rather than approval. `aio-mcp browser-credentials enrol` now reaches this
+ * same path.
+ *
+ * What the change did NOT touch: enrolment still cannot invent a credential
+ * (the item must already exist in the vault), still cannot leave the agent
+ * folder jail without an explicit `moveIntoFolder`, and still never returns a
+ * password. Approval to SEND anything a human sees is a separate control and is
+ * deliberately unaffected.
  */
 export const BrowserEnrolCredentialRequestSchema = z
   .object({

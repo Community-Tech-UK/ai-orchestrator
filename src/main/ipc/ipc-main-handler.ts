@@ -347,7 +347,9 @@ export class IpcMainHandler {
       instanceManager: this.instanceManager,
     });
     // Unattended-layer trigger surfaces (vault unlock, credential
-    // authorizations, campaigns, escalation triage) — renderer-only.
+    // authorizations, campaigns, escalation triage). Renderer entry point.
+    // Credential enrolment and authorization also have a privileged CLI door
+    // as of 2026-08-29; both call the same services.
     registerBrowserUnattendedHandlers({
       ensureTrustedSender: this.ensureTrustedSender.bind(this),
     });

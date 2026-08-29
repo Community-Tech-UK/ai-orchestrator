@@ -78,6 +78,7 @@ import {
   dispatchCalendarMutation,
 } from './orchestrator-tools-rpc-calendar';
 import { dispatchLocalAiCliRpc, isLocalAiCliRpcMethod, type LocalAiCliOperations } from './orchestrator-tools-rpc-local-ai';
+import { dispatchBrowserCredentialsCliRpc, isBrowserCredentialsCliRpcMethod } from './orchestrator-tools-rpc-browser-credentials';
 
 const logger = getLogger('OrchestratorToolsRpcServer');
 
@@ -322,6 +323,7 @@ export class OrchestratorToolsRpcServer {
     if (calendarReadSpec) {
       return this.dispatchValidatedTool(calendarReadSpec.toolName, calendarReadSpec.schema, params);
     }
+    if (isBrowserCredentialsCliRpcMethod(request.method)) return dispatchBrowserCredentialsCliRpc(request.method, params.payload);
     if (isLocalAiCliRpcMethod(request.method)) {
       return dispatchLocalAiCliRpc(request.method, params.payload, this.localAiGuardOperations);
     }

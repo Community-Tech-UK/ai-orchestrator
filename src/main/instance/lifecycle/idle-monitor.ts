@@ -30,6 +30,7 @@ import { createDetectedFailure, type DetectedFailure } from '../../../shared/typ
 import { generateId } from '../../../shared/utils/id-generator';
 import { getLogger } from '../../logging/logger';
 import { getSessionMutex } from '../../session/session-mutex';
+import { getInstanceAsyncWorkRegistry } from '../instance-async-work-registry';
 
 const logger = getLogger('IdleMonitor');
 
@@ -314,6 +315,7 @@ export class IdleMonitor {
 
     this.deps.forEachInstance((instance) => {
       if (!instance.parentId) return;
+      if (getInstanceAsyncWorkRegistry().hasInhibitor(instance.id)) return;
 
       if (instance.status === 'idle' && now - instance.lastActivity > idleThreshold) {
         const hasUserMessages = instance.outputBuffer.some((msg: OutputMessage) => msg.type === 'user');
@@ -363,6 +365,7 @@ export class IdleMonitor {
         instance.status === 'idle'
         && instance.parentId
         && now - instance.lastActivity >= MEMORY_PRESSURE_MIN_IDLE_MS
+        && !getInstanceAsyncWorkRegistry().hasInhibitor(instance.id)
       ) {
         idleInstances.push(instance);
       }

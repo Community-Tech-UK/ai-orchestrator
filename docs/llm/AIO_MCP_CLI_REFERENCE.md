@@ -77,12 +77,11 @@ tier, not this CLI, and reports `false` for many keys this CLI can change.
 
 Secret-tier keys are readable only through `settings list` — `settings get`
 refuses them — so `list` is the only place their `cliWritable` shows up. Most of
-them are writable; `browserVaultMasterPasswordFile` is both secret-tier and
-operator-only, so it is not. See "Redaction And Secrets" below.
+them are writable, including `browserVaultMasterPasswordFile`: it is
+secret-tier, so its value is redacted, but since 2026-08-29 it is no longer
+operator-only. See "Redaction And Secrets" below.
 
-The operator-only anchors are the credential-vault unlock settings
-(`browserVaultMasterPasswordFile`, `browserVaultAutoUnlock`), the shared-tab
-credential-fill switch, the six Computer Use policy keys, the four Microsoft
+The operator-only anchors are the six Computer Use policy keys, the four Microsoft
 Graph OAuth and calendar-allowlist keys, the context-evidence rollout mode,
 the three Local AI Guard fallback-policy and budget keys, the WS-B1
 per-project PR-creation opt-in map (`allowPrCreation`), the licence-scoping
@@ -90,6 +89,10 @@ automation-provider block-list (`providersExcludedFromAutomation`), and the two 
 Copilot account-routing keys (`copilotAccountProfiles`, `copilotAccountRoutingRules`).
 `PRIVILEGED_CLI_OPERATOR_ONLY_KEYS` in
 `src/main/core/config/settings-control-policy.ts` is the authoritative list.
+
+The credential-vault unlock keys and the shared-tab credential-fill switch were
+anchors until 2026-08-29, when the operator had them widened so unattended
+portal logins need no GUI step. This CLI can now write them.
 
 When the user asks you to change one of your own Harness settings, check
 `CLI-Write` first and say plainly which of the two answers applies. Do not
@@ -224,6 +227,55 @@ Recommended agent workflow:
 The command uses the existing known-local-instance RPC authentication. Human
 output omits raw evidence; JSON contains only the existing bounded public Local
 AI schemas and never secret resolvers or model output.
+
+## Browser Credentials
+
+Use when an unattended browser task needs to log in to a site.
+
+```
+aio-mcp browser-credentials enrol --item <vault item name or id> --origin <https://host>
+aio-mcp browser-credentials authorize (--local | --node <nodeId> | --profile <id>) \
+    --purpose login --vault-folder <folder> --expires-in 90d
+aio-mcp browser-credentials list [--profile <id>]
+aio-mcp browser-credentials revoke --id <authorizationId>
+```
+
+Pick the scope correctly or the grant silently never matches:
+
+- `--node <nodeId>` for the user's own Chrome on a worker machine (the usual
+  case, e.g. `windows-pc`).
+- `--local` for the user's own Chrome on this machine.
+- `--profile <id>` ONLY for an agent-managed browser profile.
+
+A shared existing tab authorizes by node scope, not by profile id. `--node`
+accepts the friendly name or the roster UUID and stores the UUID. Exactly one
+scope flag is required, and an unknown scope is refused with the real ones named.
+
+Rules that will reject your command if you get them wrong:
+
+- The vault item must already exist. Enrolment binds an existing login; it
+  cannot create one.
+- Origin is `https://host` or `https://*.host`, for both `enrol` and
+  `authorize`. A non-default port is kept and works. A path is dropped. No
+  `user@host`. Never put a scheme or path in a panel host field.
+- A wildcard over a public suffix (`*.com`, `*.co.uk`) is refused.
+- Purposes: `login`, `register`, `totp`, `email_code`. `secret_fill` is refused.
+- An expiry is mandatory. `--expires-in 90d` / `12w`, or `--expires-at <epoch ms>`.
+  Maximum one year, enforced in the main process.
+- `--origin` and `--purpose` repeat; `--item`, `--node`, `--profile`, `--id` do not.
+- If the item sits outside the agent vault folder you must pass
+  `--move-into-folder` deliberately.
+
+Failures carry their own fix: a locked vault tells you how to unlock it, and an
+item outside the folder names `--move-into-folder`.
+
+Nothing here returns a secret. If you need the password itself, you are on the
+wrong path: the fill happens in the main process and the value never reaches a
+tool result.
+
+Added 2026-08-29 by operator decision, replacing a renderer-only rule. It shares
+its services and schemas with the Settings UI, so anything the panel refuses,
+this refuses too.
 
 ## Release Readiness
 

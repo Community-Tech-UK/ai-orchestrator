@@ -26,13 +26,28 @@ import {
   unlockBrowserCredentialVault,
 } from '../../browser-gateway/browser-unattended-services';
 import { generateId } from '../../../shared/utils/id-generator';
+import { assertAuthorizationExpiry } from '../../browser-gateway/browser-credential-authorization-store';
+import {
+  normaliseAuthorizationOrigin,
+  normaliseBindableOrigin,
+} from '../../browser-gateway/browser-credential-origin';
+import {
+  resolveCredentialScope,
+  resolveCredentialScopeForFilter,
+} from '../../browser-gateway/default-browser-credentials-operations';
 
 /**
  * Renderer IPC for the unattended browser-automation layer: vault
  * unlock/lock/status, credential authorizations, campaigns, and escalation
- * triage. These are the James-approved write surfaces the approval dialogs
- * call — deliberately NOT exposed as MCP tools (an agent must never approve
- * its own standing consent). No handler ever returns a secret: unlock returns
+ * triage. These are the approval-dialog write surfaces. None is exposed as an
+ * MCP tool.
+ *
+ * 2026-08-29: credential enrolment and authorization are no longer renderer-
+ * only. On the operator's instruction they also have a privileged CLI door
+ * (`aio-mcp browser-credentials`), so an agent CAN now create its own standing
+ * consent. Both doors share these services, the origin rules
+ * (`browser-credential-origin.ts`) and the expiry cap, so neither can grant
+ * what the other refuses. No handler ever returns a secret: unlock returns
  * `{unlocked, reason?}` only and the BW_SESSION token never leaves the main
  * process.
  */
@@ -44,8 +59,6 @@ interface RegisterBrowserUnattendedHandlersDeps {
   ) => IpcResponse | null;
 }
 
-/** Standing consent is long-lived but not unbounded: cap at 1 year out. */
-const MAX_AUTHORIZATION_LIFETIME_MS = 365 * 24 * 60 * 60 * 1000;
 
 export function registerBrowserUnattendedHandlers(
   deps: RegisterBrowserUnattendedHandlersDeps = {},
@@ -82,7 +95,7 @@ export function registerBrowserUnattendedHandlers(
     (payload) =>
       getBrowserCredentialVault().enrolExistingCredential({
         item: payload.item,
-        origin: payload.origin,
+        origin: normaliseBindableOrigin(payload.origin),
         ...(payload.moveIntoFolder !== undefined
           ? { moveIntoFolder: payload.moveIntoFolder }
           : {}),
@@ -94,17 +107,16 @@ export function registerBrowserUnattendedHandlers(
     IPC_CHANNELS.BROWSER_CREATE_CREDENTIAL_AUTHORIZATION,
     BrowserCreateCredentialAuthorizationRequestSchema,
     (payload) => {
-      const now = Date.now();
-      if (payload.expiresAt <= now) {
-        throw new Error('Authorization expiry must be in the future');
-      }
-      if (payload.expiresAt > now + MAX_AUTHORIZATION_LIFETIME_MS) {
-        throw new Error('Authorization expiry cannot be more than 1 year out');
-      }
+      // Same scope and origin rules as the CLI door. The autonomy-config
+      // bootstrap (`browser-autonomy-config.ts`) shares the origin rules but not
+      // the scope resolution: it is the operator's own file, applied at boot.
+      const profileId = resolveCredentialScope(payload.profileId);
+      const allowedOrigins = payload.allowedOrigins.map(normaliseAuthorizationOrigin);
+      assertAuthorizationExpiry(payload.expiresAt, Date.now());
       return getBrowserCredentialAuthorizationService().create(
         {
-          profileId: payload.profileId,
-          allowedOrigins: payload.allowedOrigins,
+          profileId,
+          allowedOrigins,
           purposes: payload.purposes,
           vaultFolder: payload.vaultFolder,
           expiresAt: payload.expiresAt,
@@ -121,7 +133,11 @@ export function registerBrowserUnattendedHandlers(
   register(
     IPC_CHANNELS.BROWSER_LIST_CREDENTIAL_AUTHORIZATIONS,
     BrowserListCredentialAuthorizationsRequestSchema.optional().default({}),
-    (payload) => getBrowserCredentialAuthorizationService().list(payload.profileId),
+    (payload) => getBrowserCredentialAuthorizationService().list(
+      payload.profileId === undefined
+        ? undefined
+        : resolveCredentialScopeForFilter(payload.profileId),
+    ),
     deps,
   );
   register(

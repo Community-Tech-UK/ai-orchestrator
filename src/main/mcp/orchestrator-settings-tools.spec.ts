@@ -477,12 +477,27 @@ describe('privileged settings CLI writability reporting', () => {
     });
   });
 
-  it('reports operator-only anchors as not CLI-writable', () => {
+  it('reports the 2026-08-29 widened browser credential keys as CLI-writable', () => {
+    // Deliberate widening, authorised by the operator: these three were the
+    // only settings blocking an unattended portal login. They stay closed-tier
+    // to the safe MCP tool surface; only the privileged repair CLI may write
+    // them. See the note on PRIVILEGED_CLI_OPERATOR_ONLY_KEYS.
     const byKey = privilegedList();
 
     for (const key of [
       'browserAllowSharedTabCredentialFill',
       'browserVaultAutoUnlock',
+      'browserVaultMasterPasswordFile',
+    ] as const) {
+      expect(byKey.get(key)?.cliWritable, key).toBe(true);
+      expect(byKey.get(key)?.writable, key).toBe(false);
+    }
+  });
+
+  it('reports operator-only anchors as not CLI-writable', () => {
+    const byKey = privilegedList();
+
+    for (const key of [
       'computerUseEnabled',
       'graphAgentWritableAccountsJson',
       'contextEvidenceModeByProvider',
@@ -519,18 +534,20 @@ describe('privileged settings CLI writability reporting', () => {
   });
 
   it('holds the operator-only anchor count the docs quote', () => {
-    // docs/AIO_MCP_CLI.md and docs/llm/AIO_MCP_CLI_REFERENCE.md both state 21
-    // anchors and enumerate them by group (2026-08-26 added
-    // `computerUseAutonomyLevel` as the 21st, taking the Computer Use group
-    // from five keys to six; 2026-08-25 Copilot account routing added
-    // `copilotAccountProfiles` and `copilotAccountRoutingRules` as the 19th and
-    // 20th, after the 2026-08-19 fresh-eyes fix added
-    // `providersExcludedFromAutomation` as the 18th and WS-B1 phase 1 added
-    // `allowPrCreation` as the 17th). Fail here if a 22nd is added without
-    // updating that prose.
+    // docs/AIO_MCP_CLI.md and docs/llm/AIO_MCP_CLI_REFERENCE.md both state 18
+    // anchors and enumerate them by group. History: the count reached 21 on
+    // 2026-08-26 (`computerUseAutonomyLevel` took the Computer Use group from
+    // five keys to six, after Copilot account routing added two on 2026-08-25,
+    // `providersExcludedFromAutomation` on 2026-08-19 and `allowPrCreation`
+    // under WS-B1 phase 1). On 2026-08-29 the operator authorised removing the
+    // two credential-vault unlock keys and the shared-tab credential-fill
+    // switch so unattended logins need no GUI step, taking it to 18. That is
+    // pinned separately in settings-control-policy.browser-credentials.spec.ts.
+    // Fail here if a 19th is added, or one is removed, without updating the
+    // prose.
     const anchors = [...privilegedList().values()].filter((setting) => !setting.cliWritable);
 
-    expect(anchors).toHaveLength(21);
+    expect(anchors).toHaveLength(18);
   });
 
   it('refuses an operator-only key before parsing the supplied value', () => {
@@ -552,8 +569,13 @@ describe('privileged settings CLI writability reporting', () => {
       .toMatchObject({ policyTier: 'read-only', writable: false, cliWritable: true });
     expect(privilegedGetSetting(
       { settingsManager: settings },
-      { key: 'browserAllowSharedTabCredentialFill' },
+      { key: 'computerUseEnabled' },
     )).toMatchObject({ cliWritable: false });
+    // Widened 2026-08-29: this key used to be the `false` case here.
+    expect(privilegedGetSetting(
+      { settingsManager: settings },
+      { key: 'browserAllowSharedTabCredentialFill' },
+    )).toMatchObject({ cliWritable: true });
   });
 
   it('leaves the safe list_settings tool output free of cliWritable', async () => {

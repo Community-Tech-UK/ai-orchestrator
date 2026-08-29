@@ -105,7 +105,7 @@ describe('CopilotProjectRoutingMenuComponent', () => {
     const fixture = await render('/work/widgets');
     expect(fixture.componentInstance.visible()).toBe(true);
     expect(fixture.componentInstance.onlyOneAccount()).toBe(true);
-    expect(fixture.nativeElement.textContent).toContain('Only one Copilot account');
+    expect(fixture.nativeElement.textContent).toContain('Add a second account in Settings');
   });
 
   it('offers an account Copilot already holds but Harness has not added', async () => {
@@ -115,7 +115,10 @@ describe('CopilotProjectRoutingMenuComponent', () => {
     ]);
     const fixture = await render('/work/widgets');
     expect(fixture.componentInstance.addable().map((c) => c.login)).toEqual(['LAWRENCJ_PE1']);
-    expect(fixture.nativeElement.textContent).toContain('Use LAWRENCJ_PE1 here…');
+    expect(fixture.nativeElement.textContent).toContain('LAWRENCJ_PE1');
+    // Marked with an "Add" badge rather than a sentence, so the row reads as a
+    // menu item and not wrapping prose.
+    expect(fixture.nativeElement.querySelector('.cpr-badge')?.textContent?.trim()).toBe('Add');
     // Something IS actionable, so the dead-end hint must not show.
     expect(fixture.componentInstance.onlyOneAccount()).toBe(false);
   });
@@ -172,11 +175,13 @@ describe('CopilotProjectRoutingMenuComponent', () => {
     expect(fixture.componentInstance.activeProfileId()).toBe('personal');
     // The tick lives in its own fixed-width span, so assert against the DOM
     // rather than a concatenated text blob.
-    const ticked = [...fixture.nativeElement.querySelectorAll('.project-menu-item')].find(
-      (item) => (item as HTMLElement).querySelector('.copilot-tick')?.textContent?.trim() === '✓',
+    const ticked = [...fixture.nativeElement.querySelectorAll('.cpr-item')].find(
+      (item) => (item as HTMLElement).querySelector('.cpr-tick')?.textContent?.trim() === '✓',
     ) as HTMLElement | undefined;
     expect(ticked?.textContent).toContain('Personal');
-    expect(fixture.componentInstance.summary()).toBe('Personal (default)');
+    // The healthy case is conveyed by the tick alone — a header line repeating
+    // it was duplication, and the main source of clutter.
+    expect(fixture.componentInstance.blockedReason()).toBeNull();
   });
 
   it('maps a repository with a remote using an OWNER rule', async () => {
@@ -242,12 +247,35 @@ describe('CopilotProjectRoutingMenuComponent', () => {
       detail: 'Not signed in on this device.',
     });
     const fixture = await render('/work/widgets');
-    expect(fixture.componentInstance.summary()).toContain('Blocked');
+    expect(fixture.componentInstance.blockedReason()).toContain('Not signed in');
+    expect(fixture.nativeElement.textContent).toContain('Not signed in');
     expect(fixture.componentInstance.activeProfileId()).toBeNull();
   });
 
   it('does nothing without a project path', async () => {
     await render(null);
     expect(ipc.previewRoute).not.toHaveBeenCalled();
+  });
+
+  it('carries its own menu styling rather than relying on the host component', async () => {
+    // Regression: these items originally reused `.project-menu-item`, whose
+    // rules are view-encapsulated to instance-list.component — so they never
+    // applied here and the menu rendered as unstyled, centred, wrapping text.
+    const fixture = await render('/work/widgets');
+    const item = fixture.nativeElement.querySelector('.cpr-item') as HTMLElement | null;
+    expect(item).not.toBeNull();
+    expect(item?.classList.contains('project-menu-item')).toBe(false);
+    // Left-aligned, full-width rows with a fixed tick gutter and an elided label.
+    expect(fixture.nativeElement.querySelector('.cpr-tick')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('.cpr-text')).not.toBeNull();
+  });
+
+  it('enables its items once loading settles', async () => {
+    // "Cannot select either" would also be the symptom of a stuck busy flag.
+    const fixture = await render('/work/widgets');
+    expect(fixture.componentInstance.busy()).toBe(false);
+    const items = [...fixture.nativeElement.querySelectorAll('.cpr-item')] as HTMLButtonElement[];
+    expect(items.length).toBeGreaterThan(0);
+    expect(items.every((item) => !item.disabled)).toBe(true);
   });
 });

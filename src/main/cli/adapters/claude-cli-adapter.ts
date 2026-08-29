@@ -68,6 +68,13 @@ import {
 } from './claude-cli-permission-details';
 import { probeVersionStatus } from './cli-status-probe';
 import { structuredOutputContent, type StructuredOutputCandidate } from './structured-output-content';
+import {
+  type CliAsyncWorkEvent,
+  parseClaudeAsyncWorkToolResult,
+  parseClaudeAsyncWorkToolUse,
+  parseClaudeTaskNotification,
+  parseClaudeToolProgress,
+} from './claude-cli-async-work';
 import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
 
 export type { DeferredToolUse } from './claude-cli-adapter.types';
@@ -1306,6 +1313,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
               const toolUseId = block.id || generateId();
               const toolInput = block.input || {};
               this.rememberToolUse(toolUseId, block.name, toolInput);
+              this.emitAsyncWork(parseClaudeAsyncWorkToolUse(block.name, toolUseId, toolInput));
 
               // Surface inline tool usage from assistant blocks for consistency.
               this.emit('output', {
@@ -1384,12 +1392,23 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         // Claude CLI returns these as user messages with tool_result content when permissions are denied
         if (userMsg.message?.content && Array.isArray(userMsg.message.content)) {
           for (const block of userMsg.message.content) {
+            if (block.type === 'text' && block.text) {
+              this.emitAsyncWork(parseClaudeTaskNotification(block.text));
+            }
+
             // LT-062: below only turns a tool_result into a visible 'output'
             // message on the permission-denial branch, so the loop detector
             // never saw an ordinary success/failure. Raw-emit it instead —
             // same channel AcpCliAdapter already uses, transcript untouched.
             if (block.type === 'tool_result' && block.tool_use_id && typeof block.content === 'string') {
               const context = this.toolUseContexts.get(block.tool_use_id);
+              this.emitAsyncWork(parseClaudeAsyncWorkToolResult(
+                block.tool_use_id,
+                context?.name ?? '',
+                block.content,
+                block.is_error === true,
+                context?.input,
+              ));
               this.emit('tool_result', {
                 id: block.tool_use_id,
                 name: context?.name ?? '',
@@ -1555,6 +1574,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           break;
         }
         if (typeof message.content === 'string' && message.content.trim()) {
+          this.emitAsyncWork(parseClaudeTaskNotification(message.content));
           this.emit('output', {
             id: generateId(),
             timestamp: message.timestamp || Date.now(),
@@ -1636,6 +1656,11 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
       case 'tool_use':
         this.rememberToolUse(message.tool.id, message.tool.name, message.tool.input);
+        this.emitAsyncWork(parseClaudeAsyncWorkToolUse(
+          message.tool.name,
+          message.tool.id,
+          message.tool.input,
+        ));
         this.emit('output', {
           id: generateId(),
           timestamp: message.timestamp || Date.now(),
@@ -1652,7 +1677,15 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         }
         break;
 
-      case 'tool_result':
+      case 'tool_result': {
+        const context = this.toolUseContexts.get(message.tool_use_id);
+        this.emitAsyncWork(parseClaudeAsyncWorkToolResult(
+          message.tool_use_id,
+          context?.name ?? '',
+          message.content,
+          message.is_error === true,
+          context?.input,
+        ));
         this.forgetToolUse(message.tool_use_id);
         this.emit('output', {
           id: generateId(),
@@ -1665,6 +1698,12 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           }
         });
         break;
+      }
+
+      case 'tool_progress': {
+        this.emitAsyncWork(parseClaudeToolProgress(raw as unknown as Record<string, unknown>));
+        break;
+      }
 
       case 'result': {
         const resultMsg = raw;
@@ -2105,6 +2144,10 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       name: toolName,
       input: normalizedInput
     });
+  }
+
+  private emitAsyncWork(event: CliAsyncWorkEvent | null): void {
+    if (event) this.emit('async_work', event);
   }
 
   private forgetToolUse(toolUseId: string | undefined): void {

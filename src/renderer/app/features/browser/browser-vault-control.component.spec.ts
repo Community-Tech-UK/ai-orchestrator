@@ -85,6 +85,39 @@ describe('BrowserVaultControlComponent', () => {
     expect(store.unlockVault).toHaveBeenCalled();
   });
 
+  it('warns loudly while autonomous sign-in on the operator\'s own tabs is on', async () => {
+    // Since 2026-08-29 an agent can turn this setting on itself AND grant itself
+    // the matching standing authorization, so the Settings row is no longer a
+    // reliable place to notice it. This banner is the compensating surface.
+    store.vaultStatus = vi.fn(() => ({
+      locked: false,
+      passwordSourceConfigured: true,
+      sharedTabCredentialFillEnabled: true,
+    }));
+    fixture = TestBed.createComponent(BrowserVaultControlComponent);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const alert = fixture.nativeElement.querySelector('[data-testid="shared-tab-fill-alert"]');
+    expect(alert).not.toBeNull();
+    expect(alert.textContent).toContain('grant itself those authorizations');
+  });
+
+  it('shows no such warning when it is off', async () => {
+    store.vaultStatus = vi.fn(() => ({
+      locked: false,
+      passwordSourceConfigured: true,
+      sharedTabCredentialFillEnabled: false,
+    }));
+    fixture = TestBed.createComponent(BrowserVaultControlComponent);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('[data-testid="shared-tab-fill-alert"]')).toBeNull();
+  });
+
   it('calls lockVault when the lock button is clicked', async () => {
     store.vaultStatus = vi.fn(() => ({ locked: false, passwordSourceConfigured: true }));
     fixture = TestBed.createComponent(BrowserVaultControlComponent);

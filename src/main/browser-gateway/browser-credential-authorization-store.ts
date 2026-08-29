@@ -4,9 +4,18 @@
  * The credential hard-stop (classifier) stays intact for arbitrary typed values
  * and for the user's personal accounts. `browser.fill_credential` is the only
  * primitive allowed to bypass it, and only when a live authorization from this
- * store covers (profileId, live origin, purpose). Authorizations are created
- * ONLY through an interactive James-approved dialog — never via an MCP tool,
- * never auto-approved.
+ * store covers (profileId, live origin, purpose).
+ *
+ * Authorizations are created through the approval dialog or, since 2026-08-29
+ * and on the operator's explicit instruction, the privileged `aio-mcp
+ * browser-credentials` CLI. Still never through an MCP tool. There is a third
+ * writer, `browser-autonomy-config.ts`, which applies the operator's own
+ * bootstrap file at app start and in practice mints most real grants.
+ *
+ * All three apply the origin rules in `browser-credential-origin.ts`. The
+ * expiry cap and the scope resolution below are enforced on the two
+ * interactive doors; the bootstrap file sets its own lifetime in days and is
+ * the operator's own artefact.
  *
  * Scope: agent-owned managed profiles, keyed by the managed profileId. The same
  * record ALSO gates autonomous login on the user's SHARED existing Chrome tabs
@@ -247,4 +256,25 @@ function originMatches(pattern: CredentialAuthorizationOrigin, origin: string): 
     return host.endsWith(`.${wanted}`);
   }
   return false;
+}
+
+/**
+ * Standing consent is long-lived but not unbounded: cap at 1 year out.
+ *
+ * Lives here rather than in a single caller because there are now TWO doors
+ * onto authorization creation: the renderer IPC handler
+ * (`browser-unattended-handlers.ts`) and the privileged `aio-mcp
+ * browser-credentials authorize` CLI. A duplicated bound would silently drift
+ * and leave one door able to mint a grant the other refuses.
+ */
+export const MAX_AUTHORIZATION_LIFETIME_MS = 365 * 24 * 60 * 60 * 1000;
+
+/** Throws unless `expiresAt` is in the future and inside the lifetime cap. */
+export function assertAuthorizationExpiry(expiresAt: number, now: number): void {
+  if (expiresAt <= now) {
+    throw new Error('Authorization expiry must be in the future');
+  }
+  if (expiresAt > now + MAX_AUTHORIZATION_LIFETIME_MS) {
+    throw new Error('Authorization expiry cannot be more than 1 year out');
+  }
 }

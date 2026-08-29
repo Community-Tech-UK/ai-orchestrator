@@ -157,21 +157,27 @@ Because of that, the two surfaces have different write boundaries:
 The `CLI-Write` column (`cliWritable` under `--json`) answers "can this CLI
 change it". The `Policy` column reports the safe MCP tool tier instead, so a
 `read-only` policy does not imply the CLI is blocked. `CLI-Write: no` marks the
-21 operator-only authorization anchors — the two credential-vault unlock keys,
-shared-tab credential fill, the six Computer Use policy keys, the four
-Microsoft Graph OAuth and calendar-allowlist keys, the context-evidence rollout
-mode, the three Local AI Guard fallback-policy and budget keys, the
+18 operator-only authorization anchors: the six Computer Use policy keys, the
+four Microsoft Graph OAuth and calendar-allowlist keys, the context-evidence
+rollout mode, the three Local AI Guard fallback-policy and budget keys, the
 WS-B1 per-project PR-creation opt-in map (`allowPrCreation`), the licence-scoping
 automation-provider block-list (`providersExcludedFromAutomation`), and the two GitHub
 Copilot account-routing keys (`copilotAccountProfiles`, `copilotAccountRoutingRules`).
 Those are changed from the Settings UI by the operator, never by an agent.
+
+On 2026-08-29 the two credential-vault unlock keys
+(`browserVaultMasterPasswordFile`, `browserVaultAutoUnlock`) and the shared-tab
+credential-fill switch (`browserAllowSharedTabCredentialFill`) were deliberately
+removed from this set, on the operator's instruction, so that unattended portal
+logins do not require a GUI step. They remain closed to the safe `set_setting`
+MCP tool and are writable only through this privileged CLI.
 `PRIVILEGED_CLI_OPERATOR_ONLY_KEYS` in
 `src/main/core/config/settings-control-policy.ts` is the authoritative list.
 
 Secret-tier keys are not readable through `settings get`, so `settings list` is
-the only place their `CLI-Write` value appears. Most are writable;
-`browserVaultMasterPasswordFile` is both secret-tier and operator-only, so it is
-not.
+the only place their `CLI-Write` value appears. All of them are writable,
+including `browserVaultMasterPasswordFile`, which is secret-tier (so its value
+is redacted in `list` and refused by `get`) but no longer operator-only.
 
 Secret-tier values are not printed:
 
@@ -228,6 +234,94 @@ or Tailscale IPv4 host.
 
 The table output is easier for a person to read. Use `--json` when another tool
 will parse the result.
+
+## Browser Credentials
+
+Binds an existing vault login to an origin, and manages the standing
+authorizations that let an unattended browser fill use it. This is what makes a
+portal login run without anyone at the keyboard.
+
+```
+aio-mcp browser-credentials enrol --item "ProContract (AIO-Agent)" \
+    --origin https://procontract.due-north.com
+
+aio-mcp browser-credentials authorize --node windows-pc \
+    --origin https://procontract.due-north.com \
+    --purpose login --purpose totp \
+    --vault-folder AIO-Agent --expires-in 90d \
+    --note "ProContract unattended login"
+
+aio-mcp browser-credentials list [--profile default]
+aio-mcp browser-credentials revoke --id <authorizationId>
+```
+
+### Scope: the part that is easy to get wrong
+
+`authorize` needs exactly one of `--local`, `--node <nodeId>` or
+`--profile <id>`. This is not cosmetic. At fill time
+`credentialAuthorizationProfileScope` resolves a shared existing tab to its
+**node** scope, because a shared tab's own profile id is per-tab and ephemeral;
+only a managed browser profile authorizes by its own id. A grant on the wrong
+scope is created happily and can never match, and the failure appears much later
+as `credential_not_authorized:no_authorization_for_profile`.
+
+- Your everyday Chrome on a worker machine: `--node windows-pc`
+- Your everyday Chrome on this machine: `--local`
+- An agent-managed browser profile: `--profile aio-procurement`
+
+`--node` takes either the friendly name (`windows-pc`) or the roster UUID; the
+name is resolved to the id, because the id is what the fill actually looks up. An
+unknown scope is refused main-side and the error lists the real ones with both
+name and id. The scope is printed back on success, so a wrong one is visible at
+the point of creation.
+
+### Origins
+
+`--origin` and `--purpose` may be repeated. Origins take the form `https://host`
+or `https://*.host` for a subdomain wildcard, and are normalised the way a
+browser normalises them, so an international host is punycoded and a trailing dot
+is dropped rather than stored in a form that could never match.
+
+A non-default port is KEPT, because the fill-time matcher compares against
+`new URL(pageUrl).host`, which includes one. A council portal on `:8443` works.
+The scheme's own default port is dropped, as a browser drops it.
+
+Refused: a path in a host field, embedded credentials (`https://user@host`),
+empty labels, and a non-leading wildcard. A path in a full URL is dropped
+rather than refused, so you can paste an address bar.
+
+Also refused: a wildcard whose base is a public suffix. `*.com` and `*.co.uk`
+are grants over an entire registry rather than an organisation.
+
+The same origin rules apply to `enrol`, so a login you can bind is always a login
+you can authorize. All of it is enforced in the main process rather than in the
+CLI process, because the CLI binary is not the only thing that can reach the RPC
+socket.
+
+Purposes are `login`, `register`, `totp` and `email_code`. `secret_fill` is
+deliberately not offerable here, so financial and identity secret fills stay off
+this door.
+
+Expiry is required, never defaulted: `--expires-in 90d` or `12w`, or
+`--expires-at <epoch ms>`. Standing consent is capped at one year, enforced in
+the main process by the same `assertAuthorizationExpiry` the Settings UI uses.
+
+`--move-into-folder` moves a vault item into the agent folder when it lives
+elsewhere. It widens what an authorized fill can reach, so it is never implied.
+
+No command prints a password. Enrolment returns a vault item reference and a
+username only.
+
+### Why this exists
+
+Until 2026-08-29 enrolment and authorization were renderer-only, and the enrol
+schema stated that an agent must never enrol its own credential. The operator
+overruled that: a required GUI step per portal was the one thing preventing
+unattended operation, and the work being blocked was always authentication
+rather than approval. The CLI calls the same main-process services as the
+Settings UI and reuses its exact request schemas, so the two doors cannot accept
+different things. Approval to send anything a person will see is a separate
+control and is unaffected.
 
 ## Release Readiness
 

@@ -1,5 +1,6 @@
 import type { DegradedReason } from './degraded-output-classifier';
 import type { ContextUsage } from '../../../shared/types/instance.types';
+import type { CliAsyncWorkEvent } from './claude-cli-async-work';
 export type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
 
 /**
@@ -344,7 +345,8 @@ export type CliEvent =
   | 'complete'    // Response finished
   | 'exit'        // Process exited
   | 'spawned'     // Process spawned
-  | 'spawn_mode'; // B9: spawn mode established or changed at runtime
+  | 'spawn_mode'  // B9: spawn mode established or changed at runtime
+  | 'async_work'; // Provider-owned background task lifecycle
 
 /**
  * Event handler types for CLI adapters
@@ -360,4 +362,5 @@ export interface CliAdapterEvents {
   'exit': (code: number | null, signal: string | null) => void;
   'spawned': (pid: number) => void;
   'spawn_mode': (change: SpawnModeChange) => void;
+  'async_work': (event: CliAsyncWorkEvent) => void;
 }

@@ -21,7 +21,10 @@ import { ElectronIpcService, type IpcResponse } from './electron-ipc.service';
  * standing credential authorizations, overnight campaigns, escalation
  * triage). Sibling to `BrowserGatewayIpcService` — kept separate so neither
  * file grows past the 700-line ratchet, and because these calls are a
- * distinct James-approved write surface (never invoked by an agent).
+ * distinct write surface driven by the approval dialogs. Since 2026-08-29 the
+ * credential enrolment and authorization operations behind it ALSO have an
+ * agent-callable CLI door (`aio-mcp browser-credentials`); this renderer service
+ * is not that door, but it is no longer the only one.
  *
  * Unlike the gateway action calls, these handlers return the payload
  * directly under `response.data` (no `BrowserGatewayResult` decision/outcome

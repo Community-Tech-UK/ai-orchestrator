@@ -1,5 +1,6 @@
 import { compareSemverVersions, parseSemver } from '../cli/semver';
 import {
+  type BrowserExtensionContactState,
   type BrowserExtensionContactStateReader,
   type BrowserExtensionRuntimeRecord,
 } from './browser-extension-contact-state';
@@ -21,6 +22,39 @@ export function browserExtensionRuntimeFromPayload(
       ? { extensionStartedAt }
       : {}),
   };
+}
+
+export function recordCompatibleBrowserExtensionRuntime(
+  contactState: BrowserExtensionContactState,
+  channelId: string,
+  payload: Record<string, unknown>,
+  onContact: (runtime: BrowserExtensionRuntimeRecord) => void,
+): boolean {
+  const runtime = browserExtensionRuntimeFromPayload(payload);
+  contactState.markExtensionContact(channelId);
+  contactState.markExtensionRuntime(channelId, runtime);
+  onContact(runtime);
+  return isSecureBrowserExtensionRuntimeEvidence(runtime)
+    && supportsSecureBrowserExtensionCredentialFill(contactState, channelId);
+}
+
+export function browserExtensionCommandId(payload: Record<string, unknown>): string {
+  const commandId = payload['commandId'];
+  if (typeof commandId !== 'string' || !commandId) {
+    throw new Error('Invalid browser gateway RPC payload');
+  }
+  return commandId;
+}
+
+export function withoutBrowserExtensionRuntimeEvidence(
+  payload: Record<string, unknown>,
+): Record<string, unknown> {
+  const {
+    extensionVersion: _extensionVersion,
+    extensionStartedAt: _extensionStartedAt,
+    ...content
+  } = payload;
+  return content;
 }
 
 /**

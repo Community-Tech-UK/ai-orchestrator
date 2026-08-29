@@ -68,6 +68,8 @@ describe('RemoteBrowserExtensionBridge', () => {
     const { bridge, service } = makeBridge();
 
     const result = await bridge.attachTab('node-1', {
+      extensionVersion: '0.2.18',
+      extensionStartedAt: 1_000,
       extensionOrigin: 'chrome-extension://remote/',
       payload: {
         tabId: 42,
@@ -99,17 +101,24 @@ describe('RemoteBrowserExtensionBridge', () => {
   it('routes command polling and results through the node queue key', async () => {
     const { bridge, commandStore } = makeBridge();
 
-    await bridge.pollCommand('node-1', { timeoutMs: 500 });
+    await bridge.pollCommand('node-1', {
+      timeoutMs: 500,
+      extensionVersion: '0.2.18',
+      extensionStartedAt: 1_000,
+    });
     bridge.commandResult('node-1', {
       commandId: 'cmd-1',
       ok: true,
       result: { value: 1 },
+      extensionVersion: '0.2.18',
+      extensionStartedAt: 1_000,
     });
 
     expect(commandStore.pollCommand).toHaveBeenCalledWith('node:node-1', {
       timeoutMs: 500,
       deferHandoffConfirmation: true,
-      allowSecureCredentialCommands: false,
+      allowBrowserCommands: true,
+      allowSecureCredentialCommands: true,
     });
     expect(commandStore.resolveCommand).toHaveBeenCalledWith({
       queueKey: 'node:node-1',
@@ -141,9 +150,7 @@ describe('RemoteBrowserExtensionBridge', () => {
       },
       timeoutMs: 1_000,
     });
-    const rejection = expect(pending).rejects.toThrow(
-      'shared_tab_secure_credential_fill_unavailable',
-    );
+    const rejection = expect(pending).rejects.toThrow('browser_extension_runtime_incompatible');
 
     await expect(bridge.pollCommand('node-1', {
       timeoutMs: 500,
@@ -151,6 +158,50 @@ describe('RemoteBrowserExtensionBridge', () => {
       extensionStartedAt: 2_000,
     })).resolves.toBeNull();
     await rejection;
+  });
+
+  it('rejects incompatible remote inventory before page-controlled metadata reaches the service', async () => {
+    const { bridge, service } = makeBridge();
+
+    await expect(bridge.attachTab('node-1', {
+      extensionVersion: '0.2.2',
+      extensionStartedAt: 2_000,
+      payload: {
+        tabId: 42,
+        windowId: 7,
+        url: 'https://example.test/MODEL_VISIBLE_TEST_MARKER',
+        title: 'MODEL_VISIBLE_TEST_MARKER',
+        text: 'MODEL_VISIBLE_TEST_MARKER',
+      },
+    })).rejects.toThrow('browser_extension_runtime_incompatible');
+    expect(service.attachExistingTab).not.toHaveBeenCalled();
+  });
+
+  it('discards a downgraded remote command result instead of resolving page data', async () => {
+    const { bridge, commandStore } = makeBridge();
+
+    await bridge.pollCommand('node-1', {
+      timeoutMs: 500,
+      extensionVersion: '0.2.18',
+      extensionStartedAt: 1_000,
+    });
+    bridge.commandResult('node-1', {
+      commandId: 'cmd-1',
+      ok: true,
+      extensionVersion: '0.2.2',
+      extensionStartedAt: 2_000,
+      result: { text: 'MODEL_VISIBLE_TEST_MARKER' },
+    });
+
+    expect(commandStore.resolveCommand).toHaveBeenCalledWith({
+      queueKey: 'node:node-1',
+      commandId: 'cmd-1',
+      ok: false,
+      error: 'browser_extension_runtime_incompatible',
+    });
+    expect(JSON.stringify(commandStore.resolveCommand.mock.calls)).not.toContain(
+      'MODEL_VISIBLE_TEST_MARKER',
+    );
   });
 
   it('LT-371: requeues an unsent poll result through the node queue key', () => {
@@ -176,7 +227,11 @@ describe('RemoteBrowserExtensionBridge', () => {
   it('records remote extension contact on polls and classifies stale nodes', async () => {
     const { bridge, setNow } = makeBridge();
 
-    await bridge.pollCommand('node-1', { timeoutMs: 500 });
+    await bridge.pollCommand('node-1', {
+      timeoutMs: 500,
+      extensionVersion: '0.2.18',
+      extensionStartedAt: 1_000,
+    });
 
     expect(bridge.getLastExtensionContactAt('node-1')).toBe(1_000);
     expect(bridge.isExtensionContactFresh('node-1')).toBe(true);
@@ -203,6 +258,7 @@ describe('RemoteBrowserExtensionBridge', () => {
     expect(commandStore.pollCommand).toHaveBeenLastCalledWith('node:node-1', {
       timeoutMs: 500,
       deferHandoffConfirmation: true,
+      allowBrowserCommands: true,
       allowSecureCredentialCommands: true,
     });
     expect(contactState.getExtensionRuntime('node-1')).toEqual({
@@ -220,7 +276,11 @@ describe('RemoteBrowserExtensionBridge', () => {
   it('logs remote extension poll lost and resumed transitions once per state change', async () => {
     const { bridge, logger, setNow } = makeBridge();
 
-    await bridge.pollCommand('node-1', { timeoutMs: 500 });
+    await bridge.pollCommand('node-1', {
+      timeoutMs: 500,
+      extensionVersion: '0.2.18',
+      extensionStartedAt: 92_000,
+    });
     setNow(91_001);
 
     expect(bridge.isExtensionContactFresh('node-1')).toBe(false);
@@ -236,7 +296,11 @@ describe('RemoteBrowserExtensionBridge', () => {
     );
 
     setNow(92_000);
-    await bridge.pollCommand('node-1', { timeoutMs: 500 });
+    await bridge.pollCommand('node-1', {
+      timeoutMs: 500,
+      extensionVersion: '0.2.18',
+      extensionStartedAt: 1_000,
+    });
 
     expect(logger.info).toHaveBeenCalledWith(
       'Remote browser extension poll resumed',
@@ -285,6 +349,7 @@ describe('RemoteBrowserExtensionBridge', () => {
     expect(commandStore.pollCommand).toHaveBeenLastCalledWith('node:node-1', {
       timeoutMs: 500,
       deferHandoffConfirmation: true,
+      allowBrowserCommands: false,
       allowSecureCredentialCommands: false,
     });
   });
@@ -293,7 +358,11 @@ describe('RemoteBrowserExtensionBridge', () => {
     const { bridge, tabStore, reliabilityEvents, setNow } = makeBridge();
     tabStore.restoreNode.mockReturnValue(2);
 
-    await bridge.pollCommand('node-1', { timeoutMs: 500 });
+    await bridge.pollCommand('node-1', {
+      timeoutMs: 500,
+      extensionVersion: '0.2.18',
+      extensionStartedAt: 92_000,
+    });
     setNow(91_001);
     expect(bridge.isExtensionContactFresh('node-1')).toBe(false);
     setNow(92_000);

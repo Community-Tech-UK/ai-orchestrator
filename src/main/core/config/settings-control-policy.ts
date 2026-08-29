@@ -50,9 +50,24 @@ const SECRET_POLICY: ClosedSettingsToolPolicy = {
 const SECRET_KEY_PATTERN = /token|secret|key|cert|password/i;
 const REDACTED = '[redacted]';
 const PRIVILEGED_CLI_OPERATOR_ONLY_KEYS = new Set<keyof AppSettings>([
-  'browserVaultMasterPasswordFile',
-  'browserVaultAutoUnlock',
-  'browserAllowSharedTabCredentialFill',
+  // 2026-08-29 DELIBERATE WIDENING, authorised by the operator in session.
+  //
+  // `browserVaultMasterPasswordFile`, `browserVaultAutoUnlock` and
+  // `browserAllowSharedTabCredentialFill` were removed from this set and are
+  // now writable through the privileged `aio-mcp settings` CLI. They were the
+  // whole of what stood between an agent and an unattended portal login: every
+  // stalled task in this class was an authentication step, never an approval
+  // step.
+  //
+  // NOT widened: the safe `set_setting` MCP tool (all three stay closed-tier
+  // below); approval to send anything a human contact sees; the other anchors.
+  //
+  // Writes emit a `privileged_set` / `privileged_reset` record via
+  // `logSettingMutation`. That is a `logger.info` line, not a tamper-evident
+  // audit trail: enough for "what changed and when", not for "did something try
+  // to hide this". The compensating visible control is the standing warning on
+  // the Browser screen's vault card, fed by `sharedTabCredentialFillEnabled` on
+  // `BrowserVaultStatus`.
   // WS-B1 phase 1 (2026-07-31 fresh-eyes CRITICAL fix): PR creation authority
   // is a human/GUI-only decision — the privileged repair CLI's agent-facing
   // `settings set` path must not be able to grant it either.
@@ -368,9 +383,10 @@ export const SETTINGS_TOOL_POLICY = {
   // gate; only the operator changes the mode.
   instructionTrustGate: readOnly(),
   // Security-sensitive: authorizes autonomous credential fills on the user's
-  // real shared browser. An autonomous agent must never flip this via the safe
-  // settings tool — only the local operator (UI / privileged aio-mcp CLI /
-  // autonomy config) may enable it.
+  // real shared browser. Still closed to the safe settings tool, but since
+  // 2026-08-29 an agent CAN enable it through the privileged repair CLI (see
+  // the widening note on PRIVILEGED_CLI_OPERATOR_ONLY_KEYS). Compensating
+  // control: the standing warning on the Browser screen's vault card.
   browserAllowSharedTabCredentialFill: readOnly(),
   codebaseAutoIndexEnabled: open(z.boolean()),
   instanceProviderLimitResumeEnabled: open(z.boolean()),
@@ -405,8 +421,9 @@ export const SETTINGS_TOOL_POLICY = {
   // Licence guardrail: this list is what stops an automatic path from calling a
   // provider the operator may only use in a specific context (e.g. a work-only
   // Copilot seat). An agent that could edit it could grant itself the very
-  // access the operator withheld, so it is operator-only — same reasoning as
-  // browserAllowSharedTabCredentialFill.
+  // access the operator withheld, so it is operator-only. (This used to argue
+  // by analogy to browserAllowSharedTabCredentialFill, which stopped being an
+  // anchor on 2026-08-29; the reasoning stands on its own.)
   providersExcludedFromAutomation: readOnly(
     false,
     z.array(z.enum(AUTOMATION_PROVIDER_IDS)).max(AUTOMATION_PROVIDER_IDS.length),

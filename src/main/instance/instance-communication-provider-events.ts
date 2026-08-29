@@ -1,5 +1,6 @@
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import type { CliToolCall } from '../cli/adapters/base-cli-adapter';
+import type { CliAsyncWorkEvent } from '../cli/adapters/claude-cli-async-work';
 import { toJsonSafeProviderEventPayload } from '../providers/provider-event-raw-payload';
 import type {
   ProviderName,
@@ -15,6 +16,7 @@ interface BindRawAdapterProviderEventsInput {
     options: { raw: ProviderRuntimeEventRaw; provider?: ProviderName },
   ) => void;
   captureToolResult?: (toolCall: CliToolCall) => void;
+  observeAsyncWork?: (event: CliAsyncWorkEvent) => void;
 }
 
 /** Bind canonical capture for adapter events not otherwise handled by the UI. */
@@ -53,5 +55,10 @@ export function bindRawAdapterProviderEvents(input: BindRawAdapterProviderEvents
       },
       { raw: { source: 'adapter-event:tool_result', payload: toJsonSafeProviderEventPayload(toolCall) } },
     );
+  });
+
+  input.adapter.on('async_work', (event: CliAsyncWorkEvent) => {
+    if (input.isStale('async_work')) return;
+    input.observeAsyncWork?.(event);
   });
 }

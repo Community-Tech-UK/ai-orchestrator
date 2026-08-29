@@ -131,7 +131,9 @@ export class RemoteBrowserExtensionBridge {
     if (!node) {
       throw new Error(`unknown_remote_browser_node:${nodeId}`);
     }
-    this.recordExtensionContact(nodeId, params);
+    if (!this.recordExtensionContact(nodeId, params)) {
+      throw new Error('browser_extension_runtime_incompatible');
+    }
 
     const {
       allowedOrigins: _allowedOrigins,
@@ -153,15 +155,14 @@ export class RemoteBrowserExtensionBridge {
     params: BrowserExtPollCommandParams,
   ): ReturnType<RemoteExtensionCommandStore['pollCommand']> {
     this.consumeRateLimit(nodeId);
-    this.recordExtensionContact(nodeId, params);
+    const allowBrowserCommands = this.recordExtensionContact(nodeId, params);
     return this.commandStore.pollCommand(
       browserExtensionQueueKeyForNode(nodeId),
       {
         timeoutMs: params.timeoutMs,
         deferHandoffConfirmation: true,
-        allowSecureCredentialCommands:
-          isSecureBrowserExtensionRuntimeEvidence(params)
-          && supportsSecureBrowserExtensionCredentialFill(this.contactState, nodeId),
+        allowBrowserCommands,
+        allowSecureCredentialCommands: allowBrowserCommands,
       },
     );
   }
@@ -182,7 +183,15 @@ export class RemoteBrowserExtensionBridge {
 
   commandResult(nodeId: string, params: BrowserExtCommandResultParams): { ok: true } {
     this.consumeRateLimit(nodeId);
-    this.recordExtensionContact(nodeId, params);
+    if (!this.recordExtensionContact(nodeId, params)) {
+      this.commandStore.resolveCommand({
+        queueKey: browserExtensionQueueKeyForNode(nodeId),
+        commandId: params.commandId,
+        ok: false,
+        error: 'browser_extension_runtime_incompatible',
+      });
+      return { ok: true };
+    }
     this.commandStore.resolveCommand({
       queueKey: browserExtensionQueueKeyForNode(nodeId),
       commandId: params.commandId,
@@ -195,7 +204,9 @@ export class RemoteBrowserExtensionBridge {
 
   commandReceived(nodeId: string, params: BrowserExtCommandReceivedParams): { ok: true } {
     this.consumeRateLimit(nodeId);
-    this.recordExtensionContact(nodeId, params);
+    if (!this.recordExtensionContact(nodeId, params)) {
+      return { ok: true };
+    }
     this.commandStore.markReceived(
       browserExtensionQueueKeyForNode(nodeId),
       params.commandId,
@@ -265,13 +276,17 @@ export class RemoteBrowserExtensionBridge {
   private recordExtensionContact(
     nodeId: string,
     runtime: { extensionVersion?: string; extensionStartedAt?: number },
-  ): void {
+  ): boolean {
     const contactedAt = this.now();
     this.observeExtensionContact(nodeId, contactedAt);
     const previousState = this.contactTransitions.get(nodeId) ?? 'never';
     this.contactState.markExtensionContact(nodeId, contactedAt);
     this.contactState.markExtensionRuntime(nodeId, runtime);
-    if (previousState !== 'active') {
+    const allowBrowserCommands = isSecureBrowserExtensionRuntimeEvidence(runtime)
+      && supportsSecureBrowserExtensionCredentialFill(this.contactState, nodeId);
+    if (!allowBrowserCommands) {
+      this.tabStore.suspendNode(nodeId);
+    } else {
       // 'lost' → the poll resumed; 'never' → first contact after a node
       // (re)registration. Either way the channel is live again: lift any
       // suspension so callers' pre-blip handles keep working.
@@ -289,6 +304,7 @@ export class RemoteBrowserExtensionBridge {
       }
     }
     this.contactTransitions.set(nodeId, 'active');
+    return allowBrowserCommands;
   }
 
   private observeExtensionContact(

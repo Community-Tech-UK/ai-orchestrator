@@ -32,8 +32,16 @@ describe('BrowserUnattendedStore', () => {
     skipEscalation: ReturnType<typeof vi.fn>;
   };
 
-  const vaultStatusLocked: BrowserVaultStatus = { locked: true, passwordSourceConfigured: true };
-  const vaultStatusUnlocked: BrowserVaultStatus = { locked: false, passwordSourceConfigured: true };
+  const vaultStatusLocked: BrowserVaultStatus = {
+    locked: true,
+    passwordSourceConfigured: true,
+    sharedTabCredentialFillEnabled: false,
+  };
+  const vaultStatusUnlocked: BrowserVaultStatus = {
+    locked: false,
+    passwordSourceConfigured: true,
+    sharedTabCredentialFillEnabled: false,
+  };
 
   const authorization: CredentialAuthorization = {
     id: 'auth-1',

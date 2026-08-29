@@ -40,3 +40,17 @@
   font-size: 12px;
   color: var(--warning-color, #f59e0b);
 }
+
+.vault-alert {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--danger-color, #ef4444);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  // #ef4444 at 12px measured ~3.8:1, under the 4.5:1 AA threshold for body
+  // text. Darkened for legibility; the border and tint still carry the colour.
+  color: var(--danger-text-color, #b91c1c);
+  background: color-mix(in srgb, var(--danger-color, #ef4444) 8%, transparent);
+  font-weight: 500;
+}

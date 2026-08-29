@@ -7,6 +7,7 @@ import {
   buildParsedToolResultEvidenceIngress,
   buildRawToolResultEvidenceIngress,
 } from './instance-provider-event-ingress';
+import type { CliAsyncWorkEvent } from '../cli/adapters/claude-cli-async-work';
 
 describe('raw adapter provider-event evidence ingress', () => {
   it('offers the exact raw tool result to evidence capture before publishing the forensic event', () => {
@@ -35,6 +36,47 @@ describe('raw adapter provider-event evidence ingress', () => {
       expect.objectContaining({ kind: 'tool_result', output: 'first\r\nsecond\n' }),
       expect.objectContaining({ raw: expect.objectContaining({ source: 'adapter-event:tool_result' }) }),
     );
+  });
+
+  it('forwards current async-work events without adding them to provider runtime evidence', () => {
+    const adapter = new EventEmitter() as CliAdapter;
+    const observeAsyncWork = vi.fn();
+    const emit = vi.fn();
+    bindRawAdapterProviderEvents({
+      adapter,
+      isStale: () => false,
+      observeAsyncWork,
+      emit,
+    });
+    const event: CliAsyncWorkEvent = {
+      phase: 'started',
+      workId: 'bg-1',
+      kind: 'background-shell',
+    };
+
+    adapter.emit('async_work', event);
+
+    expect(observeAsyncWork).toHaveBeenCalledWith(event);
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('drops async-work events from a replaced adapter generation', () => {
+    const adapter = new EventEmitter() as CliAdapter;
+    const observeAsyncWork = vi.fn();
+    bindRawAdapterProviderEvents({
+      adapter,
+      isStale: () => true,
+      observeAsyncWork,
+      emit: vi.fn(),
+    });
+
+    adapter.emit('async_work', {
+      phase: 'started',
+      workId: 'bg-1',
+      kind: 'background-shell',
+    } satisfies CliAsyncWorkEvent);
+
+    expect(observeAsyncWork).not.toHaveBeenCalled();
   });
 
   it('builds one stable logical key for parsed and raw views of the same result', () => {

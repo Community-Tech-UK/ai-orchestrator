@@ -63,6 +63,16 @@ export interface CliToolResultMessage extends CliStreamMessageBase {
   is_error?: boolean;
 }
 
+/** Provider heartbeat while a long-running tool continues outside the model turn. */
+export interface CliToolProgressMessage extends CliStreamMessageBase {
+  type: 'tool_progress';
+  tool_use_id?: string;
+  parent_tool_use_id?: string;
+  tool_name?: string;
+  elapsed_time_seconds?: number;
+  heartbeat?: boolean;
+}
+
 /**
  * Result message - final result of a conversation turn
  */
@@ -183,6 +193,7 @@ export type CliStreamMessage =
   | CliSystemMessage
   | CliToolUseMessage
   | CliToolResultMessage
+  | CliToolProgressMessage
   | CliResultMessage
   | CliErrorMessage
   | CliInputRequiredMessage

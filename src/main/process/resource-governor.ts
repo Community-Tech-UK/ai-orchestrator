@@ -22,6 +22,7 @@ import { getLogger } from '../logging/logger';
 import { getMemoryMonitor } from '../memory/memory-monitor';
 import type { MemoryStats, MemoryPressureLevel } from '../memory/memory-monitor';
 import { registerCleanup } from '../util/cleanup-registry';
+import { getInstanceAsyncWorkRegistry } from '../instance/instance-async-work-registry';
 
 export interface ResourceGovernorConfig {
   /** Per-instance soft memory cap in MB (default: 512) */
@@ -63,7 +64,7 @@ const DEFAULT_CONFIG: ResourceGovernorConfig = {
 /** User-facing notices left in the transcript so a reclaim is never silent. */
 const HIBERNATE_NOTICE =
   'This session was hibernated automatically to free memory after it had been '
-  + 'idle for a while. Nothing was lost — send a message to wake it and continue.';
+  + 'idle for a while. The conversation was preserved; send a message to wake it and continue.';
 const TERMINATE_NOTICE =
   'This session was closed automatically to free memory after it had been idle '
   + 'for a while with no conversation to preserve.';
@@ -347,6 +348,7 @@ export class ResourceGovernor extends EventEmitter {
 
     return instanceManager
       .getIdleInstances(threshold)
+      .filter((instance) => !getInstanceAsyncWorkRegistry().hasInhibitor(instance.id))
       .slice()
       .sort((a, b) => a.lastActivity - b.lastActivity)
       .slice(0, cap);

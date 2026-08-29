@@ -98,6 +98,8 @@ export interface BrowserExtensionPollRequest {
   timeoutMs?: number;
   /** Remote relay polls wait for the RPC transport to confirm socket handoff. */
   deferHandoffConfirmation?: boolean;
+  /** False when this exact authenticated runtime is too old to enforce observation taint. */
+  allowBrowserCommands?: boolean;
   /** True only when this exact authenticated poll can enforce origin-bound credential writes. */
   allowSecureCredentialCommands?: boolean;
 }
@@ -129,6 +131,7 @@ interface PendingCommand {
 
 interface CommandPoller {
   deferHandoffConfirmation: boolean;
+  allowBrowserCommands: boolean;
   allowSecureCredentialCommands: boolean;
   resolve: (command: BrowserExtensionQueuedCommand | null) => void;
 }
@@ -214,6 +217,7 @@ export class BrowserExtensionCommandStore {
       let timeout: NodeJS.Timeout;
       const poller: CommandPoller = {
         deferHandoffConfirmation: request.deferHandoffConfirmation ?? false,
+        allowBrowserCommands: request.allowBrowserCommands ?? true,
         allowSecureCredentialCommands: request.allowSecureCredentialCommands ?? false,
         resolve: (command) => {
           clearTimeout(timeout);
@@ -365,6 +369,11 @@ export class BrowserExtensionCommandStore {
     while (queue.length > 0 && pollers.length > 0) {
       const command = queue.shift()!;
       const poller = pollers.shift()!;
+      if (!poller.allowBrowserCommands) {
+        this.rejectBeforeDelivery(command.id, 'browser_extension_runtime_incompatible');
+        poller.resolve(null);
+        continue;
+      }
       if (isOriginBoundCredentialCommand(command) && !poller.allowSecureCredentialCommands) {
         this.rejectBeforeDelivery(command.id, 'shared_tab_secure_credential_fill_unavailable');
         poller.resolve(null);

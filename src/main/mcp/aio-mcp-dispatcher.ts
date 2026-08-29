@@ -27,6 +27,7 @@ import { runRemoteNodesCli } from './remote-nodes-cli';
 import { runReleaseReadinessCli } from './release-readiness-cli';
 import { runSettingsCli } from './settings-cli';
 import { runLocalAiCli } from './local-ai-cli';
+import { runBrowserCredentialsCli } from './browser-credentials-cli';
 
 type AioMcpRunner = (argv: readonly string[]) => Promise<void>;
 
@@ -40,6 +41,7 @@ const SUBCOMMANDS = {
   'release-readiness': runReleaseReadinessCli,
   settings: runSettingsCli,
   'local-ai': runLocalAiCli,
+  'browser-credentials': runBrowserCredentialsCli,
 } as const;
 
 export type AioMcpSubcommand = keyof typeof SUBCOMMANDS;
@@ -85,6 +87,7 @@ function formatHelp(): string {
     '  release-readiness   Build release readiness report from evidence JSON',
     '  settings            Inspect and repair app settings through the parent app',
     '  local-ai            Discover, validate, and enrol Local AI targets',
+    '  browser-credentials Bind a vault login to an origin and manage fill grants',
     '',
   ].join('\n');
 }

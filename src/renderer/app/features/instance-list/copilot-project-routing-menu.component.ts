@@ -37,76 +37,133 @@ import type { CopilotRouteOutcome } from '../../../../shared/types/copilot-accou
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (visible()) {
-      <div class="project-menu-divider"></div>
-      <div class="copilot-section-label">
-        Copilot account
-        @if (summary(); as text) {
-          <span class="copilot-current">{{ text }}</span>
-        }
-      </div>
+      <div class="cpr-divider"></div>
+      <div class="cpr-label">Copilot account</div>
 
       @for (account of accounts(); track account.id) {
         <button
           type="button"
-          class="project-menu-item"
+          class="cpr-item"
           role="menuitem"
+          [class.is-current]="account.id === activeProfileId()"
           [disabled]="busy()"
           (click)="mapTo(account, $event)"
         >
-          <span class="copilot-tick" aria-hidden="true">{{
+          <span class="cpr-tick" aria-hidden="true">{{
             account.id === activeProfileId() ? '✓' : ''
-          }}</span>{{ account.label }}
+          }}</span>
+          <span class="cpr-text">{{ account.label }}</span>
         </button>
       }
 
       @for (candidate of addable(); track candidate.login) {
         <button
           type="button"
-          class="project-menu-item"
+          class="cpr-item"
           role="menuitem"
           [disabled]="busy()"
           (click)="addAndMapTo(candidate, $event)"
         >
-          <span class="copilot-tick" aria-hidden="true"></span>Use {{ candidate.login }} here…
+          <span class="cpr-tick" aria-hidden="true"></span>
+          <span class="cpr-text">{{ candidate.login }}</span>
+          <span class="cpr-badge">Add</span>
         </button>
-      }
-
-      @if (onlyOneAccount()) {
-        <div class="copilot-hint">
-          Only one Copilot account is set up. Add another in Settings › Copilot
-          Accounts to route projects between them.
-        </div>
       }
 
       @if (mappedRules().length > 0) {
         <button
           type="button"
-          class="project-menu-item"
+          class="cpr-item cpr-item--muted"
           role="menuitem"
           [disabled]="busy()"
           (click)="clearMapping($event)"
         >
-          Clear this project's mapping
+          <span class="cpr-tick" aria-hidden="true"></span>
+          <span class="cpr-text">Clear mapping</span>
         </button>
       }
 
+      @if (onlyOneAccount()) {
+        <div class="cpr-note">Add a second account in Settings to route between them.</div>
+      }
+
+      @if (blockedReason(); as reason) {
+        <div class="cpr-note cpr-note--error" role="alert">{{ reason }}</div>
+      }
+
       @if (error(); as message) {
-        <div class="copilot-error" role="alert">{{ message }}</div>
+        <div class="cpr-note cpr-note--error" role="alert">{{ message }}</div>
       }
     }
   `,
   styles: [`
-    .copilot-section-label {
-      display: flex; flex-direction: column; gap: 1px;
-      padding: 6px 12px 2px; font-size: 10px; text-transform: uppercase;
-      letter-spacing: 0.04em; color: var(--text-secondary);
+    /* Self-contained on purpose. The host menu's .project-menu-item rules live
+       in instance-list.component.scss and are view-encapsulated to THAT
+       component, so they never reach this child's DOM — relying on them is what
+       made these render as unstyled, centred, wrapping text. */
+    .cpr-divider { height: 1px; margin: 4px 0; background: rgba(255, 255, 255, 0.06); }
+
+    .cpr-label {
+      padding: 2px 10px 4px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      opacity: 0.72;
     }
-    .copilot-current { text-transform: none; letter-spacing: 0; font-size: 11px; }
-    .copilot-error { padding: 4px 12px 6px; font-size: 11px; color: var(--error-color, #d33); }
-    .copilot-hint { padding: 2px 12px 6px; font-size: 11px; color: var(--text-secondary); }
-    /* Fixed-width gutter keeps the labels aligned whether or not a tick shows,
-       without leaning on padding characters in the template. */
-    .copilot-tick { display: inline-block; width: 12px; }
+
+    .cpr-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      width: 100%;
+      min-height: 32px;
+      padding: 8px 10px;
+      border: none;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text-secondary);
+      font-size: 12px;
+      text-align: left;
+      cursor: pointer;
+      transition: background var(--transition-fast), color var(--transition-fast);
+    }
+
+    .cpr-item:hover:not(:disabled),
+    .cpr-item:focus-visible:not(:disabled) {
+      outline: none;
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text-primary);
+    }
+
+    .cpr-item:disabled { opacity: 0.5; cursor: default; }
+    .cpr-item.is-current { color: var(--text-primary); }
+    .cpr-item--muted { color: var(--text-muted); }
+
+    /* Fixed gutter keeps labels aligned whether or not a tick is present. */
+    .cpr-tick { flex: 0 0 10px; font-size: 11px; line-height: 1; }
+
+    .cpr-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .cpr-badge {
+      flex: 0 0 auto;
+      padding: 1px 6px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+
+    .cpr-note {
+      padding: 2px 10px 6px;
+      font-size: 11px;
+      line-height: 1.35;
+      color: var(--text-muted);
+    }
+
+    .cpr-note--error { color: var(--error-color, #d33); }
   `],
 })
 export class CopilotProjectRoutingMenuComponent {
@@ -157,14 +214,14 @@ export class CopilotProjectRoutingMenuComponent {
     return outcome?.ok ? outcome.route.profileId : null;
   });
 
-  readonly summary = computed(() => {
+  /**
+   * Only surfaced when routing is BLOCKED. The healthy case is already shown by
+   * the tick next to the account — repeating it as a header line was pure
+   * duplication and the main source of visual clutter.
+   */
+  readonly blockedReason = computed(() => {
     const outcome = this.outcomeSignal();
-    if (!outcome) return null;
-    if (!outcome.ok) return 'Blocked — open Settings to fix';
-    const route = outcome.route;
-    return route.source === 'default'
-      ? `${route.profileLabel ?? route.profileId} (default)`
-      : (route.profileLabel ?? route.profileId);
+    return outcome && !outcome.ok ? outcome.detail : null;
   });
 
   /** Rules that specifically target this project (not inherited defaults). */

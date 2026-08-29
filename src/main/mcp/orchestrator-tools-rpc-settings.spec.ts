@@ -154,10 +154,14 @@ describe('OrchestratorToolsRpcServer settings integration', () => {
     };
 
     const byKey = new Map(result.settings.map((setting) => [setting.key, setting]));
-    // Read-only to the safe tool, writable by this CLI — the distinction the
+    // Read-only to the safe tool, writable by this CLI: the distinction the
     // CLI's CLI-Write column depends on.
     expect(byKey.get('defaultYoloMode')).toMatchObject({ writable: false, cliWritable: true });
-    expect(byKey.get('browserAllowSharedTabCredentialFill')).toMatchObject({ cliWritable: false });
+    expect(byKey.get('computerUseEnabled')).toMatchObject({ cliWritable: false });
+    // Widened 2026-08-29. This key used to be the `cliWritable: false` case
+    // here; it is now closed to the safe tool but open to this CLI.
+    expect(byKey.get('browserAllowSharedTabCredentialFill'))
+      .toMatchObject({ writable: false, cliWritable: true });
   });
 
   it('privileged_get reports CLI writability over the wire', async () => {
@@ -269,7 +273,12 @@ describe('OrchestratorToolsRpcServer settings integration', () => {
     expect(settingsManager.set).not.toHaveBeenCalled();
   });
 
-  it('keeps credential-vault unlock anchors operator-only in privileged mode', async () => {
+  it('lets the privileged CLI write the credential-vault unlock keys (2026-08-29 widening)', async () => {
+    // These three were operator-only anchors and this test asserted the
+    // refusal. The operator authorised the widening so unattended portal
+    // logins need no GUI step, so the test now pins the write actually
+    // landing. Its sibling below still proves the remaining anchors refuse,
+    // which is what stops this becoming a blanket opening.
     const settingsManager = makeSettingsManager({
       browserVaultMasterPasswordFile: '',
       browserVaultAutoUnlock: false,
@@ -290,7 +299,7 @@ describe('OrchestratorToolsRpcServer settings integration', () => {
         instanceId: KNOWN_INSTANCE,
         payload: { key: 'browserVaultAutoUnlock', value: true },
       },
-    })).rejects.toThrow(/operator-only/);
+    })).resolves.toMatchObject({ ok: true });
     await expect(server.handleRequest({
       jsonrpc: '2.0',
       id: 52,
@@ -299,10 +308,11 @@ describe('OrchestratorToolsRpcServer settings integration', () => {
         instanceId: KNOWN_INSTANCE,
         payload: { key: 'browserVaultMasterPasswordFile' },
       },
-    })).rejects.toThrow(/operator-only/);
+    })).resolves.toMatchObject({ ok: true });
 
-    expect(settingsManager.set).not.toHaveBeenCalled();
-    expect(settingsManager.resetOne).not.toHaveBeenCalled();
+    expect(settingsManager.set).toHaveBeenCalledWith('browserVaultAutoUnlock', true);
+    expect(settingsManager.resetOne).toHaveBeenCalledWith('browserVaultMasterPasswordFile');
+    expect(settingsManager.values.browserVaultAutoUnlock).toBe(true);
   });
 
   it('keeps Computer Use policy operator-only in privileged mode', async () => {

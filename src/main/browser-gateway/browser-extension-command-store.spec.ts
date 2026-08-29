@@ -531,6 +531,32 @@ describe('BrowserExtensionCommandStore', () => {
     await expect(store.pollCommand({ timeoutMs: 1 })).resolves.toBeNull();
   });
 
+  it('rejects every queued command before an incompatible runtime can observe page data', async () => {
+    const store = new BrowserExtensionCommandStore();
+    const pending = store.sendCommand({
+      command: 'snapshot',
+      target: {
+        profileId: 'existing-tab:7:42',
+        targetId: 'existing-tab:7:42:target',
+        tabId: 42,
+        windowId: 7,
+      },
+      timeoutMs: 1_000,
+    });
+    const rejection = pending.catch((error: unknown) => error as Error);
+
+    await expect(store.pollCommand({
+      timeoutMs: 1,
+      allowBrowserCommands: false,
+      allowSecureCredentialCommands: false,
+    })).resolves.toBeNull();
+
+    const error = await rejection as Error;
+    expect(error.message).toBe('browser_extension_runtime_incompatible');
+    expect(error.message).not.toContain('MODEL_VISIBLE_TEST_MARKER');
+    expect(store.describeQueue('local')).toMatchObject({ queuedCount: 0, inFlightCount: 0 });
+  });
+
   it('rejects a queued secret write without returning it to an incompatible poller', async () => {
     const store = new BrowserExtensionCommandStore();
     const pending = store.sendCommand({

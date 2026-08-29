@@ -28,9 +28,9 @@ import {
   type BrowserExtensionRuntimeRecord,
 } from './browser-extension-contact-state';
 import {
-  browserExtensionRuntimeFromPayload,
-  isSecureBrowserExtensionRuntimeEvidence,
-  supportsSecureBrowserExtensionCredentialFill,
+  browserExtensionCommandId,
+  recordCompatibleBrowserExtensionRuntime,
+  withoutBrowserExtensionRuntimeEvidence,
 } from './browser-extension-credential-compatibility';
 import {
   handleUnattendedRpcMethod,
@@ -385,17 +385,21 @@ export class BrowserGatewayRpcServer {
    * freshness prechecks and error messages can describe the local channel with
    * the same fidelity as a worker node's.
    */
-  private recordLocalExtensionContact(payload: Record<string, unknown>): void {
-    const runtime = browserExtensionRuntimeFromPayload(payload);
-    this.extensionContactState.markExtensionContact(BROWSER_LOCAL_EXTENSION_CHANNEL_ID);
-    this.extensionContactState.markExtensionRuntime(BROWSER_LOCAL_EXTENSION_CHANNEL_ID, runtime);
-    this.onExtensionContact(runtime);
+  private recordLocalExtensionContact(payload: Record<string, unknown>): boolean {
+    return recordCompatibleBrowserExtensionRuntime(
+      this.extensionContactState, BROWSER_LOCAL_EXTENSION_CHANNEL_ID,
+      payload, this.onExtensionContact,
+    );
   }
 
   private handleExtensionAttachTab(request: BrowserGatewayRpcRequest): unknown {
     const params = this.parseAuthorizedExtensionParams(request.params);
-    this.recordLocalExtensionContact(params.payload);
-    const result = BrowserAttachExistingTabRequestSchema.safeParse(params.payload);
+    if (!this.recordLocalExtensionContact(params.payload)) {
+      throw new Error('browser_extension_runtime_incompatible');
+    }
+    const result = BrowserAttachExistingTabRequestSchema.safeParse(
+      withoutBrowserExtensionRuntimeEvidence(params.payload),
+    );
     if (!result.success) {
       throw new Error('Invalid browser gateway RPC payload');
     }
@@ -410,24 +414,26 @@ export class BrowserGatewayRpcServer {
     request: BrowserGatewayRpcRequest,
   ): Promise<BrowserExtensionQueuedCommand | null> {
     const params = this.parseAuthorizedExtensionParams(request.params);
-    this.recordLocalExtensionContact(params.payload);
-    const runtime = browserExtensionRuntimeFromPayload(params.payload);
+    const allowBrowserCommands = this.recordLocalExtensionContact(params.payload);
     return this.extensionCommandStore.pollCommand(
       {
         ...this.validateExtensionPollPayload(params.payload),
-        allowSecureCredentialCommands:
-          isSecureBrowserExtensionRuntimeEvidence(runtime)
-          && supportsSecureBrowserExtensionCredentialFill(
-            this.extensionContactState,
-            BROWSER_LOCAL_EXTENSION_CHANNEL_ID,
-          ),
+        allowBrowserCommands,
+        allowSecureCredentialCommands: allowBrowserCommands,
       },
     );
   }
 
   private handleExtensionCommandResult(request: BrowserGatewayRpcRequest): { ok: true } {
     const params = this.parseAuthorizedExtensionParams(request.params);
-    this.recordLocalExtensionContact(params.payload);
+    if (!this.recordLocalExtensionContact(params.payload)) {
+      this.extensionCommandStore.resolveCommand({
+        commandId: browserExtensionCommandId(params.payload),
+        ok: false,
+        error: 'browser_extension_runtime_incompatible',
+      });
+      return { ok: true };
+    }
     this.extensionCommandStore.resolveCommand(
       this.validateExtensionCommandResultPayload(params.payload),
     );
@@ -436,10 +442,9 @@ export class BrowserGatewayRpcServer {
 
   private handleExtensionCommandReceived(request: BrowserGatewayRpcRequest): { ok: true } {
     const params = this.parseAuthorizedExtensionParams(request.params);
-    this.recordLocalExtensionContact(params.payload);
-    const commandId = params.payload['commandId'];
-    if (typeof commandId !== 'string' || !commandId) {
-      throw new Error('Invalid browser gateway RPC payload');
+    const commandId = browserExtensionCommandId(params.payload);
+    if (!this.recordLocalExtensionContact(params.payload)) {
+      return { ok: true };
     }
     this.extensionCommandStore.markReceived(BROWSER_LOCAL_EXTENSION_CHANNEL_ID, commandId);
     return { ok: true };
