@@ -24,6 +24,8 @@ import {
   COPILOT_DEFAULT_HOST,
   COPILOT_PROFILE_ID_PATTERN,
   normalizeCopilotHost,
+  normalizeCopilotProfileHost,
+  normalizeCopilotRuleHost,
 } from '../../../shared/types/copilot-account.types';
 import {
   CopilotAccountProfilesSchema,
@@ -105,15 +107,19 @@ export class CopilotAccountStore {
 
   private read(): { profiles: CopilotAccountProfile[]; rules: CopilotAccountRoutingRule[] } {
     if (this.deps.read) {
-      return this.deps.read();
+      const injected = this.deps.read();
+      return {
+        profiles: injected.profiles.map(normalizeCopilotProfileHost),
+        rules: injected.rules.map(normalizeCopilotRuleHost),
+      };
     }
     const settings = getSettingsManager().getAll();
     return {
       profiles: Array.isArray(settings.copilotAccountProfiles)
-        ? [...settings.copilotAccountProfiles]
+        ? settings.copilotAccountProfiles.map(normalizeCopilotProfileHost)
         : [],
       rules: Array.isArray(settings.copilotAccountRoutingRules)
-        ? [...settings.copilotAccountRoutingRules]
+        ? settings.copilotAccountRoutingRules.map(normalizeCopilotRuleHost)
         : [],
     };
   }
