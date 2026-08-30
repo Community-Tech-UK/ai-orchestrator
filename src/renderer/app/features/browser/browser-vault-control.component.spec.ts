@@ -102,6 +102,10 @@ describe('BrowserVaultControlComponent', () => {
     const alert = fixture.nativeElement.querySelector('[data-testid="shared-tab-fill-alert"]');
     expect(alert).not.toBeNull();
     expect(alert.textContent).toContain('grant itself those authorizations');
+    // The banner must not read as ordinary prose: the lead-in carries the status
+    // colour, because the translucent border alone measured ~1.33:1 and could
+    // not carry the signal.
+    expect(alert.querySelector('.vault-alert__lead')).not.toBeNull();
   });
 
   it('shows no such warning when it is off', async () => {
