@@ -321,6 +321,10 @@ export class AcpCliAdapter extends BaseCliAdapter {
       cwd: config.workingDirectory,
       timeout: config.timeout,
       env: config.env,
+      // Must be forwarded: this field-pick silently dropped it, and since the
+      // config type accepts it nothing failed to compile while Copilot's
+      // ambient-token strip was a no-op on its default path.
+      envRemove: config.envRemove,
       maxRetries: config.maxRetries,
       sessionPersistence: true,
       persistLargeOutputs: config.persistLargeOutputs,

@@ -110,6 +110,19 @@ describe('legacy Copilot profile migration', () => {
     expect(profilesOf(store)[0]).toMatchObject({ expectedLogin: 'octocat', host: 'github.com' });
   });
 
+  it('stores a bare hostname when the CLI recorded a full origin', () => {
+    // What the installed CLI actually writes. Persisting it verbatim produced a
+    // profile that failed its own schema, so every later edit — including
+    // adding the second account — died with "Host must be an exact lowercase
+    // hostname" against a record the user never typed.
+    writeCopilotConfig(
+      JSON.stringify({ lastLoggedInUser: { host: 'https://github.com', login: 'octocat' } }),
+    );
+    const store = createStore();
+    runSettingsMigrations(store);
+    expect(profilesOf(store)[0].host).toBe('github.com');
+  });
+
   it('falls back to loggedInUsers when lastLoggedInUser is absent', () => {
     writeCopilotConfig(
       JSON.stringify({ loggedInUsers: [{ host: 'github.com', login: 'octocat' }] }),

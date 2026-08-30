@@ -208,3 +208,26 @@ export function normalizeCopilotHost(host: string | null | undefined): string {
     .replace(/\.$/, '')
     .toLowerCase();
 }
+
+/**
+ * Heal a persisted profile host into the exact-lowercase-hostname form the
+ * schema demands.
+ *
+ * Records written before host normalisation existed hold whatever the Copilot
+ * CLI put in its own config, which is a full origin (`https://github.com`), not
+ * a hostname. Anything that re-validates a stored profile must repair it on
+ * read, or a single such record fails validation for the whole set — including
+ * the edits that would replace it.
+ */
+export function normalizeCopilotProfileHost<T extends { host: string }>(profile: T): T {
+  const host = normalizeCopilotHost(profile.host) || COPILOT_DEFAULT_HOST;
+  return host === profile.host ? profile : { ...profile, host };
+}
+
+/** The same healing for a routing rule, whose matcher carries its own host. */
+export function normalizeCopilotRuleHost<T extends { matcher: object }>(rule: T): T {
+  const matcher = rule.matcher as { host?: unknown };
+  if (typeof matcher.host !== 'string') return rule;
+  const host = normalizeCopilotHost(matcher.host) || COPILOT_DEFAULT_HOST;
+  return host === matcher.host ? rule : { ...rule, matcher: { ...matcher, host } };
+}

@@ -131,11 +131,11 @@ const ALLOWLIST: Record<string, number> = {
   // Attachment temp-file handling lives in channel-attachment-relay.ts.
   'src/main/channels/channel-message-router.ts': 2902,
   // Main process — CLI adapters
-  'src/main/cli/adapters/acp-cli-adapter.ts': 2160,
+  'src/main/cli/adapters/acp-cli-adapter.ts': 2214,
   // Sat at 699 — one line under the cap — so the automation-provider-exclusion
   // guard in resolveCliType could not be added without crossing it. Entered at
   // 706 rather than dropping the guard; the file is a refactor candidate.
-  'src/main/cli/adapters/adapter-factory.ts': 706,
+  'src/main/cli/adapters/adapter-factory.ts': 762,
   'src/main/cli/adapters/base-cli-adapter.ts': 988,
   // Raised 2218 -> 2286 for resident interrupt control_request handling.
   // Raised 2286 -> 2345 for per-text-block assistant emission + rate-limit dedup.

@@ -25,7 +25,8 @@ import type {
 } from '../../../shared/types/copilot-account.types';
 import {
   COPILOT_LEGACY_PROFILE_ID,
-  normalizeCopilotHost,
+  normalizeCopilotProfileHost,
+  normalizeCopilotRuleHost,
 } from '../../../shared/types/copilot-account.types';
 import type { AppSettings } from '../../../shared/types/settings.types';
 import { getSettingsManager } from '../../core/config/settings-manager';
@@ -121,13 +122,17 @@ export class CopilotAccountRoutingService {
     const profiles = (Array.isArray(settings.copilotAccountProfiles)
       ? settings.copilotAccountProfiles
       : []
-    ).map((profile) => {
-      const host = normalizeCopilotHost(profile.host);
-      return host === profile.host ? profile : { ...profile, host };
-    });
-    const rules = Array.isArray(settings.copilotAccountRoutingRules)
+    ).map(normalizeCopilotProfileHost);
+    // Rules need the SAME repair, and for a sharper reason: `matchesRepository`
+    // / `matchesOwner` compare `matcher.host` against a git remote host, which
+    // is always parsed bare. A scheme-prefixed matcher therefore matches
+    // nothing — and when that matcher belongs to a PROTECTED rule, the
+    // workspace silently falls through to the default account instead of
+    // failing closed, which inverts the guarantee this feature exists to give.
+    const rules = (Array.isArray(settings.copilotAccountRoutingRules)
       ? settings.copilotAccountRoutingRules
-      : [];
+      : []
+    ).map(normalizeCopilotRuleHost);
     // Version derived from the content itself: the settings manager has no
     // per-key revision counter, and a content hash means an out-of-band edit
     // cannot leave a stale route cached.
@@ -259,7 +264,7 @@ export class CopilotAccountRoutingService {
       request.persistedProfileId ?? '',
       request.confirmProtectedOverride ? '1' : '0',
       request.origin,
-    ].join(' ');
+    ].join('\x00');
   }
 
   /** Evidence gathering plus the pure resolver. No I/O beyond git/fs reads. */

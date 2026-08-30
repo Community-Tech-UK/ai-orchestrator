@@ -41,6 +41,7 @@ import { generateId } from '../../../shared/utils/id-generator';
 import { extractThinkingContent, ThinkingBlock } from '../../../shared/utils/thinking-extractor';
 import { getDefaultCopilotCliLaunch } from '../copilot-cli-launch';
 import { startCopilotServerMode } from './copilot/copilot-server-mode';
+import { assertRoutableCopilotLaunchShape } from './copilot/copilot-adapter-guards';
 import type { CopilotServerSession } from './copilot/copilot-server-session'; import type { CopilotServerTurnBridge } from './copilot/copilot-server-turn-bridge';
 import { parseNdjsonLine, parseStreamingJson } from '../json-parse';
 import { probeVersionStatus } from './cli-status-probe';
@@ -207,6 +208,10 @@ export class CopilotCliAdapter extends BaseCliAdapter {
     // throw: it falls back to a bare `copilot` when nothing is discoverable, so
     // there is no failure path to retry here.
     const launch = getDefaultCopilotCliLaunch();
+    // Same fail-closed guard the ACP factory applies. Without it, a machine
+    // with only `gh copilot` runs this path under the host-wide GitHub CLI
+    // account — unrouted, and unaffected by COPILOT_HOME.
+    assertRoutableCopilotLaunchShape(launch);
     this.config.command = launch.command;
     this.config.args = [...launch.argsPrefix];
     this.launchResolved = true;

@@ -21,6 +21,7 @@ import {
 import { getLogger } from '../../logging/logger';
 import { migrateLegacyCustomModelOverride } from './settings-custom-models';
 import {
+  COPILOT_DEFAULT_HOST,
   COPILOT_LEGACY_PROFILE_ID,
   normalizeCopilotHost,
 } from '../../../shared/types/copilot-account.types';
@@ -433,7 +434,7 @@ function migrateCopilotLegacyProfile(store: SettingsMigrationStore): void {
     id: COPILOT_LEGACY_PROFILE_ID,
     label: 'Existing Copilot account',
     expectedLogin: identity?.login ?? null,
-    host: identity?.host ?? 'github.com',
+    host: identity?.host ?? COPILOT_DEFAULT_HOST,
     accountKind: 'personal' as const,
     // Preserves current behaviour exactly: this account services every
     // workspace, matched or not.

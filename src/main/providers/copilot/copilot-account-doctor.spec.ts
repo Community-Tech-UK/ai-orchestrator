@@ -164,6 +164,22 @@ describe('rule and default diagnostics', () => {
     expect(result.warnings.join(' ')).toContain('ambiguous');
   });
 
+  it('detects a conflict when one rule stores its host with a scheme', async () => {
+    // The Doctor's duplicate key embeds the host. A legacy record carrying
+    // `https://github.com` keyed differently from an equivalent new rule, so
+    // two rules mapping the SAME target to DIFFERENT accounts were reported as
+    // healthy — the one thing this check exists to catch.
+    const schemeRule: CopilotAccountRoutingRule = {
+      ...rule('r1', 'personal'),
+      matcher: { type: 'owner', host: 'https://github.com', owner: 'acme' },
+    } as CopilotAccountRoutingRule;
+    const result = await report({
+      profiles: [profile('personal', { isDefault: true }), profile('enterprise')],
+      rules: [schemeRule, rule('r2', 'enterprise')],
+    });
+    expect(result.conflictingRuleIds.sort()).toEqual(['r1', 'r2']);
+  });
+
   it('does not flag two rules for the same profile as conflicting', async () => {
     const result = await report({
       profiles: [profile('personal', { isDefault: true })],
@@ -190,6 +206,31 @@ describe('rule and default diagnostics', () => {
         })
       ).invalidDefaultReason,
     ).toContain('disabled');
+  });
+});
+
+describe('the one-line summary the generic Doctor page shows', () => {
+  it('never reports all-clear while a warning is outstanding', async () => {
+    // The dedicated Copilot Accounts tab lists every warning; the generic
+    // Doctor page shows only this string. Without the warnings appended, a
+    // plaintext-token or rule-conflict warning was invisible to anyone who
+    // never opened the Copilot tab.
+    const result = await report({
+      profiles: [profile('personal', { isDefault: true })],
+      plaintext: ['personal'],
+    });
+    const summary = summarizeCopilotAccountReport(result);
+    expect(result.warnings.length).toBeGreaterThan(0);
+    expect(summary).toContain('warning(s)');
+    for (const warning of result.warnings) {
+      expect(summary).toContain(warning);
+    }
+  });
+
+  it('stays clean when there is nothing to warn about', async () => {
+    const result = await report({ profiles: [profile('personal', { isDefault: true })] });
+    expect(result.warnings).toEqual([]);
+    expect(summarizeCopilotAccountReport(result)).not.toContain('warning(s)');
   });
 });
 

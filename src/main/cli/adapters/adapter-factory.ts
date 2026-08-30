@@ -356,6 +356,9 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
   const env = mergeSpawnEnv(options, buildCopilotSpawnEnv());
   // `mergeSpawnEnv` layers `options.env` over the sanitized base, so re-strip:
   // a caller-supplied token would otherwise walk back in behind the profile.
+  // NOT sufficient alone — see `envRemove` below. `config.env` is an overlay
+  // on the ambient safe env, so deleting a key here cannot remove it from the
+  // base; this only defeats a CALLER-supplied token.
   for (const key of COPILOT_STRIPPED_AUTH_ENV_VARS) {
     delete env[key];
   }
@@ -394,6 +397,11 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
   return new AcpCliAdapter({
     adapterName: 'copilot-acp',
     contextCapabilityProfile: 'copilot-acp',
+    // Applied AFTER the ambient-env merge, so this is the only thing that
+    // actually keeps an ambient token out of the child. Copilot reads
+    // GH_TOKEN/GITHUB_TOKEN before its keychain, so without it a developer with
+    // `gh` configured runs every routed session under the wrong identity.
+    envRemove: COPILOT_STRIPPED_AUTH_ENV_VARS,
     command: launch.command,
     args: [
       ...launch.argsPrefix,

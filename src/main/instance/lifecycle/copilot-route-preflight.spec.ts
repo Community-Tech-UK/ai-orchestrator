@@ -210,35 +210,38 @@ describe('Copilot spawn-path bypass detection', () => {
   it('has no unclassified adapter-creating call site under src/', () => {
     // Deliberately a source scan rather than a hand-maintained list: a NEW
     // call site added later shows up here as an unclassified path.
-    const { execFileSync } = require('child_process') as typeof import('child_process');
-    const output = execFileSync(
-      'grep',
-      [
-        '-rl',
-        '-e',
-        'createAdapter({',
-        '-e',
-        'createCliAdapter(',
-        '-e',
-        'createCopilotAdapter(',
-        // Direct construction, NOT just the factory. Omitting this is what let
-        // `CopilotCliProvider` ship a live unrouted Copilot spawn path while
-        // this very test reported full coverage.
-        '-e',
-        'new CopilotCliAdapter(',
-        '-e',
-        'new AcpCliAdapter(',
-        '--include=*.ts',
-        'src/main',
-        'src/worker-agent',
-      ],
-      { cwd: REPO_ROOT, encoding: 'utf8' },
-    );
-    const found = output
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .filter((file) => !file.includes('.spec.') && !file.includes('__tests__'));
+    // An in-process, whitespace-insensitive scan rather than `grep`. Two
+    // reasons: a line-based fixed-string match misses a reformatted
+    // `createAdapter(\n  {`, and shelling out made the result depend on which
+    // grep is on PATH — the very vacuous-pass hazard the assertion below
+    // guards against.
+    const { readdirSync } = require('fs') as typeof import('fs');
+    const PATTERNS = [
+      'createAdapter({',
+      'createCliAdapter(',
+      'createCopilotAdapter(',
+      // Direct construction, NOT just the factory. Omitting this is what let
+      // `CopilotCliProvider` ship a live unrouted Copilot spawn path while
+      // this very test reported full coverage.
+      'new CopilotCliAdapter(',
+      'new AcpCliAdapter(',
+    ];
+    const walk = (dir: string, out: string[] = []): string[] => {
+      for (const entry of readdirSync(join(REPO_ROOT, dir), { withFileTypes: true })) {
+        const rel = `${dir}/${entry.name}`;
+        if (entry.isDirectory()) walk(rel, out);
+        else if (entry.name.endsWith('.ts')) out.push(rel);
+      }
+      return out;
+    };
+    const found = [...walk('src/main'), ...walk('src/worker-agent')]
+      .filter((file) => !file.includes('.spec.') && !file.includes('__tests__'))
+      .filter((file) => {
+        // Collapsing whitespace makes the match survive any reformatting of
+        // the call site, which a line-oriented scan cannot.
+        const source = readFileSync(join(REPO_ROOT, file), 'utf8').replace(/\s+/g, '');
+        return PATTERNS.some((pattern) => source.includes(pattern.replace(/\s+/g, '')));
+      });
 
     // Guard against a vacuous pass: if the scan found nothing (wrong cwd,
     // different grep on PATH), an empty `unclassified` would look like success.

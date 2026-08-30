@@ -709,6 +709,133 @@ describe('BrowserGatewayService credentials', () => {
     expect(result).toMatchObject({ decision: 'denied', reason: 'credential_vault_unavailable' });
   });
 
+  it('late initialization installs credential services on an already-created singleton', async () => {
+    const vault = {
+      getSecretForFill: vi.fn(),
+      createAgentCredential: vi.fn(),
+      getGenericSecretForFill: vi.fn(),
+    };
+    const authorizations = {
+      check: vi.fn(() => ({
+        authorized: false as const,
+        reason: 'purpose_not_authorized' as const,
+      })),
+    };
+    const { service } = makeService({ useSingleton: true });
+
+    BrowserGatewayService.initialize({
+      credentialVault: vault,
+      credentialAuthorizations: authorizations,
+    });
+
+    const result = await service.createAgentCredential({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      instanceId: 'instance-1',
+      provider: 'codex',
+      username: 'test-only-user',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'denied',
+      outcome: 'not_run',
+      reason: 'credential_not_authorized:purpose_not_authorized',
+    });
+    expect(authorizations.check).toHaveBeenCalledWith({
+      profileId: 'profile-1',
+      origin: 'http://localhost:4567',
+      purpose: 'register',
+    });
+    expect(vault.createAgentCredential).not.toHaveBeenCalled();
+  });
+
+  it('late initialization enables authorized secure filling on an existing tab', async () => {
+    const vault = {
+      getSecretForFill: vi.fn(async () => 'TEST_ONLY_PASSWORD_PLACEHOLDER'),
+      createAgentCredential: vi.fn(),
+      getGenericSecretForFill: vi.fn(),
+    };
+    const authorizations = {
+      check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-1' })),
+    };
+    const extensionCommandStore = portalExtensionCommandStore();
+    const { service } = makeService({
+      useSingleton: true,
+      existingTab: sharedPortalTab(),
+      extensionCommandStore,
+      extensionContactState: extensionContactState('0.2.18'),
+    });
+
+    BrowserGatewayService.initialize({
+      credentialVault: vault,
+      credentialAuthorizations: authorizations,
+      allowSharedTabCredentialFill: () => true,
+    });
+
+    const result = await service.fillCredential({
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      instanceId: 'instance-1',
+      provider: 'codex',
+      vaultItemRef: 'item-1',
+      fields: [{ selector: '#pass', kind: 'password' }],
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      data: { filled: 1 },
+    });
+    expect(JSON.stringify(result)).not.toContain('TEST_ONLY_PASSWORD_PLACEHOLDER');
+  });
+
+  it('late initialization installs the one-time-code reader without exposing its code', async () => {
+    const vault = {
+      getSecretForFill: vi.fn(),
+      createAgentCredential: vi.fn(),
+      getGenericSecretForFill: vi.fn(),
+    };
+    const authorizations = {
+      check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-1' })),
+    };
+    const emailCodeReader = {
+      fetchCode: vi.fn(async () => ({
+        code: 'TEST_ONLY_OTP_PLACEHOLDER',
+        messageId: 'message-1',
+        matchedSender: 'noreply@localhost',
+      })),
+    };
+    const { service, driver } = makeService({ useSingleton: true });
+
+    BrowserGatewayService.initialize({
+      credentialVault: vault,
+      credentialAuthorizations: authorizations,
+      emailCodeReader,
+    });
+
+    const result = await service.fillCredential({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      instanceId: 'instance-1',
+      provider: 'codex',
+      vaultItemRef: 'item-1',
+      fields: [{ selector: '#otp', kind: 'email_code' }],
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      data: { filled: 1 },
+    });
+    expect(driver.type).toHaveBeenCalledWith(
+      'profile-1',
+      'target-1',
+      '#otp',
+      'TEST_ONLY_OTP_PLACEHOLDER',
+    );
+    expect(JSON.stringify(result)).not.toContain('TEST_ONLY_OTP_PLACEHOLDER');
+  });
+
   it('createAgentCredential registers a vaulted account and returns only a ref + username', async () => {
     const vault = {
       getSecretForFill: vi.fn(),

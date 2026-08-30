@@ -201,6 +201,16 @@ describe('adapter factory — copilot', () => {
         expect(env[key], key).toBeUndefined();
       }
       expect(env['KEEP_ME']).toBe('1');
+      // Absence from `config.env` is NOT enough, and asserting only that is how
+      // this shipped broken: `config.env` is an overlay spread over the ambient
+      // safe env, which allowlists GITHUB_TOKEN/GH_TOKEN through. Only
+      // `envRemove` — applied by the base adapter AFTER that merge — actually
+      // keeps them out of the child. See copilot-acp-spawn-env.spec.ts for the
+      // spawn-level proof.
+      const envRemove = configOf(adapter).envRemove ?? [];
+      for (const key of tokenVars) {
+        expect(envRemove, `${key} must be in envRemove`).toContain(key);
+      }
       // The openssl-ca workaround must survive the sanitization.
       expect(env['NODE_OPTIONS']).toMatch(/--use-openssl-ca/);
     } finally {

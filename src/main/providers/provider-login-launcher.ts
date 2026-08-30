@@ -80,6 +80,9 @@ const SAFE_HOST = /^(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))*$/;
 const UNSAFE_PATH_CHARS = /["'`$;&|<>\n\r\0]/;
 /** Backslash is a path separator on Windows, but an escape everywhere else. */
 const POSIX_UNSAFE_PATH_CHARS = /\\/;
+/** `cmd.exe` expands `%VAR%` INSIDE the double quotes of `set "K=V"`, so a
+ *  percent cannot be made inert by quoting the way the others can. */
+const WIN32_UNSAFE_PATH_CHARS = /%/;
 
 /**
  * The ONE audited quoting helper (spec §17). Every platform's terminal wrapper
@@ -89,6 +92,7 @@ export function quotePathForTerminal(value: string, platform: NodeJS.Platform): 
   if (
     UNSAFE_PATH_CHARS.test(value)
     || (platform !== 'win32' && POSIX_UNSAFE_PATH_CHARS.test(value))
+    || (platform === 'win32' && WIN32_UNSAFE_PATH_CHARS.test(value))
   ) {
     throw new Error(
       'Refusing to build a sign-in command: the Copilot profile directory contains a character that cannot be safely quoted.',

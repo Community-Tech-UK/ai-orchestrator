@@ -164,6 +164,17 @@ describe('quotePathForTerminal', () => {
     }
   });
 
+  it('refuses a percent on win32, where quoting cannot make it inert', () => {
+    // `cmd.exe` expands `%VAR%` inside the double quotes of `set "K=V"`, so
+    // unlike every other metacharacter here a percent survives quoting. A
+    // username containing one is enough to reach this.
+    expect(() => quotePathForTerminal('C:\\Users\\me%USERNAME%\\x', 'win32')).toThrow(
+      /cannot be safely quoted/,
+    );
+    // POSIX single-quoting handles it, so it stays allowed there.
+    expect(() => quotePathForTerminal('/tmp/100%', 'darwin')).not.toThrow();
+  });
+
   it('accepts a backslash on win32 but not on POSIX', () => {
     expect(() => quotePathForTerminal('C:\\Users\\me', 'win32')).not.toThrow();
     expect(() => quotePathForTerminal('/tmp/a\\b', 'linux')).toThrow(/cannot be safely quoted/);

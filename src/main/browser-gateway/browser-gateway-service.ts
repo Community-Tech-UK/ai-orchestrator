@@ -271,10 +271,10 @@ export class BrowserGatewayService {
   private readonly grantStore: Pick<BrowserGrantStore, 'listGrants' | 'consumeGrant' | 'createGrant' | 'revokeGrant'>;
   private readonly approvalStore: Pick<BrowserApprovalStore, 'createRequest' | 'getRequest' | 'listRequests' | 'resolveRequest'>;
   private readonly healthService: Pick<BrowserHealthService, 'diagnose'>;
-  private readonly credentialVault?: BrowserGatewayServiceOptions['credentialVault'];
-  private readonly credentialAuthorizations?: BrowserGatewayServiceOptions['credentialAuthorizations'];
-  private readonly emailCodeReader?: BrowserGatewayServiceOptions['emailCodeReader'];
-  private readonly allowSharedTabCredentialFill: (profileId: string) => boolean;
+  private credentialVault?: BrowserGatewayServiceOptions['credentialVault'];
+  private credentialAuthorizations?: BrowserGatewayServiceOptions['credentialAuthorizations'];
+  private emailCodeReader?: BrowserGatewayServiceOptions['emailCodeReader'];
+  private allowSharedTabCredentialFill: (profileId: string) => boolean;
   private autoApproveRequests?: BrowserGatewayServiceOptions['autoApproveRequests'];
   private resolvePreferredDebugPort?: BrowserGatewayServiceOptions['resolvePreferredDebugPort'];
   private stageUploadFileOnNode: NonNullable<BrowserGatewayServiceOptions['stageUploadFileOnNode']>;
@@ -410,6 +410,10 @@ export class BrowserGatewayService {
   }
 
   private configure(options: BrowserGatewayServiceOptions = {}): void {
+    this.credentialVault = options.credentialVault ?? this.credentialVault;
+    this.credentialAuthorizations = options.credentialAuthorizations ?? this.credentialAuthorizations;
+    this.emailCodeReader = options.emailCodeReader ?? this.emailCodeReader;
+    this.allowSharedTabCredentialFill = options.allowSharedTabCredentialFill ?? this.allowSharedTabCredentialFill;
     if (options.autoApproveRequests) {
       this.autoApproveRequests = options.autoApproveRequests;
     }

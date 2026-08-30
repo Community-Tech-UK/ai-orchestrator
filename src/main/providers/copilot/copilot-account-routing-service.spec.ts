@@ -272,3 +272,65 @@ describe('CopilotAccountRoutingService cache invalidation', () => {
     expect(outcome.ok && outcome.route.profileId).toBe('enterprise');
   });
 });
+
+describe('a rule stored with a scheme-prefixed host', () => {
+  // Found by the completion gate on 2026-08-30. The store and the Doctor both
+  // repaired such hosts on read; the routing service repaired only PROFILE
+  // hosts and passed rule matchers through untouched. Matchers are compared
+  // against a git remote host, which is always parsed bare, so the rule matched
+  // nothing — and because this rule is PROTECTED, the workspace fell through to
+  // the default account rather than failing closed. Settings and Doctor showed
+  // the rule as healthy the whole time.
+  const enterpriseRule = {
+    id: 'rule-scheme',
+    profileId: 'enterprise',
+    matcher: { type: 'owner', host: 'https://github.com', owner: 'acme' },
+    isProtected: true,
+    createdAt: 1,
+    updatedAt: 1,
+  } as unknown as CopilotAccountRoutingRule;
+
+  it('still routes to the rule owner, not the default account', async () => {
+    const outcome = await makeService({
+      profiles: [profile('personal', { isDefault: true }), profile('enterprise')],
+      rules: [enterpriseRule],
+      remotes: [remote('acme')],
+      bindings: { enterprise: 'authenticated', personal: 'authenticated' },
+    }).resolveRouteForSpawn({ workingDirectory: '/w', origin: 'interactive' });
+
+    expect(outcome.ok).toBe(true);
+    expect(outcome.ok === true && outcome.route.profileId).toBe('enterprise');
+  });
+});
+
+describe('route cache key field boundaries', () => {
+  // This cache decides which GitHub identity a session runs as, so a collision
+  // is an account mix-up, not a stale-read nuisance. The separator is a NUL
+  // precisely because a value can be empty and two adjacent fields could
+  // otherwise merge: `explicit='' , persisted='x'` and `explicit='x',
+  // persisted=''` collapse to the same string under an empty separator.
+  const fixture = {
+    profiles: [profile('personal', { isDefault: true }), profile('enterprise')],
+    bindings: { personal: 'authenticated' as const, enterprise: 'authenticated' as const },
+  };
+
+  it('does not serve a persisted decision to an explicit request', async () => {
+    const service = makeService(fixture);
+    const persisted = await service.resolveRouteForSpawn({
+      workingDirectory: '/w',
+      origin: 'interactive',
+      persistedProfileId: 'enterprise',
+    });
+    const explicit = await service.resolveRouteForSpawn({
+      workingDirectory: '/w',
+      origin: 'interactive',
+      explicitProfileId: 'enterprise',
+    });
+
+    expect(persisted.ok && persisted.route.source).toBe('persisted');
+    // Same profile, different provenance. Sharing a cache entry here would
+    // mislabel how the account was chosen — and the two are not interchangeable
+    // for the protected-scope override checks that read `source`.
+    expect(explicit.ok && explicit.route.source).toBe('explicit');
+  });
+});

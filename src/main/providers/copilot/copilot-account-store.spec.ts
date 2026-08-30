@@ -210,3 +210,72 @@ describe('CopilotAccountStore.adoptObservedIdentity', () => {
     expect(updated.host).toBe('ghe.example.com');
   });
 });
+
+describe('a legacy record written before host normalisation', () => {
+  // The migration stamped whatever the Copilot CLI had in its own config, and
+  // the CLI stores a full origin. Because `persist` re-validates the WHOLE
+  // array, that single record made every subsequent mutation throw
+  // "Host must be an exact lowercase hostname" — so the user could not add a
+  // second account, and could not edit away the record that was blocking them.
+  const legacy = (): CopilotAccountProfile => ({
+    id: 'legacy',
+    label: 'Existing Copilot account',
+    expectedLogin: 'shutupandshave',
+    host: 'https://github.com' as CopilotAccountProfile['host'],
+    accountKind: 'personal',
+    scopePolicy: 'default-eligible',
+    automationPolicy: 'allow-routed',
+    isDefault: true,
+    isLegacy: true,
+    createdAt: 1,
+    updatedAt: 1,
+  });
+
+  it('does not block adding a second account', () => {
+    const { store, state } = makeStore({ profiles: [legacy()] });
+    expect(() =>
+      store.createProfile({ label: 'LAWRENCJ_PE1', accountKind: 'enterprise' }),
+    ).not.toThrow();
+    expect(state.profiles).toHaveLength(2);
+  });
+
+  it('persists the repaired host, so the record heals itself', () => {
+    const { store, state } = makeStore({ profiles: [legacy()] });
+    store.createProfile({ label: 'LAWRENCJ_PE1', accountKind: 'enterprise' });
+    expect(state.profiles[0].host).toBe('github.com');
+  });
+
+  it('heals a rule matcher carrying the same bad host', () => {
+    const { store, state } = makeStore({
+      profiles: [legacy()],
+      rules: [
+        {
+          id: 'rule-legacy',
+          profileId: 'legacy',
+          matcher: {
+            type: 'owner',
+            host: 'HTTPS://GitHub.com/' as string,
+            owner: 'shutupandshave',
+          },
+          isProtected: false,
+          createdAt: 1,
+          updatedAt: 1,
+        } as CopilotAccountRoutingRule,
+      ],
+    });
+    store.createProfile({ label: 'LAWRENCJ_PE1', accountKind: 'enterprise' });
+    const matcher = state.rules[0].matcher as { host: string };
+    expect(matcher.host).toBe('github.com');
+  });
+
+  it('still reports a genuinely unusable host rather than silently inventing one', () => {
+    // Normalisation must not become a catch-all that accepts anything: a host
+    // with a path or a space is a real data error and must still be refused.
+    const { store } = makeStore({
+      profiles: [{ ...legacy(), host: 'git hub.com/enterprise' as string }],
+    });
+    expect(() =>
+      store.createProfile({ label: 'LAWRENCJ_PE1', accountKind: 'enterprise' }),
+    ).toThrow(/Host must be an exact lowercase hostname/);
+  });
+});

@@ -21,7 +21,11 @@ import type {
   CopilotAccountProfile,
   CopilotAccountRoutingRule,
 } from '../../../shared/types/copilot-account.types';
-import { COPILOT_LEGACY_PROFILE_ID } from '../../../shared/types/copilot-account.types';
+import {
+  COPILOT_LEGACY_PROFILE_ID,
+  normalizeCopilotProfileHost,
+  normalizeCopilotRuleHost,
+} from '../../../shared/types/copilot-account.types';
 import { COPILOT_STRIPPED_AUTH_ENV_VARS } from '../../cli/adapters/adapter-spawn-helpers';
 import { getSettingsManager } from '../../core/config/settings-manager';
 import {
@@ -132,7 +136,13 @@ export async function buildCopilotAccountDoctorReport(
   deps: CopilotAccountDoctorDeps = {},
 ): Promise<CopilotAccountDoctorReport> {
   const nodeId = deps.nodeId ?? LOCAL_COPILOT_NODE_ID;
-  const { profiles, rules } = (deps.readSettings ?? readSettings)();
+  // Repaired here rather than inside the default reader so an INJECTED reader
+  // gets the same treatment: `matcherKey` below embeds the host, so a
+  // scheme-prefixed legacy record keys differently from an equivalent new rule
+  // and silently defeats duplicate detection.
+  const raw = (deps.readSettings ?? readSettings)();
+  const profiles = raw.profiles.map(normalizeCopilotProfileHost);
+  const rules = raw.rules.map(normalizeCopilotRuleHost);
   const checkBinding =
     deps.checkBinding
     ?? ((profile: CopilotAccountProfile, node: string) =>
@@ -249,6 +259,19 @@ export async function buildCopilotAccountDoctorReport(
 
 /** One-line summary for the Doctor probe row. */
 export function summarizeCopilotAccountReport(report: CopilotAccountDoctorReport): string {
+  const base = describeAggregate(report);
+  if (report.warnings.length === 0) {
+    return base;
+  }
+  // Appended so the GENERIC Doctor page cannot report a clean bill of health
+  // over a plaintext-token, ambient-token-variable, or rule-conflict warning.
+  // Only the dedicated Copilot Accounts tab renders the full list; a user who
+  // never opens it would otherwise never learn. Warnings are secret-free by
+  // construction (labels, logins, hosts, and variable NAMES only).
+  return `${base} ${report.warnings.length} warning(s): ${report.warnings.join(' ')}`;
+}
+
+function describeAggregate(report: CopilotAccountDoctorReport): string {
   switch (report.aggregate) {
     case 'not-configured':
       return 'Using the existing single Copilot account (no account profiles configured yet).';
