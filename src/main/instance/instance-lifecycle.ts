@@ -87,6 +87,7 @@ import { getFailoverManager } from '../providers/failover-manager';
 import { getProviderLimitLedgerPort } from '../core/system/provider-limit-ledger';
 import { getNotificationService } from '../notifications/notification-service';
 import { getInstanceProviderLimitHandler } from './instance-provider-limit-handler';
+import { getInstanceAuthRepairHandler } from './instance-auth-repair-handler';
 import { detectAvailableClis } from '../cli/cli-detection';
 import type { ProviderId } from '../../shared/types/provider-quota.types';
 import { DesiredRuntimeQueue } from './lifecycle/desired-runtime-queue';
@@ -2212,6 +2213,45 @@ export class InstanceLifecycleManager extends EventEmitter {
    * fires for a real routing failure; every other error falls through
    * unchanged.
    */
+  /**
+   * Drop the background machinery behind any hold, so a restart cannot leave a
+   * timer armed to resend a stale prompt later.
+   *
+   * Clearing the `waitReason` alone only hides a hold: a `quota-park` keeps its
+   * resume timer and durable automation, and a handler-registered
+   * `auth-required` keeps its sign-in watch. Best-effort and individually
+   * guarded — a failure to disarm must not turn a working restart into a failed
+   * one.
+   */
+  private disarmHoldsForRestart(instanceId: string): void {
+    try {
+      // Guarded on `isParked`, because `cancel()` is NOT a no-op for an
+      // unparked instance: it also clears the durable known-limit gate, which
+      // `ProviderLimitLedger.clearActive` keys by PROVIDER/MODEL — not by
+      // instance. Calling it unconditionally here meant every routine restart
+      // of any session silently wiped the "this provider is rate-limited" gate
+      // app-wide, letting another session's next turn sail into the limit and
+      // letting failover pick a provider that is still throttled.
+      const limits = getInstanceProviderLimitHandler();
+      if (limits.isParked(instanceId)) {
+        limits.cancel(instanceId);
+      }
+    } catch (error) {
+      logger.warn('Could not disarm a provider-limit park during restart', {
+        instanceId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    try {
+      getInstanceAuthRepairHandler().forget(instanceId);
+    } catch (error) {
+      logger.warn('Could not disarm an auth-repair watch during restart', {
+        instanceId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   private parkOnCopilotRoutingFailure(instanceId: string, error: unknown): void {
     if (!isCopilotRoutingError(error)) {
       return;
@@ -2548,10 +2588,24 @@ export class InstanceLifecycleManager extends EventEmitter {
           recoveryMethod: instance.recoveryMethod,
           archivedUpToMessageId: instance.archivedUpToMessageId,
           historyThreadId: instance.historyThreadId,
-        }
+        },
+        undefined,
+        undefined,
+        // Clear any hold explicitly. `undefined` PRESERVES the existing value
+        // here, so a session parked on a Copilot routing failure came back
+        // healthy but still wearing a "signed out" banner it could never shed —
+        // a working session that looks broken forever.
+        null
       );
       return { success: true, method: result.method };
     } finally {
+      // In the `finally` so it runs on EVERY exit. A restart can end three
+      // ways — success, a returned failure, or a thrown error (a missing CLI
+      // throws out of `recover`) — and the last two leave the session in
+      // `error` with the park's timer still armed to resend the pre-restart
+      // prompt into it. The user asked to restart; that is the override,
+      // whatever the outcome.
+      this.disarmHoldsForRestart(instanceId);
       release();
     }
   }

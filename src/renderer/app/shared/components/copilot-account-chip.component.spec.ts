@@ -148,3 +148,41 @@ describe('CopilotAccountChipComponent', () => {
     expect(one.nativeElement.querySelector('select.override')).toBeNull();
   });
 });
+
+describe('when the route cannot be determined', () => {
+  // Found by the round-4 flow review on 2026-08-30. `previewRoute` returns null
+  // when the IPC call FAILED — not when nothing is wrong. The chip rendered
+  // nothing and emitted blocked=false, so Start stayed enabled and a session
+  // could begin with no indication of which GitHub account it would use. That
+  // is the silent wrong-account start the whole feature exists to prevent.
+  it('fails closed and says so when the preview call failed', async () => {
+    ipc.previewRoute.mockResolvedValue(null);
+    const fixture = await render({ provider: 'copilot', workingDirectory: '/w' });
+    const blocked: boolean[] = [];
+    fixture.componentInstance.blocked.subscribe((value: boolean) => blocked.push(value));
+
+    await fixture.componentInstance['resolve']('/w', '');
+    await settle(fixture);
+
+    expect(blocked.at(-1)).toBe(true);
+    expect(fixture.nativeElement.textContent).toContain('could not be determined');
+  });
+
+  it('fails closed when reading the accounts throws', async () => {
+    ipc.previewRoute.mockResolvedValue(null);
+    // Persistent, not `...Once`: the initial render already consumes one call,
+    // so a one-shot rejection would leave the assertion testing the wrong path.
+    ipc.list.mockRejectedValue(new Error('Copilot accounts could not be loaded.'));
+    const fixture = await render({ provider: 'copilot', workingDirectory: '/w' });
+    const blocked: boolean[] = [];
+    fixture.componentInstance.blocked.subscribe((value: boolean) => blocked.push(value));
+
+    await fixture.componentInstance['resolve']('/w', '');
+    await settle(fixture);
+
+    expect(blocked.at(-1)).toBe(true);
+    expect(fixture.nativeElement.textContent).toContain('could not be loaded');
+    ipc.list.mockReset();
+    ipc.list.mockImplementation(async () => []);
+  });
+});

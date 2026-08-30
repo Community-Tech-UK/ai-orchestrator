@@ -684,6 +684,229 @@ describe('createInstance spawn transaction rollback', () => {
     expect(harness.adapters.get(instance.id)).toBe(resumedAdapter);
   });
 
+  it('disarms the handlers that own a hold, not just the banner', async () => {
+    // Round 8, 2026-08-30. Clearing the waitReason alone HID the hold while
+    // leaving its background state armed: a `quota-park` keeps its resume timer
+    // and durable automation, and a handler-registered `auth-required` keeps its
+    // sign-in watch. Either fires `resendInput` later with the pre-restart
+    // prompt — injecting a message into a session the user restarted to move on
+    // from, with the one banner that hinted at it now removed.
+    //
+    // Round 9 rejected the first version of this test: it only spied on the two
+    // methods, and configured NEITHER handler, so both calls were no-ops and it
+    // would have passed against a gutted disarm. This version arms a REAL park
+    // and a REAL auth block, then asserts the state is actually gone and the
+    // scheduled resume cannot fire.
+    const { getInstanceProviderLimitHandler } = await import('../instance-provider-limit-handler');
+    const { getInstanceAuthRepairHandler } = await import('../instance-auth-repair-handler');
+    const limitHandler = getInstanceProviderLimitHandler();
+    const authHandler = getInstanceAuthRepairHandler();
+
+    const resends: { instanceId: string; prompt: string }[] = [];
+    // NOT cast to `never`. The previous version silenced the type error with a
+    // cast and got the shape of BOTH callbacks wrong: `scheduleResume` must
+    // return a bare canceller function (returning an object made `entry.cancel()`
+    // throw inside `cancel()`, which restartInstance's try/catch swallowed — so
+    // the disarm never ran while `isParked()` still read false), and
+    // `resumeInstance` takes `(instanceId, opts)` (calling it with no arguments
+    // could never resend, making the decisive assertion vacuous).
+    let scheduledResume: ((instanceId: string) => void) | null = null;
+    let cancelledSchedule = false;
+    limitHandler.configure({
+      isEnabled: () => true,
+      setWaitReason: () => {},
+      getQuotaSnapshot: () => null,
+      refreshQuotaSnapshot: () => {},
+      getWorkspaceCwd: () => '/tmp/project',
+      isResumable: () => true,
+      resendInput: (id: string, prompt: string) => { resends.push({ instanceId: id, prompt }); },
+      scheduleResume: ({ resumeInstance }) => {
+        scheduledResume = resumeInstance;
+        return () => { cancelledSchedule = true; };
+      },
+    });
+    // Not cast to `never` either — the same suppression that hid two wrong
+    // callback shapes on the other handler.
+    authHandler.configure({
+      setWaitReason: () => {},
+      revive: async (id: string) => id,
+      resendInput: (id: string, prompt: string) => { resends.push({ instanceId: id, prompt }); },
+      probeAuth: async () => 'unauthenticated' as const,
+    });
+
+    const harness = makeHarness();
+    mocks.createAdapter.mockReturnValue(makeFakeAdapter());
+    const instance = await harness.manager.createInstance({
+      workingDirectory: '/tmp/project',
+      provider: 'copilot',
+      initialPrompt: 'go',
+    });
+    await instance.readyPromise;
+
+    limitHandler.maybePark({
+      instanceId: instance.id,
+      provider: 'claude',
+      resetAtHint: Date.now() + 3_600_000,
+      reason: 'limit',
+      resumePrompt: 'STALE PRE-RESTART PROMPT',
+    } as never);
+    const blockOutcome = await authHandler.maybeBlockOnAuth({
+      instanceId: instance.id,
+      provider: 'claude',
+      reason: 'provider auth failure on turn',
+      resumePrompt: 'STALE PRE-RESTART PROMPT',
+    });
+    // Both preconditions asserted. Without the auth one, a `maybeBlockOnAuth`
+    // that silently returned 'skipped' would make the `not-blocked` assertion
+    // below pass while proving nothing.
+    expect(blockOutcome, 'precondition: really blocked on auth').toBe('blocked');
+    expect(authHandler.isBlocked(instance.id), 'precondition: really blocked').toBe(true);
+    expect(limitHandler.isParked(instance.id), 'precondition: really parked').toBe(true);
+
+    try {
+      await harness.manager.restartInstance(instance.id);
+
+      expect(limitHandler.isParked(instance.id), 'the park must be gone, not just hidden').toBe(false);
+      expect(cancelledSchedule, 'the scheduled resume must actually be cancelled').toBe(true);
+      await expect(authHandler.retryNow(instance.id)).resolves.toEqual({ status: 'not-blocked' });
+
+      // The decisive assertion. Invoked the way production's own timer closure
+      // invokes it — WITH the instance id — so it genuinely exercises the resend
+      // path. Even if a timer or durable automation still fires after a restart,
+      // the stale prompt must not be re-injected into the session.
+      const fire = scheduledResume as ((instanceId: string) => void) | null;
+      expect(fire, 'the resume callback must have been captured').not.toBeNull();
+      fire?.(instance.id);
+      expect(resends, 'a restarted session must never receive its pre-restart prompt').toEqual([]);
+    } finally {
+      // In a finally: an assertion above throwing would otherwise leave these
+      // process-global singletons configured with this test's closures for
+      // every later test in the file.
+      limitHandler._resetForTesting();
+      (authHandler.constructor as unknown as { _resetForTesting(): void })._resetForTesting();
+    }
+  });
+
+  it('disarms a hold even when the restart itself FAILS', async () => {
+    // Round 11, 2026-08-30. The disarm sat after the `if (!result.success)`
+    // early return, so a failed restart left the park's timer and durable
+    // automation armed. The session lands in `error`, and the timer later
+    // resends the pre-restart prompt into that broken session — the same harm
+    // the success-path fix removed, reachable whenever recovery fails for an
+    // unrelated reason (CLI missing, spawn error).
+    const { getInstanceProviderLimitHandler } = await import('../instance-provider-limit-handler');
+    const limitHandler = getInstanceProviderLimitHandler();
+
+    const resends: { instanceId: string; prompt: string }[] = [];
+    let scheduledResume: ((instanceId: string) => void) | null = null;
+    limitHandler.configure({
+      isEnabled: () => true,
+      setWaitReason: () => {},
+      getQuotaSnapshot: () => null,
+      refreshQuotaSnapshot: () => {},
+      getWorkspaceCwd: () => '/tmp/project',
+      isResumable: () => true,
+      resendInput: (id: string, prompt: string) => { resends.push({ instanceId: id, prompt }); },
+      scheduleResume: ({ resumeInstance }) => {
+        scheduledResume = resumeInstance;
+        return () => {};
+      },
+    });
+
+    const harness = makeHarness();
+    mocks.createAdapter.mockReturnValue(makeFakeAdapter());
+    const instance = await harness.manager.createInstance({
+      workingDirectory: '/tmp/project',
+      provider: 'copilot',
+      initialPrompt: 'go',
+    });
+    await instance.readyPromise;
+
+    limitHandler.maybePark({
+      instanceId: instance.id,
+      provider: 'claude',
+      resetAtHint: Date.now() + 3_600_000,
+      reason: 'limit',
+      resumePrompt: 'STALE PRE-RESTART PROMPT',
+    });
+    expect(limitHandler.isParked(instance.id), 'precondition: really parked').toBe(true);
+
+    try {
+      // Make the restart's own recovery fail.
+      mocks.createAdapter.mockImplementation(() => {
+        throw new Error('ENOENT: cli not found');
+      });
+      // A missing CLI throws out of recovery rather than returning a failure
+      // result, so accept either shape — both leave the session unusable.
+      const outcome = await harness.manager
+        .restartInstance(instance.id)
+        .catch((error: unknown) => ({ success: false as const, error }));
+      expect(outcome.success, 'precondition: the restart must actually fail').toBe(false);
+
+      expect(limitHandler.isParked(instance.id), 'a FAILED restart must still disarm').toBe(false);
+      const fire = scheduledResume as ((instanceId: string) => void) | null;
+      fire?.(instance.id);
+      expect(resends, 'a broken session must never receive its pre-restart prompt').toEqual([]);
+    } finally {
+      limitHandler._resetForTesting();
+    }
+  });
+
+  it('does not touch the shared provider-limit gate when nothing was parked', async () => {
+    // Round 12, 2026-08-30. `cancel()` is NOT a no-op for an unparked instance:
+    // it also clears the durable known-limit gate, which the ledger keys by
+    // PROVIDER/MODEL, not by instance. Calling it unconditionally from the
+    // restart `finally` meant restarting ANY session wiped the "this provider is
+    // rate-limited" gate for every other session on that provider — letting the
+    // next turn sail into the limit, and letting failover pick a provider that
+    // is still throttled.
+    const { getInstanceProviderLimitHandler } = await import('../instance-provider-limit-handler');
+    const limitHandler = getInstanceProviderLimitHandler();
+    const cancelSpy = vi.spyOn(limitHandler, 'cancel');
+
+    const harness = makeHarness();
+    mocks.createAdapter.mockReturnValue(makeFakeAdapter());
+    const instance = await harness.manager.createInstance({
+      workingDirectory: '/tmp/project',
+      provider: 'copilot',
+      initialPrompt: 'go',
+    });
+    await instance.readyPromise;
+    expect(limitHandler.isParked(instance.id), 'precondition: NOT parked').toBe(false);
+
+    try {
+      await harness.manager.restartInstance(instance.id);
+      expect(cancelSpy, 'an unparked restart must not reach cancel() at all').not.toHaveBeenCalled();
+    } finally {
+      cancelSpy.mockRestore();
+      limitHandler._resetForTesting();
+    }
+  });
+
+  it('clears any hold when a restart succeeds', async () => {
+    // Round 7, 2026-08-30. `queueUpdate`'s waitReason parameter treats
+    // `undefined` as "preserve", and restartInstance passed nothing — so a
+    // session parked on a Copilot routing failure came back fully healthy while
+    // still showing a "signed out of copilot" banner it could never shed.
+    const harness = makeHarness();
+    mocks.createAdapter.mockReturnValue(makeFakeAdapter());
+
+    const instance = await harness.manager.createInstance({
+      workingDirectory: '/tmp/project',
+      provider: 'copilot',
+      initialPrompt: 'go',
+    });
+    await instance.readyPromise;
+    (harness.deps.queueUpdate as ReturnType<typeof vi.fn>).mockClear();
+
+    await harness.manager.restartInstance(instance.id);
+
+    // waitReason is the 11th positional argument; `null` clears it.
+    const calls = (harness.deps.queueUpdate as ReturnType<typeof vi.fn>).mock.calls;
+    const cleared = calls.some((args: unknown[]) => args[10] === null);
+    expect(cleared, 'a successful restart must clear the hold, not preserve it').toBe(true);
+  });
+
   it('passes local-model runtime targets to adapter creation with resolved remote execution', async () => {
     const harness = makeHarness();
     const adapter = makeFakeAdapter();

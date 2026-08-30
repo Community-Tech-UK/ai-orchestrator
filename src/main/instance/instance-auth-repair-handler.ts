@@ -181,7 +181,14 @@ export class InstanceAuthRepairHandler {
   /** Dismiss the banner without resuming (also stops the background watch). */
   cancel(instanceId: string): boolean {
     const entry = this.blocked.get(instanceId);
-    if (!entry) return false;
+    if (!entry) {
+      // A hold set by another path — the Copilot routing park writes the same
+      // `auth-required` waitReason directly, without registering here — is
+      // still a hold the user is looking at. Dismiss must dismiss it, or the
+      // banner has no working button at all.
+      this.deps?.setWaitReason(instanceId, null);
+      return true;
+    }
     this.blocked.delete(instanceId);
     entry.stopWatch();
     this.deps?.setWaitReason(instanceId, null);

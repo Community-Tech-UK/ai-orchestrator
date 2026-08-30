@@ -35,6 +35,18 @@ vi.mock('../../main/cli/adapters/adapter-factory', () => ({
   createCliAdapter: (...args: unknown[]) => mockCreateCliAdapter(...args),
 }));
 
+/** Node-local Copilot binding state this worker will report for a profile. */
+const bindingState: { current: Record<string, unknown> } = {
+  current: { state: 'authenticated' },
+};
+vi.mock('../../main/providers/copilot/copilot-account-binding-service', () => ({
+  CopilotAccountBindingService: class {
+    async checkBinding() {
+      return bindingState.current;
+    }
+  },
+}));
+
 describe('LocalInstanceManager', () => {
   let manager: LocalInstanceManager;
 
@@ -442,6 +454,51 @@ describe('LocalInstanceManager', () => {
     await expect(manager.wake('retry-wake')).resolves.toBeUndefined();
     expect(manager.getInstance('retry-wake')).toBeDefined();
   });
+
+  describe('node-local Copilot binding (the remote fail-closed point)', () => {
+    // The controller cannot read THIS machine's Copilot state, so the account it
+    // resolved is only a request until the worker confirms it. This assertion is
+    // the sole thing stopping a worker from silently running the request under
+    // whatever identity its own Copilot home happens to hold — and it had no
+    // test at all, so any future edit here would ship unnoticed.
+    const route = { profileId: 'enterprise', expectedLogin: 'work-user', host: 'github.com' };
+
+    const spawnCopilot = (copilotAccountRoute?: typeof route) =>
+      manager.spawn({
+        instanceId: 'copilot-1',
+        cliType: 'copilot',
+        workingDirectory: '/tmp/allowed/project',
+        ...(copilotAccountRoute ? { copilotAccountRoute } : {}),
+      } as never);
+
+    beforeEach(() => {
+      bindingState.current = { state: 'authenticated' };
+    });
+
+    it('spawns when this node is signed in as the expected identity', async () => {
+      await expect(spawnCopilot(route)).resolves.toBeUndefined();
+      expect(mockCreateCliAdapter).toHaveBeenCalled();
+    });
+
+    it('refuses to spawn when this node is not signed in', async () => {
+      bindingState.current = { state: 'unauthenticated' };
+      await expect(spawnCopilot(route)).rejects.toThrow(/not signed in on this node/);
+      expect(mockCreateCliAdapter).not.toHaveBeenCalled();
+    });
+
+    it('refuses to spawn under a DIFFERENT identity, naming it', async () => {
+      bindingState.current = { state: 'identity-mismatch', observedLogin: 'personal-user' };
+      await expect(spawnCopilot(route)).rejects.toThrow(/different GitHub identity here \(personal-user\)/);
+      expect(mockCreateCliAdapter).not.toHaveBeenCalled();
+    });
+
+    it('refuses to spawn when the state cannot be read — unknown is not permission', async () => {
+      bindingState.current = { state: 'unknown', errorCode: 'home-unresolvable' };
+      await expect(spawnCopilot(route)).rejects.toThrow(/could not be read on this node/);
+      expect(mockCreateCliAdapter).not.toHaveBeenCalled();
+    });
+  });
+
 });
 
 async function waitForSpawnToStart(adapter: ControlledWorkerAdapter): Promise<void> {

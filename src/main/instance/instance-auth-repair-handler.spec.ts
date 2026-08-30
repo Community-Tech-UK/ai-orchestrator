@@ -266,4 +266,26 @@ describe('InstanceAuthRepairHandler', () => {
 
     await expect(block(handler)).resolves.toBe('skipped');
   });
+
+  describe('a hold this handler did not create', () => {
+    // The Copilot routing park (`instance-lifecycle.ts` parkOnCopilotRoutingFailure)
+    // writes the SAME `auth-required` waitReason directly, without registering
+    // here — deliberately, because probing would report Copilot as
+    // authenticated and veto the block: a routing failure is not a sign-out.
+    // The banner is shared, so Dismiss must still work, or it has no working
+    // button and the session is a dead end.
+    it('is still dismissible even though it was never registered', () => {
+      const handler = configure();
+      waitReasons.set('parked', { kind: 'auth-required', provider: 'copilot', since: 1 });
+
+      expect(handler.cancel('parked')).toBe(true);
+      expect(waitReasons.get('parked')).toBeNull();
+    });
+
+    it('reports not-blocked from retry rather than pretending to resume', () => {
+      const handler = configure();
+      return expect(handler.retryNow('parked')).resolves.toEqual({ status: 'not-blocked' });
+    });
+  });
+
 });

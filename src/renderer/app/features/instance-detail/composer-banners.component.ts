@@ -288,7 +288,13 @@ export class ComposerBannersComponent {
           this.authNotice.set(outcome.message ?? 'Could not read the provider auth status.');
           break;
         default:
-          this.authNotice.set(null);
+          // `not-blocked`: main has no auth-repair entry for this session, so
+          // Retry cannot resume it — this is the Copilot routing park, which
+          // sets the same waitReason without registering. Say so instead of
+          // silently doing nothing, which read as a broken button.
+          this.authNotice.set(
+            'This hold cannot be retried here — send a message to restart the session.',
+          );
       }
     } finally {
       this.authBusy.set(false);

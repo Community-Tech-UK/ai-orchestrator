@@ -74,7 +74,10 @@ interface RuleGroup {
         <p class="warning-banner">{{ warning }}</p>
       }
 
-      @if (accounts().length === 0) {
+      <!-- Not shown while an error is up: an empty list after a FAILED read is
+           unknown, not empty, and claiming "no accounts" over real ones is how
+           this became unrecoverable rather than merely broken. -->
+      @if (accounts().length === 0 && !error()) {
         <p class="empty-state">
           No accounts are set up yet, so Copilot keeps using the single sign-in it
           already has. Add an account below to start routing by repository.

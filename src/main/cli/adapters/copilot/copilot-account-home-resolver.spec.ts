@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -112,5 +112,34 @@ describe('resolveCopilotProfileHome', () => {
     const home = resolveCopilotProfileHome('preview', { createIfMissing: false });
     expect(home).toBe(join(tempRoot, COPILOT_PROFILES_ROOT_DIR, 'preview'));
     expect(existsSync(home)).toBe(false);
+  });
+});
+
+describe('a filesystem failure must not leak the real path', () => {
+  // Found by a fresh-eyes pass on 2026-08-30. Node embeds the real path in fs
+  // error messages (`EACCES: permission denied, mkdir '<real path>'`). The
+  // Copilot IPC handlers scrub that, but this throw also reaches surfaces that
+  // do NOT: the mobile gateway returns `err.message` over the network to the
+  // paired phone, and the channel router posts it into a Discord channel that
+  // may be shared. Refusing to build the message here covers every surface.
+  it('reports a profile-home failure without the path or the home markers', () => {
+    // A FILE where the profiles root should be makes mkdir fail with ENOTDIR.
+    writeFileSync(join(tempRoot, COPILOT_PROFILES_ROOT_DIR), 'not a directory');
+
+    let message = '';
+    try {
+      resolveCopilotProfileHome('enterprise');
+      throw new Error('expected resolveCopilotProfileHome to throw');
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+
+    expect(message).toContain('enterprise');
+    expect(message).toMatch(/ENOTDIR|writable/);
+    // The three things that must never travel: the real path, either home
+    // marker, and the temp root it lives under.
+    expect(message).not.toContain(tempRoot);
+    expect(message).not.toContain(COPILOT_PROFILES_ROOT_DIR);
+    expect(message).not.toContain('copilot-cli-home');
   });
 });

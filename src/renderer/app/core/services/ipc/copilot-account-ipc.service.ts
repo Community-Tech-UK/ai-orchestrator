@@ -91,16 +91,22 @@ export class CopilotAccountIpcService {
 
   async list(): Promise<CopilotAccountView[]> {
     const response = await (this.api?.listCopilotAccounts() ?? Promise.resolve(NOT_ELECTRON));
-    return response.success
-      ? ((response.data as { profiles: CopilotAccountView[] }).profiles ?? [])
-      : [];
+    // A failed read is NOT an empty list. Returning `[]` here rendered the
+    // "No accounts are set up yet" empty state over accounts that really
+    // existed, with no error and no way back — the caller could not tell the
+    // two apart. Throwing puts it in the error banner instead.
+    if (!response.success) {
+      throw new Error(response.error?.message ?? 'Copilot accounts could not be loaded.');
+    }
+    return (response.data as { profiles: CopilotAccountView[] }).profiles ?? [];
   }
 
   async listRules(): Promise<CopilotAccountRuleView[]> {
     const response = await (this.api?.listCopilotAccountRules() ?? Promise.resolve(NOT_ELECTRON));
-    return response.success
-      ? ((response.data as { rules: CopilotAccountRuleView[] }).rules ?? [])
-      : [];
+    if (!response.success) {
+      throw new Error(response.error?.message ?? 'Copilot routing rules could not be loaded.');
+    }
+    return (response.data as { rules: CopilotAccountRuleView[] }).rules ?? [];
   }
 
   create(input: {

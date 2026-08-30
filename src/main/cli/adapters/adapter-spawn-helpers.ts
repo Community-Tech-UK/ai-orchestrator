@@ -202,7 +202,18 @@ export function getCopilotStateRoot(parent: NodeJS.ProcessEnv = process.env): st
 export function getCopilotOrchestratorHome(parent: NodeJS.ProcessEnv = process.env): string {
   const explicit = parent[COPILOT_ORCHESTRATOR_HOME_ENV]?.trim();
   const homeDir = explicit || join(getCopilotStateRoot(parent), COPILOT_ORCHESTRATOR_HOME_DIR);
-  mkdirSync(homeDir, { recursive: true });
+  try {
+    mkdirSync(homeDir, { recursive: true });
+  } catch (error) {
+    // Same reasoning as the per-profile resolver: a raw fs error embeds the
+    // real path, and this throw reaches surfaces that do not scrub it (mobile
+    // gateway responses, Discord channel messages).
+    const code = (error as NodeJS.ErrnoException | undefined)?.code;
+    throw new Error(
+      `Could not prepare the Copilot home directory${code ? ` (${code})` : ''}.`
+      + ' Check the Harness data directory is writable.',
+    );
+  }
   return homeDir;
 }
 

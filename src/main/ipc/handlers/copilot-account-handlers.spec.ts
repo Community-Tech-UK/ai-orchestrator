@@ -228,13 +228,117 @@ describe('Copilot account IPC — response safety', () => {
   it('blocks any response that would carry a path or a secret-shaped value', () => {
     for (const unsafe of [
       { success: true, data: { home: '/Users/me/copilot-cli-profiles/personal' } },
-      { success: true, data: { home: 'C:\\Users\\me\\profiles' } },
+      // The real Windows shape. The gate matches the profile-home DIRECTORY
+      // NAMES, not "anything path-shaped", so the marker is what must appear.
+      { success: true, data: { home: 'C:\\Users\\me\\AppData\\Roaming\\Harness\\copilot-cli-profiles\\personal' } },
+      { success: true, data: { home: '/Users/me/Library/Application Support/Harness/copilot-cli-home' } },
       { success: true, data: { copilotTokens: { 'github.com:octocat': 'x' } } },
       { success: true, data: { token: 'ghp_AAAAAAAAAAAAAAAAAAAAAAAA' } },
     ]) {
       const guarded = assertNoPathOrSecret(unsafe);
       expect(guarded.success, JSON.stringify(unsafe)).toBe(false);
       expect(guarded.error?.code).toBe('COPILOT_ACCOUNT_UNSAFE_RESPONSE');
+    }
+  });
+
+  it('lets a path-prefix rule through — the workspace path is the renderer\'s own', () => {
+    // Found in real use on 2026-08-30: `~/work/ebrd` has no git remote, so the
+    // routing menu correctly falls back to a path rule — and this gate then
+    // rejected the response, making EVERY folder without a GitHub remote
+    // impossible to map. The path is one the renderer supplied and already
+    // displays; it is not a Copilot home.
+    const rule = {
+      success: true,
+      data: {
+        rules: [
+          {
+            id: 'r1',
+            profileId: 'enterprise',
+            matcher: { type: 'path-prefix', canonicalPath: '/Users/me/work/ebrd' },
+            isProtected: true,
+          },
+        ],
+      },
+    };
+    expect(assertNoPathOrSecret(rule)).toBe(rule);
+  });
+
+  it('still blocks a path smuggled under a canonicalPath key elsewhere', () => {
+    // The exemption is keyed on the CONTAINING object's type, not the field
+    // name, so it cannot be used as a general-purpose path channel.
+    const smuggled = {
+      success: true,
+      data: { home: { canonicalPath: '/Users/me/copilot-cli-profiles/enterprise' } },
+    };
+    expect(assertNoPathOrSecret(smuggled).success).toBe(false);
+  });
+
+  it('still blocks a Copilot home sitting beside a legitimate path rule', () => {
+    const mixed = {
+      success: true,
+      data: {
+        rules: [{ matcher: { type: 'path-prefix', canonicalPath: '/Users/me/work/ebrd' } }],
+        home: '/Users/me/copilot-cli-profiles/enterprise',
+      },
+    };
+    expect(assertNoPathOrSecret(mixed).success).toBe(false);
+  });
+
+  it('lets a slash-containing account label through', () => {
+    // Found by the round-4 flow review on 2026-08-30. Labels are free text
+    // (`z.string().trim().min(1).max(64)`), so `/personal/backup` is legal —
+    // and it tripped the path heuristic. Worse, the profile is PERSISTED before
+    // the response is gated, so one such label poisoned every later read and
+    // the UI then showed "No accounts are set up yet" over a real account.
+    const labelled = {
+      success: true,
+      data: { profiles: [{ id: 'personal', host: 'github.com', label: '/personal/backup' }] },
+    };
+    expect(assertNoPathOrSecret(labelled)).toBe(labelled);
+  });
+
+  it('still blocks a Copilot home even when a label is present to mask', () => {
+    const mixed = {
+      success: true,
+      data: {
+        profiles: [{ id: 'p', label: '/personal/backup' }],
+        home: '/Users/me/copilot-cli-profiles/enterprise',
+      },
+    };
+    expect(assertNoPathOrSecret(mixed).success).toBe(false);
+  });
+
+  it('lets a slash-bearing label through in EVERY field that carries it', () => {
+    // Round 5, 2026-08-30. The label exemption covered the `label` key only,
+    // while the same user text also travels as `profileLabel` on a route
+    // outcome, as `detail` on a failure, and inside doctor `warnings`. A
+    // `/personal/backup` label therefore broke route preview for a fully
+    // signed-in, correctly matched account — Start disabled, cause invisible.
+    //
+    // This asserts the SHAPE of the fix: the gate matches the profile-home
+    // directory names, so no field carrying user text can trip it, present or
+    // future. A per-field mask list could never have this property.
+    const payload = {
+      success: true,
+      data: {
+        route: { profileId: 'p', profileLabel: '/personal/backup', source: 'owner' },
+        detail: 'Copilot account "/personal/backup" is not signed in on this device.',
+        warnings: ['The default Copilot account "/personal/backup" is matched-only.'],
+        invalidDefaultReason: 'Default "/personal/backup" cannot serve unmatched work.',
+        profiles: [{ id: 'p', label: '/personal/backup' }],
+        rules: [{ matcher: { type: 'path-prefix', canonicalPath: '/Users/me/work/ebrd' } }],
+      },
+    };
+    expect(assertNoPathOrSecret(payload)).toBe(payload);
+  });
+
+  it('still blocks a profile home hidden in any of those same fields', () => {
+    for (const data of [
+      { route: { profileLabel: '/Users/me/copilot-cli-profiles/enterprise' } },
+      { detail: 'Could not read /Users/me/copilot-cli-home/config.json' },
+      { warnings: ['/Users/me/copilot-cli-profiles/personal is unreadable'] },
+    ]) {
+      expect(assertNoPathOrSecret({ success: true, data }).success, JSON.stringify(data)).toBe(false);
     }
   });
 
@@ -358,5 +462,41 @@ describe('Copilot account IPC — accepts the preload auth stamp (LT-522)', () =
     const result = await invoke(IPC_CHANNELS.COPILOT_ACCOUNT_LIST, { ipcAuthToken: { evil: true } });
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('VALIDATION_FAILED');
+  });
+});
+
+describe('a handler that THROWS is gated too', () => {
+  beforeEach(() => registerCopilotAccountHandlers({ store: fakeStore(), profilesInUse: () => [] }));
+
+  // Round 6, 2026-08-30. `handle()` wrapped only the returned value:
+  // `assertNoPathOrSecret(await fn(payload))`. A throw short-circuits that call
+  // entirely, and `validatedHandler`'s own catch returns `error.message`
+  // verbatim — so the gate was not merely wrong on that path, it never ran.
+  // A raw Node fs failure carries an absolute path in its message, which is
+  // exactly the value this module exists to keep out of the renderer.
+  it('scrubs a profile home carried in a thrown error message', async () => {
+    storeSpies.removeProfile.mockImplementation(() => {
+      throw new Error(
+        "EACCES: permission denied, mkdir '/Users/me/Library/Application Support/Harness/copilot-cli-profiles/personal'",
+      );
+    });
+
+    const result = await invoke(IPC_CHANNELS.COPILOT_ACCOUNT_REMOVE, { profileId: 'personal' });
+
+    expect(result.success).toBe(false);
+    expect(JSON.stringify(result)).not.toContain('copilot-cli-profiles');
+    expect(result.error?.code).toBe('COPILOT_ACCOUNT_UNSAFE_RESPONSE');
+  });
+
+  it('still reports an ordinary failure message unchanged', async () => {
+    // The gate must not swallow useful diagnostics — only path/secret ones.
+    storeSpies.removeProfile.mockImplementation(() => {
+      throw new Error('That Copilot account is in use by a running session.');
+    });
+
+    const result = await invoke(IPC_CHANNELS.COPILOT_ACCOUNT_REMOVE, { profileId: 'personal' });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('in use by a running session');
   });
 });

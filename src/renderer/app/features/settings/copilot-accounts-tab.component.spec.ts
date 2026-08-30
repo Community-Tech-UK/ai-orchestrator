@@ -207,6 +207,18 @@ describe('CopilotAccountsTabComponent', () => {
     expect(fixture.componentInstance.error()).toContain('in use by a running session');
   });
 
+  it('shows the failure instead of an empty state when accounts cannot be read', async () => {
+    // A failed read used to return `[]`, so the tab rendered "No accounts are
+    // set up yet" over accounts that really existed — no error, and no way for
+    // the user to get back. Failure and emptiness must not look identical.
+    ipc.list.mockRejectedValueOnce(
+      new Error('Internal error: the response contained data that must not cross IPC.'),
+    );
+    const fixture = await render();
+    expect(fixture.componentInstance.error()).toContain('must not cross IPC');
+    expect(fixture.nativeElement.textContent).not.toContain('No accounts are set up yet');
+  });
+
   it('creates a folder rule as protected by default', async () => {
     const fixture = await render();
     fixture.componentInstance.workspacePath = '/Users/me/work';

@@ -33,6 +33,8 @@ import type {
   CopilotAccountProfile,
 } from '../../../shared/types/copilot-account.types';
 import { normalizeCopilotHost } from '../../../shared/types/copilot-account.types';
+import { COPILOT_ORCHESTRATOR_HOME_DIR } from '../../cli/adapters/adapter-spawn-helpers';
+import { COPILOT_PROFILES_ROOT_DIR } from '../../cli/adapters/copilot/copilot-account-home-resolver';
 import { getLogger } from '../../logging/logger';
 import {
   LOCAL_COPILOT_NODE_ID,
@@ -66,12 +68,36 @@ export interface RegisterCopilotAccountHandlersDeps {
  * set of handlers here will grow, and "remember not to include the home path"
  * is exactly the kind of rule that survives review once and then doesn't.
  */
-const PATH_SHAPE = /(^|["\s:])(\/[A-Za-z0-9._-]+\/|[A-Za-z]:\\)/;
+/**
+ * A Copilot profile home is the ONE main-derived value that must never reach
+ * the renderer, so the gate looks for exactly that rather than for "anything
+ * path-shaped".
+ *
+ * It used to be a generic absolute-path heuristic. That was wrong in both
+ * directions, and repeatedly: a `path-prefix` rule matcher legitimately holds a
+ * workspace path, and a free-text account label may legitimately contain
+ * slashes — which then surfaced again through `profileLabel`, `detail` and
+ * `warnings`, each carrying the same label into a different field. Maintaining
+ * a mask list of "fields allowed to contain slashes" meant chasing every new
+ * field forever, and each miss broke a legitimate account rather than catching
+ * a leak.
+ *
+ * Matching the home directory names instead is precise: every profile home is
+ * `<userData>/copilot-cli-home` or `<userData>/copilot-cli-profiles/<id>`, so
+ * any string containing either marker is a real leak, and no ordinary user text
+ * contains them by accident.
+ */
+const COPILOT_HOME_MARKERS = [COPILOT_ORCHESTRATOR_HOME_DIR, COPILOT_PROFILES_ROOT_DIR];
 const SECRET_SHAPE = /\b(gh[pousr]_[A-Za-z0-9]{16,}|copilotTokens|oauth_token|Bearer\s)/i;
 
 export function assertNoPathOrSecret(response: IpcResponse): IpcResponse {
-  const serialized = JSON.stringify(response.data ?? null);
-  if (PATH_SHAPE.test(serialized) || SECRET_SHAPE.test(serialized)) {
+  // Both halves, not just `data`. An error MESSAGE is the likeliest carrier of
+  // a real path — a raw Node fs failure reads
+  // `EACCES: permission denied, mkdir '/…/copilot-cli-profiles/personal'` —
+  // and gating only the success payload left that wide open.
+  const serialized = JSON.stringify({ data: response.data ?? null, error: response.error ?? null });
+  const leaksHome = COPILOT_HOME_MARKERS.some((marker) => serialized.includes(marker));
+  if (leaksHome || SECRET_SHAPE.test(serialized)) {
     logger.error(
       'Refusing to return a Copilot account response containing a path or secret-shaped value',
     );
@@ -154,7 +180,19 @@ export function registerCopilotAccountHandlers(
       validatedHandler(
         channel,
         schema,
-        async (payload) => assertNoPathOrSecret(await fn(payload)),
+        // The gate has to run on BOTH exits. `validatedHandler` catches a throw
+        // and returns `error.message` verbatim, so gating only the returned
+        // value meant any exception bypassed it entirely — the gate could not
+        // fire at all, rather than firing and being wrong.
+        async (payload) => {
+          try {
+            return assertNoPathOrSecret(await fn(payload));
+          } catch (error) {
+            return assertNoPathOrSecret(
+              failure(errorCode, error instanceof Error ? error.message : String(error)),
+            );
+          }
+        },
         options(errorCode),
       ),
     );

@@ -498,7 +498,12 @@
       display: flex;
       flex-direction: column;
       padding: 6px;
-      overflow: hidden;
+      // Vertical scroll, horizontal still clipped so the border radius holds.
+      // The Copilot section renders an unbounded account list inside this menu,
+      // so a project low in a scrolled list could push its lower items past the
+      // viewport's clip edge with no way to reach them.
+      max-height: min(60vh, 420px);
+      overflow: hidden auto;
       border-radius: 12px;
       border: 1px solid rgba(255, 255, 255, 0.08);
       background: linear-gradient(180deg, rgb(23, 30, 28), rgb(12, 18, 17));

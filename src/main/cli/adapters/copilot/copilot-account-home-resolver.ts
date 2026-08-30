@@ -120,11 +120,27 @@ export function resolveCopilotProfileHome(
     return home;
   }
 
-  mkdirSync(home, { recursive: true });
-
-  // A symlink already sitting at <root>/<id> survives mkdir(recursive) without
-  // error, so re-assert containment against the real target.
-  const realHome = realpathSync(home);
+  // Wrapped so a raw fs error can never carry the path out of here. Node's
+  // messages embed it verbatim (`EACCES: permission denied, mkdir '<real
+  // path>'`), and this throw escapes to callers that are NOT the Copilot IPC
+  // handlers — the mobile gateway returns `err.message` over the network to the
+  // paired phone, and the channel router posts it into a Discord channel that
+  // may be shared. Scrubbing at those egress points would be one more list to
+  // keep in sync; refusing to build the message here fixes every surface at
+  // once, including logs.
+  let realHome: string;
+  try {
+    mkdirSync(home, { recursive: true });
+    // A symlink already sitting at <root>/<id> survives mkdir(recursive)
+    // without error, so re-assert containment against the real target.
+    realHome = realpathSync(home);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException | undefined)?.code;
+    throw new Error(
+      `Could not prepare the Copilot profile home for ${profileId}`
+      + `${code ? ` (${code})` : ''}. Check the Harness data directory is writable.`,
+    );
+  }
   const realRoot = (() => {
     try {
       return realpathSync(root);

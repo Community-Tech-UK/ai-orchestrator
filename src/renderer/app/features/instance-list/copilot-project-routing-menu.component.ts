@@ -262,8 +262,15 @@ export class CopilotProjectRoutingMenuComponent {
       this.rulesSignal.set(rules);
       this.outcomeSignal.set(outcome);
       this.addableSignal.set(addable);
-    } catch {
-      this.errorSignal.set('Could not read Copilot accounts.');
+    } catch (error) {
+      // Surface the real reason. A generic message here hid an IPC-level
+      // rejection behind "could not read", which looked like a transient
+      // glitch rather than the permanent, actionable failure it was.
+      this.errorSignal.set(
+        error instanceof Error && error.message
+          ? error.message
+          : 'Could not read Copilot accounts.',
+      );
     } finally {
       this.busySignal.set(false);
     }
