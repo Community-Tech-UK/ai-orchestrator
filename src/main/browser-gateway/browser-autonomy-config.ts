@@ -12,7 +12,7 @@ import {
 } from './browser-unattended-services';
 import { getLogger } from '../logging/logger';
 import { normaliseAuthorizationOrigin } from './browser-credential-origin';
-import { resolveCredentialScopeForFilter } from './default-browser-credentials-operations';
+import { resolveCredentialScope } from './default-browser-credentials-operations';
 
 /**
  * Operator-owned "full autonomy" bootstrap. A single JSON file the local
@@ -180,7 +180,7 @@ export interface ApplyAutonomyConfigDeps {
   resolveProfileDir: (profileId: string) => string;
   authorizations: Pick<
     ReturnType<typeof getBrowserCredentialAuthorizationService>,
-    'list' | 'create'
+    'find' | 'recreate'
   >;
   campaigns: Pick<
     ReturnType<typeof getBrowserCampaignService>,
@@ -232,35 +232,86 @@ export function applyBrowserAutonomyConfig(
 
   for (const auth of config.credentialAuthorizations) {
     const id = authorizationId(auth);
-    const existing = deps.authorizations
-      .list(auth.profileId)
-      .find((record) => record.id === id && !record.revokedAt && record.expiresAt > now());
-    if (existing) {
+    // Resolve a friendly node name to the id the fill actually looks up, the
+    // same as the other two doors. Lenient on purpose: this runs at app start
+    // and an unresolvable value is left as written rather than failing boot.
+    //
+    // Resolved BEFORE the existence check, not after. Looking up by the raw
+    // config value while writing the resolved one meant boot 2 never found what
+    // boot 1 wrote, re-INSERTed the same primary key, and threw. That throw
+    // escapes this loop to the caller's catch, so every later authorization AND
+    // every campaign silently stopped provisioning on every boot thereafter,
+    // and the grant could never have its expiry refreshed.
+    // Resolve STRICTLY. The lenient variant swallows a roster failure and hands
+    // back the raw name, which the fill can never look up, so provisioning would
+    // write a grant that is dead for the whole session and still report success.
+    // Not provisioning is recoverable on the next boot; a silent dead grant is
+    // not, because nothing anywhere reports it.
+    let profileId: string;
+    try {
+      profileId = resolveCredentialScope(auth.profileId);
+    } catch (error) {
+      logger.error('Skipping credential authorization with an unresolvable scope', undefined, {
+        grantRef: id,
+        scope: auth.profileId,
+        error: error instanceof Error ? error.message : String(error),
+      });
       continue;
     }
-    // This is the THIRD door onto authorization creation, alongside the renderer
-    // IPC handlers and the `aio-mcp browser-credentials` CLI, and in practice it
-    // is the one that mints them: every authorization on a normal machine has an
-    // `authcfg-` id. Its schema takes `hostPattern` as a free string, so without
-    // this an entry of `{"hostPattern":"com","includeSubdomains":true}` becomes a
-    // login grant over every .com. One bad entry is skipped rather than thrown,
-    // because this runs at app start and a config typo must not stop boot.
+
+    // Look up by id, not by scope. `list(profileId)` hides revoked rows and
+    // misses a row written under a different resolved scope, so it could report
+    // "absent" for a row that exists and then upsert over it.
+    const existing = deps.authorizations.find(id);
+
+    if (existing?.revokedAt) {
+      // NEVER resurrect a revoked grant. `recreate` clears `revokedAt`, so
+      // re-minting here would silently undo a revocation the operator made
+      // deliberately, on the next ordinary restart, with a fresh full-length
+      // expiry and nothing to signal it. Removing the entry from the config is
+      // how an operator retires it for good.
+      logger.warn('Credential authorization is revoked; leaving it revoked', {
+        grantRef: id,
+        profileId,
+      });
+      continue;
+    }
+
+    if (existing && existing.expiresAt > now()) {
+      if (existing.profileId === profileId) {
+        continue;
+      }
+      // Live, but stored under a scope the fill will never look up: dead, and
+      // previously skipped in silence on every boot. The realistic source is a
+      // row written by the older lenient resolver, which stored the raw node
+      // name on a roster read failure. Fall through and re-mint it under the
+      // resolved scope rather than leave it unusable for its full lifetime.
+      logger.warn('Repairing credential authorization stored under a stale scope', {
+        grantRef: id,
+        storedScope: existing.profileId,
+        resolvedScope: profileId,
+      });
+    }
+
+    // The schema takes `hostPattern` as a free string, so without this an entry
+    // of `{"hostPattern":"com","includeSubdomains":true}` becomes a login grant
+    // over every .com. One bad entry is skipped rather than thrown, because this
+    // runs at app start and a config typo must not stop boot.
     let allowedOrigins;
     try {
       allowedOrigins = auth.allowedOrigins.map(normaliseAuthorizationOrigin);
     } catch (error) {
       logger.error('Skipping credential authorization with an invalid origin', undefined, {
-        authorizationId: id,
+        grantRef: id,
         error: error instanceof Error ? error.message : String(error),
       });
       continue;
     }
-    // Resolve a friendly node name to the id the fill actually looks up, the
-    // same as the other two doors. Lenient on purpose: this runs at app start,
-    // when the roster may not be populated yet, and an unresolvable value is
-    // left as written rather than failing boot.
-    const profileId = resolveCredentialScopeForFilter(auth.profileId);
-    deps.authorizations.create(
+
+    // `recreate` rather than `create`: the id is a content hash, so an expired
+    // grant keeps the same id forever and a bare INSERT would hit the primary
+    // key, throw, and abandon every later authorization AND every campaign.
+    deps.authorizations.recreate(
       {
         profileId,
         allowedOrigins,

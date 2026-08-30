@@ -118,6 +118,47 @@ export class SqliteCredentialAuthorizationStore
       );
   }
 
+  replace(auth: CredentialAuthorization): void {
+    // Same columns as `insert`, but replacing any row already under this id.
+    // Used only by the autonomy-config bootstrap, whose id is a content hash and
+    // therefore stable across expiry and revocation.
+    this.driver
+      .prepare(
+        `INSERT INTO browser_credential_authorizations
+           (id, profile_id, allowed_origins_json, purposes_json, vault_folder,
+            created_at, expires_at, revoked_at, note,
+            allowed_secret_types_json, allowed_selectors_json,
+            allowed_sender_domains_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           profile_id = excluded.profile_id,
+           allowed_origins_json = excluded.allowed_origins_json,
+           purposes_json = excluded.purposes_json,
+           vault_folder = excluded.vault_folder,
+           created_at = excluded.created_at,
+           expires_at = excluded.expires_at,
+           revoked_at = excluded.revoked_at,
+           note = excluded.note,
+           allowed_secret_types_json = excluded.allowed_secret_types_json,
+           allowed_selectors_json = excluded.allowed_selectors_json,
+           allowed_sender_domains_json = excluded.allowed_sender_domains_json`,
+      )
+      .run(
+        auth.id,
+        auth.profileId,
+        JSON.stringify(auth.allowedOrigins),
+        JSON.stringify(auth.purposes),
+        auth.vaultFolder,
+        auth.createdAt,
+        auth.expiresAt,
+        auth.revokedAt ?? null,
+        auth.note ?? null,
+        auth.allowedSecretTypes ? JSON.stringify(auth.allowedSecretTypes) : null,
+        auth.allowedSelectors ? JSON.stringify(auth.allowedSelectors) : null,
+        auth.allowedSenderDomains ? JSON.stringify(auth.allowedSenderDomains) : null,
+      );
+  }
+
   get(id: string): CredentialAuthorization | undefined {
     const row = this.driver
       .prepare(`SELECT * FROM browser_credential_authorizations WHERE id = ?`)

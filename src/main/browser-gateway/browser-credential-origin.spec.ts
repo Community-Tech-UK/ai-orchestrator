@@ -238,6 +238,14 @@ describe('normaliseAuthorizationOrigin', () => {
     expect(() => normaliseAuthorizationOrigin({
       scheme: 'https', hostPattern: 'portal.example.com/login', includeSubdomains: false,
     })).toThrow(/takes a host, not a URL/);
+    // `?` and `#` were falling through to the shape regex and being silently
+    // truncated, contradicting both the docs and this error message.
+    expect(() => normaliseAuthorizationOrigin({
+      scheme: 'https', hostPattern: 'example.com?x=1', includeSubdomains: false,
+    })).toThrow(/takes a host, not a URL/);
+    expect(() => normaliseAuthorizationOrigin({
+      scheme: 'https', hostPattern: 'example.com#f', includeSubdomains: false,
+    })).toThrow(/takes a host, not a URL/);
   });
 
   it('keeps a ported host that the panel could always create', () => {

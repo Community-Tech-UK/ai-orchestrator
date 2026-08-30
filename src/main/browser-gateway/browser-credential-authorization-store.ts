@@ -12,10 +12,10 @@
  * writer, `browser-autonomy-config.ts`, which applies the operator's own
  * bootstrap file at app start and in practice mints most real grants.
  *
- * All three apply the origin rules in `browser-credential-origin.ts`. The
- * expiry cap and the scope resolution below are enforced on the two
- * interactive doors; the bootstrap file sets its own lifetime in days and is
- * the operator's own artefact.
+ * All three apply the origin rules in `browser-credential-origin.ts` and
+ * resolve the scope. The expiry cap below is enforced on the two interactive
+ * doors; the bootstrap file sets its own lifetime in days and is the
+ * operator's own artefact.
  *
  * Scope: agent-owned managed profiles, keyed by the managed profileId. The same
  * record ALSO gates autonomous login on the user's SHARED existing Chrome tabs
@@ -78,6 +78,15 @@ export interface CredentialAuthorization {
 
 export interface CredentialAuthorizationRecordStore {
   insert(auth: CredentialAuthorization): void;
+  /**
+   * Write `auth`, replacing any row already under that id.
+   *
+   * The autonomy-config bootstrap derives its id from a content hash, so an
+   * expired or revoked grant keeps the same id forever and `insert` hits the
+   * primary key. "Re-creates an authorization whose prior copy is expired or
+   * revoked" is the documented behaviour and could never actually run.
+   */
+  replace(auth: CredentialAuthorization): void;
   get(id: string): CredentialAuthorization | undefined;
   list(filter?: { profileId?: string; includeRevoked?: boolean }): CredentialAuthorization[];
   markRevoked(id: string, revokedAt: number): void;
@@ -89,6 +98,9 @@ export class InMemoryCredentialAuthorizationStore
   private readonly map = new Map<string, CredentialAuthorization>();
 
   insert(auth: CredentialAuthorization): void {
+    this.map.set(auth.id, auth);
+  }
+  replace(auth: CredentialAuthorization): void {
     this.map.set(auth.id, auth);
   }
   get(id: string): CredentialAuthorization | undefined {
@@ -151,6 +163,31 @@ export class CredentialAuthorizationService {
     return auth;
   }
 
+  /**
+   * Create, replacing a stale row already under this id. Only for callers whose
+   * id is derived rather than generated, i.e. the autonomy-config bootstrap.
+   * Clears `revokedAt`, so it must never be reachable from an agent-callable
+   * door: re-minting a grant the operator revoked is their decision to make in
+   * their own config file, not one an agent can trigger.
+   */
+  recreate(
+    input: Omit<CredentialAuthorization, 'id' | 'createdAt'>,
+    id: string,
+  ): CredentialAuthorization {
+    // Keep the original creation time. Overwriting it on every renewal erases
+    // when the operator first granted this, which is the one field that says
+    // how long the access has existed.
+    const createdAt = this.store.get(id)?.createdAt ?? this.now();
+    const auth: CredentialAuthorization = { ...input, id, createdAt };
+    this.store.replace(auth);
+    return auth;
+  }
+
+  /** Look up by id INCLUDING revoked and expired rows. */
+  find(id: string): CredentialAuthorization | undefined {
+    return this.store.get(id);
+  }
+
   revoke(id: string): void {
     this.store.markRevoked(id, this.now());
   }
@@ -171,8 +208,14 @@ export class CredentialAuthorizationService {
     let sawPurpose = false;
     let sawSecretType = false;
     let sawSelector = false;
+    let sawRevokedMatch = false;
     for (const auth of candidates) {
       if (auth.revokedAt) {
+        // Remember whether a REVOKED grant would otherwise have covered this, so
+        // the refusal can say "revoked" instead of "origin not authorized".
+        if (auth.allowedOrigins.some((o) => originMatches(o, input.origin))) {
+          sawRevokedMatch = true;
+        }
         continue;
       }
       const originOk = auth.allowedOrigins.some((o) => originMatches(o, input.origin));
@@ -221,7 +264,14 @@ export class CredentialAuthorizationService {
 
     // Nothing fully matched — report the most specific failure reason.
     if (!sawOrigin) {
-      return { authorized: false, reason: 'origin_not_authorized' };
+      // A revoked grant covering this origin is a more useful answer than
+      // "origin not authorized", which sends the operator looking for a missing
+      // grant rather than a deliberately withdrawn one. `authorization_revoked`
+      // was declared but unreachable before this.
+      return {
+        authorized: false,
+        reason: sawRevokedMatch ? 'authorization_revoked' : 'origin_not_authorized',
+      };
     }
     if (!sawPurpose) {
       return { authorized: false, reason: 'purpose_not_authorized' };

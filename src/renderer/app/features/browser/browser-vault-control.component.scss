@@ -44,13 +44,31 @@
 .vault-alert {
   margin: 0;
   padding: 8px 10px;
-  border: 1px solid var(--danger-color, #ef4444);
+  // Solid --error-color, not the 0.24-alpha --error-border: that measured
+  // ~1.33:1 on both default backgrounds, under WCAG 1.4.11's 3:1 for non-text,
+  // so the border could not carry the signal the text handed to it.
+  border: 1px solid var(--error-color);
+  border-left-width: 4px;
   border-radius: 6px;
   font-size: 12px;
   line-height: 1.45;
-  // #ef4444 at 12px measured ~3.8:1, under the 4.5:1 AA threshold for body
-  // text. Darkened for legibility; the border and tint still carry the colour.
-  color: var(--danger-text-color, #b91c1c);
-  background: color-mix(in srgb, var(--danger-color, #ef4444) 8%, transparent);
+  // Body text uses --text-primary, not --error-color. Three earlier attempts got
+  // this wrong: one hardcoded a colour behind a token that does not exist; one
+  // used --error-color over the 10% --error-bg tint (4.34:1 on default dark,
+  // ~3.1:1 on light, where the error tokens are not redefined at all); and one
+  // handed the signal to --error-border, which is 0.24 alpha and measured
+  // ~1.33:1, so the banner read as ordinary prose. --text-primary is the one
+  // pairing every theme guarantees; the solid border above and the coloured
+  // lead-in below carry the signal.
+  color: var(--text-primary);
+  background: var(--error-bg);
   font-weight: 500;
+}
+
+// The lead-in carries the status colour so the banner is not mistaken for body
+// text. The sentence itself stays --text-primary, which is the only pairing
+// every theme guarantees is readable.
+.vault-alert__lead {
+  color: var(--error-color);
+  font-weight: 700;
 }

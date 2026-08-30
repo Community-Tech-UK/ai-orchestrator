@@ -78,6 +78,7 @@ import {
   dispatchCalendarMutation,
 } from './orchestrator-tools-rpc-calendar';
 import { dispatchLocalAiCliRpc, isLocalAiCliRpcMethod, type LocalAiCliOperations } from './orchestrator-tools-rpc-local-ai';
+import { dispatchCopilotAccountCliRpc, isCopilotAccountCliRpcMethod, type CopilotAccountCliOperations } from './orchestrator-tools-rpc-copilot-account';
 import { dispatchBrowserCredentialsCliRpc, isBrowserCredentialsCliRpcMethod } from './orchestrator-tools-rpc-browser-credentials';
 
 const logger = getLogger('OrchestratorToolsRpcServer');
@@ -170,6 +171,7 @@ export interface OrchestratorToolsRpcServerOptions extends FileTransferToolConte
   calendarTools?: CalendarToolDependencies;
   /** Backs the privileged Local AI Guard CLI without importing native runtime code into the SEA. */
   localAiGuardOperations?: LocalAiCliOperations | null;
+  copilotAccountOperations?: CopilotAccountCliOperations | null;
   authorizeCalendarMutation?: (
     request: CalendarMutationAuthorizationRequest,
   ) => Promise<boolean>;
@@ -206,6 +208,7 @@ export class OrchestratorToolsRpcServer {
   >;
   private readonly calendarTools: CalendarToolDependencies;
   private readonly localAiGuardOperations: LocalAiCliOperations | null;
+  private readonly copilotAccountOperations: CopilotAccountCliOperations | null;
   private readonly authorizeCalendarMutation: NonNullable<
     OrchestratorToolsRpcServerOptions['authorizeCalendarMutation']
   >;
@@ -254,6 +257,7 @@ export class OrchestratorToolsRpcServer {
     this.authorizeReleaseMutation = options.authorizeReleaseMutation ?? (async () => false);
     this.calendarTools = options.calendarTools ?? {};
     this.localAiGuardOperations = options.localAiGuardOperations ?? null;
+    this.copilotAccountOperations = options.copilotAccountOperations ?? null;
     this.authorizeCalendarMutation = options.authorizeCalendarMutation ?? (async () => false);
     this.toolFactoryInjected = options.toolFactory !== undefined;
     this.toolFactory = options.toolFactory ?? createOrchestratorToolDefinitions;
@@ -324,6 +328,9 @@ export class OrchestratorToolsRpcServer {
       return this.dispatchValidatedTool(calendarReadSpec.toolName, calendarReadSpec.schema, params);
     }
     if (isBrowserCredentialsCliRpcMethod(request.method)) return dispatchBrowserCredentialsCliRpc(request.method, params.payload);
+    if (isCopilotAccountCliRpcMethod(request.method)) {
+      return dispatchCopilotAccountCliRpc(request.method, params.payload, this.copilotAccountOperations);
+    }
     if (isLocalAiCliRpcMethod(request.method)) {
       return dispatchLocalAiCliRpc(request.method, params.payload, this.localAiGuardOperations);
     }

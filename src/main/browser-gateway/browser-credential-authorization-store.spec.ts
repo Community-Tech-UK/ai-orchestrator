@@ -300,3 +300,30 @@ describe('assertAuthorizationExpiry', () => {
       .toThrow(/more than 1 year/);
   });
 });
+
+describe('check reports a revoked grant as revoked', () => {
+  // `authorization_revoked` was declared in AuthorizationDecision and produced
+  // nowhere: a revoked grant reported `origin_not_authorized`, pointing anyone
+  // debugging it at a missing grant rather than a withdrawn one.
+  it('distinguishes revoked from never-granted', () => {
+    const { service } = makeService();
+    service.create(
+      {
+        profileId: 'p',
+        allowedOrigins: [{ scheme: 'https', hostPattern: 'portal.example.com', includeSubdomains: false }],
+        purposes: ['login'],
+        vaultFolder: 'AIO-Agent',
+        expiresAt: 10_000,
+      },
+      'auth-1',
+    );
+    service.revoke('auth-1');
+
+    expect(service.check({ profileId: 'p', origin: 'https://portal.example.com', purpose: 'login' }))
+      .toMatchObject({ authorized: false, reason: 'authorization_revoked' });
+
+    // An origin that was never granted still reports the original reason.
+    expect(service.check({ profileId: 'p', origin: 'https://other.example.com', purpose: 'login' }))
+      .toMatchObject({ authorized: false, reason: 'origin_not_authorized' });
+  });
+});

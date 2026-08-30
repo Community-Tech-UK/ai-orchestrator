@@ -23,7 +23,8 @@ import {
  * `assertAuthorizationExpiry` cap, the shared scope resolution and the shared
  * origin rules, so the CLI door and the panel door cannot grant different
  * things. A third writer, `browser-autonomy-config.ts`, applies the operator's
- * boot-time file and shares the origin rules only. See the widening note in
+ * boot-time file and shares the origin rules and the scope resolution, but sets
+ * its own lifetime in days rather than using the expiry cap. See the widening note in
  * `browser-credentials-cli-contracts.ts`.
  *
  * Every guard here is main-side on purpose. The CLI binary is not the only
@@ -47,7 +48,17 @@ import {
 export function resolveCredentialScope(scope: string): string {
   if (scope === 'local') return 'local';
 
-  const nodes = getRemoteNodeRosterService().list();
+  // A roster failure must not refuse a perfectly valid managed-profile scope,
+  // so it degrades to "no nodes known" and lets the profile check below answer.
+  let nodes: { id: string; name: string }[] = [];
+  let rosterFailed = false;
+  try {
+    nodes = getRemoteNodeRosterService().list();
+  } catch {
+    // Degrade rather than refuse a valid managed-profile scope, but remember,
+    // so a transient roster fault is not reported as "your node doesn't exist".
+    rosterFailed = true;
+  }
   // Accept the node NAME as well as its id. The roster keys on a UUID, but every
   // other surface the operator and agents touch (`browser_list_targets`,
   // `run_on_node`) takes the friendly name, so demanding the UUID here would
@@ -79,7 +90,11 @@ export function resolveCredentialScope(scope: string): string {
   ];
   throw new Error(
     `Unknown credential scope '${scope}'. A grant on an unknown scope can never match. `
-      + `Known scopes: ${known.join(', ')}.`,
+      + `Known scopes: ${known.join(', ')}.`
+      + (rosterFailed
+        ? ' The worker-node roster could not be read, so no nodes are listed here;'
+          + ' this may be a transient fault rather than a wrong name.'
+        : ''),
   );
 }
 
@@ -103,13 +118,14 @@ export function createDefaultBrowserCredentialsOperations(): BrowserCredentialsC
       // Normalise here as well as in the CLI, so a direct RPC caller cannot
       // bind an origin the authorization matcher could never meet.
       const origin = normaliseBindableOrigin(input.origin);
-      return getBrowserCredentialVault().enrolExistingCredential({
+      const result = await getBrowserCredentialVault().enrolExistingCredential({
         item: input.item,
         origin,
         ...(input.moveIntoFolder !== undefined
           ? { moveIntoFolder: input.moveIntoFolder }
           : {}),
       });
+      return { ...result, origin };
     },
 
     async authorize(
@@ -141,7 +157,20 @@ export function createDefaultBrowserCredentialsOperations(): BrowserCredentialsC
     },
 
     async revoke(authorizationId: string): Promise<{ revoked: boolean }> {
-      getBrowserCredentialAuthorizationService().revoke(authorizationId);
+      // `markRevoked` is an UPDATE ... WHERE id = ?, a silent no-op on an
+      // unknown id. Reporting success for a typo leaves an unattended operator
+      // believing a grant is gone when it is still live.
+      //
+      // `find` sees revoked rows, so re-revoking stays idempotent: the desired
+      // state already holds. Only an id that never existed reports false.
+      const service = getBrowserCredentialAuthorizationService();
+      const record = service.find(authorizationId);
+      if (!record) {
+        return { revoked: false };
+      }
+      if (!record.revokedAt) {
+        service.revoke(authorizationId);
+      }
       return { revoked: true };
     },
   };

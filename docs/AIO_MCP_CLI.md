@@ -20,7 +20,7 @@ dist/aio-mcp-cli-sea/aio-mcp --help
 
 ## What It Can Do
 
-`aio-mcp` has four human-facing command groups:
+`aio-mcp` has six human-facing command groups:
 
 | Command | Purpose |
 | --- | --- |
@@ -28,6 +28,8 @@ dist/aio-mcp-cli-sea/aio-mcp --help
 | `remote-nodes` | Print the safe remote worker roster. |
 | `release-readiness` | Build a mobile release readiness report from evidence JSON and live captures. |
 | `local-ai` | Discover, validate, list, and enrol Local AI Guard targets through the running parent app. |
+| `copilot-account` | Inspect GitHub Copilot account routing: profiles, rules, what a workspace resolves to, and routing health. Read-only. |
+| `browser-credentials` | Bind an existing vault login to an origin, and mint, list or revoke the standing authorizations an unattended browser fill needs. |
 
 It also has MCP and integration forwarders:
 
@@ -56,6 +58,39 @@ Build the artifact with the `doc-review-artifact` skill first, then call
 `request_doc_review` with its path. Markdown stays the source of truth; apply the
 returned decisions to the `.md` source and re-render. The artifact path is validated
 to sit inside the workspace's `.aio-review/` directory (never committed).
+
+## `copilot-account` (read-only)
+
+```bash
+$AIO_MCP copilot-account list            # profiles and their sign-in state
+$AIO_MCP copilot-account rules           # routing rules
+$AIO_MCP copilot-account route ~/work/x  # which account this folder uses, and why
+$AIO_MCP copilot-account route ~/work/x --origin=automation   # ...for an automated run
+$AIO_MCP copilot-account doctor          # conflicts, warnings, ambient token vars
+```
+
+Add `--json` to any of them for machine-readable output.
+
+`route` assumes an **interactive** session unless you pass `--origin`. That
+assumption changes the answer: `automationPolicy` and the provider-exclusion list
+only apply to automatic origins, so a workspace can resolve fine interactively
+and be refused for every automated run. The assumed origin is always printed
+(`Enterprise (owner, as interactive)`), and `--origin automation` (or `--origin=review`,
+`loop`, ...) asks the question an automation would actually get. Both the spaced
+and `=` forms work; `--origin` with no value is an error rather than a silent
+fallback.
+
+**There are deliberately no write commands.** `copilotAccountProfiles` and
+`copilotAccountRoutingRules` are operator-only anchors: they decide which GitHub
+identity services a repository, and this CLI cannot tell the operator apart from
+an agent — `$AIO_MCP` is injected into every agent shell. An agent able to add a
+profile or move the default could route enterprise code through a personal seat,
+which is the exact mistake Copilot account routing exists to prevent. Changes are
+made in **Settings › GitHub Copilot Accounts**.
+
+Results are re-parsed through `.strict()` schemas on the way out, so a Copilot
+profile home path or a token cannot reach a terminal, a pipe, or a log even if a
+future change adds one upstream.
 
 ## Runtime Requirements
 

@@ -45,7 +45,12 @@ const AUTHORIZATION = {
 
 describe('browser-credentials enrol', () => {
   it('sends the item and origin and reports the binding without a secret', async () => {
-    const h = harness({ vaultItemRef: 'item-9', username: 'james@communitytech.co.uk', movedIntoFolder: false });
+    const h = harness({
+      vaultItemRef: 'item-9',
+      username: 'james@communitytech.co.uk',
+      movedIntoFolder: false,
+      origin: 'https://procontract.due-north.com',
+    });
 
     await runBrowserCredentialsCli(
       ['enrol', '--item', 'ProContract (AIO-Agent)', '--origin', 'https://procontract.due-north.com'],
@@ -62,7 +67,7 @@ describe('browser-credentials enrol', () => {
   });
 
   it('omits moveIntoFolder unless explicitly asked, then sends it', async () => {
-    const h = harness({ vaultItemRef: 'i', username: 'u', movedIntoFolder: true });
+    const h = harness({ vaultItemRef: 'i', username: 'u', movedIntoFolder: true, origin: 'https://a.example.com' });
     await runBrowserCredentialsCli(
       ['enrol', '--item', 'x', '--origin', 'https://a.example.com', '--move-into-folder'],
       h.deps,
@@ -205,6 +210,21 @@ describe('browser-credentials list and revoke', () => {
     expect(h.text()).toBe('No credential authorizations.\n');
   });
 
+  it('fails loudly when nothing was revoked', async () => {
+    // A no-op UPDATE used to print "Revoked authorization typo."
+    const h = harness({ revoked: false });
+    await expect(runBrowserCredentialsCli(['revoke', '--id', 'typo'], h.deps))
+      .rejects.toThrow(/Nothing was revoked/);
+  });
+
+  it('fails in --json too, and still emits the payload', async () => {
+    // --json is the mode agents use, so exiting 0 on a no-op is the whole harm.
+    const h = harness({ revoked: false });
+    await expect(runBrowserCredentialsCli(['revoke', '--id', 'typo', '--json'], h.deps))
+      .rejects.toThrow(/Nothing was revoked/);
+    expect(JSON.parse(h.text())).toEqual({ revoked: false });
+  });
+
   it('revokes by id', async () => {
     const h = harness({ revoked: true });
     await runBrowserCredentialsCli(['revoke', '--id', 'auth-1'], h.deps);
@@ -244,12 +264,16 @@ describe('browser-credentials argument handling', () => {
   });
 
   it('emits JSON on --json', async () => {
-    const h = harness({ vaultItemRef: 'i', username: 'u', movedIntoFolder: false });
+    const h = harness({
+      vaultItemRef: 'i', username: 'u', movedIntoFolder: false, origin: 'https://a.example.com',
+    });
     await runBrowserCredentialsCli(
       ['enrol', '--item', 'x', '--origin', 'https://a.example.com', '--json'],
       h.deps,
     );
-    expect(JSON.parse(h.text())).toEqual({ vaultItemRef: 'i', username: 'u', movedIntoFolder: false });
+    expect(JSON.parse(h.text())).toEqual({
+      vaultItemRef: 'i', username: 'u', movedIntoFolder: false, origin: 'https://a.example.com',
+    });
   });
 
   it('reports a malformed response rather than passing it on', async () => {

@@ -56,6 +56,13 @@ export const BrowserCredentialsCliEnrolResultSchema = z
     vaultItemRef: z.string().min(1),
     username: z.string().min(1),
     movedIntoFolder: z.boolean(),
+    /**
+     * The origin as STORED, after normalisation. The CLI used to echo the raw
+     * input, so `--origin https://Portal.Example.com/login` reported a string
+     * that is not what the binding holds, which is the enrol/authorize
+     * disagreement this module exists to prevent.
+     */
+    origin: z.string().min(1),
   })
   .strict();
 export type BrowserCredentialsCliEnrolResult = z.infer<

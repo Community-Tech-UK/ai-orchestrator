@@ -51,6 +51,7 @@ import { broadcastSettingsChanged } from '../ipc/handlers/settings-broadcast';
 import type { AppInitializationStep } from './initialization-steps';
 import { getContextEvidenceCoordinator } from '../context-evidence/context-evidence-coordinator';
 import { createDefaultLocalAiPublicOperations } from '../local-ai-guard/default-local-ai-public-operations';
+import { createDefaultCopilotAccountCliOperations } from '../mcp/copilot-account-cli-operations';
 
 const logger = getLogger('AppInitialization');
 
@@ -203,6 +204,7 @@ export function createOrchestratorToolsStep(
         operatorDbPath: defaultOperatorDbPath(),
         isKnownLocalInstance: (instanceId) => Boolean(instanceManager.getInstance(instanceId)),
         localAiGuardOperations: createDefaultLocalAiPublicOperations(),
+        copilotAccountOperations: createDefaultCopilotAccountCliOperations(),
         resolveContextEvidence: (instanceId) => {
           const instance = instanceManager.getInstance(instanceId);
           const state = instance?.contextEvidence;

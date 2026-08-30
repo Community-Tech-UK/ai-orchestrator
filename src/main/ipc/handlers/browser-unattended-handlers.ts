@@ -108,8 +108,8 @@ export function registerBrowserUnattendedHandlers(
     BrowserCreateCredentialAuthorizationRequestSchema,
     (payload) => {
       // Same scope and origin rules as the CLI door. The autonomy-config
-      // bootstrap (`browser-autonomy-config.ts`) shares the origin rules but not
-      // the scope resolution: it is the operator's own file, applied at boot.
+      // bootstrap shares both, but sets its own lifetime in days rather than
+      // using the expiry cap below.
       const profileId = resolveCredentialScope(payload.profileId);
       const allowedOrigins = payload.allowedOrigins.map(normaliseAuthorizationOrigin);
       assertAuthorizationExpiry(payload.expiresAt, Date.now());
@@ -144,7 +144,15 @@ export function registerBrowserUnattendedHandlers(
     IPC_CHANNELS.BROWSER_REVOKE_CREDENTIAL_AUTHORIZATION,
     BrowserRevokeCredentialAuthorizationRequestSchema,
     (payload) => {
-      getBrowserCredentialAuthorizationService().revoke(payload.authorizationId);
+      // Same semantics as the CLI door: a no-op UPDATE must not report success.
+      const service = getBrowserCredentialAuthorizationService();
+      const record = service.find(payload.authorizationId);
+      if (!record) {
+        return { revoked: false };
+      }
+      if (!record.revokedAt) {
+        service.revoke(payload.authorizationId);
+      }
       return { revoked: true };
     },
     deps,

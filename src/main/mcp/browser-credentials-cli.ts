@@ -60,7 +60,7 @@ export async function runBrowserCredentialsCli(
       );
       stdout(flags.json
         ? formatJson(result)
-        : `Enrolled ${result.username} for ${payload.origin}\n`
+        : `Enrolled ${result.username} for ${result.origin}\n`
           + `  vault item: ${result.vaultItemRef}\n`
           + `  moved into agent folder: ${result.movedIntoFolder ? 'yes' : 'no'}\n`);
       return;
@@ -107,6 +107,16 @@ export async function runBrowserCredentialsCli(
         await call(deps, BROWSER_CREDENTIALS_CLI_METHODS.revoke, { authorizationId }),
         'revocation',
       );
+      if (!result.revoked) {
+        // Emit the payload first so --json callers still get it, then fail. An
+        // unattended script checking the exit code must not read a no-op as
+        // success, which is what suppressing this in --json mode did.
+        if (flags.json) stdout(formatJson(result));
+        throw new Error(
+          `No authorization with id '${authorizationId}' exists. Nothing was revoked. `
+            + 'Run `list` to see the current ids.',
+        );
+      }
       stdout(flags.json
         ? formatJson(result)
         : `Revoked authorization ${authorizationId}.\n`);

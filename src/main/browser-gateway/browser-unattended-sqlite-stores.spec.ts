@@ -63,6 +63,80 @@ describe('unattended SQLite stores (migration 040)', () => {
     expect(store.get('auth-1')?.revokedAt).toBe(500);
   });
 
+  it('replace() upserts every column, and inserts when nothing is there', () => {
+    // This is the only production implementation of `replace`. Everything else
+    // in the change exercises an in-memory double, and the whole reason the
+    // upsert exists is that the double behaves differently from this store.
+    const store = new SqliteCredentialAuthorizationStore(db);
+    const base = {
+      id: 'auth-r',
+      profileId: 'profile-1',
+      allowedOrigins: [{ scheme: 'https' as const, hostPattern: 'a.example', includeSubdomains: false }],
+      purposes: ['login' as const],
+      vaultFolder: 'AIO-Agent',
+      createdAt: 1,
+      expiresAt: 1_000,
+    };
+
+    // Insert path: no prior row.
+    store.replace(base);
+    expect(store.get('auth-r')).toMatchObject({ profileId: 'profile-1', expiresAt: 1_000 });
+
+    // Update path: every mutable column must actually change.
+    store.replace({
+      ...base,
+      profileId: 'profile-2',
+      allowedOrigins: [{ scheme: 'http', hostPattern: 'b.example', includeSubdomains: true }],
+      purposes: ['login', 'totp'],
+      vaultFolder: 'Other',
+      createdAt: 2,
+      expiresAt: 5_000,
+      note: 'renewed',
+      allowedSenderDomains: ['notifications.service.gov.uk'],
+    });
+
+    const loaded = store.get('auth-r');
+    expect(loaded).toMatchObject({
+      profileId: 'profile-2',
+      purposes: ['login', 'totp'],
+      vaultFolder: 'Other',
+      createdAt: 2,
+      expiresAt: 5_000,
+      note: 'renewed',
+      allowedSenderDomains: ['notifications.service.gov.uk'],
+    });
+    expect(loaded?.allowedOrigins[0]).toMatchObject({
+      scheme: 'http', hostPattern: 'b.example', includeSubdomains: true,
+    });
+    // Still one row, not two.
+    expect(store.list({ profileId: 'profile-2', includeRevoked: true })).toHaveLength(1);
+  });
+
+  it('replace() clears revoked_at, which is why callers must check first', () => {
+    // The upsert writes revoked_at from the incoming record, so replacing a
+    // revoked row resurrects it. browser-autonomy-config.ts refuses to call
+    // recreate on a revoked grant for exactly this reason; this pins the
+    // underlying behaviour so that guard is never assumed away.
+    const store = new SqliteCredentialAuthorizationStore(db);
+    const base = {
+      id: 'auth-v',
+      profileId: 'profile-1',
+      allowedOrigins: [{ scheme: 'https' as const, hostPattern: 'a.example', includeSubdomains: false }],
+      purposes: ['login' as const],
+      vaultFolder: 'AIO-Agent',
+      createdAt: 1,
+      expiresAt: 1_000,
+    };
+    store.insert(base);
+    store.markRevoked('auth-v', 500);
+    expect(store.get('auth-v')?.revokedAt).toBe(500);
+
+    store.replace({ ...base, expiresAt: 9_000 });
+
+    expect(store.get('auth-v')?.revokedAt).toBeUndefined();
+    expect(store.list({ profileId: 'profile-1' }).map((a) => a.id)).toContain('auth-v');
+  });
+
   it('persists the optional scope fields, which used to be dropped on reload', () => {
     const store = new SqliteCredentialAuthorizationStore(db);
     store.insert({

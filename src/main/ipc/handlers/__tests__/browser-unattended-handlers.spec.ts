@@ -12,6 +12,7 @@ const serviceMocks = vi.hoisted(() => {
     create: vi.fn(),
     list: vi.fn(),
     revoke: vi.fn(),
+    find: vi.fn(),
   };
   const campaignService = {
     create: vi.fn(),
@@ -446,12 +447,38 @@ describe('registerBrowserUnattendedHandlers', () => {
     });
 
     it('revokes an authorization', async () => {
+      serviceMocks.authorizationService.find.mockReturnValue({ id: 'auth-1' });
+
       const result = await invoke('browser:revoke-credential-authorization', {
         authorizationId: 'auth-1',
       });
 
       expect(result).toMatchObject({ success: true, data: { revoked: true } });
       expect(serviceMocks.authorizationService.revoke).toHaveBeenCalledWith('auth-1');
+    });
+
+    it('reports false for an id that never existed, matching the CLI door', async () => {
+      // markRevoked is a no-op UPDATE, so this door used to answer `revoked:
+      // true` for a typo while the CLI door answered false.
+      serviceMocks.authorizationService.find.mockReturnValue(undefined);
+
+      const result = await invoke('browser:revoke-credential-authorization', {
+        authorizationId: 'never-existed',
+      });
+
+      expect(result).toMatchObject({ success: true, data: { revoked: false } });
+      expect(serviceMocks.authorizationService.revoke).not.toHaveBeenCalled();
+    });
+
+    it('stays idempotent on an already-revoked id', async () => {
+      serviceMocks.authorizationService.find.mockReturnValue({ id: 'auth-1', revokedAt: 1 });
+
+      const result = await invoke('browser:revoke-credential-authorization', {
+        authorizationId: 'auth-1',
+      });
+
+      expect(result).toMatchObject({ success: true, data: { revoked: true } });
+      expect(serviceMocks.authorizationService.revoke).not.toHaveBeenCalled();
     });
   });
 

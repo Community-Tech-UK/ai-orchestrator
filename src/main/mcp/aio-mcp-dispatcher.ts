@@ -28,6 +28,7 @@ import { runReleaseReadinessCli } from './release-readiness-cli';
 import { runSettingsCli } from './settings-cli';
 import { runLocalAiCli } from './local-ai-cli';
 import { runBrowserCredentialsCli } from './browser-credentials-cli';
+import { runCopilotAccountCli } from './copilot-account-cli';
 
 type AioMcpRunner = (argv: readonly string[]) => Promise<void>;
 
@@ -42,6 +43,7 @@ const SUBCOMMANDS = {
   settings: runSettingsCli,
   'local-ai': runLocalAiCli,
   'browser-credentials': runBrowserCredentialsCli,
+  'copilot-account': runCopilotAccountCli,
 } as const;
 
 export type AioMcpSubcommand = keyof typeof SUBCOMMANDS;

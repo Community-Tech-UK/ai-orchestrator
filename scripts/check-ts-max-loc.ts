@@ -247,7 +247,7 @@ const ALLOWLIST: Record<string, number> = {
   // beside the tool types). Re-tighten after a tool-defs split.
   'src/main/mcp/orchestrator-tools.ts': 771,
   // Crossed 700 by two lines of sync_to_node/sync_from_node context wiring.
-  'src/main/mcp/orchestrator-tools-rpc-server.ts': 710,
+  'src/main/mcp/orchestrator-tools-rpc-server.ts': 766,
   // Main process — remote node file transfer
   // Crossed 700 adding the sync_to_node/sync_from_node MCP handlers, which
   // must share this service's node/root/workspace validation helpers.

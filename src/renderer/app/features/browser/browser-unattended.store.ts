@@ -163,6 +163,14 @@ export class BrowserUnattendedStore {
         this.setError(response.error?.message ?? 'Failed to revoke credential authorization.');
         return false;
       }
+      // The handler reports `revoked: false` when no such authorization exists.
+      // Ignoring it reported success for a no-op, which is the exact harm the
+      // CLI door was changed to prevent.
+      if (response.data?.revoked === false) {
+        this.setError(`No authorization with id '${authorizationId}' exists. Nothing was revoked.`);
+        await this.refreshAuthorizations();
+        return false;
+      }
       await this.refreshAuthorizations();
       return true;
     });

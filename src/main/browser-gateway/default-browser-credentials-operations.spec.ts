@@ -11,11 +11,12 @@ const create = vi.fn();
 const list = vi.fn();
 const revoke = vi.fn();
 const listProfiles = vi.fn();
+const find = vi.fn();
 const listNodes = vi.fn();
 
 vi.mock('./browser-unattended-services', () => ({
   getBrowserCredentialVault: () => ({ enrolExistingCredential }),
-  getBrowserCredentialAuthorizationService: () => ({ create, list, revoke }),
+  getBrowserCredentialAuthorizationService: () => ({ create, list, revoke, find }),
 }));
 vi.mock('./browser-profile-store', () => ({
   getBrowserProfileStore: () => ({ listProfiles }),
@@ -65,6 +66,7 @@ beforeEach(() => {
     username: 'u',
     movedIntoFolder: false,
   });
+  list.mockReturnValue([]);
 });
 
 describe('resolveCredentialScope', () => {
@@ -179,6 +181,10 @@ describe('createDefaultBrowserCredentialsOperations.enrol', () => {
       item: 'ProContract',
       origin: 'https://procontract.due-north.com',
     });
+    // The result carries the origin as STORED, so the CLI cannot echo back a
+    // string that differs from the binding.
+    await expect(ops.enrol({ item: 'ProContract', origin: 'https://ProContract.Due-North.com/' }))
+      .resolves.toMatchObject({ origin: 'https://procontract.due-north.com' });
   });
 
   it('refuses an origin that would bind something unmatchable', async () => {
@@ -245,9 +251,28 @@ describe('createDefaultBrowserCredentialsOperations list and revoke', () => {
     expect(list).toHaveBeenCalledWith(undefined);
   });
 
-  it('revokes by id and reports it', async () => {
+  it('revokes a live id and reports it', async () => {
     const ops = createDefaultBrowserCredentialsOperations();
+    find.mockReturnValue({ id: 'auth-1' });
     await expect(ops.revoke('auth-1')).resolves.toEqual({ revoked: true });
     expect(revoke).toHaveBeenCalledWith('auth-1');
+  });
+
+  it('reports false for an id that never existed, rather than a false success', async () => {
+    // markRevoked is an UPDATE ... WHERE id = ?, a silent no-op on a typo, so
+    // the old unconditional `{revoked: true}` told an unattended operator a live
+    // grant was gone.
+    const ops = createDefaultBrowserCredentialsOperations();
+    find.mockReturnValue(undefined);
+    await expect(ops.revoke('typo')).resolves.toEqual({ revoked: false });
+    expect(revoke).not.toHaveBeenCalled();
+  });
+
+  it('stays idempotent when the id is already revoked', async () => {
+    // A cleanup script re-running must not fail: the desired state holds.
+    const ops = createDefaultBrowserCredentialsOperations();
+    find.mockReturnValue({ id: 'auth-1', revokedAt: 123 });
+    await expect(ops.revoke('auth-1')).resolves.toEqual({ revoked: true });
+    expect(revoke).not.toHaveBeenCalled();
   });
 });

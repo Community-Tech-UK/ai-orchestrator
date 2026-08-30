@@ -63,6 +63,12 @@ import type {
             <span class="dot blocked" aria-hidden="true"></span>
             <span class="text" role="alert">{{ resolved.detail }}</span>
           }
+        } @else {
+          <!-- Route undetermined (the preview call itself failed). Rendering
+               nothing here while reporting "not blocked" let a session start
+               with no indication of which account it would use. -->
+          <span class="dot blocked" aria-hidden="true"></span>
+          <span class="text" role="alert">{{ unresolvedText() }}</span>
         }
       </div>
     }
@@ -100,10 +106,13 @@ export class CopilotAccountChipComponent {
   private readonly accountsSignal = signal<CopilotAccountView[]>([]);
   private readonly loadingSignal = signal(false);
   private readonly overrideSignal = signal('');
+  /** Why the route is unknown, when the preview call itself failed. */
+  private readonly unresolvedSignal = signal<string | null>(null);
 
   readonly outcome = this.outcomeSignal.asReadonly();
   readonly accounts = this.accountsSignal.asReadonly();
   readonly loading = this.loadingSignal.asReadonly();
+  readonly unresolvedText = this.unresolvedSignal.asReadonly();
   readonly overrideId = this.overrideSignal.asReadonly();
 
   readonly isCopilot = computed(() => this.provider() === 'copilot');
@@ -181,8 +190,21 @@ export class CopilotAccountChipComponent {
       ]);
       this.accountsSignal.set(accounts);
       this.outcomeSignal.set(outcome);
-      this.blocked.emit(outcome !== null && !outcome.ok);
+      this.unresolvedSignal.set(outcome === null ? 'Copilot account could not be determined.' : null);
+      // Fail closed. `outcome === null` means the preview call FAILED, not that
+      // nothing is wrong — treating it as "not blocked" is exactly the silent
+      // wrong-account start this feature exists to prevent.
+      this.blocked.emit(outcome === null || !outcome.ok);
       this.accountResolved.emit(outcome?.ok ? outcome.route.profileId : null);
+    } catch (error) {
+      // `list()` now rejects on a failed read, so this is reachable; without a
+      // catch it became an unhandled rejection and the chip kept stale state.
+      this.outcomeSignal.set(null);
+      this.unresolvedSignal.set(
+        error instanceof Error && error.message ? error.message : 'Copilot account could not be determined.',
+      );
+      this.blocked.emit(true);
+      this.accountResolved.emit(null);
     } finally {
       this.loadingSignal.set(false);
     }

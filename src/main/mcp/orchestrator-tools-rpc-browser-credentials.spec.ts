@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from 'vitest';
 // import is the path production actually takes. Every other case here injects,
 // which left that path untested.
 const defaultOperations = {
-  enrol: vi.fn().mockResolvedValue({ vaultItemRef: 'd', username: 'd', movedIntoFolder: false }),
+  enrol: vi.fn().mockResolvedValue({ vaultItemRef: 'd', username: 'd', movedIntoFolder: false, origin: 'https://d.example.com' }),
   authorize: vi.fn(),
   list: vi.fn().mockResolvedValue([]),
   revoke: vi.fn(),
@@ -46,7 +46,7 @@ function operations(): BrowserCredentialsCliOperations & {
   revoke: ReturnType<typeof vi.fn>;
 } {
   return {
-    enrol: vi.fn().mockResolvedValue({ vaultItemRef: 'i', username: 'u', movedIntoFolder: false }),
+    enrol: vi.fn().mockResolvedValue({ vaultItemRef: 'i', username: 'u', movedIntoFolder: false, origin: 'https://a.example.com' }),
     authorize: vi.fn().mockResolvedValue(AUTHORIZATION),
     list: vi.fn().mockResolvedValue([AUTHORIZATION]),
     revoke: vi.fn().mockResolvedValue({ revoked: true }),
@@ -83,7 +83,7 @@ describe('dispatchBrowserCredentialsCliRpc', () => {
       item: 'ProContract',
       origin: 'https://procontract.due-north.com',
     });
-    expect(result).toEqual({ vaultItemRef: 'i', username: 'u', movedIntoFolder: false });
+    expect(result).toEqual({ vaultItemRef: 'i', username: 'u', movedIntoFolder: false, origin: 'https://a.example.com' });
   });
 
   it('rejects an enrol payload the panel would refuse', async () => {

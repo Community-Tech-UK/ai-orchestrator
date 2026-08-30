@@ -170,7 +170,7 @@ export function normaliseBindableOrigin(raw: string): string {
 export function normaliseAuthorizationOrigin(
   origin: CredentialAuthorizationOriginInput,
 ): CredentialAuthorizationOriginInput {
-  if (/[/\\]/.test(origin.hostPattern)) {
+  if (/[/\\?#]/.test(origin.hostPattern)) {
     // A pasted URL in a host field would otherwise render as
     // `https://https://host`, parse as scheme + path, and silently store the
     // hostPattern `https`, which matches nothing the caller meant.
