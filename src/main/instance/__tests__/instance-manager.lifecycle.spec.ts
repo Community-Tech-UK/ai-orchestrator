@@ -12,6 +12,8 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'events';
+import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
+import type { Instance } from '../../../shared/types/instance.types';
 
 const {
   mockCreateCliAdapter,
@@ -40,6 +42,8 @@ const {
   mockLocalModelInventory,
   mockLocalModelRefresh,
   mockCleanupAdjudicatorBreakerForInstance,
+  mockRecoveryCandidateInvalidate,
+  mockTriggerLifecycleHooks,
 } = vi.hoisted(() => ({
   mockCreateCliAdapter: vi.fn(),
   mockCommandExecuteCommandString: vi.fn().mockResolvedValue(null),
@@ -62,6 +66,7 @@ const {
   mockPromptHistoryClearForInstance: vi.fn(),
   mockSessionContinuity: {
     startTracking: vi.fn().mockResolvedValue(undefined),
+    discardTracking: vi.fn().mockResolvedValue(undefined),
     stopTracking: vi.fn().mockResolvedValue(undefined),
     resumeSession: vi.fn().mockResolvedValue(null),
     updateState: vi.fn().mockResolvedValue(undefined),
@@ -96,6 +101,8 @@ const {
   mockLocalModelInventory: [] as unknown[],
   mockLocalModelRefresh: vi.fn(),
   mockCleanupAdjudicatorBreakerForInstance: vi.fn(),
+  mockRecoveryCandidateInvalidate: vi.fn(),
+  mockTriggerLifecycleHooks: vi.fn().mockResolvedValue({ blocked: false }),
 }));
 
 // ---------------------------------------------------------------------------
@@ -572,6 +579,16 @@ vi.mock('../../session/session-continuity', () => ({
   getSessionContinuityManagerIfInitialized: vi.fn(() => mockSessionContinuity),
 }));
 
+vi.mock('../../session/session-recovery-candidate-service', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../session/session-recovery-candidate-service')>();
+  return {
+    ...actual,
+    getSessionRecoveryCandidateServiceIfInitialized: vi.fn(() => ({
+      invalidate: mockRecoveryCandidateInvalidate,
+    })),
+  };
+});
+
 vi.mock('../../memory/project-knowledge-coordinator', () => ({
   getProjectKnowledgeCoordinator: vi.fn(() => ({
     ensureProjectKnown: vi.fn().mockResolvedValue(undefined),
@@ -609,7 +626,7 @@ vi.mock('../../context/jit-loader', () => {
 vi.mock('../../hooks/hook-manager', () => ({
   getHookManager: vi.fn(() => ({
     executeHook: vi.fn().mockResolvedValue(undefined),
-    triggerLifecycleHooks: vi.fn().mockResolvedValue({ blocked: false }),
+    triggerLifecycleHooks: mockTriggerLifecycleHooks,
   })),
 }));
 
@@ -618,6 +635,7 @@ vi.mock('../../hooks/hook-manager', () => ({
 // ---------------------------------------------------------------------------
 vi.mock('../../core/error-recovery', () => ({
   getErrorRecoveryManager: vi.fn(() => ({
+    classifyError: vi.fn(() => ({ category: 'unknown', technicalDetails: '' })),
     handleError: vi.fn(),
   })),
 }));
@@ -854,6 +872,12 @@ import { generateChildPrompt } from '../../orchestration/orchestration-protocol'
 import { getWorkerNodeRegistry, WorkerNodeRegistry } from '../../remote-node/worker-node-registry';
 import type { RoutingDecision } from '../../routing';
 import type { SpawnChildCommand } from '../../orchestration/orchestration-protocol';
+import {
+  SessionRecoveryCandidateService,
+  wireSessionRecoveryCandidateInvalidation,
+  type ResolvedRecoveryCandidate,
+} from '../../session/session-recovery-candidate-service';
+import { getRecoverySensitiveValues } from '../instance-recovery-redaction';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -863,6 +887,86 @@ const TEST_WORKING_DIR = '/tmp/test-project';
 
 function createManager(): InstanceManager {
   return new InstanceManager();
+}
+
+function makeResolvedRecoveryCandidate(): ResolvedRecoveryCandidate {
+  const now = Date.now();
+  return {
+    candidate: {
+      recoveryKey: 'history:claude:history-thread-recovery',
+      sourceInstanceId: 'crashed-instance',
+      historyThreadId: 'history-thread-recovery',
+      provider: 'claude',
+      modelId: 'opus',
+      displayName: 'Recovered task',
+      workingDirectory: TEST_WORKING_DIR,
+      lastActivityAt: now - 1_000,
+      historyCoveredThrough: now - 5_000,
+      recoveredMessageCount: 1,
+      reason: 'newer-than-history',
+      nativeResumeAvailable: true,
+    },
+    continuityState: {
+      instanceId: 'crashed-instance',
+      historyThreadId: 'history-thread-recovery',
+      displayName: 'Recovered task',
+      agentId: 'build',
+      modelId: 'opus',
+      provider: 'claude',
+      workingDirectory: TEST_WORKING_DIR,
+      conversationHistory: [
+        {
+          id: 'continuity-duplicate',
+          role: 'user',
+          content: 'Recovered fixture request',
+          timestamp: now - 8_000,
+        },
+        {
+          id: 'continuity-suffix',
+          role: 'assistant',
+          content: 'Recovered fixture suffix',
+          timestamp: now - 2_000,
+        },
+      ],
+      contextUsage: { used: 5, total: 1_000 },
+      pendingTasks: [],
+      environmentVariables: {},
+      activeFiles: [],
+      skillsLoaded: [],
+      hooksActive: [],
+      resumeCursor: {
+        provider: 'claude',
+        threadId: 'native-thread-recovery',
+        workspacePath: TEST_WORKING_DIR,
+        capturedAt: now - 500,
+        scanSource: 'native',
+      },
+    },
+    historyConversation: {
+      entry: {
+        id: 'history-entry-recovery',
+        displayName: 'Recovered task',
+        historyThreadId: 'history-thread-recovery',
+        createdAt: now - 20_000,
+        endedAt: now - 10_000,
+        workingDirectory: TEST_WORKING_DIR,
+        messageCount: 1,
+        firstUserMessage: 'Recovered fixture request',
+        lastUserMessage: 'Recovered fixture request',
+        status: 'terminated',
+        originalInstanceId: 'crashed-instance',
+        parentId: null,
+        sessionId: 'archived-session-recovery',
+        provider: 'claude',
+      },
+      messages: [{
+        id: 'archived-user-recovery',
+        timestamp: now - 8_000,
+        type: 'user',
+        content: 'Recovered fixture request',
+      }],
+    },
+  };
 }
 
 function registerWindowsWorkerNode(): void {
@@ -938,6 +1042,7 @@ describe('InstanceManager', () => {
     mockPromptHistoryRecord.mockReset();
     mockPromptHistoryClearForInstance.mockReset();
     mockSessionContinuity.startTracking.mockResolvedValue(undefined);
+    mockSessionContinuity.discardTracking.mockResolvedValue(undefined);
     mockSessionContinuity.stopTracking.mockResolvedValue(undefined);
     mockSessionContinuity.resumeSession.mockResolvedValue(null);
     mockSessionContinuity.updateState.mockResolvedValue(undefined);
@@ -1120,6 +1225,463 @@ describe('InstanceManager', () => {
         expect.stringContaining('review feedback'),
         undefined,
       );
+    });
+  });
+
+  describe('recoverFromContinuity', () => {
+    it('returns the new runtime and invalidates discovery only after successful readiness', async () => {
+      const resolved = makeResolvedRecoveryCandidate();
+      const original = structuredClone(resolved);
+      let finishSpawn: (() => void) | undefined;
+      mockAdapterSpawn.mockImplementationOnce(() => new Promise<number>((resolve) => {
+        finishSpawn = () => resolve(12345);
+      }));
+      const created: string[] = [];
+      const removed: string[] = [];
+      const publicLifecycleEvents: string[] = [];
+      const inputRequiredEvents: unknown[] = [];
+      const normalizedEvents: ProviderRuntimeEventEnvelope[] = [];
+      const stateBatches: unknown[] = [];
+      manager.on('instance:created', (instance: { id: string }) => {
+        created.push(instance.id);
+        publicLifecycleEvents.push('created');
+      });
+      manager.on('instance:state-update', () => publicLifecycleEvents.push('state-update'));
+      manager.on('instance:state-changed', () => publicLifecycleEvents.push('state-changed'));
+      manager.on('instance:idle', () => publicLifecycleEvents.push('idle'));
+      manager.on('instance:input-required', (payload) => inputRequiredEvents.push(payload));
+      manager.on('instance:removed', (instanceId: string) => {
+        removed.push(instanceId);
+        void mockSessionContinuity.stopTracking(instanceId, true);
+      });
+      manager.on('provider:normalized-event', (event: ProviderRuntimeEventEnvelope) => {
+        normalizedEvents.push(event);
+      });
+      manager.on('instance:batch-update', (batch) => stateBatches.push(batch));
+
+      const pending = manager.recoverFromContinuity(resolved);
+      await vi.waitFor(() => expect(mockAdapterSpawn).toHaveBeenCalledOnce());
+      const state = manager as unknown as {
+        state: {
+          pendingInstances: Map<string, unknown>;
+          pendingAdapters: Map<string, EventEmitter & {
+            getRuntimeCapabilities(): ReturnType<ReturnType<typeof makeMockAdapter>['getRuntimeCapabilities']>;
+          }>;
+          queueUpdate(instanceId: string, status: 'busy' | 'error', ...args: unknown[]): void;
+          flushUpdates(): void;
+        };
+      };
+      const pendingInstanceId = Array.from(state.state.pendingInstances.keys())[0];
+      expect(pendingInstanceId).toBeDefined();
+      manager.emitProviderRuntimeEvent(pendingInstanceId!, {
+        kind: 'output', content: 'private output fixture', messageType: 'assistant',
+      });
+      const pendingAdapter = state.state.pendingAdapters.get(pendingInstanceId!);
+      expect(pendingAdapter).toBeDefined();
+      pendingAdapter!.getRuntimeCapabilities = () => ({
+        supportsResume: true,
+        supportsForkSession: false,
+        supportsNativeCompaction: false,
+        supportsPermissionPrompts: true,
+        supportsDeferPermission: false,
+        selfManagedAutoCompaction: false,
+      });
+      pendingAdapter!.emit('input_required', {
+        id: 'private-request-placeholder',
+        prompt: 'private prompt placeholder',
+        timestamp: 1,
+      });
+      state.state.queueUpdate(pendingInstanceId!, 'busy');
+      state.state.flushUpdates();
+      expect(manager.getAllInstances()).toEqual([]);
+      expect(created).toEqual([]);
+      expect(normalizedEvents).toEqual([]);
+      expect(inputRequiredEvents).toEqual([]);
+      expect(stateBatches).toEqual([]);
+      expect(manager.getLiveRecoveryKeys()).not.toContain(resolved.candidate.recoveryKey);
+      expect(mockSessionContinuity.startTracking).not.toHaveBeenCalled();
+      expect(mockRecoveryCandidateInvalidate).not.toHaveBeenCalled();
+      finishSpawn?.();
+      const recovered = await pending;
+      const replacement = manager.getInstance(recovered.instanceId);
+
+      expect(typeof recovered.instanceId).toBe('string');
+      expect(recovered).toMatchObject({
+        recoveredMessageCount: 1,
+        usedNativeResume: true,
+      });
+      expect(recovered.instanceId).not.toBe('crashed-instance');
+      expect(replacement).toMatchObject({
+        historyThreadId: 'history-thread-recovery',
+        sessionId: 'native-thread-recovery',
+      });
+      expect(replacement?.outputBuffer.map((message) => message.id)).toEqual([
+        'archived-user-recovery',
+        'continuity-suffix',
+      ]);
+      expect(created).toEqual([recovered.instanceId]);
+      expect(removed).toEqual([]);
+      expect(mockSessionContinuity.startTracking).toHaveBeenCalledOnce();
+      expect(mockSessionContinuity.stopTracking).not.toHaveBeenCalled();
+      expect(mockRecoveryCandidateInvalidate).toHaveBeenCalled();
+      expect(publicLifecycleEvents).toEqual(['created']);
+      state.state.flushUpdates();
+      expect(stateBatches).toHaveLength(1);
+      const replacementAlias = 'native-thread-recovery';
+      const sourceInstanceAlias = 'crashed-instance';
+      const archivedSessionAlias = 'archived-session-recovery';
+      const sensitiveValues = getRecoverySensitiveValues(replacement!);
+      expect(sensitiveValues).toContain(sourceInstanceAlias);
+      expect(sensitiveValues).toContain(archivedSessionAlias);
+      expect(JSON.stringify(replacement?.metadata)).not.toContain(sourceInstanceAlias);
+      expect(JSON.stringify(replacement?.metadata)).not.toContain(archivedSessionAlias);
+
+      normalizedEvents.length = 0;
+      stateBatches.length = 0;
+      mockTriggerLifecycleHooks.mockClear();
+      const adapterError = Object.assign(
+        new Error(`adapter failed for ${archivedSessionAlias}`),
+        {
+          code: `PROVIDER_${replacementAlias}`,
+          cause: new Error(`nested failure for ${sourceInstanceAlias}`),
+          metadata: { sourceInstanceId: sourceInstanceAlias },
+        },
+      );
+      adapterError.name = `Provider_${sourceInstanceAlias}`;
+      const recoveredAdapter = manager.getAdapter(recovered.instanceId) as unknown as EventEmitter;
+      recoveredAdapter.emit('error', adapterError);
+      await vi.waitFor(() => expect(mockTriggerLifecycleHooks).toHaveBeenCalledWith(
+        'StopFailure', expect.any(Object),
+      ));
+      state.state.queueUpdate(
+        recovered.instanceId,
+        'error',
+        undefined, undefined, undefined,
+        {
+          code: `QUEUE_${archivedSessionAlias}`,
+          message: `queue failure for ${sourceInstanceAlias}`,
+          stack: `queue stack for ${replacementAlias}`,
+          timestamp: 1,
+        },
+      );
+      state.state.flushUpdates();
+      const recoveryObservables = JSON.stringify({
+        outputBuffer: replacement?.outputBuffer,
+        normalizedEvents,
+        hooks: mockTriggerLifecycleHooks.mock.calls,
+        stateBatches,
+        ipc: (manager as unknown as { state: { serializeForIpc(instance: Instance): unknown } })
+          .state.serializeForIpc(replacement!),
+      });
+      expect(recoveryObservables).not.toContain(replacementAlias);
+      expect(recoveryObservables).not.toContain(sourceInstanceAlias);
+      expect(recoveryObservables).not.toContain(archivedSessionAlias);
+      expect(resolved).toEqual(original);
+    });
+
+    it('fails and rolls back the private transaction when its pending adapter exits', async () => {
+      const resolved = makeResolvedRecoveryCandidate();
+      const original = structuredClone(resolved);
+      let releaseTracking!: () => void;
+      const trackingBarrier = new Promise<void>((resolve) => { releaseTracking = resolve; });
+      mockSessionContinuity.startTracking.mockImplementationOnce(() => trackingBarrier);
+      const internals = manager as unknown as {
+        state: {
+          pendingInstances: Map<string, Instance>;
+          pendingAdapters: Map<string, EventEmitter>;
+        };
+        lifecycle: { respawnAfterUnexpectedExit(instanceId: string): Promise<void> };
+      };
+      const unexpectedRespawn = vi.spyOn(internals.lifecycle, 'respawnAfterUnexpectedExit')
+        .mockResolvedValue(undefined);
+      const created = vi.fn();
+      const removed = vi.fn();
+      manager.on('instance:created', created);
+      manager.on('instance:removed', removed);
+
+      const pendingRecovery = manager.recoverFromContinuity(resolved);
+      await vi.waitFor(() => expect(mockSessionContinuity.startTracking).toHaveBeenCalledOnce());
+      const pendingInstanceId = Array.from(internals.state.pendingInstances.keys())[0];
+      const pendingInstance = internals.state.pendingInstances.get(pendingInstanceId!);
+      const pendingAdapter = internals.state.pendingAdapters.get(pendingInstanceId!);
+      expect(pendingInstance?.status).toBe('idle');
+      expect(pendingAdapter).toBeDefined();
+
+      pendingAdapter!.emit('exit', 1, null);
+      await Promise.resolve();
+
+      expect(unexpectedRespawn).not.toHaveBeenCalled();
+      expect(pendingInstance?.status).toBe('idle');
+      expect(internals.state.pendingAdapters.get(pendingInstanceId!)).toBe(pendingAdapter);
+
+      releaseTracking();
+      await expect(pendingRecovery).rejects.toThrow('Recovery replacement failed to start');
+
+      expect(unexpectedRespawn).not.toHaveBeenCalled();
+      expect(mockAdapterSpawn).toHaveBeenCalledTimes(1);
+      expect(mockAdapterTerminate).toHaveBeenCalledTimes(1);
+      expect(created).not.toHaveBeenCalled();
+      expect(removed).not.toHaveBeenCalled();
+      expect(mockRecoveryCandidateInvalidate).not.toHaveBeenCalled();
+      expect(mockSessionContinuity.discardTracking).toHaveBeenCalledTimes(1);
+      expect(internals.state.pendingInstances).toHaveLength(0);
+      expect(internals.state.pendingAdapters).toHaveLength(0);
+      expect(manager.getAdapter(pendingInstanceId!)).toBeUndefined();
+      expect(manager.getAllInstances()).toEqual([]);
+      expect(resolved).toEqual(original);
+    });
+
+    it('redacts native recovery identities from normalized and raw provider events', async () => {
+      const rawCursor = 'native-thread-recovery';
+      const normalizedEvents: ProviderRuntimeEventEnvelope[] = [];
+      const rawEvents: ProviderRuntimeEventEnvelope[] = [];
+      manager.on('provider:normalized-event', (event: ProviderRuntimeEventEnvelope) => {
+        normalizedEvents.push(event);
+      });
+      manager.on('provider:raw-event', (event: ProviderRuntimeEventEnvelope) => {
+        rawEvents.push(event);
+      });
+      const recovered = await manager.recoverFromContinuity(makeResolvedRecoveryCandidate());
+
+      manager.emitProviderRuntimeEvent(recovered.instanceId, {
+        kind: 'error',
+        message: `provider failure for ${rawCursor}`,
+        details: {
+          sessionId: rawCursor,
+          nested: { thread_id: rawCursor },
+        },
+      }, {
+        sessionId: rawCursor,
+        raw: {
+          source: 'fixture',
+          payload: { session_id: rawCursor },
+        },
+      });
+
+      expect(normalizedEvents).toHaveLength(1);
+      expect(rawEvents).toHaveLength(0);
+      expect(JSON.stringify(normalizedEvents)).not.toContain(rawCursor);
+      expect(normalizedEvents[0]?.sessionId).toBeUndefined();
+      expect(normalizedEvents[0]).not.toHaveProperty('raw');
+    });
+
+    it('does not invalidate discovery or mutate the source when replacement startup fails', async () => {
+      const resolved = makeResolvedRecoveryCandidate();
+      const original = structuredClone(resolved);
+      mockAdapterSpawn.mockRejectedValueOnce(new Error('fixture spawn failure'));
+      const created = vi.fn();
+      const removed = vi.fn();
+      manager.on('instance:created', created);
+      manager.on('instance:removed', removed);
+
+      await expect(manager.recoverFromContinuity(resolved))
+        .rejects.toThrow('Recovery replacement failed to start');
+
+      expect(mockRecoveryCandidateInvalidate).not.toHaveBeenCalled();
+      expect(created).not.toHaveBeenCalled();
+      expect(removed).not.toHaveBeenCalled();
+      expect(mockSessionContinuity.startTracking).not.toHaveBeenCalled();
+      expect(mockSessionContinuity.stopTracking).not.toHaveBeenCalled();
+      expect(manager.getAllInstances()).toEqual([]);
+      expect(resolved).toEqual(original);
+    });
+
+    it('uses rollback-only teardown when replay queuing fails after transcript seeding', async () => {
+      const resolved = makeResolvedRecoveryCandidate();
+      resolved.continuityState.resumeCursor = null;
+      resolved.candidate.nativeResumeAvailable = false;
+      const original = structuredClone(resolved);
+      const queueFailure = new Error('fixture replay queue failure');
+      const queueContinuityPreamble = manager.queueContinuityPreamble.bind(manager);
+      let partialReplacementId: string | undefined;
+      vi.spyOn(manager, 'queueContinuityPreamble').mockImplementation((instanceId, preamble) => {
+        partialReplacementId = instanceId;
+        queueContinuityPreamble(instanceId, preamble);
+        throw queueFailure;
+      });
+      const created = vi.fn();
+      const removed = vi.fn();
+      manager.on('instance:created', created);
+      manager.on('instance:removed', removed);
+
+      await expect(manager.recoverFromContinuity(resolved))
+        .rejects.toThrow('Recovery replacement failed to start');
+
+      expect(manager.getAllInstances()).toEqual([]);
+      expect(created).not.toHaveBeenCalled();
+      expect(removed).not.toHaveBeenCalled();
+      expect(mockSessionContinuity.startTracking).not.toHaveBeenCalled();
+      expect(mockSessionContinuity.stopTracking).not.toHaveBeenCalled();
+      expect(mockSessionContinuity.discardTracking).not.toHaveBeenCalled();
+      expect(mockRecoveryCandidateInvalidate).not.toHaveBeenCalled();
+      const communication = manager as unknown as {
+        communication: {
+          continuityInputQueue: { consume(instanceId: string): string | null | undefined };
+        };
+      };
+      expect(partialReplacementId).toBeDefined();
+      expect(communication.communication.continuityInputQueue.consume(partialReplacementId!))
+        .toBeUndefined();
+      expect(resolved).toEqual(original);
+    });
+
+    it.each([
+      ['cursor', 'cursor:claude:cursor-thread-1', {
+        sessionId: undefined,
+        resumeCursor: {
+          provider: 'claude', threadId: 'cursor-thread-1',
+          workspacePath: TEST_WORKING_DIR, capturedAt: Date.now(), scanSource: 'native' as const,
+        },
+      }],
+      ['session', 'session:claude:persisted-session-1', {
+        sessionId: 'persisted-session-1',
+        resumeCursor: null,
+      }],
+      ['instance', 'instance:crashed-instance', {
+        sessionId: undefined,
+        resumeCursor: null,
+      }],
+    ])('hides a no-history %s-key candidate while its replacement is live', async (
+      _kind,
+      recoveryKey,
+      identity,
+    ) => {
+      const resolved = makeResolvedRecoveryCandidate();
+      resolved.candidate = {
+        ...resolved.candidate,
+        recoveryKey,
+        historyThreadId: undefined,
+        nativeResumeAvailable: identity.resumeCursor !== null,
+      };
+      resolved.continuityState = {
+        ...resolved.continuityState,
+        historyThreadId: undefined,
+        sessionId: identity.sessionId,
+        resumeCursor: identity.resumeCursor,
+      };
+      resolved.historyConversation = null;
+      const service = new SessionRecoveryCandidateService({
+        getSnapshot: () => null,
+        waitForContinuityReady: async () => undefined,
+        listContinuityMetadata: async () => [{
+          recoveryKey,
+          sourceInstanceId: 'crashed-instance',
+          provider: 'claude',
+          workingDirectory: TEST_WORKING_DIR,
+          lastActivityAt: Date.now(),
+          modifiedAt: Date.now(),
+          messageCount: 2,
+          hasUserPrompt: true,
+          hasAssistantOutput: true,
+          nativeResumeAvailable: resolved.candidate.nativeResumeAvailable,
+        }],
+        loadContinuityState: async () => resolved.continuityState,
+        waitForHistoryReady: async () => undefined,
+        getHistoryCoverage: async () => new Map(),
+        loadHistoryConversation: async () => null,
+        getLiveRecoveryKeys: () => manager.getLiveRecoveryKeys(),
+        now: () => Date.now(),
+      });
+      const unwire = wireSessionRecoveryCandidateInvalidation(service, manager);
+
+      expect((await service.listCandidates()).map((candidate) => candidate.recoveryKey))
+        .toEqual([recoveryKey]);
+      const recovered = await manager.recoverFromContinuity(resolved);
+
+      expect(manager.getLiveRecoveryKeys()).toContain(recoveryKey);
+      expect(await service.listCandidates()).toEqual([]);
+      expect(manager.getInstance(recovered.instanceId)).toBeDefined();
+      await manager.terminateInstance(recovered.instanceId, false);
+      expect(manager.getLiveRecoveryKeys()).not.toContain(recoveryKey);
+      expect((await service.listCandidates()).map((candidate) => candidate.recoveryKey))
+        .toEqual([recoveryKey]);
+      unwire();
+    });
+
+    it('runs essential recovery publication despite a throwing created observer', async () => {
+      const observed = vi.fn();
+      manager.on('instance:created', () => {
+        throw new Error('fixture optional observer failure');
+      });
+      manager.on('instance:created', observed);
+
+      const recovered = await manager.recoverFromContinuity(makeResolvedRecoveryCandidate());
+
+      expect(observed).toHaveBeenCalledOnce();
+      expect(mockSessionContinuity.startTracking).toHaveBeenCalledOnce();
+      expect(mockRecoveryCandidateInvalidate).toHaveBeenCalled();
+      expect(manager.getInstance(recovered.instanceId)).toBeDefined();
+    });
+
+    it('owns and discards continuity tracking even when startTracking rejects partway through', async () => {
+      let replacementId: string | undefined;
+      mockSessionContinuity.startTracking.mockImplementationOnce(async (instance: Instance) => {
+        replacementId = instance.id;
+        throw new Error('fixture partial tracking failure');
+      });
+
+      await expect(manager.recoverFromContinuity(makeResolvedRecoveryCandidate()))
+        .rejects.toThrow('Recovery replacement failed to start');
+
+      expect(replacementId).toBeDefined();
+      expect(mockSessionContinuity.discardTracking).toHaveBeenCalledWith(replacementId);
+      expect(manager.getAllInstances()).toEqual([]);
+      expect(mockRecoveryCandidateInvalidate).not.toHaveBeenCalled();
+    });
+
+    it('runs every private rollback owner when publication and continuity cleanup fail', async () => {
+      const resolved = makeResolvedRecoveryCandidate();
+      resolved.continuityState.resumeCursor = null;
+      resolved.candidate.nativeResumeAvailable = false;
+      const internals = manager as unknown as {
+        state: {
+          pendingInstances: Map<string, unknown>;
+          pendingAdapters: Map<string, unknown>;
+          publishPendingInstance(instanceId: string): unknown;
+          clearPendingInstanceState(instanceId: string): void;
+        };
+        communication: {
+          cleanupCircuitBreaker(instanceId: string): void;
+          continuityInputQueue: { consume(instanceId: string): string | null | undefined };
+        };
+        providerEventBus: { removeInstance(instanceId: string): void };
+        settledTracker: { clear(instanceId: string): void };
+        continuityRecovery: {
+          getRecoveryIdentityKeysForInstance(instanceId: string): ReadonlySet<string>;
+        };
+      };
+      let replacementId: string | undefined;
+      vi.spyOn(internals.state, 'publishPendingInstance').mockImplementation((instanceId) => {
+        replacementId = instanceId;
+        throw new Error('fixture publication failure');
+      });
+      mockSessionContinuity.discardTracking.mockRejectedValue(
+        new Error('fixture discard failure for cursor-fixture-placeholder'),
+      );
+      const cleanupCircuitBreaker = internals.communication.cleanupCircuitBreaker
+        .bind(internals.communication);
+      vi.spyOn(internals.communication, 'cleanupCircuitBreaker').mockImplementation((instanceId) => {
+        cleanupCircuitBreaker(instanceId);
+        throw new Error('fixture communication cleanup failure');
+      });
+      const clearPendingState = vi.spyOn(internals.state, 'clearPendingInstanceState');
+      const removeProviderState = vi.spyOn(internals.providerEventBus, 'removeInstance');
+      const clearSettledState = vi.spyOn(internals.settledTracker, 'clear');
+
+      await expect(manager.recoverFromContinuity(resolved))
+        .rejects.toThrow('Recovery replacement failed to start');
+
+      expect(replacementId).toBeDefined();
+      expect(manager.getAllInstances()).toEqual([]);
+      expect(internals.state.pendingInstances).toHaveLength(0);
+      expect(internals.state.pendingAdapters).toHaveLength(0);
+      expect(internals.communication.continuityInputQueue.consume(replacementId!)).toBeUndefined();
+      expect(internals.continuityRecovery.getRecoveryIdentityKeysForInstance(replacementId!))
+        .toHaveLength(0);
+      expect(clearPendingState).toHaveBeenCalledWith(replacementId);
+      expect(removeProviderState).toHaveBeenCalledWith(replacementId);
+      expect(clearSettledState).toHaveBeenCalledWith(replacementId);
+      expect(mockRecoveryCandidateInvalidate).not.toHaveBeenCalled();
     });
   });
 

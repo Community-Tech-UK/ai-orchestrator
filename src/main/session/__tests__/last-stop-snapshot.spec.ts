@@ -13,6 +13,7 @@ import {
   _resetLastStopSnapshotForTesting,
   type RecoverableSession,
 } from '../last-stop-snapshot';
+import type { RecoverableSessionSelectionInput } from '../recoverable-session-selection';
 
 const TEST_DIR = path.join(os.tmpdir(), `last-stop-snapshot-test-${process.pid}`);
 
@@ -25,6 +26,21 @@ function makeSession(overrides: Partial<RecoverableSession> = {}): RecoverableSe
     capturedAt: Date.now(),
     provider: 'claude',
     modelId: 'claude-sonnet-4-6',
+    ...overrides,
+  };
+}
+
+function makeV2Session(
+  overrides: Partial<RecoverableSessionSelectionInput> = {},
+): RecoverableSessionSelectionInput {
+  return {
+    ...makeSession(),
+    historyThreadId: 'thread-1',
+    recoveryKey: 'history:claude:thread-1',
+    lastActivityAt: 1_775_024_000_000,
+    isLive: true,
+    messageCount: 2,
+    hasAssistantOutput: true,
     ...overrides,
   };
 }
@@ -52,6 +68,45 @@ describe('LastStopSnapshotManager — round-trip', () => {
     expect(snap!.sessions).toHaveLength(1);
     expect(snap!.sessions[0].instanceId).toBe('inst-1');
     expect(snap!.sessions[0].sessionId).toBe('sess-abc');
+  });
+
+  it('writes a v2 snapshot with conservative recovery metadata for legacy callers', () => {
+    const mgr = new LastStopSnapshotManager(TEST_DIR);
+    mgr.saveSnapshot([makeSession({ capturedAt: 42 })]);
+
+    const snap = mgr.getSnapshot();
+    expect(snap).toMatchObject({
+      version: 2,
+      sessions: [expect.objectContaining({
+        lastActivityAt: 42,
+        isLive: false,
+        messageCount: 0,
+        hasAssistantOutput: false,
+      })],
+    });
+  });
+
+  it('migrates a v1 snapshot into non-live conservative recovery hints', () => {
+    const mgr = new LastStopSnapshotManager(TEST_DIR);
+    fs.writeFileSync(
+      path.join(TEST_DIR, 'last-stop.json'),
+      JSON.stringify({
+        writtenAt: Date.now(),
+        sessions: [makeSession({ capturedAt: 42 })],
+      }),
+      'utf-8',
+    );
+
+    const snap = mgr.getSnapshot();
+    expect(snap).toMatchObject({
+      version: 2,
+      sessions: [expect.objectContaining({
+        lastActivityAt: 42,
+        isLive: false,
+        messageCount: 0,
+        hasAssistantOutput: false,
+      })],
+    });
   });
 
   it('saves multiple sessions and retrieves all of them', () => {
@@ -149,6 +204,58 @@ describe('LastStopSnapshotManager — getSnapshot', () => {
     expect(mgr.getSnapshot()).toBeNull();
   });
 
+  it.each([
+    ['empty instance identity', { instanceId: '' }],
+    ['empty recovery key', { recoveryKey: '' }],
+    ['invalid optional history identity type', { historyThreadId: 42 }],
+    ['empty optional provider session identity', { sessionId: '' }],
+    ['invalid optional resume cursor type', { resumeCursor: 'invalid' }],
+    ['unsupported provider', { provider: 'unsupported' }],
+    ['negative activity timestamp', { lastActivityAt: -1 }],
+    ['fractional capture timestamp', { capturedAt: 1.5 }],
+    ['negative message count', { messageCount: -1 }],
+    ['fractional message count', { messageCount: 1.5 }],
+    ['invalid boolean', { hasAssistantOutput: 'yes' }],
+  ] as const)(
+    'isolates a semantically invalid v2 record with %s while retaining its valid sibling',
+    (_caseName, invalidFields) => {
+      const mgr = new LastStopSnapshotManager(TEST_DIR);
+      fs.writeFileSync(
+        path.join(TEST_DIR, 'last-stop.json'),
+        JSON.stringify({
+          version: 2,
+          writtenAt: Date.now(),
+          sessions: [
+            makeV2Session({
+              instanceId: 'valid-sibling',
+              historyThreadId: 'valid-thread',
+              recoveryKey: 'history:claude:valid-thread',
+            }),
+            { ...makeV2Session({ instanceId: 'invalid-record' }), ...invalidFields },
+          ],
+        }),
+        'utf-8',
+      );
+
+      expect(mgr.getSnapshot()?.sessions.map((session) => session.instanceId))
+        .toEqual(['valid-sibling']);
+    },
+  );
+
+  it.each([-1, 1.5])(
+    'rejects a v2 snapshot with invalid top-level writtenAt %s',
+    (writtenAt) => {
+      const mgr = new LastStopSnapshotManager(TEST_DIR);
+      fs.writeFileSync(
+        path.join(TEST_DIR, 'last-stop.json'),
+        JSON.stringify({ version: 2, writtenAt, sessions: [makeV2Session()] }),
+        'utf-8',
+      );
+
+      expect(mgr.getSnapshot()).toBeNull();
+    },
+  );
+
   it('returns null when snapshot is older than 7 days', () => {
     const mgr = new LastStopSnapshotManager(TEST_DIR);
     const staleSnap = {
@@ -163,7 +270,7 @@ describe('LastStopSnapshotManager — getSnapshot', () => {
     expect(mgr.getSnapshot()).toBeNull();
   });
 
-  it('prunes per-session entries older than 7 days but keeps the rest', () => {
+  it('uses the top-level writtenAt expiry without pruning a fresh snapshot by entry capture time', () => {
     const mgr = new LastStopSnapshotManager(TEST_DIR);
     const snap = {
       writtenAt: Date.now(),
@@ -174,8 +281,8 @@ describe('LastStopSnapshotManager — getSnapshot', () => {
     };
     fs.writeFileSync(path.join(TEST_DIR, 'last-stop.json'), JSON.stringify(snap), 'utf-8');
     const result = mgr.getSnapshot();
-    expect(result!.sessions).toHaveLength(1);
-    expect(result!.sessions[0].instanceId).toBe('fresh');
+    expect(result!.sessions).toHaveLength(2);
+    expect(result!.sessions.map((session) => session.instanceId)).toEqual(['fresh', 'stale']);
   });
 });
 

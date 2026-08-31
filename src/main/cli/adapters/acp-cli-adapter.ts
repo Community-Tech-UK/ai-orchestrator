@@ -207,6 +207,10 @@ type AcpElicitationResponse =
 export interface AcpCliAdapterConfig extends Omit<CliAdapterConfig, 'command' | 'cwd'> {
   adapterName?: string;
   contextCapabilityProfile?: 'copilot-acp';
+  /** ACP authentication method to invoke after initialize and before opening
+   *  a session. Provider-scoped opt-in: agents that do not require the ACP
+   *  authenticate handshake leave this unset. */
+  authMethodId?: string;
   command?: string;
   model?: string;
   systemPrompt?: string;
@@ -473,6 +477,8 @@ export class AcpCliAdapter extends BaseCliAdapter {
         );
       }
 
+      await this.authenticateIfConfigured(initializeResult.authMethods);
+
       const sessionId = await this.openSession();
       this.setSessionId(sessionId);
       this.initialized = true;
@@ -483,6 +489,24 @@ export class AcpCliAdapter extends BaseCliAdapter {
       await this.terminate(false);
       throw error;
     }
+  }
+
+  private async authenticateIfConfigured(
+    authMethods: AcpInitializeResult['authMethods'],
+  ): Promise<void> {
+    const methodId = this.acpConfig.authMethodId?.trim();
+    if (!methodId) {
+      return;
+    }
+
+    const advertised = authMethods?.some((method) => method['id'] === methodId) ?? false;
+    if (!advertised) {
+      throw new Error(
+        `ACP agent did not advertise configured authentication method '${methodId}'.`,
+      );
+    }
+
+    await this.sendRequest<unknown>('authenticate', { methodId });
   }
 
   protected override async sendInputImpl(message: string, attachments?: FileAttachment[]): Promise<void> {

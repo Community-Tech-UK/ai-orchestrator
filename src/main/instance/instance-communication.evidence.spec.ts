@@ -58,6 +58,7 @@ describe('InstanceCommunicationManager context-evidence ingress', () => {
       ingestToUnifiedMemory: vi.fn(),
       onToolStateChange,
       captureContextEvidenceToolResult,
+      getContextEvidenceMode: () => 'shadow',
       drainContextEvidence,
     });
     manager.setupAdapterEvents(instance.id, adapter as unknown as CliAdapter);

@@ -58,17 +58,24 @@
   // ~3.1:1 on light, where the error tokens are not redefined at all); and one
   // handed the signal to --error-border, which is 0.24 alpha and measured
   // ~1.33:1, so the banner read as ordinary prose. --text-primary is the one
-  // pairing every theme guarantees; the solid border above and the coloured
-  // lead-in below carry the signal.
+  // pairing every theme guarantees (14.6:1 or better in every theme).
+  //
+  // NO TEXT IN THIS BANNER IS COLOURED, and that is deliberate: --error-color on
+  // this tint measures 4.33:1 dark and 3.17:1 light at 12px, under AA. The
+  // status signal is non-text -- the solid border above, its 4px left rule, and
+  // the tinted fill -- which clears 1.4.11's 3:1 in all three themes.
   color: var(--text-primary);
   background: var(--error-bg);
   font-weight: 500;
 }
 
-// The lead-in carries the status colour so the banner is not mistaken for body
-// text. The sentence itself stays --text-primary, which is the only pairing
-// every theme guarantees is readable.
+// The lead-in is bold, NOT coloured. Colouring it reintroduced --error-color on
+// the --error-bg tint at 12px, which is the pairing the comment above already
+// records as failing: 4.34:1 dark, 3.16:1 light, against the 4.5:1 AA threshold.
+// 12px/700 is not WCAG large text (that needs >=18.66px bold), so 3:1 does not
+// apply. The status signal is carried by the solid --error-color left border,
+// which is non-text and clears 1.4.11's 3:1 in every theme; the words stay on
+// --text-primary, the only pairing every theme guarantees.
 .vault-alert__lead {
-  color: var(--error-color);
   font-weight: 700;
 }

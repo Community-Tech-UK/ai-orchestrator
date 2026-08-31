@@ -7,4 +7,4 @@
 {"kind":"output","content":"[omitted-session-body]","messageType":"assistant","messageId":"<redacted-id>","timestamp":1785032228503,"metadata":{"streaming":true,"accumulatedContent":"[omitted-session-body]"}}
 {"kind":"context","used":5,"total":1000000,"percentage":0.0005}
 {"kind":"status","status":"idle"}
-{"kind":"complete","tokensUsed":5,"durationMs":8560}
+{"kind":"complete","tokensUsed":5,"inputTokens":0,"outputTokens":5,"durationMs":8560}

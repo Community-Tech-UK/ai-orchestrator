@@ -25,6 +25,7 @@ const {
   mockCircuitBreaker,
   mockContinuity,
   mockCreateAdapter,
+  mockLogger,
   mockPlanSessionRecovery,
   mockSessionMutex,
 } = vi.hoisted(() => ({
@@ -36,6 +37,7 @@ const {
     writeThroughIdentityLocked: vi.fn().mockResolvedValue(undefined),
   },
   mockCreateAdapter: vi.fn(),
+  mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
   mockPlanSessionRecovery: vi.fn(() => ({
     kind: 'fresh',
     reason: 'test fresh recovery',
@@ -50,7 +52,7 @@ const {
 }));
 
 vi.mock('../../logging/logger', () => ({
-  getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
+  getLogger: () => mockLogger,
 }));
 
 vi.mock('../../../shared/utils/id-generator', () => ({
@@ -140,6 +142,31 @@ function makeAdapter(overrides: Partial<CliAdapter> = {}): CliAdapter {
     off: vi.fn(),
     ...overrides,
   } as unknown as CliAdapter;
+}
+
+interface DiagnosticError extends Error {
+  code?: string;
+  cause?: unknown;
+  metadata?: Record<string, unknown>;
+}
+
+function makeDiagnosticError(
+  message: string,
+  nameAlias: string,
+  codeAlias: string,
+): DiagnosticError {
+  const cause = Object.assign(new Error(`nested failure for ${nameAlias}`), {
+    code: `CAUSE_${codeAlias}`,
+    metadata: { recoveryRef: nameAlias },
+  });
+  cause.name = `Cause_${codeAlias}`;
+  const error = Object.assign(new Error(message), {
+    code: `PROVIDER_${codeAlias}`,
+    cause,
+    metadata: { sessionRef: nameAlias },
+  }) as DiagnosticError;
+  error.name = `Provider_${nameAlias}`;
+  return error;
 }
 
 interface FakeDepsState {
@@ -238,6 +265,47 @@ describe('InterruptRespawnHandler.interrupt()', () => {
     expect(handler.interrupt('inst-1')).toBe(false);
     // No state transition should occur
     expect(state.transitions).toHaveLength(0);
+  });
+
+  it('redacts crash-recovery identity from a rejected interrupt completion', async () => {
+    const replacementAlias = 'interrupt-completion-replacement-fixture-placeholder';
+    const sourceAlias = 'interrupt-completion-source-fixture-placeholder';
+    const adapter = makeAdapter({
+      interrupt: vi.fn(() => ({
+        status: 'accepted',
+        completion: Promise.reject(makeDiagnosticError(
+          `completion failed for ${replacementAlias}`,
+          sourceAlias,
+          replacementAlias,
+        )),
+      } as InterruptResult)),
+    });
+    const instance = makeInstance({
+      status: 'busy', sessionId: replacementAlias, providerSessionId: replacementAlias,
+      historyThreadId: sourceAlias,
+      metadata: { continuityRevival: true, reason: 'crash-recovery' },
+    });
+    const state: FakeDepsState = {
+      instance, adapter, queueUpdateCalls: [], outputMessages: [], transitions: [],
+    };
+    const handler = new InterruptRespawnHandler(makeDeps(state));
+    vi.clearAllMocks();
+
+    handler.interrupt('inst-1');
+    await vi.waitFor(() => expect(state.outputMessages).toHaveLength(1));
+
+    expect(JSON.stringify({
+      output: state.outputMessages,
+      logs: Object.fromEntries(Object.entries(mockLogger).map(
+        ([level, log]) => [level, log.mock.calls],
+      )),
+    })).not.toContain(replacementAlias);
+    expect(JSON.stringify({
+      output: state.outputMessages,
+      logs: Object.fromEntries(Object.entries(mockLogger).map(
+        ([level, log]) => [level, log.mock.calls],
+      )),
+    })).not.toContain(sourceAlias);
   });
 
   it('accepted-without-completion: transitions to interrupting and creates respawnPromise', () => {
@@ -725,7 +793,13 @@ describe('InterruptRespawnHandler recovery-ladder exhaustion (WS7 Phase B)', () 
 
   it('fires onRecoveryLadderExhausted when the fresh spawn fails terminally', async () => {
     // Fresh (non-resume) plan whose only spawn rejects → no fallback → error catch.
-    const deadAdapter = makeAdapter({ spawn: vi.fn().mockRejectedValue(new Error('provider auth 401')) });
+    const rawAlias = 'ordinary-respawn-error-alias-placeholder';
+    const rawError = makeDiagnosticError(
+      `provider auth 401 for ${rawAlias}`,
+      rawAlias,
+      rawAlias,
+    );
+    const deadAdapter = makeAdapter({ spawn: vi.fn().mockRejectedValue(rawError) });
     mockCreateAdapter.mockReturnValue(deadAdapter);
     const instance = makeInstance({ status: 'respawning', executionLocation: { type: 'local' }, outputBuffer: [] });
     const state: FakeDepsState = { instance, adapter: makeAdapter(), queueUpdateCalls: [], outputMessages: [], transitions: [] };
@@ -734,10 +808,16 @@ describe('InterruptRespawnHandler recovery-ladder exhaustion (WS7 Phase B)', () 
     deps.onRecoveryLadderExhausted = onRecoveryLadderExhausted;
     const handler = new InterruptRespawnHandler(deps);
 
-    await expect(handler.respawnAfterInterrupt('inst-1')).rejects.toThrow('provider auth 401');
+    const propagated = await handler.respawnAfterInterrupt('inst-1')
+      .catch((caught: unknown) => caught);
 
+    expect(propagated).toBe(rawError);
     expect(instance.status).toBe('error');
-    expect(onRecoveryLadderExhausted).toHaveBeenCalledWith(instance, expect.any(Error));
+    expect(onRecoveryLadderExhausted).toHaveBeenCalledWith(instance.id, rawError);
+    expect(rawError.name).toBe(`Provider_${rawAlias}`);
+    expect(rawError.code).toBe(`PROVIDER_${rawAlias}`);
+    expect(rawError.cause).toBeDefined();
+    expect(rawError.metadata).toEqual({ sessionRef: rawAlias });
   });
 
   it('does not fire the callback on a successful respawn', async () => {
@@ -754,5 +834,57 @@ describe('InterruptRespawnHandler recovery-ladder exhaustion (WS7 Phase B)', () 
 
     expect(instance.status).toBe('idle');
     expect(onRecoveryLadderExhausted).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['interrupt', (handler: InterruptRespawnHandler) => handler.respawnAfterInterrupt('inst-1')],
+    ['automatic', (handler: InterruptRespawnHandler) => handler.respawnAfterUnexpectedExit('inst-1')],
+  ])('redacts crash-recovery identity from %s respawn diagnostics and propagated errors', async (
+    _kind,
+    runRespawn,
+  ) => {
+    const replacementAlias = 'respawn-replacement-fixture-placeholder';
+    const sourceAlias = 'respawn-source-fixture-placeholder';
+    const deadAdapter = makeAdapter({
+      spawn: vi.fn().mockRejectedValue(makeDiagnosticError(
+        `provider failed for ${replacementAlias}`,
+        sourceAlias,
+        replacementAlias,
+      )),
+    });
+    mockCreateAdapter.mockReturnValue(deadAdapter);
+    const instance = makeInstance({
+      status: 'respawning', executionLocation: { type: 'local' }, outputBuffer: [],
+      sessionId: replacementAlias,
+      providerSessionId: replacementAlias,
+      historyThreadId: sourceAlias,
+      metadata: { continuityRevival: true, reason: 'crash-recovery' },
+    });
+    const state: FakeDepsState = {
+      instance, adapter: makeAdapter(), queueUpdateCalls: [], outputMessages: [], transitions: [],
+    };
+    const deps = makeDeps(state);
+    const onRecoveryLadderExhausted = vi.fn();
+    deps.onRecoveryLadderExhausted = onRecoveryLadderExhausted;
+    const handler = new InterruptRespawnHandler(deps);
+
+    const error = await runRespawn(handler).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    const propagated = error as DiagnosticError;
+    expect(propagated.message).not.toContain(replacementAlias);
+    expect(propagated.name).not.toContain(sourceAlias);
+    expect(propagated.code ?? '').not.toContain(replacementAlias);
+    expect(JSON.stringify(propagated.cause)).not.toContain(sourceAlias);
+    expect(JSON.stringify(propagated.metadata)).not.toContain(sourceAlias);
+    const observable = JSON.stringify({
+      logs: Object.fromEntries(Object.entries(mockLogger).map(
+        ([level, log]) => [level, log.mock.calls],
+      )),
+      ladder: onRecoveryLadderExhausted.mock.calls,
+      updates: state.queueUpdateCalls,
+    });
+    expect(observable).not.toContain(replacementAlias);
+    expect(observable).not.toContain(sourceAlias);
   });
 });

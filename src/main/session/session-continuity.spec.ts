@@ -8,6 +8,7 @@ import type {
   SessionSnapshot,
   SessionContinuityManager,
 } from './session-continuity';
+import type { Instance, InstanceCreateConfig } from '../../shared/types/instance.types';
 
 const mockState = vi.hoisted(() => ({
   userDataDir: '',
@@ -53,16 +54,39 @@ vi.mock('../core/config/settings-manager', () => ({
 import { LEGACY_REDACTED_TOOL_OUTPUT } from './redacted-tool-output';
 import { SessionContinuityManager as ImportedSessionContinuityManager } from './session-continuity';
 import { getSessionMutex, _resetSessionMutexForTesting } from './session-mutex';
+import { _resetSessionPersistenceQueueForTesting } from './session-persistence-queue';
+import {
+  RECOVERY_FALLBACK_WINDOW_MS,
+  SessionRecoveryCandidateService,
+  type ContinuityRecoveryMetadata,
+} from './session-recovery-candidate-service';
+import { reviveContinuitySession } from '../instance/lifecycle/continuity-revival';
+import { mapAdapterRuntimeEvent } from '../providers/adapter-runtime-event-bridge';
+import {
+  outputMessageToContinuityEntry,
+  providerRuntimeEnvelopeToContinuityEntry,
+} from './continuity-message-projection';
+import { toOutputMessageFromProviderEnvelope } from '../providers/provider-output-event';
+import { buildObservedCompactionEvents } from '../cli/adapters/codex/compaction-presentation';
+import { writeContinuityPayloadAsyncAtomic } from './continuity-recovery-metadata';
+import type { SessionContinuityPersistenceOperations } from './session-continuity-persistence-operations';
 
 /** Cast-target for accessing private/protected members in tests. */
 interface TestableSessionContinuityManager {
   readyPromise: Promise<void>;
+  waitForRecoveryDiscoveryReady(): Promise<void>;
+  startTracking(instance: Instance): Promise<void>;
   readPayload<T>(filePath: string): Promise<T | null>;
   deserializePayload<T>(raw: string, filePath?: string): T | null;
   getResumableSessions(): Promise<SessionState[]>;
   resumeSession(instanceId: string): Promise<SessionState | null>;
   importSession(data: { state: SessionState; snapshots?: unknown[] }, newInstanceId?: string): Promise<string>;
   addConversationEntry(instanceId: string, entry: SessionState['conversationHistory'][number]): Promise<void>;
+  patchConversationEntry(
+    instanceId: string,
+    entryId: string,
+    patch: Partial<Omit<SessionState['conversationHistory'][number], 'id'>>,
+  ): Promise<void>;
   createSnapshot(instanceId: string, name?: string, description?: string, trigger?: string): Promise<SessionSnapshot | null>;
   exportSession(instanceId: string): Promise<{ state: SessionState; snapshots: SessionSnapshot[] } | null>;
   listSnapshots(instanceId?: string): SessionSnapshot[];
@@ -70,10 +94,33 @@ interface TestableSessionContinuityManager {
   markNativeResumeFailed(instanceId: string, errorCode?: number): Promise<void>;
   writeThroughIdentity(instanceId: string, identity: { sessionId?: string; resumeCursor?: unknown; nativeResumeFailedAt?: number | null }): Promise<void>;
   writeThroughIdentityLocked(instanceId: string, identity: { sessionId?: string; resumeCursor?: unknown; nativeResumeFailedAt?: number | null }): Promise<void>;
-  setInstanceManager(instanceManager: { getAdapter(instanceId: string): unknown }): void;
+  setInstanceManager(instanceManager: {
+    getAdapter(instanceId: string): unknown;
+    getInstance?(instanceId: string): { status: string } | undefined;
+  }): void;
   captureResumeCursor(instanceId: string, state: SessionState): void;
+  buildRecoverableSessionList(): Array<{
+    instanceId: string;
+    historyThreadId?: string;
+    lastActivityAt: number;
+    isLive: boolean;
+    messageCount: number;
+    hasAssistantOutput: boolean;
+  }>;
+  getSessionState(instanceId: string): SessionState | null;
+  isInitDegraded(): boolean;
+  listContinuityRecoveryMetadata(
+    modifiedSince: number,
+    preferredInstanceIds?: readonly string[],
+  ): Promise<ContinuityRecoveryMetadata[]>;
+  loadRecoveryState(sourceInstanceId: string): Promise<SessionState | null>;
   exportSession(instanceId: string): Promise<{ state: SessionState; snapshots: SessionSnapshot[] } | null>;
+  queueStateSaveAsync(instanceId: string): Promise<void>;
   shutdown(): void;
+}
+
+interface TestableSessionContinuityPrototype {
+  initAsync(): Promise<void>;
 }
 
 function makeState(instanceId: string): SessionState {
@@ -114,15 +161,29 @@ function getLogCall(calls: unknown[][], message: string): unknown[] | undefined 
   return calls.find(([entry]) => entry === message);
 }
 
+function createDeferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
+async function readEnvelope<T>(filePath: string): Promise<T> {
+  const raw = JSON.parse(await fs.promises.readFile(filePath, 'utf8')) as { data: string };
+  return JSON.parse(raw.data) as T;
+}
+
 describe('SessionContinuityManager logging', () => {
   const tempDirs: string[] = [];
   const managers: SessionContinuityManager[] = [];
 
-  function createManager(config: Partial<ContinuityConfig> = {}): TestableSessionContinuityManager {
+  function createManager(
+    config: Partial<ContinuityConfig> = {},
+    persistenceOperations: Partial<SessionContinuityPersistenceOperations> = {},
+  ): TestableSessionContinuityManager {
     const manager = new ImportedSessionContinuityManager({
       autoSaveEnabled: false,
       ...config,
-    }) as unknown as TestableSessionContinuityManager;
+    }, persistenceOperations) as unknown as TestableSessionContinuityManager;
     managers.push(manager as unknown as SessionContinuityManager);
     return manager;
   }
@@ -173,6 +234,918 @@ describe('SessionContinuityManager logging', () => {
     });
     expect(providerCursor).not.toHaveProperty('configFingerprint');
     expect(getResumeCursor).not.toHaveBeenCalled();
+  });
+
+  it('rolls back tracking atomically when a real tracking observer throws', async () => {
+    const manager = createManager();
+    await manager.readyPromise;
+    const instance = {
+      id: 'observer-failure', displayName: 'Observer failure', agentId: 'build',
+      currentModel: 'opus', provider: 'claude', workingDirectory: '/workspace',
+      outputBuffer: [], retainedPrompts: [],
+      contextUsage: { used: 0, total: 1_000, percentage: 0 }, lastActivity: 100,
+    } as unknown as Instance;
+    const internals = manager as unknown as {
+      on(event: 'tracking:started', listener: () => void): void;
+      dirty: Set<string>;
+      stateRecoveryMetadata: Map<string, unknown>;
+    };
+    internals.on('tracking:started', () => {
+      throw new Error('fixture tracking observer failure');
+    });
+
+    await expect(manager.startTracking(instance))
+      .rejects.toThrow('fixture tracking observer failure');
+
+    expect(manager.getSessionState(instance.id)).toBeNull();
+    expect(internals.dirty.has(instance.id)).toBe(false);
+    expect(internals.stateRecoveryMetadata.has(instance.id)).toBe(false);
+    await expect(fs.promises.access(path.join(
+      mockState.userDataDir, 'session-continuity', 'states', `${instance.id}.json`,
+    ))).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(fs.promises.access(path.join(
+      mockState.userDataDir, 'session-continuity', 'recovery-metadata', `${instance.id}.json`,
+    ))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('round-trips typed visible output through disk state into crash recovery', async () => {
+    const manager = createManager();
+    await manager.readyPromise;
+    const sourceInstance = {
+      id: 'typed-roundtrip',
+      displayName: 'Typed roundtrip',
+      agentId: 'build',
+      currentModel: 'opus',
+      provider: 'claude',
+      workingDirectory: '/workspace',
+      historyThreadId: undefined,
+      sessionId: undefined,
+      isRenamed: false,
+      outputBuffer: [
+        {
+          id: 'tool-call-1', timestamp: 100, type: 'tool_use', content: '',
+          metadata: {
+            id: 'call-placeholder', name: 'Read', input: { path: '/fixture' },
+            tokens: 17, isCompacted: true,
+          },
+          thinking: [{
+            id: 'thinking-1', content: 'Inspect the fixture.', format: 'structured', tokenCount: 4,
+          }],
+          thinkingExtracted: true,
+        },
+        {
+          id: 'tool-result-1', timestamp: 101, type: 'tool_result', content: 'fixture result',
+          metadata: { tool_use_id: 'call-placeholder', is_error: true },
+        },
+      ],
+      retainedPrompts: [],
+      contextUsage: { used: 17, total: 1_000, percentage: 1.7 },
+      lastActivity: 101,
+    } as unknown as Instance;
+    await manager.startTracking(sourceInstance);
+    await manager.writeThroughIdentity(sourceInstance.id, {});
+    const recoveredState = await readEnvelope<SessionState>(path.join(
+      mockState.userDataDir,
+      'session-continuity',
+      'states',
+      `${sourceInstance.id}.json`,
+    ));
+    expect(recoveredState.conversationHistory).toEqual([
+      {
+        id: 'tool-call-1', role: 'assistant', content: '', timestamp: 100, tokens: 17,
+        toolUse: {
+          kind: 'call', toolName: 'Read', input: { path: '/fixture' },
+          callId: 'call-placeholder',
+        },
+        thinking: 'Inspect the fixture.',
+        thinkingBlocks: [{
+          id: 'thinking-1', content: 'Inspect the fixture.', format: 'structured', tokenCount: 4,
+        }],
+        isCompacted: true,
+        compaction: { boundary: true },
+      },
+      {
+        id: 'tool-result-1', role: 'tool', content: 'fixture result', timestamp: 101,
+        toolUse: {
+          kind: 'result', toolName: 'Read', input: null, output: 'fixture result',
+          resultForCallId: 'call-placeholder', isError: true,
+        },
+      },
+    ]);
+
+    let recoveryConfig: InstanceCreateConfig | undefined;
+    await reviveContinuitySession({
+      resumeSession: vi.fn(),
+      createInstance: vi.fn(),
+      createRecoveryInstance: async (config) => {
+        recoveryConfig = config;
+        return {
+          instance: { id: 'typed-replacement', status: 'idle', ...config } as unknown as Instance,
+          publish: vi.fn(async () => undefined),
+          rollback: vi.fn(async () => undefined),
+        };
+      },
+      queueContinuityPreamble: vi.fn(),
+      now: () => 1_000,
+    }, {
+      sourceInstanceId: sourceInstance.id,
+      reason: 'crash-recovery',
+      resolvedCandidate: {
+        candidate: {
+          recoveryKey: `instance:${sourceInstance.id}`,
+          sourceInstanceId: sourceInstance.id,
+          provider: 'claude',
+          workingDirectory: '/workspace',
+          lastActivityAt: 101,
+          recoveredMessageCount: 2,
+          reason: 'unarchived',
+          nativeResumeAvailable: false,
+        },
+        continuityState: recoveredState,
+        historyConversation: null,
+      },
+    });
+
+    expect(recoveryConfig?.initialOutputBuffer).toEqual([
+      expect.objectContaining({
+        id: 'tool-call-1', type: 'tool_use', metadata: {
+          toolName: 'Read', input: { path: '/fixture' }, id: 'call-placeholder', tokens: 17,
+          isCompacted: true, isCompactionBoundary: true,
+        },
+        thinking: [expect.objectContaining({ content: 'Inspect the fixture.' })],
+      }),
+      expect.objectContaining({
+        id: 'tool-result-1', type: 'tool_result',
+        metadata: {
+          toolName: 'Read', input: null, output: 'fixture result',
+          tool_use_id: 'call-placeholder', is_error: true,
+        },
+      }),
+    ]);
+  });
+
+  it('round-trips actual bridged tool, thinking, token, and compaction events through disk recovery', async () => {
+    const manager = createManager();
+    await manager.readyPromise;
+    const instance = {
+      id: 'bridged-roundtrip', displayName: 'Bridged roundtrip', agentId: 'build',
+      currentModel: 'opus', provider: 'claude', workingDirectory: '/workspace',
+      outputBuffer: [], retainedPrompts: [],
+      contextUsage: { used: 0, total: 1_000, percentage: 0 }, lastActivity: 100,
+    } as unknown as Instance;
+    await manager.startTracking(instance);
+    const toolUse = mapAdapterRuntimeEvent('tool_use', [{
+      id: 'call-placeholder', name: 'Read', input: { path: '/fixture' },
+    }]);
+    const toolResult = mapAdapterRuntimeEvent('tool_result', [{
+      tool_use_id: 'call-placeholder', name: 'Read', content: 'fixture result', is_error: false,
+    }]);
+    const thinking = mapAdapterRuntimeEvent('output', [{
+      id: 'thinking-output-placeholder', timestamp: 90, type: 'assistant', content: 'answer fixture',
+      thinking: [{
+        id: 'thinking-placeholder', content: 'reasoning fixture',
+        format: 'structured', tokenCount: 4,
+      }],
+      thinkingExtracted: true,
+    }]);
+    const observedCompaction = buildObservedCompactionEvents({
+      contextWindow: 1_000, cumulativeTokens: 30, costEstimate: 0,
+    });
+    observedCompaction.output.id = 'compaction-placeholder';
+    observedCompaction.output.timestamp = 95;
+    const compaction = mapAdapterRuntimeEvent('output', [observedCompaction.output]);
+    expect(toolUse && toolResult && thinking && compaction).toBeTruthy();
+    const thinkingMessage = toOutputMessageFromProviderEnvelope({
+      eventId: '00000000-0000-4000-8000-000000000003', seq: 3, timestamp: 90,
+      provider: 'claude', instanceId: instance.id, event: thinking!.event,
+    });
+    const compactionMessage = toOutputMessageFromProviderEnvelope({
+      eventId: '00000000-0000-4000-8000-000000000004', seq: 4, timestamp: 95,
+      provider: 'codex', instanceId: instance.id, event: compaction!.event,
+    });
+    expect(thinkingMessage && compactionMessage).toBeTruthy();
+    const callEntry = providerRuntimeEnvelopeToContinuityEntry({
+      eventId: '00000000-0000-4000-8000-000000000001', seq: 1, timestamp: 100,
+      provider: 'claude', instanceId: instance.id, event: toolUse!.event,
+    });
+    const resultEntry = providerRuntimeEnvelopeToContinuityEntry({
+      eventId: '00000000-0000-4000-8000-000000000002', seq: 2, timestamp: 101,
+      provider: 'claude', instanceId: instance.id, event: toolResult!.event,
+    });
+    expect(callEntry && resultEntry).toBeTruthy();
+    await manager.addConversationEntry(
+      instance.id,
+      outputMessageToContinuityEntry(thinkingMessage!),
+    );
+    await manager.addConversationEntry(
+      instance.id,
+      outputMessageToContinuityEntry(compactionMessage!),
+    );
+    await manager.addConversationEntry(instance.id, callEntry!);
+    await manager.addConversationEntry(instance.id, resultEntry!);
+    await manager.patchConversationEntry(instance.id, callEntry!.id, {
+      tokens: 28,
+      tokenUsage: {
+        input: 11, output: 7, cacheRead: 5, cacheWrite: 3, reasoning: 2, total: 28,
+      },
+    });
+    await manager.writeThroughIdentity(instance.id, {});
+
+    const recoveredState = await readEnvelope<SessionState>(path.join(
+      mockState.userDataDir, 'session-continuity', 'states', `${instance.id}.json`,
+    ));
+    expect(recoveredState.conversationHistory).toEqual([
+      expect.objectContaining({
+        id: 'thinking-output-placeholder', role: 'assistant',
+        thinkingBlocks: [expect.objectContaining({
+          id: 'thinking-placeholder', content: 'reasoning fixture', tokenCount: 4,
+        })],
+      }),
+      expect.objectContaining({
+        id: 'compaction-placeholder', role: 'system', isCompacted: true,
+        compaction: { boundary: true },
+      }),
+      expect.objectContaining({
+        id: 'tool-call:call-placeholder',
+        toolUse: expect.objectContaining({ kind: 'call', callId: 'call-placeholder' }),
+        tokenUsage: { input: 11, output: 7, cacheRead: 5, cacheWrite: 3, reasoning: 2, total: 28 },
+      }),
+      expect.objectContaining({
+        id: 'tool-result:call-placeholder:00000000-0000-4000-8000-000000000002',
+        toolUse: expect.objectContaining({
+          kind: 'result', resultForCallId: 'call-placeholder', isError: false,
+        }),
+      }),
+    ]);
+
+    let recoveryConfig: InstanceCreateConfig | undefined;
+    await reviveContinuitySession({
+      resumeSession: vi.fn(), createInstance: vi.fn(),
+      createRecoveryInstance: async (config) => {
+        recoveryConfig = config;
+        return {
+          instance: { id: 'bridged-replacement', status: 'idle', ...config } as unknown as Instance,
+          publish: vi.fn(async () => undefined), rollback: vi.fn(async () => undefined),
+        };
+      },
+      queueContinuityPreamble: vi.fn(), now: () => 1_000,
+    }, {
+      sourceInstanceId: instance.id,
+      reason: 'crash-recovery',
+      resolvedCandidate: {
+        candidate: {
+          recoveryKey: `instance:${instance.id}`, sourceInstanceId: instance.id,
+          provider: 'claude', workingDirectory: '/workspace', lastActivityAt: 101,
+          recoveredMessageCount: 4, reason: 'unarchived', nativeResumeAvailable: false,
+        },
+        continuityState: recoveredState,
+        historyConversation: null,
+      },
+    });
+
+    expect(recoveryConfig?.initialOutputBuffer).toEqual([
+      expect.objectContaining({
+        id: 'thinking-output-placeholder', type: 'assistant',
+        thinking: [expect.objectContaining({
+          id: 'thinking-placeholder', content: 'reasoning fixture', tokenCount: 4,
+        })],
+      }),
+      expect.objectContaining({
+        id: 'compaction-placeholder', type: 'system',
+        metadata: expect.objectContaining({
+          isCompacted: true, isCompactionBoundary: true,
+        }),
+      }),
+      expect.objectContaining({
+        type: 'tool_use',
+        metadata: expect.objectContaining({ id: 'call-placeholder', tokens: 28 }),
+      }),
+      expect.objectContaining({
+        type: 'tool_result',
+        metadata: expect.objectContaining({
+          tool_use_id: 'call-placeholder', is_error: false, output: 'fixture result',
+        }),
+      }),
+    ]);
+
+    const secondGeneration = {
+      id: 'bridged-second-generation', displayName: 'Bridged second generation', agentId: 'build',
+      currentModel: 'opus', provider: 'claude', workingDirectory: '/workspace',
+      outputBuffer: recoveryConfig?.initialOutputBuffer ?? [], retainedPrompts: [],
+      contextUsage: { used: 28, total: 1_000, percentage: 2.8 }, lastActivity: 200,
+    } as unknown as Instance;
+    await manager.startTracking(secondGeneration);
+    await manager.writeThroughIdentity(secondGeneration.id, {});
+    const secondGenerationState = await readEnvelope<SessionState>(path.join(
+      mockState.userDataDir, 'session-continuity', 'states', `${secondGeneration.id}.json`,
+    ));
+    expect(secondGenerationState.conversationHistory).toContainEqual(
+      expect.objectContaining({
+        id: 'tool-call:call-placeholder',
+        tokens: 28,
+        tokenUsage: {
+          input: 11, output: 7, cacheRead: 5, cacheWrite: 3, reasoning: 2, total: 28,
+        },
+      }),
+    );
+  });
+
+  it('builds snapshot records from persisted activity and the read-only live-instance lookup', async () => {
+    const manager = createManager();
+    await manager.readyPromise;
+
+    const active = makeState('current-instance');
+    active.historyThreadId = 'history-current';
+    active.lastWriteTimestamp = 30;
+    active.conversationHistory = [
+      { id: 'user-entry', role: 'user', content: 'placeholder', timestamp: 40 },
+      { id: 'assistant-entry', role: 'assistant', content: 'placeholder', timestamp: 50 },
+    ];
+    const stopped = makeState('stopped-instance');
+    stopped.conversationHistory = [];
+
+    await manager.importSession({ state: active });
+    await manager.importSession({ state: stopped });
+    const persistedActive = manager.getSessionState('current-instance');
+    if (persistedActive) persistedActive.lastWriteTimestamp = 30;
+    manager.setInstanceManager({
+      getAdapter: () => undefined,
+      getInstance: (instanceId) => instanceId === 'current-instance'
+        ? { status: 'busy' }
+        : undefined,
+    });
+
+    const records = manager.buildRecoverableSessionList();
+
+    expect(records).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        instanceId: 'current-instance',
+        historyThreadId: 'history-current',
+        lastActivityAt: 50,
+        isLive: true,
+        messageCount: 2,
+        hasAssistantOutput: true,
+      }),
+      expect.objectContaining({
+        instanceId: 'stopped-instance',
+        isLive: false,
+        messageCount: 0,
+        hasAssistantOutput: false,
+      }),
+    ]));
+  });
+
+  it('enumerates only recent recovery metadata, isolates corrupt files, and loads state on demand', async () => {
+    const stateDir = path.join(mockState.userDataDir, 'session-continuity', 'states');
+    await fs.promises.mkdir(stateDir, { recursive: true });
+    const recent = makeState('recent-recovery');
+    recent.historyThreadId = 'stable-thread';
+    recent.provider = 'claude';
+    recent.sessionId = 'provider-session-placeholder';
+    recent.conversationHistory.push({
+      id: 'assistant-fixture',
+      role: 'assistant',
+      content: 'fixture response',
+      timestamp: Date.now(),
+    });
+    const recentFile = path.join(stateDir, 'recent-recovery.json');
+    const staleFile = path.join(stateDir, 'stale-recovery.json');
+    await fs.promises.writeFile(recentFile, createEnvelope(recent));
+    await fs.promises.writeFile(staleFile, createEnvelope(makeState('stale-recovery')));
+    await fs.promises.writeFile(
+      path.join(stateDir, 'corrupt-recovery.json'),
+      '{"sensitive transcript fixture":',
+    );
+    const staleAt = new Date(Date.now() - RECOVERY_FALLBACK_WINDOW_MS - 1_000);
+    await fs.promises.utimes(staleFile, staleAt, staleAt);
+
+    const manager = createManager();
+    await manager.readyPromise;
+    await fs.promises.writeFile(
+      path.join(stateDir, 'structurally-corrupt.json'),
+      createEnvelope({ ...makeState('structurally-corrupt'), conversationHistory: [null] }),
+    );
+    mockState.logger.error.mockClear();
+    mockState.logger.warn.mockClear();
+
+    const records = await manager.listContinuityRecoveryMetadata(
+      Date.now() - RECOVERY_FALLBACK_WINDOW_MS,
+    );
+
+    expect(records).toEqual([
+      expect.objectContaining({
+        sourceInstanceId: 'recent-recovery',
+        recoveryKey: 'history:claude:stable-thread',
+        messageCount: 2,
+        hasUserPrompt: true,
+        hasAssistantOutput: true,
+      }),
+    ]);
+    expect(JSON.stringify(mockState.logger.error.mock.calls)).not.toContain('sensitive transcript fixture');
+    expect(JSON.stringify(mockState.logger.warn.mock.calls)).not.toContain('corrupt-recovery');
+    await expect(manager.loadRecoveryState('recent-recovery')).resolves.toMatchObject({
+      instanceId: 'recent-recovery',
+      historyThreadId: 'stable-thread',
+    });
+  });
+
+  it('keeps candidate discovery behind actual initialization after the startup timeout', async () => {
+    const stateDir = path.join(mockState.userDataDir, 'session-continuity', 'states');
+    await fs.promises.mkdir(stateDir, { recursive: true });
+    await fs.promises.writeFile(
+      path.join(stateDir, 'delayed-recovery.json'),
+      createEnvelope(makeState('delayed-recovery')),
+    );
+    const barrier = createDeferred();
+    const prototype = ImportedSessionContinuityManager.prototype as unknown as TestableSessionContinuityPrototype;
+    const originalInit = prototype.initAsync;
+    vi.spyOn(prototype, 'initAsync').mockImplementation(async function initAfterBarrier(
+      this: SessionContinuityManager,
+    ) {
+      await barrier.promise;
+      await originalInit.call(this);
+    });
+    vi.useFakeTimers();
+
+    try {
+      const manager = createManager();
+      const metadata = vi.spyOn(manager, 'listContinuityRecoveryMetadata');
+      const service = new SessionRecoveryCandidateService({
+        getSnapshot: () => null,
+        waitForContinuityReady: () => manager.waitForRecoveryDiscoveryReady(),
+        listContinuityMetadata: (modifiedSince, preferredInstanceIds) =>
+          manager.listContinuityRecoveryMetadata(modifiedSince, preferredInstanceIds),
+        loadContinuityState: (sourceInstanceId) => manager.loadRecoveryState(sourceInstanceId),
+        waitForHistoryReady: async () => undefined,
+        getHistoryCoverage: async () => new Map(),
+        loadHistoryConversation: async () => null,
+        getLiveRecoveryKeys: () => new Set(),
+        now: () => Date.now(),
+      });
+      let discoverySettled = false;
+      const discovery = service.listCandidates().then((candidates) => {
+        discoverySettled = true;
+        return candidates;
+      });
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      await manager.readyPromise;
+      expect(manager.isInitDegraded()).toBe(true);
+      expect(discoverySettled).toBe(false);
+      expect(metadata).not.toHaveBeenCalled();
+
+      barrier.resolve();
+      await expect(discovery).resolves.toEqual([
+        expect.objectContaining({ sourceInstanceId: 'delayed-recovery' }),
+      ]);
+      expect(manager.isInitDegraded()).toBe(false);
+      await service.listCandidates();
+      expect(metadata).toHaveBeenCalledOnce();
+    } finally {
+      barrier.resolve();
+      vi.useRealTimers();
+    }
+  });
+
+  it('uses persisted conversation activity rather than a touched file mtime', async () => {
+    const stateDir = path.join(mockState.userDataDir, 'session-continuity', 'states');
+    await fs.promises.mkdir(stateDir, { recursive: true });
+    const copied = makeState('copied-state');
+    copied.lastWriteTimestamp = 100;
+    copied.conversationHistory[0].timestamp = 200;
+    const copiedFile = path.join(stateDir, 'copied-state.json');
+    await fs.promises.writeFile(copiedFile, createEnvelope(copied));
+    const touched = new Date(Date.now());
+    await fs.promises.utimes(copiedFile, touched, touched);
+    const manager = createManager();
+    await manager.readyPromise;
+
+    const records = await manager.listContinuityRecoveryMetadata(0);
+
+    expect(records.find((record) => record.sourceInstanceId === 'copied-state')?.lastActivityAt)
+      .toBe(200);
+  });
+
+  it('persists a lightweight recovery sidecar without conversation content', async () => {
+    const manager = createManager();
+    await manager.readyPromise;
+    await manager.importSession({ state: makeState('sidecar-state') });
+
+    const raw = JSON.parse(await fs.promises.readFile(path.join(
+      mockState.userDataDir, 'session-continuity', 'recovery-metadata', 'sidecar-state.json',
+    ), 'utf8')) as { data: string };
+    const sidecar = JSON.parse(raw.data) as Record<string, unknown>;
+    expect(sidecar).toMatchObject({ sourceInstanceId: 'sidecar-state', messageCount: 1 });
+    expect(sidecar).not.toHaveProperty('conversationHistory');
+    const stateStat = await fs.promises.stat(path.join(
+      mockState.userDataDir, 'session-continuity', 'states', 'sidecar-state.json',
+    ));
+    expect(sidecar['stateFileGeneration']).toEqual({
+      size: stateStat.size, mtimeMs: stateStat.mtimeMs,
+      ctimeMs: stateStat.ctimeMs, ino: stateStat.ino,
+    });
+  });
+
+  it('recovers the newest valid first-write state staging file after a crash', async () => {
+    const stateDir = path.join(mockState.userDataDir, 'session-continuity', 'states');
+    await fs.promises.mkdir(stateDir, { recursive: true });
+    const oldest = path.join(stateDir, 'first-write.json.101-2000-1.tmp');
+    const newestValid = path.join(stateDir, 'first-write.json.101-2000-2.tmp');
+    const newestInvalid = path.join(stateDir, 'first-write.json.101-2000-3.tmp');
+    await fs.promises.writeFile(oldest, createEnvelope({
+      ...makeState('first-write'), displayName: 'Old valid state',
+    }));
+    await fs.promises.writeFile(newestValid, createEnvelope({
+      ...makeState('first-write'), displayName: 'Newest valid state',
+    }));
+    await fs.promises.writeFile(newestInvalid, '{"encrypted":false,"data":"{incomplete"}');
+    await fs.promises.utimes(oldest, new Date(1_000), new Date(1_000));
+    await fs.promises.utimes(newestValid, new Date(2_000), new Date(2_000));
+    await fs.promises.utimes(newestInvalid, new Date(3_000), new Date(3_000));
+
+    const manager = createManager();
+    await manager.readyPromise;
+
+    const recovered = await manager.resumeSession('first-write');
+    expect(recovered?.displayName).toBe('Newest valid state');
+    expect((await fs.promises.readdir(stateDir)).sort()).toEqual(['first-write.json']);
+  });
+
+  it('recovers a complete first-write snapshot staging file after a crash', async () => {
+    const snapshotDir = path.join(mockState.userDataDir, 'session-continuity', 'snapshots');
+    await fs.promises.mkdir(snapshotDir, { recursive: true });
+    const snapshotState = makeState('snapshot-owner');
+    const snapshot: SessionSnapshot = {
+      id: 'snap-crash-recovery', instanceId: snapshotState.instanceId,
+      timestamp: Date.now(), state: snapshotState, schemaVersion: 2,
+      metadata: { messageCount: 1, tokensUsed: 123, duration: 1, trigger: 'manual' },
+    };
+    await fs.promises.writeFile(
+      path.join(snapshotDir, 'snap-crash-recovery.json.101-2000-1.tmp'),
+      createEnvelope(snapshot),
+    );
+
+    const manager = createManager();
+    await manager.readyPromise;
+
+    expect(manager.listSnapshots('snapshot-owner')).toEqual([
+      expect.objectContaining({ id: 'snap-crash-recovery', instanceId: 'snapshot-owner' }),
+    ]);
+    expect(await fs.promises.readdir(snapshotDir)).toEqual(['snap-crash-recovery.json']);
+  });
+
+  it('cleans sidecar staging files and promotes only a generation-bound payload', async () => {
+    const stateDir = path.join(mockState.userDataDir, 'session-continuity', 'states');
+    const metadataDir = path.join(mockState.userDataDir, 'session-continuity', 'recovery-metadata');
+    await fs.promises.mkdir(stateDir, { recursive: true });
+    await fs.promises.mkdir(metadataDir, { recursive: true });
+    const stateFile = path.join(stateDir, 'sidecar-crash.json');
+    await fs.promises.writeFile(stateFile, createEnvelope({
+      ...makeState('sidecar-crash'), lastWriteTimestamp: 700,
+    }));
+    const stateStat = await fs.promises.stat(stateFile);
+    const generation = {
+      size: stateStat.size, mtimeMs: stateStat.mtimeMs,
+      ctimeMs: stateStat.ctimeMs, ino: stateStat.ino,
+    };
+    const validStaging = path.join(metadataDir, 'sidecar-crash.json.101-2000-1.tmp');
+    const invalidStaging = path.join(metadataDir, 'sidecar-crash.json.101-2000-2.tmp');
+    const unboundStaging = path.join(metadataDir, 'unbound.json.101-2000-1.tmp');
+    const metadata = {
+      recoveryKey: 'instance:sidecar-crash', sourceInstanceId: 'sidecar-crash',
+      provider: 'claude', lastActivityAt: 700, modifiedAt: stateStat.mtimeMs,
+      messageCount: 1, hasUserPrompt: true, hasAssistantOutput: false,
+      nativeResumeAvailable: false, stateFileGeneration: generation,
+    };
+    await fs.promises.writeFile(validStaging, createEnvelope(metadata));
+    await fs.promises.writeFile(invalidStaging, createEnvelope({
+      ...metadata, stateFileGeneration: { ...generation, ino: generation.ino + 1 },
+    }));
+    await fs.promises.writeFile(unboundStaging, createEnvelope({
+      ...metadata, sourceInstanceId: 'unbound',
+    }));
+    await fs.promises.utimes(validStaging, new Date(1_000), new Date(1_000));
+    await fs.promises.utimes(invalidStaging, new Date(2_000), new Date(2_000));
+
+    const manager = createManager();
+    await manager.readyPromise;
+
+    expect(manager.isInitDegraded()).toBe(false);
+    expect(manager.getSessionState('sidecar-crash')).not.toBeNull();
+    expect(await fs.promises.readdir(metadataDir)).toEqual(['sidecar-crash.json']);
+    await expect(readEnvelope<Record<string, unknown>>(path.join(
+      metadataDir, 'sidecar-crash.json',
+    ))).resolves.toMatchObject({
+      sourceInstanceId: 'sidecar-crash', stateFileGeneration: generation,
+    });
+  });
+
+  it('binds the synchronous shutdown sidecar to the state generation', async () => {
+    const manager = createManager();
+    await manager.readyPromise;
+    await manager.importSession({ state: makeState('sync-sidecar') });
+    await manager.updateState('sync-sidecar', { displayName: 'Updated fixture' });
+    manager.shutdown();
+
+    const stateFile = path.join(
+      mockState.userDataDir, 'session-continuity', 'states', 'sync-sidecar.json',
+    );
+    const raw = JSON.parse(await fs.promises.readFile(path.join(
+      mockState.userDataDir, 'session-continuity', 'recovery-metadata', 'sync-sidecar.json',
+    ), 'utf8')) as { data: string };
+    const sidecar = JSON.parse(raw.data) as Record<string, unknown>;
+    const stateStat = await fs.promises.stat(stateFile);
+    expect(sidecar['stateFileGeneration']).toEqual({
+      size: stateStat.size, mtimeMs: stateStat.mtimeMs,
+      ctimeMs: stateStat.ctimeMs, ino: stateStat.ino,
+    });
+  });
+
+  it('atomically replaces a same-size synchronous state before binding its sidecar', async () => {
+    const manager = createManager();
+    await manager.readyPromise;
+    const original = makeState('sync-generation');
+    await manager.importSession({ state: original });
+    const stateFile = path.join(
+      mockState.userDataDir, 'session-continuity', 'states', 'sync-generation.json',
+    );
+    const sidecarFile = path.join(
+      mockState.userDataDir, 'session-continuity', 'recovery-metadata', 'sync-generation.json',
+    );
+    const oldStateStat = await fs.promises.stat(stateFile);
+    const oldSidecar = await fs.promises.readFile(sidecarFile, 'utf8');
+    const replacementName = 'R'.repeat(original.displayName.length);
+    await manager.updateState('sync-generation', { displayName: replacementName });
+
+    manager.shutdown();
+    const newStateStat = await fs.promises.stat(stateFile);
+    await fs.promises.writeFile(sidecarFile, oldSidecar);
+    const records = await manager.listContinuityRecoveryMetadata(0);
+
+    expect(newStateStat.size).toBe(oldStateStat.size);
+    expect(newStateStat.ino).not.toBe(oldStateStat.ino);
+    expect(records).toEqual([expect.objectContaining({ displayName: replacementName })]);
+  });
+
+  it('keeps the synchronous state authoritative when an older queued save resumes after shutdown', async () => {
+    const stateFile = path.join(
+      mockState.userDataDir, 'session-continuity', 'states', 'state-commit-race.json',
+    );
+    const metadataFile = path.join(
+      mockState.userDataDir, 'session-continuity', 'recovery-metadata', 'state-commit-race.json',
+    );
+    const opened = createDeferred();
+    const resume = createDeferred();
+    let interceptWrites = false;
+    let intercepted = false;
+    const manager = createManager({}, {
+      writePayloadAtomic: async (filePath, serialized, canCommit) => {
+        if (interceptWrites && !intercepted && filePath === stateFile) {
+          intercepted = true;
+          opened.resolve();
+          await resume.promise;
+        }
+        return writeContinuityPayloadAsyncAtomic(filePath, serialized, canCommit);
+      },
+    });
+    await manager.readyPromise;
+    await manager.importSession({ state: makeState('state-commit-race') });
+    _resetSessionPersistenceQueueForTesting();
+    await manager.updateState('state-commit-race', { displayName: 'Async version' });
+
+    interceptWrites = true;
+    const queuedSave = manager.queueStateSaveAsync('state-commit-race');
+    await opened.promise;
+    await manager.updateState('state-commit-race', { displayName: 'Shutdown version' });
+    manager.shutdown();
+    resume.resolve();
+    await queuedSave;
+
+    const persistedState = await readEnvelope<SessionState>(stateFile);
+    const sidecar = await readEnvelope<Record<string, unknown>>(metadataFile);
+    const stateStat = await fs.promises.stat(stateFile);
+    expect(persistedState.displayName).toBe('Shutdown version');
+    expect(sidecar).toMatchObject({ displayName: 'Shutdown version' });
+    expect(sidecar['stateFileGeneration']).toEqual({
+      size: stateStat.size, mtimeMs: stateStat.mtimeMs,
+      ctimeMs: stateStat.ctimeMs, ino: stateStat.ino,
+    });
+    const stateEntries = await fs.promises.readdir(path.dirname(stateFile));
+    expect(stateEntries.filter((file) => file.endsWith('.tmp'))).toEqual([]);
+  });
+
+  it('keeps the synchronous sidecar coherent when an older sidecar commit resumes after shutdown', async () => {
+    const stateFile = path.join(
+      mockState.userDataDir, 'session-continuity', 'states', 'sidecar-commit-race.json',
+    );
+    const metadataFile = path.join(
+      mockState.userDataDir, 'session-continuity', 'recovery-metadata', 'sidecar-commit-race.json',
+    );
+    const opened = createDeferred();
+    const resume = createDeferred();
+    let interceptWrites = false;
+    let intercepted = false;
+    const manager = createManager({}, {
+      writePayloadAtomic: async (filePath, serialized, canCommit) => {
+        if (interceptWrites && !intercepted && filePath === metadataFile) {
+          intercepted = true;
+          opened.resolve();
+          await resume.promise;
+        }
+        return writeContinuityPayloadAsyncAtomic(filePath, serialized, canCommit);
+      },
+    });
+    await manager.readyPromise;
+    await manager.importSession({ state: makeState('sidecar-commit-race') });
+    _resetSessionPersistenceQueueForTesting();
+    await manager.updateState('sidecar-commit-race', { displayName: 'Async version' });
+
+    interceptWrites = true;
+    const queuedSave = manager.queueStateSaveAsync('sidecar-commit-race');
+    await opened.promise;
+    await manager.updateState('sidecar-commit-race', { displayName: 'Shutdown version' });
+    manager.shutdown();
+    resume.resolve();
+    await queuedSave;
+
+    const persistedState = await readEnvelope<SessionState>(stateFile);
+    const sidecar = await readEnvelope<Record<string, unknown>>(metadataFile);
+    const stateStat = await fs.promises.stat(stateFile);
+    expect(persistedState.displayName).toBe('Shutdown version');
+    expect(sidecar).toMatchObject({ displayName: 'Shutdown version' });
+    expect(sidecar['stateFileGeneration']).toEqual({
+      size: stateStat.size, mtimeMs: stateStat.mtimeMs,
+      ctimeMs: stateStat.ctimeMs, ino: stateStat.ino,
+    });
+    const metadataEntries = await fs.promises.readdir(path.dirname(metadataFile));
+    expect(metadataEntries.filter((file) => file.endsWith('.tmp'))).toEqual([]);
+  });
+
+  it('does not commit a pre-shutdown queued save after it acquires the mutex later', async () => {
+    const attempted = createDeferred();
+    let observeAcquire = false;
+    const manager = createManager({}, {
+      acquireSaveLock: async (instanceId, source) => {
+        if (observeAcquire && instanceId === 'mutex-wait-race' && source === 'auto-save') {
+          attempted.resolve();
+        }
+        return getSessionMutex().acquire(instanceId, source);
+      },
+    });
+    await manager.readyPromise;
+    await manager.importSession({ state: makeState('mutex-wait-race') });
+    _resetSessionPersistenceQueueForTesting();
+    await manager.updateState('mutex-wait-race', { displayName: 'Shutdown version' });
+    const stateFile = path.join(
+      mockState.userDataDir, 'session-continuity', 'states', 'mutex-wait-race.json',
+    );
+    const metadataFile = path.join(
+      mockState.userDataDir, 'session-continuity', 'recovery-metadata', 'mutex-wait-race.json',
+    );
+    const mutex = getSessionMutex();
+    const release = await mutex.acquire('mutex-wait-race', 'test-holder');
+
+    observeAcquire = true;
+    const queuedSave = manager.queueStateSaveAsync('mutex-wait-race');
+    await attempted.promise;
+    manager.shutdown();
+    const shutdownGeneration = await fs.promises.stat(stateFile);
+    release();
+    await queuedSave;
+
+    const finalGeneration = await fs.promises.stat(stateFile);
+    const sidecar = await readEnvelope<Record<string, unknown>>(metadataFile);
+    expect(finalGeneration.ino).toBe(shutdownGeneration.ino);
+    expect(sidecar['stateFileGeneration']).toEqual({
+      size: shutdownGeneration.size, mtimeMs: shutdownGeneration.mtimeMs,
+      ctimeMs: shutdownGeneration.ctimeMs, ino: shutdownGeneration.ino,
+    });
+  });
+
+  it('rewrites the recovery sidecar when startup normalization rewrites state', async () => {
+    const stateDir = path.join(mockState.userDataDir, 'session-continuity', 'states');
+    const metadataDir = path.join(mockState.userDataDir, 'session-continuity', 'recovery-metadata');
+    await fs.promises.mkdir(stateDir, { recursive: true });
+    await fs.promises.mkdir(metadataDir, { recursive: true });
+    const duplicated = makeState('normalized-sidecar');
+    duplicated.conversationHistory.push({
+      ...duplicated.conversationHistory[0], content: 'replacement fixture', timestamp: 500,
+    });
+    const stateFile = path.join(stateDir, 'normalized-sidecar.json');
+    await fs.promises.writeFile(stateFile, createEnvelope(duplicated));
+    const oldStat = await fs.promises.stat(stateFile);
+    await fs.promises.writeFile(path.join(metadataDir, 'normalized-sidecar.json'), createEnvelope({
+      recoveryKey: 'instance:normalized-sidecar', sourceInstanceId: 'normalized-sidecar',
+      provider: 'claude', lastActivityAt: 500, modifiedAt: oldStat.mtimeMs,
+      messageCount: 2, hasUserPrompt: true, hasAssistantOutput: false,
+      nativeResumeAvailable: false,
+      stateFileGeneration: {
+        size: oldStat.size, mtimeMs: oldStat.mtimeMs,
+        ctimeMs: oldStat.ctimeMs, ino: oldStat.ino,
+      },
+    }));
+
+    const manager = createManager();
+    await manager.readyPromise;
+
+    const rewrittenStat = await fs.promises.stat(stateFile);
+    const raw = JSON.parse(await fs.promises.readFile(
+      path.join(metadataDir, 'normalized-sidecar.json'), 'utf8',
+    )) as { data: string };
+    const sidecar = JSON.parse(raw.data) as Record<string, unknown>;
+    expect(sidecar).toMatchObject({ messageCount: 1, lastActivityAt: 500 });
+    expect(sidecar['stateFileGeneration']).toEqual({
+      size: rewrittenStat.size, mtimeMs: rewrittenStat.mtimeMs,
+      ctimeMs: rewrittenStat.ctimeMs, ino: rewrittenStat.ino,
+    });
+  });
+
+  it('keeps normalized state available when only its startup sidecar write fails', async () => {
+    const stateDir = path.join(mockState.userDataDir, 'session-continuity', 'states');
+    await fs.promises.mkdir(stateDir, { recursive: true });
+    const duplicated = makeState('normalization-sidecar-failure');
+    duplicated.conversationHistory.push({
+      ...duplicated.conversationHistory[0], content: 'replacement fixture', timestamp: 500,
+    });
+    await fs.promises.writeFile(
+      path.join(stateDir, 'normalization-sidecar-failure.json'), createEnvelope(duplicated),
+    );
+    const manager = createManager({}, {
+      writePayloadAtomic: async (filePath, serialized, canCommit) => {
+        if (filePath.includes(`${path.sep}recovery-metadata${path.sep}`)) {
+          throw Object.assign(new Error('fixture sidecar failure'), { code: 'EIO' });
+        }
+        return writeContinuityPayloadAsyncAtomic(filePath, serialized, canCommit);
+      },
+    });
+    await manager.readyPromise;
+    const records = await manager.listContinuityRecoveryMetadata(0);
+
+    expect(manager.isInitDegraded()).toBe(false);
+    expect(manager.getSessionState('normalization-sidecar-failure')).not.toBeNull();
+    expect(records).toEqual([expect.objectContaining({
+      sourceInstanceId: 'normalization-sidecar-failure', messageCount: 1,
+    })]);
+    expect(mockState.logger.warn).toHaveBeenCalledWith(
+      'Failed to update recovery metadata after state normalization',
+      { failed: 1 },
+    );
+    expect(JSON.stringify(mockState.logger.warn.mock.calls)).not.toContain(
+      'normalization-sidecar-failure',
+    );
+  });
+
+  it('keeps normalized state available when binding its optional sidecar cannot stat state', async () => {
+    const stateDir = path.join(mockState.userDataDir, 'session-continuity', 'states');
+    await fs.promises.mkdir(stateDir, { recursive: true });
+    const duplicated = makeState('normalization-sidecar-stat-failure');
+    duplicated.conversationHistory.push({
+      ...duplicated.conversationHistory[0], content: 'replacement fixture', timestamp: 500,
+    });
+    const stateFile = path.join(stateDir, 'normalization-sidecar-stat-failure.json');
+    await fs.promises.writeFile(stateFile, createEnvelope(duplicated));
+    let failed = false;
+    const manager = createManager({}, {
+      statStateFile: async (filePath) => {
+        if (!failed && filePath === stateFile) {
+          failed = true;
+          throw Object.assign(new Error('sensitive stat fixture'), { code: 'EIO' });
+        }
+        return fs.promises.stat(filePath);
+      },
+    });
+
+    await manager.readyPromise;
+    const records = await manager.listContinuityRecoveryMetadata(0);
+
+    expect(failed).toBe(true);
+    expect(manager.isInitDegraded()).toBe(false);
+    expect(manager.getSessionState('normalization-sidecar-stat-failure')).not.toBeNull();
+    expect(records).toEqual([expect.objectContaining({
+      sourceInstanceId: 'normalization-sidecar-stat-failure', messageCount: 1,
+    })]);
+    expect(mockState.logger.warn).toHaveBeenCalledWith(
+      'Failed to update recovery metadata after state normalization',
+      { failed: 1 },
+    );
+    const warningPayload = JSON.stringify(mockState.logger.warn.mock.calls);
+    expect(warningPayload).not.toContain('normalization-sidecar-stat-failure');
+    expect(warningPayload).not.toContain('sensitive stat fixture');
+  });
+
+  it('treats an errored instance as non-live for snapshot prioritization', async () => {
+    const manager = createManager();
+    await manager.readyPromise;
+    await manager.importSession({ state: makeState('errored-instance') });
+    manager.setInstanceManager({
+      getAdapter: () => undefined,
+      getInstance: () => ({ status: 'error' }),
+    });
+
+    const record = manager.buildRecoverableSessionList()
+      .find((session) => session.instanceId === 'errored-instance');
+
+    expect(record?.isLive).toBe(false);
   });
 
   afterEach(async () => {
@@ -247,7 +1220,7 @@ describe('SessionContinuityManager logging', () => {
     readFileSpy.mockRestore();
   });
 
-  it('logs invalid outer JSON with preview metadata', async () => {
+  it('logs invalid outer JSON without leaking payload content', async () => {
     const manager = createManager();
     await manager.readyPromise;
 
@@ -261,9 +1234,9 @@ describe('SessionContinuityManager logging', () => {
       expect.objectContaining({
         filePath: '/tmp/invalid.json',
         rawLength: 9,
-        rawPreview: '{"broken"',
       })
     );
+    expect(errorCall?.[2]).not.toHaveProperty('rawPreview');
   });
 
   it('logs decrypt failures with envelope metadata', async () => {

@@ -3,7 +3,6 @@
  */
 
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
-import { FormsModule } from '@angular/forms';
 import type { SettingMetadata } from '../../../../shared/types/settings.types';
 
 interface SettingRowApi {
@@ -16,7 +15,6 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
 @Component({
   selector: 'app-setting-row',
   standalone: true,
-  imports: [FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="setting-row" [attr.data-tone]="rowTone()">
@@ -47,11 +45,10 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
           @case ('select') {
             <select
               [id]="setting().key"
-              [value]="value()"
               (change)="onSelectChange($event)"
             >
               @for (option of selectOptions(); track option.value) {
-                <option [value]="option.value">
+                <option [value]="option.value" [selected]="isSelectedOption(option.value)">
                   {{ option.label }}
                 </option>
               }
@@ -171,6 +168,10 @@ export class SettingRowComponent {
   onSelectChange(event: Event): void {
     const value = (event.target as HTMLSelectElement).value;
     this.valueChange.emit({ key: this.setting().key, value });
+  }
+
+  isSelectedOption(optionValue: string | number): boolean {
+    return String(optionValue) === String(this.value());
   }
 
   onNumberChange(event: Event): void {

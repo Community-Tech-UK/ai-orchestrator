@@ -15,6 +15,8 @@ export const SESSION_CHANNELS = {
   SESSION_SHARE_REPLAY: 'session:share-replay',
   SESSION_LIST_RESUMABLE: 'session:list-resumable',
   SESSION_RESUME: 'session:resume',
+  SESSION_RECOVERY_LIST: 'session:recovery-list',
+  SESSION_RECOVERY_RESTORE: 'session:recovery-restore',
   SESSION_LIST_SNAPSHOTS: 'session:list-snapshots',
   SESSION_CREATE_SNAPSHOT: 'session:create-snapshot',
   SESSION_GET_STATS: 'session:get-stats',

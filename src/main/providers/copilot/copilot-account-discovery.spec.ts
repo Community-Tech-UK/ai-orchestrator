@@ -115,3 +115,45 @@ describe('discoverCopilotAccounts', () => {
     expect(await discoverCopilotAccounts({ configPath })).toEqual([]);
   });
 });
+
+describe("a profile added before the login was recorded", () => {
+  // James's real on-disk state, 2026-08-31:
+  //   id=lawrencj-pe1  label=LAWRENCJ_PE1  expectedLogin=null
+  // Created by the [Add] button before `createProfile` recorded the login.
+  // Matching on `expectedLogin` alone meant this profile never matched itself,
+  // so the menu kept offering LAWRENCJ_PE1 as a fresh suggestion beside the
+  // real one. Recording the login fixed NEW profiles; this is what heals the
+  // record already on disk.
+  it('is recognised by its label, so it is not offered again', async () => {
+    const configPath = writeShared(
+      JSON.stringify({
+        loggedInUsers: [
+          { host: 'https://github.com', login: 'shutupandshave' },
+          { host: 'https://github.com', login: 'LAWRENCJ_PE1' },
+        ],
+      }),
+    );
+
+    const found = await discoverCopilotAccounts({
+      configPath,
+      existing: [
+        { login: 'shutupandshave', label: 'Existing Copilot account', host: 'github.com' },
+        { login: null, label: 'LAWRENCJ_PE1', host: 'github.com' },
+      ],
+    });
+
+    expect(found.find((a) => a.login === 'LAWRENCJ_PE1')?.alreadyAdded).toBe(true);
+    expect(found.find((a) => a.login === 'shutupandshave')?.alreadyAdded).toBe(true);
+  });
+
+  it('still offers an account that genuinely has no profile', async () => {
+    const configPath = writeShared(
+      JSON.stringify({ loggedInUsers: [{ host: 'github.com', login: 'someone-else' }] }),
+    );
+    const found = await discoverCopilotAccounts({
+      configPath,
+      existing: [{ login: null, label: 'LAWRENCJ_PE1', host: 'github.com' }],
+    });
+    expect(found.find((a) => a.login === 'someone-else')?.alreadyAdded).toBe(false);
+  });
+});

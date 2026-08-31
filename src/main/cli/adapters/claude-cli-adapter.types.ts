@@ -64,7 +64,9 @@ export interface RawCliPayload {
   };
   total_cost_usd?: number;
   session_id?: string;
-  error?: { code: string; message: string };
+  error?: string | { code: string; message: string };
+  /** Claude marks synthetic API failures that arrive in an assistant envelope. */
+  isApiErrorMessage?: boolean;
   prompt?: string;
   metadata?: Record<string, unknown>;
   tool_use_id?: string;

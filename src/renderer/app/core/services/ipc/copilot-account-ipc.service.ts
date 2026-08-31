@@ -113,6 +113,7 @@ export class CopilotAccountIpcService {
     label: string;
     accountKind: CopilotAccountKind;
     host?: string;
+    expectedLogin?: string;
     scopePolicy?: CopilotAccountScopePolicy;
     automationPolicy?: CopilotAutomationPolicy;
     makeDefault?: boolean;
@@ -156,6 +157,9 @@ export class CopilotAccountIpcService {
     profileId: string;
     matcher: CopilotRoutingMatcher;
     isProtected?: boolean;
+    /** Move this target to the account, replacing any rule already on it. */
+    replaceExisting?: boolean;
+    confirmProtectedOverride?: boolean;
   }): Promise<IpcResponse> {
     return this.api?.createCopilotAccountRule(input) ?? Promise.resolve(NOT_ELECTRON);
   }

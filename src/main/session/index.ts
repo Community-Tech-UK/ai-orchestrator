@@ -6,5 +6,6 @@
 
 export * from './session-archive';
 export * from './session-continuity';
+export * from './session-recovery-candidate-service';
 export * from './checkpoint-manager';
 export * from './session-share-service';

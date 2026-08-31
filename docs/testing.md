@@ -36,6 +36,29 @@ The default suite excludes `*.e2e.spec.ts` and `**/soak.spec.ts`. Run those with
 - `--local-user-data=<path>` overrides discovery entirely (points at any user-data root, e.g. a specific instance or a throwaway fixture) — useful for testing this command itself without touching a real store.
 - See the WS16 livetest for the manual store-mtime verification procedure.
 
+## Reading the Result
+
+The **last line** is the verdict, on both paths:
+
+```
+✓ 1827 files · 19604 tests passed in 321.7s
+✗ FAILED — 2 of 19706 tests failed (exit 1).
+```
+
+Two traps, both of which have produced a false "green" in practice:
+
+- **Do not pipe when the exit code matters.** `npm run test:quiet | tail -3`
+  reports the exit status of `tail`, not the run. Use `${PIPESTATUS[0]}`,
+  redirect instead (`> out.txt 2>&1`), or read the verdict line.
+- **`grep -c '✗' _scratch/test-run.log` is not a failure check.** That log is
+  vitest's raw output; the curated failure list is on the wrapper's stdout. An
+  empty grep there says nothing about pass/fail.
+
+The wrapper floors its exit code to 1 whenever the JSON report contains a failed
+test, because vitest itself has been observed exiting 0 with failures. If you
+need the counts programmatically, read `_scratch/test-results[.suffix].json`
+(`numFailedTests`, `success`) rather than inferring from output.
+
 ## Cache and CI
 
 - The local cache is enabled by default. After mass deletes or renames, use `AIO_TEST_NO_CACHE=1` or `--no-cache`.

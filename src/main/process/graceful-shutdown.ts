@@ -7,8 +7,8 @@
  *
  * Phases run in ascending priority order. Within the same priority,
  * sync handlers run before async handlers. Each phase has an individual
- * time budget; a timed-out phase is skipped (status: 'timeout') and
- * execution continues with the next phase.
+ * time budget; when the timeout timer wins the cooperative race, execution
+ * continues with the next phase.
  *
  * Backward compat: registerCleanupCompat() wraps existing cleanup
  * functions into the FINAL_CLEANUP phase so existing registerCleanup
@@ -62,13 +62,62 @@ export interface PhaseResult {
   priority: number;
   status: 'completed' | 'timeout' | 'error';
   durationMs: number;
-  error?: Error;
+  errorKind?: ShutdownPhaseFailureKind;
+}
+
+export type ShutdownPhaseOutcome = 'started' | 'completed' | 'failed' | 'timed-out';
+export type ShutdownPhaseFailureKind =
+  | 'error'
+  | 'type-error'
+  | 'range-error'
+  | 'aggregate-error'
+  | 'non-error';
+
+export interface ShutdownPhaseEvent {
+  phase: string;
+  priority: number;
+  outcome: ShutdownPhaseOutcome;
+  elapsedMs: number;
+  budgetMs: number;
+  timestamp: number;
 }
 
 export interface ShutdownReport {
   phases: PhaseResult[];
+  events: ShutdownPhaseEvent[];
   totalDurationMs: number;
   orphanDetected: boolean;
+}
+
+export interface ShutdownPhaseAuditSummary {
+  name: string;
+  status: PhaseResult['status'];
+  durationMs: number;
+  errorKind?: ShutdownPhaseFailureKind;
+}
+
+export interface GracefulQuitFlowOptions {
+  cleanupSync: () => void;
+  cleanup: () => Promise<void>;
+  preventDefault: () => void;
+  quit: () => void;
+  exit: (code: number) => void;
+  timeoutMs: number;
+  onTimeout?: () => void;
+  onFailure?: (error: unknown) => void;
+  onFinished?: () => void;
+  setTimeoutFn?: (handler: () => void, timeoutMs: number) => ReturnType<typeof setTimeout>;
+  clearTimeoutFn?: (timeout: ReturnType<typeof setTimeout>) => void;
+}
+
+class ShutdownPhaseTimeoutError extends Error {
+  constructor(
+    readonly phaseName: string,
+    readonly budgetMs: number,
+  ) {
+    super(`Shutdown phase timed out after ${budgetMs}ms`);
+    this.name = 'ShutdownPhaseTimeoutError';
+  }
 }
 
 // ── Implementation ────────────────────────────────────────────────────────────
@@ -150,6 +199,7 @@ export class GracefulShutdownManager {
   async execute(oneShotPhases: ShutdownPhase[] = []): Promise<ShutdownReport> {
     const startTime = Date.now();
     const results: PhaseResult[] = [];
+    const events: ShutdownPhaseEvent[] = [];
 
     if (this.orphanCheckInterval !== null) {
       clearInterval(this.orphanCheckInterval);
@@ -168,27 +218,25 @@ export class GracefulShutdownManager {
     for (const phase of sorted) {
       const budget = phase.budgetMs ?? DEFAULT_BUDGETS[phase.priority] ?? DEFAULT_BUDGET_FALLBACK;
       const phaseStart = Date.now();
+      this.recordPhaseEvent(events, phase, 'started', 0, budget);
 
       try {
-        await Promise.race([
-          Promise.resolve(phase.handler()),
-          new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error(`Phase "${phase.name}" timed out after ${budget}ms`)), budget)
-          ),
-        ]);
+        await this.runPhaseWithBudget(phase, budget);
 
+        const durationMs = Date.now() - phaseStart;
+        this.recordPhaseEvent(events, phase, 'completed', durationMs, budget);
         results.push({
           name: phase.name,
           priority: phase.priority,
           status: 'completed',
-          durationMs: Date.now() - phaseStart,
+          durationMs,
         });
       } catch (err) {
         const durationMs = Date.now() - phaseStart;
-        const isTimeout = err instanceof Error && err.message.includes('timed out after');
+        const isTimeout = err instanceof ShutdownPhaseTimeoutError;
 
         if (isTimeout) {
-          logger.warn(`Shutdown phase timed out`, { phase: phase.name, budgetMs: budget });
+          this.recordPhaseEvent(events, phase, 'timed-out', durationMs, budget);
           results.push({
             name: phase.name,
             priority: phase.priority,
@@ -196,14 +244,14 @@ export class GracefulShutdownManager {
             durationMs,
           });
         } else {
-          const error = err instanceof Error ? err : new Error(String(err));
-          logger.error(`Shutdown phase failed`, error, { phase: phase.name });
+          const errorKind = classifyShutdownPhaseFailure(err);
+          this.recordPhaseEvent(events, phase, 'failed', durationMs, budget, errorKind);
           results.push({
             name: phase.name,
             priority: phase.priority,
             status: 'error',
             durationMs,
-            error,
+            errorKind,
           });
         }
       }
@@ -211,12 +259,115 @@ export class GracefulShutdownManager {
 
     return {
       phases: results,
+      events,
       totalDurationMs: Date.now() - startTime,
       orphanDetected: process.platform !== 'win32' && process.ppid === 1,
     };
   }
+
+  private async runPhaseWithBudget(phase: ShutdownPhase, budgetMs: number): Promise<void> {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeout = setTimeout(
+        () => reject(new ShutdownPhaseTimeoutError(phase.name, budgetMs)),
+        budgetMs,
+      );
+    });
+
+    try {
+      // Cooperative budget only: Promise.race lets shutdown continue after the
+      // timeout callback is delivered, but it cannot interrupt synchronous work
+      // or make progress while the event loop is blocked.
+      await Promise.race([
+        Promise.resolve().then(() => phase.handler()),
+        timeoutPromise,
+      ]);
+    } finally {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+    }
+  }
+
+  private recordPhaseEvent(
+    events: ShutdownPhaseEvent[],
+    phase: ShutdownPhase,
+    outcome: ShutdownPhaseOutcome,
+    elapsedMs: number,
+    budgetMs: number,
+    errorKind?: ShutdownPhaseFailureKind,
+  ): void {
+    const event: ShutdownPhaseEvent = {
+      phase: phase.name,
+      priority: phase.priority,
+      outcome,
+      elapsedMs,
+      budgetMs,
+      timestamp: Date.now(),
+    };
+    events.push(event);
+
+    const logData: Record<string, unknown> = {
+      phase: event.phase,
+      priority: event.priority,
+      outcome: event.outcome,
+      elapsedMs: event.elapsedMs,
+      budgetMs: event.budgetMs,
+    };
+    if (errorKind) {
+      logData['errorKind'] = errorKind;
+    }
+
+    if (outcome === 'timed-out') {
+      logger.warn('Shutdown phase budget elapsed; continuing cooperatively', logData);
+    } else if (outcome === 'failed') {
+      logger.error('Shutdown phase failed', undefined, logData);
+    } else {
+      logger.info('Shutdown phase event', logData);
+    }
+  }
+}
+
+function classifyShutdownPhaseFailure(error: unknown): ShutdownPhaseFailureKind {
+  if (error instanceof AggregateError) return 'aggregate-error';
+  if (error instanceof TypeError) return 'type-error';
+  if (error instanceof RangeError) return 'range-error';
+  if (error instanceof Error) return 'error';
+  return 'non-error';
+}
+
+export function toShutdownPhaseAuditSummary(phase: PhaseResult): ShutdownPhaseAuditSummary {
+  return {
+    name: phase.name,
+    status: phase.status,
+    durationMs: phase.durationMs,
+    errorKind: phase.errorKind,
+  };
 }
 
 export function getGracefulShutdownManager(): GracefulShutdownManager {
   return GracefulShutdownManager.getInstance();
+}
+
+export function startGracefulQuitFlow(options: GracefulQuitFlowOptions): void {
+  const setTimeoutFn = options.setTimeoutFn ?? setTimeout;
+  const clearTimeoutFn = options.clearTimeoutFn ?? clearTimeout;
+
+  options.cleanupSync();
+  options.preventDefault();
+
+  const timeout = setTimeoutFn(() => {
+    options.onTimeout?.();
+    options.exit(0);
+  }, options.timeoutMs);
+
+  options.cleanup()
+    .catch((error) => {
+      options.onFailure?.(error);
+    })
+    .finally(() => {
+      clearTimeoutFn(timeout);
+      options.onFinished?.();
+      options.quit();
+    });
 }

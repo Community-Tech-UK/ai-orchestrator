@@ -127,6 +127,50 @@ describe('observeAdapterRuntimeEvents', () => {
     });
   });
 
+  it('normalizes the actual Claude tool and complete payload shapes losslessly', () => {
+    expect(mapAdapterRuntimeEvent('tool_use', [{
+      id: 'call-placeholder',
+      name: 'Read',
+      input: { path: '/fixture' },
+    }])?.event).toEqual({
+      kind: 'tool_use',
+      toolName: 'Read',
+      toolUseId: 'call-placeholder',
+      input: { path: '/fixture' },
+    });
+    expect(mapAdapterRuntimeEvent('tool_result', [{
+      tool_use_id: 'call-placeholder',
+      name: 'Read',
+      content: 'fixture result',
+      is_error: true,
+    }])?.event).toEqual({
+      kind: 'tool_result',
+      toolName: 'Read',
+      toolUseId: 'call-placeholder',
+      success: false,
+      output: 'fixture result',
+      error: 'fixture result',
+    });
+    expect(mapAdapterRuntimeEvent('complete', [{
+      usage: {
+        inputTokens: 11,
+        outputTokens: 7,
+        cacheReadTokens: 5,
+        cacheWriteTokens: 3,
+        reasoningTokens: 2,
+        totalTokens: 28,
+      },
+    }])?.event).toMatchObject({
+      kind: 'complete',
+      inputTokens: 11,
+      outputTokens: 7,
+      cacheReadTokens: 5,
+      cacheWriteTokens: 3,
+      reasoningTokens: 2,
+      tokensUsed: 28,
+    });
+  });
+
   it('normalizes provider diagnostics from context and complete payloads', () => {
     const adapter = new EventEmitter();
     const events: NormalizedAdapterRuntimeEvent[] = [];

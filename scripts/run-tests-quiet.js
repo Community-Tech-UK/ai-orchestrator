@@ -461,6 +461,28 @@ async function summarizeFailuresLocally(failures) {
 
 // ---------------------------------------------------------------------------
 
+
+/**
+ * The single line that states pass/fail, printed LAST on both paths.
+ *
+ * On success the summary was already the final line, but on failure it was the
+ * FIRST thing printed, above pages of stack traces. Anyone reading a truncated
+ * view — `| tail -3`, a CI log excerpt, a chat paste — saw a stack trace
+ * followed by `full log: ...` and read it as green. Repeating the verdict at
+ * the end makes the two paths symmetrical, so the last line is always the
+ * answer.
+ *
+ * Note for callers: piping this script (`npm run test:quiet | tail`) reports
+ * the PIPE's exit status, not this script's. Read this line, or use
+ * `${PIPESTATUS[0]}`, when the exit code matters.
+ */
+function formatVerdictLine(report, exitCode) {
+  if (report && report.numFailedTests > 0) {
+    return `✗ FAILED — ${report.numFailedTests} of ${report.numTotalTests} tests failed (exit ${exitCode !== 0 ? exitCode : 1}).`;
+  }
+  return `✗ FAILED — the run produced no usable JSON report (exit ${exitCode !== 0 ? exitCode : 1}).`;
+}
+
 async function main() {
   ensureScratch();
   if (!isTargetedRun) runPreflight();
@@ -510,6 +532,10 @@ async function main() {
       for (const ml of summary.text.split('\n')) log(`  ${ml}`);
     }
   }
+
+  // Verdict last, so a truncated read cannot mistake this for a pass.
+  log('');
+  log(formatVerdictLine(report, exitCode));
 
   // Contract: the exit code must reflect real pass/fail. vitest can exit 0
   // even when its JSON report contains failed tests (observed 2026-07-01 on

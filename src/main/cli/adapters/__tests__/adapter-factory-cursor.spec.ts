@@ -12,6 +12,9 @@ describe('adapter factory — cursor', () => {
     const adapter = createCliAdapter('cursor', { workingDirectory: '/tmp' });
     expect(adapter.constructor.name).toBe('AcpCliAdapter');
     expect(adapter.getName()).toBe('cursor-acp');
+    expect((adapter as unknown as {
+      acpConfig: { authMethodId?: string };
+    }).acpConfig.authMethodId).toBe('cursor_login');
   });
 
   it('passes resume session options through to the ACP adapter', () => {

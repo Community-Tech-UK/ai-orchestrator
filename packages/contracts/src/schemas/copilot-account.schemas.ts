@@ -39,12 +39,36 @@ export const CopilotHostSchema = z
     'Host must be an exact lowercase hostname',
   );
 
-/** GitHub login/owner segment. GitHub allows alphanumerics and single hyphens. */
+/**
+ * Owner segment of a git remote, always lowercased by the remote parser.
+ *
+ * Underscores are allowed because an Enterprise Managed User's login — and so
+ * the owner of their personal repositories — is `<name>_<enterprise-shortcode>`.
+ * The original pattern permitted only alphanumerics and hyphens, which rejected
+ * every EMU account outright.
+ */
 export const CopilotOwnerSchema = z
   .string()
   .min(1)
-  .max(39)
-  .regex(/^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?$/, 'Owner must be a lowercase GitHub login');
+  .max(64)
+  .regex(/^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$/, 'Owner must be a lowercase GitHub login');
+
+/**
+ * A GitHub LOGIN as the provider reports it — case preserved.
+ *
+ * Deliberately separate from the owner segment above. Copilot reports an
+ * Enterprise Managed User as e.g. `LAWRENCJ_PE1`: uppercase, with an
+ * underscore. Validating that with the lowercase owner pattern made it
+ * impossible to record the identity of an EMU account at all — and because the
+ * store re-validates the WHOLE profile array on every write, one such record
+ * would have blocked every later mutation.
+ */
+export const CopilotLoginSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .regex(/^[A-Za-z0-9](?:[A-Za-z0-9_-]{0,62}[A-Za-z0-9])?$/, 'Must be a GitHub login');
 
 /** Repository name segment, `.git` already stripped. */
 export const CopilotRepoSchema = z
@@ -63,7 +87,7 @@ export const CopilotAccountProfileSchema = z
   .object({
     id: CopilotProfileIdSchema,
     label: z.string().trim().min(1).max(64),
-    expectedLogin: z.union([CopilotOwnerSchema, z.null()]),
+    expectedLogin: z.union([CopilotLoginSchema, z.null()]),
     host: CopilotHostSchema,
     accountKind: CopilotAccountKindSchema,
     scopePolicy: CopilotAccountScopePolicySchema,
@@ -256,6 +280,8 @@ export const CopilotAccountCreatePayloadSchema = z
     scopePolicy: CopilotAccountScopePolicySchema.optional(),
     automationPolicy: CopilotAutomationPolicySchema.optional(),
     makeDefault: z.boolean().optional(),
+    /** Known identity, when adding an account Copilot already reports. */
+    expectedLogin: CopilotLoginSchema.optional(),
   })
   .strict();
 
@@ -288,7 +314,7 @@ export const CopilotAccountAdoptIdentityPayloadSchema = z
   .object({
     ...ipcAuthTokenField,
     profileId: CopilotProfileIdSchema,
-    login: CopilotOwnerSchema,
+    login: CopilotLoginSchema,
     host: CopilotHostSchema.optional(),
   })
   .strict();
@@ -299,6 +325,12 @@ export const CopilotAccountRuleCreatePayloadSchema = z
     profileId: CopilotProfileIdSchema,
     matcher: CopilotRoutingMatcherSchema,
     isProtected: z.boolean().optional(),
+    /** Point the target at this account, replacing any rule already on it —
+     *  what the project menu's one-click swap needs. */
+    replaceExisting: z.boolean().optional(),
+    /** Required to replace a PROTECTED rule; a protected scope must not be
+     *  moved to another account by a single unconfirmed click. */
+    confirmProtectedOverride: z.boolean().optional(),
   })
   .strict();
 

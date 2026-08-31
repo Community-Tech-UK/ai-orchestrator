@@ -36,6 +36,7 @@ import { CommandPaletteComponent } from '../commands/command-palette.component';
 import { CommandHelpHostComponent } from '../commands/command-help-host.component';
 import { SessionPickerHostComponent } from '../sessions/session-picker-host.component';
 import { ResumePickerHostComponent } from '../resume/resume-picker-host.component';
+import { ResumePickerController } from '../resume/resume-picker.controller';
 import { ModelPickerFocusService } from '../models/model-picker-focus.service';
 import { PromptHistorySearchHostComponent } from '../prompt-history/prompt-history-search-host.component';
 import { FileExplorerComponent } from '../file-explorer/file-explorer.component';
@@ -50,6 +51,7 @@ import { SidebarFooterComponent } from './sidebar-footer.component';
 import { WorkspaceRailComponent } from './workspace-rail.component';
 import { BrowserPreviewNoticeComponent } from './browser-preview-notice.component';
 import { SessionProgressPanelComponent } from '../instance-detail/session-progress-panel.component';
+import { SessionRecoveryBannerComponent } from '../../shared/components/session-recovery-banner/session-recovery-banner.component';
 import { DEFAULT_KEYBINDING_ELIGIBILITY_STATE } from '../../../../shared/types/keybinding.types';
 import {
   resolveDashboardProjectContext,
@@ -80,7 +82,8 @@ import { runCancelOperationCascade } from './dashboard-cancel-operation';
     SidebarNavComponent,
     SidebarFooterComponent,
     BrowserPreviewNoticeComponent,
-    SessionProgressPanelComponent
+    SessionProgressPanelComponent,
+    SessionRecoveryBannerComponent
   ],
   templateUrl: './dashboard.component.html',
   styleUrl: './dashboard.component.scss',
@@ -102,6 +105,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   private scratchDirectory = inject(ScratchDirectoryService);
   private visibleInstanceResolver = inject(VisibleInstanceResolver);
   private modelPickerFocusService = inject(ModelPickerFocusService);
+  private resumePickerController = inject(ResumePickerController);
   sourceControlStore = inject(SourceControlStore);
 
   showHistory = signal(false);
@@ -476,7 +480,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
       this.actionDispatch.register({
         id: 'resume.openPicker',
         run: () => {
-          this.showResumePicker.set(true);
+          this.openResumePicker();
         },
       }),
       this.actionDispatch.register({
@@ -561,6 +565,15 @@ export class DashboardComponent implements OnInit, OnDestroy {
     this.showSourceControl.set(false);
     void this.chatStore.selectFirstChat();
   }
+
+  openRecoveryPicker(): void {
+    this.resumePickerController.focusRecoveryContent();
+    this.showResumePicker.set(true);
+  }
+
+  openResumePicker(): void { this.resumePickerController.resetTransientFocus(); this.showResumePicker.set(true); }
+
+  closeResumePicker(): void { this.resumePickerController.resetTransientFocus(); this.showResumePicker.set(false); }
 
   closeAllInstances(): void {
     this.store.terminateAllInstances();

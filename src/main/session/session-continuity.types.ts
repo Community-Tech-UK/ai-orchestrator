@@ -1,4 +1,4 @@
-import type { InstanceProvider } from '../../shared/types/instance.types';
+import type { InstanceProvider, ThinkingContent } from '../../shared/types/instance.types';
 import type { CopilotRouteSource } from '../../shared/types/copilot-account.types';
 
 export interface SessionSnapshot {
@@ -115,13 +115,31 @@ export interface ConversationEntry {
   content: string;
   timestamp: number;
   tokens?: number;
+  tokenUsage?: {
+    input?: number;
+    output?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    reasoning?: number;
+    total?: number;
+  };
   toolUse?: {
+    kind?: 'call' | 'result';
     toolName: string;
     input: unknown;
+    callId?: string;
+    resultForCallId?: string;
     output?: string;
+    isError?: boolean;
   };
   thinking?: string;
+  thinkingBlocks?: ThinkingContent[];
   isCompacted?: boolean;
+  compaction?: {
+    boundary: boolean;
+    markerId?: string;
+    method?: string;
+  };
 }
 
 export interface PendingTask {

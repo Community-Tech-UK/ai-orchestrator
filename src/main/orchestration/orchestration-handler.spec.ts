@@ -203,6 +203,48 @@ describe('OrchestrationHandler.processOutput (streaming markers)', () => {
     ]);
   });
 
+  it('suppresses a user-action response when session admission reports the instance is blocked', () => {
+    const orchestration = new OrchestrationHandler();
+    orchestration.registerInstance('i-blocked', '/tmp', null);
+    orchestration.processOutput('i-blocked', commandBlock({
+      action: 'request_user_action',
+      requestType: 'confirm',
+      title: 'Continue?',
+      message: 'Approve this action?',
+    }));
+    const request = orchestration.getPendingUserActionsForInstance('i-blocked')[0];
+    const injectedResponses: string[] = [];
+    orchestration.on('inject-response', (_instanceId, response) => {
+      injectedResponses.push(response);
+    });
+    admissionMocks.admitAutomatedWrite.mockReturnValueOnce({
+      kind: 'suppressed',
+      reason: 'awaiting-human',
+      admissionId: 'adm-user-action-blocked',
+    });
+
+    orchestration.respondToUserAction(request.id, true);
+
+    expect(admissionMocks.admitAutomatedWrite).toHaveBeenCalledWith(expect.objectContaining({
+      instanceId: 'i-blocked',
+      origin: 'orchestration',
+      sourceMetadata: expect.objectContaining({
+        action: 'user_action_response',
+        success: true,
+      }),
+    }));
+    expect(injectedResponses).toEqual([]);
+  });
+
+  it('registers orchestration responses for redelivery after a blocked instance becomes ready', () => {
+    new OrchestrationHandler();
+
+    expect(admissionMocks.registerRedeliveryHandler).toHaveBeenCalledWith(
+      'orchestration',
+      expect.any(Function),
+    );
+  });
+
   it('reports in-flight consensus queries through active work and get_children', async () => {
     const orchestration = new OrchestrationHandler();
     orchestration.registerInstance('i-5', '/tmp', null);
@@ -469,5 +511,50 @@ describe('OrchestrationHandler.reconcileChildrenAfterRestart', () => {
 
     expect(result).toEqual({ kept: [], dropped: ['child-x'] });
     expect(orchestration.hasActiveWork('parent-3')).toBe(false);
+  });
+
+  it('reports a child reaped while its completion response was suppressed', () => {
+    const orchestration = new OrchestrationHandler();
+    orchestration.registerInstance('parent-restarting', '/tmp', null);
+    orchestration.addChild('parent-restarting', 'child-reaped');
+    admissionMocks.admitAutomatedWrite.mockReturnValueOnce({
+      kind: 'suppressed',
+      reason: 'respawning',
+      admissionId: 'adm-child-reaped',
+    });
+
+    orchestration.notifyChildTerminated('parent-restarting', 'child-reaped');
+    const result = orchestration.reconcileChildrenAfterRestart(
+      'parent-restarting',
+      () => true,
+    );
+
+    expect(result).toEqual({ kept: [], dropped: ['child-reaped'] });
+    expect(admissionMocks.markFailed).toHaveBeenCalledWith(
+      'adm-child-reaped',
+      'Child completion represented by fresh-fallback degradation notice',
+    );
+    expect(orchestration.reconcileChildrenAfterRestart('parent-restarting', () => true))
+      .toEqual({ kept: [], dropped: [] });
+  });
+
+  it('does not classify an ordinary awaiting-human suppression as restart-window loss', () => {
+    const orchestration = new OrchestrationHandler();
+    orchestration.registerInstance('parent-awaiting-human', '/tmp', null);
+    orchestration.addChild('parent-awaiting-human', 'child-completed');
+    admissionMocks.admitAutomatedWrite.mockReturnValueOnce({
+      kind: 'suppressed',
+      reason: 'awaiting-human',
+      admissionId: 'adm-child-awaiting-human',
+    });
+
+    orchestration.notifyChildTerminated('parent-awaiting-human', 'child-completed');
+
+    expect(orchestration.reconcileChildrenAfterRestart('parent-awaiting-human', () => true))
+      .toEqual({ kept: [], dropped: [] });
+    expect(admissionMocks.markFailed).not.toHaveBeenCalledWith(
+      'adm-child-awaiting-human',
+      expect.any(String),
+    );
   });
 });

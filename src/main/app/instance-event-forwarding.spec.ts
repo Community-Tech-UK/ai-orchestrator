@@ -29,6 +29,7 @@ const {
     stopTracking: vi.fn(),
     updateState: vi.fn(),
     addConversationEntry: vi.fn(),
+    patchConversationEntry: vi.fn(),
   },
   mockRecordProviderThreadCompactionMarker: vi.fn(),
   mockCrossModelReview: {
@@ -80,6 +81,8 @@ const mockWindowManager = { sendToRenderer: mockSendToRenderer } as unknown as i
 
 import { setupInstanceEventForwarding } from './instance-event-forwarding';
 import { IPC_CHANNELS } from '@contracts/channels';
+import { mapAdapterRuntimeEvent } from '../providers/adapter-runtime-event-bridge';
+import { buildObservedCompactionEvents } from '../cli/adapters/codex/compaction-presentation';
 
 function makeEnvelope(kind: string, instanceId = 'inst-1', seq = 0): ProviderRuntimeEventEnvelope {
   return {
@@ -193,7 +196,7 @@ describe('setupInstanceEventForwarding', () => {
     expect(sent.model).toBe('claude-opus-4-7');
   });
 
-  it('records provider-managed thread compaction markers and forwards the marker id in output metadata', () => {
+  it('records provider-managed thread compaction markers and forwards the marker id in output metadata', async () => {
     const instance = {
       id: 'inst-1',
       provider: 'codex',
@@ -246,6 +249,12 @@ describe('setupInstanceEventForwarding', () => {
         }),
       }),
     );
+    await vi.waitFor(() => expect(mockContinuity.addConversationEntry).toHaveBeenCalledWith(
+      'inst-1',
+      expect.objectContaining({
+        id: 'msg-compact', role: 'system', isCompacted: true,
+      }),
+    ));
   });
 
   it('passes message identity and accumulated streaming content to cross-model review', () => {
@@ -278,6 +287,258 @@ describe('setupInstanceEventForwarding', () => {
       'assistant-1',
       'Complete streamed answer',
     );
+  });
+
+  it('persists typed tool identity, thinking, tokens, and compaction metadata', async () => {
+    const mgr = buildManager({
+      'inst-1': {
+        id: 'inst-1', provider: 'claude', sessionId: 'session-1',
+        historyThreadId: 'history-1', displayName: 'Fixture', workingDirectory: '/repo',
+      },
+    });
+    setupInstanceEventForwarding({
+      instanceManager: mgr,
+      windowManager: mockWindowManager,
+      isStatelessExecProvider: () => false,
+      getNodeLatencyForInstance: () => undefined,
+    });
+
+    mgr.emit('provider:normalized-event', {
+      ...makeEnvelope('output', 'inst-1', 1),
+      event: {
+        kind: 'output',
+        content: '',
+        messageType: 'tool_use',
+        messageId: 'tool-call-1',
+        timestamp: 100,
+        metadata: {
+          toolName: 'Read', input: { path: '/fixture' }, tokens: 17, isCompacted: true,
+        },
+        thinking: [{
+          id: 'thinking-1', content: 'Inspect the fixture.', format: 'structured', tokenCount: 4,
+        }],
+        thinkingExtracted: true,
+      },
+    } as ProviderRuntimeEventEnvelope);
+    mgr.emit('provider:normalized-event', {
+      ...makeEnvelope('output', 'inst-1', 2),
+      event: {
+        kind: 'output',
+        content: 'fixture result',
+        messageType: 'tool_result',
+        messageId: 'tool-result-1',
+        timestamp: 101,
+        metadata: { toolName: 'Read', output: 'fixture result' },
+      },
+    } as ProviderRuntimeEventEnvelope);
+
+    await vi.waitFor(() => expect(mockContinuity.addConversationEntry).toHaveBeenCalledTimes(2));
+    expect(mockContinuity.addConversationEntry).toHaveBeenNthCalledWith(1, 'inst-1', {
+      id: 'tool-call-1',
+      role: 'assistant',
+      content: '',
+      timestamp: 100,
+      tokens: 17,
+      toolUse: { kind: 'call', toolName: 'Read', input: { path: '/fixture' } },
+      thinking: 'Inspect the fixture.',
+      thinkingBlocks: [{
+        id: 'thinking-1', content: 'Inspect the fixture.', format: 'structured', tokenCount: 4,
+      }],
+      isCompacted: true,
+      compaction: { boundary: true },
+    });
+    expect(mockContinuity.addConversationEntry).toHaveBeenNthCalledWith(2, 'inst-1', {
+      id: 'tool-result-1',
+      role: 'tool',
+      content: 'fixture result',
+      timestamp: 101,
+      toolUse: {
+        kind: 'result', toolName: 'Read', input: null,
+        output: 'fixture result',
+      },
+    });
+  });
+
+  it('persists actual bridged tool, thinking, completion, and compaction shapes', async () => {
+    const mgr = buildManager({
+      'inst-1': {
+        id: 'inst-1', provider: 'claude', displayName: 'Fixture', workingDirectory: '/repo',
+      },
+    });
+    setupInstanceEventForwarding({
+      instanceManager: mgr,
+      windowManager: mockWindowManager,
+      isStatelessExecProvider: () => false,
+      getNodeLatencyForInstance: () => undefined,
+    });
+    const toolUse = mapAdapterRuntimeEvent('tool_use', [{
+      id: 'call-placeholder', name: 'Read', input: { path: '/fixture' },
+    }]);
+    const toolResult = mapAdapterRuntimeEvent('tool_result', [{
+      tool_use_id: 'call-placeholder', name: 'Read', content: 'denied fixture', is_error: true,
+    }]);
+    const complete = mapAdapterRuntimeEvent('complete', [{ usage: {
+      inputTokens: 11, outputTokens: 7, cacheReadTokens: 5,
+      cacheWriteTokens: 3, reasoningTokens: 2, totalTokens: 28,
+    } }]);
+    const thinking = mapAdapterRuntimeEvent('output', [{
+      id: 'assistant-thinking-placeholder', timestamp: 90, type: 'assistant', content: 'answer fixture',
+      thinking: [{
+        id: 'thinking-placeholder', content: 'reasoning fixture',
+        format: 'structured', tokenCount: 4,
+      }],
+      thinkingExtracted: true,
+    }]);
+    const observedCompaction = buildObservedCompactionEvents({
+      contextWindow: 1_000, cumulativeTokens: 30, costEstimate: 0,
+    });
+    observedCompaction.output.id = 'compaction-placeholder';
+    observedCompaction.output.timestamp = 95;
+    const compaction = mapAdapterRuntimeEvent('output', [observedCompaction.output]);
+    expect(toolUse && toolResult && complete && thinking && compaction).toBeTruthy();
+
+    mgr.emit('provider:normalized-event', {
+      ...makeEnvelope('output', 'inst-1', 1), eventId: 'event-thinking', event: thinking!.event,
+    });
+    mgr.emit('provider:normalized-event', {
+      ...makeEnvelope('output', 'inst-1', 2), provider: 'codex',
+      eventId: 'event-compaction', event: compaction!.event,
+    });
+    mgr.emit('provider:normalized-event', {
+      ...makeEnvelope('output', 'inst-1', 3), eventId: 'event-tool-use', event: toolUse!.event,
+    });
+    mgr.emit('provider:normalized-event', {
+      ...makeEnvelope('output', 'inst-1', 4), eventId: 'event-tool-result', event: toolResult!.event,
+    });
+    mgr.emit('provider:normalized-event', {
+      ...makeEnvelope('output', 'inst-1', 5), eventId: 'event-complete', event: complete!.event,
+    });
+
+    await vi.waitFor(() => expect(mockContinuity.addConversationEntry).toHaveBeenCalledTimes(4));
+    expect(mockContinuity.addConversationEntry).toHaveBeenNthCalledWith(1, 'inst-1',
+      expect.objectContaining({
+        id: 'assistant-thinking-placeholder', role: 'assistant',
+        thinkingBlocks: [expect.objectContaining({
+          id: 'thinking-placeholder', content: 'reasoning fixture', tokenCount: 4,
+        })],
+      }));
+    expect(mockContinuity.addConversationEntry).toHaveBeenNthCalledWith(2, 'inst-1',
+      expect.objectContaining({
+        id: 'compaction-placeholder', role: 'system', isCompacted: true,
+        compaction: expect.objectContaining({
+          boundary: true, markerId: 'marker-1', method: 'self-managed',
+        }),
+      }));
+    expect(mockContinuity.addConversationEntry).toHaveBeenNthCalledWith(3, 'inst-1', {
+      id: 'tool-call:call-placeholder', role: 'assistant', content: '',
+      timestamp: expect.any(Number),
+      toolUse: {
+        kind: 'call', toolName: 'Read', callId: 'call-placeholder',
+        input: { path: '/fixture' },
+      },
+    });
+    expect(mockContinuity.addConversationEntry).toHaveBeenNthCalledWith(4, 'inst-1', {
+      id: 'tool-result:call-placeholder:event-tool-result', role: 'tool',
+      content: 'denied fixture', timestamp: expect.any(Number),
+      toolUse: {
+        kind: 'result', toolName: 'Read', resultForCallId: 'call-placeholder',
+        input: null, output: 'denied fixture', isError: true,
+      },
+    });
+    await vi.waitFor(() => expect(mockContinuity.patchConversationEntry).toHaveBeenCalledWith(
+      'inst-1',
+      'tool-call:call-placeholder',
+      {
+        tokens: 28,
+        tokenUsage: {
+          input: 11, output: 7, cacheRead: 5, cacheWrite: 3, reasoning: 2, total: 28,
+        },
+      },
+    ));
+  });
+
+  it('does not reuse the prior token owner for a consecutive completion without new output', async () => {
+    const mgr = buildManager({
+      'inst-1': {
+        id: 'inst-1', provider: 'claude', displayName: 'Fixture', workingDirectory: '/repo',
+      },
+    });
+    setupInstanceEventForwarding({
+      instanceManager: mgr,
+      windowManager: mockWindowManager,
+      isStatelessExecProvider: () => false,
+      getNodeLatencyForInstance: () => undefined,
+    });
+    const assistant = mapAdapterRuntimeEvent('output', [{
+      id: 'assistant-token-owner', timestamp: 100, type: 'assistant', content: 'fixture answer',
+    }]);
+    const firstComplete = mapAdapterRuntimeEvent('complete', [{ usage: {
+      inputTokens: 11, outputTokens: 7, totalTokens: 18,
+    } }]);
+    const ownerlessComplete = mapAdapterRuntimeEvent('complete', [{ usage: {
+      inputTokens: 99, outputTokens: 88, totalTokens: 187,
+    } }]);
+    expect(assistant && firstComplete && ownerlessComplete).toBeTruthy();
+
+    mgr.emit('provider:normalized-event', {
+      ...makeEnvelope('output', 'inst-1', 1), eventId: 'owner-output', event: assistant!.event,
+    });
+    mgr.emit('provider:normalized-event', {
+      ...makeEnvelope('output', 'inst-1', 2), eventId: 'owner-complete', event: firstComplete!.event,
+    });
+    mgr.emit('provider:normalized-event', {
+      ...makeEnvelope('output', 'inst-1', 3), eventId: 'ownerless-complete', event: ownerlessComplete!.event,
+    });
+
+    await vi.waitFor(() => expect(mockContinuity.updateState).toHaveBeenCalledTimes(3));
+    expect(mockContinuity.patchConversationEntry).toHaveBeenCalledTimes(1);
+    expect(mockContinuity.patchConversationEntry).toHaveBeenCalledWith(
+      'inst-1',
+      'assistant-token-owner',
+      expect.objectContaining({ tokens: 18 }),
+    );
+  });
+
+  it('correlates the actual Claude output tool-result shape with its tool call', async () => {
+    const mgr = buildManager({
+      'inst-1': {
+        id: 'inst-1', provider: 'claude', displayName: 'Fixture', workingDirectory: '/repo',
+      },
+    });
+    setupInstanceEventForwarding({
+      instanceManager: mgr,
+      windowManager: mockWindowManager,
+      isStatelessExecProvider: () => false,
+      getNodeLatencyForInstance: () => undefined,
+    });
+
+    mgr.emit('provider:normalized-event', {
+      ...makeEnvelope('output', 'inst-1', 1),
+      eventId: 'event-actual-tool-use',
+      event: {
+        kind: 'output', messageId: 'actual-tool-use', timestamp: 100,
+        messageType: 'tool_use', content: 'Using tool: Read',
+        metadata: { id: 'call-placeholder', name: 'Read', input: { path: '/fixture' } },
+      },
+    });
+    mgr.emit('provider:normalized-event', {
+      ...makeEnvelope('output', 'inst-1', 2),
+      eventId: 'event-actual-tool-result',
+      event: {
+        kind: 'output', messageId: 'actual-tool-result', timestamp: 101,
+        messageType: 'tool_result', content: 'denied fixture',
+        metadata: { tool_use_id: 'call-placeholder', is_error: true },
+      },
+    });
+
+    await vi.waitFor(() => expect(mockContinuity.addConversationEntry).toHaveBeenCalledTimes(2));
+    expect(mockContinuity.addConversationEntry).toHaveBeenNthCalledWith(2, 'inst-1', {
+      id: 'actual-tool-result', role: 'tool', content: 'denied fixture', timestamp: 101,
+      toolUse: {
+        kind: 'result', toolName: 'Read', resultForCallId: 'call-placeholder',
+        input: null, output: 'denied fixture', isError: true,
+      },
+    });
   });
 
   it('forwards a schema-invalid envelope to the renderer instead of throwing (Fix B)', () => {

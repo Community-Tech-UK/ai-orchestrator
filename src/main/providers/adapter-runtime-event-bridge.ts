@@ -239,12 +239,36 @@ export function mapAdapterRuntimeEvent(
       return { event: buildUnknownEvent('output', rawPayload), rawPayload };
     }
     case 'tool_use': {
-      const rawPayload = args[0] as CliToolCall;
-      return { event: { kind: 'tool_use', toolName: rawPayload.name, toolUseId: rawPayload.id, input: rawPayload.arguments }, rawPayload };
+      const rawPayload = args[0] as CliToolCall & { input?: Record<string, unknown> };
+      return {
+        event: {
+          kind: 'tool_use',
+          toolName: rawPayload.name,
+          toolUseId: rawPayload.id,
+          input: rawPayload.arguments ?? rawPayload.input,
+        },
+        rawPayload,
+      };
     }
     case 'tool_result': {
-      const rawPayload = args[0] as CliToolCall;
-      return { event: { kind: 'tool_result', toolName: rawPayload.name, toolUseId: rawPayload.id, success: true, output: rawPayload.result }, rawPayload };
+      const rawPayload = args[0] as CliToolCall & {
+        tool_use_id?: string;
+        content?: string;
+        is_error?: boolean;
+      };
+      const output = rawPayload.result ?? rawPayload.content;
+      const isError = rawPayload.is_error === true;
+      return {
+        event: {
+          kind: 'tool_result',
+          toolName: rawPayload.name,
+          toolUseId: rawPayload.id ?? rawPayload.tool_use_id,
+          success: !isError,
+          output,
+          ...(isError && output ? { error: output } : {}),
+        },
+        rawPayload,
+      };
     }
     case 'status': {
       const rawPayload = args[0] as string;
@@ -279,6 +303,11 @@ export function mapAdapterRuntimeEvent(
         event: {
           kind: 'complete',
           ...definedNumberField('tokensUsed', rawPayload.usage?.totalTokens),
+          ...definedNumberField('inputTokens', rawPayload.usage?.inputTokens),
+          ...definedNumberField('outputTokens', rawPayload.usage?.outputTokens),
+          ...definedNumberField('cacheReadTokens', rawPayload.usage?.cacheReadTokens),
+          ...definedNumberField('cacheWriteTokens', rawPayload.usage?.cacheWriteTokens),
+          ...definedNumberField('reasoningTokens', rawPayload.usage?.reasoningTokens),
           ...definedNumberField('costUsd', rawPayload.usage?.cost),
           ...definedNumberField('durationMs', rawPayload.usage?.duration),
           ...(rawPayload.degradedReason ? { degradedReason: rawPayload.degradedReason } : {}),

@@ -12,6 +12,7 @@ import type { InstanceManager } from '../../../instance/instance-manager';
 
 type IpcHandler = (event: unknown, payload?: unknown) => Promise<unknown>;
 const handlers = new Map<string, IpcHandler>();
+const mockLoggerWarn = vi.hoisted(() => vi.fn());
 
 interface MockOutputMessage {
   id?: string;
@@ -40,7 +41,7 @@ vi.mock('electron', () => ({
 vi.mock('../../../logging/logger', () => ({
   getLogger: () => ({
     info: vi.fn(),
-    warn: vi.fn(),
+    warn: mockLoggerWarn,
     debug: vi.fn(),
     error: vi.fn(),
   }),
@@ -62,6 +63,15 @@ const mockResumeSession = vi.fn();
 const mockListSnapshots = vi.fn().mockReturnValue([]);
 const mockCreateSnapshot = vi.fn();
 const mockGetSessionStats = vi.fn();
+const mockListRecoveryCandidates = vi.fn().mockResolvedValue([]);
+const mockResolveRecoveryCandidate = vi.fn();
+let mockRecoveryCandidateService: {
+  listCandidates: typeof mockListRecoveryCandidates;
+  resolveCandidate: typeof mockResolveRecoveryCandidate;
+} | null = {
+  listCandidates: mockListRecoveryCandidates,
+  resolveCandidate: mockResolveRecoveryCandidate,
+};
 
 vi.mock('../../../history', () => ({
   getHistoryManager: () => ({
@@ -113,6 +123,10 @@ vi.mock('../../../session/session-continuity', () => ({
   }),
 }));
 
+vi.mock('../../../session/session-recovery-candidate-service', () => ({
+  getSessionRecoveryCandidateServiceIfInitialized: () => mockRecoveryCandidateService,
+}));
+
 const mockIsRemoteNodeReachable = vi.fn().mockReturnValue(true);
 vi.mock('../remote-node-check', () => ({
   isRemoteNodeReachable: (...args: unknown[]) => mockIsRemoteNodeReachable(...args),
@@ -127,6 +141,7 @@ vi.mock('../../../session/session-admission-service', () => ({
 
 import { registerSessionHandlers } from '../session-handlers';
 import { IPC_CHANNELS } from '../../../../shared/types/ipc.types';
+import { OrchestratorPausedError } from '../../../pause/orchestrator-paused-error';
 
 async function invoke(
   channel: string,
@@ -146,7 +161,73 @@ function makeMockInstanceManager(): InstanceManager {
     getInstance: vi.fn(),
     terminateInstance: vi.fn(),
     queueContinuityPreamble: vi.fn(),
+    recoverFromContinuity: vi.fn(),
   } as unknown as InstanceManager;
+}
+
+const recoveryCandidate = {
+  recoveryKey: 'history:claude:thread-1',
+  sourceInstanceId: 'source-1',
+  historyThreadId: 'thread-1',
+  provider: 'claude',
+  modelId: 'opus',
+  displayName: 'Recovered fixture',
+  workingDirectory: '/repo',
+  lastActivityAt: 1_775_024_000_000,
+  historyCoveredThrough: 1_775_023_000_000,
+  recoveredMessageCount: 3,
+  reason: 'newer-than-history',
+  nativeResumeAvailable: true,
+};
+
+const resolvedRecoveryCandidate = {
+  candidate: recoveryCandidate,
+  continuityState: {
+    instanceId: 'source-1',
+    displayName: 'Recovered fixture',
+    agentId: 'general',
+    modelId: 'opus',
+    provider: 'claude',
+    workingDirectory: '/repo',
+    conversationHistory: [],
+    contextUsage: { used: 0, total: 1 },
+    pendingTasks: [],
+    environmentVariables: {},
+    activeFiles: [],
+    skillsLoaded: [],
+    hooksActive: [],
+  },
+  historyConversation: null,
+};
+
+function recoveryCandidateAt(index: number): typeof recoveryCandidate {
+  const suffix = String(index).padStart(3, '0');
+  return {
+    ...recoveryCandidate,
+    recoveryKey: `history:claude:thread-${suffix}`,
+    sourceInstanceId: `source-${suffix}`,
+    historyThreadId: `thread-${suffix}`,
+    displayName: `Recovered fixture ${suffix}`,
+    lastActivityAt: recoveryCandidate.lastActivityAt - index,
+    historyCoveredThrough: recoveryCandidate.historyCoveredThrough - index,
+  };
+}
+
+function shutdownLivePreservedCandidates(): typeof recoveryCandidate[] {
+  return [
+    ...Array.from({ length: 50 }, (_, index) => recoveryCandidateAt(index)),
+    {
+      ...recoveryCandidateAt(50),
+      recoveryKey: 'history:claude:thread-shutdown-live',
+      sourceInstanceId: 'shutdown-live',
+      historyThreadId: 'thread-shutdown-live',
+      displayName: 'Preserved shutdown-live fixture',
+    },
+  ];
+}
+
+function recoveryChannel(name: 'SESSION_RECOVERY_LIST' | 'SESSION_RECOVERY_RESTORE'): string {
+  return (IPC_CHANNELS as unknown as Record<string, string>)[name];
 }
 
 describe('session-handlers', () => {
@@ -175,6 +256,14 @@ describe('session-handlers', () => {
     mockListSnapshots.mockReturnValue([]);
     mockCreateSnapshot.mockReset();
     mockGetSessionStats.mockReset();
+    mockListRecoveryCandidates.mockReset();
+    mockListRecoveryCandidates.mockResolvedValue([]);
+    mockResolveRecoveryCandidate.mockReset();
+    mockLoggerWarn.mockReset();
+    mockRecoveryCandidateService = {
+      listCandidates: mockListRecoveryCandidates,
+      resolveCandidate: mockResolveRecoveryCandidate,
+    };
     mockListAdmissions.mockReset();
     mockListAdmissions.mockReturnValue([]);
 
@@ -447,6 +536,261 @@ describe('session-handlers', () => {
       expect(result).toEqual(trustError);
       expect(ensureTrustedSender).toHaveBeenCalledWith({}, IPC_CHANNELS.SESSION_RESUME);
       expect(mockResumeSession).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('session recovery IPC', () => {
+    it('wraps an empty recovery candidate list without starting recovery work', async () => {
+      const result = await invoke(recoveryChannel('SESSION_RECOVERY_LIST'));
+
+      expect(result).toEqual({ success: true, data: [] });
+      expect(mockListRecoveryCandidates).toHaveBeenCalledOnce();
+      expect(mockResolveRecoveryCandidate).not.toHaveBeenCalled();
+      expect(mockResumeSession).not.toHaveBeenCalled();
+      expect(mockGetResumableSessions).not.toHaveBeenCalled();
+      expect(mockInstanceManager.recoverFromContinuity).not.toHaveBeenCalled();
+    });
+
+    it('returns only public recovery candidate fields from discovery', async () => {
+      mockListRecoveryCandidates.mockResolvedValue([{
+        ...recoveryCandidate,
+        resumeCursor: 'cursor-secret',
+        transcript: [{ content: 'private transcript text' }],
+      }]);
+
+      const result = await invoke(recoveryChannel('SESSION_RECOVERY_LIST'));
+
+      expect(result).toEqual({
+        success: true,
+        data: [recoveryCandidate],
+      });
+      expect(JSON.stringify(result)).not.toContain('cursor-secret');
+      expect(JSON.stringify(result)).not.toContain('private transcript text');
+    });
+
+    it('isolates and reports an invalid public candidate while returning valid siblings', async () => {
+      mockListRecoveryCandidates.mockResolvedValue([
+        {
+          ...recoveryCandidate,
+          recoveryKey: 'history:claude:private-invalid-key',
+          sourceInstanceId: '',
+        },
+        recoveryCandidate,
+      ]);
+
+      const result = await invoke(recoveryChannel('SESSION_RECOVERY_LIST'));
+
+      expect(result).toEqual({ success: true, data: [recoveryCandidate] });
+      expect(mockLoggerWarn).toHaveBeenCalledWith(
+        'Skipped invalid session recovery candidates',
+        { skipped: 1 },
+      );
+      expect(JSON.stringify(result)).not.toContain('private-invalid-key');
+      expect(JSON.stringify(mockLoggerWarn.mock.calls)).not.toContain('private-invalid-key');
+    });
+
+    it('passes through preserved shutdown-live overflow lists without truncating or leaking private fields', async () => {
+      const candidates = shutdownLivePreservedCandidates();
+      mockListRecoveryCandidates.mockResolvedValue(candidates.map((candidate, index) => index === 50
+        ? { ...candidate, resumeCursor: { threadId: 'redacted-cursor-placeholder' } }
+        : candidate));
+
+      const result = await invoke(recoveryChannel('SESSION_RECOVERY_LIST'));
+
+      expect(result).toEqual({
+        success: true,
+        data: candidates,
+      });
+      const data = result.data as unknown as typeof candidates;
+      expect(data).toHaveLength(51);
+      expect(data.at(-1)?.sourceInstanceId).toBe('shutdown-live');
+      expect(JSON.stringify(result)).not.toContain('redacted-cursor-placeholder');
+      expect(mockResolveRecoveryCandidate).not.toHaveBeenCalled();
+      expect(mockInstanceManager.recoverFromContinuity).not.toHaveBeenCalled();
+    });
+
+    it('rejects malformed recovery list payloads before discovery', async () => {
+      const result = await invoke(recoveryChannel('SESSION_RECOVERY_LIST'), {
+        recoveryKey: 'history:claude:thread-1',
+      });
+
+      expect(result).toMatchObject({
+        success: false,
+        error: expect.objectContaining({ code: 'VALIDATION_FAILED' }),
+      });
+      expect(mockListRecoveryCandidates).not.toHaveBeenCalled();
+    });
+
+    it('rejects malformed recovery restore payloads before resolving candidates', async () => {
+      const result = await invoke(recoveryChannel('SESSION_RECOVERY_RESTORE'), {
+        recoveryKey: '',
+      });
+
+      expect(result).toMatchObject({
+        success: false,
+        error: expect.objectContaining({ code: 'VALIDATION_FAILED' }),
+      });
+      expect(mockResolveRecoveryCandidate).not.toHaveBeenCalled();
+      expect(mockInstanceManager.recoverFromContinuity).not.toHaveBeenCalled();
+    });
+
+    it('maps an unknown or stale recovery key to a redacted typed error', async () => {
+      mockResolveRecoveryCandidate.mockRejectedValue(
+        new Error('Recovery candidate is unavailable for history:claude:secret-thread'),
+      );
+
+      const result = await invoke(recoveryChannel('SESSION_RECOVERY_RESTORE'), {
+        recoveryKey: 'history:claude:secret-thread',
+      });
+
+      expect(result).toMatchObject({
+        success: false,
+        error: {
+          code: 'SESSION_RECOVERY_NOT_FOUND',
+          message: 'Recovery candidate is no longer available',
+          timestamp: expect.any(Number),
+        },
+      });
+      expect(JSON.stringify(result)).not.toContain('secret-thread');
+      expect(mockInstanceManager.recoverFromContinuity).not.toHaveBeenCalled();
+    });
+
+    it('maps candidate validation failure to a typed error without source details', async () => {
+      mockResolveRecoveryCandidate.mockResolvedValue(resolvedRecoveryCandidate);
+      vi.mocked(mockInstanceManager.recoverFromContinuity).mockRejectedValue(
+        new Error('Recovery candidate validation failed: source-1 transcript mismatch'),
+      );
+
+      const result = await invoke(recoveryChannel('SESSION_RECOVERY_RESTORE'), {
+        recoveryKey: recoveryCandidate.recoveryKey,
+      });
+
+      expect(result).toMatchObject({
+        success: false,
+        error: {
+          code: 'SESSION_RECOVERY_VALIDATION_FAILED',
+          message: 'Recovery candidate validation failed',
+          timestamp: expect.any(Number),
+        },
+      });
+      expect(JSON.stringify(result)).not.toContain('source-1');
+      expect(JSON.stringify(result)).not.toContain('transcript mismatch');
+    });
+
+    it('maps provider unavailable failures to a typed redacted error', async () => {
+      mockResolveRecoveryCandidate.mockResolvedValue(resolvedRecoveryCandidate);
+      const providerError = Object.assign(
+        new Error('Provider unavailable for cursor-secret and private transcript text'),
+        { code: 'PROVIDER_UNAVAILABLE' },
+      );
+      vi.mocked(mockInstanceManager.recoverFromContinuity).mockRejectedValue(providerError);
+
+      const result = await invoke(recoveryChannel('SESSION_RECOVERY_RESTORE'), {
+        recoveryKey: recoveryCandidate.recoveryKey,
+      });
+
+      expect(result).toMatchObject({
+        success: false,
+        error: {
+          code: 'SESSION_RECOVERY_PROVIDER_UNAVAILABLE',
+          message: 'Recovery provider is unavailable',
+          timestamp: expect.any(Number),
+        },
+      });
+      expect(JSON.stringify(result)).not.toContain('cursor-secret');
+      expect(JSON.stringify(result)).not.toContain('private transcript text');
+    });
+
+    it('preserves orchestrator pause failures as typed redacted recovery errors', async () => {
+      mockResolveRecoveryCandidate.mockResolvedValue(resolvedRecoveryCandidate);
+      vi.mocked(mockInstanceManager.recoverFromContinuity).mockRejectedValue(
+        new OrchestratorPausedError(
+          'Paused while contacting api.provider.example with cursor-secret',
+          { hostname: 'api.provider.example' },
+        ),
+      );
+
+      const result = await invoke(recoveryChannel('SESSION_RECOVERY_RESTORE'), {
+        recoveryKey: recoveryCandidate.recoveryKey,
+      });
+
+      expect(result).toMatchObject({
+        success: false,
+        error: {
+          code: 'ORCHESTRATOR_PAUSED',
+          message: 'Session recovery refused while orchestrator is paused',
+          timestamp: expect.any(Number),
+        },
+      });
+      expect(JSON.stringify(result)).not.toContain('api.provider.example');
+      expect(JSON.stringify(result)).not.toContain('cursor-secret');
+    });
+
+    it('maps replacement start failures to a typed redacted error', async () => {
+      mockResolveRecoveryCandidate.mockResolvedValue(resolvedRecoveryCandidate);
+      vi.mocked(mockInstanceManager.recoverFromContinuity).mockRejectedValue(
+        new Error('Recovery replacement failed to start: spawn stderr cursor-secret'),
+      );
+
+      const result = await invoke(recoveryChannel('SESSION_RECOVERY_RESTORE'), {
+        recoveryKey: recoveryCandidate.recoveryKey,
+      });
+
+      expect(result).toMatchObject({
+        success: false,
+        error: {
+          code: 'SESSION_RECOVERY_START_FAILED',
+          message: 'Recovery replacement failed to start',
+          timestamp: expect.any(Number),
+        },
+      });
+      expect(JSON.stringify(result)).not.toContain('cursor-secret');
+      expect(JSON.stringify(result)).not.toContain('spawn stderr');
+    });
+
+    it('resolves a recovery candidate and returns only the public restore result', async () => {
+      mockResolveRecoveryCandidate.mockResolvedValue(resolvedRecoveryCandidate);
+      vi.mocked(mockInstanceManager.recoverFromContinuity).mockResolvedValue({
+        instanceId: 'replacement-1',
+        recoveredMessageCount: 3,
+        usedNativeResume: false,
+        resumeCursor: 'cursor-secret',
+        transcript: [{ content: 'private transcript text' }],
+      } as never);
+
+      const result = await invoke(recoveryChannel('SESSION_RECOVERY_RESTORE'), {
+        recoveryKey: recoveryCandidate.recoveryKey,
+      });
+
+      expect(result).toEqual({
+        success: true,
+        data: {
+          instanceId: 'replacement-1',
+          recoveredMessageCount: 3,
+          usedNativeResume: false,
+        },
+      });
+      expect(mockResolveRecoveryCandidate).toHaveBeenCalledWith(recoveryCandidate.recoveryKey);
+      expect(mockInstanceManager.recoverFromContinuity).toHaveBeenCalledWith(resolvedRecoveryCandidate);
+      expect(mockResumeSession).not.toHaveBeenCalled();
+      expect(mockGetResumableSessions).not.toHaveBeenCalled();
+      expect(JSON.stringify(result)).not.toContain('cursor-secret');
+      expect(JSON.stringify(result)).not.toContain('private transcript text');
+    });
+
+    it('reports recovery as unavailable when the startup service is not initialized', async () => {
+      mockRecoveryCandidateService = null;
+
+      const result = await invoke(recoveryChannel('SESSION_RECOVERY_LIST'));
+
+      expect(result).toMatchObject({
+        success: false,
+        error: {
+          code: 'SESSION_RECOVERY_UNAVAILABLE',
+          message: 'Session recovery is not available yet',
+          timestamp: expect.any(Number),
+        },
+      });
     });
   });
 

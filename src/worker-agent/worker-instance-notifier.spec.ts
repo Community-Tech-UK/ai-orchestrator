@@ -218,4 +218,41 @@ describe('WorkerInstanceNotifier durable-stream integration (WS15)', () => {
     expect(summary[0].replayed).toBe(1);
     expect(JSON.parse(socket.sent[0]).params.message).toEqual({ n: 2 });
   });
+
+  it('discovers and replays instances created entirely during a socket outage', () => {
+    const { socket, notifier } = makeDurableNotifier();
+    socket.readyState = 3;
+    notifier.sendOutputNotification('inst-offline', { n: 1 });
+    notifier.flushOutputBuffer();
+    expect(socket.sent).toEqual([]);
+
+    socket.readyState = 1;
+    const summary = notifier.replayDurableEvents([]);
+
+    expect(summary).toEqual([{ instanceId: 'inst-offline', replayed: 1 }]);
+    const frame = JSON.parse(socket.sent[0]);
+    expect(frame.params.instanceId).toBe('inst-offline');
+    expect(frame.params.message).toEqual({ n: 1 });
+    expect(frame.params.replay).toBe(true);
+  });
+
+  it('discovers unknown buffered instances alongside known cursors', () => {
+    const { socket, notifier } = makeDurableNotifier();
+    socket.readyState = 3;
+    notifier.sendOutputNotification('inst-known', { n: 1 });
+    notifier.sendOutputNotification('inst-unknown', { n: 2 });
+    notifier.flushOutputBuffer();
+
+    socket.readyState = 1;
+    const summary = notifier.replayDurableEvents([
+      { instanceId: 'inst-known', afterSeq: 1 },
+    ]);
+
+    expect(summary).toEqual(expect.arrayContaining([
+      { instanceId: 'inst-known', replayed: 0 },
+      { instanceId: 'inst-unknown', replayed: 1 },
+    ]));
+    expect(socket.sent).toHaveLength(1);
+    expect(JSON.parse(socket.sent[0]).params.instanceId).toBe('inst-unknown');
+  });
 });

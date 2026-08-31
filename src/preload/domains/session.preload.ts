@@ -1,6 +1,19 @@
 import { IpcRenderer, IpcRendererEvent } from 'electron';
 import { IPC_CHANNELS } from '../generated/channels';
 import type { IpcResponse } from './types';
+import type {
+  RecoverSessionRequest,
+  RecoverSessionResult,
+  SessionRecoveryCandidate,
+} from '../../shared/types/session-recovery.types';
+
+function unwrapIpcResponse<T>(response: IpcResponse<T>, fallbackMessage: string): T {
+  if (response.success) return response.data as T;
+  const message = response.error?.message ?? fallbackMessage;
+  const error = new Error(message) as Error & { code?: string };
+  error.code = response.error?.code;
+  throw error;
+}
 
 export function createSessionDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNELS) {
   return {
@@ -120,6 +133,16 @@ export function createSessionDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHA
     listResumableSessions: () => ipcRenderer.invoke(ch.SESSION_LIST_RESUMABLE),
     resumeSession: (payload: { instanceId: string; options?: Record<string, unknown> }) =>
       ipcRenderer.invoke(ch.SESSION_RESUME, payload),
+    listRecoveryCandidates: async (): Promise<SessionRecoveryCandidate[]> =>
+      unwrapIpcResponse(
+        await ipcRenderer.invoke(ch.SESSION_RECOVERY_LIST),
+        'Session recovery candidates could not be loaded',
+      ),
+    recoverSession: async (request: RecoverSessionRequest): Promise<RecoverSessionResult> =>
+      unwrapIpcResponse(
+        await ipcRenderer.invoke(ch.SESSION_RECOVERY_RESTORE, request),
+        'Session recovery failed',
+      ),
     listSessionSnapshots: (payload?: { instanceId?: string }) =>
       ipcRenderer.invoke(ch.SESSION_LIST_SNAPSHOTS, payload),
     createSessionSnapshot: (payload: { instanceId: string; name?: string; description?: string }) =>

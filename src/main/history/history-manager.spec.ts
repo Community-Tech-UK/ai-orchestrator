@@ -4,6 +4,18 @@ import * as path from 'path';
 import * as zlib from 'zlib';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
+import type { ConversationData } from '../../shared/types/history.types';
+
+const loggerMock = vi.hoisted(() => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+}));
+
+vi.mock('../logging/logger', () => ({
+  getLogger: () => loggerMock,
+}));
 
 function makeInstance(overrides: Partial<Instance> = {}): Instance {
   const sessionId = overrides.sessionId ?? 'session-1';
@@ -70,6 +82,20 @@ function message(
   };
 }
 
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
+}
+
+async function drainMicrotasks(): Promise<void> {
+  for (let iteration = 0; iteration < 10; iteration += 1) {
+    await Promise.resolve();
+  }
+}
+
 describe('HistoryManager', () => {
   let userDataDir = '';
 
@@ -89,6 +115,7 @@ describe('HistoryManager', () => {
 
   beforeEach(() => {
     vi.resetModules();
+    vi.clearAllMocks();
     userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'history-manager-'));
     vi.doMock('electron', () => ({
       app: {
@@ -223,6 +250,128 @@ describe('HistoryManager', () => {
     ]);
   });
 
+  it('archives disk-only complete messages before applying positive coverage skip', async () => {
+    const storageDir = path.join(userDataDir, 'conversation-history');
+    fs.mkdirSync(storageDir, { recursive: true });
+    const previousEntry = {
+      id: 'entry-storage-only',
+      displayName: 'Previous empty tail',
+      createdAt: 50,
+      endedAt: 999,
+      historyThreadId: 'thread-storage-only',
+      workingDirectory: '/tmp/project',
+      messageCount: 0,
+      firstUserMessage: '',
+      lastUserMessage: '',
+      status: 'completed' as const,
+      originalInstanceId: 'fork-storage-only',
+      parentId: null,
+      sessionId: 'session-storage-only',
+      provider: 'claude' as const,
+      currentModel: 'opus',
+    };
+    fs.writeFileSync(
+      path.join(storageDir, 'index.json'),
+      JSON.stringify({ version: 1, lastUpdated: Date.now(), entries: [previousEntry] })
+    );
+    fs.writeFileSync(
+      path.join(storageDir, `${previousEntry.id}.json.gz`),
+      zlib.gzipSync(JSON.stringify({ entry: previousEntry, messages: [] }))
+    );
+
+    const { getOutputStorageManager } = await import('../memory/output-storage');
+    const { HistoryManager } = await import('./history-manager');
+    const manager = track(new HistoryManager());
+    await manager.startupTasks;
+    void getOutputStorageManager().storeMessages('instance-storage-only', [
+      message('stored-user', 'user', 'Stored prompt beyond the live tail', 100),
+      message('stored-assistant', 'assistant', 'Stored response beyond the live tail', 200),
+    ]);
+
+    await manager.archiveInstance(makeInstance({
+      id: 'instance-storage-only',
+      historyThreadId: 'thread-storage-only',
+      sessionId: 'source-session-storage-only',
+      status: 'hibernated',
+      outputBuffer: [],
+    }), 'completed');
+
+    const entries = manager.getEntries();
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.id).toBe(previousEntry.id);
+    expect(entries[0]?.messageCount).toBe(2);
+    expect(entries[0]?.originalInstanceId).toBe('instance-storage-only');
+
+    const conversation = await manager.loadConversation(previousEntry.id);
+    expect(conversation?.messages.map((item) => item.id)).toEqual([
+      'stored-user',
+      'stored-assistant',
+    ]);
+  });
+
+  it('archives an older storage prefix when history covers only the non-empty live tail', async () => {
+    const storageDir = path.join(userDataDir, 'conversation-history');
+    fs.mkdirSync(storageDir, { recursive: true });
+    const previousEntry = {
+      id: 'entry-covered-tail',
+      displayName: 'Covered live tail',
+      createdAt: 50,
+      endedAt: 400,
+      historyThreadId: 'thread-covered-tail',
+      workingDirectory: '/tmp/project',
+      messageCount: 2,
+      firstUserMessage: 'Tail prompt',
+      lastUserMessage: 'Tail prompt',
+      status: 'completed' as const,
+      originalInstanceId: 'fork-covered-tail',
+      parentId: null,
+      sessionId: 'session-covered-tail',
+      provider: 'claude' as const,
+      currentModel: 'opus',
+    };
+    const tail = [
+      message('tail-user', 'user', 'Tail prompt', 300),
+      message('tail-assistant', 'assistant', 'Tail response', 400),
+    ];
+    fs.writeFileSync(
+      path.join(storageDir, 'index.json'),
+      JSON.stringify({ version: 1, lastUpdated: Date.now(), entries: [previousEntry] }),
+    );
+    fs.writeFileSync(
+      path.join(storageDir, `${previousEntry.id}.json.gz`),
+      zlib.gzipSync(JSON.stringify({ entry: previousEntry, messages: tail })),
+    );
+
+    const { getOutputStorageManager } = await import('../memory/output-storage');
+    const { HistoryManager } = await import('./history-manager');
+    const manager = track(new HistoryManager());
+    await manager.startupTasks;
+    void getOutputStorageManager().storeMessages('instance-covered-tail', [
+      message('prefix-user', 'user', 'Older stored prompt', 100),
+      message('prefix-assistant', 'assistant', 'Older stored response', 200),
+    ]);
+
+    await manager.archiveInstance(makeInstance({
+      id: 'instance-covered-tail',
+      historyThreadId: 'thread-covered-tail',
+      sessionId: 'source-session-covered-tail',
+      status: 'hibernated',
+      outputBuffer: tail,
+    }), 'completed');
+
+    const entry = manager.getEntries()[0];
+    expect(entry?.id).toBe(previousEntry.id);
+    expect(entry?.messageCount).toBe(4);
+    expect(entry?.originalInstanceId).toBe('instance-covered-tail');
+    const conversation = await manager.loadConversation(previousEntry.id);
+    expect(conversation?.messages.map((item) => item.id)).toEqual([
+      'prefix-user',
+      'prefix-assistant',
+      'tail-user',
+      'tail-assistant',
+    ]);
+  });
+
   it('archives retained prompts that never reached disk storage', async () => {
     const { HistoryManager } = await import('./history-manager');
     const manager = track(new HistoryManager());
@@ -283,6 +432,46 @@ describe('HistoryManager', () => {
     }
     const conversation = await manager.loadConversation(entry.id);
     expect(conversation?.messages.filter((m) => m.content === 'Opening ask')).toHaveLength(1);
+  });
+
+  it('archives an empty complete root transcript through the shared archive decision', async () => {
+    const { HistoryManager } = await import('./history-manager');
+    const manager = track(new HistoryManager());
+
+    await manager.archiveInstance(makeInstance({
+      id: 'instance-empty-complete',
+      historyThreadId: 'thread-empty-complete',
+      outputBuffer: [],
+    }));
+
+    const entry = manager.getEntries().find(
+      (item) => item.historyThreadId === 'thread-empty-complete',
+    );
+    expect(entry?.messageCount).toBe(0);
+    if (!entry) {
+      throw new Error('Expected empty complete transcript to be archived');
+    }
+    const conversation = await manager.loadConversation(entry.id);
+    expect(conversation?.messages).toEqual([]);
+  });
+
+  it('logs duplicate archive skips without raw instance identifiers', async () => {
+    const { HistoryManager } = await import('./history-manager');
+    const manager = track(new HistoryManager());
+    const duplicate = makeInstance({
+      id: 'instance-duplicate-skip',
+      historyThreadId: 'thread-duplicate-skip',
+      outputBuffer: [message('duplicate-user', 'user', 'first prompt', 10)],
+    });
+
+    await manager.archiveInstance(duplicate);
+    await manager.archiveInstance(duplicate);
+
+    const skipLogs = loggerMock.info.mock.calls.filter(([messageText]) =>
+      String(messageText).includes('Skipping archive')
+    );
+    expect(JSON.stringify(skipLogs)).toContain('sha256:');
+    expect(JSON.stringify(skipLogs)).not.toContain('instance-duplicate-skip');
   });
 
   it('orders the merged archive chronologically when the sources overlap', async () => {
@@ -384,6 +573,247 @@ describe('HistoryManager', () => {
 
     const conversation = await manager.loadConversation('entry-thread-1');
     expect(conversation?.messages).toHaveLength(3);
+
+    const skipLogs = loggerMock.info.mock.calls.filter(([messageText]) =>
+      String(messageText).includes('Skipping archive')
+    );
+    expect(JSON.stringify(skipLogs)).toContain('sha256:');
+    expect(JSON.stringify(skipLogs)).not.toContain('instance-1');
+    expect(JSON.stringify(skipLogs)).not.toContain('fork-1');
+    expect(JSON.stringify(skipLogs)).not.toContain('thread-1');
+    expect(JSON.stringify(skipLogs)).not.toContain('entry-thread-1');
+  });
+
+  it.each([
+    ['richer current archive completes first', 'current-first' as const],
+    ['stale superseded archive completes first', 'stale-first' as const],
+  ])('serializes shared-thread generations when %s', async (_label, firstArchive) => {
+    const { HistoryManager } = await import('./history-manager');
+    const manager = track(new HistoryManager());
+    const internals = manager as unknown as {
+      getCompleteArchiveMessages: (instance: Instance) => Promise<OutputMessage[]>;
+      saveConversation: (entryId: string, data: ConversationData) => Promise<void>;
+    };
+    const originalSaveConversation = internals.saveConversation.bind(manager);
+    const currentSaveGate = deferred();
+    const staleSaveGate = deferred();
+    const currentSaveEntered = deferred();
+    const staleSaveEntered = deferred();
+
+    internals.getCompleteArchiveMessages = vi.fn(async (instance: Instance) => [
+      ...instance.outputBuffer,
+    ]);
+    internals.saveConversation = vi.fn(async (entryId, data) => {
+      if (data.entry.originalInstanceId === 'instance-current-generation') {
+        currentSaveEntered.resolve();
+        await currentSaveGate.promise;
+      } else if (data.entry.originalInstanceId === 'instance-stale-generation') {
+        staleSaveEntered.resolve();
+        await staleSaveGate.promise;
+      }
+      await originalSaveConversation(entryId, data);
+    });
+
+    const current = makeInstance({
+      id: 'instance-current-generation',
+      historyThreadId: 'thread-concurrent-generations',
+      sessionId: 'session-current-generation',
+      status: 'idle',
+      outputBuffer: [
+        message('current-user-1', 'user', 'Opening prompt', 100),
+        message('current-assistant-1', 'assistant', 'Opening response', 200),
+        message('current-user-2', 'user', 'Fork continuation', 300),
+        message('current-assistant-2', 'assistant', 'Richer current response', 400),
+      ],
+    });
+    const stale = makeInstance({
+      id: 'instance-stale-generation',
+      historyThreadId: 'thread-concurrent-generations',
+      sessionId: 'session-stale-generation',
+      status: 'superseded',
+      supersededBy: current.id,
+      outputBuffer: current.outputBuffer.slice(0, 2),
+    });
+
+    const firstPromise = firstArchive === 'current-first'
+      ? manager.archiveInstance(current, 'completed')
+      : manager.archiveInstance(stale, 'completed');
+    await (firstArchive === 'current-first'
+      ? currentSaveEntered.promise
+      : staleSaveEntered.promise);
+    const secondPromise = firstArchive === 'current-first'
+      ? manager.archiveInstance(stale, 'completed')
+      : manager.archiveInstance(current, 'completed');
+    await drainMicrotasks();
+
+    if (firstArchive === 'current-first') {
+      currentSaveGate.resolve();
+      await firstPromise;
+      staleSaveGate.resolve();
+    } else {
+      staleSaveGate.resolve();
+      await firstPromise;
+      currentSaveGate.resolve();
+    }
+    await Promise.all([firstPromise, secondPromise]);
+
+    const entries = manager.getEntries().filter(
+      (entry) => entry.historyThreadId === 'thread-concurrent-generations',
+    );
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.originalInstanceId).toBe(current.id);
+    expect(entries[0]?.messageCount).toBe(4);
+    const conversation = await manager.loadConversation(entries[0]!.id);
+    expect(conversation?.messages.map((item) => item.id)).toEqual(
+      current.outputBuffer.map((item) => item.id),
+    );
+
+    if (firstArchive === 'current-first') {
+      const staleWrites = (internals.saveConversation as ReturnType<typeof vi.fn>).mock.calls
+        .filter(([, data]) => data.entry.originalInstanceId === stale.id);
+      expect(staleWrites).toHaveLength(0);
+      const positiveCoverageSkip = loggerMock.info.mock.calls.find(
+        ([messageText, data]) => messageText === 'Skipping archive - already covered by history'
+          && (data as Record<string, unknown>)['historyMessageCount'] === 4
+          && (data as Record<string, unknown>)['outputMessageCount'] === 2,
+      );
+      expect(positiveCoverageSkip).toBeDefined();
+    }
+  });
+
+  it('archives a superseded source when fork-owned coverage is stale', async () => {
+    const storageDir = path.join(userDataDir, 'conversation-history');
+    fs.mkdirSync(storageDir, { recursive: true });
+
+    const forkEntry = {
+      id: 'entry-thread-stale',
+      displayName: 'Partial fork',
+      aiTitle: 'Partial fork',
+      createdAt: 100,
+      endedAt: 120,
+      historyThreadId: 'thread-stale',
+      workingDirectory: '/tmp/project',
+      messageCount: 2,
+      firstUserMessage: 'old first',
+      lastUserMessage: 'old last',
+      status: 'completed' as const,
+      originalInstanceId: 'fork-stale',
+      parentId: null,
+      sessionId: 'fork-session-stale',
+      provider: 'claude' as const,
+      currentModel: 'opus',
+    };
+    fs.writeFileSync(
+      path.join(storageDir, 'index.json'),
+      JSON.stringify({ version: 1, lastUpdated: Date.now(), entries: [forkEntry] })
+    );
+    fs.writeFileSync(
+      path.join(storageDir, `${forkEntry.id}.json.gz`),
+      zlib.gzipSync(JSON.stringify({
+        entry: forkEntry,
+        messages: [
+          message('fork-user', 'user', 'old first', 100),
+          message('fork-assistant', 'assistant', 'old last', 120),
+        ],
+      }))
+    );
+
+    const { HistoryManager } = await import('./history-manager');
+    const manager = track(new HistoryManager());
+    await manager.startupTasks;
+
+    const supersededSource = makeInstance({
+      id: 'instance-stale-source',
+      historyThreadId: 'thread-stale',
+      status: 'superseded',
+      supersededBy: 'fork-stale',
+      sessionId: 'source-session-stale',
+      outputBuffer: [
+        message('source-user', 'user', 'new first', 100),
+        message('source-assistant', 'assistant', 'new answer after stale fork coverage', 240),
+      ],
+    });
+
+    await manager.archiveInstance(supersededSource, 'completed');
+
+    const entries = manager.getEntries();
+    expect(entries).toHaveLength(1);
+    expect(entries[0].id).toBe('entry-thread-stale');
+    expect(entries[0].messageCount).toBe(2);
+    expect(entries[0].originalInstanceId).toBe('instance-stale-source');
+
+    const conversation = await manager.loadConversation('entry-thread-stale');
+    expect(conversation?.messages.map((item) => item.id)).toEqual([
+      'source-user',
+      'source-assistant',
+    ]);
+  });
+
+  it('archives a superseded source when fork-owned coverage has too few messages', async () => {
+    const storageDir = path.join(userDataDir, 'conversation-history');
+    fs.mkdirSync(storageDir, { recursive: true });
+
+    const forkEntry = {
+      id: 'entry-thread-short',
+      displayName: 'Short fork',
+      aiTitle: 'Short fork',
+      createdAt: 100,
+      endedAt: 500,
+      historyThreadId: 'thread-short',
+      workingDirectory: '/tmp/project',
+      messageCount: 1,
+      firstUserMessage: 'old first',
+      lastUserMessage: 'old first',
+      status: 'completed' as const,
+      originalInstanceId: 'fork-short',
+      parentId: null,
+      sessionId: 'fork-session-short',
+      provider: 'claude' as const,
+      currentModel: 'opus',
+    };
+    fs.writeFileSync(
+      path.join(storageDir, 'index.json'),
+      JSON.stringify({ version: 1, lastUpdated: Date.now(), entries: [forkEntry] })
+    );
+    fs.writeFileSync(
+      path.join(storageDir, `${forkEntry.id}.json.gz`),
+      zlib.gzipSync(JSON.stringify({
+        entry: forkEntry,
+        messages: [
+          message('fork-user-short', 'user', 'old first', 500),
+        ],
+      }))
+    );
+
+    const { HistoryManager } = await import('./history-manager');
+    const manager = track(new HistoryManager());
+    await manager.startupTasks;
+
+    const supersededSource = makeInstance({
+      id: 'instance-short-source',
+      historyThreadId: 'thread-short',
+      status: 'superseded',
+      supersededBy: 'fork-short',
+      sessionId: 'source-session-short',
+      outputBuffer: [
+        message('source-user-short', 'user', 'old first', 100),
+        message('source-assistant-short', 'assistant', 'source has the missing response', 200),
+      ],
+    });
+
+    await manager.archiveInstance(supersededSource, 'completed');
+
+    const entries = manager.getEntries();
+    expect(entries).toHaveLength(1);
+    expect(entries[0].id).toBe('entry-thread-short');
+    expect(entries[0].messageCount).toBe(2);
+    expect(entries[0].originalInstanceId).toBe('instance-short-source');
+
+    const conversation = await manager.loadConversation('entry-thread-short');
+    expect(conversation?.messages.map((item) => item.id)).toEqual([
+      'source-user-short',
+      'source-assistant-short',
+    ]);
   });
 
   it('archives a history entry without deleting the conversation file', async () => {
@@ -1192,6 +1622,77 @@ describe('HistoryManager', () => {
     expect((await reloaded.loadConversation(aliased.id))?.entry.historyThreadId).toBe(stableAlias);
     expect((await reloaded.loadConversation(independent.id))?.entry.historyThreadId)
       .toBe(independent.historyThreadId);
+  });
+
+  it('returns coverage through the later of endedAt and last message for stable identities only', async () => {
+    const storageDir = path.join(userDataDir, 'conversation-history');
+    fs.mkdirSync(storageDir, { recursive: true });
+    const entry = {
+      id: 'coverage-entry',
+      displayName: 'A duplicated display label',
+      createdAt: 100,
+      endedAt: 200,
+      workingDirectory: '/tmp/project',
+      messageCount: 2,
+      firstUserMessage: 'fixture prompt',
+      lastUserMessage: 'fixture prompt',
+      status: 'completed' as const,
+      originalInstanceId: 'coverage-instance',
+      parentId: null,
+      sessionId: 'provider-session-placeholder',
+      historyThreadId: 'stable-coverage-thread',
+      provider: 'claude' as const,
+    };
+    fs.writeFileSync(
+      path.join(storageDir, 'index.json'),
+      JSON.stringify({ version: 1, lastUpdated: 0, entries: [entry] }),
+    );
+    fs.writeFileSync(
+      path.join(storageDir, `${entry.id}.json.gz`),
+      zlib.gzipSync(JSON.stringify({
+        entry,
+        messages: [
+          message('coverage-user', 'user', 'fixture prompt', 150),
+          message('coverage-assistant', 'assistant', 'fixture response', 350),
+        ],
+      })),
+    );
+
+    const { HistoryManager } = await import('./history-manager');
+    const manager = track(new HistoryManager());
+    await manager.startupTasks;
+    let releaseReady!: () => void;
+    const delayedReady = new Promise<void>((resolve) => { releaseReady = resolve; });
+    Object.defineProperty(manager, 'startupTasks', { value: delayedReady });
+    let settled = false;
+    const pendingCoverage = manager.getRecoveryCoverage([
+      {
+        recoveryKey: 'history:claude:stable-coverage-thread',
+        provider: 'claude',
+        historyThreadId: 'stable-coverage-thread',
+      },
+      {
+        recoveryKey: 'history:claude:not-the-thread',
+        provider: 'claude',
+        historyThreadId: 'not-the-thread',
+      },
+    ]);
+    void pendingCoverage.then(() => { settled = true; });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    releaseReady();
+    const coverage = await pendingCoverage;
+
+    expect(coverage.get('history:claude:stable-coverage-thread')).toEqual({
+      recoveryKey: 'history:claude:stable-coverage-thread',
+      historyEntryId: 'coverage-entry',
+      provider: 'claude',
+      historyThreadId: 'stable-coverage-thread',
+      sessionId: 'provider-session-placeholder',
+      coveredThrough: 350,
+      messageCount: 2,
+    });
+    expect(coverage.has('history:claude:not-the-thread')).toBe(false);
   });
 
   it('rotates and persists a factory-derived alias recovered from an orphan gzip', async () => {

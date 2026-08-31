@@ -36,6 +36,12 @@ export interface LifecycleDependencies {
   getInstance: (id: string) => Instance | undefined;
   setInstance: (instance: Instance) => void;
   deleteInstance: (id: string) => boolean;
+  setPendingInstance?: (instance: Instance) => void;
+  publishPendingInstance?: (instanceId: string) => Instance;
+  deleteRuntimeInstance?: (id: string) => boolean;
+  isInstancePublished?: (instanceId: string) => boolean;
+  releasePendingUpdate?: (instanceId: string) => void;
+  clearPendingInstanceState?: (instanceId: string) => void;
   getAdapter: (id: string) => CliAdapter | undefined;
   setAdapter: (id: string, adapter: CliAdapter) => void;
   deleteAdapter: (id: string) => boolean;

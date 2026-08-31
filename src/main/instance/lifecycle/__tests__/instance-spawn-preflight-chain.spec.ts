@@ -84,6 +84,22 @@ describe('InstanceSpawnPreflightChain', () => {
     expect(deps.consumeWarmAdapter).not.toHaveBeenCalled();
   });
 
+  it('refuses a warm adapter when the create requests yolo permissions', async () => {
+    const deps = makeDeps();
+    deps.consumeWarmAdapter.mockReturnValue({ getName: () => 'codex' } as CliAdapter);
+    const chain = new InstanceSpawnPreflightChain(deps);
+
+    const result = await chain.prepare({
+      config: { workingDirectory: '/tmp/project', provider: 'codex', yoloMode: true },
+      instance: { workingDirectory: '/tmp/project', bareMode: false },
+      provider: 'codex',
+      spawnOptions: makeSpawnOptions({ browserGatewayMcp: undefined, yoloMode: true }),
+    });
+
+    expect(result.kind).toBe('fresh');
+    expect(deps.consumeWarmAdapter).not.toHaveBeenCalled();
+  });
+
   it('forces a fresh local preflight for resume and warms the workspace', async () => {
     const deps = makeDeps();
     const chain = new InstanceSpawnPreflightChain(deps);

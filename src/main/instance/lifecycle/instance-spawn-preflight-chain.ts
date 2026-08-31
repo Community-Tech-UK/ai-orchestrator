@@ -61,6 +61,10 @@ export class InstanceSpawnPreflightChain {
     // would send this workspace's prompts through the wrong GitHub identity.
     // Cheap and unconditional: any Copilot create spawns fresh and routes.
     const copilotRouteRequired = provider === 'copilot';
+    // Warm adapters are spawned without yolo permissions. Those permissions
+    // are launch-scoped, so reusing one for a yolo create would leave the
+    // instance metadata saying yolo=true while the CLI still requests approval.
+    const warmYoloMismatch = spawnOptions.yoloMode === true;
     const warmStartBlocked = Boolean(
       config.resume
       || config.forceNodeId
@@ -69,6 +73,7 @@ export class InstanceSpawnPreflightChain {
       || spawnOptions.browserGatewayMcp
       || needsFreshConfiguredModel
       || warmEffortMismatch
+      || warmYoloMismatch
       || copilotRouteRequired
       || instance.bareMode === true,
     );

@@ -303,7 +303,13 @@ export function registerCopilotAccountHandlers(
   handle(
     IPC_CHANNELS.COPILOT_ACCOUNT_RULE_CREATE,
     CopilotAccountRuleCreatePayloadSchema,
-    (payload) => ({ success: true, data: store.createRule(payload) }),
+    (payload) => ({
+      success: true,
+      // `replaceExisting` is what the project menu's one-click swap needs:
+      // clicking a different account for a project must MOVE the rule, not
+      // collide with the one already there.
+      data: payload.replaceExisting ? store.routeTarget(payload) : store.createRule(payload),
+    }),
     'COPILOT_ACCOUNT_RULE_CREATE_FAILED',
   );
 
@@ -397,6 +403,9 @@ export function registerCopilotAccountHandlers(
       // is inspected, never routed through and never written.
       const existing = store.listProfiles().map((profile) => ({
         login: profile.expectedLogin,
+        // Sent too, so a profile added before the login was recorded still
+        // counts as taken — otherwise discovery re-offers it forever.
+        label: profile.label,
         host: profile.host,
       }));
       return { success: true, data: { accounts: await discoverCopilotAccounts({ existing }) } };

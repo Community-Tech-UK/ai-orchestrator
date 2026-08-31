@@ -235,6 +235,30 @@ describe('InstanceStateMachine – valid transitions', () => {
     sm.transition('initializing');
     expect(sm.current).toBe('initializing');
   });
+
+  it.each<InstanceStatus>([
+    'initializing',
+    'ready',
+    'idle',
+    'busy',
+    'processing',
+    'thinking_deeply',
+    'waiting_for_input',
+    'waiting_for_permission',
+    'interrupting',
+    'cancelling',
+    'interrupt-escalating',
+    'cancelled',
+    'respawning',
+    'hibernating',
+    'hibernated',
+    'waking',
+    'error',
+  ])('degraded → %s restores a live remote instance after reconnect', (status) => {
+    const sm = new InstanceStateMachine('degraded');
+    sm.transition(status);
+    expect(sm.current).toBe(status);
+  });
 });
 
 // ---------------------------------------------------------------------------

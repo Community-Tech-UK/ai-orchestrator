@@ -158,7 +158,28 @@ const TRANSITION_MAP: Readonly<Record<InstanceStatus, readonly InstanceStatus[]>
   // a woken instance legitimately lands on idle before the wake flow sets ready.
   waking:             ['ready', 'idle', 'error'],
   error:              ['ready', 'idle', 'respawning', 'initializing', 'cancelled'],
-  degraded:           ['ready', 'idle', 'error', 'initializing'],  // Reconnected → ready/idle, grace period expired → error
+  // `degraded` is a temporary overlay applied to any live remote lifecycle
+  // state while its worker is unreachable. Reconnection restores the exact
+  // pre-disconnect state, including active turns and interrupt/hibernate flows.
+  degraded:           [
+    'initializing',
+    'ready',
+    'idle',
+    'busy',
+    'processing',
+    'thinking_deeply',
+    'waiting_for_input',
+    'waiting_for_permission',
+    'interrupting',
+    'cancelling',
+    'interrupt-escalating',
+    'cancelled',
+    'respawning',
+    'hibernating',
+    'hibernated',
+    'waking',
+    'error',
+  ],
   // Terminal states have no outgoing transitions.
   failed:             [],
   terminated:         [],

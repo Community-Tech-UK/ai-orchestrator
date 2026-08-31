@@ -114,6 +114,71 @@ describe('AcpCliAdapter', () => {
     proc.exit();
   });
 
+  it('authenticates with the configured ACP method before opening a session', async () => {
+    const proc = new FakeAcpProcess();
+    proc.onRequest('initialize', (message) => {
+      proc.respond(message.id, {
+        protocolVersion: 1,
+        agentCapabilities: { loadSession: true },
+        authMethods: [{ id: 'cursor_login', name: 'Cursor Login' }],
+      });
+    });
+    proc.onRequest('authenticate', (message) => {
+      proc.respond(message.id, null);
+    });
+    proc.onRequest('session/new', (message) => {
+      proc.respond(message.id, { sessionId: 'sess-authenticated' });
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      authMethodId: 'cursor_login',
+    });
+
+    await expect(adapter.spawn()).resolves.toBe(4242);
+
+    const requests = proc.receivedMessages.filter((message) =>
+      'method' in message && 'id' in message,
+    ) as AcpJsonRpcRequest[];
+    expect(requests.map((request) => request.method)).toEqual([
+      'initialize',
+      'authenticate',
+      'session/new',
+    ]);
+    expect(requests[1]?.params).toEqual({ methodId: 'cursor_login' });
+    expect(adapter.getSessionId()).toBe('sess-authenticated');
+
+    proc.exit();
+  });
+
+  it('fails before session creation when the configured ACP auth method is not advertised', async () => {
+    const proc = new FakeAcpProcess();
+    proc.onRequest('initialize', (message) => {
+      proc.respond(message.id, {
+        protocolVersion: 1,
+        agentCapabilities: { loadSession: true },
+        authMethods: [{ id: 'different_login', name: 'Different Login' }],
+      });
+    });
+    proc.onRequest('session/new', (message) => {
+      proc.respond(message.id, { sessionId: 'must-not-open' });
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      authMethodId: 'cursor_login',
+    });
+
+    await expect(adapter.spawn()).rejects.toThrow(
+      "ACP agent did not advertise configured authentication method 'cursor_login'.",
+    );
+    expect(proc.receivedMessages).not.toContainEqual(
+      expect.objectContaining({ method: 'session/new' }),
+    );
+  });
+
   it('records confirmed native resume proof when session/load succeeds', async () => {
     const proc = createInitializedAgentHarness();
 

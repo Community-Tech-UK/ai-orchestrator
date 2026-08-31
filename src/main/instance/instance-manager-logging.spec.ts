@@ -35,4 +35,35 @@ describe('sanitizeCreateConfig', () => {
     expect(JSON.stringify(sanitized)).not.toContain('127.0.0.1');
     expect(JSON.stringify(sanitized)).not.toContain('secret-value');
   });
+
+  it('omits crash-recovery cursor and transcript material from hook diagnostics', () => {
+    const config: InstanceCreateConfig = {
+      workingDirectory: '/tmp/project',
+      sessionId: 'cursor-fixture-placeholder',
+      historyThreadId: 'history-thread-fixture-placeholder',
+      resume: true,
+      initialOutputBuffer: [{
+        id: 'message-fixture-id',
+        timestamp: 1,
+        type: 'tool_result',
+        content: 'message-content-fixture-placeholder',
+        metadata: { output: 'tool-output-fixture-placeholder' },
+      }],
+      metadata: {
+        reason: 'crash-recovery',
+        continuityRevival: true,
+        sourceInstanceId: 'source-instance-fixture-placeholder',
+      },
+    };
+
+    const sanitized = sanitizeCreateConfig(config) as Record<string, unknown>;
+    const serialized = JSON.stringify(sanitized);
+
+    expect(sanitized['sessionId']).toBe('[recovery session omitted]');
+    expect(serialized).not.toContain('cursor-fixture-placeholder');
+    expect(serialized).not.toContain('history-thread-fixture-placeholder');
+    expect(serialized).not.toContain('source-instance-fixture-placeholder');
+    expect(serialized).not.toContain('message-content-fixture-placeholder');
+    expect(serialized).not.toContain('tool-output-fixture-placeholder');
+  });
 });

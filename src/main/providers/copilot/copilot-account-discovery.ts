@@ -54,8 +54,17 @@ export function sharedCopilotConfigPath(env: NodeJS.ProcessEnv = process.env): s
 
 export interface DiscoverCopilotAccountsOptions {
   configPath?: string;
-  /** `{login, host}` pairs Harness already has a profile for. */
-  existing?: { login: string | null; host: string }[];
+  /**
+   * Profiles Harness already has, as `{login, label, host}`.
+   *
+   * `label` matters as much as `login`: a profile added from a suggestion
+   * before the login was recorded has `expectedLogin: null`, and matching on
+   * login alone made discovery offer that same account again forever — the
+   * duplicate `LAWRENCJ_PE1` row with an [Add] button beside the real one.
+   * Recording the login on create fixed new profiles; matching the label as
+   * well is what heals the ones already on disk.
+   */
+  existing?: { login: string | null; label?: string; host: string }[];
 }
 
 export async function discoverCopilotAccounts(
@@ -74,11 +83,13 @@ export async function discoverCopilotAccounts(
       return [];
     }
 
-    const taken = new Set(
-      (options.existing ?? [])
-        .filter((entry) => entry.login)
-        .map((entry) => `${normalizeCopilotHost(entry.host)}:${entry.login!.toLowerCase()}`),
-    );
+    const taken = new Set<string>();
+    for (const entry of options.existing ?? []) {
+      const host = normalizeCopilotHost(entry.host);
+      // Either identifier is enough to mean "Harness already has this one".
+      if (entry.login) taken.add(`${host}:${entry.login.toLowerCase()}`);
+      if (entry.label) taken.add(`${host}:${entry.label.trim().toLowerCase()}`);
+    }
 
     const seen = new Set<string>();
     const found: DiscoveredCopilotAccount[] = [];

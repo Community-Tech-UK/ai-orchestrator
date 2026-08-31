@@ -21,19 +21,20 @@ import {
   parseOrchestratorCommands,
   ORCHESTRATION_MARKER_START,
   ORCHESTRATION_MARKER_END,
-  formatCommandResponse,
   generateOrchestrationPrompt,
   detectsConsensusIntent,
   detectsSchedulingIntent,
   CONSENSUS_INTENT_REMINDER,
   SCHEDULING_INTENT_REMINDER,
-  type OrchestratorAction,
   type OrchestratorNodeSummary
 } from './orchestration-protocol';
 import { getRemoteNodeRosterService } from '../remote-node/remote-node-roster-service';
 import { getConsensusCoordinator } from './consensus-coordinator';
 import type { ConsensusProviderSpec } from './consensus.types';
-import { getSessionAdmissionService } from '../session/session-admission-service';
+import {
+  getSessionAdmissionService,
+  type AdmissionOutcome,
+} from '../session/session-admission-service';
 import {
   injectConsensusResult,
   handleConsensusRedelivery,
@@ -69,6 +70,7 @@ import type {
   ChildTerminationResult,
   CompletedChildSummary,
 } from './orchestration-handler.types';
+import { isParentUnavailableSuppression, OrchestrationResponseDelivery } from './orchestration-response-delivery';
 
 export type {
   OrchestrationContext,
@@ -91,6 +93,7 @@ export class OrchestrationHandler extends EventEmitter {
   private activeConsensusQueries = new Map<string, number>();
   /** Tracks consecutive failed children per parent for spawn-failure backoff */
   private consecutiveFailures = new Map<string, number>();
+  private suppressedChildCompletions = new Map<string, Map<string, string>>();
   private static readonly MAX_CONSECUTIVE_FAILURES = 3;
   /**
    * Streaming-safe buffer for orchestrator command parsing.
@@ -109,9 +112,13 @@ export class OrchestrationHandler extends EventEmitter {
   private recentCommands = new Map<string, { signature: string; timestamp: number }[]>();
   private static readonly COMMAND_DEDUP_WINDOW_MS = 30_000;
   private static readonly MAX_COMMANDS_PER_WINDOW = 10;
-
+  private readonly responseDelivery: OrchestrationResponseDelivery;
   constructor() {
     super();
+    this.responseDelivery = new OrchestrationResponseDelivery({
+      emit: (instanceId, response) => this.emit('inject-response', instanceId, response),
+      onChildCompletionRedelivered: (parentId, childId) => this.forgetSuppressedChildCompletion(parentId, childId),
+    });
     // Refire a suppressed consensus_query result injection once the
     // requesting instance is ready again (see injectConsensusResult).
     getSessionAdmissionService().registerRedeliveryHandler(
@@ -124,7 +131,7 @@ export class OrchestrationHandler extends EventEmitter {
   private consensusResultInjectionDeps(): ConsensusResultInjectionDeps {
     return {
       injectResponse: (instanceId, action, success, data) =>
-        this.injectResponse(instanceId, action, success, data),
+        this.injectResponse(instanceId, action, success, data, { alreadyAdmitted: true }),
     };
   }
 
@@ -154,6 +161,7 @@ export class OrchestrationHandler extends EventEmitter {
     this.consecutiveFailures.delete(instanceId);
     this.completedChildrenIds.delete(instanceId);
     this.activeConsensusQueries.delete(instanceId);
+    this.suppressedChildCompletions.delete(instanceId);
 
     // Best-effort cleanup: drop any pending user actions for this instance.
     // Otherwise they can linger if an instance is terminated while awaiting input.
@@ -201,6 +209,19 @@ export class OrchestrationHandler extends EventEmitter {
     const dropped: string[] = [];
     for (const childId of ctx.childrenIds) {
       (isChildAlive(childId) ? kept : dropped).push(childId);
+    }
+
+    // Include reaped children whose completion could not reach the parent.
+    const suppressed = this.suppressedChildCompletions.get(parentId);
+    if (suppressed) {
+      for (const [childId, admissionId] of suppressed) {
+        if (!dropped.includes(childId)) dropped.push(childId);
+        getSessionAdmissionService().markFailed(
+          admissionId,
+          'Child completion represented by fresh-fallback degradation notice',
+        );
+      }
+      this.suppressedChildCompletions.delete(parentId);
     }
 
     if (dropped.length > 0) {
@@ -1059,27 +1080,17 @@ export class OrchestrationHandler extends EventEmitter {
     instanceId: string,
     action: string,
     success: boolean,
-    data: unknown
-  ): void {
-    const payload = {
-      instanceId,
-      action,
-      data,
-      timestamp: Date.now(),
-    };
-    if (success) {
-      emitPluginHook('orchestration.command.completed', payload);
-    } else {
-      const error = typeof data === 'object' && data !== null && 'error' in data
-        ? String((data as Record<string, unknown>)['error'])
-        : undefined;
-      emitPluginHook('orchestration.command.failed', {
-        ...payload,
-        error,
-      });
-    }
-    const response = formatCommandResponse(action as OrchestratorAction, success, data);
-    this.emit('inject-response', instanceId, response);
+    data: unknown,
+    options: { alreadyAdmitted?: boolean } = {},
+  ): AdmissionOutcome | null {
+    return this.responseDelivery.inject(instanceId, action, success, data, options);
+  }
+
+  private forgetSuppressedChildCompletion(parentId: string, childId: string): void {
+    const children = this.suppressedChildCompletions.get(parentId);
+    if (!children) return;
+    children.delete(childId);
+    if (children.size === 0) this.suppressedChildCompletions.delete(parentId);
   }
 
   /**
@@ -1169,7 +1180,15 @@ export class OrchestrationHandler extends EventEmitter {
       responseData['conclusions'] = resultData.conclusions;
     }
 
-    this.injectResponse(parentId, 'child_completed', true, responseData);
+    const injection = this.injectResponse(parentId, 'child_completed', true, responseData);
+    if (injection?.kind === 'suppressed' && isParentUnavailableSuppression(injection.reason)) {
+      let children = this.suppressedChildCompletions.get(parentId);
+      if (!children) {
+        children = new Map<string, string>();
+        this.suppressedChildCompletions.set(parentId, children);
+      }
+      children.set(childId, injection.admissionId);
+    }
 
     const remainingChildren = ctx ? ctx.childrenIds.length : 0;
     return { remainingChildren };

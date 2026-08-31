@@ -52,3 +52,57 @@ describe('run-tests-quiet local-model endpoint routing', () => {
     expect(loadCandidateBaseUrls(appData)()).toEqual([]);
   });
 });
+
+/** Loads the verdict formatter without executing `main()`. */
+function loadFormatVerdictLine(): (
+  report: { numFailedTests: number; numTotalTests: number } | null,
+  exitCode: number,
+) => string {
+  const scriptPath = join(__dirname, 'run-tests-quiet.js');
+  const source = readFileSync(scriptPath, 'utf8').replace(
+    /\nmain\(\)\.catch\([\s\S]*$/,
+    '\nmodule.exports = { formatVerdictLine };\n',
+  );
+  const module = { exports: {} as Record<string, unknown> };
+  vm.runInNewContext(source, {
+    AbortController,
+    URL,
+    __dirname,
+    __filename: scriptPath,
+    clearTimeout,
+    console,
+    fetch,
+    module,
+    process: { ...process, argv: ['node', scriptPath] },
+    require: createRequire(scriptPath),
+    setTimeout,
+  });
+  const fn = module.exports['formatVerdictLine'];
+  if (typeof fn !== 'function') throw new Error('formatVerdictLine was not loaded');
+  return fn as ReturnType<typeof loadFormatVerdictLine>;
+}
+
+describe('run-tests-quiet failure verdict', () => {
+  // 2026-08-30: a full run with 2 failures was read as a pass. The failure
+  // summary is printed FIRST, above pages of stack traces, while the success
+  // summary is the LAST line — so any truncated read (`| tail -3`, a CI log
+  // excerpt, a pasted snippet) showed a stack trace then `full log: ...` and
+  // looked green. The verdict is now repeated last on the failure path too.
+  it('states the failure count and the exit code it will use', () => {
+    const line = loadFormatVerdictLine()({ numFailedTests: 2, numTotalTests: 19706 }, 0);
+    expect(line).toContain('FAILED');
+    expect(line).toContain('2 of 19706');
+    // vitest exited 0 despite failures; the wrapper floors it to 1.
+    expect(line).toContain('exit 1');
+  });
+
+  it('reports vitest\'s own non-zero code when it had one', () => {
+    expect(loadFormatVerdictLine()({ numFailedTests: 1, numTotalTests: 10 }, 137)).toContain('exit 137');
+  });
+
+  it('is explicit when there is no usable report, rather than implying a pass', () => {
+    const line = loadFormatVerdictLine()(null, 1);
+    expect(line).toContain('FAILED');
+    expect(line).toContain('no usable JSON report');
+  });
+});

@@ -25,8 +25,21 @@ import type { CliAdapter } from '../../cli/adapters/adapter-factory';
 import type { Instance } from '../../../shared/types/instance.types';
 import type { InstanceTerminationDeps } from './instance-termination';
 
+const loggerMock = vi.hoisted(() => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+}));
+const historyManagerMock = vi.hoisted(() => ({
+  getRecoveryCoverage: vi.fn(),
+}));
+
 vi.mock('../../logging/logger', () => ({
-  getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
+  getLogger: () => loggerMock,
+}));
+vi.mock('../../history', () => ({
+  getHistoryManager: () => historyManagerMock,
 }));
 vi.mock('../../plugins/hook-emitter', () => ({ emitPluginHook: vi.fn() }));
 vi.mock('../../session/session-turn-supervisor', () => ({ deleteTurnSupervisor: vi.fn() }));
@@ -46,6 +59,8 @@ import { InstanceTerminationCoordinator } from './instance-termination';
 const LIVE_SESSION_ID = 'live-claude-session';
 /** What respawnAfterUnexpectedExit's fork branch assigns: a not-yet-minted id. */
 const RESPAWN_MINTED_ID = 'minted-fork-id';
+const HISTORY_THREAD_ID = 'thread-placeholder-termination';
+const PROVIDER_SESSION_ID = 'provider-placeholder-termination';
 
 /**
  * An adapter whose graceful terminate emits `exit` the way a real SIGTERM does
@@ -79,6 +94,15 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
   } as unknown as Instance;
 }
 
+function message(id: string, type: Instance['outputBuffer'][number]['type'], timestamp: number) {
+  return {
+    id,
+    type,
+    content: `${type} content placeholder`,
+    timestamp,
+  };
+}
+
 describe('InstanceTerminationCoordinator — deliberate terminate vs unexpected exit', () => {
   let instance: Instance;
   let adapter: CliAdapter & EventEmitter;
@@ -87,6 +111,7 @@ describe('InstanceTerminationCoordinator — deliberate terminate vs unexpected 
 
   beforeEach(() => {
     vi.clearAllMocks();
+    historyManagerMock.getRecoveryCoverage.mockResolvedValue(new Map());
     instance = makeInstance();
     adapter = makeAdapter();
     archiveInstance = vi.fn().mockResolvedValue(undefined);
@@ -177,5 +202,261 @@ describe('InstanceTerminationCoordinator — deliberate terminate vs unexpected 
 
     await expect(coordinator.terminateInstance(instance.id, true)).resolves.toBeUndefined();
     expect(bare.terminate).toHaveBeenCalledWith(true);
+  });
+
+  it('delegates hibernated archive decisions to the archive dependency', async () => {
+    const order: string[] = [];
+    instance = makeInstance({
+      status: 'hibernated',
+      historyThreadId: HISTORY_THREAD_ID,
+      providerSessionId: PROVIDER_SESSION_ID,
+      sessionId: PROVIDER_SESSION_ID,
+      outputBuffer: [
+        message('message-user', 'user', 100),
+        message('message-assistant', 'assistant', 200),
+      ],
+    });
+    (deps.getInstance as ReturnType<typeof vi.fn>).mockImplementation(
+      (id: string) => (id === instance.id ? instance : undefined),
+    );
+    deps.archiveInstance = vi.fn(async () => {
+      order.push('archive');
+    });
+    const coordinator = new InstanceTerminationCoordinator(deps);
+
+    await coordinator.terminateInstance(instance.id, false);
+
+    expect(order).toEqual(['archive']);
+    expect(deps.archiveInstance).toHaveBeenCalledWith(instance, 'completed');
+    expect(deps.deleteInstance).toHaveBeenCalledWith(instance.id);
+  });
+
+  it('always invokes archive when legacy injected coverage covers only the bounded live tail', async () => {
+    const order: string[] = [];
+    instance = makeInstance({
+      status: 'hibernated',
+      historyThreadId: HISTORY_THREAD_ID,
+      providerSessionId: PROVIDER_SESSION_ID,
+      sessionId: PROVIDER_SESSION_ID,
+      outputBuffer: [
+        message('message-tail-user', 'user', 300),
+        message('message-tail-assistant', 'assistant', 400),
+      ],
+    });
+    (deps.getInstance as ReturnType<typeof vi.fn>).mockImplementation(
+      (id: string) => (id === instance.id ? instance : undefined),
+    );
+    const legacyCoverage = vi.fn(async () => {
+      order.push('coverage');
+      return {
+        recoveryKey: `history:claude:${HISTORY_THREAD_ID}`,
+        provider: 'claude' as const,
+        historyThreadId: HISTORY_THREAD_ID,
+        sessionId: PROVIDER_SESSION_ID,
+        coveredThrough: 400,
+        messageCount: 2,
+        historyEntryId: 'entry-placeholder-tail',
+      };
+    });
+    (deps as InstanceTerminationDeps & {
+      getArchiveHistoryCoverage?: typeof legacyCoverage;
+    }).getArchiveHistoryCoverage = legacyCoverage;
+    deps.archiveInstance = vi.fn(async () => {
+      order.push('archive');
+    });
+    const coordinator = new InstanceTerminationCoordinator(deps);
+
+    await coordinator.terminateInstance(instance.id, false);
+
+    expect(order).toEqual(['archive']);
+    expect(legacyCoverage).not.toHaveBeenCalled();
+    expect(deps.archiveInstance).toHaveBeenCalledWith(instance, 'completed');
+  });
+
+  it('invokes archive for a root instance even when the live output tail is empty', async () => {
+    instance = makeInstance({
+      status: 'hibernated',
+      historyThreadId: HISTORY_THREAD_ID,
+      outputBuffer: [],
+    });
+    (deps.getInstance as ReturnType<typeof vi.fn>).mockImplementation(
+      (id: string) => (id === instance.id ? instance : undefined),
+    );
+    const coordinator = new InstanceTerminationCoordinator(deps);
+
+    await coordinator.terminateInstance(instance.id, false);
+
+    expect(deps.archiveInstance).toHaveBeenCalledWith(instance, 'completed');
+  });
+
+  it('does not let same-session legacy coverage without a thread prevent archive', async () => {
+    instance = makeInstance({
+      status: 'hibernated',
+      historyThreadId: HISTORY_THREAD_ID,
+      providerSessionId: PROVIDER_SESSION_ID,
+      sessionId: PROVIDER_SESSION_ID,
+      outputBuffer: [
+        message('message-user', 'user', 100),
+        message('message-assistant', 'assistant', 200),
+      ],
+    });
+    (deps.getInstance as ReturnType<typeof vi.fn>).mockImplementation(
+      (id: string) => (id === instance.id ? instance : undefined),
+    );
+    const legacyCoverage = vi.fn().mockResolvedValue({
+      recoveryKey: `history:claude:${HISTORY_THREAD_ID}`,
+      provider: 'claude',
+      sessionId: PROVIDER_SESSION_ID,
+      coveredThrough: 200,
+      messageCount: 2,
+      historyEntryId: 'entry-placeholder-session-only',
+    });
+    (deps as InstanceTerminationDeps & {
+      getArchiveHistoryCoverage?: typeof legacyCoverage;
+    }).getArchiveHistoryCoverage = legacyCoverage;
+    const coordinator = new InstanceTerminationCoordinator(deps);
+
+    await coordinator.terminateInstance(instance.id, false);
+
+    expect(legacyCoverage).not.toHaveBeenCalled();
+    expect(deps.archiveInstance).toHaveBeenCalledWith(instance, 'completed');
+  });
+
+  it('does not query history coverage before archiving without an injected coverage dependency', async () => {
+    const order: string[] = [];
+    instance = makeInstance({
+      status: 'hibernated',
+      historyThreadId: HISTORY_THREAD_ID,
+      providerSessionId: PROVIDER_SESSION_ID,
+      sessionId: PROVIDER_SESSION_ID,
+      outputBuffer: [
+        message('message-user', 'user', 100),
+        message('message-assistant', 'assistant', 200),
+      ],
+    });
+    (deps.getInstance as ReturnType<typeof vi.fn>).mockImplementation(
+      (id: string) => (id === instance.id ? instance : undefined),
+    );
+    historyManagerMock.getRecoveryCoverage.mockImplementation(async () => {
+      order.push('coverage');
+      return new Map();
+    });
+    deps.archiveInstance = vi.fn(async () => {
+      order.push('archive');
+    });
+    const coordinator = new InstanceTerminationCoordinator(deps);
+
+    await coordinator.terminateInstance(instance.id, false);
+
+    expect(order).toEqual(['archive']);
+    expect(historyManagerMock.getRecoveryCoverage).not.toHaveBeenCalled();
+    expect(deps.archiveInstance).toHaveBeenCalledWith(instance, 'completed');
+  });
+
+  it('delegates conflicting-history identity handling to the archive dependency', async () => {
+    const order: string[] = [];
+    instance = makeInstance({
+      status: 'hibernated',
+      historyThreadId: HISTORY_THREAD_ID,
+      providerSessionId: PROVIDER_SESSION_ID,
+      sessionId: PROVIDER_SESSION_ID,
+      outputBuffer: [
+        message('message-user', 'user', 100),
+        message('message-assistant', 'assistant', 200),
+      ],
+    });
+    (deps.getInstance as ReturnType<typeof vi.fn>).mockImplementation(
+      (id: string) => (id === instance.id ? instance : undefined),
+    );
+    historyManagerMock.getRecoveryCoverage.mockImplementation(async () => {
+      order.push('coverage');
+      return new Map();
+    });
+    deps.archiveInstance = vi.fn(async () => {
+      order.push('archive');
+    });
+    const coordinator = new InstanceTerminationCoordinator(deps);
+
+    await coordinator.terminateInstance(instance.id, false);
+
+    expect(order).toEqual(['archive']);
+    expect(historyManagerMock.getRecoveryCoverage).not.toHaveBeenCalled();
+    expect(deps.archiveInstance).toHaveBeenCalledWith(instance, 'completed');
+  });
+
+  it('archives hibernated roots without preflight coverage', async () => {
+    const order: string[] = [];
+    instance = makeInstance({
+      status: 'hibernated',
+      historyThreadId: HISTORY_THREAD_ID,
+      providerSessionId: PROVIDER_SESSION_ID,
+      sessionId: PROVIDER_SESSION_ID,
+      outputBuffer: [
+        message('message-user', 'user', 100),
+        message('message-assistant', 'assistant', 200),
+      ],
+    });
+    (deps.getInstance as ReturnType<typeof vi.fn>).mockImplementation(
+      (id: string) => (id === instance.id ? instance : undefined),
+    );
+    deps.archiveInstance = vi.fn(async () => {
+      order.push('archive');
+    });
+    const coordinator = new InstanceTerminationCoordinator(deps);
+
+    await coordinator.terminateInstance(instance.id, false);
+
+    expect(order).toEqual(['archive']);
+    expect(deps.archiveInstance).toHaveBeenCalledWith(instance, 'completed');
+  });
+
+  it('does not log covered archive skips from the coordinator', async () => {
+    instance = makeInstance({
+      status: 'superseded',
+      historyThreadId: HISTORY_THREAD_ID,
+      providerSessionId: PROVIDER_SESSION_ID,
+      sessionId: PROVIDER_SESSION_ID,
+      supersededBy: 'replacement-placeholder',
+      outputBuffer: [
+        message('message-user', 'user', 100),
+        message('message-assistant', 'assistant', 200),
+      ],
+    });
+    (deps.getInstance as ReturnType<typeof vi.fn>).mockImplementation(
+      (id: string) => (id === instance.id ? instance : undefined),
+    );
+    const coordinator = new InstanceTerminationCoordinator(deps);
+
+    await coordinator.terminateInstance(instance.id, false);
+
+    const logged = JSON.stringify(loggerMock.info.mock.calls);
+    expect(logged).not.toContain('covered-superseded-or-hibernated');
+    expect(logged).not.toContain(HISTORY_THREAD_ID);
+    expect(logged).not.toContain(PROVIDER_SESSION_ID);
+  });
+
+  it('preserves hidden automation visibility by archiving an unsuccessful hidden automation even when covered', async () => {
+    instance = makeInstance({
+      status: 'hibernated',
+      historyThreadId: HISTORY_THREAD_ID,
+      providerSessionId: PROVIDER_SESSION_ID,
+      sessionId: PROVIDER_SESSION_ID,
+      metadata: {
+        automationId: 'automation-placeholder',
+        automationHidden: true,
+      },
+      outputBuffer: [
+        message('message-user', 'user', 100),
+        message('message-error', 'error', 200),
+      ],
+    });
+    (deps.getInstance as ReturnType<typeof vi.fn>).mockImplementation(
+      (id: string) => (id === instance.id ? instance : undefined),
+    );
+    const coordinator = new InstanceTerminationCoordinator(deps);
+
+    await coordinator.terminateInstance(instance.id, false);
+
+    expect(deps.archiveInstance).toHaveBeenCalledWith(instance, 'completed');
   });
 });

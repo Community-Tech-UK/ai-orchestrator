@@ -22,7 +22,8 @@ export function createAuthRepairCommunicationCallbacks(
           instanceId: params.instanceId,
           provider: instance.provider,
           reason: params.reason,
-          resumePrompt: params.resumePrompt,
+          resumeTurn: params.resumeTurn,
+          authoritative: params.authoritative,
         })
         .catch((error) => {
           logger.warn('Auth-failure block attempt failed', {

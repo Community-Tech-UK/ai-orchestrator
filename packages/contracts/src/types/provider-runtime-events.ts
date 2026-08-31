@@ -271,6 +271,11 @@ export interface ProviderCompleteEvent {
   kind: 'complete';
   /** Tokens used in this turn. */
   tokensUsed?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
   /** Total cost of this turn. */
   costUsd?: number;
   /** Duration of the response turn in ms. */

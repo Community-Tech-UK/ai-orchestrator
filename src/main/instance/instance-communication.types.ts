@@ -17,12 +17,15 @@ import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import type { SessionDiffTracker } from './session-diff-tracker';
 import type { ProviderId } from '../../shared/types/provider-quota.types';
 import type { RuntimeToolResultEvidenceCaptureInput } from '../context-evidence/context-evidence-coordinator';
+import type { AuthRepairTurn } from './instance-auth-repair-handler';
+import type { ContextEvidenceMode } from '../../shared/types/settings.types';
 
 /**
  * Dependencies required by the communication manager.
  */
 export interface CommunicationDependencies {
   getInstance: (id: string) => Instance | undefined;
+  isInstancePublished?: (id: string) => boolean;
   getAdapter: (id: string) => CliAdapter | undefined;
   setAdapter: (id: string, adapter: CliAdapter) => void;
   deleteAdapter: (id: string) => boolean;
@@ -100,8 +103,11 @@ export interface CommunicationDependencies {
   onAuthFailureTurn?: (params: {
     instanceId: string;
     reason: string;
-    resumePrompt: string | null;
+    resumeTurn: AuthRepairTurn | null;
+    authoritative: boolean;
   }) => void;
+  /** Clears the hidden retry guard after an auth-repair replay really completes. */
+  onAuthRepairReplayComplete?: (instanceId: string) => void;
   /**
    * Consults the durable provider-limit ledger before a new adapter dispatch.
    * A known active gate is parked before it can consume another provider turn.
@@ -144,5 +150,7 @@ export interface CommunicationDependencies {
   captureContextEvidenceToolResult?: (
     input: RuntimeToolResultEvidenceCaptureInput,
   ) => Promise<unknown>;
+  /** Re-read per capture so a provider kill switch applies without a restart. */
+  getContextEvidenceMode?: (provider: string) => ContextEvidenceMode;
   drainContextEvidence?: (instanceId: string) => Promise<void>;
 }

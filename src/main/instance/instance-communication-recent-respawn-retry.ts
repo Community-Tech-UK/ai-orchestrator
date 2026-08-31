@@ -25,6 +25,7 @@ import type { Instance, InstanceStatus } from '../../shared/types/instance.types
 import type { ErrorInfo } from '../../shared/types/ipc.types';
 import type { CommunicationDependencies } from './instance-communication.types';
 import { getLogger } from '../logging/logger';
+import { redactRecoveryError } from './instance-recovery-redaction';
 
 const logger = getLogger('InstanceCommunication');
 
@@ -77,7 +78,8 @@ export function scheduleSuppressedAutoRespawnRetry(
     }
     logger.info('Retrying auto-respawn after recent-respawn suppression window elapsed', { instanceId });
     deps.onUnexpectedExit(instanceId).catch((err) => {
-      logger.error('Deferred auto-respawn failed', err instanceof Error ? err : undefined, { instanceId });
+      const safeError = redactRecoveryError(current, err);
+      logger.error('Deferred auto-respawn failed', safeError, { instanceId });
       deps.transitionInstanceStatus(current, 'error');
       current.processId = null;
       deps.queueUpdate(
@@ -86,7 +88,7 @@ export function scheduleSuppressedAutoRespawnRetry(
         undefined,
         undefined,
         undefined,
-        deps.buildCrashError(`Auto-respawn failed: ${err instanceof Error ? err.message : String(err)}`)
+        deps.buildCrashError(`Auto-respawn failed: ${safeError.message}`)
       );
     });
   }, remainingSuppressMs);

@@ -4,6 +4,8 @@ describe('SESSION_CHANNELS', () => {
   it('has correct session values', () => {
     expect(SESSION_CHANNELS.SESSION_FORK).toBe('session:fork');
     expect(SESSION_CHANNELS.SESSION_LIST_RESUMABLE).toBe('session:list-resumable');
+    expect(SESSION_CHANNELS.SESSION_RECOVERY_LIST).toBe('session:recovery-list');
+    expect(SESSION_CHANNELS.SESSION_RECOVERY_RESTORE).toBe('session:recovery-restore');
     expect(SESSION_CHANNELS.SESSION_CREATE_SNAPSHOT).toBe('session:create-snapshot');
   });
 

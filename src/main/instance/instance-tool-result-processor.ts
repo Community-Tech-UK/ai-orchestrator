@@ -6,6 +6,9 @@ import { emitPluginHook } from '../plugins/hook-emitter';
 import { getFileEditBus } from './file-edit-bus';
 import { getLogger } from '../logging/logger';
 import type { SessionDiffTracker } from './session-diff-tracker';
+import type { ContextEvidenceMode } from '../../shared/types/settings.types';
+import { getSettingsManager } from '../core/config/settings-manager';
+import { getContextEvidenceMode } from '../context-evidence/context-evidence-settings';
 import { ToolOutputParser } from './tool-output-parser';
 import { dispatchInstanceLifecycleHook } from './instance-lifecycle-hooks';
 import {
@@ -19,6 +22,7 @@ export interface InstanceToolResultProcessorDependencies {
   captureContextEvidenceToolResult?: (
     input: RuntimeToolResultEvidenceCaptureInput,
   ) => Promise<unknown>;
+  getContextEvidenceMode?: (provider: string) => ContextEvidenceMode;
   createSnapshot?: (
     instanceId: string,
     name: string,
@@ -62,12 +66,14 @@ export class InstanceToolResultProcessor {
   }
 
   captureParsedEvidence(instance: Instance, message: OutputMessage): void {
+    if (this.currentEvidenceMode(instance.provider) === 'off') return;
     const ingress = buildParsedToolResultEvidenceIngress(instance, message);
     if (!ingress) return;
     void this.captureEvidence(ingress, instance.id);
   }
 
   captureRawEvidence(instance: Instance, toolCall: CliToolCall): void {
+    if (this.currentEvidenceMode(instance.provider) === 'off') return;
     const ingress = buildRawToolResultEvidenceIngress(instance, toolCall);
     if (!ingress) return;
     void this.captureEvidence(ingress, instance.id);
@@ -143,6 +149,13 @@ export class InstanceToolResultProcessor {
         captureKey: ingress.captureKey,
       });
     }
+  }
+
+  private currentEvidenceMode(provider: string): ContextEvidenceMode {
+    return this.deps.getContextEvidenceMode?.(provider) ?? getContextEvidenceMode(
+      getSettingsManager().getAll().contextEvidenceModeByProvider,
+      provider,
+    );
   }
 
   private recordAutonomousToolResult(instance: Instance, message: OutputMessage): void {

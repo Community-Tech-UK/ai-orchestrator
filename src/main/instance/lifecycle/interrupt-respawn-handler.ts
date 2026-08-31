@@ -68,6 +68,13 @@ import {
   INTERRUPT_COMPLETION_DEADLINE_MS,
   residentClaudeForSpawn,
 } from './interrupt-utils';
+import {
+  isCrashRecoveryInstance,
+  recoverySessionDiagnostic,
+  redactRecoveryError,
+  redactRecoveryOutputMessage,
+  redactRecoveryText,
+} from '../instance-recovery-redaction';
 
 const logger = getLogger('InterruptRespawn');
 
@@ -154,11 +161,28 @@ export interface InterruptRespawnDeps {
    * instead of staying errored. Best-effort — a throw here never affects the
    * terminal error path.
    */
-  onRecoveryLadderExhausted?: (instance: Instance, error: unknown) => void;
+  onRecoveryLadderExhausted?: (instanceId: string, error: unknown) => void;
 }
 
 export class InterruptRespawnHandler {
   constructor(private readonly deps: InterruptRespawnDeps) {}
+
+  private recoverySafeSessionState(
+    instance: Instance,
+    sessionState: NonNullable<Parameters<QueueUpdate>[7]>,
+  ): NonNullable<Parameters<QueueUpdate>[7]> {
+    if (!isCrashRecoveryInstance(instance)) return sessionState;
+    const safeState = { ...sessionState };
+    delete safeState.providerSessionId;
+    delete safeState.historyThreadId;
+    return safeState;
+  }
+
+  private emitRecoverySafeOutput(instance: Instance, message: OutputMessage): void {
+    const safeMessage = redactRecoveryOutputMessage(instance, message);
+    this.deps.addToOutputBuffer(instance, safeMessage);
+    this.deps.emitOutput(instance.id, safeMessage);
+  }
 
   private shouldAbortRespawn(instanceId: string, instance: Instance): boolean {
     const current = this.deps.getInstance(instanceId);
@@ -179,19 +203,21 @@ export class InterruptRespawnHandler {
     adapter: CliAdapter,
     reason: string,
   ): Promise<void> {
+    const safeReason = redactRecoveryText(instance, reason);
     logger.info('Respawn aborted; cleaning up replacement adapter', {
       instanceId,
       status: this.deps.getInstance(instanceId)?.status,
-      reason,
+      reason: safeReason,
     });
 
     adapter.removeAllListeners();
     try {
       await adapter.terminate(false);
     } catch (error) {
+      const safeError = redactRecoveryError(instance, error);
       logger.warn('Failed to terminate aborted respawn adapter', {
         instanceId,
-        error: error instanceof Error ? error.message : String(error),
+        error: safeError.message,
       });
     }
 
@@ -313,8 +339,9 @@ export class InterruptRespawnHandler {
       // Initiate bounded terminate (fire-and-forget — adapter.terminate already
       // SIGTERM→SIGKILL after 5s; we don't block the state machine on this).
       adapter.terminate(true).catch((err) => {
+        const safeError = redactRecoveryError(instance, err);
         logger.warn('Escalated interrupt terminate failed', {
-          error: err instanceof Error ? err.message : String(err),
+          error: safeError.message,
           instanceId,
         });
       });
@@ -333,8 +360,7 @@ export class InterruptRespawnHandler {
           turnId: instance.activeTurnId,
         },
       };
-      this.deps.addToOutputBuffer(instance, message);
-      this.deps.emitOutput(instanceId, message);
+      this.emitRecoverySafeOutput(instance, message);
       this.deps.queueUpdate(instanceId, 'cancelled', instance.contextUsage, undefined, undefined, undefined, undefined, {
         activeTurnId: instance.activeTurnId,
         interruptRequestId: instance.interruptRequestId,
@@ -470,8 +496,7 @@ export class InterruptRespawnHandler {
           content: 'Interrupt timed out — session force-cancelled. Restart to continue.',
           metadata: { interruptRequestId: capturedInstance.interruptRequestId, interruptPhase: 'escalated', forceAborted: true },
         };
-        this.deps.addToOutputBuffer(capturedInstance, forceMessage);
-        this.deps.emitOutput(capturedInstanceId, forceMessage);
+        this.emitRecoverySafeOutput(capturedInstance, forceMessage);
         this.deps.queueUpdate(capturedInstanceId, 'cancelled', capturedInstance.contextUsage, undefined, undefined, undefined, undefined, {
           activeTurnId: capturedInstance.activeTurnId,
           interruptPhase: capturedInstance.interruptPhase,
@@ -492,7 +517,9 @@ export class InterruptRespawnHandler {
       logger.warn('Interrupt was not accepted by adapter', {
         instanceId,
         status: interruptResult.status,
-        reason: interruptResult.reason,
+        reason: interruptResult.reason
+          ? redactRecoveryText(instance, interruptResult.reason)
+          : undefined,
       });
       this.deps.clearInterrupted(instanceId);
     }
@@ -592,7 +619,7 @@ export class InterruptRespawnHandler {
       }
       result = {
         status: 'rejected',
-        reason: err instanceof Error ? err.message : String(err),
+        reason: redactRecoveryError(instanceAtInterrupt, err).message,
       };
     }
 
@@ -633,8 +660,12 @@ export class InterruptRespawnHandler {
     if (result.status === 'rejected') {
       logger.warn('Accepted interrupt completed with a rejected turn result; treating as interrupted', {
         instanceId,
-        turnId: result.turnId,
-        reason: result.reason,
+        turnId: result.turnId
+          ? redactRecoveryText(instance, result.turnId)
+          : undefined,
+        reason: result.reason
+          ? redactRecoveryText(instance, result.reason)
+          : undefined,
       });
     }
 
@@ -653,8 +684,7 @@ export class InterruptRespawnHandler {
         ...(result.reason ? { interruptReason: result.reason } : {}),
       },
     };
-    this.deps.addToOutputBuffer(instance, message);
-    this.deps.emitOutput(instanceId, message);
+    this.emitRecoverySafeOutput(instance, message);
     this.deps.queueUpdate(instanceId, 'idle', instance.contextUsage, undefined, undefined, undefined, undefined, {
       activeTurnId: instance.activeTurnId,
       interruptRequestId: instance.interruptRequestId,
@@ -752,7 +782,10 @@ export class InterruptRespawnHandler {
       const previousAdapter = this.deps.getAdapter(instanceId);
       const capabilities = this.deps.getAdapterRuntimeCapabilities(previousAdapter);
       const sessionId = instance.sessionId;
-      logger.debug('Respawning with session ID', { instanceId, sessionId });
+      logger.debug('Respawning with session ID', {
+        instanceId,
+        ...recoverySessionDiagnostic(instance, 'sessionId', sessionId),
+      });
       if (!sessionId && capabilities.supportsResume) {
         throw new Error(`Instance ${instanceId} has no session ID to resume`);
       }
@@ -763,7 +796,10 @@ export class InterruptRespawnHandler {
       // is unknown to the CLI. Falls through to the fresh-session + replay path.
       const resumeBlacklisted = instance.sessionResumeBlacklisted === true;
       if (resumeBlacklisted) {
-        logger.info('Skipping --resume for blacklisted session id', { instanceId, sessionId });
+        logger.info('Skipping --resume for blacklisted session id', {
+          instanceId,
+          ...recoverySessionDiagnostic(instance, 'sessionId', sessionId),
+        });
       }
       const continuityState = getSessionContinuityManagerIfInitialized()?.getSessionState(instanceId);
       const recoveryPlan = planSessionRecovery({
@@ -928,8 +964,7 @@ export class InterruptRespawnHandler {
           timestamp: Date.now(),
           metadata: triggeredByInterrupt ? undefined : { autoRespawn: true, recoveryCause: 'stuck' },
         };
-        this.deps.addToOutputBuffer(instance, message);
-        this.deps.emitOutput(instanceId, message);
+        this.emitRecoverySafeOutput(instance, message);
 
         instance.lastRespawnAt = Date.now();
         this.deps.queueUpdate(
@@ -940,7 +975,7 @@ export class InterruptRespawnHandler {
           undefined,
           undefined,
           undefined,
-          {
+          this.recoverySafeSessionState(instance, {
             providerSessionId: instance.providerSessionId,
             restartEpoch: instance.restartEpoch,
             activeTurnId: instance.activeTurnId,
@@ -952,7 +987,7 @@ export class InterruptRespawnHandler {
             recoveryMethod: instance.recoveryMethod,
             archivedUpToMessageId: instance.archivedUpToMessageId,
             historyThreadId: instance.historyThreadId,
-          },
+          }),
           undefined,
           undefined,
           null, // clear waitReason — respawn complete
@@ -967,7 +1002,8 @@ export class InterruptRespawnHandler {
           return;
         }
 
-        logger.error('Failed to spawn after interrupt', error instanceof Error ? error : undefined, { instanceId });
+        const safeError = redactRecoveryError(instance, error);
+        logger.error('Failed to spawn after interrupt', safeError, { instanceId });
         this.deps.transitionState(instance, 'error');
         instance.processId = null;
         instance.recoveryMethod = 'failed';
@@ -980,7 +1016,7 @@ export class InterruptRespawnHandler {
           undefined,
           undefined,
           undefined,
-          {
+          this.recoverySafeSessionState(instance, {
             providerSessionId: instance.providerSessionId,
             restartEpoch: instance.restartEpoch,
             activeTurnId: instance.activeTurnId,
@@ -992,7 +1028,7 @@ export class InterruptRespawnHandler {
             recoveryMethod: instance.recoveryMethod,
             archivedUpToMessageId: instance.archivedUpToMessageId,
             historyThreadId: instance.historyThreadId,
-          },
+          }),
           undefined,
           undefined,
           null, // clear waitReason — error terminal state
@@ -1001,11 +1037,11 @@ export class InterruptRespawnHandler {
         // provider failover before the instance stays a dead corpse.
         // Fail-soft: never let it perturb the terminal error path.
         try {
-          this.deps.onRecoveryLadderExhausted?.(instance, error);
+          this.deps.onRecoveryLadderExhausted?.(instanceId, safeError);
         } catch {
           // best-effort
         }
-        throw error;
+        throw safeError;
       }
     } finally {
       release();
@@ -1102,7 +1138,7 @@ export class InterruptRespawnHandler {
       if (resumeBlacklisted) {
         logger.info('Skipping --resume for blacklisted session id in auto-respawn', {
           instanceId,
-          sessionId,
+          ...recoverySessionDiagnostic(instance, 'sessionId', sessionId),
         });
       }
       const continuityStateAuto = getSessionContinuityManagerIfInitialized()?.getSessionState(instanceId);
@@ -1241,8 +1277,7 @@ export class InterruptRespawnHandler {
           timestamp: Date.now(),
           metadata: { autoRespawn: true },
         };
-        this.deps.addToOutputBuffer(instance, message);
-        this.deps.emitOutput(instanceId, message);
+        this.emitRecoverySafeOutput(instance, message);
 
         instance.lastRespawnAt = Date.now();
         this.deps.queueUpdate(
@@ -1253,13 +1288,13 @@ export class InterruptRespawnHandler {
           undefined,
           undefined,
           undefined,
-          {
+          this.recoverySafeSessionState(instance, {
             providerSessionId: instance.providerSessionId,
             restartEpoch: instance.restartEpoch,
             recoveryMethod: instance.recoveryMethod,
             archivedUpToMessageId: instance.archivedUpToMessageId,
             historyThreadId: instance.historyThreadId,
-          },
+          }),
           undefined,
           undefined,
           null, // clear waitReason — auto-respawn complete
@@ -1273,7 +1308,8 @@ export class InterruptRespawnHandler {
           return;
         }
 
-        logger.error('Auto-respawn failed', error instanceof Error ? error : undefined, { instanceId });
+        const safeError = redactRecoveryError(instance, error);
+        logger.error('Auto-respawn failed', safeError, { instanceId });
         this.deps.transitionState(instance, 'error');
         instance.processId = null;
         instance.recoveryMethod = 'failed';
@@ -1285,13 +1321,13 @@ export class InterruptRespawnHandler {
           undefined,
           undefined,
           undefined,
-          {
+          this.recoverySafeSessionState(instance, {
             providerSessionId: instance.providerSessionId,
             restartEpoch: instance.restartEpoch,
             recoveryMethod: instance.recoveryMethod,
             archivedUpToMessageId: instance.archivedUpToMessageId,
             historyThreadId: instance.historyThreadId,
-          },
+          }),
           undefined,
           undefined,
           null, // clear waitReason — error terminal state
@@ -1300,11 +1336,11 @@ export class InterruptRespawnHandler {
         // provider failover before the instance stays a dead corpse.
         // Fail-soft: never let it perturb the terminal error path.
         try {
-          this.deps.onRecoveryLadderExhausted?.(instance, error);
+          this.deps.onRecoveryLadderExhausted?.(instanceId, safeError);
         } catch {
           // best-effort
         }
-        throw error;
+        throw safeError;
       }
     } finally {
       release();

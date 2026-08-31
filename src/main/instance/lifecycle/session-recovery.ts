@@ -282,7 +282,6 @@ export class SessionRecoveryCoordinator {
 
     logger.info('Attempting session recovery', {
       instanceId,
-      sessionId,
       reason: input?.reason,
       planKind: plan?.kind,
     });
@@ -299,7 +298,7 @@ export class SessionRecoveryCoordinator {
     if (!plan || plan.kind === 'native-resume' || plan.kind === 'provider-fork') {
       const nativeResult = await this.deps.nativeResume(instanceId, sessionId);
       if (nativeResult.success) {
-        logger.info('Native resume succeeded', { instanceId, sessionId });
+        logger.info('Native resume succeeded', { instanceId });
         return { ...nativeResult, method: 'native-resume', plan: nativeResult.plan ?? plan };
       }
 

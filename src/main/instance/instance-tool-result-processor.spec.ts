@@ -7,15 +7,18 @@ describe('InstanceToolResultProcessor', () => {
   let instance: Instance;
   let createSnapshot: ReturnType<typeof vi.fn>;
   let captureEvidence: ReturnType<typeof vi.fn>;
+  let liveEvidenceMode: 'off' | 'shadow';
   let processor: InstanceToolResultProcessor;
 
   beforeEach(() => {
     instance = toolInstance();
     createSnapshot = vi.fn();
     captureEvidence = vi.fn().mockResolvedValue(undefined);
+    liveEvidenceMode = 'shadow';
     processor = new InstanceToolResultProcessor({
       createSnapshot,
       captureContextEvidenceToolResult: captureEvidence,
+      getContextEvidenceMode: () => liveEvidenceMode,
     });
   });
 
@@ -64,6 +67,21 @@ describe('InstanceToolResultProcessor', () => {
       'tool-result:turn-1:tool-1',
       'tool-result:turn-1:tool-1',
     ]);
+  });
+
+  it('honours the live provider kill switch for an already-running instance', () => {
+    liveEvidenceMode = 'off';
+
+    processor.captureParsedEvidence(instance, toolResult('tool-1', 'Read'));
+    processor.captureRawEvidence(instance, {
+      id: 'tool-1',
+      name: 'Read',
+      arguments: { path: 'README.md' },
+      result: 'contents',
+    } satisfies CliToolCall);
+
+    expect(instance.contextEvidence?.mode).toBe('shadow');
+    expect(captureEvidence).not.toHaveBeenCalled();
   });
 });
 

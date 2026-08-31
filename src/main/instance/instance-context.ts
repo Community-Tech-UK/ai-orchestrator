@@ -112,6 +112,7 @@ export class InstanceContextManager implements InstanceContextPort {
   // Instance to RLM store/session mappings
   private instanceRlmStores = new Map<string, string>();
   private instanceRlmSessions = new Map<string, string>();
+  private recoveryRlmInstances = new Set<string>();
 
   // Instance to registered JIT resources
   private instanceResources = new Map<string, Set<string>>();
@@ -158,20 +159,28 @@ export class InstanceContextManager implements InstanceContextPort {
    * Initialize RLM store and session for an instance
    */
   async initializeRlm(instance: Instance): Promise<void> {
+    const isCrashRecovery = instance.metadata?.['reason'] === 'crash-recovery';
+    if (isCrashRecovery) this.recoveryRlmInstances.add(instance.id);
     try {
       instance.rlmStoreSessionId = instance.sessionId;
       const rlmStore = this.rlm.createStore(instance.sessionId);
       this.instanceRlmStores.set(instance.id, rlmStore.id);
-      logger.info('Created RLM store for session', { storeId: rlmStore.id, sessionId: instance.sessionId });
+      logger.info('Created RLM store for session', isCrashRecovery
+        ? { instanceId: instance.id, recoverySession: true }
+        : { storeId: rlmStore.id, sessionId: instance.sessionId });
 
       const rlmSession = await this.rlm.startSession(
         rlmStore.id,
         instance.sessionId
       );
       this.instanceRlmSessions.set(instance.id, rlmSession.id);
-      logger.info('Started RLM session', { rlmSessionId: rlmSession.id, sessionId: instance.sessionId });
+      logger.info('Started RLM session', isCrashRecovery
+        ? { instanceId: instance.id, recoverySession: true }
+        : { rlmSessionId: rlmSession.id, sessionId: instance.sessionId });
     } catch (error) {
-      logger.error('Failed to initialize RLM for instance', error instanceof Error ? error : undefined);
+      logger.error('Failed to initialize RLM for instance',
+        !isCrashRecovery && error instanceof Error ? error : undefined,
+        isCrashRecovery ? { instanceId: instance.id, recoverySession: true } : undefined);
     }
   }
 
@@ -180,16 +189,22 @@ export class InstanceContextManager implements InstanceContextPort {
    */
   endRlmSession(instanceId: string): void {
     const rlmSessionId = this.instanceRlmSessions.get(instanceId);
+    const isCrashRecovery = this.recoveryRlmInstances.has(instanceId);
     if (rlmSessionId) {
       try {
         this.rlm.endSession(rlmSessionId);
-        logger.info('Ended RLM session', { rlmSessionId, instanceId });
+        logger.info('Ended RLM session', isCrashRecovery
+          ? { instanceId, recoverySession: true }
+          : { rlmSessionId, instanceId });
       } catch (error) {
-        logger.error('Failed to end RLM session', error instanceof Error ? error : undefined, { instanceId });
+        logger.error('Failed to end RLM session',
+          !isCrashRecovery && error instanceof Error ? error : undefined,
+          { instanceId, ...(isCrashRecovery ? { recoverySession: true } : {}) });
       }
       this.instanceRlmSessions.delete(instanceId);
     }
     this.instanceRlmStores.delete(instanceId);
+    this.recoveryRlmInstances.delete(instanceId);
   }
 
   /**

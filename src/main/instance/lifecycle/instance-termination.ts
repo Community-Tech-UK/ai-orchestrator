@@ -233,7 +233,7 @@ export class InstanceTerminationCoordinator {
   }
 
   private async archiveRootConversation(instanceId: string, instance: Instance): Promise<void> {
-    if (instance.parentId || instance.outputBuffer.length === 0) {
+    if (instance.parentId) {
       return;
     }
 

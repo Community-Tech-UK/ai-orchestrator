@@ -81,7 +81,11 @@ import { computeInitWaitBudgetMs as resolveInitWaitBudgetMs } from './init-wait-
 import { getAutoTitleService } from './auto-title-service';
 import { productionCoreDeps } from './instance-deps';
 import { getSessionContinuityManager } from '../session/session-continuity';
+import type { ResolvedRecoveryCandidate } from '../session/session-recovery-candidate-service';
+import type { RecoverSessionResult } from '../../shared/types/session-recovery.types';
 import { reviveContinuitySession } from './lifecycle/continuity-revival';
+import { InstanceContinuityRecovery } from './lifecycle/instance-continuity-recovery';
+import { createInstanceManagerObserverEmitter } from './lifecycle/safe-event-observers';
 import { getPermissionEnforcer } from '../security/permission-enforcer';
 import { getPermissionManager, type PermissionRequest, type PermissionScope } from '../security/permission-manager';
 import { cleanupAdjudicatorBreakerForInstance, maybeAdjudicateDeferredPermission, resetAdjudicatorBreaker } from '../security/approval-adjudicator';
@@ -162,7 +166,6 @@ const SEND_TERMINAL_STATUSES = new Set<InstanceStatus>([
   'cancelled',
   'superseded',
 ]);
-
 interface InputContextBundle {
   rlmContext: RlmContextInfo | null;
   unifiedMemoryContext: UnifiedMemoryContextInfo | null;
@@ -202,6 +205,8 @@ export class InstanceManager extends EventEmitter {
   private settledTracker: InstanceSettledTracker;
   private childCompletion: InstanceChildCompletionHandler;
   private lifecycleEvents = new InstanceEventAggregator();
+  private continuityRecovery!: InstanceContinuityRecovery;
+  private readonly emitObserversSafely = createInstanceManagerObserverEmitter(this);
 
   // Tracking
   private hasReceivedFirstMessage = new Set<string>();
@@ -312,10 +317,11 @@ export class InstanceManager extends EventEmitter {
     });
     // Communication manager needs dependencies
     this.communication = new InstanceCommunicationManager({
-      getInstance: (id) => this.state.getInstance(id),
-      getAdapter: (id) => this.state.getAdapter(id),
+      getInstance: (id) => this.state.getRuntimeInstance(id),
+      isInstancePublished: (id) => this.state.isInstancePending?.(id) !== true,
+      getAdapter: (id) => this.state.getRuntimeAdapter(id),
       setAdapter: (id, adapter) => this.state.setAdapter(id, adapter),
-      deleteAdapter: (id) => this.state.deleteAdapter(id),
+      deleteAdapter: (id) => this.state.deleteRuntimeAdapter(id),
       transitionState: (instance, status) => this.lifecycle.transitionStatePublic(instance, status),
       queueUpdate: (id, status, ctx, diffStats, displayName, error, executionLocation, sessionState, activityState, currentModel, waitReason) => (
         this.state.queueUpdate(
@@ -389,6 +395,7 @@ export class InstanceManager extends EventEmitter {
       // it fires.
       ...createProviderLimitCommunicationCallbacks((id) => this.state.getInstance(id)),
       ...createAuthRepairCommunicationCallbacks((id) => this.state.getInstance(id)),
+      onAuthRepairReplayComplete: (id) => getInstanceAuthRepairHandler().completeReplay(id),
       clearProviderLimitAfterSuccessfulTurn: getProviderLimitLedgerPort().clearAfterSuccessfulTurn,
       createSnapshot: (id, name, desc, trigger) => {
         try {
@@ -475,47 +482,49 @@ export class InstanceManager extends EventEmitter {
     getInstanceAuthRepairHandler().configure({
       setWaitReason: (id, waitReason) => this.queueInstanceUpdate(id, { waitReason }),
       revive: async (id) => {
-        // The failed turn errored the instance, so the adapter is gone —
-        // revival restores the thread (native resume where possible) before
-        // anything can be re-sent to it.
-        const { SessionRevivalService } = await import('../session/session-revival-service');
-        const result = await new SessionRevivalService(this).revive({
-          instanceId: id,
-          reviveIfArchived: true,
-          reason: 'thread-wakeup',
-        });
-        if (result.status === 'failed' || !result.instanceId) {
-          logger.warn('Auth-repair revival failed', {
+        // Auth failure leaves a live Instance record but force-cleans its
+        // adapter. Archive revival cannot find that shape (LT-168); the normal
+        // restart path is the in-place primitive that restores its adapter and
+        // native provider session.
+        const result = await this.restartInstance(id);
+        if (!result.success) {
+          logger.warn('Auth-repair restart failed', {
             instanceId: id,
-            failureCode: result.failureCode,
             error: result.error,
           });
           return null;
         }
-        return result.instanceId;
+        return id;
       },
-      resendInput: (id, prompt) => {
-        void this.sendInput(id, prompt).catch((err) =>
-          logger.warn('Auth-repair resume re-send failed', {
-            instanceId: id,
-            error: err instanceof Error ? err.message : String(err),
-          }),
-        );
-      },
+      // Re-send the already-resolved provider turn verbatim. Going back through
+      // InstanceManager.sendInput() would resolve slash commands and retrieved
+      // context a second time, and would lose the original context block.
+      resendInput: (id, turn) => this.communication.sendInput(
+        id,
+        turn.message,
+        turn.attachments,
+        turn.contextBlock,
+      ),
     });
 
     // Lifecycle manager needs dependencies
     this.lifecycle = new InstanceLifecycleManager({
-      getInstance: (id) => this.state.getInstance(id),
+      getInstance: (id) => this.state.getRuntimeInstance(id),
       setInstance: (inst) => this.state.setInstance(inst),
-      deleteInstance: (id) => this.state.deleteInstance(id),
-      getAdapter: (id) => this.state.getAdapter(id),
+      deleteInstance: (id) => this.state.deleteRuntimeInstance(id),
+      setPendingInstance: (inst) => this.state.setPendingInstance(inst),
+      publishPendingInstance: (id) => this.state.publishPendingInstance(id),
+      deleteRuntimeInstance: (id) => this.state.deleteRuntimeInstance(id),
+      isInstancePublished: (id) => this.state.isInstancePending?.(id) !== true,
+      releasePendingUpdate: (id) => this.state.releasePendingUpdate(id),
+      clearPendingInstanceState: (id) => this.state.clearPendingInstanceState(id),
+      getAdapter: (id) => this.state.getRuntimeAdapter(id),
       setAdapter: (id, adapter) => this.state.setAdapter(id, adapter),
-      deleteAdapter: (id) => this.state.deleteAdapter(id),
+      deleteAdapter: (id) => this.state.deleteRuntimeAdapter(id),
       setDiffTracker: (id, tracker) => this.state.setDiffTracker(id, tracker),
       deleteDiffTracker: (id) => this.state.deleteDiffTracker(id),
-      getInstanceCount: () => this.state.getInstanceCount(),
-      forEachInstance: (cb) => this.state.forEachInstance(cb),
+      getInstanceCount: () => this.state.getRuntimeInstanceCount(),
+      forEachInstance: (cb) => this.state.forEachRuntimeInstance(cb),
       queueUpdate: (id, status, ctx, diffStats, displayName, error, executionLocation, sessionState, activityState, currentModel, waitReason, extras) => (
         this.state.queueUpdate(
           id,
@@ -560,6 +569,17 @@ export class InstanceManager extends EventEmitter {
       deleteStateMachine: (id) => this.state.deleteStateMachine(id),
       queueInitialPromptForRenderer: (payload) => this.queueInitialPromptForRenderer(payload),
       coreDeps: (() => { try { return productionCoreDeps(); } catch { return undefined; } })(),
+    });
+    this.continuityRecovery = new InstanceContinuityRecovery({
+      createInstance: (config) => this.createInstance(config),
+      createUnpublishedInstance: (config) => this.lifecycle.createUnpublishedInstance(config),
+      getAllInstances: () => this.state.getAllInstances(),
+      getInstance: (instanceId) => this.state.getInstance(instanceId),
+      queueContinuityPreamble: (instanceId, preamble) => this.queueContinuityPreamble(instanceId, preamble),
+      clearCommunication: (instanceId) => this.communication.cleanupCircuitBreaker(instanceId),
+      clearPendingState: (instanceId) => this.state.clearPendingInstanceState(instanceId),
+      removeProviderEvents: (instanceId) => this.providerEventBus.removeInstance(instanceId),
+      clearSettledState: (instanceId) => this.settledTracker.clear(instanceId),
     });
 
     // Persistence manager needs dependencies
@@ -654,6 +674,7 @@ export class InstanceManager extends EventEmitter {
     // Communication events
     this.communication.on('output', (payload) => this.publishOutput(payload.instanceId, payload.message, payload.raw));
     this.communication.on('input-required', (payload) => {
+      if (this.state.isInstancePending?.(payload.instanceId) === true) return;
       logger.info('Input-required event received', summarizeInputRequiredPayload(payload));
       void this.handleInputRequired(payload);
     });
@@ -664,13 +685,14 @@ export class InstanceManager extends EventEmitter {
       if (instanceId) {
         const instance = this.state.getInstance(instanceId);
         if (instance) {
-          this.emit('instance:event', this.lifecycleEvents.recordCreated(instance));
+          this.emitObserversSafely('instance:event', this.lifecycleEvents.recordCreated(instance));
         }
       }
-      this.emit('instance:created', payload);
+      this.emitObserversSafely('instance:created', payload);
     });
     this.lifecycle.on('removed', (instanceId) => {
       const instance = this.state.getInstance(instanceId);
+      this.continuityRecovery.removeInstance(instanceId);
       this.providerEventBus.removeInstance(instanceId);
       this.settledTracker.clear(instanceId);
       removeInstanceBrowserToolsMode(instanceId);
@@ -678,8 +700,8 @@ export class InstanceManager extends EventEmitter {
       removeInstanceHardened(instanceId);
       removeInstanceContainedExecution(instanceId);
       getHandoffStateService().removeInstance(instanceId);
-      this.emit('instance:event', this.lifecycleEvents.recordRemoved(instanceId, instance?.status));
-      this.emit('instance:removed', instanceId);
+      this.emitObserversSafely('instance:event', this.lifecycleEvents.recordRemoved(instanceId, instance?.status));
+      this.emitObserversSafely('instance:removed', instanceId);
     });
     this.lifecycle.on('output', (payload) => this.publishOutput(payload.instanceId, payload.message));
     this.lifecycle.on('agent-changed', (payload) => this.emit('instance:agent-changed', payload));
@@ -1178,6 +1200,7 @@ export class InstanceManager extends EventEmitter {
     message: OutputMessage,
     raw?: ProviderRuntimeEventEnvelope['raw'],
   ): void {
+    if (this.state.isInstancePending?.(instanceId) === true) return;
     this.settledTracker.recordActivity(instanceId, message.timestamp);
     this.emitProviderRuntimeEvent(instanceId, toProviderOutputEvent(message), {
       raw: raw ?? {
@@ -1233,6 +1256,7 @@ export class InstanceManager extends EventEmitter {
       ephemeral?: boolean;
     },
   ): void {
+    if (this.state.isInstancePending?.(instanceId) === true) return;
     observeToolLoopEventWiring(this.toolLoopWiringDeps, instanceId, event);
     const pending = buildProviderRuntimeEventIngress({
       getInstance: (id) => this.state.getInstance(id),
@@ -1240,7 +1264,7 @@ export class InstanceManager extends EventEmitter {
       event,
       options,
     });
-    if (pending) this.providerEventBus.enqueue(pending);
+    if (pending) this.providerEventBus.enqueue(this.continuityRecovery.redactProviderEnvelope(pending));
   }
 
   /** Capture a non-rendering adapter event, such as a duplicate user echo. */
@@ -1254,13 +1278,18 @@ export class InstanceManager extends EventEmitter {
       raw: ProviderRuntimeEventEnvelope['raw'];
     },
   ): void {
+    if (this.state.isInstancePending?.(instanceId) === true) return;
     const pending = buildProviderRuntimeEventIngress({
       getInstance: (id) => this.state.getInstance(id),
       instanceId,
       event,
       options,
     });
-    if (pending) this.providerEventBus.captureRawBackedEvent(pending);
+    if (pending) {
+      this.providerEventBus.captureRawBackedEvent(
+        this.continuityRecovery.redactProviderEnvelope(pending),
+      );
+    }
   }
 
   // ============================================
@@ -1274,6 +1303,8 @@ export class InstanceManager extends EventEmitter {
   getAllInstances(): Instance[] {
     return this.state.getAllInstances();
   }
+
+  getLiveRecoveryKeys(): ReadonlySet<string> { return this.continuityRecovery.getLiveRecoveryKeys(); }
 
   getProviderEventBusMetrics() {
     return this.providerEventBus.metrics();
@@ -1450,6 +1481,9 @@ export class InstanceManager extends EventEmitter {
       createInstance: (config) => this.createInstance(config),
     }, request);
   }
+
+  async recoverFromContinuity(resolvedCandidate: ResolvedRecoveryCandidate): Promise<RecoverSessionResult> {
+    return this.continuityRecovery.recover(resolvedCandidate); }
 
   async terminateInstance(instanceId: string, graceful = true): Promise<void> {
     const instance = this.state.getInstance(instanceId);

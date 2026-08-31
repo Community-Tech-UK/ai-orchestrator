@@ -39,7 +39,9 @@ vi.mock('../../instance/instance-manager', () => ({
 
 import { WorkerNodeRegistry } from '../worker-node-registry';
 import { handleNodeFailover, FAILOVER_GRACE_MS, FAILOVER_HARD_FAIL_MS } from '../node-failover';
+import { InstanceStateMachine } from '../../instance/instance-state-machine';
 import type { WorkerNodeInfo, WorkerNodeCapabilities } from '../../../shared/types/worker-node.types';
+import type { InstanceStatus } from '../../../shared/types/instance.types';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -312,5 +314,41 @@ describe('handleNodeFailover', () => {
 
     expect(mockInstanceManager.updateInstanceStatus).not.toHaveBeenCalled();
     expect(mockInstanceManager.emit).not.toHaveBeenCalled();
+  });
+
+  it('restores an active processing status through the real lifecycle transition rules', () => {
+    const instance = { id: 'inst-processing', status: 'processing', nodeId: 'node-processing' };
+    const stateMachine = new InstanceStateMachine('processing');
+    mockInstances.push(instance);
+    mockInstanceManager.updateInstanceStatus.mockImplementation((id: string, status: string) => {
+      if (id !== instance.id) return;
+      stateMachine.transition(status as InstanceStatus);
+      instance.status = status;
+    });
+
+    handleNodeFailover('node-processing', mockInstanceManager as never);
+    expect(instance.status).toBe('degraded');
+
+    expect(() => registry.registerNode(makeNode('node-processing'))).not.toThrow();
+    expect(instance.status).toBe('processing');
+  });
+
+  it('does not let one failed instance reconciliation reject node registration', () => {
+    mockInstances.push(
+      { id: 'inst-bad', status: 'busy', nodeId: 'node-resilient' },
+      { id: 'inst-good', status: 'idle', nodeId: 'node-resilient' },
+    );
+    handleNodeFailover('node-resilient', mockInstanceManager as never);
+    mockInstanceManager.updateInstanceStatus.mockClear();
+    mockInstanceManager.updateInstanceStatus.mockImplementation((id: string) => {
+      if (id === 'inst-bad') throw new Error('transition failed');
+    });
+
+    expect(() => registry.registerNode(makeNode('node-resilient'))).not.toThrow();
+    expect(mockInstanceManager.updateInstanceStatus).toHaveBeenCalledWith(
+      'inst-good',
+      'idle',
+      expect.any(Object),
+    );
   });
 });

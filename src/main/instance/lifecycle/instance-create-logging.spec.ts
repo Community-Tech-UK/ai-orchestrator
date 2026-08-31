@@ -29,4 +29,18 @@ describe('summarizeCreateInstanceConfig', () => {
       totalAttachmentCount: 0,
     }));
   });
+
+  it('omits a crash-recovery resume cursor from lifecycle diagnostics', () => {
+    const summary = summarizeCreateInstanceConfig({
+      workingDirectory: '/repo',
+      sessionId: 'cursor-fixture-placeholder',
+      historyThreadId: 'history-thread-fixture-placeholder',
+      resume: true,
+      metadata: { reason: 'crash-recovery' },
+    });
+
+    expect(summary['sessionId']).toBe('[recovery session omitted]');
+    expect(JSON.stringify(summary)).not.toContain('cursor-fixture-placeholder');
+    expect(JSON.stringify(summary)).not.toContain('history-thread-fixture-placeholder');
+  });
 });

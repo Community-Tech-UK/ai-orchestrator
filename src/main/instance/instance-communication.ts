@@ -59,6 +59,7 @@ import {
   tryParkOnProviderLimit as tryParkOnProviderLimitImpl,
 } from './instance-communication-provider-limit';
 import { scheduleSuppressedAutoRespawnRetry } from './instance-communication-recent-respawn-retry';
+import { emitRecoverySafeAdapterError, notePendingRecoveryExit, settleExitRecoveryFailure } from './instance-communication-recovery-safety';
 import {
   assertInstanceLifecycleHookAllowed,
   dispatchInstanceLifecycleHook,
@@ -73,6 +74,17 @@ import {
   isStatelessExecAdapter,
 } from './instance-communication-adapter-helpers';
 import { isSessionNotFoundText } from '../cli/adapters/resume-error-classifier';
+import { isProviderAuthenticationError } from '../cli/adapters/provider-authentication-error';
+import {
+  createInvalidSessionNotice,
+  getRecoverySensitiveValues,
+  isCrashRecoveryInstance,
+  recoverySessionDiagnostic,
+  redactRecoveryError,
+  redactRecoveryIdentityValue,
+  redactRecoveryOutputMessage,
+  redactRecoveryText,
+} from './instance-recovery-redaction';
 import { getSessionContinuityManagerIfInitialized } from '../session/session-continuity';
 import { getOrCreateTurnSupervisor } from '../session/session-turn-supervisor';
 import { getSessionAdmissionService } from '../session/session-admission-service';
@@ -116,8 +128,11 @@ export class InstanceCommunicationManager extends EventEmitter {
   private estimationSampleCount = 0;
 
   // Context overflow failsafe tracking
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private lastSentMessages = new Map<string, { message: string; attachments?: any[]; contextBlock?: string | null }>();
+  private lastSentMessages = new Map<string, {
+    message: string;
+    attachments?: FileAttachment[];
+    contextBlock?: string | null;
+  }>();
   private contextWarningIssued = new Set<string>();
   private contextOverflowRetried = new Set<string>();
   private contextOverflowSeen = new Set<string>(); // Tracks instances that hit context overflow via output path
@@ -129,6 +144,7 @@ export class InstanceCommunicationManager extends EventEmitter {
     this.deps = deps;
     this.toolResultProcessor = new InstanceToolResultProcessor({
       captureContextEvidenceToolResult: deps.captureContextEvidenceToolResult,
+      getContextEvidenceMode: deps.getContextEvidenceMode,
       createSnapshot: deps.createSnapshot,
       getDiffTracker: deps.getDiffTracker,
       hookManager: this.hookManager,
@@ -210,24 +226,10 @@ export class InstanceCommunicationManager extends EventEmitter {
    * (carried in `metadata.notice`) instead of leaving the raw provider error
    * text in the message stream. The renderer can key off `notice.kind` to show
    * a clear banner with honest recovery actions rather than a cryptic error.
-   * Emitted once per blacklist transition (callers guard on the transition).
-   */
+  * Emitted once per blacklist transition (callers guard on the transition).
+  */
   private emitInvalidSessionNotice(instanceId: string, instance: Instance): void {
-    const message: OutputMessage = {
-      id: generateId(),
-      timestamp: Date.now(),
-      type: 'system',
-      content:
-        'This session could not be resumed — the provider no longer has it. ' +
-        'Continuing starts a fresh session; use "Replay from history" to restore prior context.',
-      metadata: {
-        notice: {
-          kind: 'invalid-session',
-          sessionId: instance.providerSessionId ?? instance.sessionId,
-          provider: instance.provider,
-        },
-      },
-    };
+    const message = createInvalidSessionNotice(instance, generateId(), Date.now());
     this.addToOutputBuffer(instance, message);
     this.emit('output', { instanceId, message });
   }
@@ -636,14 +638,20 @@ export class InstanceCommunicationManager extends EventEmitter {
    * instance, so a false positive costs a stray banner, never a swallowed
    * failure.
    */
-  private reportAuthFailureTurn(instanceId: string, errorMessage: string): void {
+  private reportAuthFailureTurn(instanceId: string, error: unknown): void {
     if (!this.deps.onAuthFailureTurn) return;
-    const signal = detectAuthFailureSignal(errorMessage);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const authoritative = isProviderAuthenticationError(error);
+    const signal = authoritative
+      ? { reason: `provider protocol reported auth failure: ${errorMessage.slice(0, 160)}` }
+      : detectAuthFailureSignal(errorMessage);
     if (!signal) return;
+    const lastTurn = this.lastSentMessages.get(instanceId);
     this.deps.onAuthFailureTurn({
       instanceId,
       reason: signal.reason,
-      resumePrompt: this.lastSentMessages.get(instanceId)?.message ?? null,
+      resumeTurn: lastTurn ? { ...lastTurn } : null,
+      authoritative,
     });
   }
 
@@ -779,10 +787,8 @@ export class InstanceCommunicationManager extends EventEmitter {
       logger.info('Skipped adapter dispatch because the provider has an active known limit', { instanceId });
       return;
     }
-    // Track last sent message for retry-after-compaction
-    this.lastSentMessages.set(instanceId, { message, attachments, contextBlock });
-
     const finalContextBlock = this.continuityInputQueue.consume(instanceId, contextBlock);
+    this.lastSentMessages.set(instanceId, { message, attachments, contextBlock: finalContextBlock });
 
     const isAutoContinuation = options?.autoContinuation === true;
     const finalMessageBase = finalContextBlock ? `${finalContextBlock}\n\n${message}` : message;
@@ -923,7 +929,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       if (attachments?.length && isUnsupportedOrchestratorAttachmentError(sendError)) {
         this.emitAttachmentDropWarnings(instanceId, instance, adapter.getName(), attachments);
         attachments = undefined;
-        this.lastSentMessages.set(instanceId, { message, attachments, contextBlock });
+        this.lastSentMessages.set(instanceId, { message, attachments, contextBlock: finalContextBlock });
 
         if (!message.trim()) {
           logger.info('Dropped unsupported attachments from empty user input; skipping adapter retry', {
@@ -1059,7 +1065,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         return;
       }
 
-      this.reportAuthFailureTurn(instanceId, errorMsg);
+      this.reportAuthFailureTurn(instanceId, sendError);
 
       throw sendError;
     }
@@ -1183,7 +1189,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       // Persist provenance before instance metadata is added below. The visible
       // message needs adapter generation/turn tags; the raw capture must remain
       // the adapter's original event for deterministic replay.
-      const rawAdapterPayload = toJsonSafeProviderEventPayload(message);
+      let rawAdapterPayload = toJsonSafeProviderEventPayload(message);
 
       // Skip user messages echoed back by the CLI — we add them explicitly
       // in InstanceManager.sendInput() and InstanceLifecycle.createInstance().
@@ -1199,6 +1205,13 @@ export class InstanceCommunicationManager extends EventEmitter {
 
       const instance = this.deps.getInstance(instanceId);
       if (instance) {
+        if (message.type === 'error' && isCrashRecoveryInstance(instance)) {
+          message = redactRecoveryOutputMessage(instance, message);
+          rawAdapterPayload = redactRecoveryIdentityValue(
+            rawAdapterPayload,
+            getRecoverySensitiveValues(instance),
+          ) as ProviderRuntimeEventRaw['payload'];
+        }
         const turnId = this.getMessageTurnId(message) ?? this.getAdapterCurrentTurnId(adapter);
         const wasActiveBefore = Boolean(instance.activeTurnId);
         if (turnId) {
@@ -1216,8 +1229,9 @@ export class InstanceCommunicationManager extends EventEmitter {
           instance.sessionResumeBlacklisted = true;
           logger.warn('Session id blacklisted due to resume failure output', {
             instanceId,
-            sessionId: instance.sessionId,
+            ...recoverySessionDiagnostic(instance, 'sessionId', instance.sessionId),
           });
+          message = redactRecoveryOutputMessage(instance, message);
           if (firstBlacklist) this.emitInvalidSessionNotice(instanceId, instance);
           // B4/C1: Persist blacklist immediately so a crash cannot replay the
           // doomed session ID. Awaited so the save completes before this handler
@@ -1838,6 +1852,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         }, logger, this.hookManager);
       }
       this.deps.onToolStateChange?.(instanceId, 'idle');
+      this.deps.onAuthRepairReplayComplete?.(instanceId);
 
       // Regular-session provider-limit auto-resume (opt-in). A throttled CLI
       // often exits 0 with the limit *notice as the assistant content*
@@ -1859,6 +1874,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       if (isStaleAdapterEvent('input_required')) {
         return;
       }
+      if (this.deps.isInstancePublished?.(instanceId) === false) return;
       const payloadMetadata = payload.metadata || {};
       const approvalTraceId = typeof payloadMetadata['approvalTraceId'] === 'string'
         ? String(payloadMetadata['approvalTraceId'])
@@ -1922,17 +1938,9 @@ export class InstanceCommunicationManager extends EventEmitter {
       const recoverableStatelessExecError = isRecoverableStatelessExecTurnError(adapter, error);
       const recoverableAcpPromptTurnError = isRecoverableAcpPromptTurnError(errorMessage);
       const recoverableTurnError = recoverableStatelessExecError || recoverableAcpPromptTurnError;
-      emitProviderRuntimeEvent(
-        {
-          kind: 'error',
-          message: errorMessage,
-          recoverable: recoverableTurnError,
-          ...extractProviderErrorDiagnostics(error),
-        },
-        { raw: { source: 'adapter-event:error', payload: toJsonSafeProviderEventPayload(error) } },
-      );
       const instance = this.deps.getInstance(instanceId);
-      logger.error('Instance error', error instanceof Error ? error : undefined, { instanceId, status: instance?.status });
+      const safeError = emitRecoverySafeAdapterError(instanceId, instance, error, recoverableTurnError, emitProviderRuntimeEvent);
+      const safeErrorMessage = safeError.message;
 
       if (!instance) return;
 
@@ -1955,7 +1963,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         instance.sessionResumeBlacklisted = true;
         logger.warn('Session id blacklisted due to resume failure', {
           instanceId,
-          sessionId: instance.sessionId,
+          ...recoverySessionDiagnostic(instance, 'sessionId', instance.sessionId),
         });
         if (firstBlacklist) this.emitInvalidSessionNotice(instanceId, instance);
         // B4/C1: Persist blacklist immediately so a crash cannot replay the
@@ -1968,7 +1976,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         } catch (err: unknown) {
           logger.warn('writeThroughIdentity failed after blacklist set (error)', {
             instanceId,
-            error: err instanceof Error ? err.message : String(err),
+            error: redactRecoveryError(instance, err).message,
           });
         }
       }
@@ -2100,7 +2108,9 @@ export class InstanceCommunicationManager extends EventEmitter {
       // mutual-exclusivity invariant this relies on (a turn signals failure
       // via 'error' XOR a thrown sendInput(), never both).
       if (this.deps.onProviderLimitTurn && !recoverableTurnError) {
-        if (this.tryParkOnProviderLimit(instanceId, instance, adapter, error, errorMessage)) {
+        if (this.tryParkOnProviderLimit(
+          instanceId, instance, adapter, safeError, safeErrorMessage,
+        )) {
           return;
         }
       }
@@ -2108,10 +2118,10 @@ export class InstanceCommunicationManager extends EventEmitter {
       // Provider sign-out mid-session: attach the repair affordance. The error
       // below is still surfaced and the instance still errors — this only adds
       // the auth-required waitReason and the sign-in watcher.
-      this.reportAuthFailureTurn(instanceId, errorMessage);
+      this.reportAuthFailureTurn(instanceId, safeError);
 
       // Add error message to output buffer so user sees it in the UI
-      const errorContent = error instanceof Error ? error.message : String(error);
+      const errorContent = safeErrorMessage;
       if (this.hasRecentMatchingErrorOutput(instance, errorContent)) {
         logger.debug('Skipping duplicate UI error message after adapter error event', {
           instanceId,
@@ -2133,7 +2143,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         logger.info('Keeping instance recoverable after turn failure', {
           instanceId,
           adapter: adapter.getName(),
-          message: errText,
+          message: safeErrorMessage,
           recoverableKind: recoverableAcpPromptTurnError ? 'acp-prompt-timeout' : 'stateless-exec',
         });
         if (instance.status !== 'respawning' && instance.status !== 'interrupting' && instance.status !== 'cancelling') {
@@ -2158,7 +2168,11 @@ export class InstanceCommunicationManager extends EventEmitter {
 
         // Only force cleanup if not recovering - during recovery the lifecycle manager handles cleanup.
         this.forceCleanupAdapter(instanceId).catch((cleanupErr) => {
-          logger.error('Failed to cleanup adapter after error', cleanupErr instanceof Error ? cleanupErr : undefined, { instanceId });
+          logger.error(
+            'Failed to cleanup adapter after error',
+            redactRecoveryError(instance, cleanupErr),
+            { instanceId },
+          );
         });
       } else {
         logger.info('Instance error during interrupt recovery - skipping force cleanup, letting lifecycle handle it', { instanceId });
@@ -2218,6 +2232,12 @@ export class InstanceCommunicationManager extends EventEmitter {
       if (isStaleAdapterEvent('exit')) {
         return;
       }
+      if (this.deps.isInstancePublished?.(instanceId) === false) {
+        logger.info('Pending recovery adapter exited before publication', { instanceId, recoverySession: true });
+        notePendingRecoveryExit(this.deps.getInstance(instanceId), code, signal);
+        getInstanceAsyncWorkRegistry().clearInstance(instanceId);
+        return;
+      }
       emitProviderRuntimeEvent(
         { kind: 'exit', code, signal },
         { raw: { source: 'adapter-event:exit', payload: { code, signal } } },
@@ -2233,7 +2253,7 @@ export class InstanceCommunicationManager extends EventEmitter {
 
       const buildCrashError = (reason: string): ErrorInfo => ({
         code: signal ? `SIGNAL_${signal}` : `EXIT_${code ?? 'unknown'}`,
-        message: reason,
+        message: redactRecoveryText(instance, reason),
         timestamp: Date.now(),
       });
 
@@ -2285,17 +2305,12 @@ export class InstanceCommunicationManager extends EventEmitter {
         logger.info('Instance was interrupted, will respawn with --resume', { instanceId });
         this.interruptedInstances.delete(instanceId);
         this.deps.onInterruptedExit(instanceId).catch((err) => {
-          logger.error('Failed to respawn instance after interrupt', err instanceof Error ? err : undefined, { instanceId });
-          this.transitionInstanceStatus(instance, 'error');
-          instance.processId = null;
-          this.deps.queueUpdate(
-            instanceId,
-            'error',
-            undefined,
-            undefined,
-            undefined,
-            buildCrashError(`Failed to respawn after interrupt: ${err instanceof Error ? err.message : String(err)}`)
-          );
+          settleExitRecoveryFailure({
+            queueUpdate: this.deps.queueUpdate,
+            transitionInstanceStatus: (current, status) => this.transitionInstanceStatus(current, status),
+            buildCrashError,
+          }, instanceId, instance, err,
+          'Failed to respawn instance after interrupt', 'Failed to respawn after interrupt');
         });
         return;
       }
@@ -2361,17 +2376,11 @@ export class InstanceCommunicationManager extends EventEmitter {
           // resume was never attempted.
 
           this.deps.onUnexpectedExit!(instanceId).catch((err) => {
-            logger.error('Auto-respawn failed', err instanceof Error ? err : undefined, { instanceId });
-            this.transitionInstanceStatus(instance, 'error');
-            instance.processId = null;
-            this.deps.queueUpdate(
-              instanceId,
-              'error',
-              undefined,
-              undefined,
-              undefined,
-              buildCrashError(`Auto-respawn failed: ${err instanceof Error ? err.message : String(err)}`)
-            );
+            settleExitRecoveryFailure({
+              queueUpdate: this.deps.queueUpdate,
+              transitionInstanceStatus: (current, status) => this.transitionInstanceStatus(current, status),
+              buildCrashError,
+            }, instanceId, instance, err, 'Auto-respawn failed', 'Auto-respawn failed');
           });
           return;
         }
@@ -2475,6 +2484,7 @@ export class InstanceCommunicationManager extends EventEmitter {
     message: OutputMessage,
     options?: { countAsProcessOutput?: boolean }
   ): void {
+    message = redactRecoveryOutputMessage(instance, message);
     if (options?.countAsProcessOutput) {
       // Pass content so the stuck detector's evidence-hash fence (P4.5) can tell
       // genuine progress from repeated identical output.

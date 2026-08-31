@@ -7,6 +7,12 @@ export interface OverlayItem<T = unknown> {
   detail?: string;
   badge?: string;
   shortcut?: string;
+  /**
+   * Defaults to row activation. Use manual for rows that render their own
+   * native controls, so the row is semantic grouping chrome rather than a
+   * nested interactive target.
+   */
+  activationMode?: 'row' | 'manual';
   disabled?: boolean;
   disabledReason?: string;
   keywords?: string[];

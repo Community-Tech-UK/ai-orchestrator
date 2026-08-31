@@ -15,6 +15,11 @@ import type { InstanceWaitReason } from '../../shared/types/instance.types';
 import type { ProviderAuthState } from '../providers/provider-auth-status';
 
 describe('InstanceAuthRepairHandler', () => {
+  const lostTurn = {
+    message: 'the lost turn',
+    attachments: [{ name: 'notes.txt', type: 'text/plain', size: 5, data: 'hello' }],
+    contextBlock: 'original resolved context',
+  };
   const waitReasons = new Map<string, InstanceWaitReason | null>();
   const resendInput = vi.fn();
   const revive = vi.fn(async (id: string) => id as string | null);
@@ -36,7 +41,8 @@ describe('InstanceAuthRepairHandler', () => {
       instanceId,
       provider: 'claude',
       reason: 'provider auth failure on turn: OAuth session expired',
-      resumePrompt: 'the lost turn',
+      resumeTurn: lostTurn,
+      authoritative: false,
     });
   }
 
@@ -81,6 +87,24 @@ describe('InstanceAuthRepairHandler', () => {
     await expect(block(handler)).resolves.toBe('blocked');
   });
 
+  it('blocks an authoritative provider error even when the shared auth probe is healthy', async () => {
+    // A concurrent Claude process can refresh the shared OAuth credentials while
+    // this process remains failed. The protocol error is authoritative for the
+    // failed process; a later healthy probe must not erase it.
+    probeAuth.mockResolvedValue('authenticated');
+    const handler = configure();
+
+    await expect(handler.maybeBlockOnAuth({
+      instanceId: 'i1',
+      provider: 'claude',
+      reason: 'provider authentication_failed error',
+      resumeTurn: lostTurn,
+      authoritative: true,
+    })).resolves.toBe('blocked');
+
+    expect(handler.isBlocked('i1')).toBe(true);
+  });
+
   it('keeps the first lost turn when a second failure arrives', async () => {
     const handler = configure();
     await block(handler);
@@ -89,13 +113,14 @@ describe('InstanceAuthRepairHandler', () => {
       instanceId: 'i1',
       provider: 'claude',
       reason: 'another auth failure',
-      resumePrompt: 'a later turn',
+      resumeTurn: { message: 'a later turn' },
+      authoritative: false,
     });
 
     expect(second).toBe('already-blocked');
     probeAuth.mockResolvedValue('authenticated');
     await handler.retryNow('i1');
-    expect(resendInput).toHaveBeenCalledWith('i1', 'the lost turn');
+    expect(resendInput).toHaveBeenCalledWith('i1', lostTurn);
   });
 
   it('auto-resumes when the user signs back in: revive, then re-send the lost turn', async () => {
@@ -107,7 +132,7 @@ describe('InstanceAuthRepairHandler', () => {
     await vi.advanceTimersByTimeAsync(AUTH_RECHECK_INTERVAL_MS + 1);
 
     expect(revive).toHaveBeenCalledWith('i1');
-    expect(resendInput).toHaveBeenCalledWith('i1', 'the lost turn');
+    expect(resendInput).toHaveBeenCalledWith('i1', lostTurn);
     expect(waitReasons.get('i1')).toBeNull();
     expect(handler.isBlocked('i1')).toBe(false);
   });
@@ -121,7 +146,7 @@ describe('InstanceAuthRepairHandler', () => {
     probeAuth.mockResolvedValue('authenticated');
     await vi.advanceTimersByTimeAsync(AUTH_RECHECK_INTERVAL_MS + 1);
 
-    expect(resendInput).toHaveBeenCalledWith('i1-restored', 'the lost turn');
+    expect(resendInput).toHaveBeenCalledWith('i1-restored', lostTurn);
   });
 
   it('keeps the banner when revival fails, instead of dropping the turn silently', async () => {
@@ -139,7 +164,7 @@ describe('InstanceAuthRepairHandler', () => {
     expect(waitReasons.get('i1')).toMatchObject({ kind: 'auth-required' });
   });
 
-  it('recovers on a later poll when revival succeeds the second time', async () => {
+  it('does not loop automatic restarts after recovery fails, but allows a manual retry', async () => {
     revive.mockResolvedValueOnce(null);
     const handler = configure();
     await block(handler);
@@ -149,8 +174,60 @@ describe('InstanceAuthRepairHandler', () => {
     expect(resendInput).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(AUTH_RECHECK_INTERVAL_MS + 1);
-    expect(resendInput).toHaveBeenCalledWith('i1', 'the lost turn');
+    expect(revive).toHaveBeenCalledTimes(1);
+    expect(resendInput).not.toHaveBeenCalled();
+    expect(handler.isBlocked('i1')).toBe(true);
+
+    await expect(handler.retryNow('i1')).resolves.toEqual({ status: 'resumed' });
+    expect(revive).toHaveBeenCalledTimes(2);
+    expect(resendInput).toHaveBeenCalledWith('i1', lostTurn);
     expect(handler.isBlocked('i1')).toBe(false);
+  });
+
+  it('turns a late auth error from an accepted replay into manual-only state', async () => {
+    const handler = configure();
+    // The real in-place restart runs lifecycle hold cleanup before returning.
+    revive.mockImplementation(async (id: string) => {
+      handler.forget(id);
+      return id;
+    });
+    await block(handler);
+    probeAuth.mockResolvedValue('authenticated');
+
+    await vi.advanceTimersByTimeAsync(AUTH_RECHECK_INTERVAL_MS + 1);
+    expect(revive).toHaveBeenCalledTimes(1);
+    expect(resendInput).toHaveBeenCalledTimes(1);
+    expect(handler.isBlocked('i1')).toBe(false);
+
+    await expect(handler.maybeBlockOnAuth({
+      instanceId: 'i1',
+      provider: 'claude',
+      reason: 'OAuth-shaped tool prose during replay',
+      resumeTurn: lostTurn,
+      authoritative: false,
+    })).resolves.toBe('skipped');
+    expect(handler.isBlocked('i1')).toBe(false);
+    expect(waitReasons.get('i1')).toBeNull();
+
+    // Claude dispatch resolved, then its stream reported auth failure later.
+    await expect(handler.maybeBlockOnAuth({
+      instanceId: 'i1',
+      provider: 'claude',
+      reason: 'late provider authentication_failed error',
+      resumeTurn: lostTurn,
+      authoritative: true,
+    })).resolves.toBe('already-blocked');
+
+    expect(handler.isBlocked('i1')).toBe(true);
+    expect(waitReasons.get('i1')).toMatchObject({ kind: 'auth-required' });
+    await vi.advanceTimersByTimeAsync(AUTH_RECHECK_INTERVAL_MS * 3);
+    expect(revive).toHaveBeenCalledTimes(1);
+
+    await expect(handler.retryNow('i1')).resolves.toEqual({ status: 'resumed' });
+    expect(revive).toHaveBeenCalledTimes(2);
+    expect(handler.isBlocked('i1')).toBe(false);
+    handler.completeReplay('i1');
+    await expect(handler.retryNow('i1')).resolves.toEqual({ status: 'not-blocked' });
   });
 
   it('does not claim a manual retry resumed when revival failed', async () => {
@@ -190,7 +267,7 @@ describe('InstanceAuthRepairHandler', () => {
     // The manual path still works after the watcher gives up.
     probeAuth.mockResolvedValue('authenticated');
     await expect(handler.retryNow('i1')).resolves.toEqual({ status: 'resumed' });
-    expect(resendInput).toHaveBeenCalledWith('i1', 'the lost turn');
+    expect(resendInput).toHaveBeenCalledWith('i1', lostTurn);
   });
 
   it('reports still-signed-out from a manual retry instead of silently doing nothing', async () => {
@@ -249,7 +326,8 @@ describe('InstanceAuthRepairHandler', () => {
       instanceId: 'i2',
       provider: 'copilot',
       reason: 'auth failure',
-      resumePrompt: 'lost turn',
+      resumeTurn: { message: 'lost turn' },
+      authoritative: false,
     });
 
     expect(outcome).toBe('blocked');

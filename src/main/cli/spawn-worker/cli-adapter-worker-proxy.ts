@@ -24,6 +24,7 @@ import {
 import { buildWorkerArgs } from './cli-adapter-worker-args';
 import { formatClaudeWorkerInput } from './cli-adapter-worker-input';
 import { parseWorkerOutput } from './cli-adapter-worker-output';
+import { parseClaudeStreamError } from '../adapters/claude-stream-error';
 
 interface CliAdapterWorkerProxyOptions {
   cliType: Extract<CliType, 'claude' | 'gemini'>;
@@ -408,9 +409,15 @@ export class CliAdapterWorkerProxy extends EventEmitter {
 
   private emitClaudeOutput(event: Record<string, unknown>): void {
     switch (event['type']) {
-      case 'assistant':
+      case 'assistant': {
+        const streamError = parseClaudeStreamError(event);
+        if (streamError) {
+          this.emit('error', streamError.error);
+          return;
+        }
         this.emitClaudeAssistant(event);
         return;
+      }
       case 'system':
         this.emitClaudeSystem(event);
         return;
@@ -445,6 +452,12 @@ export class CliAdapterWorkerProxy extends EventEmitter {
         return;
       case 'result':
         this.emitClaudeResult(event);
+        return;
+      case 'error': {
+        const streamError = parseClaudeStreamError(event);
+        this.emit('error', streamError?.error ?? new Error('Claude CLI reported an unknown error'));
+        return;
+      }
     }
   }
 

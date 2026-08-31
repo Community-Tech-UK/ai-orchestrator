@@ -50,6 +50,7 @@ import { HistoryRestoreCoordinator } from '../../history/history-restore-coordin
 import { isRemoteNodeReachable } from './remote-node-check';
 import { validatedHandler } from '../validated-handler';
 import { registerSessionAdmissionHandlers } from './session-admission-handlers';
+import { registerSessionRecoveryHandlers } from './session-recovery-handlers';
 import { registerSessionQueueHandlers } from './session-queue-handlers';
 
 export {
@@ -1016,9 +1017,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
 
   // --- Session Continuity ---
 
-  const continuityHandlerOptions = (errorCode: string) => ({
-    errorCode,
-  });
+  const continuityHandlerOptions = (errorCode: string) => ({ errorCode });
 
   registerTrustedIpcHandler(
     IPC_CHANNELS.SESSION_LIST_RESUMABLE,
@@ -1045,6 +1044,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
       continuityHandlerOptions('SESSION_RESUME_FAILED'),
     ),
   );
+  registerSessionRecoveryHandlers({ instanceManager, registerIpcHandler: registerTrustedIpcHandler });
 
   registerTrustedIpcHandler(
     IPC_CHANNELS.SESSION_LIST_SNAPSHOTS,

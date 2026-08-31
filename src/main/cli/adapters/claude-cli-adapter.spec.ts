@@ -19,6 +19,71 @@ import {
   EXCLUDE_DYNAMIC_SECTIONS_FLAG,
 } from './claude-cli-adapter';
 import { createClaudeAdapter } from './adapter-factory';
+import { isProviderAuthenticationError } from './provider-authentication-error';
+
+describe('ClaudeCliAdapter provider stream errors', () => {
+  function makeHarness() {
+    const adapter = new ClaudeCliAdapter();
+    const outputs: unknown[] = [];
+    const errors: Error[] = [];
+    adapter.on('output', (output) => outputs.push(output));
+    adapter.on('error', (error: Error) => errors.push(error));
+    const processCliMessage = (
+      adapter as unknown as { processCliMessage: (message: unknown) => void }
+    ).processCliMessage.bind(adapter);
+    return { errors, outputs, processCliMessage };
+  }
+
+  it('emits Claude synthetic authentication_failed messages as authoritative errors, not assistant prose', () => {
+    const { errors, outputs, processCliMessage } = makeHarness();
+
+    processCliMessage({
+      type: 'assistant',
+      error: 'authentication_failed',
+      isApiErrorMessage: true,
+      message: {
+        model: '<synthetic>',
+        content: [{
+          type: 'text',
+          text: 'Failed to authenticate: OAuth session expired and could not be refreshed',
+        }],
+      },
+    });
+
+    expect(outputs).toHaveLength(0);
+    expect(errors).toHaveLength(1);
+    expect(isProviderAuthenticationError(errors[0])).toBe(true);
+    expect(errors[0]).toMatchObject({
+      message: 'Failed to authenticate: OAuth session expired and could not be refreshed',
+      providerErrorCode: 'authentication_failed',
+    });
+  });
+
+  it('continues to emit ordinary assistant messages as output', () => {
+    const { errors, outputs, processCliMessage } = makeHarness();
+
+    processCliMessage({
+      type: 'assistant',
+      message: { content: [{ type: 'text', text: 'Normal reply' }] },
+    });
+
+    expect(errors).toHaveLength(0);
+    expect(outputs).toHaveLength(1);
+  });
+
+  it('emits top-level Claude error events through the adapter error channel', () => {
+    const { errors, outputs, processCliMessage } = makeHarness();
+
+    processCliMessage({
+      type: 'error',
+      error: { code: 'upstream_failed', message: 'Provider request failed' },
+    });
+
+    expect(outputs).toHaveLength(0);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.message).toBe('Provider request failed');
+  });
+});
 
 describe('ClaudeCliAdapter AskUserQuestion handling', () => {
   it('emits input_required when AskUserQuestion appears in assistant content tool_use blocks', () => {

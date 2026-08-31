@@ -11,6 +11,7 @@ import {
 } from './common.schemas';
 export * from './session-admission.schemas';
 export * from './session-snapshot.schemas';
+export * from './session-recovery.schemas';
 
 // ============ Helper schemas ============
 

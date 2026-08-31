@@ -133,10 +133,23 @@ export function handleNodeFailover(nodeId: string, instanceManager: InstanceMana
     for (const { id, originalStatus } of affected) {
       const inst = instanceManager.getInstance(id);
       if (inst && !isTerminalFailoverStatus(inst.status)) {
-        instanceManager.updateInstanceStatus(id, originalStatus, {
-          reason: 'worker-node-reconnected',
-          nodeId,
-        });
+        try {
+          instanceManager.updateInstanceStatus(id, originalStatus, {
+            reason: 'worker-node-reconnected',
+            nodeId,
+          });
+        } catch (error) {
+          // EventEmitter propagates listener exceptions into registerNode(). A
+          // single stale or invalid instance transition must not reject the
+          // worker's registration and strand every other remote instance.
+          logger.warn('Node failover: instance reconciliation failed', {
+            nodeId,
+            instanceId: id,
+            originalStatus,
+            currentStatus: inst.status,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
     }
   }

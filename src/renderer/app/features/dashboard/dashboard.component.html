@@ -92,6 +92,10 @@
 
     <!-- Main content area -->
     <main class="main-content">
+      <app-session-recovery-banner
+        (openRecoveryRequested)="openRecoveryPicker()"
+      />
+
       <div
         class="workspace-shell"
         [class.empty]="!hasWorkspaceSelection()"
@@ -263,7 +267,7 @@
 
   @if (showResumePicker()) {
     <app-resume-picker-host
-      (closeRequested)="showResumePicker.set(false)"
+      (closeRequested)="closeResumePicker()"
     />
   }
 

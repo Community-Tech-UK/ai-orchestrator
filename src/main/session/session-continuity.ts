@@ -13,7 +13,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { EventEmitter } from 'events';
 import { registerCleanup } from '../util/cleanup-registry';
-import { withLock } from '../util/file-lock';
 import type { Instance } from '../../shared/types/instance.types';
 import { CLAUDE_MODELS } from '../../shared/types/provider.types';
 import { getSettingsManager } from '../core/config/settings-manager';
@@ -21,19 +20,20 @@ import { getLogger } from '../logging/logger';
 import { SnapshotIndex } from './snapshot-index';
 import { TerminationGateManager, type SessionTerminationGate, type TerminationGateResult } from './termination-gate-manager';
 import { SnapshotManager } from './snapshot-manager';
-import { cleanupOrphanedTmpFiles, quarantineFile, repairFile, validateTranscript } from './session-repair';
+import { cleanupContinuityOrphanedTmpFiles, quarantineFile, repairFile, validateTranscript } from './session-repair';
 import { getSessionMutex } from './session-mutex';
 import { measureAsync } from '../util/slow-operations';
 import { getResumeHintManager } from './resume-hint';
-import { getLastStopSnapshotIfInitialized, type RecoverableSession } from './last-stop-snapshot';
+import { getLastStopSnapshotIfInitialized } from './last-stop-snapshot';
+import { getCanonicalRecoveryKey, type RecoverableSessionSelectionInput } from './recoverable-session-selection';
 import { getSafeStorage } from './safe-storage-accessor';
 import { getProjectStoragePaths } from '../storage/project-storage-paths';
 import { SessionAutoSaveCoordinator } from './autosave-coordinator';
 import { getSessionPersistenceQueue } from './session-persistence-queue';
-import { computeResumeConfigFingerprint } from '../instance/lifecycle/session-recovery';
-import type { ProviderRuntimeSnapshot } from '../cli/adapters/base-cli-adapter';
+import { captureResumeCursorForState } from './resume-cursor-capture';
 import { isLegacyRedactedToolOutput } from './redacted-tool-output';
 import { retainedPromptsMissingFrom } from '../instance/prompt-retention';
+import { outputMessagesToContinuityEntries } from './continuity-message-projection';
 import type {
   ContinuityConfig,
   ConversationEntry,
@@ -42,6 +42,22 @@ import type {
   SessionSnapshot,
   SessionState,
 } from './session-continuity.types';
+import type { ContinuityRecoveryMetadata } from './session-recovery-candidate-service';
+import {
+  buildBoundContinuityRecoveryMetadata,
+  ContinuityWriteEpochs,
+  getLastConversationTimestamp,
+  writeContinuityPayloadSyncAtomic,
+} from './continuity-recovery-metadata';
+import {
+  buildRuntimeRecoverableSessionList,
+  discardContinuityTracking,
+  listRecoveryMetadata,
+} from './continuity-recovery-runtime';
+import {
+  createSessionContinuityPersistenceOperations,
+  type SessionContinuityPersistenceOperations,
+} from './session-continuity-persistence-operations';
 export type {
   ContinuityConfig,
   ConversationEntry,
@@ -133,6 +149,8 @@ const DEFAULT_CONFIG: ContinuityConfig = {
 // hard import of InstanceManager (circular at module-load time).
 interface InstanceManagerForContinuity {
   getAdapter(instanceId: string): unknown;
+  /** Optional to preserve pre-v2 test/runtime injection compatibility. */
+  getInstance?(instanceId: string): Pick<Instance, 'status'> | undefined;
 }
 
 /** Identity fields written through to the persisted session state. */
@@ -157,6 +175,7 @@ function findLastIndexById(entries: ConversationEntry[], id: string): number {
 export class SessionContinuityManager extends EventEmitter {
   private continuityDir: string;
   private stateDir: string;
+  private recoveryMetadataDir: string;
   private snapshotDir: string;
   private quarantineDir: string;
   private config: ContinuityConfig;
@@ -164,10 +183,14 @@ export class SessionContinuityManager extends EventEmitter {
   private dirty = new Set<string>();
   private dehydratedStateIds = new Set<string>();
   private stateActivityTimestamps = new Map<string, number>();
+  private stateRecoveryMetadata = new Map<string, { messageCount: number; hasAssistantOutput: boolean }>();
   private readyPromise: Promise<void>;
+  /** Actual initialization settlement; recovery discovery must not use the startup timeout race. */
+  private initializationPromise: Promise<void>;
   /** D12: true when initAsync did not complete within INIT_TIMEOUT_MS. */
   private initDegraded = false;
   private readonly autoSave: SessionAutoSaveCoordinator;
+  private readonly persistenceEpochs = new ContinuityWriteEpochs();
   private snapshotIndex: SnapshotIndex;
   /** Extracted termination gate orchestration. */
   readonly gateManager: TerminationGateManager;
@@ -175,13 +198,18 @@ export class SessionContinuityManager extends EventEmitter {
   readonly snapshots: SnapshotManager;
   private instanceManager: InstanceManagerForContinuity | null = null;
   private readonly storagePaths = getProjectStoragePaths();
+  private readonly persistenceOperations: SessionContinuityPersistenceOperations;
 
-  constructor(config: Partial<ContinuityConfig> = {}) {
+  constructor(config: Partial<ContinuityConfig> = {}, persistenceOperations: Partial<SessionContinuityPersistenceOperations> = {}) {
     super();
     this.config = { ...DEFAULT_CONFIG, ...config };
+    this.persistenceOperations = createSessionContinuityPersistenceOperations(
+      persistenceOperations,
+    );
 
     this.continuityDir = this.storagePaths.getGlobalDomainRoot('session-continuity');
     this.stateDir = path.join(this.continuityDir, 'states');
+    this.recoveryMetadataDir = path.join(this.continuityDir, 'recovery-metadata');
     this.snapshotDir = path.join(this.continuityDir, 'snapshots');
     this.quarantineDir = path.join(this.continuityDir, 'quarantine');
 
@@ -224,22 +252,23 @@ export class SessionContinuityManager extends EventEmitter {
         initTimeoutId = undefined;
       }
     };
-    this.readyPromise = Promise.race([
+    this.initializationPromise = this.initAsync().then(
       // Handle the rejection explicitly rather than via .finally(): when the
       // timeout wins the race this branch may still settle later, and a .finally
       // would re-throw an init failure as an unhandled rejection — precisely in
       // the hung/broken-filesystem scenario this deadline exists to survive.
-      this.initAsync().then(
-        () => clearInitTimeout(),
-        (error) => {
-          clearInitTimeout();
-          this.initDegraded = true;
-          logger.error(
-            'Session continuity init failed — operating in degraded mode',
-            error instanceof Error ? error : undefined,
-          );
-        },
-      ),
+      () => clearInitTimeout(),
+      (error) => {
+        clearInitTimeout();
+        this.initDegraded = true;
+        logger.error(
+          'Session continuity init failed — operating in degraded mode',
+          error instanceof Error ? error : undefined,
+        );
+      },
+    );
+    this.readyPromise = Promise.race([
+      this.initializationPromise,
       new Promise<void>((resolve) => {
         initTimeoutId = setTimeout(() => {
           initTimeoutId = undefined;
@@ -260,6 +289,9 @@ export class SessionContinuityManager extends EventEmitter {
     return this.initDegraded;
   }
 
+  /** Recovery enumeration waits for the real initialization settlement, not the app-start deadline. */
+  async waitForRecoveryDiscoveryReady(): Promise<void> { await this.initializationPromise; }
+
   /**
    * Async initialization — runs in the background after construction.
    */
@@ -267,12 +299,12 @@ export class SessionContinuityManager extends EventEmitter {
     await this.ensureDirectories();
 
     // Layer 3: Clean up orphaned tmp files before loading states
-    const stateTmp = await cleanupOrphanedTmpFiles(this.stateDir);
-    const snapTmp = await cleanupOrphanedTmpFiles(this.snapshotDir);
-    if (stateTmp.recovered.length || snapTmp.recovered.length) {
+    const tmpCleanup = await cleanupContinuityOrphanedTmpFiles({ stateDir: this.stateDir,
+      snapshotDir: this.snapshotDir, recoveryMetadataDir: this.recoveryMetadataDir });
+    if (tmpCleanup.states.recovered.length || tmpCleanup.snapshots.recovered.length) {
       logger.info('Recovered orphaned tmp files on startup', {
-        states: stateTmp.recovered.length,
-        snapshots: snapTmp.recovered.length,
+        states: tmpCleanup.states.recovered.length,
+        snapshots: tmpCleanup.snapshots.recovered.length,
       });
     }
 
@@ -287,7 +319,7 @@ export class SessionContinuityManager extends EventEmitter {
    * Ensure required directories exist
    */
   private async ensureDirectories(): Promise<void> {
-    for (const dir of [this.continuityDir, this.stateDir, this.snapshotDir, this.quarantineDir]) {
+    for (const dir of [this.continuityDir, this.stateDir, this.recoveryMetadataDir, this.snapshotDir, this.quarantineDir]) {
       await fs.promises.mkdir(dir, { recursive: true });
     }
   }
@@ -315,20 +347,12 @@ export class SessionContinuityManager extends EventEmitter {
     return Array.from(keys);
   }
 
-  private getLastConversationTimestamp(state: SessionState): number {
-    let newest = 0;
-    for (const entry of state.conversationHistory) {
-      if (typeof entry.timestamp === 'number' && entry.timestamp > newest) {
-        newest = entry.timestamp;
-      }
-    }
-    return newest;
-  }
-
   private getStateActivityTimestamp(state: SessionState): number {
-    return this.stateActivityTimestamps.get(state.instanceId)
-      ?? state.lastWriteTimestamp
-      ?? this.getLastConversationTimestamp(state);
+    return Math.max(
+      this.stateActivityTimestamps.get(state.instanceId) ?? 0,
+      state.lastWriteTimestamp ?? 0,
+      getLastConversationTimestamp(state),
+    );
   }
 
   private normalizeConversationEntryForPersistence(
@@ -405,8 +429,12 @@ export class SessionContinuityManager extends EventEmitter {
     const normalized = this.normalizeStateForContinuity(state);
     this.stateActivityTimestamps.set(
       normalized.instanceId,
-      Math.max(normalized.lastWriteTimestamp ?? 0, this.getLastConversationTimestamp(normalized)),
+      Math.max(normalized.lastWriteTimestamp ?? 0, getLastConversationTimestamp(normalized)),
     );
+    this.stateRecoveryMetadata.set(normalized.instanceId, {
+      messageCount: normalized.conversationHistory.length,
+      hasAssistantOutput: normalized.conversationHistory.some((entry) => entry.role === 'assistant'),
+    });
     return {
       ...normalized,
       conversationHistory: [],
@@ -432,6 +460,8 @@ export class SessionContinuityManager extends EventEmitter {
     this.dehydratedStateIds.delete(normalized.instanceId);
     this.stateActivityTimestamps.delete(instanceId);
     this.stateActivityTimestamps.delete(normalized.instanceId);
+    this.stateRecoveryMetadata.delete(instanceId);
+    this.stateRecoveryMetadata.delete(normalized.instanceId);
     return normalized;
   }
 
@@ -547,10 +577,10 @@ export class SessionContinuityManager extends EventEmitter {
       });
       return;
     }
-
     const stateFiles = await this.selectStateFilesForStartup(files);
     let loaded = 0;
     let failed = 0;
+    let recoveryMetadataWriteFailures = 0;
     for (const file of stateFiles) {
       const filePath = path.join(this.stateDir, file);
       const data = await this.readPayload<SessionState>(filePath);
@@ -558,6 +588,13 @@ export class SessionContinuityManager extends EventEmitter {
         const normalized = this.normalizeStateForContinuity(data);
         if (this.shouldRewriteNormalizedState(data, normalized)) {
           await this.writePayload(filePath, normalized);
+          try {
+            const stateStat = await this.persistenceOperations.statStateFile(filePath);
+            await this.writePayload(path.join(this.recoveryMetadataDir, file),
+              buildBoundContinuityRecoveryMetadata(normalized, stateStat));
+          } catch {
+            recoveryMetadataWriteFailures++;
+          }
           logger.info('Normalized legacy session state file', {
             file,
             instanceId: normalized.instanceId,
@@ -568,7 +605,6 @@ export class SessionContinuityManager extends EventEmitter {
         this.sessionStates.set(normalized.instanceId, this.dehydrateLoadedState(normalized));
         this.dehydratedStateIds.add(normalized.instanceId);
         loaded++;
-
         // Diagnostic: warn if last write was very recent (possible crash during save)
         if (normalized.lastWriteTimestamp && Date.now() - normalized.lastWriteTimestamp < 5000) {
           logger.warn('Session state has very recent write timestamp — possible crash during save', {
@@ -582,7 +618,7 @@ export class SessionContinuityManager extends EventEmitter {
         logger.warn('Skipped unloadable session state file', { file, filePath });
       }
     }
-
+    if (recoveryMetadataWriteFailures > 0) logger.warn('Failed to update recovery metadata after state normalization', { failed: recoveryMetadataWriteFailures });
     if (loaded > 0 || failed > 0) {
       logger.info('Session states loaded', { loaded, failed, total: loaded + failed });
     }
@@ -636,15 +672,28 @@ export class SessionContinuityManager extends EventEmitter {
    */
   async startTracking(instance: Instance): Promise<void> {
     await this.readyPromise;
+    if (this.sessionStates.has(instance.id) && !this.dehydratedStateIds.has(instance.id)) return;
     const state = this.instanceToState(instance);
     this.sessionStates.set(instance.id, state);
+    this.stateActivityTimestamps.set(instance.id, Math.max(instance.lastActivity, getLastConversationTimestamp(state)));
     this.dirty.add(instance.id);
-    this.appendSessionEvent(instance.id, 'tracking_started', {
-      workingDirectory: state.workingDirectory,
-      provider: state.provider ?? 'unknown',
-    });
-
-    this.emit('tracking:started', { instanceId: instance.id });
+    try {
+      this.emit('tracking:started', { instanceId: instance.id });
+      this.appendSessionEvent(instance.id, 'tracking_started', {
+        workingDirectory: state.workingDirectory,
+        provider: state.provider ?? 'unknown',
+      });
+    } catch (error) {
+      await this.discardTracking(instance.id);
+      throw error;
+    }
+  }
+  /** Roll back private recovery tracking without save, archive, gates, or lifecycle events. */
+  async discardTracking(instanceId: string): Promise<void> {
+    await this.readyPromise;
+    this.autoSave.clearPendingAutoSaveTimer(instanceId);
+    await discardContinuityTracking(instanceId, [this.sessionStates, this.dehydratedStateIds, this.stateActivityTimestamps, this.stateRecoveryMetadata, this.dirty],
+    [this.stateDir, this.recoveryMetadataDir]);
   }
 
   /**
@@ -715,9 +764,11 @@ export class SessionContinuityManager extends EventEmitter {
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       }
+      await fs.promises.unlink(path.join(this.recoveryMetadataDir, `${instanceId}.json`)).catch((error: NodeJS.ErrnoException) => { if (error.code !== 'ENOENT') throw error; });
       this.sessionStates.delete(instanceId);
       this.dehydratedStateIds.delete(instanceId);
       this.stateActivityTimestamps.delete(instanceId);
+      this.stateRecoveryMetadata.delete(instanceId);
     }
 
     this.emit('tracking:stopped', { instanceId, archived: archive });
@@ -884,6 +935,25 @@ export class SessionContinuityManager extends EventEmitter {
       history.splice(0, history.length - maxEntries);
     }
 
+    this.stateRecoveryMetadata.delete(instanceId);
+
+    this.dirty.add(instanceId);
+  }
+
+  async patchConversationEntry(
+    instanceId: string,
+    entryId: string,
+    patch: Partial<Omit<ConversationEntry, 'id'>>,
+  ): Promise<void> {
+    await this.readyPromise;
+    if (!this.config.persistSessionContent) return;
+    const trackedState = this.sessionStates.get(instanceId);
+    if (!trackedState) return;
+    const state = await this.hydrateTrackedState(instanceId, trackedState);
+    const entry = state.conversationHistory.find((candidate) => candidate.id === entryId);
+    if (!entry) return;
+    Object.assign(entry, structuredClone(patch));
+    this.stateRecoveryMetadata.delete(instanceId);
     this.dirty.add(instanceId);
   }
 
@@ -1254,23 +1324,10 @@ export class SessionContinuityManager extends EventEmitter {
         // Prompts a trim already evicted are still part of the conversation.
         // Without them a hibernate/wake round trip loses the original request
         // for good — the live buffer is all this ever captured.
-        ? this.normalizeConversationHistory([
+        ? this.normalizeConversationHistory(outputMessagesToContinuityEntries([
             ...retainedPromptsMissingFrom(instance.retainedPrompts, instance.outputBuffer),
             ...instance.outputBuffer,
-          ].map((msg, idx) => ({
-            id: `msg-${idx}`,
-            role:
-              msg.type === 'user'
-                ? ('user' as const)
-                : msg.type === 'assistant'
-                  ? ('assistant' as const)
-                  : msg.type === 'tool_use' || msg.type === 'tool_result'
-                    ? ('tool' as const)
-                    : ('system' as const),
-            content: msg.content,
-            timestamp: msg.timestamp,
-            tokens: undefined
-          })))
+          ]))
         : [],
       contextUsage: {
         used: instance.contextUsage.used,
@@ -1306,21 +1363,22 @@ export class SessionContinuityManager extends EventEmitter {
    * Async save with atomic write (tmp → fsync → rename → fsync parent)
    */
   private queueStateSaveAsync(instanceId: string): Promise<void> {
+    const epoch = this.persistenceEpochs.capture(instanceId);
     return getSessionPersistenceQueue().enqueueSaveAndWait(
       instanceId,
-      () => this.saveStateAsync(instanceId),
+      () => this.saveStateAsync(instanceId, epoch),
       (error) => {
         logger.error('Queued session save failed', error instanceof Error ? error : undefined, { instanceId });
       },
     );
   }
 
-  private async saveStateAsync(instanceId: string): Promise<void> {
+  private async saveStateAsync(instanceId: string, epoch = this.persistenceEpochs.capture(instanceId)): Promise<void> {
     if (!this.sessionStates.has(instanceId)) return;
 
-    const release = await getSessionMutex().acquire(instanceId, 'auto-save');
+    const release = await this.persistenceOperations.acquireSaveLock(instanceId, 'auto-save');
     try {
-      await this.saveStateLocked(instanceId);
+      await this.saveStateLocked(instanceId, epoch);
     } finally {
       release();
     }
@@ -1333,10 +1391,11 @@ export class SessionContinuityManager extends EventEmitter {
    * and {@link writeThroughIdentityLocked} (invoked by operations that already
    * hold the lock). Keeping a single core avoids drift between the two paths.
    */
-  private async saveStateLocked(instanceId: string): Promise<void> {
+  private async saveStateLocked(instanceId: string, epoch = this.persistenceEpochs.capture(instanceId)): Promise<void> {
     const trackedState = this.sessionStates.get(instanceId);
     if (!trackedState) return;
     const state = await this.hydrateTrackedState(instanceId, trackedState);
+    if (!this.persistenceEpochs.isCurrent(instanceId, epoch)) return;
 
     // Cheap misuse guard: a *Locked write with no holder means a caller skipped
     // the lock (would reintroduce torn-cursor races). isLocked can't tell which
@@ -1354,7 +1413,20 @@ export class SessionContinuityManager extends EventEmitter {
       const stateFile = path.join(this.stateDir, `${instanceId}.json`);
       const normalizedState = this.normalizeStateForContinuity(state);
       this.sessionStates.set(instanceId, normalizedState);
-      await measureAsync('session.save', () => this.writePayload(stateFile, normalizedState));
+      const isCurrent = (): boolean => this.persistenceEpochs.isCurrent(instanceId, epoch);
+      const stateCommitted = await measureAsync('session.save', () =>
+        this.persistenceOperations.writePayloadAtomic(
+          stateFile, this.serializePayload(normalizedState), isCurrent,
+        ));
+      if (!stateCommitted || !isCurrent()) return;
+      const stateStat = await this.persistenceOperations.statStateFile(stateFile);
+      if (!isCurrent()) return;
+      const metadataCommitted = await this.persistenceOperations.writePayloadAtomic(
+        path.join(this.recoveryMetadataDir, `${instanceId}.json`),
+        this.serializePayload(buildBoundContinuityRecoveryMetadata(normalizedState, stateStat)),
+        isCurrent,
+      );
+      if (!metadataCommitted || !isCurrent()) return;
       this.dirty.delete(instanceId);
       this.appendSessionEvent(instanceId, 'state_saved', {
         source: state.lastWriteSource ?? 'unknown',
@@ -1378,34 +1450,7 @@ export class SessionContinuityManager extends EventEmitter {
    * Atomic async write: tmp → fsync → rename → fsync parent dir
    */
   private async writePayload(filePath: string, data: unknown): Promise<void> {
-    const serialized = this.serializePayload(data);
-    const tmpFile = `${filePath}.tmp`;
-    const dir = path.dirname(filePath);
-    const lockPath = `${filePath}.lock`;
-
-    await withLock(lockPath, async () => {
-      const fh = await fs.promises.open(tmpFile, 'w');
-      try {
-        await fh.writeFile(serialized);
-        await fh.sync();
-      } finally {
-        await fh.close();
-      }
-
-      await fs.promises.rename(tmpFile, filePath);
-
-      // Best-effort fsync on parent directory
-      try {
-        const dirFh = await fs.promises.open(dir, 'r');
-        try {
-          await dirFh.sync();
-        } finally {
-          await dirFh.close();
-        }
-      } catch {
-        // Directory fsync is not supported on all platforms (e.g. Windows)
-      }
-    }, { purpose: `snapshot-${path.basename(filePath, '.json')}` });
+    await this.persistenceOperations.writePayloadAtomic(filePath, this.serializePayload(data));
   }
 
   /**
@@ -1508,7 +1553,6 @@ export class SessionContinuityManager extends EventEmitter {
       logger.error('Session file contains invalid JSON', error instanceof Error ? error : undefined, {
         filePath,
         rawLength: raw.length,
-        rawPreview: raw.substring(0, 100),
       });
       return null;
     }
@@ -1677,7 +1721,12 @@ export class SessionContinuityManager extends EventEmitter {
       try {
         const stateFile = path.join(this.stateDir, `${instanceId}.json`);
         const serialized = this.serializePayload(state);
-        fs.writeFileSync(stateFile, serialized);
+        writeContinuityPayloadSyncAtomic(stateFile, serialized);
+        this.persistenceEpochs.advance(instanceId);
+        writeContinuityPayloadSyncAtomic(
+          path.join(this.recoveryMetadataDir, `${instanceId}.json`),
+          this.serializePayload(buildBoundContinuityRecoveryMetadata(state, fs.statSync(stateFile))),
+        );
       } catch (error) {
         logger.error('Failed to save session state during shutdown', error instanceof Error ? error : undefined, { instanceId });
       }
@@ -1716,11 +1765,6 @@ export class SessionContinuityManager extends EventEmitter {
   }
 
   /**
-   * Build a list of all currently-tracked sessions for the last-stop snapshot
-   * (C5 / §3.6). Called from both the shutdown path and before destructive
-   * interrupt escalation so the snapshot is always fresh before we destroy state.
-   */
-  /**
    * Return the current in-memory session state for a specific instance.
    * Used by lifecycle handlers that need the resume cursor without going through
    * disk I/O (e.g. to pass configFingerprint + resumeCursor to planSessionRecovery).
@@ -1729,19 +1773,26 @@ export class SessionContinuityManager extends EventEmitter {
   getSessionState(instanceId: string): SessionState | null {
     return this.sessionStates.get(instanceId) ?? null;
   }
-
-  buildRecoverableSessionList(): RecoverableSession[] {
-    const now = Date.now();
-    return [...this.sessionStates.values()].map((state) => ({
-      instanceId: state.instanceId,
-      sessionId: state.sessionId,
-      resumeCursor: state.resumeCursor,
-      provider: state.provider,
-      modelId: state.modelId,
-      displayName: state.displayName,
-      workingDirectory: state.workingDirectory,
-      capturedAt: now,
-    }));
+  async listContinuityRecoveryMetadata(modifiedSince: number, preferredInstanceIds: readonly string[] = []): Promise<ContinuityRecoveryMetadata[]> {
+    await this.readyPromise;
+    return listRecoveryMetadata({
+      stateDir: this.stateDir, metadataDir: this.recoveryMetadataDir, modifiedSince, preferredInstanceIds,
+      normalizeState: (state) => this.normalizeStateForContinuity(state),
+      warnSkipped: (skipped) => logger.warn('Skipped corrupt continuity recovery metadata records', { skipped }),
+    });
+  }
+  async loadRecoveryState(sourceInstanceId: string): Promise<SessionState | null> {
+    await this.readyPromise;
+    const tracked = this.findTrackedStateByIdentifier(sourceInstanceId);
+    if (tracked) return this.hydrateTrackedState(tracked.instanceId, tracked.state);
+    return this.loadStateFromDiskByIdentifier(sourceInstanceId);
+  }
+  buildRecoverableSessionList(): RecoverableSessionSelectionInput[] {
+    return buildRuntimeRecoverableSessionList({
+      states: [...this.sessionStates.values()], dehydratedIds: this.dehydratedStateIds,
+      metadata: this.stateRecoveryMetadata, getActivity: (state) => this.getStateActivityTimestamp(state),
+      getInstance: (instanceId) => this.instanceManager?.getInstance?.(instanceId),
+    });
   }
 
   /**
@@ -1752,48 +1803,15 @@ export class SessionContinuityManager extends EventEmitter {
     this.instanceManager = im;
   }
 
-  /**
-   * Capture resume cursor from the adapter (if it exposes one) into the session state.
-   * Called during auto-save so the cursor is persisted to disk without the Instance
-   * needing to expose its adapter property.
-   */
+  /** Capture the adapter's resume cursor into the persisted session state. */
   private captureResumeCursor(instanceId: string, state: SessionState): void {
     if (!this.instanceManager) return; // Not wired yet — best effort only
     try {
-      const adapter = this.instanceManager.getAdapter(instanceId);
-      if (!adapter) return;
-      const runtimeAdapter = adapter as {
-        getRuntimeSnapshot?: () => ProviderRuntimeSnapshot;
-        getResumeCursor?: () => unknown;
-      };
-      const snapshot = runtimeAdapter.getRuntimeSnapshot?.();
-      const rawCursor = snapshot
-        ? snapshot.resumeCursor
-        : runtimeAdapter.getResumeCursor?.();
-      const cursor = rawCursor && typeof rawCursor === 'object'
-        ? { ...(rawCursor as ResumeCursor) }
-        : null;
-
-      if (snapshot?.nativeThreadId && cursor?.threadId !== snapshot.nativeThreadId) {
-        logger.warn('Refusing to persist a non-atomic provider runtime identity', {
-          instanceId,
-          snapshotRevision: snapshot.revision,
-        });
-        return;
-      }
-      if (cursor && !cursor.configFingerprint) {
-        // §6.2: stamp the resume-affecting config fingerprint on the copied
-        // cursor so auto-save never mutates provider-owned runtime state.
-        cursor.configFingerprint = computeResumeConfigFingerprint({
-          provider: state.provider,
-          model: state.modelId,
-          cwd: state.workingDirectory,
-          // Cross-account resume guard — see session-recovery.ts.
-          copilotProfileId: state.copilotAccountProfileId,
-        });
-      }
-      state.resumeCursor = cursor;
-      if (snapshot?.providerSessionId) state.sessionId = snapshot.providerSessionId;
+      captureResumeCursorForState({
+        adapter: this.instanceManager.getAdapter(instanceId),
+        instanceId, state,
+        warn: (message, metadata) => logger.warn(message, metadata),
+      });
     } catch {
       // Best effort — don't let cursor capture fail the save
     }

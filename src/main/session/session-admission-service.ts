@@ -57,6 +57,7 @@ export type AdmissionOrigin =
   | 'automation'
   | 'reaction'
   | 'consensus'
+  | 'orchestration'
   | 'lsp-feedback'
   | 'browser-gateway';
 

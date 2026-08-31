@@ -91,12 +91,20 @@ describe('StreamDurabilityCoordinator', () => {
     expect(emitGapMarker).toHaveBeenCalledWith('n1', 'inst-2', 9);
   });
 
-  it('resumeNode is a no-op for legacy workers and nodes with no cursors', () => {
+  it('resumeNode is a no-op for legacy workers', () => {
     const { coordinator, sendResume } = makeCoordinator();
     coordinator.accept('n1', 'inst-1', 4);
     coordinator.resumeNode('n1', undefined); // legacy — no capability
-    coordinator.resumeNode('n2', 1); // durable but nothing tracked
     expect(sendResume).not.toHaveBeenCalled();
+  });
+
+  it('asks durable workers to discover buffered instances when no cursor exists', async () => {
+    const { coordinator, sendResume } = makeCoordinator();
+
+    coordinator.resumeNode('n2', 1);
+    await vi.runAllTimersAsync();
+
+    expect(sendResume).toHaveBeenCalledWith('n2', []);
   });
 
   it('a failed resume RPC never throws (gap stays lost, matching legacy behavior)', async () => {

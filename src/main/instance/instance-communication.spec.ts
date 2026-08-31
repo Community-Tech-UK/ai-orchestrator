@@ -14,6 +14,17 @@ const settingsManagerState = vi.hoisted(() => ({
   sessionHandoffStateEnabled: false,
 }));
 
+const communicationLoggerMocks = vi.hoisted(() => ({
+  debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(),
+}));
+const lifecycleHookMocks = vi.hoisted(() => ({
+  triggerLifecycleHooks: vi.fn().mockResolvedValue({ blocked: false }),
+}));
+
+vi.mock('../logging/logger', () => ({
+  getLogger: () => communicationLoggerMocks,
+}));
+
 vi.mock('../core/config/settings-manager', () => ({
   getSettingsManager: () => ({
     getAll: () => settingsManagerState,
@@ -33,7 +44,7 @@ vi.mock('../memory', () => ({
 vi.mock('../hooks/hook-manager', () => ({
   getHookManager: () => ({
     triggerHooks: vi.fn().mockResolvedValue(undefined),
-    triggerLifecycleHooks: vi.fn().mockResolvedValue({ blocked: false }),
+    triggerLifecycleHooks: lifecycleHookMocks.triggerLifecycleHooks,
   }),
 }));
 
@@ -89,6 +100,7 @@ import { getTokenCounter, TokenCounter } from '../rlm/token-counter';
 import { getCacheAnalyticsService, CacheAnalyticsService } from '../context/cache-analytics-service';
 import { getHandoffStateService, HandoffStateService } from '../session/handoff-state-service';
 import type { CliResponse } from '../cli/adapters/base-cli-adapter';
+import { ProviderAuthenticationError } from '../cli/adapters/provider-authentication-error';
 
 const emitPluginHookMock = vi.mocked(emitPluginHook);
 
@@ -180,6 +192,33 @@ function createMessage(
   };
 }
 
+interface DiagnosticError extends Error {
+  code?: string;
+  cause?: unknown;
+  metadata?: Record<string, unknown>;
+}
+
+function createDiagnosticError(
+  message: string,
+  nameAlias: string,
+  codeAlias: string,
+): DiagnosticError {
+  const cause = Object.assign(new Error(`nested failure for ${codeAlias}`), {
+    code: `CAUSE_${nameAlias}`,
+    metadata: { sessionRef: codeAlias },
+  });
+  cause.name = `Cause_${nameAlias}`;
+  const error = Object.assign(new Error(message), {
+    code: `PROVIDER_${codeAlias}`,
+    cause,
+    metadata: { recoveryRef: nameAlias },
+    requestId: `request-${codeAlias}`,
+    quota: { exhausted: true, message: `quota for ${nameAlias}` },
+  }) as DiagnosticError;
+  error.name = `Provider_${nameAlias}`;
+  return error;
+}
+
 describe('InstanceCommunicationManager', () => {
   let instance: Instance;
   let adapters: Map<string, CliAdapter>;
@@ -243,7 +282,7 @@ describe('InstanceCommunicationManager', () => {
     manager.on('output', output);
     manager.setupAdapterEvents(instance.id, adapter);
     (adapter as unknown as EventEmitter).emit('output', message);
-    await flushOutputHandlers();
+    await new Promise<void>((resolve) => setImmediate(resolve));
 
     expect(output).toHaveBeenCalledWith(expect.objectContaining({
       instanceId: instance.id,
@@ -528,6 +567,179 @@ describe('InstanceCommunicationManager', () => {
     expect(notice!.type).toBe('system');
     expect((notice!.metadata!['notice'] as { sessionId?: string }).sessionId).toBe('sess-xyz');
   });
+
+  it('omits a crash-recovery cursor from invalid-session notice metadata', async () => {
+    const cursor = 'invalid-recovery-cursor-placeholder';
+    instance.provider = 'claude';
+    instance.sessionId = cursor;
+    instance.providerSessionId = cursor;
+    instance.metadata = { continuityRevival: true, reason: 'crash-recovery' };
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    const outputs: OutputMessage[] = [];
+    manager.on('output', (event: { message: OutputMessage }) => outputs.push(event.message));
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit(
+      'output', createMessage('error', `session not found: ${cursor}`),
+    );
+    await flushOutputHandlers();
+
+    const notice = outputs.find(
+      (message) => (message.metadata?.['notice'] as { kind?: string } | undefined)?.kind
+        === 'invalid-session',
+    );
+    expect(JSON.stringify(outputs)).not.toContain(cursor);
+    expect(notice?.metadata?.['notice']).toMatchObject({ recoverySession: true });
+  });
+
+  it('redacts crash-recovery adapter errors from buffers, logs, runtime events, and StopFailure hooks', async () => {
+    const replacementAlias = 'adapter-error-replacement-fixture-placeholder';
+    const sourceAlias = 'adapter-error-source-fixture-placeholder';
+    instance.provider = 'cursor';
+    instance.sessionId = replacementAlias;
+    instance.providerSessionId = replacementAlias;
+    instance.historyThreadId = sourceAlias;
+    instance.metadata = { continuityRevival: true, reason: 'crash-recovery' };
+    const adapter = new FakeAdapter('cursor-acp') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    const outputs: OutputMessage[] = [];
+    manager.on('output', (event: { message: OutputMessage }) => outputs.push(event.message));
+    for (const logger of Object.values(communicationLoggerMocks)) logger.mockClear();
+    lifecycleHookMocks.triggerLifecycleHooks.mockClear();
+    emitProviderRuntimeEvent.mockClear();
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit(
+      'error',
+      createDiagnosticError(
+        `ACP session/prompt request timed out after 100ms (id=${replacementAlias}).`,
+        sourceAlias,
+        replacementAlias,
+      ),
+    );
+    await flushOutputHandlers();
+    (adapter as unknown as EventEmitter).emit(
+      'error',
+      createDiagnosticError(
+        `terminal adapter failure for ${replacementAlias}`,
+        sourceAlias,
+        replacementAlias,
+      ),
+    );
+    await flushOutputHandlers();
+
+    const observable = JSON.stringify({
+      outputBuffer: instance.outputBuffer,
+      outputs,
+      logs: Object.fromEntries(Object.entries(communicationLoggerMocks).map(
+        ([level, logger]) => [level, logger.mock.calls],
+      )),
+      runtimeEvents: emitProviderRuntimeEvent.mock.calls,
+      hooks: lifecycleHookMocks.triggerLifecycleHooks.mock.calls,
+    });
+    expect(observable).not.toContain(replacementAlias);
+    expect(observable).not.toContain(sourceAlias);
+    expect(observable).toContain('[recovery identity omitted]');
+    expect(lifecycleHookMocks.triggerLifecycleHooks).toHaveBeenCalledWith(
+      'StopFailure',
+      expect.objectContaining({
+        errorMessage: 'terminal adapter failure for [recovery identity omitted]',
+      }),
+    );
+  });
+
+  it('keeps ordinary adapter Error name, code, cause, and metadata raw', async () => {
+    const rawAlias = 'ordinary-adapter-error-alias-placeholder';
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    const error = createDiagnosticError(
+      `ordinary failure for ${rawAlias}`,
+      rawAlias,
+      rawAlias,
+    );
+    adapters.set(instance.id, adapter);
+    for (const logger of Object.values(communicationLoggerMocks)) logger.mockClear();
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('error', error);
+    await flushOutputHandlers();
+
+    const loggedError = communicationLoggerMocks.error.mock.calls
+      .flat()
+      .find((value): value is DiagnosticError => value instanceof Error);
+    expect(loggedError).toBe(error);
+    expect(loggedError?.name).toBe(`Provider_${rawAlias}`);
+    expect(loggedError?.code).toBe(`PROVIDER_${rawAlias}`);
+    expect(loggedError?.cause).toBe(error.cause);
+    expect(loggedError?.metadata).toBe(error.metadata);
+  });
+
+  it.each(['interrupted', 'automatic'] as const)(
+    'redacts crash-recovery identity when %s exit recovery rejects',
+    async (recoveryPath) => {
+      const replacementAlias = 'exit-recovery-replacement-fixture-placeholder';
+      const sourceAlias = 'exit-recovery-source-fixture-placeholder';
+      instance.status = 'idle';
+      instance.sessionId = replacementAlias;
+      instance.providerSessionId = replacementAlias;
+      instance.historyThreadId = sourceAlias;
+      instance.metadata = { continuityRevival: true, reason: 'crash-recovery' };
+      instance.outputBuffer = [createMessage('user', 'recover this turn')];
+      const onInterruptedExit = vi.fn().mockRejectedValue(
+        createDiagnosticError(
+          `interrupt recovery failed for ${replacementAlias}`,
+          sourceAlias,
+          replacementAlias,
+        ),
+      );
+      const onUnexpectedExit = vi.fn().mockRejectedValue(
+        createDiagnosticError(
+          `automatic recovery failed for ${replacementAlias}`,
+          sourceAlias,
+          replacementAlias,
+        ),
+      );
+      manager = new InstanceCommunicationManager({
+        getInstance: (id) => (id === instance.id ? instance : undefined),
+        getAdapter: (id) => adapters.get(id),
+        setAdapter: (id, replacement) => adapters.set(id, replacement),
+        deleteAdapter: (id) => adapters.delete(id),
+        queueUpdate,
+        processOrchestrationOutput: vi.fn(),
+        onInterruptedExit,
+        onUnexpectedExit,
+        ingestToRLM: vi.fn(),
+        ingestToUnifiedMemory: vi.fn(),
+      });
+      const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+      adapters.set(instance.id, adapter);
+      if (recoveryPath === 'interrupted') manager.markInterrupted(instance.id);
+      for (const log of Object.values(communicationLoggerMocks)) log.mockClear();
+
+      manager.setupAdapterEvents(instance.id, adapter);
+      (adapter as unknown as EventEmitter).emit('exit', null, 'SIGKILL');
+      await flushOutputHandlers();
+
+      const observable = JSON.stringify({
+        logs: Object.fromEntries(Object.entries(communicationLoggerMocks).map(
+          ([level, log]) => [level, log.mock.calls],
+        )),
+        updates: queueUpdate.mock.calls,
+      });
+      expect(observable).not.toContain(replacementAlias);
+      expect(observable).not.toContain(sourceAlias);
+      expect(observable).toContain('[recovery identity omitted]');
+      const loggedErrors = communicationLoggerMocks.error.mock.calls
+        .flat()
+        .filter((value): value is DiagnosticError => value instanceof Error);
+      expect(loggedErrors.length).toBeGreaterThan(0);
+      for (const loggedError of loggedErrors) {
+        expect(loggedError.name).not.toContain(sourceAlias);
+        expect(loggedError.code).not.toContain(replacementAlias);
+        expect(JSON.stringify(loggedError.cause)).not.toContain(sourceAlias);
+      }
+    },
+  );
 
   it('§3.2: does not emit a second invalid-session notice once already blacklisted', async () => {
     instance.provider = 'claude';
@@ -2081,6 +2293,46 @@ describe('LT-023: a suppressed respawn defers and retries instead of dying silen
     expect(onUnexpectedExit).not.toHaveBeenCalled();
   });
 
+  it('redacts crash-recovery identity when the deferred retry rejects', async () => {
+    const replacementAlias = 'deferred-respawn-replacement-fixture-placeholder';
+    const sourceAlias = 'deferred-respawn-source-fixture-placeholder';
+    instance.sessionId = replacementAlias;
+    instance.providerSessionId = replacementAlias;
+    instance.historyThreadId = sourceAlias;
+    instance.metadata = { continuityRevival: true, reason: 'crash-recovery' };
+    onUnexpectedExit.mockRejectedValueOnce(createDiagnosticError(
+      `deferred retry failed for ${replacementAlias}`,
+      sourceAlias,
+      replacementAlias,
+    ));
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    manager.setupAdapterEvents(instance.id, adapter);
+    for (const log of Object.values(communicationLoggerMocks)) log.mockClear();
+
+    (adapter as unknown as EventEmitter).emit('exit', null, 'SIGKILL');
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    const observable = JSON.stringify({
+      logs: Object.fromEntries(Object.entries(communicationLoggerMocks).map(
+        ([level, log]) => [level, log.mock.calls],
+      )),
+      updates: queueUpdate.mock.calls,
+    });
+    expect(observable).not.toContain(replacementAlias);
+    expect(observable).not.toContain(sourceAlias);
+    expect(observable).toContain('[recovery identity omitted]');
+    const loggedErrors = communicationLoggerMocks.error.mock.calls
+      .flat()
+      .filter((value): value is DiagnosticError => value instanceof Error);
+    expect(loggedErrors.length).toBeGreaterThan(0);
+    for (const loggedError of loggedErrors) {
+      expect(loggedError.name).not.toContain(sourceAlias);
+      expect(loggedError.code).not.toContain(replacementAlias);
+      expect(JSON.stringify(loggedError.cause)).not.toContain(sourceAlias);
+    }
+  });
+
   it('still terminates immediately when the restart cap is already exhausted, even inside the suppression window', () => {
     instance.restartCount = 5;
     const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
@@ -2660,8 +2912,81 @@ describe('provider-limit park on thrown sendInput errors', () => {
     expect(onAuthFailureTurn).toHaveBeenCalledTimes(1);
     expect(onAuthFailureTurn.mock.calls[0][0]).toMatchObject({
       instanceId: instance.id,
-      resumePrompt: 'keep going',
+      resumeTurn: { message: 'keep going' },
+      authoritative: false,
     });
+  });
+
+  it('reports a structured adapter auth failure authoritatively with the complete lost turn', async () => {
+    const adapter = new FakeAdapter('claude-cli');
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+    const onAuthFailureTurn = vi.fn();
+    const manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, a) => { adapters.set(id, a); },
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+      onAuthFailureTurn,
+    });
+    const attachments = [{
+      name: 'notes.txt',
+      type: 'text/plain',
+      size: 5,
+      data: 'hello',
+    }];
+    manager.setupAdapterEvents(instance.id, adapter as unknown as CliAdapter);
+    manager.queueContinuityPreamble(instance.id, 'one-shot continuity');
+    await manager.sendInput(instance.id, 'keep going', attachments, 'resolved context');
+
+    adapter.emit('error', new ProviderAuthenticationError(
+      'Failed to authenticate: OAuth session expired and could not be refreshed',
+      'authentication_failed',
+    ));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(onAuthFailureTurn).toHaveBeenCalledTimes(1);
+    expect(onAuthFailureTurn.mock.calls[0][0]).toEqual({
+      instanceId: instance.id,
+      reason: expect.stringContaining('provider protocol reported auth failure'),
+      resumeTurn: {
+        message: 'keep going',
+        attachments,
+        contextBlock: 'one-shot continuity\n\nresolved context',
+      },
+      authoritative: true,
+    });
+  });
+
+  it('notifies auth repair only after the adapter emits a real completion', async () => {
+    const adapter = new FakeAdapter('claude-cli');
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+    const onAuthRepairReplayComplete = vi.fn();
+    const manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, a) => { adapters.set(id, a); },
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+      onAuthRepairReplayComplete,
+    });
+    manager.setupAdapterEvents(instance.id, adapter as unknown as CliAdapter);
+
+    adapter.emit('complete', {
+      id: 'replay-response',
+      role: 'assistant',
+      content: 'Recovered response',
+    } satisfies CliResponse);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(onAuthRepairReplayComplete).toHaveBeenCalledWith(instance.id);
   });
 
   it('does not report an ordinary thrown failure as an auth failure', async () => {

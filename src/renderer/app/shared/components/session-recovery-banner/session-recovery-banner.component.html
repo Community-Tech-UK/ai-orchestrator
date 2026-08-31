@@ -1,0 +1,41 @@
+@if (visible()) {
+  <section
+    class="session-recovery-banner"
+    data-testid="session-recovery-banner"
+    role="status"
+    aria-live="polite"
+    [attr.aria-busy]="store.loading() ? 'true' : null"
+  >
+    <div class="session-recovery-banner__content">
+      <span class="session-recovery-banner__icon" aria-hidden="true">↻</span>
+      <div class="session-recovery-banner__copy">
+        <h2>{{ title() }}</h2>
+        <p>{{ summary() }}</p>
+        @if (store.error(); as error) {
+          <p class="session-recovery-banner__error" role="alert" aria-live="assertive">
+            {{ error }}
+          </p>
+        }
+      </div>
+    </div>
+
+    <div class="session-recovery-banner__actions">
+      <button
+        type="button"
+        class="session-recovery-banner__button session-recovery-banner__button--primary"
+        [disabled]="store.loading()"
+        (click)="openRecoveryPicker()"
+      >
+        Review autosave
+      </button>
+      <button
+        type="button"
+        class="session-recovery-banner__button"
+        aria-label="Dismiss autosave recovery notice"
+        (click)="dismissForSession()"
+      >
+        Dismiss
+      </button>
+    </div>
+  </section>
+}

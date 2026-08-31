@@ -8,8 +8,18 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 
+const contextMocks = vi.hoisted(() => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+  rlm: {
+    getStore: vi.fn(), executeQuery: vi.fn(),
+    createStore: vi.fn((sessionId: string) => ({ id: `store-${sessionId}` })),
+    startSession: vi.fn(async (_storeId: string, sessionId: string) => ({ id: `rlm-${sessionId}` })),
+    endSession: vi.fn(),
+  },
+}));
+
 vi.mock('../logging/logger', () => ({
-  getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
+  getLogger: () => contextMocks.logger,
 }));
 
 // Constructing the manager otherwise starts the real unified-memory controller,
@@ -18,7 +28,7 @@ vi.mock('../memory/unified-controller', () => ({
   getUnifiedMemory: () => ({ retrieve: vi.fn().mockResolvedValue(null) }),
 }));
 vi.mock('../rlm/context-manager', () => ({
-  RLMContextManager: { getInstance: () => ({ getStore: vi.fn(), executeQuery: vi.fn() }) },
+  RLMContextManager: { getInstance: () => contextMocks.rlm },
 }));
 
 import { InstanceContextManager } from './instance-context';
@@ -39,6 +49,34 @@ function instanceWithOpeningPrompt(): Instance {
 }
 
 describe('InstanceContextManager.compactContext', () => {
+  it('omits recovery session identity from real RLM lifecycle logs', async () => {
+    const cursor = 'native-cursor-fixture-placeholder';
+    const instance = {
+      id: 'replacement-fixture',
+      sessionId: cursor,
+      metadata: { reason: 'crash-recovery', continuityRevival: true },
+    } as unknown as Instance;
+    const manager = new InstanceContextManager();
+    contextMocks.rlm.endSession.mockImplementationOnce(() => {
+      throw new Error(`fixture end failure for ${cursor}`);
+    });
+
+    await manager.initializeRlm(instance);
+    manager.endRlmSession(instance.id);
+
+    const serializedLogs = JSON.stringify([
+      contextMocks.logger.info.mock.calls,
+      contextMocks.logger.warn.mock.calls,
+      contextMocks.logger.error.mock.calls,
+    ]);
+    expect(serializedLogs).not.toContain(cursor);
+    expect(serializedLogs).not.toContain(`store-${cursor}`);
+    expect(serializedLogs).not.toContain(`rlm-${cursor}`);
+    const endFailure = contextMocks.logger.error.mock.calls.find(
+      ([message]) => message === 'Failed to end RLM session',
+    );
+    expect(endFailure?.[1]).toBeUndefined();
+  });
   it('retains an evicted opening prompt beside the trimmed buffer', async () => {
     const instance = instanceWithOpeningPrompt();
 

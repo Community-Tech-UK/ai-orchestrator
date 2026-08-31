@@ -89,6 +89,16 @@ export interface CreateCopilotProfileInput {
   label: string;
   accountKind: CopilotAccountKind;
   host?: string;
+  /**
+   * The GitHub login this profile is FOR, when it is already known — adding an
+   * account Copilot has discovered, for instance.
+   *
+   * Leaving it null made the account discovery offer the same login forever:
+   * `alreadyAdded` is computed by matching `expectedLogin`, so a profile added
+   * from a suggestion never matched itself and reappeared as a fresh
+   * suggestion after being added.
+   */
+  expectedLogin?: string | null;
   scopePolicy?: CopilotAccountScopePolicy;
   automationPolicy?: CopilotAutomationPolicy;
   /**
@@ -197,7 +207,7 @@ export class CopilotAccountStore {
     const profile: CopilotAccountProfile = {
       id,
       label: input.label.trim(),
-      expectedLogin: null,
+      expectedLogin: input.expectedLogin?.trim() || null,
       host: normalizeCopilotHost(input.host) || COPILOT_DEFAULT_HOST,
       accountKind: input.accountKind,
       scopePolicy,
@@ -299,6 +309,63 @@ export class CopilotAccountStore {
       rules: rules.filter((rule) => rule.profileId !== profileId),
     });
     logger.info('Removed a Copilot account profile', { profileId });
+  }
+
+  /**
+   * Point a target at an account, replacing whatever rule was there.
+   *
+   * `createRule` is the low-level primitive and refuses a target that already
+   * has a rule — correct for "add a rule", wrong for the project menu, where
+   * clicking an account IS a swap. Without this, switching a project between
+   * accounts failed with "already routed to a different Copilot account" and
+   * the only way through was to find and delete the rule by hand.
+   *
+   * Replacing a PROTECTED rule still requires an explicit confirmation: a
+   * protected scope exists so that work inside an employer's org fails closed
+   * rather than silently falling to a personal seat, and a one-click swap must
+   * not quietly undo that.
+   */
+  routeTarget(input: {
+    profileId: string;
+    matcher: CopilotRoutingMatcher;
+    isProtected?: boolean;
+    confirmProtectedOverride?: boolean;
+  }): CopilotAccountRoutingRule {
+    const { profiles, rules } = this.read();
+    const profile = profiles.find((candidate) => candidate.id === input.profileId);
+    if (!profile) {
+      throw new Error(`No Copilot account profile "${input.profileId}".`);
+    }
+    const key = copilotMatcherKey(input.matcher);
+    const existing = rules.find((rule) => copilotMatcherKey(rule.matcher) === key);
+
+    // Already pointing where the user just asked for: succeed quietly rather
+    // than erroring on a no-op click.
+    if (existing && existing.profileId === input.profileId) {
+      return existing;
+    }
+    if (existing?.isProtected && !input.confirmProtectedOverride) {
+      throw new Error(
+        `That target is protected for Copilot account "${existing.profileId}". `
+        + 'Confirm the change to move it to a different account.',
+      );
+    }
+
+    const now = this.now();
+    const rule: CopilotAccountRoutingRule = {
+      id: existing?.id ?? deriveRuleId(rules.map((entry) => entry.id), now),
+      profileId: input.profileId,
+      matcher: input.matcher,
+      isProtected: input.isProtected ?? profile.accountKind === 'enterprise',
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+    this.persist({
+      rules: existing
+        ? rules.map((entry) => (entry.id === existing.id ? rule : entry))
+        : [...rules, rule],
+    });
+    return rule;
   }
 
   createRule(input: {

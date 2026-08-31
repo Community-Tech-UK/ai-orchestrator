@@ -8,10 +8,18 @@ import {
 import type { CopilotRouteOutcome } from '../../../../shared/types/copilot-account.types';
 import { CopilotProjectRoutingMenuComponent } from './copilot-project-routing-menu.component';
 
-function account(id: string, label: string, isDefault = false): CopilotAccountView {
+function account(
+  id: string,
+  label: string,
+  isDefault = false,
+  bindingState: 'authenticated' | 'unauthenticated' = 'authenticated',
+): CopilotAccountView {
   return {
     id,
     label,
+    // Signed in by default: an account that cannot run is the exception, and
+    // making it the fixture default hid which tests were exercising which path.
+    binding: { nodeId: 'local', state: bindingState, checkedAt: 1 },
     expectedLogin: id,
     host: 'github.com',
     accountKind: id === 'personal' ? 'personal' : 'enterprise',
@@ -69,6 +77,7 @@ const ipc = {
     data: { id: 'work' },
   })),
   createRule: vi.fn<() => Promise<MutationResult>>(async () => ({ success: true })),
+  signIn: vi.fn<() => Promise<MutationResult>>(async () => ({ success: true })),
   removeRule: vi.fn<() => Promise<MutationResult>>(async () => ({ success: true })),
 };
 
@@ -137,10 +146,13 @@ describe('CopilotProjectRoutingMenuComponent', () => {
       label: 'LAWRENCJ_PE1',
       accountKind: 'enterprise',
       host: 'github.com',
+      // Recorded, or discovery offers this same account again forever.
+      expectedLogin: 'LAWRENCJ_PE1',
     });
     expect(ipc.createRule).toHaveBeenCalledWith({
       profileId: 'work',
       matcher: { type: 'owner', host: 'github.com', owner: 'acme' },
+      replaceExisting: true,
     });
   });
 
@@ -193,6 +205,9 @@ describe('CopilotProjectRoutingMenuComponent', () => {
     expect(ipc.createRule).toHaveBeenCalledWith({
       profileId: 'enterprise',
       matcher: { type: 'owner', host: 'github.com', owner: 'acme' },
+      // A swap, not an add: picking an account for a project that already has
+      // one must MOVE the rule rather than collide with it.
+      replaceExisting: true,
     });
   });
 
@@ -204,6 +219,7 @@ describe('CopilotProjectRoutingMenuComponent', () => {
       profileId: 'enterprise',
       matcher: { type: 'path-prefix', canonicalPath: '/work/no-remote' },
       isProtected: true,
+      replaceExisting: true,
     });
   });
 
@@ -277,5 +293,94 @@ describe('CopilotProjectRoutingMenuComponent', () => {
     const items = [...fixture.nativeElement.querySelectorAll('.cpr-item')] as HTMLButtonElement[];
     expect(items.length).toBeGreaterThan(0);
     expect(items.every((item) => !item.disabled)).toBe(true);
+  });
+});
+
+describe('swapping a project between accounts', () => {
+  // Reported 2026-08-30: the menu could only ever ADD a rule, so switching a
+  // project from one account to another came back "That target is already
+  // routed to a different Copilot account. Remove the existing rule first."
+  // — and clicking the account it was already on said "That routing rule
+  // already exists for this account." Neither is a thing a user can act on
+  // from this menu, which is the one place the swap is meant to happen.
+  it('does nothing when the project is already on that account', async () => {
+    // The default harness preview resolves to `personal`, so clicking
+    // `personal` is the already-there case.
+    const fixture = await render('/work/widgets');
+    ipc.createRule.mockClear();
+
+    await fixture.componentInstance.mapTo(account('personal', 'Personal', true), new Event('click'));
+
+    expect(ipc.createRule, 'a second click on the active account must not re-issue the rule')
+      .not.toHaveBeenCalled();
+    expect(fixture.componentInstance.error()).toBeNull();
+  });
+});
+
+describe('an account that is not signed in on this device', () => {
+  // Reported 2026-08-30: picking the newly added LAWRENCJ_PE1 gave
+  // "not signed in on this device. Sign in for this profile from Settings ›
+  // GitHub Copilot Accounts." — a dead end in the one menu where the choice is
+  // made. Each profile has its own isolated COPILOT_HOME, so a fresh profile
+  // genuinely has no credentials; the fix is to offer the login here.
+  it('starts sign-in instead of mapping a project to an account that cannot run', async () => {
+    const signedOut = account('enterprise', 'Work', false, 'unauthenticated');
+    ipc.list.mockResolvedValueOnce([account('personal', 'Personal', true), signedOut]);
+    const fixture = await render('/work/widgets');
+    ipc.createRule.mockClear();
+
+    await fixture.componentInstance.mapTo(signedOut, new Event('click'));
+
+    expect(ipc.signIn).toHaveBeenCalledWith('enterprise', 'github.com');
+    expect(ipc.createRule, 'do not park a project on an account that cannot run')
+      .not.toHaveBeenCalled();
+    expect(fixture.componentInstance.error()).toContain('Finish signing in');
+  });
+
+  it('maps normally once the account IS signed in', async () => {
+    const fixture = await render('/work/widgets');
+    await fixture.componentInstance.mapTo(account('enterprise', 'Work'), new Event('click'));
+    expect(ipc.signIn).not.toHaveBeenCalled();
+    expect(ipc.createRule).toHaveBeenCalled();
+  });
+});
+
+describe('swapping away from a PROTECTED rule', () => {
+  // James's real state: ~/work/ebrd is pinned to `lawrencj-pe1` by a PROTECTED
+  // path rule. Swapping it back to the personal account must be possible — but
+  // not silently, because a protected scope is what stops work in an
+  // employer's org sliding onto a personal seat.
+  it('asks once, then completes the move', async () => {
+    ipc.createRule
+      .mockResolvedValueOnce({
+        success: false,
+        error: { message: 'That target is protected for Copilot account "enterprise".' },
+      })
+      .mockResolvedValueOnce({ success: true });
+    const confirmSpy = vi.spyOn(globalThis, 'confirm').mockReturnValue(true);
+
+    const fixture = await render('/work/ebrd');
+    await fixture.componentInstance.mapTo(account('enterprise', 'Work'), new Event('click'));
+
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(ipc.createRule).toHaveBeenCalledTimes(2);
+    const secondCall = ipc.createRule.mock.calls[1] as unknown as [{ confirmProtectedOverride?: boolean }];
+    expect(secondCall[0]).toMatchObject({ confirmProtectedOverride: true });
+    expect(fixture.componentInstance.error()).toBeNull();
+    confirmSpy.mockRestore();
+  });
+
+  it('leaves the protected rule alone when the answer is no', async () => {
+    ipc.createRule.mockResolvedValueOnce({
+      success: false,
+      error: { message: 'That target is protected for Copilot account "enterprise".' },
+    });
+    const confirmSpy = vi.spyOn(globalThis, 'confirm').mockReturnValue(false);
+
+    const fixture = await render('/work/ebrd');
+    await fixture.componentInstance.mapTo(account('enterprise', 'Work'), new Event('click'));
+
+    expect(ipc.createRule, 'declining must not retry the move').toHaveBeenCalledTimes(1);
+    confirmSpy.mockRestore();
   });
 });

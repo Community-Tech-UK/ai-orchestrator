@@ -567,6 +567,11 @@ export class InstanceStore implements OnDestroy {
     }
   }
 
+  /** Refresh the live instance list from main-process state. */
+  async refreshInstances(): Promise<void> {
+    return this.listStore.loadInitialInstances();
+  }
+
   /** Create a new instance */
   async createInstance(config: CreateInstanceConfig): Promise<void> {
     return this.listStore.createInstance(config);

@@ -22,9 +22,29 @@ export function summarizeLogText(
 }
 
 export function sanitizeCreateConfig(config: InstanceCreateConfig): Partial<InstanceCreateConfig> {
-  const { attachments, initialOutputBuffer, initialPrompt, modelRuntimeTarget, ...rest } = config;
+  const {
+    attachments,
+    initialOutputBuffer,
+    initialPrompt,
+    modelRuntimeTarget,
+    sessionId,
+    historyThreadId,
+    metadata,
+    ...rest
+  } = config;
+  const isCrashRecovery = metadata?.['reason'] === 'crash-recovery';
   return {
     ...rest,
+    sessionId: isCrashRecovery && sessionId ? '[recovery session omitted]' : sessionId,
+    historyThreadId: isCrashRecovery && historyThreadId
+      ? '[recovery history identity omitted]'
+      : historyThreadId,
+    metadata: isCrashRecovery
+      ? {
+          reason: 'crash-recovery',
+          continuityRevival: metadata?.['continuityRevival'] === true,
+        }
+      : metadata,
     modelRuntimeTarget: sanitizeModelRuntimeTarget(modelRuntimeTarget),
     initialPrompt: initialPrompt ? summarizeLogText(initialPrompt, 240) : undefined,
     attachments: attachments?.map((attachment) => ({
@@ -34,10 +54,17 @@ export function sanitizeCreateConfig(config: InstanceCreateConfig): Partial<Inst
       data: `[${attachment.size} bytes omitted]`,
     })),
     initialOutputBuffer: initialOutputBuffer
-      ? initialOutputBuffer.map((message) => ({
-          ...message,
-          content: summarizeLogText(message.content, 240) ?? '',
-        }))
+      ? isCrashRecovery
+        ? [{
+            id: '[recovery transcript omitted]',
+            timestamp: 0,
+            type: 'system',
+            content: `[${initialOutputBuffer.length} recovery messages omitted]`,
+          }]
+        : initialOutputBuffer.map((message) => ({
+            ...message,
+            content: summarizeLogText(message.content, 240) ?? '',
+          }))
       : undefined,
   };
 }

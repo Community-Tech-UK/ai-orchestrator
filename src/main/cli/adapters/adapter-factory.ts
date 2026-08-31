@@ -479,6 +479,7 @@ export function createCursorAdapter(options: UnifiedSpawnOptions): AcpCliAdapter
   extendEnvWithRtk(env, options.rtk);
   return new AcpCliAdapter({
     adapterName: 'cursor-acp',
+    authMethodId: 'cursor_login',
     command: 'cursor-agent',
     args: ['acp', ...modelArgs],
     workingDirectory: options.workingDirectory ?? process.cwd(),
@@ -644,6 +645,19 @@ export function createCliAdapter(
       throw new Error('Interactive launch mode is only supported for Claude.');
     }
     throw new Error(INTERACTIVE_RUNTIME_UNAVAILABLE);
+  }
+
+  // Remote adapters return before the local adapter switch and never pass
+  // through the Seatbelt configuration choke point below. Reject the placement
+  // before constructing any remote adapter so a hardened instance can never be
+  // represented as protected while actually running unsandboxed on a worker.
+  if (
+    executionLocation?.type === 'remote'
+    && isInstanceHardened(effectiveOptions.instanceId)
+  ) {
+    throw new Error(
+      'Hardened mode is not supported for remote instances (Phase A is local macOS only).',
+    );
   }
 
   if (runtimeTarget?.kind === 'local-model') {

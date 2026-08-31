@@ -33,6 +33,18 @@ function makeFakeProc() {
   return proc;
 }
 
+function makeSuccessfulProc(output: string) {
+  const proc = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter; kill: ReturnType<typeof vi.fn> };
+  proc.stdout = new EventEmitter();
+  proc.stderr = new EventEmitter();
+  proc.kill = vi.fn();
+  setTimeout(() => {
+    proc.stdout.emit('data', Buffer.from(output));
+    proc.emit('close', 0);
+  }, 0);
+  return proc;
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('CliDetectionService — in-flight deduplication', () => {
@@ -111,5 +123,33 @@ describe('CliDetectionService — in-flight deduplication', () => {
     expect(normalPromise).not.toBe(forcedPromise);
 
     await Promise.all([normalPromise, forcedPromise]);
+  });
+
+  it('does not infer authentication from a successful version probe', async () => {
+    spawnMock.mockImplementation(() => makeSuccessfulProc('2.1.251 (Claude Code)\n'));
+    const checkCommand = (
+      service as unknown as {
+        checkCommand: (command: string, config: {
+          name: string;
+          command: string;
+          displayName: string;
+          versionFlag: string;
+          versionPattern: RegExp;
+          capabilities: string[];
+        }) => Promise<{ installed: boolean; version?: string; authenticated?: boolean }>;
+      }
+    ).checkCommand.bind(service);
+
+    const result = await checkCommand('claude', {
+      name: 'claude',
+      command: 'claude',
+      displayName: 'Claude Code',
+      versionFlag: '--version',
+      versionPattern: /([\d.]+)/,
+      capabilities: [],
+    });
+
+    expect(result).toMatchObject({ installed: true, version: '2.1.251' });
+    expect(result.authenticated).toBeUndefined();
   });
 });

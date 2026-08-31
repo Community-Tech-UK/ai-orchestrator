@@ -34,6 +34,7 @@ export function createCopilotAccountDomain(
       label: string;
       accountKind: CopilotAccountKind;
       host?: string;
+      expectedLogin?: string;
       scopePolicy?: CopilotAccountScopePolicy;
       automationPolicy?: CopilotAutomationPolicy;
       makeDefault?: boolean;
@@ -81,6 +82,9 @@ export function createCopilotAccountDomain(
       profileId: string;
       matcher: CopilotRoutingMatcher;
       isProtected?: boolean;
+      /** Move the target to this account, replacing any existing rule. */
+      replaceExisting?: boolean;
+      confirmProtectedOverride?: boolean;
     }): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.COPILOT_ACCOUNT_RULE_CREATE, withAuth({ ...input })),
 

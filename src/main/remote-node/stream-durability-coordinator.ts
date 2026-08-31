@@ -90,14 +90,15 @@ export class StreamDurabilityCoordinator {
 
   /**
    * A durable worker (re-)registered: ask it to replay everything after our
-   * cursors. Fire-and-forget — a failed resume just means the gap stays lost,
-   * exactly today's behavior.
+   * cursors. An empty cursor list is intentional: the worker uses it to
+   * discover instances whose entire lifetime occurred while disconnected.
+   * Fire-and-forget — a failed resume just means the gap stays lost, exactly
+   * today's behavior.
    */
   resumeNode(nodeId: string, streamDurability: unknown): void {
     if (typeof streamDurability !== 'number' || streamDurability < 1) return;
     const state = this.nodes.get(nodeId);
-    if (!state || state.cursors.size === 0) return;
-    const cursors = [...state.cursors.entries()].map(([instanceId, afterSeq]) => ({
+    const cursors = [...(state?.cursors ?? new Map<string, number>()).entries()].map(([instanceId, afterSeq]) => ({
       instanceId,
       afterSeq,
     }));
@@ -105,7 +106,11 @@ export class StreamDurabilityCoordinator {
       .sendResume(nodeId, cursors)
       .then((summary) => {
         const replayed = summary.cursors?.reduce((n, c) => n + c.replayed, 0) ?? 0;
-        logger.info('Durable stream resume completed', { nodeId, instances: cursors.length, replayed });
+        logger.info('Durable stream resume completed', {
+          nodeId,
+          instances: summary.cursors?.length ?? cursors.length,
+          replayed,
+        });
         for (const cursor of summary.cursors ?? []) {
           if (cursor.gapThroughSeq !== undefined) {
             this.deps.emitGapMarker(nodeId, cursor.instanceId, cursor.gapThroughSeq);

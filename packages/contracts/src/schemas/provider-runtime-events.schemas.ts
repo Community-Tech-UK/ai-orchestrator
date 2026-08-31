@@ -151,6 +151,11 @@ const ProviderSpawnedEventSchema = z.object({
 const ProviderCompleteEventSchema = z.object({
   kind: z.literal('complete'),
   tokensUsed: z.number().int().nonnegative().optional(),
+  inputTokens: z.number().int().nonnegative().optional(),
+  outputTokens: z.number().int().nonnegative().optional(),
+  cacheReadTokens: z.number().int().nonnegative().optional(),
+  cacheWriteTokens: z.number().int().nonnegative().optional(),
+  reasoningTokens: z.number().int().nonnegative().optional(),
   costUsd: z.number().nonnegative().optional(),
   durationMs: z.number().int().nonnegative().optional(),
   degradedReason: DegradedReasonSchema.optional(),

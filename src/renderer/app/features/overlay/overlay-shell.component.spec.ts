@@ -1,8 +1,8 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { signal } from '@angular/core';
+import { Component, signal } from '@angular/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { OverlayShellComponent } from './overlay-shell.component';
-import type { OverlayController, OverlayItem } from './overlay.types';
+import type { OverlayController, OverlayGroup, OverlayItem } from './overlay.types';
 import { KeybindingService } from '../../core/services/keybinding.service';
 
 function makeController(): OverlayController {
@@ -22,6 +22,50 @@ function makeController(): OverlayController {
     query,
     groups,
     setQuery: query.set,
+    run: () => true,
+  };
+}
+
+@Component({
+  selector: 'app-overlay-footer-host',
+  standalone: true,
+  imports: [OverlayShellComponent],
+  template: `
+    <ng-template #footer let-item>
+      @if (item.id === 'manual') {
+        <button type="button" class="footer-action" (click)="footerClicks += 1">
+          Run manual action
+        </button>
+      }
+    </ng-template>
+
+    <app-overlay-shell
+      [controller]="controller"
+      [itemFooter]="footer"
+      (selected)="selectedIds.push($event.id)"
+    />
+  `,
+})
+class OverlayFooterHostComponent {
+  readonly query = signal('');
+  readonly groups = signal<OverlayGroup[]>([{
+    id: 'main',
+    label: 'Main',
+    items: [
+      { id: 'manual', label: 'Manual row', activationMode: 'manual', value: 'manual' },
+      { id: 'ordinary', label: 'Ordinary row', value: 'ordinary' },
+    ],
+  }]);
+  readonly selectedIds: string[] = [];
+  footerClicks = 0;
+
+  readonly controller: OverlayController = {
+    title: 'Command palette',
+    placeholder: 'Search',
+    emptyLabel: 'Empty',
+    query: this.query.asReadonly(),
+    groups: this.groups.asReadonly(),
+    setQuery: (query) => this.query.set(query),
     run: () => true,
   };
 }
@@ -110,5 +154,35 @@ describe('OverlayShellComponent focus trap', () => {
     fixture = null;
 
     expect(keybindingService.getContext()).toBe('input');
+  });
+
+  it('renders manual footer-action rows as non-activating groups while ordinary rows remain button-like', async () => {
+    const hostFixture = TestBed.createComponent(OverlayFooterHostComponent);
+    hostFixture.detectChanges();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    hostFixture.detectChanges();
+
+    const rows = Array.from(
+      hostFixture.nativeElement.querySelectorAll('.overlay-row') as NodeListOf<HTMLElement>,
+    );
+    const manual = rows[0];
+    const ordinary = rows[1];
+    const action = manual.querySelector('.footer-action') as HTMLButtonElement | null;
+
+    expect(manual.getAttribute('role')).toBe('group');
+    expect(manual.getAttribute('tabindex')).toBeNull();
+    expect(action?.parentElement?.closest('[role="button"][tabindex="0"]')).toBeNull();
+    expect(ordinary.getAttribute('role')).toBe('button');
+    expect(ordinary.getAttribute('tabindex')).toBe('0');
+
+    manual.click();
+    manual.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    manual.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
+    action?.click();
+    ordinary.click();
+
+    expect(hostFixture.componentInstance.footerClicks).toBe(1);
+    expect(hostFixture.componentInstance.selectedIds).toEqual(['ordinary']);
+    hostFixture.destroy();
   });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { CliAdapterWorkerProxy } from './cli-adapter-worker-proxy';
 import type { CliSpawnGatewayPort, SpawnInstanceRequest } from './cli-spawn-worker-gateway';
+import { isProviderAuthenticationError } from '../adapters/provider-authentication-error';
 
 class FakeGateway implements CliSpawnGatewayPort {
   handler: Parameters<CliSpawnGatewayPort['registerInstance']>[1] | null = null;
@@ -101,6 +102,40 @@ describe('CliAdapterWorkerProxy', () => {
     expect(gateway.writes[0].data).toContain('"content":"hello"');
     expect(gateway.writes[0].data).toMatch(/\n$/);
     expect(gateway.writes[0].closeAfterWrite).toBeUndefined();
+  });
+
+  it('routes Claude synthetic authentication_failed output through the error channel', async () => {
+    const gateway = new FakeGateway();
+    const proxy = new CliAdapterWorkerProxy({
+      cliType: 'claude',
+      instanceId: 'inst-claude-auth-failure',
+      gateway,
+      options: { workingDirectory: '/repo' },
+    });
+    const output = vi.fn();
+    const error = vi.fn();
+    proxy.on('output', output);
+    proxy.on('error', error);
+
+    await proxy.spawn();
+    gateway.handler?.stdout?.(`${JSON.stringify({
+      type: 'assistant',
+      error: 'authentication_failed',
+      isApiErrorMessage: true,
+      message: {
+        model: '<synthetic>',
+        content: [{
+          type: 'text',
+          text: 'Failed to authenticate: OAuth session expired and could not be refreshed',
+        }],
+      },
+    })}\n`);
+
+    expect(output).not.toHaveBeenCalled();
+    expect(error).toHaveBeenCalledTimes(1);
+    const emitted = error.mock.calls[0]?.[0] as Error;
+    expect(isProviderAuthenticationError(emitted)).toBe(true);
+    expect(emitted).toMatchObject({ providerErrorCode: 'authentication_failed' });
   });
 
   it('translates worker stdout, stderr, idle, exit, interrupt, and terminate events', async () => {

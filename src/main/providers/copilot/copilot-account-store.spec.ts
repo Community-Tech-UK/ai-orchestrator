@@ -279,3 +279,114 @@ describe('a legacy record written before host normalisation', () => {
     ).toThrow(/Host must be an exact lowercase hostname/);
   });
 });
+
+describe('routeTarget — swapping a target between accounts', () => {
+  // Reported 2026-08-30. `createRule` refuses a target that already has a rule,
+  // which is right for "add a rule" and wrong for the project menu, where
+  // clicking an account IS a swap. The user hit a dead end: "already routed to
+  // a different Copilot account. Remove the existing rule first."
+  const matcher = { type: 'owner', host: 'github.com', owner: 'acme' } as const;
+
+  const mk = (id: string, extra: Partial<CopilotAccountProfile> = {}): CopilotAccountProfile => ({
+    id,
+    label: id,
+    expectedLogin: null,
+    host: 'github.com',
+    accountKind: 'personal',
+    scopePolicy: 'default-eligible',
+    automationPolicy: 'allow-routed',
+    isDefault: false,
+    createdAt: 1,
+    updatedAt: 1,
+    ...extra,
+  });
+
+  const setup = () =>
+    makeStore({
+      profiles: [
+        mk('personal', { isDefault: true }),
+        mk('enterprise', { accountKind: 'enterprise', scopePolicy: 'matched-only' }),
+      ],
+    });
+
+  it('moves an existing rule to the new account instead of failing', () => {
+    const { store, state } = setup();
+    store.createRule({ profileId: 'personal', matcher, isProtected: false });
+
+    const moved = store.routeTarget({ profileId: 'enterprise', matcher });
+
+    expect(moved.profileId).toBe('enterprise');
+    expect(state.rules, 'the target must end up with ONE rule, not two').toHaveLength(1);
+    expect(state.rules[0].profileId).toBe('enterprise');
+  });
+
+  it('keeps the rule id and creation time, so it is a move not a churn', () => {
+    const { store, state } = setup();
+    const original = store.createRule({ profileId: 'personal', matcher, isProtected: false });
+
+    store.routeTarget({ profileId: 'enterprise', matcher });
+
+    expect(state.rules[0].id).toBe(original.id);
+    expect(state.rules[0].createdAt).toBe(original.createdAt);
+  });
+
+  it('is a quiet no-op when the target is already on that account', () => {
+    const { store, state } = setup();
+    const original = store.createRule({ profileId: 'personal', matcher, isProtected: false });
+
+    expect(() => store.routeTarget({ profileId: 'personal', matcher })).not.toThrow();
+    expect(state.rules).toHaveLength(1);
+    expect(state.rules[0].id).toBe(original.id);
+  });
+
+  it('refuses to move a PROTECTED target without explicit confirmation', () => {
+    // A protected scope exists so work inside an employer's org fails closed
+    // rather than falling to a personal seat. A one-click swap must not undo
+    // that silently.
+    const { store, state } = setup();
+    store.createRule({ profileId: 'enterprise', matcher, isProtected: true });
+
+    expect(() => store.routeTarget({ profileId: 'personal', matcher })).toThrow(/protected/i);
+    expect(state.rules[0].profileId, 'the protected rule must be untouched').toBe('enterprise');
+  });
+
+  it('moves a protected target once confirmed', () => {
+    const { store, state } = setup();
+    store.createRule({ profileId: 'enterprise', matcher, isProtected: true });
+
+    store.routeTarget({ profileId: 'personal', matcher, confirmProtectedOverride: true });
+
+    expect(state.rules[0].profileId).toBe('personal');
+  });
+});
+
+describe('an account added from a discovery suggestion', () => {
+  it('records the login, so it is not offered again forever', () => {
+    // `alreadyAdded` is computed by matching `expectedLogin`. Creating the
+    // profile with a null login meant it never matched itself, so the same
+    // account kept appearing as a fresh suggestion — the duplicate
+    // "LAWRENCJ_PE1" entry with an [Add] button beside the real one.
+    const { store, state } = makeStore();
+    store.createProfile({
+      label: 'LAWRENCJ_PE1',
+      accountKind: 'enterprise',
+      expectedLogin: 'LAWRENCJ_PE1',
+    });
+    expect(state.profiles[0].expectedLogin).toBe('LAWRENCJ_PE1');
+  });
+
+  it('accepts an Enterprise Managed User login, which contains an underscore', () => {
+    // EMU logins are `<name>_<enterprise-shortcode>` and display uppercase.
+    // The profile schema validated them with the lowercase repo-OWNER pattern,
+    // so recording this identity failed — and since persist() re-validates the
+    // whole array, one such record would have blocked every later write.
+    const { store } = makeStore();
+    expect(() =>
+      store.createProfile({
+        label: 'Work',
+        accountKind: 'enterprise',
+        expectedLogin: 'LAWRENCJ_PE1',
+      }),
+    ).not.toThrow();
+  });
+});

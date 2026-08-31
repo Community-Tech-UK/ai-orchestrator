@@ -53,6 +53,9 @@ import type { CopilotRouteOutcome } from '../../../../shared/types/copilot-accou
             account.id === activeProfileId() ? '✓' : ''
           }}</span>
           <span class="cpr-text">{{ account.label }}</span>
+          @if (!isSignedIn(account)) {
+            <span class="cpr-badge">Sign in</span>
+          }
         </button>
       }
 
@@ -209,6 +212,11 @@ export class CopilotProjectRoutingMenuComponent {
     () => this.accountsSignal().length <= 1 && this.addable().length === 0,
   );
 
+  /** A profile with no verified sign-in on this device cannot run a session. */
+  isSignedIn(account: CopilotAccountView): boolean {
+    return account.binding?.state === 'authenticated';
+  }
+
   readonly activeProfileId = computed(() => {
     const outcome = this.outcomeSignal();
     return outcome?.ok ? outcome.route.profileId : null;
@@ -285,15 +293,41 @@ export class CopilotProjectRoutingMenuComponent {
     this.busySignal.set(true);
     this.errorSignal.set(null);
     try {
+      // Clicking the account this project ALREADY uses is a no-op, not an
+      // error. It used to fall through to createRule and come back with
+      // "that routing rule already exists for this account".
+      if (this.activeProfileId() === account.id) {
+        return;
+      }
+      // Each profile has its own isolated COPILOT_HOME, so a newly added
+      // account has no credentials until it signs in. Mapping to it first would
+      // just park the project on an account that cannot run — so open sign-in
+      // here rather than sending the user to Settings to find it.
+      if (!this.isSignedIn(account)) {
+        const response = await this.ipc.signIn(account.id, account.host);
+        if (!response.success) {
+          this.errorSignal.set(response.error?.message ?? 'Could not start sign-in.');
+          return;
+        }
+        this.errorSignal.set(
+          `Finish signing in as ${account.label} in the terminal that just opened, then pick it again.`,
+        );
+        return;
+      }
       const remotes = await this.ipc.suggestRules(path);
       // Prefer an OWNER rule: mapping one repo of an employer's org almost
       // always means "and the rest of them too", and a per-repo rule would
       // leave the siblings silently on the personal account.
       const remote = remotes[0];
+      // `replaceExisting`: picking an account for a project IS a swap. Without
+      // it, switching a project between accounts failed with "already routed to
+      // a different Copilot account. Remove the existing rule first." — leaving
+      // no way to change your mind from this menu.
       const response = remote
         ? await this.ipc.createRule({
             profileId: account.id,
             matcher: { type: 'owner', host: remote.host, owner: remote.owner },
+            replaceExisting: true,
           })
         : await this.ipc.createRule({
             profileId: account.id,
@@ -301,7 +335,38 @@ export class CopilotProjectRoutingMenuComponent {
             // failure here blocks rather than falling back to the default.
             matcher: { type: 'path-prefix', canonicalPath: path },
             isProtected: true,
+            replaceExisting: true,
           });
+      if (!response.success && /protected/i.test(response.error?.message ?? '')) {
+        // A protected rule exists to stop work inside an employer's scope
+        // silently falling to another seat, so moving it is a decision, not a
+        // click. Ask once, then honour the answer.
+        const confirmed = globalThis.confirm(
+          `${account.label} — this project is protected for another Copilot account. Move it anyway?`,
+        );
+        if (!confirmed) return;
+        const retry = remote
+          ? await this.ipc.createRule({
+              profileId: account.id,
+              matcher: { type: 'owner', host: remote.host, owner: remote.owner },
+              replaceExisting: true,
+              confirmProtectedOverride: true,
+            })
+          : await this.ipc.createRule({
+              profileId: account.id,
+              matcher: { type: 'path-prefix', canonicalPath: path },
+              isProtected: true,
+              replaceExisting: true,
+              confirmProtectedOverride: true,
+            });
+        if (!retry.success) {
+          this.errorSignal.set(retry.error?.message ?? 'That mapping could not be saved.');
+          return;
+        }
+        this.loadedFor = null;
+        await this.load();
+        return;
+      }
       if (!response.success) {
         this.errorSignal.set(response.error?.message ?? 'That mapping could not be saved.');
         return;
@@ -334,6 +399,10 @@ export class CopilotProjectRoutingMenuComponent {
     try {
       const created = await this.ipc.create({
         label: candidate.login,
+        // Record the identity we are adding. Without it the profile has no
+        // `expectedLogin`, so discovery keeps offering the same account as a
+        // fresh suggestion forever — the duplicate entry in the menu.
+        expectedLogin: candidate.login,
         // Anything added at this point is a second account, so it starts
         // matched-only: it serves this project and whatever else you map, and
         // can never pick up unrelated work.
@@ -349,8 +418,22 @@ export class CopilotProjectRoutingMenuComponent {
         this.errorSignal.set('That account was added but could not be mapped. Use Settings.');
         return;
       }
+      // Save the mapping FIRST, then prompt for sign-in. Going through
+      // `mapTo` would divert to sign-in before the rule existed, so finishing
+      // the login would leave the project still unmapped — the user would have
+      // to come back and pick the account a second time.
       this.loadedFor = null;
-      await this.mapTo({ id: profileId } as CopilotAccountView, event);
+      await this.mapTo(
+        { id: profileId, label: candidate.login, host: candidate.host,
+          binding: { nodeId: 'local', state: 'authenticated', checkedAt: 0 } } as CopilotAccountView,
+        event,
+      );
+      const signIn = await this.ipc.signIn(profileId, candidate.host);
+      this.errorSignal.set(
+        signIn.success
+          ? `Mapped. Finish signing in as ${candidate.login} in the terminal that just opened.`
+          : signIn.error?.message ?? 'Mapped, but sign-in could not be started.',
+      );
     } catch (error) {
       this.errorSignal.set(error instanceof Error ? error.message : String(error));
     } finally {

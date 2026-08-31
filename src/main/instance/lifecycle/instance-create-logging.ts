@@ -60,11 +60,16 @@ function summarizeInitialOutputBuffer(
 }
 
 export function summarizeCreateInstanceConfig(config: InstanceCreateConfig): Record<string, unknown> {
+  const isCrashRecovery = config.metadata?.['reason'] === 'crash-recovery';
   return {
     displayName: config.displayName,
     parentId: config.parentId,
-    historyThreadId: config.historyThreadId,
-    sessionId: config.sessionId,
+    historyThreadId: isCrashRecovery && config.historyThreadId
+      ? '[recovery history identity omitted]'
+      : config.historyThreadId,
+    sessionId: isCrashRecovery && config.sessionId
+      ? '[recovery session omitted]'
+      : config.sessionId,
     resume: config.resume ?? false,
     workingDirectory: config.workingDirectory,
     initialPromptLength: config.initialPrompt?.length ?? 0,

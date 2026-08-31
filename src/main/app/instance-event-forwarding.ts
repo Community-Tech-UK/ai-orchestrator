@@ -15,6 +15,11 @@ import {
   getSessionContinuityManager,
 } from '../session/session-continuity';
 import {
+  outputMessageToContinuityEntry,
+  providerRuntimeEnvelopeToContinuityEntry,
+} from '../session/continuity-message-projection';
+import type { ConversationEntry } from '../session/session-continuity.types';
+import {
   getAppStore,
   setGlobalState,
 } from '../state';
@@ -48,7 +53,13 @@ function isProviderThreadCompactionMessage(message: OutputMessage): boolean {
 
 type ContinuityTask =
   | { kind: 'state'; instanceId: string; update: Record<string, unknown> }
-  | { kind: 'entry'; instanceId: string; entry: { id: string; role: 'user' | 'assistant' | 'system' | 'tool'; content: string; timestamp: number } };
+  | { kind: 'entry'; instanceId: string; entry: ConversationEntry }
+  | {
+      kind: 'patch';
+      instanceId: string;
+      entryId: string;
+      patch: Partial<Omit<ConversationEntry, 'id'>>;
+    };
 
 const ACTIVE_STATUSES = new Set(['running', 'busy', 'waiting', 'waiting_for_input']);
 
@@ -60,6 +71,8 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
 
   // Track previous statuses so we can detect active → idle transitions.
   const previousStatus = new Map<string, string>();
+  const lastTokenOwnerEntryId = new Map<string, string>();
+  const toolNamesByCallIdByInstance = new Map<string, Map<string, string>>();
 
   // Continuity updates run off the hot event path. State updates coalesce per
   // instance (bounded queue, drop when full); entry ordering is preserved.
@@ -74,8 +87,10 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
         // correctly and errors surface instead of being silently dropped.
         if (task.kind === 'state') {
           await continuity.updateState(task.instanceId, task.update as Parameters<typeof continuity.updateState>[1]);
-        } else {
+        } else if (task.kind === 'entry') {
           await continuity.addConversationEntry(task.instanceId, task.entry);
+        } else {
+          await continuity.patchConversationEntry(task.instanceId, task.entryId, task.patch);
         }
       } catch (err) {
         logger.warn('Continuity queue task failed', {
@@ -100,13 +115,20 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
       displayName: instance.displayName,
       status: instance.status,
     });
-    try {
-      getSessionContinuityManager().startTracking(instance);
-    } catch (error) {
-      logger.warn('Failed to start session tracking', {
-        instanceId: instance.id,
-        error: error instanceof Error ? error.message : String(error),
-      });
+    if (instance.metadata?.reason !== 'crash-recovery') {
+      try {
+        void getSessionContinuityManager().startTracking(instance).catch((error) => {
+          logger.warn('Failed to start session tracking', {
+            instanceId: instance.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      } catch (error) {
+        logger.warn('Failed to start session tracking', {
+          instanceId: instance.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
   });
 
@@ -117,6 +139,8 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
     getLoadBalancer().removeMetrics(instanceId as string);
     getWorkflowManager().cleanupInstance(instanceId as string);
     previousStatus.delete(instanceId as string);
+    lastTokenOwnerEntryId.delete(instanceId as string);
+    toolNamesByCallIdByInstance.delete(instanceId as string);
     observer.publishInstanceState({
       type: 'removed',
       instanceId,
@@ -217,6 +241,67 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
     // Renderer IPC — the only synchronous operation in this hot path.
     windowManager.sendToRenderer(IPC_CHANNELS.PROVIDER_RUNTIME_EVENT, enrichedEnvelope);
 
+    if (instance) {
+      const stateUpdate: Record<string, unknown> = {
+        sessionId: instance.sessionId,
+        historyThreadId: instance.historyThreadId,
+        provider: instance.provider,
+        displayName: instance.displayName,
+        workingDirectory: instance.workingDirectory,
+      };
+      if (instance.currentModel) stateUpdate['modelId'] = instance.currentModel;
+      continuityQueue.enqueue({
+        kind: 'state', instanceId: envelope.instanceId, update: stateUpdate,
+      });
+    }
+
+    let toolNamesByCallId = toolNamesByCallIdByInstance.get(envelope.instanceId);
+    if (!toolNamesByCallId) {
+      toolNamesByCallId = new Map<string, string>();
+      toolNamesByCallIdByInstance.set(envelope.instanceId, toolNamesByCallId);
+    }
+    const continuityEntry = message
+      ? outputMessageToContinuityEntry(message, toolNamesByCallId)
+      : providerRuntimeEnvelopeToContinuityEntry(enrichedEnvelope, toolNamesByCallId);
+    if (continuityEntry && (
+      continuityEntry.role === 'user'
+      || continuityEntry.role === 'assistant'
+      || continuityEntry.role === 'system'
+      || continuityEntry.role === 'tool'
+    )) {
+      continuityQueue.enqueue({
+        kind: 'entry', instanceId: envelope.instanceId, entry: continuityEntry,
+      });
+      if (continuityEntry.role === 'assistant') {
+        lastTokenOwnerEntryId.set(envelope.instanceId, continuityEntry.id);
+      }
+    }
+
+    if (enrichedEnvelope.event.kind === 'complete') {
+      const event = enrichedEnvelope.event;
+      const entryId = lastTokenOwnerEntryId.get(envelope.instanceId);
+      lastTokenOwnerEntryId.delete(envelope.instanceId);
+      if (entryId) {
+        const tokenUsage = {
+          ...(event.inputTokens === undefined ? {} : { input: event.inputTokens }),
+          ...(event.outputTokens === undefined ? {} : { output: event.outputTokens }),
+          ...(event.cacheReadTokens === undefined ? {} : { cacheRead: event.cacheReadTokens }),
+          ...(event.cacheWriteTokens === undefined ? {} : { cacheWrite: event.cacheWriteTokens }),
+          ...(event.reasoningTokens === undefined ? {} : { reasoning: event.reasoningTokens }),
+          ...(event.tokensUsed === undefined ? {} : { total: event.tokensUsed }),
+        };
+        continuityQueue.enqueue({
+          kind: 'patch',
+          instanceId: envelope.instanceId,
+          entryId,
+          patch: {
+            ...(event.tokensUsed === undefined ? {} : { tokens: event.tokensUsed }),
+            ...(Object.keys(tokenUsage).length === 0 ? {} : { tokenUsage }),
+          },
+        });
+      }
+    }
+
     if (!message) return;
 
     // Auto-revert: when the provider reports fast mode is unavailable (no paid
@@ -236,36 +321,6 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
 
     observer.publishInstanceOutput(enrichedEnvelope.instanceId, message);
 
-    // Session continuity runs off-path through a bounded queue.
-    if (instance) {
-      const stateUpdate: Record<string, unknown> = {
-        sessionId: instance.sessionId,
-        historyThreadId: instance.historyThreadId,
-        provider: instance.provider,
-        displayName: instance.displayName,
-        workingDirectory: instance.workingDirectory,
-      };
-      if (instance.currentModel) stateUpdate['modelId'] = instance.currentModel;
-      continuityQueue.enqueue({ kind: 'state', instanceId: envelope.instanceId, update: stateUpdate });
-    }
-
-    if (
-      message.type === 'user' ||
-      message.type === 'assistant' ||
-      message.type === 'tool_use' ||
-      message.type === 'tool_result'
-    ) {
-      continuityQueue.enqueue({
-        kind: 'entry',
-        instanceId: envelope.instanceId,
-        entry: {
-          id: message.id || `msg-${Date.now()}`,
-          role: (message.type === 'user' ? 'user' : message.type === 'assistant' ? 'assistant' : 'tool') as 'user' | 'assistant' | 'tool',
-          content: message.content || '',
-          timestamp: message.timestamp || Date.now(),
-        },
-      });
-    }
   });
 
   instanceManager.on('instance:batch-update', (updates) => {

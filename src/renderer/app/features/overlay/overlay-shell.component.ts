@@ -64,11 +64,13 @@ import type { KeybindingContext } from '../../../../shared/types/keybinding.type
                   @for (item of group.items; track item.id) {
                     <div
                       class="overlay-row"
-                      role="button"
-                      tabindex="0"
+                      [attr.role]="rowRole(item)"
+                      [attr.tabindex]="rowTabIndex(item)"
+                      [attr.aria-label]="rowAriaLabel(item)"
                       [attr.aria-disabled]="item.disabled ? 'true' : null"
                       [class.selected]="isSelected(item)"
                       [class.disabled-row]="item.disabled"
+                      [class.manual-row]="!isRowActivating(item)"
                       [title]="item.disabledReason || item.description || item.label"
                       (click)="select(item)"
                       (keydown.enter)="select(item)"
@@ -207,6 +209,14 @@ import type { KeybindingContext } from '../../../../shared/types/keybinding.type
 
     .overlay-row.disabled-row {
       opacity: 0.52;
+      cursor: not-allowed;
+    }
+
+    .overlay-row.manual-row {
+      cursor: default;
+    }
+
+    .overlay-row.manual-row.disabled-row {
       cursor: not-allowed;
     }
 
@@ -403,12 +413,28 @@ export class OverlayShellComponent implements AfterViewInit, OnDestroy {
   }
 
   select(item: OverlayItem | null): void {
-    if (!item || item.disabled) return;
+    if (!item || item.disabled || !this.isRowActivating(item)) return;
     this.selected.emit(item);
   }
 
   isSelected(item: OverlayItem): boolean {
     return this.selectedItem()?.id === item.id;
+  }
+
+  protected isRowActivating(item: OverlayItem): boolean {
+    return item.activationMode !== 'manual';
+  }
+
+  protected rowRole(item: OverlayItem): 'button' | 'group' {
+    return this.isRowActivating(item) ? 'button' : 'group';
+  }
+
+  protected rowTabIndex(item: OverlayItem): '0' | null {
+    return this.isRowActivating(item) ? '0' : null;
+  }
+
+  protected rowAriaLabel(item: OverlayItem): string | null {
+    return this.isRowActivating(item) ? null : item.label;
   }
 
   private move(delta: 1 | -1): void {

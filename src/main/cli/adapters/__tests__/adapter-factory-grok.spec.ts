@@ -14,6 +14,9 @@ describe('adapter factory — grok', () => {
     const adapter = createCliAdapter('grok', { workingDirectory: '/tmp' });
     expect(adapter.constructor.name).toBe('AcpCliAdapter');
     expect(adapter.getName()).toBe('grok-acp');
+    expect((adapter as unknown as {
+      acpConfig: { authMethodId?: string };
+    }).acpConfig.authMethodId).toBeUndefined();
   });
 
   it('passes resume session options through to the ACP adapter', () => {

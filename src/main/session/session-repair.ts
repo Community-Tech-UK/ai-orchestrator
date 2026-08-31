@@ -10,6 +10,18 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getLogger } from '../logging/logger';
 import type { ConversationEntry } from './session-continuity';
+import type { SessionSnapshot, SessionState } from './session-continuity.types';
+import type { ContinuityRecoveryMetadata } from './session-recovery-candidate-service';
+import { readContinuityPayloadHandleReadOnly } from './continuity-recovery-metadata';
+import { cleanupOrphanedTmpFiles, type TmpCleanupResult } from './orphaned-tmp-cleanup';
+
+export { cleanupOrphanedTmpFiles };
+export type {
+  TmpCleanupFileOperations,
+  TmpCleanupResult,
+  TmpPromotionValidation,
+  TmpPromotionValidator,
+} from './orphaned-tmp-cleanup';
 
 const logger = getLogger('SessionRepair');
 
@@ -25,10 +37,17 @@ export interface TranscriptRepairResult {
   repairs: string[];
 }
 
-export interface TmpCleanupResult {
-  recovered: string[];
-  deleted: string[];
-  failed: string[];
+export interface ContinuityTmpCleanupResult {
+  states: TmpCleanupResult;
+  snapshots: TmpCleanupResult;
+  recoveryMetadata: TmpCleanupResult;
+}
+
+export interface ContinuityTmpCleanupOptions {
+  stateDir: string;
+  snapshotDir: string;
+  recoveryMetadataDir: string;
+  readPayload?: (handle: fs.promises.FileHandle) => Promise<unknown>;
 }
 
 export function validateTranscript(
@@ -341,57 +360,132 @@ export function repairFile(filePath: string, quarantineDir: string): RepairResul
     : { status: 'ok', repairs };
 }
 
-// ---------------------------------------------------------------------------
-// Layer 3: Orphaned tmp file cleanup
-// ---------------------------------------------------------------------------
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
 
-/**
- * Scan a directory for `*.json.tmp` files and resolve each one:
- * - If the corresponding `.json` exists → delete the `.tmp` (stale write artifact).
- * - If the corresponding `.json` is missing → promote `.tmp` to `.json` (crash recovery).
- */
-export async function cleanupOrphanedTmpFiles(dir: string): Promise<TmpCleanupResult> {
-  const result: TmpCleanupResult = { recovered: [], deleted: [], failed: [] };
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
 
-  let entries: string[];
-  try {
-    entries = await fs.promises.readdir(dir);
-  } catch (err) {
-    logger.error('Cannot read directory for tmp cleanup', err as Error, { dir });
-    return result;
+function isCompleteConversationEntry(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  return typeof value['id'] === 'string'
+    && ['user', 'assistant', 'system', 'tool'].includes(String(value['role']))
+    && typeof value['content'] === 'string'
+    && isFiniteNumber(value['timestamp']);
+}
+
+function isCompleteSessionState(value: unknown, expectedInstanceId: string): value is SessionState {
+  if (!isRecord(value) || value['instanceId'] !== expectedInstanceId) return false;
+  const contextUsage = value['contextUsage'];
+  return typeof value['displayName'] === 'string'
+    && typeof value['agentId'] === 'string'
+    && typeof value['modelId'] === 'string'
+    && typeof value['workingDirectory'] === 'string'
+    && Array.isArray(value['conversationHistory'])
+    && value['conversationHistory'].every(isCompleteConversationEntry)
+    && isRecord(contextUsage)
+    && isFiniteNumber(contextUsage['used'])
+    && isFiniteNumber(contextUsage['total'])
+    && Array.isArray(value['pendingTasks'])
+    && isRecord(value['environmentVariables'])
+    && Array.isArray(value['activeFiles'])
+    && Array.isArray(value['skillsLoaded'])
+    && Array.isArray(value['hooksActive']);
+}
+
+function isCompleteSessionSnapshot(value: unknown, expectedSnapshotId: string): value is SessionSnapshot {
+  if (!isRecord(value) || value['id'] !== expectedSnapshotId || !isFiniteNumber(value['timestamp'])) {
+    return false;
   }
+  const state = value['state'];
+  const instanceId = typeof value['instanceId'] === 'string'
+    ? value['instanceId']
+    : isRecord(state) && typeof state['instanceId'] === 'string' ? state['instanceId'] : null;
+  const metadata = value['metadata'];
+  return instanceId !== null
+    && isCompleteSessionState(state, instanceId)
+    && isRecord(metadata)
+    && isFiniteNumber(metadata['messageCount'])
+    && isFiniteNumber(metadata['tokensUsed'])
+    && isFiniteNumber(metadata['duration'])
+    && ['auto', 'manual', 'checkpoint'].includes(String(metadata['trigger']));
+}
 
-  const tmpFiles = entries.filter((f) => f.endsWith('.json.tmp'));
+function isCurrentRecoveryMetadata(
+  value: unknown,
+  expectedInstanceId: string,
+  stateStat: fs.Stats,
+): value is ContinuityRecoveryMetadata {
+  if (!isRecord(value) || value['sourceInstanceId'] !== expectedInstanceId) return false;
+  const generation = value['stateFileGeneration'];
+  return typeof value['recoveryKey'] === 'string'
+    && typeof value['provider'] === 'string'
+    && isFiniteNumber(value['lastActivityAt'])
+    && isFiniteNumber(value['modifiedAt'])
+    && isFiniteNumber(value['messageCount'])
+    && typeof value['hasUserPrompt'] === 'boolean'
+    && typeof value['hasAssistantOutput'] === 'boolean'
+    && typeof value['nativeResumeAvailable'] === 'boolean'
+    && isRecord(generation)
+    && generation['size'] === stateStat.size
+    && generation['mtimeMs'] === stateStat.mtimeMs
+    && generation['ctimeMs'] === stateStat.ctimeMs
+    && generation['ino'] === stateStat.ino;
+}
 
-  for (const tmpFile of tmpFiles) {
-    const tmpPath = path.join(dir, tmpFile);
-    const jsonFile = tmpFile.slice(0, -4); // strip '.tmp'
-    const jsonPath = path.join(dir, jsonFile);
+function isSameStateGeneration(left: fs.Stats, right: fs.Stats): boolean {
+  return left.size === right.size
+    && left.mtimeMs === right.mtimeMs
+    && left.ctimeMs === right.ctimeMs
+    && left.ino === right.ino;
+}
 
-    const jsonExists = entries.includes(jsonFile);
+function fileId(finalPath: string): string {
+  return path.basename(finalPath, '.json');
+}
 
-    if (jsonExists) {
-      // Committed write succeeded — the .tmp is stale, delete it.
-      try {
-        await fs.promises.unlink(tmpPath);
-        result.deleted.push(tmpPath);
-        logger.info('Deleted stale tmp file', { tmpPath });
-      } catch (err) {
-        logger.error('Failed to delete tmp file', err as Error, { tmpPath });
-        result.failed.push(tmpPath);
-      }
-    } else {
-      // Crash during atomic rename — promote tmp to json.
-      try {
-        await fs.promises.rename(tmpPath, jsonPath);
-        result.recovered.push(jsonPath);
-        logger.info('Recovered orphaned tmp file', { tmpPath, jsonPath });
-      } catch (err) {
-        logger.error('Failed to recover tmp file', err as Error, { tmpPath });
-        result.failed.push(tmpPath);
-      }
-    }
-  }
-
-  return result;
+export async function cleanupContinuityOrphanedTmpFiles(
+  options: ContinuityTmpCleanupOptions,
+): Promise<ContinuityTmpCleanupResult> {
+  const readPayload = options.readPayload ?? readContinuityPayloadHandleReadOnly;
+  const [states, snapshots] = await Promise.all([
+    cleanupOrphanedTmpFiles(options.stateDir, async (_claimedPath, finalPath, handle) =>
+      isCompleteSessionState(
+        await readPayload(handle),
+        fileId(finalPath),
+      )),
+    cleanupOrphanedTmpFiles(options.snapshotDir, async (_claimedPath, finalPath, handle) =>
+      isCompleteSessionSnapshot(
+        await readPayload(handle),
+        fileId(finalPath),
+      )),
+  ]);
+  const recoveryMetadata = await cleanupOrphanedTmpFiles(
+    options.recoveryMetadataDir,
+    async (_claimedPath, finalPath, handle) => {
+      const instanceId = fileId(finalPath);
+      const statePath = path.join(options.stateDir, `${instanceId}.json`);
+      const beforeRead = await fs.promises.stat(statePath)
+        .catch(() => null);
+      if (!beforeRead) return false;
+      const metadata = await readPayload(handle);
+      const afterRead = await fs.promises.stat(statePath).catch(() => null);
+      if (!afterRead
+        || !isSameStateGeneration(beforeRead, afterRead)
+        || !isCurrentRecoveryMetadata(metadata, instanceId, afterRead)) return false;
+      return {
+        valid: true,
+        canPromote: (): boolean => {
+          try {
+            return isSameStateGeneration(afterRead, fs.statSync(statePath));
+          } catch {
+            return false;
+          }
+        },
+      };
+    },
+  );
+  return { states, snapshots, recoveryMetadata };
 }

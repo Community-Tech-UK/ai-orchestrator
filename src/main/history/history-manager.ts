@@ -5,8 +5,8 @@
  * Uses a JSON index file and gzipped JSON for conversation data.
  *
  * KEY DESIGN DECISIONS:
- * - archiveInstance() uses a Set-based lock to prevent concurrent archives of the same instance.
- *   This is critical because the adapter exit handler and terminateInstance() can race.
+ * - archiveInstance() serializes by stable logical identity so concurrent runtime generations
+ *   cannot overwrite a richer archive for the same history thread.
  * - saveIndex() uses a proper serializing queue (not just a single-promise mutex)
  *   to handle 3+ concurrent callers safely.
  * - On startup, orphaned .gz files (saved but not indexed) are recovered into the index.
@@ -19,15 +19,9 @@ import * as zlib from 'zlib';
 import { promisify } from 'util';
 import { getLogger } from '../logging/logger';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
-import {
-  inferConversationHistoryProvider,
-  type ConversationHistoryEntry,
-  type ConversationData,
-  type HistoryIndex,
-  type HistoryLoadOptions,
-  type ConversationEndStatus,
-  type HistorySearchSource,
-} from '../../shared/types/history.types';
+import { inferConversationHistoryProvider, type ConversationHistoryEntry, type ConversationData,
+  type HistoryIndex, type HistoryLoadOptions, type ConversationEndStatus,
+  type HistorySearchSource } from '../../shared/types/history.types';
 import { getTranscriptSnippetService } from './transcript-snippet-service';
 import {
   findClaudeJsonlFiles,
@@ -41,6 +35,12 @@ import { projectMemoryKeysEqual } from '../memory/project-memory-key';
 import { getOutputStorageManager } from '../memory/output-storage';
 import { retainedPromptsMissingFrom } from '../instance/prompt-retention';
 import { isSessionNotFoundText } from '../cli/adapters/resume-error-classifier';
+import { getSessionRecoveryCandidateServiceIfInitialized, type RecoveryHistoryIdentity } from '../session/session-recovery-candidate-service';
+import { resolveHistoryRecoveryCoverage } from './history-recovery-coverage';
+import { createArchiveInstanceSummary, getArchiveHistoryIdentity,
+  redactArchiveIdentifier, shouldArchiveInstance, type ArchiveHistoryCoverage } from './should-archive-instance';
+import { getArchiveSerializationKey, KeyedSerialTaskQueue } from './history-archive-serialization';
+import { isSameHistoryEntryForIdentityBackfill } from './history-identity-backfill';
 
 const gzip = promisify(zlib.gzip);
 const gunzip = promisify(zlib.gunzip);
@@ -83,8 +83,7 @@ export class HistoryManager {
   // Serializing queue for index saves — properly handles 3+ concurrent callers
   private saveQueue: Promise<void> = Promise.resolve();
 
-  // Lock to prevent concurrent archiveInstance() calls for the same instance
-  private archivingInstances = new Set<string>();
+  private archiveQueue = new KeyedSerialTaskQueue();
 
   // Entries currently having an AI title generated, to dedupe concurrent backfills
   private aiTitleInFlight = new Set<string>();
@@ -116,68 +115,43 @@ export class HistoryManager {
   /**
    * Archive an instance to history when it terminates.
    *
-   * Uses an instance-level lock to prevent the race condition where
-   * both the exit handler and terminateInstance() call this concurrently.
+   * Serializes by logical thread so coverage is re-evaluated after any archive
+   * from a sibling runtime generation has committed.
    */
   async archiveInstance(instance: Instance, status: ConversationEndStatus = 'completed'): Promise<void> {
-    // Don't archive if no messages
-    if (!instance.outputBuffer || instance.outputBuffer.length === 0) {
-      logger.info('Skipping archive - no messages', { instanceId: instance.id });
-      return;
-    }
+    return this.archiveQueue.run(getArchiveSerializationKey(instance), async () => {
+      // Re-check only after acquiring the logical-thread turn: a concurrent
+      // generation may have committed while this call was queued.
+      const alreadyArchived = this.index.entries.some(e => e.originalInstanceId === instance.id);
+      if (alreadyArchived) {
+        logger.info('Skipping archive - already archived', {
+          instanceId: redactArchiveIdentifier(instance.id),
+        });
+        return;
+      }
 
-    // Instance-level lock: prevent concurrent archive calls for the same instance
-    if (this.archivingInstances.has(instance.id)) {
-      logger.info('Skipping archive - already in progress', { instanceId: instance.id });
-      return;
-    }
-
-    // Prevent duplicate archives of the same instance (check persisted index)
-    const alreadyArchived = this.index.entries.some(e => e.originalInstanceId === instance.id);
-    if (alreadyArchived) {
-      logger.info('Skipping archive - already archived', { instanceId: instance.id });
-      return;
-    }
-
-    // Acquire lock
-    this.archivingInstances.add(instance.id);
-
-    try {
       const messages = await this.getCompleteArchiveMessages(instance);
       const threadKey = this.getInstanceThreadKey(instance);
       const previousEntries = this.index.entries.filter(
         (existingEntry) => this.getEntryThreadKey(existingEntry) === threadKey
       );
 
-      // A superseded source must never overwrite the history entry its fork owns.
-      //
-      // Edit-and-resend forks inherit the source's historyThreadId, and the fork
-      // archives the full conversation. The dedup design (see instance-persistence
-      // .createFork) assumes the fork archives LAST and replaces the source's
-      // pre-fork stub. But a superseded source can be torn down *after* the fork —
-      // e.g. when it's stuck in a recovery-respawn loop — and then archive over the
-      // fork's complete transcript with its short stub, destroying the real thread.
-      // Guard against this regardless of archive ordering: if this instance was
-      // superseded and the thread is already represented by an entry from a
-      // different (fork) instance, the source is no longer authoritative — skip it.
-      const isSuperseded =
-        instance.status === 'superseded' || Boolean(instance.supersededBy);
-      if (isSuperseded) {
-        const forkOwnedEntry = previousEntries.find(
-          (existingEntry) => existingEntry.originalInstanceId !== instance.id
-        );
-        if (forkOwnedEntry) {
-          logger.info('Skipping archive - superseded source would clobber fork-owned thread entry', {
-            instanceId: instance.id,
-            status: instance.status,
-            supersededBy: instance.supersededBy,
-            threadKey,
-            forkOwnedEntryId: forkOwnedEntry.id,
-            forkMessageCount: forkOwnedEntry.messageCount,
-            incomingMessageCount: messages.length,
-          });
-          return;
-        }
+      const summary = createArchiveInstanceSummary({ ...instance, outputBuffer: messages });
+      const identity = getArchiveHistoryIdentity(summary);
+      let coverage: ArchiveHistoryCoverage | undefined;
+      if (identity) {
+        const covered = (await resolveHistoryRecoveryCoverage(
+          previousEntries,
+          [identity],
+          (entryId) => this.loadPersistedConversationForCoverage(entryId)
+        )).get(identity.recoveryKey);
+        coverage = covered;
+      }
+
+      const decision = shouldArchiveInstance(summary, coverage);
+      if (!decision.shouldArchive) {
+        logger.info('Skipping archive - already covered by history', decision.logData);
+        return;
       }
 
       const entryId = previousEntries[0]?.id ?? crypto.randomUUID();
@@ -338,10 +312,8 @@ export class HistoryManager {
         messageCount: entry.messageCount,
         replacedEntries: previousEntries.length,
       });
-    } finally {
-      // Release lock
-      this.archivingInstances.delete(instance.id);
-    }
+      getSessionRecoveryCandidateServiceIfInitialized()?.invalidate();
+    });
   }
 
   /**
@@ -368,10 +340,35 @@ export class HistoryManager {
     return this.filterEntries(options).length;
   }
 
+  async getRecoveryCoverage(identities: readonly RecoveryHistoryIdentity[]) {
+    await this.startupTasks; return resolveHistoryRecoveryCoverage(this.index.entries, identities, (entryId) => this.loadPersistedConversationForCoverage(entryId));
+  }
   /**
    * Load full conversation data for an entry
    */
   async loadConversation(entryId: string): Promise<ConversationData | null> {
+    const conversation = await this.loadPersistedConversationForCoverage(entryId);
+    if (!conversation) return null;
+
+    const indexedEntry = this.index.entries.find((entry) => entry.id === entryId);
+    const canonicalId = indexedEntry?.historyThreadId?.trim();
+    if (
+      canonicalId
+      && indexedEntry
+      && isSameHistoryEntryForIdentityBackfill(indexedEntry, conversation.entry)
+      && this.requiresHistoryThreadIdBackfill(conversation.entry)
+      && conversation.entry.historyThreadId?.trim() !== canonicalId
+    ) {
+      conversation.entry.historyThreadId = canonicalId;
+      await this.saveConversation(entryId, conversation);
+    }
+    return conversation;
+  }
+
+  /** Read unmodified persisted data for coverage evidence. */
+  private async loadPersistedConversationForCoverage(
+    entryId: string,
+  ): Promise<ConversationData | null> {
     const conversationPath = this.getConversationPath(entryId);
 
     if (!fs.existsSync(conversationPath)) {
@@ -382,14 +379,7 @@ export class HistoryManager {
     try {
       const compressed = await fs.promises.readFile(conversationPath);
       const data = await gunzip(compressed);
-      const conversation = JSON.parse(data.toString()) as ConversationData;
-      const canonicalId = this.index.entries
-        .find((entry) => entry.id === entryId)?.historyThreadId?.trim();
-      if (canonicalId && conversation.entry.historyThreadId?.trim() !== canonicalId) {
-        conversation.entry.historyThreadId = canonicalId;
-        await this.saveConversation(entryId, conversation);
-      }
-      return conversation;
+      return JSON.parse(data.toString()) as ConversationData;
     } catch (error) {
       logger.error('Failed to load conversation', error instanceof Error ? error : undefined, { entryId });
       return null;
@@ -491,6 +481,7 @@ export class HistoryManager {
     await this.saveIndex();
 
     logger.info('Archived history entry', { entryId });
+    getSessionRecoveryCandidateServiceIfInitialized()?.invalidate();
     return true;
   }
 
@@ -1524,7 +1515,11 @@ export class HistoryManager {
       try {
         const compressed = await fs.promises.readFile(conversationPath);
         const data = JSON.parse((await gunzip(compressed)).toString()) as ConversationData;
-        if (data.entry.historyThreadId?.trim() !== entry.historyThreadId) {
+        if (
+          isSameHistoryEntryForIdentityBackfill(entry, data.entry)
+          && this.requiresHistoryThreadIdBackfill(data.entry)
+          && data.entry.historyThreadId?.trim() !== entry.historyThreadId
+        ) {
           data.entry.historyThreadId = entry.historyThreadId;
           await this.saveConversation(entry.id, data);
         }

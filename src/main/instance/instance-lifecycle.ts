@@ -58,6 +58,13 @@ import { getDeferDecisionStore } from '../cli/hooks/defer-decision-store';
 import { InstanceSpawner } from './lifecycle/instance-spawner';
 import { restoreContextUsage } from './lifecycle/context-usage-restore';
 import { createSpawnTransaction, type SpawnTransaction } from './lifecycle/spawn-transaction';
+import { createInstanceSpawnTransaction } from './lifecycle/recovery-spawn-transaction';
+import {
+  createUnpublishedInstanceCreation,
+  type InternalInstanceCreation,
+  type UnpublishedInstanceCreation,
+} from './lifecycle/unpublished-instance-creation';
+import { emitInstanceLifecycleCreatedObservers, getLifecycleEventInstanceId } from './lifecycle/safe-event-observers';
 import {
   deliverInitialPromptAfterSpawn,
   type InitialPromptRecoveryDeps,
@@ -77,10 +84,22 @@ import { ModelSelectionResolver } from './lifecycle/model-selection-resolver';
 import { InstanceSpawnPreflightChain } from './lifecycle/instance-spawn-preflight-chain';
 import { resolveFastMode } from './lifecycle/resolve-fast-mode';
 import { computeRuntimeDiff } from './lifecycle/runtime-reconciler-plan';
-import { setInstanceBrowserToolsMode } from './lifecycle/browser-tool-scoping';
-import { setInstanceComputerUseMode } from './lifecycle/computer-use-scoping';
-import { setInstanceHardened } from './lifecycle/hardened-mode-scoping';
-import { setInstanceContainedExecution } from './lifecycle/contained-execution-scoping';
+import {
+  removeInstanceBrowserToolsMode,
+  setInstanceBrowserToolsMode,
+} from './lifecycle/browser-tool-scoping';
+import {
+  removeInstanceComputerUseMode,
+  setInstanceComputerUseMode,
+} from './lifecycle/computer-use-scoping';
+import {
+  removeInstanceHardened,
+  setInstanceHardened,
+} from './lifecycle/hardened-mode-scoping';
+import {
+  removeInstanceContainedExecution,
+  setInstanceContainedExecution,
+} from './lifecycle/contained-execution-scoping';
 import { attemptInstanceFailover } from './instance-failover';
 import { classifyLoopError } from '../core/loop-error-classification';
 import { getFailoverManager } from '../providers/failover-manager';
@@ -128,11 +147,15 @@ import { getProviderRuntimeService } from '../providers/provider-runtime-service
 import { getPromptHistoryService } from '../prompt-history/prompt-history-service';
 import { summarizeCreateInstanceConfig } from './lifecycle/instance-create-logging';
 import { LifecycleMemoryPressureMonitor } from './lifecycle/memory-pressure-monitor';
-import { getOrCreateTurnSupervisor } from '../session/session-turn-supervisor';
+import {
+  deleteTurnSupervisor,
+  getOrCreateTurnSupervisor,
+} from '../session/session-turn-supervisor';
 import { applyProviderSessionDurability } from './lifecycle/provider-session-durability';
 import { getLocalModelInventoryService } from '../local-models/local-model-inventory-service';
 import { assembleInstanceSystemPrompt } from './instance-system-prompt';
 import { restoreWokenOutputBuffer } from './lifecycle/wake-buffer-restore';
+import { recoverySessionDiagnostic } from './instance-recovery-redaction';
 import type {
   LocalModelInventoryEntry,
   ModelRuntimeTarget,
@@ -152,6 +175,7 @@ function localModelInventoryEntryMatchesTarget(
 }
 
 export type { LifecycleDependencies, RestartOutcome } from './instance-lifecycle.types';
+export type { UnpublishedInstanceCreation } from './lifecycle/unpublished-instance-creation';
 
 import type { LifecycleDependencies, RestartOutcome } from './instance-lifecycle.types';
 export class InstanceLifecycleManager extends EventEmitter {
@@ -163,6 +187,18 @@ export class InstanceLifecycleManager extends EventEmitter {
   /** Queue-aware YOLO toggling (park-while-busy + auto-apply-on-idle). */
   /** Queue-aware runtime changes (park-while-busy + auto-apply-on-settle). */
   private _desiredRuntimeQueue?: DesiredRuntimeQueue;
+
+  override emit(eventName: string | symbol, ...args: unknown[]): boolean {
+    if (typeof eventName === 'string' && eventName !== 'created' && eventName !== 'removed') {
+      const instanceId = getLifecycleEventInstanceId(args[0]);
+      if (instanceId && this.deps?.isInstancePublished?.(instanceId) === false) return false;
+    }
+    return super.emit(eventName, ...args);
+  }
+
+  private emitCreatedObservers(payload: Record<string, unknown>): void {
+    emitInstanceLifecycleCreatedObservers(this, payload);
+  }
   /** LT-020: unsubscribes the adapter-loan release hook on teardown. */
   private _loanReleaseUnsubscribe?: () => void;
   /** Single owner of runtime changes (provider/model swap; more paths migrate here). */
@@ -452,8 +488,9 @@ export class InstanceLifecycleManager extends EventEmitter {
         this.deps.addToOutputBuffer(instance, message);
         this.emit('output', { instanceId: instance.id, message });
       },
-      onRecoveryLadderExhausted: (instance, error) => {
-        void this.handleRecoveryLadderExhausted(instance, error);
+      onRecoveryLadderExhausted: (instanceId, error) => {
+        const instance = this.deps.getInstance(instanceId);
+        if (instance) void this.handleRecoveryLadderExhausted(instance, error);
       },
     });
     this.memoryPressureMonitor = new LifecycleMemoryPressureMonitor({
@@ -1044,12 +1081,13 @@ export class InstanceLifecycleManager extends EventEmitter {
     // session id to prove (otherwise this probe isn't a resume at all).
     const instance = this.deps.getInstance(instanceId);
     const proofSessionId = instance?.providerSessionId ?? instance?.sessionId;
+    const isCrashRecovery = instance?.metadata?.['reason'] === 'crash-recovery';
     const surfaceProof = !!instance && !!proofSessionId;
     if (surfaceProof) {
       this.deps.queueUpdate(instanceId, instance!.status, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
         kind: 'resume-proof',
         provider: instance!.provider,
-        sessionId: proofSessionId,
+        sessionId: isCrashRecovery ? '[recovery session omitted]' : proofSessionId,
         startedAt: Date.now(),
         deadlineAt: Date.now() + timeoutMs,
       });
@@ -1072,7 +1110,9 @@ export class InstanceLifecycleManager extends EventEmitter {
         if (resumeResult.source === 'fresh-fallback') {
           logger.info('Native resume unavailable (no transcript for session under cwd); starting fresh with replay', {
             instanceId,
-            requestedSessionId: resumeResult.requestedSessionId,
+            ...(isCrashRecovery
+              ? { recoverySession: true }
+              : { requestedSessionId: resumeResult.requestedSessionId }),
           });
           return 'unrecoverable';
         }
@@ -1087,9 +1127,13 @@ export class InstanceLifecycleManager extends EventEmitter {
           logger.warn('Native resume landed on a different session id', {
             instanceId,
             source: resumeResult.source,
-            requestedSessionId: resumeResult.requestedSessionId,
-            actualSessionId: resumeResult.actualSessionId,
-            reason: resumeResult.reason,
+            ...(isCrashRecovery
+              ? { recoverySession: true }
+              : {
+                  requestedSessionId: resumeResult.requestedSessionId,
+                  actualSessionId: resumeResult.actualSessionId,
+                  reason: resumeResult.reason,
+                }),
           });
           return 'unrecoverable';
         }
@@ -1101,8 +1145,12 @@ export class InstanceLifecycleManager extends EventEmitter {
         logger.info('Native resume attempted but unconfirmed within probe window; treating as inconclusive', {
           instanceId,
           source: resumeResult.source,
-          requestedSessionId: resumeResult.requestedSessionId,
-          reason: resumeResult.reason,
+          ...(isCrashRecovery
+            ? { recoverySession: true }
+            : {
+                requestedSessionId: resumeResult.requestedSessionId,
+                reason: resumeResult.reason,
+              }),
         });
         return 'inconclusive';
       }
@@ -1217,6 +1265,26 @@ export class InstanceLifecycleManager extends EventEmitter {
    * done. `sendInput()` awaits this promise before sending any user input.
    */
   async createInstance(config: InstanceCreateConfig): Promise<Instance> {
+    return (await this.createInstanceInternal(config, false)).instance;
+  }
+
+  /** Build a private instance owned by recovery until replay setup succeeds. */
+  async createUnpublishedInstance(config: InstanceCreateConfig): Promise<UnpublishedInstanceCreation> {
+    const creation = await this.createInstanceInternal(config, true);
+    if (!creation.publish || !creation.rollback) {
+      throw new Error('Unpublished instance transaction was not created');
+    }
+    return {
+      instance: creation.instance,
+      publish: creation.publish,
+      rollback: creation.rollback,
+    };
+  }
+
+  private async createInstanceInternal(
+    config: InstanceCreateConfig,
+    deferPublication: boolean,
+  ): Promise<InternalInstanceCreation> {
     logger.info('Creating instance', summarizeCreateInstanceConfig(config));
 
     // Resolve agent profile (built-in + optional markdown-defined).
@@ -1244,7 +1312,19 @@ export class InstanceLifecycleManager extends EventEmitter {
     // adapter build reads it (same registry-lookup shape as hardened mode).
     setInstanceContainedExecution(instance.id, instance.containedExecution);
     const abortController = instance.abortController!;
-    const spawnTransaction = createSpawnTransaction(`create:${instance.id}`);
+    const isCrashRecoveryCreation = config.metadata?.['reason'] === 'crash-recovery';
+    const spawnTransaction = createInstanceSpawnTransaction(
+      `create:${instance.id}`, isCrashRecoveryCreation,
+    );
+    spawnTransaction.addRollback('instance-scopes', () => {
+      removeInstanceBrowserToolsMode(instance.id);
+      removeInstanceComputerUseMode(instance.id);
+      removeInstanceHardened(instance.id);
+      removeInstanceContainedExecution(instance.id);
+      this.activityDetectors.delete(instance.id);
+      this.lateEnricherPreambles.delete(instance.id);
+      this.deps.clearFirstMessageTracking(instance.id);
+    });
 
     // Load project permission rules early so the first prompts can be auto-decided.
     try {
@@ -1266,10 +1346,19 @@ export class InstanceLifecycleManager extends EventEmitter {
     }
 
     // Store instance so UI renders immediately
-    this.deps.setInstance(instance);
+    if (deferPublication && this.deps.setPendingInstance) {
+      this.deps.setPendingInstance(instance);
+    } else {
+      this.deps.setInstance(instance);
+    }
     spawnTransaction.addRollback('instance-state', () => {
-      this.deps.deleteInstance(instance.id);
-      this.emit('removed', instance.id);
+      (this.deps.deleteRuntimeInstance ?? this.deps.deleteInstance)(instance.id);
+      if (!deferPublication) this.emit('removed', instance.id);
+    });
+    spawnTransaction.addRollback('pending-state', () => {
+      this.deps.clearPendingState?.(instance.id);
+      this.deps.clearPendingInstanceState?.(instance.id);
+      deleteTurnSupervisor(instance.id);
     });
     spawnTransaction.addRollback('output-storage', () => this.outputStorage.deleteInstance(instance.id));
 
@@ -1311,7 +1400,9 @@ export class InstanceLifecycleManager extends EventEmitter {
       instance.parentId
     );
     spawnTransaction.addRollback('orchestration-registry', () => { this.deps.unregisterOrchestration(instance.id); });
-    this.emit('created', this.deps.serializeForIpc(instance));
+    if (!deferPublication) {
+      this.emitCreatedObservers(this.deps.serializeForIpc(instance));
+    }
 
     // Initial prompts never flow through InstanceManager.sendInput(), so kick
     // off title generation here before the background spawn/send pipeline. Fire
@@ -1380,6 +1471,7 @@ export class InstanceLifecycleManager extends EventEmitter {
     // Attach a no-op rejection handler so that if Phase 2 fails before
     // sendInput() gets a chance to await it, we don't emit an unhandled
     // rejection. The error is still observable via sendInput().
+    let backgroundSucceeded = false;
     const backgroundInit = (async () => {
       const { signal } = abortController;
       const seededInitialUserMessage = getSeededInitialUserMessage(config);
@@ -1596,6 +1688,9 @@ export class InstanceLifecycleManager extends EventEmitter {
             instance.currentModel,
           );
           this.deps.startStuckTracking?.(instance.id);
+          spawnTransaction.addRollback('stuck-tracking', () => {
+            this.deps.stopStuckTracking?.(instance.id);
+          });
           logger.info('Warm-start instance ready', { instanceId: instance.id });
 
           // Send initial prompt if provided. Post-spawn this is non-fatal: a
@@ -1688,6 +1783,9 @@ export class InstanceLifecycleManager extends EventEmitter {
               instance.currentModel,
             );
             this.deps.startStuckTracking?.(instance.id);
+            spawnTransaction.addRollback('stuck-tracking', () => {
+              this.deps.stopStuckTracking?.(instance.id);
+            });
             logger.info('CLI spawned successfully', { pid, instanceId: instance.id });
 
             // Send initial prompt if provided. Post-spawn this is non-fatal: a
@@ -1714,8 +1812,13 @@ export class InstanceLifecycleManager extends EventEmitter {
               );
             }
           } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            logger.error('Failed to spawn/initialize CLI', error instanceof Error ? error : undefined, { errorMessage });
+            const isCrashRecovery = config.metadata?.['reason'] === 'crash-recovery';
+            const errorMessage = isCrashRecovery
+              ? 'Recovery runtime startup failed'
+              : error instanceof Error ? error.message : String(error);
+            logger.error('Failed to spawn/initialize CLI',
+              !isCrashRecovery && error instanceof Error ? error : undefined,
+              { errorMessage, ...(isCrashRecovery ? { recoverySession: true } : {}) });
             throw error;
           }
         }
@@ -1736,16 +1839,24 @@ export class InstanceLifecycleManager extends EventEmitter {
           logger.info('Skipping warm-start replacement spawn', {
             provider: resolvedCliType,
             instanceId: instance.id,
-            sessionId: instance.sessionId,
+            sessionId: config.metadata?.['reason'] === 'crash-recovery'
+              ? '[recovery session omitted]'
+              : instance.sessionId,
             reason: config.resume ? 'resumed session' : 'remote instance',
           });
         }
 
-        spawnTransaction.commit();
+        backgroundSucceeded = true;
+        if (!deferPublication) spawnTransaction.commit();
       } catch (error) {
         if (!signal.aborted) {
-          await spawnTransaction.rollback(error);
-          logger.error('Instance background init failed', error instanceof Error ? error : undefined, { instanceId: instance.id });
+          await spawnTransaction.rollback(isCrashRecoveryCreation
+            ? new Error('Recovery runtime startup rollback')
+            : error);
+          const isCrashRecovery = config.metadata?.['reason'] === 'crash-recovery';
+          logger.error('Instance background init failed',
+            !isCrashRecovery && error instanceof Error ? error : undefined,
+            { instanceId: instance.id, ...(isCrashRecovery ? { recoverySession: true } : {}) });
         }
         throw error;
       } finally {
@@ -1760,7 +1871,17 @@ export class InstanceLifecycleManager extends EventEmitter {
     // readyPromise before it rejects, Node doesn't emit an unhandled rejection.
     backgroundInit.catch(() => { /* rejection handled via sendInput() status check */ });
 
-    return instance;
+    if (!deferPublication) return { instance };
+
+    return createUnpublishedInstanceCreation({
+      instance, backgroundInit, backgroundSucceeded: () => backgroundSucceeded,
+      abortController, spawnTransaction, isCrashRecovery: isCrashRecoveryCreation,
+      publishInstance: () => {
+        this.deps.publishPendingInstance?.(instance.id);
+        this.emitCreatedObservers(this.deps.serializeForIpc(instance));
+      },
+      releasePendingUpdate: () => this.deps.releasePendingUpdate?.(instance.id),
+    });
   }
 
   // ============================================
@@ -1937,7 +2058,8 @@ export class InstanceLifecycleManager extends EventEmitter {
 
     const wakePromise = (async () => {
       const { signal } = abortController;
-      const spawnTransaction = createSpawnTransaction(`wake:${instanceId}`);
+      const isCrashRecovery = instance.metadata?.['reason'] === 'crash-recovery';
+      const spawnTransaction = createInstanceSpawnTransaction(`wake:${instanceId}`, isCrashRecovery);
       try {
         if (signal.aborted) return;
 
@@ -2097,7 +2219,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           if (!resumeHealthy) {
             logger.warn('Wake resume failed, falling back to replay continuity', {
               instanceId,
-              nativeSessionId,
+              ...recoverySessionDiagnostic(instance, 'nativeSessionId', nativeSessionId),
             });
             await continuity.markNativeResumeFailed(instanceId);
             // Remove event listeners BEFORE terminating so the exit handler
@@ -2179,7 +2301,8 @@ export class InstanceLifecycleManager extends EventEmitter {
         logger.info('Instance woken successfully', { instanceId, pid });
         spawnTransaction.commit();
       } catch (error) {
-        await spawnTransaction.rollback(error);
+        const safeError = isCrashRecovery ? new Error('Recovery instance wake failed') : error;
+        await spawnTransaction.rollback(safeError);
         this.transitionState(instance, 'failed');
         // A stamped Copilot account that is gone, signed out, or signed in as
         // a different identity parks the session with an actionable reason
@@ -2188,8 +2311,10 @@ export class InstanceLifecycleManager extends EventEmitter {
         // makes the required action visible.
         this.parkOnCopilotRoutingFailure(instanceId, error);
         this.deps.queueUpdate(instanceId, 'failed', instance.contextUsage);
-        logger.error('Failed to wake instance', error instanceof Error ? error : undefined, { instanceId });
-        throw error;
+        logger.error('Failed to wake instance',
+          !isCrashRecovery && error instanceof Error ? error : undefined,
+          { instanceId, ...(isCrashRecovery ? { recoverySession: true } : {}) });
+        throw safeError;
       } finally {
         instance.readyPromise = undefined;
         instance.abortController = undefined;
@@ -2469,15 +2594,20 @@ export class InstanceLifecycleManager extends EventEmitter {
       if (!instance) {
         throw new Error(`Instance ${instanceId} not found`);
       }
+      const isCrashRecovery = instance.metadata?.['reason'] === 'crash-recovery';
 
       logger.info('[RESTART] begin', {
         instanceId,
         preUsed: instance.contextUsage?.used,
         preTotal: instance.contextUsage?.total,
         prePercentage: instance.contextUsage?.percentage,
-        providerSessionId: instance.providerSessionId,
         restartCount: instance.restartCount,
-        historyThreadId: instance.historyThreadId,
+        ...(isCrashRecovery
+          ? { recoverySession: true }
+          : {
+              providerSessionId: instance.providerSessionId,
+              historyThreadId: instance.historyThreadId,
+            }),
       });
 
       instance.restartEpoch += 1;
@@ -2493,7 +2623,9 @@ export class InstanceLifecycleManager extends EventEmitter {
         } catch (error) {
           logger.warn('Adapter terminate failed during restart, proceeding', {
             instanceId,
-            error: error instanceof Error ? error.message : String(error),
+            ...(isCrashRecovery
+              ? { recoverySession: true }
+              : { error: error instanceof Error ? error.message : String(error) }),
           });
         }
       }
@@ -2540,12 +2672,16 @@ export class InstanceLifecycleManager extends EventEmitter {
       });
 
       if (!result.success) {
+        const safeResultError = isCrashRecovery
+          ? 'Recovery replacement restart failed'
+          : result.error;
         instance.recoveryMethod = 'failed';
         this.transitionState(instance, 'error');
         logger.warn('Restart (resume context) failed; leaving instance in error state', {
           instanceId,
-          providerSessionId,
-          error: result.error,
+          ...(isCrashRecovery
+            ? { recoverySession: true }
+            : { providerSessionId, error: result.error }),
         });
         this.deps.queueUpdate(
           instanceId,
@@ -2563,8 +2699,8 @@ export class InstanceLifecycleManager extends EventEmitter {
             historyThreadId: instance.historyThreadId,
           }
         );
-        this.emitRestartFailureNotice(instance, result.error);
-        return { success: false, error: result.error };
+        this.emitRestartFailureNotice(instance, safeResultError);
+        return { success: false, error: safeResultError };
       }
 
       if (instance.status === 'initializing') {

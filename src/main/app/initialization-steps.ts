@@ -26,7 +26,7 @@ import { initializeArtifactCleanupMaintenance } from '../session/artifact-cleanu
 import { getProviderEventCaptureService } from '../conversation-ledger/provider-event-capture-service';
 import { initializeProviderEventCaptureMaintenance } from '../conversation-ledger/provider-event-capture-maintenance';
 import { registerBuiltinTerminationGates } from '../session/builtin-termination-gates';
-import { initLastStopSnapshot } from '../session/last-stop-snapshot';
+import { initializeSessionRecoveryRuntime } from './session-recovery-initialization';
 import { getResourceGovernor } from '../process/resource-governor';
 import { getCliAutoUpdateService } from '../cli/cli-auto-update-service';
 import { getHibernationManager } from '../process/hibernation-manager';
@@ -684,7 +684,7 @@ export function createInitializationSteps(
         continuity.setInstanceManager(instanceManager);
         // C5/§3.6: Initialize last-stop snapshot alongside session continuity.
         // Stored in the same continuity directory for co-location.
-        initLastStopSnapshot(app.getPath('userData') + '/session-continuity');
+        initializeSessionRecoveryRuntime(continuity, instanceManager);
         // C6: give the (previously empty) termination-gate framework real,
         // advisory gates so dropped in-flight work is surfaced on teardown.
         registerBuiltinTerminationGates(continuity);

@@ -288,7 +288,9 @@ export class WorkerInstanceNotifier {
 
   /**
    * WS15 — replay buffered durable events after the given cursors (reconnect
-   * recovery). Frames are re-sent individually, tagged `replay: true`, with
+   * recovery). Durable instances absent from the coordinator's cursor list are
+   * included from sequence zero so instances created entirely while offline
+   * are not lost. Frames are re-sent individually, tagged `replay: true`, with
    * the CURRENT token. Returns a per-instance summary for the RPC response.
    */
   replayDurableEvents(
@@ -297,7 +299,13 @@ export class WorkerInstanceNotifier {
     const durability = this.options.durability;
     if (!durability) return cursors.map((c) => ({ instanceId: c.instanceId, replayed: 0 }));
     const token = this.options.getToken();
-    return cursors.map(({ instanceId, afterSeq }) => {
+    const cursorsByInstance = new Map(cursors.map((cursor) => [cursor.instanceId, cursor.afterSeq]));
+    for (const instanceId of durability.instanceIds()) {
+      if (!cursorsByInstance.has(instanceId)) {
+        cursorsByInstance.set(instanceId, 0);
+      }
+    }
+    return [...cursorsByInstance].map(([instanceId, afterSeq]) => {
       const result = durability.replayAfter(instanceId, afterSeq);
       for (const event of result.events) {
         this.send({

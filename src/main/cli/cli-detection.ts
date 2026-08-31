@@ -413,7 +413,9 @@ export class CliDetectionService {
             result.installed = true;
             result.version = versionMatch?.[1];
             result.path = command;
-            result.authenticated = !output.includes('not authenticated');
+            // A version probe establishes installation, not authentication.
+            // Provider-specific status commands own auth truth; assuming that
+            // arbitrary version output means "logged in" hid expired OAuth.
             logger.debug('CLI detected', { command, version: result.version });
           } else {
             result.error = stderr.trim() || 'Command failed';

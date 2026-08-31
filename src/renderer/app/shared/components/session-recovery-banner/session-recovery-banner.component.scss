@@ -1,0 +1,107 @@
+:host {
+  display: contents;
+}
+
+.session-recovery-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 12px 16px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius-md);
+  background: var(--warning-bg);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.session-recovery-banner__content {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.session-recovery-banner__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius-sm);
+  color: var(--warning-color);
+  flex: 0 0 auto;
+}
+
+.session-recovery-banner__copy {
+  min-width: 0;
+}
+
+.session-recovery-banner h2 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.session-recovery-banner p {
+  margin: 2px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.session-recovery-banner__error {
+  color: var(--error-color);
+}
+
+.session-recovery-banner__actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.session-recovery-banner__button {
+  min-height: 32px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font: 12px var(--font-sans);
+  cursor: pointer;
+}
+
+.session-recovery-banner__button--primary {
+  border-color: var(--primary-color);
+  background: var(--primary-color);
+  color: var(--button-on-primary);
+}
+
+.session-recovery-banner__button:hover:not(:disabled) {
+  border-color: var(--primary-color);
+}
+
+.session-recovery-banner__button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.session-recovery-banner__button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+@media (max-width: 720px) {
+  .session-recovery-banner {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .session-recovery-banner__actions {
+    justify-content: flex-end;
+  }
+}

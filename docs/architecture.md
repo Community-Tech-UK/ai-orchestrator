@@ -227,6 +227,53 @@ Located in `src/main/session/`:
 
 Session tracking is wired into instance lifecycle: `startTracking()` on create, `stopTracking()` on remove, `shutdown()` before app exit.
 
+### Abrupt-restart recovery
+
+The crash-safety boundary is synchronous and deliberately precedes process
+termination. `HarnessApp` delegates both shutdown stages to
+`createHarnessShutdownOperations()`: its `cleanupSync()` operation calls
+`SessionContinuityManager.shutdown()`, which atomically replaces each dirty
+continuity state and its generation-bound recovery sidecar, then writes the
+last-stop snapshot. The same production composition seam later enters the
+asynchronous `terminate-instances` phase, which performs normal history
+archival. A process loss between those phases is
+therefore recoverable from continuity even when history contains only an older
+prefix.
+
+Startup recovery is bounded and read-only. `LastStopSnapshotManager` supplies
+v2 shutdown hints (while migrating v1 hints conservatively), and
+`SessionRecoveryCandidateService` merges those hints with recent lightweight
+continuity metadata, stable history coverage, and current live logical
+identities. Discovery limits fallback state reads, history coverage queries,
+and ordinary results; it hydrates a full continuity state and history
+conversation only when a recovery key is explicitly resolved. Listing a
+candidate never rewrites or deletes its source artifacts and never starts an
+agent process.
+
+Recovery ownership is split as follows:
+
+- `recoverable-session-selection.ts` owns canonical logical identity and
+  deterministic snapshot selection.
+- `session-recovery-candidate-service.ts` owns bounded discovery, coverage
+  classification, caching, and live-instance exclusion.
+- `recovery-transcript-reconciler.ts` owns lossless archived-prefix plus
+  continuity-suffix ordering and deduplication.
+- `continuity-revival.ts` and `ContinuityRecoveryCoordinator` own validation,
+  unpublished replacement creation, readiness, publication, and rollback. A
+  successful restore always has a new runtime instance ID.
+- Session recovery IPC schemas/channels and handlers own validated requests and
+  redacted typed failures; `session.preload.ts` is the renderer's only bridge.
+- `SessionRecoveryStore`, the Resume Picker, and the startup recovery banner own
+  renderer state and presentation. The banner and picker only expose an
+  explicit user action; startup discovery never auto-resumes or re-sends work.
+
+After successful publication, the replacement's logical identity excludes the
+source candidate while it is live. Original continuity and history artifacts
+remain intact; they are not consumed by recovery. Normal instance termination
+hands the replacement transcript to `HistoryManager.archiveInstance()`, whose
+stable-identity serialization and complete-message coverage check update the
+canonical archive before candidate invalidation.
+
 ### Checkpoint rewind (user-facing)
 
 Turn-granular git checkpoints (`src/main/session/git-checkpoint-store.ts` — hidden refs + isolated index + shadow-repo fallback) are user-reachable: the instance detail view embeds the checkpoint timeline (`src/renderer/app/features/checkpoints/checkpoint-timeline.component.ts`, mounted at `instance-detail.component.html` in the session panel), which lists per-session snapshots and offers a confirm-gated **Restore** (workspace files and, optionally, messages). Restores route through the session-recovery IPC; no separate affordance is needed.

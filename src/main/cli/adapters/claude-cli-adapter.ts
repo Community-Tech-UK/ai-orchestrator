@@ -68,6 +68,7 @@ import {
 } from './claude-cli-permission-details';
 import { probeVersionStatus } from './cli-status-probe';
 import { structuredOutputContent, type StructuredOutputCandidate } from './structured-output-content';
+import { parseClaudeStreamError } from './claude-stream-error';
 import {
   type CliAsyncWorkEvent,
   parseClaudeAsyncWorkToolResult,
@@ -1261,6 +1262,13 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         const assistantMsg = raw;
         const assistantTimestamp = message.timestamp || Date.now();
 
+        // Claude can wrap provider failures in an `assistant` envelope.
+        const streamError = parseClaudeStreamError(assistantMsg as unknown as Record<string, unknown>);
+        if (streamError) {
+          this.emit('error', streamError.error);
+          break;
+        }
+
         // Emit each text block as its OWN assistant output in document order,
         // interleaved with tool_use — never concatenated into one buffer flushed
         // after the loop (which merged a [text, tool_use, text] message into a
@@ -1832,16 +1840,11 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         break;
       }
 
-      case 'error':
-        this.emit('output', {
-          id: generateId(),
-          timestamp: message.timestamp || Date.now(),
-          type: 'error',
-          content: message.error.message,
-          metadata: { code: message.error.code }
-        });
-        this.emit('status', 'error' as InstanceStatus);
+      case 'error': {
+        const streamError = parseClaudeStreamError(raw as unknown as Record<string, unknown>);
+        this.emit('error', streamError?.error ?? new Error('Claude CLI reported an unknown error'));
         break;
+      }
 
       case 'input_required': {
         const inputRequiredMetadataKeys = 'metadata' in message

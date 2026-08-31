@@ -12,7 +12,11 @@
  * instead of a quota reset time.
  */
 
-import type { InstanceProvider, InstanceWaitReason } from '../../shared/types/instance.types';
+import type {
+  FileAttachment,
+  InstanceProvider,
+  InstanceWaitReason,
+} from '../../shared/types/instance.types';
 import { getLogger } from '../logging/logger';
 import {
   canProbeProviderAuth,
@@ -32,17 +36,19 @@ export const AUTH_RECHECK_INTERVAL_MS = 10_000;
  */
 export const AUTH_WATCH_TIMEOUT_MS = 15 * 60_000;
 
+export interface AuthRepairTurn {
+  message: string;
+  attachments?: FileAttachment[];
+  contextBlock?: string | null;
+}
+
 export interface InstanceAuthRepairDeps {
   /** Set/clear the auth-required waitReason so the renderer shows the banner. */
   setWaitReason: (instanceId: string, waitReason: InstanceWaitReason | null) => void;
-  /**
-   * Bring the session back to a state that can accept input. Resolves to the
-   * live instance id (revival may not preserve it), or null when the session
-   * cannot be revived.
-   */
+  /** Restart the failed instance in place and return its input-ready id. */
   revive: (instanceId: string) => Promise<string | null>;
   /** Re-send the interrupted user turn. */
-  resendInput: (instanceId: string, prompt: string) => void;
+  resendInput: (instanceId: string, turn: AuthRepairTurn) => void | Promise<void>;
   /** Injectable for tests; defaults to the real CLI probe. */
   probeAuth?: (provider: InstanceProvider) => Promise<ProviderAuthState>;
   /** Injectable timers for tests. */
@@ -54,8 +60,10 @@ export interface MaybeBlockOnAuthParams {
   instanceId: string;
   provider: InstanceProvider;
   reason: string;
-  /** The user turn to re-send once auth is repaired; null when unknown. */
-  resumePrompt: string | null;
+  /** The complete user turn to re-send once auth is repaired; null when unknown. */
+  resumeTurn: AuthRepairTurn | null;
+  /** True when the provider protocol, rather than text matching, identified auth failure. */
+  authoritative: boolean;
 }
 
 export type AuthRetryOutcome =
@@ -66,8 +74,12 @@ export type AuthRetryOutcome =
 
 interface BlockedEntry {
   provider: InstanceProvider;
-  resumePrompt: string | null;
+  resumeTurn: AuthRepairTurn | null;
   since: number;
+  /** One automatic restart per block; further attempts require Retry now. */
+  autoResumeAttempted: boolean;
+  /** Dispatch returned, but the replay has not emitted complete/error yet. */
+  awaitingReplayOutcome: boolean;
   stopWatch: () => void;
 }
 
@@ -95,7 +107,7 @@ export class InstanceAuthRepairHandler {
   }
 
   isBlocked(instanceId: string): boolean {
-    return this.blocked.has(instanceId);
+    return this.blocked.get(instanceId)?.awaitingReplayOutcome === false;
   }
 
   /**
@@ -109,22 +121,50 @@ export class InstanceAuthRepairHandler {
     const deps = this.deps;
     if (!deps) return 'skipped';
 
+    // Adapter dispatch can resolve before the provider emits its stream result.
+    // Convert a late auth failure from our own replay to manual-only state
+    // synchronously, before an async probe or a trailing `complete` can race it.
+    const pendingReplay = this.blocked.get(params.instanceId);
+    if (pendingReplay?.awaitingReplayOutcome && params.authoritative) {
+      pendingReplay.awaitingReplayOutcome = false;
+      deps.setWaitReason(params.instanceId, {
+        kind: 'auth-required',
+        provider: pendingReplay.provider,
+        since: pendingReplay.since,
+      });
+      return 'already-blocked';
+    }
+
     if (canProbeProviderAuth(params.provider)) {
       const state = await this.probe(params.provider);
       // `unknown` (probe could not run) is not proof of a sign-out, but the
       // turn already failed with auth-shaped text, so trust the text. Only a
       // positive "still authenticated" vetoes the block.
-      if (state === 'authenticated') {
+      if (state === 'authenticated' && !params.authoritative) {
         logger.info('Ignoring auth-shaped turn failure: the provider still reports authenticated', {
           instanceId: params.instanceId,
           provider: params.provider,
         });
         return 'skipped';
       }
+      if (state === 'authenticated' && params.authoritative) {
+        logger.info('Provider auth failure is authoritative despite a healthy shared auth probe; restarting the failed process', {
+          instanceId: params.instanceId,
+          provider: params.provider,
+        });
+      }
     }
 
     const existing = this.blocked.get(params.instanceId);
     if (existing) {
+      if (existing.awaitingReplayOutcome) {
+        existing.awaitingReplayOutcome = false;
+        deps.setWaitReason(params.instanceId, {
+          kind: 'auth-required',
+          provider: existing.provider,
+          since: existing.since,
+        });
+      }
       // Keep the earliest prompt: it is the turn the user actually lost.
       return 'already-blocked';
     }
@@ -137,8 +177,10 @@ export class InstanceAuthRepairHandler {
     });
     this.blocked.set(params.instanceId, {
       provider: params.provider,
-      resumePrompt: params.resumePrompt,
+      resumeTurn: params.resumeTurn,
       since,
+      autoResumeAttempted: false,
+      awaitingReplayOutcome: false,
       stopWatch: this.startWatch(params.instanceId, params.provider),
     });
     logger.info('Session blocked on provider auth; watching for sign-in', {
@@ -200,6 +242,20 @@ export class InstanceAuthRepairHandler {
   forget(instanceId: string): void {
     const entry = this.blocked.get(instanceId);
     if (!entry) return;
+    // An auth-owned in-place restart calls the normal lifecycle cleanup. Keep
+    // the consumed retry budget until the replay emits complete/error.
+    if (this.resuming.has(instanceId)) {
+      entry.stopWatch();
+      return;
+    }
+    this.blocked.delete(instanceId);
+    entry.stopWatch();
+  }
+
+  /** Clear the hidden replay guard only after the provider completes the turn. */
+  completeReplay(instanceId: string): void {
+    const entry = this.blocked.get(instanceId);
+    if (!entry?.awaitingReplayOutcome) return;
     this.blocked.delete(instanceId);
     entry.stopWatch();
   }
@@ -249,7 +305,14 @@ export class InstanceAuthRepairHandler {
             this.blocked.get(instanceId)?.stopWatch();
             return;
           }
-          if (await this.probe(provider) === 'authenticated') {
+          const entry = this.blocked.get(instanceId);
+          if (
+            entry
+            && !entry.autoResumeAttempted
+            && !entry.awaitingReplayOutcome
+            && await this.probe(provider) === 'authenticated'
+          ) {
+            entry.autoResumeAttempted = true;
             await this.resume(instanceId);
           }
         } finally {
@@ -285,21 +348,24 @@ export class InstanceAuthRepairHandler {
         logger.warn('Auth restored but the session could not be revived; keeping the repair banner', {
           instanceId,
         });
+        this.keepBlockedForManualRetry(instanceId, entry);
         return false;
       }
 
-      this.blocked.delete(instanceId);
       entry.stopWatch();
       deps.setWaitReason(instanceId, null);
 
-      if (entry.resumePrompt) {
-        deps.resendInput(liveId, entry.resumePrompt);
+      if (entry.resumeTurn) {
+        entry.autoResumeAttempted = true;
+        entry.awaitingReplayOutcome = true;
+        await deps.resendInput(liveId, entry.resumeTurn);
         logger.info('Resumed session after the user signed back in', {
           instanceId,
           liveId,
           provider: entry.provider,
         });
       } else {
+        this.blocked.delete(instanceId);
         logger.info('Auth restored; session revived with no turn to re-send', { instanceId });
       }
       return true;
@@ -308,10 +374,34 @@ export class InstanceAuthRepairHandler {
         instanceId,
         error: error instanceof Error ? error.message : String(error),
       });
+      this.keepBlockedForManualRetry(instanceId, entry);
       return false;
     } finally {
       this.resuming.delete(instanceId);
     }
+  }
+
+  /**
+   * A restart deliberately disarms all old holds. If an auth-owned restart or
+   * its re-send fails, restore only this auth hold, without another automatic
+   * attempt, so the banner remains useful and no restart loop can form.
+   */
+  private keepBlockedForManualRetry(instanceId: string, entry: BlockedEntry): void {
+    const current = this.blocked.get(instanceId);
+    current?.stopWatch();
+    entry.stopWatch();
+    const manualEntry: BlockedEntry = {
+      ...entry,
+      autoResumeAttempted: true,
+      awaitingReplayOutcome: false,
+      stopWatch: () => { /* manual retry only after a failed automatic recovery */ },
+    };
+    this.blocked.set(instanceId, manualEntry);
+    this.deps?.setWaitReason(instanceId, {
+      kind: 'auth-required',
+      provider: entry.provider,
+      since: entry.since,
+    });
   }
 }
 

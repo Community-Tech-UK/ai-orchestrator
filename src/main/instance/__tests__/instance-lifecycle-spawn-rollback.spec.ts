@@ -17,8 +17,13 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Instance } from '../../../shared/types/instance.types';
+import type { SessionState } from '../../session/session-continuity.types';
 import type { LifecycleDependencies } from '../instance-lifecycle.types';
 import type { InstanceStateMachine } from '../instance-state-machine';
+import {
+  getOrCreateTurnSupervisor,
+  getTurnSupervisor,
+} from '../../session/session-turn-supervisor';
 
 const mocks = vi.hoisted(() => ({
   resolveAgent: vi.fn(),
@@ -34,6 +39,16 @@ const mocks = vi.hoisted(() => ({
   localModelInventory: [] as unknown[],
   localModelRefresh: vi.fn(),
   getProviderCapabilities: vi.fn(),
+  loggerInfo: vi.fn(),
+  loggerWarn: vi.fn(),
+  loggerError: vi.fn(),
+  archiveInstance: vi.fn(),
+  continuityStartTracking: vi.fn().mockResolvedValue(undefined),
+  continuityStopTracking: vi.fn().mockResolvedValue(undefined),
+  continuityResumeSession: vi.fn<() => Promise<SessionState | null>>().mockResolvedValue(null),
+  continuityMarkNativeResumeFailed: vi.fn().mockResolvedValue(undefined),
+  continuityUpdateState: vi.fn().mockResolvedValue(undefined),
+  evaluateResumeHealth: vi.fn().mockResolvedValue('healthy'),
 }));
 
 vi.mock('electron', () => ({
@@ -45,7 +60,12 @@ vi.mock('electron-store', () => ({
 }));
 
 vi.mock('../../logging/logger', () => ({
-  getLogger: () => ({ debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() }),
+  getLogger: () => ({
+    debug: vi.fn(),
+    error: mocks.loggerError,
+    info: mocks.loggerInfo,
+    warn: mocks.loggerWarn,
+  }),
 }));
 
 vi.mock('../../core/config/settings-manager', () => ({
@@ -84,7 +104,7 @@ vi.mock('../../process/hibernation-manager', () => ({
 }));
 
 vi.mock('../../history', () => ({
-  getHistoryManager: () => ({ archiveInstance: vi.fn() }),
+  getHistoryManager: () => ({ archiveInstance: mocks.archiveInstance }),
 }));
 
 vi.mock('../../agents/agent-registry', () => ({
@@ -206,11 +226,11 @@ vi.mock('../../session/session-mutex', () => ({
 
 vi.mock('../../session/session-continuity', () => ({
   getSessionContinuityManager: () => ({
-    startTracking: vi.fn(),
-    stopTracking: vi.fn(),
-    updateState: vi.fn(),
-    resumeSession: vi.fn(),
-    markNativeResumeFailed: vi.fn(),
+    startTracking: mocks.continuityStartTracking,
+    stopTracking: mocks.continuityStopTracking,
+    updateState: mocks.continuityUpdateState,
+    resumeSession: mocks.continuityResumeSession,
+    markNativeResumeFailed: mocks.continuityMarkNativeResumeFailed,
     writeThroughIdentityLocked: vi.fn(),
   }),
 }));
@@ -247,7 +267,9 @@ vi.mock('../lifecycle/runtime-readiness', () => ({
       return { supportsResume: false, supportsForkSession: false };
     }
     waitForResumeHealth(): Promise<boolean> { return Promise.resolve(true); }
-    evaluateResumeHealth(): Promise<'healthy'> { return Promise.resolve('healthy'); }
+    evaluateResumeHealth(): Promise<'healthy' | 'unrecoverable'> {
+      return mocks.evaluateResumeHealth();
+    }
     waitForAdapterWritable(): Promise<boolean> { return Promise.resolve(true); }
     waitForInputReadinessBoundary(): Promise<void> { return Promise.resolve(); }
   },
@@ -312,6 +334,7 @@ interface Harness {
   manager: InstanceLifecycleManager;
   deps: LifecycleDependencies;
   instances: Map<string, Instance>;
+  pendingInstances: Map<string, Instance>;
   adapters: Map<string, unknown>;
   stateMachines: Map<string, InstanceStateMachine>;
   removedEvents: string[];
@@ -324,6 +347,7 @@ interface Harness {
 
 function makeHarness(): Harness {
   const instances = new Map<string, Instance>();
+  const pendingInstances = new Map<string, Instance>();
   const adapters = new Map<string, unknown>();
   const stateMachines = new Map<string, InstanceStateMachine>();
 
@@ -334,9 +358,19 @@ function makeHarness(): Harness {
   const deleteDiffTracker = vi.fn();
 
   const deps = {
-    getInstance: (id: string) => instances.get(id),
+    getInstance: (id: string) => instances.get(id) ?? pendingInstances.get(id),
     setInstance: (instance: Instance) => { instances.set(instance.id, instance); },
-    deleteInstance: (id: string) => instances.delete(id),
+    setPendingInstance: (instance: Instance) => { pendingInstances.set(instance.id, instance); },
+    publishPendingInstance: (id: string) => {
+      const instance = pendingInstances.get(id);
+      if (!instance) throw new Error('fixture pending instance missing');
+      pendingInstances.delete(id);
+      instances.set(id, instance);
+      return instance;
+    },
+    deleteInstance: (id: string) => instances.delete(id) || pendingInstances.delete(id),
+    deleteRuntimeInstance: (id: string) => instances.delete(id) || pendingInstances.delete(id),
+    isInstancePublished: (id: string) => instances.has(id),
     getAdapter: (id: string) => adapters.get(id),
     setAdapter: (id: string, adapter: unknown) => { adapters.set(id, adapter); },
     deleteAdapter: (id: string) => adapters.delete(id),
@@ -378,6 +412,7 @@ function makeHarness(): Harness {
     manager,
     deps,
     instances,
+    pendingInstances,
     adapters,
     stateMachines,
     removedEvents,
@@ -403,6 +438,7 @@ async function createAndAwaitFailure(
 describe('createInstance spawn transaction rollback', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.createAdapter.mockReset();
     mocks.resolveCliType.mockResolvedValue('claude');
     mocks.resolveAgent.mockResolvedValue(getDefaultAgent());
     mocks.supervisorRegister.mockReturnValue({ supervisorNodeId: 'sup-1', workerNodeId: 'worker-1' });
@@ -417,6 +453,12 @@ describe('createInstance spawn transaction rollback', () => {
       supportsDeferPermission: false,
       selfManagedAutoCompaction: false,
     });
+    mocks.continuityStartTracking.mockResolvedValue(undefined);
+    mocks.continuityStopTracking.mockResolvedValue(undefined);
+    mocks.continuityResumeSession.mockResolvedValue(null);
+    mocks.continuityMarkNativeResumeFailed.mockResolvedValue(undefined);
+    mocks.continuityUpdateState.mockResolvedValue(undefined);
+    mocks.evaluateResumeHealth.mockResolvedValue('healthy');
   });
 
   it('rolls back Phase-1 registrations when RLM init fails (before any adapter exists)', async () => {
@@ -569,6 +611,233 @@ describe('createInstance spawn transaction rollback', () => {
     expect(adapter.sendInput).toHaveBeenCalledWith('hello world', undefined);
   });
 
+  it('keeps recovery creation private until explicit publication', async () => {
+    const harness = makeHarness();
+    const adapter = makeFakeAdapter();
+    mocks.createAdapter.mockReturnValue(adapter);
+    const createdEvents: Array<Record<string, unknown>> = [];
+    const stateEvents: Array<Record<string, unknown>> = [];
+    harness.manager.on('created', (payload: Record<string, unknown>) => createdEvents.push(payload));
+    harness.manager.on('state-update', (payload: Record<string, unknown>) => stateEvents.push(payload));
+
+    const creation = await harness.manager.createUnpublishedInstance({
+      workingDirectory: '/tmp/project',
+      provider: 'claude',
+      isRestoredSession: true,
+      initialOutputBuffer: [{
+        id: 'recovered-message-1',
+        type: 'assistant',
+        content: 'fixture recovered content',
+        timestamp: 1,
+      }],
+      metadata: { continuityRevival: true, reason: 'crash-recovery' },
+    });
+
+    expect(createdEvents).toEqual([]);
+    expect(harness.instances.has(creation.instance.id)).toBe(false);
+    expect(harness.pendingInstances.get(creation.instance.id)).toBe(creation.instance);
+    await creation.instance.readyPromise;
+    expect(createdEvents).toEqual([]);
+    expect(stateEvents).toEqual([]);
+    await creation.publish();
+
+    expect(createdEvents).toEqual([{ id: creation.instance.id }]);
+    expect(harness.instances.get(creation.instance.id)).toBe(creation.instance);
+    expect(harness.pendingInstances.has(creation.instance.id)).toBe(false);
+    expect(stateEvents).toEqual([]);
+    expect(harness.removedEvents).toEqual([]);
+  });
+
+  it('rolls back a ready seeded recovery without public removal or archival', async () => {
+    const harness = makeHarness();
+    const adapter = makeFakeAdapter();
+    mocks.createAdapter.mockReturnValue(adapter);
+    const createdEvents: Array<Record<string, unknown>> = [];
+    harness.manager.on('created', (payload: Record<string, unknown>) => createdEvents.push(payload));
+    const creation = await harness.manager.createUnpublishedInstance({
+      workingDirectory: '/tmp/project',
+      provider: 'claude',
+      isRestoredSession: true,
+      initialOutputBuffer: [{
+        id: 'recovered-message-1',
+        type: 'assistant',
+        content: 'fixture recovered content',
+        timestamp: 1,
+      }],
+      metadata: { continuityRevival: true, reason: 'crash-recovery' },
+    });
+    await creation.instance.readyPromise;
+
+    await creation.rollback(new Error('fixture replay queue failure'));
+    await creation.rollback(new Error('fixture duplicate rollback'));
+
+    expect(harness.instances.has(creation.instance.id)).toBe(false);
+    expect(harness.adapters.has(creation.instance.id)).toBe(false);
+    expect(adapter.terminate).toHaveBeenCalledWith(false);
+    expect(createdEvents).toEqual([]);
+    expect(harness.removedEvents).toEqual([]);
+    expect(mocks.archiveInstance).not.toHaveBeenCalled();
+    expect(harness.pendingInstances.has(creation.instance.id)).toBe(false);
+  });
+
+  it('publishes and rolls back idempotently without duplicating observers or cleanup', async () => {
+    const harness = makeHarness();
+    const adapter = makeFakeAdapter();
+    mocks.createAdapter.mockReturnValue(adapter);
+    const created = vi.fn();
+    harness.manager.on('created', created);
+    const creation = await harness.manager.createUnpublishedInstance({
+      workingDirectory: '/tmp/project',
+      provider: 'claude',
+      metadata: { continuityRevival: true, reason: 'crash-recovery' },
+    });
+    await creation.instance.readyPromise;
+
+    await Promise.all([creation.publish(), creation.publish()]);
+    await creation.rollback(new Error('ignored after publication'));
+
+    expect(created).toHaveBeenCalledOnce();
+    expect(harness.instances.get(creation.instance.id)).toBe(creation.instance);
+    expect(adapter.terminate).not.toHaveBeenCalled();
+  });
+
+  it('serializes a concurrent publication and rollback with publication as the sole winner', async () => {
+    const harness = makeHarness();
+    const adapter = makeFakeAdapter();
+    mocks.createAdapter.mockReturnValue(adapter);
+    const created = vi.fn();
+    harness.manager.on('created', created);
+    const creation = await harness.manager.createUnpublishedInstance({
+      workingDirectory: '/tmp/project',
+      provider: 'claude',
+      metadata: { continuityRevival: true, reason: 'crash-recovery' },
+    });
+    await creation.instance.readyPromise;
+
+    const publication = creation.publish();
+    const rollback = creation.rollback(new Error('fixture concurrent rollback'));
+
+    await expect(publication).resolves.toBeUndefined();
+    await expect(rollback).rejects.toThrow('publication is in progress');
+    expect(created).toHaveBeenCalledOnce();
+    expect(harness.instances.get(creation.instance.id)).toBe(creation.instance);
+    expect(adapter.terminate).not.toHaveBeenCalled();
+  });
+
+  it('removes the private turn supervisor during rollback', async () => {
+    const harness = makeHarness();
+    const adapter = makeFakeAdapter();
+    mocks.createAdapter.mockReturnValue(adapter);
+    const creation = await harness.manager.createUnpublishedInstance({
+      workingDirectory: '/tmp/project',
+      provider: 'claude',
+      metadata: { continuityRevival: true, reason: 'crash-recovery' },
+    });
+    await creation.instance.readyPromise;
+    getOrCreateTurnSupervisor(creation.instance.id);
+
+    await creation.rollback(new Error('fixture rollback'));
+
+    expect(getTurnSupervisor(creation.instance.id)).toBeUndefined();
+  });
+
+  it('omits a recovery cursor from the real resumed-lifecycle logger path', async () => {
+    const harness = makeHarness();
+    const adapter = makeFakeAdapter();
+    mocks.createAdapter.mockReturnValue(adapter);
+    (harness.deps as LifecycleDependencies).warmStartManager = {
+      consume: vi.fn(() => null),
+      preWarm: vi.fn().mockResolvedValue(undefined),
+    } as unknown as LifecycleDependencies['warmStartManager'];
+    const cursorPlaceholder = 'native-cursor-fixture-placeholder';
+
+    const creation = await harness.manager.createUnpublishedInstance({
+      workingDirectory: '/tmp/project',
+      provider: 'claude',
+      sessionId: cursorPlaceholder,
+      resume: true,
+      metadata: { continuityRevival: true, reason: 'crash-recovery' },
+    });
+    await creation.instance.readyPromise;
+
+    const serializedLogs = JSON.stringify(mocks.loggerInfo.mock.calls);
+    expect(serializedLogs).not.toContain(cursorPlaceholder);
+    expect(serializedLogs).toContain('[recovery session omitted]');
+    await creation.rollback(new Error('fixture cleanup'));
+  });
+
+  it('redacts recovery identity from rollback causes and cleanup failures', async () => {
+    const harness = makeHarness();
+    const adapter = makeFakeAdapter();
+    const cursorPlaceholder = 'rollback-native-cursor-fixture-placeholder';
+    harness.endRlmSession.mockImplementationOnce(() => {
+      throw new Error(`fixture RLM cleanup failed for ${cursorPlaceholder}`);
+    });
+    mocks.createAdapter.mockReturnValue(adapter);
+    const creation = await harness.manager.createUnpublishedInstance({
+      workingDirectory: '/tmp/project',
+      provider: 'claude',
+      sessionId: cursorPlaceholder,
+      resume: true,
+      metadata: { continuityRevival: true, reason: 'crash-recovery' },
+    });
+    await creation.instance.readyPromise;
+    mocks.loggerWarn.mockClear();
+    mocks.loggerError.mockClear();
+
+    await creation.rollback(new Error(`fixture recovery failed for ${cursorPlaceholder}`));
+
+    const serializedLogs = JSON.stringify([
+      mocks.loggerWarn.mock.calls,
+      mocks.loggerError.mock.calls,
+    ]);
+    expect(serializedLogs).not.toContain(cursorPlaceholder);
+    expect(serializedLogs).toContain('recoverySession');
+  });
+
+  it('redacts recovery identities from native-resume proof state and diagnostics', async () => {
+    const harness = makeHarness();
+    const adapter = makeFakeAdapter() as FakeAdapter & {
+      getResumeAttemptResult: () => {
+        source: 'cli-echo';
+        requestedSessionId: string;
+        actualSessionId: string;
+        confirmed: false;
+        reason: string;
+      };
+    };
+    const requestedCursor = 'requested-native-cursor-placeholder';
+    const actualCursor = 'actual-native-cursor-placeholder';
+    adapter.getResumeAttemptResult = () => ({
+      source: 'cli-echo', requestedSessionId: requestedCursor,
+      actualSessionId: actualCursor, confirmed: false,
+      reason: `mismatch ${requestedCursor} ${actualCursor}`,
+    });
+    mocks.createAdapter.mockReturnValue(adapter);
+    const creation = await harness.manager.createUnpublishedInstance({
+      workingDirectory: '/tmp/project', provider: 'claude',
+      sessionId: requestedCursor, resume: true,
+      metadata: { continuityRevival: true, reason: 'crash-recovery' },
+    });
+    await creation.instance.readyPromise;
+    mocks.loggerInfo.mockClear();
+    const evaluateResumeHealth = harness.manager as unknown as {
+      evaluateResumeHealth(id: string, timeoutMs: number, pollIntervalMs: number): Promise<string>;
+    };
+
+    await expect(evaluateResumeHealth.evaluateResumeHealth(
+      creation.instance.id, 1, 1,
+    )).resolves.toBe('unrecoverable');
+
+    const diagnostics = JSON.stringify([
+      mocks.loggerInfo.mock.calls,
+      (harness.deps.queueUpdate as ReturnType<typeof vi.fn>).mock.calls,
+    ]);
+    expect(diagnostics).not.toContain(requestedCursor);
+    expect(diagnostics).not.toContain(actualCursor);
+    await creation.rollback(new Error('fixture cleanup'));
+  });
+
   it('creates, becomes ready, and terminates without leaving lifecycle resources behind', async () => {
     const harness = makeHarness();
     const adapter = makeFakeAdapter();
@@ -684,6 +953,105 @@ describe('createInstance spawn transaction rollback', () => {
     expect(harness.adapters.get(instance.id)).toBe(resumedAdapter);
   });
 
+  it('keeps recovery identities redacted when the published replacement later restarts', async () => {
+    const harness = makeHarness();
+    const initialAdapter = makeFakeAdapter();
+    const resumedAdapter = makeFakeAdapter();
+    const cursor = 'restart-recovery-cursor-placeholder';
+    const historyThreadId = 'restart-recovery-history-placeholder';
+    mocks.resolveCliType.mockResolvedValue('codex');
+    mocks.createAdapter
+      .mockReturnValueOnce(initialAdapter)
+      .mockReturnValueOnce(resumedAdapter);
+    mocks.getProviderCapabilities.mockReturnValue({
+      supportsResume: true,
+      supportsForkSession: false,
+      supportsNativeCompaction: true,
+      supportsPermissionPrompts: false,
+      supportsDeferPermission: false,
+      selfManagedAutoCompaction: true,
+    });
+    const instance = await harness.manager.createInstance({
+      workingDirectory: '/tmp/project',
+      provider: 'codex',
+      sessionId: cursor,
+      historyThreadId,
+      resume: true,
+      metadata: { continuityRevival: true, reason: 'crash-recovery' },
+    });
+    await instance.readyPromise;
+    instance.providerSessionId = cursor;
+    mocks.loggerInfo.mockClear();
+
+    await harness.manager.restartInstance(instance.id);
+
+    const serializedLogs = JSON.stringify(mocks.loggerInfo.mock.calls);
+    expect(serializedLogs).not.toContain(cursor);
+    expect(serializedLogs).not.toContain(historyThreadId);
+    expect(serializedLogs).toContain('recoverySession');
+  });
+
+  it('keeps the recovery cursor redacted when a later native wake falls back', async () => {
+    const harness = makeHarness();
+    const initialAdapter = makeFakeAdapter();
+    const nativeWakeAdapter = makeFakeAdapter();
+    const replayWakeAdapter = makeFakeAdapter();
+    const cursor = 'wake-recovery-cursor-placeholder';
+    replayWakeAdapter.spawn.mockRejectedValue(
+      new Error(`fallback wake failed for ${cursor}`),
+    );
+    mocks.createAdapter
+      .mockReturnValueOnce(initialAdapter)
+      .mockReturnValueOnce(nativeWakeAdapter)
+      .mockReturnValueOnce(replayWakeAdapter);
+    mocks.continuityResumeSession.mockResolvedValue({
+      instanceId: 'source-instance-placeholder',
+      sessionId: cursor,
+      historyThreadId: 'wake-history-placeholder',
+      displayName: 'Recovered wake fixture',
+      agentId: 'build',
+      modelId: '',
+      provider: 'claude',
+      workingDirectory: '/tmp/project',
+      conversationHistory: [{
+        id: 'wake-user-message', role: 'user', content: 'fixture prompt', timestamp: 1,
+      }],
+      contextUsage: { used: 1, total: 200_000 },
+      pendingTasks: [],
+      environmentVariables: {},
+      activeFiles: [],
+      skillsLoaded: [],
+      hooksActive: [],
+    });
+    const instance = await harness.manager.createInstance({
+      workingDirectory: '/tmp/project',
+      provider: 'claude',
+      sessionId: cursor,
+      resume: true,
+      metadata: { continuityRevival: true, reason: 'crash-recovery' },
+    });
+    await instance.readyPromise;
+    await harness.manager.hibernateInstance(instance.id);
+    mocks.evaluateResumeHealth.mockResolvedValue('unrecoverable');
+    mocks.loggerWarn.mockClear();
+    mocks.loggerError.mockClear();
+
+    await expect(harness.manager.wakeInstance(instance.id))
+      .rejects.toThrow('Recovery instance wake failed');
+
+    expect(mocks.continuityResumeSession).toHaveBeenCalledWith(instance.id, {
+      restoreMessages: true,
+      restoreContext: true,
+    });
+    expect(mocks.evaluateResumeHealth).toHaveBeenCalled();
+    const serializedLogs = JSON.stringify([
+      mocks.loggerWarn.mock.calls,
+      mocks.loggerError.mock.calls,
+    ]);
+    expect(serializedLogs).not.toContain(cursor);
+    expect(serializedLogs).toContain('recoverySession');
+  });
+
   it('disarms the handlers that own a hold, not just the banner', async () => {
     // Round 8, 2026-08-30. Clearing the waitReason alone HID the hold while
     // leaving its background state armed: a `quota-park` keeps its resume timer
@@ -730,7 +1098,7 @@ describe('createInstance spawn transaction rollback', () => {
     authHandler.configure({
       setWaitReason: () => {},
       revive: async (id: string) => id,
-      resendInput: (id: string, prompt: string) => { resends.push({ instanceId: id, prompt }); },
+      resendInput: (id, turn) => { resends.push({ instanceId: id, prompt: turn.message }); },
       probeAuth: async () => 'unauthenticated' as const,
     });
 
@@ -754,7 +1122,8 @@ describe('createInstance spawn transaction rollback', () => {
       instanceId: instance.id,
       provider: 'claude',
       reason: 'provider auth failure on turn',
-      resumePrompt: 'STALE PRE-RESTART PROMPT',
+      resumeTurn: { message: 'STALE PRE-RESTART PROMPT' },
+      authoritative: false,
     });
     // Both preconditions asserted. Without the auth one, a `maybeBlockOnAuth`
     // that silently returned 'skipped' would make the `not-blocked` assertion

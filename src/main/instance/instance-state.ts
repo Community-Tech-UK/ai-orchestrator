@@ -24,15 +24,38 @@ import type { InstanceRuntimeSummary } from '../../shared/types/local-model-runt
 import type { ExecutionLocation } from '../../shared/types/worker-node.types';
 import type { ActivityState } from '../../shared/types/activity.types';
 import { LIMITS } from '../../shared/constants/limits';
+import {
+  getRecoverySensitiveValues,
+  redactRecoveryIdentityValue,
+} from './instance-recovery-redaction';
 
 const logger = getLogger('InstanceState');
+const RECOVERY_SESSION_OMITTED = '[recovery session omitted]';
+
+function redactRecoveryError(error: ErrorInfo | undefined, instance: Instance): ErrorInfo | undefined {
+  if (!error) return undefined;
+  return redactRecoveryIdentityValue(
+    error,
+    getRecoverySensitiveValues(instance),
+  ) as ErrorInfo;
+}
+
+function redactRecoveryWaitReason(
+  waitReason: InstanceWaitReason | null | undefined,
+): InstanceWaitReason | null | undefined {
+  if (waitReason?.kind !== 'resume-proof') return waitReason;
+  return { ...waitReason, sessionId: RECOVERY_SESSION_OMITTED };
+}
 
 export class InstanceStateManager extends EventEmitter {
   private instances = new Map<string, Instance>();
+  private pendingInstances = new Map<string, Instance>();
   private adapters = new Map<string, CliAdapter>();
+  private pendingAdapters = new Map<string, CliAdapter>();
   private diffTrackers = new Map<string, SessionDiffTracker>();
   private stateMachines = new Map<string, InstanceStateMachine>();
   private pendingUpdates = new Map<string, InstanceStateUpdatePayload>();
+  private pendingInstanceUpdates = new Map<string, InstanceStateUpdatePayload>();
   private batchTimer: NodeJS.Timeout | null = null;
 
   constructor() {
@@ -49,6 +72,11 @@ export class InstanceStateManager extends EventEmitter {
    */
   getInstance(id: string): Instance | undefined {
     return this.instances.get(id);
+  }
+
+  /** Internal runtime lookup. Pending recovery instances are never returned by public accessors. */
+  getRuntimeInstance(id: string): Instance | undefined {
+    return this.instances.get(id) ?? this.pendingInstances.get(id);
   }
 
   /**
@@ -79,6 +107,10 @@ export class InstanceStateManager extends EventEmitter {
     return this.instances.size;
   }
 
+  getRuntimeInstanceCount(): number {
+    return this.instances.size + this.pendingInstances.size;
+  }
+
   /**
    * Store an instance
    */
@@ -86,11 +118,63 @@ export class InstanceStateManager extends EventEmitter {
     this.instances.set(instance.id, instance);
   }
 
+  setPendingInstance(instance: Instance): void {
+    if (this.instances.has(instance.id) || this.pendingInstances.has(instance.id)) {
+      throw new Error(`Instance ${instance.id} is already registered`);
+    }
+    this.pendingInstances.set(instance.id, instance);
+  }
+
+  publishPendingInstance(instanceId: string): Instance {
+    const instance = this.pendingInstances.get(instanceId);
+    if (!instance) throw new Error(`Pending instance ${instanceId} not found`);
+    if (this.instances.has(instanceId)) throw new Error(`Instance ${instanceId} is already published`);
+    this.pendingInstances.delete(instanceId);
+    this.instances.set(instanceId, instance);
+    const adapter = this.pendingAdapters.get(instanceId);
+    if (adapter) {
+      this.pendingAdapters.delete(instanceId);
+      this.adapters.set(instanceId, adapter);
+    }
+    return instance;
+  }
+
+  isInstancePublished(instanceId: string): boolean {
+    return this.instances.has(instanceId);
+  }
+
+  isInstancePending(instanceId: string): boolean {
+    return this.pendingInstances.has(instanceId);
+  }
+
+  releasePendingUpdate(instanceId: string): void {
+    const update = this.pendingInstanceUpdates.get(instanceId);
+    if (!update) return;
+    this.pendingInstanceUpdates.delete(instanceId);
+    this.pendingUpdates.set(instanceId, update);
+  }
+
+  clearPendingInstanceState(instanceId: string): void {
+    this.pendingInstanceUpdates.delete(instanceId);
+    this.pendingUpdates.delete(instanceId);
+  }
+
   /**
    * Remove an instance
    */
   deleteInstance(id: string): boolean {
     return this.instances.delete(id);
+  }
+
+  deleteRuntimeInstance(id: string): boolean {
+    this.clearPendingInstanceState(id);
+    this.pendingAdapters.delete(id);
+    return this.instances.delete(id) || this.pendingInstances.delete(id);
+  }
+
+  forEachRuntimeInstance(callback: (instance: Instance, id: string) => void): void {
+    this.instances.forEach(callback);
+    this.pendingInstances.forEach(callback);
   }
 
   /**
@@ -111,6 +195,10 @@ export class InstanceStateManager extends EventEmitter {
     return this.adapters.get(instanceId);
   }
 
+  getRuntimeAdapter(instanceId: string): CliAdapter | undefined {
+    return this.adapters.get(instanceId) ?? this.pendingAdapters.get(instanceId);
+  }
+
   /**
    * Check if an adapter exists
    */
@@ -123,8 +211,9 @@ export class InstanceStateManager extends EventEmitter {
    */
   setAdapter(instanceId: string, adapter: CliAdapter): void {
     logger.debug('setAdapter called', { instanceId });
-    this.adapters.set(instanceId, adapter);
-    logger.debug('Adapter stored', { instanceId, adapterCount: this.adapters.size });
+    const store = this.pendingInstances.has(instanceId) ? this.pendingAdapters : this.adapters;
+    store.set(instanceId, adapter);
+    logger.debug('Adapter stored', { instanceId, adapterCount: store.size });
   }
 
   /**
@@ -133,6 +222,11 @@ export class InstanceStateManager extends EventEmitter {
   deleteAdapter(instanceId: string): boolean {
     logger.debug('deleteAdapter called', { instanceId });
     return this.adapters.delete(instanceId);
+  }
+
+  deleteRuntimeAdapter(instanceId: string): boolean {
+    logger.debug('deleteRuntimeAdapter called', { instanceId });
+    return this.adapters.delete(instanceId) || this.pendingAdapters.delete(instanceId);
   }
 
   /**
@@ -247,10 +341,23 @@ export class InstanceStateManager extends EventEmitter {
       desiredRuntime?: Instance['desiredRuntime'] | null;
     },
   ): void {
-    const existing = this.pendingUpdates.get(instanceId);
+    const updateStore = this.pendingInstances.has(instanceId)
+      ? this.pendingInstanceUpdates
+      : this.pendingUpdates;
+    const existing = updateStore.get(instanceId);
+    const runtimeInstance = this.getRuntimeInstance(instanceId);
+    const isCrashRecovery = runtimeInstance?.metadata?.['reason'] === 'crash-recovery';
+    const nextError = error ?? existing?.error;
+    const nextWaitReason = waitReason !== undefined ? waitReason : existing?.waitReason;
+    const safeError = isCrashRecovery && runtimeInstance
+      ? redactRecoveryError(nextError, runtimeInstance)
+      : nextError;
+    const safeWaitReason = isCrashRecovery
+      ? redactRecoveryWaitReason(nextWaitReason)
+      : nextWaitReason;
     const runtimeSummary: InstanceRuntimeSummary | null | undefined =
       currentModel !== undefined
-        ? this.instances.get(instanceId)?.runtimeSummary ?? null
+        ? runtimeInstance?.runtimeSummary ?? null
         : existing?.runtimeSummary;
     // LT-160: unlike status/contextUsage/desiredRuntime — which every caller
     // also assigns directly onto the live Instance object in addition to
@@ -263,23 +370,24 @@ export class InstanceStateManager extends EventEmitter {
     // wait state. Mirror the same live-object write here, the one function
     // every waitReason caller already funnels through.
     if (waitReason !== undefined) {
-      const live = this.instances.get(instanceId);
-      if (live) {
-        live.waitReason = waitReason ?? undefined;
+      if (runtimeInstance) {
+        runtimeInstance.waitReason = safeWaitReason ?? undefined;
       }
     }
-    this.pendingUpdates.set(instanceId, {
+    updateStore.set(instanceId, {
       instanceId,
       status,
       activityState: activityState ?? existing?.activityState,
       contextUsage: contextUsage ?? existing?.contextUsage,
       diffStats: diffStats !== undefined ? diffStats : existing?.diffStats,
       displayName: displayName ?? existing?.displayName,
-      error: error ?? existing?.error,
+      error: safeError,
       executionLocation: executionLocation ?? existing?.executionLocation,
       currentModel: currentModel ?? existing?.currentModel,
       runtimeSummary,
-      providerSessionId: sessionState?.providerSessionId ?? existing?.providerSessionId,
+      providerSessionId: isCrashRecovery
+        ? undefined
+        : sessionState?.providerSessionId ?? existing?.providerSessionId,
       restartEpoch: sessionState?.restartEpoch ?? existing?.restartEpoch,
       adapterGeneration: sessionState?.adapterGeneration ?? existing?.adapterGeneration,
       activeTurnId: sessionState?.activeTurnId ?? existing?.activeTurnId,
@@ -292,9 +400,11 @@ export class InstanceStateManager extends EventEmitter {
       recoveryMethod: sessionState?.recoveryMethod ?? existing?.recoveryMethod,
       archivedUpToMessageId:
         sessionState?.archivedUpToMessageId ?? existing?.archivedUpToMessageId,
-      historyThreadId: sessionState?.historyThreadId ?? existing?.historyThreadId,
+      historyThreadId: isCrashRecovery
+        ? undefined
+        : sessionState?.historyThreadId ?? existing?.historyThreadId,
       // waitReason: null clears it; undefined preserves existing.
-      waitReason: waitReason !== undefined ? waitReason : existing?.waitReason,
+      waitReason: safeWaitReason,
       provider: extras?.provider ?? existing?.provider,
       // desiredRuntime: null clears it; undefined preserves existing.
       desiredRuntime:
@@ -364,11 +474,45 @@ export class InstanceStateManager extends EventEmitter {
    */
   serializeForIpc(instance: Instance): Record<string, unknown> {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { readyPromise, respawnPromise, abortController, communicationTokens, ...rest } = instance;
+    const {
+      readyPromise,
+      respawnPromise,
+      abortController,
+      communicationTokens,
+      sessionId,
+      providerSessionId,
+      historyThreadId,
+      rlmStoreSessionId,
+      metadata,
+      waitReason,
+      ...rest
+    } = instance;
+    const isCrashRecovery = metadata?.['reason'] === 'crash-recovery';
     const selfManaged = this.getSelfManagesAutoCompaction(instance.id);
     return {
       ...rest,
       communicationTokens: Object.fromEntries(communicationTokens),
+      ...(!isCrashRecovery && sessionId !== undefined ? { sessionId } : {}),
+      ...(!isCrashRecovery && providerSessionId !== undefined ? { providerSessionId } : {}),
+      ...(!isCrashRecovery && historyThreadId !== undefined ? { historyThreadId } : {}),
+      ...(!isCrashRecovery && rlmStoreSessionId !== undefined ? { rlmStoreSessionId } : {}),
+      ...(waitReason !== undefined
+        ? {
+            waitReason: isCrashRecovery
+              ? redactRecoveryWaitReason(waitReason)
+              : waitReason,
+          }
+        : {}),
+      ...(metadata !== undefined
+        ? {
+            metadata: isCrashRecovery
+              ? {
+                  reason: 'crash-recovery',
+                  ...(metadata['continuityRevival'] === true ? { continuityRevival: true } : {}),
+                }
+              : metadata,
+          }
+        : {}),
       ...(selfManaged !== undefined ? { selfManagesAutoCompaction: selfManaged } : {}),
     };
   }
@@ -387,6 +531,9 @@ export class InstanceStateManager extends EventEmitter {
     }
     // Flush any remaining updates
     this.flushUpdates();
+    this.pendingInstances.clear();
+    this.pendingAdapters.clear();
+    this.pendingInstanceUpdates.clear();
     this.stateMachines.clear();
   }
 }
