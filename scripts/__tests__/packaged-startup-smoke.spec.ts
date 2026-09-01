@@ -6,6 +6,7 @@ const {
   classifyStartupLog,
   getLaunchCommand,
   getPackagedExecutableCandidates,
+  getStartupPollDecision,
   removeTempDirectory,
 } = require('../packaged-startup-smoke.js') as {
   classifyStartupLog: (content: string) => 'pending' | 'ready' | 'failed';
@@ -15,6 +16,10 @@ const {
     env: Record<string, string | undefined>;
   }) => { command: string; args: string[] };
   getPackagedExecutableCandidates: (root: string, platform: string) => string[];
+  getStartupPollDecision?: (
+    status: 'pending' | 'ready' | 'failed',
+    exitResult: { code: number | null; signal: NodeJS.Signals | null } | null,
+  ) => 'wait' | 'ready' | 'failed';
   removeTempDirectory: (
     directoryPath: string,
     rmSync?: (path: string, options: Record<string, unknown>) => void,
@@ -56,6 +61,12 @@ describe('packaged startup smoke helpers', () => {
     expect(classifyStartupLog(
       '{"level":"warn","message":"Context-evidence IPC registered in unavailable mode"}\n',
     )).toBe('failed');
+  });
+
+  it('keeps polling after the bootstrap process exits cleanly for a relaunch', () => {
+    expect(getStartupPollDecision?.('pending', { code: 0, signal: null })).toBe('wait');
+    expect(getStartupPollDecision?.('ready', { code: 0, signal: null })).toBe('ready');
+    expect(getStartupPollDecision?.('pending', { code: 1, signal: null })).toBe('failed');
   });
 
   it('does not turn a successful startup into a failure when temp cleanup races', () => {

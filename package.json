@@ -2,7 +2,7 @@
   "name": "harness",
   "version": "0.1.0",
   "description": "Harness — desktop application for managing multiple AI CLI instances",
-  "main": "dist/main/index.js",
+  "main": "dist/main/main-process-entry.js",
   "workspaces": [
     "packages/*"
   ],

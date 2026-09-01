@@ -9,6 +9,14 @@ app-instance-detail {
   min-height: 0;
 }
 
+// Prompt modals rendered from the instance list are descendants of the
+// sidebar's stacking context. Elevate that context while the modal is open so
+// later dashboard siblings (the transcript, resize handle, and control plane)
+// cannot paint over the full-screen modal.
+.dashboard .sidebar:has(app-prompt-modal.pm-host-open) {
+  z-index: var(--z-modal);
+}
+
 app-instance-detail .instance-detail {
   width: min(1180px, 100%);
   margin: 0 auto;

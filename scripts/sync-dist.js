@@ -49,7 +49,7 @@ for (const dir of dirs) {
 }
 
 // Assert the non-code assets actually landed in the tree Electron loads
-// (package.json "main" is dist/main/index.js). Unit tests cannot catch a
+// (package.json "main" is dist/main/main-process-entry.js). Unit tests cannot catch a
 // missing asset here — under vitest `__dirname` resolves to the SOURCE tree, so
 // discovery passes there while the real app finds nothing. Fail the build
 // loudly instead of shipping a silently dark feature (LT-009).

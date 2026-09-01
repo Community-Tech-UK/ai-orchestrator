@@ -51,6 +51,20 @@ export function getBrowserCredentialVault(): CredentialVault {
       runner: createBwRunner(),
       bindings: new SqliteVaultOriginBindingStore(),
       getSession: () => getBrowserCredentialSession().getToken(),
+      // Recover from a rotated or expired CLI session without a human. Without
+      // this, one laptop sleep leaves every credential fill failing until
+      // somebody opens the Browser screen and clicks Unlock, which is precisely
+      // the GUI step unattended operation exists to remove.
+      reauthenticate: async () => {
+        getBrowserCredentialSession().lock();
+        const result = await unlockBrowserCredentialVault();
+        if (!result.unlocked) {
+          logger.warn('Credential vault re-unlock after a stale session failed', {
+            reason: result.reason,
+          });
+        }
+        return result.unlocked;
+      },
     });
   }
   return credentialVault;
@@ -175,7 +189,9 @@ export function lockBrowserCredentialVault(): void {
  * reports itself unavailable until an unlock succeeds). Never logs the password
  * or the session token.
  */
-export async function maybeAutoUnlockBrowserCredentialVault(): Promise<void> {
+export async function maybeAutoUnlockBrowserCredentialVault(
+  options: { force?: boolean } = {},
+): Promise<void> {
   // Two operator-owned opt-ins, neither agent-writable: the UI-set
   // `browserVaultAutoUnlock` flag, or the launch env var (which, when set, is
   // itself the intent to auto-unlock). A tool-call can set neither.
@@ -190,8 +206,14 @@ export async function maybeAutoUnlockBrowserCredentialVault(): Promise<void> {
     return;
   }
   const status = getBrowserVaultStatus();
-  if (!status.locked) {
+  if (!status.locked && !options.force) {
+    // `locked` only means "no token held", not "the token still works", so this
+    // early return is why a rotated session could never be recovered by asking
+    // again. Callers who know the held session is suspect pass `force`.
     return;
+  }
+  if (options.force) {
+    getBrowserCredentialSession().lock();
   }
   if (!status.passwordSourceConfigured) {
     logger.warn('Vault auto-unlock enabled but no master-password source is configured');
@@ -229,7 +251,11 @@ export function watchVaultAutoUnlockSetting(): void {
   }
   const listener = (key: string): void => {
     if (key === 'browserVaultAutoUnlock' || key === 'browserVaultMasterPasswordFile') {
-      void maybeAutoUnlockBrowserCredentialVault();
+      // Force it. Someone changing these settings is asserting intent about the
+      // vault, and the usual reason to touch them is that filling has stopped
+      // working. Without `force` this did nothing whenever a stale token was
+      // held, which is exactly the case worth recovering from.
+      void maybeAutoUnlockBrowserCredentialVault({ force: true });
     }
   };
   manager.on('setting-changed', listener);

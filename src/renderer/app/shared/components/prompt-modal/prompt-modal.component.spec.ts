@@ -37,6 +37,19 @@ describe('PromptModalComponent', () => {
     expect(fixture.nativeElement.querySelector('.pm-overlay')).toBeNull();
   });
 
+  it('marks its host while open so an ancestor stacking context can be elevated', () => {
+    fixture.detectChanges();
+    expect(fixture.nativeElement.classList.contains('pm-host-open')).toBe(false);
+
+    fixture.componentRef.setInput('isOpen', true);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.classList.contains('pm-host-open')).toBe(true);
+
+    fixture.componentRef.setInput('isOpen', false);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.classList.contains('pm-host-open')).toBe(false);
+  });
+
   it('cannot confirm a blank draft when a value is required (default)', () => {
     expect(ci.canConfirm()).toBe(false);
     ci.draft.set('   ');

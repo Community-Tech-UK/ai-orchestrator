@@ -37,6 +37,8 @@ run(process.execPath, ['scripts/verify-package-exports.js']);
 verifyMacPackageSignature();
 
 const requiredFiles = [
+  'src/main/main-process-entry.ts',
+  'src/main/main-process-bootstrap.ts',
   'src/preload/generated/channels.ts',
   'src/main/index.ts',
   'build-preload.ts',

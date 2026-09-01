@@ -3,6 +3,7 @@ import {
   CredentialVault,
   CredentialVaultError,
   generateStrongPassword,
+  isStaleSessionFailure,
   secretVerificationDigest,
   verifyFilledSecret,
   type BwCommandResult,
@@ -626,5 +627,137 @@ describe('generateStrongPassword', () => {
 
   it('does not produce the same password twice in a row', () => {
     expect(generateStrongPassword()).not.toBe(generateStrongPassword());
+  });
+});
+
+describe('stale session recovery', () => {
+  // The failure this exists for: Bitwarden keeps ONE active CLI session. A long
+  // sleep, or any other process on the machine running `bw unlock`, rotates the
+  // key. The app goes on holding a token that no longer works, reports itself
+  // unlocked because `locked` just means "I hold a string", and every fill fails
+  // with bw_command_failed until a human clicks Unlock.
+  function makeVault(overrides: {
+    responses: BwCommandResult[];
+    reauthenticate?: () => Promise<boolean>;
+  }) {
+    const calls: string[][] = [];
+    const queue = [...overrides.responses];
+    const vault = new CredentialVault({
+      runner: {
+        run: async (args) => {
+          calls.push(args);
+          return queue.shift() ?? { stdout: '', stderr: '', code: 0 };
+        },
+      },
+      bindings: {
+        put: () => undefined,
+        get: () => ({
+          vaultItemRef: 'item-1',
+          origin: 'https://portal.example.gov.uk',
+          username: 'u',
+          createdAt: 1,
+        }),
+      } as never,
+      getSession: () => 'session-token',
+      ...(overrides.reauthenticate ? { reauthenticate: overrides.reauthenticate } : {}),
+    });
+    return { vault, calls };
+  }
+
+  const STALE: BwCommandResult = { stdout: '', stderr: 'You are not logged in.', code: 1 };
+  const OK_FOLDERS: BwCommandResult = {
+    stdout: JSON.stringify([{ id: 'folder-1', name: 'AIO-Agent' }]),
+    stderr: '',
+    code: 0,
+  };
+
+  const OK_ITEM: BwCommandResult = {
+    stdout: JSON.stringify({
+      id: 'item-1',
+      folderId: 'folder-1',
+      login: { username: 'u', password: 'the-secret' },
+    }),
+    stderr: '',
+    code: 0,
+  };
+
+  it('re-unlocks once and retries, so the fill succeeds instead of failing', async () => {
+    let reauthCalls = 0;
+    // First call is rejected as a stale session; after the re-unlock the same
+    // command is retried and the flow completes normally.
+    const { vault, calls } = makeVault({
+      responses: [STALE, OK_FOLDERS, OK_ITEM],
+      reauthenticate: async () => {
+        reauthCalls += 1;
+        return true;
+      },
+    });
+
+    await expect(vault.getSecretForFill({
+      vaultItemRef: 'item-1',
+      origin: 'https://portal.example.gov.uk',
+      kind: 'password',
+    })).resolves.toBe('the-secret');
+
+    expect(reauthCalls).toBe(1);
+    // The rejected command was retried, not skipped.
+    expect(calls[0]).toEqual(calls[1]);
+  });
+
+  it('does not retry a genuine failure, which would repeat a mutation', async () => {
+    let reauthCalls = 0;
+    const notFound: BwCommandResult = { stdout: '', stderr: 'Not found.', code: 1 };
+    const { vault } = makeVault({
+      responses: [notFound],
+      reauthenticate: async () => {
+        reauthCalls += 1;
+        return true;
+      },
+    });
+
+    await expect(vault.getSecretForFill({
+      vaultItemRef: 'item-1',
+      origin: 'https://portal.example.gov.uk',
+      kind: 'password',
+    })).rejects.toThrow();
+    expect(reauthCalls).toBe(0);
+  });
+
+  it('gives up rather than looping when the re-unlock itself fails', async () => {
+    let reauthCalls = 0;
+    const { vault } = makeVault({
+      responses: [STALE, STALE, STALE],
+      reauthenticate: async () => {
+        reauthCalls += 1;
+        return false;
+      },
+    });
+
+    await expect(vault.getSecretForFill({
+      vaultItemRef: 'item-1',
+      origin: 'https://portal.example.gov.uk',
+      kind: 'password',
+    })).rejects.toThrow(/bw .* failed/);
+    expect(reauthCalls).toBe(1);
+  });
+});
+
+describe('isStaleSessionFailure', () => {
+  it('recognises the CLI messages that mean our session is dead', () => {
+    for (const stderr of [
+      'You are not logged in.',
+      'Vault is locked.',
+      'Session key is invalid.',
+      'Invalid session',
+      'Error: mac failed.',
+    ]) {
+      expect(isStaleSessionFailure({ stdout: '', stderr, code: 1 }), stderr).toBe(true);
+    }
+  });
+
+  it('does not treat an ordinary failure as a session problem', () => {
+    for (const stderr of ['Not found.', 'More than one result was found.', '']) {
+      expect(isStaleSessionFailure({ stdout: '', stderr, code: 1 }), stderr).toBe(false);
+    }
   });
 });

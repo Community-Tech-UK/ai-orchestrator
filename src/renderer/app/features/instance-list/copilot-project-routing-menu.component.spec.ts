@@ -78,6 +78,7 @@ const ipc = {
   })),
   createRule: vi.fn<() => Promise<MutationResult>>(async () => ({ success: true })),
   signIn: vi.fn<() => Promise<MutationResult>>(async () => ({ success: true })),
+  verifyBinding: vi.fn<() => Promise<MutationResult & { data?: unknown }>>(async () => ({ success: true })),
   removeRule: vi.fn<() => Promise<MutationResult>>(async () => ({ success: true })),
 };
 
@@ -382,5 +383,48 @@ describe('swapping away from a PROTECTED rule', () => {
 
     expect(ipc.createRule, 'declining must not retry the move').toHaveBeenCalledTimes(1);
     confirmSpy.mockRestore();
+  });
+});
+
+describe('after an out-of-band sign-in completes', () => {
+  // Reported 2026-08-31: "I clicked sign in and the sign in was successful and
+  // it still says sign in." Correct diagnosis — `signIn` opens a terminal and
+  // returns immediately, the browser login lands minutes later, and nothing
+  // re-read the binding. The menu held its pre-login snapshot.
+  it('clears the Sign in state once the binding flips to authenticated', async () => {
+    const signedOut = account('enterprise', 'Work', false, 'unauthenticated');
+    ipc.list.mockResolvedValue([account('personal', 'Personal', true), signedOut]);
+    // Render with REAL timers: the render helper drains microtasks with
+    // setTimeout, and faking those first deadlocks collection.
+    const fixture = await render('/work/widgets');
+
+    ipc.verifyBinding.mockResolvedValue({
+      success: true,
+      data: { binding: { state: 'unauthenticated' } },
+    });
+
+    vi.useFakeTimers();
+    try {
+      await fixture.componentInstance.mapTo(signedOut, new Event('click'));
+      expect(ipc.signIn).toHaveBeenCalledWith('enterprise', 'github.com');
+
+      // The browser login lands.
+      ipc.list.mockResolvedValue([
+        account('personal', 'Personal', true),
+        account('enterprise', 'Work'),
+      ]);
+      ipc.verifyBinding.mockResolvedValue({
+        success: true,
+        data: { binding: { state: 'authenticated' } },
+      });
+      await vi.advanceTimersByTimeAsync(2_500);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(ipc.verifyBinding).toHaveBeenCalledWith('enterprise');
+    const refreshed = fixture.componentInstance.accounts().find((a) => a.id === 'enterprise');
+    expect(refreshed && fixture.componentInstance.isSignedIn(refreshed)).toBe(true);
+    expect(fixture.componentInstance.error()).toBeNull();
   });
 });

@@ -55,6 +55,17 @@ export interface CredentialVaultOptions {
   bindings: VaultOriginBindingStore;
   /** Returns the current BW_SESSION token, or undefined when the vault is locked. */
   getSession: () => string | undefined;
+  /**
+   * Re-unlock the vault and store a fresh session, resolving true on success.
+   *
+   * Needed because holding a session token is not the same as holding a working
+   * one. Bitwarden keeps ONE active CLI session: a laptop sleeping long enough,
+   * or any other process on the machine running `bw unlock`, rotates the key and
+   * silently invalidates ours. Nothing observes that until the next command
+   * fails, and the auto-unlock path cannot fix it because it treats "I hold a
+   * string" as unlocked and returns early.
+   */
+  reauthenticate?: () => Promise<boolean>;
   /** Bitwarden folder the vault is jailed to. Default 'AIO-Agent'. */
   folderName?: string;
   /** Override the password generator (tests). Default: crypto-strong. */
@@ -187,6 +198,7 @@ export class CredentialVault {
   private readonly runner: BwRunner;
   private readonly bindings: VaultOriginBindingStore;
   private readonly getSession: () => string | undefined;
+  private readonly reauthenticate: (() => Promise<boolean>) | undefined;
   private readonly folderName: string;
   private readonly makePassword: () => string;
   private readonly now: () => number;
@@ -196,6 +208,7 @@ export class CredentialVault {
     this.runner = options.runner;
     this.bindings = options.bindings;
     this.getSession = options.getSession;
+    this.reauthenticate = options.reauthenticate;
     this.folderName = options.folderName ?? DEFAULT_FOLDER;
     this.makePassword = options.generatePassword ?? generateStrongPassword;
     this.now = options.now ?? (() => Date.now());
@@ -432,11 +445,17 @@ export class CredentialVault {
   }
 
   private async bw(args: string[]): Promise<string> {
-    const session = this.getSession();
-    if (!session) {
-      throw new CredentialVaultError('Credential vault is locked (no BW_SESSION)', 'vault_locked');
+    let result = await this.runOnce(args);
+
+    // A held token that the CLI rejects is the common failure in unattended use,
+    // and it is indistinguishable from a locked vault to everything upstream.
+    // Re-unlock once and retry rather than failing the whole run.
+    if (result.code !== 0 && this.reauthenticate && isStaleSessionFailure(result)) {
+      if (await this.reauthenticate()) {
+        result = await this.runOnce(args);
+      }
     }
-    const result = await this.runner.run(args, { session });
+
     if (result.code !== 0) {
       // Neither argv nor stderr is safe to echo: a failed Bitwarden command may
       // repeat the encoded item body, which contains the generated password.
@@ -446,6 +465,14 @@ export class CredentialVault {
       );
     }
     return result.stdout;
+  }
+
+  private async runOnce(args: string[]): Promise<BwCommandResult> {
+    const session = this.getSession();
+    if (!session) {
+      throw new CredentialVaultError('Credential vault is locked (no BW_SESSION)', 'vault_locked');
+    }
+    return this.runner.run(args, { session });
   }
 
   private parseItem(stdout: string): BwItem {
@@ -465,6 +492,28 @@ const PASSWORD_CHARSETS = {
 };
 
 /** Crypto-strong, policy-compliant password (>=1 of each class), length 20. */
+/**
+ * Does this failure look like the session we hold is no longer valid?
+ *
+ * Deliberately narrow. Retrying every failure would double the work on a genuine
+ * error (a missing item, a malformed edit) and could repeat a mutation. These
+ * are the messages the Bitwarden CLI emits when the session key it was handed is
+ * rejected, matched case-insensitively.
+ *
+ * `stderr` is inspected but never logged or returned: a failed command can echo
+ * an encoded item body containing a password.
+ */
+export function isStaleSessionFailure(result: BwCommandResult): boolean {
+  const text = `${result.stderr ?? ''}`.toLowerCase();
+  return (
+    text.includes('not logged in')
+    || text.includes('vault is locked')
+    || text.includes('session key is invalid')
+    || text.includes('invalid session')
+    || text.includes('mac failed')
+  );
+}
+
 export function generateStrongPassword(length = 20): string {
   const all =
     PASSWORD_CHARSETS.upper +

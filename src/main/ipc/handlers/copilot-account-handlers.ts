@@ -41,6 +41,7 @@ import {
   getCopilotAccountBindingService,
 } from '../../providers/copilot/copilot-account-binding-service';
 import { buildCopilotAccountDoctorReport } from '../../providers/copilot/copilot-account-doctor';
+import { seedCopilotProfileIdentity } from '../../providers/copilot/copilot-account-seed';
 import { getCopilotAccountRoutingService } from '../../providers/copilot/copilot-account-routing-service';
 import {
   CopilotAccountStore,
@@ -208,7 +209,17 @@ export function registerCopilotAccountHandlers(
   handle(
     IPC_CHANNELS.COPILOT_ACCOUNT_CREATE,
     CopilotAccountCreatePayloadSchema,
-    (payload) => ({ success: true, data: toSafeProfile(store.createProfile(payload)) }),
+    async (payload) => {
+      const profile = store.createProfile(payload);
+      // Inherit an identity this machine is already signed in to, rather than
+      // asking for a second login for the same account. Best-effort: a failure
+      // just means the normal sign-in prompt.
+      if (payload.expectedLogin) {
+        await seedCopilotProfileIdentity(profile.id, payload.expectedLogin);
+        getCopilotAccountBindingService().invalidate();
+      }
+      return { success: true, data: toSafeProfile(profile) };
+    },
     'COPILOT_ACCOUNT_CREATE_FAILED',
   );
 

@@ -116,3 +116,38 @@ describe('maybeAutoUnlockBrowserCredentialVault', () => {
     expect(getBrowserCredentialSession().locked).toBe(false);
   });
 });
+
+describe('forced re-unlock', () => {
+  // Holding a session token is not the same as holding a working one. Bitwarden
+  // keeps ONE active CLI session, so a long sleep or another process running
+  // `bw unlock` rotates the key out from under us. Before `force`, asking again
+  // did nothing at all, because the early return treats "token held" as unlocked.
+  let pwFile: string;
+
+  beforeEach(async () => {
+    _resetBrowserCredentialSessionForTesting();
+    pwFile = path.join(await fs.mkdtemp(path.join(os.tmpdir(), 'vault-force-')), 'pw.txt');
+    await fs.writeFile(pwFile, 'master-password', 'utf8');
+    settingsMock.values = {
+      browserVaultAutoUnlock: true,
+      browserVaultMasterPasswordFile: pwFile,
+    };
+  });
+
+  it('does nothing when a token is held and force is not set', async () => {
+    getBrowserCredentialSession().unlock('STALE-TOKEN');
+
+    await maybeAutoUnlockBrowserCredentialVault();
+
+    expect(getBrowserCredentialSession().getToken()).toBe('STALE-TOKEN');
+  });
+
+  it('replaces a held token when forced', async () => {
+    getBrowserCredentialSession().unlock('STALE-TOKEN');
+
+    await maybeAutoUnlockBrowserCredentialVault({ force: true });
+
+    expect(getBrowserVaultStatus().locked).toBe(false);
+    expect(getBrowserCredentialSession().getToken()).toBe('RAW-SESSION');
+  });
+});

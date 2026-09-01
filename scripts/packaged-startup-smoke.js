@@ -55,6 +55,13 @@ function classifyStartupLog(content) {
   return content.includes('Harness initialized') ? 'ready' : 'pending';
 }
 
+function getStartupPollDecision(status, exitResult) {
+  if (status === 'failed') return 'failed';
+  if (status === 'ready') return 'ready';
+  if (exitResult && ('error' in exitResult || exitResult.code !== 0)) return 'failed';
+  return 'wait';
+}
+
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -117,19 +124,14 @@ async function runPackagedStartupSmoke(options = {}) {
       const fileContent = fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf8') : '';
       const content = `${capturedOutput}\n${fileContent}`;
       const status = classifyStartupLog(content);
-      if (status === 'failed') {
+      const decision = getStartupPollDecision(status, exitResult);
+      if (decision === 'failed' && status === 'failed') {
         throw new Error('Packaged startup smoke observed a critical initialization failure');
       }
-      if (status === 'ready' || fs.existsSync(readyMarkerPath)) break;
-      if (exitResult) {
-        if ('error' in exitResult || exitResult.code !== 0) {
-          throw new Error(`Packaged app exited before startup completed: ${formatExit(exitResult)}`);
-        }
-        // A successful smoke run self-quits immediately after logging readiness.
-        // Re-read the completed log below instead of racing the exit event against
-        // the next polling interval.
-        break;
+      if (decision === 'failed' && exitResult) {
+        throw new Error(`Packaged app exited before startup completed: ${formatExit(exitResult)}`);
       }
+      if (decision === 'ready' || fs.existsSync(readyMarkerPath)) break;
       await delay(POLL_INTERVAL_MS);
     }
 
@@ -181,6 +183,7 @@ module.exports = {
   classifyStartupLog,
   getLaunchCommand,
   getPackagedExecutableCandidates,
+  getStartupPollDecision,
   removeTempDirectory,
   runPackagedStartupSmoke,
 };

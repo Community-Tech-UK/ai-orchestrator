@@ -31,6 +31,9 @@ import {
 } from '../../core/services/ipc/copilot-account-ipc.service';
 import type { CopilotRouteOutcome } from '../../../../shared/types/copilot-account.types';
 
+const SIGN_IN_POLL_INTERVAL_MS = 2_000;
+const SIGN_IN_POLL_TIMEOUT_MS = 180_000;
+
 @Component({
   standalone: true,
   selector: 'app-copilot-project-routing-menu',
@@ -212,6 +215,35 @@ export class CopilotProjectRoutingMenuComponent {
     () => this.accountsSignal().length <= 1 && this.addable().length === 0,
   );
 
+
+  /**
+   * Wait for an out-of-band sign-in to land, then refresh.
+   *
+   * `signIn` opens a terminal and returns immediately; the user finishes in a
+   * browser seconds or minutes later. Without this the menu holds whatever it
+   * read before the login — which is what made a successful sign-in still show
+   * "Sign in". Bounded, so a login the user abandons cannot poll forever.
+   */
+  private async awaitSignIn(account: CopilotAccountView): Promise<void> {
+    const deadline = Date.now() + SIGN_IN_POLL_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, SIGN_IN_POLL_INTERVAL_MS));
+      if (this.projectPath() === null) return;
+      const verified = await this.ipc.verifyBinding(account.id);
+      if (!verified.success) continue;
+      const state = (verified.data as { binding?: { state?: string } } | undefined)?.binding?.state;
+      if (state === 'authenticated') {
+        this.loadedFor = null;
+        this.errorSignal.set(null);
+        await this.load();
+        return;
+      }
+    }
+    this.errorSignal.set(
+      `${account.label} is still not signed in on this device. Re-open this menu once the login finishes.`,
+    );
+  }
+
   /** A profile with no verified sign-in on this device cannot run a session. */
   isSignedIn(account: CopilotAccountView): boolean {
     return account.binding?.state === 'authenticated';
@@ -309,9 +341,11 @@ export class CopilotProjectRoutingMenuComponent {
           this.errorSignal.set(response.error?.message ?? 'Could not start sign-in.');
           return;
         }
-        this.errorSignal.set(
-          `Finish signing in as ${account.label} in the terminal that just opened, then pick it again.`,
-        );
+        this.errorSignal.set(`Finish signing in as ${account.label} in the terminal that opened…`);
+        // The login completes in a terminal AFTER this returns, so nothing here
+        // would ever re-read it: the menu kept showing "Sign in" over an
+        // account that was by then signed in. Poll until the binding flips.
+        void this.awaitSignIn(account);
         return;
       }
       const remotes = await this.ipc.suggestRules(path);
@@ -428,12 +462,27 @@ export class CopilotProjectRoutingMenuComponent {
           binding: { nodeId: 'local', state: 'authenticated', checkedAt: 0 } } as CopilotAccountView,
         event,
       );
+      // A profile added for an account this machine already holds inherits that
+      // identity, so check before asking for a login the user has already done.
+      const verified = await this.ipc.verifyBinding(profileId);
+      const state = (verified.data as { binding?: { state?: string } } | undefined)?.binding?.state;
+      if (verified.success && state === 'authenticated') {
+        this.loadedFor = null;
+        this.errorSignal.set(null);
+        await this.load();
+        return;
+      }
       const signIn = await this.ipc.signIn(profileId, candidate.host);
       this.errorSignal.set(
         signIn.success
           ? `Mapped. Finish signing in as ${candidate.login} in the terminal that just opened.`
           : signIn.error?.message ?? 'Mapped, but sign-in could not be started.',
       );
+      if (signIn.success) {
+        void this.awaitSignIn(
+          { id: profileId, label: candidate.login, host: candidate.host } as CopilotAccountView,
+        );
+      }
     } catch (error) {
       this.errorSignal.set(error instanceof Error ? error.message : String(error));
     } finally {
