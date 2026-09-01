@@ -128,6 +128,25 @@ describe('RLMContextManager — LT-055 lazy semantic-search indexing', () => {
     expect(indexSpy).not.toHaveBeenCalled();
   });
 
+  it('rebuilds optimized lexical Bloom after lazily hydrating section content', () => {
+    const store = manager.createStore('inst-hydration');
+    const section = manager.addSection(
+      store.id,
+      'external',
+      'lazy-note',
+      'hydrated lexical content',
+      undefined,
+    );
+    section.content = '';
+
+    manager.searchStoreOptimized(store.id, ['hydrated']);
+    expect(manager.getSectionContentLazy(store.id, section.id)).toBe('hydrated lexical content');
+
+    expect(manager.searchStoreOptimized(store.id, ['hydrated'])).toMatchObject({
+      sectionsAccessed: [section.id],
+    });
+  });
+
   it('a store that fails to index once is retried on the next semantic_search rather than permanently stuck', async () => {
     const { storeId, sessionId } = await seedStoreWithSection('backoff notes about retry jitter');
 
@@ -149,5 +168,116 @@ describe('RLMContextManager — LT-055 lazy semantic-search indexing', () => {
     const reindexSpy = vi.spyOn(manager, 'indexStoreForSemanticSearch');
     await manager.executeQuery(sessionId, { type: 'semantic_search', params: { query: 'jitter', useHyDE: false } });
     expect(reindexSpy).toHaveBeenCalledWith(storeId);
+  });
+
+  it('rehydrates persisted content for semantic search and clears completed semantic work on reload', async () => {
+    const { storeId, sessionId } = await seedStoreWithSection('persisted semantic retry content');
+    const indexSpy = vi.spyOn(manager, 'indexStoreForSemanticSearch');
+
+    await manager.executeQuery(sessionId, {
+      type: 'semantic_search',
+      params: { query: 'semantic retry', useHyDE: false },
+    });
+    expect(indexSpy).toHaveBeenCalledTimes(1);
+
+    manager.reloadFromPersistence();
+    expect(manager.getStoreHydrationState(storeId)).toMatchObject({
+      metadata: 'deferred',
+      content: 'deferred',
+    });
+
+    const afterReload = await manager.executeQuery(sessionId, {
+      type: 'semantic_search',
+      params: { query: 'semantic retry', useHyDE: false },
+    });
+    expect(indexSpy).toHaveBeenCalledTimes(2);
+    expect(afterReload.result).toContain('note-1');
+    expect(manager.getStoreHydrationState(storeId)).toMatchObject({
+      metadata: 'resident',
+      content: 'resident',
+    });
+  });
+
+  it('fences pending semantic indexing across reload before starting replacement-state repair', async () => {
+    const { storeId } = await seedStoreWithSection('generation-fenced semantic content');
+    let resolveFirst!: (value: { indexed: number; skipped: number }) => void;
+    const firstIndex = new Promise<{ indexed: number; skipped: number }>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const originalIndex = manager.indexStoreForSemanticSearch.bind(manager);
+    const indexSpy = vi.spyOn(manager, 'indexStoreForSemanticSearch')
+      .mockImplementationOnce(async () => firstIndex)
+      .mockImplementation(async (id) => originalIndex(id));
+    const privateManager = manager as unknown as {
+      ensureStoreIndexedForSemanticSearch(
+        id: string,
+      ): Promise<{ indexed: number; skipped: number }> | null;
+    };
+
+    const oldWork = privateManager.ensureStoreIndexedForSemanticSearch.call(manager, storeId)!;
+    await vi.waitFor(() => expect(indexSpy).toHaveBeenCalledTimes(1));
+    manager.reloadFromPersistence();
+    const replacementWork = privateManager.ensureStoreIndexedForSemanticSearch.call(manager, storeId)!;
+
+    await Promise.resolve();
+    expect(indexSpy).toHaveBeenCalledTimes(1);
+    resolveFirst({ indexed: 1, skipped: 0 });
+    await oldWork;
+    await replacementWork;
+    expect(indexSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('removes vectors produced by a stale generation before replacement indexing begins', async () => {
+    const db = RLMDatabase.getInstance();
+    db.createStore({ id: 'generation-store', instanceId: 'generation-instance' });
+    db.addSection({
+      id: 'generation-section',
+      storeId: 'generation-store',
+      type: 'external',
+      name: 'generation.txt',
+      startOffset: 0,
+      endOffset: 18,
+      tokens: 4,
+      content: 'generation content',
+    });
+    manager.reloadFromPersistence();
+    let resolveOld!: (value: Awaited<ReturnType<typeof embed>>) => void;
+    let resolveReplacement!: (value: Awaited<ReturnType<typeof embed>>) => void;
+    const oldEmbedding = new Promise<Awaited<ReturnType<typeof embed>>>((resolve) => {
+      resolveOld = resolve;
+    });
+    const replacementEmbedding = new Promise<Awaited<ReturnType<typeof embed>>>((resolve) => {
+      resolveReplacement = resolve;
+    });
+    embed
+      .mockImplementationOnce(async () => oldEmbedding)
+      .mockImplementationOnce(async () => replacementEmbedding);
+    const privateManager = manager as unknown as {
+      ensureStoreIndexedForSemanticSearch(
+        id: string,
+      ): Promise<{ indexed: number; skipped: number }> | null;
+    };
+    const embedding = {
+      embedding: [1, 2, 3], model: 'test-embed', tokens: 4, cached: false, provider: 'test',
+    };
+
+    const stale = privateManager.ensureStoreIndexedForSemanticSearch.call(
+      manager, 'generation-store',
+    )!;
+    await vi.waitFor(() => expect(embed).toHaveBeenCalledTimes(1));
+    manager.reloadFromPersistence();
+    const replacement = privateManager.ensureStoreIndexedForSemanticSearch.call(
+      manager, 'generation-store',
+    )!;
+    resolveOld(embedding);
+
+    await vi.waitFor(() => expect(embed).toHaveBeenCalledTimes(2));
+    expect(manager.getVectorStoreStats()?.totalVectors).toBe(0);
+    resolveReplacement(embedding);
+    await stale;
+    await replacement;
+    expect(manager.getVectorStoreStats()?.storeStats).toEqual([
+      expect.objectContaining({ storeId: 'generation-store', vectorCount: 1 }),
+    ]);
   });
 });

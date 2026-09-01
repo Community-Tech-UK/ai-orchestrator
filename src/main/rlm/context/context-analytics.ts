@@ -209,6 +209,7 @@ export function getStoreStats(store: ContextStore): RLMStoreStats {
     summaries,
     totalTokens: store.totalTokens,
     summaryLevels: maxDepth + 1,
-    indexedTerms: store.searchIndex?.terms.size || 0
+    // Deprecated compatibility field; lexical search no longer owns a term index.
+    indexedTerms: 0
   };
 }

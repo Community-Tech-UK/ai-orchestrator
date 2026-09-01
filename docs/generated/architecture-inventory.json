@@ -5964,7 +5964,7 @@
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.ts",
-      "lines": 2239
+      "lines": 2250
     },
     {
       "path": "src/main/cli/adapters/claude-cli-adapter.ts",
@@ -6012,7 +6012,7 @@
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
-      "lines": 1977
+      "lines": 1976
     },
     {
       "path": "docs/superpowers/plans/2026-04-13-session-restart-preserve-history_completed.md",
@@ -6679,6 +6679,10 @@
       "lines": 925
     },
     {
+      "path": "src/main/rlm/context-residency-controller.spec.ts",
+      "lines": 923
+    },
+    {
       "path": "src/renderer/app/features/plugins/plugins-page.component.ts",
       "lines": 920
     },
@@ -6795,10 +6799,6 @@
       "lines": 854
     },
     {
-      "path": "src/renderer/app/core/state/instance/instance-messaging.store.spec.ts",
-      "lines": 853
-    },
-    {
       "path": "src/renderer/app/features/stats/stats-page.component.ts",
       "lines": 852
     },
@@ -6821,6 +6821,10 @@
     {
       "path": "src/main/orchestration/embedding-service.ts",
       "lines": 845
+    },
+    {
+      "path": "src/renderer/app/core/state/instance/instance-messaging.store.spec.ts",
+      "lines": 844
     },
     {
       "path": "docs/superpowers/specs/2026-04-05-bash-validation-pipeline-design.md",
@@ -6940,6 +6944,10 @@
     },
     {
       "path": "src/main/core/config/claude-md-loader.ts",
+      "lines": 804
+    },
+    {
+      "path": "src/main/instance/__tests__/context-worker-client.spec.ts",
       "lines": 804
     },
     {

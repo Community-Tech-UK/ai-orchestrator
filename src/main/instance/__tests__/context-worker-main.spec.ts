@@ -7,6 +7,9 @@ async function flushMicrotasks(times = 8): Promise<void> {
 }
 
 describe('context worker main', () => {
+  const startHotPrewarm = vi.fn(() => true);
+  const cancelHotPrewarm = vi.fn(() => true);
+
   beforeEach(() => {
     vi.resetModules();
     vi.doMock('../register-aliases', () => ({}));
@@ -37,6 +40,11 @@ describe('context worker main', () => {
     }));
     vi.doMock('../../persistence/rlm-database', () => ({
       RLMDatabase: { getInstance: vi.fn(() => ({})) },
+    }));
+    vi.doMock('../../rlm/context-manager', () => ({
+      RLMContextManager: {
+        getInstance: vi.fn(() => ({ startHotPrewarm, cancelHotPrewarm })),
+      },
     }));
     vi.doMock('../context-worker-event-forwarding', () => ({
       registerWorkerEventForwarding: vi.fn(),
@@ -112,6 +120,44 @@ describe('context worker main', () => {
       }));
     } finally {
       delete process.env['AIO_USER_DATA_PATH'];
+      if (originalSendDescriptor) {
+        Object.defineProperty(process, 'send', originalSendDescriptor);
+      } else {
+        Reflect.deleteProperty(process, 'send');
+      }
+    }
+  });
+
+  it('routes clone-safe hot-prewarm start, cancel, and shutdown cancellation to the RLM owner', async () => {
+    const send = vi.fn();
+    const handlers: ((message: unknown) => void)[] = [];
+    const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+    const originalSendDescriptor = Object.getOwnPropertyDescriptor(process, 'send');
+    const originalOn = process.on.bind(process);
+    Object.defineProperty(process, 'send', { configurable: true, value: send });
+    vi.spyOn(process, 'on').mockImplementation((eventName, listener) => {
+      if (eventName === 'message') {
+        handlers.push(listener as (message: unknown) => void);
+        return process;
+      }
+      return originalOn(eventName, listener);
+    });
+
+    try {
+      await import('../context-worker-main');
+      handlers[0]?.({ type: 'start-hot-prewarm', id: 51 });
+      handlers[0]?.({ type: 'cancel-hot-prewarm' });
+      handlers[0]?.({ type: 'shutdown', id: 52 });
+      await flushMicrotasks();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      expect(startHotPrewarm).toHaveBeenCalledOnce();
+      expect(cancelHotPrewarm).toHaveBeenCalledTimes(2);
+      expect(exit).toHaveBeenCalledWith(0);
+      expect(send).toHaveBeenCalledWith({
+        type: 'rpc-response', id: 51, result: true, error: undefined,
+      });
+    } finally {
       if (originalSendDescriptor) {
         Object.defineProperty(process, 'send', originalSendDescriptor);
       } else {

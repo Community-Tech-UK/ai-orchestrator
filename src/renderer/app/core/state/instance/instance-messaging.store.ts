@@ -743,14 +743,14 @@ export class InstanceMessagingStore {
     errorMessage: string
   ): { shouldRetry: boolean; nextStatus?: InstanceStatus } {
     const normalized = errorMessage.toLowerCase();
-
     if (normalized.includes('send input timed out')) {
       return { shouldRetry: false, nextStatus: 'idle' };
     }
 
-    // Park behind the provider-owned Codex turn. Only a real ready edge may
-    // drain this message; a timer would collide with the same owner again.
-    if (normalized.includes('codex app-server runtime already has an active turn')) {
+    // Park behind the provider-owned turn. Only a real ready edge may drain
+    // this message; a timer would collide with the same owner again.
+    if (normalized.includes('codex app-server runtime already has an active turn')
+      || normalized.includes('previous turn is still running')) {
       return { shouldRetry: true, nextStatus: 'busy' };
     }
 

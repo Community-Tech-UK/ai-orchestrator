@@ -59,6 +59,7 @@ import { InstanceContextManager } from './instance-context';
 import { getWakeContextBuilder } from '../memory/wake-context-builder';
 import { buildMcpRuntimeToolContextSelection } from '../mcp/mcp-runtime-tool-context';
 import { RLMDatabase } from '../persistence/rlm-database';
+import { RLMContextManager } from '../rlm/context-manager';
 import { getPolicyAdapter } from '../observation/policy-adapter';
 import { buildProjectMemoryBriefInWorker } from '../memory/project-memory-brief-worker';
 import { registerWorkerEventForwarding } from './context-worker-event-forwarding';
@@ -390,7 +391,18 @@ async function handleMessage(msg: ContextWorkerInboundMsg): Promise<void> {
       break;
     }
 
+    case 'start-hot-prewarm': {
+      respond(msg.id, RLMContextManager.getInstance().startHotPrewarm());
+      break;
+    }
+
+    case 'cancel-hot-prewarm': {
+      RLMContextManager.getInstance().cancelHotPrewarm();
+      break;
+    }
+
     case 'shutdown': {
+      RLMContextManager.getInstance().cancelHotPrewarm();
       respond(msg.id);
       exitAfterMessageFlush();
       break;

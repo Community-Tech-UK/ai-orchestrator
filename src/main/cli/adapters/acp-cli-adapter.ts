@@ -279,6 +279,12 @@ function isAcpPromptCancelledByClient(error: Error): boolean {
   return error.message === ACP_PROMPT_CANCELLED_BY_CLIENT_MESSAGE;
 }
 
+function isAcpActiveTurnCollision(error: Error): boolean {
+  return error.message.startsWith(
+    'Cannot send message: the previous turn is still running.',
+  );
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -524,14 +530,19 @@ export class AcpCliAdapter extends BaseCliAdapter {
         attachments: cliAttachments,
       });
     } catch (error) {
-      // Surface failures as an `error` OutputMessage + `status: error` event
-      // (matching the CopilotCliAdapter contract). Without this, a thrown
-      // error from sendMessage — e.g. "already has a prompt turn in flight"
-      // when the user types while a turn is still running — was silently
-      // swallowed by the caller and the UI kept showing "Processing…".
+      // Surface provider/runtime failures as an `error` OutputMessage plus
+      // `status: error` (matching the CopilotCliAdapter contract). Scheduling
+      // collisions are handled separately below so the live turn stays owned
+      // by the adapter and the renderer can park the follow-up message.
       const err = error instanceof Error ? error : new Error(String(error));
       if (isAcpPromptCancelledByClient(err)) {
         return;
+      }
+      // This is a scheduling collision, not a provider/runtime failure. Let
+      // the caller return it through IPC so the renderer can park the message
+      // behind the authoritative active turn without poisoning the adapter.
+      if (isAcpActiveTurnCollision(err)) {
+        throw err;
       }
       const isRecoverablePromptTimeout = isAcpPromptRequestTimeout(err);
       const errorMessage: OutputMessage = {

@@ -23,7 +23,6 @@ import {
   generateShortId,
   splitContent
 } from './context.utils';
-import { updateSearchIndex, createSearchIndex } from './context-cache';
 import { getLogger } from '../../logging/logger';
 import { redactForEgress } from '../../security/content-egress-gate';
 
@@ -141,6 +140,9 @@ export function addSection(
   store.sections.push(section);
   store.totalTokens += tokens;
   store.totalSize += content.length;
+  // A previously-built Bloom filter must be rebuilt on the next optimized
+  // search so it cannot exclude this newly added lexical content.
+  store.bloomFilter = undefined;
 
   // Persist section to database
   if (deps.db && deps.persistenceEnabled) {
@@ -166,12 +168,6 @@ export function addSection(
       logger.error('Failed to persist section', error instanceof Error ? error : undefined);
     }
   }
-
-  // Rebuild search index incrementally
-  if (!store.searchIndex) {
-    store.searchIndex = createSearchIndex();
-  }
-  updateSearchIndex(store.searchIndex!, section);
 
   // Add vector for semantic search (async, don't await)
   if (deps.vectorStore) {
@@ -209,6 +205,10 @@ function addLargeSection(
   const tokenEstimator = deps.tokenEstimator || estimateTokens;
   const chunks = splitContent(content, deps.maxSectionTokens, tokenEstimator);
   const sections: ContextSection[] = [];
+
+  // Preserve first-use Bloom construction while preventing stale negatives
+  // after this multi-section write.
+  store.bloomFilter = undefined;
 
   for (let i = 0; i < chunks.length; i++) {
     const chunkSection: ContextSection = {
@@ -265,10 +265,6 @@ function addLargeSection(
         });
     }
 
-    if (!store.searchIndex) {
-      store.searchIndex = createSearchIndex();
-    }
-    updateSearchIndex(store.searchIndex!, chunkSection);
     sections.push(chunkSection);
   }
 
@@ -277,7 +273,7 @@ function addLargeSection(
 }
 
 /**
- * Batch add multiple sections with deferred index rebuild.
+ * Batch add multiple sections.
  * Much faster than adding sections one by one.
  *
  * @param store - Store to add sections to
@@ -341,14 +337,8 @@ export async function addSectionsBatch(
     }
   }
 
-  // Initialize search index if needed
-  if (!store.searchIndex) {
-    store.searchIndex = createSearchIndex();
-  }
-
-  // Rebuild search index once for all sections
-  for (const section of addedSections) {
-    updateSearchIndex(store.searchIndex!, section);
+  if (addedSections.length > 0) {
+    store.bloomFilter = undefined;
   }
 
   // Batch generate embeddings for semantic search
@@ -404,6 +394,7 @@ export function removeSection(
 
   store.sections.splice(index, 1);
   store.totalTokens -= section.tokens;
+  store.bloomFilter = undefined;
 
   return section;
 }

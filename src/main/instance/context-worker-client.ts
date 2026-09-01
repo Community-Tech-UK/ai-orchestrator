@@ -12,8 +12,8 @@
  *   and metrics.dropped is incremented.
  * - RPC methods (initializeRlm, buildRlmContext, …) resolve to null on timeout
  *   so the caller can continue sending user input rather than blocking.
- * - Worker crash: marks the client degraded, fails all pending RPCs, then
- *   attempts one restart after RESTART_BACKOFF_MS. Second crash stays degraded.
+ * - Worker crash: marks the client degraded, fails pending RPCs, and retries
+ *   with bounded backoff.
  * - Synchronous helpers (calculateContextBudget, format*) run in-process so
  *   they never add worker round-trips to the user-input hot path.
  */
@@ -29,6 +29,7 @@ import type { Instance, OutputMessage } from '../../shared/types/instance.types'
 import type { RlmContextInfo, ContextBudget, UnifiedMemoryContextInfo } from './instance-types';
 import type { InstanceContextPort } from './instance-context-port';
 import { COMPACTION_KEEP_RECENT, trimBufferRetainingPrompts } from './prompt-retention';
+import { ContextWorkerPrewarmLifecycle } from './context-worker-prewarm-lifecycle';
 import {
   buildMcpRuntimeToolContextSelection as selectMcpRuntimeToolContext,
   MCPToolSearchSnapshot,
@@ -37,28 +38,14 @@ import {
 import type {
   HabitTrackerStateSnapshot,
   ContextWorkerInboundMsg,
+  ContextWorkerRpcMsg,
   ContextWorkerOutboundMsg,
   ContextWorkerInstanceSnapshot,
   ContextWorkerOutputMsg,
-  InitializeRlmMsg,
-  BuildRlmContextMsg,
-  BuildUnifiedMemoryContextMsg,
-  BuildObservationContextMsg,
-  BuildProjectMemoryBriefMsg,
-  BuildWakeContextTextMsg,
-  BuildMcpRuntimeToolContextMsg,
-  CompactContextMsg,
-  IngestInitialOutputMsg,
-  LoadHabitTrackerStateMsg,
-  LoadMetricsCollectorStateMsg,
-  LoadOutcomeTrackerStateMsg,
   MetricsCollectorStateSnapshot,
   OutcomeTrackerStateSnapshot,
-  GetStatsMsg,
-  ReloadRlmPersistenceMsg,
   ProjectMemoryBrief,
   ProjectMemoryBriefRequest,
-  ShutdownMsg,
 } from './context-worker-protocol';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -91,22 +78,7 @@ interface PendingRpc {
   timeout: NodeJS.Timeout;
 }
 
-type RpcMsgWithId =
-  | InitializeRlmMsg
-  | BuildRlmContextMsg
-  | BuildUnifiedMemoryContextMsg
-  | BuildObservationContextMsg
-  | BuildProjectMemoryBriefMsg
-  | BuildWakeContextTextMsg
-  | BuildMcpRuntimeToolContextMsg
-  | LoadOutcomeTrackerStateMsg
-  | LoadMetricsCollectorStateMsg
-  | LoadHabitTrackerStateMsg
-  | CompactContextMsg
-  | IngestInitialOutputMsg
-  | GetStatsMsg
-  | ReloadRlmPersistenceMsg
-  | ShutdownMsg;
+type RpcMsgWithId = ContextWorkerRpcMsg;
 
 export interface ContextWorkerClientOptions {
   rpcTimeoutMs?: number;
@@ -180,6 +152,11 @@ export class ContextWorkerClient implements InstanceContextPort {
   private isDegraded = false;
   private restartAttempts = 0;
   private shuttingDown = false;
+  private readonly prewarmLifecycle = new ContextWorkerPrewarmLifecycle(
+    () => this.shuttingDown || this.isDegraded || !this.worker
+      ? undefined
+      : this.startHotPrewarm(),
+  );
   private restartTimer: NodeJS.Timeout | null = null;
   private readonly rpcTimeoutMs: number;
   private readonly workerFactory: (userDataPath: string) => ContextWorkerProcessHandle;
@@ -481,9 +458,24 @@ export class ContextWorkerClient implements InstanceContextPort {
     await this.postRpc({ type: 'reload-rlm-persistence', id });
   }
 
+  async startHotPrewarm(): Promise<boolean> {
+    if (this.isDegraded) return false;
+    const result = await this.postRpc({ type: 'start-hot-prewarm', id: this.nextId() });
+    return result === true;
+  }
+
+  signalAppReady(): boolean {
+    return this.prewarmLifecycle.signalAppReady();
+  }
+
+  cancelHotPrewarm(): void {
+    this.postFireAndForget({ type: 'cancel-hot-prewarm' });
+  }
+
   // ── Lifecycle ────────────────────────────────────────────────────────────────
 
   async shutdown(): Promise<void> {
+    this.cancelHotPrewarm();
     this.shuttingDown = true;
     if (this.restartTimer) {
       clearTimeout(this.restartTimer);
@@ -513,14 +505,15 @@ export class ContextWorkerClient implements InstanceContextPort {
     this.shuttingDown = false;
     try {
       const w = this.workerFactory(this.userDataPath);
-      w.on('message', (msg: ContextWorkerOutboundMsg) => this.handleMessage(msg));
-      w.on('error', (err) => this.handleWorkerError(err));
+      w.on('message', (msg: ContextWorkerOutboundMsg) => this.handleMessage(msg, w));
+      w.on('error', (err) => this.handleWorkerError(err, w));
       w.on('exit', (code) => {
         if (code !== 0 && !this.shuttingDown) {
-          this.handleWorkerError(new Error(`Context worker exited with code ${code}`));
+          this.handleWorkerError(new Error(`Context worker exited with code ${code}`), w);
         }
       });
       this.worker = w;
+      this.prewarmLifecycle.beginWorker();
       logger.info('Context worker started');
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
@@ -529,10 +522,12 @@ export class ContextWorkerClient implements InstanceContextPort {
     }
   }
 
-  private handleMessage(msg: ContextWorkerOutboundMsg): void {
+  private handleMessage(msg: ContextWorkerOutboundMsg, sourceWorker: ContextWorkerProcessHandle): void {
+    if (sourceWorker !== this.worker) return;
     // LT-169/170/206: re-emit on main's own singleton — see
     // context-worker-event-forwarding.ts for the cross-process why.
     if (msg.type === 'skill-activation' || msg.type === 'worker-event') return void dispatchWorkerBroadcast(msg);
+    if (msg.type === 'ready') return this.prewarmLifecycle.markWorkerReady();
     if (msg.type !== 'rpc-response') return;
     const pending = this.pending.get(msg.id);
     if (!pending) return;
@@ -553,9 +548,15 @@ export class ContextWorkerClient implements InstanceContextPort {
     }
   }
 
-  private handleWorkerError(err: Error): void {
+  private handleWorkerError(
+    err: Error,
+    failedWorker: ContextWorkerProcessHandle | null = this.worker,
+  ): void {
+    if (failedWorker && failedWorker !== this.worker) return;
     this.metrics.lastError = err.message;
     this.failAllPending(err);
+    this.cancelHotPrewarm();
+    void failedWorker?.terminate().catch(() => undefined);
     this.worker = null;
     if (this.shuttingDown) {
       return;

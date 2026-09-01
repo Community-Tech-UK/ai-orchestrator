@@ -41,6 +41,31 @@ export interface ContextSectionRow {
   content_inline: string | null;
 }
 
+/**
+ * Content-free section data used by the residency controller. Inline content
+ * is deliberately absent; `content_size_bytes` is only an admission estimate.
+ */
+export type ContextSectionMetadataRow = Omit<ContextSectionRow, 'content_inline'> & {
+  /**
+   * Exact UTF-8 bytes for inline content; an offset-span estimate for file-backed
+   * content. The residency controller must verify admitted content with
+   * Buffer.byteLength(content, 'utf8') before retention.
+   */
+  content_size_bytes: number;
+};
+
+export interface ContextStoreSectionCountRow {
+  store_id: string;
+  section_count: number;
+}
+
+/** Constant-size aggregate used by storage analytics without section hydration. */
+export interface ContextSectionTypeStatsRow {
+  type: string;
+  section_count: number;
+  total_tokens: number;
+}
+
 export interface RLMSessionRow {
   id: string;
   store_id: string;

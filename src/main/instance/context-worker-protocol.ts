@@ -135,6 +135,11 @@ export interface ReloadRlmPersistenceMsg {
   id: number;
 }
 
+export interface StartHotPrewarmMsg {
+  type: 'start-hot-prewarm';
+  id: number;
+}
+
 export interface ShutdownMsg {
   type: 'shutdown';
   id: number;
@@ -159,6 +164,10 @@ export interface IngestUnifiedMemoryMsg {
   message: ContextWorkerOutputMsg;
 }
 
+export interface CancelHotPrewarmMsg {
+  type: 'cancel-hot-prewarm';
+}
+
 export type ContextWorkerRpcMsg =
   | InitializeRlmMsg
   | BuildRlmContextMsg
@@ -174,12 +183,14 @@ export type ContextWorkerRpcMsg =
   | IngestInitialOutputMsg
   | GetStatsMsg
   | ReloadRlmPersistenceMsg
+  | StartHotPrewarmMsg
   | ShutdownMsg;
 
 export type ContextWorkerFireForgetMsg =
   | EndRlmSessionMsg
   | IngestRlmMsg
-  | IngestUnifiedMemoryMsg;
+  | IngestUnifiedMemoryMsg
+  | CancelHotPrewarmMsg;
 
 export type ContextWorkerInboundMsg =
   | ContextWorkerRpcMsg

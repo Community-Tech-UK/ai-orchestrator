@@ -1542,7 +1542,7 @@ describe('AcpCliAdapter', () => {
     proc.exit();
   });
 
-  it('sendInput surfaces "turn already in flight" errors as an error OutputMessage', async () => {
+  it('rejects a duplicate send without emitting fatal events while the first turn stays active', async () => {
     const proc = createInitializedAgentHarness();
 
     // Hold the first prompt open; we don't want it to resolve before the
@@ -1580,14 +1580,13 @@ describe('AcpCliAdapter', () => {
       'method' in message && message.method === 'session/prompt',
     );
 
-    await adapter.sendInput('second message while busy');
+    await expect(adapter.sendInput('second message while busy'))
+      .rejects.toThrow(/previous turn is still running/i);
 
     const errorOutputs = outputs.filter((m) => m.type === 'error');
-    expect(errorOutputs).toHaveLength(1);
-    expect(errorOutputs[0]?.content).toMatch(/previous turn is still running/i);
-    expect(statusEvents).toContain('error');
-    expect(errorEvents).toHaveLength(1);
-    expect(errorEvents[0]?.message).toMatch(/previous turn is still running/i);
+    expect(errorOutputs).toHaveLength(0);
+    expect(statusEvents).toEqual(['busy']);
+    expect(errorEvents).toHaveLength(0);
 
     // Clean up the dangling first turn so the test process doesn't leak
     // a pending promise.

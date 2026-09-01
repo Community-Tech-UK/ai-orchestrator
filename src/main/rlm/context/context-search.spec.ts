@@ -14,7 +14,13 @@ vi.mock('../../logging/logger', () => ({
   }),
 }));
 
-import { executeGrep, executeSemanticSearch } from './context-search';
+import {
+  executeGrep,
+  executeSemanticSearch,
+  executeSlice,
+  getSection,
+  searchStoreOptimized,
+} from './context-search';
 import {
   getRecallTraceStore,
   _resetRecallTraceStoreForTesting,
@@ -30,6 +36,76 @@ describe('executeGrep', () => {
 
     expect(result.sectionsAccessed).toEqual(['section-1']);
     expect(result.result).toContain('lexical retrieval');
+  });
+});
+
+describe('lexical queries without the retired term index', () => {
+  it('preserves grep, optimized search, slice, and section retrieval while lazily building Bloom', () => {
+    const store: ContextStore = {
+      id: 'store-lexical',
+      instanceId: 'instance-lexical',
+      sections: [
+        {
+          id: 'section-retry',
+          type: 'file',
+          name: 'retry.ts',
+          content: 'retry policy retries failed requests',
+          tokens: 6,
+          startOffset: 0,
+          endOffset: 36,
+          checksum: 'retry-checksum',
+          depth: 0,
+        },
+        {
+          id: 'section-summary',
+          type: 'summary',
+          name: 'retry-summary',
+          content: 'retry appears only in this summary',
+          tokens: 6,
+          startOffset: 36,
+          endOffset: 70,
+          checksum: 'summary-checksum',
+          depth: 1,
+        },
+      ],
+      totalTokens: 12,
+      totalSize: 70,
+      createdAt: 1,
+      lastAccessed: 1,
+      accessCount: 0,
+    };
+
+    expect(store).not.toHaveProperty('searchIndex');
+    expect(executeGrep(store, { pattern: 'retry', maxResults: 10 }, 20)).toEqual({
+      result: '[Match 1] retry.ts (file):\n...retry policy retries fail...',
+      sectionsAccessed: ['section-retry'],
+    });
+    expect(store.bloomFilter).toBeUndefined();
+    expect(searchStoreOptimized(store, ['retry'], 10, 20)).toEqual({
+      result: '[Match 1] retry.ts (file):\n...retry policy retries fail...',
+      sectionsAccessed: ['section-retry'],
+    });
+    expect(store.bloomFilter).toBeDefined();
+    expect(searchStoreOptimized(store, ['retr.*'], 10, 20)).toEqual({
+      result: '[Match 1] retry.ts (file):\n...retry policy retries failed requests...',
+      sectionsAccessed: ['section-retry'],
+    });
+    expect(searchStoreOptimized(store, ['re'], 1, 20)).toEqual({
+      result: '[Match 1] retry.ts (file):\n...retry policy retries f...',
+      sectionsAccessed: ['section-retry'],
+    });
+    expect(searchStoreOptimized(store, ['retr'], 1, 20)).toEqual({
+      result: '[Match 1] retry.ts (file):\n...retry policy retries fai...',
+      sectionsAccessed: ['section-retry'],
+    });
+    expect(executeSlice(store, { start: 6, end: 18 })).toEqual({
+      result: 'policy retri',
+      sectionsAccessed: ['section-retry'],
+    });
+    expect(getSection(store, 'section-retry')).toEqual({
+      result: '[retry.ts] (6 tokens)\n\nretry policy retries failed requests',
+      sectionsAccessed: ['section-retry'],
+    });
   });
 });
 

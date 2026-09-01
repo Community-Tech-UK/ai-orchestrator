@@ -262,6 +262,27 @@ describe('InstanceMessagingStore', () => {
     ]);
   });
 
+  it('parks an ACP active-turn collision without retrying or clearing busy', async () => {
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    currentStateService.addInstance(createInstance({ provider: 'cursor' }));
+    ipcMock.sendInput.mockResolvedValue({
+      success: false,
+      error: {
+        message: 'Cannot send message: the previous turn is still running. Wait for it to finish, or cancel/interrupt the current turn first.',
+      },
+    });
+
+    await currentStore.sendInput('inst-1', 'continue');
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(ipcMock.sendInput).toHaveBeenCalledTimes(1);
+    expect(currentStateService.getInstance('inst-1')?.status).toBe('busy');
+    expect(currentStore.getMessageQueue('inst-1')).toEqual([
+      { message: 'continue', files: undefined, retryCount: 1 },
+    ]);
+  });
+
   it('restores optimistic busy state when sendInput IPC never resolves', async () => {
     const currentStore = store!;
     const currentStateService = stateService!;
@@ -282,53 +303,23 @@ describe('InstanceMessagingStore', () => {
     });
   });
 
-  it('does not show the renderer timeout for a long-running Cursor ACP turn before the backend timeout can resolve', async () => {
-    const currentStore = store!;
-    const currentStateService = stateService!;
-    currentStateService.addInstance(createInstance({ provider: 'cursor', status: 'idle' }));
-    ipcMock.sendInput.mockImplementation(() => new Promise(() => undefined));
+  it.each(['cursor', 'copilot', 'grok'] as const)(
+    'does not abandon a long-running %s ACP turn while the backend still owns it',
+    async (provider) => {
+      const currentStore = store!;
+      const currentStateService = stateService!;
+      currentStateService.addInstance(createInstance({ provider, status: 'idle' }));
+      ipcMock.sendInput.mockImplementation(() => new Promise(() => undefined));
 
-    void currentStore.sendInput('inst-1', 'long cursor turn');
+      void currentStore.sendInput('inst-1', `long ${provider} turn`);
 
-    await vi.advanceTimersByTimeAsync(60_100);
+      await vi.advanceTimersByTimeAsync(60 * 60_000 + 100);
 
-    let instance = currentStateService.getInstance('inst-1');
-    expect(instance?.status).toBe('busy');
-    expect(instance?.outputBuffer).toEqual([]);
-
-    await vi.advanceTimersByTimeAsync(10 * 60_000);
-
-    instance = currentStateService.getInstance('inst-1');
-    expect(instance?.status).toBe('idle');
-    expect(instance?.outputBuffer[instance.outputBuffer.length - 1]).toMatchObject({
-      type: 'error',
-      content: expect.stringContaining('timed out after 660s'),
-    });
-  });
-
-  it('does not show the renderer timeout for a long-running Grok ACP turn before the backend timeout can resolve', async () => {
-    const currentStore = store!;
-    const currentStateService = stateService!;
-    currentStateService.addInstance(createInstance({ provider: 'grok', status: 'idle' }));
-    ipcMock.sendInput.mockImplementation(() => new Promise(() => undefined));
-
-    void currentStore.sendInput('inst-1', 'long grok turn');
-
-    await vi.advanceTimersByTimeAsync(60_100);
-
-    let instance = currentStateService.getInstance('inst-1');
-    expect(instance?.status).toBe('busy');
-    expect(instance?.outputBuffer).toEqual([]);
-
-    await vi.advanceTimersByTimeAsync(10 * 60_000);
-
-    instance = currentStateService.getInstance('inst-1');
-    expect(instance?.status).toBe('idle');
-    expect(instance?.outputBuffer[instance.outputBuffer.length - 1]).toMatchObject({
-      type: 'error',
-      content: expect.stringContaining('timed out after 660s'),
-    });
-  });
+      const instance = currentStateService.getInstance('inst-1');
+      expect(instance?.status).toBe('busy');
+      expect(instance?.outputBuffer).toEqual([]);
+    },
+  );
 
   it('does not clear busy for long-running Codex turns at the renderer timeout boundary', async () => {
     const currentStore = store!;

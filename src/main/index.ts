@@ -118,6 +118,7 @@ function recordShutdownTrigger(source: string, details: Record<string, unknown> 
 class HarnessApp {
   private windowManager: WindowManager;
   private instanceManager: InstanceManager;
+  private readonly contextWorkerClient = getContextWorkerClient();
   private shutdownOperations: HarnessShutdownOperations;
   private handlersRegistered = false;
 
@@ -129,7 +130,7 @@ class HarnessApp {
     // better-sqlite3 retrieval on the Electron main event loop and stalls the
     // whole app on send / new session (observed: a single RLM build blocking the
     // main thread for 38s, with multi-minute event-loop lag). Keep this wired.
-    this.instanceManager = new InstanceManager(this.windowManager, getContextWorkerClient());
+    this.instanceManager = new InstanceManager(this.windowManager, this.contextWorkerClient);
     this.shutdownOperations = createHarnessShutdownOperations({
       shutdownContinuitySync: () => getSessionContinuityManagerIfInitialized()?.shutdown(),
       killActiveProcessesSync: () => BaseCliAdapter.killAllActiveProcesses(),
@@ -186,6 +187,8 @@ class HarnessApp {
     // Create main window (this loads the renderer which may call IPC)
     await this.windowManager.createMainWindow();
 
+    this.contextWorkerClient.signalAppReady();
+
     logger.info('Harness initialized');
     if (
       app.isPackaged
@@ -241,11 +244,14 @@ class HarnessApp {
    * Inspired by Claude Code's writeSync()-first pattern in gracefulShutdown.ts.
    */
   cleanupSync(): void {
+    this.contextWorkerClient.cancelHotPrewarm();
     this.shutdownOperations.cleanupSync();
   }
 
   async cleanup(): Promise<void> {
     logger.info('Cleaning up');
+
+    this.contextWorkerClient.cancelHotPrewarm();
 
     const report = await this.shutdownOperations.cleanup();
 
@@ -255,6 +261,7 @@ class HarnessApp {
         phases: incomplete.map(toShutdownPhaseAuditSummary),
       });
     }
+    await this.contextWorkerClient.shutdown();
     logger.info('Cleanup complete', {
       phaseCount: report.phases.length,
       incompletePhaseCount: incomplete.length,

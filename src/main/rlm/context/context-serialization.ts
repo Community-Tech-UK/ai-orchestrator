@@ -10,7 +10,6 @@ import type { ContextStore, ContextSection } from '../../../shared/types/rlm.typ
 import type { RLMDatabase } from '../../persistence/rlm-database';
 import type { ExportedStore, ImportStoreOptions } from './context.types';
 import { generateId } from './context.utils';
-import { createSearchIndex } from './context-cache';
 import { getLogger } from '../../logging/logger';
 
 const logger = getLogger('ContextSerialization');
@@ -118,7 +117,6 @@ export function importStore(
     sections: [],
     totalTokens: 0,
     totalSize: 0,
-    searchIndex: createSearchIndex(),
     accessCount: 0,
     createdAt: Date.now(),
     lastAccessed: Date.now()

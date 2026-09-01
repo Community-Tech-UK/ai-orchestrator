@@ -36,16 +36,14 @@ export {
   generateShortId
 } from './context.utils';
 
-// Cache (Bloom filter & search index)
+// Cache (Bloom filter)
 export {
   createBloomFilter,
   bloomAdd,
   bloomMightContain,
   getBloomHashes,
   rebuildBloomFilterForStore,
-  mightContainTerm,
-  createSearchIndex,
-  updateSearchIndex
+  mightContainTerm
 } from './context-cache';
 
 // Storage operations

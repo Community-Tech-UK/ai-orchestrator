@@ -279,14 +279,18 @@ describe('ContextWorkerClient', () => {
       deferredToolCount: 0,
       query: 'docs',
     });
-    expect(fakeWorker.postMessage).not.toHaveBeenCalled();
+    expect(fakeWorker.postMessage.mock.calls.map(([message]) => message.type)).toEqual([
+      'cancel-hot-prewarm',
+    ]);
   });
 
   it('returns null for project-memory brief when the worker is degraded', async () => {
     fakeWorker.emit('error', new Error('worker crashed'));
 
     await expect(client.buildProjectMemoryBrief({ projectPath: '/repo' })).resolves.toBeNull();
-    expect(fakeWorker.postMessage).not.toHaveBeenCalled();
+    expect(fakeWorker.postMessage.mock.calls.map(([message]) => message.type)).toEqual([
+      'cancel-hot-prewarm',
+    ]);
   });
 
   it('falls back to in-process MCP runtime-tool selection when the worker times out', async () => {
@@ -389,6 +393,10 @@ describe('ContextWorkerClient', () => {
         const before = workers.length;
         workers[before - 1].emit('error', new Error(`crash ${cycle}`));
         expect(recoveringClient.getMetrics().degraded).toBe(true);
+        expect(workers[before - 1].postMessage).toHaveBeenCalledWith({
+          type: 'cancel-hot-prewarm',
+        });
+        expect(workers[before - 1].terminate).toHaveBeenCalledOnce();
 
         // Restart fires after the backoff and spawns a fresh worker.
         await vi.advanceTimersByTimeAsync(2_000);
@@ -409,7 +417,7 @@ describe('ContextWorkerClient', () => {
     }
   });
 
-  it('does not restart after shutdown while a crash restart backoff is pending', async () => {
+  it('does not restart or rearm prewarm after shutdown during crash backoff', async () => {
     vi.useFakeTimers();
     try {
       const { _resetContextWorkerClientForTesting, ContextWorkerClient } = await import('../context-worker-client');
@@ -426,12 +434,23 @@ describe('ContextWorkerClient', () => {
         userDataPath: '/tmp/test',
       });
 
+      workers[0].emit('message', { type: 'ready' });
+      expect(shuttingDownClient.signalAppReady()).toBe(true);
+      expect(workers[0].postMessage).toHaveBeenCalledWith({
+        type: 'start-hot-prewarm',
+        id: expect.any(Number),
+      });
+
       workers[0].emit('error', new Error('crash before shutdown'));
       await shuttingDownClient.shutdown();
       await vi.advanceTimersByTimeAsync(2_000);
 
       expect(workers).toHaveLength(1);
       expect(shuttingDownClient.getMetrics().degraded).toBe(true);
+      expect(
+        workers.flatMap((worker) => worker.postMessage.mock.calls)
+          .filter(([message]) => message.type === 'start-hot-prewarm'),
+      ).toHaveLength(1);
     } finally {
       vi.useRealTimers();
     }
@@ -533,6 +552,152 @@ describe('ContextWorkerClient', () => {
     expect(postedMsg.type).toBe('reload-rlm-persistence');
     fakeWorker.emit('message', { type: 'rpc-response', id: postedMsg.id });
     await expect(promise).resolves.toBeUndefined();
+  });
+
+  it('starts hot prewarm by clone-safe RPC and cancels it idempotently without RPC bookkeeping', async () => {
+    const lifecycle = client as unknown as {
+      startHotPrewarm(): Promise<boolean>;
+      cancelHotPrewarm(): void;
+    };
+    const start = lifecycle.startHotPrewarm();
+    const posted = fakeWorker.postMessage.mock.calls[0]?.[0] as { id: number; type: string };
+
+    expect(posted).toEqual({ type: 'start-hot-prewarm', id: expect.any(Number) });
+    fakeWorker.emit('message', { type: 'rpc-response', id: posted.id, result: true });
+    await expect(start).resolves.toBe(true);
+    const beforeCancel = client.getMetrics();
+
+    lifecycle.cancelHotPrewarm();
+    lifecycle.cancelHotPrewarm();
+
+    expect(fakeWorker.postMessage).toHaveBeenNthCalledWith(2, { type: 'cancel-hot-prewarm' });
+    expect(fakeWorker.postMessage).toHaveBeenNthCalledWith(3, { type: 'cancel-hot-prewarm' });
+    expect(client.getMetrics()).toMatchObject({
+      inFlight: beforeCancel.inFlight,
+      processed: beforeCancel.processed,
+    });
+  });
+
+  it('starts prewarm once for each ready worker generation after app readiness', async () => {
+    vi.useFakeTimers();
+    try {
+      const { ContextWorkerClient } = await import('../context-worker-client');
+      const workers: FakeWorker[] = [];
+      const lifecycleClient = new ContextWorkerClient({
+        workerFactory: () => {
+          const worker = createFakeWorker();
+          workers.push(worker);
+          return worker as unknown as Worker;
+        },
+        rpcTimeoutMs: 50,
+        userDataPath: '/tmp/test',
+      });
+
+      workers[0].emit('message', { type: 'ready' });
+      expect(lifecycleClient.signalAppReady()).toBe(true);
+      expect(lifecycleClient.signalAppReady()).toBe(false);
+      workers[0].emit('message', { type: 'ready' });
+
+      expect(
+        workers[0].postMessage.mock.calls.filter(([message]) => message.type === 'start-hot-prewarm'),
+      ).toHaveLength(1);
+
+      workers[0].emit('error', new Error('worker crashed'));
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(workers).toHaveLength(2);
+      expect(workers[1].postMessage).not.toHaveBeenCalled();
+
+      workers[1].emit('message', { type: 'ready' });
+      workers[1].emit('message', { type: 'ready' });
+      expect(
+        workers[1].postMessage.mock.calls.filter(([message]) => message.type === 'start-hot-prewarm'),
+      ).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('waits for a replacement ready event when the app signal precedes an initial crash', async () => {
+    vi.useFakeTimers();
+    try {
+      const { ContextWorkerClient } = await import('../context-worker-client');
+      const workers: FakeWorker[] = [];
+      const lifecycleClient = new ContextWorkerClient({
+        workerFactory: () => {
+          const worker = createFakeWorker();
+          workers.push(worker);
+          return worker as unknown as Worker;
+        },
+        rpcTimeoutMs: 50,
+        userDataPath: '/tmp/test',
+      });
+
+      expect(lifecycleClient.signalAppReady()).toBe(true);
+      expect(workers[0].postMessage).not.toHaveBeenCalled();
+      workers[0].emit('error', new Error('crashed before ready'));
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      expect(workers).toHaveLength(2);
+      expect(workers[1].postMessage).not.toHaveBeenCalled();
+      workers[1].emit('message', { type: 'ready' });
+      expect(workers[1].postMessage).toHaveBeenCalledOnce();
+      expect(workers[1].postMessage).toHaveBeenCalledWith({
+        type: 'start-hot-prewarm',
+        id: expect.any(Number),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('starts on replacement ready when app readiness is signalled while degraded', async () => {
+    vi.useFakeTimers();
+    try {
+      const { ContextWorkerClient } = await import('../context-worker-client');
+      const workers: FakeWorker[] = [];
+      const lifecycleClient = new ContextWorkerClient({
+        workerFactory: () => {
+          const worker = createFakeWorker();
+          workers.push(worker);
+          return worker as unknown as Worker;
+        },
+        rpcTimeoutMs: 50,
+        userDataPath: '/tmp/test',
+      });
+
+      workers[0].emit('error', new Error('worker crashed'));
+      expect(lifecycleClient.signalAppReady()).toBe(true);
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      expect(workers).toHaveLength(2);
+      expect(workers[1].postMessage).not.toHaveBeenCalled();
+      workers[1].emit('message', { type: 'ready' });
+      expect(workers[1].postMessage).toHaveBeenCalledOnce();
+      expect(workers[1].postMessage).toHaveBeenCalledWith({
+        type: 'start-hot-prewarm',
+        id: expect.any(Number),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not prewarm during construction and waits for both app and worker readiness', () => {
+    const lifecycle = client as unknown as { signalAppReady(): boolean };
+
+    expect(fakeWorker.postMessage).not.toHaveBeenCalled();
+    expect(lifecycle.signalAppReady()).toBe(true);
+    expect(lifecycle.signalAppReady()).toBe(false);
+    expect(fakeWorker.postMessage).not.toHaveBeenCalled();
+
+    fakeWorker.emit('message', { type: 'ready' });
+    fakeWorker.emit('message', { type: 'ready' });
+
+    expect(fakeWorker.postMessage).toHaveBeenCalledOnce();
+    expect(fakeWorker.postMessage).toHaveBeenCalledWith({
+      type: 'start-hot-prewarm',
+      id: expect.any(Number),
+    });
   });
 
   it('compactContext trims outputBuffer in main process after RPC', async () => {

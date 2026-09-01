@@ -1,114 +1,200 @@
 import type {
-  ContextSection,
   ContextStore,
   RLMSession,
 } from '../../shared/types/rlm.types';
 import type { RLMDatabase } from '../persistence/rlm-database';
-import type { ContextSectionRow } from '../persistence/rlm-database.types';
-import { createSearchIndex, updateSearchIndex } from './context';
 
 const METADATA_ONLY_SECTION_LIMIT = 5_000;
-const PERSISTED_SECTION_QUERY_LIMIT = METADATA_ONLY_SECTION_LIMIT + 1;
 const METADATA_ONLY_TOKEN_LIMIT = 2_000_000;
 const METADATA_ONLY_SIZE_LIMIT = 25 * 1024 * 1024;
+
+export interface RlmResidencyPolicy {
+  hotWindowMs: number;
+  maxResidentSectionMetadata: number;
+  maxResidentContentBytes: number;
+  maxResidentContentSections: number;
+  maxResidentContentStores: number;
+  maxSectionsPerStore: number;
+}
+
+export const DEFAULT_RLM_RESIDENCY_POLICY: RlmResidencyPolicy = {
+  hotWindowMs: 48 * 60 * 60 * 1000,
+  maxResidentSectionMetadata: 50_000,
+  maxResidentContentBytes: 64 * 1024 * 1024,
+  maxResidentContentSections: 20_000,
+  maxResidentContentStores: 128,
+  maxSectionsPerStore: 5_000,
+};
+
+export interface RlmPersistedLoadStats {
+  discoveredStores: number;
+  activeSessions: number;
+  startupContentBytes: 0;
+  residentMetadataSections: number;
+  deferredMetadataSections: number;
+  residentContentBytes: number;
+  residentContentSections: number;
+  residentContentStores: number;
+  hotCandidates: number;
+  hotAdmitted: number;
+  hotSkipped: number;
+  hotCancelled: number;
+  metadataOnlyStores: number;
+  deferredStores: number;
+  exhausted: {
+    metadata: boolean;
+    contentBytes: boolean;
+    contentSections: boolean;
+    contentStores: boolean;
+  };
+  elapsedMs: number;
+}
+
+export interface RlmStoreHydrationState {
+  metadata: 'deferred' | 'resident';
+  content: 'deferred' | 'resident';
+  contentEligible: boolean;
+  sectionCount: number;
+}
 
 export interface PersistedContextState {
   stores: Map<string, ContextStore>;
   sessions: Map<string, RLMSession>;
   loadedStores: number;
   loadedSections: number;
+  loadStats: Readonly<RlmPersistedLoadStats>;
+  hydrationStates: ReadonlyMap<string, Readonly<RlmStoreHydrationState>>;
 }
 
 export function loadPersistedContextState(db: RLMDatabase): PersistedContextState {
+  const now = Date.now();
+  const startedAt = now;
   const stores = new Map<string, ContextStore>();
   const sessions = new Map<string, RLMSession>();
-  const storeRows = db.listStores();
-  let loadedStores = 0;
-  let loadedSections = 0;
+  const hydrationStates = new Map<string, Readonly<RlmStoreHydrationState>>();
+  const activeSessionStoreActivity = new Map<string, number>();
 
+  for (const row of db.listSessions()) {
+    if (row.ended_at === null) {
+      const session = parsePersistedSession(row);
+      if (session) {
+        sessions.set(session.id, session);
+        const previousActivity = activeSessionStoreActivity.get(session.storeId);
+        if (previousActivity === undefined || session.lastActivityAt > previousActivity) {
+          activeSessionStoreActivity.set(session.storeId, session.lastActivityAt);
+        }
+      }
+    }
+  }
+
+  const storeRows = db.listStores();
+  const sectionCountsByStore = new Map(
+    db.getSectionCountsByStore().map((row) => [row.store_id, row.section_count]),
+  );
+  let deferredMetadataSections = 0;
   for (const row of storeRows) {
-    const queriedSectionRows = db.getSections(row.id, { limit: PERSISTED_SECTION_QUERY_LIMIT });
     const config = parseStoreConfig(row.config_json);
-    const metadataOnly = shouldLoadMetadataOnly(row, config, queriedSectionRows.length);
-    const sectionRows = queriedSectionRows.slice(0, METADATA_ONLY_SECTION_LIMIT);
+    const sectionCount = sectionCountsByStore.get(row.id) ?? 0;
+    const contentEligible = !shouldLoadMetadataOnly(row, config, sectionCount);
 
     const store: ContextStore = {
       id: row.id,
       instanceId: row.instance_id,
-      sections: sectionRows.map((sectionRow) => rowToSection(db, sectionRow, {
-        includeContent: !metadataOnly,
-      })),
+      sections: [],
       totalTokens: row.total_tokens,
       totalSize: row.total_size,
-      searchIndex: createSearchIndex(),
       createdAt: row.created_at,
       lastAccessed: row.last_accessed,
       accessCount: row.access_count,
       ...(config ? { config } : {}),
     };
 
-    for (const section of store.sections) {
-      if (!metadataOnly && section.depth === 0) {
-        updateSearchIndex(store.searchIndex!, section);
-      }
-    }
-
     stores.set(row.id, store);
-    loadedStores += 1;
-    loadedSections += sectionRows.length;
+    deferredMetadataSections += sectionCount;
+    hydrationStates.set(row.id, Object.freeze({
+      metadata: 'deferred',
+      content: 'deferred',
+      contentEligible,
+      sectionCount,
+    }));
   }
 
-  for (const row of db.listSessions()) {
-    if (!row.ended_at) {
-      sessions.set(row.id, {
-        id: row.id,
-        storeId: row.store_id,
-        instanceId: row.instance_id,
-        queries: row.queries_json ? JSON.parse(row.queries_json) : [],
-        recursiveCalls: row.recursive_calls_json
-          ? JSON.parse(row.recursive_calls_json)
-          : [],
-        totalRootTokens: row.total_root_tokens,
-        totalSubQueryTokens: row.total_sub_query_tokens,
-        estimatedDirectTokens: row.estimated_direct_tokens,
-        tokenSavingsPercent: row.token_savings_percent,
-        startedAt: row.started_at,
-        lastActivityAt: row.last_activity_at,
-      });
-    }
-  }
+  const hotCandidates = selectHotStoreCandidates(
+    storeRows,
+    activeSessionStoreActivity,
+    now,
+  );
+  const loadStats = Object.freeze({
+    discoveredStores: storeRows.length,
+    activeSessions: sessions.size,
+    startupContentBytes: 0 as const,
+    residentMetadataSections: 0,
+    deferredMetadataSections,
+    residentContentBytes: 0,
+    residentContentSections: 0,
+    residentContentStores: 0,
+    hotCandidates: hotCandidates.length,
+    hotAdmitted: 0,
+    hotSkipped: 0,
+    hotCancelled: 0,
+    metadataOnlyStores: storeRows.length,
+    deferredStores: storeRows.length,
+    exhausted: Object.freeze({
+      metadata: false,
+      contentBytes: false,
+      contentSections: false,
+      contentStores: false,
+    }),
+    elapsedMs: Date.now() - startedAt,
+  });
 
   return {
     stores,
     sessions,
-    loadedStores,
-    loadedSections,
+    loadedStores: storeRows.length,
+    loadedSections: 0,
+    loadStats,
+    hydrationStates: createReadonlyMapView(hydrationStates),
   };
 }
 
-function rowToSection(
-  db: RLMDatabase,
-  row: ContextSectionRow,
-  options: { includeContent: boolean },
-): ContextSection {
-  return {
-    id: row.id,
-    type: row.type as ContextSection['type'],
-    name: row.name,
-    content: options.includeContent ? db.getSectionContent(row) : '',
-    tokens: row.tokens,
-    startOffset: row.start_offset,
-    endOffset: row.end_offset,
-    checksum: row.checksum || '',
-    depth: row.depth,
-    filePath: row.file_path || undefined,
-    language: row.language || undefined,
-    sourceUrl: row.source_url || undefined,
-    summarizes: row.summarizes_json
-      ? JSON.parse(row.summarizes_json)
-      : undefined,
-    parentSummaryId: row.parent_summary_id || undefined,
-  };
+export function selectHotStoreCandidates<Store extends {
+  id: string;
+  created_at: number;
+  last_accessed: number;
+}>(
+  stores: readonly Store[],
+  activeSessionStoreActivity: ReadonlyMap<string, number> | ReadonlySet<string>,
+  now: number,
+  policy: RlmResidencyPolicy = DEFAULT_RLM_RESIDENCY_POLICY,
+): Store[] {
+  const hotCutoff = now - policy.hotWindowMs;
+
+  return stores
+    .filter((store) => activeSessionStoreActivity.has(store.id)
+      || store.last_accessed >= hotCutoff
+      || store.created_at >= hotCutoff)
+    .sort((left, right) => {
+      const leftHasActiveSession = activeSessionStoreActivity.has(left.id);
+      const rightHasActiveSession = activeSessionStoreActivity.has(right.id);
+      if (leftHasActiveSession !== rightHasActiveSession) {
+        return leftHasActiveSession ? -1 : 1;
+      }
+      if (leftHasActiveSession) {
+        const leftActivity = getActiveSessionActivity(activeSessionStoreActivity, left.id);
+        const rightActivity = getActiveSessionActivity(activeSessionStoreActivity, right.id);
+        if (leftActivity !== rightActivity) {
+          return rightActivity - leftActivity;
+        }
+      } else {
+        const leftRecency = Math.max(left.last_accessed, left.created_at);
+        const rightRecency = Math.max(right.last_accessed, right.created_at);
+        if (leftRecency !== rightRecency) {
+          return rightRecency - leftRecency;
+        }
+      }
+      return left.id.localeCompare(right.id);
+    });
 }
 
 function shouldLoadMetadataOnly(
@@ -137,4 +223,64 @@ function parseStoreConfig(configJson: string | null): Record<string, unknown> | 
     // Corrupt store config should not prevent RLM stores from loading.
   }
   return undefined;
+}
+
+function parsePersistedSession(row: ReturnType<RLMDatabase['listSessions']>[number]): RLMSession | undefined {
+  const queries = parseSessionArray<RLMSession['queries']>(row.queries_json);
+  const recursiveCalls = parseSessionArray<RLMSession['recursiveCalls']>(row.recursive_calls_json);
+  if (!queries || !recursiveCalls) return undefined;
+
+  return {
+    id: row.id,
+    storeId: row.store_id,
+    instanceId: row.instance_id,
+    queries,
+    recursiveCalls,
+    totalRootTokens: row.total_root_tokens,
+    totalSubQueryTokens: row.total_sub_query_tokens,
+    estimatedDirectTokens: row.estimated_direct_tokens,
+    tokenSavingsPercent: row.token_savings_percent,
+    startedAt: row.started_at,
+    lastActivityAt: row.last_activity_at,
+  };
+}
+
+function parseSessionArray<Value>(json: string | null): Value | undefined {
+  if (json === null) return [] as Value;
+  try {
+    const parsed = JSON.parse(json) as unknown;
+    return Array.isArray(parsed) ? parsed as Value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function getActiveSessionActivity(
+  activeSessionStoreActivity: ReadonlyMap<string, number> | ReadonlySet<string>,
+  storeId: string,
+): number {
+  return 'get' in activeSessionStoreActivity
+    ? activeSessionStoreActivity.get(storeId) ?? 0
+    : 0;
+}
+
+function createReadonlyMapView<Key, Value>(source: ReadonlyMap<Key, Value>): ReadonlyMap<Key, Value> {
+  let view: ReadonlyMap<Key, Value>;
+  view = new Proxy(source, {
+    get(target, property) {
+      if (property === 'set' || property === 'delete' || property === 'clear') {
+        return () => {
+          throw new TypeError('Cannot mutate a readonly hydration-state map');
+        };
+      }
+      if (property === 'forEach') {
+        return (callbackfn: (value: Value, key: Key, map: ReadonlyMap<Key, Value>) => void, thisArg?: unknown) => {
+          target.forEach((value, key) => callbackfn.call(thisArg, value, key, view));
+        };
+      }
+      const value = Reflect.get(target, property, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  return Object.freeze(view);
 }

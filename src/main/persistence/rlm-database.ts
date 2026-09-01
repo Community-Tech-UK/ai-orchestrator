@@ -14,7 +14,10 @@ import { EventEmitter } from 'events';
 import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 import type {
   ContextStoreRow,
+  ContextSectionMetadataRow,
   ContextSectionRow,
+  ContextSectionTypeStatsRow,
+  ContextStoreSectionCountRow,
   RLMSessionRow,
   OutcomeRow,
   PatternRow,
@@ -285,6 +288,29 @@ export class RLMDatabase extends EventEmitter {
     offset?: number;
   }): ContextSectionRow[] {
     return sections.getSections(this.db, storeId, options);
+  }
+
+  /**
+   * Content-free projection for stores admitted by the residency controller.
+   * Startup must use only getSectionCountsByStore().
+   */
+  getSectionMetadata(storeId: string, options?: {
+    limit?: number;
+    offset?: number;
+  }): ContextSectionMetadataRow[] {
+    return sections.getSectionMetadata(this.db, storeId, options);
+  }
+
+  /**
+   * Authoritative section totals for all stores from one grouped query.
+   */
+  getSectionCountsByStore(): ContextStoreSectionCountRow[] {
+    return sections.getSectionCountsByStore(this.db);
+  }
+
+  /** Constant-size section analytics without metadata or content hydration. */
+  getSectionStatsByType(): ContextSectionTypeStatsRow[] {
+    return sections.getSectionStatsByType(this.db);
   }
 
   removeSection(sectionId: string): void {

@@ -3,13 +3,10 @@
  *
  * Handles caching logic including:
  * - Bloom filter for fast negative lookups
- * - Search index management
  */
 
 import type {
   ContextStore,
-  ContextSection,
-  TermLocation,
   BloomFilter
 } from '../../../shared/types/rlm.types';
 
@@ -120,56 +117,4 @@ export function rebuildBloomFilterForStore(store: ContextStore): BloomFilter {
 export function mightContainTerm(store: ContextStore, term: string): boolean {
   if (!store.bloomFilter) return true;
   return bloomMightContain(store.bloomFilter, term.toLowerCase());
-}
-
-/**
- * Initialize search index structure for a store.
- *
- * @returns Empty search index structure
- */
-export function createSearchIndex(): ContextStore['searchIndex'] {
-  return {
-    terms: new Map<string, TermLocation[]>(),
-    sectionBoundaries: [],
-    lastRebuilt: Date.now()
-  };
-}
-
-/**
- * Update search index with a new section's content.
- * Performs simple word tokenization and indexing.
- *
- * @param searchIndex - Search index to update
- * @param section - Section to index
- */
-export function updateSearchIndex(
-  searchIndex: NonNullable<ContextStore['searchIndex']>,
-  section: ContextSection
-): void {
-  // Simple word tokenization and indexing
-  const words = section.content.toLowerCase().match(/\b\w{3,}\b/g) || [];
-  const contentLower = section.content.toLowerCase();
-  let lineNumber = 1;
-  let charIndex = 0;
-
-  for (const word of words) {
-    const locations = searchIndex.terms.get(word) || [];
-    const nextIndex = contentLower.indexOf(word, charIndex);
-
-    if (nextIndex >= 0) {
-      lineNumber += (
-        section.content.slice(charIndex, nextIndex).match(/\n/g) || []
-      ).length;
-      const location: TermLocation = {
-        sectionId: section.id,
-        offset: nextIndex,
-        lineNumber
-      };
-      locations.push(location);
-      searchIndex.terms.set(word, locations);
-      charIndex = nextIndex + word.length;
-    }
-  }
-
-  searchIndex.sectionBoundaries.push(section.endOffset);
 }

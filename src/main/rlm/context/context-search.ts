@@ -17,7 +17,7 @@ import type {
   VectorSearchResult
 } from './context.types';
 import { cosineSimilarity } from './context.utils';
-import { bloomMightContain } from './context-cache';
+import { bloomMightContain, rebuildBloomFilterForStore } from './context-cache';
 import { getLogger } from '../../logging/logger';
 import { getRecallTraceStore } from '../../memory/retrieval-eval/recall-trace-store';
 
@@ -380,13 +380,24 @@ export function searchStoreOptimized(
   maxResults: number,
   searchWindowSize: number
 ): QueryResult {
-  // Quick check with bloom filter
-  if (store.bloomFilter) {
-    const possibleTerms = terms.filter((term) =>
-      bloomMightContain(store.bloomFilter!, term.toLowerCase())
+  // Build the optional accelerator only when an already-resident store first
+  // uses this optimized path; store creation, persistence loading, and writes
+  // stay free of Bloom construction work.
+  const bloomFilter = store.bloomFilter ?? (store.bloomFilter = rebuildBloomFilterForStore(store));
+
+  // Bloom stores only lowercase whole `\w{3,}` tokens, while the public
+  // search input is raw regex alternatives. An unbounded literal can still
+  // match inside a longer token, so reject early only for explicitly bounded
+  // whole-word alternatives that exactly match Bloom's tokenization.
+  const bloomTerms = terms.map((term) => /^\\b(\w{3,})\\b$/.exec(term)?.[1]);
+  if (
+    bloomTerms.length > 0
+    && bloomTerms.every((term): term is string => term !== undefined)
+  ) {
+    const possibleTerms = bloomTerms.filter((term) =>
+      bloomMightContain(bloomFilter, term.toLowerCase())
     );
 
-    // If none of the terms might be present, return early
     if (possibleTerms.length === 0) {
       return { result: 'No matches found.', sectionsAccessed: [] };
     }

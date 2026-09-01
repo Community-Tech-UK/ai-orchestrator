@@ -29,11 +29,6 @@ function store(overrides: Partial<ContextStore> = {}): ContextStore {
     createdAt: 1,
     lastAccessed: 1,
     accessCount: 0,
-    searchIndex: {
-      terms: new Map([['main', [{ sectionId: 'sec-1', offset: 0, lineNumber: 1 }]]]),
-      sectionBoundaries: [2000],
-      lastRebuilt: 1,
-    },
     ...overrides,
   };
 }
@@ -46,14 +41,14 @@ describe('RLM IPC serialization', () => {
     expect(serialized.tokens).toBe(500);
   });
 
-  it('caps store event payloads and removes non-serializable indexes', () => {
+  it('caps store event payloads without adding internal cache state', () => {
     const serialized = serializeContextStoreForIpc(store(), {
       includeSections: true,
       sectionLimit: 0,
     });
 
     expect(serialized.sections).toEqual([]);
-    expect(serialized.searchIndex).toBeUndefined();
+    expect(serialized.bloomFilter).toBeUndefined();
     expect(serialized.config?.['ipcSectionCount']).toBe(1);
     expect(serialized.config?.['ipcSectionsTruncated']).toBe(true);
   });

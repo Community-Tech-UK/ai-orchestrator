@@ -16,7 +16,6 @@ export interface ContextStore {
   totalSize: number;
 
   // Indexing (for efficient search)
-  searchIndex?: SearchIndex;
   summaryIndex?: SummaryIndex;
   bloomFilter?: BloomFilter; // For fast negative lookups
 
@@ -58,25 +57,6 @@ export interface ContextSection {
   summarizes?: string[]; // IDs of sections this summarizes
   depth: number; // 0 = original, 1+ = summary depth
   parentSummaryId?: string; // Reference to parent summary
-}
-
-export interface SearchIndex {
-  // Inverted index for fast search
-  terms: Map<string, TermLocation[]>;
-  sectionBoundaries: number[];
-
-  // N-gram index for fuzzy matching
-  ngrams?: Map<string, string[]>; // ngram -> section IDs
-
-  // Last rebuild timestamp
-  lastRebuilt: number;
-}
-
-export interface TermLocation {
-  sectionId: string;
-  offset: number;
-  lineNumber: number;
-  context?: string; // Surrounding text for quick preview
 }
 
 export interface SummaryIndex {
@@ -226,6 +206,7 @@ export interface RLMStoreStats {
   summaries: number;
   totalTokens: number;
   summaryLevels: number;
+  /** @deprecated The in-memory lexical term index was retired; this remains zero for IPC compatibility. */
   indexedTerms: number;
 }
 

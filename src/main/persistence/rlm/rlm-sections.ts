@@ -5,7 +5,12 @@
  */
 
 import type { SqliteDriver } from '../../db/sqlite-driver';
-import type { ContextSectionRow } from '../rlm-database.types';
+import type {
+  ContextSectionMetadataRow,
+  ContextSectionRow,
+  ContextSectionTypeStatsRow,
+  ContextStoreSectionCountRow,
+} from '../rlm-database.types';
 import { saveContent, loadContent, deleteContent, shouldStoreInline } from './rlm-content';
 import { updateStoreStatsForSection } from './rlm-stores';
 
@@ -146,6 +151,77 @@ export function getSections(
 
   const stmt = db.prepare(query);
   return stmt.all(...params) as ContextSectionRow[];
+}
+
+/**
+ * Read section metadata for a residency-admitted store without materializing
+ * inline payloads. The byte estimate is verified against the actual content
+ * by the residency controller before retaining any hydrated content.
+ */
+export function getSectionMetadata(
+  db: SqliteDriver,
+  storeId: string,
+  options: { limit?: number; offset?: number } = {},
+): ContextSectionMetadataRow[] {
+  let query = `
+    SELECT
+      id, store_id, type, name, source, start_offset, end_offset, tokens,
+      checksum, depth, summarizes_json, parent_summary_id, file_path, language,
+      source_url, created_at, content_file,
+      -- Inline values are measured as UTF-8 bytes. File-backed values use the
+      -- stored offset span as an estimate; admission verifies actual bytes.
+      COALESCE(length(CAST(content_inline AS BLOB)), MAX(end_offset - start_offset, 0))
+        AS content_size_bytes
+    FROM context_sections
+    WHERE store_id = ?
+    ORDER BY start_offset ASC
+  `;
+  const parameters: number[] = [];
+
+  if (options.limit !== undefined) {
+    query += ' LIMIT ?';
+    parameters.push(options.limit);
+    if (options.offset !== undefined) {
+      query += ' OFFSET ?';
+      parameters.push(options.offset);
+    }
+  } else if (options.offset !== undefined) {
+    query += ' LIMIT -1 OFFSET ?';
+    parameters.push(options.offset);
+  }
+
+  const stmt = db.prepareCached(query);
+  return stmt.all(storeId, ...parameters) as ContextSectionMetadataRow[];
+}
+
+/**
+ * Return authoritative totals for every persisted store without loading any
+ * section row or content payload.
+ */
+export function getSectionCountsByStore(db: SqliteDriver): ContextStoreSectionCountRow[] {
+  const stmt = db.prepareCached(`
+    SELECT store_id, COUNT(*) AS section_count
+    FROM context_sections
+    GROUP BY store_id
+  `);
+  return stmt.all() as ContextStoreSectionCountRow[];
+}
+
+/**
+ * Return one row per section type for storage analytics. This projection is
+ * independent of the number of stores and never selects inline content.
+ */
+export function getSectionStatsByType(db: SqliteDriver): ContextSectionTypeStatsRow[] {
+  const stmt = db.prepareCached(`
+    SELECT
+      type,
+      COUNT(*) AS section_count,
+      COALESCE(SUM(tokens), 0) AS total_tokens
+    FROM context_sections
+    GROUP BY type
+    ORDER BY type ASC
+  `);
+  return stmt.all() as ContextSectionTypeStatsRow[];
 }
 
 /**
