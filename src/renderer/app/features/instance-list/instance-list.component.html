@@ -180,6 +180,7 @@
               class="project-header-row"
               [class.expanded]="group.isExpanded"
               [class.has-selected-instance]="group.hasSelectedInstance"
+              [class.menu-open]="openProjectMenuKey() === group.key"
             >
               <button
                 type="button"

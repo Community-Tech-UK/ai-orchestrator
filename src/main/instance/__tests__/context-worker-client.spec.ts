@@ -417,7 +417,7 @@ describe('ContextWorkerClient', () => {
     }
   });
 
-  it('does not restart or rearm prewarm after shutdown during crash backoff', async () => {
+  it('does not restart or rearm when the worker crashes during the app shutdown gap', async () => {
     vi.useFakeTimers();
     try {
       const { _resetContextWorkerClientForTesting, ContextWorkerClient } = await import('../context-worker-client');
@@ -441,16 +441,47 @@ describe('ContextWorkerClient', () => {
         id: expect.any(Number),
       });
 
-      workers[0].emit('error', new Error('crash before shutdown'));
-      await shuttingDownClient.shutdown();
-      await vi.advanceTimersByTimeAsync(2_000);
+      shuttingDownClient.beginShutdown();
+      shuttingDownClient.beginShutdown();
+      expect(
+        workers[0].postMessage.mock.calls.filter(([message]) => message.type === 'cancel-hot-prewarm'),
+      ).toHaveLength(1);
+
+      workers[0].emit('error', new Error('crash during long cleanup'));
+      await vi.advanceTimersByTimeAsync(4_000);
 
       expect(workers).toHaveLength(1);
-      expect(shuttingDownClient.getMetrics().degraded).toBe(true);
       expect(
         workers.flatMap((worker) => worker.postMessage.mock.calls)
           .filter(([message]) => message.type === 'start-hot-prewarm'),
       ).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('clears a pending crash restart when app shutdown begins', async () => {
+    vi.useFakeTimers();
+    try {
+      const { ContextWorkerClient } = await import('../context-worker-client');
+      const workers: FakeWorker[] = [];
+      const shuttingDownClient = new ContextWorkerClient({
+        workerFactory: () => {
+          const worker = createFakeWorker();
+          workers.push(worker);
+          return worker as unknown as Worker;
+        },
+        rpcTimeoutMs: 50,
+        userDataPath: '/tmp/test',
+      });
+
+      workers[0].emit('error', new Error('crash before cleanup entry'));
+      expect(shuttingDownClient.getMetrics().degraded).toBe(true);
+      shuttingDownClient.beginShutdown();
+      shuttingDownClient.beginShutdown();
+      await vi.advanceTimersByTimeAsync(4_000);
+
+      expect(workers).toHaveLength(1);
     } finally {
       vi.useRealTimers();
     }

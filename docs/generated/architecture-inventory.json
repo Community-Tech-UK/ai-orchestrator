@@ -6863,6 +6863,10 @@
       "lines": 836
     },
     {
+      "path": "src/main/instance/__tests__/context-worker-client.spec.ts",
+      "lines": 835
+    },
+    {
       "path": "docs/plans/2026-07-30-sibling-audit-round2_plan_completed.md",
       "lines": 833
     },
@@ -6944,10 +6948,6 @@
     },
     {
       "path": "src/main/core/config/claude-md-loader.ts",
-      "lines": 804
-    },
-    {
-      "path": "src/main/instance/__tests__/context-worker-client.spec.ts",
       "lines": 804
     },
     {

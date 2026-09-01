@@ -244,14 +244,13 @@ class HarnessApp {
    * Inspired by Claude Code's writeSync()-first pattern in gracefulShutdown.ts.
    */
   cleanupSync(): void {
-    this.contextWorkerClient.cancelHotPrewarm();
+    this.contextWorkerClient.beginShutdown();
     this.shutdownOperations.cleanupSync();
   }
 
   async cleanup(): Promise<void> {
+    this.contextWorkerClient.beginShutdown();
     logger.info('Cleaning up');
-
-    this.contextWorkerClient.cancelHotPrewarm();
 
     const report = await this.shutdownOperations.cleanup();
 

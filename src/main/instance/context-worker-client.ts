@@ -459,9 +459,8 @@ export class ContextWorkerClient implements InstanceContextPort {
   }
 
   async startHotPrewarm(): Promise<boolean> {
-    if (this.isDegraded) return false;
-    const result = await this.postRpc({ type: 'start-hot-prewarm', id: this.nextId() });
-    return result === true;
+    if (this.shuttingDown || this.isDegraded) return false;
+    return await this.postRpc({ type: 'start-hot-prewarm', id: this.nextId() }) === true;
   }
 
   signalAppReady(): boolean {
@@ -474,13 +473,16 @@ export class ContextWorkerClient implements InstanceContextPort {
 
   // ── Lifecycle ────────────────────────────────────────────────────────────────
 
-  async shutdown(): Promise<void> {
-    this.cancelHotPrewarm();
+  beginShutdown(): void {
+    if (this.shuttingDown) return;
     this.shuttingDown = true;
-    if (this.restartTimer) {
-      clearTimeout(this.restartTimer);
-      this.restartTimer = null;
-    }
+    this.cancelHotPrewarm();
+    if (this.restartTimer) clearTimeout(this.restartTimer);
+    this.restartTimer = null;
+  }
+
+  async shutdown(): Promise<void> {
+    this.beginShutdown();
     this.failAllPending(new Error('shutdown'));
     if (this.worker) {
       try {
@@ -501,8 +503,7 @@ export class ContextWorkerClient implements InstanceContextPort {
   }
 
   private startWorker(): void {
-    if (this.worker) return;
-    this.shuttingDown = false;
+    if (this.shuttingDown || this.worker) return;
     try {
       const w = this.workerFactory(this.userDataPath);
       w.on('message', (msg: ContextWorkerOutboundMsg) => this.handleMessage(msg, w));
