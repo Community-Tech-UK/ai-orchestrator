@@ -34,6 +34,9 @@ import { createFocusTrap, type FocusTrapHandle } from '../../utils/focus-trap';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FormsModule],
+  host: {
+    '[class.pm-host-open]': 'isOpen()',
+  },
   template: `
     @if (isOpen()) {
       <div
