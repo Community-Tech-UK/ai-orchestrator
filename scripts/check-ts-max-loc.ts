@@ -131,11 +131,16 @@ const ALLOWLIST: Record<string, number> = {
   // Attachment temp-file handling lives in channel-attachment-relay.ts.
   'src/main/channels/channel-message-router.ts': 2902,
   // Main process — CLI adapters
-  'src/main/cli/adapters/acp-cli-adapter.ts': 2214,
+  // Raised 2214 -> 2275 for Cursor/ACP loop liveness: prompt-turn heartbeat so
+  // Loop Mode does not treat metadata-only session/update as silence.
+  // Raised 2275 -> 2278 for concurrencyPriority overflow on ACP spawn acquire.
+  'src/main/cli/adapters/acp-cli-adapter.ts': 2278,
   // Sat at 699 — one line under the cap — so the automation-provider-exclusion
   // guard in resolveCliType could not be added without crossing it. Entered at
   // 706 rather than dropping the guard; the file is a refactor candidate.
-  'src/main/cli/adapters/adapter-factory.ts': 762,
+  // Raised 762 -> 772 for Cursor ACP unattended flags (--force/--trust).
+  // Raised 772 -> 775 for loop overflow concurrencyPriority on ACP adapters.
+  'src/main/cli/adapters/adapter-factory.ts': 775,
   'src/main/cli/adapters/base-cli-adapter.ts': 988,
   // Raised 2218 -> 2286 for resident interrupt control_request handling.
   // Raised 2286 -> 2345 for per-text-block assistant emission + rate-limit dedup.
@@ -275,7 +280,14 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/orchestration/consensus-coordinator.ts': 859,
   'src/main/orchestration/consensus.ts': 759,
   // Raised 844 -> 907 for the reviewer format-repair retry + shared operation deadline.
-  'src/main/orchestration/cross-model-review-service.ts': 907,
+  // Raised 907 -> 961 for the cross-model checking policy: the in-session path now
+  // carries CheckerCandidate[] end to end (a licence-pinned plan is several checkers
+  // on ONE Copilot seat, so a provider-keyed list silently ran just the first), plus
+  // entitlement learning on failure and explicit min-checker intent. The comments
+  // here are load-bearing — eight gate rounds found defects this file's plumbing
+  // caused — so they were not shaved to fit. Splitting the dispatch loop out is the
+  // real fix and deserves its own change.
+  'src/main/orchestration/cross-model-review-service.ts': 961,
   'src/main/orchestration/debate-coordinator.ts': 1179,
   // Re-tightened after extracting loop-branch-selector-helpers.ts, then again
   // after extracting invocation-model-resolver.ts (model resolution + cheap-model
@@ -283,7 +295,10 @@ const ALLOWLIST: Record<string, number> = {
   // Raised 2026-07-16 (loop-convergence WS4+WS5 seams; observer/discipline glue
   // already extracted to loop-attempt-observation.ts / loop-context-discipline-runtime.ts —
   // re-tighten after the next invoker refactor).
-  'src/main/orchestration/default-invokers.ts': 1597,
+  // Raised 1597 -> 1656: interrupt the live loop child when the iteration
+  // timeout fires, so ACP session/prompt does not keep running after the loop
+  // has already ended.
+  'src/main/orchestration/default-invokers.ts': 1656,
   'src/main/orchestration/embedding-service.ts': 845,
   // Raised 3170 -> 3277 for typed intervention queueing and audit-gate
   // integration points. Audit mechanics live in loop-audit-runtime.ts.

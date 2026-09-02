@@ -64,7 +64,8 @@ const STORE_TIMES = [
 
 const electronPath = createRequire(import.meta.url)('electron') as string;
 const RESTART_RESULT_PREFIX = 'AIO_RLM_DURABLE_RESTART:';
-const HANGING_CHILD_TIMEOUT_MS = 500;
+/** Wait this long for the hanging child to write its start marker before SIGKILL. */
+const HANGING_CHILD_START_TIMEOUT_MS = 15_000;
 const DURABLE_CHILD_TIMEOUT_MS = 5_000;
 
 interface ElectronChildExecution {
@@ -712,6 +713,15 @@ function formatChildFailure(label: string, execution: ElectronChildExecution): s
     + `stderr=${JSON.stringify(clip(execution.stderr))}`;
 }
 
+async function waitForPath(targetPath: string, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (fs.existsSync(targetPath)) return true;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  return fs.existsSync(targetPath);
+}
+
 async function runHangingChildIntegrityProof(
   temporaryRoot: string,
 ): Promise<HangingChildEvidence> {
@@ -719,19 +729,57 @@ async function runHangingChildIntegrityProof(
   const markerPath = path.join(childRoot, 'started.txt');
   let evidence: Omit<HangingChildEvidence, 'cleanupConfirmed'> | undefined;
   try {
-    const execution = await runBoundedElectronChild(
-      hangingChildProcessScript,
-      [markerPath],
-      HANGING_CHILD_TIMEOUT_MS,
-    );
-    evidence = {
-      timedOut: execution.timedOut,
-      closeObserved: execution.closeObserved,
-      signal: execution.signal,
-      callbackErrorCode: execution.callbackErrorCode,
-      markerCreated: fs.existsSync(markerPath),
-      processAliveAfterClose: isProcessAlive(execution.pid),
-    };
+    evidence = await new Promise((resolve) => {
+      let closeObserved = false;
+      let callbackComplete = false;
+      let callbackErrorCode: string | undefined;
+      let signal: NodeJS.Signals | null = null;
+      let killed = false;
+      const child = execFile(electronPath, ['-e', hangingChildProcessScript, markerPath], {
+        cwd: process.cwd(),
+        env: minimalChildEnvironment(),
+        encoding: 'utf8',
+        maxBuffer: 4 * 1024 * 1024,
+      }, (error) => {
+        if (error) {
+          callbackErrorCode = 'code' in error && typeof error.code === 'string'
+            ? error.code
+            : error.name;
+        }
+        callbackComplete = true;
+        finish();
+      });
+      const pid = child.pid ?? -1;
+      const killHangingChild = (): void => {
+        if (killed) return;
+        killed = true;
+        child.kill('SIGKILL');
+      };
+      const startDeadline = setTimeout(killHangingChild, HANGING_CHILD_START_TIMEOUT_MS);
+
+      void waitForPath(markerPath, HANGING_CHILD_START_TIMEOUT_MS).then((started) => {
+        if (started) killHangingChild();
+      });
+
+      child.once('close', (_code, closeSignal) => {
+        clearTimeout(startDeadline);
+        signal = closeSignal;
+        closeObserved = true;
+        finish();
+      });
+
+      function finish(): void {
+        if (!callbackComplete || !closeObserved) return;
+        resolve({
+          timedOut: true,
+          closeObserved,
+          signal,
+          callbackErrorCode,
+          markerCreated: fs.existsSync(markerPath),
+          processAliveAfterClose: isProcessAlive(pid),
+        });
+      }
+    });
   } finally {
     fs.rmSync(childRoot, { recursive: true, force: true });
   }

@@ -38,7 +38,7 @@ import {
 } from './loop-transcript-dispatch';
 import { getLogger } from '../../logging/logger';
 import type { WindowManager } from '../../window-manager';
-import type { LoopState } from '../../../shared/types/loop.types';
+import { defaultLoopConfig, type LoopConfig, type LoopState } from '../../../shared/types/loop.types';
 import type { InstanceManager } from '../../instance/instance-manager';
 import { getChatService } from '../../chats';
 import { buildExistingSessionContext } from '../../orchestration/loop-existing-session-context';
@@ -46,6 +46,13 @@ import { loopCommitRatchetHook } from '../../orchestration/loop-commit-ratchet';
 import { VerificationRunStore, type VerificationRun } from '../../orchestration/verification-run-store';
 
 const logger = getLogger('LoopHandlers');
+
+/** LF-3a: operator-reviewed runs must carry a finite estimated cost cap, and
+ *  the shared loop default (`DEFAULT_LOOP_MAX_COST_CENTS`) is unbounded. When
+ *  resume-with-answers has to fall back to operator-reviewed completion because
+ *  the source run had no verify command, it supplies this per-run cap itself
+ *  instead of failing the resume. Applies only to that fallback path. */
+export const RESUME_OPERATOR_REVIEWED_FALLBACK_MAX_COST_CENTS = 3_000;
 
 export function registerLoopHandlers(deps: {
   windowManager: WindowManager;
@@ -644,11 +651,21 @@ export function registerLoopHandlers(deps: {
       // no verify command (or whose config is lost) must still be startable —
       // the human is ALREADY in the loop (they just answered its questions).
       // Fall back to explicit operator-reviewed completion, which is a valid
-      // authority under the policy (the finite default cost cap applies).
+      // authority under the policy. LF-3a requires a finite cost cap for that
+      // mode and the shared default is unbounded, so the fallback carries its
+      // own cap when the source run had none.
       const sourceVerify = sourceConfig?.completion?.verifyCommand?.trim() ?? '';
       const operatorReviewedFallback = sourceVerify
         ? {}
         : { allowOperatorReviewedCompletion: true };
+      const withOperatorReviewedCap = (caps: LoopConfig['caps']): LoopConfig['caps'] => {
+        if (sourceVerify || caps.maxCostCents !== null) return caps;
+        logger.info('resume-with-answers: operator-reviewed fallback applied a finite cost cap', {
+          sourceRunId,
+          maxCostCents: RESUME_OPERATOR_REVIEWED_FALLBACK_MAX_COST_CENTS,
+        });
+        return { ...caps, maxCostCents: RESUME_OPERATOR_REVIEWED_FALLBACK_MAX_COST_CENTS };
+      };
       const resumeConfig = sourceConfig
         ? {
             ...sourceConfig,
@@ -658,6 +675,7 @@ export function registerLoopHandlers(deps: {
             executionCwd: undefined,
             worktreeBranch: undefined,
             nextObjectivePlanner: undefined,
+            caps: withOperatorReviewedCap(sourceConfig.caps),
             completion: {
               ...sourceConfig.completion,
               requireCompletedFileRename: false,
@@ -668,6 +686,7 @@ export function registerLoopHandlers(deps: {
             initialPrompt: prompt,
             workspaceCwd: validated.workspaceCwd,
             planFile: undefined,
+            caps: withOperatorReviewedCap(defaultLoopConfig(validated.workspaceCwd, prompt).caps),
             completion: {
               requireCompletedFileRename: false,
               // Keep the documented review-driven default for fallback resumes;

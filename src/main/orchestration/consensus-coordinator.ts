@@ -36,6 +36,8 @@ import {
   filterProvidersForAutomation,
   isProviderExcludedFromAutomation,
 } from '../providers/automation-provider-exclusions';
+import { applyConsensusCheckingPolicy } from './consensus-checking-policy';
+import { learnFromCheckerFailure } from '../review/copilot-model-entitlements';
 
 const logger = getLogger('ConsensusCoordinator');
 
@@ -86,7 +88,14 @@ export class ConsensusCoordinator extends EventEmitter {
     logger.info('Starting consensus query', { queryId, question: question.slice(0, 100) });
 
     // Resolve which providers to query
-    const providers = await this.resolveProviders(options.providers);
+    // Same directory the fan-out actually runs in, so the licence check cannot
+    // disagree with where the providers are pointed.
+    const consensusCwd = options.workingDirectory || process.cwd();
+    const checkingPlan = applyConsensusCheckingPolicy(
+      await this.resolveProviders(options.providers),
+      consensusCwd,
+    );
+    const providers = checkingPlan.panel;
 
     if (providers.length === 0) {
       logger.warn('No providers available for consensus query', { queryId });
@@ -118,9 +127,10 @@ export class ConsensusCoordinator extends EventEmitter {
           spec,
           question,
           context,
-          options.workingDirectory || process.cwd(),
+          consensusCwd,
           timeoutMs,
           () => childAbort.signal.aborted,
+          checkingPlan.copilotProfileId,
         ).catch((error) => {
           if (!queryAbort.signal.aborted) {
             const msg = error instanceof Error ? error.message : String(error);
@@ -185,6 +195,7 @@ export class ConsensusCoordinator extends EventEmitter {
     workingDirectory: string,
     timeoutMs: number,
     isAborted: () => boolean,
+    copilotProfileId?: string,
   ): Promise<ConsensusProviderResponse> {
     const providerStart = Date.now();
     const cliType = toCliType(spec.provider);
@@ -269,6 +280,9 @@ export class ConsensusCoordinator extends EventEmitter {
     } catch (error) {
       const durationMs = Date.now() - providerStart;
       const errorMessage = error instanceof Error ? error.message : String(error);
+      // Learn a Copilot seat's real roster from its refusal; otherwise the same
+      // unavailable model is re-selected on every future licence-pinned panel.
+      learnFromCheckerFailure(copilotProfileId, errorMessage);
 
       const { classified } = handleCoordinatorError(error, {
         coordinatorName: 'ConsensusCoordinator',

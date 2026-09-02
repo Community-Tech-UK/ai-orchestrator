@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  buildAcpPermissionContext,
   buildCopilotSpawnEnv,
   COPILOT_STRIPPED_AUTH_ENV_VARS,
+  cursorUnattendedArgs,
   mergeSpawnEnv,
 } from './adapter-spawn-helpers';
 import type { UnifiedSpawnOptions } from './adapter-factory.types';
@@ -95,5 +97,35 @@ describe('buildCopilotSpawnEnv', () => {
     expect(buildCopilotSpawnEnv({ NODE_OPTIONS: '--max-old-space-size=4096' })['NODE_OPTIONS'])
       .toBe('--max-old-space-size=4096 --use-openssl-ca');
     expect(buildCopilotSpawnEnv({})['NODE_OPTIONS']).toBe('--use-openssl-ca');
+  });
+});
+
+describe('buildAcpPermissionContext', () => {
+  it('carries spawn yoloMode so hidden loop children auto-allow ACP tool permissions', () => {
+    expect(buildAcpPermissionContext({ yoloMode: true }, 'cursor')).toEqual(
+      expect.objectContaining({
+        instanceId: expect.stringMatching(/^acp-ephemeral-cursor-/),
+        yoloMode: true,
+      }),
+    );
+  });
+
+  it('omits yoloMode unless spawn options explicitly enable it', () => {
+    expect(buildAcpPermissionContext({ instanceId: 'inst-1', yoloMode: false }, 'cursor'))
+      .toEqual({ instanceId: 'inst-1', childId: undefined });
+    expect(buildAcpPermissionContext({ instanceId: 'inst-1' }, 'cursor'))
+      .toEqual({ instanceId: 'inst-1', childId: undefined });
+  });
+});
+
+describe('cursorUnattendedArgs', () => {
+  it('returns the print-mode yolo flag set when enabled', () => {
+    expect(cursorUnattendedArgs(true)).toEqual([
+      '--force', '--sandbox', 'disabled', '--trust', '--approve-mcps',
+    ]);
+  });
+
+  it('returns nothing when yolo is off', () => {
+    expect(cursorUnattendedArgs(false)).toEqual([]);
   });
 });

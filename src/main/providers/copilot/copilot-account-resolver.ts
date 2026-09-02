@@ -476,3 +476,23 @@ export function resolveContextFreeCopilotRoute(
   }
   return outcome;
 }
+
+/**
+ * Which profiles a *protected* rule claims for this workspace.
+ *
+ * Deliberately separate from `resolveCopilotAccountRoute`: this answers "whose
+ * scope is this code in", not "may we spawn Copilot here". It runs no
+ * precedence, no scope policy and no automation policy, so a `manual-only`,
+ * signed-out or excluded profile still reports its claim. Licence containment
+ * depends on that — a workspace does not stop being the employer's because
+ * their seat happens to be unusable right now.
+ *
+ * Returns every distinct claimant. More than one is an ambiguity the caller
+ * must fail closed on, exactly as the router does.
+ */
+export function collectProtectedScopeProfileIds(
+  input: Pick<CopilotRouteInput, 'rules' | 'remotes' | 'canonicalWorkspacePath' | 'canonicalRulePaths'>,
+): string[] {
+  const routeInput = { ...input, profiles: [], origin: 'review', executionNodeId: '' } as CopilotRouteInput;
+  return protectedProfileIds(routeInput, collectPathMatches(routeInput));
+}

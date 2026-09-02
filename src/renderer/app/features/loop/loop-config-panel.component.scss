@@ -103,8 +103,32 @@ h2 { margin: 0; font-size: 15px; font-weight: 600; }
   font-style: italic;
 }
 .row { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; }
-.row.split { flex-direction: row; gap: 12px; }
-.row.split > div { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+.row.split {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 12px;
+  align-items: stretch;
+}
+.row.split > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.row.split > div > label {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  line-height: 1.3;
+}
+.row.split > div > input,
+.row.split > div > select {
+  width: 100%;
+  min-width: 0;
+  margin-top: auto;
+}
 .row.toggles { gap: 6px; margin-top: 10px; }
 .row.toggles label { display: flex; gap: 8px; align-items: center; font-size: 12px; }
 .row.toggles label.warn { color: #f7c07a; }

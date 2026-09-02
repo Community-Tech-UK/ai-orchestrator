@@ -7,6 +7,7 @@ import { generateId } from '../../../shared/utils/id-generator';
 import { isSessionNotFoundText } from './resume-error-classifier';
 import { extractThinkingContent } from '../../../shared/utils/thinking-extractor';
 import { CURSOR_DEFAULT_MODELS, discoverCursorModels } from './cursor-cli-adapter.models';
+import { cursorUnattendedArgs } from './adapter-spawn-helpers';
 import { probeVersionStatus } from './cli-status-probe';
 import { killProcessGroup } from './base-cli-process-utils';
 import type {
@@ -590,22 +591,10 @@ export class CursorCliAdapter extends BaseCliAdapter {
       '--output-format', 'stream-json',
     ];
 
-    // Yolo / unattended mode. We run cursor-agent headless (`--print`), so any
-    // approval prompt it raises has no TTY to answer it and the underlying
-    // action is silently blocked — which looks like "cursor isn't in yolo
-    // mode" even when the user has yolo enabled. `--force` alone is NOT
-    // sufficient: cursor-agent additionally gates edits/commands behind
-    // workspace-trust and MCP-approval prompts. Pass the full unattended set:
-    //   --force            run everything unless explicitly denied (alias: --yolo)
-    //   --sandbox disabled disable the command sandbox
-    //   --trust            trust the workspace without prompting (headless-only)
-    //   --approve-mcps     auto-approve MCP servers
-    // Yolo is the long-standing default for Cursor (the orchestrator does not
-    // mediate its tool-use prompts); only an explicit `yoloMode: false` opts
-    // out, in which case cursor keeps its own approval gating.
-    if (this.cliConfig.yoloMode !== false) {
-      args.push('--force', '--sandbox', 'disabled', '--trust', '--approve-mcps');
-    }
+    // Yolo / unattended mode. Shared with the ACP spawn path — see
+    // cursorUnattendedArgs(). Default on; only an explicit `yoloMode: false`
+    // keeps cursor-agent's own approval gating.
+    args.push(...cursorUnattendedArgs(this.cliConfig.yoloMode !== false));
 
     if (this.partialOutputSupported) {
       args.push('--stream-partial-output');

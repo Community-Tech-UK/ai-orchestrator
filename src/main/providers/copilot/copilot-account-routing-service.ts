@@ -18,6 +18,8 @@
  */
 
 import type {
+  CopilotAccountKind,
+  CopilotAutomationPolicy,
   CopilotAccountProfile,
   CopilotAccountRoutingRule,
   CopilotInvocationOrigin,
@@ -43,6 +45,7 @@ import {
   getCopilotAccountBindingService,
 } from './copilot-account-binding-service';
 import {
+  collectProtectedScopeProfileIds,
   resolveContextFreeCopilotRoute,
   resolveCopilotAccountRoute,
 } from './copilot-account-resolver';
@@ -80,6 +83,33 @@ interface CacheEntry {
   cachedAt: number;
 }
 
+/**
+ * Result of {@link CopilotAccountRoutingService.classifyWorkspaceScope}.
+ *
+ * `ambiguous` and `indeterminate` are both fail-closed signals: the caller
+ * knows a licence boundary might apply but cannot say which, so it must not
+ * proceed as though the workspace were unscoped.
+ */
+export type WorkspaceCopilotScope =
+  | { kind: 'none' }
+  | {
+      kind: 'protected';
+      profileId: string;
+      profileLabel: string;
+      accountKind: CopilotAccountKind;
+      /**
+       * The profile's own automation policy. Carried because the ping-pong
+       * reviewer spawns through `InstanceManager.createInstance`, which tags
+       * every route request `'interactive'` — so `checkAutomationPolicy`'s
+       * `manual-only` branch (gated on an AUTOMATIC origin) never fires there.
+       * The checking policy must enforce it itself rather than assume the
+       * router will.
+       */
+      automationPolicy: CopilotAutomationPolicy;
+    }
+  | { kind: 'ambiguous'; profileIds: string[] }
+  | { kind: 'indeterminate'; reason: string };
+
 export interface CopilotAccountRoutingDeps {
   readSettings?: () => Pick<
     AppSettings,
@@ -94,6 +124,17 @@ export interface CopilotAccountRoutingDeps {
 
 export class CopilotAccountRoutingService {
   private readonly cache = new Map<string, CacheEntry>();
+  private readonly scopeCache = new Map<string, { scope: WorkspaceCopilotScope; cachedAt: number }>();
+  /** Last authoritative scope per workspace; survives a later read failure. */
+  private readonly lastKnownScope = new Map<string, WorkspaceCopilotScope>();
+  /** Has this install EVER had a protected rule pointing at an enterprise seat? */
+  private sawEnterpriseProtectedRule = false;
+  /**
+   * Has a settings read EVER succeeded on this instance? Distinct from the flag
+   * above, and the distinction is load-bearing: "no enterprise rule" is only
+   * meaningful once we have actually managed to look.
+   */
+  private everReadSettings = false;
 
   constructor(private readonly deps: CopilotAccountRoutingDeps = {}) {}
 
@@ -109,10 +150,54 @@ export class CopilotAccountRoutingService {
     return (this.deps.canonicalize ?? canonicalizeWorkspacePath)(path);
   }
 
+  /**
+   * Distinguishes "there is no settings manager in this context" from "the
+   * settings manager exists but the read failed".
+   *
+   * The difference is load-bearing for licence containment. If `getSettingsManager()`
+   * itself throws there is no Electron userData in this process at all — the
+   * `aio review` CLI and the test runner are the real cases — which means Copilot
+   * account routing CANNOT be configured here, so there is no licence boundary to
+   * protect and checking must stay enabled. If the manager exists but `.getAll()`
+   * throws (the settings lock times out after 5s under concurrent writes), a
+   * licence boundary may well exist and we must not assume it away.
+   */
+  private readRoutingSettingsOrFailure():
+    | { ok: true; settings: RoutingSettings }
+    | { ok: false; kind: 'manager-unavailable' | 'read-failed'; detail: string } {
+    const toDetail = (error: unknown): string =>
+      error instanceof Error ? error.message : String(error);
+
+    if (this.deps.readSettings) {
+      try {
+        return { ok: true, settings: this.normalizeRoutingSettings(this.deps.readSettings()) };
+      } catch (error) {
+        return { ok: false, kind: 'read-failed', detail: toDetail(error) };
+      }
+    }
+
+    let manager: ReturnType<typeof getSettingsManager>;
+    try {
+      manager = getSettingsManager();
+    } catch (error) {
+      return { ok: false, kind: 'manager-unavailable', detail: toDetail(error) };
+    }
+    try {
+      return { ok: true, settings: this.normalizeRoutingSettings(manager.getAll()) };
+    } catch (error) {
+      return { ok: false, kind: 'read-failed', detail: toDetail(error) };
+    }
+  }
+
   private readRoutingSettings(): RoutingSettings {
     const read =
       this.deps.readSettings ?? (() => getSettingsManager().getAll());
-    const settings = read();
+    return this.normalizeRoutingSettings(read());
+  }
+
+  private normalizeRoutingSettings(
+    settings: Pick<AppSettings, 'copilotAccountProfiles' | 'copilotAccountRoutingRules'>,
+  ): RoutingSettings {
     // Normalize on READ, not just on write. The installed CLI records
     // `lastLoggedInUser.host` with a scheme ("https://github.com"), and the
     // first migration persisted that verbatim — while git remotes parse to a
@@ -146,6 +231,7 @@ export class CopilotAccountRoutingService {
    *  mismatch (spec §18). */
   invalidate(): void {
     this.cache.clear();
+    this.scopeCache.clear();
   }
 
   /** True once the operator has any Copilot account profile configured. */
@@ -163,6 +249,192 @@ export class CopilotAccountRoutingService {
     } catch {
       return [];
     }
+  }
+
+  /**
+   * Whose *protected* scope does this workspace sit in?
+   *
+   * Used by the cross-model checking policy to keep employer code on the
+   * employer's licence: work in a protected enterprise scope is checked on that
+   * same seat, never handed to another vendor's CLI.
+   *
+   * Deliberately NOT `resolveRouteForSpawn`. That answers "may we spawn Copilot
+   * here" and would report no scope at all when the seat is excluded from
+   * automation, signed out or `manual-only` — none of which stop the code being
+   * the employer's. This runs matching only: no precedence, no scope policy, no
+   * automation policy, no admission, no auth. It is cheap enough to call per
+   * review dispatch.
+   *
+   * When settings cannot be read, the answer degrades in this order: the last
+   * scope successfully computed for this workspace, else `none` if this machine
+   * has never had a protected enterprise rule, else `indeterminate` (which
+   * callers must fail closed on). The middle rung matters: an install with no
+   * enterprise scope has no licence boundary to protect, so a transient settings
+   * error there must not disable checking for every provider everywhere — the
+   * settings lock can genuinely time out under concurrent writes.
+   */
+  classifyWorkspaceScope(workingDirectory: string | undefined): WorkspaceCopilotScope {
+    if (!workingDirectory) return { kind: 'none' };
+
+    // Classification runs git remote collection, and the checking policy asks
+    // for it once per review dispatch — several times per loop round. Same TTL
+    // as the route cache, and `invalidate()` clears both.
+    const memoized = this.scopeCache.get(workingDirectory);
+    if (memoized && this.now() - memoized.cachedAt < ROUTE_CACHE_TTL_MS) {
+      return memoized.scope;
+    }
+    const scope = this.computeWorkspaceScope(workingDirectory);
+    // Never memoize a non-authoritative answer: an unreadable settings file must
+    // not pin a degraded verdict for the whole TTL.
+    if (scope.kind !== 'indeterminate') {
+      this.scopeCache.set(workingDirectory, { scope, cachedAt: this.now() });
+      this.lastKnownScope.set(workingDirectory, scope);
+    }
+    return scope;
+  }
+
+  /**
+   * Best answer available when the evidence cannot be gathered right now.
+   * See the ordering rationale on {@link classifyWorkspaceScope}.
+   */
+  private degradedScope(workingDirectory: string, reason: string): WorkspaceCopilotScope {
+    const lastKnown = this.lastKnownScope.get(workingDirectory);
+    if (lastKnown) return lastKnown;
+    // Only claim "no licence boundary" once we have actually managed to read the
+    // settings at least once. If the FIRST read of the process fails, an absent
+    // enterprise rule is ignorance, not evidence — reporting `none` there would
+    // let one dispatch check employer code off its own seat.
+    if (this.everReadSettings && !this.sawEnterpriseProtectedRule) return { kind: 'none' };
+    return { kind: 'indeterminate', reason };
+  }
+
+  /**
+   * The one narrow exception to the coarse `providersExcludedFromAutomation`
+   * guard.
+   *
+   * That guard exists because a Copilot seat's licence can be scoped to an
+   * employer's repositories, so the app must never *pick* Copilot out of a pool
+   * on the user's behalf. Checking work that already lives inside a protected
+   * enterprise scope is not that case: the workspace MANDATES that account, and
+   * the alternative — reviewing employer code on the Claude CLI, the Codex CLI
+   * or a personal seat — is the very outcome the guard is meant to prevent.
+   *
+   * Deliberately limited to the checking origins. Scaffolding, magic prompts,
+   * loops, workflows, failover and generic automation keep the coarse guard, so
+   * this cannot become a general "Copilot is back on" switch.
+   */
+  private isLicenceMandated(request: CopilotRouteRequest): boolean {
+    if (request.origin !== 'review' && request.origin !== 'verification' && request.origin !== 'consensus') {
+      return false;
+    }
+    const scope = this.classifyWorkspaceScope(request.workingDirectory);
+    return scope.kind === 'protected' && scope.accountKind === 'enterprise';
+  }
+
+  private hasEnterpriseProtectedRule(settings: RoutingSettings): boolean {
+    return settings.rules.some(
+      (rule) =>
+        rule.isProtected &&
+        settings.profiles.find((profile) => profile.id === rule.profileId)?.accountKind ===
+          'enterprise',
+    );
+  }
+
+  /** Is any protected ENTERPRISE rule matched by git remote rather than by path? */
+  private hasRemoteScopedEnterpriseRule(settings: RoutingSettings): boolean {
+    return settings.rules.some(
+      (rule) =>
+        rule.isProtected &&
+        rule.matcher.type !== 'path-prefix' &&
+        settings.profiles.find((profile) => profile.id === rule.profileId)?.accountKind ===
+          'enterprise',
+    );
+  }
+
+  private computeWorkspaceScope(workingDirectory: string): WorkspaceCopilotScope {
+    const read = this.readRoutingSettingsOrFailure();
+    if (!read.ok) {
+      if (read.kind === 'manager-unavailable') {
+        // No settings manager in this process, so no Copilot account routing can
+        // be configured here and there is no licence boundary to protect.
+        logger.debug('No settings manager available; treating workspace as unscoped', {
+          error: read.detail,
+        });
+        return { kind: 'none' };
+      }
+      logger.warn('Could not read Copilot settings to classify workspace scope', {
+        error: read.detail,
+      });
+      return this.degradedScope(workingDirectory, 'copilot-settings-unreadable');
+    }
+    const settings = read.settings;
+
+    // Remembered across later read failures so the degraded path knows both that
+    // we have successfully looked, and whether this machine has a licence
+    // boundary worth failing closed for.
+    this.everReadSettings = true;
+    if (!this.sawEnterpriseProtectedRule && this.hasEnterpriseProtectedRule(settings)) {
+      this.sawEnterpriseProtectedRule = true;
+    }
+
+    if (settings.rules.length === 0) return { kind: 'none' };
+
+    const canonicalWorkspacePath = this.canonicalize(workingDirectory);
+    const canonicalRulePaths: Record<string, string> = {};
+    for (const rule of settings.rules) {
+      if (rule.matcher.type === 'path-prefix') {
+        canonicalRulePaths[rule.id] = this.canonicalize(rule.matcher.canonicalPath);
+      }
+    }
+
+    // Git evidence is OPTIONAL. Reviewing a non-git folder, or a transient git
+    // failure, must not disable checking — but it does matter when an enterprise
+    // scope is defined by a repository/owner rule, because then missing remotes
+    // could hide a real licence boundary. So fail closed only in that case; with
+    // path-prefix enterprise rules the remotes are irrelevant to the answer.
+    let remotes: GitHubRemoteIdentity[] = [];
+    try {
+      const knownHosts = [...new Set(settings.profiles.map((profile) => profile.host))];
+      const collect = this.deps.collectRemotes ?? collectFetchRemoteIdentities;
+      remotes = collect(workingDirectory, knownHosts);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      if (this.hasRemoteScopedEnterpriseRule(settings)) {
+        logger.warn('Could not read git remotes and a remote-scoped enterprise rule exists', {
+          error: detail,
+        });
+        return this.degradedScope(workingDirectory, 'git-remotes-unavailable');
+      }
+      logger.debug('No git remotes available; continuing with path-prefix matching only', {
+        error: detail,
+      });
+    }
+
+    const claimants = collectProtectedScopeProfileIds({
+      rules: settings.rules,
+      remotes,
+      canonicalWorkspacePath,
+      canonicalRulePaths,
+    });
+
+    if (claimants.length === 0) return { kind: 'none' };
+    if (claimants.length > 1) return { kind: 'ambiguous', profileIds: claimants };
+
+    const profileId = claimants[0] as string;
+    const profile = settings.profiles.find((candidate) => candidate.id === profileId);
+    if (!profile) {
+      // A protected rule pointing at a deleted profile is exactly the case that
+      // must not silently downgrade to "unprotected".
+      return { kind: 'ambiguous', profileIds: claimants };
+    }
+
+    return {
+      kind: 'protected',
+      profileId: profile.id,
+      profileLabel: profile.label,
+      accountKind: profile.accountKind,
+      automationPolicy: profile.automationPolicy,
+    };
   }
 
   async resolveRouteForSpawn(request: CopilotRouteRequest): Promise<CopilotRouteOutcome> {
@@ -186,7 +458,7 @@ export class CopilotAccountRoutingService {
     // per-profile policy: when `copilot` is on the exclusion list, no Copilot
     // account may be selected automatically at all.
     const excluded = (this.deps.isProviderExcluded ?? isProviderExcludedFromAutomation)('copilot');
-    if (excluded && isAutomaticCopilotOrigin(request.origin)) {
+    if (excluded && isAutomaticCopilotOrigin(request.origin) && !this.isLicenceMandated(request)) {
       const outcome: CopilotRouteOutcome = {
         ok: false,
         code: 'automation-disallowed',

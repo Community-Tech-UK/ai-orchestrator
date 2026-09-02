@@ -21,11 +21,15 @@ import { createHash } from 'node:crypto';
 import type { CampaignEdge, CampaignNode, CampaignSpec } from '../../shared/types/campaign.types';
 import type { LoopProvider } from '../../shared/types/loop.types';
 import {
-  DEFAULT_LOOP_MAX_COST_CENTS,
   LOOP_DEFAULT_MAX_TURNS_PER_ITERATION,
   defaultLoopConfig,
 } from '../../shared/types/loop.types';
 import { assessLoopScope, type LoopScopeAssessment } from './loop-scope-assessment';
+
+/** Per-node estimated cost cap applied when the caller does not set one
+ *  ($30). Campaign nodes need a finite number for the aggregate budget
+ *  preview; standalone loops default to no cap (`DEFAULT_LOOP_MAX_COST_CENTS`). */
+export const CAMPAIGN_NODE_DEFAULT_MAX_COST_CENTS = 3_000;
 
 export interface CampaignPlanImportBaseLoop {
   /** Verify command copied into every node — the WS6 verification authority.
@@ -34,7 +38,7 @@ export interface CampaignPlanImportBaseLoop {
    *  `resolveLoopVerification`); this module stays pure and synchronous. */
   verifyCommand: string;
   provider?: LoopProvider;
-  /** Per-node estimated cost cap in cents. Defaults to the WS6 $30 default. */
+  /** Per-node estimated cost cap in cents. Defaults to `CAMPAIGN_NODE_DEFAULT_MAX_COST_CENTS` ($30). */
   maxCostCents?: number;
   /** Per-node turn cap. Defaults to the WS6 30-turn default. */
   maxTurnsPerIteration?: number;
@@ -90,7 +94,9 @@ export function buildCampaignFromPlan(input: CampaignPlanImportInput): CampaignP
   }
 
   const sourceDigest = computePlanSourceDigest(input.planText);
-  const maxCostCents = input.baseLoop.maxCostCents ?? DEFAULT_LOOP_MAX_COST_CENTS ?? 3_000;
+  // Campaign nodes always carry a finite per-node cap: the aggregate budget
+  // preview needs a number even though standalone loops default to no cap.
+  const maxCostCents = input.baseLoop.maxCostCents ?? CAMPAIGN_NODE_DEFAULT_MAX_COST_CENTS;
   const maxTurns = input.baseLoop.maxTurnsPerIteration ?? LOOP_DEFAULT_MAX_TURNS_PER_ITERATION;
   // CampaignLoopConfig requires full caps when present — take the shared
   // defaults and override only the per-node estimate cap.

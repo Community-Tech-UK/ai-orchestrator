@@ -134,7 +134,7 @@ describe('CrossModelReviewService headless review', () => {
     expect(result.infrastructureErrors).toEqual([]);
   });
 
-  it('normalizes explicit headless reviewers and excludes the default Claude builder', async () => {
+  it('normalizes explicit headless reviewers and excludes the Claude builder when it is the implementer', async () => {
     const dispatchReviewerPrompt = vi.fn(async () => reviewerJson('finding'));
     const service = CrossModelReviewService.getInstance();
     service.setReviewExecutionHost({
@@ -143,11 +143,16 @@ describe('CrossModelReviewService headless review', () => {
       dispatchReviewerPrompt,
     });
 
+    // primaryProvider must be explicit: an absent implementer no longer
+    // silently defaults to Claude (that barred Claude from Codex/Copilot
+    // sessions whose callers had not been updated). gemini aliases to
+    // antigravity, so the explicit list collapses to one checker.
     const result = await service.runHeadlessReview({
       target: 'HEAD',
       cwd: REPO_CWD,
       content: 'diff',
       taskDescription: 'Review',
+      primaryProvider: 'claude',
       reviewers: ['claude', 'gemini', 'antigravity'],
     });
 

@@ -267,6 +267,7 @@ async function invokeCliTextResponse(params: {
     rtk: params.rtk,
     timeout: params.timeoutMs ?? 300000,
     maxTurns: params.maxTurns,
+    ...(params.routingIntent === 'loop' ? { concurrencyPriority: 'overflow' as const } : {}),
     ...(scaffoldingChoice?.endpoint ? { ollamaEndpoint: scaffoldingChoice.endpoint } : {}),
   };
 
@@ -751,6 +752,7 @@ import {
   classifyIterationErrors,
   createPersistentLoopAdapter,
   enableAdapterResume,
+  interruptLoopAdapter,
   parseTestCounts,
 } from './default-loop-invoker-helpers';
 export {
@@ -1006,6 +1008,14 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
   if (typeof setHook === 'function') {
     setHook.call(coordinator, cleanupLoopAdapters);
   }
+  coordinator.on('loop:iteration-timeout', (data: unknown) => {
+    const payload = data as { loopRunId?: string };
+    if (!payload?.loopRunId) return;
+    const live = new Set<unknown>(activeLoopAdapters.get(payload.loopRunId) ?? []);
+    const persistent = persistentLoopAdapters.get(payload.loopRunId);
+    if (persistent) live.add(persistent);
+    for (const adapter of live) interruptLoopAdapter(adapter);
+  });
   // Defense-in-depth: also clean up on any terminal state-change. Catches
   // exotic paths that bypass `terminate()` directly (test mocks emitting
   // state-changed without invoking the hook). `cleanupLoopAdapters` is

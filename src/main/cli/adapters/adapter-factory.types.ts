@@ -44,6 +44,12 @@ export interface UnifiedSpawnOptions {
   systemPromptMode?: 'append' | 'replace';
   model?: string;
   yoloMode?: boolean;
+  /**
+   * ACP concurrency-slot priority. `'overflow'` lets loop/automation children
+   * take reserved extra slots after interactive chats and warm-start have
+   * filled the per-provider cap. Interactive and warm-start stay `'normal'`.
+   */
+  concurrencyPriority?: 'normal' | 'overflow';
   launchMode?: InstanceLaunchMode;
   timeout?: number;
   /** Agentic-turn backstop for a print-mode run (Claude CLI `--max-turns`).

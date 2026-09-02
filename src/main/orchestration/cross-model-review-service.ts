@@ -42,6 +42,7 @@ import {
   MAX_REVIEW_HISTORY,
   RATE_LIMIT_CHECK_INTERVAL_MS,
   AVAILABILITY_REFRESH_INTERVAL_MS,
+  SUPPORTED_REVIEWER_CLIS,
   normalizeAgenticReviewerCliList,
   normalizeReviewerCli,
   normalizeReviewerCliList,
@@ -49,6 +50,8 @@ import {
 } from './cross-model-review-service.constants';
 import { resolveReviewWorkingDirectory } from './cross-model-review-service.helpers';
 import { filterProvidersForAutomation } from '../providers/automation-provider-exclusions';
+import { resolveCheckerPlan, type CheckerCandidate } from '../review/checker-plan';
+import { learnFromCheckerFailure } from '../review/copilot-model-entitlements';
 import { getLocalModelInventoryService } from '../local-models/local-model-inventory-service';
 import { LocalReviewer } from '../review/local-reviewer';
 import {
@@ -281,19 +284,45 @@ export class CrossModelReviewService extends EventEmitter {
 
     await this.refreshAvailability();
     const preferredReviewers = normalizeReviewerCliList(settings.crossModelReviewProviders as string[]);
-    const selectedReviewers = this.reviewerPool.selectReviewers(
+    const reviewWorkingDirectory = resolveReviewWorkingDirectory(instance?.workingDirectory);
+    const pooledReviewers = this.reviewerPool.selectReviewers(
       normalizeReviewerCli(buffer.primaryProvider),
       settings.crossModelReviewMaxReviewers,
       [],
       preferredReviewers,
     );
+    // Family diversity + licence containment: the pool already excluded the
+    // implementer's PROVIDER; this decides each checker's MODEL, and pins the
+    // plan to the employer's own seat inside a protected enterprise scope.
+    const plan = resolveCheckerPlan(pooledReviewers, {
+      implementerProvider: buffer.primaryProvider,
+      ...(instance?.currentModel ? { implementerModel: instance.currentModel } : {}),
+      workingDirectory: reviewWorkingDirectory,
+      context: 'crossModelReview.inSession',
+      // An empty pool here means "nothing available", never "run nothing".
+      minCheckers: 1,
+    });
+    // Candidates, NOT a provider list: a licence-pinned plan is several checkers
+    // on the SAME Copilot seat with different models, so collapsing by provider
+    // name would silently discard every checker after the first.
+    const selectedReviewers = plan.candidates;
+    const licencePinned = selectedReviewers.some((c) => c.rationale === 'licence-pinned');
+
+    if (selectedReviewers.length === 0 && plan.blockedReason) {
+      logger.warn('Cross-model review skipped — checking policy produced no eligible checker', {
+        instanceId,
+        blockedReason: plan.blockedReason,
+      });
+      return;
+    }
 
     // Record who actually ran vs. what was configured, so a top-priority
     // reviewer quietly falling through to a fallback is visible per cycle.
     logger.info('Cross-model review reviewers selected', {
       instanceId,
-      selected: selectedReviewers,
+      selected: selectedReviewers.map((c) => `${c.provider}:${c.model ?? 'auto'}`),
       configured: preferredReviewers,
+      licencePinned,
     });
 
     const reviewStartedAt = Date.now();
@@ -308,7 +337,12 @@ export class CrossModelReviewService extends EventEmitter {
       ...(instance?.modelRuntimeTarget
         ? { builderModelRuntimeTarget: instance.modelRuntimeTarget }
         : {}),
-      workingDirectory: resolveReviewWorkingDirectory(instance?.workingDirectory),
+      workingDirectory: reviewWorkingDirectory,
+      ...(instance?.currentModel ? { implementerModel: instance.currentModel } : {}),
+      ...(licencePinned ? { licencePinned: true } : {}),
+      ...(selectedReviewers.find((c) => c.copilotProfileId)?.copilotProfileId
+        ? { copilotProfileId: selectedReviewers.find((c) => c.copilotProfileId)!.copilotProfileId! }
+        : {}),
       content: redactForEgress(truncateForReview(aggregatedContent), {
         kind: 'prompt',
         instanceId,
@@ -332,7 +366,7 @@ export class CrossModelReviewService extends EventEmitter {
 
   // === Review Execution ===
 
-  private async executeReviews(request: ReviewDispatchRequest, reviewerClis: string[], timeoutSeconds: number): Promise<void> {
+  private async executeReviews(request: ReviewDispatchRequest, reviewerClis: CheckerCandidate[], timeoutSeconds: number): Promise<void> {
     const abort = new AbortController();
     this.pendingReviews.set(request.id, abort);
     this.pendingReviewInstances.set(request.id, request.instanceId);
@@ -431,23 +465,31 @@ export class CrossModelReviewService extends EventEmitter {
 
   private async collectSuccessfulReviews(
     request: ReviewDispatchRequest,
-    reviewerClis: string[],
+    checkers: CheckerCandidate[],
     timeoutSeconds: number,
     signal: AbortSignal,
   ): Promise<ReviewResult[]> {
     const attempted = new Set<string>();
     const successful: ReviewResult[] = [];
-    let candidates = normalizeAgenticReviewerCliList(reviewerClis);
+    // Candidates, not provider names. A licence-pinned plan is several checkers
+    // on ONE Copilot seat with different models; keying by provider would run
+    // just the first and silently ignore `crossModelReviewMaxReviewers`.
+    let candidates = checkers.filter((c) =>
+      (SUPPORTED_REVIEWER_CLIS as ReadonlySet<string>).has(normalizeReviewerCli(c.provider)));
     const desiredCount = candidates.length;
     // Honour the user's configured reviewer order when picking fallbacks too,
     // so a failed active reviewer is replaced by the next one in priority order.
     const preferredOrder = normalizeReviewerCliList(getSettingsManager().getAll().crossModelReviewProviders as string[]);
 
     while (candidates.length > 0 && successful.length < desiredCount) {
-      for (const cliType of candidates) attempted.add(normalizeReviewerCli(cliType));
+      for (const checker of candidates) attempted.add(normalizeReviewerCli(checker.provider));
 
       const results = await Promise.allSettled(
-        candidates.map(cliType => this.executeOneReview(request, cliType, timeoutSeconds, signal))
+        candidates.map(checker =>
+          this.executeOneReview(
+            request, normalizeReviewerCli(checker.provider), timeoutSeconds, signal, checker.model,
+          ),
+        )
       );
 
       for (const result of results) {
@@ -459,18 +501,29 @@ export class CrossModelReviewService extends EventEmitter {
       const remaining = desiredCount - successful.length;
       if (remaining <= 0) break;
 
-      candidates = this.reviewerPool.selectReviewers(
+      // Inside a protected enterprise scope the plan IS the permitted universe.
+      // Widening reaches into the general reviewer pool, which would take
+      // employer code off its own licence to replace a failed checker.
+      if (request.licencePinned) break;
+
+      const widened = this.reviewerPool.selectReviewers(
         normalizeReviewerCli(request.primaryProvider),
         remaining,
         Array.from(attempted),
         preferredOrder,
       );
+      candidates = resolveCheckerPlan(widened, {
+        ...(request.primaryProvider ? { implementerProvider: request.primaryProvider } : {}),
+        ...(request.implementerModel ? { implementerModel: request.implementerModel } : {}),
+        workingDirectory: request.workingDirectory,
+        context: 'crossModelReview.widened',
+      }).candidates;
     }
 
     return successful;
   }
 
-  private async executeOneReview(request: ReviewDispatchRequest, cliType: string, timeoutSeconds: number, signal: AbortSignal): Promise<ReviewResult | null> {
+  private async executeOneReview(request: ReviewDispatchRequest, cliType: string, timeoutSeconds: number, signal: AbortSignal, plannedModelForCli?: string): Promise<ReviewResult | null> {
     const startTime = Date.now();
     const reviewerCli = normalizeReviewerCli(cliType);
     const breaker = getCircuitBreakerRegistry().getBreaker(`cross-review-${reviewerCli}`, {
@@ -508,8 +561,12 @@ export class CrossModelReviewService extends EventEmitter {
         if (this.isPaused || getPauseCoordinator().isPaused()) throw new Error('Review skipped while orchestrator is paused');
 
         const resolvedCli = await resolveCliType(reviewerCli as SettingsCliType);
-        const configuredModel = resolveReviewerModelOverride(reviewerCli);
-        const reviewerModels = reviewerCli === 'antigravity'
+        // A policy-chosen model wins over the per-provider setting — that is how
+        // a checker ends up on a different family. Absent = policy left this
+        // checker alone, so existing resolution stands (incl. Antigravity's plan).
+        const plannedModel = plannedModelForCli;
+        const configuredModel = plannedModel ?? resolveReviewerModelOverride(reviewerCli);
+        const reviewerModels = reviewerCli === 'antigravity' && !plannedModel
           ? resolveAntigravityReviewModelPlan(
               configuredModel,
               getProviderQuotaService().getSnapshot('antigravity'),
@@ -629,6 +686,9 @@ export class CrossModelReviewService extends EventEmitter {
         throw new Error(`Reviewer "${reviewerCli}" exceeded its ${timeoutMs}ms review deadline`);
       }
       const message = err instanceof Error ? err.message : String(err);
+      // A seat only reveals what it serves by refusing; without this the same
+      // refused model is re-chosen on every future dispatch for that seat.
+      learnFromCheckerFailure(request.copilotProfileId, message);
       if (isReviewerRateLimitError(message)) {
         this.reviewerPool.markRateLimited(reviewerCli);
         // Surface it: a rate-limited/quota-capped reviewer is silently skipped
@@ -673,9 +733,44 @@ export class CrossModelReviewService extends EventEmitter {
     });
   }
 
-  private async resolveHeadlessReviewers(request: HeadlessReviewRequest): Promise<string[]> {
+  private async resolveHeadlessReviewers(request: HeadlessReviewRequest): Promise<CheckerCandidate[]> {
+    // An explicit empty reviewer list means ZERO remote reviewers — the local-only
+    // fresh-eyes pass and `aio review --reviewers none` both rely on it. Only an
+    // absent list means "pick for me", where an exhausted pool should still yield
+    // a checker inside an enterprise scope.
+    const explicitlyNone = Array.isArray(request.reviewers) && request.reviewers.length === 0;
+    const plan = resolveCheckerPlan(await this.resolveHeadlessProviders(request), {
+      ...(request.primaryProvider ? { implementerProvider: request.primaryProvider } : {}),
+      ...(request.primaryModel ? { implementerModel: request.primaryModel } : {}),
+      workingDirectory: request.cwd,
+      context: 'crossModelReview.headless',
+      minCheckers: explicitlyNone ? 0 : 1,
+    });
+    if (plan.candidates.length === 0 && plan.blockedReason) {
+      logger.warn('Headless review has no eligible checker', {
+        target: request.target,
+        blockedReason: plan.blockedReason,
+      });
+    }
+    return plan.candidates;
+  }
+
+  /**
+   * Providers the existing selection logic would have used, before the checking
+   * policy decides their models.
+   *
+   * An absent `primaryProvider` means the caller genuinely does not know who
+   * implemented the work. It is passed through as the empty string, which
+   * excludes nothing — the previous `?? 'claude'` default silently barred Claude
+   * from every review whose caller had not been updated to pass an implementer,
+   * which for a Codex or Copilot session removed the single most useful checker.
+   */
+  private async resolveHeadlessProviders(request: HeadlessReviewRequest): Promise<string[]> {
+    const primaryProvider = request.primaryProvider
+      ? normalizeReviewerCli(request.primaryProvider)
+      : '';
+
     if (request.reviewers) {
-      const primaryProvider = normalizeReviewerCli(request.primaryProvider ?? 'claude');
       return normalizeAgenticReviewerCliList(request.reviewers)
         .filter((reviewer) => reviewer !== primaryProvider);
     }
@@ -684,7 +779,7 @@ export class CrossModelReviewService extends EventEmitter {
     const settings = getSettingsManager().getAll();
     const preferredReviewers = normalizeReviewerCliList(settings.crossModelReviewProviders as string[]);
     return this.reviewerPool.selectReviewers(
-      normalizeReviewerCli(request.primaryProvider ?? 'claude'),
+      primaryProvider,
       settings.crossModelReviewMaxReviewers,
       [],
       preferredReviewers,

@@ -23,7 +23,7 @@ function reviewerJson(issue: string): string {
 function baseDeps(overrides: Partial<HeadlessReviewRunnerDependencies> = {}): HeadlessReviewRunnerDependencies {
   return {
     host: { dispatchReviewerPrompt: vi.fn(async () => reviewerJson('finding')) } as unknown as ReviewExecutionHost,
-    resolveReviewers: async () => ['gemini'],
+    resolveReviewers: async () => [{ provider: 'gemini', rationale: 'unchanged' as const }],
     localEnabled: false,
     createLocalPlan: () => ({
       run: async () => ({ status: 'skipped', reason: 'local disabled in this test' }),
@@ -60,7 +60,10 @@ describe('runHeadlessReviewCommand — WS-B9 coverage + cache', () => {
     const dispatchReviewerPrompt = vi.fn(async () => reviewerJson('null check missing'));
     const deps = baseDeps({
       host: { dispatchReviewerPrompt } as unknown as ReviewExecutionHost,
-      resolveReviewers: async () => ['gemini', 'codex'],
+      resolveReviewers: async () => [
+        { provider: 'gemini', rationale: 'unchanged' as const },
+        { provider: 'codex', rationale: 'unchanged' as const },
+      ],
     });
 
     const result = await runHeadlessReviewCommand(baseRequest(), deps);

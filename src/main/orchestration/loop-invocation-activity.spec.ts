@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import { createLoopInvocationCapture } from './loop-invoker-capture';
 import { attachInvocationActivity, boundActivityDetail } from './loop-invocation-activity';
@@ -120,5 +120,38 @@ describe('attachInvocationActivity', () => {
 
     const [lintCall, testCall] = capture.finalize().toolCalls;
     expect(lintCall.argsHash).not.toBe(testCall.argsHash);
+  });
+
+  it('auto-approves hidden ACP permission prompts via sendRaw allow, not autonomous prose', async () => {
+    const emitter = new EventEmitter() as EventEmitter & {
+      sendRaw: (text: string, permissionKey?: string) => Promise<void>;
+    };
+    const sendRaw = vi.fn(async () => undefined);
+    emitter.sendRaw = sendRaw;
+    const activities: { kind: string; message: string }[] = [];
+    const detach = attachInvocationActivity(
+      emitter as unknown as CliAdapter,
+      (activity) => activities.push({ kind: activity.kind, message: activity.message }),
+      { autoAnswerInputRequired: true },
+    );
+
+    emitter.emit('input_required', {
+      id: 'acp_permission:9',
+      prompt: 'ACP agent requests permission to continue tool execution.',
+      metadata: { type: 'acp_permission_request', action: 'acp_permission' },
+    });
+    await new Promise<void>((r) => setImmediate(r));
+    detach();
+
+    expect(sendRaw).toHaveBeenCalledWith('allow', 'acp_permission:9');
+    expect(sendRaw).not.toHaveBeenCalledWith(expect.stringContaining('Loop Mode is unattended'));
+    expect(activities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'status',
+          message: 'Auto-approving hidden ACP tool permission',
+        }),
+      ]),
+    );
   });
 });

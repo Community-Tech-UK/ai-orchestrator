@@ -9,10 +9,9 @@
  * catalog constants at module-evaluation time (only inside function bodies).
  */
 import {
-  CLAUDE_LEGACY_PRICING_ALIASES,
-  CLAUDE_PINNED_MODELS,
   DEFAULT_MODELS,
   MAX_MODEL_ID_LENGTH,
+  PROVIDER_MODEL_REPLACEMENTS,
   PROVIDER_MODEL_LIST,
   type ModelDisplayInfo,
   type ProviderType,
@@ -66,6 +65,57 @@ function modelAliasKey(value: string): string {
 }
 
 /**
+ * Resolve an explicitly retired model id to its canonical replacement.
+ *
+ * Replacement chains are supported so persisted records can skip multiple
+ * generations. A malformed cyclic declaration fails safe by returning the
+ * original id instead of choosing an arbitrary point in the cycle.
+ */
+export function resolveModelReplacementForProvider(
+  provider: string,
+  modelId?: string | null,
+  replacements: Readonly<Record<string, Readonly<Record<string, string>>>> = PROVIDER_MODEL_REPLACEMENTS,
+): string | undefined {
+  const original = modelId?.trim();
+  if (!original) return undefined;
+
+  const replacementRegistry: unknown = replacements;
+  if (
+    !replacementRegistry
+    || typeof replacementRegistry !== 'object'
+    || Array.isArray(replacementRegistry)
+  ) {
+    return original;
+  }
+  const replacementRecord = replacementRegistry as Readonly<
+    Record<string, Readonly<Record<string, string>>>
+  >;
+  const providerKey = normalizeProviderModelNamespace(provider);
+  const providerCandidate: unknown = Object.prototype.hasOwnProperty.call(replacementRecord, providerKey)
+    ? replacementRecord[providerKey]
+    : undefined;
+  const providerReplacements = providerCandidate
+    && typeof providerCandidate === 'object'
+    && !Array.isArray(providerCandidate)
+    ? providerCandidate as Readonly<Record<string, string>>
+    : undefined;
+  let current = original;
+  const visited = new Set<string>([current]);
+  while (
+    providerReplacements
+    && Object.prototype.hasOwnProperty.call(providerReplacements, current)
+  ) {
+    const rawNext: unknown = providerReplacements[current];
+    if (typeof rawNext !== 'string') return original;
+    const next = rawNext.trim();
+    if (!next || visited.has(next)) return original;
+    visited.add(next);
+    current = next;
+  }
+  return current;
+}
+
+/**
  * Normalize a human-readable model name to the provider's canonical model ID.
  *
  * Unknown dynamic model IDs intentionally pass through unchanged, which keeps
@@ -82,26 +132,22 @@ export function normalizeModelAliasForProvider(
   }
 
   const normalizedProvider = normalizeProviderModelNamespace(provider);
-  if (
-    normalizedProvider === 'claude'
-    && trimmed === CLAUDE_LEGACY_PRICING_ALIASES.FABLE_5
-  ) {
-    return CLAUDE_PINNED_MODELS.FABLE_51;
-  }
+  const resolvedReplacement = resolveModelReplacementForProvider(normalizedProvider, trimmed);
+  if (!resolvedReplacement) return undefined;
   const providerModels = getModelsForProvider(normalizedProvider);
-  const exact = providerModels.find((model) => model.id === trimmed);
+  const exact = providerModels.find((model) => model.id === resolvedReplacement);
   if (exact) {
     return exact.id;
   }
 
-  const requestedKey = modelAliasKey(trimmed);
+  const requestedKey = modelAliasKey(resolvedReplacement);
   const matched = providerModels.find((model) => {
     const idKey = modelAliasKey(model.id);
     const nameKey = modelAliasKey(model.name);
     return requestedKey === idKey || requestedKey === nameKey;
   });
 
-  return matched?.id ?? trimmed;
+  return matched?.id ?? resolvedReplacement;
 }
 
 /**

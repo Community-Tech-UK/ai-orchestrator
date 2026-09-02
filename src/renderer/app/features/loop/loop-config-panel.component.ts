@@ -24,9 +24,8 @@ const DEFAULT_CAPS = {
   maxIterations: 50,
   maxToolCallsPerIteration: 200,
 };
-/** WS6: finite new-loop defaults (mirrors DEFAULT_LOOP_MAX_COST_CENTS = 3000
- *  and LOOP_DEFAULT_MAX_TURNS_PER_ITERATION = 30 in shared loop types). */
-const DEFAULT_MAX_DOLLARS = 30;
+/** WS6: finite per-iteration turn default (mirrors
+ *  LOOP_DEFAULT_MAX_TURNS_PER_ITERATION = 30 in shared loop types). */
 const DEFAULT_MAX_TURNS_PER_ITERATION = 30;
 /** Lower bound for the optional token cap. Below this a single substantial
  *  iteration (file reads + a long turn) would trip it instantly, which is the
@@ -156,12 +155,9 @@ export class LoopConfigPanelComponent {
   planFile = signal('');
   maxIterations = signal<number | null>(DEFAULT_CAPS.maxIterations);
   maxHours = signal(DEFAULT_MAX_WALL_TIME_HOURS);
-  /** WS6: new loops default to a finite $30 estimated cost cap. `null`
-   *  (unbounded) requires the deliberate `allowUnbounded` toggle below. */
-  maxDollars = signal<number | null>(DEFAULT_MAX_DOLLARS);
-  /** WS6: deliberate "Allow unbounded estimated spend" choice. Only while
-   *  enabled may the cost cap be blank (emitting explicit `null`). */
-  allowUnbounded = signal(false);
+  /** Estimated cost cap in dollars. `null` (blank) = no cap, which is the
+   *  default — mirrors DEFAULT_LOOP_MAX_COST_CENTS = null in shared loop types. */
+  maxDollars = signal<number | null>(null);
   /** WS6: per-iteration turn cap — the primary bound WITHIN an iteration
    *  (the cost check runs between iterations). */
   maxTurns = signal<number | null>(DEFAULT_MAX_TURNS_PER_ITERATION);
@@ -364,11 +360,7 @@ export class LoopConfigPanelComponent {
     if (this.maxHours() < 1) return 'Max wall time must be at least 1 hour.';
     if (this.maxHours() > MAX_WALL_TIME_HOURS) return 'Max wall time must be 168 hours or less.';
     const maxDollars = this.maxDollars();
-    if (maxDollars !== null && maxDollars < 1) return 'Estimated usage cap must be at least $1.';
-    // WS6: blank spend is a deliberate choice, not a default.
-    if (maxDollars === null && !this.allowUnbounded()) {
-      return 'Estimated usage cap is blank — set a cap, or enable "Allow unbounded estimated spend".';
-    }
+    if (maxDollars !== null && maxDollars < 1) return 'Estimated usage cap must be at least $1, or blank for no cap.';
     const maxTurns = this.maxTurns();
     if (maxTurns !== null && (!Number.isFinite(maxTurns) || maxTurns < 1 || maxTurns > 500)) {
       return 'Max turns per iteration must be between 1 and 500, or blank for the provider default.';

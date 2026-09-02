@@ -462,6 +462,40 @@ describe('AcpCliAdapter', () => {
     proc.exit();
   });
 
+  it('emits heartbeat for metadata-only session updates so Loop Mode stays alive', async () => {
+    const proc = createInitializedAgentHarness();
+    const heartbeats: number[] = [];
+
+    proc.onRequest('session/prompt', (message) => {
+      proc.notify('session/update', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'session_info_update',
+          title: 'Orchestrator Optimizer',
+        },
+      });
+      proc.notify('session/update', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: 'Still alive.' },
+        },
+      });
+      proc.respond(message.id, { stopReason: 'end_turn' });
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+    });
+    adapter.on('heartbeat', () => heartbeats.push(Date.now()));
+    await adapter.spawn();
+    await adapter.sendMessage({ role: 'user', content: 'hello' });
+
+    expect(heartbeats.length).toBeGreaterThanOrEqual(2);
+    proc.exit();
+  });
+
   it('keeps assistant chunks on a stable turn id when ACP messageId changes per chunk', async () => {
     const proc = createInitializedAgentHarness();
 
@@ -804,6 +838,63 @@ describe('AcpCliAdapter', () => {
       }),
     );
     expect(response.content).toBe('Permission granted.');
+
+    proc.exit();
+  });
+
+  it('auto-allows session/request_permission when spawn yoloMode is set, without input_required', async () => {
+    const proc = createInitializedAgentHarness();
+    const inputRequiredHandler = vi.fn();
+
+    proc.onRequest('session/prompt', async (message) => {
+      proc.request(61, 'session/request_permission', {
+        sessionId: 'sess-acp-1',
+        toolCall: {
+          toolCallId: 'call-yolo',
+          title: 'Run tests',
+          kind: 'execute',
+        },
+        options: [
+          { optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' },
+          { optionId: 'reject-once', name: 'Reject', kind: 'reject_once' },
+        ],
+      });
+
+      const permissionResponse = await proc.waitForMessage((incoming) =>
+        'id' in incoming
+        && incoming.id === 61
+        && 'result' in incoming,
+      ) as AcpJsonRpcSuccessResponse;
+
+      expect(permissionResponse.result).toEqual({
+        outcome: {
+          outcome: 'selected',
+          optionId: 'allow-once',
+        },
+      });
+
+      proc.notify('session/update', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: 'Ran tests.' },
+        },
+      });
+      proc.respond(message.id, { stopReason: 'end_turn' });
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      permissionContext: { instanceId: 'acp-ephemeral-cursor-loop', yoloMode: true },
+    });
+    adapter.on('input_required', inputRequiredHandler);
+    await adapter.spawn();
+
+    const response = await adapter.sendMessage({ role: 'user', content: 'run tests' });
+
+    expect(inputRequiredHandler).not.toHaveBeenCalled();
+    expect(response.content).toBe('Ran tests.');
 
     proc.exit();
   });

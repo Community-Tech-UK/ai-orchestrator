@@ -27,6 +27,8 @@ import {
   filterProvidersForAutomation,
   isProviderExcludedFromAutomation,
 } from '../providers/automation-provider-exclusions';
+import { resolveOpenCheckerModel, resolvePingPongChecker } from './pingpong-checking-policy';
+import { learnFromCheckerFailure } from '../review/copilot-model-entitlements';
 
 const logger = getLogger('AgenticPingPongReviewer');
 
@@ -96,6 +98,8 @@ export interface PingPongReviewerInput {
   planFile?: string;
   /** Builder's provider — the reviewer MUST be a different one. */
   builderProvider: string;
+  /** Builder's model — in an enterprise scope the reviewer differs by FAMILY, not provider. */
+  builderModel?: string;
   /** Setting/config: `'auto'` or a concrete provider. */
   reviewerProviderSetting: string;
   /** Providers already tried + failed this run (outage fallback rotation). */
@@ -258,16 +262,6 @@ async function resolveReviewerProvider(
 
   // Every installed non-builder provider is exhausted this run → no reviewer.
   return null;
-}
-
-function resolveModelOverride(provider: string): string | undefined {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { resolveReviewerModelOverride } = require('../review/review-execution-host') as typeof import('../review/review-execution-host');
-    return resolveReviewerModelOverride(provider);
-  } catch {
-    return undefined;
-  }
 }
 
 function ledgerBlock(ledger: readonly PingPongIssue[]): string {
@@ -511,11 +505,24 @@ export const agenticPingPongReviewer: PingPongReviewer = async (input) => {
     });
   }
 
-  const provider = await resolveReviewerProvider(
-    input.reviewerProviderSetting,
-    input.builderProvider,
-    input.triedReviewerProviders,
-  );
+  // Licence containment: in a protected enterprise Copilot scope the reviewer
+  // stays on the employer's seat and differs by model FAMILY, so the
+  // different-provider resolver below must not run. See pingpong-checking-policy.
+  const licence = resolvePingPongChecker({
+    builderProvider: input.builderProvider,
+    ...(input.builderModel ? { builderModel: input.builderModel } : {}),
+    workspaceCwd: input.workspaceCwd,
+  });
+  if (licence.kind === 'blocked') {
+    return unreliable(`checking policy blocked the reviewer: ${licence.reason}`, 'unavailable');
+  }
+  const provider = licence.kind === 'licence-pinned'
+    ? licence.provider
+    : await resolveReviewerProvider(
+        input.reviewerProviderSetting,
+        input.builderProvider,
+        input.triedReviewerProviders,
+      );
   if (!provider) {
     return unreliable(
       `no eligible reviewer provider (builder=${input.builderProvider}, tried=${input.triedReviewerProviders.join(',') || 'none'})`,
@@ -523,11 +530,14 @@ export const agenticPingPongReviewer: PingPongReviewer = async (input) => {
     );
   }
 
+  const reviewerModelOverride = licence.kind === 'licence-pinned'
+    ? licence.model
+    : resolveOpenCheckerModel(provider, input);
   const prompt = buildPrompt(input);
   const spawner = getReviewerSessionSpawner();
   const session = await spawner.runReviewSession({
     provider: provider as InstanceProvider,
-    modelOverride: resolveModelOverride(provider),
+    modelOverride: reviewerModelOverride,
     workingDirectory: input.workspaceCwd,
     prompt,
     displayName: `Ping-pong reviewer ${input.roundNumber}/${input.maxRounds} (${provider})`,
@@ -551,6 +561,11 @@ export const agenticPingPongReviewer: PingPongReviewer = async (input) => {
   });
 
   if (session.outcome !== 'settled') {
+    // Teach the entitlement cache when the seat refused this model, or the same
+    // model is chosen again on every future round for this account.
+    if (licence.kind === 'licence-pinned') {
+      learnFromCheckerFailure(licence.profileId, `${session.error ?? ''} ${session.finalOutput}`);
+    }
     // A throttled CLI can still report `settled` (it exits 0 and prints a notice
     // as content) — that case is caught below. Here the session itself did not
     // complete: a timeout is its own (transient) fault; cancellation is carried
@@ -578,7 +593,7 @@ export const agenticPingPongReviewer: PingPongReviewer = async (input) => {
   if (!parsed && session.finalOutput.trim().length > 0) {
     const repair = await spawner.runReviewSession({
       provider: provider as InstanceProvider,
-      modelOverride: resolveModelOverride(provider),
+      modelOverride: reviewerModelOverride,
       workingDirectory: input.workspaceCwd,
       prompt: buildFormatRepairPrompt(input, session.finalOutput),
       displayName: `Ping-pong reviewer format repair ${input.roundNumber}/${input.maxRounds} (${provider})`,

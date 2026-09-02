@@ -225,23 +225,21 @@ describe('LoopConfigPanelComponent', () => {
     expect(config?.completion?.requiredCleanReviewPasses).toBe(4);
   });
 
-  it('WS6: defaults to a finite $30 estimated spend cap', () => {
+  it('defaults to no estimated spend cap (blank emits explicit null)', () => {
     const config = component.buildConfig();
 
-    expect(component.maxDollars()).toBe(30);
-    expect(config?.caps?.maxCostCents).toBe(3_000);
+    expect(component.maxDollars()).toBeNull();
+    expect(component.canSubmit()).toBe(true);
+    expect(config?.caps?.maxCostCents).toBeNull();
   });
 
-  it('WS6: a blank spend cap requires the deliberate unbounded toggle', () => {
-    component.maxDollars.set(null);
+  it('rejects a sub-$1 spend cap but accepts blank', () => {
+    component.maxDollars.set(0.5);
+    expect(component.validationError()).toContain('or blank for no cap');
 
-    expect(component.canSubmit()).toBe(false);
-    expect(component.validationError()).toContain('Allow unbounded');
-
-    component.allowUnbounded.set(true);
-
-    expect(component.canSubmit()).toBe(true);
-    expect(component.buildConfig()?.caps?.maxCostCents).toBeNull();
+    component.onMaxDollarsChange('');
+    expect(component.maxDollars()).toBeNull();
+    expect(component.validationError()).toBeNull();
   });
 
   it('Fable WS6: defaults the loop recipe to coding and emits it in the config', () => {
@@ -275,7 +273,9 @@ describe('LoopConfigPanelComponent', () => {
     expect(component.validationError()).toContain('verification authority');
     expect(component.buildConfig()).toBeNull();
 
-    // Operator-reviewed completion is a valid authority (finite cap present).
+    // Operator-reviewed completion is a valid authority once a finite cap is set
+    // (the default is no cap, and LF-3a requires one for operator-reviewed runs).
+    component.maxDollars.set(500);
     component.operatorReviewedCompletion.set(true);
 
     expect(component.canSubmit()).toBe(true);
@@ -576,9 +576,8 @@ describe('LoopConfigPanelComponent', () => {
   it('requires an estimated usage cap before enabling branch-select on stuck', () => {
     component.branchSelect.set(true);
     component.maxDollars.set(null);
-    // WS6: even with the deliberate unbounded toggle on, branch-select still
-    // demands its own cap (it multiplies spend by the fanout).
-    component.allowUnbounded.set(true);
+    // Branch-select demands its own cap even though blank is the default
+    // (it multiplies spend by the fanout).
     fixture.detectChanges();
 
     expect(component.validationError()).toBe('Branch-select on stuck requires an estimated usage cap ($). Set Estimated usage cap.');

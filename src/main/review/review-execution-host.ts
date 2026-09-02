@@ -3,33 +3,17 @@ import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
 import type { ReviewResult } from '../../shared/types/cross-model-review.types';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 import { attachCopilotRoute } from '../instance/lifecycle/copilot-route-preflight';
-import { getSettingsManager } from '../core/config/settings-manager';
 import type { CliType as SettingsCliType } from '../../shared/types/settings.types';
 import { getProviderQuotaService } from '../core/system/provider-quota-service';
 import { resolveAntigravityReviewModelPlan } from '../orchestration/antigravity-review-model-routing';
+import { resolveReviewerModelOverride } from './reviewer-model-override';
 
 /**
- * Resolve the model a given reviewer CLI should run with for cross-model review.
- *
- * Returns a concrete model id only when the user has configured an explicit
- * override for that reviewer in `crossModelReviewModelByProvider`. A missing
- * entry, an empty string, or 'auto' yields `undefined`, meaning "pass no model"
- * so the reviewer CLI uses its own default/auto routing. We deliberately do NOT
- * fall back to a primary model — that would silently pin providers (e.g.
- * Copilot's primary is Gemini), defeating each CLI's native routing.
- *
- * Shared by the in-session review path (CrossModelReviewService.executeOneReview)
- * and the headless review path (ProviderReviewExecutionHost) so both honour the
- * same setting.
+ * Lives in its own leaf module so this file and the checker planner can both use
+ * it without an import cycle. Re-exported here because several call sites import
+ * it from this module.
  */
-export function resolveReviewerModelOverride(provider: string): string | undefined {
-  const overrides = getSettingsManager().getAll().crossModelReviewModelByProvider ?? {};
-  const configured = (overrides[provider] ?? '').trim();
-  if (!configured || configured.toLowerCase() === 'auto') {
-    return undefined;
-  }
-  return configured;
-}
+export { resolveReviewerModelOverride };
 
 export interface ReviewExecutionHost {
   getWorkingDirectory(instanceId: string): string | undefined;
@@ -79,7 +63,17 @@ export interface HeadlessReviewRequest {
   content: string;
   taskDescription: string;
   reviewers?: string[];
+  /**
+   * Provider that produced the work under review. Absent means genuinely
+   * unknown, and constrains nothing — it must NOT be defaulted to a provider,
+   * which would silently bar that provider from checking.
+   */
   primaryProvider?: string;
+  /**
+   * Model that produced the work under review. Drives family diversity: the
+   * checker runs a different vendor's model. Absent = unknown = no constraint.
+   */
+  primaryModel?: string;
   reviewDepth?: 'structured' | 'tiered';
   timeoutSeconds?: number;
   /** Optional caller cancellation bridged into remote and local review work. */

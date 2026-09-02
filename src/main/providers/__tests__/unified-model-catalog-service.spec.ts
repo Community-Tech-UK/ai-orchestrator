@@ -22,6 +22,8 @@ import {
 } from '../unified-model-catalog-service';
 import { clearModelRateOverlay, registerModelRates } from '../../../shared/data/model-pricing';
 import {
+  CLAUDE_LEGACY_PRICING_ALIASES,
+  CLAUDE_PINNED_MODELS,
   GROK_MODELS,
   normalizeModelForProvider,
   type ModelDisplayInfo,
@@ -154,6 +156,11 @@ describe('UnifiedModelCatalogService — initial static catalog', () => {
     expect(entry!.tier).toBe('powerful');
     expect(entry!.family).toBe('Fable');
     expect(entry!.pricing).toEqual({ inputPerMillion: 10.0, outputPerMillion: 50.0 });
+  });
+
+  it('does not expose replaced Claude model ids from the static catalog', () => {
+    const svc = makeServiceWithMock();
+    expect(svc.getModel(CLAUDE_LEGACY_PRICING_ALIASES.FABLE_5)).toBeUndefined();
   });
 
   it('getModel returns undefined for an unknown id', () => {
@@ -357,6 +364,29 @@ describe('UnifiedModelCatalogService — precedence: CLI-discovered (highest)', 
     expect(sonnetEntry!.name).toBe('Sonnet (live)');
   });
 
+  it('does not let CLI discovery re-admit a deliberately replaced model id', () => {
+    const svc = makeServiceWithMock();
+
+    svc.onCliDiscoveryRefreshed('claude', [
+      {
+        id: CLAUDE_LEGACY_PRICING_ALIASES.FABLE_5,
+        name: 'Fable 5',
+        tier: 'powerful',
+      },
+      {
+        id: CLAUDE_PINNED_MODELS.FABLE_51,
+        name: 'Fable 5.1',
+        tier: 'powerful',
+      },
+    ]);
+    vi.runAllTimers();
+
+    expect(svc.getModel(CLAUDE_LEGACY_PRICING_ALIASES.FABLE_5)).toBeUndefined();
+    expect(svc.getModel(CLAUDE_PINNED_MODELS.FABLE_51)).toMatchObject({
+      source: 'cli-discovered',
+    });
+  });
+
   it('overlays static tier when CLI entry has no tier', () => {
     const svc = makeServiceWithMock();
 
@@ -460,6 +490,17 @@ describe('UnifiedModelCatalogService — precedence: user custom models', () => 
       tier: 'balanced',
       contextWindow: 250_000,
     });
+  });
+
+  it('does not let a custom-model setting re-admit a replaced model id', () => {
+    const svc = makeServiceWithMock();
+
+    svc.onCustomModelsChanged({
+      claude: [CLAUDE_LEGACY_PRICING_ALIASES.FABLE_5],
+    });
+    vi.runAllTimers();
+
+    expect(svc.getModel(CLAUDE_LEGACY_PRICING_ALIASES.FABLE_5)).toBeUndefined();
   });
 
   it('dedupes and trims custom ids, ignoring empty values', () => {
@@ -598,6 +639,22 @@ describe('UnifiedModelCatalogService — precedence: catalog overrides', () => {
       discoveredAt: 123,
     });
     expect(normalizeModelForProvider('claude', 'claude-override-opus')).toBe('claude-override-opus');
+  });
+
+  it('does not let a catalog override re-admit a replaced model id', () => {
+    const svc = makeServiceWithMock();
+
+    svc.onCatalogOverrideChanged([{
+      id: CLAUDE_LEGACY_PRICING_ALIASES.FABLE_5,
+      provider: 'claude',
+      tier: 'powerful',
+      origin: 'local',
+      discoveredAt: 123,
+      source: 'catalog-override',
+    }]);
+    vi.runAllTimers();
+
+    expect(svc.getModel(CLAUDE_LEGACY_PRICING_ALIASES.FABLE_5)).toBeUndefined();
   });
 
   it('keeps custom models and CLI-discovered models above catalog overrides', () => {

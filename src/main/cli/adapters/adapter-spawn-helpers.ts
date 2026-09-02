@@ -115,6 +115,45 @@ export function acpEphemeralInstanceId(kind: string): string {
   return `acp-ephemeral-${kind}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+export interface AcpPermissionContext {
+  instanceId: string;
+  childId?: string;
+  /** When true, session/request_permission is auto-allowed without waiting
+   *  for an InstanceManager YOLO lookup. Hidden loop children use ephemeral
+   *  instance IDs that are not registered instances, so spawn yoloMode must
+   *  travel with the adapter or the permission RPC hangs the prompt turn. */
+  yoloMode?: boolean;
+}
+
+export function buildAcpPermissionContext(
+  options: Pick<UnifiedSpawnOptions, 'instanceId' | 'childId' | 'yoloMode'>,
+  kind: string,
+): AcpPermissionContext {
+  return {
+    instanceId: options.instanceId ?? acpEphemeralInstanceId(kind),
+    childId: options.childId,
+    ...(options.yoloMode === true ? { yoloMode: true } : {}),
+  };
+}
+
+/**
+ * Headless Cursor flags. `--force` alone is not enough: cursor-agent also
+ * gates edits/commands behind workspace-trust and MCP-approval prompts, and
+ * a missing `--trust` hangs the ACP `session/prompt` until the loop iteration
+ * timeout (observed: 0-iteration, 0-token Cursor loops).
+ */
+export const CURSOR_UNATTENDED_ARGS = [
+  '--force',
+  '--sandbox',
+  'disabled',
+  '--trust',
+  '--approve-mcps',
+] as const;
+
+export function cursorUnattendedArgs(enabled: boolean): string[] {
+  return enabled ? [...CURSOR_UNATTENDED_ARGS] : [];
+}
+
 /**
  * macOS-only workaround for a Node.js SIGSEGV in
  * `node::crypto::ReadMacOSKeychainCertificates` → `CFArrayGetCount`,

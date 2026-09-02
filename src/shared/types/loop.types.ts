@@ -61,10 +61,14 @@ export const DEFAULT_LOOP_MAX_ITERATIONS = 50;
  * only a few dollars). The cap is still configurable per-run via `caps.maxTokens`.
  */
 export const DEFAULT_LOOP_MAX_TOKENS: number | null = null;
-// WS6: default estimated cost cap for a new loop is 3,000 cents ($30). Explicit
-// `null` (unbounded) remains supported for persisted configs and the deliberate
-// renderer "Allow unbounded estimated spend" choice.
-export const DEFAULT_LOOP_MAX_COST_CENTS: number | null = 3_000;
+/**
+ * Estimated cost cap across the whole loop. `null` = unbounded by default; the
+ * iteration, wall-time and per-iteration turn caps govern instead. The
+ * loop-convergence plan (WS6, 2026-07-16) briefly set this to $30, which
+ * ended real multi-hour runs mid-task (`cap=cost` after ~$34) — reverted
+ * 2026-09-02 at James's request. Still configurable per-run via `caps.maxCostCents`.
+ */
+export const DEFAULT_LOOP_MAX_COST_CENTS: number | null = null;
 
 /** What "fresh eyes" looks like at REVIEW stage. */
 export type LoopReviewStyle =

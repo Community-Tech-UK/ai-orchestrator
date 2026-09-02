@@ -10,6 +10,24 @@ export function enableAdapterResume(adapter: unknown): void {
   if (typeof setResume === 'function') setResume.call(adapter, true);
 }
 
+/**
+ * Cancel an in-flight loop child turn without tearing down a reusable
+ * same-session adapter. The iteration timeout used to reject while leaving
+ * ACP `session/prompt` running, so retries hit "previous turn is still
+ * running" and the HUD kept showing tool events after the loop had ended.
+ */
+export function interruptLoopAdapter(adapter: unknown): void {
+  const interrupt = (adapter as { interrupt?: () => unknown } | null | undefined)?.interrupt;
+  if (typeof interrupt === 'function') {
+    interrupt.call(adapter);
+    return;
+  }
+  const terminate = (adapter as { terminate?: (graceful?: boolean) => Promise<void> } | null | undefined)?.terminate;
+  if (typeof terminate === 'function') {
+    void terminate.call(adapter, false);
+  }
+}
+
 export async function createPersistentLoopAdapter(opts: {
   provider: LoopProvider;
   workingDirectory: string;
@@ -35,6 +53,7 @@ export async function createPersistentLoopAdapter(opts: {
       model,
       ...(cliType === 'codex' ? { ephemeral: false } : {}),
       yoloMode: true,
+      concurrencyPriority: 'overflow',
       timeout: opts.timeoutMs ?? 30 * 60 * 1000,
       maxTurns: opts.maxTurns,
       env: opts.env,

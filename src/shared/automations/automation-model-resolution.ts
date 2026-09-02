@@ -5,6 +5,7 @@ import {
   CLAUDE_MODELS,
   CLAUDE_PINNED_MODELS,
   OPENAI_MODELS,
+  resolveModelReplacementForProvider,
 } from '../types/provider.types';
 
 /**
@@ -198,6 +199,15 @@ export function resolveAutomationSpawnTarget(
         provider = top.provider as InstanceProvider;
         modelOverride = top.modelId;
       }
+    }
+  }
+
+  if (modelOverride !== undefined) {
+    const replacementProvider = provider && provider !== 'auto'
+      ? provider
+      : modelProviderFamily(modelOverride);
+    if (replacementProvider) {
+      modelOverride = resolveModelReplacementForProvider(replacementProvider, modelOverride);
     }
   }
 

@@ -9,8 +9,10 @@ import {
   MODEL_PRICING,
   MAX_MODEL_ID_LENGTH,
   OPENAI_MODELS,
+  PROVIDER_MODEL_REPLACEMENTS,
   PROVIDER_MODEL_LIST,
   REASONING_EFFORTS,
+  RETIRED_PROVIDER_MODELS,
   getDefaultModelForCli,
   getDefaultReasoningEffort,
   clearKnownModelCatalogSnapshotForTesting,
@@ -21,6 +23,7 @@ import {
   normalizeModelAliasForProvider,
   normalizeModelForProvider,
   replaceKnownModelCatalogSnapshot,
+  resolveModelReplacementForProvider,
   resolveModelForTier,
 } from './provider.types';
 
@@ -220,6 +223,76 @@ describe('provider model lists', () => {
 });
 
 describe('model alias normalization', () => {
+  it('resolves explicit provider-scoped replacements across Claude namespaces', () => {
+    expect(PROVIDER_MODEL_REPLACEMENTS['claude']).toEqual({
+      'claude-fable-5': 'claude-fable-5-1',
+    });
+    for (const provider of ['claude', 'claude-cli', 'anthropic-api']) {
+      expect(resolveModelReplacementForProvider(provider, 'claude-fable-5')).toBe(
+        'claude-fable-5-1',
+      );
+    }
+    expect(RETIRED_PROVIDER_MODELS['claude']).toContain('claude-fable-5');
+  });
+
+  it('preserves unknown and blank model ids during replacement resolution', () => {
+    expect(resolveModelReplacementForProvider('claude', 'claude-future-opus')).toBe(
+      'claude-future-opus',
+    );
+    expect(resolveModelReplacementForProvider('claude', '   ')).toBeUndefined();
+    expect(resolveModelReplacementForProvider('claude', undefined)).toBeUndefined();
+  });
+
+  it.each(['toString', 'constructor', '__proto__'])(
+    'preserves prototype-shaped unknown id %s',
+    (modelId) => {
+      expect(resolveModelReplacementForProvider('claude', modelId)).toBe(modelId);
+    },
+  );
+
+  it.each(['toString', 'constructor', '__proto__'])(
+    'preserves unknown models for prototype-shaped provider %s',
+    (provider) => {
+      expect(resolveModelReplacementForProvider(provider, 'toString')).toBe('toString');
+    },
+  );
+
+  it('returns the original id when a replacement declaration contains a cycle', () => {
+    const cyclic = {
+      claude: { first: 'second', second: 'first' },
+    };
+    expect(resolveModelReplacementForProvider('claude', 'first', cyclic)).toBe('first');
+  });
+
+  it('follows an explicit multi-generation replacement chain', () => {
+    const replacements = {
+      claude: { first: 'second', second: 'third' },
+    };
+    expect(resolveModelReplacementForProvider('claude-cli', 'first', replacements)).toBe('third');
+  });
+
+  it('fails safely when a runtime replacement registry contains malformed values', () => {
+    const malformed = {
+      claude: { numeric: 42 },
+      gemini: null,
+    } as unknown as Readonly<Record<string, Readonly<Record<string, string>>>>;
+
+    expect(resolveModelReplacementForProvider('claude', 'numeric', malformed)).toBe('numeric');
+    expect(resolveModelReplacementForProvider('gemini', 'unchanged', malformed)).toBe('unchanged');
+  });
+
+  it('fails safely when the runtime replacement registry itself is malformed', () => {
+    const malformedRegistries = [null, 42, []];
+
+    for (const registry of malformedRegistries) {
+      expect(resolveModelReplacementForProvider(
+        'claude',
+        'unchanged',
+        registry as unknown as Readonly<Record<string, Readonly<Record<string, string>>>>,
+      )).toBe('unchanged');
+    }
+  });
+
   it('migrates a stored Fable 5 selection to Fable 5.1', () => {
     expect(normalizeModelAliasForProvider('claude', 'claude-fable-5')).toBe(
       'claude-fable-5-1',

@@ -427,6 +427,11 @@ export async function runFreshEyesReviewGate(args: {
       loopRunId: state.id,
       workspaceCwd: state.config.workspaceCwd,
       goal: state.config.initialPrompt,
+      // Without these the headless path cannot tell who built the work, and
+      // used to assume Claude did — which barred Claude from checking a Codex
+      // or Copilot build, and let Codex review its own work.
+      builderProvider: state.config.provider,
+      ...(iteration.model ? { builderModel: iteration.model } : {}),
       iterationOutput: iteration.outputExcerpt,
       diff: diffEgress.content,
       diffSource: workspaceDiff.source,

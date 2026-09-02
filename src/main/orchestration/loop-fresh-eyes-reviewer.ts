@@ -87,6 +87,12 @@ export interface FreshEyesReviewerInput {
    * provider — this lets the reviewer resolver enforce reviewer != builder.
    */
   builderProvider?: string;
+  /**
+   * The model the builder iteration actually ran on. Drives family diversity:
+   * the checker runs a different vendor's model. Absent means unknown, which
+   * constrains nothing.
+   */
+  builderModel?: string;
   /** Ping-pong: plan file path for plan-mode deep-dive. */
   planFile?: string;
   /** Ping-pong: whether this round is reviewing a plan or an implementation. */
@@ -262,6 +268,7 @@ export const defaultFreshEyesReviewer: FreshEyesReviewer = async (input) => {
       taskDescription: input.goal,
       reviewers: input.config.reviewers,
       ...(input.builderProvider ? { primaryProvider: input.builderProvider } : {}),
+      ...(input.builderModel ? { primaryModel: input.builderModel } : {}),
       reviewDepth: input.config.reviewDepth,
       timeoutSeconds: input.config.timeoutSeconds,
       signal: input.abortSignal,

@@ -351,6 +351,7 @@ export async function evaluatePingPongCompletion(
     subject,
     planFile: state.config.planFile,
     builderProvider: state.config.provider,
+    ...(iteration.model ? { builderModel: iteration.model } : {}),
     reviewerProviderSetting: ppCfg.reviewerProvider ?? 'auto',
     triedReviewerProviders: pp.triedReviewerProviders ?? [],
     ledger: pp.ledger,
@@ -381,6 +382,7 @@ export async function evaluatePingPongCompletion(
     abortSignal: deps.signal,
     config: reviewCfg,
     builderProvider: state.config.provider,
+    ...(iteration.model ? { builderModel: iteration.model } : {}),
     planFile: state.config.planFile,
     subject,
   } satisfies Parameters<LocalFreshEyesAdvisoryReviewer>[0];

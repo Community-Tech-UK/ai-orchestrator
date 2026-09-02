@@ -20,10 +20,12 @@ import { redactForEgress } from '../security/content-egress-gate';
 import { verifyAnchor } from './review-artifact-anchor';
 import { LOCAL_ADVISORY_ANGLE, NO_RULES_HASH } from './review-coverage';
 import { resolveReviewerModelOverride, type HeadlessReviewRequest, type ReviewExecutionHost } from '../review/review-execution-host';
+import type { CheckerCandidate } from '../review/checker-plan';
+import { learnFromCheckerFailure } from '../review/copilot-model-entitlements';
 
 export interface HeadlessReviewRunnerDependencies {
   host: ReviewExecutionHost | null;
-  resolveReviewers(request: HeadlessReviewRequest): Promise<string[]>;
+  resolveReviewers(request: HeadlessReviewRequest): Promise<CheckerCandidate[]>;
   localEnabled: boolean;
   createLocalPlan(input: {
     workspaceRoot: string;
@@ -82,15 +84,20 @@ export async function runHeadlessReviewCommand(
         if (!dependencies.host) throw new Error('Headless review host is not configured.');
         const successful: ReviewResult[] = [];
         let reviewerIndex = 0;
-        for (const reviewer of reviewers) {
+        for (const checker of reviewers) {
+          const reviewer = checker.provider;
+          // Set only when the checking policy CHANGED this checker's model.
+          // Absent leaves the existing resolution path untouched, including
+          // Antigravity's quota-aware multi-model fallback plan.
+          const plannedModel = checker.rationale === 'unchanged' ? undefined : checker.model;
           const angle = angleForReviewer(reviewerIndex++);
           const promptVersion = promptVersionForAngle(reviewDepth, angle);
           const prompt = reviewDepth === 'tiered'
             ? buildTieredReviewPrompt(taskDescription, reviewContent, angle)
             : buildStructuredReviewPrompt(taskDescription, reviewContent, angle);
           try {
-            const configuredModel = resolveReviewerModelOverride(reviewer);
-            const reviewerModels = reviewer === 'antigravity'
+            const configuredModel = plannedModel ?? resolveReviewerModelOverride(reviewer);
+            const reviewerModels = reviewer === 'antigravity' && !plannedModel
               ? resolveAntigravityReviewModelPlan(
                   configuredModel,
                   getProviderQuotaService().getSnapshot('antigravity'),
@@ -135,7 +142,8 @@ export async function runHeadlessReviewCommand(
             // the host applies it only when the resolved CLI is actually claude.
             const jsonSchema = serializeReviewResultJsonSchema(reviewDepth);
             for (const reviewerModel of reviewerModels) {
-              const needsModelOverride = reviewer === 'antigravity' && reviewerModel !== configuredModel;
+              const needsModelOverride = plannedModel !== undefined
+                || (reviewer === 'antigravity' && reviewerModel !== configuredModel);
               const rawResponse = needsModelOverride
                 ? await dependencies.host.dispatchReviewerPrompt(
                     reviewer, prompt, cwd, abort.signal, { modelOverride: reviewerModel, jsonSchema },
@@ -183,12 +191,18 @@ export async function runHeadlessReviewCommand(
               findingCount: toHeadlessFindings(parsed).length,
             });
           } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            // A Copilot seat only reveals what it will actually serve by
+            // refusing something: `copilot help config` returns the same static
+            // roster for every account. Learn from the refusal so the next plan
+            // for this seat skips the model instead of failing again.
+            learnFromCheckerFailure(checker.copilotProfileId, message);
             reviewerStatuses.push({
               provider: reviewer,
               status: 'failed',
               angle: angle.id,
               required: true,
-              reason: error instanceof Error ? error.message : String(error),
+              reason: message,
             });
           }
         }

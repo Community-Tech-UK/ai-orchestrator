@@ -92,6 +92,18 @@ describe('WarmStartManager', () => {
       expect(manager.hasWarm('claude')).toBe(false);
     });
 
+    it('skips preWarm when the provider concurrency slots are full', async () => {
+      const deps = makeDeps({
+        isProviderSaturated: () => true,
+      });
+      const manager = new WarmStartManager(deps);
+
+      await manager.preWarm('cursor', '/project');
+
+      expect(deps.spawnAdapter).not.toHaveBeenCalled();
+      expect(manager.hasWarm('cursor')).toBe(false);
+    });
+
     it('logs a warning and does not throw when spawning fails', async () => {
       const deps = makeDeps({
         spawnAdapter: vi.fn().mockRejectedValue(new Error('spawn failed')),

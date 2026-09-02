@@ -102,7 +102,7 @@ describe('LoopCoordinator state helpers', () => {
       workspaceCwd: '/tmp/workspace',
     });
 
-    expect(config.caps.maxCostCents).toBe(3_000); // WS6 finite default
+    expect(config.caps.maxCostCents).toBeNull();
   });
 
   it('stops on iteration count when the default maxIterations cap is reached', () => {

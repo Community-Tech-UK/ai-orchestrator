@@ -2,6 +2,7 @@ import {
   getDefaultModelForCli,
   isModelTier,
   looksLikeCodexModelId,
+  resolveModelReplacementForProvider,
   resolveModelForTier,
 } from '../../../shared/types/provider.types';
 import type { CliType } from '../../cli/cli-detection';
@@ -82,7 +83,7 @@ export class ModelSelectionResolver {
       defaultModelByProvider: remote ? undefined : input.defaultModelByProvider,
       defaultModel: remote ? undefined : input.defaultModel,
     });
-    let model = resolution.model;
+    let model = resolveModelReplacementForProvider(input.provider, resolution.model);
     const modelSource: InitialModelSource = resolution.source;
 
     if (!model) {

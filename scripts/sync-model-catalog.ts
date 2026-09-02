@@ -37,9 +37,12 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   SUPPORTED_PROVIDERS,
+  diffSnapshots,
+  formatSnapshotDiff,
   parseSnapshot,
   type SnapshotEntry,
 } from './sync-model-catalog.parse';
+import { MODELS_DEV_SNAPSHOT } from '../src/main/providers/models-dev-snapshot.generated';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const TARGET_FILE = resolve(SCRIPT_DIR, '../src/main/providers/models-dev-snapshot.generated.ts');
@@ -185,8 +188,10 @@ async function main(): Promise<void> {
   }
 
   if (check) {
+    const diff = diffSnapshots(MODELS_DEV_SNAPSHOT, snapshot);
     console.error(
       'sync:model-catalog — DRIFT: the committed offline snapshot is out of date.\n' +
+        `${formatSnapshotDiff(diff)}\n` +
         'Run `npm run sync:model-catalog` to refresh.',
     );
     process.exit(1);

@@ -12,6 +12,14 @@ export interface ParsedReviewCommandArgs {
   target: string;
   json: boolean;
   reviewers?: string[];
+  /**
+   * Provider/model that produced the work under review. Both optional: an
+   * unstated implementer constrains nothing. They are NOT defaulted — the old
+   * `?? 'claude'` default silently barred Claude from every `aio review`,
+   * which for Codex- or Copilot-built work removed the most useful checker.
+   */
+  implementer?: string;
+  implementerModel?: string;
 }
 
 export interface ResolvedReviewTarget {
@@ -41,6 +49,8 @@ export function parseReviewCommandArgs(argv: string[]): ParsedReviewCommandArgs 
   let target = '';
   let json = false;
   let reviewers: string[] | undefined;
+  let implementer: string | undefined;
+  let implementerModel: string | undefined;
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -66,6 +76,16 @@ export function parseReviewCommandArgs(argv: string[]): ParsedReviewCommandArgs 
       index += 1;
       continue;
     }
+    if (arg === '--implementer') {
+      implementer = requireValue(argv, index, '--implementer');
+      index += 1;
+      continue;
+    }
+    if (arg === '--implementer-model') {
+      implementerModel = requireValue(argv, index, '--implementer-model');
+      index += 1;
+      continue;
+    }
     if (arg.startsWith('--')) {
       throw new Error(`Unknown review option: ${arg}`);
     }
@@ -81,6 +101,8 @@ export function parseReviewCommandArgs(argv: string[]): ParsedReviewCommandArgs 
     target: target || 'HEAD',
     json,
     ...(reviewers ? { reviewers } : {}),
+    ...(implementer ? { implementer } : {}),
+    ...(implementerModel ? { implementerModel } : {}),
   };
 }
 
@@ -148,6 +170,8 @@ export async function runReviewCommand(
       content: target.content,
       taskDescription: target.taskDescription,
       reviewers: parsed.reviewers,
+      ...(parsed.implementer ? { primaryProvider: parsed.implementer } : {}),
+      ...(parsed.implementerModel ? { primaryModel: parsed.implementerModel } : {}),
     });
 
     stdout(parsed.json ? formatReviewJson(result) : `${result.summary}\n`);

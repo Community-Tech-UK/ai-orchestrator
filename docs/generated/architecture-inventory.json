@@ -5968,7 +5968,7 @@
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.ts",
-      "lines": 2249
+      "lines": 2278
     },
     {
       "path": "src/main/cli/adapters/claude-cli-adapter.ts",
@@ -6003,6 +6003,10 @@
       "lines": 2070
     },
     {
+      "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
+      "lines": 2067
+    },
+    {
       "path": "src/main/instance/__tests__/instance-manager.lifecycle.spec.ts",
       "lines": 2058
     },
@@ -6015,10 +6019,6 @@
       "lines": 1991
     },
     {
-      "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
-      "lines": 1976
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-13-session-restart-preserve-history_completed.md",
       "lines": 1965
     },
@@ -6028,7 +6028,7 @@
     },
     {
       "path": "src/main/orchestration/default-invokers.loop.spec.ts",
-      "lines": 1872
+      "lines": 1941
     },
     {
       "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
@@ -6088,7 +6088,7 @@
     },
     {
       "path": "src/main/orchestration/default-invokers.ts",
-      "lines": 1647
+      "lines": 1657
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
@@ -6155,6 +6155,10 @@
       "lines": 1478
     },
     {
+      "path": "src/main/ipc/handlers/__tests__/loop-handlers.spec.ts",
+      "lines": 1474
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-08-phase2-provider-tool-sdk_completed.md",
       "lines": 1457
     },
@@ -6185,10 +6189,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-10-cross-project-improvements_completed.md",
       "lines": 1394
-    },
-    {
-      "path": "src/main/ipc/handlers/__tests__/loop-handlers.spec.ts",
-      "lines": 1391
     },
     {
       "path": "src/main/ipc/handlers/__tests__/session-handlers.spec.ts",
@@ -6272,7 +6272,7 @@
     },
     {
       "path": "src/main/orchestration/cross-model-review-service.spec.ts",
-      "lines": 1301
+      "lines": 1312
     },
     {
       "path": "src/main/workspace/git/vcs-manager.ts",
@@ -6479,6 +6479,10 @@
       "lines": 1103
     },
     {
+      "path": "src/main/providers/__tests__/unified-model-catalog-service.spec.ts",
+      "lines": 1097
+    },
+    {
       "path": "src/main/ipc/handlers/session-handlers.ts",
       "lines": 1096
     },
@@ -6523,14 +6527,6 @@
       "lines": 1043
     },
     {
-      "path": "src/main/cli/adapters/cursor-cli-adapter.ts",
-      "lines": 1041
-    },
-    {
-      "path": "src/main/providers/__tests__/unified-model-catalog-service.spec.ts",
-      "lines": 1040
-    },
-    {
       "path": "src/main/ipc/handlers/vcs-handlers.ts",
       "lines": 1038
     },
@@ -6541,6 +6537,10 @@
     {
       "path": "src/renderer/app/features/models/model-selection-panel.component.ts",
       "lines": 1035
+    },
+    {
+      "path": "src/main/cli/adapters/cursor-cli-adapter.ts",
+      "lines": 1030
     },
     {
       "path": "src/renderer/app/core/state/loop.store.spec.ts",
@@ -6639,6 +6639,10 @@
       "lines": 976
     },
     {
+      "path": "src/main/orchestration/cli-verification-extension.ts",
+      "lines": 975
+    },
+    {
       "path": "src/main/orchestration/loop-coordinator-review-driven.spec.ts",
       "lines": 971
     },
@@ -6655,6 +6659,10 @@
       "lines": 963
     },
     {
+      "path": "src/main/orchestration/cross-model-review-service.ts",
+      "lines": 962
+    },
+    {
       "path": "docs/superpowers/plans/2026-05-03-browser-gateway-first-milestone_completed.md",
       "lines": 958
     },
@@ -6669,10 +6677,6 @@
     {
       "path": "src/main/plugins/plugin-manager.spec.ts",
       "lines": 951
-    },
-    {
-      "path": "src/main/orchestration/cli-verification-extension.ts",
-      "lines": 948
     },
     {
       "path": "src/worker-agent/worker-local-ai-health.spec.ts",
@@ -6711,6 +6715,10 @@
       "lines": 911
     },
     {
+      "path": "src/main/orchestration/consensus-coordinator.ts",
+      "lines": 906
+    },
+    {
       "path": "src/renderer/app/core/services/new-session-draft.service.ts",
       "lines": 900
     },
@@ -6729,10 +6737,6 @@
     {
       "path": "src/main/automations/automation-runner.spec.ts",
       "lines": 895
-    },
-    {
-      "path": "src/main/orchestration/consensus-coordinator.ts",
-      "lines": 892
     },
     {
       "path": "src/main/instance/lifecycle/interrupt-respawn-handler.spec.ts",
@@ -6759,6 +6763,10 @@
       "lines": 881
     },
     {
+      "path": "src/main/rlm/context-persistence-loader.integration.spec.ts",
+      "lines": 880
+    },
+    {
       "path": "src/main/rlm/smart-compaction.ts",
       "lines": 880
     },
@@ -6780,10 +6788,6 @@
     },
     {
       "path": "docs/plans/2026-06-26-loop-engine-overhaul-spec_completed.md",
-      "lines": 867
-    },
-    {
-      "path": "src/main/orchestration/cross-model-review-service.ts",
       "lines": 867
     },
     {
@@ -6891,12 +6895,12 @@
       "lines": 833
     },
     {
-      "path": "src/main/rlm/context-persistence-loader.integration.spec.ts",
+      "path": "src/renderer/app/features/automations/automations-page.component.ts",
       "lines": 832
     },
     {
-      "path": "src/renderer/app/features/automations/automations-page.component.ts",
-      "lines": 832
+      "path": "src/main/ipc/handlers/loop-handlers.ts",
+      "lines": 829
     },
     {
       "path": "src/renderer/app/features/rlm/context-browser/context-query-panel.component.ts",
@@ -6933,10 +6937,6 @@
     {
       "path": "docs/superpowers/specs/2026-05-06-claude-code-feature-harvest-design_completed.md",
       "lines": 814
-    },
-    {
-      "path": "src/main/ipc/handlers/loop-handlers.ts",
-      "lines": 810
     },
     {
       "path": "src/renderer/app/features/instance-detail/output-stream.component.scss",

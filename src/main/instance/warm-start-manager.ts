@@ -12,6 +12,7 @@
 import { getLogger } from '../logging/logger';
 import { crossPlatformPathsEqual } from '../../shared/utils/cross-platform-path';
 import { directoryExists } from '../cli/adapters/base-cli-adapter-utils';
+import { getProviderConcurrencyLimiter } from '../cli/provider-concurrency-limiter';
 
 const logger = getLogger('WarmStartManager');
 
@@ -29,6 +30,11 @@ export interface WarmProcess {
 export interface WarmStartDeps {
   spawnAdapter: (provider: string, options: { workingDirectory: string }) => Promise<unknown>;
   killAdapter: (adapter: unknown) => Promise<void>;
+  /**
+   * When true, skip pre-warming this provider. Used to avoid burning the last
+   * ACP concurrency slots on a spare process that will then starve a loop child.
+   */
+  isProviderSaturated?: (provider: string) => boolean;
 }
 
 export class WarmStartManager {
@@ -36,6 +42,14 @@ export class WarmStartManager {
   private enabled = true;
 
   constructor(private readonly deps: WarmStartDeps) {}
+
+  private isProviderSaturated(provider: string): boolean {
+    if (this.deps.isProviderSaturated) {
+      return this.deps.isProviderSaturated(provider);
+    }
+    const stats = getProviderConcurrencyLimiter().getStats(provider);
+    return stats.active >= stats.limit;
+  }
 
   /**
    * Pre-spawn a warm process for the given provider and working directory.
@@ -60,6 +74,11 @@ export class WarmStartManager {
       logger.debug('preWarm skipped — Copilot spawns are pinned to a resolved account', {
         provider,
       });
+      return;
+    }
+
+    if (this.isProviderSaturated(provider)) {
+      logger.info('preWarm skipped — provider concurrency slots full', { provider });
       return;
     }
 

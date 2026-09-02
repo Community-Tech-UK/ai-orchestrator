@@ -280,3 +280,36 @@ describe('resolveAutomationSpawnTarget — favourite fallback', () => {
     expect(target).toEqual({ provider: 'claude', modelOverride: undefined });
   });
 });
+
+describe('resolveAutomationSpawnTarget — retired model replacements', () => {
+  it('runs an explicitly pinned Fable 5 automation on Fable 5.1 without rewriting the action', () => {
+    const action = { provider: 'claude' as const, model: 'claude-fable-5' };
+
+    expect(resolveAutomationSpawnTarget(action, NO_DEFAULTS)).toEqual({
+      provider: 'claude',
+      modelOverride: 'claude-fable-5-1',
+    });
+    expect(action).toEqual({ provider: 'claude', model: 'claude-fable-5' });
+  });
+
+  it('upgrades a retired automation-default model at fire time', () => {
+    expect(resolveAutomationSpawnTarget(
+      { provider: 'claude', model: undefined },
+      { ...NO_DEFAULTS, automationDefaultModel: 'claude-fable-5' },
+    )).toEqual({ provider: 'claude', modelOverride: 'claude-fable-5-1' });
+  });
+
+  it('upgrades a retired model selected from the Claude favourites fallback', () => {
+    expect(resolveAutomationSpawnTarget(
+      { provider: 'claude', model: undefined },
+      { ...NO_DEFAULTS, modelPickerFavorites: ['claude:claude-fable-5'] },
+    )).toEqual({ provider: 'claude', modelOverride: 'claude-fable-5-1' });
+  });
+
+  it('infers the provider family before upgrading an auto-provider model pin', () => {
+    expect(resolveAutomationSpawnTarget(
+      { provider: 'auto', model: 'claude-fable-5' },
+      NO_DEFAULTS,
+    )).toEqual({ provider: 'auto', modelOverride: 'claude-fable-5-1' });
+  });
+});

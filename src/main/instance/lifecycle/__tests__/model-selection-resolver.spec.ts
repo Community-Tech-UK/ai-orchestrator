@@ -99,6 +99,30 @@ describe('ModelSelectionResolver', () => {
     expect(getKnownModels).not.toHaveBeenCalled();
   });
 
+  it('upgrades an explicitly replaced model before local catalog validation', async () => {
+    const resolver = new ModelSelectionResolver({
+      getKnownModels: vi.fn().mockResolvedValue(['claude-fable-5-1', 'opus[1m]']),
+      getDefaultModel: () => 'opus[1m]',
+    });
+
+    await expect(resolver.resolve({
+      provider: 'claude',
+      configModelOverride: 'claude-fable-5',
+    })).resolves.toEqual({ model: 'claude-fable-5-1' });
+  });
+
+  it('upgrades an explicitly replaced model before returning it to a remote worker', async () => {
+    const getKnownModels = vi.fn();
+    const resolver = new ModelSelectionResolver({ getKnownModels });
+
+    await expect(resolver.resolve({
+      provider: 'claude',
+      executionTarget: 'remote',
+      configModelOverride: 'claude-fable-5',
+    })).resolves.toEqual({ model: 'claude-fable-5-1' });
+    expect(getKnownModels).not.toHaveBeenCalled();
+  });
+
   /**
    * LT-016 (create path). The global `defaultModel` is provider-agnostic and is
    * typically a Claude id, so it is offered to every provider and correctly

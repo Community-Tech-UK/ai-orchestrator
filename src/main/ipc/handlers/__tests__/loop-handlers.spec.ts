@@ -6,7 +6,7 @@ import type { LoopConfigInput } from '@contracts/schemas/loop';
 import { IPC_CHANNELS } from '@contracts/channels';
 import type { InstanceManager } from '../../../instance/instance-manager';
 import { defaultLoopConfig, type LoopIteration, type LoopState } from '../../../../shared/types/loop.types';
-import { buildExistingSessionContext, registerLoopHandlers } from '../loop-handlers';
+import { RESUME_OPERATOR_REVIEWED_FALLBACK_MAX_COST_CENTS, buildExistingSessionContext, registerLoopHandlers } from '../loop-handlers';
 import { ipcMain } from 'electron';
 
 const hoisted = vi.hoisted(() => ({
@@ -971,14 +971,97 @@ describe('LOOP_RESUME_WITH_ANSWERS handler', () => {
           planPacketMode: 'prompted',
           cleanlinessScan: true,
         },
+        // LF-3a: the operator-reviewed fallback carries its own finite cap
+        // because the shared default cost cap is unbounded.
+        caps: expect.objectContaining({ maxCostCents: RESUME_OPERATOR_REVIEWED_FALLBACK_MAX_COST_CENTS }),
         completion: expect.objectContaining({
           mode: 'review-driven',
           requireCompletedFileRename: false,
+          allowOperatorReviewedCompletion: true,
         }),
       }),
       undefined,
       expect.any(Object),
     );
+  });
+
+  it('supplies a finite cost cap when a source run without a verify command falls back to operator review', async () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const instanceManager = makeInstanceManager([]);
+    const startState = makeLoopState({ status: 'running', endedAt: null });
+    const sourceConfig = defaultLoopConfig('/repo/root', 'Original goal');
+    expect(sourceConfig.caps.maxCostCents).toBeNull();
+    expect(sourceConfig.completion.verifyCommand).toBe('');
+    hoisted.coordinator.startLoop.mockResolvedValue(startState);
+    hoisted.store.getRunConfig.mockReturnValue(sourceConfig);
+    hoisted.store.listOutstandingItems.mockReturnValue([
+      {
+        id: 'out-1',
+        loopRunId: 'loop-old',
+        chatId: 'chat-1',
+        workspaceCwd: '/repo/root',
+        kind: 'needs-human',
+        status: 'open',
+        text: 'Need product decision.',
+        userResponse: 'Proceed with the simpler flow.',
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ]);
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+    const handler = findIpcHandler(IPC_CHANNELS.LOOP_RESUME_WITH_ANSWERS);
+
+    const response = await handler({}, { chatId: 'chat-1', workspaceCwd: '/repo/root' });
+
+    expect(response.success).toBe(true);
+    expect(hoisted.coordinator.startLoop).toHaveBeenCalledWith(
+      'chat-1',
+      expect.objectContaining({
+        caps: expect.objectContaining({ maxCostCents: RESUME_OPERATOR_REVIEWED_FALLBACK_MAX_COST_CENTS }),
+        completion: expect.objectContaining({ allowOperatorReviewedCompletion: true }),
+      }),
+      undefined,
+      expect.any(Object),
+    );
+  });
+
+  it('keeps an unbounded source cap when the source run already has a verify command', async () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const instanceManager = makeInstanceManager([]);
+    const startState = makeLoopState({ status: 'running', endedAt: null });
+    const base = defaultLoopConfig('/repo/root', 'Original goal');
+    const sourceConfig = { ...base, completion: { ...base.completion, verifyCommand: 'npm test' } };
+    hoisted.coordinator.startLoop.mockResolvedValue(startState);
+    hoisted.store.getRunConfig.mockReturnValue(sourceConfig);
+    hoisted.store.listOutstandingItems.mockReturnValue([
+      {
+        id: 'out-1',
+        loopRunId: 'loop-old',
+        chatId: 'chat-1',
+        workspaceCwd: '/repo/root',
+        kind: 'needs-human',
+        status: 'open',
+        text: 'Need product decision.',
+        userResponse: 'Proceed.',
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ]);
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+    const handler = findIpcHandler(IPC_CHANNELS.LOOP_RESUME_WITH_ANSWERS);
+
+    const response = await handler({}, { chatId: 'chat-1', workspaceCwd: '/repo/root' });
+
+    expect(response.success).toBe(true);
+    const [, prepared] = hoisted.coordinator.startLoop.mock.calls[0] as [unknown, { caps?: { maxCostCents: number | null }; completion?: { allowOperatorReviewedCompletion?: boolean } }];
+    expect(prepared.caps?.maxCostCents).toBeNull();
+    expect(prepared.completion?.allowOperatorReviewedCompletion).toBeFalsy();
   });
 
   it('only consumes answered outstanding items from the requested workspace', async () => {

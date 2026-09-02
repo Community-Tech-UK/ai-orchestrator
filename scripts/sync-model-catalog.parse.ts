@@ -34,6 +34,56 @@ export interface SnapshotEntry {
   maxOutputTokens?: number;
 }
 
+export interface SnapshotDiff {
+  added: string[];
+  removed: string[];
+  changed: string[];
+}
+
+/** Compare two generated snapshots by their persisted fields. */
+export function diffSnapshots(
+  current: Readonly<Record<string, SnapshotEntry>>,
+  next: Readonly<Record<string, SnapshotEntry>>,
+): SnapshotDiff {
+  const added: string[] = [];
+  const removed: string[] = [];
+  const changed: string[] = [];
+  const ids = new Set([...Object.keys(current), ...Object.keys(next)]);
+
+  for (const id of [...ids].sort((a, b) => a.localeCompare(b))) {
+    const hasBefore = Object.prototype.hasOwnProperty.call(current, id);
+    const hasAfter = Object.prototype.hasOwnProperty.call(next, id);
+    const before = hasBefore ? current[id] : undefined;
+    const after = hasAfter ? next[id] : undefined;
+    if (!hasBefore && hasAfter) {
+      added.push(id);
+    } else if (hasBefore && !hasAfter) {
+      removed.push(id);
+    } else if (before && after && !snapshotEntriesEqual(before, after)) {
+      changed.push(id);
+    }
+  }
+
+  return { added, removed, changed };
+}
+
+/** Human-readable drift details suitable for CI logs and issue summaries. */
+export function formatSnapshotDiff(diff: SnapshotDiff): string {
+  const lines: string[] = [];
+  if (diff.added.length > 0) lines.push(`Added (${diff.added.length}): ${diff.added.join(', ')}`);
+  if (diff.removed.length > 0) lines.push(`Removed (${diff.removed.length}): ${diff.removed.join(', ')}`);
+  if (diff.changed.length > 0) lines.push(`Changed (${diff.changed.length}): ${diff.changed.join(', ')}`);
+  return lines.length > 0 ? lines.join('\n') : 'No model changes.';
+}
+
+function snapshotEntriesEqual(left: SnapshotEntry, right: SnapshotEntry): boolean {
+  return left.provider === right.provider
+    && left.input === right.input
+    && left.output === right.output
+    && left.contextWindow === right.contextWindow
+    && left.maxOutputTokens === right.maxOutputTokens;
+}
+
 /**
  * Parse models.dev `api.json` into a snapshot map keyed by bare model id. Only
  * priced models in SUPPORTED_PROVIDERS are kept; anything missing a finite
@@ -57,7 +107,7 @@ export function parseSnapshot(raw: string): Record<string, SnapshotEntry> | null
   }
   if (!root || typeof root !== 'object') return null;
 
-  const out: Record<string, SnapshotEntry> = {};
+  const out = new Map<string, SnapshotEntry>();
 
   for (const providerKey of SUPPORTED_PROVIDERS) {
     const provider = (root as Record<string, unknown>)[providerKey];
@@ -71,10 +121,10 @@ export function parseSnapshot(raw: string): Record<string, SnapshotEntry> | null
 
     for (const model of modelValues) {
       const entry = parseModel(model, providerKey);
-      if (entry && !(entry.id in out)) out[entry.id] = entry.snapshot;
+      if (entry && !out.has(entry.id)) out.set(entry.id, entry.snapshot);
     }
   }
-  return out;
+  return Object.fromEntries(out);
 }
 
 export function parseModel(

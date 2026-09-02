@@ -163,9 +163,50 @@ describe('ProviderConcurrencyLimiter', () => {
     const copilot = limiter.getStats('copilot');
     const claude = limiter.getStats('claude');
     const gemini = limiter.getStats('gemini');
+    const cursor = limiter.getStats('cursor');
 
     expect(copilot.limit).toBe(10);
     expect(claude.limit).toBe(6);
     expect(gemini.limit).toBe(6);
+    expect(cursor.limit).toBe(8);
+  });
+
+  it('grants overflow slots to loop children after the interactive cap is full', async () => {
+    const limiter = ProviderConcurrencyLimiter.getInstance();
+    limiter.setLimit('cursor', 2);
+
+    const interactive = [
+      await limiter.acquire('cursor'),
+      await limiter.acquire('cursor'),
+    ];
+    expect(limiter.getStats('cursor')).toMatchObject({ active: 2, waiting: 0, limit: 2 });
+
+    const overflowA = await limiter.acquire('cursor', { priority: 'overflow' });
+    const overflowB = await limiter.acquire('cursor', { priority: 'overflow' });
+    expect(limiter.getStats('cursor').active).toBe(4);
+
+    await expect(
+      limiter.acquire('cursor', { priority: 'overflow', timeoutMs: 20 }),
+    ).rejects.toThrow(/Timed out waiting 20ms for 'cursor' provider concurrency slot/);
+
+    overflowB();
+    overflowA();
+    interactive[1]();
+    interactive[0]();
+    expect(limiter.getStats('cursor').active).toBe(0);
+  });
+
+  it('does not let a normal acquire take overflow slots', async () => {
+    const limiter = ProviderConcurrencyLimiter.getInstance();
+    limiter.setLimit('cursor', 1);
+
+    const held = await limiter.acquire('cursor');
+    await expect(limiter.acquire('cursor', { timeoutMs: 20 })).rejects.toThrow(
+      /Timed out waiting 20ms for 'cursor' provider concurrency slot/,
+    );
+    const overflow = await limiter.acquire('cursor', { priority: 'overflow' });
+    expect(limiter.getStats('cursor').active).toBe(2);
+    overflow();
+    held();
   });
 });

@@ -1,5 +1,8 @@
 import type { OutputMessage } from '../../../shared/types/instance.types';
-import { MAX_MODEL_ID_LENGTH } from '../../../shared/types/provider.types';
+import {
+  MAX_MODEL_ID_LENGTH,
+  resolveModelReplacementForProvider,
+} from '../../../shared/types/provider.types';
 import { generateId } from '../../../shared/utils/id-generator';
 
 export type ModelSelectionDegradationReason = 'model-unavailable';
@@ -109,9 +112,13 @@ export function resolveRuntimeChangeModel(params: {
   allowDynamicCodexModel?: boolean;
   modelSource?: string;
 }): { model?: string; degradation?: ModelSelectionDegradation; userVisible: boolean } {
+  const requestedModel = resolveModelReplacementForProvider(
+    params.provider,
+    params.requestedModel,
+  ) ?? params.requestedModel;
   const selection = resolveAvailableModelSelection({
     provider: params.provider,
-    requestedModel: params.requestedModel,
+    requestedModel,
     knownModelIds: params.knownModelIds,
     fallbackModel: params.fallbackModel,
     allowDynamicCodexModel: params.allowDynamicCodexModel,

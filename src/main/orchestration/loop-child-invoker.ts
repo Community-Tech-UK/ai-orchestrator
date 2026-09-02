@@ -113,6 +113,11 @@ export function invokeLoopChildIteration(input: InvokeLoopChildIterationInput): 
       }
       settled = true;
       cleanup();
+      emitter.emit('loop:iteration-timeout', {
+        loopRunId: state.id,
+        seq,
+        iterationTimeoutMs,
+      });
       reject(new Error(`Loop iteration timed out after ${iterationTimeoutMs}ms`));
     };
 

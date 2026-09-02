@@ -1,0 +1,90 @@
+name: Model Catalog Watch
+
+'on':
+  schedule:
+    - cron: '23 */6 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: model-catalog-watch
+  cancel-in-progress: true
+
+jobs:
+  watch:
+    name: Check models.dev drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Refresh model-catalog snapshot
+        id: refresh
+        shell: bash
+        run: |
+          snapshot='src/main/providers/models-dev-snapshot.generated.ts'
+          npm run sync:model-catalog
+          if git diff --quiet -- "$snapshot"; then
+            echo 'drift=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'drift=true' >> "$GITHUB_OUTPUT"
+            {
+              echo '## Model catalog drift detected'
+              echo
+              echo 'The generated offline snapshot differs from live models.dev:'
+              echo
+              echo '```diff'
+              git diff --unified=2 -- "$snapshot"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Open or update drift issue
+        if: steps.refresh.outputs.drift == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          issue_title='Model catalog drift detected'
+          snapshot='src/main/providers/models-dev-snapshot.generated.ts'
+          issue_body_file="$(mktemp)"
+          {
+            echo 'The scheduled model-catalog watcher found drift between the committed offline snapshot and live models.dev.'
+            echo
+            echo 'Run `npm run sync:model-catalog`, review every added/removed/changed model, and update curated metadata plus `PROVIDER_MODEL_REPLACEMENTS` when a model is intentionally replaced.'
+            echo
+            echo "Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo
+            echo '<details><summary>Generated snapshot diff</summary>'
+            echo
+            echo '```diff'
+            git diff --unified=2 -- "$snapshot"
+            echo '```'
+            echo '</details>'
+          } > "$issue_body_file"
+
+          issue_number="$(gh issue list --state open --search "\"$issue_title\" in:title" --limit 100 --json number,title --jq 'map(select(.title == "Model catalog drift detected")) | .[0].number // empty')"
+          if [[ -n "$issue_number" ]]; then
+            gh issue edit "$issue_number" --body-file "$issue_body_file"
+          else
+            gh issue create --title "$issue_title" --body-file "$issue_body_file"
+          fi
+
+      - name: Fail until catalog drift is reviewed
+        if: steps.refresh.outputs.drift == 'true'
+        run: exit 1

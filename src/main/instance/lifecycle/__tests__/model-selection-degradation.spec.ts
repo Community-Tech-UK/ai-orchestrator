@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createModelSelectionDegradationNotice,
   resolveAvailableModelSelection,
+  resolveRuntimeChangeModel,
 } from '../model-selection-degradation';
 import { MAX_MODEL_ID_LENGTH } from '../../../../shared/types/provider.types';
 
@@ -99,6 +100,21 @@ describe('createModelSelectionDegradationNotice', () => {
       requestedModel: 'claude-retired-model',
       fallbackModel: 'claude-opus-4-8',
       reason: 'model-unavailable',
+    });
+  });
+});
+
+describe('resolveRuntimeChangeModel', () => {
+  it('upgrades an explicitly replaced model before validation without degrading to the default', () => {
+    expect(resolveRuntimeChangeModel({
+      provider: 'claude',
+      requestedModel: 'claude-fable-5',
+      knownModelIds: ['claude-fable-5-1', 'opus[1m]'],
+      fallbackModel: 'opus[1m]',
+      modelSource: 'requested',
+    })).toEqual({
+      model: 'claude-fable-5-1',
+      userVisible: false,
     });
   });
 });

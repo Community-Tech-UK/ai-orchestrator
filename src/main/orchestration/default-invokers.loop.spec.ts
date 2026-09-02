@@ -28,6 +28,7 @@ const hoisted = vi.hoisted(() => ({
   sendMessage: vi.fn(),
   sendRaw: vi.fn(),
   terminate: vi.fn(),
+  interrupt: vi.fn(),
   setStreamIdleTimeoutMs: vi.fn(),
   setDisallowedToolsOverride: vi.fn(),
   setResume: vi.fn(),
@@ -56,6 +57,7 @@ const hoisted = vi.hoisted(() => ({
     sendMessage: ReturnType<typeof vi.fn>;
     sendRaw: ReturnType<typeof vi.fn>;
     terminate: ReturnType<typeof vi.fn>;
+    interrupt: ReturnType<typeof vi.fn>;
     setStreamIdleTimeoutMs: ReturnType<typeof vi.fn>;
     setDisallowedToolsOverride: ReturnType<typeof vi.fn>;
     setResume: ReturnType<typeof vi.fn>;
@@ -165,6 +167,7 @@ describe('Loop Mode invoker plumbing', () => {
     hoisted.requestResponse.mockReset();
     hoisted.sendRaw.mockReset().mockResolvedValue(undefined);
     hoisted.terminate.mockReset().mockResolvedValue(undefined);
+    hoisted.interrupt.mockReset();
     hoisted.setStreamIdleTimeoutMs.mockReset();
     hoisted.setDisallowedToolsOverride.mockReset();
     hoisted.setResume.mockReset();
@@ -186,6 +189,7 @@ describe('Loop Mode invoker plumbing', () => {
       sendMessage: typeof hoisted.sendMessage;
       sendRaw: typeof hoisted.sendRaw;
       terminate: typeof hoisted.terminate;
+      interrupt: typeof hoisted.interrupt;
       setStreamIdleTimeoutMs: typeof hoisted.setStreamIdleTimeoutMs;
       setDisallowedToolsOverride: typeof hoisted.setDisallowedToolsOverride;
       setResume: typeof hoisted.setResume;
@@ -203,6 +207,7 @@ describe('Loop Mode invoker plumbing', () => {
     adapterEmitter.sendMessage = hoisted.sendMessage;
     adapterEmitter.sendRaw = hoisted.sendRaw;
     adapterEmitter.terminate = hoisted.terminate;
+    adapterEmitter.interrupt = hoisted.interrupt;
     adapterEmitter.setStreamIdleTimeoutMs = hoisted.setStreamIdleTimeoutMs;
     adapterEmitter.setDisallowedToolsOverride = hoisted.setDisallowedToolsOverride;
     adapterEmitter.setResume = hoisted.setResume;
@@ -511,8 +516,35 @@ describe('Loop Mode invoker plumbing', () => {
 
     const callArg = hoisted.createAdapter.mock.calls[0][0];
     expect(callArg.options.yoloMode).toBe(true);
+    expect(callArg.options.concurrencyPriority).toBe('overflow');
     expect(callArg.options.permissionHookPath).toBeUndefined();
     expect(callArg.options.rtk).toBeUndefined();
+  });
+
+  it('interrupts the live loop adapter when the iteration timeout fires', async () => {
+    registerDefaultLoopInvoker({} as never);
+    let rejectSend: ((error: Error) => void) | undefined;
+    hoisted.sendMessage.mockImplementation(() => new Promise((_, reject) => {
+      rejectSend = reject;
+    }));
+    hoisted.interrupt.mockImplementation(() => {
+      rejectSend?.(new Error('ACP prompt turn was cancelled by the client.'));
+    });
+
+    const result = emitIteration({});
+    await new Promise<void>((r) => setImmediate(r));
+    await new Promise<void>((r) => setImmediate(r));
+    await new Promise<void>((r) => setImmediate(r));
+    expect(hoisted.createAdapter).toHaveBeenCalled();
+
+    hoisted.loopCoordinatorRef.current.emit('loop:iteration-timeout', {
+      loopRunId: 'loop-1',
+      seq: 0,
+    });
+    expect(hoisted.interrupt).toHaveBeenCalledTimes(1);
+    await expect(result).resolves.toEqual(
+      expect.objectContaining({ error: expect.stringContaining('cancelled by the client') }),
+    );
   });
 
   it('registers a provider-limit resume scheduler that creates a one-time automation', async () => {
@@ -993,6 +1025,41 @@ describe('Loop Mode invoker plumbing', () => {
     );
   });
 
+  it('auto-approves hidden ACP tool permissions instead of sending autonomous prose', async () => {
+    registerDefaultLoopInvoker({} as never);
+    const activities: { kind: string; message: string }[] = [];
+    hoisted.loopCoordinatorRef.current.on('loop:activity', (activity) => {
+      activities.push(activity as { kind: string; message: string });
+    });
+    hoisted.sendMessage.mockImplementation(async () => {
+      hoisted.adapterRef.current.emit('input_required', {
+        id: 'acp_permission:51',
+        prompt: 'ACP agent requests permission to continue tool execution.',
+        metadata: { type: 'acp_permission_request', action: 'acp_permission' },
+      });
+      return { content: 'ok', usage: { totalTokens: 3 } };
+    });
+
+    const result = emitIteration({});
+    await new Promise<void>((r) => setImmediate(r));
+    await new Promise<void>((r) => setImmediate(r));
+    await result;
+
+    expect(hoisted.sendRaw).toHaveBeenCalledWith('allow', 'acp_permission:51');
+    expect(hoisted.sendRaw).not.toHaveBeenCalledWith(
+      expect.stringContaining('Loop Mode is unattended'),
+    );
+    expect(hoisted.terminate).not.toHaveBeenCalled();
+    expect(activities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'status',
+          message: 'Auto-approving hidden ACP tool permission',
+        }),
+      ]),
+    );
+  });
+
   it('terminates hidden loop children when an ordinary question cannot be auto-answered', async () => {
     registerDefaultLoopInvoker({} as never);
     hoisted.sendRaw.mockRejectedValueOnce(new Error('stdin closed'));
@@ -1411,6 +1478,7 @@ describe('Loop Mode invoker plumbing', () => {
       // loop-owned adapter is created and pinned to the worktree instead.
       expect(hoisted.createAdapter).toHaveBeenCalledTimes(1);
       expect(hoisted.createAdapter.mock.calls[0][0].options.workingDirectory).toBe('/tmp/ws-worktree');
+      expect(hoisted.createAdapter.mock.calls[0][0].options.concurrencyPriority).toBe('overflow');
     });
 
     it('creates a loop-owned Codex adapter instead of borrowing the live Codex chat adapter', async () => {
@@ -1460,6 +1528,7 @@ describe('Loop Mode invoker plumbing', () => {
           ephemeral: false,
           workingDirectory: '/tmp/ws',
           yoloMode: true,
+          concurrencyPriority: 'overflow',
         },
       });
       expect(hoisted.sendMessage).toHaveBeenCalledTimes(1);

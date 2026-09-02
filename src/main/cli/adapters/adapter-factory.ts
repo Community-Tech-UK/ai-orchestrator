@@ -62,8 +62,9 @@ import {
   buildStaticMcpServersCodexConfigToml,
 } from './static-mcp-codex-config';
 import {
-  acpEphemeralInstanceId,
+  buildAcpPermissionContext,
   buildClaudeMcpConfig,
+  cursorUnattendedArgs,
   buildCopilotAdditionalMcpConfig,
   buildCopilotSpawnEnv,
   buildInlineMcpServersAcpMcpServers,
@@ -435,14 +436,12 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
     // a permission prompt from Copilot would block the `session/prompt`
     // promise forever (observed as a "Making edits / Processing…" stuck UI).
     permissionRegistry: getPermissionRegistry(),
-    permissionContext: {
-      instanceId: options.instanceId ?? acpEphemeralInstanceId('copilot'),
-      childId: options.childId,
-    },
+    permissionContext: buildAcpPermissionContext(options, 'copilot'),
     // Gate concurrent Copilot spawns behind the shared semaphore. Prevents
     // the 5+ parallel-children fan-out pattern that amplified the hang.
     concurrencyLimiter: getProviderConcurrencyLimiter(),
     concurrencyKey: 'copilot',
+    ...(options.concurrencyPriority === 'overflow' ? { concurrencyPriority: 'overflow' as const } : {}),
   });
 }
 
@@ -477,11 +476,12 @@ export function createCursorAdapter(options: UnifiedSpawnOptions): AcpCliAdapter
   }
   const env = mergeSpawnEnv(options);
   extendEnvWithRtk(env, options.rtk);
+  const yoloArgs = cursorUnattendedArgs(options.yoloMode === true);
   return new AcpCliAdapter({
     adapterName: 'cursor-acp',
     authMethodId: 'cursor_login',
     command: 'cursor-agent',
-    args: ['acp', ...modelArgs],
+    args: [...yoloArgs, 'acp', ...modelArgs],
     workingDirectory: options.workingDirectory ?? process.cwd(),
     sessionId: options.sessionId,
     resume: options.resume,
@@ -499,15 +499,15 @@ export function createCursorAdapter(options: UnifiedSpawnOptions): AcpCliAdapter
     timeout: options.timeout,
     // Same rationale as createCopilotAdapter: keep the ACP permission
     // auto-timeout active so `session/request_permission` hangs surface
-    // in the UI instead of silently blocking the prompt turn.
+    // in the UI instead of silently blocking the prompt turn. YOLO loops
+    // also get --force/--trust/--approve-mcps so cursor-agent does not wait
+    // on a TTY for workspace trust (that hang is a 0-iteration loop timeout).
     permissionRegistry: getPermissionRegistry(),
-    permissionContext: {
-      instanceId: options.instanceId ?? acpEphemeralInstanceId('cursor'),
-      childId: options.childId,
-    },
+    permissionContext: buildAcpPermissionContext(options, 'cursor'),
     concurrencyLimiter: getProviderConcurrencyLimiter(),
     concurrencyKey: 'cursor',
     concurrencyAcquireTimeoutMs: 60_000,
+    ...(options.concurrencyPriority === 'overflow' ? { concurrencyPriority: 'overflow' as const } : {}),
   });
 }
 
@@ -579,13 +579,11 @@ export function createGrokAdapter(options: UnifiedSpawnOptions): AcpCliAdapter {
     rtkEnabled: Boolean(options.rtk?.enabled && options.rtk.binaryPath),
     timeout: options.timeout,
     permissionRegistry: getPermissionRegistry(),
-    permissionContext: {
-      instanceId: options.instanceId ?? acpEphemeralInstanceId('grok'),
-      childId: options.childId,
-    },
+    permissionContext: buildAcpPermissionContext(options, 'grok'),
     concurrencyLimiter: getProviderConcurrencyLimiter(),
     concurrencyKey: 'grok',
     concurrencyAcquireTimeoutMs: 60_000,
+    ...(options.concurrencyPriority === 'overflow' ? { concurrencyPriority: 'overflow' as const } : {}),
   });
 }
 

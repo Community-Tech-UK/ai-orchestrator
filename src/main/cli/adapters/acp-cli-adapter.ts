@@ -129,6 +129,15 @@ const DEFAULT_PROMPT_TIMEOUT_MS = 10 * 60_000;
  */
 const DEFAULT_STALL_WARNING_MS = 0;
 
+/**
+ * Loop Mode's iteration timeout only extends on `loop:activity`. Cursor ACP
+ * often stays alive with `session_info_update` / pending tools that never
+ * become assistant/tool events, so the 30-minute loop backstop fires while
+ * `session/prompt` is still in flight (0 iterations, 0 tokens). Ping while a
+ * prompt is open so the loop treats ACP as the liveness owner.
+ */
+const PROMPT_LIVENESS_HEARTBEAT_MS = 15_000;
+
 const DEFAULT_CLIENT_INFO: AcpImplementationInfo = {
   name: 'ai-orchestrator',
   title: 'Harness',
@@ -226,6 +235,7 @@ export interface AcpCliAdapterConfig extends Omit<CliAdapterConfig, 'command' | 
   permissionContext?: {
     instanceId: string;
     childId?: string;
+    yoloMode?: boolean;
   };
   /** Per-method JSON-RPC timeout override for non-prompt requests.
    *  Defaults to {@link DEFAULT_REQUEST_TIMEOUT_MS}. */
@@ -247,6 +257,8 @@ export interface AcpCliAdapterConfig extends Omit<CliAdapterConfig, 'command' | 
   concurrencyLimiter?: Pick<ProviderConcurrencyLimiter, 'acquire'>;
   /** Limiter key — typically the provider name (`'copilot'`, `'cursor'`). */
   concurrencyKey?: string;
+  /** `'overflow'` takes reserved extra slots once the interactive cap is full. */
+  concurrencyPriority?: 'normal' | 'overflow';
   /** Emit a `stall_warning` event + error OutputMessage if a prompt turn
    *  goes this long without any `session/update` notification. Disabled by
    *  default because quiet external work is not proof of a stalled turn;
@@ -434,6 +446,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       try {
         this.concurrencyRelease = await this.acpConfig.concurrencyLimiter.acquire(key, {
           timeoutMs: this.acpConfig.concurrencyAcquireTimeoutMs,
+          priority: this.acpConfig.concurrencyPriority,
         });
         this.emit('slot:wait-end', { provider: key });
       } catch (error) {
@@ -597,6 +610,9 @@ export class AcpCliAdapter extends BaseCliAdapter {
     };
     this.emit('status', 'busy');
     this.armStallWatchdog();
+    this.emit('heartbeat');
+    const livenessTimer = setInterval(() => this.emit('heartbeat'), PROMPT_LIVENESS_HEARTBEAT_MS);
+    if (typeof livenessTimer.unref === 'function') livenessTimer.unref();
 
     try {
       const result = await this.sendRequest<AcpSessionPromptResult>('session/prompt', promptParams);
@@ -637,6 +653,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       }
       throw error;
     } finally {
+      clearInterval(livenessTimer);
       this.currentPrompt = null;
       this.currentPromptRequestId = null;
       this.toolCalls.clear();
@@ -1194,9 +1211,11 @@ export class AcpCliAdapter extends BaseCliAdapter {
     // Any inbound session/update resets the stall watchdog — the agent is
     // clearly still alive even if individual updates take a while. We do
     // this up front so the reset applies even to updates we don't have a
-    // specific handler branch for below.
+    // specific handler branch for below. Heartbeat keeps Loop Mode's
+    // iteration timeout from treating metadata-only updates as silence.
     this.refreshCurrentPromptTimeout();
     this.resetStallWatchdog();
+    this.emit('heartbeat');
 
     const rawUpdate = params['update'];
     if (!isRecord(rawUpdate)) {
@@ -1512,6 +1531,16 @@ export class AcpCliAdapter extends BaseCliAdapter {
       options,
     };
     this.pendingPermissionRequests.set(key, pending);
+
+    if (this.acpConfig.permissionContext?.yoloMode === true) {
+      await this.resolvePermissionDecision(key, {
+        requestId: key,
+        granted: true,
+        decidedBy: 'auto_approve',
+        decidedAt: Date.now(),
+      });
+      return;
+    }
 
     this.emit('status', 'waiting_for_permission');
     this.emit('input_required', {

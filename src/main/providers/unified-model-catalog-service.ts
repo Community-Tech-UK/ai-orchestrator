@@ -26,6 +26,7 @@ import {
   RETIRED_PROVIDER_MODELS,
   clearKnownModelCatalogSnapshotForTesting,
   replaceKnownModelCatalogSnapshot,
+  resolveModelReplacementForProvider,
   type ModelDisplayInfo,
 } from '../../shared/types/provider.types';
 import { getModelsDevService, type ModelsDevService } from './models-dev-service';
@@ -539,6 +540,16 @@ export class UnifiedModelCatalogService extends EventEmitter {
       }
     }
 
+    // A deliberate replacement is an AIO product decision, so no discovery
+    // or override layer may put the replaced id back into a picker. Historical
+    // settings and run records retain the old id; execution resolves it lazily.
+    for (const [key, entry] of next) {
+      const replacement = resolveModelReplacementForProvider(entry.provider, entry.id);
+      if (replacement !== undefined && replacement !== entry.id) {
+        next.delete(key);
+      }
+    }
+
     // ---- Layer 6: Local model inventory (distinct provider namespace) ----
     for (const [key, entry] of next) {
       if (entry.provider === 'local-model') {
@@ -670,4 +681,3 @@ export class UnifiedModelCatalogService extends EventEmitter {
 export function getUnifiedModelCatalog(): UnifiedModelCatalogService {
   return UnifiedModelCatalogService.getInstance();
 }
-

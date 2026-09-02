@@ -216,6 +216,22 @@ export const CLAUDE_LEGACY_PRICING_ALIASES = {
 } as const;
 
 /**
+ * Explicit provider-approved model replacements.
+ *
+ * Newer family members are not assumed to replace older ones: providers often
+ * keep several versions selectable. Add an entry here only when AIO deliberately
+ * removes the old id from its active catalog. All persisted selections are
+ * resolved lazily, so historical automation/run records remain auditable.
+ */
+export const PROVIDER_MODEL_REPLACEMENTS: Readonly<
+  Record<string, Readonly<Record<string, string>>>
+> = {
+  claude: {
+    [CLAUDE_LEGACY_PRICING_ALIASES.FABLE_5]: CLAUDE_PINNED_MODELS.FABLE_51,
+  },
+};
+
+/**
  * OpenAI model identifiers
  */
 export const OPENAI_MODELS = {
@@ -318,7 +334,7 @@ export const GROK_MODELS = {
  * map re-admits exactly those ids to pricing, and nothing else.
  */
 export const RETIRED_PROVIDER_MODELS: Readonly<Record<string, readonly string[]>> = {
-  claude: [CLAUDE_LEGACY_PRICING_ALIASES.FABLE_5],
+  claude: Object.keys(PROVIDER_MODEL_REPLACEMENTS['claude'] ?? {}),
   grok: [GROK_MODELS.GROK_45],
 };
 
@@ -590,6 +606,7 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
 export {
   getModelsForProvider,
   isAntigravityModelId,
+  resolveModelReplacementForProvider,
   normalizeModelAliasForProvider,
   getPrimaryModelForProvider,
   normalizeModelForProvider,

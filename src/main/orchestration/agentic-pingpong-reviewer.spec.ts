@@ -21,7 +21,11 @@ vi.mock('../cli/cli-detection', () => ({
   detectAvailableClis: vi.fn(async () => detectionTestState.availableClis),
 }));
 
-vi.mock('../review/review-execution-host', () => ({
+// The reviewer resolves its model through the `reviewer-model-override` LEAF
+// module (via `resolveOpenCheckerModel`), not through the review-execution host.
+// Mocking the host here intercepted nothing and quietly let the real settings
+// manager be reached; mock the module actually imported.
+vi.mock('../review/reviewer-model-override', () => ({
   resolveReviewerModelOverride: vi.fn(() => undefined),
 }));
 

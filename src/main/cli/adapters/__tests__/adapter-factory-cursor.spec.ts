@@ -72,6 +72,62 @@ describe('adapter factory — cursor', () => {
     expect(chromeDevtools?.args).toContain('http://127.0.0.1:31234');
   });
 
+  it('marks permissionContext.yoloMode when spawn options request YOLO', () => {
+    const yolo = createCliAdapter('cursor', {
+      workingDirectory: '/tmp',
+      yoloMode: true,
+    });
+    expect((yolo as unknown as {
+      acpConfig: { permissionContext?: { yoloMode?: boolean } };
+    }).acpConfig.permissionContext?.yoloMode).toBe(true);
+
+    const asked = createCliAdapter('cursor', {
+      workingDirectory: '/tmp',
+      yoloMode: false,
+    });
+    expect((asked as unknown as {
+      acpConfig: { permissionContext?: { yoloMode?: boolean } };
+    }).acpConfig.permissionContext?.yoloMode).toBeUndefined();
+  });
+
+  it('passes Cursor unattended flags before `acp` when YOLO is on', () => {
+    const yolo = cursorArgs(createCliAdapter('cursor', {
+      workingDirectory: '/tmp',
+      yoloMode: true,
+      model: 'grok-4.6-fast',
+    }));
+    expect(yolo).toEqual([
+      '--force', '--sandbox', 'disabled', '--trust', '--approve-mcps',
+      'acp', '--model', 'grok-4.6-fast',
+    ]);
+
+    const asked = cursorArgs(createCliAdapter('cursor', {
+      workingDirectory: '/tmp',
+      yoloMode: false,
+    }));
+    expect(asked[0]).toBe('acp');
+    expect(asked).not.toContain('--force');
+    expect(asked).not.toContain('--trust');
+  });
+
+  it('marks Cursor ACP concurrency as overflow when spawn options request it', () => {
+    const overflow = createCliAdapter('cursor', {
+      workingDirectory: '/tmp',
+      concurrencyPriority: 'overflow',
+    });
+    expect((overflow as unknown as {
+      acpConfig: { concurrencyPriority?: string; concurrencyKey?: string };
+    }).acpConfig).toMatchObject({
+      concurrencyKey: 'cursor',
+      concurrencyPriority: 'overflow',
+    });
+
+    const interactive = createCliAdapter('cursor', { workingDirectory: '/tmp' });
+    expect((interactive as unknown as {
+      acpConfig: { concurrencyPriority?: string };
+    }).acpConfig.concurrencyPriority).toBeUndefined();
+  });
+
   it('adds inline Orchestrator Tools MCP config to the Cursor ACP mcpServers list', () => {
     const adapter = createCliAdapter('cursor', {
       workingDirectory: '/tmp',

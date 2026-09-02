@@ -6,6 +6,7 @@ import {
   type ProviderRuntimeService,
   type ProviderRuntimeStartInput,
 } from '../providers/provider-runtime-service';
+import type { CheckerCandidate } from '../review/checker-plan';
 import type { ReviewDispatchRequest } from './cross-model-review.types';
 import type { AggregatedReview, ReviewResult } from '../../shared/types/cross-model-review.types';
 import type { ReviewerPool } from './reviewer-pool';
@@ -52,7 +53,7 @@ type TestReviewService = Omit<CrossModelReviewService, PrivateReviewMembers> & {
   reviewerPool: ReviewerPool;
   refreshAvailability: () => Promise<void>;
   parseReviewResponse: (reviewerId: string, rawResponse: string, reviewDepth: 'structured' | 'tiered', durationMs: number) => ReviewResult | null;
-  collectSuccessfulReviews: (request: ReviewDispatchRequest, reviewerClis: string[], timeoutSeconds: number, signal: AbortSignal) => Promise<ReviewResult[]>;
+  collectSuccessfulReviews: (request: ReviewDispatchRequest, checkers: CheckerCandidate[], timeoutSeconds: number, signal: AbortSignal) => Promise<ReviewResult[]>;
   executeOneReview: (request: ReviewDispatchRequest, cliType: string, timeoutSeconds: number, signal: AbortSignal) => Promise<ReviewResult | null>;
   executeReviews: (request: ReviewDispatchRequest, reviewerClis: string[], timeoutSeconds: number) => Promise<void>;
   detectDisagreement: (reviews: ReviewResult[]) => boolean;
@@ -525,7 +526,17 @@ describe('CrossModelReviewService', () => {
       },
     }));
 
-    const results = await service.collectSuccessfulReviews(makeRequest(), ['antigravity', 'codex'], 30, new AbortController().signal);
+    // Checkers are (provider, model) candidates, not bare provider names: a
+    // licence-pinned plan can hold several checkers on ONE provider.
+    const results = await service.collectSuccessfulReviews(
+      makeRequest(),
+      [
+        { provider: 'antigravity', rationale: 'unchanged' },
+        { provider: 'codex', rationale: 'unchanged' },
+      ],
+      30,
+      new AbortController().signal,
+    );
 
     expect(results).toHaveLength(2);
     expect(results.map((result) => result.reviewerId)).toEqual(expect.arrayContaining(['codex', 'copilot']));

@@ -34,11 +34,30 @@ const logger = getLogger('ProviderConcurrencyLimiter');
  */
 export const DEFAULT_PROVIDER_LIMITS: Readonly<Record<string, number>> = Object.freeze({
   copilot: 10,
-  cursor: 3,
+  // Cursor ACP holds a slot for the whole process lifetime, not per turn.
+  // Three idle chats plus a warm-start spare already saturates 3, so a
+  // worktree loop child (which cannot borrow the parent adapter) dies with
+  // "Timed out waiting 60000ms for 'cursor' provider concurrency slot"
+  // before iteration 0. 8 matches the Copilot-adjacent interactive budget.
+  cursor: 8,
   claude: 6,
   codex: 6,
   gemini: 6,
+  grok: 6,
 });
+
+/**
+ * Extra slots loop/automation ACP children may take after the interactive
+ * cap is full. Hidden loop workers cannot borrow a Cursor parent session
+ * when they run in a worktree, so they need a way past idle chats + warm-start.
+ */
+export const DEFAULT_PROVIDER_OVERFLOW: Readonly<Record<string, number>> = Object.freeze({
+  copilot: 2,
+  cursor: 2,
+  grok: 2,
+});
+
+export type ProviderConcurrencyPriority = 'normal' | 'overflow';
 
 /** Fallback limit when a provider isn't listed in DEFAULT_PROVIDER_LIMITS. */
 const FALLBACK_DEFAULT_LIMIT = 6;
@@ -116,15 +135,21 @@ export class ProviderConcurrencyLimiter {
    * Idempotent release: calling the returned function twice is a no-op the
    * second time (defensive — the real invariant is "exactly once").
    */
-  async acquire(key: string, options?: { timeoutMs?: number }): Promise<() => void> {
+  async acquire(key: string, options?: {
+    timeoutMs?: number;
+    priority?: ProviderConcurrencyPriority;
+  }): Promise<() => void> {
     const slot = this.getOrCreateSlot(key);
+    const cap = effectiveSlotCap(key, slot.limit, options?.priority);
 
-    if (slot.active < slot.limit) {
+    if (slot.active < cap) {
       slot.active += 1;
       logger.debug('Acquired provider slot immediately', {
         key,
         active: slot.active,
         limit: slot.limit,
+        cap,
+        priority: options?.priority ?? 'normal',
       });
       return this.makeReleaser(key);
     }
@@ -246,4 +271,13 @@ export class ProviderConcurrencyLimiter {
 
 export function getProviderConcurrencyLimiter(): ProviderConcurrencyLimiter {
   return ProviderConcurrencyLimiter.getInstance();
+}
+
+function effectiveSlotCap(
+  key: string,
+  limit: number,
+  priority: ProviderConcurrencyPriority | undefined,
+): number {
+  if (priority !== 'overflow') return limit;
+  return limit + (DEFAULT_PROVIDER_OVERFLOW[key] ?? 0);
 }

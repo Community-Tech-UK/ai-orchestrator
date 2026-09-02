@@ -3,7 +3,10 @@ import { load } from "js-yaml";
 import { describe, expect, it } from "vitest";
 
 interface WorkflowStep {
+  id?: string;
+  if?: string;
   name?: string;
+  shell?: string;
   uses?: string;
   env?: Record<string, string>;
   run?: string;
@@ -30,9 +33,22 @@ const ciWorkflow = load(
   permissions?: Record<string, string>;
   jobs: Record<string, WorkflowJob>;
 };
+const modelCatalogWorkflowSource = readFileSync(
+  ".github/workflows/model-catalog-watch.yml",
+  "utf8",
+);
+const modelCatalogWorkflow = load(modelCatalogWorkflowSource) as {
+  on: {
+    schedule: Array<{ cron: string }>;
+    workflow_dispatch: unknown;
+  };
+  permissions: Record<string, string>;
+  jobs: Record<string, WorkflowJob>;
+};
 const workflowSources = [
   readFileSync(".github/workflows/ci.yml", "utf8"),
   readFileSync(".github/workflows/release.yml", "utf8"),
+  modelCatalogWorkflowSource,
 ];
 const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
   scripts: Record<string, string>;
@@ -40,7 +56,7 @@ const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
 };
 
 function allActionRefs(): string[] {
-  return [ciWorkflow, workflow].flatMap(({ jobs }) =>
+  return [ciWorkflow, workflow, modelCatalogWorkflow].flatMap(({ jobs }) =>
     Object.values(jobs).flatMap((job) =>
       (job.steps ?? [])
         .map((step) => step.uses)
@@ -54,6 +70,36 @@ function stepIndex(job: WorkflowJob | undefined, name: string): number {
 }
 
 describe("Harness release workflow", () => {
+  it("checks model-catalog drift on a schedule and raises one durable issue", () => {
+    expect(modelCatalogWorkflow.on.schedule).toEqual([{ cron: "23 */6 * * *" }]);
+    expect(modelCatalogWorkflow.on.workflow_dispatch).toEqual({});
+    expect(modelCatalogWorkflow.permissions).toEqual({
+      contents: "read",
+      issues: "write",
+    });
+
+    const steps = modelCatalogWorkflow.jobs["watch"]?.steps ?? [];
+    const checkout = steps.find((step) => step.name === "Checkout");
+    const install = steps.find((step) => step.name === "Install dependencies");
+    const refresh = steps.find((step) => step.name === "Refresh model-catalog snapshot");
+    const issue = steps.find((step) => step.name === "Open or update drift issue");
+    const fail = steps.find((step) => step.name === "Fail until catalog drift is reviewed");
+
+    expect(checkout?.with).toEqual({ "persist-credentials": false });
+    expect(install?.run).toBe("npm ci --ignore-scripts");
+    expect(refresh?.run).toContain("npm run sync:model-catalog");
+    expect(refresh?.run).toContain("git diff --quiet");
+    expect(refresh?.run).toContain("GITHUB_STEP_SUMMARY");
+    expect(issue?.if).toContain("steps.refresh.outputs.drift == 'true'");
+    expect(issue?.run).toContain("gh issue list");
+    expect(issue?.run).toContain("--search");
+    expect(issue?.run).toContain("gh issue create");
+    expect(issue?.run).toContain("gh issue edit");
+    expect(issue?.run).toContain("Model catalog drift detected");
+    expect(fail?.if).toContain("steps.refresh.outputs.drift == 'true'");
+    expect(fail?.run).toBe("exit 1");
+  });
+
   it("grants write permission only to the final publish job", () => {
     expect(workflow.permissions).toEqual({
       actions: "read",

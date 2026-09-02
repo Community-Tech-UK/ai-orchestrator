@@ -178,7 +178,9 @@ export function attachInvocationActivity(
       promptType !== 'deferred_permission' &&
       promptType !== 'mcp_elicitation' &&
       promptType !== 'acp_elicitation';
-    const sendRaw = (adapter as unknown as { sendRaw?: (text: string) => Promise<void> }).sendRaw;
+    const sendRaw = (adapter as unknown as {
+      sendRaw?: (text: string, permissionKey?: string) => Promise<void>;
+    }).sendRaw;
     if (!canAutoAnswer || typeof sendRaw !== 'function') {
       sink({
         kind: 'error',
@@ -188,6 +190,28 @@ export function attachInvocationActivity(
         detail: { promptType, prompt },
       });
       terminateHiddenInputWait(canAutoAnswer ? 'adapter cannot receive automatic response' : `${promptType} cannot be answered safely`);
+      return;
+    }
+
+    const permissionKey = typeof data['id'] === 'string' ? data['id'] : undefined;
+    if (isAcpToolPermissionPrompt(promptType, metadata)) {
+      // ACP sendRaw without the permission key treats the autonomous-mode
+      // paragraph as a permission outcome. That either cancels the tool or
+      // replies with a guessed optionId, after which session/prompt hangs
+      // until the iteration timeout (observed: 0-token loop pause).
+      sink({
+        kind: 'status',
+        message: 'Auto-approving hidden ACP tool permission',
+        detail: { promptType },
+      });
+      sendRaw.call(adapter, 'allow', permissionKey).catch((error: unknown) => {
+        sink({
+          kind: 'error',
+          message: `Failed to auto-approve hidden ACP permission: ${error instanceof Error ? error.message : String(error)}`,
+          detail: { promptType },
+        });
+        terminateHiddenInputWait('automatic ACP permission approval failed');
+      });
       return;
     }
 
@@ -353,6 +377,13 @@ function readString(value: unknown, key: string): string | undefined {
   if (!isRecord(value)) return undefined;
   const child = value[key];
   return typeof child === 'string' && child.trim() ? child : undefined;
+}
+
+function isAcpToolPermissionPrompt(
+  promptType: string,
+  metadata: Record<string, unknown>,
+): boolean {
+  return promptType === 'acp_permission_request' || metadata['action'] === 'acp_permission';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

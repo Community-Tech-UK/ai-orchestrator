@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   SUPPORTED_PROVIDERS,
+  diffSnapshots,
+  formatSnapshotDiff,
   parseModel,
   parseSnapshot,
+  type SnapshotEntry,
 } from '../sync-model-catalog.parse';
 
 function model(id: string, input: number, output: number, context?: number): unknown {
@@ -74,6 +77,20 @@ describe('parseSnapshot', () => {
   it('returns null for malformed JSON', () => {
     expect(parseSnapshot('{not json')).toBeNull();
   });
+
+  it('preserves prototype-shaped model ids as own snapshot entries', () => {
+    const ids = ['toString', 'constructor', '__proto__'];
+    const raw = JSON.stringify({
+      anthropic: { models: ids.map((id) => model(id, 5, 25)) },
+    });
+
+    const snapshot = parseSnapshot(raw)!;
+    expect(Object.keys(snapshot).sort()).toEqual([...ids].sort());
+    for (const id of ids) {
+      expect(Object.prototype.hasOwnProperty.call(snapshot, id)).toBe(true);
+      expect(snapshot[id]).toMatchObject({ provider: 'anthropic', input: 5, output: 25 });
+    }
+  });
 });
 
 describe('parseModel', () => {
@@ -93,6 +110,68 @@ describe('parseModel', () => {
         contextWindow: undefined,
         maxOutputTokens: undefined,
       },
+    });
+  });
+});
+
+describe('snapshot drift reporting', () => {
+  const unchanged: SnapshotEntry = {
+    provider: 'anthropic',
+    input: 5,
+    output: 25,
+    contextWindow: 1_000_000,
+    maxOutputTokens: 128_000,
+  };
+
+  it('reports added, removed, and metadata-changed model ids in lexical order', () => {
+    const current: Record<string, SnapshotEntry> = {
+      'unchanged-model': unchanged,
+      'old-model': { provider: 'google', input: 1, output: 5 },
+      'repriced-z': { provider: 'openai', input: 2, output: 8 },
+      'repriced-a': { provider: 'openai', input: 3, output: 12 },
+    };
+    const next: Record<string, SnapshotEntry> = {
+      'new-model-z': { provider: 'anthropic', input: 10, output: 50 },
+      'new-model-a': { provider: 'anthropic', input: 1, output: 5 },
+      'unchanged-model': { ...unchanged },
+      'repriced-z': { provider: 'openai', input: 2.5, output: 10 },
+      'repriced-a': { provider: 'openai', input: 3, output: 12, contextWindow: 400_000 },
+    };
+
+    expect(diffSnapshots(current, next)).toEqual({
+      added: ['new-model-a', 'new-model-z'],
+      removed: ['old-model'],
+      changed: ['repriced-a', 'repriced-z'],
+    });
+  });
+
+  it('formats a concise actionable report and omits empty categories', () => {
+    expect(formatSnapshotDiff({
+      added: ['new-model'],
+      removed: ['old-model'],
+      changed: ['repriced-model'],
+    })).toBe([
+      'Added (1): new-model',
+      'Removed (1): old-model',
+      'Changed (1): repriced-model',
+    ].join('\n'));
+
+    expect(formatSnapshotDiff({ added: [], removed: [], changed: [] })).toBe('No model changes.');
+  });
+
+  it('classifies prototype-shaped ids by own membership', () => {
+    const ids = ['toString', 'constructor', '__proto__'];
+    const entries = Object.fromEntries(ids.map((id) => [id, unchanged]));
+
+    expect(diffSnapshots({}, entries)).toEqual({
+      added: [...ids].sort((a, b) => a.localeCompare(b)),
+      removed: [],
+      changed: [],
+    });
+    expect(diffSnapshots(entries, {})).toEqual({
+      added: [],
+      removed: [...ids].sort((a, b) => a.localeCompare(b)),
+      changed: [],
     });
   });
 });

@@ -25,6 +25,8 @@ import {
 import { CliDetectionService, CliInfo, CliType } from '../cli/cli-detection';
 import { getProviderInstanceManager } from '../providers/provider-instance-manager';
 import { isProviderExcludedFromAutomation } from '../providers/automation-provider-exclusions';
+import { createVerificationModelAssigner } from './verification-checking-policy';
+import { learnFromCheckerFailure } from '../review/copilot-model-entitlements';
 import type { ProviderAdapter } from '@sdk/provider-adapter';
 import { selectPersonalities, PERSONALITY_PROMPTS } from './personalities';
 import { generateId } from '../../shared/utils/id-generator';
@@ -53,6 +55,8 @@ export interface AgentConfig {
   command?: string;
   provider: ProviderAdapter;
   personality?: PersonalityType;
+  /** Model the checking policy assigned, when it chose one. Provenance only. */
+  model?: string;
 }
 
 /**
@@ -228,6 +232,11 @@ export class CliVerificationCoordinator extends EventEmitter {
     const availableClis = allAvailableClis.filter(
       (cli) => !isProviderExcludedFromAutomation(cli.name),
     );
+    // Family diversity: picking N different CLIs does not guarantee N different
+    // vendors, because Copilot and Cursor each front several. Without this, a
+    // panel can produce corroboration that only looks independent. Called once
+    // per agent CONSTRUCTED, so the same CLI listed twice gets two decisions.
+    const assignModel = createVerificationModelAssigner();
 
     // If specific CLIs requested
     if (config.cliAgents && config.cliAgents.length > 0) {
@@ -238,12 +247,17 @@ export class CliVerificationCoordinator extends EventEmitter {
 
         if (cli?.installed) {
           try {
-            const provider = this.registry.createCliProvider(cliName);
+            const model = assignModel(cliName);
+            const provider = this.registry.createCliProvider(
+              cliName,
+              model ? { defaultModel: model } : undefined,
+            );
             agents.push({
               type: 'cli',
               name: cli.displayName,
               command: cli.command,
               provider,
+              ...(model ? { model } : {}),
               personality: personalities[personalityIndex++ % personalities.length],
             });
           } catch (error) {
@@ -273,12 +287,17 @@ export class CliVerificationCoordinator extends EventEmitter {
         if (agents.length >= targetAgentCount) break;
 
         try {
-          const provider = this.registry.createCliProvider(cli.name);
+          const model = assignModel(cli.name);
+          const provider = this.registry.createCliProvider(
+            cli.name,
+            model ? { defaultModel: model } : undefined,
+          );
           agents.push({
             type: 'cli',
             name: cli.displayName,
             command: cli.command,
             provider,
+            ...(model ? { model } : {}),
             personality: personalities[personalityIndex++ % personalities.length],
           });
         } catch (error) {
@@ -559,6 +578,14 @@ export class CliVerificationCoordinator extends EventEmitter {
         /* intentionally ignored: provider cleanup errors should not block error reporting */
       }
       sub?.unsubscribe();
+
+      // Teach the entitlement cache when a Copilot seat refused this agent's
+      // model. Without it, `createVerificationModelAssigner` re-picks the same
+      // dead model on every future panel — the one surface still missing the
+      // feedback every other checking path already has. No profile is threaded
+      // here because this surface is not seat-aware, so it learns and reads
+      // through the same unscoped bucket the assigner consults.
+      learnFromCheckerFailure(undefined, (error as Error).message);
 
       // Emit agent complete event with error
       this.emit('verification:agent-complete', {

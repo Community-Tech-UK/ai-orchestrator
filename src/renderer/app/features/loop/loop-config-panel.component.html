@@ -157,8 +157,8 @@
       <input id="loop-cfg-cap-hours" type="number" min="1" max="168" [ngModel]="maxHours()" (ngModelChange)="maxHours.set($event)" />
     </div>
     <div>
-      <label for="loop-cfg-cap-cost">Estimated usage cap ($)</label>
-      <input id="loop-cfg-cap-cost" type="number" min="1" max="1000" [placeholder]="allowUnbounded() ? 'Unbounded' : 'Required'" [ngModel]="maxDollars()" (ngModelChange)="onMaxDollarsChange($event)" />
+      <label for="loop-cfg-cap-cost">Estimated usage cap ($) <span class="hint">(blank = no cap)</span></label>
+      <input id="loop-cfg-cap-cost" type="number" min="1" max="1000" placeholder="No cap" [ngModel]="maxDollars()" (ngModelChange)="onMaxDollarsChange($event)" />
     </div>
     <div>
       <label for="loop-cfg-max-turns">Max turns / iteration <span class="hint">(blank = provider default)</span></label>
@@ -171,15 +171,6 @@
   </section>
 
   <section class="row budget-note">
-    <label class="checkbox-row" for="loop-cfg-allow-unbounded">
-      <input
-        id="loop-cfg-allow-unbounded"
-        type="checkbox"
-        [checked]="allowUnbounded()"
-        (change)="allowUnbounded.set(toggleEvent($event))"
-      />
-      Allow unbounded estimated spend
-    </label>
     <p class="hint budget-copy">
       The spend check runs between iterations, so a single iteration is bounded
       primarily by the turn cap.
