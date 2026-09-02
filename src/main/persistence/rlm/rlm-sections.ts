@@ -7,9 +7,11 @@
 import type { SqliteDriver } from '../../db/sqlite-driver';
 import type {
   ContextSectionMetadataRow,
+  ContextSectionFilterMetadataRow,
   ContextSectionRow,
   ContextSectionTypeStatsRow,
   ContextStoreSectionCountRow,
+  UnindexedRootSectionRow,
 } from '../rlm-database.types';
 import { saveContent, loadContent, deleteContent, shouldStoreInline } from './rlm-content';
 import { updateStoreStatsForSection } from './rlm-stores';
@@ -194,6 +196,21 @@ export function getSectionMetadata(
   return stmt.all(storeId, ...parameters) as ContextSectionMetadataRow[];
 }
 
+/** Read one bounded page of fields needed by codebase indexing filters. */
+export function getSectionFilterMetadata(
+  db: SqliteDriver,
+  storeId: string,
+  options: { limit: number; offset: number },
+): ContextSectionFilterMetadataRow[] {
+  return db.prepareCached(`
+    SELECT type, file_path
+    FROM context_sections
+    WHERE store_id = ?
+    ORDER BY start_offset ASC, id ASC
+    LIMIT ? OFFSET ?
+  `).all(storeId, options.limit, options.offset) as ContextSectionFilterMetadataRow[];
+}
+
 /**
  * Return authoritative totals for every persisted store without loading any
  * section row or content payload.
@@ -222,6 +239,44 @@ export function getSectionStatsByType(db: SqliteDriver): ContextSectionTypeStats
     ORDER BY type ASC
   `);
   return stmt.all() as ContextSectionTypeStatsRow[];
+}
+
+/**
+ * List root sections whose durable semantic checkpoint is absent.
+ *
+ * This projection deliberately returns only identifiers and content-location
+ * metadata. Repair reads the payload for each returned id separately, so an
+ * unchanged store never materializes `content_inline` values.
+ */
+export function listUnindexedRootSections(
+  db: SqliteDriver,
+  storeId: string,
+  options: { limit?: number } = {},
+): UnindexedRootSectionRow[] {
+  let query = `
+    SELECT
+      sections.id,
+      sections.store_id,
+      sections.type,
+      sections.name,
+      sections.file_path,
+      sections.language,
+      sections.content_file,
+      CASE WHEN sections.content_inline IS NULL THEN 0 ELSE 1 END AS content_is_inline
+    FROM context_sections AS sections
+    LEFT JOIN vectors ON vectors.section_id = sections.id
+    WHERE sections.store_id = ?
+      AND sections.depth = 0
+      AND vectors.section_id IS NULL
+    ORDER BY sections.start_offset ASC, sections.id ASC
+  `;
+  const parameters: number[] = [];
+  if (options.limit !== undefined) {
+    query += ' LIMIT ?';
+    parameters.push(options.limit);
+  }
+
+  return db.prepareCached(query).all(storeId, ...parameters) as UnindexedRootSectionRow[];
 }
 
 /**

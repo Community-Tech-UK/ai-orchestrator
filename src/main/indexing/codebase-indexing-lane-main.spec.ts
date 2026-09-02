@@ -84,7 +84,7 @@ describe('codebase indexing lane main entrypoint', () => {
           instances.push(this);
         }
 
-        async indexCodebase(storeId: string, rootPath: string, options: { force?: boolean }): Promise<IndexingStats> {
+        async indexCodebase(storeId: string, rootPath: string, _options: { force?: boolean }): Promise<IndexingStats> {
           this.emit('progress', {
             status: 'chunking',
             totalFiles: 10,
@@ -175,9 +175,30 @@ describe('codebase indexing lane main entrypoint', () => {
           // `this.contextManager.addSection(...)`, which emits
           // 'section:added' on this worker's own RLMContextManager instance.
           const { RLMContextManager } = await import('../rlm/context-manager');
+          const section = {
+            id: 'sec-lt207',
+            type: 'file' as const,
+            name: 'lt207-sample.ts',
+            content: 'private-index-content',
+            tokens: 4,
+            startOffset: 0,
+            endOffset: 21,
+            checksum: 'checksum-lt207',
+            depth: 0,
+          };
           RLMContextManager.getInstance().emit('section:added', {
-            store: { id: storeId },
-            section: { id: 'sec-lt207', name: 'lt207-sample.ts' },
+            store: {
+              id: storeId,
+              instanceId: 'indexing-lane',
+              sections: [section],
+              totalTokens: 4,
+              totalSize: 21,
+              createdAt: 1,
+              lastAccessed: 2,
+              accessCount: 3,
+              config: { kind: 'codebase-auto' },
+            },
+            section,
           });
           return {
             filesIndexed: 1,
@@ -213,8 +234,46 @@ describe('codebase indexing lane main entrypoint', () => {
         source: 'rlm-context',
         event: 'section:added',
         payload: {
-          store: { id: 'codebase:lt207-test' },
-          section: { id: 'sec-lt207', name: 'lt207-sample.ts' },
+          storeId: 'codebase:lt207-test',
+          section: {
+            id: 'sec-lt207',
+            type: 'file',
+            name: 'lt207-sample.ts',
+            content: '',
+            tokens: 4,
+            startOffset: 0,
+            endOffset: 21,
+            checksum: 'checksum-lt207',
+            depth: 0,
+            summarizes: undefined,
+          },
+          highVolume: true,
+          store: {
+            id: 'codebase:lt207-test',
+            instanceId: 'indexing-lane',
+            sections: [{
+              id: 'sec-lt207',
+              type: 'file',
+              name: 'lt207-sample.ts',
+              content: '',
+              tokens: 4,
+              startOffset: 0,
+              endOffset: 21,
+              checksum: 'checksum-lt207',
+              depth: 0,
+              summarizes: undefined,
+            }],
+            totalTokens: 4,
+            totalSize: 21,
+            createdAt: 1,
+            lastAccessed: 2,
+            accessCount: 3,
+            config: {
+              kind: 'codebase-auto',
+              ipcSectionCount: 1,
+              ipcSectionsTruncated: false,
+            },
+          },
         },
       },
     });
@@ -225,10 +284,10 @@ describe('codebase indexing lane main entrypoint', () => {
     const events: string[] = [];
 
     vi.doMock('../rlm/context-manager', () => {
-      // LT-207: `ensureWorkerEventForwarding()` now calls `getInstance().on(...)`
-      // (via `registerWorkerEventForwarding`) before the first
-      // `reloadFromPersistence()` — the mock must behave like an EventEmitter
-      // or that subscription throws and the job never reaches 'reload'/'index'.
+      // LT-207: `ensureWorkerEventForwarding()` resolves this worker-local
+      // manager and injects it as the event source before the first reload.
+      // The mock must therefore provide the EventEmitter surface used by the
+      // forwarding subscription.
       const instance = Object.assign(new EventEmitter(), {
         reloadFromPersistence: () => events.push('reload'),
       });
@@ -414,5 +473,247 @@ describe('codebase indexing lane main entrypoint', () => {
     });
     expect(exitSpy).toHaveBeenCalledWith(0);
     exitSpy.mockRestore();
+  });
+
+  it('exhaustively dispatches bounded maintenance and file jobs with deletions before upserts', async () => {
+    const parentPort = installParentPort();
+    const calls: string[] = [];
+
+    vi.doMock('../rlm/context-manager', () => {
+      const instance = Object.assign(new EventEmitter(), {
+        reloadFromPersistence: vi.fn(),
+      });
+      return { RLMContextManager: { getInstance: () => instance } };
+    });
+    vi.doMock('./indexing-service', () => ({
+      CodebaseIndexingService: class FakeCodebaseIndexingService extends EventEmitter {
+        cancel = vi.fn();
+
+        async indexFile(storeId: string, filePath: string): Promise<void> {
+          calls.push(`index:${storeId}:${filePath}`);
+          if (filePath.endsWith('bad.ts')) throw new Error('parse failed');
+        }
+
+        async removeFile(storeId: string, filePath: string): Promise<void> {
+          calls.push(`remove:${storeId}:${filePath}`);
+        }
+
+        async getStats(storeId: string): Promise<{
+          storeId: string;
+          totalFiles: number;
+          totalChunks: number;
+          totalTokens: number;
+          lastIndexedAt: number;
+          indexSize: number;
+        }> {
+          calls.push(`stats:${storeId}`);
+          return {
+            storeId,
+            totalFiles: 2,
+            totalChunks: 4,
+            totalTokens: 20,
+            lastIndexedAt: 100,
+            indexSize: 200,
+          };
+        }
+
+        async clearLegacyCodebaseStore(storeId: string): Promise<void> {
+          calls.push(`clear:${storeId}`);
+        }
+      },
+    }));
+
+    await import('./codebase-indexing-lane-main');
+    const jobs = [
+      {
+        jobId: 'job-index-file',
+        jobType: 'index-file',
+        payload: { type: 'index-file', storeId: 'store', filePath: '/repo/one.ts' },
+      },
+      {
+        jobId: 'job-remove-file',
+        jobType: 'remove-file',
+        payload: { type: 'remove-file', storeId: 'store', filePath: '/repo/old.ts' },
+      },
+      {
+        jobId: 'job-stats',
+        jobType: 'get-stats',
+        payload: { type: 'get-stats', storeId: 'store' },
+      },
+      {
+        jobId: 'job-clear',
+        jobType: 'clear-legacy-store',
+        payload: { type: 'clear-legacy-store', storeId: 'store' },
+      },
+      {
+        jobId: 'job-sync',
+        jobType: 'sync-files',
+        payload: {
+          type: 'sync-files',
+          storeId: 'store',
+          deletions: ['/repo/delete-a.ts', '/repo/delete-b.ts'],
+          upserts: ['/repo/good.ts', '/repo/bad.ts'],
+        },
+      },
+    ];
+
+    for (const job of jobs) {
+      parentPort.emit('message', { data: { type: 'run-job', ...job } });
+      await flushMicrotasks();
+    }
+
+    expect(calls).toEqual([
+      'index:store:/repo/one.ts',
+      'remove:store:/repo/old.ts',
+      'stats:store',
+      'clear:store',
+      'remove:store:/repo/delete-a.ts',
+      'remove:store:/repo/delete-b.ts',
+      'index:store:/repo/good.ts',
+      'index:store:/repo/bad.ts',
+    ]);
+    expect(parentPort.postMessage).toHaveBeenCalledWith({
+      type: 'job-succeeded',
+      jobId: 'job-stats',
+      result: {
+        storeId: 'store',
+        totalFiles: 2,
+        totalChunks: 4,
+        totalTokens: 20,
+        lastIndexedAt: 100,
+        indexSize: 200,
+      },
+    });
+    expect(parentPort.postMessage).toHaveBeenCalledWith({
+      type: 'job-succeeded',
+      jobId: 'job-sync',
+      result: {
+        outcomes: [
+          { operation: 'removed', filePath: '/repo/delete-a.ts', success: true },
+          { operation: 'removed', filePath: '/repo/delete-b.ts', success: true },
+          { operation: 'indexed', filePath: '/repo/good.ts', success: true },
+          {
+            operation: 'indexed',
+            filePath: '/repo/bad.ts',
+            success: false,
+            error: 'parse failed',
+          },
+        ],
+      },
+    });
+  });
+
+  it('rejects oversized or job-type-mismatched payloads before constructing an owner', async () => {
+    const parentPort = installParentPort();
+    const managerFactory = vi.fn();
+    const serviceFactory = vi.fn();
+    vi.doMock('../rlm/context-manager', () => ({
+      RLMContextManager: { getInstance: managerFactory },
+    }));
+    vi.doMock('./indexing-service', () => ({
+      CodebaseIndexingService: serviceFactory,
+    }));
+
+    await import('./codebase-indexing-lane-main');
+    parentPort.emit('message', {
+      data: {
+        type: 'run-job',
+        jobId: 'job-too-large',
+        jobType: 'sync-files',
+        payload: {
+          type: 'sync-files',
+          storeId: 'store',
+          deletions: [],
+          upserts: Array.from({ length: 257 }, (_, index) => `/repo/${index}.ts`),
+        },
+      },
+    });
+    parentPort.emit('message', {
+      data: {
+        type: 'run-job',
+        jobId: 'job-mismatch',
+        jobType: 'remove-file',
+        payload: { type: 'index-file', storeId: 'store', filePath: '/repo/file.ts' },
+      },
+    });
+    await flushMicrotasks();
+
+    expect(parentPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'job-failed',
+      jobId: 'job-too-large',
+      errorMessage: expect.stringMatching(/at most 256/i),
+    }));
+    expect(parentPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'job-failed',
+      jobId: 'job-mismatch',
+      errorMessage: expect.stringMatching(/does not match/i),
+    }));
+    expect(serviceFactory).not.toHaveBeenCalled();
+    expect(managerFactory).not.toHaveBeenCalled();
+  });
+
+  it('rejects duplicate and overlapping sync paths before owner construction or file effects', async () => {
+    const parentPort = installParentPort();
+    const databaseFactory = vi.fn(() => ({}));
+    const managerFactory = vi.fn(() => Object.assign(new EventEmitter(), {
+      reloadFromPersistence: vi.fn(),
+    }));
+    const serviceFactory = vi.fn();
+    const removeFile = vi.fn(async () => undefined);
+    const indexFile = vi.fn(async () => undefined);
+    vi.doMock('../persistence/rlm-database', () => ({
+      RLMDatabase: { getInstance: databaseFactory },
+    }));
+    vi.doMock('../rlm/context-manager', () => ({
+      RLMContextManager: { getInstance: managerFactory },
+    }));
+    vi.doMock('./indexing-service', () => ({
+      CodebaseIndexingService: class FakeCodebaseIndexingService extends EventEmitter {
+        cancel = vi.fn();
+        removeFile = removeFile;
+        indexFile = indexFile;
+
+        constructor() {
+          super();
+          serviceFactory();
+        }
+      },
+    }));
+
+    await import('./codebase-indexing-lane-main');
+    const invalidPayloads = [
+      { deletions: ['/repo/a.ts', '/repo/a.ts'], upserts: [] },
+      { deletions: [], upserts: ['/repo/a.ts', '/repo/a.ts'] },
+      { deletions: ['/repo/a.ts'], upserts: ['/repo/a.ts'] },
+    ];
+    for (const [index, payload] of invalidPayloads.entries()) {
+      parentPort.emit('message', {
+        data: {
+          type: 'run-job',
+          jobId: `job-invalid-paths-${index}`,
+          jobType: 'sync-files',
+          payload: {
+            type: 'sync-files',
+            storeId: 'store',
+            userDataPath: '/user-data',
+            ...payload,
+          },
+        },
+      });
+    }
+    await flushMicrotasks(12);
+
+    for (const index of invalidPayloads.keys()) {
+      expect(parentPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'job-failed',
+        jobId: `job-invalid-paths-${index}`,
+        errorMessage: expect.stringMatching(/duplicate|overlap|unique/i),
+      }));
+    }
+    expect(databaseFactory).not.toHaveBeenCalled();
+    expect(managerFactory).not.toHaveBeenCalled();
+    expect(serviceFactory).not.toHaveBeenCalled();
+    expect(removeFile).not.toHaveBeenCalled();
+    expect(indexFile).not.toHaveBeenCalled();
   });
 });

@@ -3,21 +3,15 @@ import type {
   BrowserApprovalRequest,
   BrowserGatewayResult,
   BrowserPermissionGrant,
-  BrowserProvider,
-  BrowserTarget,
 } from '@contracts/types/browser';
 import type { BrowserApprovalStore } from './browser-approval-store';
 import type { BrowserExistingTabAttachment, BrowserExtensionTabStore } from './browser-extension-tab-store';
 import type { BrowserGrantStore } from './browser-grant-store';
 import type { BrowserProfileStore } from './browser-profile-store';
 import type { BrowserTargetRegistry } from './browser-target-registry';
-import type { BrowserGatewayResultInput } from './browser-gateway-result';
 import type { BrowserGatewayContext } from './browser-gateway-service-types';
 import type { PuppeteerBrowserDriver } from './puppeteer-browser-driver';
-import {
-  autoApproveBrowserApproval,
-  type BrowserAutoApprovePredicate,
-} from './browser-auto-approve';
+import { autoApproveBrowserApproval, type BrowserAutoApprovePredicate } from './browser-auto-approve';
 import { classifyBrowserAction, LEGAL_DECLARATION_REASON } from './browser-action-classifier';
 import type { BrowserEscalationService } from './browser-escalation-store';
 import {
@@ -33,47 +27,20 @@ import {
 import { isOriginAllowed } from './browser-origin-policy';
 import { redactElementContext } from './browser-redaction';
 import { existingTabGrantNodeId } from './browser-grant-scope';
-
-export interface BrowserGatewayPreparedMutation {
-  grant: BrowserPermissionGrant;
-  actionClass: BrowserActionClass;
-  origin: string;
-  url: string;
-}
-
-export type BrowserGatewayMutationPreparation =
-  | {
-      result: BrowserGatewayResult<null>;
-    }
-  | ({
-      result?: undefined;
-    } & BrowserGatewayPreparedMutation);
-
-export interface BrowserGatewayActionGuardOptions {
-  profileStore: Pick<BrowserProfileStore, 'getProfile'>;
-  targetRegistry: Pick<BrowserTargetRegistry, 'listTargets'>;
-  driver: Pick<PuppeteerBrowserDriver, 'refreshTarget' | 'inspectElement'>;
-  extensionTabStore: Pick<BrowserExtensionTabStore, 'getTab'>;
-  grantStore: Pick<BrowserGrantStore, 'listGrants' | 'createGrant' | 'consumeGrant'>;
-  approvalStore: Pick<BrowserApprovalStore, 'createRequest' | 'resolveRequest'>;
-  autoApproveRequests?: BrowserAutoApprovePredicate;
-  /**
-   * When present, captcha / 2FA hard stops are parked to the batch escalation
-   * queue (and the action stops) instead of raising a blocking per-action
-   * approval an unattended run cannot answer. Omitted → the legacy approval
-   * path is used for every hard stop.
-   */
-  escalations?: Pick<BrowserEscalationService, 'raise'>;
-  result: <T>(params: BrowserGatewayResultInput<T>) => BrowserGatewayResult<T>;
-  /**
-   * Fired for every successfully executed guarded mutation with the grant it
-   * ran under. Used for campaign budget enforcement — must never throw.
-   */
-  onGrantedMutation?: (info: {
-    grant: BrowserPermissionGrant;
-    actionClass: BrowserActionClass;
-  }) => void;
-}
+import { BrowserExactApprovalRedeemer } from './browser-exact-approval-redemption';
+import { createOrReusePendingBrowserApproval } from './browser-pending-approval-match';
+import { providerFromContext } from './browser-provider';
+import { refreshRegisteredBrowserTarget } from './browser-live-target';
+import type {
+  BrowserGatewayActionGuardOptions,
+  BrowserGatewayMutationPreparation,
+  BrowserGatewayPreparedMutation,
+} from './browser-gateway-action-guard.types';
+export type {
+  BrowserGatewayActionGuardOptions,
+  BrowserGatewayMutationPreparation,
+  BrowserGatewayPreparedMutation,
+} from './browser-gateway-action-guard.types';
 
 export class BrowserGatewayActionGuard {
   private readonly profileStore: Pick<BrowserProfileStore, 'getProfile'>;
@@ -81,11 +48,15 @@ export class BrowserGatewayActionGuard {
   private readonly driver: Pick<PuppeteerBrowserDriver, 'refreshTarget' | 'inspectElement'>;
   private readonly extensionTabStore: Pick<BrowserExtensionTabStore, 'getTab'>;
   private readonly grantStore: Pick<BrowserGrantStore, 'listGrants' | 'createGrant' | 'consumeGrant'>;
-  private readonly approvalStore: Pick<BrowserApprovalStore, 'createRequest' | 'resolveRequest'>;
+  private readonly approvalStore: Pick<
+    BrowserApprovalStore,
+    'createRequest' | 'getRequest' | 'listRequests' | 'resolveRequest'
+  >;
   private readonly autoApproveRequests?: BrowserAutoApprovePredicate;
   private readonly escalations?: Pick<BrowserEscalationService, 'raise'>;
   private readonly result: BrowserGatewayActionGuardOptions['result'];
   private readonly onGrantedMutation?: BrowserGatewayActionGuardOptions['onGrantedMutation'];
+  private readonly exactApprovalRedeemer: BrowserExactApprovalRedeemer;
 
   constructor(options: BrowserGatewayActionGuardOptions) {
     this.profileStore = options.profileStore;
@@ -98,10 +69,15 @@ export class BrowserGatewayActionGuard {
     this.escalations = options.escalations;
     this.result = options.result;
     this.onGrantedMutation = options.onGrantedMutation;
+    this.exactApprovalRedeemer = new BrowserExactApprovalRedeemer(
+      this.approvalStore,
+      this.grantStore,
+      this.result,
+    );
   }
 
   async prepareMutatingAction(
-    request: BrowserGatewayContext & { profileId: string; targetId: string },
+    request: BrowserGatewayContext & { profileId: string; targetId: string; requestId?: string },
     action: string,
     toolName: string,
     selector: string,
@@ -123,7 +99,12 @@ export class BrowserGatewayActionGuard {
 
     const profile = this.profileStore.getProfile(request.profileId);
     const { target, error } = profile
-      ? await this.getLiveTarget(request.profileId, request.targetId)
+      ? await refreshRegisteredBrowserTarget(
+          this.targetRegistry,
+          this.driver,
+          request.profileId,
+          request.targetId,
+        )
       : { target: null, error: undefined };
     const currentUrl = target?.url;
     if (!profile || !target || !currentUrl) {
@@ -173,7 +154,15 @@ export class BrowserGatewayActionGuard {
       );
     } catch (inspectError) {
       const message = inspectError instanceof Error ? inspectError.message : String(inspectError);
-      const approval = this.approvalStore.createRequest({
+      const exact = this.exactApprovalRedeemer.prepare({
+        context: request, requestId: request.requestId,
+        instanceId: request.instanceId ?? 'unknown', provider: providerFromContext(request.provider),
+        profileId: profile.id, targetId: target.id, toolName, action, actionClass: 'unknown',
+        origin: originDecision.origin, liveOrigin: target.origin ?? originDecision.origin,
+        url: currentUrl, selector, hardStop: true, reason: 'element_context_unavailable',
+      });
+      if (exact) return exact;
+      const { approval, reused } = createOrReusePendingBrowserApproval(this.approvalStore, {
         instanceId: request.instanceId ?? 'unknown',
         provider: providerFromContext(request.provider),
         profileId: profile.id,
@@ -213,7 +202,7 @@ export class BrowserGatewayActionGuard {
           decision: 'requires_user',
           outcome: 'not_run',
           requestId: approval.requestId,
-          reason: 'element_context_unavailable',
+          reason: reused ? 'approval_already_pending' : 'element_context_unavailable',
           summary: `${toolName} requires user approval because element context could not be inspected: ${message}`,
           origin: originDecision.origin,
           url: currentUrl,
@@ -241,6 +230,26 @@ export class BrowserGatewayActionGuard {
       actionClass: classification.actionClass,
       autonomousRequired: actionClassRequiresAutonomy(classification.actionClass),
     });
+
+    const exact = this.exactApprovalRedeemer.prepare({
+      context: request,
+      requestId: request.requestId,
+      instanceId: request.instanceId ?? 'unknown',
+      provider: providerFromContext(request.provider),
+      profileId: profile.id,
+      targetId: target.id,
+      toolName,
+      action,
+      actionClass: classification.actionClass,
+      origin: originDecision.origin,
+      liveOrigin: target.origin ?? originDecision.origin,
+      url: currentUrl,
+      selector,
+      hardStop: classification.hardStop,
+      reason: classification.reason,
+      grant: match.grant,
+    });
+    if (exact) return exact;
 
     if (!match.grant || classification.hardStop) {
       const escalated = escalationResultForChallenge(
@@ -288,7 +297,7 @@ export class BrowserGatewayActionGuard {
           }),
         };
       }
-      const approval = this.approvalStore.createRequest({
+      const { approval, reused } = createOrReusePendingBrowserApproval(this.approvalStore, {
         instanceId: request.instanceId ?? 'unknown',
         provider: providerFromContext(request.provider),
         profileId: profile.id,
@@ -329,7 +338,7 @@ export class BrowserGatewayActionGuard {
           decision: 'requires_user',
           outcome: 'not_run',
           requestId: approval.requestId,
-          reason: classification.reason ?? match.reason,
+          reason: reused ? 'approval_already_pending' : classification.reason ?? match.reason,
           summary: `${toolName} requires user approval`,
           origin: originDecision.origin,
           url: currentUrl,
@@ -378,7 +387,9 @@ export class BrowserGatewayActionGuard {
       return null;
     }
 
-    const approval = this.approvalStore.createRequest({
+    this.exactApprovalRedeemer.release(prepared.exactApprovalRequestId);
+    prepared.exactApprovalRequestId = undefined;
+    const { approval, reused } = createOrReusePendingBrowserApproval(this.approvalStore, {
       instanceId: request.instanceId ?? 'unknown',
       provider: providerFromContext(request.provider),
       profileId: request.profileId,
@@ -416,7 +427,7 @@ export class BrowserGatewayActionGuard {
       decision: 'requires_user',
       outcome: 'not_run',
       requestId: approval.requestId,
-      reason: match.reason ?? 'grant_changed_before_execution',
+      reason: reused ? 'approval_already_pending' : match.reason ?? 'grant_changed_before_execution',
       summary: `${toolName} requires user approval because the grant changed before execution`,
       origin: prepared.origin,
       url: prepared.url,
@@ -450,20 +461,28 @@ export class BrowserGatewayActionGuard {
   }
 
   recordMutationSucceeded(prepared: BrowserGatewayPreparedMutation): void {
-    this.onGrantedMutation?.({ grant: prepared.grant, actionClass: prepared.actionClass });
-    if (prepared.grant.mode === 'per_action') {
-      this.grantStore.consumeGrant(prepared.grant.id);
+    try {
+      this.onGrantedMutation?.({ grant: prepared.grant, actionClass: prepared.actionClass });
+      if (prepared.grant.mode === 'per_action' || prepared.exactApprovalRequestId) {
+        this.grantStore.consumeGrant(prepared.grant.id);
+      }
+    } finally {
+      this.exactApprovalRedeemer.release(prepared.exactApprovalRequestId);
     }
   }
 
   mutationFailed(
-    request: BrowserGatewayContext & { profileId: string; targetId: string },
+    request: BrowserGatewayContext & { profileId: string; targetId: string; requestId?: string },
     action: string,
     toolName: string,
     prepared: BrowserGatewayPreparedMutation,
     error: unknown,
   ): BrowserGatewayResult<null> {
     const message = error instanceof Error ? error.message : String(error);
+    if (prepared.exactApprovalRequestId) {
+      this.grantStore.consumeGrant(prepared.grant.id);
+    }
+    this.exactApprovalRedeemer.release(prepared.exactApprovalRequestId);
     return this.result({
       context: request,
       profileId: request.profileId,
@@ -484,7 +503,7 @@ export class BrowserGatewayActionGuard {
   }
 
   private prepareExistingTabMutatingAction(
-    request: BrowserGatewayContext & { profileId: string; targetId: string },
+    request: BrowserGatewayContext & { profileId: string; targetId: string; requestId?: string },
     attachment: BrowserExistingTabAttachment,
     action: string,
     toolName: string,
@@ -540,6 +559,27 @@ export class BrowserGatewayActionGuard {
       autonomousRequired: actionClassRequiresAutonomy(classification.actionClass),
     });
 
+    const exact = this.exactApprovalRedeemer.prepare({
+      context: request,
+      requestId: request.requestId,
+      instanceId: request.instanceId ?? 'unknown',
+      provider: providerFromContext(request.provider),
+      profileId: attachment.profileId,
+      targetId: attachment.targetId,
+      toolName,
+      action,
+      actionClass: classification.actionClass,
+      origin: originDecision.origin,
+      liveOrigin: attachment.origin,
+      url: attachment.url,
+      selector,
+      hardStop: classification.hardStop,
+      reason: classification.reason,
+      grant: match.grant,
+      nodeId,
+    });
+    if (exact) return exact;
+
     if (!match.grant || classification.hardStop) {
       const escalated = escalationResultForChallenge(
         { escalations: this.escalations, result: this.result },
@@ -588,7 +628,7 @@ export class BrowserGatewayActionGuard {
           }),
         };
       }
-      const approval = this.approvalStore.createRequest({
+      const { approval, reused } = createOrReusePendingBrowserApproval(this.approvalStore, {
         instanceId: request.instanceId ?? 'unknown',
         provider: providerFromContext(request.provider),
         profileId: attachment.profileId,
@@ -630,7 +670,7 @@ export class BrowserGatewayActionGuard {
           decision: 'requires_user',
           outcome: 'not_run',
           requestId: approval.requestId,
-          reason: classification.reason ?? match.reason,
+          reason: reused ? 'approval_already_pending' : classification.reason ?? match.reason,
           summary: `${toolName} requires user approval for existing Chrome tab control`,
           origin: originDecision.origin,
           url: attachment.url,
@@ -647,14 +687,6 @@ export class BrowserGatewayActionGuard {
     };
   }
 
-  private getTarget(profileId: string, targetId: string): BrowserTarget | null {
-    return (
-      this.targetRegistry
-        .listTargets(profileId)
-        .find((target) => target.id === targetId) ?? null
-    );
-  }
-
   private autoApproveApproval(approval: BrowserApprovalRequest): BrowserPermissionGrant | null {
     return autoApproveBrowserApproval({
       approval,
@@ -664,37 +696,4 @@ export class BrowserGatewayActionGuard {
     });
   }
 
-  private async getLiveTarget(
-    profileId: string,
-    targetId: string,
-  ): Promise<{ target: BrowserTarget | null; error?: string }> {
-    const target = this.getTarget(profileId, targetId);
-    if (!target) {
-      return { target: null };
-    }
-
-    try {
-      return {
-        target: await this.driver.refreshTarget(profileId, targetId),
-      };
-    } catch (error) {
-      return {
-        target: null,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
-}
-
-export function providerFromContext(provider: string | undefined): BrowserProvider {
-  return provider === 'claude' ||
-    provider === 'codex' ||
-    provider === 'gemini' ||
-    provider === 'antigravity' ||
-    provider === 'copilot' ||
-    provider === 'cursor' ||
-    provider === 'grok' ||
-    provider === 'orchestrator'
-    ? provider
-    : 'orchestrator';
 }

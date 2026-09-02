@@ -13,11 +13,11 @@ export function buildAnthropicKnownModels(): DiscoveredModel[] {
   const now = Date.now();
   return [
     {
-      id: CLAUDE_PINNED_MODELS.FABLE_5,
-      name: 'Claude Fable 5',
-      displayName: 'Claude Fable 5',
+      id: CLAUDE_PINNED_MODELS.FABLE_51,
+      name: 'Claude Fable 5.1',
+      displayName: 'Claude Fable 5.1',
       provider: 'anthropic',
-      description: 'Most capable widely released model for demanding reasoning and long-horizon agentic work',
+      description: 'Most capable generally available model for demanding reasoning and long-horizon agentic work',
       contextLength: 1000000,
       maxOutputTokens: 128000,
       capabilities: {

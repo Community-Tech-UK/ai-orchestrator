@@ -26,6 +26,8 @@ export interface InstanceSpawnPreflightInput {
   instance: Pick<Instance, 'workingDirectory' | 'bareMode'>;
   provider: CliType;
   spawnOptions: UnifiedSpawnOptions;
+  /** Already resolved by the lifecycle when model selection needs it. */
+  executionLocation?: ExecutionLocation;
 }
 
 export type InstanceSpawnPreflightResult =
@@ -85,7 +87,7 @@ export class InstanceSpawnPreflightChain {
       }
     }
 
-    const executionLocation = resolveExecutionLocation(config);
+    const executionLocation = input.executionLocation ?? resolveExecutionLocation(config);
     await this.deps.assertLocalModelRuntimeAvailable(config.modelRuntimeTarget);
 
     // Copilot account resolution happens here, before adapter construction:

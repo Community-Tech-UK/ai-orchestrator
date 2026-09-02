@@ -13,10 +13,8 @@ import type { HyDEService } from '../hyde-service';
 import type {
   QueryResult,
   GrepParams,
-  SemanticSearchParams,
-  VectorSearchResult
+  SemanticSearchParams
 } from './context.types';
-import { cosineSimilarity } from './context.utils';
 import { bloomMightContain, rebuildBloomFilterForStore } from './context-cache';
 import { getLogger } from '../../logging/logger';
 import { getRecallTraceStore } from '../../memory/retrieval-eval/recall-trace-store';
@@ -221,11 +219,10 @@ export async function executeSemanticSearch(
       // Search using HyDE embedding or standard search
       let searchResults;
       if (searchEmbedding) {
-        searchResults = await vectorStoreSearchWithEmbedding(
+        searchResults = await deps.vectorStore.searchByEmbedding(
           store.id,
           searchEmbedding,
-          { topK, minSimilarity },
-          deps.vectorStore
+          { topK, minSimilarity }
         );
       } else {
         searchResults = await deps.vectorStore.search(store.id, query, {
@@ -301,68 +298,6 @@ export async function executeSemanticSearch(
   const pattern = keywords.join('|');
 
   return executeGrep(store, { pattern, maxResults: topK }, deps.searchWindowSize);
-}
-
-/**
- * Search vector store using a precomputed embedding (used with HyDE).
- */
-async function vectorStoreSearchWithEmbedding(
-  storeId: string,
-  embedding: number[],
-  options: { topK: number; minSimilarity: number },
-  vectorStore: VectorStore
-): Promise<VectorSearchResult[]> {
-  // Access the vector store's internal cache to find matches
-  const vs = vectorStore as unknown as {
-    storeVectorIds: Map<string, Set<string>>;
-    vectorCache: Map<
-      string,
-      {
-        id: string;
-        sectionId: string;
-        embedding: number[];
-        contentPreview: string;
-      }
-    >;
-  };
-
-  const storeVectors = vs.storeVectorIds.get(storeId);
-  if (!storeVectors || storeVectors.size === 0) {
-    return [];
-  }
-
-  // Collect candidates
-  const candidates: {
-    id: string;
-    sectionId: string;
-    embedding: number[];
-    contentPreview: string;
-  }[] = [];
-  for (const vectorId of storeVectors) {
-    const entry = vs.vectorCache.get(vectorId);
-    if (entry) {
-      candidates.push(entry);
-    }
-  }
-
-  // Calculate similarities
-  const results: VectorSearchResult[] = [];
-  for (const candidate of candidates) {
-    const similarity = cosineSimilarity(embedding, candidate.embedding);
-    if (similarity >= options.minSimilarity) {
-      results.push({
-        entry: {
-          sectionId: candidate.sectionId,
-          contentPreview: candidate.contentPreview
-        },
-        similarity
-      });
-    }
-  }
-
-  // Sort by similarity and take top K
-  results.sort((a, b) => b.similarity - a.similarity);
-  return results.slice(0, options.topK);
 }
 
 /**

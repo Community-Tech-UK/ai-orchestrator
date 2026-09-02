@@ -6,11 +6,12 @@
  * per provider (previously Claude used a 70/30 input/output guess and
  * Codex/Gemini used a flat $30/M blended rate).
  *
- * Rates in `MODEL_PRICING` are USD per 1M tokens. Cache reads bill at ~10% of
- * the input rate. Cache writes bill at the input rate (Anthropic-style prompt
- * caching) except on GPT-5.6 and later, where OpenAI charges 1.25x — see
- * {@link getCacheWriteMultiplier}. Reasoning/thinking tokens bill at the output
- * rate, so callers should fold them into `outputTokens`.
+ * Rates in `MODEL_PRICING` are USD per 1M tokens. Cache reads normally bill at
+ * 10% of the input rate; Fable 5.1 reads bill at 2.5%. Cache writes bill at the
+ * input rate (Anthropic-style prompt caching) except on GPT-5.6 and later,
+ * where OpenAI charges 1.25x — see {@link getCacheWriteMultiplier}.
+ * Reasoning/thinking tokens bill at the output rate, so callers should fold
+ * them into `outputTokens`.
  *
  * Prefer a provider-reported dollar cost (e.g. Claude's `total_cost_usd`) when
  * one is available — it already accounts for the provider's exact cache
@@ -180,6 +181,15 @@ export function getModelRate(model: string | undefined | null): ModelRate {
  * Anthropic-style caching, writes at 1.0x.
  */
 const OPENAI_CACHE_WRITE_MULTIPLIER = 1.25;
+const DEFAULT_CACHE_READ_MULTIPLIER = 0.1;
+const FABLE_51_CACHE_READ_MULTIPLIER = 0.025;
+
+/** Cache-read multiplier applied on top of the input rate for `model`. */
+export function getCacheReadMultiplier(model: string | undefined | null): number {
+  return model?.trim().toLowerCase() === 'claude-fable-5-1'
+    ? FABLE_51_CACHE_READ_MULTIPLIER
+    : DEFAULT_CACHE_READ_MULTIPLIER;
+}
 
 /**
  * Cache-write multiplier applied on top of the input rate for `model`.
@@ -223,7 +233,7 @@ function computeCost(
     input * rate.input +
     output * rate.output +
     reasoning * rate.output +
-    cacheRead * rate.input * 0.1 +
+    cacheRead * rate.input * getCacheReadMultiplier(model) +
     cacheWrite * rate.input * getCacheWriteMultiplier(model);
 
   return cost / 1_000_000;

@@ -250,7 +250,11 @@ export class AutomationRunner {
       }
       const contained = claimed.snapshot.action.executionProfile === 'contained';
       const instance = await manager.createInstance({
-        displayName: `Automation: ${claimed.snapshot.name}`,
+        // The automation name is operator-facing and already specific. Keep it
+        // authoritative so a shared prompt preamble cannot make concurrent
+        // automation sessions look identical in the narrow project rail.
+        displayName: claimed.snapshot.name,
+        isRenamed: true,
         workingDirectory: claimed.snapshot.action.workingDirectory,
         initialPrompt: claimed.snapshot.action.prompt,
         attachments: claimed.snapshot.action.attachments,
@@ -261,9 +265,9 @@ export class AutomationRunner {
         forceNodeId: claimed.snapshot.action.forceNodeId,
         reasoningEffort: claimed.snapshot.action.reasoningEffort,
         ...(contained ? { containedExecution: true } : {}),
-        // Durable provenance so the rail can mark this session as automation-born
-        // (with a clock indicator) even after AI auto-titling rewrites the
-        // "Automation: …" displayName. Survives archive into the history entry.
+        // Durable provenance so the rail can mark this session as
+        // automation-born with a clock indicator. Survives archive into the
+        // history entry independently of its display title.
         metadata: {
           automationId: claimed.run.automationId,
           automationRunId: claimed.run.id,
@@ -830,7 +834,8 @@ export class AutomationRunner {
       }
       const contained = snapshot.action.executionProfile === 'contained';
       const instance = await manager.createInstance({
-        displayName: `Automation: ${snapshot.name} (retry ${retryRun.attempt})`,
+        displayName: `${snapshot.name} (retry ${retryRun.attempt})`,
+        isRenamed: true,
         workingDirectory: snapshot.action.workingDirectory,
         initialPrompt: snapshot.action.prompt,
         attachments: snapshot.action.attachments,

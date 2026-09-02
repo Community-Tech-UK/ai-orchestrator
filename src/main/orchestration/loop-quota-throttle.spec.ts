@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { evaluateQuotaThrottle, isParkingDecision } from './loop-quota-throttle';
+import { parseCursorUsageSummaryPayload } from '../core/system/provider-quota/cursor-usage-summary-probe';
+import { parseGrokBillingPayload } from '../core/system/provider-quota/grok-billing-probe';
 import type {
   ProviderQuotaSnapshot,
   ProviderQuotaWindow,
@@ -113,6 +115,109 @@ describe('evaluateQuotaThrottle', () => {
       // credits at 50% should not count as the binding throttle window
       const d = evaluateQuotaThrottle(snap([w({ used: 10 }), w({ id: 'claude.credits', unit: 'usd', used: 50, limit: 100, remaining: 50 })]), { allowOverage: true });
       expect(d.action).toBe('continue');
+    });
+
+    it('honours an explicit overage:false on a usd-denominated window', () => {
+      const planInUsd = w({ id: 'plan', unit: 'usd', used: 30, limit: 100, remaining: 70, overage: false });
+      const d = evaluateQuotaThrottle(snap([planInUsd]));
+      expect(d.action).toBe('continue');
+    });
+
+    it('honours an explicit overage:true on a percent-denominated window', () => {
+      const paidPercent = w({ id: 'cursor.on-demand', unit: 'percent', used: 12, limit: 100, remaining: 88, overage: true });
+      const d = evaluateQuotaThrottle(snap([paidPercent]));
+      expect(d.action).toBe('overage-guard');
+      expect(d.window!.id).toBe('cursor.on-demand');
+    });
+  });
+
+  // Regression: Cursor/Grok publish only utilization ratios. While those plan
+  // windows were emitted as `usd`, every window looked like paid overage, so
+  // `binding` was always null and the guard fired at any usage above 0% —
+  // parking those loops before their first iteration, for the whole billing
+  // cycle, at $0.00 spent.
+  describe('percent-only providers (Cursor / Grok shape)', () => {
+    const included = (used: number) =>
+      w({ id: 'cursor.included', label: 'Included usage', unit: 'percent', used, limit: 100, remaining: 100 - used, overage: false });
+    const onDemand = (used: number) =>
+      w({ id: 'cursor.on-demand', label: 'On-demand spend', unit: 'percent', used, limit: 100, remaining: 100 - used, overage: true });
+
+    it('runs normally at moderate included usage', () => {
+      const d = evaluateQuotaThrottle(snap([included(42), onDemand(0)]));
+      expect(d.action).toBe('continue');
+      expect(isParkingDecision(d)).toBe(false);
+    });
+
+    it('still throttles the included window at >= 90%', () => {
+      const resetsAt = Date.now() + 3_600_000;
+      const d = evaluateQuotaThrottle(snap([w({ ...included(94), resetsAt }), onDemand(0)]));
+      expect(d.action).toBe('throttle');
+      expect(d.window!.id).toBe('cursor.included');
+      expect(d.resumeAt).toBe(resetsAt);
+    });
+
+    it('still parks when the included window is exhausted', () => {
+      const d = evaluateQuotaThrottle(snap([included(100), onDemand(0)]));
+      expect(d.action).toBe('park-exhausted');
+      expect(d.window!.id).toBe('cursor.included');
+    });
+
+    it('guards real on-demand spend once the plan window is gone', () => {
+      const d = evaluateQuotaThrottle(snap([onDemand(8)]));
+      expect(d.action).toBe('overage-guard');
+      expect(d.window!.id).toBe('cursor.on-demand');
+    });
+  });
+
+  /**
+   * End-to-end over the seam that actually broke: real probe output fed to the
+   * real throttle. The unit tests either side of this seam both passed while
+   * every Cursor and Grok loop parked before its first iteration, because
+   * neither of them asserted the window unit.
+   */
+  describe('live probe output', () => {
+    it('lets a Cursor loop run at ordinary usage', () => {
+      const windows = parseCursorUsageSummaryPayload({
+        membershipType: 'pro',
+        billingCycleEnd: '2026-07-01T00:00:00Z',
+        individualUsage: {
+          plan: { enabled: true, used: 4200, limit: 10000, totalPercentUsed: 42 },
+          onDemand: { enabled: true, used: 0, limit: 10000 },
+        },
+      });
+
+      const d = evaluateQuotaThrottle(snap(windows));
+      expect(d.action).toBe('continue');
+      expect(isParkingDecision(d)).toBe(false);
+    });
+
+    it('lets a Grok loop run at ordinary usage', () => {
+      const windows = parseGrokBillingPayload({
+        config: {
+          monthlyLimit: { val: 100 },
+          used: { val: 25 },
+          onDemandCap: { val: 100 },
+          history: [{ onDemandUsed: { val: 0 } }],
+          billingPeriodEnd: '2026-08-01T00:00:00Z',
+        },
+      });
+
+      const d = evaluateQuotaThrottle(snap(windows));
+      expect(d.action).toBe('continue');
+      expect(isParkingDecision(d)).toBe(false);
+    });
+
+    it('still parks a Cursor loop once the included plan window is spent', () => {
+      const windows = parseCursorUsageSummaryPayload({
+        billingCycleEnd: '2026-07-01T00:00:00Z',
+        individualUsage: {
+          plan: { enabled: true, used: 10000, limit: 10000, totalPercentUsed: 100 },
+        },
+      });
+
+      const d = evaluateQuotaThrottle(snap(windows));
+      expect(d.action).toBe('park-exhausted');
+      expect(d.resumeAt).toBe(Date.parse('2026-07-01T00:00:00Z'));
     });
   });
 });

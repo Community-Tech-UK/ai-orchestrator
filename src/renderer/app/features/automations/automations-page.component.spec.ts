@@ -242,7 +242,7 @@ describe('AutomationsPageComponent row actions', () => {
         prompt: 'Check the repo',
         workingDirectory: '/repo',
         provider: 'claude',
-        model: 'claude-fable-5',
+        model: 'claude-fable-5-1',
       },
     });
     automations.set([automation]);

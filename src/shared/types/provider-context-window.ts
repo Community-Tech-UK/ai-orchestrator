@@ -1,7 +1,7 @@
 /**
  * Return the expected context window for a provider + model combination.
  *
- * Claude Code CLI defaults to 200k for most models. Fable 5, Opus 4.6+ (incl.
+ * Claude Code CLI defaults to 200k for most models. Fable 5.1, Opus 4.6+ (incl.
  * Opus 5), and Sonnet 4.6+ (incl. Sonnet 5) natively expose 1M. For older
  * models the `[1m]` suffix requests the `context-1m-2025-08-07` beta header,
  * which also yields 1M.
@@ -52,7 +52,7 @@ export function getProviderModelContextWindow(
   // Bare "opus" / "sonnet" resolve server-side to the latest (4.6+),
   // which has native 1M support.
   //
-  // Fable 5, Opus 5, Opus 4.8/4.7/4.6, Sonnet 5, and Sonnet 4.6 support 1M
+  // Fable 5.1, Opus 5, Opus 4.8/4.7/4.6, Sonnet 5, and Sonnet 4.6 support 1M
   // context at standard pricing.
   //
   // 'opus-5' / 'sonnet-5' are safe substrings: the older dated ids spell the

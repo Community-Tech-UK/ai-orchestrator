@@ -3,8 +3,8 @@ import type {
   RLMSession,
 } from '../../shared/types/rlm.types';
 import type { RLMDatabase } from '../persistence/rlm-database';
+import type { RlmResidencySnapshot } from './context/context.types';
 
-const METADATA_ONLY_SECTION_LIMIT = 5_000;
 const METADATA_ONLY_TOKEN_LIMIT = 2_000_000;
 const METADATA_ONLY_SIZE_LIMIT = 25 * 1024 * 1024;
 
@@ -15,6 +15,15 @@ export interface RlmResidencyPolicy {
   maxResidentContentSections: number;
   maxResidentContentStores: number;
   maxSectionsPerStore: number;
+}
+
+export type RlmProcessRole = 'context-worker' | 'indexing-lane';
+
+export function getRlmProcessRole(): RlmProcessRole {
+  return process.env['AIO_RLM_PROCESS_ROLE'] === 'indexing-lane'
+    || process.argv.some((argument) => argument.includes('codebase-indexing-lane-main'))
+    ? 'indexing-lane'
+    : 'context-worker';
 }
 
 export const DEFAULT_RLM_RESIDENCY_POLICY: RlmResidencyPolicy = {
@@ -38,7 +47,13 @@ export interface RlmPersistedLoadStats {
   hotCandidates: number;
   hotAdmitted: number;
   hotSkipped: number;
+  hotExhausted: number;
   hotCancelled: number;
+  semanticDiscovered: number;
+  semanticIndexed: number;
+  semanticSkipped: number;
+  semanticFailed: number;
+  semanticRetried: number;
   metadataOnlyStores: number;
   deferredStores: number;
   exhausted: {
@@ -48,6 +63,28 @@ export interface RlmPersistedLoadStats {
     contentStores: boolean;
   };
   elapsedMs: number;
+}
+
+export function buildRlmLoadSummary(
+  stats: Readonly<RlmPersistedLoadStats>,
+): RlmResidencySnapshot {
+  return {
+    processRole: getRlmProcessRole(),
+    ...stats,
+    counts: {
+      durableStores: stats.discoveredStores,
+      durableSections: stats.residentMetadataSections + stats.deferredMetadataSections,
+      activeSessions: stats.activeSessions,
+      residentMetadataSections: stats.residentMetadataSections,
+      deferredMetadataSections: stats.deferredMetadataSections,
+      residentContentSections: stats.residentContentSections,
+      residentContentStores: stats.residentContentStores,
+      metadataOnlyStores: stats.metadataOnlyStores,
+      deferredStores: stats.deferredStores,
+    },
+    exhausted: { ...stats.exhausted },
+    elapsedMs: Math.max(0, stats.elapsedMs),
+  };
 }
 
 export interface RlmStoreHydrationState {
@@ -66,23 +103,20 @@ export interface PersistedContextState {
   hydrationStates: ReadonlyMap<string, Readonly<RlmStoreHydrationState>>;
 }
 
-export function loadPersistedContextState(db: RLMDatabase): PersistedContextState {
+export function loadPersistedContextState(
+  db: RLMDatabase,
+  policy: RlmResidencyPolicy = DEFAULT_RLM_RESIDENCY_POLICY,
+): PersistedContextState {
   const now = Date.now();
   const startedAt = now;
   const stores = new Map<string, ContextStore>();
   const sessions = new Map<string, RLMSession>();
   const hydrationStates = new Map<string, Readonly<RlmStoreHydrationState>>();
-  const activeSessionStoreActivity = new Map<string, number>();
-
   for (const row of db.listSessions()) {
     if (row.ended_at === null) {
       const session = parsePersistedSession(row);
       if (session) {
         sessions.set(session.id, session);
-        const previousActivity = activeSessionStoreActivity.get(session.storeId);
-        if (previousActivity === undefined || session.lastActivityAt > previousActivity) {
-          activeSessionStoreActivity.set(session.storeId, session.lastActivityAt);
-        }
       }
     }
   }
@@ -95,7 +129,7 @@ export function loadPersistedContextState(db: RLMDatabase): PersistedContextStat
   for (const row of storeRows) {
     const config = parseStoreConfig(row.config_json);
     const sectionCount = sectionCountsByStore.get(row.id) ?? 0;
-    const contentEligible = !shouldLoadMetadataOnly(row, config, sectionCount);
+    const contentEligible = !shouldLoadMetadataOnly(row, config, sectionCount, policy);
 
     const store: ContextStore = {
       id: row.id,
@@ -119,11 +153,6 @@ export function loadPersistedContextState(db: RLMDatabase): PersistedContextStat
     }));
   }
 
-  const hotCandidates = selectHotStoreCandidates(
-    storeRows,
-    activeSessionStoreActivity,
-    now,
-  );
   const loadStats = Object.freeze({
     discoveredStores: storeRows.length,
     activeSessions: sessions.size,
@@ -133,10 +162,16 @@ export function loadPersistedContextState(db: RLMDatabase): PersistedContextStat
     residentContentBytes: 0,
     residentContentSections: 0,
     residentContentStores: 0,
-    hotCandidates: hotCandidates.length,
+    hotCandidates: 0,
     hotAdmitted: 0,
     hotSkipped: 0,
+    hotExhausted: 0,
     hotCancelled: 0,
+    semanticDiscovered: 0,
+    semanticIndexed: 0,
+    semanticSkipped: 0,
+    semanticFailed: 0,
+    semanticRetried: 0,
     metadataOnlyStores: storeRows.length,
     deferredStores: storeRows.length,
     exhausted: Object.freeze({
@@ -201,12 +236,13 @@ function shouldLoadMetadataOnly(
   row: { total_tokens: number; total_size: number },
   config: Record<string, unknown> | undefined,
   sectionCount: number,
+  policy: Readonly<RlmResidencyPolicy>,
 ): boolean {
   if (config?.['kind'] === 'codebase-auto') {
     return true;
   }
   return (
-    sectionCount > METADATA_ONLY_SECTION_LIMIT
+    sectionCount > policy.maxSectionsPerStore
     || row.total_tokens > METADATA_ONLY_TOKEN_LIMIT
     || row.total_size > METADATA_ONLY_SIZE_LIMIT
   );

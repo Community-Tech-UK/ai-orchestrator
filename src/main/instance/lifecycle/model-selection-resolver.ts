@@ -19,6 +19,8 @@ export interface ModelSelectionResolverDeps {
 
 export interface ModelSelectionInput {
   provider: CliType;
+  /** Remote workers own their provider defaults and live model catalogues. */
+  executionTarget?: 'local' | 'remote';
   configModelOverride?: string | null;
   agentModelOverride?: string | null;
   defaultModelByProvider?: Record<string, string>;
@@ -69,12 +71,16 @@ export class ModelSelectionResolver {
 
     // Decision and provenance come from ONE call — see the note on
     // `resolveInitialModelWithSource` for why they must not be computed apart.
+    const remote = input.executionTarget === 'remote';
     const resolution = resolveInitialModelWithSource({
       configModelOverride: input.configModelOverride,
       agentModelOverride: input.agentModelOverride,
       provider: input.provider,
-      defaultModelByProvider: input.defaultModelByProvider,
-      defaultModel: input.defaultModel,
+      // Remembered/global defaults describe the coordinator's provider
+      // installation, not the worker's. With no explicit selection the remote
+      // provider must choose its own default.
+      defaultModelByProvider: remote ? undefined : input.defaultModelByProvider,
+      defaultModel: remote ? undefined : input.defaultModel,
     });
     let model = resolution.model;
     const modelSource: InitialModelSource = resolution.source;
@@ -92,6 +98,13 @@ export class ModelSelectionResolver {
 
     if (!model) {
       return { model: undefined, ...(tierResolution ? { tierResolution } : {}) };
+    }
+
+    // A remote worker owns the live model catalogue. Preserve explicit or
+    // agent-pinned selections for worker-side validation instead of degrading
+    // them against the coordinator's potentially different/stale catalogue.
+    if (remote) {
+      return tierResolution ? { model, tierResolution } : { model };
     }
 
     const knownModelIds = await this.getKnownModels(input.provider);

@@ -1095,6 +1095,11 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     );
   }
 
+  // The overage guard has no natural expiry, so it needs an off switch. Read
+  // lazily so a toggle applies to a running loop's next iteration.
+  const setAllowOverage = (coordinator as { setAllowOverage?: (v: boolean | (() => boolean)) => void }).setAllowOverage;
+  setAllowOverage?.call(coordinator, () => getSettingsManager().getAll().loopAllowProviderOverage === true);
+
   const setProviderLimitLedger = (coordinator as {
     setProviderLimitLedger?: (ledger: ReturnType<typeof getProviderLimitLedgerPort>) => void;
   }).setProviderLimitLedger;

@@ -1,9 +1,9 @@
 /**
  * InstanceContextPort — narrow interface for RLM and unified memory operations.
  *
- * Decouples InstanceManager and InstanceCommunicationManager from the concrete
- * InstanceContextManager so that a worker-backed implementation can be swapped
- * in during Task 9 without changing any call sites.
+ * InstanceManager defaults to the shared worker-backed ContextWorkerClient.
+ * This port decouples its callers from the worker-side InstanceContextManager
+ * implementation and preserves explicit injection for tests or alternate ports.
  */
 
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
@@ -29,9 +29,9 @@ export interface InstanceContextSnapshot {
 }
 
 /**
- * Narrow interface for all RLM / unified-memory operations.
- * The concrete InstanceContextManager implements this; a future worker-backed
- * ContextWorkerClient will implement it too.
+ * Narrow interface for all RLM / unified-memory operations. ContextWorkerClient
+ * is the Electron-main default; InstanceContextManager implements the same
+ * contract inside the context worker and is not a main-process fallback.
  */
 export interface InstanceContextPort {
   // ── Instance lifecycle ──────────────────────────────────────────────────────
@@ -42,6 +42,7 @@ export interface InstanceContextPort {
   // ── Hot-path ingestion (fire-and-forget) ─────────────────────────────────────
   ingestToRLM(instanceId: string, message: OutputMessage): void;
   ingestToUnifiedMemory(instance: Instance, message: OutputMessage): void;
+  recordTaskOutcome(taskId: string, success: boolean, score: number): void;
 
   // ── Context retrieval (RPC with timeout) ─────────────────────────────────────
   calculateContextBudget(instance: Instance, message: string): ContextBudget;

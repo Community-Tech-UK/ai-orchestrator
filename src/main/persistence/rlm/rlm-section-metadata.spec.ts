@@ -3,6 +3,7 @@ import { defaultDriverFactory } from '../../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../../db/sqlite-driver';
 import {
   getSectionCountsByStore,
+  getSectionFilterMetadata,
   getSectionMetadata,
   getSectionStatsByType,
 } from './rlm-sections';
@@ -59,6 +60,24 @@ describe('RLM section metadata projection', () => {
     const sections = getSectionMetadata(database, 'store-1', { limit: 1, offset: 1 });
 
     expect(sections.map((section) => section.id)).toEqual(['second']);
+  });
+
+  it('pages only filter metadata across a boundary without selecting content', () => {
+    const database = createDatabase(databases);
+    insertSection(database, {
+      id: 'allowed', storeId: 'store-1', startOffset: 10,
+      contentInline: 'private allowed payload', filePath: '/repo/main.ts',
+    });
+    insertSection(database, {
+      id: 'excluded', storeId: 'store-1', startOffset: 20,
+      contentInline: 'private excluded payload', filePath: '/repo/library.jar',
+    });
+
+    const sections = getSectionFilterMetadata(database, 'store-1', { limit: 1, offset: 1 });
+
+    expect(sections).toEqual([{ type: 'file', file_path: '/repo/library.jar' }]);
+    expect(JSON.stringify(sections)).not.toContain('payload');
+    expect(sections[0]).not.toHaveProperty('content_inline');
   });
 
   it('applies offset without a limit while retaining offset order', () => {
@@ -207,6 +226,7 @@ function insertSection(
     endOffset?: number;
     contentFile?: string | null;
     contentInline: string | null;
+    filePath?: string;
     type?: string;
     tokens?: number;
   },
@@ -216,7 +236,7 @@ function insertSection(
       id, store_id, type, name, source, start_offset, end_offset, tokens,
       checksum, depth, summarizes_json, parent_summary_id, file_path, language,
       source_url, created_at, content_file, content_inline
-    ) VALUES (?, ?, ?, 'source.ts', NULL, ?, ?, ?, NULL, 0, NULL, NULL, NULL, NULL, NULL, 1, ?, ?)
+    ) VALUES (?, ?, ?, 'source.ts', NULL, ?, ?, ?, NULL, 0, NULL, NULL, ?, NULL, NULL, 1, ?, ?)
   `).run(
     section.id,
     section.storeId,
@@ -224,6 +244,7 @@ function insertSection(
     section.startOffset,
     section.endOffset ?? section.startOffset + 10,
     section.tokens ?? 1,
+    section.filePath ?? null,
     section.contentFile ?? null,
     section.contentInline,
   );

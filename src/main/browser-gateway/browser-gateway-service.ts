@@ -130,9 +130,9 @@ import {
 } from './browser-extension-node-contact';
 import {
   BrowserGatewayActionGuard,
-  providerFromContext,
   type BrowserGatewayPreparedMutation,
 } from './browser-gateway-action-guard';
+import { providerFromContext } from './browser-provider';
 import { autoApproveBrowserApproval } from './browser-auto-approve';
 import { HEAVY_DOM_COMMAND_TIMEOUT_MS } from './browser-mutation-safety';
 import {
@@ -1416,6 +1416,7 @@ export class BrowserGatewayService {
           request.awaitPromise !== false,
         );
       const data = normalizeEvaluateResult(raw);
+      this.actionGuard.recordMutationSucceeded(prepared);
       return this.result({
         context: request,
         profileId: request.profileId,
@@ -1525,24 +1526,7 @@ export class BrowserGatewayService {
       await this.verifyMutationReadback(request, request.verify, request.selector, existingTab ?? undefined);
       return this.actionGuard.mutationSucceeded(request, 'click', 'browser.click', prepared);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return this.result({
-        context: request,
-        profileId: request.profileId,
-        targetId: request.targetId,
-        action: 'click',
-        toolName: 'browser.click',
-        actionClass: prepared.actionClass,
-        decision: 'allowed',
-        outcome: 'failed',
-        reason: message,
-        summary: `Browser click failed: ${message}`,
-        origin: prepared.origin,
-        url: prepared.url,
-        grantId: prepared.grant.id,
-        autonomous: prepared.grant.autonomous,
-        data: null,
-      });
+      return this.actionGuard.mutationFailed(request, 'click', 'browser.click', prepared, error);
     }
   }
 
@@ -2170,75 +2154,47 @@ export class BrowserGatewayService {
       return gate.result;
     }
 
-    const inspectedFields = [];
-    for (const field of request.fields) {
-      try {
-        inspectedFields.push({
-          selector: field.selector!,
-          actionHint: field.actionHint,
-          elementContext: redactElementContext(
-            await this.driver.inspectElement(
-              request.profileId,
-              request.targetId,
-              field.selector!,
+    let prepared: BrowserGatewayPreparedMutation | undefined = gate.exactApprovalRequestId
+      ? gate
+      : undefined;
+    if (!prepared) {
+      const inspectedFields = [];
+      for (const field of request.fields) {
+        try {
+          inspectedFields.push({
+            selector: field.selector!,
+            actionHint: field.actionHint,
+            elementContext: redactElementContext(
+              await this.driver.inspectElement(request.profileId, request.targetId, field.selector!),
             ),
-          ),
-        });
-      } catch {
-        const prepared = await this.actionGuard.prepareMutatingAction(
+          });
+        } catch {
+          const unknown = await this.actionGuard.prepareMutatingAction(
+            request,
+            'fill_form',
+            'browser.fill_form',
+            field.selector!,
+            field.actionHint,
+            { actionClass: 'unknown', hardStop: true, reason: 'element_context_unavailable' },
+          );
+          if (unknown.result) return unknown.result;
+          prepared = unknown;
+          break;
+        }
+      }
+      if (!prepared) {
+        const classification = classifyBrowserFillForm(inspectedFields);
+        const classified = await this.actionGuard.prepareMutatingAction(
           request,
           'fill_form',
           'browser.fill_form',
-          field.selector!,
-          field.actionHint,
-          {
-            actionClass: 'unknown',
-            hardStop: true,
-            reason: 'element_context_unavailable',
-          },
+          browserFillFieldTargetLabel(firstField),
+          firstField.actionHint,
+          classification,
         );
-        if (prepared.result) {
-          return prepared.result;
-        }
-        throw new Error('Browser fill_form element inspection failed without producing an approval request');
+        if (classified.result) return classified.result;
+        prepared = classified;
       }
-    }
-    const classification = classifyBrowserFillForm(inspectedFields);
-    if (classification.actionClass === 'credential' || classification.actionClass === 'unknown') {
-      const prepared = await this.actionGuard.prepareMutatingAction(
-        request,
-        'fill_form',
-        'browser.fill_form',
-        browserFillFieldTargetLabel(firstField),
-        firstField.actionHint,
-        classification,
-      );
-      return prepared.result ?? this.result({
-        context: request,
-        profileId: request.profileId,
-        targetId: request.targetId,
-        action: 'fill_form',
-        toolName: 'browser.fill_form',
-        actionClass: classification.actionClass,
-        decision: 'requires_user',
-        outcome: 'not_run',
-        requestId: `browser-${Date.now()}`,
-        reason: classification.reason,
-        summary: 'browser.fill_form requires user approval',
-        data: null,
-      });
-    }
-
-    const prepared = await this.actionGuard.prepareMutatingAction(
-      request,
-      'fill_form',
-      'browser.fill_form',
-      browserFillFieldTargetLabel(request.fields[0]!),
-      request.fields[0]!.actionHint,
-      classification,
-    );
-    if (prepared.result) {
-      return prepared.result;
     }
     const recheck = this.actionGuard.recheckPreparedGrant(
       request,

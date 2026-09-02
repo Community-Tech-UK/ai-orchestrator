@@ -109,7 +109,7 @@ export interface ListRemoteNodesResult {
 export type ListRemoteNodesFn = () => Promise<ListRemoteNodesResult>;
 
 export const REMOTE_NODE_DISCOVERY_HINT =
-  'Harness can use connected remote worker nodes, including Windows PCs, laptops, desktops, named machines, remote machines, other machines, and another computer, through list_remote_nodes, run_on_node, read_node_output, and terminate_node_instance. If the user names a machine or asks for work on another computer, for example "Noah\'s laptop", check list_remote_nodes before local filesystem or shell work. For browser or Android/mobile testing, inspect node capabilities and pass requiresBrowser or requiresAndroid to run_on_node so the worker receives the right testing tools. Terminate finished run_on_node instances when you are done with them — idle agents hold a capacity slot on the node until terminated.';
+  'Harness can use connected remote worker nodes, including Windows PCs, laptops, desktops, named machines, remote machines, other machines, and another computer, through list_remote_nodes, run_on_node, read_node_output, and terminate_node_instance. If the user names a machine or asks for work on another computer, for example "Noah\'s laptop", check list_remote_nodes before local filesystem or shell work. For browser or Android/mobile testing, inspect node capabilities and pass requiresBrowser or requiresAndroid to run_on_node so the worker receives the right testing tools. requiresBrowser means a dedicated worker-managed Chrome profile through chrome-devtools; it cannot access Browser Gateway, extension-shared tabs, or an existing logged-in Chrome tab. Keep Browser Gateway work on the coordinator and target the named computer from browser tools. Terminate finished run_on_node instances when you are done with them — idle agents hold a capacity slot on the node until terminated.';
 
 export const RunOnNodeArgsSchema = z.object({
   /**
@@ -568,7 +568,7 @@ export function createOrchestratorToolDefinitions(
     {
       name: 'run_on_node',
       description:
-        `${REMOTE_NODE_DISCOVERY_HINT} Run a task on a connected remote worker node, such as a Windows PC, other machine, remote machine, or another computer, by spawning an AI agent there with the given prompt. The agent runs project-lessly using the node's default working directory unless one is provided. Returns immediately with the spawned instance id; output streams asynchronously and can be inspected from the app or read with read_node_output.`,
+        `${REMOTE_NODE_DISCOVERY_HINT} Run a task on a connected remote worker node, such as a Windows PC, other machine, remote machine, or another computer, by spawning an AI agent there with the given prompt. The agent runs project-lessly using the node's default working directory unless one is provided. Returns after the worker provider has started successfully; subsequent output streams asynchronously and can be inspected from the app or read with read_node_output.`,
       inputSchema: {
         type: 'object',
         properties: {
@@ -598,7 +598,7 @@ export function createOrchestratorToolDefinitions(
           requiresBrowser: {
             type: 'boolean',
             description:
-              'Require browser automation on the worker and inject chrome-devtools tools. Use for remote browser evidence, screenshots, viewport sweeps, or UI audits.',
+              'Require the worker-managed Chrome profile and inject chrome-devtools tools. Use for remote browser evidence, screenshots, viewport sweeps, or UI audits. This cannot access Browser Gateway, extension-shared tabs, or existing logged-in Chrome tabs.',
           },
           requiresAndroid: {
             type: 'boolean',

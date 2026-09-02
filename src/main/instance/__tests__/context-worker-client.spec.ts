@@ -131,6 +131,303 @@ describe('ContextWorkerClient', () => {
 
   // ── RPC resolution ──────────────────────────────────────────────────────────
 
+  it('delivers a correlated RLM worker result through the typed request envelope', async () => {
+    const request = { kind: 'create-store' as const, instanceId: 'inst-1' };
+    const result = {
+      id: 'store-1',
+      instanceId: 'inst-1',
+      sections: [],
+      totalTokens: 0,
+      totalSize: 0,
+      createdAt: 1,
+      lastAccessed: 1,
+      accessCount: 0,
+    };
+
+    const promise = client.invokeRlm(request);
+    const posted = fakeWorker.postMessage.mock.calls[0]?.[0] as {
+      type: string;
+      id: number;
+      request: unknown;
+    };
+
+    expect(posted).toEqual({
+      type: 'rlm-request',
+      id: expect.any(Number),
+      request,
+    });
+
+    fakeWorker.emit('message', { type: 'rpc-response', id: posted.id, result });
+
+    await expect(promise).resolves.toEqual(result);
+    expect(client.getMetrics()).toMatchObject({ inFlight: 0, processed: 1 });
+  });
+
+  it('preserves undefined for a successful void RLM mutation', async () => {
+    const promise = client.invokeRlm({ kind: 'configure', config: {} });
+    const posted = fakeWorker.postMessage.mock.calls[0]?.[0] as { id: number };
+
+    fakeWorker.emit('message', { type: 'rpc-response', id: posted.id });
+
+    await expect(promise).resolves.toBeUndefined();
+    expect(client.getMetrics()).toMatchObject({ inFlight: 0, processed: 1 });
+  });
+
+  it('preserves undefined for a successful missing RLM read', async () => {
+    const promise = client.invokeRlm({ kind: 'get-store', storeId: 'missing-store' });
+    const posted = fakeWorker.postMessage.mock.calls[0]?.[0] as { id: number };
+
+    fakeWorker.emit('message', { type: 'rpc-response', id: posted.id });
+
+    await expect(promise).resolves.toBeUndefined();
+    expect(client.getMetrics()).toMatchObject({ inFlight: 0, processed: 1 });
+  });
+
+  it('propagates an RLM worker response error as a typed RPC error', async () => {
+    const promise = client.invokeRlm({ kind: 'list-stores' });
+    const posted = fakeWorker.postMessage.mock.calls[0]?.[0] as { id: number };
+
+    fakeWorker.emit('message', {
+      type: 'rpc-response',
+      id: posted.id,
+      error: 'RLM store listing failed',
+    });
+
+    await expect(promise).rejects.toMatchObject({
+      name: 'RlmWorkerRpcError',
+      message: 'RLM store listing failed',
+    });
+    expect(client.getMetrics()).toMatchObject({ inFlight: 0, processed: 1 });
+  });
+
+  it('rejects a timed-out RLM mutation and clears its RPC bookkeeping', async () => {
+    vi.useFakeTimers();
+    try {
+      const promise = client.invokeRlm({
+        kind: 'remove-section',
+        storeId: 'store-1',
+        sectionId: 'section-1',
+      });
+      const rejection = expect(promise).rejects.toMatchObject({
+        name: 'RlmWorkerRpcTimeoutError',
+        message: 'RLM worker request timed out after 50ms',
+      });
+
+      expect(client.getMetrics().inFlight).toBe(1);
+      await vi.advanceTimersByTimeAsync(50);
+
+      await rejection;
+      expect(client.getMetrics()).toMatchObject({ inFlight: 0, dropped: 1 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not retry an RLM mutation after timeout or accept its late response', async () => {
+    vi.useFakeTimers();
+    try {
+      const promise = client.invokeRlm({
+        kind: 'add-section',
+        storeId: 'store-1',
+        type: 'conversation',
+        name: 'turn',
+        content: 'one write only',
+      });
+      const rejection = promise.catch((error: unknown) => error);
+      const posted = fakeWorker.postMessage.mock.calls[0]?.[0] as { id: number };
+
+      await vi.advanceTimersByTimeAsync(50);
+      await expect(rejection).resolves.toMatchObject({ name: 'RlmWorkerRpcTimeoutError' });
+
+      fakeWorker.emit('message', {
+        type: 'rpc-response',
+        id: posted.id,
+        result: { id: 'late-section' },
+      });
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      expect(fakeWorker.postMessage).toHaveBeenCalledOnce();
+      expect(client.getMetrics()).toMatchObject({ inFlight: 0, processed: 0 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('correlates concurrent RLM requests when responses arrive out of order', async () => {
+    const storesPromise = client.invokeRlm({ kind: 'list-stores' });
+    const storagePromise = client.invokeRlm({ kind: 'get-storage-stats' });
+    const [storesMessage, storageMessage] = fakeWorker.postMessage.mock.calls.map(
+      ([message]) => message as { id: number },
+    );
+    const stores = [{
+      id: 'store-1',
+      instanceId: 'inst-1',
+      sections: [],
+      totalTokens: 0,
+      totalSize: 0,
+      createdAt: 1,
+      lastAccessed: 1,
+      accessCount: 0,
+    }];
+    const storage = {
+      totalStores: 1,
+      totalSections: 0,
+      totalTokens: 0,
+      totalSizeBytes: 0,
+      byType: [],
+    };
+
+    fakeWorker.emit('message', {
+      type: 'rpc-response',
+      id: storageMessage.id,
+      result: storage,
+    });
+    fakeWorker.emit('message', {
+      type: 'rpc-response',
+      id: storesMessage.id,
+      result: stores,
+    });
+
+    await expect(storesPromise).resolves.toEqual(stores);
+    await expect(storagePromise).resolves.toEqual(storage);
+    expect(client.getMetrics()).toMatchObject({ inFlight: 0, processed: 2 });
+  });
+
+  it('rejects an in-flight RLM mutation on crash and never reposts it after restart', async () => {
+    vi.useFakeTimers();
+    try {
+      const { ContextWorkerClient } = await import('../context-worker-client');
+      const workers: FakeWorker[] = [];
+      const restartingClient = new ContextWorkerClient({
+        workerFactory: () => {
+          const worker = createFakeWorker();
+          workers.push(worker);
+          return worker as unknown as Worker;
+        },
+        rpcTimeoutMs: 50,
+        userDataPath: '/tmp/test',
+      });
+      const mutation = restartingClient.invokeRlm({
+        kind: 'remove-section',
+        storeId: 'store-1',
+        sectionId: 'section-1',
+      });
+      const rejection = expect(mutation).rejects.toMatchObject({
+        name: 'RlmWorkerRpcError',
+        message: 'worker crashed',
+      });
+      const mutationMessage = workers[0].postMessage.mock.calls[0]?.[0] as { id: number };
+
+      workers[0].emit('error', new Error('worker crashed'));
+
+      await rejection;
+      expect(restartingClient.getMetrics()).toMatchObject({ inFlight: 0, degraded: true });
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(workers).toHaveLength(2);
+
+      const read = restartingClient.invokeRlm({ kind: 'list-stores' });
+      const readMessage = workers[1].postMessage.mock.calls[0]?.[0] as { id: number };
+      workers[0].emit('message', {
+        type: 'rpc-response',
+        id: mutationMessage.id,
+        result: true,
+      });
+      expect(restartingClient.getMetrics().inFlight).toBe(1);
+      workers[1].emit('message', {
+        type: 'rpc-response',
+        id: readMessage.id,
+        result: [],
+      });
+
+      await expect(read).resolves.toEqual([]);
+      expect(
+        workers.flatMap((worker) => worker.postMessage.mock.calls)
+          .filter(([message]) => message.type === 'rlm-request'
+            && message.request.kind === 'remove-section'),
+      ).toHaveLength(1);
+      expect(restartingClient.getMetrics()).toMatchObject({ inFlight: 0, processed: 1 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('delivers a correlated unified-memory result through its separate request envelope', async () => {
+    const request = { kind: 'get-stats' as const };
+    const result = {
+      shortTermTokens: 10,
+      longTermEntries: 2,
+      episodicSessions: 1,
+      learnedPatterns: 1,
+      workflows: 1,
+      strategies: 1,
+    };
+
+    const promise = client.invokeUnifiedMemory(request);
+    const posted = fakeWorker.postMessage.mock.calls[0]?.[0] as {
+      type: string;
+      id: number;
+      request: unknown;
+    };
+
+    expect(posted).toEqual({
+      type: 'unified-memory-request',
+      id: expect.any(Number),
+      request,
+    });
+
+    fakeWorker.emit('message', { type: 'rpc-response', id: posted.id, result });
+
+    await expect(promise).resolves.toEqual(result);
+    expect(client.getMetrics()).toMatchObject({ inFlight: 0, processed: 1 });
+  });
+
+  it('propagates a unified-memory worker response error as its typed RPC error', async () => {
+    const promise = client.invokeUnifiedMemory({ kind: 'get-workflows' });
+    const posted = fakeWorker.postMessage.mock.calls[0]?.[0] as { id: number };
+
+    fakeWorker.emit('message', {
+      type: 'rpc-response',
+      id: posted.id,
+      error: 'Unified memory unavailable',
+    });
+
+    await expect(promise).rejects.toMatchObject({
+      name: 'UnifiedMemoryWorkerRpcError',
+      message: 'Unified memory unavailable',
+    });
+  });
+
+  it('rejects and never retries a timed-out unified-memory mutation', async () => {
+    vi.useFakeTimers();
+    try {
+      const promise = client.invokeUnifiedMemory({
+        kind: 'process-input',
+        input: 'write once',
+        sessionId: 'session-1',
+        taskId: 'task-1',
+      });
+      const rejection = promise.catch((error: unknown) => error);
+      const posted = fakeWorker.postMessage.mock.calls[0]?.[0] as { id: number };
+
+      await vi.advanceTimersByTimeAsync(50);
+      await expect(rejection).resolves.toMatchObject({
+        name: 'UnifiedMemoryWorkerRpcTimeoutError',
+        message: 'Unified-memory worker request timed out after 50ms',
+      });
+
+      fakeWorker.emit('message', {
+        type: 'rpc-response',
+        id: posted.id,
+      });
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      expect(fakeWorker.postMessage).toHaveBeenCalledOnce();
+      expect(client.getMetrics()).toMatchObject({ inFlight: 0, processed: 0, dropped: 1 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('resolves RPC response by matching id', async () => {
     const instance = makeInstance();
     const initPromise = client.initializeRlm(instance);
@@ -306,6 +603,56 @@ describe('ContextWorkerClient', () => {
   });
 
   // ── No non-cloneable objects posted ────────────────────────────────────────
+
+  it('posts one clone-safe task-outcome message without RPC bookkeeping', () => {
+    client.recordTaskOutcome('task-outcome-47', false, 0.25);
+
+    expect(fakeWorker.postMessage).toHaveBeenCalledOnce();
+    expect(fakeWorker.postMessage).toHaveBeenCalledWith({
+      type: 'record-task-outcome',
+      taskId: 'task-outcome-47',
+      success: false,
+      score: 0.25,
+    });
+    expect(client.getMetrics()).toMatchObject({ inFlight: 0, processed: 0 });
+  });
+
+  it('drops a non-finite task outcome before structured clone', () => {
+    client.recordTaskOutcome('task-invalid-score', true, Number.NaN);
+
+    expect(fakeWorker.postMessage).not.toHaveBeenCalled();
+    expect(client.getMetrics()).toMatchObject({ inFlight: 0, dropped: 1 });
+  });
+
+  it('handles an unavailable worker safely and never replays the dropped outcome after restart', async () => {
+    vi.useFakeTimers();
+    try {
+      const { ContextWorkerClient } = await import('../context-worker-client');
+      const workers: FakeWorker[] = [];
+      const restartingClient = new ContextWorkerClient({
+        workerFactory: () => {
+          const worker = createFakeWorker();
+          workers.push(worker);
+          return worker as unknown as Worker;
+        },
+        rpcTimeoutMs: 50,
+        userDataPath: '/tmp/test',
+      });
+
+      workers[0].emit('error', new Error('worker unavailable'));
+      expect(() => restartingClient.recordTaskOutcome('task-dropped', true, 1)).not.toThrow();
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      expect(workers).toHaveLength(2);
+      expect(
+        workers.flatMap((worker) => worker.postMessage.mock.calls)
+          .filter(([message]) => message.type === 'record-task-outcome'),
+      ).toHaveLength(0);
+      expect(restartingClient.getMetrics().dropped).toBeGreaterThan(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it('does not include EventEmitter or functions in fire-and-forget message', () => {
     const instance = makeInstance();
@@ -787,6 +1134,103 @@ describe('ContextWorkerClient', () => {
     fakeWorker.emit('message', { type: 'rpc-response', id: msg.id });
     await p;
     expect(client.getMetrics().processed).toBe(1);
+  });
+
+  it('adds a detached clone-safe residency snapshot to metrics without changing existing fields', () => {
+    const residency = {
+      processRole: 'context-worker' as const,
+      counts: {
+        durableStores: 3,
+        durableSections: 9,
+        activeSessions: 1,
+        residentMetadataSections: 4,
+        deferredMetadataSections: 5,
+        residentContentSections: 2,
+        residentContentStores: 1,
+        metadataOnlyStores: 2,
+        deferredStores: 2,
+      },
+      discoveredStores: 3,
+      activeSessions: 1,
+      startupContentBytes: 0 as const,
+      residentMetadataSections: 4,
+      deferredMetadataSections: 5,
+      residentContentBytes: 6,
+      residentContentSections: 2,
+      residentContentStores: 1,
+      hotCandidates: 2,
+      hotAdmitted: 1,
+      hotSkipped: 0,
+      hotExhausted: 0,
+      hotCancelled: 0,
+      semanticDiscovered: 5,
+      semanticIndexed: 3,
+      semanticSkipped: 1,
+      semanticFailed: 1,
+      semanticRetried: 1,
+      metadataOnlyStores: 2,
+      deferredStores: 2,
+      exhausted: {
+        metadata: false,
+        contentBytes: false,
+        contentSections: false,
+        contentStores: false,
+      },
+      elapsedMs: 7,
+    };
+
+    fakeWorker.emit('message', { type: 'worker-metrics', residency });
+
+    const metrics = client.getMetrics() as unknown as Record<string, unknown>;
+    expect(metrics).toMatchObject({
+      inFlight: 0,
+      processed: 0,
+      dropped: 0,
+      lastError: null,
+      degraded: false,
+      residency,
+    });
+    (metrics['residency'] as { exhausted: { metadata: boolean } }).exhausted.metadata = true;
+    (metrics['residency'] as { counts: { durableStores: number } }).counts.durableStores = 99;
+    expect((client.getMetrics() as unknown as { residency: typeof residency }).residency.exhausted.metadata)
+      .toBe(false);
+    expect((client.getMetrics() as unknown as { residency: typeof residency }).residency.counts.durableStores)
+      .toBe(3);
+    expect(() => structuredClone(client.getMetrics())).not.toThrow();
+  });
+
+  it('ignores stale worker residency snapshots after replacement and degrades compatibly when no snapshot arrives', async () => {
+    vi.useFakeTimers();
+    try {
+      const { ContextWorkerClient } = await import('../context-worker-client');
+      const workers: FakeWorker[] = [];
+      const metricsClient = new ContextWorkerClient({
+        workerFactory: () => {
+          const worker = createFakeWorker();
+          workers.push(worker);
+          return worker as unknown as Worker;
+        },
+        userDataPath: '/tmp/test',
+      });
+      workers[0].emit('message', {
+        type: 'worker-metrics',
+        residency: { discoveredStores: 1, startupContentBytes: 0, exhausted: {} },
+      });
+      expect((metricsClient.getMetrics() as unknown as { residency: { discoveredStores: number } }).residency.discoveredStores)
+        .toBe(1);
+
+      workers[0].emit('error', new Error('restart'));
+      expect((metricsClient.getMetrics() as unknown as { residency: unknown }).residency).toBeNull();
+      await vi.advanceTimersByTimeAsync(2_000);
+      workers[0].emit('message', {
+        type: 'worker-metrics',
+        residency: { discoveredStores: 99, startupContentBytes: 0, exhausted: {} },
+      });
+      expect((metricsClient.getMetrics() as unknown as { residency: unknown }).residency).toBeNull();
+      expect(metricsClient.getMetrics()).toMatchObject({ degraded: false });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

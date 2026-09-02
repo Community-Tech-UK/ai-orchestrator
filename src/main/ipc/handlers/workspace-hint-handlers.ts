@@ -21,8 +21,8 @@ import { getLogger } from '../../logging/logger';
 import { validateIpcPayload } from '@contracts/schemas/common';
 import { WorkspaceHintActivePayloadSchema } from '@contracts/schemas/workspace-tools';
 import { getCodememPrewarmCoordinator } from '../../codemem';
-import { getCodebaseIndexingAutoCoordinator } from '../../indexing';
-import { getProjectKnowledgeAutoMirrorCoordinator } from '../../memory';
+import { getCodebaseIndexingAutoCoordinator } from '../../indexing/codebase-indexing-auto-coordinator';
+import { getProjectKnowledgeAutoMirrorCoordinator } from '../../memory/project-knowledge-auto-mirror-coordinator';
 
 const logger = getLogger('WorkspaceHintHandlers');
 

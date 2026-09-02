@@ -29,7 +29,7 @@ vi.mock('../core/config/recent-directories-manager', () => ({
   }),
 }));
 
-vi.mock('../indexing', () => ({
+vi.mock('../indexing/codebase-indexing-auto-coordinator', () => ({
   getCodebaseIndexingAutoCoordinator: () => fakes.coordinator,
 }));
 
@@ -40,7 +40,7 @@ vi.mock('../codemem', () => ({
   }),
 }));
 
-vi.mock('../memory', () => ({
+vi.mock('../memory/project-knowledge-auto-mirror-coordinator', () => ({
   getProjectKnowledgeAutoMirrorCoordinator: () => ({
     start: vi.fn(),
     hintActiveWorkspace: vi.fn(),

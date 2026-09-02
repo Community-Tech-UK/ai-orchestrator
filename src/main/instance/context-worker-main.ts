@@ -57,9 +57,12 @@ import * as path from 'node:path';
 import { getElectronParentPort } from '../runtime/electron-parent-port';
 import { InstanceContextManager } from './instance-context';
 import { getWakeContextBuilder } from '../memory/wake-context-builder';
+import { getUnifiedMemory } from '../memory/unified-controller';
 import { buildMcpRuntimeToolContextSelection } from '../mcp/mcp-runtime-tool-context';
 import { RLMDatabase } from '../persistence/rlm-database';
 import { RLMContextManager } from '../rlm/context-manager';
+import { handleRlmWorkerRequest } from './rlm-worker-request-handler';
+import { handleUnifiedMemoryWorkerRequest } from './unified-memory-worker-request-handler';
 import { getPolicyAdapter } from '../observation/policy-adapter';
 import { buildProjectMemoryBriefInWorker } from '../memory/project-memory-brief-worker';
 import { registerWorkerEventForwarding } from './context-worker-event-forwarding';
@@ -138,12 +141,10 @@ const transport = createTransport();
 
 // ── RLM database pre-init ─────────────────────────────────────────────────────
 
-// Pre-initialise with explicit paths so RLMContextManager.getInstance() picks
-// up the correct singleton (with busy_timeout) on first access. This MUST run
-// before registerWorkerEventForwarding() below: RLMDatabase.getInstance() is
-// itself a getInstance()-style singleton where the first caller's config wins,
-// and registerWorkerEventForwarding() calls RLMContextManager.getInstance(),
-// whose constructor eagerly resolves RLMDatabase.getInstance() with NO config.
+// Pre-initialise with explicit paths before this call site resolves the
+// worker-local RLMContextManager and injects it into event forwarding.
+// RLMDatabase.getInstance() is a first-caller-wins singleton, and constructing
+// the manager eagerly resolves it without configuration.
 // LT-207 already documented and avoided this exact ordering hazard for the
 // codebase-indexing lane worker; LT-480 found the original context worker
 // still had it — reversed here to match.
@@ -152,15 +153,22 @@ RLMDatabase.getInstance({
   contentDir: path.join(userDataPath, 'rlm', 'content'),
 });
 
-// LT-169/170/206: forward every allowlisted worker-local singleton event
-// (skill activations, RLM store/section/query activity, wake-context
-// generation) to the main process — see context-worker-event-forwarding.ts
-// for the full cross-process EventEmitter rationale and the allowlist.
-registerWorkerEventForwarding(transport);
+// LT-169/170/206: inject the configured worker-local RLM owner, normalize its
+// allowlisted events, and forward them with skill/wake events to main.
+const rlmManagerForForwarding = RLMContextManager.getInstance();
+registerWorkerEventForwarding(transport, rlmManagerForForwarding);
+
+function postResidencyMetrics(): void {
+  const residency = rlmManagerForForwarding.getResidencyStats();
+  if (residency) transport.postMessage({ type: 'worker-metrics', residency });
+}
+
+rlmManagerForForwarding.on('residency:stats', postResidencyMetrics);
 
 // ── Context manager ───────────────────────────────────────────────────────────
 
 const contextManager = new InstanceContextManager();
+const unifiedMemory = getUnifiedMemory();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -232,6 +240,17 @@ async function handleMessage(msg: ContextWorkerInboundMsg): Promise<void> {
         makeInstance(msg.snapshot),
         makeOutputMessage(msg.message),
       );
+      break;
+    }
+
+    case 'record-task-outcome': {
+      if (msg.taskId && Number.isFinite(msg.score)) {
+        try {
+          unifiedMemory.recordTaskOutcome(msg.taskId, msg.success, msg.score);
+        } catch {
+          // Fire-and-forget learning feedback must not take down the context worker.
+        }
+      }
       break;
     }
 
@@ -377,7 +396,33 @@ async function handleMessage(msg: ContextWorkerInboundMsg): Promise<void> {
     }
 
     case 'get-stats': {
-      respond(msg.id, {});
+      respond(msg.id, RLMContextManager.getInstance().getResidencyStats());
+      break;
+    }
+
+    case 'rlm-request': {
+      try {
+        const result = await handleRlmWorkerRequest(
+          RLMContextManager.getInstance(),
+          msg.request,
+        );
+        respond(msg.id, result);
+      } catch (err) {
+        respond(msg.id, undefined, err instanceof Error ? err.message : String(err));
+      }
+      break;
+    }
+
+    case 'unified-memory-request': {
+      try {
+        const result = await handleUnifiedMemoryWorkerRequest(
+          unifiedMemory,
+          msg.request,
+        );
+        respond(msg.id, result);
+      } catch (err) {
+        respond(msg.id, undefined, err instanceof Error ? err.message : String(err));
+      }
       break;
     }
 
@@ -408,7 +453,9 @@ async function handleMessage(msg: ContextWorkerInboundMsg): Promise<void> {
       break;
     }
   }
+  postResidencyMetrics();
 }
 
 // Signal readiness after all synchronous initialisation is complete.
+postResidencyMetrics();
 transport.postMessage({ type: 'ready' } satisfies ContextWorkerOutboundMsg);

@@ -187,6 +187,7 @@ export class FastPathRetriever {
         query: task,
         maxTokens: 900,
         topK: 8,
+        storeLookupDeadlineMs: FAST_PATH_COMMAND_TIMEOUT_MS,
       });
     } catch (error) {
       logger.debug('Indexed codebase fast-path search unavailable', {

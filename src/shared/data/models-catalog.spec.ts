@@ -86,16 +86,18 @@ describe('models-catalog', () => {
     expect(m.active).toBe(true);
   });
 
-  it('claude-fable-5 is active with documented limits and pricing', () => {
-    const m = getModelCatalogEntry('claude-fable-5')!;
-    expect(m.name).toBe('Fable 5');
+  it('claude-fable-5-1 replaces Fable 5 with documented limits and pricing', () => {
+    const m = getModelCatalogEntry('claude-fable-5-1')!;
+    expect(m.name).toBe('Fable 5.1');
     expect(m.contextWindow).toBe(1_000_000);
     expect(m.maxOutputTokens).toBe(128_000);
     expect(m.capabilities.promptCaching).toBe(true);
     expect(m.capabilities.reasoning).toBe(true);
     expect(m.pricing?.inputPer1mTokens).toBe(10.0);
     expect(m.pricing?.outputPer1mTokens).toBe(50.0);
+    expect(m.pricing?.cachePer1mRead).toBe(0.25);
     expect(m.active).toBe(true);
+    expect(getModelCatalogEntry('claude-fable-5')).toBeUndefined();
   });
 
   it('derives GPT-5.6 fallback limits and pricing from the shared catalogue', () => {

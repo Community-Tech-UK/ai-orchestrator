@@ -40,20 +40,21 @@ import {
   AbRecordOutcomePayloadSchema,
   AbListExperimentsPayloadSchema,
 } from '@contracts/schemas/session';
-import { RLMContextManager } from '../rlm/context-manager';
+import { getContextWorkerClient } from '../instance/context-worker-client';
+import type {
+  RlmContextQueryDto,
+  RlmContextSectionDto,
+  RlmWorkerPort,
+} from '../instance/rlm-worker-port';
 import { OutcomeTracker } from '../learning/outcome-tracker';
 import { StrategyLearner } from '../learning/strategy-learner';
 import { PromptEnhancer } from '../learning/prompt-enhancer';
 import { ABTestingEngine } from '../learning/ab-testing';
-import type { ContextSection } from '../../shared/types/rlm.types';
-import {
-  serializeContextSectionForIpc,
-  serializeContextStoreForIpc,
-} from './rlm-ipc-serialization';
 import { registerModelDiscoveryHandlers } from './model-discovery-ipc-handlers';
 import { validatedHandler, type IpcResponse } from './validated-handler';
 
 interface RegisterLearningHandlersDeps {
+  rlmPort?: RlmWorkerPort;
   ensureTrustedSender?: (
     event: IpcMainInvokeEvent,
     channel: string,
@@ -73,15 +74,13 @@ export function registerLearningHandlers(deps: RegisterLearningHandlersDeps = {}
 // ============ RLM Context Management Handlers ============
 
 function registerRLMHandlers(deps: RegisterLearningHandlersDeps): void {
-  const rlm = RLMContextManager.getInstance();
+  const rlmPort = deps.rlmPort ?? getContextWorkerClient();
   const tracker = OutcomeTracker.getInstance();
   const strategist = StrategyLearner.getInstance();
 
   // Create store
   registerRlmHandler(IPC_CHANNELS.RLM_CREATE_STORE, RlmCreateStorePayloadSchema, (instanceId) => {
-    return serializeContextStoreForIpc(rlm.createStore(instanceId), {
-      includeSections: true,
-    });
+    return rlmPort.invokeRlm({ kind: 'create-store', instanceId });
   }, deps);
 
   // Add section
@@ -89,9 +88,14 @@ function registerRLMHandlers(deps: RegisterLearningHandlersDeps): void {
     IPC_CHANNELS.RLM_ADD_SECTION,
     RlmAddSectionPayloadSchema,
     (payload) => {
-      return serializeContextSectionForIpc(
-        rlm.addSection(payload.storeId, payload.type, payload.name, payload.content, payload.metadata as Partial<ContextSection> | undefined),
-      );
+      return rlmPort.invokeRlm({
+        kind: 'add-section',
+        storeId: payload.storeId,
+        type: payload.type,
+        name: payload.name,
+        content: payload.content,
+        metadata: payload.metadata as Partial<RlmContextSectionDto> | undefined,
+      });
     },
     deps,
   );
@@ -100,59 +104,66 @@ function registerRLMHandlers(deps: RegisterLearningHandlersDeps): void {
   registerRlmHandler(
     IPC_CHANNELS.RLM_REMOVE_SECTION,
     RlmRemoveSectionPayloadSchema,
-    (payload) => rlm.removeSection(payload.storeId, payload.sectionId),
+    (payload) => rlmPort.invokeRlm({
+      kind: 'remove-section',
+      storeId: payload.storeId,
+      sectionId: payload.sectionId,
+    }),
     deps,
   );
 
   // Get store
   registerRlmHandler(IPC_CHANNELS.RLM_GET_STORE, RlmStoreIdPayloadSchema, (storeId) => {
-    const store = rlm.getStore(storeId);
-    return store
-      ? serializeContextStoreForIpc(store, {
-        includeSections: true,
-        sectionLimit: 1_000,
-      })
-      : undefined;
+    return rlmPort.invokeRlm({ kind: 'get-store', storeId });
   }, deps);
 
   // List stores
   registerRlmHandler(IPC_CHANNELS.RLM_LIST_STORES, RlmEmptyPayloadSchema, () => {
-    return rlm.listStores().map((store) => serializeContextStoreForIpc(store));
+    return rlmPort.invokeRlm({ kind: 'list-stores' });
   }, deps);
 
   // List sections
   registerRlmHandler(IPC_CHANNELS.RLM_LIST_SECTIONS, RlmStoreIdPayloadSchema, (storeId) => {
-    return rlm.listSections(storeId).map((section) => serializeContextSectionForIpc(section));
+    return rlmPort.invokeRlm({ kind: 'list-sections', storeId });
   }, deps);
 
   // List active sessions
   registerRlmHandler(IPC_CHANNELS.RLM_LIST_SESSIONS, RlmEmptyPayloadSchema, () => {
-    return rlm.listSessions();
+    return rlmPort.invokeRlm({ kind: 'list-sessions' });
   }, deps);
 
   // Delete store
   registerRlmHandler(IPC_CHANNELS.RLM_DELETE_STORE, RlmStoreIdPayloadSchema, (storeId) => {
-    rlm.deleteStore(storeId);
+    return rlmPort.invokeRlm({ kind: 'delete-store', storeId });
   }, deps);
 
   // Start session
   registerRlmHandler(
     IPC_CHANNELS.RLM_START_SESSION,
     RlmStartSessionPayloadSchema,
-    (payload) => rlm.startSession(payload.storeId, payload.instanceId),
+    (payload) => rlmPort.invokeRlm({
+      kind: 'start-session',
+      storeId: payload.storeId,
+      instanceId: payload.instanceId,
+    }),
     deps,
   );
 
   // End session
   registerRlmHandler(IPC_CHANNELS.RLM_END_SESSION, RlmSessionIdPayloadSchema, (sessionId) => {
-    rlm.endSession(sessionId);
+    return rlmPort.invokeRlm({ kind: 'end-session', sessionId });
   }, deps);
 
   // Execute query
   registerRlmHandler(
     IPC_CHANNELS.RLM_EXECUTE_QUERY,
     RlmExecuteQueryPayloadSchema,
-    (payload) => rlm.executeQuery(payload.sessionId, payload.query, payload.depth),
+    (payload) => rlmPort.invokeRlm({
+      kind: 'execute-query',
+      sessionId: payload.sessionId,
+      query: payload.query as RlmContextQueryDto,
+      depth: payload.depth,
+    }),
     deps,
   );
 
@@ -160,7 +171,7 @@ function registerRLMHandlers(deps: RegisterLearningHandlersDeps): void {
   registerRlmHandler(
     IPC_CHANNELS.RLM_GET_SESSION,
     RlmSessionIdPayloadSchema,
-    (sessionId) => rlm.getSession(sessionId),
+    (sessionId) => rlmPort.invokeRlm({ kind: 'get-session', sessionId }),
     deps,
   );
 
@@ -168,7 +179,7 @@ function registerRLMHandlers(deps: RegisterLearningHandlersDeps): void {
   registerRlmHandler(
     IPC_CHANNELS.RLM_GET_STORE_STATS,
     RlmStoreIdPayloadSchema,
-    (storeId) => rlm.getStoreStats(storeId),
+    (storeId) => rlmPort.invokeRlm({ kind: 'get-store-stats', storeId }),
     deps,
   );
 
@@ -176,13 +187,13 @@ function registerRLMHandlers(deps: RegisterLearningHandlersDeps): void {
   registerRlmHandler(
     IPC_CHANNELS.RLM_GET_SESSION_STATS,
     RlmSessionIdPayloadSchema,
-    (sessionId) => rlm.getSessionStats(sessionId),
+    (sessionId) => rlmPort.invokeRlm({ kind: 'get-session-stats', sessionId }),
     deps,
   );
 
   // Configure RLM
   registerRlmHandler(IPC_CHANNELS.RLM_CONFIGURE, RlmConfigurePayloadSchema, (config) => {
-    rlm.configure(config);
+    return rlmPort.invokeRlm({ kind: 'configure', config });
   }, deps);
 
   // Record outcome (RLM alias for learning outcomes)
@@ -239,7 +250,7 @@ function registerRLMHandlers(deps: RegisterLearningHandlersDeps): void {
     RlmTokenSavingsPayloadSchema,
     (payload) => {
       const days = payload.range === '7d' ? 7 : payload.range === '90d' ? 90 : 30;
-      return rlm.getTokenSavingsHistory(days);
+      return rlmPort.invokeRlm({ kind: 'get-token-savings-history', days });
     },
     deps,
   );
@@ -250,7 +261,7 @@ function registerRLMHandlers(deps: RegisterLearningHandlersDeps): void {
     RlmQueryStatsPayloadSchema,
     (payload) => {
       const days = payload.range === '7d' ? 7 : payload.range === '90d' ? 90 : 30;
-      return rlm.getQueryStats(days);
+      return rlmPort.invokeRlm({ kind: 'get-query-stats', days });
     },
     deps,
   );
@@ -259,7 +270,7 @@ function registerRLMHandlers(deps: RegisterLearningHandlersDeps): void {
   registerRlmHandler(
     IPC_CHANNELS.RLM_GET_STORAGE_STATS,
     RlmEmptyPayloadSchema,
-    () => rlm.getStorageStats(),
+    () => rlmPort.invokeRlm({ kind: 'get-storage-stats' }),
     deps,
   );
 

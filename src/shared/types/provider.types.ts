@@ -187,7 +187,7 @@ export const CLAUDE_MODELS = {
  * an explicit generation instead of provider-latest routing.
  */
 export const CLAUDE_PINNED_MODELS = {
-  FABLE_5: 'claude-fable-5',
+  FABLE_51: 'claude-fable-5-1',
   OPUS_5: 'claude-opus-5',
   OPUS_48: 'claude-opus-4-8',
   OPUS_47: 'claude-opus-4-7',
@@ -207,6 +207,7 @@ export const CLAUDE_PINNED_MODELS = {
  * App code should import these instead of hardcoding retired model IDs.
  */
 export const CLAUDE_LEGACY_PRICING_ALIASES = {
+  FABLE_5: 'claude-fable-5',
   SONNET_35: 'claude-3-5-sonnet',
   HAIKU_35: 'claude-3-5-haiku',
   OPUS_3: 'claude-3-opus',
@@ -317,6 +318,7 @@ export const GROK_MODELS = {
  * map re-admits exactly those ids to pricing, and nothing else.
  */
 export const RETIRED_PROVIDER_MODELS: Readonly<Record<string, readonly string[]>> = {
+  claude: [CLAUDE_LEGACY_PRICING_ALIASES.FABLE_5],
   grok: [GROK_MODELS.GROK_45],
 };
 
@@ -365,7 +367,8 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
   [CLAUDE_MODELS.OPUS_1M]: { input: 5.0, output: 25.0 },
   [CLAUDE_MODELS.HAIKU]: { input: 1.0, output: 5.0 },
   // Claude models (full IDs for API-level pricing lookups)
-  'claude-fable-5': { input: 10.0, output: 50.0 },
+  [CLAUDE_PINNED_MODELS.FABLE_51]: { input: 10.0, output: 50.0 },
+  [CLAUDE_LEGACY_PRICING_ALIASES.FABLE_5]: { input: 10.0, output: 50.0 },
   // Introductory pricing through 2026-08-31; reverts to 3.0/15.0 on 2026-09-01.
   // Live models.dev overlay takes precedence at runtime, so the switch is picked
   // up automatically — this static value is just the offline fallback.
@@ -456,7 +459,7 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     // having to manually pick the [1m] variant every time.
     { id: CLAUDE_MODELS.OPUS_1M, name: 'Opus latest, 1M', tier: 'powerful', pinned: true, family: 'Opus' },
     { id: CLAUDE_MODELS.OPUS, name: 'Opus latest', tier: 'powerful', pinned: true, family: 'Opus' },
-    { id: CLAUDE_PINNED_MODELS.FABLE_5, name: 'Fable 5', tier: 'powerful', family: 'Fable' },
+    { id: CLAUDE_PINNED_MODELS.FABLE_51, name: 'Fable 5.1', tier: 'powerful', family: 'Fable' },
     { id: CLAUDE_PINNED_MODELS.OPUS_5, name: 'Opus 5', tier: 'powerful', family: 'Opus' },
     { id: CLAUDE_PINNED_MODELS.OPUS_48, name: 'Opus 4.8', tier: 'powerful', family: 'Opus' },
     { id: CLAUDE_PINNED_MODELS.OPUS_47, name: 'Opus 4.7', tier: 'powerful', family: 'Opus' },

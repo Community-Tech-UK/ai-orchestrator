@@ -9,7 +9,7 @@ import type { BrowserApprovalStore } from './browser-approval-store';
 import type { BrowserExistingTabAttachment, BrowserExtensionTabStore } from './browser-extension-tab-store';
 import type { BrowserGrantStore } from './browser-grant-store';
 import type { BrowserProfileStore } from './browser-profile-store';
-import { providerFromContext } from './browser-gateway-action-guard';
+import { providerFromContext } from './browser-provider';
 import type { BrowserGatewayResultInput } from './browser-gateway-result';
 import { primaryActionClass } from './browser-gateway-service-helpers';
 import type { BrowserGatewayContext } from './browser-gateway-service-types';

@@ -58,6 +58,8 @@ describe('productionCoreDeps', () => {
         case '../security/permission-manager':
           return { getPermissionManager: () => permissionManager };
         case '../memory':
+          throw new Error('productionCoreDeps must not resolve the memory barrel');
+        case '../memory/memory-monitor':
           return { getMemoryMonitor: () => memoryMonitor };
         default:
           return requireImpl.apply(this, [id]);
@@ -137,6 +139,8 @@ describe('productionCoreDeps', () => {
     expect(deps.observation.buildContext('inst-1')).toBe('');
     expect(deps.memory.getCurrentPressure()).toBe('normal');
     expect(memoryMonitor.getPressureLevel).toHaveBeenCalledTimes(1);
+    expect(requireSpy).toHaveBeenCalledWith('../memory/memory-monitor');
+    expect(requireSpy).not.toHaveBeenCalledWith('../memory');
 
     expect(() => deps.history.addThread('inst-1')).not.toThrow();
   });

@@ -20,6 +20,7 @@ import {
   getProviderModelContextWindow,
   type ModelDisplayInfo,
 } from '../types/provider.types';
+import { getCacheReadMultiplier } from './model-pricing';
 
 export type ModelModality = 'text' | 'image' | 'audio' | 'video' | 'embedding' | 'code';
 export type ModelProvider =
@@ -108,7 +109,7 @@ function buildCatalogEntry(
       ? {
           inputPer1mTokens: price.input,
           outputPer1mTokens: price.output,
-          ...inferCachePricing(provider, price.input),
+          ...inferCachePricing(provider, model.id, price.input),
         }
       : undefined,
     inputModalities: inferInputModalities(provider),
@@ -174,6 +175,7 @@ function inferCapabilities(
 
 function inferCachePricing(
   provider: ModelProvider,
+  modelId: string,
   inputPrice: number,
 ): Pick<NonNullable<ModelCatalogEntry['pricing']>, 'cachePer1mWrite' | 'cachePer1mRead'> {
   if (provider !== 'anthropic') {
@@ -181,7 +183,7 @@ function inferCachePricing(
   }
   return {
     cachePer1mWrite: inputPrice * 1.25,
-    cachePer1mRead: inputPrice * 0.1,
+    cachePer1mRead: inputPrice * getCacheReadMultiplier(modelId),
   };
 }
 

@@ -135,9 +135,9 @@ interface ToolIndex {
 const MAX_TOOL_DESCRIPTION_LENGTH = 2048;
 const DEFAULT_SERVER_SEARCH_HINT = 'Use MCP tool search for detailed tool descriptions when needed.';
 const ORCHESTRATOR_REMOTE_TOOLS_SEARCH_HINT =
-  'Harness can use connected remote worker nodes, including Windows PCs, laptops, desktops, named machines, and other machines, through list_remote_nodes, run_on_node, and read_node_output. If the user names a machine, for example "Noah\'s laptop", check list_remote_nodes before local filesystem or shell work. For remote browser or Android testing, pass requiresBrowser or requiresAndroid to run_on_node.';
+  'Harness can use connected remote worker nodes, including Windows PCs, laptops, desktops, named machines, and other machines, through list_remote_nodes, run_on_node, and read_node_output. If the user names a machine, for example "Noah\'s laptop", check list_remote_nodes before local filesystem or shell work. requiresBrowser gives the remote agent a worker-managed Chrome profile through chrome-devtools; it cannot access Browser Gateway, extension-shared tabs, browser.* tools, or existing logged-in tabs. Browser Gateway work must stay on the coordinator and target the named computer through browser tools. For Android testing, pass requiresAndroid to run_on_node.';
 const BROWSER_GATEWAY_SEARCH_HINT =
-  'Browser Gateway exposes real shared Chrome tabs through browser.list_targets and browser.find_or_open. For browser work, prefer connected remote PCs or another PC when available; use local/Mac shared tabs when the user explicitly says the tab is shared or open on the Mac/local computer.';
+  'Browser Gateway exposes existing and extension-shared Chrome tabs through browser.list_targets and browser.find_or_open. Browser Gateway agents stay on the coordinator; target the required computer explicitly with the browser tool computer field. Do not use run_on_node for Browser Gateway, browser.* tools, credentials in existing tabs, or already logged-in tabs.';
 
 /**
  * Truncate a tool description to the maximum allowed length.

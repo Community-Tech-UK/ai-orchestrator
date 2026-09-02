@@ -73,6 +73,32 @@ describe('ModelSelectionResolver', () => {
     })).resolves.toEqual({ model: 'gpt-5.9-codex' });
   });
 
+  it('lets a remote provider choose its own default instead of inheriting coordinator defaults', async () => {
+    const getKnownModels = vi.fn();
+    const resolver = new ModelSelectionResolver({ getKnownModels });
+
+    await expect(resolver.resolve({
+      provider: 'antigravity',
+      executionTarget: 'remote',
+      defaultModelByProvider: { antigravity: 'Gemini 3.5 Flash (Medium)' },
+      defaultModel: 'opus',
+    })).resolves.toEqual({ model: undefined });
+    expect(getKnownModels).not.toHaveBeenCalled();
+  });
+
+  it('preserves an explicit remote model without validating it against the coordinator catalog', async () => {
+    const getKnownModels = vi.fn();
+    const resolver = new ModelSelectionResolver({ getKnownModels });
+
+    await expect(resolver.resolve({
+      provider: 'antigravity',
+      executionTarget: 'remote',
+      configModelOverride: 'Gemini 3.7 Pro (High)',
+      defaultModelByProvider: { antigravity: 'Gemini 3.5 Flash (Medium)' },
+    })).resolves.toEqual({ model: 'Gemini 3.7 Pro (High)' });
+    expect(getKnownModels).not.toHaveBeenCalled();
+  });
+
   /**
    * LT-016 (create path). The global `defaultModel` is provider-agnostic and is
    * typically a Claude id, so it is offered to every provider and correctly

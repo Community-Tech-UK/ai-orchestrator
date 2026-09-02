@@ -1,35 +1,43 @@
 /**
  * ContextWorkerClient — main-process implementation of InstanceContextPort.
  *
- * Routes all RLM and unified-memory work to a context-worker-main.ts child
- * process so that SQLite ingestion, embedding, and context retrieval do not
- * block the Electron main event loop.
+ * Routes RLM and unified-memory work to a context worker so SQLite ingestion,
+ * embedding, and context retrieval do not block Electron's main event loop.
  *
  * Contract:
- * - Fire-and-forget methods (ingestToRLM, ingestToUnifiedMemory, endRlmSession)
- *   post to the worker without tracking responses. If the worker is unavailable
- *   or the internal counter exceeds MAX_INFLIGHT_INGESTION the item is dropped
- *   and metrics.dropped is incremented.
- * - RPC methods (initializeRlm, buildRlmContext, …) resolve to null on timeout
- *   so the caller can continue sending user input rather than blocking.
- * - Worker crash: marks the client degraded, fails pending RPCs, and retries
- *   with bounded backoff.
- * - Synchronous helpers (calculateContextBudget, format*) run in-process so
- *   they never add worker round-trips to the user-input hot path.
+ * - Fire-and-forget work is dropped when unavailable or overloaded.
+ * - Context RPC timeouts resolve null so user input can continue.
+ * - Worker crashes fail pending RPCs and trigger bounded restart backoff.
+ * - Synchronous budget/format helpers remain in-process.
  */
 
 import { isOccupancyPressureReading } from '../../shared/utils/context-occupancy';
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { getLogger } from '../logging/logger';
-import { dispatchWorkerBroadcast } from './context-worker-event-forwarding';
+import { dispatchWorkerBroadcast } from './context-worker-event-relay';
 import { createIsolatedWorkerProcess, type IsolatedWorkerProcess } from '../runtime/isolated-worker-process';
 import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import type { RlmContextInfo, ContextBudget, UnifiedMemoryContextInfo } from './instance-types';
 import type { InstanceContextPort } from './instance-context-port';
+import {
+  type RlmWorkerPort,
+  type RlmWorkerRequest,
+  type RlmWorkerResult,
+} from './rlm-worker-port';
+import {
+  type UnifiedMemoryWorkerPort,
+  type UnifiedMemoryWorkerRequest,
+  type UnifiedMemoryWorkerResult,
+} from './unified-memory-worker-port';
 import { COMPACTION_KEEP_RECENT, trimBufferRetainingPrompts } from './prompt-retention';
 import { ContextWorkerPrewarmLifecycle } from './context-worker-prewarm-lifecycle';
+import { ContextWorkerRpcTracker, type RpcTimeoutMode } from './context-worker-rpc';
+import {
+  invokeRlmWorkerRpc,
+  invokeUnifiedMemoryWorkerRpc,
+} from './context-worker-owner-rpc';
 import {
   buildMcpRuntimeToolContextSelection as selectMcpRuntimeToolContext,
   MCPToolSearchSnapshot,
@@ -46,6 +54,7 @@ import type {
   OutcomeTrackerStateSnapshot,
   ProjectMemoryBrief,
   ProjectMemoryBriefRequest,
+  WorkerMetricsMsg,
 } from './context-worker-protocol';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -72,26 +81,13 @@ const RLM_SECTION_MAX_COUNT = 10;
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-interface PendingRpc {
-  resolve: (value: unknown) => void;
-  reject: (error: Error) => void;
-  timeout: NodeJS.Timeout;
-}
-
 type RpcMsgWithId = ContextWorkerRpcMsg;
-
-export interface ContextWorkerClientOptions {
-  rpcTimeoutMs?: number;
-  workerFactory?: (userDataPath: string) => ContextWorkerProcessHandle;
-  userDataPath?: string;
-}
+export interface ContextWorkerClientOptions { rpcTimeoutMs?: number; workerFactory?: (userDataPath: string) => ContextWorkerProcessHandle; userDataPath?: string; }
 
 export interface ContextWorkerMetrics {
-  inFlight: number;
-  processed: number;
-  dropped: number;
-  lastError: string | null;
-  degraded: boolean;
+  inFlight: number; processed: number; dropped: number;
+  lastError: string | null; degraded: boolean;
+  residency: WorkerMetricsMsg['residency'] | null;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -106,8 +102,7 @@ function getElectronUserDataPath(): string | undefined {
   }
 }
 
-type ContextWorkerProcessHandle =
-  IsolatedWorkerProcess<ContextWorkerInboundMsg, ContextWorkerOutboundMsg>;
+type ContextWorkerProcessHandle = IsolatedWorkerProcess<ContextWorkerInboundMsg, ContextWorkerOutboundMsg>;
 
 function makeWorker(userDataPath: string): ContextWorkerProcessHandle {
   const jsEntry = path.join(__dirname, 'context-worker-main.js');
@@ -143,11 +138,14 @@ function estimateTokens(text: string): number {
 }
 
 // ── ContextWorkerClient ────────────────────────────────────────────────────────
-
-export class ContextWorkerClient implements InstanceContextPort {
+export class ContextWorkerClient implements
+  InstanceContextPort,
+  RlmWorkerPort,
+  UnifiedMemoryWorkerPort
+{
   private worker: ContextWorkerProcessHandle | null = null;
   private rpcId = 0;
-  private pending = new Map<number, PendingRpc>();
+  private readonly rpcTracker = new ContextWorkerRpcTracker();
   private inflight = 0;
   private isDegraded = false;
   private restartAttempts = 0;
@@ -162,6 +160,7 @@ export class ContextWorkerClient implements InstanceContextPort {
   private readonly workerFactory: (userDataPath: string) => ContextWorkerProcessHandle;
   private readonly userDataPath: string;
   private metrics = { processed: 0, dropped: 0, lastError: null as string | null };
+  private residency: WorkerMetricsMsg['residency'] | null = null;
 
   constructor(options: ContextWorkerClientOptions = {}) {
     this.rpcTimeoutMs = options.rpcTimeoutMs ?? DEFAULT_RPC_TIMEOUT_MS;
@@ -172,13 +171,9 @@ export class ContextWorkerClient implements InstanceContextPort {
   }
 
   getMetrics(): ContextWorkerMetrics {
-    return {
-      inFlight: this.pending.size,
-      processed: this.metrics.processed,
-      dropped: this.metrics.dropped,
-      lastError: this.metrics.lastError,
-      degraded: this.isDegraded,
-    };
+    return { inFlight: this.rpcTracker.size, processed: this.metrics.processed,
+      dropped: this.metrics.dropped, lastError: this.metrics.lastError,
+      degraded: this.isDegraded, residency: cloneResidency(this.residency) };
   }
 
   // ── Synchronous in-process methods ──────────────────────────────────────────
@@ -286,7 +281,6 @@ export class ContextWorkerClient implements InstanceContextPort {
   }
 
   // ── Fire-and-forget methods ──────────────────────────────────────────────────
-
   ingestToRLM(instanceId: string, message: OutputMessage): void {
     this.postFireAndForget({
       type: 'ingest-rlm',
@@ -303,11 +297,29 @@ export class ContextWorkerClient implements InstanceContextPort {
     });
   }
 
+  recordTaskOutcome(taskId: string, success: boolean, score: number): void {
+    if (!taskId || !Number.isFinite(score)) return void this.metrics.dropped++;
+    this.postFireAndForget({ type: 'record-task-outcome', taskId, success, score });
+  }
+
   endRlmSession(instanceId: string): void {
     this.postFireAndForget({ type: 'end-rlm-session', instanceId });
   }
 
   // ── RPC methods ──────────────────────────────────────────────────────────────
+  async invokeRlm<TRequest extends RlmWorkerRequest>(request: TRequest): Promise<RlmWorkerResult<TRequest>> {
+    return invokeRlmWorkerRpc(
+      (message) => this.postRpc(message, 'reject'),
+      this.nextId(), request, this.rpcTimeoutMs,
+    );
+  }
+
+  async invokeUnifiedMemory<TRequest extends UnifiedMemoryWorkerRequest>(request: TRequest): Promise<UnifiedMemoryWorkerResult<TRequest>> {
+    return invokeUnifiedMemoryWorkerRpc(
+      (message) => this.postRpc(message, 'reject'),
+      this.nextId(), request, this.rpcTimeoutMs,
+    );
+  }
 
   async initializeRlm(instance: Instance): Promise<void> {
     instance.rlmStoreSessionId = instance.sessionId;
@@ -472,7 +484,6 @@ export class ContextWorkerClient implements InstanceContextPort {
   }
 
   // ── Lifecycle ────────────────────────────────────────────────────────────────
-
   beginShutdown(): void {
     if (this.shuttingDown) return;
     this.shuttingDown = true;
@@ -483,7 +494,7 @@ export class ContextWorkerClient implements InstanceContextPort {
 
   async shutdown(): Promise<void> {
     this.beginShutdown();
-    this.failAllPending(new Error('shutdown'));
+    this.rpcTracker.rejectAll(new Error('shutdown'));
     if (this.worker) {
       try {
         const id = this.nextId();
@@ -497,7 +508,6 @@ export class ContextWorkerClient implements InstanceContextPort {
   }
 
   // ── Private helpers ──────────────────────────────────────────────────────────
-
   private nextId(): number {
     return ++this.rpcId;
   }
@@ -514,6 +524,7 @@ export class ContextWorkerClient implements InstanceContextPort {
         }
       });
       this.worker = w;
+      this.residency = null;
       this.prewarmLifecycle.beginWorker();
       logger.info('Context worker started');
     } catch (err) {
@@ -525,15 +536,16 @@ export class ContextWorkerClient implements InstanceContextPort {
 
   private handleMessage(msg: ContextWorkerOutboundMsg, sourceWorker: ContextWorkerProcessHandle): void {
     if (sourceWorker !== this.worker) return;
-    // LT-169/170/206: re-emit on main's own singleton — see
-    // context-worker-event-forwarding.ts for the cross-process why.
+    // LT-169/170/206: dispatch process-local broadcasts in main. RLM events
+    // publish to the manager-independent relay; skill/wake behavior is kept.
     if (msg.type === 'skill-activation' || msg.type === 'worker-event') return void dispatchWorkerBroadcast(msg);
+    if (msg.type === 'worker-metrics') {
+      this.residency = cloneResidency(msg.residency);
+      return;
+    }
     if (msg.type === 'ready') return this.prewarmLifecycle.markWorkerReady();
     if (msg.type !== 'rpc-response') return;
-    const pending = this.pending.get(msg.id);
-    if (!pending) return;
-    clearTimeout(pending.timeout);
-    this.pending.delete(msg.id);
+    if (!this.rpcTracker.settle(msg.id, msg.result, msg.error)) return;
     this.metrics.processed++;
     // A successful response proves the (possibly just-restarted) worker is
     // healthy, so clear the consecutive-crash counter. This makes the restart
@@ -541,11 +553,6 @@ export class ContextWorkerClient implements InstanceContextPort {
     if (this.restartAttempts > 0) {
       this.restartAttempts = 0;
       logger.info('Context worker recovered after restart');
-    }
-    if (msg.error) {
-      pending.reject(new Error(msg.error));
-    } else {
-      pending.resolve(msg.result ?? null);
     }
   }
 
@@ -555,10 +562,11 @@ export class ContextWorkerClient implements InstanceContextPort {
   ): void {
     if (failedWorker && failedWorker !== this.worker) return;
     this.metrics.lastError = err.message;
-    this.failAllPending(err);
+    this.rpcTracker.rejectAll(err);
     this.cancelHotPrewarm();
     void failedWorker?.terminate().catch(() => undefined);
     this.worker = null;
+    this.residency = null;
     if (this.shuttingDown) {
       return;
     }
@@ -631,14 +639,6 @@ export class ContextWorkerClient implements InstanceContextPort {
     this.metrics.lastError = reason;
   }
 
-  private failAllPending(err: Error): void {
-    for (const [, pending] of this.pending) {
-      clearTimeout(pending.timeout);
-      pending.reject(err);
-    }
-    this.pending.clear();
-  }
-
   private postFireAndForget(
     msg: Exclude<ContextWorkerInboundMsg, RpcMsgWithId>,
   ): void {
@@ -660,30 +660,30 @@ export class ContextWorkerClient implements InstanceContextPort {
     }
   }
 
-  private postRpc(msg: RpcMsgWithId): Promise<unknown> {
-    if (!this.worker) {
-      return Promise.resolve(null);
-    }
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.pending.delete(msg.id);
-        this.metrics.dropped++;
-        resolve(null); // timeout → return null, never block the caller
-      }, this.rpcTimeoutMs);
-      this.pending.set(msg.id, { resolve, reject, timeout });
-      try {
-        this.worker!.postMessage(msg);
-      } catch {
-        clearTimeout(timeout);
-        this.pending.delete(msg.id);
-        resolve(null);
-      }
-    });
+  private postRpc(
+    msg: RpcMsgWithId,
+    timeoutMode: RpcTimeoutMode = 'resolve-null',
+  ): Promise<unknown> {
+    return this.rpcTracker.post(
+      this.worker,
+      msg,
+      this.rpcTimeoutMs,
+      timeoutMode,
+      () => this.metrics.dropped++,
+    );
   }
 }
 
+function cloneResidency(residency: WorkerMetricsMsg['residency'] | null): WorkerMetricsMsg['residency'] | null {
+  if (!residency) return null;
+  return {
+    ...residency,
+    counts: { ...residency.counts },
+    exhausted: { ...residency.exhausted },
+    ...(residency.lastAdmissionFailure ? { lastAdmissionFailure: { reason: residency.lastAdmissionFailure.reason } } : {}),
+  };
+}
 // ── Singleton ─────────────────────────────────────────────────────────────────
-
 let instance: ContextWorkerClient | null = null;
 
 export function getContextWorkerClient(

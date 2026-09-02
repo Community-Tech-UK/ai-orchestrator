@@ -4,13 +4,11 @@ import type {
   ProviderQuotaSnapshot,
 } from '../../shared/types/provider-quota.types';
 import type { ProviderLimitLedger } from '../core/system/provider-limit-ledger';
-import {
-  EARLY_RESUME_PROBE_MS,
-  snapshotShowsLimitLifted,
-} from '../instance/instance-provider-limit-handler';
+import { EARLY_RESUME_PROBE_MS } from '../instance/instance-provider-limit-handler';
 import { getLogger } from '../logging/logger';
 import {
   evaluateQuotaThrottle,
+  isParkingDecision,
   type QuotaThrottleDecision,
 } from './loop-quota-throttle';
 import type {
@@ -23,10 +21,15 @@ const logger = getLogger('LoopProviderLimitHandler');
 export class LoopProviderLimitHandler {
   private quotaSnapshotProvider: (provider: ProviderId) => ProviderQuotaSnapshot | null = () => null;
   private quotaSnapshotRefresher: ((provider: ProviderId) => Promise<ProviderQuotaSnapshot | null>) | null = null;
-  private allowOverage = false;
+  private allowOverageProvider: () => boolean = () => false;
   private providerLimitLedger: Pick<ProviderLimitLedger, 'record' | 'getActive' | 'clearActive'> | null = null;
   private resumeCancellers = new Map<string, () => void>();
   private providerLimitResumeScheduler: ProviderLimitResumeScheduler | null = null;
+  /**
+   * Loops whose next throttle evaluation is skipped because the user pressed
+   * Resume. See {@link overrideThrottleOnce}.
+   */
+  private throttleOverrides = new Set<string>();
 
   constructor(private readonly deps: {
     emit: (eventName: string, payload: unknown) => void;
@@ -44,8 +47,23 @@ export class LoopProviderLimitHandler {
     this.quotaSnapshotRefresher = fn;
   }
 
-  setAllowOverage(allow: boolean): void {
-    this.allowOverage = allow;
+  /**
+   * Pass a function for production wiring: the throttle is evaluated once per
+   * iteration, so reading the setting lazily keeps a mid-run toggle from being
+   * ignored until the next app start.
+   */
+  setAllowOverage(allow: boolean | (() => boolean)): void {
+    this.allowOverageProvider = typeof allow === 'function' ? allow : () => allow;
+  }
+
+  private get allowOverage(): boolean {
+    try {
+      return this.allowOverageProvider();
+    } catch {
+      // A settings read must never decide a loop's fate by throwing; the safe
+      // default is the conservative one (never ride paid overage).
+      return false;
+    }
   }
 
   setProviderLimitLedger(ledger: Pick<ProviderLimitLedger, 'record' | 'getActive' | 'clearActive'> | null): void {
@@ -84,14 +102,47 @@ export class LoopProviderLimitHandler {
     this.providerLimitResumeScheduler = scheduler;
   }
 
+  /**
+   * Drop everything armed for this loop's park: the scheduled auto-resume, the
+   * early-lift probe, and any unconsumed one-shot throttle override. Grouping
+   * them means no caller can disarm the timer while leaving an override behind
+   * for a later, unrelated iteration to spend against.
+   */
   clearResumeTimer(loopRunId: string): void {
+    this.throttleOverrides.delete(loopRunId);
     const cancel = this.resumeCancellers.get(loopRunId);
     if (!cancel) return;
     cancel();
     this.resumeCancellers.delete(loopRunId);
   }
 
+  /**
+   * Everything a user-initiated resume must override, in one call.
+   *
+   * A park has two independent gates and clearing only one leaves the button
+   * looking dead. The durable ledger row is re-read by the pre-flight's
+   * `maybeParkKnownProviderLimit`; the live quota snapshot is re-read by the
+   * throttle immediately after. Until this cleared both, a manual resume was
+   * undone 1-3 ms later by the same snapshot that parked the loop.
+   *
+   * The throttle override is deliberately one-shot: if the provider really is
+   * out of quota the next iteration fails and re-parks, so an override can
+   * never strand a loop spending against an exhausted window. Recorded reset
+   * times likewise go stale when the user buys quota or applies a reset
+   * credit, which is why the ledger clear is provider-wide.
+   */
+  applyManualResumeOverride(provider: ProviderId, loopRunId: string): void {
+    this.clearKnownLimitGate(provider, null);
+    this.throttleOverrides.add(loopRunId);
+  }
+
   evaluateLoopQuotaThrottle(state: LoopState): QuotaThrottleDecision {
+    if (this.throttleOverrides.delete(state.id)) {
+      logger.info('Quota throttle skipped for one iteration by manual resume', {
+        loopRunId: state.id,
+      });
+      return { action: 'continue' };
+    }
     let snapshot: ProviderQuotaSnapshot | null = null;
     try {
       snapshot = this.quotaSnapshotProvider(this.quotaIdForLoopProvider(state));
@@ -323,8 +374,30 @@ export class LoopProviderLimitHandler {
   }
 
   /**
+   * Whether a fresh snapshot would let the pre-iteration pre-flight actually
+   * spawn an iteration.
+   *
+   * This must be the exact inverse of the parking decision, which is why it
+   * calls the same evaluator rather than applying its own rule. The previous
+   * test (`snapshotShowsLimitLifted`: every window below 100%) disagreed with
+   * the throttle across the whole 90-100% band and on the overage guard
+   * entirely, so the probe resumed loops the pre-flight then re-parked
+   * milliseconds later — an endless 3-minute cycle in the logs.
+   *
+   * A missing, failed or empty snapshot proves nothing, so it holds the park;
+   * note this is the opposite of the throttle's own default, which lets a loop
+   * already running continue when the usage endpoint is flaky.
+   */
+  private snapshotAllowsResume(snapshot: ProviderQuotaSnapshot | null): boolean {
+    if (!snapshot || !snapshot.ok || snapshot.windows.length === 0) return false;
+    return !isParkingDecision(
+      evaluateQuotaThrottle(snapshot, { allowOverage: this.allowOverage }),
+    );
+  }
+
+  /**
    * While parked on a provider limit, periodically re-probe the live quota and
-   * resume as soon as a fresh snapshot shows headroom on every window — the
+   * resume as soon as a fresh snapshot would let an iteration run — the
    * recorded resumeAt then acts only as a fallback ceiling. Mirrors the
    * regular-session probe in instance-provider-limit-handler.ts: skips once
    * the scheduled resume is imminent, never overlaps requests, and treats
@@ -343,7 +416,7 @@ export class LoopProviderLimitHandler {
       inFlight = true;
       void refresher(provider)
         .then((snapshot) => {
-          if (!this.resumeCancellers.has(loopRunId) || !snapshotShowsLimitLifted(snapshot)) return;
+          if (!this.resumeCancellers.has(loopRunId) || !this.snapshotAllowsResume(snapshot)) return;
           logger.info('Loop provider limit lifted early per fresh quota probe; resuming now', {
             loopRunId,
             provider,

@@ -118,6 +118,7 @@ async function buildInitialRuntimeContextBlock(
       query: prompt,
       maxTokens: 900,
       topK: 5,
+      storeLookupDeadlineMs: CREATE_ENRICHER_DEADLINE_MS,
     });
     const indexedBlock = service.formatContextBlock(indexedContext);
     if (indexedBlock) {

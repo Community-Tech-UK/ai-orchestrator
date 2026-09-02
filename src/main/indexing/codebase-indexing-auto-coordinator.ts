@@ -34,12 +34,14 @@ import type {
 } from '../../shared/types/codebase.types';
 import type { ContextStore } from '../../shared/types/rlm.types';
 import { DEFAULT_INDEXING_CONFIG, shouldIncludeFile } from './config';
+import { disposeAutoIndexWatcherRegistrations } from './auto-index-watcher-registration-disposal';
 import type {
   AutoIndexContextManagerTarget,
   AutoIndexFileWatcherTarget,
   AutoIndexingTarget,
   AutoIndexProjectRegistryTarget,
   AutoIndexSettingsTarget,
+  AutoIndexWatcherRegistration,
   CodebaseAutoStatusEvent,
   CodebaseAutoStatusPartial,
   CodebaseIndexingAutoCoordinatorOptions,
@@ -52,6 +54,7 @@ export type {
   AutoIndexingTarget,
   AutoIndexProjectRegistryTarget,
   AutoIndexSettingsTarget,
+  AutoIndexWatcherRegistration,
   CodebaseAutoStatusEvent,
   CodebaseIndexingAutoCoordinatorOptions,
   PreflightResult,
@@ -63,6 +66,7 @@ const DEFAULT_MAX_FILES = 3_000;
 const DEFAULT_MAX_BYTES = 150 * 1024 * 1024;
 const DEFAULT_MAX_CONCURRENT = 1;
 const DEFAULT_DEBOUNCE_MS = 15_000;
+const SECTION_FILTER_PAGE_SIZE = 256;
 
 interface QueueEntry {
   rootPath: string;
@@ -77,6 +81,12 @@ export class CodebaseIndexingAutoCoordinator extends EventEmitter {
   private readonly statuses = new Map<string, CodebaseAutoIndexStatus>();
   private listenerBound: ((entry: RecentDirectoryEntry) => void) | null = null;
   private started = false;
+  private restoreGeneration = 0;
+  private readonly restoreWatcherRegistrations = new Map<
+    number,
+    Set<AutoIndexWatcherRegistration>
+  >();
+  private readonly restoreWatcherDisposals = new Set<AutoIndexWatcherRegistration>();
   private recentDirsManager: EventEmitter | null = null;
 
   private readonly indexingService: AutoIndexingTarget;
@@ -113,13 +123,17 @@ export class CodebaseIndexingAutoCoordinator extends EventEmitter {
     this.listenerBound = (entry: RecentDirectoryEntry) => this.onDirectoryAdded(entry);
     manager.on('directory-added', this.listenerBound);
     this.started = true;
-    void this.restorePersistedWatchers();
+    const generation = ++this.restoreGeneration;
+    void this.restorePersistedWatchers(generation);
     logger.info('CodebaseIndexingAutoCoordinator started');
   }
 
   /** Detach the listener and clear pending debounce timers. */
   stop(): void {
-    if (!this.started) return;
+    if (!this.started) {
+      this.disposeRestoreWatcherRegistrations();
+      return;
+    }
     if (this.recentDirsManager && this.listenerBound) {
       this.recentDirsManager.off('directory-added', this.listenerBound);
     }
@@ -130,6 +144,8 @@ export class CodebaseIndexingAutoCoordinator extends EventEmitter {
     }
     this.debounceTimers.clear();
     this.started = false;
+    this.restoreGeneration += 1;
+    this.disposeRestoreWatcherRegistrations();
     logger.info('CodebaseIndexingAutoCoordinator stopped');
   }
 
@@ -190,9 +206,7 @@ export class CodebaseIndexingAutoCoordinator extends EventEmitter {
 
   /** Test seam — wipe state so each test starts clean. */
   _resetForTesting(): void {
-    if (this.started) {
-      this.stop();
-    }
+    this.stop();
     for (const timer of this.debounceTimers.values()) {
       clearTimeout(timer);
     }
@@ -250,12 +264,23 @@ export class CodebaseIndexingAutoCoordinator extends EventEmitter {
     this.scheduleDebounce(normalized);
   }
 
-  private async restorePersistedWatchers(): Promise<void> {
+  private async restorePersistedWatchers(generation: number): Promise<void> {
     if (!this.isEnabled()) {
       return;
     }
-    const stores = this.contextManager.listStores?.() ?? [];
+    let stores: ContextStore[];
+    try {
+      stores = await this.contextManager.listStores?.() ?? [];
+    } catch (error) {
+      if (!this.isCurrentRestore(generation)) return;
+      logger.warn('Failed to discover persisted codebase stores from context worker', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+    if (!this.isCurrentRestore(generation)) return;
     for (const store of stores) {
+      if (!this.isCurrentRestore(generation)) return;
       const config = store.config;
       if (config?.['kind'] !== 'codebase-auto') {
         continue;
@@ -277,12 +302,19 @@ export class CodebaseIndexingAutoCoordinator extends EventEmitter {
         continue;
       }
       try {
-        await this.fileWatcher.startWatching(store.id, normalized);
+        const registration = await this.fileWatcher.startWatching(store.id, normalized);
+        this.trackRestoreWatcherRegistration(generation, registration);
+        if (!this.isCurrentRestore(generation)) {
+          this.disposeRestoreWatcherRegistrations(generation);
+          return;
+        }
         this.recordStatus(normalized, {
           state: 'complete',
           storeId: store.id,
         });
-        if (this.storeNeedsReindexForCurrentFilters(store)) {
+        const needsRepair = await this.storeNeedsReindexForCurrentFilters(store, generation);
+        if (!this.isCurrentRestore(generation)) return;
+        if (needsRepair) {
           logger.info('Persisted codebase store contains stale excluded sections; scheduling repair reindex', {
             rootPath: normalized,
             storeId: store.id,
@@ -290,6 +322,7 @@ export class CodebaseIndexingAutoCoordinator extends EventEmitter {
           this.enqueue(normalized);
         }
       } catch (error) {
+        if (!this.isCurrentRestore(generation)) return;
         logger.warn('Failed to restore codebase file watcher', {
           rootPath: normalized,
           storeId: store.id,
@@ -395,7 +428,7 @@ export class CodebaseIndexingAutoCoordinator extends EventEmitter {
     // `instanceId`, so repeated calls per workspace return the same store.
     let resolvedStoreId = storeId;
     try {
-      const store = this.contextManager.createStore(storeId, {
+      const store = await this.contextManager.createStore(storeId, {
         kind: 'codebase-auto',
         rootPath,
       });
@@ -591,12 +624,55 @@ export class CodebaseIndexingAutoCoordinator extends EventEmitter {
     }
   }
 
-  private storeNeedsReindexForCurrentFilters(store: ContextStore): boolean {
-    return store.sections.some((section) => (
-      section.type === 'file'
-      && typeof section.filePath === 'string'
-      && !shouldIncludeFile(section.filePath, DEFAULT_INDEXING_CONFIG)
-    ));
+  private async storeNeedsReindexForCurrentFilters(
+    store: ContextStore,
+    generation: number,
+  ): Promise<boolean> {
+    const sectionCount = store.config?.['ipcSectionCount'];
+    if (
+      typeof sectionCount !== 'number'
+      || !Number.isSafeInteger(sectionCount)
+      || sectionCount <= 0
+      || !this.contextManager.listSectionFilterMetadata
+    ) return false;
+    for (let offset = 0; offset < sectionCount; offset += SECTION_FILTER_PAGE_SIZE) {
+      const limit = Math.min(SECTION_FILTER_PAGE_SIZE, sectionCount - offset);
+      const page = await this.contextManager.listSectionFilterMetadata(store.id, offset, limit);
+      if (!this.isCurrentRestore(generation)) return false;
+      if (page.sections.some((section) => (
+        section.type === 'file'
+        && typeof section.filePath === 'string'
+        && !shouldIncludeFile(section.filePath, DEFAULT_INDEXING_CONFIG)
+      ))) return true;
+    }
+    return false;
+  }
+
+  private isCurrentRestore(generation: number): boolean {
+    return this.started && generation === this.restoreGeneration;
+  }
+
+  private trackRestoreWatcherRegistration(
+    generation: number,
+    registration: AutoIndexWatcherRegistration,
+  ): void {
+    const registrations = this.restoreWatcherRegistrations.get(generation)
+      ?? new Set<AutoIndexWatcherRegistration>();
+    registrations.add(registration);
+    this.restoreWatcherRegistrations.set(generation, registrations);
+  }
+
+  private disposeRestoreWatcherRegistrations(generation?: number): void {
+    disposeAutoIndexWatcherRegistrations(
+      this.restoreWatcherRegistrations,
+      this.restoreWatcherDisposals,
+      (error: unknown) => {
+        logger.warn('Failed to dispose restored codebase file watcher', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      },
+      generation,
+    );
   }
 }
 

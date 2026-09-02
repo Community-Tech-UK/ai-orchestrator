@@ -1,5 +1,4 @@
 /** Persistent RLM coordinator delegating storage, search, sessions, and analytics. */
-
 import { EventEmitter } from 'events';
 import { getLogger } from '../logging/logger';
 import type {
@@ -17,13 +16,17 @@ import { VectorStore, getVectorStore } from './vector-store';
 import { LLMService, getLLMService } from './llm-service';
 import { HyDEService, getHyDEService } from './hyde-service';
 import {
+  buildRlmLoadSummary,
   loadPersistedContextState,
   type RlmStoreHydrationState,
 } from './context-persistence-loader';
 import {
   ContextResidencyController,
+  RlmHydrationError,
   type RlmResidencyStats,
 } from './context-residency-controller';
+import { SemanticVectorDeltaRepair, type SemanticVectorDeltaResult } from './semantic-vector-delta-repair';
+import { listSectionFilterMetadataPage, type ContextSectionFilterMetadataPage } from './context-section-filter-metadata';
 import type {
   ExportedStore,
   ImportStoreOptions,
@@ -68,11 +71,9 @@ export class RLMContextManager extends EventEmitter {
   private llmService: LLMService | null = null;
   private hydeService: HyDEService | null = null;
   private residencyController: ContextResidencyController | null = null;
+  private semanticVectorDeltaRepair: SemanticVectorDeltaRepair | null = null;
+  private observabilityGeneration = 0;
   private persistenceEnabled = true;
-  /** Deduplicates lazy semantic indexing; failed attempts are removed for retry. */
-  private pendingSemanticIndexing = new Map<string, Promise<{ indexed: number; skipped: number }>>();
-  private semanticGeneration = 0;
-  private semanticReloadBarrier: Promise<void> = Promise.resolve();
   private defaultConfig: RLMConfig = {
     maxSectionTokens: 8000,
     summaryThreshold: 50000,
@@ -89,7 +90,6 @@ export class RLMContextManager extends EventEmitter {
     }
     return this.instance;
   }
-
   static _resetForTesting(): void {
     this.instance?.cancelHotPrewarm();
     this.instance = null;
@@ -109,7 +109,6 @@ export class RLMContextManager extends EventEmitter {
       tokenEstimator: this.estimateTokens.bind(this)
     };
   }
-
   private getSessionDeps(): SessionDependencies {
     return {
       db: this.db,
@@ -138,6 +137,17 @@ export class RLMContextManager extends EventEmitter {
     try {
       this.db = getRLMDatabase();
       this.vectorStore = getVectorStore();
+      this.semanticVectorDeltaRepair = new SemanticVectorDeltaRepair(
+        this.db,
+        this.vectorStore,
+        {
+          onSummary: (summary, generation) => {
+            if (generation === this.observabilityGeneration) {
+              this.residencyController?.accountSemanticDelta(summary);
+            }
+          },
+        },
+      );
       this.llmService = getLLMService();
       this.hydeService = getHyDEService();
       this.loadFromPersistence();
@@ -149,7 +159,6 @@ export class RLMContextManager extends EventEmitter {
       this.emit('persistence:initialized', { success: false, error });
     }
   }
-
   private setupLLMHandlers(): void {
     if (!this.llmService) return;
 
@@ -212,7 +221,6 @@ export class RLMContextManager extends EventEmitter {
 
   private loadFromPersistence(): void {
     if (!this.db) return;
-
     const persisted = loadPersistedContextState(this.db);
     this.stores = persisted.stores;
     this.sessions = persisted.sessions;
@@ -222,8 +230,9 @@ export class RLMContextManager extends EventEmitter {
       sessions: this.sessions,
       hydrationStates: persisted.hydrationStates,
       loadStats: persisted.loadStats,
+      onStatsChanged: (stats) => this.emit('residency:stats', stats),
     });
-
+    logger.info('RLM persistence load summary', { ...buildRlmLoadSummary(persisted.loadStats) });
     this.emit('persistence:loaded', {
       storeCount: persisted.loadedStores,
       sectionCount:
@@ -243,13 +252,11 @@ export class RLMContextManager extends EventEmitter {
   getResidencyStats(): Readonly<RlmResidencyStats> | null {
     return this.residencyController?.getStats() ?? null;
   }
-
   getStoreHydrationState(
     storeId: string
   ): Readonly<RlmStoreHydrationState> | undefined {
     return this.residencyController?.getHydrationState(storeId);
   }
-
   startHotPrewarm(): boolean { return this.residencyController?.startHotPrewarm() ?? false; }
   cancelHotPrewarm(): boolean { return this.residencyController?.cancelHotPrewarm() ?? false; }
 
@@ -277,10 +284,8 @@ export class RLMContextManager extends EventEmitter {
   ): ContextSection {
     const store = this.stores.get(storeId);
     if (!store) throw new Error(`Store not found: ${storeId}`);
-
     this.residencyController?.requireContent(storeId);
     const previousSectionCount = store.sections.length;
-
     const section = addSectionOp(
       store,
       type,
@@ -289,7 +294,6 @@ export class RLMContextManager extends EventEmitter {
       metadata,
       this.getStorageDeps()
     );
-
     this.residencyController?.accountSectionsAdded(
       storeId,
       store.sections.slice(previousSectionCount),
@@ -351,7 +355,11 @@ export class RLMContextManager extends EventEmitter {
     const store = this.stores.get(session.storeId);
     if (!store) throw new Error(`Store not found: ${session.storeId}`);
 
-    this.residencyController?.requireContent(store.id);
+    if (query.type === 'semantic_search') {
+      this.residencyController?.requireMetadata(store.id);
+    } else {
+      this.residencyController?.requireContent(store.id);
+    }
 
     store.lastAccessed = Date.now();
     store.accessCount++;
@@ -363,13 +371,33 @@ export class RLMContextManager extends EventEmitter {
       await this.ensureStoreIndexedForSemanticSearch(store.id);
     }
 
-    const queryResult = await executeQueryOp(
+    let queryResult = await executeQueryOp(
       session,
       store,
       query,
       depth,
       this.getQueryEngineDeps()
     );
+
+    // Vector matches need section metadata but not resident payloads. If the
+    // semantic engine produced no mapped hit, hydrate only then and rerun so
+    // its lexical fallback preserves the existing query contract.
+    const residency = this.residencyController;
+    if (
+      query.type === 'semantic_search'
+      && queryResult.sectionsAccessed.length === 0
+      && residency
+      && residency.getHydrationState(store.id)?.content !== 'resident'
+    ) {
+      residency.requireContent(store.id);
+      queryResult = await executeQueryOp(
+        session,
+        store,
+        query,
+        depth,
+        this.getQueryEngineDeps()
+      );
+    }
 
     updateSessionTokens(session, queryResult.tokensUsed, depth);
     session.queries.push(queryResult);
@@ -510,6 +538,10 @@ export class RLMContextManager extends EventEmitter {
     return store.sections;
   }
 
+  listSectionFilterMetadata(storeId: string, offset: number, limit: number): ContextSectionFilterMetadataPage {
+    return listSectionFilterMetadataPage(this.stores.get(storeId), this.db, this.persistenceEnabled, offset, limit);
+  }
+
   removeSection(storeId: string, sectionId: string): boolean {
     const store = this.stores.get(storeId);
     if (!store) return false;
@@ -527,16 +559,10 @@ export class RLMContextManager extends EventEmitter {
 
   reloadFromPersistence(): void {
     this.cancelHotPrewarm();
-    const pending = [...this.pendingSemanticIndexing.values()];
-    this.semanticGeneration += 1;
-    if (pending.length > 0) {
-      this.semanticReloadBarrier = Promise
-        .allSettled([this.semanticReloadBarrier, ...pending])
-        .then(() => undefined);
-    }
+    this.observabilityGeneration += 1;
+    this.semanticVectorDeltaRepair?.invalidateForReload();
     this.residencyController?.clear();
     this.residencyController = null;
-    this.pendingSemanticIndexing.clear();
     this.stores.clear();
     this.sessions.clear();
     this.loadFromPersistence();
@@ -552,52 +578,30 @@ export class RLMContextManager extends EventEmitter {
 
   async indexStoreForSemanticSearch(
     storeId: string
-  ): Promise<{ indexed: number; skipped: number } | null> {
-    if (!this.vectorStore) return null;
-
-    const store = this.stores.get(storeId);
-    if (!store) return null;
-
-    this.residencyController?.requireContent(storeId);
-
-    const sections = store.sections
-      .filter((s) => s.depth === 0)
-      .map((s) => ({ id: s.id, content: s.content }));
-    const generation = this.semanticGeneration;
-    const indexedSectionIds = new Set(
-      this.db?.getVectors(storeId).map((vector) => vector.section_id) ?? [],
-    );
-    const newlyIndexedSectionIds = sections
-      .filter((section) => !indexedSectionIds.has(section.id))
-      .map((section) => section.id);
-    const result = await this.vectorStore.indexStore(storeId, sections);
-    if (generation !== this.semanticGeneration) {
-      for (const sectionId of newlyIndexedSectionIds) this.vectorStore.removeSection(sectionId);
-      return { indexed: 0, skipped: sections.length };
+  ): Promise<SemanticVectorDeltaResult | null> {
+    if (!this.semanticVectorDeltaRepair || !this.stores.has(storeId)) return null;
+    const hydration = this.residencyController?.getHydrationState(storeId);
+    if (hydration && !hydration.contentEligible) {
+      throw new RlmHydrationError(storeId, 'content-ineligible');
     }
-    return result;
+    return this.semanticVectorDeltaRepair.repairStore(storeId);
   }
 
   isSemanticSearchAvailable(): boolean {
     return this.vectorStore !== null;
   }
 
-  /** Lazily index a store once; callers fall back when no vector store exists. */
+  /** Repair durable vector gaps before semantic search; concurrent calls deduplicate. */
   private ensureStoreIndexedForSemanticSearch(
     storeId: string
-  ): Promise<{ indexed: number; skipped: number }> | null {
-    if (!this.vectorStore) return null;
+  ): Promise<SemanticVectorDeltaResult> | null {
+    if (!this.semanticVectorDeltaRepair) return null;
 
-    const cached = this.pendingSemanticIndexing.get(storeId);
-    if (cached) return cached;
-
-    const indexing = this.semanticReloadBarrier
-      .then(() => this.indexStoreForSemanticSearch(storeId))
+    return this.indexStoreForSemanticSearch(storeId)
       .then((result) => {
-        const outcome = result ?? { indexed: 0, skipped: 0 };
+        const outcome = result ?? { missing: 0, indexed: 0, skipped: 0, failed: 0, retried: 0 };
         if (outcome.indexed > 0) {
           logger.info('Lazily indexed context store for semantic_search (LT-055)', {
-            storeId,
             indexed: outcome.indexed,
             skipped: outcome.skipped,
           });
@@ -605,18 +609,12 @@ export class RLMContextManager extends EventEmitter {
         return outcome;
       })
       .catch((error: unknown) => {
-        // Evict failures so the next query can retry and this one can fall back.
-        if (this.pendingSemanticIndexing.get(storeId) === indexing)
-          this.pendingSemanticIndexing.delete(storeId);
         logger.warn('Lazy semantic-search indexing failed; this query will fall back to keyword search', {
-          storeId,
-          error: error instanceof Error ? error.message : String(error),
+          failed: 1,
         });
-        return { indexed: 0, skipped: 0 };
+        void error;
+        return { missing: 0, indexed: 0, skipped: 0, failed: 0, retried: 0 };
       });
-
-    this.pendingSemanticIndexing.set(storeId, indexing);
-    return indexing;
   }
 
   async isLLMAvailable(): Promise<boolean> {
@@ -654,7 +652,9 @@ export class RLMContextManager extends EventEmitter {
   }
 
   getStorageStats(): StorageStats {
-    return this.residencyController?.getStorageStats() ?? getStorageStatsOp(this.stores);
+    const storage = this.residencyController?.getStorageStats() ?? getStorageStatsOp(this.stores);
+    const residency = this.getResidencyStats();
+    return residency ? { ...storage, residency } : storage;
   }
 
   exportStore(storeId: string): ExportedStore | null {

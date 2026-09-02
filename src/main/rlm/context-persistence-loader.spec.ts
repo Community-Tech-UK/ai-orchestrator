@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  buildRlmLoadSummary,
+  DEFAULT_RLM_RESIDENCY_POLICY,
   loadPersistedContextState,
   selectHotStoreCandidates,
 } from './context-persistence-loader';
@@ -104,6 +106,39 @@ class ReadonlyMapWrapper<Key, Value> implements ReadonlyMap<Key, Value> {
 }
 
 describe('loadPersistedContextState', () => {
+  it('preserves every hot and semantic counter in the full load snapshot', () => {
+    const db = {
+      listStores: () => [],
+      getSectionCountsByStore: () => [],
+      listSessions: () => [],
+    } as unknown as RLMDatabase;
+    const state = loadPersistedContextState(db);
+
+    expect(buildRlmLoadSummary({
+      ...state.loadStats,
+      hotCandidates: 5,
+      hotAdmitted: 4,
+      hotSkipped: 1,
+      hotCancelled: 2,
+      semanticDiscovered: 9,
+      semanticIndexed: 6,
+      semanticSkipped: 1,
+      semanticFailed: 2,
+      semanticRetried: 3,
+    })).toMatchObject({
+      processRole: 'context-worker',
+      hotCandidates: 5,
+      hotAdmitted: 4,
+      hotSkipped: 1,
+      hotCancelled: 2,
+      semanticDiscovered: 9,
+      semanticIndexed: 6,
+      semanticSkipped: 1,
+      semanticFailed: 2,
+      semanticRetried: 3,
+    });
+  });
+
   it('returns an empty deferred state for an empty database', () => {
     const db = {
       listStores: () => [],
@@ -260,6 +295,34 @@ describe('loadPersistedContextState', () => {
     });
     expect(state.hydrationStates.get('one-over-limit')).toMatchObject({
       sectionCount: 5_001,
+      contentEligible: false,
+    });
+  });
+
+  it('uses an injected per-store section limit at the exact boundary and one over', () => {
+    const db = {
+      listStores: () => [
+        storeRow({ id: 'exact-injected-limit' }),
+        storeRow({ id: 'over-injected-limit', instance_id: 'instance-2' }),
+      ],
+      getSectionCountsByStore: () => [
+        { store_id: 'exact-injected-limit', section_count: 2 },
+        { store_id: 'over-injected-limit', section_count: 3 },
+      ],
+      listSessions: () => [],
+    } as unknown as RLMDatabase;
+
+    const state = loadPersistedContextState(db, {
+      ...DEFAULT_RLM_RESIDENCY_POLICY,
+      maxSectionsPerStore: 2,
+    });
+
+    expect(state.hydrationStates.get('exact-injected-limit')).toMatchObject({
+      sectionCount: 2,
+      contentEligible: true,
+    });
+    expect(state.hydrationStates.get('over-injected-limit')).toMatchObject({
+      sectionCount: 3,
       contentEligible: false,
     });
   });

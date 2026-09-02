@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import {
   computeProviderTokenCost,
   computeTokenCost,
+  getCacheReadMultiplier,
   getCacheWriteMultiplier,
   getModelRate,
   getProviderModelRate,
@@ -47,6 +48,18 @@ describe('getCacheWriteMultiplier', () => {
     const rate = MODEL_PRICING[OPENAI_MODELS.GPT56_TERRA];
     const cost = computeTokenCost(OPENAI_MODELS.GPT56_TERRA, { cacheWriteTokens: 1_000_000 });
     expect(cost).toBeCloseTo(rate.input * 1.25, 6);
+  });
+});
+
+describe('getCacheReadMultiplier', () => {
+  it('bills Fable 5.1 cache reads at 2.5% of the input rate', () => {
+    expect(getCacheReadMultiplier('claude-fable-5-1')).toBe(0.025);
+    expect(getCacheReadMultiplier('claude-fable-5')).toBe(0.1);
+    expect(getCacheReadMultiplier(CLAUDE_MODELS.OPUS)).toBe(0.1);
+
+    expect(
+      computeTokenCost('claude-fable-5-1', { cacheReadTokens: 1_000_000 }),
+    ).toBeCloseTo(0.25, 6);
   });
 });
 
@@ -103,11 +116,11 @@ describe('computeTokenCost', () => {
     expect(hasModelRate(CLAUDE_MODELS.OPUS)).toBe(true);
   });
 
-  it('prices Claude Fable 5 at the documented Anthropic API rate', () => {
-    expect(hasModelRate('claude-fable-5')).toBe(true);
-    expect(getModelRate('claude-fable-5')).toEqual({ input: 10.0, output: 50.0 });
+  it('prices Claude Fable 5.1 at the documented Anthropic API rate', () => {
+    expect(hasModelRate('claude-fable-5-1')).toBe(true);
+    expect(getModelRate('claude-fable-5-1')).toEqual({ input: 10.0, output: 50.0 });
     expect(
-      computeTokenCost('claude-fable-5', {
+      computeTokenCost('claude-fable-5-1', {
         inputTokens: 1_000_000,
         outputTokens: 1_000_000,
       }),

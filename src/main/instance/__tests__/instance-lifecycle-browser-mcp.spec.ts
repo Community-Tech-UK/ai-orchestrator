@@ -79,6 +79,8 @@ vi.mock('../../browser-gateway', () => ({
   createBrowserMcpTools: browserGatewayMocks.createBrowserMcpTools,
   createDeferredBrowserMcpTools: browserGatewayMocks.createDeferredBrowserMcpTools,
   measureToolSchemaBytes: browserGatewayMocks.measureToolSchemaBytes,
+  supportsDeferredBrowserGatewayTools: (provider?: string) =>
+    provider !== 'codex' && provider !== 'cursor',
 }));
 
 vi.mock('../../desktop-gateway', () => ({
@@ -163,6 +165,26 @@ describe('SpawnConfigBuilder — Browser Gateway MCP config', () => {
     expect(loggerMocks.info).toHaveBeenCalledWith(
       'Browser gateway tool schemas injected eagerly',
       expect.objectContaining({ instanceId: 'instance-codex' }),
+    );
+    expect(loggerMocks.info).not.toHaveBeenCalledWith(
+      'Browser gateway tool schemas deferred',
+      expect.anything(),
+    );
+  });
+
+  it('reports and configures the actual eager Browser Gateway surface for Cursor', () => {
+    const builder = makeBuilder({ browserMcpToolDeferral: true });
+
+    const options = builder.getBrowserGatewayMcpOptions(
+      { type: 'local' },
+      'instance-cursor',
+      'cursor',
+    );
+
+    expect(options).not.toHaveProperty('toolDeferral');
+    expect(loggerMocks.info).toHaveBeenCalledWith(
+      'Browser gateway tool schemas injected eagerly',
+      expect.objectContaining({ instanceId: 'instance-cursor' }),
     );
     expect(loggerMocks.info).not.toHaveBeenCalledWith(
       'Browser gateway tool schemas deferred',

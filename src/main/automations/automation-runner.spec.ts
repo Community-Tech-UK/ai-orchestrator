@@ -301,6 +301,50 @@ describe('AutomationRunner thread wakeups', () => {
     );
   });
 
+  it('keeps the snapshotted automation name as the authoritative session title', async () => {
+    const automation = makeAutomation({ destination: { kind: 'newInstance' } });
+    const run = makeRun();
+    run.configSnapshot = {
+      ...run.configSnapshot!,
+      name: 'Spark August MI filing',
+      destination: { kind: 'newInstance' },
+    };
+    vi.mocked(store.get).mockResolvedValue(automation);
+    vi.mocked(store.decideAndInsertRun).mockReturnValue({ kind: 'started', run });
+    manager.createInstance.mockResolvedValue({ id: 'instance-named', outputBuffer: [], status: 'working' });
+
+    const runner = new AutomationRunner(store, undefined, () => 2_000, threadWakeupFactory);
+    runner.initialize(manager);
+
+    await runner.fire('automation-1', { trigger: 'scheduled', scheduledAt: 2_000 });
+
+    expect(manager.createInstance).toHaveBeenCalledWith(expect.objectContaining({
+      displayName: 'Spark August MI filing',
+      isRenamed: true,
+    }));
+  });
+
+  it('keeps the snapshotted automation name first in retry session titles', async () => {
+    const retryRun = makeRun();
+    retryRun.attempt = 2;
+    retryRun.configSnapshot = {
+      ...retryRun.configSnapshot!,
+      name: 'Merseytravel ProContract PME',
+      destination: { kind: 'newInstance' },
+    };
+    manager.createInstance.mockResolvedValue({ id: 'instance-retry-named', outputBuffer: [], status: 'working' });
+
+    const runner = new AutomationRunner(store, undefined, () => 2_000, threadWakeupFactory);
+    runner.initialize(manager);
+
+    await runner.dispatchRetryRun(retryRun);
+
+    expect(manager.createInstance).toHaveBeenCalledWith(expect.objectContaining({
+      displayName: 'Merseytravel ProContract PME (retry 2)',
+      isRenamed: true,
+    }));
+  });
+
   it('applies the dedicated automation-default model when the automation is Auto', async () => {
     const automation = makeAutomation({
       destination: { kind: 'newInstance' },

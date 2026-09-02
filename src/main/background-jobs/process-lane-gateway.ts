@@ -6,13 +6,11 @@ import type {
   BackgroundJobLane,
   BackgroundJobRecord,
   LaneInboundMessage,
-  LaneOutboundMessage,
-} from './types';
-import type { LaneGateway } from './lane-gateway';
-import type {
   LaneGatewayMetrics,
+  LaneOutboundMessage,
   LaneProgressEvent,
 } from './types';
+import type { LaneGateway } from './lane-gateway';
 
 type LaneProcessOutboundMessage =
   | LaneOutboundMessage
@@ -37,6 +35,14 @@ interface ProcessStartWaiter {
   reject: (error: Error) => void;
 }
 
+interface TransientJobRequest {
+  job: BackgroundJobRecord;
+  payload: unknown;
+  cancelled: boolean;
+  resolve: (value: unknown) => void;
+  reject: (error: Error) => void;
+}
+
 export interface ProcessLaneGatewayOptions {
   lane: BackgroundJobLane;
   entrypoint: string;
@@ -45,6 +51,7 @@ export interface ProcessLaneGatewayOptions {
   restartBackoffMs?: number;
   maxRestarts?: number;
   shutdownTimeoutMs?: number;
+  transient?: boolean;
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
@@ -54,18 +61,25 @@ const DEFAULT_SHUTDOWN_TIMEOUT_MS = 5_000;
 
 export class ProcessLaneGateway extends EventEmitter implements LaneGateway {
   readonly lane: BackgroundJobLane;
-
   private readonly entrypoint: string;
   private readonly processFactory?: () => LaneProcessHandle;
   private readonly requestTimeoutMs: number;
   private readonly restartBackoffMs: number;
   private readonly maxRestarts: number;
   private readonly shutdownTimeoutMs: number;
+  private readonly transient: boolean;
   private processHandle: LaneProcessHandle | null = null;
   private readonly stoppingHandles = new WeakSet<LaneProcessHandle>();
   private readonly crashedHandles = new WeakSet<LaneProcessHandle>();
+  private readonly exitedHandles = new WeakSet<LaneProcessHandle>();
+  private transientShutdown: Promise<void> | null = null;
+  private readonly transientJobQueue: TransientJobRequest[] = [];
+  private activeTransientJobRequest: TransientJobRequest | null = null;
+  private drainingTransientJobQueue = false;
   private restartTimer: NodeJS.Timeout | null = null;
+  private transientRestartRequest: TransientJobRequest | null = null;
   private stopped = false;
+  private lifecycleGeneration = 0;
   private pending = new Map<string, PendingRequest>();
   private processStartWaiters: ProcessStartWaiter[] = [];
   private metrics = {
@@ -86,19 +100,27 @@ export class ProcessLaneGateway extends EventEmitter implements LaneGateway {
     this.restartBackoffMs = options.restartBackoffMs ?? DEFAULT_RESTART_BACKOFF_MS;
     this.maxRestarts = options.maxRestarts ?? DEFAULT_MAX_RESTARTS;
     this.shutdownTimeoutMs = options.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS;
+    this.transient = options.transient === true;
   }
 
   async start(): Promise<void> {
-    if (this.processHandle) return;
+    const generation = ++this.lifecycleGeneration;
     this.stopped = false;
+    if (this.transient) return;
+    if (this.transientShutdown) await this.transientShutdown;
+    if (this.stopped || this.lifecycleGeneration !== generation) return;
+    if (this.processHandle) return;
     if (this.restartTimer) return;
-    this.startProcess();
+    this.startProcess(false);
   }
 
   async stop(): Promise<void> {
     this.stopped = true;
+    this.lifecycleGeneration++;
     this.clearRestartTimer();
+    this.rejectTransientJobQueue(new Error(`Lane ${this.lane} is stopped`));
     this.rejectProcessStartWaiters(new Error(`Lane ${this.lane} stopped before it became available`));
+    if (this.transientShutdown) await this.transientShutdown;
     if (!this.processHandle) {
       if (this.pending.size > 0) {
         this.failAllPending(new Error(`Lane ${this.lane} stopped before completing pending jobs`));
@@ -107,27 +129,59 @@ export class ProcessLaneGateway extends EventEmitter implements LaneGateway {
     }
     const handle = this.processHandle;
     this.stoppingHandles.add(handle);
-    this.sendMessage({ type: 'shutdown' });
-    this.processHandle = null;
+    this.sendMessageToHandle(handle, { type: 'shutdown' });
     await this.waitForExitBeforeTermination(handle);
+    if (this.processHandle === handle) {
+      this.processHandle = null;
+    }
   }
 
   async runJob(job: BackgroundJobRecord, payload: unknown): Promise<unknown> {
-    if (!this.processHandle) {
-      await this.start();
+    if (this.transient) {
+      if (this.stopped) throw new Error(`Lane ${this.lane} is stopped`);
+      return new Promise((resolve, reject) => {
+        this.transientJobQueue.push({ job, payload, cancelled: false, resolve, reject });
+        void this.drainTransientJobQueue();
+      });
     }
+
+    return this.runJobOnActiveHandle(job, payload, true, this.lifecycleGeneration);
+  }
+
+  private async runJobOnActiveHandle(
+    job: BackgroundJobRecord,
+    payload: unknown,
+    explicitlyStart: boolean,
+    generation: number,
+    transientRequest: TransientJobRequest | null = null,
+  ): Promise<unknown> {
+    if (transientRequest) this.assertTransientRequestActive(transientRequest, generation);
+    if (!this.processHandle) {
+      if (explicitlyStart) {
+        await this.start();
+      } else if (transientRequest) {
+        await this.ensureTransientProcess(generation, transientRequest);
+      }
+    }
+    if (transientRequest) this.assertTransientRequestActive(transientRequest, generation);
     if (!this.processHandle) {
       await this.waitForProcessStart();
+    }
+    if (transientRequest) {
+      this.assertTransientRequestActive(transientRequest, generation);
+    } else if (!explicitlyStart) {
+      this.assertLifecycleActive(generation);
     }
     if (!this.processHandle) {
       throw new Error(`Lane ${this.lane} is not available`);
     }
 
+    const handle = this.processHandle;
     return new Promise((resolve, reject) => {
       const pending: PendingRequest = { jobId: job.id, resolve, reject, timeout: null };
       this.pending.set(job.id, pending);
       this.armRequestTimeout(pending);
-      this.sendMessage({
+      this.sendMessageToHandle(handle, {
         type: 'run-job',
         jobId: job.id,
         jobType: job.type,
@@ -136,9 +190,99 @@ export class ProcessLaneGateway extends EventEmitter implements LaneGateway {
     });
   }
 
+  private async drainTransientJobQueue(): Promise<void> {
+    if (this.drainingTransientJobQueue) return;
+    this.drainingTransientJobQueue = true;
+    try {
+      while (this.transientJobQueue.length > 0) {
+        if (this.stopped) {
+          this.rejectTransientJobQueue(new Error(`Lane ${this.lane} is stopped`));
+          return;
+        }
+        const request = this.transientJobQueue.shift();
+        if (!request) continue;
+        const generation = this.lifecycleGeneration;
+        this.activeTransientJobRequest = request;
+        try {
+          const result = await this.runJobOnActiveHandle(
+            request.job, request.payload, false, generation, request,
+          );
+          request.resolve(result);
+        } catch (error) {
+          request.reject(error instanceof Error ? error : new Error(String(error)));
+        } finally {
+          if (this.activeTransientJobRequest === request) this.activeTransientJobRequest = null;
+        }
+      }
+    } finally {
+      this.drainingTransientJobQueue = false;
+      if (this.transientJobQueue.length > 0) {
+        void this.drainTransientJobQueue();
+      }
+    }
+  }
+
+  private async ensureTransientProcess(generation: number, request: TransientJobRequest): Promise<void> {
+    this.assertTransientRequestActive(request, generation);
+    if (this.transientShutdown) {
+      await this.transientShutdown;
+      this.assertTransientRequestActive(request, generation);
+    }
+    if (!this.processHandle && !this.restartTimer) {
+      if (this.metrics.degraded) {
+        this.scheduleRestart(true, request);
+      } else {
+        this.startProcess(true);
+      }
+    }
+  }
+
+  private assertLifecycleActive(generation: number): void {
+    if (this.stopped || this.lifecycleGeneration !== generation) {
+      throw new Error(`Lane ${this.lane} is stopped`);
+    }
+  }
+
+  private assertTransientRequestActive(request: TransientJobRequest, generation: number): void {
+    this.assertLifecycleActive(generation);
+    if (request.cancelled) throw this.createCancellationError(request.job.id);
+  }
+
+  private rejectTransientJobQueue(error: Error): void {
+    for (const request of this.transientJobQueue.splice(0)) {
+      request.reject(error);
+    }
+  }
+
   async cancelJob(jobId: string): Promise<void> {
-    if (!this.processHandle) return;
-    this.sendMessage({ type: 'cancel-job', jobId });
+    if (this.transient) {
+      const queuedIndex = this.transientJobQueue.findIndex((request) => request.job.id === jobId);
+      if (queuedIndex !== -1) {
+        const [request] = this.transientJobQueue.splice(queuedIndex, 1);
+        request.cancelled = true;
+        this.cancelTransientRestartTimer(request);
+        request.reject(this.createCancellationError(jobId));
+        return;
+      }
+
+      const activeRequest = this.activeTransientJobRequest;
+      if (activeRequest?.job.id === jobId && !this.pending.has(jobId)) {
+        activeRequest.cancelled = true;
+        this.cancelTransientRestartTimer(activeRequest);
+        this.rejectProcessStartWaiters(this.createCancellationError(jobId));
+        const activeHandle = this.processHandle;
+        if (activeHandle) await this.releaseTransientHandle(activeHandle);
+        return;
+      }
+    }
+
+    const handle = this.processHandle;
+    if (!handle) return;
+    this.sendMessageToHandle(handle, { type: 'cancel-job', jobId });
+  }
+
+  private createCancellationError(jobId: string): Error {
+    return new Error(`Lane ${this.lane} job ${jobId} cancelled`);
   }
 
   getMetrics(): LaneGatewayMetrics {
@@ -153,16 +297,19 @@ export class ProcessLaneGateway extends EventEmitter implements LaneGateway {
     };
   }
 
-  private startProcess(): void {
+  private startProcess(transientDemanded: boolean): void {
     if (this.stopped) return;
     try {
       const handle = this.processFactory?.() ?? this.createDefaultProcess();
-      handle.on('message', (message) => this.handleMessage(message as LaneProcessOutboundMessage));
+      handle.on('message', (message) => {
+        this.handleMessage(handle, message as LaneProcessOutboundMessage);
+      });
       handle.on('error', (error) => {
         this.handleCrash(handle, error instanceof Error ? error : new Error(String(error)));
       });
       handle.on('exit', (code) => {
-        if (code !== 0) {
+        this.exitedHandles.add(handle);
+        if (code !== 0 || this.transient) {
           this.handleCrash(handle, new Error(`Lane ${this.lane} exited with code ${String(code)}`));
         }
       });
@@ -171,7 +318,7 @@ export class ProcessLaneGateway extends EventEmitter implements LaneGateway {
       this.resolveProcessStartWaiters();
     } catch (error) {
       this.markDegraded(error instanceof Error ? error.message : String(error));
-      this.scheduleRestart();
+      this.scheduleRestart(transientDemanded, this.activeTransientJobRequest);
     }
   }
 
@@ -222,16 +369,16 @@ export class ProcessLaneGateway extends EventEmitter implements LaneGateway {
     return entrypoint;
   }
 
-  private sendMessage(message: LaneInboundMessage): void {
-    if (!this.processHandle) return;
-    if (this.processHandle.postMessage) {
-      this.processHandle.postMessage(message);
+  private sendMessageToHandle(handle: LaneProcessHandle, message: LaneInboundMessage): void {
+    if (handle.postMessage) {
+      handle.postMessage(message);
       return;
     }
-    this.processHandle.send?.(message);
+    handle.send?.(message);
   }
 
-  private handleMessage(message: LaneProcessOutboundMessage): void {
+  private handleMessage(handle: LaneProcessHandle, message: LaneProcessOutboundMessage): void {
+    if (this.processHandle !== handle) return;
     if (message.type === 'ready') {
       this.metrics.degraded = false;
       return;
@@ -269,29 +416,68 @@ export class ProcessLaneGateway extends EventEmitter implements LaneGateway {
     if (message.type === 'job-succeeded') {
       const pending = this.pending.get(message.jobId);
       if (!pending) return;
-      if (pending.timeout) clearTimeout(pending.timeout);
-      this.pending.delete(message.jobId);
       this.metrics.processed++;
-      pending.resolve(message.result);
+      this.completePendingAfterTerminal(handle, pending, () => pending.resolve(message.result));
       return;
     }
 
     if (message.type === 'job-failed') {
       const pending = this.pending.get(message.jobId);
       if (!pending) return;
-      if (pending.timeout) clearTimeout(pending.timeout);
-      this.pending.delete(message.jobId);
       this.metrics.failed++;
-      pending.reject(new Error(message.errorMessage));
+      this.completePendingAfterTerminal(
+        handle,
+        pending,
+        () => pending.reject(new Error(message.errorMessage)),
+      );
       return;
     }
 
     const pending = this.pending.get(message.jobId);
     if (!pending) return;
-    if (pending.timeout) clearTimeout(pending.timeout);
-    this.pending.delete(message.jobId);
     this.metrics.failed++;
-    pending.reject(new Error(`Lane ${this.lane} job ${message.jobId} cancelled`));
+    this.completePendingAfterTerminal(
+      handle,
+      pending,
+      () => pending.reject(new Error(`Lane ${this.lane} job ${message.jobId} cancelled`)),
+    );
+  }
+
+  private completePendingAfterTerminal(
+    handle: LaneProcessHandle,
+    pending: PendingRequest,
+    settle: () => void,
+  ): void {
+    if (pending.timeout) clearTimeout(pending.timeout);
+    this.pending.delete(pending.jobId);
+    if (!this.transient) {
+      settle();
+      return;
+    }
+    void this.releaseTransientHandle(handle).then(settle, (error: unknown) => {
+      pending.reject(error instanceof Error ? error : new Error(String(error)));
+    });
+  }
+
+  private async releaseTransientHandle(handle: LaneProcessHandle): Promise<void> {
+    if (this.transientShutdown) {
+      await this.transientShutdown;
+      return;
+    }
+    this.stoppingHandles.add(handle);
+    this.sendMessageToHandle(handle, { type: 'shutdown' });
+    const shutdown = this.waitForExitBeforeTermination(handle);
+    this.transientShutdown = shutdown;
+    try {
+      await shutdown;
+    } finally {
+      if (this.processHandle === handle) {
+        this.processHandle = null;
+      }
+      if (this.transientShutdown === shutdown) {
+        this.transientShutdown = null;
+      }
+    }
   }
 
   private handleCrash(handle: LaneProcessHandle, error: Error): void {
@@ -305,12 +491,18 @@ export class ProcessLaneGateway extends EventEmitter implements LaneGateway {
 
     this.crashedHandles.add(handle);
     this.failAllPending(error);
+    if (this.transient && !this.exitedHandles.has(handle)) void this.releaseTransientHandle(handle);
     this.processHandle = null;
     this.markDegraded(error.message);
-    this.scheduleRestart();
+    if (!this.transient) this.scheduleRestart();
   }
 
-  private scheduleRestart(): boolean {
+  private scheduleRestart(
+    transientDemanded = false, transientRequest: TransientJobRequest | null = null,
+  ): boolean {
+    if (this.transient && !transientDemanded) {
+      return false;
+    }
     if (this.stopped || this.metrics.restarted >= this.maxRestarts) {
       this.rejectProcessStartWaiters(new Error(`Lane ${this.lane} is not available`));
       return false;
@@ -318,10 +510,12 @@ export class ProcessLaneGateway extends EventEmitter implements LaneGateway {
     const delay = this.restartBackoffMs * 2 ** this.metrics.restarted;
     this.metrics.restarted++;
     this.clearRestartTimer();
+    this.transientRestartRequest = this.transient ? transientRequest : null;
     this.restartTimer = setTimeout(() => {
       this.restartTimer = null;
+      this.transientRestartRequest = null;
       if (!this.stopped) {
-        this.startProcess();
+        this.startProcess(transientDemanded);
       }
     }, delay);
     if (typeof this.restartTimer.unref === 'function') {
@@ -334,6 +528,13 @@ export class ProcessLaneGateway extends EventEmitter implements LaneGateway {
     if (!this.restartTimer) return;
     clearTimeout(this.restartTimer);
     this.restartTimer = null;
+    this.transientRestartRequest = null;
+  }
+
+  private cancelTransientRestartTimer(request: TransientJobRequest): void {
+    if (!this.restartTimer || this.transientRestartRequest !== request) return;
+    this.clearRestartTimer();
+    this.metrics.restarted = Math.max(0, this.metrics.restarted - 1);
   }
 
   private failAllPending(error: Error): void {
@@ -409,9 +610,13 @@ export class ProcessLaneGateway extends EventEmitter implements LaneGateway {
     if (handle) {
       this.crashedHandles.add(handle);
       this.processHandle = null;
-      void this.terminateTimedOutHandle(handle);
+      if (this.transient) {
+        this.beginTimedOutTransientRetirement(handle);
+      } else {
+        void this.terminateTimedOutHandle(handle);
+      }
     }
-    this.scheduleRestart();
+    if (!this.transient) this.scheduleRestart();
   }
 
   private refreshRequestTimeouts(): void {
@@ -420,39 +625,74 @@ export class ProcessLaneGateway extends EventEmitter implements LaneGateway {
     }
   }
 
-  private async terminateTimedOutHandle(handle: LaneProcessHandle): Promise<void> {
-    if (handle.terminate) {
-      await handle.terminate().catch(() => undefined);
-      return;
-    }
-    handle.kill?.();
+  private terminateTimedOutHandle(handle: LaneProcessHandle): Promise<void> {
+    return this.terminateHandleWithin(handle, this.shutdownTimeoutMs);
+  }
+
+  private beginTimedOutTransientRetirement(handle: LaneProcessHandle): void {
+    if (this.transientShutdown) return;
+    const retirement = this.terminateTimedOutHandle(handle);
+    this.transientShutdown = retirement;
+    const clear = (): void => {
+      if (this.transientShutdown === retirement) this.transientShutdown = null;
+    };
+    void retirement.then(clear, clear);
   }
 
   private async waitForExitBeforeTermination(handle: LaneProcessHandle): Promise<void> {
+    if (this.exitedHandles.has(handle)) {
+      this.failPendingStoppedJobs();
+      return;
+    }
+    const gracefulExitBudget = Math.floor(this.shutdownTimeoutMs / 2);
+    const terminationBudget = this.shutdownTimeoutMs - gracefulExitBudget;
+    const exited = await this.waitForHandleExit(handle, gracefulExitBudget);
+    if (!exited) {
+      await this.terminateHandleWithin(handle, terminationBudget);
+    }
+
+    this.failPendingStoppedJobs();
+  }
+
+  private waitForHandleExit(handle: LaneProcessHandle, timeoutMs: number): Promise<boolean> {
+    if (this.exitedHandles.has(handle)) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const onExit = (): void => {
+        clearTimeout(timeout);
+        resolve(true);
+      };
+      const timeout = setTimeout(() => {
+        handle.removeListener('exit', onExit);
+        resolve(false);
+      }, timeoutMs);
+      handle.once('exit', onExit);
+      if (typeof timeout.unref === 'function') timeout.unref();
+    });
+  }
+
+  private async terminateHandleWithin(
+    handle: LaneProcessHandle,
+    timeoutMs: number,
+  ): Promise<void> {
+    if (!handle.terminate) {
+      handle.kill?.();
+      return;
+    }
+    const terminated = Promise.resolve().then(() => handle.terminate?.()).then(
+      () => 'terminated' as const,
+      () => 'failed' as const,
+    );
     let timeout: NodeJS.Timeout | null = null;
-    const exited = new Promise<'exit'>((resolve) => {
-      handle.once('exit', () => resolve('exit'));
-    });
     const timedOut = new Promise<'timeout'>((resolve) => {
-      timeout = setTimeout(() => resolve('timeout'), this.shutdownTimeoutMs);
-      if (typeof timeout.unref === 'function') {
-        timeout.unref();
-      }
+      timeout = setTimeout(() => resolve('timeout'), timeoutMs);
+      if (typeof timeout.unref === 'function') timeout.unref();
     });
+    const result = await Promise.race([terminated, timedOut]);
+    if (timeout) clearTimeout(timeout);
+    if (result !== 'terminated') handle.kill?.();
+  }
 
-    const result = await Promise.race([exited, timedOut]);
-    if (timeout) {
-      clearTimeout(timeout);
-    }
-
-    if (result === 'timeout') {
-      if (handle.terminate) {
-        await handle.terminate().catch(() => undefined);
-      } else {
-        handle.kill?.();
-      }
-    }
-
+  private failPendingStoppedJobs(): void {
     if (this.pending.size > 0) {
       this.failAllPending(new Error(`Lane ${this.lane} stopped before completing pending jobs`));
     }

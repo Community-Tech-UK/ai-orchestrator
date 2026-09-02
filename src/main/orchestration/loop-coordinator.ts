@@ -458,8 +458,8 @@ export class LoopCoordinator extends EventEmitter {
     this.providerLimitHandler.setQuotaSnapshotRefresher(fn);
   }
 
-  /** Opt into riding paid overage credits (decision #3 alternative). */
-  setAllowOverage(allow: boolean): void {
+  /** Opt into riding paid overage credits; pass a function to read it lazily. */
+  setAllowOverage(allow: boolean | (() => boolean)): void {
     this.providerLimitHandler.setAllowOverage(allow);
   }
 
@@ -1331,6 +1331,13 @@ export class LoopCoordinator extends EventEmitter {
     return true;
   }
 
+  /** Banner "Cancel": disarm a provider-limit auto-resume, staying parked. */
+  cancelProviderLimitResume(loopRunId: string): boolean {
+    if (this.lifecycle.getState(loopRunId)?.status !== 'provider-limit') return false;
+    this.providerLimitHandler.clearResumeTimer(loopRunId);
+    return true;
+  }
+
   /** Fail the loop immediately through the normal terminal cleanup path. */
   failLoop(loopRunId: string, reason = 'failed'): boolean {
     const state = this.lifecycle.getState(loopRunId);
@@ -1389,15 +1396,8 @@ export class LoopCoordinator extends EventEmitter {
     }
     // A manual resume supersedes any pending provider-limit auto-resume timer.
     this.providerLimitHandler.clearResumeTimer(loopRunId);
-    if (state.status === 'provider-limit') {
-      // A manual resume is a user override of the recorded limit: drop the
-      // durable gate provider-wide, or the next iteration's ledger preflight
-      // (maybeParkKnownProviderLimit) instantly re-parks the loop off the
-      // same — possibly stale — row. Recorded reset times go stale when the
-      // user applies a reset credit or buys quota mid-window; if the provider
-      // is in fact still limited, the next failed iteration re-records.
-      this.providerLimitHandler.clearKnownLimitGate(state.config.provider, null);
-    }
+    // Clears both park gates — see applyManualResumeOverride.
+    if (state.status === 'provider-limit') this.providerLimitHandler.applyManualResumeOverride(state.config.provider, loopRunId);
     state.status = 'running';
     // A3 (#29): no longer waiting on input once the operator resumes.
     state.pausedForInput = false;

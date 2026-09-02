@@ -1,9 +1,6 @@
 import type { SettingsManager } from '../../core/config/settings-manager';
-import {
-  getMemoryMonitor,
-  type MemoryMonitor,
-  type OutputStorageManager,
-} from '../../memory';
+import { getMemoryMonitor, type MemoryMonitor } from '../../memory/memory-monitor';
+import type { OutputStorageManager } from '../../memory/output-storage';
 import type { WarmStartManager } from '../warm-start-manager';
 import type { IdleMonitor } from './idle-monitor';
 import { getLogger } from '../../logging/logger';

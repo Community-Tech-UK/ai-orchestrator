@@ -1,8 +1,8 @@
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getRecentDirectoriesManager } from '../core/config/recent-directories-manager';
 import { getCodememPrewarmCoordinator } from '../codemem';
-import { getCodebaseIndexingAutoCoordinator } from '../indexing';
-import { getProjectKnowledgeAutoMirrorCoordinator } from '../memory';
+import { getCodebaseIndexingAutoCoordinator } from '../indexing/codebase-indexing-auto-coordinator';
+import { getProjectKnowledgeAutoMirrorCoordinator } from '../memory/project-knowledge-auto-mirror-coordinator';
 import { getLogger } from '../logging/logger';
 import type { AppInitializationStep } from './initialization-steps';
 

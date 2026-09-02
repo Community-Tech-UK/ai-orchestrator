@@ -6,6 +6,27 @@
  */
 
 import type { ContextSection } from '../../../shared/types/rlm.types';
+import type {
+  RlmPersistedLoadStats,
+  RlmProcessRole,
+} from '../context-persistence-loader';
+
+/** Clone-safe, additive residency diagnostics exposed by RLM stats surfaces. */
+export interface RlmResidencySnapshot extends RlmPersistedLoadStats {
+  processRole: RlmProcessRole;
+  counts: {
+    durableStores: number;
+    durableSections: number;
+    activeSessions: number;
+    residentMetadataSections: number;
+    deferredMetadataSections: number;
+    residentContentSections: number;
+    residentContentStores: number;
+    metadataOnlyStores: number;
+    deferredStores: number;
+  };
+  lastAdmissionFailure?: { reason: string };
+}
 
 /**
  * Exported store format for import/export functionality
@@ -141,6 +162,8 @@ export interface StorageStats {
   totalTokens: number;
   totalSizeBytes: number;
   byType: { type: string; count: number; tokens: number }[];
+  /** Additive diagnostics; absent only for legacy/non-persistent implementations. */
+  residency?: RlmResidencySnapshot;
 }
 
 /**

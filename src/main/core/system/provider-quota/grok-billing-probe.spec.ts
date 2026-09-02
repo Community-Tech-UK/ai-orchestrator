@@ -68,6 +68,27 @@ describe('GrokBillingProbe', () => {
     ]);
   });
 
+  // Regression: same defect as Cursor — these are utilization ratios, and
+  // labelling them `usd` made the loop throttle treat the subscription
+  // allotment as a paid overage bucket, parking Grok loops above 0% usage.
+  it('marks the monthly allotment as percent-denominated and not paid overage', () => {
+    const windows = parseGrokBillingPayload({
+      config: {
+        monthlyLimit: { val: 100 },
+        used: { val: 25 },
+        onDemandCap: { val: 100 },
+        history: [{ onDemandUsed: { val: 10 } }],
+        billingPeriodEnd: '2026-08-01T00:00:00Z',
+      },
+    });
+    const byId = Object.fromEntries(windows.map((w) => [w.id, w]));
+
+    expect(byId['grok.monthly'].unit).toBe('percent');
+    expect(byId['grok.monthly'].overage).toBe(false);
+    expect(byId['grok.on-demand'].unit).toBe('percent');
+    expect(byId['grok.on-demand'].overage).toBe(true);
+  });
+
   it('parses zero monthlyLimit as 0% (not 100%)', () => {
     const windows = parseGrokBillingPayload({
       config: {

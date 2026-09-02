@@ -230,7 +230,8 @@ export function parseGrokBillingPayload(payload: GrokBillingPayload): ProviderQu
     // rather than inventing 100% (Cursor free-plan precedent is different because
     // Cursor itself reports totalPercentUsed=100).
     const pct = lim > 0 ? clampQuotaPercent((u / lim) * 100) : 0;
-    windows.push(percentWindow('grok.monthly', 'Monthly', pct, resetsAt));
+    // Subscription allotment, not paid overage — see percentWindow().
+    windows.push(percentWindow('grok.monthly', 'Monthly', pct, resetsAt, false));
   }
 
   if (onCap !== null && onCap > 0) {
@@ -248,6 +249,7 @@ export function parseGrokBillingPayload(payload: GrokBillingPayload): ProviderQu
         'On-demand',
         clampQuotaPercent((onUsed / onCap) * 100),
         resetsAt,
+        true,
       ),
     );
   }
@@ -264,21 +266,30 @@ function moneyVal(node: GrokMoneyNode | number | null | undefined): number | nul
   return null;
 }
 
+/**
+ * Grok publishes utilization ratios derived from its billing config, not dollar
+ * amounts, so these windows are `percent` (used 0-100, limit 100). Emitting
+ * them as `usd` made the loop throttle treat every Grok window as a paid
+ * overage bucket, which parked Grok loops at any usage above 0% — the same
+ * defect that broke Cursor loops. Only `grok.on-demand` is real money.
+ */
 function percentWindow(
   id: string,
   label: string,
   used: number,
   resetsAt: number | null,
+  overage: boolean,
 ): ProviderQuotaWindow {
   return {
     kind: 'calendar-period',
     id,
     label,
-    unit: 'usd',
+    unit: 'percent',
     used,
     limit: 100,
     remaining: quotaRemaining(100, used),
     resetsAt,
+    overage,
   };
 }
 

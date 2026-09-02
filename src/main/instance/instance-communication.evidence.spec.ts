@@ -7,7 +7,7 @@ import type { Instance, OutputMessage } from '../../shared/types/instance.types'
 vi.mock('../core/config/settings-manager', () => ({
   getSettingsManager: () => ({ getAll: () => ({ outputBufferSize: 1, enableDiskStorage: false }) }),
 }));
-vi.mock('../memory', () => ({
+vi.mock('../memory/output-storage', () => ({
   getOutputStorageManager: () => ({ storeMessages: vi.fn(), deleteInstance: vi.fn() }),
 }));
 vi.mock('../hooks/hook-manager', () => ({

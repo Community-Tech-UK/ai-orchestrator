@@ -145,33 +145,44 @@ export function parseCursorUsageSummaryPayload(
         ? plan.totalPercentUsed
         : percentageFromUsedLimit(plan.used, plan.limit),
     );
-    windows.push(percentWindow('cursor.included', 'Included usage', used, resetAt));
+    // Included plan usage is NOT paid overage — see percentWindow().
+    windows.push(percentWindow('cursor.included', 'Included usage', used, resetAt, false));
   }
 
   const onDemand = usage.onDemand;
   if (onDemand?.enabled) {
     const used = clampQuotaPercent(percentageFromUsedLimit(onDemand.used, onDemand.limit));
-    windows.push(percentWindow('cursor.on-demand', 'On-demand spend', used, resetAt));
+    windows.push(percentWindow('cursor.on-demand', 'On-demand spend', used, resetAt, true));
   }
 
   return windows;
 }
 
+/**
+ * Cursor publishes utilization ratios, not dollar amounts, so these windows are
+ * `percent` (used 0-100, limit 100). They were previously emitted as `usd`,
+ * which the loop throttle reads as "paid overage bucket": that excluded every
+ * Cursor window from the binding-constraint scan and tripped the overage guard
+ * at any usage above 0%, parking Cursor loops before their first iteration.
+ * Only `cursor.on-demand` is real money, so only it sets `overage`.
+ */
 function percentWindow(
   id: string,
   label: string,
   used: number,
   resetsAt: number | null,
+  overage: boolean,
 ): ProviderQuotaWindow {
   return {
     kind: 'calendar-period',
     id,
     label,
-    unit: 'usd',
+    unit: 'percent',
     used,
     limit: 100,
     remaining: quotaRemaining(100, used),
     resetsAt,
+    overage,
   };
 }
 

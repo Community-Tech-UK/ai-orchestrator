@@ -10,7 +10,6 @@ import { getTaskManager } from '../orchestration/task-manager';
 import { getChildResultStorage } from '../orchestration/child-result-storage';
 import { getChildAnnouncer } from '../orchestration/child-announcer';
 import { getModelRouter, applyProviderResolution, type RoutingDecision, type ModelRouter } from '../routing';
-import { getUnifiedMemory } from '../memory';
 import { getHabitTracker } from '../learning/habit-tracker';
 import { getPreferenceStore } from '../learning/preference-store';
 import { getAgentById, getDefaultAgent } from '../../shared/types/agent.types';
@@ -62,6 +61,7 @@ export interface OrchestrationDependencies {
   sendInput: (instanceId: string, message: string) => Promise<void>;
   terminateInstance: (instanceId: string, graceful: boolean) => Promise<void>;
   getAdapter: (id: string) => any;
+  recordTaskOutcome: (taskId: string, success: boolean, score: number) => void;
   indexedCodebaseContext?: Pick<IndexedCodebaseContextService, 'buildFastPathResult'>;
 }
 
@@ -98,7 +98,6 @@ export class InstanceOrchestrationManager {
   private orchestration: OrchestrationHandler;
   private outcomeTracker: OutcomeTracker | null = null;
   private strategyLearner: StrategyLearner | null = null;
-  private unifiedMemory = getUnifiedMemory();
   private deps: OrchestrationDependencies;
   /** Per-instance write queues to prevent concurrent stdin writes */
   private writeQueues = new Map<string, Promise<void>>();
@@ -1035,7 +1034,7 @@ export class InstanceOrchestrationManager {
       logger.error('Failed to record outcome for task', recordError instanceof Error ? recordError : undefined, { taskId: task?.taskId || 'unknown' });
     }
 
-    this.unifiedMemory.recordTaskOutcome(
+    this.deps.recordTaskOutcome(
       task?.taskId || `${parentId}:${childId}`,
       success,
       success ? 1 : 0

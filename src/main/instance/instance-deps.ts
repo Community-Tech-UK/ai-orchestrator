@@ -91,7 +91,7 @@ export function productionCoreDeps(): CoreDeps {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { getPermissionManager } = require('../security/permission-manager') as typeof import('../security/permission-manager');
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { getMemoryMonitor } = require('../memory') as typeof import('../memory');
+  const { getMemoryMonitor } = require('../memory/memory-monitor') as typeof import('../memory/memory-monitor');
 
   return {
     agents: {

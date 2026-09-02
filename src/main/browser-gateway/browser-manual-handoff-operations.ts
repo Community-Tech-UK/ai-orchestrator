@@ -11,7 +11,7 @@ import type { BrowserExtensionTabStore } from './browser-extension-tab-store';
 import type { BrowserProfileStore } from './browser-profile-store';
 import { isOriginAllowed } from './browser-origin-policy';
 import { redactElementContext } from './browser-redaction';
-import { providerFromContext } from './browser-gateway-action-guard';
+import { providerFromContext } from './browser-provider';
 import type { BrowserGatewayResultInput } from './browser-gateway-result';
 import type { BrowserGatewayContext } from './browser-gateway-service-types';
 

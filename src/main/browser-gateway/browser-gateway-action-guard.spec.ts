@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type {
+  BrowserApprovalRequest,
   BrowserGatewayResult,
   BrowserPermissionGrant,
 } from '@contracts/types/browser';
@@ -12,6 +13,7 @@ import {
   CAPTCHA_CHALLENGE_REASON,
   CREDENTIAL_CHALLENGE_REASON,
   LEGAL_DECLARATION_REASON,
+  TWO_FACTOR_CHALLENGE_REASON,
 } from './browser-action-classifier';
 import type { BrowserExistingTabAttachment } from './browser-extension-tab-store';
 import type { BrowserGatewayResultInput } from './browser-gateway-result';
@@ -38,9 +40,14 @@ const CAMPAIGN_SUBMIT_GRANT: BrowserPermissionGrant = {
  * guard. Driven through the existing-tab hard-stop path (no live driver needed)
  * with a classification override, so the test isolates the routing decision.
  */
-function makeGuard(opts: { withEscalations?: boolean; grants?: BrowserPermissionGrant[] } = {}) {
+function makeGuard(opts: {
+  withEscalations?: boolean;
+  grants?: BrowserPermissionGrant[];
+  approvals?: BrowserApprovalRequest[];
+} = {}) {
   const withEscalations = opts.withEscalations ?? true;
   const grants = opts.grants ?? [];
+  const approvals = opts.approvals ?? [];
   const raise = vi.fn(() => ({ escalationId: 'esc-1', parked: true as const }));
   // The real approval store echoes the request back with a requestId; mirror
   // that so the guard's downstream auto-approve read of proposedGrant works.
@@ -61,19 +68,30 @@ function makeGuard(opts: { withEscalations?: boolean; grants?: BrowserPermission
     updatedAt: 0,
   };
 
+  const consumeGrant = vi.fn();
   const options: BrowserGatewayActionGuardOptions = {
     profileStore: { getProfile: vi.fn(() => undefined) } as unknown as BrowserGatewayActionGuardOptions['profileStore'],
     targetRegistry: { listTargets: vi.fn(() => []) } as unknown as BrowserGatewayActionGuardOptions['targetRegistry'],
     driver: { refreshTarget: vi.fn(), inspectElement: vi.fn() } as unknown as BrowserGatewayActionGuardOptions['driver'],
     extensionTabStore: { getTab: vi.fn(() => attachment) } as unknown as BrowserGatewayActionGuardOptions['extensionTabStore'],
-    grantStore: { listGrants: vi.fn(() => grants), createGrant: vi.fn() } as unknown as BrowserGatewayActionGuardOptions['grantStore'],
-    approvalStore: { createRequest, resolveRequest: vi.fn() } as unknown as BrowserGatewayActionGuardOptions['approvalStore'],
+    grantStore: {
+      listGrants: vi.fn(() => grants),
+      createGrant: vi.fn(),
+      consumeGrant,
+    } as unknown as BrowserGatewayActionGuardOptions['grantStore'],
+    approvalStore: {
+      createRequest,
+      getRequest: vi.fn((requestId: string) =>
+        approvals.find((approval) => approval.requestId === requestId) ?? null),
+      listRequests: vi.fn(() => approvals),
+      resolveRequest: vi.fn(),
+    } as unknown as BrowserGatewayActionGuardOptions['approvalStore'],
     autoApproveRequests: () => false,
     result: result as unknown as BrowserGatewayActionGuardOptions['result'],
     ...(withEscalations ? { escalations: { raise } } : {}),
   };
 
-  return { guard: new BrowserGatewayActionGuard(options), raise, createRequest, result };
+  return { guard: new BrowserGatewayActionGuard(options), raise, createRequest, consumeGrant, result };
 }
 
 const CONTEXT = { instanceId: 'i1', provider: 'orchestrator', profileId: 'p1', targetId: 't1' };
@@ -124,6 +142,182 @@ describe('BrowserGatewayActionGuard captcha/2FA escalation routing', () => {
 
     expect(raise).not.toHaveBeenCalled();
     expect(createRequest).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('BrowserGatewayActionGuard exact credential approval redemption', () => {
+  const credentialGrant: BrowserPermissionGrant = {
+    id: 'credential-grant',
+    mode: 'session',
+    instanceId: 'i1',
+    provider: 'orchestrator',
+    profileId: 'p1',
+    targetId: 't1',
+    allowedOrigins: [{ scheme: 'https', hostPattern: 'portal.example.gov.uk', includeSubdomains: false }],
+    allowedActionClasses: ['credential'],
+    allowExternalNavigation: false,
+    autonomous: false,
+    requestedBy: 'i1',
+    decidedBy: 'user',
+    decision: 'allow',
+    expiresAt: 4_102_444_800_000,
+    createdAt: 0,
+  };
+  const approvedRequest: BrowserApprovalRequest = {
+    id: 'approval-row',
+    requestId: 'credential-request',
+    instanceId: 'i1',
+    provider: 'orchestrator',
+    profileId: 'p1',
+    targetId: 't1',
+    toolName: 'browser.type',
+    action: 'type into field',
+    actionClass: 'credential',
+    origin: 'https://portal.example.gov.uk',
+    url: 'https://portal.example.gov.uk/apply',
+    selector: '#field',
+    proposedGrant: {
+      mode: 'per_action',
+      allowedOrigins: credentialGrant.allowedOrigins,
+      allowedActionClasses: ['credential'],
+      allowExternalNavigation: false,
+      autonomous: false,
+    },
+    status: 'approved',
+    grantId: credentialGrant.id,
+    createdAt: 1,
+    expiresAt: 4_102_444_800_000,
+    decidedAt: 2,
+  };
+
+  it('runs one exact approved credential retry and consumes its linked grant after success', async () => {
+    const { guard, createRequest, consumeGrant } = makeGuard({
+      grants: [credentialGrant],
+      approvals: [approvedRequest],
+    });
+
+    const prepared = await guard.prepareMutatingAction(
+      { ...CONTEXT, requestId: approvedRequest.requestId },
+      approvedRequest.action,
+      approvedRequest.toolName,
+      approvedRequest.selector!,
+      'challenge',
+      { actionClass: 'credential', hardStop: true, reason: CREDENTIAL_CHALLENGE_REASON },
+    );
+
+    expect((prepared as BrowserGatewayPreparedMutation).grant.id).toBe(credentialGrant.id);
+    expect(createRequest).not.toHaveBeenCalled();
+    guard.recordMutationSucceeded(prepared as BrowserGatewayPreparedMutation);
+    expect(consumeGrant).toHaveBeenCalledWith(credentialGrant.id);
+  });
+
+  it.each([undefined, 'wrong-request'])('does not redeem an omitted or wrong request ID (%s)', async (requestId) => {
+    const { guard, createRequest } = makeGuard({ grants: [credentialGrant], approvals: [approvedRequest] });
+
+    const result = resultOf(await guard.prepareMutatingAction(
+      { ...CONTEXT, requestId },
+      approvedRequest.action,
+      approvedRequest.toolName,
+      approvedRequest.selector!,
+      'challenge',
+      { actionClass: 'credential', hardStop: true, reason: CREDENTIAL_CHALLENGE_REASON },
+    ));
+
+    expect(result.decision).toBe('requires_user');
+    expect(createRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('serializes concurrent redemption of the same one-use approval', async () => {
+    const { guard, createRequest } = makeGuard({ grants: [credentialGrant], approvals: [approvedRequest] });
+    const retry = () => guard.prepareMutatingAction(
+      { ...CONTEXT, requestId: approvedRequest.requestId },
+      approvedRequest.action,
+      approvedRequest.toolName,
+      approvedRequest.selector!,
+      'challenge',
+      { actionClass: 'credential' as const, hardStop: true, reason: CREDENTIAL_CHALLENGE_REASON },
+    );
+
+    const first = await retry();
+    const second = resultOf(await retry());
+
+    expect((first as BrowserGatewayPreparedMutation).grant.id).toBe(credentialGrant.id);
+    expect(second).toMatchObject({
+      decision: 'requires_user',
+      requestId: approvedRequest.requestId,
+      reason: 'approval_redemption_in_progress',
+    });
+    expect(createRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects an approved credential request when the selector fingerprint differs', async () => {
+    const { guard, createRequest } = makeGuard({
+      grants: [credentialGrant],
+      approvals: [approvedRequest],
+    });
+
+    const result = resultOf(await guard.prepareMutatingAction(
+      { ...CONTEXT, requestId: approvedRequest.requestId },
+      approvedRequest.action,
+      approvedRequest.toolName,
+      '#different-field',
+      'challenge',
+      { actionClass: 'credential', hardStop: true, reason: CREDENTIAL_CHALLENGE_REASON },
+    ));
+
+    expect(result.decision).toBe('requires_user');
+    expect(createRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an approved credential request when the target fingerprint differs', async () => {
+    const { guard, createRequest } = makeGuard({
+      grants: [credentialGrant],
+      approvals: [{ ...approvedRequest, targetId: 'different-target' }],
+    });
+
+    const result = resultOf(await guard.prepareMutatingAction(
+      { ...CONTEXT, requestId: approvedRequest.requestId },
+      approvedRequest.action,
+      approvedRequest.toolName,
+      approvedRequest.selector!,
+      'challenge',
+      { actionClass: 'credential', hardStop: true, reason: CREDENTIAL_CHALLENGE_REASON },
+    ));
+
+    expect(result.decision).toBe('requires_user');
+    expect(createRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('never redeems an ordinary approval for a captcha hard stop', async () => {
+    const { guard, raise } = makeGuard({ grants: [credentialGrant], approvals: [approvedRequest] });
+
+    const result = resultOf(await guard.prepareMutatingAction(
+      { ...CONTEXT, requestId: approvedRequest.requestId },
+      approvedRequest.action,
+      approvedRequest.toolName,
+      approvedRequest.selector!,
+      'challenge',
+      { actionClass: 'credential', hardStop: true, reason: CAPTCHA_CHALLENGE_REASON },
+    ));
+
+    expect(result.decision).toBe('requires_user');
+    expect(raise).toHaveBeenCalledTimes(1);
+  });
+
+  it('never redeems an ordinary approval for a two-factor hard stop', async () => {
+    const { guard, raise } = makeGuard({ grants: [credentialGrant], approvals: [approvedRequest] });
+
+    const result = resultOf(await guard.prepareMutatingAction(
+      { ...CONTEXT, requestId: approvedRequest.requestId },
+      approvedRequest.action,
+      approvedRequest.toolName,
+      approvedRequest.selector!,
+      'challenge',
+      { actionClass: 'credential', hardStop: true, reason: TWO_FACTOR_CHALLENGE_REASON },
+    ));
+
+    expect(result.decision).toBe('requires_user');
+    expect(raise).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -227,6 +421,8 @@ describe('BrowserGatewayActionGuard existing-tab grant scope (LT-001 regression)
       grantStore: { listGrants, createGrant: vi.fn() } as unknown as BrowserGatewayActionGuardOptions['grantStore'],
       approvalStore: {
         createRequest: vi.fn((input: Record<string, unknown>) => ({ ...input, requestId: 'req-1' })),
+        getRequest: vi.fn(() => null),
+        listRequests: vi.fn(() => []),
         resolveRequest: vi.fn(),
       } as unknown as BrowserGatewayActionGuardOptions['approvalStore'],
       autoApproveRequests: () => false,

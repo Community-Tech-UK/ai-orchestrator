@@ -65,6 +65,7 @@ export type {
   AutoIndexContextManagerTarget,
   AutoIndexProjectRegistryTarget,
   AutoIndexSettingsTarget,
+  AutoIndexWatcherRegistration,
   CodebaseAutoStatusEvent,
   PreflightResult as CodebaseAutoIndexPreflightResult,
 } from './codebase-indexing-auto-coordinator';

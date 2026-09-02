@@ -110,15 +110,19 @@ describe('FastPathRetriever', () => {
       lines: ['src/auth/middleware.ts:10: requireAuth'],
       cwd: '/repo',
     };
+    const buildFastPathResult = vi.fn().mockResolvedValue(indexedResult);
     const retriever = new FastPathRetriever({
       indexedCodebaseContext: {
-        buildFastPathResult: vi.fn().mockResolvedValue(indexedResult),
+        buildFastPathResult,
       },
     });
 
     const result = await retriever.search('find auth middleware', '/repo');
 
     expect(result).toEqual(indexedResult);
+    expect(buildFastPathResult).toHaveBeenCalledWith(expect.objectContaining({
+      storeLookupDeadlineMs: 2_500,
+    }));
     expect(childProcess.spawn).not.toHaveBeenCalled();
   });
 

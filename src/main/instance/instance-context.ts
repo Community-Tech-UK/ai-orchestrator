@@ -748,6 +748,11 @@ export class InstanceContextManager implements InstanceContextPort {
       });
   }
 
+  recordTaskOutcome(taskId: string, success: boolean, score: number): void {
+    if (!taskId || !Number.isFinite(score)) return;
+    this.unifiedMemory.recordTaskOutcome(taskId, success, score);
+  }
+
   // ============================================
   // JIT Context Loading
   // ============================================

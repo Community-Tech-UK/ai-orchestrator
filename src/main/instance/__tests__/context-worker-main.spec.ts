@@ -9,8 +9,58 @@ async function flushMicrotasks(times = 8): Promise<void> {
 describe('context worker main', () => {
   const startHotPrewarm = vi.fn(() => true);
   const cancelHotPrewarm = vi.fn(() => true);
+  const residencySnapshot = {
+    processRole: 'context-worker',
+    counts: {
+      durableStores: 3,
+      durableSections: 5,
+      activeSessions: 1,
+      residentMetadataSections: 2,
+      deferredMetadataSections: 3,
+      residentContentSections: 1,
+      residentContentStores: 1,
+      metadataOnlyStores: 2,
+      deferredStores: 2,
+    },
+    discoveredStores: 3,
+    activeSessions: 1,
+    startupContentBytes: 0,
+    residentMetadataSections: 2,
+    deferredMetadataSections: 3,
+    residentContentBytes: 12,
+    residentContentSections: 1,
+    residentContentStores: 1,
+    hotCandidates: 2,
+    hotAdmitted: 1,
+    hotSkipped: 0,
+    hotExhausted: 0,
+    hotCancelled: 1,
+    semanticDiscovered: 3,
+    semanticIndexed: 2,
+    semanticSkipped: 0,
+    semanticFailed: 1,
+    semanticRetried: 1,
+    metadataOnlyStores: 2,
+    deferredStores: 2,
+    exhausted: {
+      metadata: false,
+      contentBytes: false,
+      contentSections: false,
+      contentStores: false,
+    },
+    elapsedMs: 4,
+    lastAdmissionFailure: { reason: 'store-not-found' },
+  } as const;
+  const getResidencyStats = vi.fn(() => residencySnapshot);
+  const on = vi.fn();
+  const rlmManager = { startHotPrewarm, cancelHotPrewarm, getResidencyStats, on };
+  const handleRlmWorkerRequest = vi.fn();
+  const recordTaskOutcome = vi.fn();
+  const unifiedMemoryController = { recordTaskOutcome };
+  const handleUnifiedMemoryWorkerRequest = vi.fn();
 
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.resetModules();
     vi.doMock('../register-aliases', () => ({}));
     vi.doMock('../register-aliases.ts', () => ({}));
@@ -43,8 +93,12 @@ describe('context worker main', () => {
     }));
     vi.doMock('../../rlm/context-manager', () => ({
       RLMContextManager: {
-        getInstance: vi.fn(() => ({ startHotPrewarm, cancelHotPrewarm })),
+        getInstance: vi.fn(() => rlmManager),
       },
+    }));
+    vi.doMock('../rlm-worker-request-handler', () => ({ handleRlmWorkerRequest }));
+    vi.doMock('../unified-memory-worker-request-handler', () => ({
+      handleUnifiedMemoryWorkerRequest,
     }));
     vi.doMock('../context-worker-event-forwarding', () => ({
       registerWorkerEventForwarding: vi.fn(),
@@ -69,11 +123,44 @@ describe('context worker main', () => {
     vi.doMock('../../memory/project-memory-brief-worker', () => ({
       buildProjectMemoryBriefInWorker: vi.fn().mockResolvedValue(null),
     }));
+    vi.doMock('../../memory/unified-controller', () => ({
+      getUnifiedMemory: () => unifiedMemoryController,
+    }));
     vi.doMock('../../learning/learning-state-snapshots', () => ({
       loadHabitTrackerStateSnapshot: vi.fn(() => null),
       loadMetricsCollectorStateSnapshot: vi.fn(() => null),
       loadOutcomeTrackerStateSnapshot: vi.fn(() => null),
     }));
+  });
+
+  it('publishes the clone-safe authoritative residency snapshot with worker readiness', async () => {
+    const send = vi.fn();
+    const originalSendDescriptor = Object.getOwnPropertyDescriptor(process, 'send');
+    const originalOn = process.on.bind(process);
+    Object.defineProperty(process, 'send', { configurable: true, value: send });
+    vi.spyOn(process, 'on').mockImplementation((eventName, listener) => {
+      if (eventName === 'message') return process;
+      return originalOn(eventName, listener);
+    });
+
+    try {
+      await import('../context-worker-main');
+
+      expect(send).toHaveBeenCalledWith({
+        type: 'worker-metrics',
+        residency: residencySnapshot,
+      });
+      expect(send).toHaveBeenCalledWith({ type: 'ready' });
+      expect(on).toHaveBeenCalledWith('residency:stats', expect.any(Function));
+      expect(() => structuredClone(send.mock.calls[0]?.[0])).not.toThrow();
+      expect(JSON.stringify(send.mock.calls)).not.toContain('storeId');
+    } finally {
+      if (originalSendDescriptor) {
+        Object.defineProperty(process, 'send', originalSendDescriptor);
+      } else {
+        Reflect.deleteProperty(process, 'send');
+      }
+    }
   });
 
   afterEach(() => {
@@ -166,6 +253,182 @@ describe('context worker main', () => {
     }
   });
 
+  it('records one task outcome through the worker-local unified memory controller without an RPC response', async () => {
+    const send = vi.fn();
+    const handlers: ((message: unknown) => void)[] = [];
+    const originalSendDescriptor = Object.getOwnPropertyDescriptor(process, 'send');
+    const originalOn = process.on.bind(process);
+    Object.defineProperty(process, 'send', { configurable: true, value: send });
+    vi.spyOn(process, 'on').mockImplementation((eventName, listener) => {
+      if (eventName === 'message') {
+        handlers.push(listener as (message: unknown) => void);
+        return process;
+      }
+      return originalOn(eventName, listener);
+    });
+
+    try {
+      await import('../context-worker-main');
+      handlers[0]?.({
+        type: 'record-task-outcome',
+        taskId: 'task-outcome-47',
+        success: true,
+        score: 0.75,
+      });
+      await flushMicrotasks();
+
+      expect(recordTaskOutcome).toHaveBeenCalledOnce();
+      expect(recordTaskOutcome).toHaveBeenCalledWith('task-outcome-47', true, 0.75);
+      expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'rpc-response' }));
+    } finally {
+      if (originalSendDescriptor) {
+        Object.defineProperty(process, 'send', originalSendDescriptor);
+      } else {
+        Reflect.deleteProperty(process, 'send');
+      }
+    }
+  });
+
+  it('routes RLM requests through the worker-local manager and responds with serialized results', async () => {
+    const send = vi.fn();
+    const handlers: ((message: unknown) => void)[] = [];
+    const originalSendDescriptor = Object.getOwnPropertyDescriptor(process, 'send');
+    const originalOn = process.on.bind(process);
+    Object.defineProperty(process, 'send', { configurable: true, value: send });
+    vi.spyOn(process, 'on').mockImplementation((eventName, listener) => {
+      if (eventName === 'message') {
+        handlers.push(listener as (message: unknown) => void);
+        return process;
+      }
+      return originalOn(eventName, listener);
+    });
+    const request = { kind: 'list-stores' as const };
+    const result = [{ id: 'store-1', sections: [] }];
+    handleRlmWorkerRequest.mockResolvedValueOnce(result);
+
+    try {
+      await import('../context-worker-main');
+      handlers[0]?.({ type: 'rlm-request', id: 61, request });
+      await flushMicrotasks();
+
+      expect(handleRlmWorkerRequest).toHaveBeenCalledWith(rlmManager, request);
+      expect(send).toHaveBeenCalledWith({
+        type: 'rpc-response', id: 61, result, error: undefined,
+      });
+    } finally {
+      if (originalSendDescriptor) {
+        Object.defineProperty(process, 'send', originalSendDescriptor);
+      } else {
+        Reflect.deleteProperty(process, 'send');
+      }
+    }
+  });
+
+  it('routes unified-memory requests through the worker-local controller', async () => {
+    const send = vi.fn();
+    const handlers: ((message: unknown) => void)[] = [];
+    const originalSendDescriptor = Object.getOwnPropertyDescriptor(process, 'send');
+    const originalOn = process.on.bind(process);
+    Object.defineProperty(process, 'send', { configurable: true, value: send });
+    vi.spyOn(process, 'on').mockImplementation((eventName, listener) => {
+      if (eventName === 'message') {
+        handlers.push(listener as (message: unknown) => void);
+        return process;
+      }
+      return originalOn(eventName, listener);
+    });
+    const request = { kind: 'get-stats' as const };
+    const result = { shortTermTokens: 10, longTermEntries: 2 };
+    handleUnifiedMemoryWorkerRequest.mockResolvedValueOnce(result);
+
+    try {
+      await import('../context-worker-main');
+      handlers[0]?.({ type: 'unified-memory-request', id: 64, request });
+      await flushMicrotasks();
+
+      expect(handleUnifiedMemoryWorkerRequest).toHaveBeenCalledWith(
+        unifiedMemoryController,
+        request,
+      );
+      expect(send).toHaveBeenCalledWith({
+        type: 'rpc-response', id: 64, result, error: undefined,
+      });
+    } finally {
+      if (originalSendDescriptor) {
+        Object.defineProperty(process, 'send', originalSendDescriptor);
+      } else {
+        Reflect.deleteProperty(process, 'send');
+      }
+    }
+  });
+
+  it('returns RLM request failures through the existing RPC error envelope', async () => {
+    const send = vi.fn();
+    const handlers: ((message: unknown) => void)[] = [];
+    const originalSendDescriptor = Object.getOwnPropertyDescriptor(process, 'send');
+    Object.defineProperty(process, 'send', { configurable: true, value: send });
+    vi.spyOn(process, 'on').mockImplementation((eventName, listener) => {
+      if (eventName === 'message') {
+        handlers.push(listener as (message: unknown) => void);
+      }
+      return process;
+    });
+    handleRlmWorkerRequest.mockRejectedValueOnce(new Error('store listing failed'));
+
+    try {
+      await import('../context-worker-main');
+      handlers[0]?.({ type: 'rlm-request', id: 62, request: { kind: 'list-stores' } });
+      await flushMicrotasks();
+
+      expect(send).toHaveBeenCalledWith({
+        type: 'rpc-response', id: 62, result: undefined, error: 'store listing failed',
+      });
+    } finally {
+      if (originalSendDescriptor) {
+        Object.defineProperty(process, 'send', originalSendDescriptor);
+      } else {
+        Reflect.deleteProperty(process, 'send');
+      }
+    }
+  });
+
+  it('returns the worker-local load and residency snapshot from get-stats', async () => {
+    const send = vi.fn();
+    const handlers: ((message: unknown) => void)[] = [];
+    const originalSendDescriptor = Object.getOwnPropertyDescriptor(process, 'send');
+    Object.defineProperty(process, 'send', { configurable: true, value: send });
+    vi.spyOn(process, 'on').mockImplementation((eventName, listener) => {
+      if (eventName === 'message') {
+        handlers.push(listener as (message: unknown) => void);
+      }
+      return process;
+    });
+
+    try {
+      await import('../context-worker-main');
+      getResidencyStats.mockClear();
+      handlers[0]?.({ type: 'get-stats', id: 63 });
+      await flushMicrotasks();
+
+      // The RPC result and the post-operation worker-metrics refresh both read
+      // the same authoritative snapshot.
+      expect(getResidencyStats).toHaveBeenCalledTimes(2);
+      expect(send).toHaveBeenCalledWith({
+        type: 'rpc-response',
+        id: 63,
+        result: residencySnapshot,
+        error: undefined,
+      });
+      expect(JSON.stringify(send.mock.calls)).not.toContain('storeId');
+    } finally {
+      if (originalSendDescriptor) {
+        Object.defineProperty(process, 'send', originalSendDescriptor);
+      } else {
+        Reflect.deleteProperty(process, 'send');
+      }
+    }
+  });
+
   it('LT-480: pre-initialises RLMDatabase with explicit dbPath before wiring worker event forwarding', async () => {
     const originalSendDescriptor = Object.getOwnPropertyDescriptor(process, 'send');
     Object.defineProperty(process, 'send', { configurable: true, value: vi.fn() });
@@ -184,12 +447,10 @@ describe('context worker main', () => {
       expect(forwardingMock).toHaveBeenCalled();
 
       // RLMDatabase.getInstance() must be called with the real dbPath/contentDir
-      // BEFORE registerWorkerEventForwarding() runs — otherwise
-      // RLMContextManager's eager, no-config getRLMDatabase() call (triggered
-      // from inside registerWorkerEventForwarding) wins the getInstance()
-      // singleton race and permanently pins the RLM database to its
-      // process.cwd()-hashed fallback path instead of this worker's real
-      // per-profile userData path (LT-480).
+      // before this entrypoint resolves RLMContextManager at the forwarding
+      // call site. Its eager, no-config getRLMDatabase() call would otherwise
+      // win the singleton race and pin the worker to the fallback path instead
+      // of this profile's userData path (LT-480).
       const firstGetInstanceCall = getInstanceMock.mock.calls[0]?.[0] as
         | { dbPath?: string }
         | undefined;

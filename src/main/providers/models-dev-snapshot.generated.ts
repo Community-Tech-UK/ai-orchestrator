@@ -25,6 +25,7 @@ export interface ModelsDevSnapshotEntry {
 
 export const MODELS_DEV_SNAPSHOT: Record<string, ModelsDevSnapshotEntry> = {
   'claude-fable-5': { provider: 'anthropic', input: 10, output: 50, contextWindow: 1000000, maxOutputTokens: 128000 },
+  'claude-fable-5-1': { provider: 'anthropic', input: 10, output: 50, contextWindow: 1000000, maxOutputTokens: 128000 },
   'claude-haiku-4-5': { provider: 'anthropic', input: 1, output: 5, contextWindow: 200000, maxOutputTokens: 64000 },
   'claude-haiku-4-5-20251001': { provider: 'anthropic', input: 1, output: 5, contextWindow: 200000, maxOutputTokens: 64000 },
   'claude-opus-4-5': { provider: 'anthropic', input: 5, output: 25, contextWindow: 200000, maxOutputTokens: 64000 },
@@ -81,7 +82,6 @@ export const MODELS_DEV_SNAPSHOT: Record<string, ModelsDevSnapshotEntry> = {
   'gemini-flash-latest': { provider: 'google', input: 0.75, output: 3.75, contextWindow: 1048576, maxOutputTokens: 65536 },
   'gemini-flash-lite-latest': { provider: 'google', input: 0.3, output: 2.5, contextWindow: 1048576, maxOutputTokens: 65536 },
   'gemini-omni-flash-preview': { provider: 'google', input: 1.5, output: 17.5, contextWindow: 131072, maxOutputTokens: 65536 },
-  'gemini-robotics-er-1.6-preview': { provider: 'google', input: 1, output: 5, contextWindow: 131072, maxOutputTokens: 65536 },
   'lyria-3-clip-preview': { provider: 'google', input: 0, output: 0, contextWindow: 1048576, maxOutputTokens: 65536 },
   'lyria-3-pro-preview': { provider: 'google', input: 0, output: 0, contextWindow: 1048576, maxOutputTokens: 65536 },
   'gpt-3.5-turbo': { provider: 'openai', input: 0.5, output: 1.5, contextWindow: 16385, maxOutputTokens: 4096 },

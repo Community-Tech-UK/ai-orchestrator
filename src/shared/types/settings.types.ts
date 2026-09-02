@@ -86,7 +86,7 @@ export interface AppSettings extends DesktopComputerUseSettings {
    * is the copy the main-process automation runner can read). List order is
    * priority order. An empty list means "no opinion" — automations fall through
    * to today's provider/model resolution. Deliberately NOT seeded from
-   * `DEFAULT_FAVORITE_MODEL_KEYS` (whose first Claude entry is Fable 5) so an
+   * `DEFAULT_FAVORITE_MODEL_KEYS` (whose first Claude entry is Fable 5.1) so an
    * uncustomised install keeps exactly today's fallback semantics.
    */
   modelPickerFavorites: string[];
@@ -316,6 +316,14 @@ export interface AppSettings extends DesktopComputerUseSettings {
    * Default OFF: unattended resumes can spend quota while the user is away.
    */
   instanceProviderLimitResumeEnabled: boolean;
+  /**
+   * When true, a loop may keep spawning iterations while a paid overage/credits
+   * window is being consumed, instead of parking until it resets. Default OFF:
+   * unattended loops should never quietly spend real money. Until this existed
+   * the overage guard had no off switch at all, so a probe that misreported a
+   * plan window as overage could wedge a loop with no way out.
+   */
+  loopAllowProviderOverage: boolean;
   /** Enable early warnings when known quota windows are consumed ahead of time. */
   quotaPacingWarningEnabled: boolean;
   /** Utilization percentage that begins an ahead-of-window pacing warning. */

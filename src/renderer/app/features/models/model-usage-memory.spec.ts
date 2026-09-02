@@ -14,7 +14,7 @@ describe('model-usage-memory', () => {
   const now = Date.UTC(2026, 6, 9, 12, 0, 0);
 
   it('builds provider:model keys', () => {
-    expect(modelUsageKey('claude', 'claude-fable-5')).toBe('claude:claude-fable-5');
+    expect(modelUsageKey('claude', 'claude-fable-5-1')).toBe('claude:claude-fable-5-1');
   });
 
   it('scores count plus decaying recency boost', () => {
@@ -26,14 +26,14 @@ describe('model-usage-memory', () => {
 
   it('ranks recent frequent models above stale ones', () => {
     const usage = {
-      'claude:claude-fable-5': { count: 4, lastUsedAt: now },
+      'claude:claude-fable-5-1': { count: 4, lastUsedAt: now },
       'claude:claude-opus-4-8': { count: 10, lastUsedAt: now - 20 * day },
       'claude:claude-sonnet-4-6': { count: 1, lastUsedAt: now - day },
     };
     const catalogIndex = (key: string) => {
       const order = [
         'claude:claude-opus-4-8',
-        'claude:claude-fable-5',
+        'claude:claude-fable-5-1',
         'claude:claude-sonnet-4-6',
       ];
       return order.indexOf(key);
@@ -45,7 +45,7 @@ describe('model-usage-memory', () => {
 
     // fable: 4 + 10 = 14; sonnet: 1 + 9 = 10; opus: 10 + 0 = 10 (sonnet wins tie on lastUsedAt)
     expect(keys).toEqual([
-      'claude:claude-fable-5',
+      'claude:claude-fable-5-1',
       'claude:claude-sonnet-4-6',
       'claude:claude-opus-4-8',
     ]);
@@ -53,11 +53,11 @@ describe('model-usage-memory', () => {
 
   it('increments count and refreshes lastUsedAt', () => {
     const next = recordModelUsage(
-      { 'claude:claude-fable-5': { count: 2, lastUsedAt: now - day } },
-      'claude:claude-fable-5',
+      { 'claude:claude-fable-5-1': { count: 2, lastUsedAt: now - day } },
+      'claude:claude-fable-5-1',
       now,
     );
-    expect(next['claude:claude-fable-5']).toEqual({ count: 3, lastUsedAt: now });
+    expect(next['claude:claude-fable-5-1']).toEqual({ count: 3, lastUsedAt: now });
   });
 
   it('trims lowest-scoring entries when over the cap', () => {
@@ -78,16 +78,16 @@ describe('model-usage-memory', () => {
   it('orders provider rows with used models first', () => {
     const rows = [
       { key: 'claude:opus-latest', name: 'Opus latest' },
-      { key: 'claude:claude-fable-5', name: 'Fable 5' },
+      { key: 'claude:claude-fable-5-1', name: 'Fable 5.1' },
       { key: 'claude:claude-opus-4-8', name: 'Opus 4.8' },
     ];
     const usage = {
-      'claude:claude-fable-5': { count: 5, lastUsedAt: now },
+      'claude:claude-fable-5-1': { count: 5, lastUsedAt: now },
       'claude:claude-opus-4-8': { count: 2, lastUsedAt: now - day },
     };
 
     expect(orderProviderRowsByUsage(rows, usage, now).map((row) => row.name)).toEqual([
-      'Fable 5',
+      'Fable 5.1',
       'Opus 4.8',
       'Opus latest',
     ]);
@@ -96,16 +96,16 @@ describe('model-usage-memory', () => {
   it('keeps starred favorites first, then used non-favorites', () => {
     const rows = [
       { key: 'claude:opus-latest', name: 'Opus latest' },
-      { key: 'claude:claude-fable-5', name: 'Fable 5' },
+      { key: 'claude:claude-fable-5-1', name: 'Fable 5.1' },
       { key: 'codex:gpt-5.5', name: 'GPT-5.5' },
     ];
     const usage = {
-      'claude:claude-fable-5': { count: 3, lastUsedAt: now },
+      'claude:claude-fable-5-1': { count: 3, lastUsedAt: now },
     };
 
     expect(
       orderFavoriteRowsByUsage(rows, ['codex:gpt-5.5', 'claude:opus-latest'], usage, now)
         .map((row) => row.name),
-    ).toEqual(['GPT-5.5', 'Opus latest', 'Fable 5']);
+    ).toEqual(['GPT-5.5', 'Opus latest', 'Fable 5.1']);
   });
 });

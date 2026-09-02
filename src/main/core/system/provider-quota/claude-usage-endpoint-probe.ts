@@ -216,6 +216,9 @@ export function parseUsagePayload(payload: UsagePayload): ProviderQuotaWindow[] 
       limit,
       remaining: limit > 0 ? quotaRemaining(limit, used) : Number.NaN,
       resetsAt: null,
+      // Genuinely real money beyond the plan allowance — the loop overage guard
+      // should fire on this one.
+      overage: true,
     });
   }
 

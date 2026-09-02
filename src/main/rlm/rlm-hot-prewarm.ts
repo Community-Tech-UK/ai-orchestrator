@@ -1,5 +1,6 @@
 import type { ContextStore, RLMSession } from '../../shared/types/rlm.types';
 import {
+  getRlmProcessRole,
   selectHotStoreCandidates,
   type RlmResidencyPolicy,
 } from './context-persistence-loader';
@@ -8,6 +9,9 @@ import type {
   RlmHydrationResult,
   RlmResidencyStats,
 } from './context-residency-controller';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('RlmHotPrewarm');
 
 export interface RlmHotPrewarmStats {
   running: boolean;
@@ -34,6 +38,7 @@ interface RlmHotPrewarmOptions {
   now: () => number;
   hydrateContent: (storeId: string) => RlmHydrationResult;
   getResidencyStats: () => Readonly<RlmResidencyStats>;
+  onSummary?: () => void;
 }
 
 const schedulers = new WeakMap<object, RlmHotPrewarmer>();
@@ -67,6 +72,9 @@ class RlmHotPrewarmer {
   private nextCandidate = 0;
   private scheduled: NodeJS.Immediate | null = null;
   private stats: RlmHotPrewarmStats = emptyStats();
+  private generation = 0;
+  private startedAt = 0;
+  private terminalGeneration = 0;
 
   constructor(private readonly options: RlmHotPrewarmOptions) {}
 
@@ -74,6 +82,8 @@ class RlmHotPrewarmer {
     if (this.stats.running) return false;
 
     const capturedNow = this.options.now();
+    const generation = ++this.generation;
+    this.startedAt = performance.now();
     const activeActivity = activeSessionStoreActivity(this.options.sessions);
     const candidateRows = [...this.options.stores.values()].map((store) => ({
       store,
@@ -98,7 +108,10 @@ class RlmHotPrewarmer {
     this.options.counters.hotSkipped = 0;
     this.options.counters.hotExhausted = 0;
     this.options.counters.hotCancelled = 0;
-    if (this.stats.running) this.scheduleNext();
+    this.logSummary('started');
+    this.options.onSummary?.();
+    if (this.stats.running) this.scheduleNext(generation);
+    else this.finish(generation);
     return true;
   }
 
@@ -110,6 +123,7 @@ class RlmHotPrewarmer {
     const cancelled = this.candidates.length - this.nextCandidate;
     this.stats.cancelled += cancelled;
     this.options.counters.hotCancelled += cancelled;
+    this.finish(this.generation, 'cancelled');
     return true;
   }
 
@@ -117,14 +131,14 @@ class RlmHotPrewarmer {
     return Object.freeze({ ...this.stats });
   }
 
-  private scheduleNext(): void {
-    this.scheduled = setImmediate(() => this.runOneStore());
+  private scheduleNext(generation: number): void {
+    this.scheduled = setImmediate(() => this.runOneStore(generation));
   }
 
-  private runOneStore(): void {
+  private runOneStore(generation: number): void {
     this.scheduled = null;
-    if (!this.stats.running) return;
-    if (this.nextCandidate >= this.candidates.length) return this.finish();
+    if (!this.stats.running || generation !== this.generation) return;
+    if (this.nextCandidate >= this.candidates.length) return this.finish(generation);
     if (anyCeilingFull(this.options.getResidencyStats(), this.options.policy)) {
       return this.exhaustRemaining();
     }
@@ -141,23 +155,45 @@ class RlmHotPrewarmer {
       this.options.counters.hotSkipped += 1;
     }
 
-    if (this.nextCandidate >= this.candidates.length) return this.finish();
+    if (this.nextCandidate >= this.candidates.length) return this.finish(generation);
     if (anyCeilingFull(this.options.getResidencyStats(), this.options.policy)) {
       return this.exhaustRemaining();
     }
-    this.scheduleNext();
+    this.scheduleNext(generation);
   }
 
   private exhaustRemaining(includeCurrent = false): void {
     const exhausted = this.candidates.length - this.nextCandidate + (includeCurrent ? 1 : 0);
     this.stats.exhausted += exhausted;
     this.options.counters.hotExhausted += exhausted;
-    this.finish();
+    this.finish(this.generation);
   }
 
-  private finish(): void {
+  private finish(generation: number, phase: 'completed' | 'cancelled' = 'completed'): void {
+    if (generation !== this.generation || this.terminalGeneration === generation) return;
+    this.terminalGeneration = generation;
     this.stats.running = false;
     this.scheduled = null;
+    this.logSummary(phase);
+    this.options.onSummary?.();
+  }
+
+  private logSummary(phase: 'started' | 'completed' | 'cancelled'): void {
+    const residency = this.options.getResidencyStats();
+    logger.info('RLM hot prewarm summary', {
+      processRole: getRlmProcessRole(),
+      phase,
+      candidates: this.stats.candidates,
+      admitted: this.stats.admitted,
+      skipped: this.stats.skipped,
+      exhausted: this.stats.exhausted,
+      cancelled: this.stats.cancelled,
+      residentMetadataSections: residency.residentMetadataSections,
+      residentContentBytes: residency.residentContentBytes,
+      residentContentSections: residency.residentContentSections,
+      residentContentStores: residency.residentContentStores,
+      elapsedMs: Math.max(0, performance.now() - this.startedAt),
+    });
   }
 }
 

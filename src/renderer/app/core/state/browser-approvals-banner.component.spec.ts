@@ -3,6 +3,7 @@ import { Router } from '@angular/router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BrowserApprovalRequest } from '@contracts/types/browser';
 import { BrowserApprovalsBannerComponent } from './browser-approvals-banner.component';
+import { BrowserApprovalsStore } from './browser-approvals.store';
 import { BrowserGatewayIpcService } from '../services/ipc/browser-gateway-ipc.service';
 
 function makeApproval(overrides: Partial<BrowserApprovalRequest> = {}): BrowserApprovalRequest {
@@ -56,7 +57,7 @@ function makeGateway(requests: BrowserApprovalRequest[]) {
 
 describe('BrowserApprovalsBannerComponent', () => {
   let gateway: ReturnType<typeof makeGateway>;
-  const router = { navigateByUrl: vi.fn(async () => true) };
+  const router = { navigate: vi.fn(async () => true) };
 
   function setup(requests: BrowserApprovalRequest[]) {
     TestBed.resetTestingModule();
@@ -98,6 +99,8 @@ describe('BrowserApprovalsBannerComponent', () => {
     expect(banner?.textContent).toContain('2 browser permissions requested');
     // Oldest first: the request that has been blocking its agent longest.
     expect(banner?.textContent).toContain('session instance-1');
+    expect(banner?.textContent).toContain('Request 1 of 2');
+    expect(banner?.textContent).toContain('#older');
     // The global poll must not be scoped to one instance.
     expect(gateway.listApprovalRequests).toHaveBeenCalledWith({ status: 'pending', limit: 25 });
 
@@ -106,6 +109,37 @@ describe('BrowserApprovalsBannerComponent', () => {
     expect(gateway.approveRequest).toHaveBeenCalledWith(expect.objectContaining({
       requestId: 'older',
     }));
+  });
+
+  it('minimizes to a compact reminder and expands when the pending set changes', async () => {
+    const fixture = setup([makeApproval()]);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const store = TestBed.inject(BrowserApprovalsStore);
+
+    (fixture.nativeElement as HTMLElement)
+      .querySelector<HTMLButtonElement>('[aria-label="Minimize browser approval banner"]')
+      ?.click();
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).querySelector('.approvals-banner.compact')).not.toBeNull();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('1 browser approval waiting');
+
+    store.pendingRequests.set([makeApproval(), makeApproval({ requestId: 'request-2' })]);
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).querySelector('.approvals-banner.compact')).toBeNull();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('2 browser permissions requested');
+  });
+
+  it('opens the exact approval on the Permissions view when the banner is clicked', async () => {
+    const fixture = setup([makeApproval({ requestId: 'request-focus' })]);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.banner-main')?.click();
+
+    expect(router.navigate).toHaveBeenCalledWith(['/browser'], {
+      queryParams: { view: 'permissions', requestId: 'request-focus' },
+    });
   });
 
   it('denies the oldest pending request on Deny', async () => {
@@ -238,7 +272,9 @@ describe('BrowserApprovalsBannerComponent', () => {
     expect(review).toBeDefined();
 
     review?.click();
-    expect(router.navigateByUrl).toHaveBeenCalledWith('/browser');
+    expect(router.navigate).toHaveBeenCalledWith(['/browser'], {
+      queryParams: { view: 'permissions', requestId: 'request-1' },
+    });
     },
   );
 });

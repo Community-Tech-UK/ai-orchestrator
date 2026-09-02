@@ -159,12 +159,13 @@ describe('recent directories IPC codebase auto-index integration', () => {
       startCalls: { storeId: string; rootPath: string }[];
     } = {
       startCalls: [],
-      async startWatching(storeId: string, rootPath: string): Promise<void> {
+      async startWatching(storeId: string, rootPath: string) {
         this.startCalls.push({ storeId, rootPath });
+        return { dispose: async () => undefined };
       },
     };
     const contextManager: AutoIndexContextManagerTarget = {
-      createStore(instanceId: string): { id: string } {
+      async createStore(instanceId: string): Promise<{ id: string }> {
         return { id: `ctx_${instanceId}` };
       },
     };

@@ -8,7 +8,7 @@ import type { UserActionRequest } from '../orchestration/orchestration-handler';
 import { getOrchestrationActivityBridge } from '../orchestration/orchestration-activity-bridge';
 import { getMultiVerifyCoordinator } from '../orchestration/multi-verify-coordinator';
 import { getLogger } from '../logging/logger';
-import { getMemoryMonitor } from '../memory';
+import { getMemoryMonitor } from '../memory/memory-monitor';
 import { getRemoteObserverServer } from '../remote/observer-server';
 import { getRepoJobService } from '../repo-jobs';
 import {

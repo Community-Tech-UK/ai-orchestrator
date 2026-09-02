@@ -24,11 +24,8 @@ import {
   CodebaseSearchSymbolsPayloadSchema,
 } from '@contracts/schemas/workspace-tools';
 import { z } from 'zod';
-import {
-  getCodebaseIndexingService,
-  getCodebaseFileWatcher,
-  getCodebaseIndexingAutoCoordinator,
-} from '../../indexing';
+import { getCodebaseFileWatcher } from '../../indexing/file-watcher';
+import { getCodebaseIndexingAutoCoordinator } from '../../indexing/codebase-indexing-auto-coordinator';
 import { getCodebaseIndexingLaneGateway } from '../../indexing/codebase-indexing-lane-gateway';
 import { getCodemem, getCodeRetrievalService } from '../../codemem';
 import type {
@@ -41,12 +38,18 @@ import type { WindowManager } from '../../window-manager';
  * Register codebase indexing handlers.
  * Accepts WindowManager to send events to renderer.
  */
-export function registerCodebaseHandlers(windowManager: WindowManager): void {
-  const indexingService = getCodebaseIndexingService();
+export interface CodebaseHandlerRegistration {
+  dispose(): void;
+}
+
+export function registerCodebaseHandlers(
+  windowManager: WindowManager,
+): CodebaseHandlerRegistration {
   const fileWatcher = getCodebaseFileWatcher();
   const autoCoordinator = getCodebaseIndexingAutoCoordinator();
   const codeRetrievalService = getCodeRetrievalService();
   const indexingLaneGateway = getCodebaseIndexingLaneGateway();
+  const cleanupTasks: Array<() => void> = [];
 
   // Helper to safely send events to renderer
   const sendToRenderer = (channel: string, data: unknown): void => {
@@ -54,32 +57,51 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
   };
 
   // Forward progress events to renderer
-  indexingService.on('progress', (progress: IndexingProgress) => {
+  const onIndexingProgress = (progress: IndexingProgress): void => {
     sendToRenderer(IPC_CHANNELS.CODEBASE_INDEX_PROGRESS, progress);
-  });
-  indexingLaneGateway.on('progress', (progress: IndexingProgress) => {
-    sendToRenderer(IPC_CHANNELS.CODEBASE_INDEX_PROGRESS, progress);
-  });
+  };
 
   // Forward file watcher events to renderer
-  fileWatcher.on('changes:processed', (info: { storeId: string; additions: number; modifications: number; deletions: number }) => {
+  const onWatcherChanges = (info: { storeId: string; additions: number; modifications: number; deletions: number }): void => {
     sendToRenderer(IPC_CHANNELS.CODEBASE_WATCHER_CHANGES, {
       storeId: info.storeId,
       count: info.additions + info.modifications + info.deletions
     });
-  });
+  };
 
   // Forward auto-index status changes to renderer
-  autoCoordinator.on('status', (status: CodebaseAutoIndexStatus) => {
+  const onAutoIndexStatus = (status: CodebaseAutoIndexStatus): void => {
     sendToRenderer(IPC_CHANNELS.CODEBASE_AUTO_STATUS_CHANGED, status);
-  });
+  };
+
+  try {
+    indexingLaneGateway.on('progress', onIndexingProgress);
+    cleanupTasks.push(() => indexingLaneGateway.off('progress', onIndexingProgress));
+    fileWatcher.on('changes:processed', onWatcherChanges);
+    cleanupTasks.push(() => fileWatcher.off('changes:processed', onWatcherChanges));
+    autoCoordinator.on('status', onAutoIndexStatus);
+    cleanupTasks.push(() => autoCoordinator.off('status', onAutoIndexStatus));
+
+    const registerHandler = (
+      channel: string,
+      listener: (
+        event: IpcMainInvokeEvent,
+        payload: unknown,
+      ) => Promise<IpcResponse<unknown>>,
+    ): void => {
+      ipcMain.handle(
+        channel,
+        async (event, payload): Promise<IpcResponse<unknown>> => listener(event, payload),
+      );
+      cleanupTasks.push(() => ipcMain.removeHandler(channel));
+    };
 
   // ============================================
   // Indexing Handlers
   // ============================================
 
   // Index a codebase (full or incremental)
-  ipcMain.handle(
+  registerHandler(
     IPC_CHANNELS.CODEBASE_INDEX_STORE,
     async (
       _event: IpcMainInvokeEvent,
@@ -107,7 +129,7 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
   );
 
   // Index a single file
-  ipcMain.handle(
+  registerHandler(
     IPC_CHANNELS.CODEBASE_INDEX_FILE,
     async (
       _event: IpcMainInvokeEvent,
@@ -115,7 +137,7 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
     ): Promise<IpcResponse<void>> => {
       try {
         const validated = validateIpcPayload(CodebaseIndexFilePayloadSchema, payload, 'CODEBASE_INDEX_FILE');
-        await indexingService.indexFile(validated.storeId, validated.filePath);
+        await indexingLaneGateway.indexFile(validated.storeId, validated.filePath);
         return { success: true };
       } catch (error) {
         return {
@@ -131,7 +153,7 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
   );
 
   // Cancel ongoing indexing
-  ipcMain.handle(
+  registerHandler(
     IPC_CHANNELS.CODEBASE_INDEX_CANCEL,
     async (
       _event: IpcMainInvokeEvent,
@@ -149,7 +171,6 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
           await getCodemem().indexWorkerGateway.cancelIndex(validated.workspacePath);
         } else {
           await indexingLaneGateway.cancelIndexCodebase();
-          indexingService.cancel();
         }
         return { success: true };
       } catch (error) {
@@ -166,7 +187,7 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
   );
 
   // Get current indexing status
-  ipcMain.handle(
+  registerHandler(
     IPC_CHANNELS.CODEBASE_INDEX_STATUS,
     async (
       _event: IpcMainInvokeEvent,
@@ -190,8 +211,15 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
         if (laneProgress) {
           return { success: true, data: laneProgress };
         }
-        const progress = indexingService.getProgress();
-        return { success: true, data: progress };
+        return {
+          success: true,
+          data: {
+            status: 'idle',
+            totalFiles: 0,
+            processedFiles: 0,
+            totalChunks: 0,
+          },
+        };
       } catch (error) {
         return {
           success: false,
@@ -206,11 +234,11 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
   );
 
   // Get index stats for a store
-  ipcMain.handle(
+  registerHandler(
     IPC_CHANNELS.CODEBASE_INDEX_STATS,
     async (
       _event: IpcMainInvokeEvent,
-      payload: { storeId: string }
+      payload: unknown
     ): Promise<IpcResponse<IndexStats>> => {
       try {
         const validated = validateIpcPayload(
@@ -218,7 +246,7 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
           payload,
           'CODEBASE_INDEX_STATS'
         );
-        const stats = await indexingService.getStats(validated.storeId);
+        const stats = await indexingLaneGateway.getStats(validated.storeId);
         return { success: true, data: stats };
       } catch (error) {
         return {
@@ -234,7 +262,7 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
   );
 
   // Clear legacy RLM codebase index artifacts for diagnostics/reset flows.
-  ipcMain.handle(
+  registerHandler(
     IPC_CHANNELS.CODEBASE_LEGACY_CLEAR,
     async (
       _event: IpcMainInvokeEvent,
@@ -246,7 +274,7 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
           payload,
           'CODEBASE_LEGACY_CLEAR',
         );
-        await indexingService.clearLegacyCodebaseStore(validated.storeId);
+        await indexingLaneGateway.clearLegacyCodebaseStore(validated.storeId);
         return { success: true };
       } catch (error) {
         return {
@@ -266,7 +294,7 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
   // ============================================
 
   // Code search, returned in the legacy HybridSearchResult shape for renderer compatibility.
-  ipcMain.handle(
+  registerHandler(
     IPC_CHANNELS.CODEBASE_SEARCH,
     async (
       _event: IpcMainInvokeEvent,
@@ -298,7 +326,7 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
   );
 
   // Symbol search, returned in the legacy HybridSearchResult shape for renderer compatibility.
-  ipcMain.handle(
+  registerHandler(
     IPC_CHANNELS.CODEBASE_SEARCH_SYMBOLS,
     async (
       _event: IpcMainInvokeEvent,
@@ -334,7 +362,7 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
   // ============================================
 
   // Start file watcher for a store
-  ipcMain.handle(
+  registerHandler(
     IPC_CHANNELS.CODEBASE_WATCHER_START,
     async (
       _event: IpcMainInvokeEvent,
@@ -370,7 +398,7 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
   );
 
   // Stop file watcher for a store
-  ipcMain.handle(
+  registerHandler(
     IPC_CHANNELS.CODEBASE_WATCHER_STOP,
     async (
       _event: IpcMainInvokeEvent,
@@ -394,7 +422,7 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
   );
 
   // Get watcher status
-  ipcMain.handle(
+  registerHandler(
     IPC_CHANNELS.CODEBASE_WATCHER_STATUS,
     async (
       _event: IpcMainInvokeEvent,
@@ -434,7 +462,7 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
 
   // Get the current auto-index status for a workspace (or all known statuses
   // when no rootPath is supplied).
-  ipcMain.handle(
+  registerHandler(
     IPC_CHANNELS.CODEBASE_AUTO_STATUS_GET,
     async (
       _event: IpcMainInvokeEvent,
@@ -464,6 +492,41 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
   // Note: the legacy `CODEBASE_AUTO_HINT` handler has been removed. Renderer
   // hints now arrive on the consolidated `WORKSPACE_HINT_ACTIVE` channel and
   // are fanned out to this coordinator via `workspace-hint-handlers.ts`.
+  } catch (registrationError) {
+    const cleanupErrors = runCodebaseRegistrationCleanup(cleanupTasks);
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError(
+        [registrationError, ...cleanupErrors],
+        'Codebase handler registration and rollback failed',
+      );
+    }
+    throw registrationError;
+  }
+
+  let disposed = false;
+  return {
+    dispose(): void {
+      if (disposed) return;
+      disposed = true;
+      const cleanupErrors = runCodebaseRegistrationCleanup(cleanupTasks);
+      if (cleanupErrors.length > 0) {
+        throw new AggregateError(cleanupErrors, 'Codebase handler cleanup failed');
+      }
+    },
+  };
+}
+
+function runCodebaseRegistrationCleanup(cleanupTasks: Array<() => void>): unknown[] {
+  const errors: unknown[] = [];
+  for (const cleanup of cleanupTasks.reverse()) {
+    try {
+      cleanup();
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  cleanupTasks.length = 0;
+  return errors;
 }
 
 function resolveWorkspacePathForStore(

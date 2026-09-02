@@ -6,7 +6,7 @@
  * - InstanceStateManager: State, adapters, batch updates
  * - InstanceLifecycleManager: Create, terminate, restart, mode changes
  * - InstanceCommunicationManager: Adapter events, message passing
- * - InstanceContextManager: RLM and unified memory context
+ * - InstanceContextManager: Worker-side RLM and unified memory context
  * - InstanceOrchestrationManager: Child spawning, fast-path retrieval
  * - InstancePersistenceManager: Session export, import, storage
  */

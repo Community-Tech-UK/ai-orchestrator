@@ -9,6 +9,8 @@
  * catalog constants at module-evaluation time (only inside function bodies).
  */
 import {
+  CLAUDE_LEGACY_PRICING_ALIASES,
+  CLAUDE_PINNED_MODELS,
   DEFAULT_MODELS,
   MAX_MODEL_ID_LENGTH,
   PROVIDER_MODEL_LIST,
@@ -80,6 +82,12 @@ export function normalizeModelAliasForProvider(
   }
 
   const normalizedProvider = normalizeProviderModelNamespace(provider);
+  if (
+    normalizedProvider === 'claude'
+    && trimmed === CLAUDE_LEGACY_PRICING_ALIASES.FABLE_5
+  ) {
+    return CLAUDE_PINNED_MODELS.FABLE_51;
+  }
   const providerModels = getModelsForProvider(normalizedProvider);
   const exact = providerModels.find((model) => model.id === trimmed);
   if (exact) {

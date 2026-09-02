@@ -5871,8 +5871,12 @@
       "lines": 3817
     },
     {
+      "path": "src/main/instance/rlm-process-ownership.spec.ts",
+      "lines": 3676
+    },
+    {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3573
+      "lines": 3570
     },
     {
       "path": "docs/superpowers/plans/2026-06-08-50-hour-loop-resilience_completed.md",
@@ -5948,7 +5952,7 @@
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
-      "lines": 2467
+      "lines": 2423
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service-existing-tabs.spec.ts",
@@ -5964,7 +5968,7 @@
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.ts",
-      "lines": 2250
+      "lines": 2249
     },
     {
       "path": "src/main/cli/adapters/claude-cli-adapter.ts",
@@ -6000,7 +6004,7 @@
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.lifecycle.spec.ts",
-      "lines": 2043
+      "lines": 2058
     },
     {
       "path": "docs/superpowers/plans/2026-04-17-wave1-contracts-subpath-exports.md",
@@ -6084,7 +6088,7 @@
     },
     {
       "path": "src/main/orchestration/default-invokers.ts",
-      "lines": 1642
+      "lines": 1647
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
@@ -6111,11 +6115,11 @@
       "lines": 1582
     },
     {
-      "path": "docs/superpowers/specs/2026-04-16-ai-orchestrator-cross-repo-improvements-design.md",
-      "lines": 1561
+      "path": "src/main/instance/__tests__/instance-manager.create.spec.ts",
+      "lines": 1576
     },
     {
-      "path": "src/main/instance/__tests__/instance-manager.create.spec.ts",
+      "path": "docs/superpowers/specs/2026-04-16-ai-orchestrator-cross-repo-improvements-design.md",
       "lines": 1561
     },
     {
@@ -6127,28 +6131,28 @@
       "lines": 1540
     },
     {
-      "path": "src/renderer/app/features/browser/browser-page.component.spec.ts",
-      "lines": 1524
+      "path": "src/main/instance/__tests__/instance-manager.send-input.spec.ts",
+      "lines": 1535
     },
     {
-      "path": "src/main/instance/__tests__/instance-manager.send-input.spec.ts",
-      "lines": 1520
+      "path": "src/main/instance/__tests__/instance-manager.change-model.spec.ts",
+      "lines": 1528
+    },
+    {
+      "path": "src/renderer/app/features/browser/browser-page.component.spec.ts",
+      "lines": 1524
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-e-developer-experience.md",
       "lines": 1517
     },
     {
-      "path": "src/main/instance/__tests__/instance-manager.change-model.spec.ts",
-      "lines": 1513
+      "path": "src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts",
+      "lines": 1515
     },
     {
       "path": "docs/superpowers/plans/2026-04-01-claude-code-audit-phase2.COMPLETED.md",
       "lines": 1478
-    },
-    {
-      "path": "src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts",
-      "lines": 1464
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase2-provider-tool-sdk_completed.md",
@@ -6157,6 +6161,10 @@
     {
       "path": "docs/superpowers/plans/2026-04-04-agentic-harness-hardening_completed.md",
       "lines": 1456
+    },
+    {
+      "path": "src/main/background-jobs/__tests__/lane-gateway.spec.ts",
+      "lines": 1443
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.thread-recovery.spec.ts",
@@ -6185,6 +6193,10 @@
     {
       "path": "src/main/ipc/handlers/__tests__/session-handlers.spec.ts",
       "lines": 1388
+    },
+    {
+      "path": "src/main/browser-gateway/browser-gateway-service.approvals.spec.ts",
+      "lines": 1383
     },
     {
       "path": "src/worker-agent/__tests__/worker-agent.spec.ts",
@@ -6267,12 +6279,16 @@
       "lines": 1296
     },
     {
+      "path": "src/main/instance/instance-context.ts",
+      "lines": 1290
+    },
+    {
       "path": "src/main/ipc/handlers/instance-handlers.ts",
       "lines": 1289
     },
     {
-      "path": "src/main/instance/instance-context.ts",
-      "lines": 1285
+      "path": "src/main/instance/__tests__/context-worker-client.spec.ts",
+      "lines": 1279
     },
     {
       "path": "src/main/cli/adapters/copilot-cli-adapter.ts",
@@ -6335,10 +6351,6 @@
       "lines": 1236
     },
     {
-      "path": "src/main/browser-gateway/browser-gateway-service.approvals.spec.ts",
-      "lines": 1232
-    },
-    {
       "path": "src/main/mcp/__tests__/orchestrator-tools.spec.ts",
       "lines": 1232
     },
@@ -6349,6 +6361,10 @@
     {
       "path": "src/renderer/app/core/state/local-ai-guard.store.spec.ts",
       "lines": 1228
+    },
+    {
+      "path": "src/main/instance/__tests__/instance-manager.yolo-mode.spec.ts",
+      "lines": 1217
     },
     {
       "path": "src/main/orchestration/__tests__/campaign-coordinator.spec.ts",
@@ -6369,10 +6385,6 @@
     {
       "path": "docs/plans/2026-06-27-supergoal-inspired-loop-planning-audit_completed.md",
       "lines": 1203
-    },
-    {
-      "path": "src/main/instance/__tests__/instance-manager.yolo-mode.spec.ts",
-      "lines": 1202
     },
     {
       "path": "src/renderer/app/features/browser/browser-page.component.scss",
@@ -6464,7 +6476,7 @@
     },
     {
       "path": "src/main/instance/instance-orchestration.ts",
-      "lines": 1104
+      "lines": 1103
     },
     {
       "path": "src/main/ipc/handlers/session-handlers.ts",
@@ -6500,11 +6512,15 @@
     },
     {
       "path": "src/renderer/app/features/instance-list/instance-list.component.scss",
-      "lines": 1061
+      "lines": 1070
     },
     {
       "path": "src/main/remote-node/__tests__/rpc-schemas.spec.ts",
       "lines": 1059
+    },
+    {
+      "path": "src/main/indexing/codebase-indexing-auto-coordinator.spec.ts",
+      "lines": 1043
     },
     {
       "path": "src/main/cli/adapters/cursor-cli-adapter.ts",
@@ -6595,6 +6611,10 @@
       "lines": 986
     },
     {
+      "path": "src/main/rlm/context-residency-controller.spec.ts",
+      "lines": 984
+    },
+    {
       "path": "src/preload/domains/orchestration.preload.ts",
       "lines": 984
     },
@@ -6679,12 +6699,12 @@
       "lines": 925
     },
     {
-      "path": "src/main/rlm/context-residency-controller.spec.ts",
-      "lines": 923
-    },
-    {
       "path": "src/renderer/app/features/plugins/plugins-page.component.ts",
       "lines": 920
+    },
+    {
+      "path": "src/main/ipc/learning-ipc-handler.spec.ts",
+      "lines": 911
     },
     {
       "path": "src/main/orchestration/loop-completion-detector.spec.ts",
@@ -6705,6 +6725,10 @@
     {
       "path": "docs/superpowers/plans/2026-04-09-remote-session-latency.md",
       "lines": 897
+    },
+    {
+      "path": "src/main/automations/automation-runner.spec.ts",
+      "lines": 895
     },
     {
       "path": "src/main/orchestration/consensus-coordinator.ts",
@@ -6728,7 +6752,7 @@
     },
     {
       "path": "src/main/automations/automation-runner.ts",
-      "lines": 881
+      "lines": 886
     },
     {
       "path": "src/main/orchestration/loop-coordinator-terminal-intents.spec.ts",
@@ -6803,10 +6827,6 @@
       "lines": 852
     },
     {
-      "path": "src/main/automations/automation-runner.spec.ts",
-      "lines": 851
-    },
-    {
       "path": "src/renderer/app/features/verification/config/verification-preferences.component.ts",
       "lines": 851
     },
@@ -6863,16 +6883,16 @@
       "lines": 836
     },
     {
-      "path": "src/main/instance/__tests__/context-worker-client.spec.ts",
-      "lines": 835
-    },
-    {
       "path": "docs/plans/2026-07-30-sibling-audit-round2_plan_completed.md",
       "lines": 833
     },
     {
       "path": "src/main/orchestration/loop-store.ts",
       "lines": 833
+    },
+    {
+      "path": "src/main/rlm/context-persistence-loader.integration.spec.ts",
+      "lines": 832
     },
     {
       "path": "src/renderer/app/features/automations/automations-page.component.ts",
@@ -6943,6 +6963,10 @@
       "lines": 805
     },
     {
+      "path": "src/main/app/orchestrator-tools-step.spec.ts",
+      "lines": 805
+    },
+    {
       "path": "src/renderer/app/features/training/training-page.component.ts",
       "lines": 805
     },
@@ -6957,6 +6981,10 @@
     {
       "path": "src/main/memory/procedural-store.ts",
       "lines": 802
+    },
+    {
+      "path": "src/main/core/config/settings-control-policy.ts",
+      "lines": 800
     },
     {
       "path": "src/shared/types/instance.types.ts",

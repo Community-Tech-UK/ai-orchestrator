@@ -9,7 +9,7 @@ import type {
   BrowserCampaignService,
 } from './browser-campaign-store';
 import type { BrowserGrantStore } from './browser-grant-store';
-import { providerFromContext } from './browser-gateway-action-guard';
+import { providerFromContext } from './browser-provider';
 import { existingTabGrantNodeId } from './browser-grant-scope';
 import { isOriginAllowed } from './browser-origin-policy';
 import { getLogger } from '../logging/logger';

@@ -11,7 +11,35 @@ import {
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { getInstanceProviderLimitHandler } from '../../instance/instance-provider-limit-handler';
 import { getInstanceAuthRepairHandler } from '../../instance/instance-auth-repair-handler';
+import { getLoopCoordinator } from '../../orchestration/loop-coordinator';
 import type { InstanceManager } from '../../instance/instance-manager';
+
+/**
+ * A loop parked on a provider limit paints its own `quota-park` waitReason onto
+ * the loop's chat instance, so the composer banner (and its Resume button)
+ * appears for a park the instance handler knows nothing about. Routing Resume
+ * only to the instance handler made the button a guaranteed no-op for every
+ * loop park: it cleared an instance park that was never registered, logged
+ * "no message to re-send", and left the loop parked.
+ *
+ * Applies `act` to the loop parked on this chat, if there is one.
+ */
+function withParkedLoopForChat(
+  instanceId: string,
+  act: (coordinator: ReturnType<typeof getLoopCoordinator>, loopRunId: string) => boolean,
+): boolean {
+  let coordinator: ReturnType<typeof getLoopCoordinator>;
+  try {
+    coordinator = getLoopCoordinator();
+  } catch {
+    // No loop runtime in this process (headless/tests) — instance path only.
+    return false;
+  }
+  const parked = coordinator
+    .getActiveLoops()
+    .find((loop) => loop.chatId === instanceId && loop.status === 'provider-limit');
+  return parked ? act(coordinator, parked.id) : false;
+}
 
 /**
  * IPC handlers for the (opt-in) regular-session provider-limit park: resume a
@@ -28,8 +56,12 @@ export function registerInstanceProviderLimitHandlers(deps: { instanceManager?: 
           payload,
           'INSTANCE_PROVIDER_LIMIT_RESUME_NOW',
         );
-        const resumed = getInstanceProviderLimitHandler().resumeNow(validated.instanceId);
-        return { success: true, data: { resumed } };
+        // Loop parks take precedence: when a loop owns this chat's banner the
+        // instance handler has no park to clear and no turn to re-send.
+        const resumedLoop = withParkedLoopForChat(validated.instanceId, (c, id) => c.resumeLoop(id));
+        const resumed = resumedLoop
+          || getInstanceProviderLimitHandler().resumeNow(validated.instanceId);
+        return { success: true, data: { resumed, resumedLoop } };
       } catch (error) {
         return {
           success: false,
@@ -52,8 +84,17 @@ export function registerInstanceProviderLimitHandlers(deps: { instanceManager?: 
           payload,
           'INSTANCE_PROVIDER_LIMIT_CANCEL',
         );
+        // The instance handler unconditionally clears the waitReason, which is
+        // what removes the banner. For a loop-owned park that alone would hide
+        // the countdown while the loop stayed parked with its auto-resume still
+        // armed — the user would be surprised by a later iteration. Disarm the
+        // loop's timer too, so a dismissed banner means what it says.
+        const cancelledLoop = withParkedLoopForChat(
+          validated.instanceId,
+          (c, id) => c.cancelProviderLimitResume(id),
+        );
         const cancelled = getInstanceProviderLimitHandler().cancel(validated.instanceId);
-        return { success: true, data: { cancelled } };
+        return { success: true, data: { cancelled: cancelled || cancelledLoop, cancelledLoop } };
       } catch (error) {
         return {
           success: false,

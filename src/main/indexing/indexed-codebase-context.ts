@@ -1,10 +1,11 @@
 import * as path from 'node:path';
 import { getLogger } from '../logging/logger';
-import { RLMContextManager } from '../rlm/context-manager';
 import { getCodeRetrievalService } from '../codemem';
+import { getContextWorkerClient } from '../instance/context-worker-client';
 import { defaultStoreIdResolver } from './codebase-indexing-auto-defaults';
 import { getTokenCounter } from '../rlm/token-counter';
-import type { ContextStore } from '../../shared/types/rlm.types';
+import { callWithDeadline } from '../util/deadline';
+import type { RlmContextStoreDto } from '../instance/rlm-worker-port';
 import type {
   CodeRetrievalResult,
   CodeRetrievalSearchOptions,
@@ -14,6 +15,7 @@ import type { FastPathResult } from '../instance/instance-types';
 const logger = getLogger('IndexedCodebaseContext');
 const DEFAULT_MAX_TOKENS = 900;
 const DEFAULT_TOP_K = 5;
+const DEFAULT_STORE_LOOKUP_DEADLINE_MS = 500;
 const MIN_QUERY_CHARS = 3;
 
 export interface IndexedCodebaseContextResult {
@@ -43,6 +45,7 @@ export interface IndexedCodebaseContextRequest {
   query: string;
   maxTokens?: number;
   topK?: number;
+  storeLookupDeadlineMs?: number;
 }
 
 export interface IndexedCodebaseContextSearchTarget {
@@ -50,8 +53,8 @@ export interface IndexedCodebaseContextSearchTarget {
 }
 
 export interface IndexedCodebaseContextManagerTarget {
-  getStoreByInstance(instanceId: string): ContextStore | undefined;
-  listStores(): ContextStore[];
+  getStoreByInstance(instanceId: string): Promise<RlmContextStoreDto | undefined>;
+  listStores(): Promise<RlmContextStoreDto[]>;
 }
 
 export interface IndexedCodebaseContextServiceOptions {
@@ -89,7 +92,21 @@ export class IndexedCodebaseContextService {
       return null;
     }
 
-    const storeId = this.resolveStore(workspacePath)?.id ?? this.storeIdResolver(workspacePath);
+    const fallbackStoreId = this.storeIdResolver(workspacePath);
+    const storeId = await callWithDeadline(
+      () => this.resolveStoreId(workspacePath, fallbackStoreId),
+      {
+        ms: normalizeLookupDeadline(request.storeLookupDeadlineMs),
+        fallback: fallbackStoreId,
+        onTimeout: () => logger.debug('RLM worker store lookup timed out for indexed context', {
+          workspacePath,
+        }),
+        onError: (error) => logger.debug('RLM worker store lookup unavailable for indexed context', {
+          workspacePath,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      },
+    );
     const startedAt = Date.now();
     let rawResults: CodeRetrievalResult[];
     try {
@@ -170,26 +187,29 @@ export class IndexedCodebaseContextService {
     ].join('\n');
   }
 
-  private resolveStore(workspacePath: string): ContextStore | null {
+  private async resolveStoreId(
+    workspacePath: string,
+    fallbackStoreId: string,
+  ): Promise<string> {
     const manager = this.getContextManager();
     if (!manager) {
-      return null;
+      return fallbackStoreId;
     }
 
-    const instanceStoreId = this.storeIdResolver(workspacePath);
-    const byInstance = manager.getStoreByInstance(instanceStoreId);
+    const byInstance = await manager.getStoreByInstance(fallbackStoreId);
     if (byInstance) {
-      return byInstance;
+      return byInstance.id;
     }
 
-    return manager.listStores().find((store) => {
+    const stores = await manager.listStores();
+    return stores.find((store) => {
       const config = store.config;
       if (config?.['kind'] !== 'codebase-auto') {
         return false;
       }
       const rootPath = config['rootPath'];
       return typeof rootPath === 'string' && this.normalizePath(rootPath) === workspacePath;
-    }) ?? null;
+    })?.id ?? fallbackStoreId;
   }
 
   private normalizeResult(
@@ -244,9 +264,16 @@ export class IndexedCodebaseContextService {
       return this.contextManager;
     }
     try {
-      return RLMContextManager.getInstance();
+      const port = getContextWorkerClient();
+      return {
+        getStoreByInstance: (instanceId) => port.invokeRlm({
+          kind: 'get-store-by-instance',
+          instanceId,
+        }),
+        listStores: () => port.invokeRlm({ kind: 'list-stores' }),
+      };
     } catch (error) {
-      logger.debug('RLM context manager unavailable for indexed codebase context', {
+      logger.debug('RLM context worker unavailable for indexed codebase context', {
         error: error instanceof Error ? error.message : String(error),
       });
       return null;
@@ -275,6 +302,12 @@ export class IndexedCodebaseContextService {
       return null;
     }
   }
+}
+
+function normalizeLookupDeadline(candidate: number | undefined): number {
+  return typeof candidate === 'number' && Number.isFinite(candidate) && candidate >= 0
+    ? Math.floor(candidate)
+    : DEFAULT_STORE_LOOKUP_DEADLINE_MS;
 }
 
 function formatLocation(result: IndexedCodebaseContextResult): string {

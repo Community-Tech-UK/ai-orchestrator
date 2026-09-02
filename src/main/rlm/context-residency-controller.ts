@@ -5,8 +5,9 @@ import type {
 } from '../../shared/types/rlm.types';
 import type { RLMDatabase } from '../persistence/rlm-database';
 import type { ContextSectionMetadataRow } from '../persistence/rlm-database.types';
-import type { StorageStats } from './context/context.types';
+import type { RlmResidencySnapshot, StorageStats } from './context/context.types';
 import {
+  buildRlmLoadSummary,
   DEFAULT_RLM_RESIDENCY_POLICY,
   type RlmPersistedLoadStats,
   type RlmResidencyPolicy,
@@ -30,13 +31,9 @@ export type RlmHydrationFailureReason =
   | 'actual-content-exceeds-byte-budget'
   | 'content-read-failed';
 export interface RlmResidencyAdmissionFailure {
-  storeId: string;
   reason: RlmHydrationFailureReason;
 }
-export interface RlmResidencyStats extends RlmPersistedLoadStats {
-  hotExhausted: number;
-  lastAdmissionFailure?: RlmResidencyAdmissionFailure;
-}
+export type RlmResidencyStats = RlmResidencySnapshot;
 export interface RlmHydrationResult {
   storeId: string;
   changed: boolean;
@@ -62,6 +59,7 @@ export interface ContextResidencyControllerOptions {
   loadStats: Readonly<RlmPersistedLoadStats>;
   policy?: RlmResidencyPolicy;
   now?: () => number;
+  onStatsChanged?: (stats: Readonly<RlmResidencyStats>) => void;
 }
 interface ContentCapacity {
   bytes: boolean;
@@ -74,32 +72,33 @@ export class ContextResidencyController {
   private readonly sessions: Map<string, RLMSession>;
   private readonly policy: RlmResidencyPolicy;
   private readonly now: () => number;
+  private readonly onStatsChanged?: (stats: Readonly<RlmResidencyStats>) => void;
   private readonly states = new Map<string, RlmStoreHydrationState>();
   private readonly estimatedBytesByStore = new Map<string, number>();
   private readonly residentBytesByStore = new Map<string, number>();
   private readonly lastUsedAt = new Map<string, number>();
-  private readonly stats: RlmResidencyStats;
+  private readonly stats: RlmPersistedLoadStats & {
+    lastAdmissionFailure?: RlmResidencyAdmissionFailure;
+  };
   constructor(options: ContextResidencyControllerOptions) {
     this.db = options.db;
     this.stores = options.stores;
     this.sessions = options.sessions;
     this.policy = { ...(options.policy ?? DEFAULT_RLM_RESIDENCY_POLICY) };
     this.now = options.now ?? Date.now;
+    this.onStatsChanged = options.onStatsChanged;
     for (const [storeId, state] of options.hydrationStates) {
-      this.states.set(storeId, { ...state });
+      const contentEligible = state.contentEligible
+        && state.sectionCount <= this.policy.maxSectionsPerStore;
+      this.states.set(storeId, { ...state, contentEligible });
       this.lastUsedAt.set(storeId, this.stores.get(storeId)?.lastAccessed ?? 0);
     }
-    this.stats = {
-      ...options.loadStats,
-      hotExhausted: 0,
-      exhausted: { ...options.loadStats.exhausted },
-    };
+    this.stats = { ...options.loadStats, exhausted: { ...options.loadStats.exhausted } };
   }
   getHydrationState(storeId: string): Readonly<RlmStoreHydrationState> | undefined {
     const state = this.states.get(storeId);
     return state ? Object.freeze({ ...state }) : undefined;
   }
-
   getHydrationStates(): ReadonlyMap<string, Readonly<RlmStoreHydrationState>> {
     const snapshot = new Map<string, Readonly<RlmStoreHydrationState>>();
     for (const [storeId, state] of this.states) {
@@ -108,21 +107,23 @@ export class ContextResidencyController {
     return createReadonlyMapView(snapshot);
   }
   getStats(): Readonly<RlmResidencyStats> {
+    const snapshot = buildRlmLoadSummary(this.stats);
     return Object.freeze({
-      ...this.stats,
-      exhausted: Object.freeze({ ...this.stats.exhausted }),
+      ...snapshot,
+      counts: Object.freeze({ ...snapshot.counts }),
+      exhausted: Object.freeze({ ...snapshot.exhausted }),
       ...(this.stats.lastAdmissionFailure
         ? { lastAdmissionFailure: Object.freeze({ ...this.stats.lastAdmissionFailure }) }
         : {}),
     });
   }
-
   startHotPrewarm(): boolean {
     return startRlmHotPrewarm(this, {
       stores: this.stores, sessions: this.sessions, policy: this.policy,
       counters: this.stats, now: this.now,
       hydrateContent: (storeId) => this.ensureContent(storeId, { allowEviction: false }),
       getResidencyStats: () => this.getStats(),
+      onSummary: () => this.onStatsChanged?.(this.getStats()),
     });
   }
   cancelHotPrewarm(): boolean { return cancelRlmHotPrewarm(this); }
@@ -168,6 +169,14 @@ export class ContextResidencyController {
   syncActiveSessions(): void {
     this.stats.activeSessions = this.sessions.size;
   }
+  accountSemanticDelta(summary: { missing: number; indexed: number; skipped: number; failed: number; retried: number }): void {
+    this.stats.semanticDiscovered += summary.missing;
+    this.stats.semanticIndexed += summary.indexed;
+    this.stats.semanticSkipped += summary.skipped;
+    this.stats.semanticFailed += summary.failed;
+    this.stats.semanticRetried += summary.retried;
+    this.onStatsChanged?.(this.getStats());
+  }
   registerRuntimeStore(store: ContextStore): void {
     if (this.states.has(store.id)) return;
 
@@ -191,7 +200,6 @@ export class ContextResidencyController {
     if (sections.length === 0) return;
     const state = this.states.get(storeId);
     if (!state) return;
-
     const previousSectionCount = state.sectionCount;
     const addedBytes = contentBytes(sections);
     state.sectionCount += sections.length;
@@ -270,7 +278,6 @@ export class ContextResidencyController {
     const state = this.states.get(storeId);
     const store = this.stores.get(storeId);
     if (!state) return;
-
     if (state.metadata === 'resident') {
       this.stats.residentMetadataSections = Math.max(
         0,
@@ -339,30 +346,27 @@ export class ContextResidencyController {
     if (state.metadata === 'resident') {
       return this.result(storeId, false);
     }
-
     const metadataRemaining = this.policy.maxResidentSectionMetadata
       - this.stats.residentMetadataSections;
     if (state.sectionCount > metadataRemaining) {
       this.stats.exhausted.metadata = true;
       return this.failureResult(storeId, false, 'metadata-budget-exhausted');
     }
-
     let rows: ContextSectionMetadataRow[];
     try {
       rows = this.db.getSectionMetadata(storeId);
     } catch {
       return this.failureResult(storeId, false, 'metadata-read-failed');
     }
-
     if (rows.length > metadataRemaining) {
       this.stats.exhausted.metadata = true;
       return this.failureResult(storeId, false, 'metadata-budget-exhausted');
     }
-
     const previousSectionCount = state.sectionCount;
     const sections = rows.map(rowToSectionMetadata);
     store.sections = sections;
     state.sectionCount = rows.length;
+    state.contentEligible = state.contentEligible && rows.length <= this.policy.maxSectionsPerStore;
     state.metadata = 'resident';
     this.estimatedBytesByStore.set(
       storeId,
@@ -390,7 +394,6 @@ export class ContextResidencyController {
     if (!state.contentEligible) {
       return this.failureResult(storeId, metadataResult.changed, 'content-ineligible');
     }
-
     const requiredBytes = this.estimatedBytesByStore.get(storeId) ?? 0;
     const requiredSections = store.sections.length;
     const requiredStoreSlots = requiredSections > 0 ? 1 : 0;
@@ -522,7 +525,6 @@ export class ContextResidencyController {
   ): ContentCapacity {
     return this.contentDeficits(bytes, sections, stores, this.stats);
   }
-
   private contentDeficits(
     bytes: number,
     sections: number,
@@ -568,7 +570,6 @@ export class ContextResidencyController {
     const state = this.states.get(storeId);
     const store = this.stores.get(storeId);
     if (!state || !store || state.content !== 'resident') return;
-
     for (const section of store.sections) section.content = '';
     store.bloomFilter = undefined;
     const ownedStoreSlot = ownsResidentContentStoreSlot(state);
@@ -614,7 +615,7 @@ export class ContextResidencyController {
     reason: RlmHydrationFailureReason,
     evictedStoreIds: readonly string[] = [],
   ): RlmHydrationResult {
-    this.stats.lastAdmissionFailure = { storeId, reason };
+    this.stats.lastAdmissionFailure = { reason };
     return this.result(storeId, changed, reason, evictedStoreIds);
   }
   private clearAdmissionFailure(): void {

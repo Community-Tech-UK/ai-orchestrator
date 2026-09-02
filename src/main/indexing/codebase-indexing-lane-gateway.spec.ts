@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { CodebaseIndexingLaneGateway, type CodebaseIndexingLaneGatewayOptions } from './codebase-indexing-lane-gateway';
 import type {
   BackgroundJobProgress,
@@ -7,6 +7,16 @@ import type {
   BackgroundJobSnapshot,
   BackgroundJobSubmission,
 } from '../background-jobs';
+import {
+  _resetContextWorkerEventRelayForTesting,
+  getContextWorkerEventRelay,
+} from '../instance/context-worker-event-relay';
+import {
+  setupRlmEventForwarding,
+  teardownRlmEventForwarding,
+} from '../ipc/ipc-main-runtime-wiring';
+import { IPC_CHANNELS } from '@contracts/channels';
+import type { WindowManager } from '../window-manager';
 
 class FakeRuntime extends EventEmitter {
   enqueueAndWait = vi.fn<(submission: BackgroundJobSubmission) => Promise<unknown>>(async () => ({
@@ -25,6 +35,11 @@ class FakeRuntime extends EventEmitter {
 type FakeRuntimeOption = CodebaseIndexingLaneGatewayOptions['runtime'];
 
 describe('CodebaseIndexingLaneGateway', () => {
+  afterEach(() => {
+    teardownRlmEventForwarding();
+    _resetContextWorkerEventRelayForTesting();
+  });
+
   it('enqueues legacy index-codebase work on the indexing lane', async () => {
     const runtime = new FakeRuntime();
     const gateway = new CodebaseIndexingLaneGateway({
@@ -135,40 +150,99 @@ describe('CodebaseIndexingLaneGateway', () => {
     }));
   });
 
-  it('LT-207: dispatches a worker-event broadcast from the indexing lane onto main\'s RLMContextManager', async () => {
-    const { RLMContextManager } = await import('../rlm/context-manager');
-    const rlm = RLMContextManager.getInstance();
+  it('LT-207: dispatches a worker-event broadcast from the indexing lane onto the RLM relay', () => {
     const received: unknown[] = [];
     const listener = (payload: unknown) => received.push(payload);
-    rlm.on('section:added', listener);
+    getContextWorkerEventRelay().on('section:added', listener);
 
-    try {
-      const runtime = new FakeRuntime();
-      // eslint-disable-next-line no-new -- constructing wires the 'worker-event' subscription under test
-      new CodebaseIndexingLaneGateway({ runtime: runtime as unknown as FakeRuntimeOption });
+    const runtime = new FakeRuntime();
+    new CodebaseIndexingLaneGateway({ runtime: runtime as unknown as FakeRuntimeOption });
 
-      // Shape posted by the indexing lane worker (codebase-indexing-lane-main.ts)
-      // over the LaneOutboundMessage 'worker-event' envelope — see
-      // context-worker-event-forwarding.ts's WorkerForwardedEventMsg.
-      runtime.emit('worker-event', {
-        type: 'worker-event',
-        source: 'rlm-context',
-        event: 'section:added',
-        payload: {
-          store: { id: 'codebase:lt207-gateway-test' },
-          section: { id: 'sec-lt207-gw', name: 'lt207-gateway.ts' },
-        },
-      });
+    const payload = {
+      storeId: 'codebase:lt207-gateway-test',
+      section: {
+        id: 'sec-lt207-gw',
+        type: 'file' as const,
+        name: 'lt207-gateway.ts',
+        content: '',
+        tokens: 1,
+        startOffset: 0,
+        endOffset: 1,
+        checksum: 'checksum-gateway',
+        depth: 0,
+      },
+      highVolume: true,
+      store: {
+        id: 'codebase:lt207-gateway-test',
+        instanceId: 'indexing-lane',
+        sections: [],
+        totalTokens: 1,
+        totalSize: 1,
+        createdAt: 1,
+        lastAccessed: 2,
+        accessCount: 3,
+      },
+    };
+    runtime.emit('worker-event', {
+      type: 'worker-event',
+      source: 'rlm-context',
+      event: 'section:added',
+      payload,
+    });
 
-      expect(received).toEqual([
-        {
-          store: { id: 'codebase:lt207-gateway-test' },
-          section: { id: 'sec-lt207-gw', name: 'lt207-gateway.ts' },
-        },
-      ]);
-    } finally {
-      rlm.off('section:added', listener);
-    }
+    expect(received).toEqual([payload]);
+  });
+
+  it('delivers an indexing-lane RLM DTO through the relay to the existing renderer channel', () => {
+    const runtime = new FakeRuntime();
+    const windowManager = {
+      sendToRenderer: vi.fn(),
+    } as unknown as WindowManager;
+    setupRlmEventForwarding(windowManager);
+    new CodebaseIndexingLaneGateway({ runtime: runtime as unknown as FakeRuntimeOption });
+
+    const payload = {
+      storeId: 'store-indexing',
+      section: {
+        id: 'section-indexing',
+        type: 'file' as const,
+        name: 'indexing.ts',
+        content: '',
+        tokens: 1,
+        startOffset: 0,
+        endOffset: 1,
+        checksum: 'checksum-indexing',
+        depth: 0,
+      },
+      highVolume: false,
+      store: {
+        id: 'store-indexing',
+        instanceId: 'indexing-lane',
+        sections: [],
+        totalTokens: 1,
+        totalSize: 1,
+        createdAt: 1,
+        lastAccessed: 2,
+        accessCount: 3,
+      },
+    };
+    runtime.emit('worker-event', {
+      type: 'worker-event',
+      source: 'rlm-context',
+      event: 'section:added',
+      payload,
+    });
+
+    expect(windowManager.sendToRenderer).toHaveBeenNthCalledWith(
+      1,
+      IPC_CHANNELS.RLM_SECTION_ADDED,
+      { storeId: payload.storeId, section: payload.section },
+    );
+    expect(windowManager.sendToRenderer).toHaveBeenNthCalledWith(
+      2,
+      IPC_CHANNELS.RLM_STORE_UPDATED,
+      { storeId: payload.storeId, store: payload.store },
+    );
   });
 
   it('implements AutoIndexingTarget.indexCodebase for the auto coordinator', async () => {
@@ -185,6 +259,204 @@ describe('CodebaseIndexingLaneGateway', () => {
         duration: 12,
         errors: [{ file: '/repo/src/bad.ts', error: 'bad import', recoverable: true }],
       }));
+  });
+
+  it('routes single-file, removal, stats, and legacy-clear operations through typed lane jobs', async () => {
+    const runtime = new FakeRuntime();
+    runtime.enqueueAndWait
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({
+        storeId: 'codebase:test',
+        totalFiles: 4,
+        totalChunks: 12,
+        totalTokens: 90,
+        lastIndexedAt: 1_000,
+        indexSize: 2_048,
+      })
+      .mockResolvedValueOnce(undefined);
+    const gateway = new CodebaseIndexingLaneGateway({
+      runtime: runtime as unknown as FakeRuntimeOption,
+      userDataPath: '/user-data',
+    });
+
+    await gateway.indexFile('codebase:test', '/repo/src/add.ts');
+    await gateway.removeFile('codebase:test', '/repo/src/remove.ts');
+    await expect(gateway.getStats('codebase:test')).resolves.toEqual({
+      storeId: 'codebase:test',
+      totalFiles: 4,
+      totalChunks: 12,
+      totalTokens: 90,
+      lastIndexedAt: 1_000,
+      indexSize: 2_048,
+    });
+    await gateway.clearLegacyCodebaseStore('codebase:test');
+
+    expect(runtime.enqueueAndWait.mock.calls.map(([submission]) => submission)).toEqual([
+      expect.objectContaining({
+        lane: 'indexing',
+        type: 'index-file',
+        payload: {
+          type: 'index-file',
+          storeId: 'codebase:test',
+          filePath: '/repo/src/add.ts',
+          userDataPath: '/user-data',
+        },
+      }),
+      expect.objectContaining({
+        lane: 'indexing',
+        type: 'remove-file',
+        payload: {
+          type: 'remove-file',
+          storeId: 'codebase:test',
+          filePath: '/repo/src/remove.ts',
+          userDataPath: '/user-data',
+        },
+      }),
+      expect.objectContaining({
+        lane: 'indexing',
+        type: 'get-stats',
+        payload: {
+          type: 'get-stats',
+          storeId: 'codebase:test',
+          userDataPath: '/user-data',
+        },
+      }),
+      expect.objectContaining({
+        lane: 'indexing',
+        type: 'clear-legacy-store',
+        payload: {
+          type: 'clear-legacy-store',
+          storeId: 'codebase:test',
+          userDataPath: '/user-data',
+        },
+      }),
+    ]);
+  });
+
+  it('submits one bounded sync-files lane job and validates its per-file outcomes', async () => {
+    const runtime = new FakeRuntime();
+    runtime.enqueueAndWait.mockResolvedValueOnce({
+      outcomes: [
+        { operation: 'removed', filePath: '/repo/old.ts', success: true },
+        { operation: 'indexed', filePath: '/repo/new.ts', success: false, error: 'parse failed' },
+      ],
+    });
+    const gateway = new CodebaseIndexingLaneGateway({
+      runtime: runtime as unknown as FakeRuntimeOption,
+    });
+
+    await expect(gateway.syncFiles(
+      'codebase:test',
+      ['/repo/old.ts'],
+      ['/repo/new.ts'],
+    )).resolves.toEqual({
+      outcomes: [
+        { operation: 'removed', filePath: '/repo/old.ts', success: true },
+        { operation: 'indexed', filePath: '/repo/new.ts', success: false, error: 'parse failed' },
+      ],
+    });
+
+    expect(runtime.enqueueAndWait).toHaveBeenCalledWith(expect.objectContaining({
+      lane: 'indexing',
+      type: 'sync-files',
+      priority: 'background',
+      payload: {
+        type: 'sync-files',
+        storeId: 'codebase:test',
+        deletions: ['/repo/old.ts'],
+        upserts: ['/repo/new.ts'],
+      },
+    }));
+    expect(runtime.enqueueAndWait.mock.calls[0]?.[0]).not.toHaveProperty('coalesceKey');
+  });
+
+  it('rejects sync-files results that do not exactly match every requested operation and path', async () => {
+    const invalidResults = [
+      {
+        outcomes: [
+          { operation: 'removed', filePath: '/repo/old.ts', success: true },
+        ],
+      },
+      {
+        outcomes: [
+          { operation: 'removed', filePath: '/repo/old.ts', success: true },
+          { operation: 'indexed', filePath: '/repo/new.ts', success: true },
+          { operation: 'indexed', filePath: '/repo/extra.ts', success: true },
+        ],
+      },
+      {
+        outcomes: [
+          { operation: 'removed', filePath: '/repo/old.ts', success: true },
+          { operation: 'removed', filePath: '/repo/old.ts', success: false, error: 'duplicate' },
+        ],
+      },
+      {
+        outcomes: [
+          { operation: 'indexed', filePath: '/repo/old.ts', success: true },
+          { operation: 'indexed', filePath: '/repo/new.ts', success: true },
+        ],
+      },
+    ];
+
+    for (const invalidResult of invalidResults) {
+      const runtime = new FakeRuntime();
+      runtime.enqueueAndWait.mockResolvedValueOnce(invalidResult);
+      const gateway = new CodebaseIndexingLaneGateway({
+        runtime: runtime as unknown as FakeRuntimeOption,
+      });
+
+      await expect(gateway.syncFiles(
+        'codebase:test',
+        ['/repo/old.ts'],
+        ['/repo/new.ts'],
+      )).rejects.toThrow(/does not exactly match requested files/i);
+    }
+  });
+
+  it('rejects oversized sync-files batches before they enter the runtime', async () => {
+    const runtime = new FakeRuntime();
+    const gateway = new CodebaseIndexingLaneGateway({
+      runtime: runtime as unknown as FakeRuntimeOption,
+    });
+    const tooManyPaths = Array.from({ length: 257 }, (_, index) => `/repo/file-${index}.ts`);
+
+    await expect(gateway.syncFiles('codebase:test', [], tooManyPaths))
+      .rejects.toThrow(/at most 256/i);
+    expect(runtime.enqueueAndWait).not.toHaveBeenCalled();
+  });
+
+  it('rejects duplicate and overlapping sync paths before runtime enqueue', async () => {
+    const invalidRequests = [
+      { deletions: ['/repo/a.ts', '/repo/a.ts'], upserts: [] },
+      { deletions: [], upserts: ['/repo/a.ts', '/repo/a.ts'] },
+      { deletions: ['/repo/a.ts'], upserts: ['/repo/a.ts'] },
+    ];
+
+    for (const request of invalidRequests) {
+      const runtime = new FakeRuntime();
+      const gateway = new CodebaseIndexingLaneGateway({
+        runtime: runtime as unknown as FakeRuntimeOption,
+      });
+
+      await expect(gateway.syncFiles(
+        'codebase:test',
+        request.deletions,
+        request.upserts,
+      )).rejects.toThrow(/duplicate|overlap|unique/i);
+      expect(runtime.enqueueAndWait).not.toHaveBeenCalled();
+    }
+  });
+
+  it('rejects non-void results for file mutation jobs', async () => {
+    const runtime = new FakeRuntime();
+    runtime.enqueueAndWait.mockResolvedValueOnce({ unexpected: true });
+    const gateway = new CodebaseIndexingLaneGateway({
+      runtime: runtime as unknown as FakeRuntimeOption,
+    });
+
+    await expect(gateway.indexFile('codebase:test', '/repo/file.ts'))
+      .rejects.toThrow(/invalid indexing lane void result/i);
   });
 
   it('cancels queued and running legacy indexing lane jobs for a root path', async () => {

@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { UsageMonitorSource } from './usage-monitor-source';
+import { evaluateQuotaThrottle } from '../../../orchestration/loop-quota-throttle';
+import { ProviderQuotaWindowSchema } from '@contracts/schemas/quota';
 
 const NOW = 1_750_000_000_000;
 
@@ -177,5 +179,130 @@ describe('UsageMonitorSource', () => {
     const snap = await src.readProvider('gemini');
     expect(snap!.windows).toHaveLength(1);
     expect(snap!.windows[0].label).toBe('ok');
+  });
+});
+
+// Regression: this fallback source is what CompositeQuotaProbe uses whenever a
+// native probe is degraded, so it reproduced the phantom-overage park even
+// after the native Cursor/Grok probes were fixed. The monitor writes ratio
+// windows labelled `usd` (see the Cursor fixture above), which the loop
+// throttle read as a paid-overage bucket.
+describe('UsageMonitorSource overage classification', () => {
+  it('re-labels ratio-shaped windows as percent and not overage', async () => {
+    const src = makeSource({
+      json: {
+        providers: {
+          cursor: {
+            windows: [
+              { id: 'cursor.included', label: 'Cursor included', unit: 'usd', used_percent: 42 },
+            ],
+          },
+        },
+      },
+    });
+
+    const window = (await src.readProvider('cursor'))!.windows[0];
+    expect(window.unit).toBe('percent');
+    expect(window.overage).toBeUndefined();
+  });
+
+  it('still flags the on-demand bucket as real spend', async () => {
+    const src = makeSource({
+      json: {
+        providers: {
+          cursor: {
+            windows: [
+              { id: 'cursor.on-demand', label: 'On-demand', unit: 'usd', used_percent: 8 },
+            ],
+          },
+        },
+      },
+    });
+
+    expect((await src.readProvider('cursor'))!.windows[0].overage).toBe(true);
+  });
+
+  it('honours an explicit overage flag and leaves true dollar windows alone', async () => {
+    const src = makeSource({
+      json: {
+        providers: {
+          claude: {
+            windows: [
+              { id: 'claude.credits', label: 'Credits', unit: 'usd', used: 5, limit: 100 },
+              { id: 'claude.5h', label: '5h', unit: 'messages', used: 10, limit: 100, overage: false },
+            ],
+          },
+        },
+      },
+    });
+
+    const byId = Object.fromEntries((await src.readProvider('claude'))!.windows.map((w) => [w.id, w]));
+    // Numeric used/limit means a genuine dollar window: unit preserved, and the
+    // throttle's `unit === 'usd'` fallback still classifies it as overage.
+    expect(byId['claude.credits'].unit).toBe('usd');
+    expect(byId['claude.credits'].overage).toBeUndefined();
+    expect(byId['claude.5h'].overage).toBe(false);
+  });
+});
+
+/**
+ * The seam the native-probe fix alone did not close: CompositeQuotaProbe falls
+ * back to this source whenever the native probe is degraded, so a Cursor loop
+ * could still park at 0 iterations on a phantom overage via this path.
+ */
+describe('UsageMonitorSource output through the loop throttle', () => {
+  it('lets a Cursor loop run on monitor-sourced plan usage', async () => {
+    const src = makeSource({
+      json: {
+        providers: {
+          cursor: {
+            windows: [
+              { id: 'cursor.included', label: 'Cursor included', unit: 'usd', used_percent: 42, reset_at: '2026-07-01T00:00:00Z' },
+            ],
+          },
+        },
+      },
+    });
+
+    expect(evaluateQuotaThrottle(await src.readProvider('cursor')).action).toBe('continue');
+  });
+
+  it('still guards monitor-sourced on-demand spend', async () => {
+    const src = makeSource({
+      json: {
+        providers: {
+          cursor: {
+            windows: [
+              { id: 'cursor.on-demand', label: 'On-demand', unit: 'usd', used_percent: 8, reset_at: '2026-07-01T00:00:00Z' },
+            ],
+          },
+        },
+      },
+    });
+
+    expect(evaluateQuotaThrottle(await src.readProvider('cursor')).action).toBe('overage-guard');
+  });
+
+  it('emits windows the strict renderer-event schema accepts', async () => {
+    const src = makeSource({
+      json: {
+        providers: {
+          cursor: {
+            windows: [
+              { id: 'cursor.included', label: 'Included', unit: 'usd', used_percent: 42, reset_at: '2026-07-01T00:00:00Z' },
+              { id: 'cursor.on-demand', label: 'On-demand', unit: 'usd', used_percent: 8, reset_at: '2026-07-01T00:00:00Z' },
+            ],
+          },
+          claude: { windows: [{ id: 'claude.5h', label: '5h', unit: 'messages', used: 10, limit: 100 }] },
+        },
+      },
+    });
+
+    for (const provider of ['cursor', 'claude'] as const) {
+      for (const window of (await src.readProvider(provider))!.windows) {
+        const parsed = ProviderQuotaWindowSchema.safeParse(window);
+        expect(parsed.success, `${window.id}: ${JSON.stringify(parsed.error?.issues)}`).toBe(true);
+      }
+    }
   });
 });

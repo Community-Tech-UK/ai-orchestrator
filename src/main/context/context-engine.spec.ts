@@ -58,6 +58,7 @@ function makeContextPort(overrides: Partial<InstanceContextPort> = {}): Instance
     ingestInitialOutputToRlm: vi.fn(async () => undefined),
     ingestToRLM: vi.fn(),
     ingestToUnifiedMemory: vi.fn(),
+    recordTaskOutcome: vi.fn(),
     calculateContextBudget: vi.fn(() => ({
       totalTokens: 300,
       rlmMaxTokens: 200,

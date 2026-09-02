@@ -1,12 +1,16 @@
 import { CommonModule } from '@angular/common';
 import {
+  AfterViewChecked,
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
+  ElementRef,
   OnInit,
   computed,
   inject,
   signal,
 } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
 import type {
   BrowserApprovalRequest,
   BrowserAuditEntry,
@@ -17,10 +21,19 @@ import type {
   BrowserTarget,
 } from '@contracts/types/browser';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
+import { BrowserApprovalsStore } from '../../core/state/browser-approvals.store';
 import { BrowserGatewayIpcService } from '../../core/services/ipc/browser-gateway-ipc.service';
 import { AuxiliaryLlmIpcService } from '../../core/services/ipc/auxiliary-llm-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import { BrowserUnattendedPanelComponent } from './browser-unattended-panel.component';
+import {
+  bindBrowserApprovalDeepLink,
+  browserApprovalExactOnly,
+  BrowserApprovalFocus,
+  browserApprovalPosition,
+  browserApprovalReceivedAt,
+  shortBrowserApprovalId,
+} from './browser-approval-page.utils';
 import {
   browserApprovalConfirmationPhrase,
   browserNodeReadinessLabel,
@@ -57,16 +70,21 @@ const recentAuditWindowMs = 15 * 60 * 1000;
   templateUrl: './browser-page.component.html',
   styleUrl: './browser-page.component.scss',
 })
-export class BrowserPageComponent implements OnInit {
+export class BrowserPageComponent implements OnInit, AfterViewChecked {
   private readonly ipc = inject(BrowserGatewayIpcService);
   private readonly auxIpc = inject(AuxiliaryLlmIpcService);
   private readonly remoteNodes = inject(RemoteNodeStore);
+  private readonly approvals = inject(BrowserApprovalsStore);
+  private readonly route = inject(ActivatedRoute, { optional: true });
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private detailGeneration = 0;
+  private readonly approvalFocus = new BrowserApprovalFocus(this.host.nativeElement);
 
   readonly profiles = signal<BrowserProfile[]>([]);
   readonly targets = signal<BrowserTarget[]>([]);
   readonly auditEntries = signal<BrowserAuditEntry[]>([]);
-  readonly approvalRequests = signal<BrowserApprovalRequest[]>([]);
+  readonly approvalRequests = this.approvals.pendingRequests;
   readonly activeGrants = signal<BrowserPermissionGrant[]>([]);
   readonly health = signal<unknown>(null);
   readonly snapshot = signal<BrowserSnapshotView | null>(null);
@@ -91,6 +109,7 @@ export class BrowserPageComponent implements OnInit {
   readonly autonomousConfirmations = signal<Record<string, string>>({});
   readonly showAuditHistory = signal(false);
   readonly activeView = signal<BrowserPageView>('browser');
+  readonly focusedApprovalRequestId = signal<string | null>(null);
   readonly targetFilter = signal('');
 
   readonly runningProfileCount = computed(
@@ -146,9 +165,19 @@ export class BrowserPageComponent implements OnInit {
   readonly providerCapabilityRows = computed(() => this.healthPresentation().providers.rows);
 
   async ngOnInit(): Promise<void> {
+    bindBrowserApprovalDeepLink({
+      route: this.route,
+      destroyRef: this.destroyRef,
+      activeView: this.activeView,
+      focusedRequestId: this.focusedApprovalRequestId,
+      focus: this.approvalFocus,
+      refresh: () => void this.refreshApprovals(),
+    });
     void this.remoteNodes.initialize();
     await this.refresh();
   }
+
+  ngAfterViewChecked(): void { this.approvalFocus.apply(this.focusedApprovalRequestId()); }
 
   async refresh(): Promise<void> {
     const isCurrent = this.latestRequests.begin('refresh');
@@ -229,15 +258,7 @@ export class BrowserPageComponent implements OnInit {
     this.applyGatewayArray(response, this.auditEntries);
   }
 
-  async refreshApprovals(): Promise<void> {
-    const response = await this.latestRequests.run(
-      'approvals', () => this.ipc.listApprovalRequests({ status: 'pending', limit: 25 }),
-    );
-    if (!response) {
-      return;
-    }
-    this.applyGatewayArray(response, this.approvalRequests);
-  }
+  async refreshApprovals(): Promise<void> { await this.approvals.refresh(true); }
 
   async refreshGrants(): Promise<void> {
     const response = await this.latestRequests.run(
@@ -273,22 +294,12 @@ export class BrowserPageComponent implements OnInit {
     }
   }
 
-  onProfileExecutionNodeChange(event: Event): void {
-    const value = (event.target as HTMLSelectElement).value;
-    this.profileExecutionNodeDraft.set(value || null);
-  }
+  onProfileExecutionNodeChange(event: Event): void { this.profileExecutionNodeDraft.set((event.target as HTMLSelectElement).value || null); }
 
-  onNavigateUrlInput(event: Event): void {
-    this.navigateUrl.set((event.target as HTMLInputElement).value);
-  }
+  onNavigateUrlInput(event: Event): void { this.navigateUrl.set((event.target as HTMLInputElement).value); }
+  onTargetFilterInput(event: Event): void { this.targetFilter.set((event.target as HTMLInputElement).value); }
 
-  onTargetFilterInput(event: Event): void {
-    this.targetFilter.set((event.target as HTMLInputElement).value);
-  }
-
-  selectView(view: BrowserPageView): void {
-    this.activeView.set(view);
-  }
+  selectView(view: BrowserPageView): void { this.activeView.set(view); }
 
   onViewTabKeydown(event: KeyboardEvent): void {
     const nextView = nextBrowserPageView(this.activeView(), event.key);
@@ -563,6 +574,7 @@ export class BrowserPageComponent implements OnInit {
     );
     if (response) {
       this.clearAutonomousDraft(approval.requestId);
+      this.approvals.removeRequest(approval.requestId);
       await Promise.all([this.refreshApprovals(), this.refreshGrants()]);
     }
   }
@@ -575,6 +587,7 @@ export class BrowserPageComponent implements OnInit {
       }),
     );
     if (response) {
+      this.approvals.removeRequest(requestId);
       await this.refreshApprovals();
     }
   }
@@ -595,15 +608,13 @@ export class BrowserPageComponent implements OnInit {
   readonly formatApprovalScope = formatBrowserApprovalScope;
   readonly formatElementContext = formatBrowserElementContext;
   readonly formatUploadRoots = formatBrowserUploadRoots;
-  autonomousSubmitIsEnabled(approval: BrowserApprovalRequest): boolean {
-    return Boolean(this.autonomousSubmitEnabled()[approval.requestId]);
-  }
-  autonomousDestructiveIsEnabled(approval: BrowserApprovalRequest): boolean {
-    return Boolean(this.autonomousDestructiveEnabled()[approval.requestId]);
-  }
-  autonomousConfirmation(approval: BrowserApprovalRequest): string {
-    return this.autonomousConfirmations()[approval.requestId] ?? '';
-  }
+  readonly exactApprovalOnly = browserApprovalExactOnly;
+  readonly shortApprovalId = shortBrowserApprovalId;
+  readonly approvalReceivedAt = browserApprovalReceivedAt;
+  approvalPosition(approval: BrowserApprovalRequest): number { return browserApprovalPosition(approval, this.approvalRequests()); }
+  autonomousSubmitIsEnabled(approval: BrowserApprovalRequest): boolean { return Boolean(this.autonomousSubmitEnabled()[approval.requestId]); }
+  autonomousDestructiveIsEnabled(approval: BrowserApprovalRequest): boolean { return Boolean(this.autonomousDestructiveEnabled()[approval.requestId]); }
+  autonomousConfirmation(approval: BrowserApprovalRequest): string { return this.autonomousConfirmations()[approval.requestId] ?? ''; }
   requiresAutonomousConfirmation(approval: BrowserApprovalRequest): boolean {
     const grant = buildBrowserGrantProposal(
       approval, 'autonomous',
@@ -612,9 +623,7 @@ export class BrowserPageComponent implements OnInit {
     );
     return browserGrantRequiresAutonomousConfirmation(grant);
   }
-  confirmationPhrase(approval: BrowserApprovalRequest): string {
-    return browserApprovalConfirmationPhrase(approval, this.profiles());
-  }
+  confirmationPhrase(approval: BrowserApprovalRequest): string { return browserApprovalConfirmationPhrase(approval, this.profiles()); }
   profileExecutionLocationLabel(profile: BrowserProfile): string {
     const nodeId = profile.executionNodeId;
     if (!nodeId) {
@@ -627,24 +636,17 @@ export class BrowserPageComponent implements OnInit {
   readonly nodeReadinessLabel = browserNodeReadinessLabel;
   readonly isProfileNodeSelectable = isBrowserProfileNodeSelectable;
 
-  toggleAuditHistory(): void {
-    this.showAuditHistory.set(!this.showAuditHistory());
-  }
+  toggleAuditHistory(): void { this.showAuditHistory.set(!this.showAuditHistory()); }
 
   readonly formatAuditAction = formatBrowserAuditAction;
   readonly formatAuditAge = formatBrowserAuditAge;
 
   private selectedTargetRequest(): { profileId: string; targetId: string } | null {
     const target = this.selectedTarget();
-    if (!target?.profileId) {
-      return null;
-    }
-    return { profileId: target.profileId, targetId: target.id };
+    return target?.profileId ? { profileId: target.profileId, targetId: target.id } : null;
   }
 
-  private syncProfileExecutionNodeDraft(): void {
-    this.profileExecutionNodeDraft.set(this.selectedProfile()?.executionNodeId ?? null);
-  }
+  private syncProfileExecutionNodeDraft(): void { this.profileExecutionNodeDraft.set(this.selectedProfile()?.executionNodeId ?? null); }
 
   private resetTargetDetailState(navigateUrl = ''): void {
     ++this.detailGeneration;
@@ -687,9 +689,7 @@ export class BrowserPageComponent implements OnInit {
     target.set(Array.isArray(response.data?.data) ? response.data.data : []);
   }
 
-  private isRecentAuditEntry(entry: BrowserAuditEntry): boolean {
-    return Date.now() - entry.createdAt <= recentAuditWindowMs;
-  }
+  private isRecentAuditEntry(entry: BrowserAuditEntry): boolean { return Date.now() - entry.createdAt <= recentAuditWindowMs; }
 
   private clearAutonomousDraft(requestId: string): void {
     this.autonomousSubmitEnabled.update((current) => withoutBrowserRecordKey(current, requestId));

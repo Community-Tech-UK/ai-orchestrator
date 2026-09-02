@@ -30,6 +30,7 @@ import {
   type BrowserGatewayMcpConfigOptions,
   buildChromeDevtoolsMcpConfigJson,
   resolveChromeDevtoolsBrowserUrl,
+  supportsDeferredBrowserGatewayTools,
   type ChromeDevtoolsMcpConfigOptions,
 } from '../../browser-gateway';
 import {
@@ -321,10 +322,10 @@ export class SpawnConfigBuilder {
       logger.info('Browser gateway MCP disabled for instance (browserToolsMode=off)', { instanceId });
       return null;
     }
-    // Codex does not install functions.exec wrappers after tools/list_changed,
-    // so its actual bridge surface is eager even when the requested UI mode is
-    // deferred. Log and return the effective mode, not the requested one.
-    const toolDeferral = mode === 'deferred' && provider !== 'codex';
+    // Some clients do not install callable wrappers after tools/list_changed.
+    // Log and return the effective mode, not the requested UI mode.
+    const toolDeferral = mode === 'deferred'
+      && supportsDeferredBrowserGatewayTools(provider);
     this.logBrowserToolSchemaBytes(instanceId, toolDeferral);
     return {
       aioMcpCliPath,

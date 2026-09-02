@@ -45,7 +45,12 @@ const WORKER_ENTRY = resolve(SPEC_DIR, '../context-worker-main.ts');
 // sole dependency is `import type { ContextUsage }`, which tsc erases, so it
 // deliberately does NOT drag `shared/types/instance.types.ts` (and its own large
 // graph) into the worker. Confirmed absent from the closure.
-const CLOSURE_SIZE_CEILING = 136;
+// 2026-09-02: 142 after the typed RLM/unified-memory worker RPC boundary,
+// paged section-filter metadata, and semantic-vector delta repair. A
+// HEAD-to-working-tree closure diff confirmed exactly five additions: the two
+// request handlers, the leaf RLM IPC serializer, context-section-filter-metadata,
+// and semantic-vector-delta-repair. None is a barrel or imports Electron.
+const CLOSURE_SIZE_CEILING = 143;
 
 function resolveImport(spec: string, fromFile: string): string | null {
   if (!spec.startsWith('.')) return null; // bare module (electron, node:*, npm)

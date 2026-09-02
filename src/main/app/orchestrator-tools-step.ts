@@ -5,6 +5,7 @@ import { DEFAULT_SETTINGS } from '../../shared/types/settings.types';
 import {
   assertNodeSatisfiesPlacement,
   assertNodeSupportsCli,
+  assertRunOnNodeUsesWorkerBrowserSurface,
   buildRunOnNodePlacement,
   effectiveSpawnDepth,
 } from './run-on-node-support';
@@ -345,6 +346,7 @@ export function createOrchestratorToolsStep(
         // spawn an agent on it via the already-deployed `instance.spawn` RPC.
         // Mirrors the `/run-on` channel command (project-less default cwd).
         spawnRemoteInstance: async (args, meta) => {
+          assertRunOnNodeUsesWorkerBrowserSurface(args);
           // Recursion-depth guard (claude2_todo #18): a remote-spawned agent
           // also receives the orchestrator MCP, so without a cap it could
           // call run_on_node again and fork-bomb across nodes. Block spawns
@@ -446,6 +448,11 @@ export function createOrchestratorToolsStep(
                 : {}),
             },
           });
+          // Remote provider startup includes worker-local checks that the
+          // coordinator cannot perform (for example Copilot account binding).
+          // Do not return an optimistic instance id that rolls back moments
+          // later; a run_on_node success means the worker is actually ready.
+          await instance.readyPromise;
           return {
             instanceId: instance.id,
             nodeId: node.id,

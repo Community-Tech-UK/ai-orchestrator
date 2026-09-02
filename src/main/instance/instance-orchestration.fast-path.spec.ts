@@ -1,6 +1,76 @@
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FastPathRetriever } from './orchestration/fast-path-retriever';
 import type { FastPathResult } from './instance-types';
+import type { Instance } from '../../shared/types/instance.types';
+import type { TaskExecution } from '../../shared/types/task.types';
+import { InstanceOrchestrationManager } from './instance-orchestration';
+
+const orchestrationSpies = vi.hoisted(() => ({
+  memoryModuleResolutions: 0,
+  getUnifiedMemory: vi.fn(() => ({
+    recordTaskOutcome: vi.fn(),
+  })),
+  rlmGetInstance: vi.fn(),
+  rlmConstructions: vi.fn(),
+  recordOutcome: vi.fn(),
+  recordHabit: vi.fn(),
+}));
+
+interface RuntimeImport {
+  moduleSpecifier: string;
+  importedNames: string[];
+}
+
+function getRuntimeImports(filePath: string): RuntimeImport[] {
+  const source = readFileSync(filePath, 'utf8');
+  const sourceFile = ts.createSourceFile(
+    filePath,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const imports: RuntimeImport[] = [];
+
+  sourceFile.forEachChild((node) => {
+    if (!ts.isImportDeclaration(node) || !ts.isStringLiteral(node.moduleSpecifier)) {
+      return;
+    }
+
+    const clause = node.importClause;
+    if (clause?.isTypeOnly) return;
+
+    const importedNames: string[] = [];
+    if (!clause) {
+      importedNames.push('<side-effect>');
+    } else {
+      if (clause.name) importedNames.push('default');
+      const bindings = clause.namedBindings;
+      if (bindings && ts.isNamespaceImport(bindings)) {
+        importedNames.push('*');
+      } else if (bindings) {
+        for (const element of bindings.elements) {
+          if (!element.isTypeOnly) {
+            importedNames.push((element.propertyName ?? element.name).text);
+          }
+        }
+      }
+    }
+
+    if (importedNames.length > 0) {
+      imports.push({
+        moduleSpecifier: node.moduleSpecifier.text,
+        importedNames,
+      });
+    }
+  });
+
+  return imports;
+}
 
 interface CommandCall {
   command: string;
@@ -15,7 +85,7 @@ interface CommandResponse {
 }
 
 class MockEmitter {
-  private readonly listeners = new Map<string, Array<(...args: unknown[]) => void>>();
+  private readonly listeners = new Map<string, ((...args: unknown[]) => void)[]>();
 
   on(event: string, listener: (...args: unknown[]) => void): this {
     const existing = this.listeners.get(event) ?? [];
@@ -86,7 +156,7 @@ vi.mock('child_process', async (importOriginal) => {
 vi.mock('../learning/outcome-tracker', () => ({
   OutcomeTracker: {
     getInstance: () => ({
-      recordOutcome: vi.fn(),
+      recordOutcome: orchestrationSpies.recordOutcome,
     }),
   },
 }));
@@ -99,15 +169,26 @@ vi.mock('../learning/strategy-learner', () => ({
   },
 }));
 
-vi.mock('../memory', () => ({
-  getUnifiedMemory: () => ({
-    recordTaskOutcome: vi.fn(),
-  }),
-}));
+vi.mock('../memory', () => {
+  orchestrationSpies.memoryModuleResolutions += 1;
+  return { getUnifiedMemory: orchestrationSpies.getUnifiedMemory };
+});
+
+vi.mock('../rlm/context-manager', () => {
+  class MockRLMContextManager {
+    static getInstance = orchestrationSpies.rlmGetInstance;
+
+    constructor() {
+      orchestrationSpies.rlmConstructions();
+    }
+  }
+
+  return { RLMContextManager: MockRLMContextManager };
+});
 
 vi.mock('../learning/habit-tracker', () => ({
   getHabitTracker: () => ({
-    recordAction: vi.fn(),
+    recordAction: orchestrationSpies.recordHabit,
   }),
 }));
 
@@ -129,9 +210,94 @@ function makeRetrieverWithIndexedSearch(
 
 describe('InstanceOrchestrationManager fast-path retrieval', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     childProcess.calls.length = 0;
     childProcess.responses.length = 0;
-    childProcess.spawn.mockClear();
+  });
+
+  function createOrchestrationManager(
+    recordTaskOutcome = vi.fn(),
+  ): InstanceOrchestrationManager {
+    const child = {
+      id: 'child-1',
+      parentId: 'parent-1',
+      agentId: 'worker',
+      workingDirectory: '/repo',
+      outputBuffer: [],
+      totalTokensUsed: 17,
+    } as unknown as Instance;
+    return new InstanceOrchestrationManager({
+      getInstance: (id) => id === child.id ? child : undefined,
+      getInstanceCount: () => 1,
+      createChildInstance: vi.fn(),
+      sendInput: vi.fn(),
+      terminateInstance: vi.fn(),
+      getAdapter: vi.fn(),
+      recordTaskOutcome,
+    });
+  }
+
+  it('constructs without resolving main-process unified memory or its RLM owner', () => {
+    createOrchestrationManager();
+
+    expect(orchestrationSpies.memoryModuleResolutions).toBe(0);
+    expect(orchestrationSpies.getUnifiedMemory).not.toHaveBeenCalled();
+    expect(orchestrationSpies.rlmGetInstance).not.toHaveBeenCalled();
+    expect(orchestrationSpies.rlmConstructions).not.toHaveBeenCalled();
+  });
+
+  it('has no runtime import capable of resolving main-process unified memory', () => {
+    const filePath = resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      'instance-orchestration.ts',
+    );
+    const forbiddenImports = getRuntimeImports(filePath).filter((entry) =>
+      entry.moduleSpecifier === '../memory'
+      || entry.moduleSpecifier === '../memory/unified-controller'
+      || entry.importedNames.includes('getUnifiedMemory'),
+    );
+
+    expect(forbiddenImports).toEqual([]);
+  });
+
+  it('delegates one completed child outcome unchanged while preserving local learning writes', () => {
+    const recordTaskOutcome = vi.fn();
+    const manager = createOrchestrationManager(recordTaskOutcome);
+    manager.setupOrchestrationHandlers(
+      {
+        maxTotalInstances: 0,
+        maxChildrenPerParent: 0,
+        allowNestedOrchestration: false,
+        maxSpawnDepth: 0,
+      },
+      vi.fn(),
+      vi.fn(),
+    );
+    const task: TaskExecution = {
+      taskId: 'task-outcome-47',
+      parentId: 'parent-1',
+      childId: 'child-1',
+      task: 'verify the worker boundary',
+      priority: 'normal',
+      status: 'completed',
+      createdAt: 10,
+      startedAt: 20,
+      completedAt: 40,
+      timeout: 0,
+      result: { success: true, summary: 'complete' },
+    };
+
+    manager.getOrchestrationHandler().emit(
+      'task-complete',
+      'parent-1',
+      'child-1',
+      task,
+    );
+
+    expect(recordTaskOutcome).toHaveBeenCalledOnce();
+    expect(recordTaskOutcome).toHaveBeenCalledWith('task-outcome-47', true, 1);
+    expect(orchestrationSpies.recordOutcome).toHaveBeenCalledOnce();
+    expect(orchestrationSpies.recordHabit).toHaveBeenCalledOnce();
   });
 
   it('uses rg --files after git ls-files fails instead of spawning find', async () => {

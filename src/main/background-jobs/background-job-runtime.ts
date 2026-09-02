@@ -274,6 +274,11 @@ export class BackgroundJobRuntime extends EventEmitter {
   ): Promise<void> {
     try {
       await gateway.start();
+      if (!this.isCurrentRunningAttempt(job, runId)) return;
+      if (job.cancellationRequested) {
+        this.completeJob(job, 'cancelled');
+        return;
+      }
       const result = await gateway.runJob({ ...job.record }, job.payload);
       if (this.isCurrentRunningAttempt(job, runId)) {
         if (job.cancellationRequested) {

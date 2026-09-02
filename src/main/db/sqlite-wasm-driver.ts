@@ -46,9 +46,15 @@ export async function initSqliteWasm(): Promise<void> {
 function normalizeBindings(params: unknown[]): BindingSpec | undefined {
   if (params.length === 0) return undefined;
 
+  // sqlite-wasm accepts plain Uint8Array BLOBs but rejects Node's Buffer
+  // subclass when it appears in a positional binding array. Production's
+  // better-sqlite3 driver requires Buffer, so adapt only at this port boundary.
+  const normalizeValue = (value: unknown): unknown =>
+    Buffer.isBuffer(value) ? new Uint8Array(value) : value;
+
   if (params.length === 1) {
     const only = params[0];
-    if (Array.isArray(only)) return only as BindingSpec;
+    if (Array.isArray(only)) return only.map(normalizeValue) as BindingSpec;
     if (
       only !== null &&
       typeof only === 'object' &&
@@ -56,11 +62,13 @@ function normalizeBindings(params: unknown[]): BindingSpec | undefined {
       !(only instanceof ArrayBuffer) &&
       !(only instanceof Date)
     ) {
-      return only as BindingSpec;
+      return Object.fromEntries(
+        Object.entries(only).map(([key, value]) => [key, normalizeValue(value)]),
+      ) as BindingSpec;
     }
   }
 
-  return params as BindingSpec;
+  return params.map(normalizeValue) as BindingSpec;
 }
 
 class SqliteWasmStatement implements SqliteStatement {

@@ -24,8 +24,16 @@ export type QuotaKind =
   | 'rate-limit'
   | 'context-window';
 
-/** Counting unit for a window. */
-export type QuotaUnit = 'requests' | 'messages' | 'tokens' | 'usd';
+/**
+ * Counting unit for a window.
+ *
+ * `percent` is for providers that only publish a utilization ratio (Cursor,
+ * Grok): `used` is 0-100 and `limit` is 100. Do NOT reuse `usd` for those —
+ * `usd` additionally means "this is a real-money bucket" to the loop throttle's
+ * overage guard, and mislabelling a plain plan window as `usd` parks loops on
+ * a phantom overage. See {@link ProviderQuotaWindow.overage}.
+ */
+export type QuotaUnit = 'requests' | 'messages' | 'tokens' | 'usd' | 'percent';
 
 /**
  * A single quota window for a provider. A provider can publish multiple
@@ -58,6 +66,16 @@ export interface ProviderQuotaWindow {
    * UI uses this to render "resets at 4:18 PM" / "resets in 23 min".
    */
   resetsAt: number | null;
+  /**
+   * True when consuming this window spends real money beyond the plan
+   * allowance (Claude extra-usage credits, Cursor/Grok on-demand spend).
+   * The loop throttle's overage guard keys off this, and a probe must set it
+   * explicitly rather than relying on `unit`: a window can be denominated in
+   * percent and still be paid overage, and — the bug this field exists to
+   * prevent — a plain plan window can be denominated in USD without being
+   * overage at all. Omitted means "fall back to `unit === 'usd'`".
+   */
+  overage?: boolean;
 }
 
 /** How a snapshot was obtained — drives the freshness UI. */

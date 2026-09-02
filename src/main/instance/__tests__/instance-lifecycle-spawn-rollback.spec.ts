@@ -16,7 +16,8 @@
  *   4. success                   → commit; nothing is torn down
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Instance } from '../../../shared/types/instance.types';
+import type { Instance, InstanceCreateConfig } from '../../../shared/types/instance.types';
+import type { ExecutionLocation } from '../../../shared/types/worker-node.types';
 import type { SessionState } from '../../session/session-continuity.types';
 import type { LifecycleDependencies } from '../instance-lifecycle.types';
 import type { InstanceStateMachine } from '../instance-state-machine';
@@ -49,6 +50,19 @@ const mocks = vi.hoisted(() => ({
   continuityMarkNativeResumeFailed: vi.fn().mockResolvedValue(undefined),
   continuityUpdateState: vi.fn().mockResolvedValue(undefined),
   evaluateResumeHealth: vi.fn().mockResolvedValue('healthy'),
+  resolveExecutionLocation: vi.fn<(config: InstanceCreateConfig) => ExecutionLocation>(
+    () => ({ type: 'local' }),
+  ),
+  getKnownModelsForCli: vi.fn().mockResolvedValue([]),
+  settings: {
+    defaultYoloMode: false,
+    defaultCli: 'claude',
+    outputStyle: 'default',
+    injectRepoMap: false,
+    residentClaudeSession: true,
+    defaultModel: undefined as string | undefined,
+    defaultModelByProvider: {} as Record<string, string>,
+  },
 }));
 
 vi.mock('electron', () => ({
@@ -70,13 +84,7 @@ vi.mock('../../logging/logger', () => ({
 
 vi.mock('../../core/config/settings-manager', () => ({
   getSettingsManager: () => ({
-    getAll: () => ({
-      defaultYoloMode: false,
-      defaultCli: 'claude',
-      outputStyle: 'default',
-      injectRepoMap: false,
-      residentClaudeSession: true,
-    }),
+    getAll: () => ({ ...mocks.settings }),
     get: vi.fn(),
     on: vi.fn(),
   }),
@@ -90,6 +98,14 @@ vi.mock('../../memory', () => ({
   }),
   getMemoryMonitor: () => ({ on: vi.fn(), start: vi.fn(), stop: vi.fn() }),
   getUnifiedMemory: () => ({}),
+}));
+
+vi.mock('../../memory/output-storage', () => ({
+  getOutputStorageManager: () => ({
+    deleteInstance: mocks.outputStorageDelete,
+    loadMessages: vi.fn().mockResolvedValue([]),
+    getTotalStats: vi.fn(() => ({})),
+  }),
 }));
 
 vi.mock('../../process', () => ({
@@ -168,9 +184,13 @@ vi.mock('../../cli/adapters/adapter-factory', () => ({
 }));
 
 vi.mock('../lifecycle/create-validation-helpers', () => ({
-  getKnownModelsForCli: vi.fn().mockResolvedValue([]),
+  getKnownModelsForCli: mocks.getKnownModelsForCli,
   isRestoreOrReplayContinuity: vi.fn(() => false),
   requiresFreshConfiguredModelSpawn: vi.fn(() => false),
+}));
+
+vi.mock('../lifecycle/execution-location-resolver', () => ({
+  resolveExecutionLocation: mocks.resolveExecutionLocation,
 }));
 
 vi.mock('../../providers/provider-runtime-service', () => ({
@@ -459,6 +479,13 @@ describe('createInstance spawn transaction rollback', () => {
     mocks.continuityMarkNativeResumeFailed.mockResolvedValue(undefined);
     mocks.continuityUpdateState.mockResolvedValue(undefined);
     mocks.evaluateResumeHealth.mockResolvedValue('healthy');
+    mocks.resolveExecutionLocation.mockImplementation((config: InstanceCreateConfig) =>
+      config.modelRuntimeTarget?.kind === 'local-model' && config.modelRuntimeTarget.nodeId
+      ? { type: 'remote', nodeId: config.modelRuntimeTarget.nodeId }
+      : { type: 'local' });
+    mocks.getKnownModelsForCli.mockResolvedValue([]);
+    mocks.settings.defaultModel = undefined;
+    mocks.settings.defaultModelByProvider = {};
   });
 
   it('rolls back Phase-1 registrations when RLM init fails (before any adapter exists)', async () => {
@@ -609,6 +636,30 @@ describe('createInstance spawn transaction rollback', () => {
     expect(harness.removedEvents).toEqual([]);
     // The initial prompt actually reached the adapter.
     expect(adapter.sendInput).toHaveBeenCalledWith('hello world', undefined);
+  });
+
+  it('does not forward coordinator model defaults through the remote create path', async () => {
+    const harness = makeHarness();
+    const adapter = makeFakeAdapter();
+    mocks.createAdapter.mockReturnValue(adapter);
+    mocks.resolveExecutionLocation.mockReturnValue({ type: 'remote', nodeId: 'node-win' });
+    mocks.settings.defaultModel = 'opus';
+    mocks.settings.defaultModelByProvider = { claude: 'claude-retired-model' };
+
+    const instance = await harness.manager.createInstance({
+      workingDirectory: '/tmp/project',
+      provider: 'claude',
+      forceNodeId: 'node-win',
+    });
+    await instance.readyPromise;
+
+    expect(instance.executionLocation).toEqual({ type: 'remote', nodeId: 'node-win' });
+    expect(instance.currentModel).toBeUndefined();
+    expect(mocks.getKnownModelsForCli).not.toHaveBeenCalled();
+    expect(mocks.createAdapter).toHaveBeenCalledWith(expect.objectContaining({
+      executionLocation: { type: 'remote', nodeId: 'node-win' },
+      options: expect.objectContaining({ model: undefined }),
+    }));
   });
 
   it('keeps recovery creation private until explicit publication', async () => {

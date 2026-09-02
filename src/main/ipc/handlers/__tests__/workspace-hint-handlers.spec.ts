@@ -37,13 +37,13 @@ vi.mock('../../../codemem', () => ({
   }),
 }));
 
-vi.mock('../../../indexing', () => ({
+vi.mock('../../../indexing/codebase-indexing-auto-coordinator', () => ({
   getCodebaseIndexingAutoCoordinator: () => ({
     hintActiveWorkspace: (...args: unknown[]) => codebaseHint(...args),
   }),
 }));
 
-vi.mock('../../../memory', () => ({
+vi.mock('../../../memory/project-knowledge-auto-mirror-coordinator', () => ({
   getProjectKnowledgeAutoMirrorCoordinator: () => ({
     hintActiveWorkspace: (...args: unknown[]) => projectKnowledgeHint(...args),
   }),

@@ -32,6 +32,60 @@ export interface RunOnNodePlacementArgs {
   androidDeviceKind?: 'emulator' | 'physical' | 'any';
 }
 
+const EXPLICIT_SHARED_BROWSER_MARKERS = [
+  'browser gateway',
+  'extension-shared',
+  'extension shared',
+  'shared chrome tab',
+  'shared chrome tabs',
+  'shared tab',
+  'shared tabs',
+];
+const MANAGED_BROWSER_MARKERS = [
+  'worker-managed chrome',
+  'worker managed chrome',
+  'managed chrome profile',
+  'chrome-devtools',
+];
+const EXISTING_TAB_MARKERS = [
+  'already open',
+  'currently open',
+  'existing',
+  'logged-in',
+  'logged in',
+];
+
+/**
+ * `run_on_node` injects worker-managed chrome-devtools. The Browser Gateway
+ * and extension-shared tabs remain coordinator-owned even when the extension
+ * itself is running on the target worker. Reject impossible placement before
+ * creating an instance that can never satisfy its prompt.
+ */
+export function assertRunOnNodeUsesWorkerBrowserSurface(
+  args: Pick<RunOnNodePlacementArgs, 'prompt'> & { node?: string },
+): void {
+  const prompt = args.prompt.toLowerCase().replace(/\s+/g, ' ').trim();
+  const namesBrowserGatewayTool = /\bbrowser\.(?:\*|[a-z][a-z0-9_]*\b)/.test(prompt);
+  const explicitlyShared = EXPLICIT_SHARED_BROWSER_MARKERS.some((marker) => prompt.includes(marker));
+  const explicitlyManaged = MANAGED_BROWSER_MARKERS.some((marker) => prompt.includes(marker));
+  const mentionsTab = /\btabs?\b/.test(prompt);
+  const reliesOnExistingTabState = mentionsTab
+    && EXISTING_TAB_MARKERS.some((marker) => prompt.includes(marker));
+  if (
+    !namesBrowserGatewayTool
+    && !explicitlyShared
+    && (explicitlyManaged || !reliesOnExistingTabState)
+  ) {
+    return;
+  }
+  const target = args.node?.trim() || 'the target worker';
+  throw new Error(
+    `run_on_node cannot access Browser Gateway or existing/shared Chrome tabs on ${target}. `
+    + `The agent must stay on the coordinator and call Browser Gateway tools with computer: "${target}". `
+    + 'Use run_on_node only for the worker-managed Chrome profile exposed through chrome-devtools.',
+  );
+}
+
 export function buildRunOnNodePlacement(args: RunOnNodePlacementArgs): NodePlacementPrefs | undefined {
   const requiresAndroid = args.requiresAndroid ?? detectAndroidIntent(args.prompt);
   const placement: NodePlacementPrefs = {

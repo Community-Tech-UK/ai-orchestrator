@@ -224,7 +224,7 @@ describe('McpManager', () => {
     expect(prompt).toContain('check list_remote_nodes before local filesystem');
   });
 
-  it('surfaces Browser Gateway guidance for shared Mac tabs and remote PC preference', async () => {
+  it('surfaces Browser Gateway guidance that keeps shared tabs on the coordinator', async () => {
     const search = getMCPToolSearchService();
     search.registerServer({
       id: 'browser-gateway',
@@ -259,8 +259,10 @@ describe('McpManager', () => {
     });
     const prompt = manager.formatRuntimeToolContext(context);
 
-    expect(prompt).toContain('prefer connected remote PCs');
-    expect(prompt).toContain('use local/Mac shared tabs when the user explicitly says');
+    expect(prompt).toContain('existing and extension-shared Chrome tabs');
+    expect(prompt).toContain('stay on the coordinator');
+    expect(prompt).toContain('target the required computer explicitly');
+    expect(prompt).not.toContain('prefer connected remote PCs');
     expect(prompt).toContain('browser.list_targets');
   });
 });

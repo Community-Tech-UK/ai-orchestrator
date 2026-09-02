@@ -51,11 +51,13 @@ export const ProviderQuotaWindowSchema = z.object({
   kind: z.enum(['rolling-window', 'calendar-period', 'rate-limit', 'context-window']),
   id: z.string().min(1).max(200),
   label: z.string().min(1).max(500),
-  unit: z.enum(['requests', 'messages', 'tokens', 'usd']),
+  unit: z.enum(['requests', 'messages', 'tokens', 'usd', 'percent']),
   used: z.number().nonnegative(),
   limit: z.number().nonnegative(),
   remaining: z.union([z.number(), z.nan()]),
   resetsAt: z.number().int().nonnegative().nullable(),
+  /** Optional: omitted means "infer from unit". See ProviderQuotaWindow. */
+  overage: z.boolean().optional(),
 }).strict();
 
 export const ProviderQuotaSnapshotEventSchema = z.object({

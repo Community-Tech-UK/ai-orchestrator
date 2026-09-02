@@ -37,7 +37,7 @@ const outputStorageMocks = vi.hoisted(() => ({
   ),
   deleteInstance: vi.fn().mockResolvedValue(undefined),
 }));
-vi.mock('../memory', () => ({
+vi.mock('../memory/output-storage', () => ({
   getOutputStorageManager: () => outputStorageMocks,
 }));
 
@@ -804,7 +804,7 @@ describe('InstanceCommunicationManager', () => {
 
   it('updates a Claude instance model when Claude reports a safety-route switch', async () => {
     instance.provider = 'claude';
-    instance.currentModel = 'claude-fable-5';
+    instance.currentModel = 'claude-fable-5-1';
     const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
     adapters.set(instance.id, adapter);
 
@@ -813,7 +813,7 @@ describe('InstanceCommunicationManager', () => {
       'output',
       createMessage(
         'system',
-        'Fable 5\'s safeguards flagged this message. Switched to Opus 4.8. Send feedback with /feedback.',
+        'Fable 5.1\'s safeguards flagged this message. Switched to Opus 4.8. Send feedback with /feedback.',
       ),
     );
     await flushOutputHandlers();

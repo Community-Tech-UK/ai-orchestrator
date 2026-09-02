@@ -67,7 +67,7 @@ vi.mock('../orchestration/debate-coordinator', () => ({ getDebateCoordinator: vi
 vi.mock('../orchestration/doom-loop-detector', () => ({ getDoomLoopDetector: vi.fn(() => ({ cleanupInstance: vi.fn(), on: vi.fn() })) }));
 vi.mock('../orchestration/orchestration-activity-bridge', () => ({ getOrchestrationActivityBridge: vi.fn(() => ({ initialize: vi.fn() })) }));
 vi.mock('../orchestration/multi-verify-coordinator', () => ({ getMultiVerifyCoordinator: vi.fn(() => ({})) }));
-vi.mock('../memory', () => ({ getMemoryMonitor: vi.fn(() => ({ on: vi.fn() })) }));
+vi.mock('../memory/memory-monitor', () => ({ getMemoryMonitor: vi.fn(() => ({ on: vi.fn() })) }));
 vi.mock('../remote/observer-server', () => ({ getRemoteObserverServer: vi.fn(() => ({ publishInstanceState: vi.fn(), publishInstanceOutput: vi.fn(), recordPrompt: vi.fn() })) }));
 vi.mock('../repo-jobs', () => ({ getRepoJobService: vi.fn(() => ({ on: vi.fn() })) }));
 vi.mock('../process/load-balancer', () => ({ getLoadBalancer: vi.fn(() => ({ removeMetrics: vi.fn(), updateMetrics: vi.fn() })) }));

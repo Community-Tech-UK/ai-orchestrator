@@ -26,5 +26,7 @@ export function formatQuotaAmount(value: number): string {
 }
 
 export function formatQuotaWindowValue(used: number, limit: number, unit: string): string {
+  // Percent windows carry their own denominator ("45/100 percent" reads badly).
+  if (unit === 'percent') return `${formatQuotaAmount(used)}%`;
   return `${formatQuotaAmount(used)}/${formatQuotaAmount(limit)} ${unit}`;
 }

@@ -160,6 +160,41 @@ describe('LoopCoordinator usage-aware throttling', () => {
     }
   });
 
+  /**
+   * Regression: resumeLoop() cleared only the durable ledger gate, so the
+   * pre-flight re-read the same live snapshot and re-parked within a few
+   * milliseconds. In the field that produced "Loop resumed" immediately
+   * followed by "Loop parked on provider limit", three clicks in a row, and a
+   * Resume button that looked completely dead.
+   */
+  it('manual resume actually spawns an iteration despite a still-parking snapshot', async () => {
+    let invokeCount = 0;
+    coordinator.setQuotaSnapshotProvider(() =>
+      snapshot([win({ used: 95, resetsAt: Date.now() + 120_000 })]),
+    );
+    coordinator.setProviderLimitResumeScheduler(() => () => { /* noop */ });
+    coordinator.on('loop:invoke-iteration', (payload: unknown) => {
+      const p = payload as { callback: (r: LoopChildResult) => void };
+      invokeCount += 1;
+      p.callback(iterationResult('work'));
+    });
+
+    const state = await startLoop('chat-manual-resume');
+    try {
+      await waitForCondition(() => coordinator.getLoop(state.id)?.status === 'provider-limit', 5000);
+      expect(invokeCount).toBe(0);
+
+      expect(coordinator.resumeLoop(state.id)).toBe(true);
+
+      // The override is one-shot, so the loop parks again after the iteration
+      // it was granted — but it must actually get that iteration.
+      await waitForCondition(() => invokeCount > 0, 5000);
+      expect(invokeCount).toBe(1);
+    } finally {
+      await coordinator.cancelLoop(state.id);
+    }
+  });
+
   it('parks before spawning when another runtime recorded an active provider-limit gate', async () => {
     const resumeAt = Date.now() + 120_000;
     const scheduler = vi.fn(() => () => { /* noop */ });

@@ -54,6 +54,29 @@ export type ContextSectionMetadataRow = Omit<ContextSectionRow, 'content_inline'
   content_size_bytes: number;
 };
 
+/** Minimal content-free projection used by bounded indexing-filter audits. */
+export interface ContextSectionFilterMetadataRow {
+  type: string;
+  file_path: string | null;
+}
+
+/**
+ * Content-free root-section checkpoint used by semantic delta repair.
+ * `content_is_inline` identifies the storage location without returning the
+ * inline payload itself; file-backed content remains identified by the
+ * existing `content_file` marker.
+ */
+export interface UnindexedRootSectionRow {
+  id: string;
+  store_id: string;
+  type: string;
+  name: string;
+  file_path: string | null;
+  language: string | null;
+  content_file: string | null;
+  content_is_inline: 0 | 1;
+}
+
 export interface ContextStoreSectionCountRow {
   store_id: string;
   section_count: number;

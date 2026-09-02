@@ -48,6 +48,7 @@ function createManager(): InstanceOrchestrationManager {
     sendInput: vi.fn(),
     terminateInstance: vi.fn(),
     getAdapter: vi.fn(),
+    recordTaskOutcome: vi.fn(),
   });
 }
 

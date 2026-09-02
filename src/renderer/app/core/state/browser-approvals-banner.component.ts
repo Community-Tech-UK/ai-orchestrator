@@ -17,7 +17,6 @@ import {
   Component,
   OnDestroy,
   OnInit,
-  computed,
   inject,
   signal,
 } from '@angular/core';
@@ -28,8 +27,7 @@ import type {
   BrowserGrantProposal,
 } from '@contracts/types/browser';
 import { BrowserGatewayIpcService } from '../services/ipc/browser-gateway-ipc.service';
-
-const REFRESH_INTERVAL_MS = 5_000;
+import { BrowserApprovalsStore } from './browser-approvals.store';
 const QUICK_APPROVAL_BLOCKED_CLASSES = new Set<BrowserActionClass>([
   'credential',
   'financial_identity',
@@ -46,52 +44,70 @@ const QUICK_APPROVAL_BLOCKED_CLASSES = new Set<BrowserActionClass>([
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (oldestPending(); as approval) {
-      <section class="approvals-banner" role="status" aria-live="polite">
-        <div class="banner-main">
-          <span class="status-dot" aria-hidden="true"></span>
-          <div class="banner-copy">
-            <strong>
-              {{ pendingRequests().length === 1
-                ? 'Browser permission requested'
-                : pendingRequests().length + ' browser permissions requested' }}
-            </strong>
-            <span>{{ describe(approval) }}</span>
-            @if (errorMessage(); as err) {
-              <span class="banner-error">{{ err }}</span>
+      @if (isMinimized()) {
+        <section class="approvals-banner compact" role="status" aria-live="polite">
+          <button type="button" class="compact-main" (click)="review(approval)">
+            <span class="status-dot" aria-hidden="true"></span>
+            <strong>{{ pendingRequests().length === 1 ? '1 browser approval waiting' : pendingRequests().length + ' browser approvals waiting' }}</strong>
+            <span>Request 1 of {{ pendingRequests().length }} · #{{ shortRequestId(approval) }}</span>
+          </button>
+          <button type="button" class="banner-btn" (click)="restore()">Show</button>
+        </section>
+      } @else {
+        <section class="approvals-banner" role="status" aria-live="polite">
+          <button type="button" class="banner-main" (click)="review(approval)">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span class="banner-copy">
+              <strong>
+                {{ pendingRequests().length === 1
+                  ? 'Browser permission requested'
+                  : pendingRequests().length + ' browser permissions requested' }}
+              </strong>
+              <span>{{ describe(approval) }}</span>
+              <span class="request-identity">New request · Request 1 of {{ pendingRequests().length }} · #{{ shortRequestId(approval) }} · received {{ receivedAt(approval) }}</span>
+              @if (errorMessage(); as err) {
+                <span class="banner-error">{{ err }}</span>
+              }
+            </span>
+          </button>
+          <div class="banner-actions">
+            @if (canQuickApprove(approval)) {
+              <button
+                type="button"
+                class="banner-btn primary"
+                [disabled]="working() !== null"
+                (click)="approve(approval, 'per_action')"
+              >{{ working() === approval.requestId ? 'Allowing…' : 'Allow once' }}</button>
+              <button
+                type="button"
+                class="banner-btn"
+                [disabled]="working() !== null"
+                (click)="approve(approval, 'session')"
+              >Allow for session</button>
             }
-          </div>
-        </div>
-        <div class="banner-actions">
-          @if (canQuickApprove(approval)) {
             <button
               type="button"
-              class="banner-btn primary"
+              class="banner-btn danger"
               [disabled]="working() !== null"
-              (click)="approve(approval, 'per_action')"
-            >{{ working() === approval.requestId ? 'Allowing…' : 'Allow once' }}</button>
+              aria-label="Deny the oldest pending browser request"
+              (click)="deny(approval)"
+            >Deny</button>
             <button
               type="button"
               class="banner-btn"
               [disabled]="working() !== null"
-              (click)="approve(approval, 'session')"
-            >Allow for session</button>
-          }
-          <button
-            type="button"
-            class="banner-btn danger"
-            [disabled]="working() !== null"
-            aria-label="Deny the oldest pending browser request"
-            (click)="deny(approval)"
-          >Deny</button>
-          <button
-            type="button"
-            class="banner-btn"
-            [disabled]="working() !== null"
-            aria-label="Review pending browser requests"
-            (click)="review()"
-          >More options</button>
-        </div>
-      </section>
+              aria-label="Review pending browser requests"
+              (click)="review(approval)"
+            >More options</button>
+            <button
+              type="button"
+              class="banner-close"
+              aria-label="Minimize browser approval banner"
+              (click)="minimize()"
+            >×</button>
+          </div>
+        </section>
+      }
     }
   `,
   styles: [`
@@ -114,6 +130,12 @@ const QUICK_APPROVAL_BLOCKED_CLASSES = new Set<BrowserActionClass>([
       display: flex;
       align-items: center;
       gap: 0.75rem;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      text-align: left;
+      cursor: pointer;
     }
 
     .status-dot {
@@ -141,6 +163,12 @@ const QUICK_APPROVAL_BLOCKED_CLASSES = new Set<BrowserActionClass>([
 
     .banner-copy .banner-error {
       color: #fca5a5;
+    }
+
+    .banner-copy .request-identity {
+      flex-basis: 100%;
+      color: var(--text-muted, #94a3b8);
+      font-size: 0.72rem;
     }
 
     .banner-actions {
@@ -185,6 +213,46 @@ const QUICK_APPROVAL_BLOCKED_CLASSES = new Set<BrowserActionClass>([
       outline-offset: 2px;
     }
 
+    .banner-close {
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--text-secondary, #cbd5e1);
+      cursor: pointer;
+      font-size: 1.2rem;
+      line-height: 1;
+    }
+
+    .banner-close:hover,
+    .banner-close:focus-visible {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .approvals-banner.compact {
+      min-height: 36px;
+      padding-block: 0.35rem;
+    }
+
+    .compact-main {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      font-size: 0.78rem;
+    }
+
+    .compact-main span:last-child {
+      color: var(--text-secondary, #cbd5e1);
+    }
+
     @media (max-width: 860px) {
       .approvals-banner,
       .banner-actions {
@@ -195,52 +263,25 @@ const QUICK_APPROVAL_BLOCKED_CLASSES = new Set<BrowserActionClass>([
 })
 export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
   private readonly browserGateway = inject(BrowserGatewayIpcService);
+  private readonly approvals = inject(BrowserApprovalsStore);
   private readonly router = inject(Router);
-  private refreshTimer: ReturnType<typeof setInterval> | null = null;
-  private refreshInFlight = false;
 
-  readonly pendingRequests = signal<BrowserApprovalRequest[]>([]);
+  readonly pendingRequests = this.approvals.pendingRequests;
+  readonly oldestPending = this.approvals.oldestPending;
+  readonly isMinimized = this.approvals.isMinimized;
   readonly working = signal<string | null>(null);
   readonly errorMessage = signal<string | null>(null);
 
-  readonly oldestPending = computed(() => {
-    const requests = this.pendingRequests();
-    if (requests.length === 0) {
-      return null;
-    }
-    return [...requests].sort((a, b) => a.createdAt - b.createdAt)[0];
-  });
-
   ngOnInit(): void {
-    void this.refresh();
-    this.refreshTimer = setInterval(() => {
-      void this.refresh();
-    }, REFRESH_INTERVAL_MS);
+    this.approvals.startPolling();
   }
 
   ngOnDestroy(): void {
-    if (this.refreshTimer) {
-      clearInterval(this.refreshTimer);
-      this.refreshTimer = null;
-    }
+    this.approvals.stopPolling();
   }
 
   async refresh(): Promise<void> {
-    if (this.refreshInFlight) {
-      return;
-    }
-    this.refreshInFlight = true;
-    try {
-      const response = await this.browserGateway.listApprovalRequests({
-        status: 'pending',
-        limit: 25,
-      });
-      if (response.success) {
-        this.pendingRequests.set(response.data?.data ?? []);
-      }
-    } finally {
-      this.refreshInFlight = false;
-    }
+    await this.approvals.refresh();
   }
 
   describe(approval: BrowserApprovalRequest): string {
@@ -280,7 +321,7 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
         this.errorMessage.set(response.error?.message ?? 'Failed to approve browser request.');
         return;
       }
-      this.removeRequest(approval.requestId);
+      this.approvals.removeRequest(approval.requestId);
       await this.refresh();
     } finally {
       this.working.set(null);
@@ -302,21 +343,36 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
         this.errorMessage.set(response.error?.message ?? 'Failed to deny browser request.');
         return;
       }
-      this.removeRequest(approval.requestId);
+      this.approvals.removeRequest(approval.requestId);
       await this.refresh();
     } finally {
       this.working.set(null);
     }
   }
 
-  review(): void {
-    void this.router.navigateByUrl('/browser');
+  review(approval: BrowserApprovalRequest): void {
+    void this.router.navigate(['/browser'], {
+      queryParams: { view: 'permissions', requestId: approval.requestId },
+    });
   }
 
-  private removeRequest(requestId: string): void {
-    this.pendingRequests.update((requests) =>
-      requests.filter((request) => request.requestId !== requestId),
-    );
+  minimize(): void {
+    this.approvals.minimizeCurrentSet();
+  }
+
+  restore(): void {
+    this.approvals.restore();
+  }
+
+  shortRequestId(approval: BrowserApprovalRequest): string {
+    return approval.requestId.length <= 12 ? approval.requestId : approval.requestId.slice(0, 8);
+  }
+
+  receivedAt(approval: BrowserApprovalRequest): string {
+    return new Date(approval.createdAt).toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
   }
 
   private quickGrant(

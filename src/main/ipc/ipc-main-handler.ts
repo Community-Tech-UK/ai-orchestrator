@@ -14,6 +14,7 @@ import { registerOrchestrationHandlers } from './orchestration-ipc-handler';
 import { registerVerificationHandlers } from './verification-ipc-handler';
 import { registerCliVerificationHandlers } from './cli-verification-ipc-handler';
 import { registerLearningHandlers } from './learning-ipc-handler';
+import { getContextWorkerClient } from '../instance/context-worker-client';
 import { registerMemoryHandlers } from './memory-ipc-handler';
 import { registerSpecialistHandlers } from './specialist-ipc-handler';
 import { registerTrainingHandlers } from './training-ipc-handler';
@@ -435,11 +436,13 @@ export class IpcMainHandler {
     // Learning handlers (RLM Context, Self-Improvement, Model Discovery)
     registerLearningHandlers({
       ensureTrustedSender: this.ensureTrustedSender.bind(this),
+      rlmPort: getContextWorkerClient(),
     });
 
     // Memory handlers (Memory-R1, Unified Memory, Debate, Training)
     registerMemoryHandlers({
       ensureTrustedSender: this.ensureTrustedSender.bind(this),
+      unifiedMemoryPort: getContextWorkerClient(),
     });
 
     // Specialist handlers (Phase 7.4: Specialist Profiles)

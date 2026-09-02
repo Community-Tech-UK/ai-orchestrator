@@ -155,7 +155,7 @@ describe('BrowserGatewayService approvals', () => {
 
   it('creates a usable grant when the user approves a submit action per_action', async () => {
     const { service, driver, grants, approvalRequests } = makeService();
-    driver.inspectElement.mockResolvedValue({
+    inspectElementMock(driver).mockResolvedValue({
       role: 'button',
       accessibleName: 'Save changes',
     });
@@ -196,6 +196,129 @@ describe('BrowserGatewayService approvals', () => {
       outcome: 'succeeded',
     });
     expect(driver.click).toHaveBeenCalledWith('profile-1', 'target-1', 'button.save');
+  });
+
+  it('deduplicates and redeems one exact credential approval without broadening its scope', async () => {
+    const { service, driver, grants, grantStore, approvalRequests } = makeService();
+    inspectElementMock(driver).mockResolvedValue({
+      role: 'button',
+      accessibleName: 'Continue with password',
+      nearbyText: 'Password',
+    });
+    const request = {
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      selector: 'button[name="action"]',
+      instanceId: 'instance-1',
+      provider: 'copilot' as const,
+    };
+
+    const first = await service.click(request);
+    const duplicate = await service.click(request);
+
+    expect(first).toMatchObject({ decision: 'requires_user', requestId: 'request-1' });
+    expect(duplicate).toMatchObject({
+      decision: 'requires_user',
+      requestId: 'request-1',
+      reason: 'approval_already_pending',
+    });
+    expect(approvalRequests).toHaveLength(1);
+
+    await service.approveRequest({
+      requestId: approvalRequests[0].requestId,
+      grant: {
+        ...approvalRequests[0].proposedGrant,
+        mode: 'autonomous',
+        allowedActionClasses: ['credential', 'input'],
+        autonomous: true,
+      },
+      reason: 'Approved from Browser Gateway page',
+    });
+
+    expect(grants[0]).toMatchObject({
+      mode: 'per_action',
+      allowedActionClasses: ['credential'],
+      autonomous: false,
+    });
+
+    const retry = await service.click({ ...request, requestId: first.requestId! });
+
+    expect(retry).toMatchObject({ decision: 'allowed', outcome: 'succeeded' });
+    expect(driver.click).toHaveBeenCalledTimes(1);
+    expect(grantStore.consumeGrant).toHaveBeenCalledWith(grants[0].id);
+
+    const spentRetry = await service.click({ ...request, requestId: first.requestId! });
+    expect(spentRetry).toMatchObject({ decision: 'requires_user', outcome: 'not_run' });
+    expect(driver.click).toHaveBeenCalledTimes(1);
+  });
+
+  it('redeems an exact unknown approval when element inspection still fails', async () => {
+    const { service, driver, approvalRequests } = makeService();
+    driver.inspectElement.mockRejectedValue(new Error('inspection unavailable'));
+    const request = {
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      selector: 'button.continue',
+      instanceId: 'instance-1',
+      provider: 'copilot',
+    } as const;
+
+    const first = await service.click(request);
+    expect(first).toMatchObject({ decision: 'requires_user', requestId: 'request-1' });
+    await service.approveRequest({
+      requestId: approvalRequests[0].requestId,
+      grant: approvalRequests[0].proposedGrant,
+    });
+
+    const retry = await service.click({ ...request, requestId: first.requestId! });
+
+    expect(retry).toMatchObject({ decision: 'allowed', outcome: 'succeeded' });
+    expect(driver.click).toHaveBeenCalledWith('profile-1', 'target-1', 'button.continue');
+  });
+
+  it('executes and finalizes an exact unknown fill_form when inspection still fails', async () => {
+    const { service, driver, approvalRequests, grantStore } = makeService();
+    driver.inspectElement.mockRejectedValue(new Error('inspection unavailable'));
+    const request: Parameters<BrowserGatewayService['fillForm']>[0] = {
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      fields: [{ selector: '#uninspectable', value: 'test-placeholder' }],
+      instanceId: 'instance-1',
+      provider: 'copilot',
+    };
+
+    const first = await service.fillForm(request);
+    await service.approveRequest({
+      requestId: approvalRequests[0].requestId,
+      grant: approvalRequests[0].proposedGrant,
+    });
+    const retry = await service.fillForm({ ...request, requestId: first.requestId! });
+
+    expect(retry).toMatchObject({ decision: 'allowed', outcome: 'succeeded' });
+    expect(driver.fillForm).toHaveBeenCalledOnce();
+    expect(grantStore.consumeGrant).toHaveBeenCalledOnce();
+  });
+
+  it('finalizes a successful exact unknown evaluate redemption', async () => {
+    const { service, driver, approvalRequests, grantStore } = makeService();
+    const request = {
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      expression: 'document.title',
+      instanceId: 'instance-1',
+      provider: 'copilot' as const,
+    };
+
+    const first = await service.evaluate(request);
+    await service.approveRequest({
+      requestId: approvalRequests[0].requestId,
+      grant: approvalRequests[0].proposedGrant,
+    });
+    const retry = await service.evaluate({ ...request, requestId: first.requestId! });
+
+    expect(retry).toMatchObject({ decision: 'allowed', outcome: 'succeeded' });
+    expect(driver.evaluate).toHaveBeenCalledOnce();
+    expect(grantStore.consumeGrant).toHaveBeenCalledOnce();
   });
 
   it('auto-approves a grant change between preparation and execution for YOLO instances', async () => {
@@ -719,6 +842,34 @@ describe('BrowserGatewayService approvals', () => {
       outcome: 'not_run',
     });
     expect(driver.fillForm).not.toHaveBeenCalled();
+  });
+
+  it('executes a managed credential fill_form after its exact approval is redeemed', async () => {
+    const { service, driver, approvalRequests } = makeService({
+      grants: [makeGrant({ allowedActionClasses: ['input'] })],
+    });
+    inspectElementMock(driver).mockResolvedValue({ label: 'Password', inputType: 'password' });
+    const request = {
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      fields: [{ selector: '#password', value: 'test-placeholder' }],
+      instanceId: 'instance-1',
+      provider: 'copilot' as const,
+    };
+
+    const first = await service.fillForm(request);
+    expect(first).toMatchObject({ decision: 'requires_user', requestId: 'request-1' });
+    await service.approveRequest({
+      requestId: approvalRequests[0].requestId,
+      grant: approvalRequests[0].proposedGrant,
+    });
+
+    const retry = await service.fillForm({ ...request, requestId: first.requestId! });
+
+    expect(retry).toMatchObject({ decision: 'allowed', outcome: 'succeeded' });
+    expect(driver.fillForm).toHaveBeenCalledWith('profile-1', 'target-1', [
+      { selector: '#password', value: 'test-placeholder' },
+    ]);
   });
 
   it('creates grant requests and returns approval status scoped to the instance', async () => {

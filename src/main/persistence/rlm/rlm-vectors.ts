@@ -47,6 +47,44 @@ export function addVector(
 }
 
 /**
+ * Persist a vector only while its original section still exists in the same
+ * store. The INSERT...SELECT is one SQLite statement, so a concurrent delete
+ * cannot be undone by recreating a placeholder parent after embedding.
+ */
+export function addVectorForExistingSection(
+  db: SqliteDriver,
+  vector: {
+    id: string;
+    storeId: string;
+    sectionId: string;
+    embedding: EmbeddingVector;
+    contentPreview?: string;
+    metadata?: Record<string, unknown>;
+  }
+): boolean {
+  const embeddingBuffer = Buffer.from(new Float32Array(vector.embedding).buffer);
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO vectors
+      (id, store_id, section_id, embedding, dimensions, content_preview, metadata_json, created_at)
+    SELECT ?, ?, sections.id, ?, ?, ?, ?, ?
+    FROM context_sections AS sections
+    WHERE sections.id = ? AND sections.store_id = ?
+  `);
+  const result = stmt.run(
+    vector.id,
+    vector.storeId,
+    embeddingBuffer,
+    vector.embedding.length,
+    vector.contentPreview || null,
+    vector.metadata ? JSON.stringify(vector.metadata) : null,
+    Date.now(),
+    vector.sectionId,
+    vector.storeId,
+  );
+  return result.changes > 0;
+}
+
+/**
  * Get all vectors for a store.
  */
 export function getVectors(db: SqliteDriver, storeId: string): VectorRow[] {

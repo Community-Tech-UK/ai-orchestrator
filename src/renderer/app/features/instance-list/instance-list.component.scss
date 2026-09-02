@@ -318,6 +318,15 @@
       z-index: 1;
     }
 
+    /* Every header row is its own stacking context (position + z-index above),
+       so the dropdown's own `z-index: 100` only ranks it INSIDE this row. Two
+       rows both at `z-index: 1` then fall back to DOM order, and a project
+       lower in the list painted its controls straight through an open menu
+       above it. Lift the row that owns the open menu above its siblings. */
+    .project-header-row.menu-open {
+      z-index: 50;
+    }
+
     .project-header-row.has-selected-instance {
       background: rgba(var(--primary-rgb), 0.06);
       box-shadow: inset 0 0 0 1px rgba(var(--primary-rgb), 0.08);

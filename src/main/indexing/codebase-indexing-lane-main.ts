@@ -7,7 +7,11 @@ import type {
 import { RLMContextManager } from '../rlm/context-manager';
 import { RLMDatabase } from '../persistence/rlm-database';
 import { CodebaseIndexingService } from './indexing-service';
-import type { CodebaseIndexingLaneJob } from './codebase-indexing-lane-protocol';
+import {
+  parseCodebaseIndexingLaneJob,
+  type CodebaseIndexingFileOutcome,
+  type CodebaseIndexingLaneJob,
+} from './codebase-indexing-lane-protocol';
 import { registerWorkerEventForwarding } from '../instance/context-worker-event-forwarding';
 
 type RunJobMessage = Extract<LaneInboundMessage, { type: 'run-job' }> & {
@@ -56,28 +60,23 @@ let workerEventForwardingRegistered = false;
  * LT-207: this lane constructs its own worker-local `RLMContextManager`
  * (`indexCodebase()` → `CodebaseIndexingService.addSection()` →
  * `this.contextManager.addSection(...)`), so `section:added` fired here is
- * invisible to main's separate singleton and the renderer's
- * `RLM_SECTION_ADDED` channel never fires for indexing activity — the same
- * worker-process-singleton class as LT-169/LT-170/LT-206. Reuses that fix's
- * generic mechanism (`registerWorkerEventForwarding`/`dispatchWorkerBroadcast`
- * in `context-worker-event-forwarding.ts`) instead of a bespoke forwarder.
+ * invisible outside this process without an explicit transport hop. It uses
+ * `registerWorkerEventForwarding()` to normalize and post DTOs; main-side
+ * dispatch in `context-worker-event-relay.ts` publishes them to the shared,
+ * manager-independent relay.
  *
  * Must run AFTER `RLMDatabase.getInstance()` has been configured with this
- * job's `userDataPath` and BEFORE the first `RLMContextManager.getInstance()`
- * call: `registerWorkerEventForwarding` itself calls `getInstance()` to
- * attach listeners, and `RLMContextManager`'s constructor eagerly resolves
- * `getRLMDatabase()` — calling it first would let `RLMDatabase` fall back to
- * its default (wrong) path for the rest of this worker's lifetime, since
- * both are `getInstance()` singletons where the first call wins. Guarded so
- * repeated jobs in the same long-lived worker process register the
- * singleton's listeners only once.
+ * job's `userDataPath`. This call site then resolves the worker-local manager
+ * and injects it into forwarding. Constructing the manager earlier would let
+ * its eager `getRLMDatabase()` call pin the process to the fallback path.
+ * Registration remains guarded so repeated jobs attach listeners only once.
  */
 function ensureWorkerEventForwarding(): void {
   if (workerEventForwardingRegistered) return;
   workerEventForwardingRegistered = true;
   registerWorkerEventForwarding({
     postMessage: (message) => send({ type: 'worker-event', message }),
-  });
+  }, RLMContextManager.getInstance());
 }
 
 function ensureHeartbeat(): void {
@@ -104,17 +103,32 @@ async function handleRun(message: RunJobMessage): Promise<void> {
     return;
   }
 
-  if (!isIndexCodebaseJob(message.payload)) {
+  let job: CodebaseIndexingLaneJob;
+  try {
+    job = parseCodebaseIndexingLaneJob(message.payload);
+    if (message.jobType !== job.type) {
+      throw new Error(
+        `Indexing lane job type ${message.jobType} does not match payload type ${job.type}`,
+      );
+    }
+  } catch (error) {
+    const payloadType = typeof message.payload === 'object' && message.payload !== null
+      ? (message.payload as { type?: unknown }).type
+      : undefined;
+    const errorMessage = payloadType === message.jobType
+      && !isKnownJobType(payloadType)
+      ? `Unsupported indexing lane job: ${message.jobType}`
+      : toBoundedErrorMessage(error);
     send({
       type: 'job-failed',
       jobId: message.jobId,
-      errorMessage: `Unsupported indexing lane job: ${message.jobType}`,
+      errorMessage,
     });
     return;
   }
 
-  if (message.payload.userDataPath) {
-    const rlmRoot = path.join(message.payload.userDataPath, 'rlm');
+  if (job.userDataPath) {
+    const rlmRoot = path.join(job.userDataPath, 'rlm');
     RLMDatabase.getInstance({
       dbPath: path.join(rlmRoot, 'rlm.db'),
       contentDir: path.join(rlmRoot, 'content'),
@@ -146,11 +160,7 @@ async function handleRun(message: RunJobMessage): Promise<void> {
   });
 
   try {
-    const stats = await service.indexCodebase(
-      message.payload.storeId ?? `codebase:${message.payload.rootPath}`,
-      message.payload.rootPath,
-      { force: message.payload.force ?? false },
-    );
+    const result = await executeJob(service, job);
     const activeJob = activeJobs.get(message.jobId);
     if (activeJob?.cancelled || getServiceProgressStatus(service) === 'cancelled') {
       send({ type: 'job-cancelled', jobId: message.jobId });
@@ -159,15 +169,7 @@ async function handleRun(message: RunJobMessage): Promise<void> {
     send({
       type: 'job-succeeded',
       jobId: message.jobId,
-      result: {
-        rootPath: message.payload.rootPath,
-        filesIndexed: stats.filesIndexed,
-        chunksCreated: stats.chunksCreated,
-        tokensProcessed: stats.tokensProcessed,
-        duration: stats.duration,
-        errors: stats.errors,
-        completedAt: Date.now(),
-      },
+      result,
     });
   } catch (error) {
     const activeJob = activeJobs.get(message.jobId);
@@ -178,7 +180,7 @@ async function handleRun(message: RunJobMessage): Promise<void> {
     send({
       type: 'job-failed',
       jobId: message.jobId,
-      errorMessage: error instanceof Error ? error.message : String(error),
+      errorMessage: toBoundedErrorMessage(error),
     });
   } finally {
     activeJobs.delete(message.jobId);
@@ -221,13 +223,98 @@ function exitIfShutdownIdle(): void {
   process.exit(0);
 }
 
-function isIndexCodebaseJob(payload: unknown): payload is CodebaseIndexingLaneJob {
-  return (
-    typeof payload === 'object'
-    && payload !== null
-    && (payload as { type?: unknown }).type === 'index-codebase'
-    && typeof (payload as { rootPath?: unknown }).rootPath === 'string'
-  );
+async function executeJob(
+  service: CodebaseIndexingService,
+  job: CodebaseIndexingLaneJob,
+): Promise<unknown> {
+  switch (job.type) {
+    case 'index-codebase': {
+      const stats = await service.indexCodebase(
+        job.storeId ?? `codebase:${job.rootPath}`,
+        job.rootPath,
+        { force: job.force ?? false },
+      );
+      return {
+        rootPath: job.rootPath,
+        filesIndexed: stats.filesIndexed,
+        chunksCreated: stats.chunksCreated,
+        tokensProcessed: stats.tokensProcessed,
+        duration: stats.duration,
+        errors: stats.errors.slice(0, 256).map((error) => ({
+          file: error.file.slice(0, 4_096),
+          error: error.error.slice(0, 16_384),
+          recoverable: error.recoverable,
+        })),
+        completedAt: Date.now(),
+      };
+    }
+    case 'index-file':
+      await service.indexFile(job.storeId, job.filePath);
+      return undefined;
+    case 'remove-file':
+      await service.removeFile(job.storeId, job.filePath);
+      return undefined;
+    case 'get-stats':
+      return service.getStats(job.storeId);
+    case 'clear-legacy-store':
+      await service.clearLegacyCodebaseStore(job.storeId);
+      return undefined;
+    case 'sync-files':
+      return {
+        outcomes: await syncFiles(service, job.storeId, job.deletions, job.upserts),
+      };
+  }
+}
+
+async function syncFiles(
+  service: CodebaseIndexingService,
+  storeId: string,
+  deletions: string[],
+  upserts: string[],
+): Promise<CodebaseIndexingFileOutcome[]> {
+  const outcomes: CodebaseIndexingFileOutcome[] = [];
+  for (const filePath of deletions) {
+    outcomes.push(await runFileOperation('removed', filePath, () => (
+      service.removeFile(storeId, filePath)
+    )));
+  }
+  for (const filePath of upserts) {
+    outcomes.push(await runFileOperation('indexed', filePath, () => (
+      service.indexFile(storeId, filePath)
+    )));
+  }
+  return outcomes;
+}
+
+async function runFileOperation(
+  operation: CodebaseIndexingFileOutcome['operation'],
+  filePath: string,
+  run: () => Promise<void>,
+): Promise<CodebaseIndexingFileOutcome> {
+  try {
+    await run();
+    return { operation, filePath, success: true };
+  } catch (error) {
+    return {
+      operation,
+      filePath,
+      success: false,
+      error: toBoundedErrorMessage(error),
+    };
+  }
+}
+
+function toBoundedErrorMessage(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error)).slice(0, 16_384);
+}
+
+function isKnownJobType(value: unknown): value is CodebaseIndexingLaneJob['type'] {
+  return value === 'index-codebase'
+    || value === 'index-file'
+    || value === 'remove-file'
+    || value === 'get-stats'
+    || value === 'clear-legacy-store'
+    || value === 'sync-files';
 }
 
 function getServiceProgressStatus(service: CodebaseIndexingService): string | undefined {

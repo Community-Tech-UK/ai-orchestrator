@@ -3,7 +3,6 @@ import { validateIpcPayload } from '@contracts/schemas/common';
 import { MemoryLoadHistoryPayloadSchema } from '@contracts/schemas/instance';
 import { IPC_CHANNELS } from '@contracts/channels';
 import { getLogger } from '../logging/logger';
-import { RLMContextManager } from '../rlm/context-manager';
 import { getChannelManager } from '../channels';
 import { getReactionEngine } from '../reactions';
 import { getKnowledgeGraphService } from '../memory/knowledge-graph-service';
@@ -14,10 +13,10 @@ import type { IpcResponse } from '../../shared/types/ipc.types';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { WindowManager } from '../window-manager';
 import {
-  isHighVolumeContextStore,
-  serializeContextSectionForIpc,
-  serializeContextStoreForIpc,
-} from './rlm-ipc-serialization';
+  getContextWorkerEventRelay,
+  type ContextWorkerEventRelay,
+} from '../instance/context-worker-event-relay';
+import type { RlmWorkerEventMsg } from '../instance/context-worker-protocol';
 
 const logger = getLogger('IpcMainHandler');
 
@@ -137,63 +136,102 @@ function setupMemoryEventForwarding({ instanceManager, windowManager }: IpcRunti
   });
 }
 
-function setupRlmEventForwarding(windowManager: WindowManager): void {
-  const rlm = RLMContextManager.getInstance();
+type RlmStoreCreatedPayload = Extract<
+  RlmWorkerEventMsg,
+  { event: 'store:created' }
+>['payload'];
+type RlmSectionAddedPayload = Extract<
+  RlmWorkerEventMsg,
+  { event: 'section:added' }
+>['payload'];
+type RlmSectionRemovedPayload = Extract<
+  RlmWorkerEventMsg,
+  { event: 'section:removed' }
+>['payload'];
+type RlmQueryExecutedPayload = Extract<
+  RlmWorkerEventMsg,
+  { event: 'query:executed' }
+>['payload'];
 
-  rlm.on('store:created', (store) => {
+interface RlmEventForwardingRegistration {
+  relay: ContextWorkerEventRelay;
+  windowManager: WindowManager;
+  unsubscribe: () => void;
+}
+
+let rlmEventForwardingRegistration: RlmEventForwardingRegistration | null = null;
+
+export function setupRlmEventForwarding(windowManager: WindowManager): void {
+  const relay = getContextWorkerEventRelay();
+  if (
+    rlmEventForwardingRegistration?.relay === relay
+    && rlmEventForwardingRegistration.windowManager === windowManager
+  ) {
+    return;
+  }
+  teardownRlmEventForwarding();
+
+  const onStoreCreated = (store: RlmStoreCreatedPayload) => {
     windowManager.sendToRenderer(IPC_CHANNELS.RLM_STORE_UPDATED, {
-        storeId: store.id,
-        store: serializeContextStoreForIpc(store),
+      storeId: store.id,
+      store,
     });
-  });
+  };
 
-  rlm.on('section:added', ({ store, section }) => {
-    if (isHighVolumeContextStore(store)) {
+  const onSectionAdded = (payload: RlmSectionAddedPayload) => {
+    if (payload.highVolume) {
       return;
     }
     windowManager.sendToRenderer(IPC_CHANNELS.RLM_SECTION_ADDED, {
-        storeId: store.id,
-        section: serializeContextSectionForIpc(section),
+      storeId: payload.storeId,
+      section: payload.section,
     });
     windowManager.sendToRenderer(IPC_CHANNELS.RLM_STORE_UPDATED, {
-        storeId: store.id,
-        store: serializeContextStoreForIpc(store, {
-          includeSections: true,
-          sectionLimit: 500,
-        }),
+      storeId: payload.storeId,
+      store: payload.store,
     });
-  });
+  };
 
-  rlm.on('section:removed', ({ store, section }) => {
-    if (isHighVolumeContextStore(store)) {
+  const onSectionRemoved = (payload: RlmSectionRemovedPayload) => {
+    if (payload.highVolume) {
       return;
     }
     windowManager.sendToRenderer(IPC_CHANNELS.RLM_SECTION_REMOVED, {
-        storeId: store.id,
-        sectionId: section.id,
+      storeId: payload.storeId,
+      sectionId: payload.sectionId,
     });
     windowManager.sendToRenderer(IPC_CHANNELS.RLM_STORE_UPDATED, {
-        storeId: store.id,
-        store: serializeContextStoreForIpc(store, {
-          includeSections: true,
-          sectionLimit: 500,
-        }),
+      storeId: payload.storeId,
+      store: payload.store,
     });
-  });
+  };
 
-  rlm.on('query:executed', ({ session, queryResult }) => {
+  const onQueryExecuted = (payload: RlmQueryExecutedPayload) => {
     windowManager.sendToRenderer(IPC_CHANNELS.RLM_QUERY_COMPLETE, {
-        sessionId: session.id,
-        queryResult,
+      sessionId: payload.sessionId,
+      queryResult: payload.queryResult,
     });
-  });
+  };
 
-  rlm.on('summary:created', ({ storeId, section }) => {
-    windowManager.sendToRenderer(IPC_CHANNELS.RLM_SECTION_ADDED, {
-        storeId,
-        section: serializeContextSectionForIpc(section),
-    });
-  });
+  relay.on('store:created', onStoreCreated);
+  relay.on('section:added', onSectionAdded);
+  relay.on('section:removed', onSectionRemoved);
+  relay.on('query:executed', onQueryExecuted);
+  rlmEventForwardingRegistration = {
+    relay,
+    windowManager,
+    unsubscribe: () => {
+      relay.off('store:created', onStoreCreated);
+      relay.off('section:added', onSectionAdded);
+      relay.off('section:removed', onSectionRemoved);
+      relay.off('query:executed', onQueryExecuted);
+    },
+  };
+}
+
+export function teardownRlmEventForwarding(): void {
+  rlmEventForwardingRegistration?.unsubscribe();
+  rlmEventForwardingRegistration = null;
 }
 
 function setupChannelEventForwarding(windowManager: WindowManager): void {

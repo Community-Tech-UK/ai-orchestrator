@@ -103,18 +103,19 @@ function makeFakes(): Fakes {
 
   const fileWatcher = {
     startCalls: [] as { storeId: string; rootPath: string }[],
-    async startWatching(storeId: string, rootPath: string): Promise<void> {
+    async startWatching(storeId: string, rootPath: string) {
       this.startCalls.push({ storeId, rootPath });
+      return { dispose: async () => undefined };
     },
   };
 
   const contextManager = {
     createCalls: [] as { instanceId: string; config?: Record<string, unknown> }[],
-    createStore(instanceId: string, config?: Record<string, unknown>): { id: string } {
+    async createStore(instanceId: string, config?: Record<string, unknown>): Promise<{ id: string }> {
       this.createCalls.push({ instanceId, config });
       return { id: `ctx_${instanceId}` };
     },
-    listStores: vi.fn(() => []),
+    listStores: vi.fn(async () => []),
   };
 
   const registry = {
@@ -164,6 +165,52 @@ function mkTmpDir(): string {
 async function flushMicrotasks(times = 4): Promise<void> {
   for (let i = 0; i < times; i++) {
     await Promise.resolve();
+  }
+}
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
+class ControlledWatcherStarts {
+  readonly active = new Set<string>();
+  readonly disposed: string[] = [];
+  readonly pending: Array<{
+    token: string;
+    commit: () => void;
+  }> = [];
+  private nextToken = 0;
+
+  startWatching(storeId: string): Promise<{ dispose(): Promise<void> }> {
+    const token = `${storeId}:${++this.nextToken}`;
+    return new Promise((resolve) => {
+      this.pending.push({
+        token,
+        commit: () => {
+          this.active.add(token);
+          resolve({
+            dispose: async () => {
+              this.disposed.push(token);
+              this.active.delete(token);
+            },
+          });
+        },
+      });
+    });
+  }
+
+  resolveStart(index: number): string {
+    const pending = this.pending[index];
+    if (!pending) throw new Error(`missing watcher start ${index}`);
+    pending.commit();
+    return pending.token;
   }
 }
 
@@ -239,6 +286,60 @@ describe('CodebaseIndexingAutoCoordinator', () => {
         rootPath: path.resolve(dir),
       },
     });
+  });
+
+  it('awaits async worker store creation before dispatching the indexing job', async () => {
+    coordinator._resetForTesting();
+    const dir = mkTmpDir();
+    fakes.tempDirs.push(dir);
+    const createStore = vi.fn().mockResolvedValue({ id: 'worker-owned-store' });
+    coordinator = new CodebaseIndexingAutoCoordinator({
+      recentDirectoriesManager: fakes.emitter,
+      indexingService: fakes.indexing,
+      fileWatcher: fakes.fileWatcher,
+      contextManager: { createStore } as unknown as AutoIndexContextManagerTarget,
+      registry: fakes.registry,
+      settings: fakes.settings,
+      preflight: fakes.preflight,
+      storeIdResolver: (p) => `codebase:${p}`,
+    });
+    coordinator.start();
+
+    fakes.emitter.emit('directory-added', makeEntry(dir));
+    await flushMicrotasks();
+
+    expect(createStore).toHaveBeenCalledOnce();
+    expect(fakes.indexing.indexCalls[0]?.storeId).toBe('worker-owned-store');
+
+    fakes.indexing.resolveNext();
+    await flushMicrotasks();
+  });
+
+  it('uses the deterministic store ID after one failed worker mutation without retrying it', async () => {
+    coordinator._resetForTesting();
+    const dir = mkTmpDir();
+    fakes.tempDirs.push(dir);
+    const createStore = vi.fn().mockRejectedValue(new Error('worker unavailable'));
+    coordinator = new CodebaseIndexingAutoCoordinator({
+      recentDirectoriesManager: fakes.emitter,
+      indexingService: fakes.indexing,
+      fileWatcher: fakes.fileWatcher,
+      contextManager: { createStore } as unknown as AutoIndexContextManagerTarget,
+      registry: fakes.registry,
+      settings: fakes.settings,
+      preflight: fakes.preflight,
+      storeIdResolver: (p) => `codebase:${p}`,
+    });
+    coordinator.start();
+
+    fakes.emitter.emit('directory-added', makeEntry(dir));
+    await flushMicrotasks();
+
+    expect(createStore).toHaveBeenCalledOnce();
+    expect(fakes.indexing.indexCalls[0]?.storeId).toBe(`codebase:${path.resolve(dir)}`);
+
+    fakes.indexing.resolveNext();
+    await flushMicrotasks();
   });
 
   it('skips remote paths (entry.nodeId present)', async () => {
@@ -542,7 +643,7 @@ describe('CodebaseIndexingAutoCoordinator', () => {
     coordinator._resetForTesting();
     const dir = mkTmpDir();
     fakes.tempDirs.push(dir);
-    fakes.contextManager.listStores.mockReturnValue([
+    fakes.contextManager.listStores.mockResolvedValue([
       {
         id: 'ctx-persisted',
         instanceId: `codebase:${path.resolve(dir)}`,
@@ -570,35 +671,287 @@ describe('CodebaseIndexingAutoCoordinator', () => {
       storeIdResolver: (p) => `codebase:${p}`,
     });
     coordinator.start();
-    await flushMicrotasks();
+    await flushMicrotasks(12);
 
     expect(fakes.fileWatcher.startCalls).toEqual([
       { storeId: 'ctx-persisted', rootPath: path.resolve(dir) },
     ]);
   });
 
-  it('reindexes a persisted codebase store that contains sections no longer eligible for indexing', async () => {
+  it('awaits async worker store discovery before restoring persisted watchers', async () => {
     coordinator._resetForTesting();
     const dir = mkTmpDir();
     fakes.tempDirs.push(dir);
-    fakes.contextManager.listStores.mockReturnValue([
+    const persisted = {
+      id: 'ctx-worker-persisted',
+      instanceId: `codebase:${path.resolve(dir)}`,
+      sections: [],
+      totalTokens: 0,
+      totalSize: 0,
+      createdAt: 1,
+      lastAccessed: 1,
+      accessCount: 0,
+      config: {
+        kind: 'codebase-auto',
+        rootPath: path.resolve(dir),
+      },
+    };
+    const listStores = vi.fn().mockResolvedValue([persisted]);
+    coordinator = new CodebaseIndexingAutoCoordinator({
+      recentDirectoriesManager: fakes.emitter,
+      indexingService: fakes.indexing,
+      fileWatcher: fakes.fileWatcher,
+      contextManager: {
+        createStore: vi.fn(),
+        listStores,
+      } as unknown as AutoIndexContextManagerTarget,
+      registry: fakes.registry,
+      settings: fakes.settings,
+      preflight: fakes.preflight,
+      storeIdResolver: (p) => `codebase:${p}`,
+    });
+
+    coordinator.start();
+    await flushMicrotasks();
+
+    expect(listStores).toHaveBeenCalledOnce();
+    expect(fakes.fileWatcher.startCalls).toEqual([
+      { storeId: persisted.id, rootPath: path.resolve(dir) },
+    ]);
+  });
+
+  it('absorbs unavailable worker discovery without an unhandled rejection', async () => {
+    coordinator._resetForTesting();
+    const listStores = vi.fn().mockRejectedValue(new Error('worker unavailable'));
+    coordinator = new CodebaseIndexingAutoCoordinator({
+      recentDirectoriesManager: fakes.emitter,
+      indexingService: fakes.indexing,
+      fileWatcher: fakes.fileWatcher,
+      contextManager: {
+        createStore: vi.fn(),
+        listStores,
+      } as unknown as AutoIndexContextManagerTarget,
+      registry: fakes.registry,
+      settings: fakes.settings,
+      preflight: fakes.preflight,
+      storeIdResolver: (p) => `codebase:${p}`,
+    });
+
+    coordinator.start();
+    await flushMicrotasks();
+
+    expect(listStores).toHaveBeenCalledOnce();
+    expect(fakes.fileWatcher.startCalls).toEqual([]);
+  });
+
+  it('cancels a restore before delayed worker discovery can create side effects', async () => {
+    coordinator._resetForTesting();
+    const dir = mkTmpDir();
+    fakes.tempDirs.push(dir);
+    const pendingStores = deferred<Awaited<ReturnType<NonNullable<AutoIndexContextManagerTarget['listStores']>>>>();
+    const listStores = vi.fn(() => pendingStores.promise);
+    coordinator = new CodebaseIndexingAutoCoordinator({
+      recentDirectoriesManager: fakes.emitter,
+      indexingService: fakes.indexing,
+      fileWatcher: fakes.fileWatcher,
+      contextManager: {
+        createStore: vi.fn(),
+        listStores,
+      } as unknown as AutoIndexContextManagerTarget,
+      registry: fakes.registry,
+      settings: fakes.settings,
+      preflight: fakes.preflight,
+      storeIdResolver: (p) => `codebase:${p}`,
+    });
+
+    coordinator.start();
+    coordinator.stop();
+    pendingStores.resolve([persistedStore(dir, 'ctx-cancelled')]);
+    await flushMicrotasks();
+
+    expect(listStores).toHaveBeenCalledOnce();
+    expect(fakes.fileWatcher.startCalls).toEqual([]);
+    expect(fakes.indexing.indexCalls).toEqual([]);
+    expect(coordinator.listStatuses()).toEqual([]);
+  });
+
+  it('allows only the current restore generation to act when starts resolve out of order', async () => {
+    coordinator._resetForTesting();
+    const dir = mkTmpDir();
+    fakes.tempDirs.push(dir);
+    const first = deferred<Awaited<ReturnType<NonNullable<AutoIndexContextManagerTarget['listStores']>>>>();
+    const second = deferred<Awaited<ReturnType<NonNullable<AutoIndexContextManagerTarget['listStores']>>>>();
+    const listStores = vi.fn()
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise);
+    coordinator = new CodebaseIndexingAutoCoordinator({
+      recentDirectoriesManager: fakes.emitter,
+      indexingService: fakes.indexing,
+      fileWatcher: fakes.fileWatcher,
+      contextManager: {
+        createStore: vi.fn(),
+        listStores,
+      } as unknown as AutoIndexContextManagerTarget,
+      registry: fakes.registry,
+      settings: fakes.settings,
+      preflight: fakes.preflight,
+      storeIdResolver: (p) => `codebase:${p}`,
+    });
+
+    coordinator.start();
+    coordinator.stop();
+    coordinator.start();
+    second.resolve([persistedStore(dir, 'ctx-current')]);
+    await flushMicrotasks();
+    first.resolve([persistedStore(dir, 'ctx-stale')]);
+    await flushMicrotasks();
+
+    expect(listStores).toHaveBeenCalledTimes(2);
+    expect(fakes.fileWatcher.startCalls).toEqual([
+      { storeId: 'ctx-current', rootPath: path.resolve(dir) },
+    ]);
+    expect(coordinator.listStatuses()).toEqual([
+      expect.objectContaining({ storeId: 'ctx-current', state: 'complete' }),
+    ]);
+  });
+
+  it('disposes a watcher that finishes starting after the coordinator stops', async () => {
+    coordinator._resetForTesting();
+    const dir = mkTmpDir();
+    fakes.tempDirs.push(dir);
+    const watcherStarts = new ControlledWatcherStarts();
+    const listStores = vi.fn().mockResolvedValue([persistedStore(dir, 'ctx-race')]);
+    coordinator = new CodebaseIndexingAutoCoordinator({
+      recentDirectoriesManager: fakes.emitter,
+      indexingService: fakes.indexing,
+      fileWatcher: watcherStarts as unknown as AutoIndexFileWatcherTarget,
+      contextManager: {
+        createStore: vi.fn(),
+        listStores,
+      } as unknown as AutoIndexContextManagerTarget,
+      registry: fakes.registry,
+      settings: fakes.settings,
+      preflight: fakes.preflight,
+      storeIdResolver: (p) => `codebase:${p}`,
+    });
+
+    coordinator.start();
+    await flushMicrotasks();
+    expect(watcherStarts.pending).toHaveLength(1);
+    coordinator.stop();
+    const staleToken = watcherStarts.resolveStart(0);
+    await flushMicrotasks();
+
+    expect(watcherStarts.active).toEqual(new Set());
+    expect(watcherStarts.disposed).toEqual([staleToken]);
+    expect(coordinator.listStatuses()).toEqual([]);
+    expect(fakes.indexing.indexCalls).toEqual([]);
+  });
+
+  it('keeps only the current watcher when restart completions arrive out of order', async () => {
+    coordinator._resetForTesting();
+    const dir = mkTmpDir();
+    fakes.tempDirs.push(dir);
+    const watcherStarts = new ControlledWatcherStarts();
+    const listStores = vi.fn().mockResolvedValue([persistedStore(dir, 'ctx-same-store')]);
+    const statusEvents: CodebaseAutoIndexStatus[] = [];
+    coordinator = new CodebaseIndexingAutoCoordinator({
+      recentDirectoriesManager: fakes.emitter,
+      indexingService: fakes.indexing,
+      fileWatcher: watcherStarts as unknown as AutoIndexFileWatcherTarget,
+      contextManager: {
+        createStore: vi.fn(),
+        listStores,
+      } as unknown as AutoIndexContextManagerTarget,
+      registry: fakes.registry,
+      settings: fakes.settings,
+      preflight: fakes.preflight,
+      storeIdResolver: (p) => `codebase:${p}`,
+    });
+    coordinator.on('status', (status: CodebaseAutoIndexStatus) => statusEvents.push(status));
+
+    coordinator.start();
+    await flushMicrotasks();
+    coordinator.stop();
+    coordinator.start();
+    await flushMicrotasks();
+    expect(watcherStarts.pending).toHaveLength(2);
+
+    const currentToken = watcherStarts.resolveStart(1);
+    await flushMicrotasks();
+    const staleToken = watcherStarts.resolveStart(0);
+    await flushMicrotasks();
+
+    expect(watcherStarts.active).toEqual(new Set([currentToken]));
+    expect(watcherStarts.disposed).toEqual([staleToken]);
+    expect(statusEvents).toEqual([
+      expect.objectContaining({ storeId: 'ctx-same-store', state: 'complete' }),
+    ]);
+    expect(fakes.indexing.indexCalls).toEqual([]);
+
+    coordinator.stop();
+    await flushMicrotasks();
+    expect(watcherStarts.active).toEqual(new Set());
+    expect(watcherStarts.disposed).toEqual([staleToken, currentToken]);
+  });
+
+  it('retains a rejected watcher disposal so a later stop can retry it', async () => {
+    coordinator._resetForTesting();
+    const dir = mkTmpDir();
+    fakes.tempDirs.push(dir);
+    const active = new Set(['ctx-retry']);
+    const dispose = vi.fn()
+      .mockRejectedValueOnce(new Error('controlled dispose failure'))
+      .mockImplementationOnce(async () => {
+        active.delete('ctx-retry');
+      });
+    const fileWatcher: AutoIndexFileWatcherTarget = {
+      startWatching: vi.fn().mockResolvedValue({ dispose }),
+    };
+    coordinator = new CodebaseIndexingAutoCoordinator({
+      recentDirectoriesManager: fakes.emitter,
+      indexingService: fakes.indexing,
+      fileWatcher,
+      contextManager: {
+        createStore: vi.fn(),
+        listStores: vi.fn().mockResolvedValue([persistedStore(dir, 'ctx-retry')]),
+      },
+      registry: fakes.registry,
+      settings: fakes.settings,
+      preflight: fakes.preflight,
+      storeIdResolver: (p) => `codebase:${p}`,
+    });
+
+    coordinator.start();
+    await flushMicrotasks();
+    coordinator.stop();
+    await flushMicrotasks();
+
+    const registrations = Reflect.get(
+      coordinator,
+      'restoreWatcherRegistrations',
+    ) as Map<number, Set<unknown>>;
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(active).toEqual(new Set(['ctx-retry']));
+    expect(Array.from(registrations.values()).flatMap((items) => [...items])).toHaveLength(1);
+
+    coordinator.stop();
+    await flushMicrotasks();
+
+    expect(dispose).toHaveBeenCalledTimes(2);
+    expect(active).toEqual(new Set());
+    expect(Array.from(registrations.values()).flatMap((items) => [...items])).toHaveLength(0);
+  });
+
+  it('reindexes from production-shaped paged worker metadata beyond the first page', async () => {
+    coordinator._resetForTesting();
+    const dir = mkTmpDir();
+    fakes.tempDirs.push(dir);
+    fakes.contextManager.listStores.mockResolvedValue([
       {
         id: 'ctx-polluted',
         instanceId: `codebase:${path.resolve(dir)}`,
-        sections: [
-          {
-            id: 'sec-jar',
-            type: 'file',
-            name: 'library.jar',
-            content: '',
-            tokens: 7999,
-            startOffset: 0,
-            endOffset: 1,
-            checksum: 'jar',
-            depth: 0,
-            filePath: path.join(dir, 'libraries', 'example.jar'),
-          },
-        ],
+        sections: [],
         totalTokens: 7999,
         totalSize: 1,
         createdAt: 1,
@@ -607,26 +960,55 @@ describe('CodebaseIndexingAutoCoordinator', () => {
         config: {
           kind: 'codebase-auto',
           rootPath: path.resolve(dir),
+          ipcSectionCount: 257,
+          ipcSectionsTruncated: true,
         },
       },
     ]);
+    const listSectionFilterMetadata = vi.fn()
+      .mockResolvedValueOnce({
+        sections: Array.from({ length: 256 }, (_, index) => ({
+          type: 'file' as const,
+          filePath: path.join(dir, 'src', `file-${index}.ts`),
+        })),
+        nextOffset: 256,
+      })
+      .mockResolvedValueOnce({
+        sections: [{
+          type: 'file' as const,
+          filePath: path.join(dir, 'libraries', 'example.jar'),
+        }],
+      });
 
     coordinator = new CodebaseIndexingAutoCoordinator({
       recentDirectoriesManager: fakes.emitter,
       indexingService: fakes.indexing,
       fileWatcher: fakes.fileWatcher,
-      contextManager: fakes.contextManager,
+      contextManager: {
+        ...fakes.contextManager,
+        listSectionFilterMetadata,
+      } as AutoIndexContextManagerTarget,
       registry: fakes.registry,
       settings: fakes.settings,
       preflight: fakes.preflight,
       storeIdResolver: (p) => `codebase:${p}`,
     });
     coordinator.start();
-    await flushMicrotasks();
+    await flushMicrotasks(12);
 
     expect(fakes.fileWatcher.startCalls).toEqual([
       { storeId: 'ctx-polluted', rootPath: path.resolve(dir) },
     ]);
+    expect(listSectionFilterMetadata.mock.calls).toEqual([
+      ['ctx-polluted', 0, 256],
+      ['ctx-polluted', 256, 1],
+    ]);
+    const returnedPages = await Promise.all(
+      listSectionFilterMetadata.mock.results.map(({ value }) => value),
+    );
+    expect(returnedPages.every((page) => (
+      !JSON.stringify(page).includes('content')
+    ))).toBe(true);
     expect(fakes.indexing.indexCalls).toEqual([
       {
         storeId: 'ctx_codebase:' + path.resolve(dir),
@@ -639,3 +1021,22 @@ describe('CodebaseIndexingAutoCoordinator', () => {
     await flushMicrotasks();
   });
 });
+
+function persistedStore(rootPath: string, id: string) {
+  return {
+    id,
+    instanceId: `codebase:${path.resolve(rootPath)}`,
+    sections: [],
+    totalTokens: 0,
+    totalSize: 0,
+    createdAt: 1,
+    lastAccessed: 1,
+    accessCount: 0,
+    config: {
+      kind: 'codebase-auto',
+      rootPath: path.resolve(rootPath),
+      ipcSectionCount: 0,
+      ipcSectionsTruncated: false,
+    },
+  };
+}

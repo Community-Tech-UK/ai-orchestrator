@@ -1,52 +1,163 @@
 /**
  * Worker↔main event forwarding for the "per-process singleton EventEmitter"
  * bug class (LT-169 skill controls, LT-170 skill activations, LT-206 RLM
- * context + wake context). Every affected singleton (`SkillAttributionService`,
- * `RLMContextManager`, `WakeContextBuilder`) is a `getInstance()`-style
- * per-process singleton. Production routes real RLM/skill/wake-context work
- * through the context-worker process, so that singleton's own instance emits
- * events an identically-named listener on main's separate instance can never
- * observe — Node's `EventEmitter` does not cross process boundaries.
+ * context + wake context). Production routes real RLM/skill/wake-context work
+ * through worker processes, and Node's `EventEmitter` does not cross process
+ * boundaries. RLM events therefore need an explicit DTO hop to main's relay;
+ * skill and wake events retain their existing main-singleton dispatch.
  *
- * This module is the single place both sides of the fix live:
- * - `registerWorkerEventForwarding` (called once from `context-worker-main.ts`)
- *   subscribes to the allowlisted (singleton, event) pairs and posts each one
- *   across the existing worker↔main transport.
- * - `dispatchWorkerBroadcast` (called from `context-worker-client.ts`'s
- *   message handler) re-emits a received broadcast on main's own matching
- *   singleton, so `ipc-main-runtime-wiring.ts`'s existing forwarding
- *   subscriptions (registered on main's singletons) see it exactly as if it
- *   had been emitted in-process.
+ * This worker-only module subscribes to the allowlisted event sources and
+ * posts normalized DTOs across the existing worker↔main transport. Main-side
+ * dispatch lives in `context-worker-event-relay.ts`, keeping this module free
+ * of a carried RLM manager dependency when the client imports dispatch.
  *
- * Only add an event here once its payload is confirmed clone-safe (no
- * functions, no class instances the receiver needs methods on —
- * `structuredClone`/worker `postMessage` strips those). `RLMContextManager`
- * also emits `summarize:request`/`sub_query:request`, which carry callback
- * functions — those must NEVER be added here.
+ * `RLMContextManager` also emits `summarize:request`/`sub_query:request`, which
+ * carry callback functions — those must NEVER be added here.
  */
 
 import { getSkillAttribution, type SkillActivation } from '../skills/skill-attribution-service';
-import { RLMContextManager } from '../rlm/context-manager';
 import { getWakeContextBuilder } from '../memory/wake-context-builder';
-import type { ContextWorkerOutboundMsg, WorkerForwardedEventMsg } from './context-worker-protocol';
+import {
+  isHighVolumeContextStore,
+  serializeContextQueryResultForIpc,
+  serializeContextSectionForIpc,
+  serializeContextStoreForIpc,
+} from '../ipc/rlm-ipc-serialization';
+import type {
+  ContextQueryResult,
+  ContextSection,
+  ContextStore,
+  RLMSession,
+} from '../../shared/types/rlm.types';
+import type {
+  ContextWorkerOutboundMsg,
+  RlmWorkerEventMsg,
+} from './context-worker-protocol';
+import type { RlmContextQueryResultDto } from './rlm-worker-port';
 
 interface ForwardTransport {
   postMessage(message: ContextWorkerOutboundMsg): void;
 }
 
+interface RlmWorkerEventSource {
+  on(event: (typeof RLM_FORWARDED_EVENTS)[number], listener: (payload: unknown) => void): unknown;
+}
+
 /** RLM events whose payloads are plain data (see rlm.types.ts) and safe to clone across. */
 const RLM_FORWARDED_EVENTS = ['store:created', 'section:added', 'section:removed', 'query:executed'] as const;
 
+export const RLM_EVENT_STORE_SECTION_LIMIT = 500;
+export const RLM_EVENT_QUERY_RESULT_MAX_CHARS = 100_000;
+export const RLM_EVENT_ACCESSED_SECTION_IDS_LIMIT = 500;
+export const RLM_EVENT_SUB_QUERY_NODE_LIMIT = 20;
+
+function serializeQueryResultForWorker(result: ContextQueryResult): RlmContextQueryResultDto {
+  let remainingSubQueryNodes = RLM_EVENT_SUB_QUERY_NODE_LIMIT;
+  let remainingResultChars = RLM_EVENT_QUERY_RESULT_MAX_CHARS;
+  let remainingAccessedSectionIds = RLM_EVENT_ACCESSED_SECTION_IDS_LIMIT;
+  const visit = (value: ContextQueryResult): RlmContextQueryResultDto => {
+    const resultText = value.result.slice(0, remainingResultChars);
+    remainingResultChars -= resultText.length;
+    const sectionsAccessed = value.sectionsAccessed.slice(
+      0,
+      remainingAccessedSectionIds,
+    );
+    remainingAccessedSectionIds -= sectionsAccessed.length;
+    const serialized = serializeContextQueryResultForIpc({
+      ...value,
+      result: resultText,
+      sectionsAccessed,
+      subQueries: undefined,
+    });
+    const subQueries: RlmContextQueryResultDto[] = [];
+    for (const subQuery of value.subQueries ?? []) {
+      if (remainingSubQueryNodes === 0) break;
+      remainingSubQueryNodes--;
+      subQueries.push(visit(subQuery));
+    }
+    return value.subQueries === undefined ? serialized : { ...serialized, subQueries };
+  };
+  return visit(result);
+}
+
+function serializeRlmWorkerEvent(
+  event: (typeof RLM_FORWARDED_EVENTS)[number],
+  payload: unknown,
+): RlmWorkerEventMsg {
+  switch (event) {
+    case 'store:created': {
+      const store = payload as ContextStore;
+      return {
+        type: 'worker-event',
+        source: 'rlm-context',
+        event,
+        payload: serializeContextStoreForIpc(store),
+      };
+    }
+    case 'section:added': {
+      const { store, section } = payload as { store: ContextStore; section: ContextSection };
+      return {
+        type: 'worker-event',
+        source: 'rlm-context',
+        event,
+        payload: {
+          storeId: store.id,
+          section: serializeContextSectionForIpc(section),
+          highVolume: isHighVolumeContextStore(store),
+          store: serializeContextStoreForIpc(store, {
+            includeSections: true,
+            sectionLimit: RLM_EVENT_STORE_SECTION_LIMIT,
+          }),
+        },
+      };
+    }
+    case 'section:removed': {
+      const { store, section } = payload as { store: ContextStore; section: ContextSection };
+      return {
+        type: 'worker-event',
+        source: 'rlm-context',
+        event,
+        payload: {
+          storeId: store.id,
+          sectionId: section.id,
+          highVolume: isHighVolumeContextStore(store),
+          store: serializeContextStoreForIpc(store, {
+            includeSections: true,
+            sectionLimit: RLM_EVENT_STORE_SECTION_LIMIT,
+          }),
+        },
+      };
+    }
+    case 'query:executed': {
+      const { session, queryResult } = payload as {
+        session: RLMSession;
+        queryResult: ContextQueryResult;
+      };
+      return {
+        type: 'worker-event',
+        source: 'rlm-context',
+        event,
+        payload: {
+          sessionId: session.id,
+          queryResult: serializeQueryResultForWorker(queryResult),
+        },
+      };
+    }
+  }
+}
+
 /** Worker-side: subscribe every allowlisted singleton event and post it across `transport`. */
-export function registerWorkerEventForwarding(transport: ForwardTransport): void {
+export function registerWorkerEventForwarding(
+  transport: ForwardTransport,
+  rlm: RlmWorkerEventSource,
+): void {
   getSkillAttribution().on('activation', (activation: SkillActivation) => {
     transport.postMessage({ type: 'skill-activation', activation });
   });
 
-  const rlm = RLMContextManager.getInstance();
   for (const event of RLM_FORWARDED_EVENTS) {
     rlm.on(event, (payload: unknown) => {
-      transport.postMessage({ type: 'worker-event', source: 'rlm-context', event, payload });
+      transport.postMessage(serializeRlmWorkerEvent(event, payload));
     });
   }
 
@@ -58,22 +169,4 @@ export function registerWorkerEventForwarding(transport: ForwardTransport): void
       payload,
     });
   });
-}
-
-/** Main-side: re-emit a received worker broadcast on main's own matching singleton. */
-export function dispatchWorkerBroadcast(msg: ContextWorkerOutboundMsg): void {
-  if (msg.type === 'skill-activation') {
-    getSkillAttribution().emit('activation', msg.activation);
-    return;
-  }
-  if (msg.type !== 'worker-event') return;
-  const { source, event, payload } = msg as WorkerForwardedEventMsg;
-  switch (source) {
-    case 'rlm-context':
-      RLMContextManager.getInstance().emit(event, payload);
-      return;
-    case 'wake-context':
-      getWakeContextBuilder().emit(event, payload);
-      return;
-  }
 }

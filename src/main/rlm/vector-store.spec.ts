@@ -159,6 +159,22 @@ describe('VectorStore', () => {
     expect(results.length).toBeGreaterThan(1);
   });
 
+  it('surfaces durable persistence failure without caching or emitting index success', async () => {
+    const store = getVectorStore();
+    const indexed = vi.fn();
+    store.on('section:indexed', indexed);
+    addVector.mockImplementationOnce(() => {
+      throw new Error('disk write failed');
+    });
+
+    await expect(store.addSection('s1', 'sec-new', 'content'))
+      .rejects.toThrow('disk write failed');
+
+    expect(store.getStats().storeStats.find((entry) => entry.storeId === 's1')?.vectorCount)
+      .toBe(2);
+    expect(indexed).not.toHaveBeenCalled();
+  });
+
   it('answers isIndexed from the database when the store is not resident', () => {
     const store = getVectorStore();
 

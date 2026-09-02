@@ -25,11 +25,31 @@ import type { CodebaseAutoIndexStatus } from '../../../../shared/types/codebase.
 
 type IpcHandler = (event: unknown, payload?: unknown) => Promise<IpcResponse>;
 const handlers = new Map<string, IpcHandler>();
+const ipcRegistrationControl = vi.hoisted(() => ({
+  failHandleAt: null as number | null,
+  failRemoveChannel: null as string | null,
+  handleCalls: 0,
+  handleError: null as Error | null,
+  removeError: null as Error | null,
+  trace: [] as string[],
+}));
 
 vi.mock('electron', () => ({
   ipcMain: {
     handle: vi.fn((channel: string, handler: IpcHandler) => {
+      ipcRegistrationControl.handleCalls += 1;
+      ipcRegistrationControl.trace.push(`handle:${channel}`);
+      if (ipcRegistrationControl.handleCalls === ipcRegistrationControl.failHandleAt) {
+        throw ipcRegistrationControl.handleError;
+      }
       handlers.set(channel, handler);
+    }),
+    removeHandler: vi.fn((channel: string) => {
+      ipcRegistrationControl.trace.push(`remove:${channel}`);
+      if (channel === ipcRegistrationControl.failRemoveChannel) {
+        throw ipcRegistrationControl.removeError;
+      }
+      handlers.delete(channel);
     }),
   },
 }));
@@ -64,6 +84,9 @@ const indexingService = Object.assign(indexingProgressEmitter, {
 
 const indexingLaneGateway = Object.assign(new EventEmitter(), {
   indexCodebase: vi.fn(),
+  indexFile: vi.fn(),
+  getStats: vi.fn(),
+  clearLegacyCodebaseStore: vi.fn(),
   cancelIndexCodebase: vi.fn(),
   getIndexCodebaseProgress: vi.fn(),
 });
@@ -99,9 +122,15 @@ const codemem = {
   },
 };
 
-vi.mock('../../../indexing', () => ({
-  getCodebaseIndexingService: () => indexingService,
+vi.mock('../../../indexing/indexing-service', () => {
+  throw new Error('Electron main resolved CodebaseIndexingService');
+});
+
+vi.mock('../../../indexing/file-watcher', () => ({
   getCodebaseFileWatcher: () => fileWatcher,
+}));
+
+vi.mock('../../../indexing/codebase-indexing-auto-coordinator', () => ({
   getCodebaseIndexingAutoCoordinator: () => autoCoordinator,
 }));
 
@@ -124,9 +153,64 @@ vi.mock('../../../codemem', () => ({
 import { registerCodebaseHandlers } from '../codebase-handlers';
 import { IPC_CHANNELS } from '../../../../shared/types/ipc.types';
 
+const registrationChannels = [
+  IPC_CHANNELS.CODEBASE_INDEX_STORE,
+  IPC_CHANNELS.CODEBASE_INDEX_FILE,
+  IPC_CHANNELS.CODEBASE_INDEX_CANCEL,
+  IPC_CHANNELS.CODEBASE_INDEX_STATUS,
+  IPC_CHANNELS.CODEBASE_INDEX_STATS,
+  IPC_CHANNELS.CODEBASE_LEGACY_CLEAR,
+  IPC_CHANNELS.CODEBASE_SEARCH,
+  IPC_CHANNELS.CODEBASE_SEARCH_SYMBOLS,
+  IPC_CHANNELS.CODEBASE_WATCHER_START,
+  IPC_CHANNELS.CODEBASE_WATCHER_STOP,
+  IPC_CHANNELS.CODEBASE_WATCHER_STATUS,
+  IPC_CHANNELS.CODEBASE_AUTO_STATUS_GET,
+] as const;
+
+function resetRegistrationFailureControl(): void {
+  ipcRegistrationControl.failHandleAt = null;
+  ipcRegistrationControl.failRemoveChannel = null;
+  ipcRegistrationControl.handleCalls = 0;
+  ipcRegistrationControl.handleError = null;
+  ipcRegistrationControl.removeError = null;
+  ipcRegistrationControl.trace.length = 0;
+}
+
+function traceListenerRemoval(): () => void {
+  const laneOff = indexingLaneGateway.off.bind(indexingLaneGateway);
+  const watcherOff = fileWatcher.off.bind(fileWatcher);
+  const autoOff = autoCoordinator.off.bind(autoCoordinator);
+  const laneSpy = vi.spyOn(indexingLaneGateway, 'off').mockImplementation((event, listener) => {
+    ipcRegistrationControl.trace.push(`off:lane:${String(event)}`);
+    return laneOff(event, listener);
+  });
+  const watcherSpy = vi.spyOn(fileWatcher, 'off').mockImplementation((event, listener) => {
+    ipcRegistrationControl.trace.push(`off:watcher:${String(event)}`);
+    return watcherOff(event, listener);
+  });
+  const autoSpy = vi.spyOn(autoCoordinator, 'off').mockImplementation((event, listener) => {
+    ipcRegistrationControl.trace.push(`off:auto:${String(event)}`);
+    return autoOff(event, listener);
+  });
+  return () => {
+    laneSpy.mockRestore();
+    watcherSpy.mockRestore();
+    autoSpy.mockRestore();
+  };
+}
+
 describe('codebase auto-index handlers', () => {
+  let registration: { dispose(): void };
+
   beforeEach(() => {
     handlers.clear();
+    ipcRegistrationControl.failHandleAt = null;
+    ipcRegistrationControl.failRemoveChannel = null;
+    ipcRegistrationControl.handleCalls = 0;
+    ipcRegistrationControl.handleError = null;
+    ipcRegistrationControl.removeError = null;
+    ipcRegistrationControl.trace.length = 0;
     sentMessages.length = 0;
     autoStatuses.clear();
     indexingProgressEmitter.removeAllListeners();
@@ -139,12 +223,169 @@ describe('codebase auto-index handlers', () => {
     indexingService.indexCodebase.mockReset();
     indexingService.clearLegacyCodebaseStore.mockReset();
     indexingLaneGateway.indexCodebase.mockReset();
+    indexingLaneGateway.indexFile.mockReset();
+    indexingLaneGateway.getStats.mockReset();
+    indexingLaneGateway.clearLegacyCodebaseStore.mockReset();
     indexingLaneGateway.cancelIndexCodebase.mockReset();
     indexingLaneGateway.getIndexCodebaseProgress.mockReset();
     codeRetrievalService.search.mockReset();
     codemem.indexWorkerGateway.getIndexStatus.mockReset();
     codemem.indexWorkerGateway.cancelIndex.mockReset();
-    registerCodebaseHandlers(windowManager);
+    registration = registerCodebaseHandlers(windowManager) as unknown as { dispose(): void };
+  });
+
+  it('disposes every IPC registration and event forwarding listener idempotently', () => {
+    expect(indexingLaneGateway.listenerCount('progress')).toBe(1);
+    expect(fileWatcher.listenerCount('changes:processed')).toBe(1);
+    expect(autoCoordinator.listenerCount('status')).toBe(1);
+    expect(handlers.size).toBe(12);
+
+    registration.dispose();
+    registration.dispose();
+
+    expect(indexingLaneGateway.listenerCount('progress')).toBe(0);
+    expect(fileWatcher.listenerCount('changes:processed')).toBe(0);
+    expect(autoCoordinator.listenerCount('status')).toBe(0);
+    expect(handlers.size).toBe(0);
+  });
+
+  it.each([
+    { failAt: 1, attempted: registrationChannels.slice(0, 1) },
+    { failAt: 6, attempted: registrationChannels.slice(0, 6) },
+    { failAt: 12, attempted: registrationChannels.slice(0, 12) },
+  ])('rolls back the exact successful prefix when handler registration $failAt fails', ({
+    failAt,
+    attempted,
+  }) => {
+    registration.dispose();
+    handlers.clear();
+    resetRegistrationFailureControl();
+    const registrationError = new Error(`injected registration failure ${failAt}`);
+    const failedChannel = registrationChannels[failAt - 1];
+    const preExistingHandler = vi.fn();
+    const unrelatedHandler = vi.fn();
+    handlers.set(failedChannel, preExistingHandler as never);
+    handlers.set('unrelated:channel', unrelatedHandler as never);
+    const unrelatedLaneListener = vi.fn();
+    const unrelatedWatcherListener = vi.fn();
+    const unrelatedAutoListener = vi.fn();
+    indexingLaneGateway.on('progress', unrelatedLaneListener);
+    fileWatcher.on('changes:processed', unrelatedWatcherListener);
+    autoCoordinator.on('status', unrelatedAutoListener);
+    const restoreListenerTracing = traceListenerRemoval();
+    ipcRegistrationControl.failHandleAt = failAt;
+    ipcRegistrationControl.handleError = registrationError;
+
+    try {
+      expect(() => registerCodebaseHandlers(windowManager)).toThrow(registrationError);
+
+      expect([...handlers.entries()]).toEqual([
+        [failedChannel, preExistingHandler],
+        ['unrelated:channel', unrelatedHandler],
+      ]);
+      expect(indexingLaneGateway.listeners('progress')).toEqual([unrelatedLaneListener]);
+      expect(fileWatcher.listeners('changes:processed')).toEqual([unrelatedWatcherListener]);
+      expect(autoCoordinator.listeners('status')).toEqual([unrelatedAutoListener]);
+      expect(ipcRegistrationControl.trace).toEqual([
+        ...attempted.map((channel) => `handle:${channel}`),
+        ...attempted.slice(0, -1).reverse().map((channel) => `remove:${channel}`),
+        'off:auto:status',
+        'off:watcher:changes:processed',
+        'off:lane:progress',
+      ]);
+
+      handlers.delete(failedChannel);
+      resetRegistrationFailureControl();
+      const retry = registerCodebaseHandlers(windowManager);
+      expect(handlers.size).toBe(13);
+      retry.dispose();
+      expect([...handlers.entries()]).toEqual([['unrelated:channel', unrelatedHandler]]);
+      expect(indexingLaneGateway.listeners('progress')).toEqual([unrelatedLaneListener]);
+      expect(fileWatcher.listeners('changes:processed')).toEqual([unrelatedWatcherListener]);
+      expect(autoCoordinator.listeners('status')).toEqual([unrelatedAutoListener]);
+    } finally {
+      restoreListenerTracing();
+    }
+  });
+
+  it('attempts every rollback when a handler removal also fails', () => {
+    registration.dispose();
+    handlers.clear();
+    resetRegistrationFailureControl();
+    const registrationError = new Error('injected middle registration failure');
+    const removalError = new Error('injected rollback removal failure');
+    const unrelatedHandler = vi.fn();
+    handlers.set('unrelated:channel', unrelatedHandler as never);
+    const restoreListenerTracing = traceListenerRemoval();
+    ipcRegistrationControl.failHandleAt = 6;
+    ipcRegistrationControl.handleError = registrationError;
+    ipcRegistrationControl.failRemoveChannel = IPC_CHANNELS.CODEBASE_INDEX_FILE;
+    ipcRegistrationControl.removeError = removalError;
+    let observedError: unknown;
+
+    try {
+      try {
+        registerCodebaseHandlers(windowManager);
+      } catch (error) {
+        observedError = error;
+      }
+
+      expect(observedError).toBeInstanceOf(AggregateError);
+      expect((observedError as AggregateError).errors).toEqual([
+        registrationError,
+        removalError,
+      ]);
+      expect(ipcRegistrationControl.trace).toEqual([
+        ...registrationChannels.slice(0, 6).map((channel) => `handle:${channel}`),
+        `remove:${IPC_CHANNELS.CODEBASE_INDEX_STATS}`,
+        `remove:${IPC_CHANNELS.CODEBASE_INDEX_STATUS}`,
+        `remove:${IPC_CHANNELS.CODEBASE_INDEX_CANCEL}`,
+        `remove:${IPC_CHANNELS.CODEBASE_INDEX_FILE}`,
+        `remove:${IPC_CHANNELS.CODEBASE_INDEX_STORE}`,
+        'off:auto:status',
+        'off:watcher:changes:processed',
+        'off:lane:progress',
+      ]);
+      expect([...handlers.entries()]).toEqual([
+        ['unrelated:channel', unrelatedHandler],
+        [IPC_CHANNELS.CODEBASE_INDEX_FILE, expect.any(Function)],
+      ]);
+      expect(indexingLaneGateway.listenerCount('progress')).toBe(0);
+      expect(fileWatcher.listenerCount('changes:processed')).toBe(0);
+      expect(autoCoordinator.listenerCount('status')).toBe(0);
+    } finally {
+      restoreListenerTracing();
+    }
+  });
+
+  it('rolls back earlier listeners when later listener setup throws', () => {
+    registration.dispose();
+    handlers.clear();
+    resetRegistrationFailureControl();
+    const registrationError = new Error('injected auto listener failure');
+    const unrelatedLaneListener = vi.fn();
+    const unrelatedWatcherListener = vi.fn();
+    indexingLaneGateway.on('progress', unrelatedLaneListener);
+    fileWatcher.on('changes:processed', unrelatedWatcherListener);
+    const restoreListenerTracing = traceListenerRemoval();
+    const autoOn = vi.spyOn(autoCoordinator, 'on').mockImplementationOnce(() => {
+      throw registrationError;
+    });
+
+    try {
+      expect(() => registerCodebaseHandlers(windowManager)).toThrow(registrationError);
+      expect(ipcRegistrationControl.trace).toEqual([
+        'off:watcher:changes:processed',
+        'off:lane:progress',
+      ]);
+      expect(indexingLaneGateway.listeners('progress')).toEqual([unrelatedLaneListener]);
+      expect(fileWatcher.listeners('changes:processed')).toEqual([unrelatedWatcherListener]);
+      expect(autoCoordinator.listenerCount('status')).toBe(0);
+      expect(handlers.size).toBe(0);
+    } finally {
+      autoOn.mockRestore();
+      restoreListenerTracing();
+    }
   });
 
   it('CODEBASE_INDEX_STORE dispatches manual legacy indexing through the background lane', async () => {
@@ -165,7 +406,6 @@ describe('codebase auto-index handlers', () => {
 
     expect(result.success).toBe(true);
     expect(indexingLaneGateway.indexCodebase).toHaveBeenCalledWith('codebase:test', '/repo', { force: true });
-    expect(indexingService.indexCodebase).not.toHaveBeenCalled();
   });
 
   it('forwards background lane indexing progress on CODEBASE_INDEX_PROGRESS', () => {
@@ -294,7 +534,6 @@ describe('codebase auto-index handlers', () => {
       state: 'running',
       phase: 'chunking',
     }));
-    expect(indexingService.getProgress).not.toHaveBeenCalled();
   });
 
   it('CODEBASE_INDEX_STATUS returns legacy lane status when target is legacy', async () => {
@@ -318,7 +557,6 @@ describe('codebase auto-index handlers', () => {
     }));
     expect(indexingLaneGateway.getIndexCodebaseProgress).toHaveBeenCalledWith('/repo');
     expect(codemem.indexWorkerGateway.getIndexStatus).not.toHaveBeenCalled();
-    expect(indexingService.getProgress).not.toHaveBeenCalled();
   });
 
   it('CODEBASE_INDEX_CANCEL cancels codemem indexing when workspacePath is provided', async () => {
@@ -329,7 +567,6 @@ describe('codebase auto-index handlers', () => {
 
     expect(result.success).toBe(true);
     expect(codemem.indexWorkerGateway.cancelIndex).toHaveBeenCalledWith('/repo');
-    expect(indexingService.cancel).not.toHaveBeenCalled();
   });
 
   it('CODEBASE_INDEX_CANCEL cancels legacy lane indexing when target is legacy', async () => {
@@ -341,16 +578,70 @@ describe('codebase auto-index handlers', () => {
     expect(result.success).toBe(true);
     expect(indexingLaneGateway.cancelIndexCodebase).toHaveBeenCalledWith('/repo');
     expect(codemem.indexWorkerGateway.cancelIndex).not.toHaveBeenCalled();
-    expect(indexingService.cancel).not.toHaveBeenCalled();
   });
 
   it('CODEBASE_LEGACY_CLEAR clears the requested legacy RLM store', async () => {
-    indexingService.clearLegacyCodebaseStore.mockResolvedValue(undefined);
+    indexingLaneGateway.clearLegacyCodebaseStore.mockResolvedValue(undefined);
 
     const handler = handlers.get(IPC_CHANNELS.CODEBASE_LEGACY_CLEAR);
     const result = await handler!({}, { storeId: 'codebase:test' });
 
     expect(result.success).toBe(true);
-    expect(indexingService.clearLegacyCodebaseStore).toHaveBeenCalledWith('codebase:test');
+    expect(indexingLaneGateway.clearLegacyCodebaseStore).toHaveBeenCalledWith('codebase:test');
+  });
+
+  it('routes single-file indexing and stats through the transient lane facade', async () => {
+    indexingLaneGateway.indexFile.mockResolvedValue(undefined);
+    indexingLaneGateway.getStats.mockResolvedValue({
+      storeId: 'codebase:test',
+      totalFiles: 2,
+      totalChunks: 5,
+      totalTokens: 50,
+      lastIndexedAt: 1_000,
+      indexSize: 2_000,
+    });
+
+    const indexFile = handlers.get(IPC_CHANNELS.CODEBASE_INDEX_FILE);
+    const indexResult = await indexFile!({}, {
+      storeId: 'codebase:test',
+      filePath: '/repo/src/file.ts',
+    });
+    const indexStats = handlers.get(IPC_CHANNELS.CODEBASE_INDEX_STATS);
+    const statsResult = await indexStats!({}, { storeId: 'codebase:test' });
+
+    expect(indexResult).toEqual({ success: true });
+    expect(indexingLaneGateway.indexFile).toHaveBeenCalledWith(
+      'codebase:test',
+      '/repo/src/file.ts',
+    );
+    expect(statsResult).toEqual({
+      success: true,
+      data: {
+        storeId: 'codebase:test',
+        totalFiles: 2,
+        totalChunks: 5,
+        totalTokens: 50,
+        lastIndexedAt: 1_000,
+        indexSize: 2_000,
+      },
+    });
+    expect(indexingLaneGateway.getStats).toHaveBeenCalledWith('codebase:test');
+  });
+
+  it('returns the legacy idle status when no transient lane job exists', async () => {
+    indexingLaneGateway.getIndexCodebaseProgress.mockReturnValue(null);
+
+    const handler = handlers.get(IPC_CHANNELS.CODEBASE_INDEX_STATUS);
+    const result = await handler!({}, undefined);
+
+    expect(result).toEqual({
+      success: true,
+      data: {
+        status: 'idle',
+        totalFiles: 0,
+        processedFiles: 0,
+        totalChunks: 0,
+      },
+    });
   });
 });

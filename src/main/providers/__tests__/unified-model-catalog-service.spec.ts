@@ -146,9 +146,9 @@ describe('UnifiedModelCatalogService — initial static catalog', () => {
     expect(entry!.provider).toBe('claude');
   });
 
-  it('static catalog includes Claude Fable 5 metadata', () => {
+  it('static catalog includes Claude Fable 5.1 metadata', () => {
     const svc = makeServiceWithMock();
-    const entry = svc.getModel('claude-fable-5');
+    const entry = svc.getModel('claude-fable-5-1');
     expect(entry).toBeDefined();
     expect(entry!.provider).toBe('claude');
     expect(entry!.tier).toBe('powerful');

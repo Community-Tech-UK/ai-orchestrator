@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { IPC_CHANNELS } from '../../shared/types/ipc.types';
 import type { UnifiedModelEntry } from '../../shared/types/unified-model-catalog.types';
+import type {
+  RlmRendererWorkerRequest,
+  RlmWorkerPort,
+  RlmWorkerResult,
+} from '../instance/rlm-worker-port';
 
 type IpcHandler = (event: unknown, payload?: unknown) => unknown | Promise<unknown>;
 
@@ -20,27 +25,15 @@ const unifiedCatalogMocks = vi.hoisted(() => ({
   getModel: vi.fn((id: string) => unifiedCatalogMocks.models.find((model) => model.id === id)),
 }));
 
-const rlmMocks = vi.hoisted(() => ({
-  createStore: vi.fn(),
-  addSection: vi.fn(),
-  removeSection: vi.fn(),
-  getStore: vi.fn(),
-  listStores: vi.fn(() => []),
-  listSections: vi.fn(() => []),
-  listSessions: vi.fn(() => []),
-  deleteStore: vi.fn(),
-  startSession: vi.fn(),
-  endSession: vi.fn(),
-  executeQuery: vi.fn(),
-  getSession: vi.fn(),
-  getStoreStats: vi.fn(),
-  getSessionStats: vi.fn(),
-  configure: vi.fn(),
-  getTokenSavingsHistory: vi.fn((_days: number): unknown[] => []),
-  getQueryStats: vi.fn(() => ({})),
-  getStorageStats: vi.fn(() => ({})),
-  exportStore: vi.fn(),
-  importStore: vi.fn(),
+const rlmPortMocks = vi.hoisted(() => ({
+  invokeRlm: vi.fn(),
+}));
+
+const contextManagerImportProbe = vi.hoisted(() => ({
+  imports: 0,
+  getInstance: vi.fn(() => {
+    throw new Error('Main-process RLMContextManager must not be instantiated');
+  }),
 }));
 
 const outcomeMocks = vi.hoisted(() => ({
@@ -101,13 +94,20 @@ vi.mock('../providers/unified-model-catalog-service', () => ({
   getUnifiedModelCatalog: () => unifiedCatalogMocks,
 }));
 
+vi.mock('../instance/context-worker-client', () => ({
+  getContextWorkerClient: () => rlmPortMocks,
+}));
+
 vi.mock('./model-override-ipc-handlers', () => ({
   registerModelOverrideHandlers: vi.fn(),
 }));
 
-vi.mock('../rlm/context-manager', () => ({
-  RLMContextManager: { getInstance: () => rlmMocks },
-}));
+vi.mock('../rlm/context-manager', () => {
+  contextManagerImportProbe.imports++;
+  return {
+    RLMContextManager: { getInstance: contextManagerImportProbe.getInstance },
+  };
+});
 
 vi.mock('../learning/outcome-tracker', () => ({
   OutcomeTracker: {
@@ -129,16 +129,239 @@ vi.mock('../learning/ab-testing', () => ({
   ABTestingEngine: { getInstance: () => abMocks },
 }));
 
-vi.mock('./rlm-ipc-serialization', () => ({
-  serializeContextSectionForIpc: vi.fn((section) => section),
-  serializeContextStoreForIpc: vi.fn((store) => store),
-}));
-
 vi.mock('../logging/logger', () => ({
   getLogger: () => ({ debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() }),
 }));
 
 import { registerLearningHandlers } from './learning-ipc-handler';
+
+const rlmPort = rlmPortMocks as unknown as RlmWorkerPort;
+
+type RlmRequestKind = RlmRendererWorkerRequest['kind'];
+interface RlmParityCase<TKind extends RlmRequestKind> {
+  channel: string;
+  payload?: unknown;
+  request: Extract<RlmRendererWorkerRequest, { kind: TKind }>;
+  workerResult: RlmWorkerResult<Extract<RlmRendererWorkerRequest, { kind: TKind }>>;
+  expectedResponse: unknown;
+}
+type RlmParityCases = {
+  [TKind in RlmRequestKind]: RlmParityCase<TKind>;
+};
+
+const workerSection = {
+  id: 'section-1',
+  type: 'file' as const,
+  name: 'README.md',
+  content: '',
+  tokens: 3,
+  startOffset: 0,
+  endOffset: 5,
+  checksum: 'checksum-1',
+  depth: 0,
+};
+const workerStore = {
+  id: 'store-1',
+  instanceId: 'instance-1',
+  sections: [workerSection],
+  totalTokens: 3,
+  totalSize: 5,
+  createdAt: 1,
+  lastAccessed: 2,
+  accessCount: 1,
+  config: { ipcSectionCount: 1, ipcSectionsTruncated: false },
+};
+const workerQueryResult = {
+  query: { type: 'grep' as const, params: { pattern: 'needle' } },
+  result: 'match',
+  tokensUsed: 2,
+  sectionsAccessed: ['section-1'],
+  duration: 4,
+  depth: 0,
+};
+const workerSession = {
+  id: 'session-1',
+  storeId: 'store-1',
+  instanceId: 'instance-1',
+  queries: [workerQueryResult],
+  recursiveCalls: [],
+  totalRootTokens: 2,
+  totalSubQueryTokens: 0,
+  estimatedDirectTokens: 8,
+  tokenSavingsPercent: 75,
+  startedAt: 1,
+  lastActivityAt: 2,
+};
+
+const rlmParityCases = {
+  'create-store': {
+    channel: IPC_CHANNELS.RLM_CREATE_STORE,
+    payload: 'instance-1',
+    request: { kind: 'create-store', instanceId: 'instance-1' },
+    workerResult: workerStore,
+    expectedResponse: { success: true, data: workerStore },
+  },
+  'delete-store': {
+    channel: IPC_CHANNELS.RLM_DELETE_STORE,
+    payload: 'store-1',
+    request: { kind: 'delete-store', storeId: 'store-1' },
+    workerResult: undefined,
+    expectedResponse: { success: true },
+  },
+  'get-store': {
+    channel: IPC_CHANNELS.RLM_GET_STORE,
+    payload: 'store-1',
+    request: { kind: 'get-store', storeId: 'store-1' },
+    workerResult: workerStore,
+    expectedResponse: { success: true, data: workerStore },
+  },
+  'list-stores': {
+    channel: IPC_CHANNELS.RLM_LIST_STORES,
+    request: { kind: 'list-stores' },
+    workerResult: [workerStore],
+    expectedResponse: { success: true, data: [workerStore] },
+  },
+  'add-section': {
+    channel: IPC_CHANNELS.RLM_ADD_SECTION,
+    payload: { storeId: 'store-1', type: 'file', name: 'README.md', content: 'hello' },
+    request: {
+      kind: 'add-section', storeId: 'store-1', type: 'file', name: 'README.md',
+      content: 'hello', metadata: undefined,
+    },
+    workerResult: workerSection,
+    expectedResponse: { success: true, data: workerSection },
+  },
+  'remove-section': {
+    channel: IPC_CHANNELS.RLM_REMOVE_SECTION,
+    payload: { storeId: 'store-1', sectionId: 'section-1' },
+    request: { kind: 'remove-section', storeId: 'store-1', sectionId: 'section-1' },
+    workerResult: true,
+    expectedResponse: { success: true, data: true },
+  },
+  'list-sections': {
+    channel: IPC_CHANNELS.RLM_LIST_SECTIONS,
+    payload: 'store-1',
+    request: { kind: 'list-sections', storeId: 'store-1' },
+    workerResult: [workerSection],
+    expectedResponse: { success: true, data: [workerSection] },
+  },
+  'start-session': {
+    channel: IPC_CHANNELS.RLM_START_SESSION,
+    payload: { storeId: 'store-1', instanceId: 'instance-1' },
+    request: { kind: 'start-session', storeId: 'store-1', instanceId: 'instance-1' },
+    workerResult: workerSession,
+    expectedResponse: { success: true, data: workerSession },
+  },
+  'end-session': {
+    channel: IPC_CHANNELS.RLM_END_SESSION,
+    payload: 'session-1',
+    request: { kind: 'end-session', sessionId: 'session-1' },
+    workerResult: undefined,
+    expectedResponse: { success: true },
+  },
+  'get-session': {
+    channel: IPC_CHANNELS.RLM_GET_SESSION,
+    payload: 'session-1',
+    request: { kind: 'get-session', sessionId: 'session-1' },
+    workerResult: workerSession,
+    expectedResponse: { success: true, data: workerSession },
+  },
+  'list-sessions': {
+    channel: IPC_CHANNELS.RLM_LIST_SESSIONS,
+    request: { kind: 'list-sessions' },
+    workerResult: [workerSession],
+    expectedResponse: { success: true, data: [workerSession] },
+  },
+  'execute-query': {
+    channel: IPC_CHANNELS.RLM_EXECUTE_QUERY,
+    payload: {
+      sessionId: 'session-1', query: { type: 'grep', params: { pattern: 'needle' } }, depth: 0,
+    },
+    request: {
+      kind: 'execute-query', sessionId: 'session-1',
+      query: { type: 'grep', params: { pattern: 'needle' } }, depth: 0,
+    },
+    workerResult: workerQueryResult,
+    expectedResponse: { success: true, data: workerQueryResult },
+  },
+  'get-store-stats': {
+    channel: IPC_CHANNELS.RLM_GET_STORE_STATS,
+    payload: 'store-1',
+    request: { kind: 'get-store-stats', storeId: 'store-1' },
+    workerResult: {
+      sections: 1, originalSections: 1, summaries: 0, totalTokens: 3,
+      summaryLevels: 0, indexedTerms: 0,
+    },
+    expectedResponse: {
+      success: true,
+      data: {
+        sections: 1, originalSections: 1, summaries: 0, totalTokens: 3,
+        summaryLevels: 0, indexedTerms: 0,
+      },
+    },
+  },
+  'get-session-stats': {
+    channel: IPC_CHANNELS.RLM_GET_SESSION_STATS,
+    payload: 'session-1',
+    request: { kind: 'get-session-stats', sessionId: 'session-1' },
+    workerResult: {
+      totalQueries: 1, totalRecursiveCalls: 0, rootTokens: 2, subQueryTokens: 0,
+      estimatedSavings: 6, avgQueryDuration: 4,
+    },
+    expectedResponse: {
+      success: true,
+      data: {
+        totalQueries: 1, totalRecursiveCalls: 0, rootTokens: 2, subQueryTokens: 0,
+        estimatedSavings: 6, avgQueryDuration: 4,
+      },
+    },
+  },
+  'get-storage-stats': {
+    channel: IPC_CHANNELS.RLM_GET_STORAGE_STATS,
+    request: { kind: 'get-storage-stats' },
+    workerResult: {
+      totalStores: 1, totalSections: 1, totalTokens: 3, totalSizeBytes: 5,
+      byType: [{ type: 'file', count: 1, tokens: 3 }],
+    },
+    expectedResponse: {
+      success: true,
+      data: {
+        totalStores: 1, totalSections: 1, totalTokens: 3, totalSizeBytes: 5,
+        byType: [{ type: 'file', count: 1, tokens: 3 }],
+      },
+    },
+  },
+  'get-query-stats': {
+    channel: IPC_CHANNELS.RLM_GET_QUERY_STATS,
+    payload: { range: '90d' },
+    request: { kind: 'get-query-stats', days: 90 },
+    workerResult: [{ type: 'grep', count: 1, avgDuration: 4, avgTokens: 2 }],
+    expectedResponse: {
+      success: true,
+      data: [{ type: 'grep', count: 1, avgDuration: 4, avgTokens: 2 }],
+    },
+  },
+  'get-token-savings-history': {
+    channel: IPC_CHANNELS.RLM_GET_TOKEN_SAVINGS_HISTORY,
+    payload: { range: '7d' },
+    request: { kind: 'get-token-savings-history', days: 7 },
+    workerResult: [{
+      date: '2026-09-01', directTokens: 8, actualTokens: 2, savingsPercent: 75,
+    }],
+    expectedResponse: {
+      success: true,
+      data: [{ date: '2026-09-01', directTokens: 8, actualTokens: 2, savingsPercent: 75 }],
+    },
+  },
+  configure: {
+    channel: IPC_CHANNELS.RLM_CONFIGURE,
+    payload: { maxRecursionDepth: 4 },
+    request: { kind: 'configure', config: { maxRecursionDepth: 4 } },
+    workerResult: undefined,
+    expectedResponse: { success: true },
+  },
+} satisfies RlmParityCases;
+const rlmParityCaseList: RlmParityCase<RlmRequestKind>[] = Object.values(rlmParityCases);
 
 describe('learning IPC legacy model discovery handlers', () => {
   beforeEach(() => {
@@ -329,7 +552,7 @@ describe('learning IPC legacy model discovery handlers', () => {
       error: { code: 'IPC_TRUST_FAILED', message: 'Untrusted sender', timestamp: 123 },
     };
     const ensureTrustedSender = vi.fn(() => trustError);
-    registerLearningHandlers({ ensureTrustedSender });
+    registerLearningHandlers({ ensureTrustedSender, rlmPort });
 
     await expect(invoke(IPC_CHANNELS.MODEL_DISCOVER)).resolves.toEqual(trustError);
     expect(ensureTrustedSender).toHaveBeenCalledWith({}, IPC_CHANNELS.MODEL_DISCOVER);
@@ -337,15 +560,32 @@ describe('learning IPC legacy model discovery handlers', () => {
   });
 
   describe('RLM handlers', () => {
-    it('validates and wraps store creation', async () => {
-      const store = { id: 'store-1', instanceId: 'instance-1', sections: [] };
-      rlmMocks.createStore.mockReturnValue(store);
+    it('registers the worker port without directly importing or instantiating the main-process context manager', () => {
+      expect(contextManagerImportProbe.imports).toBe(0);
+      expect(contextManagerImportProbe.getInstance).not.toHaveBeenCalled();
+    });
 
-      await expect(invoke(IPC_CHANNELS.RLM_CREATE_STORE, 'instance-1')).resolves.toEqual({
+    it.each(rlmParityCaseList)(
+      'maps $channel to the exact worker request and preserves its result envelope',
+      async ({ channel, payload, request, workerResult, expectedResponse }) => {
+        rlmPortMocks.invokeRlm.mockResolvedValueOnce(workerResult);
+
+        await expect(invoke(channel, payload)).resolves.toEqual(expectedResponse);
+        expect(rlmPortMocks.invokeRlm).toHaveBeenCalledOnce();
+        expect(rlmPortMocks.invokeRlm).toHaveBeenCalledWith(request);
+      },
+    );
+
+    it('preserves undefined for a missing worker read without adding data', async () => {
+      rlmPortMocks.invokeRlm.mockResolvedValueOnce(undefined);
+
+      await expect(invoke(IPC_CHANNELS.RLM_GET_STORE, 'missing-store')).resolves.toEqual({
         success: true,
-        data: store,
       });
-      expect(rlmMocks.createStore).toHaveBeenCalledWith('instance-1');
+      expect(rlmPortMocks.invokeRlm).toHaveBeenCalledWith({
+        kind: 'get-store',
+        storeId: 'missing-store',
+      });
     });
 
     it('rejects an invalid store creation payload before writing', async () => {
@@ -355,28 +595,7 @@ describe('learning IPC legacy model discovery handlers', () => {
         success: false,
         error: expect.objectContaining({ code: 'VALIDATION_FAILED' }),
       });
-      expect(rlmMocks.createStore).not.toHaveBeenCalled();
-    });
-
-    it('accepts the section types exposed by the preload contract', async () => {
-      const section = { id: 'section-1', type: 'file', content: 'hello' };
-      rlmMocks.addSection.mockReturnValue(section);
-
-      const result = await invoke(IPC_CHANNELS.RLM_ADD_SECTION, {
-        storeId: 'store-1',
-        type: 'file',
-        name: 'README.md',
-        content: 'hello',
-      });
-
-      expect(result).toEqual({ success: true, data: section });
-      expect(rlmMocks.addSection).toHaveBeenCalledWith(
-        'store-1',
-        'file',
-        'README.md',
-        'hello',
-        undefined,
-      );
+      expect(rlmPortMocks.invokeRlm).not.toHaveBeenCalled();
     });
 
     it('rejects an invalid query before executing it', async () => {
@@ -389,13 +608,11 @@ describe('learning IPC legacy model discovery handlers', () => {
         success: false,
         error: expect.objectContaining({ code: 'VALIDATION_FAILED' }),
       });
-      expect(rlmMocks.executeQuery).not.toHaveBeenCalled();
+      expect(rlmPortMocks.invokeRlm).not.toHaveBeenCalled();
     });
 
     it('wraps read failures in a structured error response', async () => {
-      rlmMocks.listStores.mockImplementation(() => {
-        throw new Error('database unavailable');
-      });
+      rlmPortMocks.invokeRlm.mockRejectedValueOnce(new Error('database unavailable'));
 
       const result = await invoke(IPC_CHANNELS.RLM_LIST_STORES);
 
@@ -415,22 +632,25 @@ describe('learning IPC legacy model discovery handlers', () => {
         error: { code: 'IPC_TRUST_FAILED', message: 'Untrusted sender', timestamp: 123 },
       };
       const ensureTrustedSender = vi.fn(() => trustError);
-      registerLearningHandlers({ ensureTrustedSender });
+      registerLearningHandlers({ ensureTrustedSender, rlmPort });
 
       await expect(invoke(IPC_CHANNELS.RLM_LIST_STORES)).resolves.toEqual(trustError);
       expect(ensureTrustedSender).toHaveBeenCalledWith({}, IPC_CHANNELS.RLM_LIST_STORES);
-      expect(rlmMocks.listStores).not.toHaveBeenCalled();
+      expect(rlmPortMocks.invokeRlm).not.toHaveBeenCalled();
     });
 
     it('defaults analytics to 30 days and returns a structured response', async () => {
       const history = [{ day: '2026-07-17', saved: 42 }];
-      rlmMocks.getTokenSavingsHistory.mockReturnValue(history);
+      rlmPortMocks.invokeRlm.mockResolvedValueOnce(history);
 
       await expect(invoke(IPC_CHANNELS.RLM_GET_TOKEN_SAVINGS_HISTORY)).resolves.toEqual({
         success: true,
         data: history,
       });
-      expect(rlmMocks.getTokenSavingsHistory).toHaveBeenCalledWith(30);
+      expect(rlmPortMocks.invokeRlm).toHaveBeenCalledWith({
+        kind: 'get-token-savings-history',
+        days: 30,
+      });
     });
 
     it('returns a structured validation error for an invalid analytics range', async () => {
@@ -440,7 +660,28 @@ describe('learning IPC legacy model discovery handlers', () => {
         success: false,
         error: expect.objectContaining({ code: 'VALIDATION_FAILED' }),
       });
-      expect(rlmMocks.getQueryStats).not.toHaveBeenCalled();
+      expect(rlmPortMocks.invokeRlm).not.toHaveBeenCalled();
+    });
+
+    it('does not retry an ambiguous mutation failure in the handler', async () => {
+      rlmPortMocks.invokeRlm.mockRejectedValueOnce(new Error('worker request timed out'));
+
+      const result = await invoke(IPC_CHANNELS.RLM_ADD_SECTION, {
+        storeId: 'store-1',
+        type: 'conversation',
+        name: 'turn',
+        content: 'one write only',
+      });
+
+      expect(result).toMatchObject({
+        success: false,
+        error: {
+          code: 'RLM_ADD_SECTION_FAILED',
+          message: 'worker request timed out',
+          timestamp: expect.any(Number),
+        },
+      });
+      expect(rlmPortMocks.invokeRlm).toHaveBeenCalledOnce();
     });
   });
 
@@ -478,7 +719,7 @@ describe('learning IPC legacy model discovery handlers', () => {
       strategyMocks.getRecommendation.mockReturnValue(recommendation);
       enhancerMocks.enhance.mockReturnValue(enhancement);
 
-      const cases: Array<[string, unknown, unknown]> = [
+      const cases: [string, unknown, unknown][] = [
         [IPC_CHANNELS.RLM_RECORD_OUTCOME, outcomePayload, outcome],
         [IPC_CHANNELS.LEARNING_RECORD_OUTCOME, outcomePayload, outcome],
         [IPC_CHANNELS.LEARNING_GET_OUTCOME, 'outcome-1', outcome],
@@ -520,7 +761,7 @@ describe('learning IPC legacy model discovery handlers', () => {
         error: { code: 'IPC_TRUST_FAILED', message: 'Untrusted sender', timestamp: 123 },
       };
       const ensureTrustedSender = vi.fn(() => trustError);
-      registerLearningHandlers({ ensureTrustedSender });
+      registerLearningHandlers({ ensureTrustedSender, rlmPort });
 
       await expect(invoke(IPC_CHANNELS.LEARNING_RECORD_OUTCOME, outcomePayload))
         .resolves.toEqual(trustError);
@@ -641,7 +882,7 @@ describe('learning IPC legacy model discovery handlers', () => {
         error: { code: 'IPC_TRUST_FAILED', message: 'Untrusted sender', timestamp: 123 },
       };
       const ensureTrustedSender = vi.fn(() => trustError);
-      registerLearningHandlers({ ensureTrustedSender });
+      registerLearningHandlers({ ensureTrustedSender, rlmPort });
 
       await expect(invoke(IPC_CHANNELS.AB_GET_STATS)).resolves.toEqual(trustError);
       expect(ensureTrustedSender).toHaveBeenCalledWith({}, IPC_CHANNELS.AB_GET_STATS);

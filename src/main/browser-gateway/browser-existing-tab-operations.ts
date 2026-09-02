@@ -41,7 +41,7 @@ import {
   allowedOriginFromUrl,
   extractTabPayload,
 } from './browser-gateway-service-helpers';
-import { providerFromContext } from './browser-gateway-action-guard';
+import { providerFromContext } from './browser-provider';
 import { findMatchingBrowserGrant } from './browser-grant-policy';
 import { boundBrowserText } from './browser-redaction';
 import { postTimeoutMutationProbe } from './browser-existing-tab-timeout-probe';

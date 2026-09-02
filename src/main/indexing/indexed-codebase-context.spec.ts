@@ -1,7 +1,16 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as path from 'node:path';
 import type { ContextStore } from '../../shared/types/rlm.types';
 import type { CodeRetrievalResult } from '../codemem/code-retrieval-service';
+
+const workerPort = vi.hoisted(() => ({
+  invokeRlm: vi.fn(),
+}));
+
+vi.mock('../instance/context-worker-client', () => ({
+  getContextWorkerClient: () => workerPort,
+}));
+
 import { IndexedCodebaseContextService } from './indexed-codebase-context';
 
 const REPO_PATH = path.resolve('/repo');
@@ -42,6 +51,32 @@ function makeResult(overrides: Partial<CodeRetrievalResult> = {}): CodeRetrieval
 }
 
 describe('IndexedCodebaseContextService', () => {
+  beforeEach(() => {
+    workerPort.invokeRlm.mockReset();
+  });
+
+  it('uses the shared RLM worker port for default store lookup', async () => {
+    workerPort.invokeRlm.mockResolvedValue(makeStore({ id: 'ctx-from-worker' }));
+    const search = { search: vi.fn().mockResolvedValue([makeResult()]) };
+    const service = new IndexedCodebaseContextService({
+      search,
+      storeIdResolver: () => 'codebase:test',
+    });
+
+    const context = await service.buildContext({
+      workspacePath: '/repo',
+      query: 'find auth middleware',
+      storeLookupDeadlineMs: 50,
+    });
+
+    expect(context?.storeId).toBe('ctx-from-worker');
+    expect(workerPort.invokeRlm).toHaveBeenCalledOnce();
+    expect(workerPort.invokeRlm).toHaveBeenCalledWith({
+      kind: 'get-store-by-instance',
+      instanceId: 'codebase:test',
+    });
+  });
+
   it('resolves the codebase-auto store, searches it, and formats indexed snippets', async () => {
     const search = {
       search: vi.fn().mockResolvedValue([makeResult()]),
@@ -122,5 +157,93 @@ describe('IndexedCodebaseContextService', () => {
       query: 'find auth middleware',
     })).resolves.toBeNull();
     expect(search.search).toHaveBeenCalled();
+  });
+
+  it('waits exactly for the caller deadline then searches with the deterministic store ID', async () => {
+    vi.useFakeTimers();
+    try {
+      const search = { search: vi.fn().mockResolvedValue([makeResult()]) };
+      const getStoreByInstance = vi.fn(() => new Promise<ContextStore | undefined>(() => undefined));
+      const listStores = vi.fn().mockResolvedValue([]);
+      const service = new IndexedCodebaseContextService({
+        contextManager: { getStoreByInstance, listStores } as never,
+        search,
+        storeIdResolver: () => 'codebase:deterministic',
+      });
+
+      const pending = service.buildContext({
+        workspacePath: '/repo',
+        query: 'find auth middleware',
+        storeLookupDeadlineMs: 37,
+      });
+      await vi.advanceTimersByTimeAsync(36);
+      expect(search.search).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(pending).resolves.toMatchObject({ storeId: 'codebase:deterministic' });
+      expect(getStoreByInstance).toHaveBeenCalledOnce();
+      expect(listStores).not.toHaveBeenCalled();
+      expect(search.search).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('falls back to the deterministic store ID when worker lookup is unavailable', async () => {
+    const search = { search: vi.fn().mockResolvedValue([makeResult()]) };
+    const getStoreByInstance = vi.fn(() => {
+      throw new Error('worker unavailable');
+    });
+    const service = new IndexedCodebaseContextService({
+      contextManager: {
+        getStoreByInstance,
+        listStores: vi.fn().mockResolvedValue([]),
+      } as never,
+      search,
+      storeIdResolver: () => 'codebase:deterministic',
+    });
+
+    await expect(service.buildContext({
+      workspacePath: '/repo',
+      query: 'find auth middleware',
+      storeLookupDeadlineMs: 25,
+    })).resolves.toMatchObject({ storeId: 'codebase:deterministic' });
+    expect(getStoreByInstance).toHaveBeenCalledOnce();
+    expect(search.search).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the fallback stable and absorbs a late worker rejection after timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      let rejectLookup!: (error: Error) => void;
+      const getStoreByInstance = vi.fn(() => new Promise<ContextStore | undefined>((_resolve, reject) => {
+        rejectLookup = reject;
+      }));
+      const listStores = vi.fn().mockResolvedValue([makeStore({ id: 'late-store' })]);
+      const search = { search: vi.fn().mockResolvedValue([makeResult()]) };
+      const service = new IndexedCodebaseContextService({
+        contextManager: { getStoreByInstance, listStores } as never,
+        search,
+        storeIdResolver: () => 'codebase:deterministic',
+      });
+
+      const pending = service.buildContext({
+        workspacePath: '/repo',
+        query: 'find auth middleware',
+        storeLookupDeadlineMs: 20,
+      });
+      await vi.advanceTimersByTimeAsync(20);
+      await expect(pending).resolves.toMatchObject({ storeId: 'codebase:deterministic' });
+
+      rejectLookup(new Error('late worker failure'));
+      for (let index = 0; index < 5; index += 1) {
+        await Promise.resolve();
+      }
+      expect(getStoreByInstance).toHaveBeenCalledOnce();
+      expect(listStores).not.toHaveBeenCalled();
+      expect(search.search).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

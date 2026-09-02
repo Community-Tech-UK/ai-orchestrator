@@ -145,7 +145,7 @@ export class VectorStore extends EventEmitter {
     this.evictColdStores();
 
     this.emit('store:loaded', { storeId, vectors: storeVectors.size });
-    this.logResidency('store-loaded', storeId);
+    this.logResidency('store-loaded');
   }
 
   /**
@@ -154,11 +154,10 @@ export class VectorStore extends EventEmitter {
    * residency could not be observed in a running app at all (LT-011). Logged at
    * the two moments residency actually changes rather than on a timer.
    */
-  private logResidency(event: 'store-loaded' | 'store-evicted', storeId: string): void {
+  private logResidency(event: 'store-loaded' | 'store-evicted'): void {
     const stats = this.getStats();
     logger.info('VectorStore residency changed', {
       event,
-      storeId,
       totalVectors: stats.totalVectors,
       residentStores: stats.residentStores,
       maxResidentStores: stats.maxResidentStores,
@@ -190,7 +189,7 @@ export class VectorStore extends EventEmitter {
     for (const id of ids) this.vectorCache.delete(id);
     this.storeVectorIds.delete(storeId);
     this.emit('store:evicted', { storeId, vectors: ids.size });
-    this.logResidency('store-evicted', storeId);
+    this.logResidency('store-evicted');
   }
 
   /**
@@ -236,7 +235,8 @@ export class VectorStore extends EventEmitter {
     storeId: string,
     sectionId: string,
     content: string,
-    metadata?: Record<string, unknown>
+    metadata?: Record<string, unknown>,
+    options: { existingSectionOnly?: boolean } = {},
   ): Promise<VectorEntry> {
     // Generate embedding
     const embeddingResult = await this.embeddingService.embed(content);
@@ -260,37 +260,44 @@ export class VectorStore extends EventEmitter {
     // against that single vector instead of the whole store.
     this.ensureStoreLoaded(storeId);
 
-    // Cache the slim projection only; preview/metadata live in SQLite.
-    this.vectorCache.set(entry.id, {
-      id: entry.id,
-      sectionId: entry.sectionId,
-      storeId: entry.storeId,
-      embedding: entry.embedding,
-    });
-
-    // Track by store
-    if (!this.storeVectorIds.has(storeId)) {
-      this.storeVectorIds.set(storeId, new Set());
-    }
-    this.storeVectorIds.get(storeId)!.add(entry.id);
-    this.touchStore(storeId);
-
     // Persist to database — ensure FK parents exist first
     try {
-      this.ensureStoreExists(storeId);
-      this.ensureSectionExists(storeId, sectionId, content);
-
-      this.db.addVector({
+      const vector = {
         id: entry.id,
         storeId,
         sectionId,
         embedding: entry.embedding,
         contentPreview: entry.contentPreview,
         metadata: entry.metadata,
-      });
+      };
+      if (options.existingSectionOnly) {
+        const persisted = this.db.addVectorForExistingSection(vector);
+        if (!persisted) {
+          throw new Error(`Section no longer exists for semantic indexing: ${sectionId}`);
+        }
+      } else {
+        this.ensureStoreExists(storeId);
+        this.ensureSectionExists(storeId, sectionId, content);
+        this.db.addVector(vector);
+      }
     } catch (error) {
       logger.error('Failed to persist vector', error instanceof Error ? error : undefined);
+      throw error;
     }
+
+    // Durable presence is the success checkpoint. Cache and success events
+    // happen only after SQLite accepted the row.
+    this.vectorCache.set(entry.id, {
+      id: entry.id,
+      sectionId: entry.sectionId,
+      storeId: entry.storeId,
+      embedding: entry.embedding,
+    });
+    if (!this.storeVectorIds.has(storeId)) {
+      this.storeVectorIds.set(storeId, new Set());
+    }
+    this.storeVectorIds.get(storeId)!.add(entry.id);
+    this.touchStore(storeId);
 
     this.emit('section:indexed', { sectionId, storeId, dimensions: entry.embedding.length });
     return entry;
@@ -370,6 +377,48 @@ export class VectorStore extends EventEmitter {
     });
 
     return results;
+  }
+
+  /**
+   * Search with a caller-provided embedding, such as a HyDE result.
+   *
+   * This follows the same durable-load and winner-hydration path as `search`;
+   * callers must not inspect the process-local cache directly because it is
+   * intentionally empty after restart and after LRU eviction.
+   */
+  async searchByEmbedding(
+    storeId: string,
+    embedding: ArrayLike<number>,
+    options?: {
+      topK?: number;
+      minSimilarity?: number;
+    }
+  ): Promise<VectorSearchResult[]> {
+    const topK = options?.topK || this.config.defaultTopK;
+    const minSimilarity = options?.minSimilarity || this.config.minSimilarity;
+
+    this.ensureStoreLoaded(storeId);
+
+    const storeVectors = this.storeVectorIds.get(storeId);
+    if (!storeVectors || storeVectors.size === 0) {
+      return [];
+    }
+
+    const candidates: { id: string; embedding: ArrayLike<number> }[] = [];
+    for (const vectorId of storeVectors) {
+      const entry = this.vectorCache.get(vectorId);
+      if (entry) {
+        candidates.push({ id: vectorId, embedding: entry.embedding });
+      }
+    }
+
+    const similar = this.embeddingService.findSimilar(
+      embedding,
+      candidates,
+      topK,
+      minSimilarity
+    );
+    return this.hydrate(similar);
   }
 
   /**

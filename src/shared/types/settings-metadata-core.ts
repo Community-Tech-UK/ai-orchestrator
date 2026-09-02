@@ -162,6 +162,13 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
     category: 'orchestration',
   },
   {
+    key: 'loopAllowProviderOverage',
+    label: 'Let loops run on paid overage credits',
+    description: 'By default a loop parks instead of starting an iteration that would spend paid overage/credits, and waits for the window to reset. Turn this on to let loops keep going and bill the overage. Off by default: an unattended loop can spend real money quickly.',
+    type: 'boolean',
+    category: 'orchestration',
+  },
+  {
     key: 'docReviewResumeOnSubmit',
     label: 'Resume sessions when document reviews are submitted',
     description: 'Wake a hibernated session or revive its archived continuity record so it receives your review decision. The decision is saved even when this is off.',

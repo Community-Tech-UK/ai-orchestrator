@@ -6,6 +6,7 @@ const captured = vi.hoisted(() => ({
     spawnRemoteInstance?: (args: {
       node?: string;
       prompt: string;
+      requiresBrowser?: boolean;
       requiresAndroid?: boolean;
       androidDeviceKind?: 'emulator' | 'physical' | 'any';
     }) => Promise<unknown>;
@@ -571,6 +572,131 @@ describe('createOrchestratorToolsStep settings node-config integration', () => {
       provider: 'cursor',
       forceNodeId: 'node-1',
     }));
+  });
+
+  it('rejects shared Browser Gateway tab work before spawning on a remote node', async () => {
+    const node = makeNode({ hasBrowserMcp: true });
+    const createInstance = vi.fn();
+    captured.registry.getAllNodes.mockReturnValue([node]);
+    await startStep({ createInstance });
+
+    await expect(
+      captured.initializeOptions!.spawnRemoteInstance!({
+        node: 'windows-pc',
+        prompt: 'Use Browser Gateway on windows-pc to fill the credential in the existing logged-in Chrome tab.',
+        requiresBrowser: true,
+      }),
+    ).rejects.toThrow(/Browser Gateway.*stay on the coordinator.*windows-pc/i);
+    expect(createInstance).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'Fill credentials into the two tabs that are already open on windows-pc.',
+    'Use the currently open logged-in Chrome tab on windows-pc.',
+    'Use browser.fill_credential on windows-pc.',
+    'Use browser.* tools on windows-pc.',
+  ])('rejects implicit shared-browser wording before spawning: %s', async (prompt) => {
+    const node = makeNode({ hasBrowserMcp: true });
+    const createInstance = vi.fn();
+    captured.registry.getAllNodes.mockReturnValue([node]);
+    await startStep({ createInstance });
+
+    await expect(captured.initializeOptions!.spawnRemoteInstance!({
+      node: 'windows-pc',
+      prompt,
+      requiresBrowser: true,
+    })).rejects.toThrow(/stay on the coordinator/i);
+    expect(createInstance).not.toHaveBeenCalled();
+  });
+
+  it('still allows worker-managed Chrome work through run_on_node', async () => {
+    const node = makeNode({ hasBrowserMcp: true });
+    const createInstance = vi.fn(async (config: Record<string, unknown>) => ({
+      id: 'inst-1',
+      status: 'initializing',
+      ...config,
+    }));
+    captured.registry.getAllNodes.mockReturnValue([node]);
+    await startStep({ createInstance });
+
+    await captured.initializeOptions!.spawnRemoteInstance!({
+      node: 'windows-pc',
+      prompt: 'Audit the public site in the worker-managed Chrome profile.',
+      requiresBrowser: true,
+    });
+
+    expect(createInstance).toHaveBeenCalledWith(expect.objectContaining({
+      forceNodeId: 'node-1',
+      nodePlacement: { requiresBrowser: true },
+    }));
+  });
+
+  it('allows an existing tab when it is explicitly in the worker-managed Chrome profile', async () => {
+    const node = makeNode({ hasBrowserMcp: true });
+    const createInstance = vi.fn(async (config: Record<string, unknown>) => ({
+      id: 'inst-1', status: 'initializing', ...config,
+    }));
+    captured.registry.getAllNodes.mockReturnValue([node]);
+    await startStep({ createInstance });
+
+    await captured.initializeOptions!.spawnRemoteInstance!({
+      node: 'windows-pc',
+      prompt: 'Use the existing tab in the worker-managed Chrome profile.',
+      requiresBrowser: true,
+    });
+
+    expect(createInstance).toHaveBeenCalledOnce();
+  });
+
+  it('waits for remote provider readiness before reporting a successful spawn', async () => {
+    const node = makeNode({ supportedClis: ['copilot'] });
+    let releaseReady: (() => void) | undefined;
+    const readyPromise = new Promise<void>((resolve) => {
+      releaseReady = resolve;
+    });
+    const createInstance = vi.fn(async () => ({
+      id: 'inst-1',
+      status: 'initializing',
+      readyPromise,
+    }));
+    captured.registry.getAllNodes.mockReturnValue([node]);
+    await startStep({ createInstance });
+
+    let settled = false;
+    const spawn = captured.initializeOptions!.spawnRemoteInstance!({
+      node: 'windows-pc',
+      prompt: 'say hi',
+      provider: 'copilot',
+    } as never).finally(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    releaseReady?.();
+    await expect(spawn).resolves.toMatchObject({ instanceId: 'inst-1' });
+  });
+
+  it('propagates a worker provider-startup failure instead of returning a vanishing instance', async () => {
+    const node = makeNode({ supportedClis: ['copilot'] });
+    const createInstance = vi.fn(async () => ({
+      id: 'inst-1',
+      status: 'initializing',
+      readyPromise: Promise.reject(new Error(
+        'GitHub Copilot account "legacy" cannot run on this node: it is not signed in on this node.',
+      )),
+    }));
+    captured.registry.getAllNodes.mockReturnValue([node]);
+    await startStep({ createInstance });
+
+    await expect(
+      captured.initializeOptions!.spawnRemoteInstance!({
+        node: 'windows-pc',
+        prompt: 'say hi',
+        provider: 'copilot',
+      } as never),
+    ).rejects.toThrow(/Copilot account "legacy".*not signed in on this node/i);
   });
 
   it('skips CLI validation for nodes that do not advertise supported CLIs', async () => {

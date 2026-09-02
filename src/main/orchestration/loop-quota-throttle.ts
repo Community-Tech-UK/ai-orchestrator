@@ -60,9 +60,15 @@ export interface QuotaThrottleOptions {
 
 const DEFAULT_THROTTLE_PCT = 90;
 
-/** A window is the "credits/overage" bucket when it is denominated in USD. */
+/**
+ * A window is the "credits/overage" bucket when the probe says so. `unit` is
+ * only a fallback for windows that predate the explicit flag: inferring overage
+ * from `unit === 'usd'` alone misclassified Cursor's and Grok's percent-valued
+ * plan windows, which excluded them from the binding-constraint scan and parked
+ * those loops on a phantom overage at any usage above 0%.
+ */
 function isOverageWindow(w: ProviderQuotaWindow): boolean {
-  return w.unit === 'usd';
+  return w.overage ?? w.unit === 'usd';
 }
 
 function pct(w: ProviderQuotaWindow): number {

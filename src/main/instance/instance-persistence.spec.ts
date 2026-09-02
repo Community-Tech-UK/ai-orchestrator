@@ -11,7 +11,7 @@ const loadMessagesMock = vi.fn();
 const getInstanceStatsMock = vi.fn();
 const deleteInstanceMock = vi.fn();
 
-vi.mock('../memory', () => ({
+vi.mock('../memory/output-storage', () => ({
   getOutputStorageManager: () => ({
     loadMessages: loadMessagesMock,
     getInstanceStats: getInstanceStatsMock,

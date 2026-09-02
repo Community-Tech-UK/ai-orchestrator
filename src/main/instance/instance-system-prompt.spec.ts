@@ -18,6 +18,10 @@ import {
   getContextManifestHistory,
 } from '../context/context-manifest-store';
 
+const promptMocks = vi.hoisted(() => ({
+  indexedBuildContext: vi.fn().mockResolvedValue(null),
+}));
+
 vi.mock('../logging/logger', () => ({
   getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
@@ -57,7 +61,7 @@ vi.mock('../memory/project-knowledge-coordinator', () => ({
 
 vi.mock('../indexing/indexed-codebase-context', () => ({
   getIndexedCodebaseContextService: () => ({
-    buildContext: vi.fn().mockResolvedValue(null),
+    buildContext: promptMocks.indexedBuildContext,
     formatContextBlock: vi.fn(() => null),
   }),
 }));
@@ -88,6 +92,25 @@ const baseAgent: AgentProfile = { systemPrompt: 'You are a helpful agent.' } as 
 describe('assembleInstanceSystemPrompt context manifest capture (WS-C6)', () => {
   beforeEach(() => {
     _resetAllContextManifestsForTesting();
+    promptMocks.indexedBuildContext.mockClear();
+    promptMocks.indexedBuildContext.mockResolvedValue(null);
+  });
+
+  it('bounds initial indexed store lookup by the create-enricher deadline', async () => {
+    await assembleInstanceSystemPrompt({
+      instance: makeInstance(),
+      config: { workingDirectory: '/tmp/project', provider: 'claude' },
+      resolvedAgent: baseAgent,
+      instructionPrompts: [],
+      initialUserMessageContent: 'find auth middleware',
+      deps: makeDeps(),
+    });
+
+    expect(promptMocks.indexedBuildContext).toHaveBeenCalledWith(expect.objectContaining({
+      workspacePath: '/tmp/project',
+      query: 'find auth middleware',
+      storeLookupDeadlineMs: 600,
+    }));
   });
 
   it('records a spawn-trigger epoch with one entry per contract block kind for a fresh session', async () => {

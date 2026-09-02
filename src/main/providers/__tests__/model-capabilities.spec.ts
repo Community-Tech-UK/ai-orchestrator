@@ -80,9 +80,9 @@ describe('ModelCapabilitiesRegistry', () => {
       expect(caps.pricing!.outputPerMillion).toBe(25.0);
     });
 
-    it('returns Fable 5 limits and pricing for the pinned model id', () => {
+    it('returns Fable 5.1 limits and pricing for the pinned model id', () => {
       const registry = ModelCapabilitiesRegistry.getInstance();
-      const caps = registry.getCapabilities('claude', 'claude-fable-5');
+      const caps = registry.getCapabilities('claude', 'claude-fable-5-1');
       expect(caps.contextWindow).toBe(1_000_000);
       expect(caps.maxOutputTokens).toBe(128_000);
       expect(caps.supportsThinking).toBe(true);

@@ -1,11 +1,26 @@
 import { EventEmitter } from 'node:events';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { BackgroundJobRuntime } from '../background-job-runtime';
+import { ProcessLaneGateway } from '../process-lane-gateway';
 import type {
   BackgroundJobRecord,
   LaneGateway,
   LaneGatewayMetrics,
 } from '../lane-gateway';
+
+type FakeProcess = EventEmitter & {
+  postMessage: ReturnType<typeof vi.fn>;
+  kill: ReturnType<typeof vi.fn>;
+  terminate: ReturnType<typeof vi.fn>;
+};
+
+function createFakeProcess(): FakeProcess {
+  const process = new EventEmitter() as FakeProcess;
+  process.postMessage = vi.fn();
+  process.kill = vi.fn();
+  process.terminate = vi.fn().mockResolvedValue(undefined);
+  return process;
+}
 
 class FakeLaneGateway extends EventEmitter implements LaneGateway {
   readonly lane = 'indexing' as const;
@@ -223,6 +238,246 @@ describe('BackgroundJobRuntime', () => {
 
     expect(runtime.getJob(running.jobId)?.status).toBe('cancelled');
     expect(fakeLane.started.map((job) => job.id)).toEqual([running.jobId, queued.jobId]);
+  });
+
+  it('does not submit work cancelled while the lane start boundary is pending', async () => {
+    let releaseStart: (() => void) | undefined;
+    const startBarrier = new Promise<void>((resolve) => {
+      releaseStart = resolve;
+    });
+    vi.spyOn(fakeLane, 'start').mockReturnValue(startBarrier);
+
+    const cancelled = runtime.enqueue({
+      lane: 'indexing',
+      type: 'index-codebase',
+      priority: 'normal',
+      payload: {},
+    });
+    await flushMicrotasks();
+
+    await expect(runtime.cancel(cancelled.jobId)).resolves.toBe(true);
+    expect(fakeLane.cancelled).toEqual([cancelled.jobId]);
+    releaseStart?.();
+    await flushMicrotasks();
+
+    expect(fakeLane.started).toHaveLength(0);
+    expect(runtime.getJob(cancelled.jobId)?.status).toBe('cancelled');
+  });
+
+  it('cancels a healthy real transient job before it can create an owner or post work', async () => {
+    const child = createFakeProcess();
+    const processFactory = vi.fn(() => child);
+    const gateway = new ProcessLaneGateway({
+      lane: 'indexing',
+      entrypoint: '/tmp/index-lane.js',
+      processFactory,
+      transient: true,
+    });
+    const transientRuntime = new BackgroundJobRuntime({
+      lanes: { indexing: gateway },
+      laneHeartbeatTimeoutMs: { indexing: 1_000 },
+    });
+    let cancellation: Promise<boolean> | undefined;
+    transientRuntime.on('status', (record: BackgroundJobRecord) => {
+      if (record.status === 'running' && !cancellation) {
+        cancellation = transientRuntime.cancel(record.id);
+      }
+    });
+
+    const cancelled = transientRuntime.enqueue({
+      lane: 'indexing',
+      type: 'index-codebase',
+      priority: 'normal',
+      payload: { cancelled: true },
+    });
+    await flushMicrotasks(20);
+    await cancellation;
+    await flushMicrotasks(20);
+
+    expect(transientRuntime.getJob(cancelled.jobId)?.status).toBe('cancelled');
+    expect(processFactory).not.toHaveBeenCalled();
+    expect(child.postMessage).not.toHaveBeenCalled();
+    expect(gateway.getMetrics()).toMatchObject({ inFlight: 0, restarted: 0 });
+
+    const recovered = transientRuntime.enqueue({
+      lane: 'indexing',
+      type: 'index-codebase',
+      priority: 'normal',
+      payload: { rootPath: '/repo' },
+    });
+    await flushMicrotasks();
+
+    expect(processFactory).toHaveBeenCalledOnce();
+    expect(child.postMessage).toHaveBeenCalledTimes(1);
+    expect(child.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'run-job',
+      jobId: recovered.jobId,
+    }));
+
+    child.emit('message', {
+      type: 'job-succeeded',
+      jobId: recovered.jobId,
+      result: { recovered: true },
+    });
+    child.emit('exit', 0);
+    await flushMicrotasks();
+
+    expect(transientRuntime.getJob(recovered.jobId)?.status).toBe('succeeded');
+    await transientRuntime.stop();
+    expect(processFactory).toHaveBeenCalledOnce();
+  });
+
+  it('cancels a real transient lane job during recovery backoff without spawning it', async () => {
+    const first = createFakeProcess();
+    const second = createFakeProcess();
+    const processFactory = vi.fn()
+      .mockReturnValueOnce(first)
+      .mockReturnValueOnce(second);
+    const gateway = new ProcessLaneGateway({
+      lane: 'indexing',
+      entrypoint: '/tmp/index-lane.js',
+      processFactory,
+      transient: true,
+      restartBackoffMs: 10,
+      maxRestarts: 1,
+    });
+    const transientRuntime = new BackgroundJobRuntime({
+      lanes: { indexing: gateway },
+      laneHeartbeatTimeoutMs: { indexing: 1_000 },
+    });
+
+    const seed = transientRuntime.enqueueAndWait({
+      lane: 'indexing',
+      type: 'index-codebase',
+      priority: 'normal',
+      payload: {},
+    });
+    void seed.catch(() => undefined);
+    await flushMicrotasks();
+    first.emit('exit', 1);
+    await expect(seed).rejects.toThrow(/exited with code 1/i);
+
+    const cancelled = transientRuntime.enqueue({
+      lane: 'indexing',
+      type: 'index-codebase',
+      priority: 'normal',
+      payload: {},
+    });
+    await flushMicrotasks();
+
+    expect(transientRuntime.getJob(cancelled.jobId)?.status).toBe('running');
+    await expect(transientRuntime.cancel(cancelled.jobId)).resolves.toBe(true);
+    await flushMicrotasks();
+
+    expect(transientRuntime.getJob(cancelled.jobId)?.status).toBe('cancelled');
+    await vi.advanceTimersByTimeAsync(100);
+    expect(processFactory).toHaveBeenCalledOnce();
+
+    const recovered = transientRuntime.enqueue({
+      lane: 'indexing',
+      type: 'index-codebase',
+      priority: 'normal',
+      payload: { rootPath: '/repo' },
+    });
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(processFactory).toHaveBeenCalledTimes(2);
+    expect(second.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'run-job',
+      jobId: recovered.jobId,
+    }));
+
+    second.emit('message', {
+      type: 'job-succeeded',
+      jobId: recovered.jobId,
+      result: { recovered: true },
+    });
+    second.emit('exit', 0);
+    await flushMicrotasks();
+
+    expect(transientRuntime.getJob(recovered.jobId)?.status).toBe('succeeded');
+  });
+
+  it('cancels a real transient successor while timeout retirement is pending', async () => {
+    const first = createFakeProcess();
+    first.terminate = vi.fn(() => new Promise<unknown>(() => undefined));
+    const second = createFakeProcess();
+    const processFactory = vi.fn()
+      .mockReturnValueOnce(first)
+      .mockReturnValueOnce(second);
+    const gateway = new ProcessLaneGateway({
+      lane: 'indexing',
+      entrypoint: '/tmp/index-lane.js',
+      processFactory,
+      transient: true,
+      requestTimeoutMs: 25,
+      restartBackoffMs: 10,
+      maxRestarts: 1,
+      shutdownTimeoutMs: 80,
+    });
+    const transientRuntime = new BackgroundJobRuntime({
+      lanes: { indexing: gateway },
+      laneHeartbeatTimeoutMs: { indexing: 1_000 },
+    });
+
+    const timedOut = transientRuntime.enqueueAndWait({
+      lane: 'indexing',
+      type: 'index-codebase',
+      priority: 'normal',
+      payload: {},
+    });
+    void timedOut.catch(() => undefined);
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(26);
+    await expect(timedOut).rejects.toThrow(/timed out/i);
+
+    const cancelled = transientRuntime.enqueue({
+      lane: 'indexing',
+      type: 'index-codebase',
+      priority: 'normal',
+      payload: {},
+    });
+    await flushMicrotasks();
+    await expect(transientRuntime.cancel(cancelled.jobId)).resolves.toBe(true);
+    await vi.advanceTimersByTimeAsync(80);
+    await flushMicrotasks(20);
+
+    expect(first.kill).toHaveBeenCalledOnce();
+    expect(transientRuntime.getJob(cancelled.jobId)?.status).toBe('cancelled');
+    await vi.advanceTimersByTimeAsync(100);
+    expect(processFactory).toHaveBeenCalledOnce();
+    expect(second.postMessage).not.toHaveBeenCalled();
+    expect(gateway.getMetrics().restarted).toBe(0);
+
+    const recovered = transientRuntime.enqueue({
+      lane: 'indexing',
+      type: 'index-codebase',
+      priority: 'normal',
+      payload: { rootPath: '/repo' },
+    });
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(processFactory).toHaveBeenCalledTimes(2);
+    expect(second.postMessage).toHaveBeenCalledTimes(1);
+    expect(second.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'run-job',
+      jobId: recovered.jobId,
+    }));
+
+    second.emit('message', {
+      type: 'job-succeeded',
+      jobId: recovered.jobId,
+      result: { recovered: true },
+    });
+    second.emit('exit', 0);
+    await flushMicrotasks();
+
+    expect(transientRuntime.getJob(recovered.jobId)?.status).toBe('succeeded');
+    await transientRuntime.stop();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(processFactory).toHaveBeenCalledTimes(2);
   });
 
   it('settles queued and running waiters when stopped', async () => {

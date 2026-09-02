@@ -104,6 +104,8 @@ interface RawWindow {
   id?: string;
   label?: string;
   unit?: string;
+  /** Explicit paid-overage marker, when the monitor supplies one. */
+  overage?: boolean;
   kind?: string;
   used?: number;
   used_percent?: number;
@@ -243,16 +245,39 @@ function normalizeWindow(provider: ProviderId, w: RawWindow): ProviderQuotaWindo
       : limit > 0
         ? quotaRemaining(limit, used)
         : Number.NaN;
+  const id = typeof w.id === 'string' && w.id.length > 0 ? w.id : `${provider}.${slug(w.label)}`;
   return {
     kind: coerceKind(w.kind),
-    id: typeof w.id === 'string' && w.id.length > 0 ? w.id : `${provider}.${slug(w.label)}`,
+    id,
     label: typeof w.label === 'string' && w.label.length > 0 ? w.label : 'usage',
-    unit: coerceUnit(w.unit),
+    // A ratio-shaped window IS a percentage whatever the monitor labelled it.
+    // Trusting its `unit` here is what let a `usd`-labelled Cursor plan window
+    // through as a phantom paid-overage bucket — see resolveOverage.
+    unit: hasNumericWindow ? coerceUnit(w.unit) : 'percent',
     used,
     limit,
     remaining,
     resetsAt: coerceEpochMs(w.reset_at ?? w.resets_at ?? w.resetsAt),
+    overage: resolveOverage(w, id),
   };
+}
+
+/**
+ * Whether this monitor-sourced window is paid overage.
+ *
+ * The native probes set the flag directly; this source parses another tool's
+ * loose JSON, so it infers. Returning `undefined` leaves the throttle's
+ * `unit === 'usd'` fallback in charge, which is right for genuinely
+ * dollar-denominated windows and wrong for nothing else now that ratio-shaped
+ * windows are re-labelled `percent` above.
+ */
+function resolveOverage(w: RawWindow, id: string): boolean | undefined {
+  if (typeof w.overage === 'boolean') return w.overage;
+  // The monitor mirrors the native probes' window ids, where `<provider>.on-demand`
+  // is the paid bucket for both Cursor and Grok. Without this the fallback source
+  // would under-guard real spend that the native path stops.
+  if (id.endsWith('.on-demand')) return true;
+  return undefined;
 }
 
 function coerceKind(value: unknown): QuotaKind {
@@ -263,7 +288,7 @@ function coerceKind(value: unknown): QuotaKind {
 }
 
 function coerceUnit(value: unknown): QuotaUnit {
-  const known: QuotaUnit[] = ['requests', 'messages', 'tokens', 'usd'];
+  const known: QuotaUnit[] = ['requests', 'messages', 'tokens', 'usd', 'percent'];
   return typeof value === 'string' && (known as string[]).includes(value)
     ? (value as QuotaUnit)
     : 'requests';

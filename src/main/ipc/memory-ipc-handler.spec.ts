@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '../../shared/types/ipc.types';
+import type {
+  UnifiedMemoryWorkerPort,
+  UnifiedMemoryWorkerRequest,
+  UnifiedMemoryWorkerResult,
+} from '../instance/unified-memory-worker-port';
 
 const mocks = vi.hoisted(() => {
   const memoryStats = {
@@ -26,21 +31,7 @@ const mocks = vi.hoisted(() => {
       load: vi.fn(),
       configure: vi.fn(),
     },
-    unified: {
-      processInput: vi.fn(),
-      retrieve: vi.fn(),
-      recordSessionEnd: vi.fn(),
-      recordWorkflow: vi.fn(),
-      recordStrategy: vi.fn(),
-      recordTaskOutcome: vi.fn(),
-      getStats: vi.fn(),
-      getSessionHistory: vi.fn(() => []),
-      getPatterns: vi.fn(() => []),
-      getWorkflows: vi.fn(() => []),
-      save: vi.fn(),
-      load: vi.fn(),
-      configure: vi.fn(),
-    },
+    unifiedPort: { invokeUnifiedMemory: vi.fn() },
     debate: {
       startDebate: vi.fn(),
       getResult: vi.fn(),
@@ -74,8 +65,12 @@ vi.mock('../memory/r1-memory-manager', () => ({
   getMemoryManager: () => mocks.memory,
 }));
 
-vi.mock('../memory/unified-controller', () => ({
-  getUnifiedMemory: () => mocks.unified,
+vi.mock('../memory/unified-controller', () => {
+  throw new Error('memory IPC must not import a main-process unified-memory owner');
+});
+
+vi.mock('../instance/context-worker-client', () => ({
+  getContextWorkerClient: () => mocks.unifiedPort,
 }));
 
 vi.mock('../orchestration/debate-coordinator', () => ({
@@ -106,10 +101,190 @@ function handlerFor(channel: string): RegisteredHandler {
   return call[1] as RegisteredHandler;
 }
 
+const unifiedRetrieval = {
+  shortTerm: ['current'],
+  longTerm: ['durable'],
+  procedural: ['workflow'],
+  skills: [],
+  totalTokens: 12,
+};
+const unifiedWorkflow = {
+  id: 'workflow-1',
+  name: 'Worker flow',
+  steps: ['validate', 'invoke'],
+  successRate: 0.75,
+  applicableContexts: ['memory'],
+};
+const unifiedStrategy = {
+  id: 'strategy-1',
+  strategy: 'Use typed RPC',
+  conditions: ['memory request'],
+  outcomes: [{ taskId: 'task-1', success: true, score: 1, timestamp: 1 }],
+};
+const unifiedStats = {
+  shortTermTokens: 10,
+  longTermEntries: 2,
+  episodicSessions: 1,
+  learnedPatterns: 1,
+  workflows: 1,
+  strategies: 1,
+};
+const unifiedSessions = [{
+  sessionId: 'session-1', summary: 'Done', keyEvents: [], outcome: 'success' as const,
+  lessonsLearned: [], timestamp: 1,
+}];
+const unifiedPatterns = [{
+  id: 'pattern-1', pattern: 'typed boundary', successRate: 0.9,
+  usageCount: 2, contexts: ['memory'],
+}];
+const unifiedSnapshot = {
+  version: '1.0', timestamp: 1,
+  shortTerm: { buffer: [], summaries: [] },
+  episodic: { sessions: unifiedSessions, patterns: unifiedPatterns },
+  procedural: { workflows: [unifiedWorkflow], strategies: [unifiedStrategy] },
+};
+
+type UnifiedMemoryRequestKind = UnifiedMemoryWorkerRequest['kind'];
+interface UnifiedMemoryParityCase<TKind extends UnifiedMemoryRequestKind> {
+  channel: string;
+  payload?: unknown;
+  request: Extract<UnifiedMemoryWorkerRequest, { kind: TKind }>;
+  workerResult: UnifiedMemoryWorkerResult<Extract<
+    UnifiedMemoryWorkerRequest,
+    { kind: TKind }
+  >>;
+  expectedResponse: unknown;
+}
+type UnifiedMemoryParityCases = {
+  [TKind in UnifiedMemoryRequestKind]: UnifiedMemoryParityCase<TKind>;
+};
+
+const unifiedMemoryParityCases = {
+  'process-input': {
+    channel: IPC_CHANNELS.UNIFIED_MEMORY_PROCESS_INPUT,
+    payload: { input: 'remember this', sessionId: 'session-1', taskId: 'task-1' },
+    request: {
+      kind: 'process-input', input: 'remember this', sessionId: 'session-1', taskId: 'task-1',
+    },
+    workerResult: undefined,
+    expectedResponse: { success: true },
+  },
+  retrieve: {
+    channel: IPC_CHANNELS.UNIFIED_MEMORY_RETRIEVE,
+    payload: { query: 'what matters?', taskId: 'task-1', options: { maxTokens: 500 } },
+    request: { kind: 'retrieve', query: 'what matters?', taskId: 'task-1', options: { maxTokens: 500 } },
+    workerResult: unifiedRetrieval,
+    expectedResponse: { success: true, data: unifiedRetrieval },
+  },
+  'record-session-end': {
+    channel: IPC_CHANNELS.UNIFIED_MEMORY_RECORD_SESSION_END,
+    payload: {
+      sessionId: 'session-1', outcome: 'success', summary: 'Done', lessons: ['typed ports'],
+    },
+    request: {
+      kind: 'record-session-end', sessionId: 'session-1', outcome: 'success',
+      summary: 'Done', lessons: ['typed ports'],
+    },
+    workerResult: undefined,
+    expectedResponse: { success: true },
+  },
+  'record-workflow': {
+    channel: IPC_CHANNELS.UNIFIED_MEMORY_RECORD_WORKFLOW,
+    payload: { name: 'Worker flow', steps: ['validate', 'invoke'], applicableContexts: ['memory'] },
+    request: {
+      kind: 'record-workflow', name: 'Worker flow', steps: ['validate', 'invoke'],
+      applicableContexts: ['memory'],
+    },
+    workerResult: unifiedWorkflow,
+    expectedResponse: { success: true, data: unifiedWorkflow },
+  },
+  'record-strategy': {
+    channel: IPC_CHANNELS.UNIFIED_MEMORY_RECORD_STRATEGY,
+    payload: {
+      strategy: 'Use typed RPC', conditions: ['memory request'], taskId: 'task-1',
+      success: true, score: 1,
+    },
+    request: {
+      kind: 'record-strategy', strategy: 'Use typed RPC', conditions: ['memory request'],
+      taskId: 'task-1', success: true, score: 1,
+    },
+    workerResult: unifiedStrategy,
+    expectedResponse: { success: true, data: unifiedStrategy },
+  },
+  'record-outcome': {
+    channel: IPC_CHANNELS.UNIFIED_MEMORY_RECORD_OUTCOME,
+    payload: { taskId: 'task-1', success: false, score: 0.25 },
+    request: { kind: 'record-outcome', taskId: 'task-1', success: false, score: 0.25 },
+    workerResult: undefined,
+    expectedResponse: { success: true },
+  },
+  'get-stats': {
+    channel: IPC_CHANNELS.UNIFIED_MEMORY_GET_STATS,
+    payload: undefined,
+    request: { kind: 'get-stats' },
+    workerResult: unifiedStats,
+    expectedResponse: { success: true, data: unifiedStats },
+  },
+  'get-sessions': {
+    channel: IPC_CHANNELS.UNIFIED_MEMORY_GET_SESSIONS,
+    payload: 20,
+    request: { kind: 'get-sessions', limit: 20 },
+    workerResult: unifiedSessions,
+    expectedResponse: { success: true, data: unifiedSessions },
+  },
+  'get-patterns': {
+    channel: IPC_CHANNELS.UNIFIED_MEMORY_GET_PATTERNS,
+    payload: 0.75,
+    request: { kind: 'get-patterns', minSuccessRate: 0.75 },
+    workerResult: unifiedPatterns,
+    expectedResponse: { success: true, data: unifiedPatterns },
+  },
+  'get-workflows': {
+    channel: IPC_CHANNELS.UNIFIED_MEMORY_GET_WORKFLOWS,
+    payload: undefined,
+    request: { kind: 'get-workflows' },
+    workerResult: [unifiedWorkflow],
+    expectedResponse: { success: true, data: [unifiedWorkflow] },
+  },
+  save: {
+    channel: IPC_CHANNELS.UNIFIED_MEMORY_SAVE,
+    payload: undefined,
+    request: { kind: 'save' },
+    workerResult: unifiedSnapshot,
+    expectedResponse: { success: true, data: unifiedSnapshot },
+  },
+  load: {
+    channel: IPC_CHANNELS.UNIFIED_MEMORY_LOAD,
+    payload: unifiedSnapshot,
+    request: { kind: 'load', snapshot: unifiedSnapshot },
+    workerResult: undefined,
+    expectedResponse: { success: true },
+  },
+  configure: {
+    channel: IPC_CHANNELS.UNIFIED_MEMORY_CONFIGURE,
+    payload: { shortTermMaxTokens: 1_000, trainingStage: 2 },
+    request: {
+      kind: 'configure', config: { shortTermMaxTokens: 1_000, trainingStage: 2 },
+    },
+    workerResult: undefined,
+    expectedResponse: { success: true },
+  },
+} satisfies UnifiedMemoryParityCases;
+
 describe('registerMemoryHandlers', () => {
   beforeEach(() => {
     vi.mocked(ipcMain.handle).mockClear();
     vi.clearAllMocks();
+    mocks.unifiedPort.invokeUnifiedMemory.mockImplementation(async (request) => {
+      switch (request.kind) {
+        case 'get-sessions':
+        case 'get-patterns':
+        case 'get-workflows':
+          return [];
+        default:
+          return undefined;
+      }
+    });
     registerMemoryHandlers();
   });
 
@@ -130,8 +305,66 @@ describe('registerMemoryHandlers', () => {
     expect(workflows).toEqual({ success: true, data: [] });
 
     expect(mocks.memory.retrieve).toHaveBeenCalledWith('recent context', 'memory-1');
-    expect(mocks.unified.getPatterns).toHaveBeenCalledWith(0.5);
-    expect(mocks.unified.getSessionHistory).toHaveBeenCalledWith(20);
+    expect(mocks.unifiedPort.invokeUnifiedMemory).toHaveBeenCalledWith({
+      kind: 'get-patterns', minSuccessRate: 0.5,
+    });
+    expect(mocks.unifiedPort.invokeUnifiedMemory).toHaveBeenCalledWith({
+      kind: 'get-sessions', limit: 20,
+    });
+  });
+
+  it.each(Object.values(unifiedMemoryParityCases))(
+    'preserves the $request.kind renderer contract through the unified-memory worker port',
+    async ({ channel, payload, request, workerResult, expectedResponse }) => {
+      mocks.unifiedPort.invokeUnifiedMemory.mockResolvedValueOnce(workerResult);
+
+      await expect(handlerFor(channel)(fakeEvent, payload)).resolves.toEqual(expectedResponse);
+      expect(mocks.unifiedPort.invokeUnifiedMemory).toHaveBeenCalledOnce();
+      expect(mocks.unifiedPort.invokeUnifiedMemory).toHaveBeenCalledWith(request);
+    },
+  );
+
+  it('preserves the unified-memory channel error code when worker RPC fails', async () => {
+    mocks.unifiedPort.invokeUnifiedMemory.mockRejectedValueOnce(new Error('worker unavailable'));
+
+    await expect(handlerFor(IPC_CHANNELS.UNIFIED_MEMORY_GET_STATS)(fakeEvent)).resolves.toEqual({
+      success: false,
+      error: {
+        code: 'UNIFIED_MEMORY_GET_STATS_FAILED',
+        message: 'worker unavailable',
+        timestamp: expect.any(Number),
+      },
+    });
+  });
+
+  it('rejects invalid unified-memory input before invoking the worker port', async () => {
+    await expect(handlerFor(IPC_CHANNELS.UNIFIED_MEMORY_RETRIEVE)(fakeEvent, {
+      query: '',
+      taskId: 'task-1',
+    })).resolves.toMatchObject({
+      success: false,
+      error: expect.objectContaining({ code: 'VALIDATION_FAILED' }),
+    });
+    expect(mocks.unifiedPort.invokeUnifiedMemory).not.toHaveBeenCalled();
+  });
+
+  it('rejects an untrusted unified-memory sender before invoking the worker port', async () => {
+    vi.mocked(ipcMain.handle).mockClear();
+    const trustError = {
+      success: false,
+      error: { code: 'IPC_TRUST_FAILED', message: 'Untrusted sender', timestamp: 123 },
+    };
+    const ensureTrustedSender = vi.fn(() => trustError);
+    registerMemoryHandlers({ ensureTrustedSender });
+
+    const result = await handlerFor(IPC_CHANNELS.UNIFIED_MEMORY_GET_STATS)(fakeEvent);
+
+    expect(result).toEqual(trustError);
+    expect(ensureTrustedSender).toHaveBeenCalledWith(
+      fakeEvent,
+      IPC_CHANNELS.UNIFIED_MEMORY_GET_STATS,
+    );
+    expect(mocks.unifiedPort.invokeUnifiedMemory).not.toHaveBeenCalled();
   });
 
   it('returns a structured validation error instead of rejecting invalid memory input', async () => {

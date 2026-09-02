@@ -2,7 +2,7 @@
  * Instance Persistence Manager - Session export, import, and storage
  */
 
-import { getOutputStorageManager } from '../memory';
+import { getOutputStorageManager } from '../memory/output-storage';
 import { getLogger } from '../logging/logger';
 import { buildReplayContinuityMessage } from '../session/replay-continuity';
 import { retainedPromptsForFork, retainedPromptsMissingFrom } from './prompt-retention';

@@ -1,6 +1,34 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { InstanceContextPort } from '../instance-context-port';
 
+const contextPortSpies = vi.hoisted(() => ({
+  recordTaskOutcome: vi.fn(),
+}));
+
+const defaultContextWorker = vi.hoisted(() => ({
+  port: {
+    initializeRlm: vi.fn().mockResolvedValue(undefined),
+    endRlmSession: vi.fn(),
+    ingestInitialOutputToRlm: vi.fn().mockResolvedValue(undefined),
+    ingestToRLM: vi.fn(),
+    ingestToUnifiedMemory: vi.fn(),
+    recordTaskOutcome: vi.fn(),
+    calculateContextBudget: vi.fn(() => ({
+      totalTokens: 0, rlmMaxTokens: 0, unifiedMaxTokens: 0, rlmTopK: 0,
+    })),
+    buildRlmContext: vi.fn().mockResolvedValue(null),
+    buildUnifiedMemoryContext: vi.fn().mockResolvedValue(null),
+    buildObservationContext: vi.fn().mockResolvedValue(null),
+    buildWakeContextText: vi.fn().mockResolvedValue(null),
+    buildMcpRuntimeToolContextSelection: vi.fn().mockResolvedValue(null),
+    formatRlmContextBlock: vi.fn(() => null),
+    formatUnifiedMemoryContextBlock: vi.fn(() => null),
+    compactContext: vi.fn().mockResolvedValue(undefined),
+  },
+  getContextWorkerClient: vi.fn(),
+}));
+defaultContextWorker.getContextWorkerClient.mockReturnValue(defaultContextWorker.port);
+
 // ── Minimal module-level mocks ──────────────────────────────────────────────
 
 vi.mock('electron', () => ({
@@ -58,8 +86,17 @@ vi.mock('../../memory', () => ({
 // (not the '../memory' barrel) so the context worker doesn't pull electron-coupled
 // modules. Mock the deep path too, or the real controller loads here.
 vi.mock('../../memory/unified-controller', () => ({
-  getUnifiedMemory: vi.fn(() => ({ retrieve: vi.fn(), processInput: vi.fn(), ingest: vi.fn() })),
+  getUnifiedMemory: vi.fn(() => ({
+    retrieve: vi.fn(),
+    processInput: vi.fn(),
+    ingest: vi.fn(),
+    recordTaskOutcome: contextPortSpies.recordTaskOutcome,
+  })),
   UnifiedMemoryController: vi.fn(),
+}));
+
+vi.mock('../context-worker-client', () => ({
+  getContextWorkerClient: defaultContextWorker.getContextWorkerClient,
 }));
 
 vi.mock('../../context/jit-loader', () => ({
@@ -240,6 +277,7 @@ describe('InstanceContextPort', () => {
     expect(typeof port.endRlmSession).toBe('function');
     expect(typeof port.ingestToRLM).toBe('function');
     expect(typeof port.ingestToUnifiedMemory).toBe('function');
+    expect(typeof port.recordTaskOutcome).toBe('function');
     expect(typeof port.ingestInitialOutputToRlm).toBe('function');
     expect(typeof port.calculateContextBudget).toBe('function');
     expect(typeof port.buildRlmContext).toBe('function');
@@ -251,6 +289,17 @@ describe('InstanceContextPort', () => {
     expect(typeof port.compactContext).toBe('function');
   });
 
+  it('InstanceContextManager delegates task outcomes unchanged to its local unified memory owner', async () => {
+    contextPortSpies.recordTaskOutcome.mockClear();
+    const { InstanceContextManager } = await import('../instance-context');
+    const mgr = new InstanceContextManager();
+
+    mgr.recordTaskOutcome('task-local-9', false, 0.4);
+
+    expect(contextPortSpies.recordTaskOutcome).toHaveBeenCalledOnce();
+    expect(contextPortSpies.recordTaskOutcome).toHaveBeenCalledWith('task-local-9', false, 0.4);
+  });
+
   it('InstanceManager can be constructed with a fake context port', async () => {
     const { InstanceManager } = await import('../instance-manager');
 
@@ -260,6 +309,7 @@ describe('InstanceContextPort', () => {
       ingestInitialOutputToRlm: vi.fn().mockResolvedValue(undefined),
       ingestToRLM: vi.fn(),
       ingestToUnifiedMemory: vi.fn(),
+      recordTaskOutcome: vi.fn(),
       calculateContextBudget: vi.fn().mockReturnValue({
         rlmMaxTokens: 1000, rlmTopK: 5,
         unifiedMaxTokens: 500, canInjectRlm: true, canInjectUnified: true,
@@ -275,6 +325,40 @@ describe('InstanceContextPort', () => {
     };
 
     expect(() => new InstanceManager(undefined, fakePort)).not.toThrow();
+  }, 10_000);
+
+  it('InstanceManager wires orchestration outcome recording to its existing context port', async () => {
+    const { InstanceManager } = await import('../instance-manager');
+    const { InstanceOrchestrationManager } = await import('../instance-orchestration');
+    const recordTaskOutcome = vi.fn();
+    const fakePort = {
+      initializeRlm: vi.fn().mockResolvedValue(undefined),
+      endRlmSession: vi.fn(),
+      ingestInitialOutputToRlm: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+      recordTaskOutcome,
+      calculateContextBudget: vi.fn().mockReturnValue({
+        totalTokens: 0, rlmMaxTokens: 0, unifiedMaxTokens: 0, rlmTopK: 0,
+      }),
+      buildRlmContext: vi.fn().mockResolvedValue(null),
+      buildUnifiedMemoryContext: vi.fn().mockResolvedValue(null),
+      buildObservationContext: vi.fn().mockResolvedValue(null),
+      buildWakeContextText: vi.fn().mockResolvedValue(null),
+      buildMcpRuntimeToolContextSelection: vi.fn().mockResolvedValue(null),
+      formatRlmContextBlock: vi.fn().mockReturnValue(null),
+      formatUnifiedMemoryContextBlock: vi.fn().mockReturnValue(null),
+      compactContext: vi.fn().mockResolvedValue(undefined),
+    } satisfies InstanceContextPort;
+
+    new InstanceManager(undefined, fakePort);
+    const deps = vi.mocked(InstanceOrchestrationManager).mock.calls.at(-1)?.[0] as
+      | { recordTaskOutcome?: (taskId: string, success: boolean, score: number) => void }
+      | undefined;
+    deps?.recordTaskOutcome?.('task-manager-5', true, 1);
+
+    expect(recordTaskOutcome).toHaveBeenCalledOnce();
+    expect(recordTaskOutcome).toHaveBeenCalledWith('task-manager-5', true, 1);
   }, 10_000);
 
   it('formatRlmContextBlock returns null for null input', async () => {
@@ -391,4 +475,24 @@ describe('InstanceContextManager.calculateContextBudget occupancy gating (LT-034
     );
     expect(budget.totalTokens).toBeGreaterThan(0);
   });
+});
+
+describe('InstanceManager context owner composition', () => {
+  it('defaults to the context-worker port without resolving the local context manager', async () => {
+    vi.resetModules();
+    vi.doMock('../instance-context', () => {
+      throw new Error('Electron main must not resolve InstanceContextManager');
+    });
+    defaultContextWorker.getContextWorkerClient.mockClear();
+
+    try {
+      const { InstanceManager } = await import('../instance-manager');
+
+      expect(() => new InstanceManager()).not.toThrow();
+      expect(defaultContextWorker.getContextWorkerClient).toHaveBeenCalledOnce();
+    } finally {
+      vi.doUnmock('../instance-context');
+      vi.resetModules();
+    }
+  }, 10_000);
 });

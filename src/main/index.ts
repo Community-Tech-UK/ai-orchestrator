@@ -124,12 +124,11 @@ class HarnessApp {
 
   constructor() {
     this.windowManager = new WindowManager();
-    // Route all RLM / unified-memory context work (build, init, ingest, compact)
-    // through the context worker thread. Without this argument InstanceManager
-    // falls back to the in-process InstanceContextManager, which runs synchronous
-    // better-sqlite3 retrieval on the Electron main event loop and stalls the
-    // whole app on send / new session (observed: a single RLM build blocking the
-    // main thread for 38s, with multi-minute event-loop lag). Keep this wired.
+    // Explicitly share the context-worker client whose lifecycle HarnessApp
+    // signals and shuts down. InstanceManager also defaults to the singleton
+    // returned by getContextWorkerClient(); omitting this argument never creates
+    // an in-process context owner. InstanceContextManager is the worker-side
+    // implementation, not an Electron-main fallback.
     this.instanceManager = new InstanceManager(this.windowManager, this.contextWorkerClient);
     this.shutdownOperations = createHarnessShutdownOperations({
       shutdownContinuitySync: () => getSessionContinuityManagerIfInitialized()?.shutdown(),

@@ -94,7 +94,7 @@ describe('RLMContextManager — LT-055 lazy semantic-search indexing', () => {
     expect(result.result).toContain('note-1');
   });
 
-  it('indexes a store exactly once — a second semantic_search on the same store does not re-index', async () => {
+  it('rechecks the durable delta on each query without re-embedding unchanged section content', async () => {
     const { sessionId } = await seedStoreWithSection('backoff notes about retry jitter');
     const indexSpy = vi.spyOn(manager, 'indexStoreForSemanticSearch');
 
@@ -102,10 +102,12 @@ describe('RLMContextManager — LT-055 lazy semantic-search indexing', () => {
     await manager.executeQuery(sessionId, { type: 'semantic_search', params: { query: 'jitter', useHyDE: false } });
     await manager.executeQuery(sessionId, { type: 'semantic_search', params: { query: 'backoff', useHyDE: false } });
 
-    expect(indexSpy).toHaveBeenCalledTimes(1);
+    expect(indexSpy).toHaveBeenCalledTimes(3);
+    expect(embed.mock.calls.filter(([text]) => text === 'backoff notes about retry jitter'))
+      .toHaveLength(1);
   });
 
-  it('two concurrent semantic_search queries arriving before indexing completes only index once (no double-index race)', async () => {
+  it('two concurrent semantic_search queries share one in-flight repair (no double-index race)', async () => {
     const { sessionId } = await seedStoreWithSection('backoff notes about retry jitter');
     const indexSpy = vi.spyOn(manager, 'indexStoreForSemanticSearch');
 
@@ -114,7 +116,9 @@ describe('RLMContextManager — LT-055 lazy semantic-search indexing', () => {
       manager.executeQuery(sessionId, { type: 'semantic_search', params: { query: 'jitter', useHyDE: false } }),
     ]);
 
-    expect(indexSpy).toHaveBeenCalledTimes(1);
+    expect(indexSpy).toHaveBeenCalledTimes(2);
+    expect(embed.mock.calls.filter(([text]) => text === 'backoff notes about retry jitter'))
+      .toHaveLength(1);
     expect(first.result).toContain('note-1');
     expect(second.result).toContain('note-1');
   });
@@ -170,7 +174,7 @@ describe('RLMContextManager — LT-055 lazy semantic-search indexing', () => {
     expect(reindexSpy).toHaveBeenCalledWith(storeId);
   });
 
-  it('rehydrates persisted content for semantic search and clears completed semantic work on reload', async () => {
+  it('rechecks durable vectors without content hydration after reload', async () => {
     const { storeId, sessionId } = await seedStoreWithSection('persisted semantic retry content');
     const indexSpy = vi.spyOn(manager, 'indexStoreForSemanticSearch');
 
@@ -194,37 +198,142 @@ describe('RLMContextManager — LT-055 lazy semantic-search indexing', () => {
     expect(afterReload.result).toContain('note-1');
     expect(manager.getStoreHydrationState(storeId)).toMatchObject({
       metadata: 'resident',
-      content: 'resident',
+      content: 'deferred',
+    });
+  });
+
+  it('executes an unchanged persisted semantic query after singleton reset without content hydration or section embedding', async () => {
+    const db = RLMDatabase.getInstance();
+    db.createStore({ id: 'restart-store', instanceId: 'restart-instance' });
+    db.addSection({
+      id: 'restart-section', storeId: 'restart-store', type: 'external',
+      name: 'restart-note', startOffset: 0, endOffset: 26, tokens: 5,
+      content: 'durable semantic checkpoint',
+    });
+    db.addVector({
+      id: 'vec-restart-store-restart-section',
+      storeId: 'restart-store',
+      sectionId: 'restart-section',
+      embedding: new Float32Array([1, 2, 3]),
+      contentPreview: 'durable semantic checkpoint',
+    });
+    db.createSession({
+      id: 'restart-session',
+      storeId: 'restart-store',
+      instanceId: 'restart-instance',
+      estimatedDirectTokens: 20,
+    });
+    RLMContextManager._resetForTesting();
+    VectorStore._resetForTesting();
+    manager = RLMContextManager.getInstance();
+    const contentRead = vi.spyOn(db, 'getSectionContent');
+    const vectorStore = VectorStore.getInstance();
+    const sectionEmbedding = vi.spyOn(vectorStore, 'addSection');
+    embed.mockClear();
+
+    const result = await manager.executeQuery('restart-session', {
+      type: 'semantic_search',
+      params: { query: 'semantic checkpoint', useHyDE: false },
+    });
+
+    expect(contentRead).not.toHaveBeenCalled();
+    expect(sectionEmbedding).not.toHaveBeenCalled();
+    expect(embed).toHaveBeenCalledOnce();
+    expect(embed).toHaveBeenCalledWith('semantic checkpoint');
+    expect(result.sectionsAccessed).toEqual(['restart-section']);
+    expect(result.result).toContain('restart-note');
+    expect(manager.getStoreHydrationState('restart-store')).toMatchObject({
+      metadata: 'resident',
+      content: 'deferred',
+    });
+  });
+
+  it('loads durable vectors for the default HyDE path after reset without hydrating section content', async () => {
+    const db = RLMDatabase.getInstance();
+    db.createStore({ id: 'hyde-restart-store', instanceId: 'hyde-restart-instance' });
+    db.addSection({
+      id: 'hyde-restart-section', storeId: 'hyde-restart-store', type: 'external',
+      name: 'hyde-restart-note', startOffset: 0, endOffset: 24, tokens: 5,
+      content: 'durable hyde checkpoint',
+    });
+    db.addVector({
+      id: 'vec-hyde-restart-store-hyde-restart-section',
+      storeId: 'hyde-restart-store',
+      sectionId: 'hyde-restart-section',
+      embedding: new Float32Array([1, 2, 3]),
+      contentPreview: 'durable hyde checkpoint',
+    });
+    db.createSession({
+      id: 'hyde-restart-session',
+      storeId: 'hyde-restart-store',
+      instanceId: 'hyde-restart-instance',
+      estimatedDirectTokens: 20,
+    });
+    RLMContextManager._resetForTesting();
+    VectorStore._resetForTesting();
+    manager = RLMContextManager.getInstance();
+    const hydeEmbed = vi.fn(async (query: string) => ({
+      embedding: [1, 2, 3],
+      hypotheticalDocuments: ['hypothetical durable checkpoint'],
+      hydeUsed: true,
+      generationTimeMs: 1,
+      cached: false,
+      query,
+    }));
+    (manager as unknown as { hydeService: { embed: typeof hydeEmbed } }).hydeService = {
+      embed: hydeEmbed,
+    };
+    const contentRead = vi.spyOn(db, 'getSectionContent');
+    const sectionEmbedding = vi.spyOn(VectorStore.getInstance(), 'addSection');
+    embed.mockClear();
+
+    const result = await manager.executeQuery('hyde-restart-session', {
+      type: 'semantic_search',
+      params: { query: 'semantic checkpoint' },
+    });
+
+    expect(hydeEmbed).toHaveBeenCalledOnce();
+    expect(contentRead).not.toHaveBeenCalled();
+    expect(sectionEmbedding).not.toHaveBeenCalled();
+    expect(embed).not.toHaveBeenCalled();
+    expect(result.sectionsAccessed).toEqual(['hyde-restart-section']);
+    expect(result.result).toContain('hyde-restart-note');
+    expect(result.result).toContain('[HyDE]');
+    expect(manager.getStoreHydrationState('hyde-restart-store')).toMatchObject({
+      metadata: 'resident',
+      content: 'deferred',
     });
   });
 
   it('fences pending semantic indexing across reload before starting replacement-state repair', async () => {
-    const { storeId } = await seedStoreWithSection('generation-fenced semantic content');
-    let resolveFirst!: (value: { indexed: number; skipped: number }) => void;
-    const firstIndex = new Promise<{ indexed: number; skipped: number }>((resolve) => {
+    const db = RLMDatabase.getInstance();
+    db.createStore({ id: 'fenced-store', instanceId: 'fenced-instance' });
+    db.addSection({
+      id: 'fenced-section', storeId: 'fenced-store', type: 'external',
+      name: 'fenced.txt', startOffset: 0, endOffset: 18, tokens: 4,
+      content: 'generation-fenced semantic content',
+    });
+    manager.reloadFromPersistence();
+    let resolveFirst!: (value: Awaited<ReturnType<typeof embed>>) => void;
+    const firstEmbedding = new Promise<Awaited<ReturnType<typeof embed>>>((resolve) => {
       resolveFirst = resolve;
     });
-    const originalIndex = manager.indexStoreForSemanticSearch.bind(manager);
-    const indexSpy = vi.spyOn(manager, 'indexStoreForSemanticSearch')
-      .mockImplementationOnce(async () => firstIndex)
-      .mockImplementation(async (id) => originalIndex(id));
-    const privateManager = manager as unknown as {
-      ensureStoreIndexedForSemanticSearch(
-        id: string,
-      ): Promise<{ indexed: number; skipped: number }> | null;
-    };
+    embed.mockImplementationOnce(async () => firstEmbedding);
 
-    const oldWork = privateManager.ensureStoreIndexedForSemanticSearch.call(manager, storeId)!;
-    await vi.waitFor(() => expect(indexSpy).toHaveBeenCalledTimes(1));
+    const oldWork = manager.indexStoreForSemanticSearch('fenced-store');
+    await vi.waitFor(() => expect(embed).toHaveBeenCalledTimes(1));
     manager.reloadFromPersistence();
-    const replacementWork = privateManager.ensureStoreIndexedForSemanticSearch.call(manager, storeId)!;
+    const replacementWork = manager.indexStoreForSemanticSearch('fenced-store');
 
     await Promise.resolve();
-    expect(indexSpy).toHaveBeenCalledTimes(1);
-    resolveFirst({ indexed: 1, skipped: 0 });
+    expect(embed).toHaveBeenCalledTimes(1);
+    resolveFirst({
+      embedding: [1, 2, 3], model: 'test-embed', tokens: 4,
+      cached: false, provider: 'test',
+    });
     await oldWork;
     await replacementWork;
-    expect(indexSpy).toHaveBeenCalledTimes(2);
+    expect(embed).toHaveBeenCalledTimes(2);
   });
 
   it('removes vectors produced by a stale generation before replacement indexing begins', async () => {
@@ -255,7 +364,9 @@ describe('RLMContextManager — LT-055 lazy semantic-search indexing', () => {
     const privateManager = manager as unknown as {
       ensureStoreIndexedForSemanticSearch(
         id: string,
-      ): Promise<{ indexed: number; skipped: number }> | null;
+      ): Promise<{
+        missing: number; indexed: number; skipped: number; failed: number; retried: number;
+      }> | null;
     };
     const embedding = {
       embedding: [1, 2, 3], model: 'test-embed', tokens: 4, cached: false, provider: 'test',

@@ -274,8 +274,14 @@
         <div class="section-heading"><div><h2>Pending approvals</h2><p>Requests waiting for your decision</p></div><button class="btn small" type="button" [disabled]="working()" (click)="refreshApprovals()">Reload</button></div>
         <div class="approval-list">
           @for (approval of approvalRequests(); track approval.requestId) {
-            <article class="approval-row">
-              <div class="permission-heading"><div><span class="audit-action">{{ approval.toolName }}</span><span class="audit-tool">{{ approval.requestId }}</span></div><span class="status-badge warning">{{ approval.actionClass }}</span></div>
+            <article
+              class="approval-row"
+              [id]="'browser-approval-' + approval.requestId"
+              tabindex="-1"
+              [style.outline]="focusedApprovalRequestId() === approval.requestId ? '2px solid var(--warning-color, #f59e0b)' : null"
+              [style.outline-offset]="focusedApprovalRequestId() === approval.requestId ? '2px' : null"
+            >
+              <div class="permission-heading"><div><span class="audit-action">{{ approval.toolName }}</span><span class="audit-tool">New request · Request {{ approvalPosition(approval) }} of {{ approvalRequests().length }} · #{{ shortApprovalId(approval) }} · received {{ approvalReceivedAt(approval) }}</span></div><span class="status-badge warning">{{ approval.actionClass }}</span></div>
               <p class="permission-origin">{{ approval.origin || approval.url || approval.profileId }}</p>
               <dl class="approval-context">
                 <div><dt>Scope</dt><dd>{{ formatApprovalScope(approval) }}</dd></div>
@@ -286,24 +292,28 @@
                 @if (approval.detectedFileType) { <div><dt>Type</dt><dd>{{ approval.detectedFileType }}</dd></div> }
                 @if (approval.proposedGrant.uploadRoots?.length) { <div><dt>Upload roots</dt><dd>{{ formatUploadRoots(approval) }}</dd></div> }
               </dl>
-              <details class="disclosure autonomous-controls" [attr.open]="requiresAutonomousConfirmation(approval) ? '' : null">
-                <summary>Unattended options</summary>
-                <div class="autonomous-controls-content">
-                  <p>Add publishing or deleting only if this browser task genuinely needs it.</p>
-                  <label class="inline-toggle"><input type="checkbox" [checked]="autonomousSubmitIsEnabled(approval)" (change)="toggleAutonomousSubmit(approval)" /><span>Publish, send, or submit</span></label>
-                  <label class="inline-toggle danger-toggle"><input type="checkbox" [checked]="autonomousDestructiveIsEnabled(approval)" (change)="toggleAutonomousDestructive(approval)" /><span>Delete or make destructive changes</span></label>
-                  @if (requiresAutonomousConfirmation(approval)) {
-                    <label class="autonomous-confirmation">
-                      <span>Type <strong>{{ confirmationPhrase(approval) }}</strong> to allow these actions without another prompt.</span>
-                      <input type="text" [attr.data-testid]="'autonomous-confirmation-' + approval.requestId" [placeholder]="confirmationPhrase(approval)" [value]="autonomousConfirmation(approval)" (input)="onAutonomousConfirmationInput(approval, $event)" />
-                    </label>
-                  }
-                </div>
-              </details>
+              @if (!exactApprovalOnly(approval)) {
+                <details class="disclosure autonomous-controls" [attr.open]="requiresAutonomousConfirmation(approval) ? '' : null">
+                  <summary>Unattended options</summary>
+                  <div class="autonomous-controls-content">
+                    <p>Add publishing or deleting only if this browser task genuinely needs it.</p>
+                    <label class="inline-toggle"><input type="checkbox" [checked]="autonomousSubmitIsEnabled(approval)" (change)="toggleAutonomousSubmit(approval)" /><span>Publish, send, or submit</span></label>
+                    <label class="inline-toggle danger-toggle"><input type="checkbox" [checked]="autonomousDestructiveIsEnabled(approval)" (change)="toggleAutonomousDestructive(approval)" /><span>Delete or make destructive changes</span></label>
+                    @if (requiresAutonomousConfirmation(approval)) {
+                      <label class="autonomous-confirmation">
+                        <span>Type <strong>{{ confirmationPhrase(approval) }}</strong> to allow these actions without another prompt.</span>
+                        <input type="text" [attr.data-testid]="'autonomous-confirmation-' + approval.requestId" [placeholder]="confirmationPhrase(approval)" [value]="autonomousConfirmation(approval)" (input)="onAutonomousConfirmationInput(approval, $event)" />
+                      </label>
+                    }
+                  </div>
+                </details>
+              }
               <div class="row-actions wrap permission-actions">
                 <button class="btn small primary" type="button" [disabled]="working()" (click)="approveApprovalRequest(approval, 'per_action')">Allow once</button>
-                <button class="btn small" type="button" [disabled]="working()" (click)="approveApprovalRequest(approval, 'session')">Allow for session</button>
-                <button class="btn small" type="button" [disabled]="working()" (click)="approveApprovalRequest(approval, 'autonomous')">Allow unattended</button>
+                @if (!exactApprovalOnly(approval)) {
+                  <button class="btn small" type="button" [disabled]="working()" (click)="approveApprovalRequest(approval, 'session')">Allow for session</button>
+                  <button class="btn small" type="button" [disabled]="working()" (click)="approveApprovalRequest(approval, 'autonomous')">Allow unattended</button>
+                }
                 <button class="btn small danger" type="button" [disabled]="working()" (click)="denyApprovalRequest(approval.requestId)">Deny</button>
               </div>
             </article>

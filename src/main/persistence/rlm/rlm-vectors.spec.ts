@@ -1,6 +1,49 @@
-import { describe, it, expect, vi } from 'vitest';
-import { bufferToEmbedding, pruneVectorsOlderThan } from './rlm-vectors';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+import { defaultDriverFactory } from '../../db/better-sqlite3-driver';
+import {
+  addVector,
+  bufferToEmbedding,
+  getVectorBySectionId,
+  pruneVectorsOlderThan,
+} from './rlm-vectors';
 import type { SqliteDriver } from '../../db/sqlite-driver';
+
+describe('durable vector blobs', () => {
+  const databases: SqliteDriver[] = [];
+
+  afterEach(() => {
+    for (const database of databases.splice(0)) database.close();
+  });
+
+  it('persists and retrieves embeddings through the sqlite-wasm backend', () => {
+    const database = defaultDriverFactory(':memory:');
+    databases.push(database);
+    database.exec(`
+      CREATE TABLE vectors (
+        id TEXT PRIMARY KEY,
+        store_id TEXT NOT NULL,
+        section_id TEXT NOT NULL,
+        embedding BLOB NOT NULL,
+        dimensions INTEGER NOT NULL,
+        content_preview TEXT,
+        metadata_json TEXT,
+        created_at INTEGER NOT NULL
+      );
+    `);
+
+    addVector(database, {
+      id: 'vector-1',
+      storeId: 'store-1',
+      sectionId: 'section-1',
+      embedding: new Float32Array([0.5, -0.25, 1]),
+      contentPreview: 'preview',
+    });
+
+    const row = getVectorBySectionId(database, 'section-1');
+    expect(row).not.toBeNull();
+    expect(Array.from(bufferToEmbedding(row!.embedding))).toEqual([0.5, -0.25, 1]);
+  });
+});
 
 describe('bufferToEmbedding', () => {
   function makeBlob(values: number[]): Buffer {

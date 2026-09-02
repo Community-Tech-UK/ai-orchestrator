@@ -5,7 +5,7 @@
  * - InstanceStateManager: State, adapters, batch updates
  * - InstanceLifecycleManager: Create, terminate, restart, mode changes
  * - InstanceCommunicationManager: Adapter events, message passing
- * - InstanceContextManager: RLM and unified memory context
+ * - ContextWorkerClient: worker-owned RLM and unified memory context
  * - InstanceOrchestrationManager: Child spawning, fast-path retrieval
  * - InstancePersistenceManager: Session export, import, storage
  */
@@ -57,7 +57,7 @@ import {
 import { InstanceStateManager } from './instance-state';
 import { InstanceLifecycleManager, type RestartOutcome } from './instance-lifecycle';
 import { InstanceCommunicationManager } from './instance-communication';
-import { InstanceContextManager } from './instance-context';
+import { getContextWorkerClient } from './context-worker-client';
 import type { InstanceContextPort } from './instance-context-port';
 import { InstanceEventAggregator, type InstanceEventLogQuery } from './instance-event-aggregator';
 import type { InstanceEventEnvelope } from '@contracts/types/instance-events';
@@ -257,21 +257,21 @@ export class InstanceManager extends EventEmitter {
         await (adapter as CliAdapter).terminate(false);
       },
     });
-
     // Initialize sub-managers with dependencies
     this.state = new InstanceStateManager();
     this.settledTracker = new InstanceSettledTracker({
       getInstance: (id) => this.state.getInstance(id),
       emitter: this,
     });
-    this.context = contextPort ?? new InstanceContextManager();
+    this.context = contextPort ?? getContextWorkerClient();
     this.orchestrationMgr = new InstanceOrchestrationManager({
       getInstance: (id) => this.state.getInstance(id),
       getInstanceCount: () => this.state.getInstanceCount(),
       createChildInstance: (parentId, cmd, routing) => this.createChildInstance(parentId, cmd, routing),
       sendInput: (id, msg) => this.sendInput(id, msg),
       terminateInstance: (id, graceful) => this.terminateInstance(id, graceful),
-      getAdapter: (id) => this.state.getAdapter(id)
+      getAdapter: (id) => this.state.getAdapter(id),
+      recordTaskOutcome: (taskId, success, score) => this.context.recordTaskOutcome(taskId, success, score),
     });
     this.childCompletion = new InstanceChildCompletionHandler({
       getInstance: (id) => this.state.getInstance(id),

@@ -550,6 +550,21 @@ vi.mock('../../memory/project-memory-brief', () => ({
 vi.mock('../context-worker-client', () => ({
   getContextWorkerClient: vi.fn(() => ({
     buildProjectMemoryBrief: mockContextWorkerBuildProjectMemoryBrief,
+    initializeRlm: vi.fn().mockResolvedValue(undefined),
+    endRlmSession: vi.fn(),
+    ingestInitialOutputToRlm: vi.fn().mockResolvedValue(undefined),
+    ingestToRLM: vi.fn(),
+    ingestToUnifiedMemory: vi.fn(),
+    recordTaskOutcome: vi.fn(),
+    calculateContextBudget: vi.fn(() => ({ totalTokens: 0, rlmMaxTokens: 0, unifiedMaxTokens: 0, rlmTopK: 0 })),
+    buildRlmContext: vi.fn().mockResolvedValue(null),
+    buildUnifiedMemoryContext: vi.fn().mockResolvedValue(null),
+    buildObservationContext: vi.fn().mockResolvedValue(null),
+    buildWakeContextText: vi.fn().mockResolvedValue(null),
+    buildMcpRuntimeToolContextSelection: vi.fn().mockResolvedValue(null),
+    formatRlmContextBlock: vi.fn(() => null),
+    formatUnifiedMemoryContextBlock: vi.fn(() => null),
+    compactContext: vi.fn().mockResolvedValue(undefined),
   })),
 }));
 

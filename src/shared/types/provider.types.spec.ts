@@ -60,7 +60,7 @@ describe('provider type helpers', () => {
     expect(getProviderModelContextWindow('claude', 'claude-opus-5')).toBe(1000000);
     expect(getProviderModelContextWindow('claude-cli', 'claude-sonnet-5')).toBe(1000000);
     expect(getProviderModelContextWindow('claude-cli', 'claude-sonnet-4-6')).toBe(1000000);
-    expect(getProviderModelContextWindow('claude-cli', 'claude-fable-5')).toBe(1000000);
+    expect(getProviderModelContextWindow('claude-cli', 'claude-fable-5-1')).toBe(1000000);
   });
 
   it('returns 1M when Claude provider model is undefined or empty', () => {
@@ -141,12 +141,14 @@ describe('provider model lists', () => {
     expect(MODEL_PRICING[CLAUDE_PINNED_MODELS.SONNET_5]).toEqual({ input: 2.0, output: 10.0 });
   });
 
-  it('exposes Claude Fable 5 as an explicit Claude model', () => {
+  it('replaces Claude Fable 5 with Fable 5.1 while retaining historical pricing', () => {
     const claudeModels = PROVIDER_MODEL_LIST['claude'].map((model) => model.id);
     const pinned = CLAUDE_PINNED_MODELS as Record<string, string>;
 
-    expect(pinned['FABLE_5']).toBe('claude-fable-5');
-    expect(claudeModels).toContain('claude-fable-5');
+    expect(pinned['FABLE_51']).toBe('claude-fable-5-1');
+    expect(claudeModels).toContain('claude-fable-5-1');
+    expect(claudeModels).not.toContain('claude-fable-5');
+    expect(MODEL_PRICING['claude-fable-5-1']).toEqual({ input: 10.0, output: 50.0 });
     expect(MODEL_PRICING['claude-fable-5']).toEqual({ input: 10.0, output: 50.0 });
   });
 
@@ -218,6 +220,15 @@ describe('provider model lists', () => {
 });
 
 describe('model alias normalization', () => {
+  it('migrates a stored Fable 5 selection to Fable 5.1', () => {
+    expect(normalizeModelAliasForProvider('claude', 'claude-fable-5')).toBe(
+      'claude-fable-5-1',
+    );
+    expect(normalizeModelForProvider('claude', 'claude-fable-5')).toBe(
+      'claude-fable-5-1',
+    );
+  });
+
   it('normalizes human-readable Copilot model names to canonical IDs', () => {
     expect(normalizeModelAliasForProvider('copilot', 'Gemini 3.1 Pro')).toBe(
       COPILOT_MODELS.GEMINI_3_1_PRO

@@ -101,7 +101,13 @@ function loadStats(
     hotCandidates: 0,
     hotAdmitted: 0,
     hotSkipped: 0,
+    hotExhausted: 0,
     hotCancelled: 0,
+    semanticDiscovered: 0,
+    semanticIndexed: 0,
+    semanticSkipped: 0,
+    semanticFailed: 0,
+    semanticRetried: 0,
     metadataOnlyStores: storeCount,
     deferredStores: storeCount,
     exhausted: Object.freeze({
@@ -498,7 +504,6 @@ describe('ContextResidencyController', () => {
       deferredStores: 1,
       exhausted: { contentBytes: true },
       lastAdmissionFailure: {
-        storeId: 'store-a',
         reason: 'actual-content-exceeds-byte-budget',
       },
     });
@@ -675,7 +680,6 @@ describe('ContextResidencyController', () => {
       metadataOnlyStores: 1,
       deferredStores: 1,
       lastAdmissionFailure: {
-        storeId: 'requested',
         reason: 'protected-content-prevents-admission',
       },
       exhausted: {
@@ -735,6 +739,63 @@ describe('ContextResidencyController', () => {
     expect(getSection).not.toHaveBeenCalled();
     expect(getSectionContent).not.toHaveBeenCalled();
     expect(stores.get('large')?.sections[0].content).toBe('');
+  });
+
+  it('keeps the controller policy authoritative when loader state used a wider limit', () => {
+    const rows = [
+      metadataRow('over-policy', 'section-1', 1),
+      metadataRow('over-policy', 'section-2', 1),
+      metadataRow('over-policy', 'section-3', 1),
+    ];
+    const { controller, getSection, getSectionContent } = controllerFixture({
+      rowsByStore: { 'over-policy': rows },
+      policy: policy({ maxSectionsPerStore: 2 }),
+    });
+
+    expect(controller.getHydrationState('over-policy')).toMatchObject({
+      contentEligible: false,
+      sectionCount: 3,
+    });
+    expect(controller.ensureContent('over-policy')).toMatchObject({
+      reason: 'content-ineligible',
+      state: { metadata: 'resident', content: 'deferred' },
+    });
+    expect(getSection).not.toHaveBeenCalled();
+    expect(getSectionContent).not.toHaveBeenCalled();
+  });
+
+  it('rechecks the per-store ceiling when the metadata projection is larger than its grouped count', () => {
+    const rows = [
+      metadataRow('changed-store', 'section-1', 1),
+      metadataRow('changed-store', 'section-2', 1),
+      metadataRow('changed-store', 'section-3', 1),
+    ];
+    const stores = new Map([['changed-store', store('changed-store')]]);
+    const getSectionMetadata = vi.fn(() => rows);
+    const getSection = vi.fn((sectionId: string) => (
+      sectionRow(rows.find((row) => row.id === sectionId)!, 'x')
+    ));
+    const getSectionContent = vi.fn(() => 'x');
+    const controller = new ContextResidencyController({
+      db: { getSectionMetadata, getSection, getSectionContent } as unknown as RLMDatabase,
+      stores,
+      sessions: new Map(),
+      hydrationStates: new Map([['changed-store', hydrationState(2)]]),
+      loadStats: loadStats(1, 2),
+      policy: policy({ maxSectionsPerStore: 2 }),
+    });
+
+    expect(controller.ensureContent('changed-store')).toMatchObject({
+      reason: 'content-ineligible',
+      state: {
+        metadata: 'resident',
+        content: 'deferred',
+        contentEligible: false,
+        sectionCount: 3,
+      },
+    });
+    expect(getSection).not.toHaveBeenCalled();
+    expect(getSectionContent).not.toHaveBeenCalled();
   });
 
   it('collects aggregate stats with one grouped query and no deferred metadata paging', () => {

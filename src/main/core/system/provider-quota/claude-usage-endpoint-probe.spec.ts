@@ -69,6 +69,11 @@ describe('ClaudeUsageEndpointProbe', () => {
       expect(byId['claude.credits'].unit).toBe('usd');
       expect(byId['claude.credits'].used).toBe(190);
       expect(byId['claude.credits'].limit).toBe(1700);
+      // Genuinely paid spend, so the loop overage guard must fire on it. Stated
+      // explicitly rather than inferred from `unit`, which is what let Cursor's
+      // and Grok's percent-valued plan windows masquerade as overage.
+      expect(byId['claude.credits'].overage).toBe(true);
+      expect(byId['claude.5h'].overage).toBeUndefined();
     });
 
     it('omits the credits window when extra usage is disabled', () => {

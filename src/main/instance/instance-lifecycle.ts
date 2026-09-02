@@ -21,7 +21,7 @@ import {
 } from '../context-evidence/evidence-conversation-resolver';
 import { drainContextEvidenceQueue } from '../context-evidence/context-evidence-coordinator';
 import { getHistoryManager } from '../history';
-import { getOutputStorageManager } from '../memory';
+import { getOutputStorageManager } from '../memory/output-storage';
 import { getConversationMiner } from '../memory/conversation-miner';
 import { getSupervisorTree } from '../process';
 import { getAgentById } from '../../shared/types/agent.types';
@@ -82,6 +82,7 @@ import { createModelSelectionDegradationNotice, type ModelSelectionDegradation }
 import { resolveSpawnReasoningEffort } from './lifecycle/reasoning-effort-resolution';
 import { ModelSelectionResolver } from './lifecycle/model-selection-resolver';
 import { InstanceSpawnPreflightChain } from './lifecycle/instance-spawn-preflight-chain';
+import { resolveExecutionLocation } from './lifecycle/execution-location-resolver';
 import { resolveFastMode } from './lifecycle/resolve-fast-mode';
 import { computeRuntimeDiff } from './lifecycle/runtime-reconciler-plan';
 import {
@@ -1547,13 +1548,12 @@ export class InstanceLifecycleManager extends EventEmitter {
           displayName: getCliDisplayName(resolvedCliType)
         });
 
+        const executionLocation = resolveExecutionLocation(config);
         const settingsModel = settingsAll.defaultModel;
         const modelSelection = await this.modelSelectionResolver.resolve({
-          provider: resolvedCliType,
-          configModelOverride: config.modelOverride,
-          agentModelOverride: resolvedAgent.modelOverride,
-          defaultModelByProvider: settingsAll.defaultModelByProvider,
-          defaultModel: settingsModel,
+          provider: resolvedCliType, executionTarget: executionLocation.type,
+          configModelOverride: config.modelOverride, agentModelOverride: resolvedAgent.modelOverride,
+          defaultModelByProvider: settingsAll.defaultModelByProvider, defaultModel: settingsModel,
           localModelId: localModelTarget?.modelId,
         });
         const resolvedModel = modelSelection.model;
@@ -1608,8 +1608,8 @@ export class InstanceLifecycleManager extends EventEmitter {
         logger.info('Resolved model for instance', {
           configOverride: config.modelOverride,
           agentOverride: resolvedAgent.modelOverride,
-          perProviderRemembered: settingsAll.defaultModelByProvider?.[resolvedCliType],
-          settingsDefault: settingsModel,
+          perProviderRemembered: executionLocation.type === 'local' ? settingsAll.defaultModelByProvider?.[resolvedCliType] : undefined,
+          settingsDefault: executionLocation.type === 'local' ? settingsModel : undefined,
           resolved: resolvedModel,
         });
 
@@ -1644,10 +1644,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         };
 
         const preflight = await this.spawnPreflight.prepare({
-          config,
-          instance,
-          provider: resolvedCliType,
-          spawnOptions,
+          config, instance, provider: resolvedCliType, spawnOptions, executionLocation,
         });
         let adapter: CliAdapter;
         if (preflight.kind === 'warm') {

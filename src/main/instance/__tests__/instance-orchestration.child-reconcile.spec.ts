@@ -65,6 +65,7 @@ function createManager(instances: Map<string, Instance>): InstanceOrchestrationM
     sendInput: vi.fn(),
     terminateInstance: vi.fn(),
     getAdapter: vi.fn(),
+    recordTaskOutcome: vi.fn(),
   });
 }
 

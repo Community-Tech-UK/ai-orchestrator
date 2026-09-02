@@ -6,7 +6,11 @@ import type {
   IndexingProgress,
   IndexingStats,
 } from '../../shared/types/codebase.types';
-import type { ContextStore } from '../../shared/types/rlm.types';
+import type {
+  RlmCloneValue,
+  RlmContextStoreDto,
+  RlmSectionFilterMetadataPageDto,
+} from '../instance/rlm-worker-port';
 
 export interface AutoIndexingTarget {
   indexCodebase(
@@ -25,12 +29,24 @@ export interface AutoIndexingTarget {
 }
 
 export interface AutoIndexFileWatcherTarget {
-  startWatching(storeId: string, rootPath: string): Promise<void>;
+  startWatching(storeId: string, rootPath: string): Promise<AutoIndexWatcherRegistration>;
+}
+
+export interface AutoIndexWatcherRegistration {
+  dispose(): Promise<void>;
 }
 
 export interface AutoIndexContextManagerTarget {
-  createStore(instanceId: string, config?: Record<string, unknown>): { id: string };
-  listStores?(): ContextStore[];
+  createStore(
+    instanceId: string,
+    config?: Record<string, RlmCloneValue>,
+  ): Promise<{ id: string }>;
+  listStores?(): Promise<RlmContextStoreDto[]>;
+  listSectionFilterMetadata?(
+    storeId: string,
+    offset: number,
+    limit: number,
+  ): Promise<RlmSectionFilterMetadataPageDto>;
 }
 
 export interface AutoIndexProjectRegistryTarget {

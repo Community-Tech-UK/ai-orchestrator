@@ -278,6 +278,7 @@ describe('RLMContextManager persisted-store hydration guards', () => {
       totalTokens: 5,
       totalSizeBytes: Buffer.byteLength('firstsecond', 'utf8'),
       byType: [{ type: 'external', count: 2, tokens: 5 }],
+      residency: manager.getResidencyStats(),
     });
     const expected = expect.objectContaining({
       name: 'RlmHydrationError',

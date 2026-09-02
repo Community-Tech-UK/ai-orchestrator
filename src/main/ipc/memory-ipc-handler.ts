@@ -8,7 +8,8 @@ import { z } from 'zod';
 import { IPC_CHANNELS, IpcResponse } from '../../shared/types/ipc.types';
 import { isFeatureEnabled } from '../../shared/constants/feature-flags';
 import { getMemoryManager } from '../memory/r1-memory-manager';
-import { getUnifiedMemory } from '../memory/unified-controller';
+import { getContextWorkerClient } from '../instance/context-worker-client';
+import type { UnifiedMemoryWorkerPort } from '../instance/unified-memory-worker-port';
 import { getDebateCoordinator } from '../orchestration/debate-coordinator';
 import { OrchestrationEventStore } from '../orchestration/event-store/orchestration-event-store';
 import { getRLMDatabase } from '../persistence/rlm-database';
@@ -48,15 +49,6 @@ import type {
   MemoryR1Stats,
   MemoryR1Snapshot
 } from '../../shared/types/memory-r1.types';
-import type {
-  UnifiedRetrievalResult,
-  UnifiedMemoryStats,
-  UnifiedMemorySnapshot,
-  SessionMemory,
-  LearnedPattern,
-  WorkflowMemory,
-  StrategyMemory
-} from '../../shared/types/unified-memory.types';
 import type { DebateResult, ActiveDebate, DebateStats } from '../../shared/types/debate.types';
 import { validatedHandler } from './validated-handler';
 // Training types moved to training-ipc-handler.ts
@@ -79,6 +71,7 @@ function getOrchestrationEventStore(): OrchestrationEventStore {
  * Register all memory-related IPC handlers
  */
 interface RegisterMemoryHandlersDeps {
+  unifiedMemoryPort?: UnifiedMemoryWorkerPort;
   ensureTrustedSender?: (
     event: IpcMainInvokeEvent,
     channel: string,
@@ -235,7 +228,7 @@ function registerMemoryR1Handlers(deps: RegisterMemoryHandlersDeps): void {
 // ============ Unified Memory Handlers ============
 
 function registerUnifiedMemoryHandlers(deps: RegisterMemoryHandlersDeps): void {
-  const unified = getUnifiedMemory();
+  const unifiedMemoryPort = deps.unifiedMemoryPort ?? getContextWorkerClient();
   const registerMemoryHandler = createMemoryHandlerRegistrar(deps);
 
   // Process input
@@ -247,7 +240,12 @@ function registerUnifiedMemoryHandlers(deps: RegisterMemoryHandlersDeps): void {
         payload,
         'UNIFIED_MEMORY_PROCESS_INPUT'
       );
-      await unified.processInput(validated.input, validated.sessionId, validated.taskId);
+      await unifiedMemoryPort.invokeUnifiedMemory({
+        kind: 'process-input',
+        input: validated.input,
+        sessionId: validated.sessionId,
+        taskId: validated.taskId,
+      });
       return successVoid();
     }
   );
@@ -255,13 +253,18 @@ function registerUnifiedMemoryHandlers(deps: RegisterMemoryHandlersDeps): void {
   // Retrieve
   registerMemoryHandler(
     IPC_CHANNELS.UNIFIED_MEMORY_RETRIEVE,
-    async (_event, payload: unknown): Promise<IpcResponse<UnifiedRetrievalResult>> => {
+    async (_event, payload: unknown) => {
       const validated = validateIpcPayload(
         UnifiedMemoryRetrievePayloadSchema,
         payload,
         'UNIFIED_MEMORY_RETRIEVE'
       );
-      return success(await unified.retrieve(validated.query, validated.taskId, validated.options));
+      return success(await unifiedMemoryPort.invokeUnifiedMemory({
+        kind: 'retrieve',
+        query: validated.query,
+        taskId: validated.taskId,
+        options: validated.options,
+      }));
     }
   );
 
@@ -274,12 +277,13 @@ function registerUnifiedMemoryHandlers(deps: RegisterMemoryHandlersDeps): void {
         payload,
         'UNIFIED_MEMORY_RECORD_SESSION_END'
       );
-      await unified.recordSessionEnd(
-        validated.sessionId,
-        validated.outcome,
-        validated.summary,
-        validated.lessons
-      );
+      await unifiedMemoryPort.invokeUnifiedMemory({
+        kind: 'record-session-end',
+        sessionId: validated.sessionId,
+        outcome: validated.outcome,
+        summary: validated.summary,
+        lessons: validated.lessons,
+      });
       return successVoid();
     }
   );
@@ -287,17 +291,18 @@ function registerUnifiedMemoryHandlers(deps: RegisterMemoryHandlersDeps): void {
   // Record workflow
   registerMemoryHandler(
     IPC_CHANNELS.UNIFIED_MEMORY_RECORD_WORKFLOW,
-    async (_event, payload: unknown): Promise<IpcResponse<WorkflowMemory>> => {
+    async (_event, payload: unknown) => {
       const validated = validateIpcPayload(
         UnifiedMemoryRecordWorkflowPayloadSchema,
         payload,
         'UNIFIED_MEMORY_RECORD_WORKFLOW'
       );
-      const workflow = await unified.recordWorkflow(
-        validated.name,
-        validated.steps,
-        validated.applicableContexts
-      );
+      const workflow = await unifiedMemoryPort.invokeUnifiedMemory({
+        kind: 'record-workflow',
+        name: validated.name,
+        steps: validated.steps,
+        applicableContexts: validated.applicableContexts,
+      });
       return success(workflow);
     }
   );
@@ -305,19 +310,20 @@ function registerUnifiedMemoryHandlers(deps: RegisterMemoryHandlersDeps): void {
   // Record strategy
   registerMemoryHandler(
     IPC_CHANNELS.UNIFIED_MEMORY_RECORD_STRATEGY,
-    async (_event, payload: unknown): Promise<IpcResponse<StrategyMemory>> => {
+    async (_event, payload: unknown) => {
       const validated = validateIpcPayload(
         UnifiedMemoryRecordStrategyPayloadSchema,
         payload,
         'UNIFIED_MEMORY_RECORD_STRATEGY'
       );
-      const strategy = await unified.recordStrategy(
-        validated.strategy,
-        validated.conditions,
-        validated.taskId,
-        validated.success,
-        validated.score
-      );
+      const strategy = await unifiedMemoryPort.invokeUnifiedMemory({
+        kind: 'record-strategy',
+        strategy: validated.strategy,
+        conditions: validated.conditions,
+        taskId: validated.taskId,
+        success: validated.success,
+        score: validated.score,
+      });
       return success(strategy);
     }
   );
@@ -325,53 +331,64 @@ function registerUnifiedMemoryHandlers(deps: RegisterMemoryHandlersDeps): void {
   // Record task outcome
   registerMemoryHandler(
     IPC_CHANNELS.UNIFIED_MEMORY_RECORD_OUTCOME,
-    (_event, payload: unknown): IpcResponse<void> => {
+    async (_event, payload: unknown): Promise<IpcResponse<void>> => {
       const validated = validateIpcPayload(
         UnifiedMemoryRecordOutcomePayloadSchema,
         payload,
         'UNIFIED_MEMORY_RECORD_OUTCOME'
       );
-      unified.recordTaskOutcome(validated.taskId, validated.success, validated.score);
+      await unifiedMemoryPort.invokeUnifiedMemory({
+        kind: 'record-outcome',
+        taskId: validated.taskId,
+        success: validated.success,
+        score: validated.score,
+      });
       return successVoid();
     }
   );
 
   // Get stats
-  registerMemoryHandler(IPC_CHANNELS.UNIFIED_MEMORY_GET_STATS, (): IpcResponse<UnifiedMemoryStats> => {
-    return success(unified.getStats());
+  registerMemoryHandler(IPC_CHANNELS.UNIFIED_MEMORY_GET_STATS, async () => {
+    return success(await unifiedMemoryPort.invokeUnifiedMemory({ kind: 'get-stats' }));
   });
 
   // Get sessions
-  registerMemoryHandler(IPC_CHANNELS.UNIFIED_MEMORY_GET_SESSIONS, (_event, limit: unknown): IpcResponse<SessionMemory[]> => {
+  registerMemoryHandler(IPC_CHANNELS.UNIFIED_MEMORY_GET_SESSIONS, async (_event, limit: unknown) => {
     const validated = validateIpcPayload(
       UnifiedMemoryGetSessionsPayloadSchema,
       limit,
       'UNIFIED_MEMORY_GET_SESSIONS'
     );
-    return success(unified.getSessionHistory(validated));
+    return success(await unifiedMemoryPort.invokeUnifiedMemory({
+      kind: 'get-sessions',
+      limit: validated,
+    }));
   });
 
   // Get patterns
   registerMemoryHandler(
     IPC_CHANNELS.UNIFIED_MEMORY_GET_PATTERNS,
-    (_event, minSuccessRate: unknown): IpcResponse<LearnedPattern[]> => {
+    async (_event, minSuccessRate: unknown) => {
       const validated = validateIpcPayload(
         UnifiedMemoryGetPatternsPayloadSchema,
         minSuccessRate,
         'UNIFIED_MEMORY_GET_PATTERNS'
       );
-      return success(unified.getPatterns(validated));
+      return success(await unifiedMemoryPort.invokeUnifiedMemory({
+        kind: 'get-patterns',
+        minSuccessRate: validated,
+      }));
     }
   );
 
   // Get workflows
-  registerMemoryHandler(IPC_CHANNELS.UNIFIED_MEMORY_GET_WORKFLOWS, (): IpcResponse<WorkflowMemory[]> => {
-    return success(unified.getWorkflows());
+  registerMemoryHandler(IPC_CHANNELS.UNIFIED_MEMORY_GET_WORKFLOWS, async () => {
+    return success(await unifiedMemoryPort.invokeUnifiedMemory({ kind: 'get-workflows' }));
   });
 
   // Save state
-  registerMemoryHandler(IPC_CHANNELS.UNIFIED_MEMORY_SAVE, async (): Promise<IpcResponse<UnifiedMemorySnapshot>> => {
-    return success(await unified.save());
+  registerMemoryHandler(IPC_CHANNELS.UNIFIED_MEMORY_SAVE, async () => {
+    return success(await unifiedMemoryPort.invokeUnifiedMemory({ kind: 'save' }));
   });
 
   // Load state
@@ -383,7 +400,7 @@ function registerUnifiedMemoryHandlers(deps: RegisterMemoryHandlersDeps): void {
         snapshot,
         'UNIFIED_MEMORY_LOAD'
       );
-      await unified.load(validated);
+      await unifiedMemoryPort.invokeUnifiedMemory({ kind: 'load', snapshot: validated });
       return successVoid();
     }
   );
@@ -391,13 +408,13 @@ function registerUnifiedMemoryHandlers(deps: RegisterMemoryHandlersDeps): void {
   // Configure
   registerMemoryHandler(
     IPC_CHANNELS.UNIFIED_MEMORY_CONFIGURE,
-    (_event, config: unknown): IpcResponse<void> => {
+    async (_event, config: unknown): Promise<IpcResponse<void>> => {
       const validated = validateIpcPayload(
         UnifiedMemoryConfigurePayloadSchema,
         config,
         'UNIFIED_MEMORY_CONFIGURE'
       );
-      unified.configure(validated);
+      await unifiedMemoryPort.invokeUnifiedMemory({ kind: 'configure', config: validated });
       return successVoid();
     }
   );

@@ -15,9 +15,11 @@ import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token
 import type {
   ContextStoreRow,
   ContextSectionMetadataRow,
+  ContextSectionFilterMetadataRow,
   ContextSectionRow,
   ContextSectionTypeStatsRow,
   ContextStoreSectionCountRow,
+  UnindexedRootSectionRow,
   RLMSessionRow,
   OutcomeRow,
   PatternRow,
@@ -301,6 +303,14 @@ export class RLMDatabase extends EventEmitter {
     return sections.getSectionMetadata(this.db, storeId, options);
   }
 
+  /** Bounded content-free projection for codebase indexing-filter audits. */
+  getSectionFilterMetadata(
+    storeId: string,
+    options: { limit: number; offset: number },
+  ): ContextSectionFilterMetadataRow[] {
+    return sections.getSectionFilterMetadata(this.db, storeId, options);
+  }
+
   /**
    * Authoritative section totals for all stores from one grouped query.
    */
@@ -311,6 +321,14 @@ export class RLMDatabase extends EventEmitter {
   /** Constant-size section analytics without metadata or content hydration. */
   getSectionStatsByType(): ContextSectionTypeStatsRow[] {
     return sections.getSectionStatsByType(this.db);
+  }
+
+  /** Content-free durable semantic gap projection. */
+  listUnindexedRootSections(
+    storeId: string,
+    options?: { limit?: number },
+  ): UnindexedRootSectionRow[] {
+    return sections.listUnindexedRootSections(this.db, storeId, options);
   }
 
   removeSection(sectionId: string): void {
@@ -441,6 +459,17 @@ export class RLMDatabase extends EventEmitter {
     metadata?: Record<string, unknown>;
   }): void {
     vectors.addVector(this.db, vector);
+  }
+
+  addVectorForExistingSection(vector: {
+    id: string;
+    storeId: string;
+    sectionId: string;
+    embedding: vectors.EmbeddingVector;
+    contentPreview?: string;
+    metadata?: Record<string, unknown>;
+  }): boolean {
+    return vectors.addVectorForExistingSection(this.db, vector);
   }
 
   getVectors(storeId: string): VectorRow[] {

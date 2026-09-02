@@ -75,6 +75,14 @@ vi.mock('../../memory', () => ({
   getUnifiedMemory: () => ({}),
 }));
 
+vi.mock('../../memory/output-storage', () => ({
+  getOutputStorageManager: () => ({
+    deleteInstance: mocks.outputStorageDelete,
+    loadMessages: vi.fn().mockResolvedValue([]),
+    getTotalStats: vi.fn(() => ({})),
+  }),
+}));
+
 vi.mock('../../process', () => ({
   getSupervisorTree: () => ({
     registerInstance: mocks.supervisorRegister,

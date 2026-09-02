@@ -6,7 +6,7 @@ import { getSettingsManager } from '../core/config/settings-manager';
 import { DEFAULT_CODE_INDEX_IGNORES } from '../codemem/code-index-ignores';
 import { workspaceHashForPath } from '../codemem/symbol-id';
 import { getProjectRootRegistry } from '../memory/project-root-registry';
-import { RLMContextManager } from '../rlm/context-manager';
+import { getContextWorkerClient } from '../instance/context-worker-client';
 import { getCodebaseIndexingLaneGateway } from './codebase-indexing-lane-gateway';
 import { getCodebaseFileWatcher, type CodebaseFileWatcher } from './file-watcher';
 import { DEFAULT_INDEXING_CONFIG, shouldIncludeFile } from './config';
@@ -19,6 +19,7 @@ import type {
   AutoIndexSettingsTarget,
   PreflightResult,
 } from './codebase-indexing-auto.types';
+import type { RlmCloneValue } from '../instance/rlm-worker-port';
 
 export function createDefaultIndexingTarget(): AutoIndexingTarget {
   return getCodebaseIndexingLaneGateway();
@@ -32,11 +33,17 @@ export function createDefaultFileWatcherTarget(): AutoIndexFileWatcherTarget {
 }
 
 export function createDefaultContextManagerTarget(): AutoIndexContextManagerTarget {
-  const manager = RLMContextManager.getInstance();
+  const port = getContextWorkerClient();
   return {
-    createStore: (instanceId: string, config?: Record<string, unknown>) =>
-      manager.createStore(instanceId, config),
-    listStores: () => manager.listStores(),
+    createStore: (instanceId: string, config?: Record<string, RlmCloneValue>) =>
+      port.invokeRlm({ kind: 'create-store', instanceId, config }),
+    listStores: () => port.invokeRlm({ kind: 'list-stores' }),
+    listSectionFilterMetadata: (storeId, offset, limit) => port.invokeRlm({
+      kind: 'list-section-filter-metadata',
+      storeId,
+      offset,
+      limit,
+    }),
   };
 }
 

@@ -92,6 +92,16 @@ describe('browser-mcp-config', () => {
     expect(bridge?.env).not.toHaveProperty('AI_ORCHESTRATOR_BROWSER_TOOL_DEFERRAL');
   });
 
+  it('keeps the Cursor bridge eager because its MCP client does not install revealed tools', () => {
+    const bridge = resolveBrowserGatewayBridgeSpec({
+      ...options,
+      provider: 'cursor',
+      toolDeferral: true,
+    });
+
+    expect(bridge?.env).not.toHaveProperty('AI_ORCHESTRATOR_BROWSER_TOOL_DEFERRAL');
+  });
+
   it('builds Codex TOML config pointing at the aio-mcp SEA', () => {
     const config = buildBrowserGatewayCodexConfigToml({
       ...options,

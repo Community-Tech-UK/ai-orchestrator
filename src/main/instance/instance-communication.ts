@@ -9,7 +9,7 @@ import { BaseCliAdapter, type CliResponse } from '../cli/adapters/base-cli-adapt
 // History archiving moved exclusively to instance-lifecycle.ts terminateInstance()
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getLogger } from '../logging/logger';
-import { getOutputStorageManager } from '../memory';
+import { getOutputStorageManager } from '../memory/output-storage';
 import { getCostTracker } from '../core/system/cost-tracker';
 import { recordInstanceTurnAttribution } from '../core/system/cost-attribution';
 import { getCacheAnalyticsService } from '../context/cache-analytics-service';

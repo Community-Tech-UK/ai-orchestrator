@@ -6,6 +6,7 @@ import type {
   BrowserCreateGrantRequest,
   BrowserDenyRequestPayload,
   BrowserGatewayResult,
+  BrowserGrantProposal,
   BrowserListApprovalRequestsRequest,
   BrowserListGrantsRequest,
   BrowserPermissionGrant,
@@ -168,21 +169,22 @@ export class BrowserGatewayApprovalOperations {
     }
 
     const now = Date.now();
+    const approvedGrant = normalizeApprovalGrant(approval, request.grant);
     const scope = grantScopeForApproval({
       profileId: approval.profileId,
       targetId: approval.targetId,
-      proposedNodeId: request.grant.nodeId,
+      proposedNodeId: approvedGrant.nodeId,
     });
     const grant = this.deps.grantStore.createGrant({
-      ...request.grant,
+      ...approvedGrant,
       // An explicit user "Allow" on an approval covering submit/destructive
       // classes must produce a grant that can actually authorize that action:
       // grantMatches() requires `autonomous: true` for those classes, so a
       // non-autonomous per_action/session grant would be dead on arrival and
       // the very next retry would re-prompt the user in a loop.
       autonomous:
-        (request.grant.mode === 'autonomous' && request.grant.autonomous) ||
-        requiresAutonomousGrant(request.grant.allowedActionClasses),
+        (approvedGrant.mode === 'autonomous' && approvedGrant.autonomous) ||
+        requiresAutonomousGrant(approvedGrant.allowedActionClasses),
       instanceId: approval.instanceId,
       provider: approval.provider,
       ...scope,
@@ -190,7 +192,7 @@ export class BrowserGatewayApprovalOperations {
       decidedBy: 'user',
       decision: 'allow',
       reason: request.reason,
-      expiresAt: defaultGrantExpiresAt(request.grant.mode, now),
+      expiresAt: defaultGrantExpiresAt(approvedGrant.mode, now),
     });
     this.deps.approvalStore.resolveRequest(approval.requestId, {
       status: 'approved',
@@ -395,4 +397,21 @@ export class BrowserGatewayApprovalOperations {
       decidedAt: Date.now(),
     };
   }
+}
+
+/** Credential and unknown hard stops authorize only the exact retry being approved. */
+function normalizeApprovalGrant(
+  approval: BrowserApprovalRequest,
+  requested: BrowserGrantProposal,
+): BrowserGrantProposal {
+  if (approval.actionClass !== 'credential' && approval.actionClass !== 'unknown') {
+    return requested;
+  }
+  return {
+    ...approval.proposedGrant,
+    mode: 'per_action',
+    allowedActionClasses: [approval.actionClass],
+    allowExternalNavigation: false,
+    autonomous: false,
+  };
 }

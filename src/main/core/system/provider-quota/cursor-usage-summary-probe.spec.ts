@@ -5,6 +5,7 @@ import {
   type CursorUsageFetch,
 } from './cursor-usage-summary-probe';
 import type { CursorCredentialResult } from './cursor-credentials-reader';
+import { ProviderQuotaWindowSchema } from '@contracts/schemas/quota';
 
 const VALID_CREDENTIAL: CursorCredentialResult = {
   credential: {
@@ -63,6 +64,31 @@ describe('CursorUsageSummaryProbe', () => {
     expect(byId['cursor.included'].resetsAt).toBe(Date.parse('2026-07-01T00:00:00Z'));
     expect(byId['cursor.on-demand'].used).toBe(2.5);
     expect(byId['cursor.on-demand'].limit).toBe(100);
+  });
+
+  // The QUOTA_UPDATED event is validated against this strict schema on its way
+  // to the renderer, and a rejected payload is dropped, not repaired — so a
+  // probe field or unit the schema does not know about silently freezes the
+  // quota UI while every typecheck stays green.
+  it('emits windows the renderer-event schema accepts', () => {
+    for (const window of parseCursorUsageSummaryPayload(SUMMARY_BODY)) {
+      const parsed = ProviderQuotaWindowSchema.safeParse(window);
+      expect(parsed.success, `${window.id}: ${JSON.stringify(parsed.error?.issues)}`).toBe(true);
+    }
+  });
+
+  // Regression: these windows are utilization ratios, not dollars. Emitting
+  // them as `usd` made the loop throttle read every Cursor window as a paid
+  // overage bucket, which parked Cursor loops at any usage above 0%.
+  it('marks plan usage as percent-denominated and not paid overage', () => {
+    const windows = parseCursorUsageSummaryPayload(SUMMARY_BODY);
+    const byId = Object.fromEntries(windows.map((w) => [w.id, w]));
+
+    expect(byId['cursor.included'].unit).toBe('percent');
+    expect(byId['cursor.included'].overage).toBe(false);
+    // On-demand is the one bucket that really is paid spend.
+    expect(byId['cursor.on-demand'].unit).toBe('percent');
+    expect(byId['cursor.on-demand'].overage).toBe(true);
   });
 
   it('trusts Cursor totalPercentUsed for the included plan window', () => {

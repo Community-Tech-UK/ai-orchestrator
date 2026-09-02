@@ -122,16 +122,12 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 const DEFAULT_PROMPT_TIMEOUT_MS = 10 * 60_000;
 
 /**
- * How long a prompt turn can go without ANY `session/update` notification
- * before we surface a stall warning (UI can offer "cancel this turn?").
- * Distinct from the hard `promptTimeoutMs`: this is a gentler heuristic
- * that fires earlier so the user gets an escalation affordance instead
- * of watching a frozen "Making edits" spinner for 10 minutes.
- *
- * Only fires while a prompt is actually in flight — idle sessions don't
- * emit spurious stall warnings.
+ * The activity-aware prompt timeout is the authoritative ACP liveness owner.
+ * Keep the earlier heuristic warning disabled unless a caller explicitly opts
+ * in: legitimate remote/browser work can remain quiet for several minutes,
+ * and surfacing that as a transcript error tells users to cancel healthy work.
  */
-const DEFAULT_STALL_WARNING_MS = 3 * 60_000;
+const DEFAULT_STALL_WARNING_MS = 0;
 
 const DEFAULT_CLIENT_INFO: AcpImplementationInfo = {
   name: 'ai-orchestrator',
@@ -252,11 +248,9 @@ export interface AcpCliAdapterConfig extends Omit<CliAdapterConfig, 'command' | 
   /** Limiter key — typically the provider name (`'copilot'`, `'cursor'`). */
   concurrencyKey?: string;
   /** Emit a `stall_warning` event + error OutputMessage if a prompt turn
-   *  goes this long without any `session/update` notification. Gives the
-   *  UI an earlier signal than the hard `promptTimeoutMs` so users see
-   *  "looks stuck — cancel?" before their session has been frozen for
-   *  10 minutes. Defaults to {@link DEFAULT_STALL_WARNING_MS}.
-   *  Set to 0 to disable. */
+   *  goes this long without any `session/update` notification. Disabled by
+   *  default because quiet external work is not proof of a stalled turn;
+   *  the activity-aware prompt timeout remains authoritative. */
   stallWarningMs?: number;
 }
 
@@ -730,6 +724,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
     if (timeoutMs <= 0) return;
 
     const scheduleNext = (): void => {
+      const armedAt = Date.now();
       this.stallTimer = setTimeout(() => {
         // Guard: turn has already settled.
         if (!this.currentPromptRequestId) return;
@@ -737,6 +732,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
         const durationMs = this.currentPrompt
           ? Date.now() - this.currentPrompt.startedAt
           : timeoutMs;
+        const inactiveMs = Date.now() - armedAt;
 
         logger.warn('ACP prompt turn appears stalled', {
           adapter: this.getName(),
@@ -744,6 +740,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
           promptRequestId: this.currentPromptRequestId,
           timeoutMs,
           durationMs,
+          inactiveMs,
         });
         // Emit a structured warning the UI can render as "This turn looks
         // stuck — cancel?" without forcibly failing the prompt.
@@ -753,6 +750,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
           promptRequestId: this.currentPromptRequestId,
           timeoutMs,
           durationMs,
+          inactiveMs,
         });
 
         // Also land it on the output buffer so chat history records the
@@ -761,7 +759,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
           id: generateId(),
           timestamp: Date.now(),
           type: 'error',
-          content: `This turn hasn't produced any output for ${Math.round(durationMs / 1000)}s — it may be stuck. Cancel the turn to try again.`,
+          content: `This turn hasn't produced any output for ${Math.round(inactiveMs / 1000)}s — it may be stuck. Cancel the turn to try again.`,
           metadata: {
             source: 'acp-stall-warning',
             transport: 'acp',
@@ -769,6 +767,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
             severity: 'warning',
             timeoutMs,
             durationMs,
+            inactiveMs,
           },
         } satisfies OutputMessage);
 
