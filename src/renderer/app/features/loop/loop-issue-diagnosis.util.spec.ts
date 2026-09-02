@@ -125,7 +125,7 @@ describe('buildLoopIssueView', () => {
       blocked: true,
     });
     expect(view!.severity).toBe('CRITICAL');
-    expect(view!.headline).toBe('The agent wrote a blocker');
+    expect(view!.headline).toBe('The loop is blocked and needs you');
     expect(view!.problem).toBe('BLOCKED.md present: needs a DB password');
     expect(view!.implication).toContain('cannot continue on its own');
     expect(view!.signals.map((signal) => signal.id)).toEqual(['BLOCKED', 'G']);
@@ -141,7 +141,7 @@ describe('buildLoopIssueView', () => {
       blocked: true,
     });
     expect(view).not.toBeNull();
-    expect(view!.headline).toBe('The agent wrote a blocker');
+    expect(view!.headline).toBe('The loop is blocked and needs you');
     expect(view!.problem).toBe('preflight verification failed');
   });
 
@@ -212,7 +212,7 @@ describe('buildLoopIssueView', () => {
     });
     expect(view!.fixability).toBe('not-by-hint');
     expect(view!.implication).toContain('waiting on you');
-    expect(view!.nextStep).toContain('Read the blocker');
+    expect(view!.nextStep).toContain('Read the reason above');
     expect(view!.actions.find((action) => action.kind === 'inspect')?.primary).toBe(true);
   });
 });

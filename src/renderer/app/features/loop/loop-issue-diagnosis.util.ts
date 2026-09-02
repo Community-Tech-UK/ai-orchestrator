@@ -79,11 +79,16 @@ export const PROGRESS_SIGNAL_CATALOG: Record<string, ProgressSignalCatalogEntry>
     fixability: 'fixable',
     nextStep: 'Hint what to change next, or tell it to stop re-reading and edit.',
   },
+  // Main reuses this one id for every out-of-band pause: a BLOCKED.md or block
+  // intent from the agent, a resource-governor pause, and a failed preflight
+  // (see `resourceGovernorPauseSignal` / `preflightBlockedSignal`). So the copy
+  // must not claim the agent wrote anything — the specific reason arrives as
+  // the signal's own message and is rendered next to this.
   BLOCKED: {
-    title: 'The agent wrote a blocker',
-    meaning: 'The loop hit a BLOCKED.md or an explicit block intent and cannot continue on its own.',
+    title: 'The loop is blocked and needs you',
+    meaning: 'The loop stopped on something it cannot clear by itself — a blocker the agent wrote, a resource-governor pause, or a failed preflight. The reason line says which.',
     fixability: 'not-by-hint',
-    nextStep: 'Read the blocker, resolve the missing access or decision, then hint or resume.',
+    nextStep: 'Read the reason above, clear it (access, a decision, resources, or a failing check), then hint or resume.',
   },
 };
 
@@ -123,7 +128,6 @@ export interface LoopIssueAction {
 export interface LoopIssueView {
   severity: LoopIssueSeverity;
   chipLabel: string;
-  chipTitle: string;
   headline: string;
   problem: string;
   implication: string;
@@ -333,7 +337,6 @@ export function buildLoopIssueView(input: {
   return {
     severity,
     chipLabel: progressVerdictWord(severity),
-    chipTitle: input.running ? `Last iteration: ${headline}` : headline,
     headline,
     problem,
     implication: implicationFor(severity, input.running, input.paused, blocked),

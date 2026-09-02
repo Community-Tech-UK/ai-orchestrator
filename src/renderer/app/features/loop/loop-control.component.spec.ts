@@ -330,17 +330,17 @@ describe('LoopControlComponent', () => {
 
     const banner = fixture.nativeElement.querySelector('.loop-banner') as HTMLElement;
     const title = banner.querySelector('.loop-banner-title')?.textContent?.trim();
-    expect(title).toBe('The agent wrote a blocker');
+    expect(title).toBe('The loop is blocked and needs you');
     expect(title).not.toContain('Repeating the same tool calls');
     // The actual blocker text must survive into the banner body.
     expect(banner.textContent).toContain('BLOCKED.md present: needs a staging DB password');
     expect(banner.textContent).toContain('cannot continue on its own');
-    expect(banner.textContent).toContain('Read the blocker');
+    expect(banner.textContent).toContain('Read the reason above');
 
     // The status strip renders alongside the banner — its chip tooltip must not
     // contradict it with the stale iteration reason.
     const verdict = fixture.nativeElement.querySelector('.ls-verdict') as HTMLElement;
-    expect(verdict.title).toBe('The agent wrote a blocker');
+    expect(verdict.title).toBe('The loop is blocked and needs you');
     expect(verdict.title).not.toContain('Repeating the same tool calls');
   });
 
