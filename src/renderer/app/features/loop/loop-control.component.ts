@@ -34,6 +34,12 @@ import {
   terminalStatusLabel,
 } from './loop-formatters.util';
 import { LoopInspectorProgressComponent } from './loop-inspector-progress.component';
+import { LoopIssueCardComponent } from './loop-issue-card.component';
+import { LoopIterationEvidenceComponent } from './loop-iteration-evidence.component';
+import {
+  buildLoopIssueView,
+  progressVerdictHeaderWord,
+} from './loop-issue-diagnosis.util';
 import { LoopPastRunsPanelComponent } from './loop-past-runs-panel.component';
 import { PromptModalComponent } from '../../shared/components/prompt-modal/prompt-modal.component';
 import { RlmStorageMaintenanceComponent } from './rlm-storage-maintenance.component';
@@ -58,7 +64,7 @@ import { RendererPollSchedulerService } from '../../core/services/renderer-poll-
 @Component({
   selector: 'app-loop-control',
   standalone: true,
-  imports: [SlicePipe, LoopInspectorProgressComponent, LoopPastRunsPanelComponent, PromptModalComponent, RlmStorageMaintenanceComponent, VerificationRunHistoryComponent],
+  imports: [SlicePipe, LoopInspectorProgressComponent, LoopIssueCardComponent, LoopIterationEvidenceComponent, LoopPastRunsPanelComponent, PromptModalComponent, RlmStorageMaintenanceComponent, VerificationRunHistoryComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (banner(); as b) {
@@ -87,8 +93,14 @@ import { RendererPollSchedulerService } from '../../core/services/renderer-poll-
         } @else {
           @switch (b.kind) {
             @case ('no-progress') {
-              <span class="loop-banner-title">{{ pauseKind() === 'blocked' ? 'Loop blocked — needs you' : 'Loop paused — no progress' }}</span>
-              <span class="loop-banner-msg">{{ b.message }} <code>(signal {{ b.signalId }})</code></span>
+              <span class="loop-banner-title">{{ bannerIssueView()?.headline ?? (pauseKind() === 'blocked' ? 'Loop blocked — needs you' : 'Loop paused — no progress') }}</span>
+              <span class="loop-banner-msg">
+                @if (bannerIssueView(); as issue) {
+                  {{ issue.problem }} {{ issue.implication }} {{ issue.nextStep }}
+                } @else {
+                  {{ b.message }}
+                }
+              </span>
               <span class="loop-banner-actions">
                 <button type="button" (click)="onToggleInspector()">Inspect</button>
                 <button type="button" (click)="onInjectHint()">Inject hint</button>
@@ -147,6 +159,16 @@ import { RendererPollSchedulerService } from '../../core/services/renderer-poll-
           <button type="button" class="ls-stop" (click)="onStop()" title="Stop loop">Stop</button>
         </span>
       </div>
+
+      @if (showIssueCard(); as issue) {
+        <app-loop-issue-card
+          [issue]="issue"
+          (hint)="onInjectHint()"
+          (inspect)="onToggleInspector()"
+          (stopLoop)="onStop()"
+          (resumeLoop)="onResumeAnyway()"
+        />
+      }
 
       @if (pingPong(); as pp) {
         <div class="loop-pingpong" title="Conversational ping-pong review">
@@ -301,7 +323,7 @@ import { RendererPollSchedulerService } from '../../core/services/renderer-poll-
               @for (iter of inspectorIterations(); track iter.id) {
                 <details class="li-iter" [open]="iter.seq === latestIterationSeq()">
                   <summary>
-                    <span>iter {{ iterationNumber(iter.seq) }} · {{ iter.stage }} · {{ iter.progressVerdict }}</span>
+                    <span>iter {{ iterationNumber(iter.seq) }} · {{ iter.stage }} · {{ verdictHeader(iter.progressVerdict) }}</span>
                     <span>{{ duration(iterationDuration(iter)) }} · {{ tokens(iter.tokens) }} · {{ cost(iter.costCents) }}</span>
                   </summary>
                   <div class="li-grid">
@@ -310,10 +332,7 @@ import { RendererPollSchedulerService } from '../../core/services/renderer-poll-
                       <pre>{{ iter.outputFull || iter.outputExcerpt || 'No output captured.' }}</pre>
                     </div>
                     <div>
-                      <div class="li-subtitle">Evidence</div>
-                      <p>{{ signalSummary(iter) }}</p>
-                      <p>{{ testSummary(iter) }}</p>
-                      <p>{{ filesPreview(iter) }}</p>
+                      <app-loop-iteration-evidence [iteration]="iter" />
                       @if (iter.verifySummary) {
                         <div class="li-subtitle">Verify summary (local model)</div>
                         <pre>{{ iter.verifySummary }}</pre>
@@ -601,12 +620,77 @@ export class LoopControlComponent implements OnDestroy {
     });
   });
 
-  /** Latest completed-iteration verdict, labelled explicitly during an in-flight iteration. */
+  /**
+   * Latest completed-iteration verdict, labelled explicitly during an in-flight
+   * iteration. The strip renders alongside the pause banner, so while a banner
+   * is up the chip tooltip must use the banner's diagnosis — otherwise a
+   * blocked pause shows the real blocker in the banner and a stale iteration
+   * WARN in the tooltip right below it.
+   */
   latestVerdict = computed(() => {
     const active = this.active();
     const value = active?.lastIteration?.progressVerdict;
     if (!value) return null;
-    return { value, ...progressVerdictView(value, active.status === 'running') };
+    const headline = (this.banner() ? this.bannerIssueView() : this.issueView())?.headline;
+    return progressVerdictView(value, active.status === 'running', headline);
+  });
+
+  /**
+   * True only for a pause the loop imposed on itself over progress. A manual
+   * Pause and an awaiting-review pause are `status === 'paused'` too, so
+   * keying off status alone would describe those as "paused because it could
+   * not prove progress" — a lie. (A provider-limit park is already excluded:
+   * it has its own status.) The banner check covers the window where the
+   * banner event has landed but the paused state has not.
+   */
+  private progressPause = computed(() => {
+    if (this.banner()?.kind === 'no-progress') return true;
+    const kind = this.pauseKind();
+    return kind === 'no-progress' || kind === 'blocked';
+  });
+
+  /** Operator diagnosis for the last WARN/CRITICAL iteration (null when healthy). */
+  issueView = computed(() => {
+    const active = this.active();
+    const last = active?.lastIteration;
+    if (!active || !last) return null;
+    return buildLoopIssueView({
+      verdict: last.progressVerdict,
+      signals: last.progressSignals,
+      running: active.status === 'running',
+      paused: this.progressPause(),
+      blocked: this.pauseKind() === 'blocked',
+    });
+  });
+
+  /** Show the diagnosis card only when a pause banner is not already covering it. */
+  showIssueCard = computed(() => this.banner() ? null : this.issueView());
+
+  /**
+   * Diagnosis for the pause banner. Unlike the card, this leads with the
+   * signal that actually caused the pause. A BLOCKED / resource-governor /
+   * preflight pause is raised out of band and never lands in the iteration's
+   * `progressSignals`, so building the banner from the iteration alone would
+   * headline a stale WARN and throw the real blocker text away.
+   */
+  bannerIssueView = computed(() => {
+    const active = this.active();
+    const b = this.banner();
+    const pauseSignal = b?.kind === 'no-progress'
+      // A pause signal is CRITICAL by construction at every emit site; the
+      // store's banner shape does not carry the verdict.
+      ? { id: b.signalId, verdict: 'CRITICAL', message: b.message }
+      : undefined;
+    const last = active?.lastIteration;
+    if (!active || (!last && !pauseSignal)) return null;
+    return buildLoopIssueView({
+      verdict: last?.progressVerdict ?? 'OK',
+      signals: last?.progressSignals ?? [],
+      pauseSignal,
+      running: active.status === 'running',
+      paused: this.progressPause(),
+      blocked: this.pauseKind() === 'blocked',
+    });
   });
 
   /** Completion-gate stepper steps for the active loop. */
@@ -1054,38 +1138,6 @@ export class LoopControlComponent implements OnDestroy {
     return (iteration.endedAt ?? Date.now()) - iteration.startedAt;
   }
 
-  protected testSummary(iteration: LoopIterationPayload): string {
-    if (iteration.testPassCount === null && iteration.testFailCount === null) {
-      return 'Tests: not reported';
-    }
-    return `Tests: ${iteration.testPassCount ?? 0} passed, ${iteration.testFailCount ?? 0} failed`;
-  }
-
-  protected filesPreview(iteration: LoopIterationPayload): string {
-    if (iteration.filesChanged.length === 0) return 'Files changed: none reported';
-    const preview = iteration.filesChanged
-      .slice(0, 6)
-      .map((file) => `${file.path} (+${file.additions}/-${file.deletions})`)
-      .join(', ');
-    const suffix = iteration.filesChanged.length > 6 ? `, +${iteration.filesChanged.length - 6} more` : '';
-    return `Files changed: ${preview}${suffix}`;
-  }
-
-  protected signalSummary(iteration: LoopIterationPayload): string {
-    const progress = iteration.progressSignals.length > 0
-      ? iteration.progressSignals.map((signal) => `${signal.id}:${signal.verdict}`).join(', ')
-      : 'none';
-    const completion = iteration.completionSignalsFired.length > 0
-      ? iteration.completionSignalsFired
-        .map((signal) => `${signal.id}:${signal.sufficient ? 'sufficient' : 'insufficient'}`)
-        .join(', ')
-      : 'none';
-    const verify = iteration.verifyFailureKind
-      ? `${iteration.verifyStatus} (${iteration.verifyFailureKind})`
-      : iteration.verifyStatus;
-    return `Signals: progress ${progress}; completion ${completion}; verify ${verify}`;
-  }
-
   protected errorSummary(iteration: LoopIterationPayload): string {
     return iteration.errors
       .map((error) => `${error.bucket}: ${error.excerpt}`)
@@ -1104,4 +1156,5 @@ export class LoopControlComponent implements OnDestroy {
     maxIterations === null ? '∞' : String(maxIterations);
   protected readonly summaryStatusLabel = terminalStatusLabel;
   protected readonly managedStatus = managedWorktreeStatus;
+  protected readonly verdictHeader = progressVerdictHeaderWord;
 }

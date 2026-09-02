@@ -55,4 +55,38 @@ export const RLM_MIGRATIONS_061_065: Migration[] = [
       DROP TABLE IF EXISTS workspace_secrets;
     `,
   },
+  {
+    // Workspace-bound MCP connectors. Distinct from orchestrator/shared/provider-user
+    // scopes: those are reusable across workspaces and must never persist secret://.
+    // These records are keyed by canonical toSecretWorkspaceId + target provider and
+    // keep opaque secret:// env refs (ordinary sensitive fields still use MCP
+    // encrypted-at-rest storage). Spawn materialises matching local instances only.
+    name: '062_workspace_mcp_connectors',
+    up: `
+      CREATE TABLE IF NOT EXISTS workspace_mcp_connectors (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        transport TEXT NOT NULL CHECK (transport IN ('stdio','sse','http')),
+        command TEXT,
+        args_json TEXT,
+        url TEXT,
+        headers_json TEXT,
+        headers_secrets_encrypted_json TEXT,
+        env_json TEXT,
+        env_secrets_encrypted_json TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        UNIQUE(workspace_id, provider, name)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_workspace_mcp_connectors_workspace
+        ON workspace_mcp_connectors(workspace_id, provider);
+    `,
+    down: `
+      DROP TABLE IF EXISTS workspace_mcp_connectors;
+    `,
+  },
 ];

@@ -42,6 +42,9 @@ describe('WORKSPACE_CHANNELS', () => {
   it('has MCP channels', () => {
     expect(WORKSPACE_CHANNELS.MCP_GET_STATE).toBe('mcp:get-state');
     expect(WORKSPACE_CHANNELS.MCP_STATE_CHANGED).toBe('mcp:state-changed');
+    expect(WORKSPACE_CHANNELS.MCP_WORKSPACE_CONNECTOR_LIST).toBe('mcp:workspace-connector:list');
+    expect(WORKSPACE_CHANNELS.MCP_WORKSPACE_CONNECTOR_UPSERT).toBe('mcp:workspace-connector:upsert');
+    expect(WORKSPACE_CHANNELS.MCP_WORKSPACE_CONNECTOR_DELETE).toBe('mcp:workspace-connector:delete');
   });
 
   it('has codebase indexing channels', () => {

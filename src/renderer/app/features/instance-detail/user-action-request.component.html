@@ -96,6 +96,43 @@
               </button>
             </div>
           </div>
+        } @else if (isSecretRequest(request) && request.secretRequest) {
+          <div class="questions-form secret-card">
+            <p class="secret-purpose">{{ request.secretRequest.purpose }}</p>
+            <label class="question-item">
+              <span class="question-label">{{ request.secretRequest.label }}</span>
+              <input
+                class="question-input secret-input"
+                type="password"
+                autocomplete="off"
+                spellcheck="false"
+                [disabled]="isResponding()"
+                (input)="onSecretValueChange(request.id, $event)"
+              />
+            </label>
+            <p class="secret-footer">Stored encrypted on this Mac. Never shown to the agent.</p>
+            <div class="request-actions">
+              <button
+                class="btn-reject"
+                type="button"
+                (click)="onDeclineSecretCard(request)"
+                [disabled]="isResponding()"
+              >
+                Decline
+              </button>
+              <button
+                class="btn-approve"
+                type="button"
+                (click)="onSubmitSecretCard(request)"
+                [disabled]="isResponding() || !hasSecretValue(request.id)"
+              >
+                Save securely
+              </button>
+            </div>
+            @if (getResponseError(request.id)) {
+              <p class="request-error">{{ getResponseError(request.id) }}</p>
+            }
+          </div>
         } @else if (request.requestType === 'input_required' && !isPermissionRequest(request)) {
           <!-- Generic input_required prompt: collect free-form text -->
           <div class="questions-form">

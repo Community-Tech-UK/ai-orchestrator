@@ -47,10 +47,11 @@ import {
   getProviderModelContextWindow
 } from '../../../shared/types/provider.types';
 import { getErrorRecoveryManager } from '../../core/error-recovery';
-import type {
-  RawCliPayload,
-  DeferredToolUse,
-  ClaudeCliSpawnOptions,
+import {
+  mergeInputRequiredMetadata,
+  type RawCliPayload,
+  type DeferredToolUse,
+  type ClaudeCliSpawnOptions,
 } from './claude-cli-adapter.types';
 import {
   EXCLUDE_DYNAMIC_SECTIONS_FLAG,
@@ -1880,10 +1881,10 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           id: inputRequestId,
           prompt,
           timestamp,
-          metadata: {
+          metadata: mergeInputRequiredMetadata(message, {
             approvalTraceId,
-            traceStage: 'adapter:input_required_emit'
-          }
+            traceStage: 'adapter:input_required_emit',
+          }),
         });
 
         // Also emit as system output for visibility in chat

@@ -12,13 +12,13 @@ describe('McpPageComponent template', () => {
     expect(template).toContain('/browser');
   });
 
-  it('renders the six multi-provider management tabs', () => {
+  it('renders the seven multi-provider management tabs', () => {
     const source = readFileSync(
       'src/renderer/app/features/mcp/mcp-page.component.ts',
       'utf-8',
     );
 
-    for (const label of ['Orchestrator', 'Shared', 'Claude', 'Codex', 'Gemini', 'Copilot']) {
+    for (const label of ['Orchestrator', 'Shared', 'Workspace', 'Claude', 'Codex', 'Gemini', 'Copilot']) {
       expect(source).toContain(`label: '${label}'`);
     }
   });
@@ -34,6 +34,7 @@ describe('McpPageComponent template', () => {
     expect(template).toContain('deleteManagementServer(server)');
     expect(template).toContain('fanOutSharedServer(server)');
     expect(template).toContain('openCurrentProviderUserFile()');
+    expect(template).toContain('app-workspace-mcp-connectors-panel');
   });
 
   it('does not submit redacted URL or arg placeholders as real values', () => {

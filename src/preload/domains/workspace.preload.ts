@@ -400,6 +400,21 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
     mcpProviderOpenScopeFile: (payload: { provider: string; scope: string }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.MCP_PROVIDER_OPEN_SCOPE_FILE, payload);
     },
+
+    mcpWorkspaceConnectorList: (payload: {
+      workingDirectory: string;
+      provider?: string;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.MCP_WORKSPACE_CONNECTOR_LIST, payload);
+    },
+
+    mcpWorkspaceConnectorUpsert: (payload: unknown): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.MCP_WORKSPACE_CONNECTOR_UPSERT, payload);
+    },
+
+    mcpWorkspaceConnectorDelete: (payload: { id: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.MCP_WORKSPACE_CONNECTOR_DELETE, payload);
+    },
     onMcpStateChanged: (
       callback: (data: { type: string; serverId?: string }) => void
     ): (() => void) => {

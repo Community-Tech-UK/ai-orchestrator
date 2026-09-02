@@ -93,6 +93,20 @@ export const McpProviderUserDeletePayloadSchema = z.object({
   serverId: z.string().min(1).max(200),
 });
 
+export const WorkspaceMcpConnectorListSchema = z.object({
+  workingDirectory: z.string().min(1).max(2000),
+  provider: supportedProviderEnum.optional(),
+});
+
+export const WorkspaceMcpConnectorUpsertSchema = BaseMcpServerUpsertSchema.safeExtend({
+  workingDirectory: z.string().min(1).max(2000),
+  provider: supportedProviderEnum,
+});
+
+export const WorkspaceMcpConnectorDeleteSchema = z.object({
+  id: z.string().min(1).max(200),
+});
+
 export const McpDriftQuerySchema = z.object({
   serverId: z.string().min(1).max(200),
 });

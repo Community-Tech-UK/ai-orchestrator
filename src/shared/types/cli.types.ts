@@ -108,6 +108,8 @@ export interface CliErrorMessage extends CliStreamMessageBase {
 export interface CliInputRequiredMessage extends CliStreamMessageBase {
   type: 'input_required';
   prompt?: string;
+  /** Agent-supplied metadata. `type: 'secret_required'` carries name/label/purpose only. */
+  metadata?: Record<string, unknown>;
 }
 
 /**

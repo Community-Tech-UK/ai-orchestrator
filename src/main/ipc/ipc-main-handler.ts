@@ -25,6 +25,7 @@ import { registerLearningScanHandlers } from './learning-scan-ipc-handler';
 import { registerCrossModelReviewIpcHandlers } from './cross-model-review-ipc';
 import { initializeTokenStatsPersistence } from '../memory/token-stats-initialization';
 import { registerDefaultQuotaProbes } from '../core/system/provider-quota';
+import { setWorkspaceSecretWorkingDirectoryLookup } from '../secrets/workspace-secret-fill';
 import { getProviderQuotaService } from '../core/system/provider-quota-service';
 import { getPromptHistoryService } from '../prompt-history/prompt-history-service';
 import {
@@ -48,6 +49,7 @@ import {
   registerLspHandlers,
   registerSnapshotHandlers,
   registerMcpHandlers,
+  registerWorkspaceMcpConnectorHandlers,
   registerBrowserGatewayHandlers,
   registerBrowserUnattendedHandlers,
   registerDesktopGatewayHandlers,
@@ -251,6 +253,9 @@ export class IpcMainHandler {
       getWorkingDirectory: (id) => this.instanceManager.getInstance(id)?.workingDirectory,
       notifyAgent: async (id, message) => { await this.instanceManager.sendInput(id, message); },
     });
+    setWorkspaceSecretWorkingDirectoryLookup(
+      (id) => this.instanceManager.getInstance(id)?.workingDirectory,
+    );
 
     // GitHub Copilot account profiles and routing rules. The live-session
     // list is injected rather than imported so the handler module has no
@@ -343,6 +348,7 @@ export class IpcMainHandler {
 
     // MCP handlers
     registerMcpHandlers({ windowManager: this.windowManager });
+    registerWorkspaceMcpConnectorHandlers();
     registerBrowserGatewayHandlers({
       ensureTrustedSender: this.ensureTrustedSender.bind(this),
       instanceManager: this.instanceManager,

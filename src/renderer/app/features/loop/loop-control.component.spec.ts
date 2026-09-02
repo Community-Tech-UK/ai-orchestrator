@@ -144,7 +144,11 @@ describe('LoopControlComponent', () => {
     const text = fixture.nativeElement.textContent as string;
     expect(text).toContain('Loop trace');
     expect(text).toContain('iteration output that explains the child work');
-    expect(text).toContain('Signals: progress A:WARN; completion completed-rename:insufficient; verify failed');
+    expect(text).toContain('Repeating the same work');
+    expect(text).toContain('same work hash repeated');
+    expect(text).toContain('Completed-file rename — not enough to stop on its own');
+    expect(text).toContain('Verify ran and failed.');
+    expect(text).not.toContain('A:WARN');
     expect(text).toContain('src/main/orchestration/loop-runner.ts (+12/-3)');
     expect(text).toContain('Read state files to orient, then edited the target service and ran focused tests.');
   });
@@ -238,15 +242,126 @@ describe('LoopControlComponent', () => {
     const activityPath = fixture.nativeElement.querySelector('.la-title code') as HTMLElement;
     expect(activityPath.textContent?.trim()).toBe('/tmp/project/.worktrees/loop-1');
     const verdict = fixture.nativeElement.querySelector('.ls-verdict') as HTMLElement;
-    expect(verdict.textContent?.trim()).toBe('LAST ITER · WARN');
-    expect(verdict.title).toBe('Last completed iteration progress verdict');
+    expect(verdict.textContent?.trim()).toBe('LAST ITER · WATCH');
+    expect(verdict.title).toBe('Last iteration: Repeating the same work');
+
+    const card = fixture.nativeElement.querySelector('app-loop-issue-card') as HTMLElement;
+    expect(card.textContent).toContain('Repeating the same work');
+    expect(card.textContent).toContain('Usually fixable');
+    expect(card.textContent).toContain('still running');
+    expect(card.textContent).toContain('Give a hint');
+    expect(card.textContent).not.toContain('G:CRITICAL');
 
     const inspect = fixture.nativeElement.querySelector('.ls-actions button[title="Show loop trace"]') as HTMLButtonElement;
     inspect.click();
     await settle(fixture);
     const inspectorText = fixture.nativeElement.querySelector('.loop-inspector').textContent as string;
     expect(inspectorText).toContain('iter 2 · IMPLEMENT · in progress');
-    expect(inspectorText).toContain('iter 2 · IMPLEMENT · WARN');
+    expect(inspectorText).toContain('iter 2 · IMPLEMENT · watch');
+    expect(inspectorText).toContain('Repeating the same work');
+    expect(inspectorText).toContain('same work hash repeated');
+    expect(inspectorText).not.toContain('A:WARN');
+  });
+
+  it('diagnoses a still-running loop whose last iteration went CRITICAL', () => {
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: {
+        ...activeState(),
+        status: 'running',
+        lastIteration: {
+          ...loopIteration(),
+          progressVerdict: 'CRITICAL',
+          progressSignals: [
+            { id: 'G', verdict: 'CRITICAL', message: 'same tool called with identical args 4x' },
+            { id: 'I', verdict: 'CRITICAL', message: 'read the same file 5x with no edit between' },
+          ],
+        },
+      },
+    }));
+    fixture.detectChanges();
+
+    const verdict = fixture.nativeElement.querySelector('.ls-verdict') as HTMLElement;
+    expect(verdict.textContent?.trim()).toBe('LAST ITER · STUCK');
+
+    const card = fixture.nativeElement.querySelector('app-loop-issue-card') as HTMLElement;
+    expect(card).toBeTruthy();
+    expect(card.textContent).toContain('Repeating the same tool calls and re-reading the same files');
+    expect(card.textContent).toContain('still running');
+    expect(card.textContent).toContain('pause on its own');
+    expect(card.textContent).toContain('Usually fixable');
+    expect(card.textContent).not.toContain('G:CRITICAL');
+    expect(card.textContent).not.toContain('I:CRITICAL');
+
+    // A running CRITICAL leads with the hint; Stop is offered but not primary.
+    const primary = card.querySelector('button.primary') as HTMLButtonElement;
+    expect(primary.textContent?.trim()).toBe('Give a hint');
+    const labels = Array.from(card.querySelectorAll('button')).map((b) => b.textContent?.trim());
+    expect(labels).toEqual(['Give a hint', 'See why', 'Stop']);
+  });
+
+  it('names the real blocker instead of the previous iteration WARN', () => {
+    // A BLOCKED / resource-governor / preflight pause is raised out of band and
+    // never lands in the iteration's progressSignals, so the banner must lead
+    // with the banner's own signal — not the stale WARN from iteration N.
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: {
+        ...activeState(),
+        status: 'paused',
+        lastIteration: {
+          ...loopIteration(),
+          progressVerdict: 'WARN',
+          progressSignals: [
+            { id: 'G', verdict: 'WARN', message: 'Tool Read called 8x with identical args' },
+          ],
+        },
+      },
+    }));
+    listeners.pausedNoProgress.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      signal: {
+        id: 'BLOCKED',
+        verdict: 'CRITICAL',
+        message: 'BLOCKED.md present: needs a staging DB password',
+      },
+    }));
+    fixture.detectChanges();
+
+    const banner = fixture.nativeElement.querySelector('.loop-banner') as HTMLElement;
+    const title = banner.querySelector('.loop-banner-title')?.textContent?.trim();
+    expect(title).toBe('The agent wrote a blocker');
+    expect(title).not.toContain('Repeating the same tool calls');
+    // The actual blocker text must survive into the banner body.
+    expect(banner.textContent).toContain('BLOCKED.md present: needs a staging DB password');
+    expect(banner.textContent).toContain('cannot continue on its own');
+    expect(banner.textContent).toContain('Read the blocker');
+
+    // The status strip renders alongside the banner — its chip tooltip must not
+    // contradict it with the stale iteration reason.
+    const verdict = fixture.nativeElement.querySelector('.ls-verdict') as HTMLElement;
+    expect(verdict.title).toBe('The agent wrote a blocker');
+    expect(verdict.title).not.toContain('Repeating the same tool calls');
+  });
+
+  it('does not blame progress when the operator paused the loop by hand', () => {
+    // A manual pause never raises a no-progress banner, so the diagnosis card
+    // is what the operator sees. It must not claim the loop stopped itself.
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: { ...activeState(), status: 'paused', lastIteration: loopIteration() },
+    }));
+    fixture.detectChanges();
+
+    const card = fixture.nativeElement.querySelector('app-loop-issue-card') as HTMLElement;
+    expect(card).toBeTruthy();
+    expect(card.textContent).toContain('Repeating the same work');
+    expect(card.textContent).not.toContain('could not prove progress');
+    expect(card.textContent).not.toContain('still running');
+    expect(card.textContent).toContain('before deciding whether to continue');
+    // No self-pause means no "Resume anyway" CTA on the card; the status strip owns Resume.
+    const labels = Array.from(card.querySelectorAll('button')).map((b) => b.textContent?.trim());
+    expect(labels).not.toContain('Resume anyway');
   });
 
   it('labels a completed verdict as prior when running state hydrates without an iteration-start event', () => {
@@ -256,8 +371,8 @@ describe('LoopControlComponent', () => {
     fixture.detectChanges();
 
     const verdict = fixture.nativeElement.querySelector('.ls-verdict') as HTMLElement;
-    expect(verdict.textContent?.trim()).toBe('LAST ITER · WARN');
-    expect(verdict.title).toBe('Last completed iteration progress verdict');
+    expect(verdict.textContent?.trim()).toBe('LAST ITER · WATCH');
+    expect(verdict.title).toBe('Last iteration: Repeating the same work');
   });
 
   it('uses one-based summary labels and plain-language prompt roles', () => {
@@ -355,13 +470,29 @@ describe('LoopControlComponent', () => {
   it('routes visible no-progress banner controls to the loop id', async () => {
     listeners.stateChanged.forEach((cb) => cb({
       loopRunId: 'loop-1',
-      state: { ...activeState(), status: 'paused' },
+      state: {
+        ...activeState(),
+        status: 'paused',
+        lastIteration: {
+          ...loopIteration(),
+          progressVerdict: 'CRITICAL',
+          progressSignals: [
+            { id: 'A', verdict: 'CRITICAL', message: 'Identical work hash repeated' },
+          ],
+        },
+      },
     }));
     listeners.pausedNoProgress.forEach((cb) => cb({
       loopRunId: 'loop-1',
       signal: { id: 'A', message: 'Identical work hash repeated', verdict: 'CRITICAL' },
     }));
     fixture.detectChanges();
+
+    const bannerText = fixture.nativeElement.querySelector('.loop-banner')?.textContent as string;
+    expect(bannerText).toContain('Repeating the same work');
+    expect(bannerText).toContain('will not continue');
+    expect(bannerText).not.toContain('(signal A)');
+    expect(fixture.nativeElement.querySelector('app-loop-issue-card')).toBeNull();
 
     // The banner "Inject hint" opens the in-app modal (window.prompt is a
     // no-op in the sandboxed renderer). The modal element is wired in, and

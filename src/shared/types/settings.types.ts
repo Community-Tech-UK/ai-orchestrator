@@ -298,6 +298,16 @@ export interface AppSettings extends DesktopComputerUseSettings {
    * bigchange_shared-tab-autonomous-login_2026-07-10.md.
    */
   browserAllowSharedTabCredentialFill: boolean;
+  /**
+   * Master switch for the workspace secret card. When false, agents cannot
+   * request a secret and stored references fail closed. Operator-only.
+   */
+  workspaceSecretsEnabled: boolean;
+  /**
+   * When false, agents cannot raise a `secret_required` card. Existing stored
+   * secrets remain usable by main-process consumers. Operator-only.
+   */
+  workspaceSecretsAllowAgentRequests: boolean;
 
   // Codebase auto-index (separate, heavier pipeline from codemem: BM25 +
   // vector embeddings + Merkle change detection + hybrid search). Auto-runs

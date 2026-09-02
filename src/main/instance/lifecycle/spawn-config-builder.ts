@@ -49,7 +49,11 @@ import {
 import { getCodememRpcSocketPath } from '../../codemem/codemem-rpc-server';
 import type { SettingsManager } from '../../core/config/settings-manager';
 import { getLogger } from '../../logging/logger';
-import { getOrchestratorInjectionReader } from '../../mcp/mcp-multi-provider-singletons';
+import {
+  getOrchestratorInjectionReader,
+  getWorkspaceMcpConnectorRepository,
+} from '../../mcp/mcp-multi-provider-singletons';
+import { materializeWorkspaceMcpConnectors } from '../../mcp/workspace-mcp-connector-materialize';
 import {
   buildOrchestratorToolsMcpConfig,
   type OrchestratorToolsMcpConfigOptions,
@@ -108,6 +112,7 @@ export class SpawnConfigBuilder {
     executionLocation?: ExecutionLocation,
     instanceId?: string,
     provider?: string,
+    workingDirectory?: string,
   ): string[] {
     // MCP config paths are local filesystem paths. Remote workers have their
     // own MCP config on their filesystem; passing ours would cause invalid
@@ -192,6 +197,12 @@ export class SpawnConfigBuilder {
     }
 
     configs.push(...this.getOrchestratorMcpConfigs(provider, instanceId));
+    configs.push(...this.getWorkspaceMcpConfigs(
+      executionLocation,
+      instanceId,
+      provider,
+      workingDirectory,
+    ));
 
     if (configs.length === 0) {
       logger.warn('No MCP configs resolved — spawned instances will not have custom MCP servers', {
@@ -232,6 +243,42 @@ export class SpawnConfigBuilder {
       AI_ORCHESTRATOR_INSTANCE_ID: instanceId,
       PATH: prependPath(path.dirname(aioMcpCliPath), baseEnv['PATH'] ?? process.env['PATH'] ?? ''),
     };
+  }
+
+  private getWorkspaceMcpConfigs(
+    executionLocation?: ExecutionLocation,
+    instanceId?: string,
+    provider?: string,
+    workingDirectory?: string,
+  ): string[] {
+    if (
+      executionLocation?.type === 'remote' ||
+      !workingDirectory ||
+      !provider ||
+      !this.settings.getAll().workspaceSecretsEnabled
+    ) {
+      return [];
+    }
+    try {
+      return materializeWorkspaceMcpConnectors({
+        executionLocation,
+        workingDirectory,
+        provider,
+        instanceId,
+        enabled: true,
+        repository: getWorkspaceMcpConnectorRepository(),
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('could not resolve')) {
+        throw error;
+      }
+      logger.warn('Workspace MCP connectors unavailable', {
+        provider,
+        instanceId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return [];
+    }
   }
 
   private getOrchestratorMcpConfigs(provider?: string, instanceId?: string): string[] {

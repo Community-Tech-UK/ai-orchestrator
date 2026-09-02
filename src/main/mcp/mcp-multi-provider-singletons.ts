@@ -11,6 +11,8 @@ import { SecretClassifier } from './secret-classifier';
 import { getMcpSecretStorage } from './secret-storage';
 import { SharedMcpCoordinator } from './shared-mcp-coordinator';
 import { SharedMcpRepository } from './shared-mcp-repository';
+import { WorkspaceMcpConnectorRepository } from './workspace-mcp-connector-repository';
+import { WorkspaceMcpConnectorService } from './workspace-mcp-connector-service';
 import { WriteSafetyHelper } from './write-safety-helper';
 import type { SupportedProvider } from '../../shared/types/mcp-scopes.types';
 import type { ProviderMcpAdapter } from './adapters/provider-mcp-adapter.types';
@@ -25,6 +27,8 @@ let sharedRepo: SharedMcpRepository | null = null;
 let sharedCoordinator: SharedMcpCoordinator | null = null;
 let cliService: CliMcpConfigService | null = null;
 let injectionReader: OrchestratorInjectionReader | null = null;
+let workspaceConnectorRepo: WorkspaceMcpConnectorRepository | null = null;
+let workspaceConnectorService: WorkspaceMcpConnectorService | null = null;
 let writeSafetyInstance: WriteSafetyHelper | null = null;
 let cleanupRegistered = false;
 
@@ -125,6 +129,25 @@ export function getCliMcpConfigService(): CliMcpConfigService {
   return cliService;
 }
 
+export function getWorkspaceMcpConnectorRepository(): WorkspaceMcpConnectorRepository {
+  if (!workspaceConnectorRepo) {
+    workspaceConnectorRepo = new WorkspaceMcpConnectorRepository(
+      getRLMDatabase().getRawDb(),
+      getMcpSecretStorage(),
+    );
+  }
+  return workspaceConnectorRepo;
+}
+
+export function getWorkspaceMcpConnectorService(): WorkspaceMcpConnectorService {
+  if (!workspaceConnectorService) {
+    workspaceConnectorService = new WorkspaceMcpConnectorService(
+      getWorkspaceMcpConnectorRepository(),
+    );
+  }
+  return workspaceConnectorService;
+}
+
 export function getOrchestratorInjectionReader(): OrchestratorInjectionReader {
   if (!injectionReader) {
     injectionReader = new OrchestratorInjectionReader(getOrchestratorMcpRepository());
@@ -138,6 +161,8 @@ export function _resetMcpMultiProviderSingletonsForTesting(): void {
   sharedCoordinator = null;
   cliService = null;
   injectionReader = null;
+  workspaceConnectorRepo = null;
+  workspaceConnectorService = null;
   writeSafetyInstance = null;
   cleanupRegistered = false;
 }

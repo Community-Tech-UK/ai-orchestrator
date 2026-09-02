@@ -92,12 +92,14 @@ describe('operator-facing loop projections', () => {
 
   it('labels an in-flight run verdict as belonging to the last completed iteration', () => {
     expect(progressVerdictView('CRITICAL', true)).toEqual({
-      label: 'LAST ITER · CRITICAL',
+      label: 'LAST ITER · STUCK',
       title: 'Last completed iteration progress verdict',
+      value: 'CRITICAL',
     });
     expect(progressVerdictView('OK', false)).toEqual({
       label: 'OK',
       title: 'Latest progress verdict',
+      value: 'OK',
     });
   });
 });

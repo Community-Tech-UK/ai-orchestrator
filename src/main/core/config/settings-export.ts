@@ -42,6 +42,8 @@ const MACHINE_LOCAL_SETTING_KEYS = new Set<keyof AppSettings>([
   'browserVaultMasterPasswordFile',
   'browserVaultAutoUnlock',
   'browserAllowSharedTabCredentialFill',
+  'workspaceSecretsEnabled',
+  'workspaceSecretsAllowAgentRequests',
   'voiceLocalSttWorkerNodeId',
   'remoteNodesEnabled',
   'remoteNodesServerHost',

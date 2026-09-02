@@ -76,6 +76,14 @@ import { buildCliSpawnOptions } from '../cli-environment';
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
 import type { ProviderConcurrencyLimiter } from '../provider-concurrency-limiter';
 import { toAcpPromptBlockFromAttachment } from './acp-attachment-blocks';
+import {
+  appendAcpAssistantDelta,
+  collectAcpAssistantFlushes,
+  createAcpAssistantTurn,
+  normalizeAcpAssistantDelta,
+  resolveAcpChunkTurn,
+  type AcpAssistantTurnState,
+} from './acp-assistant-stream';
 import { DEFAULT_ACTIVE_TOOL_TIMEOUT_MS, hasActiveAcpToolCall } from './acp-prompt-timeout-policy';
 import { buildRetryRecoveredMessage, buildRetryStateMessage } from './acp-retry-state';
 import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
@@ -177,17 +185,7 @@ interface AcpObservedToolCall {
   rawInput?: Record<string, unknown>;
 }
 
-interface AcpPendingPromptTurn {
-  responseId: string;
-  startedAt: number;
-  chunks: string[];
-  messageChunksById: Map<string, string[]>;
-  agentMessageIds: Set<string>;
-  /** Stable OutputMessage id used to coalesce retry-state updates for this turn. */
-  retryNoticeId?: string;
-  /** Tool-call title/args/results observed this turn — LT-100 estimate input only. */
-  toolActivityChunks: string[];
-}
+type AcpPendingPromptTurn = AcpAssistantTurnState;
 interface AcpPendingPermissionRequest {
   key: string;
   rpcId: AcpJsonRpcId;
@@ -315,6 +313,9 @@ export class AcpCliAdapter extends BaseCliAdapter {
   private initialized = false;
   private agentCapabilities: AcpAgentCapabilities | null = null;
   private currentPrompt: AcpPendingPromptTurn | null = null;
+  /** Survives `session/prompt` returning so late `agent_message_chunk` tokens
+   *  still upsert the same assistant bubble instead of minting one per token. */
+  private recentAssistantTurn: AcpPendingPromptTurn | null = null;
   private currentPromptRequestId: string | null = null;
   private lastResumeAttemptResult: ResumeAttemptResult | undefined;
   private systemPromptSent = false;
@@ -600,14 +601,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
     const responseId = this.generateResponseId();
     this.toolCalls.clear();
-    this.currentPrompt = {
-      responseId,
-      startedAt: Date.now(),
-      chunks: [],
-      messageChunksById: new Map<string, string[]>(),
-      agentMessageIds: new Set<string>(),
-      toolActivityChunks: [],
-    };
+    this.currentPrompt = createAcpAssistantTurn(responseId);
     this.emit('status', 'busy');
     this.armStallWatchdog();
     this.emit('heartbeat');
@@ -654,6 +648,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       throw error;
     } finally {
       clearInterval(livenessTimer);
+      this.recentAssistantTurn = this.currentPrompt ?? this.recentAssistantTurn;
       this.currentPrompt = null;
       this.currentPromptRequestId = null;
       this.toolCalls.clear();
@@ -695,6 +690,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
     this.clearStallWatchdog();
     this.initialized = false;
     this.currentPrompt = null;
+    this.recentAssistantTurn = null;
     this.currentPromptRequestId = null;
     this.systemPromptSent = false;
     this.rtkAwarenessSent = false;
@@ -895,6 +891,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       this.initialized = false;
       this.currentPromptRequestId = null;
       this.currentPrompt = null;
+      this.recentAssistantTurn = null;
       this.rejectPendingRequests(new Error(`ACP agent exited (${code ?? 'null'}${signal ? `/${signal}` : ''}).`));
       this.pendingPermissionRequests.clear();
       this.clearStallWatchdog();
@@ -1302,29 +1299,32 @@ export class AcpCliAdapter extends BaseCliAdapter {
       // injected sentinels; replayed history outside a turn still flows.
       return;
     }
-    const content = this.extractContentText(update.content);
+    const rawContent = this.extractContentText(update.content);
+    const content = update.sessionUpdate === 'agent_message_chunk'
+      ? normalizeAcpAssistantDelta(rawContent)
+      : rawContent;
     if (!content) {
       return;
     }
 
     const messageType = update.sessionUpdate === 'agent_message_chunk' ? 'assistant' : 'user';
-    const turn = this.currentPrompt;
+    const turn = resolveAcpChunkTurn(
+      this.currentPrompt,
+      this.recentAssistantTurn,
+      update.sessionUpdate,
+    );
     const rawMessageId = update.messageId;
     const messageId = update.sessionUpdate === 'agent_message_chunk'
       ? (turn?.responseId ?? rawMessageId ?? generateId())
       : (rawMessageId ?? turn?.responseId ?? generateId());
     let accumulatedContent = content;
+    if (turn && update.sessionUpdate === 'agent_message_chunk') {
+      accumulatedContent = appendAcpAssistantDelta(turn, messageId, content);
+    }
 
-    if (turn) {
-      const messageChunks = turn.messageChunksById.get(messageId) ?? [];
-      messageChunks.push(content);
-      turn.messageChunksById.set(messageId, messageChunks);
-      accumulatedContent = messageChunks.join('');
-
-      if (update.sessionUpdate === 'agent_message_chunk') {
-        turn.chunks.push(content);
-        turn.agentMessageIds.add(messageId);
-      }
+    if (!this.currentPrompt && turn && update.sessionUpdate === 'agent_message_chunk') {
+      this.emitFinalAssistantFlushes(turn);
+      return;
     }
 
     this.emit('output', {
@@ -1351,37 +1351,16 @@ export class AcpCliAdapter extends BaseCliAdapter {
     if (turn.retryNoticeId) this.emit('output', buildRetryRecoveredMessage(turn.retryNoticeId));
   }
   private emitFinalAssistantFlushes(turn: AcpPendingPromptTurn): void {
-    const canonicalContent = turn.chunks.join('');
-    if (canonicalContent.trim()) {
+    for (const flush of collectAcpAssistantFlushes(turn)) {
       this.emit('output', {
-        id: turn.responseId,
+        id: flush.id,
         timestamp: Date.now(),
         type: 'assistant',
-        content: canonicalContent,
+        content: flush.content,
         metadata: {
           transport: 'acp',
           streaming: false,
-          accumulatedContent: canonicalContent,
-        },
-      } satisfies OutputMessage);
-      return;
-    }
-
-    for (const messageId of turn.agentMessageIds) {
-      const accumulatedContent = (turn.messageChunksById.get(messageId) ?? []).join('');
-      if (!accumulatedContent.trim()) {
-        continue;
-      }
-
-      this.emit('output', {
-        id: messageId,
-        timestamp: Date.now(),
-        type: 'assistant',
-        content: accumulatedContent,
-        metadata: {
-          transport: 'acp',
-          streaming: false,
-          accumulatedContent,
+          accumulatedContent: flush.content,
         },
       } satisfies OutputMessage);
     }

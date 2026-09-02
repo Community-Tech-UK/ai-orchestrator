@@ -58,6 +58,8 @@ describe('UserActionRequestComponent', () => {
     onInputRequired: vi.fn(),
     respondToUserAction: vi.fn(),
     respondToInputRequired: vi.fn(),
+    submitSecretCard: vi.fn(),
+    declineSecretCard: vi.fn(),
     toggleYoloMode: vi.fn(),
   };
 
@@ -86,6 +88,8 @@ describe('UserActionRequestComponent', () => {
     });
     fakeIpc.respondToUserAction.mockResolvedValue({ success: true, data: {} });
     fakeIpc.respondToInputRequired.mockResolvedValue({ success: true, data: {} });
+    fakeIpc.submitSecretCard.mockResolvedValue({ success: true, data: { reference: 'secret://github-pat' } });
+    fakeIpc.declineSecretCard.mockResolvedValue({ success: true, data: { declined: true } });
     fakeIpc.toggleYoloMode.mockResolvedValue({ success: true, data: {} });
 
     fakeInstanceStore.getInstance.mockReturnValue(undefined);
@@ -556,6 +560,54 @@ describe('UserActionRequestComponent', () => {
     const singleCall = calls.find((c: unknown[]) => c[1] === 'req-auq-single');
     expect(singleCall).toBeDefined();
     expect(singleCall![2]).toBe('Flow: Autonomous');
+  });
+
+  it('renders the secret card and submits on the dedicated channel, never respondToInputRequired', async () => {
+    currentInstanceId.set('inst-secret');
+    fixture.detectChanges();
+    await settle(fixture);
+
+    onInputRequired({
+      instanceId: 'inst-secret',
+      requestId: 'req-secret',
+      prompt: 'Need a GitHub token to install the connector.',
+      timestamp: 1,
+      metadata: {
+        type: 'secret_required',
+        name: 'github-pat',
+        label: 'GitHub personal access token',
+        purpose: 'Install the workspace MCP connector',
+      },
+    });
+    fixture.detectChanges();
+    await settle(fixture);
+
+    expect(fixture.nativeElement.textContent).toContain('Stored encrypted on this Mac');
+    expect(fixture.nativeElement.textContent).toContain('Install the workspace MCP connector');
+
+    const input = fixture.nativeElement.querySelector('.secret-input') as HTMLInputElement;
+    expect(input.type).toBe('password');
+    input.value = 'ghp_exampleplaceholdervalue0000000000';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    const saveBtn = Array.from(
+      fixture.nativeElement.querySelectorAll('.btn-approve'),
+    ).find((btn) => (btn as HTMLButtonElement).textContent?.includes('Save securely')) as HTMLButtonElement;
+    saveBtn.click();
+    fixture.detectChanges();
+    await settle(fixture);
+
+    expect(fakeIpc.submitSecretCard).toHaveBeenCalledWith({
+      instanceId: 'inst-secret',
+      requestId: 'req-secret',
+      name: 'github-pat',
+      label: 'GitHub personal access token',
+      purpose: 'Install the workspace MCP connector',
+      value: 'ghp_exampleplaceholdervalue0000000000',
+    });
+    expect(fakeIpc.respondToInputRequired).not.toHaveBeenCalled();
+    expect(fixture.nativeElement.textContent).not.toContain('ghp_exampleplaceholdervalue0000000000');
   });
 });
 

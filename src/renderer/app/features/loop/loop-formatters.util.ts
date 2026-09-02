@@ -55,18 +55,11 @@ export function effectiveLoopExecutionPath(config: {
   return config.executionCwd || config.workspaceCwd;
 }
 
-/** Prevent a completed iteration's verdict from looking current mid-iteration. */
-export function progressVerdictView(
-  verdict: string,
-  hasRunningIteration: boolean,
-): { label: string; title: string } {
-  return hasRunningIteration
-    ? {
-      label: `LAST ITER · ${verdict}`,
-      title: 'Last completed iteration progress verdict',
-    }
-    : { label: verdict, title: 'Latest progress verdict' };
-}
+export {
+  progressVerdictHeaderWord,
+  progressVerdictView,
+  progressVerdictWord,
+} from './loop-issue-diagnosis.util';
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));

@@ -329,7 +329,12 @@ export class RuntimeReconciler {
         disallowedTools: toolPermissions.disallowedToolsForSpawn,
         resume: shouldResume,
         forkSession: shouldForkSession,
-        mcpConfig: spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType),
+        mcpConfig: spawnConfigBuilder.getMcpConfig(
+          instance.executionLocation,
+          instance.id,
+          cliType,
+          instance.workingDirectory,
+        ),
         chromeDevtoolsMcp: spawnConfigBuilder.getChromeDevtoolsMcpOptions(instance.executionLocation) ?? undefined,
         browserGatewayMcp: spawnConfigBuilder.getBrowserGatewayMcpOptions(
           instance.executionLocation,

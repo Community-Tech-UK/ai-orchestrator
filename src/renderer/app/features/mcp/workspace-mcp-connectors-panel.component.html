@@ -1,0 +1,65 @@
+<div class="workspace-connectors">
+  <p class="hint">
+    These connectors are bound to one working directory and one provider.
+    They never fall back to Orchestrator, Shared, or a provider-user config.
+    Put <code>secret://name</code> only in env. Values are resolved at local spawn and never returned over IPC.
+  </p>
+  <label class="field">
+    <span>Working directory</span>
+    <input
+      type="text"
+      [value]="workingDirectory()"
+      (input)="onWorkingDirectoryInput($event)"
+      (change)="refresh()"
+      placeholder="/path/to/workspace"
+    />
+  </label>
+  <label class="field">
+    <span>Provider</span>
+    <select [value]="provider()" (change)="onProviderChange($event); refresh()">
+      @for (item of providers; track item) {
+        <option [value]="item">{{ item }}</option>
+      }
+    </select>
+  </label>
+  <div class="actions">
+    <button type="button" (click)="refresh()" [disabled]="loading() || !workingDirectory().trim()">
+      Refresh
+    </button>
+  </div>
+  @if (errorMessage()) {
+    <p class="error" role="alert">{{ errorMessage() }}</p>
+  }
+  <div class="form">
+    <label class="field">
+      <span>Name</span>
+      <input type="text" [value]="name()" (input)="onNameInput($event)" />
+    </label>
+    <label class="field">
+      <span>Command</span>
+      <input type="text" [value]="command()" (input)="onCommandInput($event)" />
+    </label>
+    <label class="field">
+      <span>Env JSON</span>
+      <textarea [value]="envJson()" (input)="onEnvInput($event)" rows="3"></textarea>
+    </label>
+    <button type="button" class="primary" (click)="save()" [disabled]="loading()">
+      Save workspace connector
+    </button>
+  </div>
+  @if (connectors().length === 0) {
+    <p class="empty">No workspace connectors for this directory and provider.</p>
+  } @else {
+    <ul class="connector-list">
+      @for (connector of connectors(); track connector.id) {
+        <li>
+          <div>
+            <strong>{{ connector.name }}</strong>
+            <span>{{ connector.provider }} · {{ connector.transport }}</span>
+          </div>
+          <button type="button" (click)="remove(connector.id)" [disabled]="loading()">Delete</button>
+        </li>
+      }
+    </ul>
+  }
+</div>

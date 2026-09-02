@@ -124,6 +124,9 @@ export const WORKSPACE_CHANNELS = {
   MCP_PROVIDER_USER_UPSERT: 'mcp:provider:user:upsert',
   MCP_PROVIDER_USER_DELETE: 'mcp:provider:user:delete',
   MCP_PROVIDER_OPEN_SCOPE_FILE: 'mcp:provider:open-scope-file',
+  MCP_WORKSPACE_CONNECTOR_LIST: 'mcp:workspace-connector:list',
+  MCP_WORKSPACE_CONNECTOR_UPSERT: 'mcp:workspace-connector:upsert',
+  MCP_WORKSPACE_CONNECTOR_DELETE: 'mcp:workspace-connector:delete',
 
   // Codebase Indexing operations
   CODEBASE_INDEX_STORE: 'codebase:index:store',

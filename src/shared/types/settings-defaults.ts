@@ -204,6 +204,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // WS12: warn-mode measurement release first; enforce is the end-state.
   instructionTrustGate: 'warn',
   browserAllowSharedTabCredentialFill: false,
+  workspaceSecretsEnabled: true,
+  workspaceSecretsAllowAgentRequests: true,
 
   // Regular-session provider-limit auto-resume (default OFF — see interface doc)
   instanceProviderLimitResumeEnabled: false,

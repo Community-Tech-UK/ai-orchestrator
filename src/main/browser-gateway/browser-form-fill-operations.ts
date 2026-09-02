@@ -96,6 +96,15 @@ export interface FillOperationDeps {
   emailCodeReader?: Pick<BrowserEmailCodeReader, 'fetchCode'>;
   /** Count successful agent-owned account creation against a campaign lease. */
   recordNewAccount?: (request: BrowserGatewayCreateAgentCredentialRequest & { url: string }) => void;
+  /**
+   * Resolve a `secret://` workspace-secret reference in-process. Absent =
+   * workspace-secret fills are unavailable. Must never return the value
+   * through IPC or include it in a thrown message that reaches a log.
+   */
+  resolveWorkspaceSecret?: (input: {
+    instanceId?: string;
+    reference: string;
+  }) => string;
 }
 
 export async function executeFillPlanOperation(

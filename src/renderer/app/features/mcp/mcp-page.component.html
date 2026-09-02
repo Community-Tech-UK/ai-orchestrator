@@ -45,6 +45,9 @@
           @if (isProviderManagementTab()) {
             <div class="panel-subtitle">User scope is writable. Project, workspace, managed, and system scopes are read-only.</div>
           }
+          @if (activeManagementTab() === 'workspace') {
+            <div class="panel-subtitle">Workspace connectors stay bound to one directory and provider. They never fall back to a global MCP scope.</div>
+          }
         </div>
         <span class="management-version">state {{ multiProviderStore.state().stateVersion }}</span>
       </div>
@@ -55,12 +58,18 @@
             Open User Config
           </button>
         }
-        <button class="btn small primary" type="button" [disabled]="working()" (click)="beginCreateManagementServer()">
-          Add
-        </button>
+        @if (activeManagementTab() !== 'workspace') {
+          <button class="btn small primary" type="button" [disabled]="working()" (click)="beginCreateManagementServer()">
+            Add
+          </button>
+        }
       </div>
 
-      @if (managementFormOpen()) {
+      @if (activeManagementTab() === 'workspace') {
+        <app-workspace-mcp-connectors-panel />
+      }
+
+      @if (managementFormOpen() && activeManagementTab() !== 'workspace') {
         <div class="management-form">
           <div class="management-form-header">
             <span class="server-name">{{ managementFormTitle() }}</span>
@@ -175,9 +184,9 @@
         </div>
       }
 
-      @if (managementRows().length === 0) {
+      @if (activeManagementTab() !== 'workspace' && managementRows().length === 0) {
         <div class="empty-hint">{{ managementEmptyMessage() }}</div>
-      } @else {
+      } @else if (activeManagementTab() !== 'workspace') {
         <div class="management-grid">
           @for (server of managementRows(); track server.id) {
             <div class="management-row">

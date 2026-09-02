@@ -15,6 +15,7 @@ import { CommonModule } from '@angular/common';
 import { SecurityIpcService } from '../../core/services/ipc/security-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import { EmptyStateComponent } from '../../shared/components/empty-state/empty-state.component';
+import { WorkspaceSecretsPanelComponent } from './workspace-secrets-panel.component';
 
 // ─── Local interfaces ────────────────────────────────────────────────────────
 
@@ -45,7 +46,7 @@ interface EnvVar {
 @Component({
   selector: 'app-security-page',
   standalone: true,
-  imports: [CommonModule, EmptyStateComponent],
+  imports: [CommonModule, EmptyStateComponent, WorkspaceSecretsPanelComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './security-page.component.html',
   styleUrl: './security-page.component.scss',
@@ -55,7 +56,7 @@ export class SecurityPageComponent implements OnInit {
 
   // ── Tab state ──────────────────────────────────────────────────────────────
 
-  readonly activeTab = signal<'audit' | 'scanner' | 'environment'>('audit');
+  readonly activeTab = signal<'audit' | 'scanner' | 'environment' | 'workspace-secrets'>('audit');
 
   // ── Global state ───────────────────────────────────────────────────────────
 
@@ -101,7 +102,7 @@ export class SecurityPageComponent implements OnInit {
 
   // ─── Tab switching ─────────────────────────────────────────────────────────
 
-  switchTab(tab: 'audit' | 'scanner' | 'environment'): void {
+  switchTab(tab: 'audit' | 'scanner' | 'environment' | 'workspace-secrets'): void {
     this.activeTab.set(tab);
     this.errorMessage.set('');
 

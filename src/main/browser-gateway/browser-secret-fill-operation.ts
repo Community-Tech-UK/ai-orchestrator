@@ -132,12 +132,33 @@ export async function fillSecretOperation(
       }
       // Resolve the secret first (no page contact) so the origin re-check sits
       // back-to-back with the type command. It exists only in this scope.
-      const secret = await vault.getGenericSecretForFill({
-        vaultItemRef: request.vaultItemRef,
-        origin,
-        kind: field.secretType as GenericSecretKind,
-        ...(field.fieldName ? { fieldName: field.fieldName } : {}),
-      });
+      let secret: string;
+      if (request.vaultItemRef.startsWith('secret://')) {
+        if (!deps.resolveWorkspaceSecret) {
+          return deny(
+            'workspace_secret_resolver_unavailable',
+            `${toolName} cannot resolve a workspace secret on this instance`,
+          );
+        }
+        try {
+          secret = deps.resolveWorkspaceSecret({
+            instanceId: request.instanceId,
+            reference: request.vaultItemRef,
+          });
+        } catch {
+          return deny(
+            'workspace_secret_unresolved',
+            `${toolName} could not resolve the workspace secret reference`,
+          );
+        }
+      } else {
+        secret = await vault.getGenericSecretForFill({
+          vaultItemRef: request.vaultItemRef,
+          origin,
+          kind: field.secretType as GenericSecretKind,
+          ...(field.fieldName ? { fieldName: field.fieldName } : {}),
+        });
+      }
 
       // TOCTOU: a shared tab is the user's real browser — re-confirm the live
       // origin still matches immediately before typing.

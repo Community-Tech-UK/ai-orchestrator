@@ -17,6 +17,7 @@ import { CommonModule } from '@angular/common';
 import { McpIpcService } from '../../core/services/ipc/mcp-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import { McpPresetCatalogComponent } from './mcp-preset-catalog.component';
+import { WorkspaceMcpConnectorsPanelComponent } from './workspace-mcp-connectors-panel.component';
 import { BrowserAutomationIpcService } from '../../core/services/ipc/browser-automation-ipc.service';
 import { McpMultiProviderStore } from './state/mcp-multi-provider.store';
 import {
@@ -114,7 +115,7 @@ interface BrowserAutomationHealthReport {
 }
 
 type DetailTab = 'tools' | 'resources' | 'prompts' | 'config';
-type ManagementTab = 'orchestrator' | 'shared' | SupportedProvider;
+type ManagementTab = 'orchestrator' | 'shared' | 'workspace' | SupportedProvider;
 type ManagementMode = 'create' | 'edit';
 type ManagementProviderField = 'injectInto' | 'targets';
 
@@ -129,7 +130,7 @@ const ORCHESTRATOR_SCOPES: readonly OrchestratorMcpScope[] = [
 @Component({
   selector: 'app-mcp-page',
   standalone: true,
-  imports: [CommonModule, McpPresetCatalogComponent],
+  imports: [CommonModule, McpPresetCatalogComponent, WorkspaceMcpConnectorsPanelComponent],
   templateUrl: './mcp-page.component.html',
   styleUrl: './mcp-page.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -184,6 +185,7 @@ export class McpPageComponent implements OnInit, OnDestroy {
   readonly managementTabs: { id: ManagementTab; label: string }[] = [
     { id: 'orchestrator', label: 'Orchestrator' },
     { id: 'shared', label: 'Shared' },
+    { id: 'workspace', label: 'Workspace' },
     { id: 'claude', label: 'Claude' },
     { id: 'codex', label: 'Codex' },
     { id: 'gemini', label: 'Gemini' },
@@ -299,6 +301,9 @@ export class McpPageComponent implements OnInit, OnDestroy {
     if (tab === 'shared') {
       return this.multiProviderStore.shared().map((entry) => entry.record);
     }
+    if (tab === 'workspace') {
+      return [];
+    }
     return this.multiProviderStore.state().providers
       .find((provider) => provider.provider === tab)
       ?.servers.slice() ?? [];
@@ -308,6 +313,7 @@ export class McpPageComponent implements OnInit, OnDestroy {
     const tab = this.activeManagementTab();
     if (tab === 'orchestrator') return 'No Orchestrator-scoped MCP servers.';
     if (tab === 'shared') return 'No Shared MCP servers.';
+    if (tab === 'workspace') return '';
     return `No ${tab} MCP servers discovered.`;
   });
 
@@ -470,10 +476,14 @@ export class McpPageComponent implements OnInit, OnDestroy {
     const tab = this.activeManagementTab();
     if (tab === 'orchestrator') return `${action} Orchestrator MCP`;
     if (tab === 'shared') return `${action} Shared MCP`;
+    if (tab === 'workspace') return `${action} Workspace MCP`;
     return `${action} ${tab} User MCP`;
   }
 
   beginCreateManagementServer(): void {
+    if (this.activeManagementTab() === 'workspace') {
+      return;
+    }
     this.managementFormMode.set('create');
     this.managementFormServerId.set(null);
     this.managementFormOriginalName.set(null);
@@ -548,6 +558,10 @@ export class McpPageComponent implements OnInit, OnDestroy {
     this.infoMessage.set(null);
     try {
       const tab = this.activeManagementTab();
+      if (tab === 'workspace') {
+        this.managementFormError.set('Use the workspace connector form. This does not write a global MCP scope.');
+        return;
+      }
       const payload = this.buildManagementPayload(tab);
       let response: IpcResponse;
 

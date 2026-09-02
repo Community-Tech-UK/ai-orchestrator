@@ -221,6 +221,43 @@ describe('audit trail', () => {
   });
 });
 
+describe('WorkspaceSecretStore.resolve', () => {
+  it('returns plaintext to the caller and never logs or throws it', () => {
+    const store = makeStore();
+    store.put({ workspaceId: WS_A, name: 'github-pat', purpose: 'watch deploys', value: TOKEN });
+    logCalls.length = 0;
+
+    const value = store.resolve('secret://github-pat', { workspaceId: WS_A, purpose: 'browser.fill_secret' });
+    expect(value).toBe(TOKEN);
+    expect(JSON.stringify(logCalls)).not.toContain(TOKEN);
+    expect(store.auditTrail(WS_A).some((e) => e.event === 'resolved')).toBe(true);
+    expect(JSON.stringify(store.auditTrail(WS_A))).not.toContain(TOKEN);
+  });
+
+  it('refuses a cross-workspace resolve', () => {
+    const store = makeStore();
+    store.put({ workspaceId: WS_A, name: 'github-pat', value: TOKEN });
+    expect(() => store.resolve('secret://github-pat', { workspaceId: WS_B }))
+      .toThrow(/does not exist/);
+  });
+
+  it('refuses the unscoped workspace', () => {
+    const store = makeStore();
+    expect(() => store.resolve('secret://github-pat', { workspaceId: NO_WORKSPACE_KEY }))
+      .toThrow(/unscoped workspace is refused/);
+  });
+
+  it('does not put the value into a thrown error when missing', () => {
+    const store = makeStore();
+    try {
+      store.resolve('secret://missing', { workspaceId: WS_A });
+      expect.unreachable('resolve should have thrown');
+    } catch (error) {
+      expect(String((error as Error).message)).not.toContain(TOKEN);
+    }
+  });
+});
+
 describe('normaliseName', () => {
   it('slugs equivalent names together', () => {
     expect(normaliseName('GitHub PAT')).toBe('github-pat');

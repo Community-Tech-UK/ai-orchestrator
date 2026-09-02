@@ -599,6 +599,47 @@ export class InstanceIpcService {
   }
 
   /**
+   * Dedicated secret-card channel. Must not be routed through
+   * `respondToInputRequired` — that path logs a preview and writes to the CLI.
+   */
+  async submitSecretCard(payload: {
+    instanceId: string;
+    requestId: string;
+    name: string;
+    label?: string;
+    purpose?: string;
+    value: string;
+  }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.submitSecretCard(payload);
+  }
+
+  async declineSecretCard(payload: {
+    instanceId: string;
+    requestId: string;
+    name: string;
+    reason?: string;
+  }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.declineSecretCard(payload);
+  }
+
+  async listWorkspaceSecrets(workingDirectory: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.listWorkspaceSecrets(workingDirectory);
+  }
+
+  async forgetWorkspaceSecret(workingDirectory: string, name: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.forgetWorkspaceSecret(workingDirectory, name);
+  }
+
+  async getWorkspaceSecretAudit(workingDirectory: string, limit?: number): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.getWorkspaceSecretAudit(workingDirectory, limit);
+  }
+
+  /**
    * Read-only list of recent prompt admission decisions (Phase A of
    * SessionAdmissionService: suppressed vs. delivered automated writes, and
    * observed user sends). No UI consumes this yet — Phase A ships the

@@ -1,0 +1,160 @@
+.loop-issue {
+  margin: -2px 0 6px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(247, 192, 122, 0.45);
+  background: rgba(247, 192, 122, 0.08);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.loop-issue[data-severity="CRITICAL"] {
+  border-color: rgba(247, 140, 124, 0.55);
+  background: rgba(247, 140, 124, 0.1);
+}
+
+.li-issue-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.li-issue-chip {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 3px;
+  font-family: var(--font-mono, monospace);
+  color: #f7c07a;
+  background: rgba(247, 192, 122, 0.18);
+}
+
+.li-issue-chip[data-severity="CRITICAL"] {
+  color: #f78c7c;
+  background: rgba(247, 140, 124, 0.2);
+}
+
+.li-issue-headline {
+  flex: 1 1 180px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text-primary, #e7e7ea);
+}
+
+.li-issue-fix {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid rgba(142, 220, 142, 0.4);
+  color: #8edc8e;
+  background: rgba(142, 220, 142, 0.1);
+}
+
+.li-issue-fix[data-fix="maybe"] {
+  border-color: rgba(247, 192, 122, 0.45);
+  color: #f7c07a;
+  background: rgba(247, 192, 122, 0.1);
+}
+
+.li-issue-fix[data-fix="not-by-hint"] {
+  border-color: rgba(247, 140, 124, 0.45);
+  color: #f78c7c;
+  background: rgba(247, 140, 124, 0.1);
+}
+
+.li-issue-problem,
+.li-issue-implication,
+.li-issue-next {
+  margin: 0 0 4px;
+  color: var(--text-primary, #e7e7ea);
+}
+
+.li-issue-implication,
+.li-issue-next {
+  opacity: 0.88;
+}
+
+.li-issue-next-label {
+  font-weight: 700;
+  margin-right: 6px;
+}
+
+.li-issue-signals {
+  margin: 8px 0 6px;
+  font-size: 11px;
+}
+
+.li-issue-signals > summary {
+  cursor: pointer;
+  font-weight: 600;
+  opacity: 0.75;
+}
+
+.li-issue-signals ul {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.li-issue-signals li {
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.li-issue-sig-title {
+  font-weight: 650;
+  margin-right: 8px;
+}
+
+.li-issue-sig-verdict {
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font-mono, monospace);
+  opacity: 0.8;
+}
+
+.li-issue-sig-msg {
+  display: block;
+  margin-top: 2px;
+  opacity: 0.82;
+}
+
+.li-issue-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.li-issue-actions button {
+  padding: 5px 10px;
+  min-height: 28px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.05);
+  color: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.li-issue-actions button.primary {
+  color: #e7e7ea;
+  border-color: rgba(95, 142, 224, 0.55);
+  background: rgba(95, 142, 224, 0.22);
+}
+
+.li-issue-actions button.danger {
+  color: #f78c7c;
+  border-color: rgba(247, 140, 124, 0.4);
+}

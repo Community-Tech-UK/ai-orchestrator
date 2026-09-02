@@ -244,6 +244,24 @@ export class McpIpcService {
     return this.api.mcpProviderOpenScopeFile(payload) as Promise<IpcResponse<{ filePath?: string }>>;
   }
 
+  async workspaceConnectorList(payload: {
+    workingDirectory: string;
+    provider?: string;
+  }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.mcpWorkspaceConnectorList(payload);
+  }
+
+  async workspaceConnectorUpsert(payload: unknown): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.mcpWorkspaceConnectorUpsert(payload);
+  }
+
+  async workspaceConnectorDelete(id: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.mcpWorkspaceConnectorDelete({ id });
+  }
+
   /**
    * Subscribe to MCP state changes (tools, resources, prompts updated)
    */

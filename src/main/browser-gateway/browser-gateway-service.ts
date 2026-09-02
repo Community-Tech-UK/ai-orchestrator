@@ -1765,7 +1765,11 @@ export class BrowserGatewayService {
   async fillSecret(
     request: BrowserGatewayFillSecretRequest,
   ): Promise<BrowserGatewayResult<{ filled: number; verified: number } | null>> {
-    return fillSecretOperation(this.fillOperationDeps(), request);
+    const { resolveWorkspaceSecretForFill } = await import('../secrets/workspace-secret-fill');
+    return fillSecretOperation({
+      ...this.fillOperationDeps(),
+      resolveWorkspaceSecret: resolveWorkspaceSecretForFill,
+    }, request);
   }
 
   async createAgentCredential(

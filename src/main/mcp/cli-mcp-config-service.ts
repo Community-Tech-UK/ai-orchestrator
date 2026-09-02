@@ -11,6 +11,7 @@ import type { ProviderMcpAdapter } from './adapters/provider-mcp-adapter.types';
 import type { OrchestratorMcpRecordWithTargets, OrchestratorMcpRepository } from './orchestrator-mcp-repository';
 import type { SharedMcpRepository } from './shared-mcp-repository';
 import type { SharedMcpCoordinator } from './shared-mcp-coordinator';
+import { assertNoWorkspaceSecretRefs } from './reject-workspace-secret-ref';
 
 export interface CliMcpConfigServiceDeps {
   adapters: Record<SupportedProvider, ProviderMcpAdapter>;
@@ -41,6 +42,7 @@ export class CliMcpConfigService {
   }
 
   orchestratorUpsert(payload: Parameters<OrchestratorMcpRepository['upsert']>[0]): OrchestratorMcpRecordWithTargets {
+    assertNoWorkspaceSecretRefs(payload.env);
     const saved = this.deps.orchestratorRepo.upsert(payload);
     this.bumpStateVersion();
     return saved;
@@ -57,6 +59,7 @@ export class CliMcpConfigService {
   }
 
   sharedUpsert(payload: Parameters<SharedMcpRepository['upsert']>[0]): string {
+    assertNoWorkspaceSecretRefs(payload.env);
     const saved = this.deps.sharedRepo.upsert(payload);
     this.bumpStateVersion();
     return saved.id;
@@ -68,6 +71,7 @@ export class CliMcpConfigService {
   }
 
   async providerUserUpsert(payload: RawMcpRecord & { provider: SupportedProvider }): Promise<void> {
+    assertNoWorkspaceSecretRefs(payload.env);
     const adapter = this.deps.adapters[payload.provider];
     const sourceFile = await this.getUserScopeFile(adapter);
     const existingSnapshot = await adapter.readScope('user', sourceFile).catch(() => null);

@@ -3,6 +3,10 @@ import type { SqliteDriver } from '../db/sqlite-driver';
 import { getRLMDatabase } from '../persistence/rlm-database';
 import { getSafeStorage, type SafeStorageAccessor } from '../session/safe-storage-accessor';
 import { getLogger } from '../logging/logger';
+import {
+  registerExactSecretValue,
+  unregisterExactSecretValue,
+} from '../security/secret-detector';
 import { isUnscopedWorkspace } from './secret-workspace-key';
 
 const logger = getLogger('WorkspaceSecretStore');
@@ -156,7 +160,60 @@ export class WorkspaceSecretStore {
       replaced: Boolean(existing),
     });
 
+    if (existing) {
+      this.unregisterStoredValue(existing);
+    }
+    registerExactSecretValue(input.value, name);
+
     return this.requireMetadata(input.workspaceId, name);
+  }
+
+  /**
+   * Return plaintext to a main-process consumer only. Never log or throw the value.
+   * `ref` may be `secret://<name>` or a bare name.
+   */
+  resolve(
+    ref: string,
+    opts: { workspaceId: string; purpose?: string; instanceId?: string },
+  ): string {
+    this.assertScoped(opts.workspaceId);
+    const name = parseSecretRef(ref);
+    const row = this.getRow(opts.workspaceId, name);
+    if (!row) {
+      throw new Error('That workspace secret does not exist');
+    }
+
+    let value: string;
+    try {
+      value = this.safeStorageFactory().decryptString(Buffer.from(row.value_enc, 'base64'));
+    } catch {
+      logger.error('Failed to decrypt workspace secret', undefined, {
+        workspaceId: opts.workspaceId,
+        name,
+      });
+      throw new Error('That workspace secret could not be decrypted');
+    }
+
+    const at = this.now();
+    this.db.prepare(`
+      UPDATE workspace_secrets SET last_used_at = ? WHERE workspace_id = ? AND name = ?
+    `).run(at, opts.workspaceId, name);
+
+    this.audit({
+      workspaceId: opts.workspaceId,
+      secretName: name,
+      event: 'resolved',
+      instanceId: opts.instanceId,
+      purpose: opts.purpose ?? '',
+    });
+
+    logger.info('Resolved workspace secret', {
+      workspaceId: opts.workspaceId,
+      name,
+      valueLength: value.length,
+    });
+
+    return value;
   }
 
   /** Metadata for every secret in a workspace. Never returns values. */
@@ -176,12 +233,16 @@ export class WorkspaceSecretStore {
   /** Delete a secret. Returns true when a row was removed. */
   forget(workspaceId: string, name: string, instanceId?: string): boolean {
     const normalised = normaliseName(name);
+    const existing = this.getRow(workspaceId, normalised);
     const result = this.db.prepare(`
       DELETE FROM workspace_secrets WHERE workspace_id = ? AND name = ?
     `).run(workspaceId, normalised);
 
     const removed = result.changes > 0;
     if (removed) {
+      if (existing) {
+        this.unregisterStoredValue(existing);
+      }
       this.audit({
         workspaceId,
         secretName: normalised,
@@ -255,6 +316,15 @@ export class WorkspaceSecretStore {
     `).get<SecretRow>(workspaceId, name);
   }
 
+  private unregisterStoredValue(row: SecretRow): void {
+    try {
+      const value = this.safeStorageFactory().decryptString(Buffer.from(row.value_enc, 'base64'));
+      unregisterExactSecretValue(value);
+    } catch {
+      // The row is still deleted; a stale matcher is a fail-closed leftover.
+    }
+  }
+
   private requireMetadata(workspaceId: string, name: string): WorkspaceSecretMetadata {
     const row = this.getRow(workspaceId, name);
     if (!row) throw new Error(`Secret ${name} was not persisted`);
@@ -281,6 +351,13 @@ export class WorkspaceSecretStore {
       this.now(),
     );
   }
+}
+
+/** Accept `secret://name` or a bare slug. Never returns the secret value. */
+export function parseSecretRef(ref: string): string {
+  const trimmed = (ref ?? '').trim();
+  const name = trimmed.startsWith('secret://') ? trimmed.slice('secret://'.length) : trimmed;
+  return normaliseName(name);
 }
 
 /** Slug form so `GitHub PAT` and `github-pat` cannot become two secrets. */

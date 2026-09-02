@@ -37,6 +37,7 @@ interface HarnessOpts {
   vaultValue?: string;
   driverError?: string;
   downgradeOnOriginRefresh?: boolean;
+  workspaceSecret?: string;
 }
 
 function makeHarness(opts: HarnessOpts = {}) {
@@ -99,6 +100,16 @@ function makeHarness(opts: HarnessOpts = {}) {
       createAgentCredential: vi.fn(),
     } as unknown as FillOperationDeps['credentialVault'],
     credentialAuthorizations: authorizations,
+    ...(opts.workspaceSecret !== undefined
+      ? {
+        resolveWorkspaceSecret: () => {
+          if (opts.workspaceSecret === '') {
+            throw new Error('missing');
+          }
+          return opts.workspaceSecret as string;
+        },
+      }
+      : {}),
   };
 
   return { deps, driverType, readControl, typed, result };
@@ -236,5 +247,33 @@ describe('fillSecretOperation', () => {
 
     expect(result.decision).toBe('denied');
     expect(result.reason).toBe('origin_unknown');
+  });
+
+  it('fills a secret:// workspace reference without leaking the value', async () => {
+    const stored = 'aio-workspace-secret-placeholder-iban';
+    const { deps, driverType } = makeHarness({ workspaceSecret: stored });
+    const vaultRead = vi.mocked(deps.credentialVault!.getGenericSecretForFill!);
+    const result = await fillSecretOperation(deps, {
+      ...REQUEST,
+      vaultItemRef: 'secret://github-pat',
+    });
+
+    expect(result.decision).toBe('allowed');
+    expect(result.data).toEqual({ filled: 1, verified: 1 });
+    expect(driverType).toHaveBeenCalledWith('p1', 't1', '#iban', stored, ORIGIN, 'secret');
+    expect(vaultRead).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain(stored);
+  });
+
+  it('denies an unresolved secret:// reference before typing', async () => {
+    const { deps, driverType } = makeHarness({ workspaceSecret: '' });
+    const result = await fillSecretOperation(deps, {
+      ...REQUEST,
+      vaultItemRef: 'secret://missing',
+    });
+
+    expect(result.decision).toBe('denied');
+    expect(result.reason).toBe('workspace_secret_unresolved');
+    expect(driverType).not.toHaveBeenCalled();
   });
 });

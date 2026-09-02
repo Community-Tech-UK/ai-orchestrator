@@ -134,7 +134,9 @@ const ALLOWLIST: Record<string, number> = {
   // Raised 2214 -> 2275 for Cursor/ACP loop liveness: prompt-turn heartbeat so
   // Loop Mode does not treat metadata-only session/update as silence.
   // Raised 2275 -> 2278 for concurrencyPriority overflow on ACP spawn acquire.
-  'src/main/cli/adapters/acp-cli-adapter.ts': 2278,
+  // Re-tightened 2278 -> 2256: late agent_message_chunk coalescing extracted to
+  // acp-assistant-stream.ts.
+  'src/main/cli/adapters/acp-cli-adapter.ts': 2256,
   // Sat at 699 — one line under the cap — so the automation-provider-exclusion
   // guard in resolveCliType could not be added without crossing it. Entered at
   // 706 rather than dropping the guard; the file is a refactor candidate.
@@ -429,7 +431,10 @@ const ALLOWLIST: Record<string, number> = {
   // SettingsStore/ModelFavoritesService injection; pure mapping lives in
   // automation-model-preview.ts.
   'src/renderer/app/features/automations/automations-page.component.ts': 782,
-  'src/renderer/app/features/loop/loop-control.component.ts': 1074,
+  // Raised 1074 -> 1125 (2026-09-02): loop HUD diagnosis/issue-card wiring
+  // already in the working tree; file sat 1 over 1074+50 slack and failed
+  // check:ts-max-loc. Re-tighten after a HUD-strip extract.
+  'src/renderer/app/features/loop/loop-control.component.ts': 1125,
   'src/renderer/app/features/mcp/mcp-page.component.ts': 1123,
   'src/renderer/app/features/memory/memory-browser.component.ts': 957,
   // Raised 946 -> 957 for hybrid usage-based row ordering in Favorites/provider tabs.

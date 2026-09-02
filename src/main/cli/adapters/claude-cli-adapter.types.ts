@@ -194,6 +194,16 @@ export interface InputRequiredPayload {
   metadata?: Record<string, unknown>;
 }
 
+export function mergeInputRequiredMetadata(
+  message: { metadata?: Record<string, unknown> },
+  extras: Record<string, unknown>,
+): Record<string, unknown> {
+  const incoming = message.metadata && typeof message.metadata === 'object'
+    ? message.metadata
+    : {};
+  return { ...incoming, ...extras };
+}
+
 /**
  * Events emitted by ClaudeCliAdapter (backward compatible)
  */

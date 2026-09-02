@@ -31,6 +31,13 @@ import {
   setResponseError,
   shouldClearInputRequiredForStatus
 } from './user-action-request.response-utils';
+import {
+  coerceSecretRequest,
+  declineSecretCardDraft,
+  isSecretRequest,
+  SecretCardDrafts,
+  submitSecretCardDraft,
+} from './user-action-request.secret-card';
 
 export type { UserActionRequest } from './user-action-request.types';
 
@@ -54,6 +61,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
 
   private inputRequiredScopes = new Map<string, InputRequiredScope>();
   private inputRequiredTexts = new Map<string, string>();
+  private readonly secretCardDrafts = new SecretCardDrafts();
   private pendingInputRequiredById = new Map<string, UserActionRequest>();
 
   private modifyPanelOpen = new Map<string, boolean>();
@@ -154,7 +162,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
 
       const currentInstanceId = this.instanceId();
 
-      if (metadata?.type !== 'permission_denial') {
+      if (metadata?.type !== 'permission_denial' && metadata?.type !== 'secret_required') {
         const instance = this.instanceStore.getInstance(payload.instanceId);
         if (instance?.yoloMode) {
           console.log('[APPROVAL_TRACE][renderer:user-action] skipped_yolo_enabled', {
@@ -175,19 +183,25 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         metadata?.type === 'ask_user_question'
           ? this.coerceAskQuestions((payload.metadata as Record<string, unknown> | undefined)?.['questions'])
           : undefined;
+      const secretRequest = metadata?.type === 'secret_required'
+        ? coerceSecretRequest(payload.metadata as Record<string, unknown> | undefined)
+        : undefined;
       const req: UserActionRequest = {
         id: payload.requestId,
         instanceId: payload.instanceId,
-        requestType: 'input_required',
-        title: askQuestions?.length
-          ? 'Claude has a question'
-          : isPermissionPrompt
-            ? 'Permission Required'
-            : 'Input Required',
+        requestType: secretRequest ? 'secret_required' : 'input_required',
+        title: secretRequest
+          ? (secretRequest.label || 'Secure secret required')
+          : askQuestions?.length
+            ? 'Claude has a question'
+            : isPermissionPrompt
+              ? 'Permission Required'
+              : 'Input Required',
         message: payload.prompt,
         createdAt: payload.timestamp,
         permissionMetadata: metadata, // Store permission details for retry message
-        askQuestions
+        askQuestions,
+        secretRequest,
       };
       clearResponseError(this.responseErrors, req.id);
       this.pendingInputRequiredById.set(req.id, req);
@@ -723,6 +737,49 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
 
     await this.respond(request, true, responseText);
     this.inputRequiredTexts.delete(request.id);
+  }
+
+  readonly isSecretRequest = isSecretRequest;
+
+  onSecretValueChange(requestId: string, event: Event): void {
+    this.secretCardDrafts.set(requestId, (event.target as HTMLInputElement).value);
+  }
+
+  hasSecretValue(requestId: string): boolean {
+    return this.secretCardDrafts.has(requestId);
+  }
+
+  async onSubmitSecretCard(request: UserActionRequest): Promise<void> {
+    const value = this.secretCardDrafts.take(request.id);
+    if (!value.trim()) return;
+    await this.finishSecretCard(request, () => submitSecretCardDraft(this.ipc, request, value), 'The secret could not be saved.');
+  }
+
+  async onDeclineSecretCard(request: UserActionRequest): Promise<void> {
+    this.secretCardDrafts.clear(request.id);
+    await this.finishSecretCard(request, () => declineSecretCardDraft(this.ipc, request), 'The decline could not be recorded.');
+  }
+
+  private async finishSecretCard(
+    request: UserActionRequest,
+    submit: () => Promise<{ success: boolean; error?: { message: string } }>,
+    fallback: string,
+  ): Promise<void> {
+    this.isResponding.set(true);
+    clearResponseError(this.responseErrors, request.id);
+    try {
+      const result = await submit();
+      if (result.success) {
+        this.pendingInputRequiredById.delete(request.id);
+        this.pendingRequests.update((requests) => requests.filter((r) => r.id !== request.id));
+      } else {
+        setResponseError(this.responseErrors, request.id, responseErrorMessage(result, fallback));
+      }
+    } catch (error) {
+      setResponseError(this.responseErrors, request.id, errorMessage(error, fallback));
+    } finally {
+      this.isResponding.set(false);
+    }
   }
 
   /**

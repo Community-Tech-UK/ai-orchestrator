@@ -575,6 +575,75 @@ describe('AcpCliAdapter', () => {
     proc.exit();
   });
 
+  it('appends agent_message_chunk tokens that arrive after session/prompt returns onto the same bubble', async () => {
+    const proc = createInitializedAgentHarness();
+
+    proc.onRequest('session/prompt', (message) => {
+      proc.notify('session/update', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'agent-fragment-1',
+          content: { type: 'text', text: 'Confirmed — f\n' },
+        },
+      });
+      proc.notify('session/update', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'agent-fragment-2',
+          content: { type: 'text', text: 'ix\n' },
+        },
+      });
+      proc.respond(message.id, { stopReason: 'end_turn' });
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+    });
+    await adapter.spawn();
+
+    const outputs: {
+      id: string;
+      type: string;
+      content: string;
+      metadata?: Record<string, unknown>;
+    }[] = [];
+    adapter.on('output', (message: {
+      id: string;
+      type: string;
+      content: string;
+      metadata?: Record<string, unknown>;
+    }) => {
+      outputs.push(message);
+    });
+
+    const response = await adapter.sendMessage({ role: 'user', content: 'hello' });
+
+    proc.notify('session/update', {
+      sessionId: 'sess-acp-1',
+      update: {
+        sessionUpdate: 'agent_message_chunk',
+        messageId: 'agent-fragment-3',
+        content: { type: 'text', text: 'ing that line now.\n' },
+      },
+    });
+
+    await vi.waitFor(() => {
+      const assistantOutputs = outputs.filter((message) => message.type === 'assistant');
+      expect(assistantOutputs.some((message) => message.content === 'Confirmed — fixing that line now.')).toBe(true);
+      expect(new Set(assistantOutputs.map((message) => message.id)).size).toBe(1);
+      expect(assistantOutputs.at(-1)).toMatchObject({
+        id: response.id,
+        content: 'Confirmed — fixing that line now.',
+        metadata: expect.objectContaining({ streaming: false }),
+      });
+    });
+
+    proc.exit();
+  });
+
   it('drops user_message_chunk prompt echoes while a turn is in flight', async () => {
     const proc = createInitializedAgentHarness();
 
@@ -652,6 +721,51 @@ describe('AcpCliAdapter', () => {
     await vi.waitFor(() => {
       expect(outputHandler).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'user', content: 'replayed user message' }),
+      );
+    });
+
+    proc.exit();
+  });
+
+  it('does not glue history-replay assistant chunks onto a sticky turn before the first prompt', async () => {
+    const proc = createInitializedAgentHarness();
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+    });
+    await adapter.spawn();
+
+    const outputs: { id: string; type: string; content: string }[] = [];
+    adapter.on('output', (message: { id: string; type: string; content: string }) => {
+      outputs.push(message);
+    });
+
+    proc.notify('session/update', {
+      sessionId: 'sess-acp-1',
+      update: {
+        sessionUpdate: 'agent_message_chunk',
+        messageId: 'hist-1',
+        content: { type: 'text', text: 'Old reply' },
+      },
+    });
+    proc.notify('session/update', {
+      sessionId: 'sess-acp-1',
+      update: {
+        sessionUpdate: 'agent_message_chunk',
+        messageId: 'hist-2',
+        content: { type: 'text', text: 'Later reply' },
+      },
+    });
+
+    await vi.waitFor(() => {
+      const assistantOutputs = outputs.filter((message) => message.type === 'assistant');
+      expect(assistantOutputs.map((message) => message.content)).toEqual([
+        'Old reply',
+        'Later reply',
+      ]);
+      expect(new Set(assistantOutputs.map((message) => message.id))).toEqual(
+        new Set(['hist-1', 'hist-2']),
       );
     });
 

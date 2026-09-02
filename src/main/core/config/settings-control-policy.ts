@@ -90,6 +90,8 @@ const PRIVILEGED_CLI_OPERATOR_ONLY_KEYS = new Set<keyof AppSettings>([
   'computerUseEnabled',
   'computerUseAllowedAppsJson',
   'computerUseDeniedAppsJson',
+  'workspaceSecretsEnabled',
+  'workspaceSecretsAllowAgentRequests',
   'computerUseRequireApprovalForInput',
   'computerUseStoreScreenshotsForEscalations',
   'computerUseAutonomyLevel',
@@ -388,6 +390,8 @@ export const SETTINGS_TOOL_POLICY = {
   // the widening note on PRIVILEGED_CLI_OPERATOR_ONLY_KEYS). Compensating
   // control: the standing warning on the Browser screen's vault card.
   browserAllowSharedTabCredentialFill: readOnly(),
+  workspaceSecretsEnabled: readOnly(),
+  workspaceSecretsAllowAgentRequests: readOnly(),
   codebaseAutoIndexEnabled: open(z.boolean()),
   instanceProviderLimitResumeEnabled: open(z.boolean()),
   loopAllowProviderOverage: open(z.boolean()),

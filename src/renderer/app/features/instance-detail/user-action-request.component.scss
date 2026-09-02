@@ -52,6 +52,28 @@
   border-color: #4fa3a5;
 }
 
+.request-secret_required {
+  border-color: #8b5cf6;
+}
+
+.secret-purpose {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.secret-footer {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.secret-input {
+  min-height: 40px;
+  resize: none;
+}
+
 .request-header {
   display: flex;
   align-items: center;

@@ -85,6 +85,36 @@ describe('ClaudeCliAdapter provider stream errors', () => {
   });
 });
 
+describe('ClaudeCliAdapter secret_required mapping', () => {
+  it('forwards name/label/purpose on input_required metadata', () => {
+    const adapter = new ClaudeCliAdapter();
+    const onInputRequired = vi.fn();
+    adapter.on('input_required', onInputRequired);
+    const processCliMessage = (
+      adapter as unknown as { processCliMessage: (message: unknown) => void }
+    ).processCliMessage.bind(adapter);
+
+    processCliMessage({
+      type: 'input_required',
+      prompt: 'Need a GitHub token',
+      timestamp: 99,
+      metadata: {
+        type: 'secret_required',
+        name: 'github-pat',
+        label: 'GitHub personal access token',
+        purpose: 'Install the workspace MCP connector',
+      },
+    });
+
+    expect(onInputRequired).toHaveBeenCalledTimes(1);
+    const payload = onInputRequired.mock.calls[0][0] as { metadata?: Record<string, unknown> };
+    expect(payload.metadata?.['type']).toBe('secret_required');
+    expect(payload.metadata?.['name']).toBe('github-pat');
+    expect(payload.metadata?.['label']).toBe('GitHub personal access token');
+    expect(payload.metadata?.['purpose']).toBe('Install the workspace MCP connector');
+  });
+});
+
 describe('ClaudeCliAdapter AskUserQuestion handling', () => {
   it('emits input_required when AskUserQuestion appears in assistant content tool_use blocks', () => {
     const adapter = new ClaudeCliAdapter();

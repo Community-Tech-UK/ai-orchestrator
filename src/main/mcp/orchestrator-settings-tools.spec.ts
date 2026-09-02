@@ -534,20 +534,22 @@ describe('privileged settings CLI writability reporting', () => {
   });
 
   it('holds the operator-only anchor count the docs quote', () => {
-    // docs/AIO_MCP_CLI.md and docs/llm/AIO_MCP_CLI_REFERENCE.md both state 18
+    // docs/AIO_MCP_CLI.md and docs/llm/AIO_MCP_CLI_REFERENCE.md both state 20
     // anchors and enumerate them by group. History: the count reached 21 on
     // 2026-08-26 (`computerUseAutonomyLevel` took the Computer Use group from
     // five keys to six, after Copilot account routing added two on 2026-08-25,
     // `providersExcludedFromAutomation` on 2026-08-19 and `allowPrCreation`
     // under WS-B1 phase 1). On 2026-08-29 the operator authorised removing the
     // two credential-vault unlock keys and the shared-tab credential-fill
-    // switch so unattended logins need no GUI step, taking it to 18. That is
-    // pinned separately in settings-control-policy.browser-credentials.spec.ts.
-    // Fail here if a 19th is added, or one is removed, without updating the
+    // switch so unattended logins need no GUI step, taking it to 18. On
+    // 2026-09-02 Workspace Secret Card added `workspaceSecretsEnabled` and
+    // `workspaceSecretsAllowAgentRequests`, taking it to 20. That is pinned
+    // separately in settings-control-policy.workspace-secrets.spec.ts.
+    // Fail here if a 21st is added, or one is removed, without updating the
     // prose.
     const anchors = [...privilegedList().values()].filter((setting) => !setting.cliWritable);
 
-    expect(anchors).toHaveLength(18);
+    expect(anchors).toHaveLength(20);
   });
 
   it('refuses an operator-only key before parsing the supplied value', () => {

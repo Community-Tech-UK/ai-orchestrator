@@ -91,6 +91,8 @@ describe('browser credential settings: 2026-08-29 privileged-CLI widening', () =
       'localAiGuardDefaultFallbackPolicy',
       'localAiGuardDailyFallbackBudgetUsd',
       'localAiGuardConfirmAboveInputTokens',
+      'workspaceSecretsEnabled',
+      'workspaceSecretsAllowAgentRequests',
     ] as const) {
       expect(isPrivilegedSettingsCliWritable(key), key).toBe(false);
       expect(() => assertPrivilegedSettingsCliWritable(key), key).toThrow(/operator-only/);

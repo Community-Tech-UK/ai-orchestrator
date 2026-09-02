@@ -31,6 +31,12 @@
           type="button"
           (click)="switchTab('environment')"
         >Environment</button>
+        <button
+          class="tab-btn"
+          [class.active]="activeTab() === 'workspace-secrets'"
+          type="button"
+          (click)="switchTab('workspace-secrets')"
+        >Workspace secrets</button>
       </div>
 
       <!-- Error banner -->
@@ -302,6 +308,10 @@
               }
             </div>
           </div>
+        }
+
+        @if (activeTab() === 'workspace-secrets') {
+          <app-workspace-secrets-panel />
         }
 
       </div>

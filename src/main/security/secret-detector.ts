@@ -326,8 +326,50 @@ export function detectSecretsInEnvContent(content: string): DetectedSecret[] {
 /**
  * Detect secrets in arbitrary text content
  */
+/**
+ * In-memory exact-value matchers registered when a workspace secret is stored.
+ * Never persisted. Used as a backstop so a stored value is masked if it ever
+ * reaches `redactForEgress`.
+ */
+const exactSecretValues = new Map<string, string>();
+const MIN_EXACT_VALUE_LENGTH = 8;
+
+export function registerExactSecretValue(value: string, name: string): void {
+  if (!value || value.length < MIN_EXACT_VALUE_LENGTH) {
+    return;
+  }
+  exactSecretValues.set(value, name);
+}
+
+export function unregisterExactSecretValue(value: string): void {
+  exactSecretValues.delete(value);
+}
+
+export function _resetExactSecretValuesForTesting(): void {
+  exactSecretValues.clear();
+}
+
 export function detectSecretsInContent(content: string): DetectedSecret[] {
   const secrets: DetectedSecret[] = [];
+
+  for (const [value, name] of exactSecretValues) {
+    let from = 0;
+    while (from < content.length) {
+      const index = content.indexOf(value, from);
+      if (index === -1) {
+        break;
+      }
+      secrets.push({
+        type: 'credential',
+        name,
+        redactedValue: '*'.repeat(value.length),
+        startIndex: index,
+        endIndex: index + value.length,
+        confidence: 'high',
+      });
+      from = index + value.length;
+    }
+  }
 
   // Check for private keys
   const privateKeyMatch = content.match(/-----BEGIN (RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----[\s\S]*?-----END \1?PRIVATE KEY-----/g);

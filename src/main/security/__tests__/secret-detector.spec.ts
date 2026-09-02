@@ -1,5 +1,12 @@
-import { describe, expect, it } from 'vitest';
-import { detectSecrets, redactSecrets } from '../secret-detector';
+import { afterEach, describe, expect, it } from 'vitest';
+import {
+  _resetExactSecretValuesForTesting,
+  detectSecrets,
+  redactSecrets,
+  registerExactSecretValue,
+  unregisterExactSecretValue,
+} from '../secret-detector';
+import { redactForEgress } from '../content-egress-gate';
 
 describe('SecretDetector', () => {
   describe('prefix-based value scanning', () => {
@@ -59,6 +66,28 @@ describe('SecretDetector', () => {
         expect(secret.redactedValue).toBeDefined();
         expect(secret.redactedValue).toMatch(/^\*+$/);
       }
+    });
+  });
+
+  describe('runtime exact-value matchers', () => {
+    const stored = 'aio-workspace-secret-placeholder-0001';
+
+    afterEach(() => {
+      _resetExactSecretValuesForTesting();
+    });
+
+    it('redacts a registered exact value at egress', () => {
+      registerExactSecretValue(stored, 'github-pat');
+      const result = redactForEgress(`leak: ${stored}`, { kind: 'prompt' });
+      expect(result.secretsFound).toBe(true);
+      expect(result.content).not.toContain(stored);
+    });
+
+    it('stops matching after unregister', () => {
+      registerExactSecretValue(stored, 'github-pat');
+      unregisterExactSecretValue(stored);
+      const result = redactForEgress(`leak: ${stored}`, { kind: 'prompt' });
+      expect(result.content).toContain(stored);
     });
   });
 });

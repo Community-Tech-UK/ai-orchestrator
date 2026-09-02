@@ -12,6 +12,7 @@ export { registerVcsHandlers } from './vcs-handlers';
 export { registerLspHandlers } from './lsp-handlers';
 export { registerSnapshotHandlers } from './snapshot-handlers';
 export { registerMcpHandlers } from './mcp-handlers';
+export { registerWorkspaceMcpConnectorHandlers } from './workspace-mcp-connector-handlers';
 export { registerBrowserGatewayHandlers } from './browser-gateway-handlers';
 export { registerBrowserUnattendedHandlers } from './browser-unattended-handlers';
 export { registerDesktopGatewayHandlers } from './desktop-gateway-handlers';
