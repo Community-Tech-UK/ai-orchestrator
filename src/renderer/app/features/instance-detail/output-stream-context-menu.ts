@@ -1,4 +1,6 @@
+import type { FailedImageRef } from '../../../../shared/types/instance.types';
 import type { ContextMenuItem } from '../../shared/components/context-menu/context-menu.component';
+import type { DisplayItem } from './display-item.types';
 import type { LinkedFileTarget } from './output-stream.types';
 
 /**
@@ -103,4 +105,52 @@ export function buildFileMenuItems(
       action: actions.openInFileManager,
     },
   ];
+}
+
+/**
+ * Filter the failed-image-card list shown under a message.
+ *
+ * `unsupported` failures from bare-URL inference (a URL that happens to
+ * end in `.png` etc. on its own line) are suppressed: the inference is
+ * best-effort, and showing a red error card for every such miss creates
+ * UI noise. Explicit `![](url)` markdown image failures are always
+ * surfaced. Older persisted messages may not carry `origin`; treat
+ * missing origin as `markdown` (keep it visible).
+ */
+export function visibleFailedImages(failures: readonly FailedImageRef[]): FailedImageRef[] {
+  return failures.filter((failure) => {
+    if (failure.reason !== 'unsupported') return true;
+    return failure.origin !== 'bare';
+  });
+}
+
+export function buildMessageContextMenuItems(
+  item: DisplayItem,
+  actions: { copyMessage: () => void; forkFromHere: () => void },
+): ContextMenuItem[] {
+  const items: ContextMenuItem[] = [];
+  const content = item.message?.content || item.response?.content;
+  const forkableMessage = item.message ?? item.response;
+  const attachments = forkableMessage?.attachments;
+  const hasCopyableAttachments =
+    Array.isArray(attachments) &&
+    attachments.some((a) => typeof a.data === 'string' && a.data.startsWith('data:'));
+  if (content || hasCopyableAttachments) {
+    items.push({
+      label: 'Copy message',
+      action: actions.copyMessage,
+    });
+  }
+  if (
+    forkableMessage &&
+    ['user', 'assistant'].includes(forkableMessage.type) &&
+    item.bufferIndex !== undefined
+  ) {
+    items.push({
+      label: 'Fork from here',
+      divider: true,
+      action: actions.forkFromHere,
+    });
+  }
+  return items;
 }

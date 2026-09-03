@@ -286,7 +286,7 @@ describe('LoopControlComponent', () => {
 
     const card = fixture.nativeElement.querySelector('app-loop-issue-card') as HTMLElement;
     expect(card).toBeTruthy();
-    expect(card.textContent).toContain('Repeating the same tool calls and re-reading the same files');
+    expect(card.textContent).toContain('Repeating the same tool calls and re-reading the same content');
     expect(card.textContent).toContain('still running');
     expect(card.textContent).toContain('pause on its own');
     expect(card.textContent).toContain('Usually fixable');
@@ -298,6 +298,32 @@ describe('LoopControlComponent', () => {
     expect(primary.textContent?.trim()).toBe('Give a hint');
     const labels = Array.from(card.querySelectorAll('button')).map((b) => b.textContent?.trim());
     expect(labels).toEqual(['Give a hint', 'See why', 'Stop']);
+  });
+
+  it('says the loop is already changing approach when auto-unstick is in flight', () => {
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: {
+        ...activeState(),
+        status: 'running',
+        autoUnstick: { seq: 0, attempt: 1, max: 2, signalId: 'G' },
+        lastIteration: {
+          ...loopIteration(),
+          seq: 0,
+          progressVerdict: 'CRITICAL',
+          progressSignals: [
+            { id: 'G', verdict: 'CRITICAL', message: 'Tool Edit called 43× in one iteration' },
+          ],
+        },
+      },
+    }));
+    fixture.detectChanges();
+
+    const card = fixture.nativeElement.querySelector('app-loop-issue-card') as HTMLElement;
+    expect(card.textContent).toContain('trying a different approach on its own');
+    expect(card.textContent).toContain('already changing approach');
+    const primary = card.querySelector('button.primary') as HTMLButtonElement;
+    expect(primary.textContent?.trim()).toBe('See why');
   });
 
   it('names the real blocker instead of the previous iteration WARN', () => {
@@ -342,6 +368,28 @@ describe('LoopControlComponent', () => {
     const verdict = fixture.nativeElement.querySelector('.ls-verdict') as HTMLElement;
     expect(verdict.title).toBe('The loop is blocked and needs you');
     expect(verdict.title).not.toContain('Repeating the same tool calls');
+  });
+
+  it('does not blame progress for a provider-limit park or an awaiting-review pause', () => {
+    // Both look "not running" but neither is a pause the loop imposed over
+    // progress, so neither may claim the loop could not prove progress.
+    for (const state of [
+      { ...activeState(), status: 'provider-limit' as const, endedAt: null, lastIteration: loopIteration() },
+      {
+        ...activeState(),
+        status: 'paused' as const,
+        lastCompletionOutcome: 'unverifiable' as const,
+        lastIteration: loopIteration(),
+      },
+    ]) {
+      listeners.stateChanged.forEach((cb) => cb({ loopRunId: 'loop-1', state }));
+      fixture.detectChanges();
+
+      const card = fixture.nativeElement.querySelector('app-loop-issue-card') as HTMLElement;
+      expect(card).toBeTruthy();
+      expect(card.textContent).not.toContain('could not prove progress');
+      expect(card.textContent).not.toContain('still running');
+    }
   });
 
   it('does not blame progress when the operator paused the loop by hand', () => {

@@ -3,9 +3,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { defaultLoopConfig, type LoopIteration, type LoopState } from '../../shared/types/loop.types';
+import { defaultLoopConfig, type LoopConfig, type LoopIteration, type LoopState } from '../../shared/types/loop.types';
 import { resolveLoopArtifactPaths } from './loop-artifact-paths';
-import { runLoopFinalAudit, runLoopPreflight } from './loop-audit-runtime';
+import { LOOP_PREFLIGHT_VERIFY_BUDGET_MS, runLoopFinalAudit, runLoopPreflight } from './loop-audit-runtime';
 import { captureLoopRepoBaseline } from './loop-repo-state';
 import { LoopStageMachine } from './loop-stage-machine';
 
@@ -76,6 +76,69 @@ describe('runLoopPreflight', () => {
       label: 'verify',
       failureKind: 'timeout',
     })]);
+  });
+
+  // Regression: `record` mode gates nothing, yet it was awaited before
+  // iteration 0 with the full `verifyTimeoutMs`. A repo whose verify runs the
+  // whole suite spent the entire 600s budget producing "timed out" before the
+  // agent had taken a single turn.
+  it('caps the baseline verify budget when the preflight is not a gate', async () => {
+    const seen: number[] = [];
+    const detector = {
+      runQuickVerify: async () => ({ status: 'skipped' as const, output: '', durationMs: 0 }),
+      runVerify: async (config: LoopConfig) => {
+        seen.push(config.completion.verifyTimeoutMs);
+        return { status: 'passed' as const, output: 'green', durationMs: 5 };
+      },
+    };
+
+    await runLoopPreflight(makeLoopState({ config: preflightState('record', 600_000) }), detector);
+    expect(seen).toEqual([LOOP_PREFLIGHT_VERIFY_BUDGET_MS]);
+
+    // A shorter configured budget is honoured as-is — the cap is a ceiling.
+    seen.length = 0;
+    await runLoopPreflight(makeLoopState({ config: preflightState('record', 30_000) }), detector);
+    expect(seen).toEqual([30_000]);
+
+    // `block` mode is a real gate, so it keeps the full configured budget.
+    seen.length = 0;
+    await runLoopPreflight(makeLoopState({ config: preflightState('block', 600_000) }), detector);
+    expect(seen).toEqual([600_000]);
+  });
+
+  // Regression: a `record` preflight ran the cheap command and THEN the slow
+  // one, so a repo configured with both still paid the full baseline cost ahead
+  // of iteration 1 — to produce a status nothing downstream reads.
+  it('stops after a passing quick-verify when the preflight is not a gate', async () => {
+    let verifyRuns = 0;
+    const detector = {
+      runQuickVerify: async () => ({ status: 'passed' as const, output: 'quick green', durationMs: 3 }),
+      runVerify: async () => {
+        verifyRuns += 1;
+        return { status: 'passed' as const, output: 'slow green', durationMs: 500 };
+      },
+    };
+    const base = preflightState('record', 600_000);
+    const config: LoopConfig = {
+      ...base,
+      completion: { ...base.completion, quickVerifyCommand: 'npm run typecheck' },
+    };
+
+    const result = await runLoopPreflight(makeLoopState({ config }), detector);
+
+    expect(verifyRuns).toBe(0);
+    expect(result.status).toBe('passed');
+    expect(result.commands.map((command) => [command.label, command.status])).toEqual([
+      ['quick-verify', 'passed'],
+      ['verify', 'skipped'],
+    ]);
+
+    // A gate still runs the command it gates on.
+    await runLoopPreflight(
+      makeLoopState({ config: { ...config, audit: { ...config.audit, preflightMode: 'block' } } }),
+      detector,
+    );
+    expect(verifyRuns).toBe(1);
   });
 
   it('records a non-zero exit as a command failure, not a timeout', async () => {
@@ -259,6 +322,18 @@ describe('runLoopFinalAudit', () => {
     }
   });
 });
+
+function preflightState(
+  preflightMode: LoopConfig['audit']['preflightMode'],
+  verifyTimeoutMs: number,
+): LoopConfig {
+  const base = defaultLoopConfig('/workspace', 'verify before work');
+  return {
+    ...base,
+    audit: { ...base.audit, preflightMode },
+    completion: { ...base.completion, verifyCommand: 'npm run verify', verifyTimeoutMs },
+  };
+}
 
 function makeLoopState(overrides: Partial<LoopState>): LoopState {
   const config = overrides.config ?? defaultLoopConfig('/tmp/project', 'ship it');

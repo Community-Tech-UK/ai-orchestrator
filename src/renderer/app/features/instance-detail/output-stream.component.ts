@@ -38,9 +38,15 @@ import { PlanUpdateCardComponent } from './plan-update-card.component';
 import { ContextMenuComponent, ContextMenuItem } from '../../shared/components/context-menu/context-menu.component';
 import {
   buildFileMenuItems,
+  buildMessageContextMenuItems,
   getSelectedTextInItem,
+  visibleFailedImages,
   withSelectionItem,
 } from './output-stream-context-menu';
+import {
+  compactionRecoveryLabel as compactionRecoveryLabelForState,
+  isCompactionRecoveryDisabled as isCompactionRecoveryDisabledForState,
+} from './compaction-recovery-copy';
 import { InstanceStore } from '../../core/state/instance/instance.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { MessageFormatService } from './message-format.service';
@@ -51,7 +57,7 @@ import {
 } from '../../core/services/clipboard.service';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import type { LinkKind } from '../../../../shared/utils/link-detection';
-import { shouldCollapseUserMessage } from './output-stream-message-collapse';
+import { shouldCollapseUserMessage, toggleExpandedId } from './output-stream-message-collapse';
 import { filterDisplayItems } from './output-stream-item-filter';
 import { isLoopOriginatedUserMessage as detectLoopOriginatedUserMessage } from './loop-message-detection';
 import {
@@ -1063,21 +1069,11 @@ export class OutputStreamComponent {
   }
 
   compactionRecoveryLabel(markerId: string): string {
-    switch (this.compactionRecoveryState()[markerId]) {
-      case 'recovering':
-        return 'Recovering';
-      case 'queued':
-        return 'Queued';
-      case 'failed':
-        return 'Retry recover';
-      default:
-        return 'Recover context';
-    }
+    return compactionRecoveryLabelForState(this.compactionRecoveryState()[markerId]);
   }
 
   isCompactionRecoveryDisabled(markerId: string): boolean {
-    const state = this.compactionRecoveryState()[markerId];
-    return state === 'recovering' || state === 'queued';
+    return isCompactionRecoveryDisabledForState(this.compactionRecoveryState()[markerId]);
   }
 
   async recoverCompactionContext(event: MouseEvent, markerId: string): Promise<void> {
@@ -1118,38 +1114,14 @@ export class OutputStreamComponent {
     return this.messageFormat.formatContent(message);
   }
 
-  /**
-   * Filter the failed-image-card list shown under a message.
-   *
-   * `unsupported` failures from bare-URL inference (a URL that happens to
-   * end in `.png` etc. on its own line) are suppressed: the inference is
-   * best-effort, and showing a red error card for every such miss creates
-   * UI noise. Explicit `![](url)` markdown image failures are always
-   * surfaced — those represent a deliberate intent from the model that
-   * the user should see when it goes wrong.
-   *
-   * Older persisted messages may not carry `origin`; treat missing
-   * origin as `markdown` (the conservative choice — keep it visible).
-   */
   protected visibleFailedImages(failures: readonly FailedImageRef[]): FailedImageRef[] {
-    return failures.filter((failure) => {
-      if (failure.reason !== 'unsupported') return true;
-      return failure.origin !== 'bare';
-    });
+    return visibleFailedImages(failures);
   }
 
   protected shouldShowUserMessageToggle(message: OutputMessage): boolean {
     return shouldCollapseUserMessage(message);
   }
 
-  /**
-   * User-role messages that originate from the loop machinery (the loop kickoff
-   * prompt and mid-loop "Inject hint" nudges) render in the transcript as user
-   * bubbles, but "Edit and resend" isn't meaningful for them — the loop owns
-   * the runtime, not the chat send path. We disable the affordance instead of
-   * hiding it so the user gets a tooltip explaining why, rather than a missing
-   * button they have to wonder about.
-   */
   protected isLoopOriginatedUserMessage(message: OutputMessage): boolean {
     return detectLoopOriginatedUserMessage(message);
   }
@@ -1159,15 +1131,7 @@ export class OutputStreamComponent {
   }
 
   protected toggleUserMessageExpansion(messageId: string): void {
-    this.expandedUserMessageIds.update((current) => {
-      const next = new Set(current);
-      if (next.has(messageId)) {
-        next.delete(messageId);
-      } else {
-        next.add(messageId);
-      }
-      return next;
-    });
+    this.expandedUserMessageIds.update((current) => toggleExpandedId(current, messageId));
   }
 
   onContextMenu(event: MouseEvent, item: DisplayItem): void {
@@ -1223,38 +1187,19 @@ export class OutputStreamComponent {
   }
 
   private buildContextMenuItems(item: DisplayItem): ContextMenuItem[] {
-    const items: ContextMenuItem[] = [];
     const content = item.message?.content || item.response?.content;
     const forkableMessage = item.message ?? item.response;
-    const attachments = forkableMessage?.attachments;
-    const hasCopyableAttachments =
-      Array.isArray(attachments) &&
-      attachments.some((a) => typeof a.data === 'string' && a.data.startsWith('data:'));
-    if (content || hasCopyableAttachments) {
-      items.push({
-        label: 'Copy message',
-        action: () => {
-          void this.copyMessageContent(
-            content ?? '',
-            forkableMessage?.id ?? item.id,
-            attachments,
-          );
-          this.closeContextMenu();
-        },
-      });
-    }
-    if (
-      forkableMessage &&
-      ['user', 'assistant'].includes(forkableMessage.type) &&
-      item.bufferIndex !== undefined
-    ) {
-      items.push({
-        label: 'Fork from here',
-        divider: true,
-        action: () => this.forkFromMessage(item),
-      });
-    }
-    return items;
+    return buildMessageContextMenuItems(item, {
+      copyMessage: () => {
+        void this.copyMessageContent(
+          content ?? '',
+          forkableMessage?.id ?? item.id,
+          forkableMessage?.attachments,
+        );
+        this.closeContextMenu();
+      },
+      forkFromHere: () => this.forkFromMessage(item),
+    });
   }
 
   private async forkFromMessage(item: DisplayItem): Promise<void> {

@@ -9,14 +9,6 @@ import { IPC_CHANNELS } from '@contracts/channels';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { validateIpcPayload } from '@contracts/schemas/common';
 import {
-  ArchiveCleanupPayloadSchema,
-  ArchiveDeletePayloadSchema,
-  ArchiveGetMetaPayloadSchema,
-  ArchiveListPayloadSchema,
-  ArchiveRestorePayloadSchema,
-  ArchiveSearchPayloadSchema,
-  ArchiveSessionPayloadSchema,
-  ArchiveUpdateTagsPayloadSchema,
   HistoryDeletePayloadSchema,
   HistoryListPayloadSchema,
   HistoryLoadPayloadSchema,
@@ -42,7 +34,6 @@ import type { ExportedSession } from '../../../shared/types/instance.types';
 import type { InstanceManager } from '../../instance/instance-manager';
 import { getAutoTitleService } from '../../instance/auto-title-service';
 import { getHistoryManager } from '../../history';
-import { getSessionArchiveManager } from '../../session/session-archive';
 import { getSessionShareService } from '../../session/session-share-service';
 import { getSessionContinuityManager } from '../../session/session-continuity';
 import { SessionRevivalService } from '../../session/session-revival-service';
@@ -50,6 +41,7 @@ import { HistoryRestoreCoordinator } from '../../history/history-restore-coordin
 import { isRemoteNodeReachable } from './remote-node-check';
 import { validatedHandler } from '../validated-handler';
 import { registerSessionAdmissionHandlers } from './session-admission-handlers';
+import { registerSessionArchiveHandlers } from './session-archive-handlers';
 import { registerSessionRecoveryHandlers } from './session-recovery-handlers';
 import { registerSessionQueueHandlers } from './session-queue-handlers';
 
@@ -532,254 +524,10 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
     }
   );
 
-  // ============================================
-  // Archive Handlers
-  // ============================================
-
-  const archiveManager = getSessionArchiveManager();
-
-  // Archive session - requires an Instance object
-  registerTrustedIpcHandler(
-    IPC_CHANNELS.ARCHIVE_SESSION,
-    async (
-      event: IpcMainInvokeEvent,
-      payload: unknown
-    ): Promise<IpcResponse> => {
-      try {
-        const validated = validateIpcPayload(ArchiveSessionPayloadSchema, payload, 'ARCHIVE_SESSION');
-        // Get the instance from instance manager
-        const instance = instanceManager.getInstance(validated.instanceId);
-        if (!instance) {
-          throw new Error(`Instance not found: ${validated.instanceId}`);
-        }
-        const meta = archiveManager.archiveSession(instance, validated.tags);
-        return { success: true, data: meta };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'ARCHIVE_SESSION_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
-  );
-
-  // List archives
-  registerTrustedIpcHandler(
-    IPC_CHANNELS.ARCHIVE_LIST,
-    async (
-      event: IpcMainInvokeEvent,
-      payload: unknown
-    ): Promise<IpcResponse> => {
-      try {
-        const validated = validateIpcPayload(ArchiveListPayloadSchema, payload, 'ARCHIVE_LIST');
-        const filter = validated
-          ? {
-              beforeDate: validated.beforeDate,
-              afterDate: validated.afterDate,
-              tags: validated.tags,
-              searchTerm: validated.searchTerm
-            }
-          : undefined;
-        const archives = archiveManager.listArchivedSessions(filter);
-        return { success: true, data: archives };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'ARCHIVE_LIST_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
-  );
-
-  // Search archives by query string.
-  registerTrustedIpcHandler(
-    IPC_CHANNELS.ARCHIVE_SEARCH,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown
-    ): Promise<IpcResponse> => {
-      try {
-        const validated = validateIpcPayload(
-          ArchiveSearchPayloadSchema,
-          payload,
-          'ARCHIVE_SEARCH',
-        );
-        const query = validated.query.trim();
-
-        const archives = archiveManager
-          .listArchivedSessions({
-            searchTerm: query || undefined,
-            tags: validated.options?.tags,
-          })
-          .slice(0, validated.options?.limit);
-
-        return { success: true, data: archives };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'ARCHIVE_SEARCH_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
-  );
-
-  // Restore archive
-  registerTrustedIpcHandler(
-    IPC_CHANNELS.ARCHIVE_RESTORE,
-    async (
-      event: IpcMainInvokeEvent,
-      payload: unknown
-    ): Promise<IpcResponse> => {
-      try {
-        const validated = validateIpcPayload(ArchiveRestorePayloadSchema, payload, 'ARCHIVE_RESTORE');
-        const sessionData = archiveManager.restoreSession(validated.archiveId);
-        return { success: true, data: sessionData };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'ARCHIVE_RESTORE_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
-  );
-
-  // Delete archive
-  registerTrustedIpcHandler(
-    IPC_CHANNELS.ARCHIVE_DELETE,
-    async (
-      event: IpcMainInvokeEvent,
-      payload: unknown
-    ): Promise<IpcResponse> => {
-      try {
-        const validated = validateIpcPayload(ArchiveDeletePayloadSchema, payload, 'ARCHIVE_DELETE');
-        const success = archiveManager.deleteArchivedSession(
-          validated.archiveId
-        );
-        return { success: true, data: { deleted: success } };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'ARCHIVE_DELETE_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
-  );
-
-  // Get archive metadata
-  registerTrustedIpcHandler(
-    IPC_CHANNELS.ARCHIVE_GET_META,
-    async (
-      event: IpcMainInvokeEvent,
-      payload: unknown
-    ): Promise<IpcResponse> => {
-      try {
-        const validated = validateIpcPayload(ArchiveGetMetaPayloadSchema, payload, 'ARCHIVE_GET_META');
-        const meta = archiveManager.getArchivedSessionMeta(validated.archiveId);
-        return { success: true, data: meta };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'ARCHIVE_GET_META_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
-  );
-
-  // Update tags
-  registerTrustedIpcHandler(
-    IPC_CHANNELS.ARCHIVE_UPDATE_TAGS,
-    async (
-      event: IpcMainInvokeEvent,
-      payload: unknown
-    ): Promise<IpcResponse> => {
-      try {
-        const validated = validateIpcPayload(ArchiveUpdateTagsPayloadSchema, payload, 'ARCHIVE_UPDATE_TAGS');
-        const success = archiveManager.updateTags(
-          validated.archiveId,
-          validated.tags
-        );
-        return { success: true, data: { updated: success } };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'ARCHIVE_UPDATE_TAGS_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
-  );
-
-  // Get archive stats
-  registerTrustedIpcHandler(
-    IPC_CHANNELS.ARCHIVE_GET_STATS,
-    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
-      try {
-        validateIpcPayload(SessionHandlerEmptyPayloadSchema, payload, 'ARCHIVE_GET_STATS');
-        const stats = archiveManager.getArchiveStats();
-        return { success: true, data: stats };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'ARCHIVE_GET_STATS_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
-  );
-
-  // Cleanup old archives
-  registerTrustedIpcHandler(
-    IPC_CHANNELS.ARCHIVE_CLEANUP,
-    async (
-      event: IpcMainInvokeEvent,
-      payload: unknown
-    ): Promise<IpcResponse> => {
-      try {
-        const validated = validateIpcPayload(ArchiveCleanupPayloadSchema, payload, 'ARCHIVE_CLEANUP');
-        const deleted = archiveManager.cleanupOldArchives(validated.maxAgeDays);
-        return { success: true, data: { deletedCount: deleted } };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'ARCHIVE_CLEANUP_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
-  );
+  registerSessionArchiveHandlers({
+    instanceManager,
+    registerIpcHandler: registerTrustedIpcHandler,
+  });
 
   // ============================================
   // History Handlers

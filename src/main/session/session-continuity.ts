@@ -31,7 +31,17 @@ import { getProjectStoragePaths } from '../storage/project-storage-paths';
 import { SessionAutoSaveCoordinator } from './autosave-coordinator';
 import { getSessionPersistenceQueue } from './session-persistence-queue';
 import { captureResumeCursorForState } from './resume-cursor-capture';
-import { isLegacyRedactedToolOutput } from './redacted-tool-output';
+import {
+  CURRENT_SESSION_SCHEMA_VERSION,
+  findLastIndexById,
+  getStateLookupKeys,
+  migrateSessionState,
+  normalizeConversationEntryForPersistence,
+  normalizeConversationHistory,
+  normalizeLookupIdentifier,
+  normalizeStateForContinuity,
+  shouldRewriteNormalizedState,
+} from './session-continuity-state';
 import { retainedPromptsMissingFrom } from '../instance/prompt-retention';
 import { outputMessagesToContinuityEntries } from './continuity-message-projection';
 import type {
@@ -69,50 +79,6 @@ export type {
 } from './session-continuity.types';
 
 const logger = getLogger('SessionContinuity');
-
-const CURRENT_SCHEMA_VERSION = 2;
-
-interface SessionMigration {
-  fromVersion: number;
-  toVersion: number;
-  description: string;
-  migrate: (state: Record<string, unknown>) => Record<string, unknown>;
-}
-
-const SESSION_MIGRATIONS: SessionMigration[] = [
-  {
-    fromVersion: 1,
-    toVersion: 2,
-    description: 'Add schemaVersion field to session state',
-    migrate: (state) => ({ ...state, schemaVersion: 2 }),
-  },
-];
-
-function migrateSessionState(state: Record<string, unknown>): Record<string, unknown> {
-  let version = (state['schemaVersion'] as number) || 1;
-  let current = { ...state };
-
-  for (const migration of SESSION_MIGRATIONS) {
-    if (version === migration.fromVersion) {
-      logger.info('Running session migration', {
-        from: migration.fromVersion,
-        to: migration.toVersion,
-        description: migration.description,
-      });
-      current = migration.migrate(current);
-      version = migration.toVersion;
-    }
-  }
-
-  if (version !== CURRENT_SCHEMA_VERSION) {
-    logger.warn('Session state version mismatch after migration', {
-      expected: CURRENT_SCHEMA_VERSION,
-      actual: version,
-    });
-  }
-
-  return current;
-}
 
 const DEFAULT_RESUME_AUTOSAVE_GRACE_MS = 60_000;
 
@@ -158,18 +124,6 @@ interface SessionIdentityWriteThrough {
   sessionId?: string;
   resumeCursor?: ResumeCursor | null;
   nativeResumeFailedAt?: number | null;
-}
-
-/**
- * Newest-first id lookup. Re-emitted ids (streaming updates to the same
- * message) are almost always the tail entry, so scanning backwards makes the
- * common case O(1).
- */
-function findLastIndexById(entries: ConversationEntry[], id: string): number {
-  for (let i = entries.length - 1; i >= 0; i--) {
-    if (entries[i].id === id) return i;
-  }
-  return -1;
 }
 
 export class SessionContinuityManager extends EventEmitter {
@@ -324,29 +278,6 @@ export class SessionContinuityManager extends EventEmitter {
     }
   }
 
-  private normalizeLookupIdentifier(value: string | null | undefined): string | null {
-    const normalized = value?.trim();
-    return normalized ? normalized : null;
-  }
-
-  private getStateLookupKeys(
-    state: Pick<SessionState, 'instanceId' | 'historyThreadId' | 'sessionId'>
-  ): string[] {
-    const keys = new Set<string>();
-    const addKey = (value: string | null | undefined): void => {
-      const normalized = this.normalizeLookupIdentifier(value);
-      if (normalized) {
-        keys.add(normalized);
-      }
-    };
-
-    addKey(state.instanceId);
-    addKey(state.historyThreadId);
-    addKey(state.sessionId);
-
-    return Array.from(keys);
-  }
-
   private getStateActivityTimestamp(state: SessionState): number {
     return Math.max(
       this.stateActivityTimestamps.get(state.instanceId) ?? 0,
@@ -355,78 +286,8 @@ export class SessionContinuityManager extends EventEmitter {
     );
   }
 
-  private normalizeConversationEntryForPersistence(
-    entry: ConversationEntry,
-  ): ConversationEntry | null {
-    if (
-      isLegacyRedactedToolOutput(entry.content)
-      || (this.config.redactToolOutputs && entry.role === 'tool')
-    ) {
-      return null;
-    }
-
-    return { ...entry };
-  }
-
-  private normalizeConversationHistory(entries: ConversationEntry[]): ConversationEntry[] {
-    const normalized: ConversationEntry[] = [];
-    const indexById = new Map<string, number>();
-
-    for (const rawEntry of entries) {
-      const entry = this.normalizeConversationEntryForPersistence(rawEntry);
-      if (!entry) {
-        continue;
-      }
-      if (!entry.id) {
-        normalized.push(entry);
-        continue;
-      }
-
-      const existingIndex = indexById.get(entry.id);
-      if (existingIndex !== undefined) {
-        normalized[existingIndex] = entry;
-        continue;
-      }
-
-      indexById.set(entry.id, normalized.length);
-      normalized.push(entry);
-    }
-
-    return normalized;
-  }
-
-  private normalizeStateForContinuity(state: SessionState): SessionState {
-    return {
-      ...state,
-      conversationHistory: this.normalizeConversationHistory(state.conversationHistory),
-    };
-  }
-
-  private shouldRewriteNormalizedState(original: SessionState, normalized: SessionState): boolean {
-    if (original.conversationHistory.length !== normalized.conversationHistory.length) {
-      return true;
-    }
-
-    for (let i = 0; i < original.conversationHistory.length; i++) {
-      const current = original.conversationHistory[i];
-      const next = normalized.conversationHistory[i];
-      if (
-        !next
-        || current.id !== next.id
-        || current.role !== next.role
-        || current.content !== next.content
-        || current.timestamp !== next.timestamp
-        || current.isCompacted !== next.isCompacted
-      ) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
   private dehydrateLoadedState(state: SessionState): SessionState {
-    const normalized = this.normalizeStateForContinuity(state);
+    const normalized = normalizeStateForContinuity(state, this.config.redactToolOutputs);
     this.stateActivityTimestamps.set(
       normalized.instanceId,
       Math.max(normalized.lastWriteTimestamp ?? 0, getLastConversationTimestamp(normalized)),
@@ -452,7 +313,7 @@ export class SessionContinuityManager extends EventEmitter {
       return state;
     }
 
-    const normalized = this.normalizeStateForContinuity(loaded);
+    const normalized = normalizeStateForContinuity(loaded, this.config.redactToolOutputs);
 
     this.sessionStates.delete(instanceId);
     this.sessionStates.set(normalized.instanceId, normalized);
@@ -469,7 +330,7 @@ export class SessionContinuityManager extends EventEmitter {
     instanceId: string;
     state: SessionState;
   } | null {
-    const normalized = this.normalizeLookupIdentifier(identifier);
+    const normalized = normalizeLookupIdentifier(identifier);
     if (!normalized) {
       return null;
     }
@@ -483,7 +344,7 @@ export class SessionContinuityManager extends EventEmitter {
     }
 
     for (const [instanceId, state] of this.sessionStates.entries()) {
-      if (this.getStateLookupKeys(state).includes(normalized)) {
+      if (getStateLookupKeys(state).includes(normalized)) {
         return { instanceId, state };
       }
     }
@@ -492,7 +353,7 @@ export class SessionContinuityManager extends EventEmitter {
   }
 
   private async loadStateFromDiskByIdentifier(identifier: string): Promise<SessionState | null> {
-    const normalized = this.normalizeLookupIdentifier(identifier);
+    const normalized = normalizeLookupIdentifier(identifier);
     if (!normalized) {
       return null;
     }
@@ -500,7 +361,7 @@ export class SessionContinuityManager extends EventEmitter {
     const directStateFile = path.join(this.stateDir, `${normalized}.json`);
     const direct = await this.readPayload<SessionState>(directStateFile);
     if (direct) {
-      return this.normalizeStateForContinuity(direct);
+      return normalizeStateForContinuity(direct, this.config.redactToolOutputs);
     }
 
     let files: string[] = [];
@@ -520,8 +381,8 @@ export class SessionContinuityManager extends EventEmitter {
       }
 
       const state: SessionState | null = await this.readPayload<SessionState>(path.join(this.stateDir, file));
-      if (state && this.getStateLookupKeys(state).includes(normalized)) {
-        return this.normalizeStateForContinuity(state);
+      if (state && getStateLookupKeys(state).includes(normalized)) {
+        return normalizeStateForContinuity(state, this.config.redactToolOutputs);
       }
     }
 
@@ -585,8 +446,8 @@ export class SessionContinuityManager extends EventEmitter {
       const filePath = path.join(this.stateDir, file);
       const data = await this.readPayload<SessionState>(filePath);
       if (data) {
-        const normalized = this.normalizeStateForContinuity(data);
-        if (this.shouldRewriteNormalizedState(data, normalized)) {
+        const normalized = normalizeStateForContinuity(data, this.config.redactToolOutputs);
+        if (shouldRewriteNormalizedState(data, normalized)) {
           await this.writePayload(filePath, normalized);
           try {
             const stateStat = await this.persistenceOperations.statStateFile(filePath);
@@ -643,7 +504,7 @@ export class SessionContinuityManager extends EventEmitter {
               historyThreadId: data.historyThreadId || data.state.historyThreadId,
               timestamp: data.timestamp,
               messageCount: data.metadata.messageCount,
-              schemaVersion: data.schemaVersion ?? CURRENT_SCHEMA_VERSION,
+              schemaVersion: data.schemaVersion ?? CURRENT_SESSION_SCHEMA_VERSION,
               // LT-136: carry the real name/description/trigger through the
               // startup rebuild too, not just the in-process create path.
               name: data.name,
@@ -846,10 +707,10 @@ export class SessionContinuityManager extends EventEmitter {
     const state = await this.hydrateTrackedState(instanceId, trackedState);
 
     const normalizedUpdates: Partial<SessionState> = { ...updates };
-    const nextSessionId = this.normalizeLookupIdentifier(normalizedUpdates.sessionId);
+    const nextSessionId = normalizeLookupIdentifier(normalizedUpdates.sessionId);
     if (normalizedUpdates.sessionId !== undefined) {
       normalizedUpdates.sessionId = nextSessionId ?? undefined;
-      const currentSessionId = this.normalizeLookupIdentifier(state.sessionId);
+      const currentSessionId = normalizeLookupIdentifier(state.sessionId);
       if (
         nextSessionId
         && nextSessionId !== currentSessionId
@@ -861,7 +722,7 @@ export class SessionContinuityManager extends EventEmitter {
 
     if (normalizedUpdates.historyThreadId !== undefined) {
       normalizedUpdates.historyThreadId =
-        this.normalizeLookupIdentifier(normalizedUpdates.historyThreadId) ?? undefined;
+        normalizeLookupIdentifier(normalizedUpdates.historyThreadId) ?? undefined;
     }
 
     Object.assign(state, normalizedUpdates);
@@ -905,7 +766,10 @@ export class SessionContinuityManager extends EventEmitter {
     // previous call, so the only possible duplicate id is the one being
     // appended — re-normalizing the whole array (an object spread per entry
     // plus a rebuilt Map) would be pure waste on a hot path.
-    const normalizedEntry = this.normalizeConversationEntryForPersistence(entry);
+    const normalizedEntry = normalizeConversationEntryForPersistence(
+      entry,
+      this.config.redactToolOutputs,
+    );
     if (!normalizedEntry) return;
     const history = state.conversationHistory;
     const duplicateIndex = normalizedEntry.id
@@ -972,7 +836,7 @@ export class SessionContinuityManager extends EventEmitter {
     const state = await this.hydrateTrackedState(instanceId, trackedState);
     const snapshot = await this.snapshots.createSnapshot(
       state, instanceId, name, description, trigger,
-      (v) => this.normalizeLookupIdentifier(v),
+      (v) => normalizeLookupIdentifier(v),
     );
     if (snapshot) {
       this.appendSessionEvent(instanceId, 'snapshot_created', {
@@ -1148,7 +1012,7 @@ export class SessionContinuityManager extends EventEmitter {
     const state = await this.hydrateTrackedState(instanceId, trackedState);
 
     if (identity.sessionId !== undefined) {
-      const normalized = this.normalizeLookupIdentifier(identity.sessionId);
+      const normalized = normalizeLookupIdentifier(identity.sessionId);
       state.sessionId = normalized ?? undefined;
     }
     if ('resumeCursor' in identity) {
@@ -1286,7 +1150,7 @@ export class SessionContinuityManager extends EventEmitter {
           historyThreadId: updatedSnapshot.historyThreadId,
           timestamp: updatedSnapshot.timestamp,
           messageCount: updatedSnapshot.metadata.messageCount,
-          schemaVersion: updatedSnapshot.schemaVersion ?? CURRENT_SCHEMA_VERSION,
+          schemaVersion: updatedSnapshot.schemaVersion ?? CURRENT_SESSION_SCHEMA_VERSION,
           // LT-136: carry the real name/description/trigger for imported
           // snapshots too, matching the create and rebuild paths.
           name: updatedSnapshot.name,
@@ -1324,10 +1188,10 @@ export class SessionContinuityManager extends EventEmitter {
         // Prompts a trim already evicted are still part of the conversation.
         // Without them a hibernate/wake round trip loses the original request
         // for good — the live buffer is all this ever captured.
-        ? this.normalizeConversationHistory(outputMessagesToContinuityEntries([
+        ? normalizeConversationHistory(outputMessagesToContinuityEntries([
             ...retainedPromptsMissingFrom(instance.retainedPrompts, instance.outputBuffer),
             ...instance.outputBuffer,
-          ]))
+          ]), this.config.redactToolOutputs)
         : [],
       contextUsage: {
         used: instance.contextUsage.used,
@@ -1411,7 +1275,7 @@ export class SessionContinuityManager extends EventEmitter {
       state.lastWriteSource = 'auto-save';
 
       const stateFile = path.join(this.stateDir, `${instanceId}.json`);
-      const normalizedState = this.normalizeStateForContinuity(state);
+      const normalizedState = normalizeStateForContinuity(state, this.config.redactToolOutputs);
       this.sessionStates.set(instanceId, normalizedState);
       const isCurrent = (): boolean => this.persistenceEpochs.isCurrent(instanceId, epoch);
       const stateCommitted = await measureAsync('session.save', () =>
@@ -1777,7 +1641,7 @@ export class SessionContinuityManager extends EventEmitter {
     await this.readyPromise;
     return listRecoveryMetadata({
       stateDir: this.stateDir, metadataDir: this.recoveryMetadataDir, modifiedSince, preferredInstanceIds,
-      normalizeState: (state) => this.normalizeStateForContinuity(state),
+      normalizeState: (state) => normalizeStateForContinuity(state, this.config.redactToolOutputs),
       warnSkipped: (skipped) => logger.warn('Skipped corrupt continuity recovery metadata records', { skipped }),
     });
   }

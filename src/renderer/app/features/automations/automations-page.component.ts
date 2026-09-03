@@ -4,7 +4,6 @@ import { FormsModule } from '@angular/forms';
 import type {
   Automation,
   AutomationAction,
-  AutomationSchedule,
 } from '../../../../shared/types/automation.types';
 import type { FileAttachment } from '../../../../shared/types/instance.types';
 import type { AutomationPreflightReport, AutomationTemplate } from '../../../../shared/types/task-preflight.types';
@@ -38,14 +37,20 @@ import {
   emptyForm,
   formToLoopAction,
   formToTrigger,
-  fromLocalDateInput,
-  newAutomationFormModelSelection,
-  toLocalDateInput,
   type AutomationFormModel,
 } from './automation-form-model';
 import { AutomationIpcService } from '../../core/services/ipc/automation-ipc.service';
 import type { WebhookRouteConfig } from '../../../../shared/types/webhook.types';
 import { describeSchedule } from './schedule-format';
+import {
+  automationByline,
+  automationToForm,
+  draftScheduleLabel as draftScheduleLabelImpl,
+  draftToForm as draftToFormImpl,
+  formToSchedule,
+  projectSubtitle as projectSubtitleImpl,
+  projectTitle as projectTitleImpl,
+} from './automation-form-mappers';
 
 type OverlayMode = 'detail' | 'form' | 'chat' | null;
 
@@ -128,8 +133,8 @@ export class AutomationsPageComponent {
       const dir = automations[0]?.action.workingDirectory ?? '';
       result.push({
         key,
-        title: this.projectTitle(dir),
-        subtitle: this.projectSubtitle(dir),
+        title: projectTitleImpl(dir),
+        subtitle: projectSubtitleImpl(dir),
         automations,
       });
     }
@@ -234,7 +239,7 @@ export class AutomationsPageComponent {
     this.selectedTemplateId.set('');
     this.preflightAcknowledged.set(false);
     this.store.clearPreflight();
-    this.form.set(this.draftToForm(draft));
+    this.form.set(draftToFormImpl(draft, this.chatWorkingDir()));
     this.overlay.set('form');
     if (this.canRunPreflight()) {
       void this.runPreflightForForm();
@@ -242,17 +247,7 @@ export class AutomationsPageComponent {
   }
 
   draftScheduleLabel(draft: AutomationDraft): string {
-    if (draft.scheduleType === 'oneTime' && draft.runAtIso) {
-      const ts = Date.parse(draft.runAtIso);
-      if (!Number.isNaN(ts)) {
-        return describeSchedule({ type: 'oneTime', runAt: ts, timezone: draft.timezone });
-      }
-      return 'Once';
-    }
-    if (draft.cronExpression) {
-      return describeSchedule({ type: 'cron', expression: draft.cronExpression, timezone: draft.timezone || 'UTC' });
-    }
-    return 'Schedule';
+    return draftScheduleLabelImpl(draft);
   }
 
   // --- List ------------------------------------------------------------------
@@ -262,35 +257,17 @@ export class AutomationsPageComponent {
   }
 
   byline(automation: Automation): string {
-    if (automation.description?.trim()) {
-      return automation.description.trim();
-    }
-    const wd = automation.action.workingDirectory;
-    if (wd) {
-      return wd.split('/').filter(Boolean).pop() ?? wd;
-    }
-    return '';
+    return automationByline(automation);
   }
 
   /** Short project name for a group header (last path segment). */
   projectTitle(workingDirectory: string): string {
-    const normalized = workingDirectory.trim();
-    if (!normalized) {
-      return 'No workspace';
-    }
-    const parts = normalized.split(/[/\\]/).filter(Boolean);
-    return parts.at(-1) ?? normalized;
+    return projectTitleImpl(workingDirectory);
   }
 
   /** Full project path for a group header, with the home dir collapsed to ~. */
   projectSubtitle(workingDirectory: string): string {
-    const normalized = workingDirectory.trim();
-    if (!normalized) {
-      return 'Automations without a working directory';
-    }
-    return normalized
-      .replace(/^\/Users\/[^/]+/, '~')
-      .replace(/^\/home\/[^/]+/, '~');
+    return projectSubtitleImpl(workingDirectory);
   }
 
   select(automation: Automation): void {
@@ -405,7 +382,7 @@ export class AutomationsPageComponent {
     this.selectedTemplateId.set('');
     this.preflightAcknowledged.set(false);
     this.store.clearPreflight();
-    this.form.set(this.toForm(automation));
+    this.form.set(automationToForm(automation));
     this.overlay.set('form');
     void this.loadWebhookRoutes();
   }
@@ -553,7 +530,7 @@ export class AutomationsPageComponent {
       return;
     }
 
-    const schedule = this.toSchedule(model);
+    const schedule = formToSchedule(model);
     const action: AutomationAction = {
       prompt: model.prompt,
       workingDirectory: model.workingDirectory,
@@ -709,25 +686,6 @@ export class AutomationsPageComponent {
     return best;
   }
 
-  private draftToForm(draft: AutomationDraft): AutomationFormModel {
-    const base = emptyForm();
-    const oneTimeTs = draft.runAtIso ? Date.parse(draft.runAtIso) : NaN;
-    return {
-      ...base,
-      name: draft.name,
-      description: draft.description ?? '',
-      workingDirectory: this.chatWorkingDir().trim(),
-      scheduleType: draft.scheduleType,
-      cronExpression: draft.scheduleType === 'cron' && draft.cronExpression ? draft.cronExpression : base.cronExpression,
-      timezone: draft.timezone || base.timezone,
-      runAtLocal: draft.scheduleType === 'oneTime' && !Number.isNaN(oneTimeTs)
-        ? toLocalDateInput(oneTimeTs)
-        : base.runAtLocal,
-      prompt: draft.prompt,
-      ...newAutomationFormModelSelection(draft.provider),
-    };
-  }
-
   private async runPreflightForForm(): Promise<AutomationPreflightReport | null> {
     const model = this.form();
     if (!model.workingDirectory.trim() || !model.prompt.trim()) {
@@ -759,58 +717,6 @@ export class AutomationsPageComponent {
     }));
     this.preflightAcknowledged.set(false);
     this.store.clearPreflight();
-  }
-
-  private toForm(automation: Automation): AutomationFormModel {
-    return {
-      id: automation.id,
-      name: automation.name,
-      description: automation.description ?? '',
-      enabled: automation.enabled,
-      scheduleType: automation.schedule.type,
-      cronExpression: automation.schedule.type === 'cron' ? automation.schedule.expression : '0 9 * * *',
-      timezone: automation.schedule.type === 'cron'
-        ? automation.schedule.timezone
-        : automation.schedule.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
-      runAtLocal: automation.schedule.type === 'oneTime' ? toLocalDateInput(automation.schedule.runAt) : toLocalDateInput(Date.now() + 60 * 60 * 1000),
-      missedRunPolicy: automation.missedRunPolicy,
-      concurrencyPolicy: automation.concurrencyPolicy,
-      hidden: automation.hidden ?? false,
-      prompt: automation.action.prompt,
-      workingDirectory: automation.action.workingDirectory,
-      provider: automation.action.provider ?? 'auto',
-      model: automation.action.model ?? '',
-      agentId: automation.action.agentId ?? 'build',
-      yoloMode: automation.action.yoloMode ?? false,
-      reasoningEffort: automation.action.reasoningEffort ?? '',
-      forceNodeId: automation.action.forceNodeId ?? '',
-      attachments: automation.action.attachments ?? [],
-      triggerKind: automation.trigger?.kind === 'webhook' ? 'webhook' : 'schedule',
-      webhookRouteId: automation.trigger?.kind === 'webhook' ? automation.trigger.routeId : '',
-      webhookFilters: automation.trigger?.kind === 'webhook' ? [...automation.trigger.filters] : [],
-      loopEnabled: Boolean(automation.action.loop),
-      loopVerifyCommand: automation.action.loop?.verifyCommand ?? '',
-      loopIsolateWorkspace: automation.action.loop?.isolateWorkspace ?? true,
-      loopMaxIterations: automation.action.loop?.maxIterations != null ? String(automation.action.loop.maxIterations) : '',
-      loopMaxCostCents: automation.action.loop?.maxCostCents != null ? String(automation.action.loop.maxCostCents) : '',
-      executionProfile: automation.action.executionProfile ?? 'standard',
-    };
-  }
-
-  private toSchedule(model: AutomationFormModel): AutomationSchedule {
-    if (model.scheduleType === 'oneTime') {
-      return {
-        type: 'oneTime',
-        runAt: fromLocalDateInput(model.runAtLocal),
-        timezone: model.timezone || undefined,
-      };
-    }
-
-    return {
-      type: 'cron',
-      expression: model.cronExpression,
-      timezone: model.timezone || 'UTC',
-    };
   }
 
   private readAttachment(file: File): Promise<FileAttachment> {

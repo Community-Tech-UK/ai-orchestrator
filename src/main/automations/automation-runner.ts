@@ -21,10 +21,8 @@ import { dispatchAutomationSystemAction } from './automation-system-action-dispa
 import {
   DEFAULT_MAX_RETRY_ATTEMPTS,
   DEFAULT_RETRY_BASE_DELAY_MS,
-  computeRetryDelayMs,
 } from './automation-retry';
 import {
-  deliverRunSummaryToChannel,
   writeFullOutput,
   type RunTracking,
 } from './automation-runner-helpers';
@@ -48,6 +46,10 @@ import {
 import { AutomationLoopRunDispatcher, defaultLoopRunExists, recoverLoopLinkedRuns } from './automation-loop-run';
 import { getNotificationService } from '../notifications/notification-service';
 import { checkContainedExecutionGate } from './automation-execution-profile-gate';
+import {
+  handleTerminalRun as handleTerminalRunImpl,
+  type AutomationTerminalRunHost,
+} from './automation-runner-terminal';
 
 const logger = getLogger('AutomationRunner');
 
@@ -594,145 +596,7 @@ export class AutomationRunner {
   }
 
   private handleTerminalRun(run: AutomationRun, options?: { retryable?: boolean }): void {
-    // Whether a failed run is eligible for the retry/backoff loop. Wait-failures
-    // (awaiting human approval/input) pass retryable=false so they fail once
-    // instead of re-spawning duplicate parked sessions up to maxAttempts.
-    const retryable = options?.retryable ?? true;
-    this.events.emitRunChanged({ automationId: run.automationId, run });
-    this.events.emitRunTerminal({
-      automationId: run.automationId,
-      runId: run.id,
-      status: run.status as Exclude<AutomationRunStatus, 'pending' | 'running'>,
-    });
-    if (run.status === 'failed') {
-      emitPluginHook('automation.run.failed', {
-        automationId: run.automationId,
-        runId: run.id,
-        status: run.status,
-        error: run.error ?? undefined,
-        outputFullRef: run.outputFullRef ?? undefined,
-        timestamp: Date.now(),
-      });
-    } else {
-      emitPluginHook('automation.run.completed', {
-        automationId: run.automationId,
-        runId: run.id,
-        status: run.status,
-        outputSummary: run.outputSummary ?? undefined,
-        outputFullRef: run.outputFullRef ?? undefined,
-        timestamp: Date.now(),
-      });
-    }
-
-    // Resilience: retry/backoff + consecutive-failure tracking (B10a/B10b).
-    //
-    // On a failed run, check if more attempts are available. If so, schedule a
-    // retry — intermediate failures do NOT increment the consecutive-failure
-    // streak so a transient error doesn't cause an early auto-disable. Only the
-    // final give-up (all attempts exhausted) records the outcome and may
-    // auto-disable the automation.
-    //
-    // On success, always record the outcome immediately to reset the streak.
-    if (run.status === 'failed') {
-      const attempt = run.attempt ?? 1;
-      const maxAttempts = run.maxAttempts ?? 1;
-      if (retryable && attempt < maxAttempts && this.retryScheduler) {
-        const delayMs = computeRetryDelayMs(run.automationId, attempt, this.baseRetryDelayMs);
-        logger.info('Scheduling automation retry', {
-          automationId: run.automationId,
-          runId: run.id,
-          attempt,
-          nextAttempt: attempt + 1,
-          maxAttempts,
-          delayMs,
-        });
-        this.retryScheduler(run, attempt + 1, maxAttempts, delayMs);
-        // Intentionally skip recordRunOutcome — the streak must not be
-        // incremented for intermediate retry failures.
-      } else {
-        // Final attempt — record the failure and possibly auto-disable.
-        const outcome = this.store.recordRunOutcome(
-          run.automationId,
-          run.status,
-          run.error ?? undefined,
-          this.now(),
-        );
-        if (outcome.autoDisabled) {
-          logger.warn('Automation auto-disabled after repeated failures', {
-            automationId: run.automationId,
-            consecutiveFailures: outcome.automation?.consecutiveFailures,
-            lastFailureReason: run.error ?? undefined,
-          });
-          this.notifyAutoDisabled(run.automationId, outcome.automation?.consecutiveFailures, run.error ?? undefined);
-          this.emitAutomationState(run.automationId);
-          this.events.emitScheduleDeactivated({ automationId: run.automationId });
-        }
-      }
-    } else if (run.status === 'succeeded') {
-      const outcome = this.store.recordRunOutcome(
-        run.automationId,
-        run.status,
-        undefined,
-        this.now(),
-      );
-      if (outcome.autoDisabled) {
-        // Shouldn't happen on success, but guard defensively.
-        this.emitAutomationState(run.automationId);
-        this.events.emitScheduleDeactivated({ automationId: run.automationId });
-      }
-    }
-
-    if (this.isOneTimeRun(run)) {
-      this.emitAutomationState(run.automationId);
-      // BUG 1 FIX (runner side): do NOT emit schedule-deactivated for a failed
-      // oneTime run when a retry is still pending.  schedule-deactivated triggers
-      // a full deactivate() in the scheduler, which would immediately cancel the
-      // retry timer we just armed above.  A retry is pending when this run is
-      // failed AND attempt < maxAttempts AND a retryScheduler is registered.
-      const hasRetryPending =
-        run.status === 'failed' &&
-        retryable &&
-        (run.attempt ?? 1) < (run.maxAttempts ?? 1) &&
-        this.retryScheduler !== null;
-      if (!hasRetryPending) {
-        this.events.emitScheduleDeactivated({ automationId: run.automationId });
-      }
-    }
-    // Auto-created provider-limit resume automations are single-purpose: once
-    // the resume ran successfully, the deactivated one-time record is pure
-    // clutter on the Automations page — delete it. Failed runs keep the record
-    // so the retry/auto-disable machinery applies and the operator can inspect.
-    const systemActionType = run.configSnapshot?.action.systemAction?.type;
-    if (
-      run.status === 'succeeded'
-      && this.isOneTimeRun(run)
-      && (systemActionType === 'instanceProviderLimitResume' || systemActionType === 'loopProviderLimitResume')
-    ) {
-      this.store.delete(run.automationId)
-        .then(({ runningInstanceIds }) => {
-          this.untrackInstances(runningInstanceIds);
-          this.events.emitChanged({ automation: null, automationId: run.automationId, type: 'deleted' });
-        })
-        .catch((deleteError) => {
-          logger.warn('Failed to delete fired provider-limit resume automation', {
-            automationId: run.automationId,
-            error: deleteError instanceof Error ? deleteError.message : String(deleteError),
-          });
-        });
-    }
-    deliverRunSummaryToChannel(run).catch((deliveryError) => {
-      logger.warn('Failed to deliver automation run summary to channel', {
-        automationId: run.automationId,
-        runId: run.id,
-        error: deliveryError instanceof Error ? deliveryError.message : String(deliveryError),
-      });
-    });
-    this.promotePendingIfAny(run.automationId).catch((promoteError) => {
-      logger.warn('Failed to promote pending automation run', {
-        automationId: run.automationId,
-        error: promoteError instanceof Error ? promoteError.message : String(promoteError),
-      });
-    });
+    handleTerminalRunImpl(this as unknown as AutomationTerminalRunHost, run, options);
   }
 
   /**

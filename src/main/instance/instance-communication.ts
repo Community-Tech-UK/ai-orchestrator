@@ -10,12 +10,9 @@ import { BaseCliAdapter, type CliResponse } from '../cli/adapters/base-cli-adapt
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getLogger } from '../logging/logger';
 import { getOutputStorageManager } from '../memory/output-storage';
-import { getCostTracker } from '../core/system/cost-tracker';
-import { recordInstanceTurnAttribution } from '../core/system/cost-attribution';
-import { getCacheAnalyticsService } from '../context/cache-analytics-service';
+import { recordCompletionCost as recordCompletionCostImpl, recordEstimationTelemetry as recordEstimationTelemetryImpl } from './communication-completion-cost';
 import { getHandoffStateService } from '../session/handoff-state-service';
 import { noteSandboxDenialOnExit } from './lifecycle/sandbox-exit-advice';
-import { normalizeUsage, type UsageLike } from '../../shared/util/usage-normalization';
 import { getHookManager } from '../hooks/hook-manager';
 import { getErrorRecoveryManager } from '../core/error-recovery';
 import { ErrorCategory } from '../../shared/types/error-recovery.types';
@@ -287,68 +284,7 @@ export class InstanceCommunicationManager extends EventEmitter {
    * turn-complete path.
    */
   private recordCompletionCost(instanceId: string, instance: Instance, response: CliResponse): void {
-    try {
-      const usage = normalizeUsage(response.usage as UsageLike | undefined);
-      if (!usage) {
-        return;
-      }
-      const input = usage.input ?? 0;
-      const output = usage.output ?? 0;
-      const cacheRead = usage.cacheRead ?? 0;
-      const cacheWrite = usage.cacheWrite ?? 0;
-      const reasoning = usage.reasoning ?? 0;
-      // A usage object that carried only non-token fields (e.g. duration) has
-      // nothing billable to record.
-      if (input === 0 && output === 0 && cacheRead === 0 && cacheWrite === 0 && reasoning === 0) {
-        return;
-      }
-      // currentModel is the user-visible pick; fall back to the provider name so
-      // grouping stays meaningful. The pricing table tolerates unknown ids via a
-      // default rate, and a provider-supplied cost (below) bypasses pricing.
-      const model = instance.currentModel || instance.provider;
-      const providerCost = response.usage?.cost;
-      // LT-100: an adapter (currently only AcpCliAdapter, for Cursor/Grok/
-      // Copilot) may tag usage as a heuristic estimate when the provider sent
-      // none at all. Carry the flag through so every downstream cost surface
-      // can keep it visibly distinct from a measured entry.
-      const isEstimated = response.usage?.isEstimated === true;
-      getCostTracker().recordUsage(
-        instanceId,
-        instance.sessionId,
-        model,
-        input,
-        output,
-        cacheRead,
-        cacheWrite,
-        typeof providerCost === 'number' ? providerCost : undefined,
-        reasoning,
-        isEstimated,
-      );
-      // Fan-out audit task-type attribution: on by default (opt-out AIO_COST_ATTRIBUTION=0).
-      recordInstanceTurnAttribution({
-        instanceId,
-        parentId: instance.parentId,
-        agentId: instance.agentId,
-        provider: instance.provider,
-        model,
-        usage: { inputTokens: input, outputTokens: output, cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite, reasoningTokens: reasoning, cost: typeof providerCost === 'number' ? providerCost : undefined },
-        costKnown: typeof providerCost === 'number',
-        isEstimated,
-      });
-      // WS8 cache-efficiency analytics: feed the per-turn cache sample so the
-      // instance-detail panel can trend hit ratio and flag cache breaks.
-      // LT-100 guard: an estimated turn never has real cache-token signal
-      // (the estimator only derives input/output, never cacheRead/cacheWrite),
-      // so `cacheRead: 0` here is not "no cache hit" — it is "unknown". Feeding
-      // it in would record a confident-but-fabricated 0% ratio sample into a
-      // real trend/break-detector, the same class of mistake this whole fix
-      // exists to avoid.
-      if (!isEstimated) {
-        getCacheAnalyticsService().recordTurn(instanceId, { input, cacheRead, cacheWrite });
-      }
-    } catch (err) {
-      logger.debug('recordCompletionCost failed', { instanceId, error: String(err) });
-    }
+    recordCompletionCostImpl(instanceId, instance, response);
   }
 
   /**
@@ -371,37 +307,9 @@ export class InstanceCommunicationManager extends EventEmitter {
    * itself and silently corrupt the calibration with a perfect, fake sample.
    */
   private recordEstimationTelemetry(instance: Instance, response: CliResponse): void {
-    try {
-      if (response.usage?.isEstimated) return;
-      if (response.toolCalls && response.toolCalls.length > 0) return;
-      const text = response.content;
-      const actualOutput = response.usage?.outputTokens;
-      if (!text || typeof actualOutput !== 'number' || actualOutput <= 0) return;
-
-      const model = instance.currentModel || instance.provider;
-      const counter = getTokenCounter();
-      if (!counter.recordEstimationSample(actualOutput, text, model)) return;
-      counter.calibrate(actualOutput, text, model);
-
-      // Surface drift periodically (every 25 recorded samples) so the heuristic's
-      // real-world accuracy is operator-visible without a dedicated UI. Cadence is
-      // driven by a monotonic counter — NOT the bounded retained-sample count,
-      // which plateaus and would otherwise log on every turn once the buffer fills.
-      this.estimationSampleCount += 1;
-      if (this.estimationSampleCount % 25 === 0) {
-        const telemetry = counter.getEstimationTelemetry(model);
-        if (telemetry) {
-          logger.info('Token estimate-vs-actual drift', {
-            family: telemetry.family,
-            sampleCount: telemetry.sampleCount,
-            medianRatio: Number(telemetry.medianRatio.toFixed(3)),
-            meanAbsErrorPct: Number(telemetry.meanAbsErrorPct.toFixed(1)),
-          });
-        }
-      }
-    } catch (err) {
-      logger.debug('recordEstimationTelemetry failed', { error: String(err) });
-    }
+    const sampleCount = { value: this.estimationSampleCount };
+    recordEstimationTelemetryImpl(instance, response, sampleCount);
+    this.estimationSampleCount = sampleCount.value;
   }
 
   /**

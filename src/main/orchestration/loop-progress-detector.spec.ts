@@ -423,6 +423,29 @@ describe('signal I — idempotent read identity', () => {
 
     expect(signalI_idempotentReadIdentity(history, current, T)).toBeNull();
   });
+
+  it('does not re-report (or escalate) a read run the current iteration took no part in', () => {
+    const reads = (argsHash: string) => [
+      { toolName: 'Read', argsHash, resultHash: 'same-output', success: true, durationMs: 1 },
+    ];
+    const flagged = makeIteration({
+      seq: 2,
+      toolCalls: reads('src/a.ts'),
+      progressSignals: [{ id: 'I', verdict: 'WARN', message: 'flagged', detail: {} }],
+    });
+    const history = [
+      makeIteration({ seq: 0, toolCalls: reads('src/a.ts') }),
+      makeIteration({ seq: 1, toolCalls: reads('src/./a.ts') }),
+      flagged,
+    ];
+    // Iteration 3 made no tool calls at all (e.g. a provider transport failure
+    // recorded as a turn). Re-reporting signal I here accused the agent of
+    // re-reading during a turn in which it read nothing — and escalated to
+    // CRITICAL purely because the previous iteration carried the signal.
+    const current = makeIteration({ seq: 3, toolCalls: [] });
+
+    expect(signalI_idempotentReadIdentity(history, current, T)).toBeNull();
+  });
 });
 
 describe('signal H — output similarity', () => {

@@ -1,5 +1,4 @@
 import { CodexAppServerAdapter } from './codex-app-server-adapter';
-import { generateId } from '../../../shared/utils/id-generator';
 import { extractThinkingContent } from '../../../shared/utils/thinking-extractor';
 import { getLogger } from '../../logging/logger';
 import type {
@@ -9,41 +8,32 @@ import type {
   TurnPhase,
 } from './codex/app-server-types';
 import {
-  getCommandAggregatedOutput,
-  getCommandExitCode,
-  getFileChangeInput,
-  getFileChangePath,
-  getToolCallInput,
-  getToolCallName,
-  isCommandExecutionItem,
-  isFailedThreadItemStatus,
-} from './codex/thread-item-accessors';
-import {
   extractCodexAppServerError,
   formatCodexAppServerError,
 } from './codex/app-server-errors';
-import {
-  extractReasoningSections,
-  mergeReasoningSections,
-  shorten,
-} from './codex/reasoning';
 import { resolveCodexTurnUsageBreakdown } from './codex/token-usage-breakdown';
+import {
+  handleItemCompleted,
+  handleItemStarted,
+  type CodexItemNotificationHost,
+} from './codex/codex-notification-item-events';
 
 const logger = getLogger('CodexCliAdapter');
 const INFERRED_COMPLETION_MS = 250;
-const VERIFICATION_CMD_PATTERN = /\b(test|tests|lint|build|typecheck|type-check|check|verify|validate|pytest|jest|vitest|cargo test|npm test|pnpm test|yarn test|go test|mvn test|gradle test|tsc|eslint|ruff)\b/i;
-
-function toolMetadata(
-  item: ThreadItem,
-  name: string,
-  input: Record<string, unknown> | undefined,
-  metadata: Record<string, unknown>,
-): Record<string, unknown> {
-  return { ...(item.id ? { id: item.id } : {}), name, ...(input ? { input } : {}), ...metadata };
-}
 
 /** App-server notification routing and streamed-message reconciliation. */
 export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAdapter {
+  private itemNotificationHost(): CodexItemNotificationHost {
+    return {
+      emitOutput: (payload) => {
+        this.emit('output', payload);
+      },
+      scheduleInferredCompletion: (state) => this.scheduleInferredCompletion(state),
+      reconcileCompletedAgentMessage: (state, itemId, text) =>
+        this.reconcileCompletedAgentMessage(state, itemId, text),
+    };
+  }
+
   protected handleTurnNotification(state: TurnCaptureState, notification: AppServerNotification): void {
     // Drop notifications that arrive after the turn has already completed.
     // This prevents orphaned output events from violating the event ordering
@@ -116,281 +106,12 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
       }
 
       case 'item/started': {
-        const item = params['item'] as ThreadItem | undefined;
-        const threadId = params['threadId'] as string | undefined;
-        if (!item) break;
-
-        // Track collaboration lifecycle (started phase)
-        if (item.type === 'collabAgentToolCall') {
-          if (!threadId || threadId === state.threadId) {
-            if (item.id) {
-              state.pendingCollaborations.add(item.id);
-            }
-          }
-          // Auto-register receiver threads for subagent tracking
-          for (const receiverThreadId of item.receiverThreadIds ?? []) {
-            if (receiverThreadId) {
-              state.threadIds.add(receiverThreadId);
-              if (!state.threadLabels.has(receiverThreadId)) {
-                state.threadLabels.set(receiverThreadId, receiverThreadId);
-              }
-            }
-          }
-        }
-
-        // Emit real-time tool_use events for various item types
-        if (isCommandExecutionItem(item) && item.command) {
-          const phase: TurnPhase = VERIFICATION_CMD_PATTERN.test(item.command)
-            ? 'verifying'
-            : 'running';
-          this.emit('output', {
-            id: generateId(),
-            timestamp: Date.now(),
-            type: 'tool_use',
-            content: `Running command: ${shorten(item.command, 96)}`,
-            metadata: toolMetadata(item, 'Bash', { command: item.command }, { streaming: true, phase }),
-          });
-        } else if (item.type === 'file_change' || item.type === 'fileChange') {
-          const path = getFileChangePath(item);
-          const input = getFileChangeInput(item);
-          this.emit('output', {
-            id: generateId(),
-            timestamp: Date.now(),
-            type: 'tool_use',
-            content: `Editing file: ${path}`,
-            metadata: toolMetadata(item, 'Edit', input, {
-              streaming: true,
-              phase: 'editing' as TurnPhase,
-            }),
-          });
-        } else if (item.type === 'enteredReviewMode') {
-          this.emit('output', {
-            id: generateId(),
-            timestamp: Date.now(),
-            type: 'system',
-            content: `Reviewer started: ${item.review || 'code review'}`,
-            metadata: { phase: 'reviewing' as TurnPhase },
-          });
-        } else if (item.type === 'mcpToolCall') {
-          const toolName = getToolCallName(item);
-          this.emit('output', {
-            id: generateId(),
-            timestamp: Date.now(),
-            type: 'tool_use',
-            content: `Calling ${item.server || 'mcp'}/${toolName}`,
-            metadata: toolMetadata(item, toolName, getToolCallInput(item), {
-              streaming: true,
-              phase: 'investigating' as TurnPhase,
-            }),
-          });
-        } else if (item.type === 'dynamicToolCall') {
-          const toolName = getToolCallName(item);
-          this.emit('output', {
-            id: generateId(),
-            timestamp: Date.now(),
-            type: 'tool_use',
-            content: `Running tool: ${toolName}`,
-            metadata: toolMetadata(item, toolName, getToolCallInput(item), {
-              streaming: true,
-              phase: 'investigating' as TurnPhase,
-            }),
-          });
-        } else if (item.type === 'collabAgentToolCall') {
-          const subagentLabels = (item.receiverThreadIds ?? [])
-            .map((tid) => state.threadLabels.get(tid) ?? tid);
-          const summary = subagentLabels.length > 0
-            ? `Starting subagent ${subagentLabels.join(', ')} via ${item.tool || 'collaboration'}`
-            : `Starting collaboration tool: ${item.tool || 'unknown'}`;
-          this.emit('output', {
-            id: generateId(),
-            timestamp: Date.now(),
-            type: 'tool_use',
-            content: summary,
-            metadata: toolMetadata(item, 'Task', {
-              tool: item.tool || 'unknown',
-              receiverThreadIds: item.receiverThreadIds ?? [],
-              ...(item.prompt ? { prompt: item.prompt } : {}),
-            }, {
-              streaming: true,
-              phase: 'investigating' as TurnPhase,
-            }),
-          });
-        } else if (item.type === 'webSearch') {
-          this.emit('output', {
-            id: generateId(),
-            timestamp: Date.now(),
-            type: 'tool_use',
-            content: `Searching: ${shorten(item.query, 96)}`,
-            metadata: toolMetadata(item, 'WebSearch', { query: item.query ?? '' }, {
-              streaming: true,
-              phase: 'investigating' as TurnPhase,
-            }),
-          });
-        }
+        handleItemStarted(this.itemNotificationHost(), state, params);
         break;
       }
 
       case 'item/completed': {
-        const item = params['item'] as ThreadItem | undefined;
-        const threadId = params['threadId'] as string | undefined;
-        if (!item) break;
-
-        // ── Collaboration lifecycle (completed phase) ──
-        if (item.type === 'collabAgentToolCall') {
-          if (!threadId || threadId === state.threadId) {
-            if (item.id) {
-              state.pendingCollaborations.delete(item.id);
-              this.scheduleInferredCompletion(state);
-            }
-          }
-          // Auto-register receiver threads even on completion
-          for (const receiverThreadId of item.receiverThreadIds ?? []) {
-            if (receiverThreadId) {
-              state.threadIds.add(receiverThreadId);
-            }
-          }
-          const subagentLabels = (item.receiverThreadIds ?? [])
-            .map((tid) => state.threadLabels.get(tid) ?? tid);
-          const summary = subagentLabels.length > 0
-            ? `Subagent ${subagentLabels.join(', ')} ${item.status || 'completed'}`
-            : `Collaboration tool ${item.tool || 'unknown'} ${item.status || 'completed'}`;
-          this.emit('output', {
-            id: generateId(),
-            timestamp: Date.now(),
-            type: 'tool_result',
-            content: summary,
-            metadata: toolMetadata(item, 'Task', undefined, { is_error: isFailedThreadItemStatus(item) }),
-          });
-        }
-
-        // ── Command execution ──
-        if (isCommandExecutionItem(item)) {
-          state.commandExecutions.push(item);
-          const output = getCommandAggregatedOutput(item);
-          const exitCode = getCommandExitCode(item);
-          const isError = isFailedThreadItemStatus(item) || (exitCode !== undefined && exitCode !== 0);
-          this.emit('output', {
-            id: generateId(),
-            timestamp: Date.now(),
-            type: 'tool_result',
-            content: output || (exitCode !== undefined ? `Command exited with code ${exitCode}`
-              : isError ? `Command ${item.status}` : 'Command completed'),
-            metadata: toolMetadata(item, 'Bash', undefined, {
-              command: item.command,
-              exitCode,
-              status: item.status,
-              is_error: isError,
-            }),
-          });
-        }
-
-        // ── Agent message ──
-        // Handle both 'agent_message' (our convention) and 'agentMessage' (codex protocol)
-        if (item.type === 'agent_message' || item.type === 'agentMessage') {
-          const text = item.text || item.content
-            || (item.message && typeof item.message === 'object' ? item.message.content : undefined)
-            || '';
-          if (text) {
-            const itemPhase = item.phase || (params['phase'] as string | undefined) || null;
-            state.messages.push({ lifecycle: 'completed', phase: itemPhase, text });
-
-            // Only update lastAgentMessage for root thread messages
-            if (!threadId || threadId === state.threadId) {
-              state.lastAgentMessage = this.reconcileCompletedAgentMessage(state, item.id, text);
-              if (itemPhase === 'final_answer') {
-                state.finalAnswerSeen = true;
-                this.scheduleInferredCompletion(state);
-              }
-            }
-          }
-        }
-
-        // ── File change ──
-        if (item.type === 'file_change' || item.type === 'fileChange') {
-          state.fileChanges.push(item);
-          const path = getFileChangePath(item);
-          const input = getFileChangeInput(item);
-          const isError = isFailedThreadItemStatus(item);
-          const changeType = item.changeType ?? (typeof item['change_type'] === 'string' ? item['change_type'] : undefined);
-          this.emit('output', {
-            id: generateId(),
-            timestamp: Date.now(),
-            type: 'tool_result',
-            content: isError ? `File change ${item.status}: ${path}` : `File ${changeType || 'modified'}: ${path}`,
-            metadata: toolMetadata(item, 'Edit', input, {
-              path,
-              changeType,
-              status: item.status,
-              is_error: isError,
-            }),
-          });
-        }
-
-        // ── Reasoning (with deduplication) ──
-        if (item.type === 'reasoning') {
-          // Extract from heterogeneous summary field (string, array, or nested object)
-          const nextSections = extractReasoningSections(item.summary ?? item.summaryText);
-          if (nextSections.length > 0) {
-            state.reasoningSummary = mergeReasoningSections(state.reasoningSummary, nextSections);
-          }
-        }
-
-        // ── Review mode exited ──
-        if (item.type === 'exitedReviewMode') {
-          state.reviewText = item.review ?? '';
-          this.emit('output', {
-            id: generateId(),
-            timestamp: Date.now(),
-            type: 'system',
-            content: item.review || 'Review completed',
-            metadata: { phase: 'reviewing' as TurnPhase },
-          });
-        }
-
-        // ── MCP tool call completed ──
-        if (item.type === 'mcpToolCall') {
-          const toolName = getToolCallName(item);
-          this.emit('output', {
-            id: generateId(),
-            timestamp: Date.now(),
-            type: 'tool_result',
-            content: `Tool ${item.server || 'mcp'}/${toolName} ${item.status || 'completed'}`,
-            metadata: toolMetadata(item, toolName, getToolCallInput(item), {
-              is_error: isFailedThreadItemStatus(item),
-              phase: 'investigating',
-            }),
-          });
-        }
-
-        // ── Dynamic tool call completed ──
-        if (item.type === 'dynamicToolCall') {
-          const toolName = getToolCallName(item);
-          this.emit('output', {
-            id: generateId(),
-            timestamp: Date.now(),
-            type: 'tool_result',
-            content: `Tool ${toolName} ${item.status || 'completed'}`,
-            metadata: toolMetadata(item, toolName, getToolCallInput(item), {
-              is_error: isFailedThreadItemStatus(item),
-              phase: 'investigating',
-            }),
-          });
-        }
-
-        // ── Web search completed ──
-        if (item.type === 'webSearch') {
-          this.emit('output', {
-            id: generateId(),
-            timestamp: Date.now(),
-            type: 'tool_result',
-            content: `Search completed: ${shorten(item.query, 96)}`,
-            metadata: toolMetadata(item, 'WebSearch', undefined, {
-              is_error: false,
-              phase: 'investigating',
-            }),
-          });
-        }
-
+        handleItemCompleted(this.itemNotificationHost(), state, params);
         break;
       }
 

@@ -832,6 +832,23 @@ describe('Loop schemas — type/schema drift guards', () => {
       });
     });
 
+    it('accepts an auto-unstick pending input and in-flight state', () => {
+      const parsed = LoopStateSchema.parse({
+        ...minimalState,
+        autoUnstick: { seq: 6, attempt: 1, max: 2, signalId: 'G' },
+        pendingInterventions: [{
+          id: 'input-auto-1',
+          kind: 'queue',
+          message: 'AUTOMATIC UNSTICK (1/2): stop repeating the same tool.',
+          enqueuedAt: 456,
+          source: 'auto-unstick',
+        }],
+      });
+
+      expect(parsed.autoUnstick).toEqual({ seq: 6, attempt: 1, max: 2, signalId: 'G' });
+      expect(parsed.pendingInterventions[0]?.source).toBe('auto-unstick');
+    });
+
     it('accepts context-survival pending inputs emitted by the loop engine', () => {
       const parsed = LoopStateSchema.parse({
         ...minimalState,

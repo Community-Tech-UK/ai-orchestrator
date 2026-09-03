@@ -9,6 +9,7 @@ export class LoopCompletionContextStore {
   private downshiftModels = new Map<string, string>();
   private capWrapUps = new Map<string, LoopCapWrapUpIntent>();
   private envelopeRewraps = new Map<string, number>();
+  private autoUnstickCounts = new Map<string, number>();
 
   setConvergenceNote(loopRunId: string, note: string): void {
     this.convergenceNotes.set(loopRunId, note);
@@ -83,6 +84,14 @@ export class LoopCompletionContextStore {
     return this.envelopeRewraps.get(loopRunId) ?? 0;
   }
 
+  setAutoUnstickCount(loopRunId: string, count: number): void {
+    this.autoUnstickCounts.set(loopRunId, count);
+  }
+
+  getAutoUnstickCount(loopRunId: string): number {
+    return this.autoUnstickCounts.get(loopRunId) ?? 0;
+  }
+
   convergenceNotesForHelpers(): Map<string, string> {
     return this.convergenceNotes;
   }
@@ -99,6 +108,7 @@ export class LoopCompletionContextStore {
     this.downshiftModels.delete(loopRunId);
     this.capWrapUps.delete(loopRunId);
     this.envelopeRewraps.delete(loopRunId);
+    this.autoUnstickCounts.delete(loopRunId);
   }
 
   reset(): void {
@@ -109,5 +119,6 @@ export class LoopCompletionContextStore {
     this.downshiftModels.clear();
     this.capWrapUps.clear();
     this.envelopeRewraps.clear();
+    this.autoUnstickCounts.clear();
   }
 }

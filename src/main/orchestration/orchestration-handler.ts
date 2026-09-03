@@ -42,22 +42,13 @@ import {
 } from './consensus-result-injection';
 import { AutomationCreatePayloadSchema } from '@contracts/schemas/automation';
 import { getToolRegistry } from '../tools/tool-registry';
-import { getTaskManager } from './task-manager';
 import { getPermissionManager, type PermissionRequest } from '../security/permission-manager';
-import type {
-  TaskResult,
-  TaskProgress,
-  TaskError,
-} from '../../shared/types/task.types';
 import type { RoutingDecision } from '../routing';
 import type {
   ReportResultCommand,
   GetChildSummaryCommand,
   GetChildArtifactsCommand,
   GetChildSectionCommand,
-  ChildSummaryResponse,
-  ChildArtifactsResponse,
-  ChildSectionResponse,
 } from '../../shared/types/child-result.types';
 import { emitPluginHook } from '../plugins/hook-emitter';
 import { evaluateOrchestrationCapability, inferRoleFromContext } from './role-capability-policy';
@@ -71,6 +62,18 @@ import type {
   CompletedChildSummary,
 } from './orchestration-handler.types';
 import { isParentUnavailableSuppression, OrchestrationResponseDelivery } from './orchestration-response-delivery';
+import { computeCommandSignature } from './orchestration-command-signature';
+import {
+  handleGetChildArtifacts,
+  handleGetChildSection,
+  handleGetChildSummary,
+  handleGetTaskStatus,
+  handleReportError,
+  handleReportProgress,
+  handleReportResult,
+  handleReportTaskComplete,
+  type OrchestrationChildOpsHost,
+} from './orchestration-handler-child-ops';
 
 export type {
   OrchestrationContext,
@@ -408,7 +411,7 @@ export class OrchestrationHandler extends EventEmitter {
     const isReadOnly = ['get_children', 'get_task_status', 'get_child_output', 'get_child_summary', 'get_child_artifacts', 'get_child_section'].includes(command.action);
     if (!isReadOnly) {
       const now = Date.now();
-      const signature = this.computeCommandSignature(command);
+      const signature = computeCommandSignature(command);
       const recent = this.recentCommands.get(instanceId) || [];
 
       // Prune expired entries
@@ -515,29 +518,14 @@ export class OrchestrationHandler extends EventEmitter {
     }
   }
 
-  /**
-   * Compute a stable signature for a command for deduplication purposes.
-   * Commands with the same action and key parameters produce the same signature.
-   */
-  private computeCommandSignature(command: OrchestratorCommand): string {
-    switch (command.action) {
-      case 'spawn_child':
-        return `spawn_child:${command.task.slice(0, 100)}:${command.name || ''}:${command.provider || ''}:${command.model || ''}`;
-      case 'message_child':
-        return `message_child:${command.childId}:${command.message.slice(0, 80)}`;
-      case 'terminate_child':
-        return `terminate_child:${command.childId}`;
-      case 'consensus_query':
-        return `consensus_query:${command.question.slice(0, 100)}:${(command.providers || []).join(',')}`;
-      case 'request_user_action':
-        return `request_user_action:${command.requestType}:${command.title}`;
-      case 'create_automation':
-        return `create_automation:${command.automation.name}:${JSON.stringify(command.automation.schedule)}:${command.automation.action.prompt.slice(0, 80)}`;
-      case 'call_tool':
-        return `call_tool:${command.toolId}:${JSON.stringify(command.args || '').slice(0, 80)}`;
-      default:
-        return `${command.action}:${JSON.stringify(command).slice(0, 120)}`;
-    }
+  private childOpsHost(): OrchestrationChildOpsHost {
+    return {
+      getContext: (instanceId) => this.contexts.get(instanceId),
+      isChildOfParent: (parentId, childId) => this.isChildOfParent(parentId, childId),
+      injectResponse: (instanceId, action, success, data, options) =>
+        this.injectResponse(instanceId, action, success, data, options),
+      emit: (event, ...args) => this.emit(event, ...args),
+    };
   }
 
   private handleSpawnChild(parentId: string, command: SpawnChildCommand): void {
@@ -793,141 +781,32 @@ export class OrchestrationHandler extends EventEmitter {
     }
   }
 
-  /**
-   * Handle task completion report from child
-   */
   private handleReportTaskComplete(
     childId: string,
-    command: ReportTaskCompleteCommand
+    command: ReportTaskCompleteCommand,
   ): void {
-    const ctx = this.contexts.get(childId);
-    if (!ctx || !ctx.parentId) {
-      logger.warn('No parent for child to report completion to', { childId });
-      return;
-    }
-
-    const taskManager = getTaskManager();
-    const task = taskManager.getTaskByChildId(childId);
-
-    const result: TaskResult = {
-      success: command.success,
-      summary: command.summary,
-      data: command.data,
-      artifacts: command.artifacts,
-      recommendations: command.recommendations
-    };
-
-    if (task) {
-      taskManager.completeTask(task.taskId, result);
-      this.emit('task-complete', ctx.parentId, childId, task);
-    }
-
-    // Notify the parent instance
-    this.injectResponse(ctx.parentId, 'task_complete', true, {
-      childId,
-      taskId: task?.taskId,
-      result,
-      message: `Child ${childId} completed task: ${command.summary}`
-    });
+    handleReportTaskComplete(this.childOpsHost(), childId, command);
   }
 
-  /**
-   * Handle progress report from child
-   */
   private handleReportProgress(
     childId: string,
-    command: ReportProgressCommand
+    command: ReportProgressCommand,
   ): void {
-    const ctx = this.contexts.get(childId);
-    if (!ctx || !ctx.parentId) {
-      return;
-    }
-
-    const taskManager = getTaskManager();
-    const progress: TaskProgress = {
-      percentage: command.percentage,
-      currentStep: command.currentStep,
-      stepsRemaining: command.stepsRemaining
-    };
-
-    taskManager.updateProgress(childId, progress);
-    this.emit('task-progress', ctx.parentId, childId, progress);
-
-    // Optionally notify the parent (can be noisy, so only for significant progress)
-    if (command.percentage % 25 === 0) {
-      this.injectResponse(ctx.parentId, 'task_progress', true, {
-        childId,
-        progress
-      });
-    }
+    handleReportProgress(this.childOpsHost(), childId, command);
   }
 
-  /**
-   * Handle error report from child
-   */
   private handleReportError(
     childId: string,
-    command: ReportErrorCommand
+    command: ReportErrorCommand,
   ): void {
-    const ctx = this.contexts.get(childId);
-    if (!ctx || !ctx.parentId) {
-      return;
-    }
-
-    const taskManager = getTaskManager();
-    const task = taskManager.getTaskByChildId(childId);
-
-    const error: TaskError = {
-      code: command.code,
-      message: command.message,
-      context: command.context,
-      suggestedAction: command.suggestedAction
-    };
-
-    if (task) {
-      taskManager.failTask(task.taskId, error);
-    }
-
-    this.emit('task-error', ctx.parentId, childId, error);
-
-    // Notify the parent instance
-    this.injectResponse(ctx.parentId, 'task_error', true, {
-      childId,
-      taskId: task?.taskId,
-      error,
-      message: `Child ${childId} reported error: ${command.message}`
-    });
+    handleReportError(this.childOpsHost(), childId, command);
   }
 
-  /**
-   * Handle task status query
-   */
   private handleGetTaskStatus(
     instanceId: string,
-    command: GetTaskStatusCommand
+    command: GetTaskStatusCommand,
   ): void {
-    const ctx = this.contexts.get(instanceId);
-    if (!ctx) return;
-
-    const taskManager = getTaskManager();
-
-    if (command.taskId) {
-      // Get specific task
-      const task = taskManager.getTask(command.taskId);
-      this.injectResponse(instanceId, 'get_task_status', !!task, {
-        task: task ? taskManager.serializeTask(task) : null
-      });
-    } else {
-      // Get all tasks for this instance
-      const tasks = ctx.parentId
-        ? [] // Children don't have their own tasks
-        : taskManager.getTasksByParentId(instanceId);
-
-      this.injectResponse(instanceId, 'get_task_status', true, {
-        tasks: tasks.map((t) => taskManager.serializeTask(t)),
-        history: taskManager.getTaskHistory(instanceId)
-      });
-    }
+    handleGetTaskStatus(this.childOpsHost(), instanceId, command);
   }
 
   private async handleCreateAutomation(
@@ -1405,146 +1284,28 @@ export class OrchestrationHandler extends EventEmitter {
   // Structured Result Handlers
   // ============================================
 
-  /**
-   * Handle report_result command from child
-   */
   private handleReportResult(childId: string, command: ReportResultCommand): void {
-    const ctx = this.contexts.get(childId);
-    if (!ctx || !ctx.parentId) {
-      logger.warn('No parent for child to report result to', { childId });
-      return;
-    }
-
-    // Emit event for the orchestration manager to store the result
-    this.emit(
-      'report-result',
-      childId,
-      command,
-      (response: ChildSummaryResponse | null) => {
-        if (response) {
-          // Notify parent with compact summary
-          this.injectResponse(ctx.parentId!, 'child_result', true, {
-            ...response,
-            message: `Child ${childId} reported result: ${response.summary}`
-          });
-        }
-      }
-    );
+    handleReportResult(this.childOpsHost(), childId, command);
   }
 
-  /**
-   * Handle get_child_summary command from parent
-   */
   private handleGetChildSummary(
     parentId: string,
-    command: GetChildSummaryCommand
+    command: GetChildSummaryCommand,
   ): void {
-    const ctx = this.contexts.get(parentId);
-    if (!ctx) return;
-
-    // Verify the child belongs to this parent (active or completed)
-    if (!this.isChildOfParent(parentId, command.childId)) {
-      this.injectResponse(parentId, 'get_child_summary', false, {
-        error: `Child ${command.childId} not found or not owned by you`
-      });
-      return;
-    }
-
-    this.emit(
-      'get-child-summary',
-      parentId,
-      command,
-      (response: ChildSummaryResponse | null) => {
-        if (response) {
-          this.injectResponse(parentId, 'get_child_summary', true, response);
-        } else {
-          // Fall back to checking if there's a stored result
-          this.injectResponse(parentId, 'get_child_summary', false, {
-            childId: command.childId,
-            error: 'No structured result available. Child may not have completed yet or used report_task_complete instead.',
-            suggestion: 'Use get_child_output to see raw output'
-          });
-        }
-      }
-    );
+    handleGetChildSummary(this.childOpsHost(), parentId, command);
   }
 
-  /**
-   * Handle get_child_artifacts command from parent
-   */
   private handleGetChildArtifacts(
     parentId: string,
-    command: GetChildArtifactsCommand
+    command: GetChildArtifactsCommand,
   ): void {
-    const ctx = this.contexts.get(parentId);
-    if (!ctx) return;
-
-    // Verify the child belongs to this parent (active or completed)
-    if (!this.isChildOfParent(parentId, command.childId)) {
-      this.injectResponse(parentId, 'get_child_artifacts', false, {
-        error: `Child ${command.childId} not found or not owned by you`
-      });
-      return;
-    }
-
-    this.emit(
-      'get-child-artifacts',
-      parentId,
-      command,
-      (response: ChildArtifactsResponse | null) => {
-        if (response) {
-          this.injectResponse(parentId, 'get_child_artifacts', true, response);
-        } else {
-          this.injectResponse(parentId, 'get_child_artifacts', false, {
-            childId: command.childId,
-            error: 'No artifacts available for this child'
-          });
-        }
-      }
-    );
+    handleGetChildArtifacts(this.childOpsHost(), parentId, command);
   }
 
-  /**
-   * Handle get_child_section command from parent
-   */
   private handleGetChildSection(
     parentId: string,
-    command: GetChildSectionCommand
+    command: GetChildSectionCommand,
   ): void {
-    const ctx = this.contexts.get(parentId);
-    if (!ctx) return;
-
-    // Verify the child belongs to this parent (active or completed)
-    if (!this.isChildOfParent(parentId, command.childId)) {
-      this.injectResponse(parentId, 'get_child_section', false, {
-        error: `Child ${command.childId} not found or not owned by you`
-      });
-      return;
-    }
-
-    this.emit(
-      'get-child-section',
-      parentId,
-      command,
-      (response: ChildSectionResponse | null) => {
-        if (response) {
-          // Warn if loading full transcript
-          if (command.section === 'full' && response.tokenCount > 5000) {
-            this.injectResponse(parentId, 'get_child_section', true, {
-              ...response,
-              warning: `Full transcript is ${response.tokenCount} tokens. Consider using get_child_summary or get_child_artifacts instead.`
-            });
-          } else {
-            this.injectResponse(parentId, 'get_child_section', true, response);
-          }
-        } else {
-          this.injectResponse(parentId, 'get_child_section', false, {
-            childId: command.childId,
-            section: command.section,
-            error: 'Section not available'
-          });
-        }
-      }
-    );
+    handleGetChildSection(this.childOpsHost(), parentId, command);
   }
 }

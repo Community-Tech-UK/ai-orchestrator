@@ -16,3 +16,13 @@ export function shouldCollapseUserMessage(message: Pick<OutputMessage, 'type' | 
   const lineCount = content.split(/\r?\n/).length;
   return content.length >= USER_MESSAGE_COLLAPSE_CHAR_THRESHOLD || lineCount >= USER_MESSAGE_COLLAPSE_LINE_THRESHOLD;
 }
+
+export function toggleExpandedId(current: ReadonlySet<string>, id: string): Set<string> {
+  const next = new Set(current);
+  if (next.has(id)) {
+    next.delete(id);
+  } else {
+    next.add(id);
+  }
+  return next;
+}

@@ -748,6 +748,7 @@ export type {
   LoopFileChange,
   LoopInFlightIteration,
   LoopIteration,
+  LoopAutoUnstickState,
   LoopPendingInput,
   LoopPendingInputKind,
   LoopPendingInputSource,

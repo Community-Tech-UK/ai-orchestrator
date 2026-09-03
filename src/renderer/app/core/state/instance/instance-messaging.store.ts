@@ -18,7 +18,6 @@ import {
   enqueueToQueueFront,
   inputFilesToAttachments,
   isActiveTurnStatus,
-  isInterruptRecoveryStatus,
   isQuotaParked,
   isReadyForInputStatus,
   isTerminalStatus,
@@ -28,6 +27,7 @@ import {
   type SendInputImmediateOptions,
 } from './instance-messaging-queue-utils';
 import { getSendInputTimeoutMs } from './instance-messaging-send-utils';
+import { canRestartForTerminalSend, getRetryDisposition } from './messaging-retry-disposition';
 import { InstanceStatusReconcilerService } from './instance-status-reconciler.service';
 import { QueuePersistenceService } from './queue-persistence.service';
 
@@ -687,10 +687,7 @@ export class InstanceMessagingStore {
   }
 
   private canRestartForTerminalSend(status: InstanceStatus): boolean {
-    return status === 'terminated'
-      || status === 'failed'
-      || status === 'error'
-      || status === 'cancelled';
+    return canRestartForTerminalSend(status);
   }
 
   /**
@@ -740,63 +737,9 @@ export class InstanceMessagingStore {
 
   private getRetryDisposition(
     status: InstanceStatus | undefined,
-    errorMessage: string
+    errorMessage: string,
   ): { shouldRetry: boolean; nextStatus?: InstanceStatus } {
-    const normalized = errorMessage.toLowerCase();
-    if (normalized.includes('send input timed out')) {
-      return { shouldRetry: false, nextStatus: 'idle' };
-    }
-
-    // Park behind the provider-owned turn. Only a real ready edge may drain
-    // this message; a timer would collide with the same owner again.
-    if (normalized.includes('codex app-server runtime already has an active turn')
-      || normalized.includes('previous turn is still running')) {
-      return { shouldRetry: true, nextStatus: 'busy' };
-    }
-
-    // Transient: instance is recovering from interrupt/respawn.
-    if (
-      isInterruptRecoveryStatus(status)
-      || normalized.includes('respawning')
-      || normalized.includes('interrupt recovery')
-      || normalized.includes('recovering from interrupt')
-    ) {
-      return {
-        shouldRetry: true,
-        nextStatus: isInterruptRecoveryStatus(status) ? status : 'respawning',
-      };
-    }
-
-    // Transient: instance is still initializing or waking
-    if (status === 'initializing' || status === 'waking') {
-      return { shouldRetry: true, nextStatus: status };
-    }
-
-    // Transient: CLI adapter not yet ready (common immediately after respawn)
-    if (normalized.includes('not ready') || normalized.includes('not spawned')) {
-      return { shouldRetry: true };
-    }
-
-    // Permanent: instance is in a fatal state
-    if (status === 'error' || status === 'failed' || normalized.includes('error state') || normalized.includes('inconsistent state')) {
-      return { shouldRetry: false, nextStatus: status === 'failed' ? 'failed' : 'error' };
-    }
-
-    if (status === 'terminated' || normalized.includes('terminated')) {
-      return { shouldRetry: false, nextStatus: 'terminated' };
-    }
-
-    // Permanent: the target instance is gone from main-process state (e.g. it
-    // was terminated while the send waited out an init/respawn). Retrying can
-    // never succeed — preserve the text instead of burning retries silently.
-    if (normalized.includes('instance') && normalized.includes('not found')) {
-      return { shouldRetry: false, nextStatus: 'terminated' };
-    }
-
-    // Default: retry unknown errors — the watchdog and batch updates will
-    // correct the status if the instance is actually in a permanent state.
-    // This prevents message loss from transient post-respawn timing issues.
-    return { shouldRetry: true };
+    return getRetryDisposition(status, errorMessage);
   }
 
   private enqueueMessage(instanceId: string, queuedMessage: QueuedMessage): void {

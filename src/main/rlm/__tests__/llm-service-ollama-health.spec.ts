@@ -472,12 +472,16 @@ describe('LLMService.subQueryViaAux() — auxiliary routing', () => {
   });
 });
 
-describe('LLMService direct provider request sanitization', () => {
-  beforeEach(async () => {
+describe('LLM provider request sanitization', () => {
+  const availability = () => ({
+    anthropicAvailable: null as boolean | null,
+    ollamaAvailable: null as boolean | null,
+    openaiAvailable: null as boolean | null,
+  });
+
+  beforeEach(() => {
     vi.clearAllMocks();
     vi.unstubAllGlobals();
-    const { LLMService } = await import('../llm-service');
-    LLMService._resetForTesting();
   });
 
   afterEach(() => {
@@ -489,12 +493,11 @@ describe('LLMService direct provider request sanitization', () => {
       mockJsonResponse({ content: [{ type: 'text', text: 'ok' }] }),
     );
     vi.stubGlobal('fetch', fetchMock);
-    const { getLLMService } = await import('../llm-service');
-    const service = getLLMService({ provider: 'anthropic', anthropicApiKey: 'sk-test' });
+    const { generateWithAnthropic } = await import('../llm-service-providers');
 
-    await (service as unknown as {
-      generateWithAnthropic: (systemPrompt: string, userPrompt: string) => Promise<string>;
-    }).generateWithAnthropic(
+    await generateWithAnthropic(
+      { provider: 'anthropic', anthropicApiKey: 'sk-test' },
+      availability(),
       'sys\uD800 prompt \uD83D\uDE00 zero\u200Bwidth',
       'user\uDC00 prompt \uD83D\uDE00 zero\u200Bwidth',
     );
@@ -510,12 +513,14 @@ describe('LLMService direct provider request sanitization', () => {
   it('sanitizes Ollama prompt parts before concatenating', async () => {
     const fetchMock = vi.fn().mockResolvedValue(mockJsonResponse({ response: 'ok' }));
     vi.stubGlobal('fetch', fetchMock);
-    const { getLLMService } = await import('../llm-service');
-    const service = getLLMService({ provider: 'ollama', ollamaHost: 'http://ollama.test' });
+    const { generateWithOllama } = await import('../llm-service-providers');
 
-    await (service as unknown as {
-      generateWithOllama: (systemPrompt: string, userPrompt: string) => Promise<string>;
-    }).generateWithOllama('sys\uD83D', '\uDE00user \uD83D\uDE00 zero\u200Bwidth');
+    await generateWithOllama(
+      { provider: 'ollama', ollamaHost: 'http://ollama.test' },
+      availability(),
+      'sys\uD83D',
+      '\uDE00user \uD83D\uDE00 zero\u200Bwidth',
+    );
 
     const generateCall = fetchMock.mock.calls.find(([url]) => url === 'http://ollama.test/api/generate');
     const body = JSON.parse((generateCall?.[1] as RequestInit).body as string);
@@ -527,12 +532,11 @@ describe('LLMService direct provider request sanitization', () => {
       mockJsonResponse({ choices: [{ message: { content: 'ok' } }] }),
     );
     vi.stubGlobal('fetch', fetchMock);
-    const { getLLMService } = await import('../llm-service');
-    const service = getLLMService({ provider: 'openai', openaiApiKey: 'sk-test' });
+    const { generateWithOpenAI } = await import('../llm-service-providers');
 
-    await (service as unknown as {
-      generateWithOpenAI: (systemPrompt: string, userPrompt: string) => Promise<string>;
-    }).generateWithOpenAI(
+    await generateWithOpenAI(
+      { provider: 'openai', openaiApiKey: 'sk-test' },
+      availability(),
       'sys\uD800 prompt \uD83D\uDE00 zero\u200Bwidth',
       'user\uDC00 prompt \uD83D\uDE00 zero\u200Bwidth',
     );

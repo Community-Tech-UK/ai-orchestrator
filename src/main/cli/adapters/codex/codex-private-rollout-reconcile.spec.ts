@@ -252,7 +252,7 @@ describe('reconcilePrivateCodexRolloutPaths', () => {
   });
 
   it('is wired into application startup after the leaked-thread cleanup', () => {
-    const source = readFileSync(join(__dirname, '../../../app/initialization-steps.ts'), 'utf-8');
+    const source = readFileSync(join(__dirname, '../../../app/late-runtime-initialization-steps.ts'), 'utf-8');
 
     expect(source).toContain('reconcilePrivateCodexRolloutPaths');
     expect(source.indexOf('cleanupLeakedAioCodexThreads()')).toBeLessThan(

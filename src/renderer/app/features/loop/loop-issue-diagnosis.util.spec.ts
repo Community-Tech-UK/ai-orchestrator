@@ -64,7 +64,7 @@ describe('buildLoopIssueView', () => {
       paused: false,
     });
     expect(view).not.toBeNull();
-    expect(view!.headline).toBe('Repeating the same tool calls and re-reading the same files');
+    expect(view!.headline).toBe('Repeating the same tool calls and re-reading the same content');
     expect(view!.problem).toContain('Tool Read called 8×');
     expect(view!.implication).toContain('still running');
     expect(view!.implication).toContain('pause on its own');
@@ -172,10 +172,24 @@ describe('buildLoopIssueView', () => {
       paused: false,
     });
     expect(view!.headline).toBe(
-      'Repeating the same tool calls, re-reading the same files and 2 more',
+      'Repeating the same tool calls, re-reading the same content and 2 more',
     );
     // The headline is truncated for readability; the evidence list is not.
     expect(view!.signals).toHaveLength(4);
+  });
+
+  it('does not lead with a hint when the loop is already auto-unsticking', () => {
+    const view = buildLoopIssueView({
+      verdict: 'CRITICAL',
+      signals: [{ id: 'G', verdict: 'CRITICAL', message: 'Tool Edit called 43× in one iteration' }],
+      running: true,
+      paused: false,
+      autoUnstickInFlight: true,
+    });
+    expect(view!.implication).toContain('trying a different approach on its own');
+    expect(view!.nextStep).toContain('already changing approach');
+    expect(view!.actions.find((action) => action.kind === 'hint')?.primary).toBe(false);
+    expect(view!.actions.find((action) => action.kind === 'inspect')?.primary).toBe(true);
   });
 
   it('treats a running WARN as a watch, not a stop', () => {

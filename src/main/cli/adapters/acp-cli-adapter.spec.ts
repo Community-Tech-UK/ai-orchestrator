@@ -1,12 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+/**
+ * One stable logger instance so tests can assert on what the adapter logged.
+ * `getLogger` is called at module scope, so a factory returning a fresh object
+ * per call would hand the adapter a spy no test can reach.
+ */
+const loggerMock = vi.hoisted(() => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  debug: vi.fn(),
+  error: vi.fn(),
+}));
+
 vi.mock('../../logging/logger', () => ({
-  getLogger: () => ({
-    info: vi.fn(),
-    warn: vi.fn(),
-    debug: vi.fn(),
-    error: vi.fn(),
-  }),
+  getLogger: () => loggerMock,
 }));
 
 import { PermissionRegistry } from '../../orchestration/permission-registry';
@@ -2176,5 +2183,210 @@ describe('AcpCliAdapter', () => {
       proc.exit();
       bareProc.exit();
     });
+  });
+});
+
+describe('AcpCliAdapter truncated turns', () => {
+  /** Verbatim from the 2026-09-03 cursor session that ended mid-turn. */
+  const TRANSPORT_FAILURE =
+    'Error: RetriableError: [canceled] http/2 stream closed with error code CANCEL (0x8)';
+
+  function promptWith(proc: FakeAcpProcess, chunks: string[], result: Record<string, unknown>): void {
+    proc.onRequest('session/prompt', (message) => {
+      for (const text of chunks) {
+        proc.notify('session/update', {
+          sessionId: 'sess-acp-1',
+          update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } },
+        });
+      }
+      proc.respond(message.id, result);
+    });
+  }
+
+  it('flags a turn whose stream was severed after real work, despite end_turn', async () => {
+    const proc = createInitializedAgentHarness();
+    // The agent reports a normal completion and drops the usage frame — exactly
+    // what made the real incident indistinguishable from a finished turn.
+    promptWith(proc, ['Traced the coordinator and edited the schema.', `\n\n${TRANSPORT_FAILURE}`], {
+      stopReason: 'end_turn',
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+    });
+    await adapter.spawn();
+
+    const outputHandler = vi.fn();
+    adapter.on('output', outputHandler);
+
+    const response = await adapter.sendMessage({ role: 'user', content: 'go' });
+
+    expect(response.metadata).toMatchObject({
+      stopReason: 'end_turn',
+      truncatedTurn: true,
+      transportFailure: TRANSPORT_FAILURE,
+    });
+
+    const notices = outputHandler.mock.calls
+      .map(([message]) => message)
+      .filter((message) => message.metadata?.source === 'acp-transport-failure');
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({
+      type: 'system',
+      metadata: { truncatedTurn: true, recoverable: true, providerUsageReported: false },
+    });
+    expect(notices[0].content).toContain(TRANSPORT_FAILURE);
+    expect(notices[0].content).toContain('cut off');
+
+    // The partial work is kept — truncation is not a reason to discard the turn.
+    expect(response.content).toContain('Traced the coordinator');
+    // And the loop's degraded path is deliberately untouched.
+    expect(response.degradedReason).toBeUndefined();
+
+    proc.exit();
+  });
+
+  it('leaves a healthy turn alone', async () => {
+    const proc = createInitializedAgentHarness();
+    promptWith(proc, ['All gates are green.'], {
+      stopReason: 'end_turn',
+      usage: { inputTokens: 3, outputTokens: 4, totalTokens: 7 },
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+    });
+    await adapter.spawn();
+
+    const outputHandler = vi.fn();
+    adapter.on('output', outputHandler);
+
+    const response = await adapter.sendMessage({ role: 'user', content: 'go' });
+
+    expect(response.metadata).not.toHaveProperty('truncatedTurn');
+    expect(response.metadata).not.toHaveProperty('transportFailure');
+    expect(
+      outputHandler.mock.calls.some(([m]) => m.metadata?.source === 'acp-transport-failure'),
+    ).toBe(false);
+
+    proc.exit();
+  });
+});
+
+describe('AcpCliAdapter missing-usage escalation', () => {
+  beforeEach(() => {
+    loggerMock.warn.mockClear();
+    loggerMock.info.mockClear();
+  });
+
+  /** Drive one turn, resolving `session/prompt` with `result`. */
+  async function runTurn(
+    proc: FakeAcpProcess,
+    adapter: TestAcpCliAdapter,
+    result: Record<string, unknown>,
+  ): Promise<void> {
+    proc.onRequest('session/prompt', (message) => {
+      proc.notify('session/update', {
+        sessionId: 'sess-acp-1',
+        update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'done' } },
+      });
+      proc.respond(message.id, result);
+    });
+    await adapter.sendMessage({ role: 'user', content: 'go' });
+  }
+
+  const WITH_USAGE = {
+    stopReason: 'end_turn',
+    usage: { inputTokens: 3, outputTokens: 4, totalTokens: 7 },
+  };
+  const WITHOUT_USAGE = { stopReason: 'end_turn' };
+
+  it('warns when a session that was reporting usage stops reporting it', async () => {
+    const proc = createInitializedAgentHarness();
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+    });
+    await adapter.spawn();
+
+    await runTurn(proc, adapter, WITH_USAGE);
+    expect(loggerMock.warn).not.toHaveBeenCalled();
+
+    // The usage frame goes missing — what a severed backend stream looks like.
+    await runTurn(proc, adapter, WITHOUT_USAGE);
+
+    const regressions = loggerMock.warn.mock.calls.filter(
+      ([message, fields]) =>
+        String(message).includes('no token usage') && fields?.reason === 'usage-regression',
+    );
+    expect(regressions).toHaveLength(1);
+
+    // Bounded: a second dropped frame does not re-warn every turn.
+    await runTurn(proc, adapter, WITHOUT_USAGE);
+    expect(
+      loggerMock.warn.mock.calls.filter(
+        ([message, fields]) =>
+          String(message).includes('no token usage') && fields?.reason === 'usage-regression',
+      ),
+    ).toHaveLength(1);
+
+    proc.exit();
+  });
+
+  it('re-arms the warning for a session respawned on the same adapter', async () => {
+    // terminate() must clear the per-session usage flags, or a respawned
+    // session inherits "already warned" and its own dropped frame goes unseen.
+    const proc = createInitializedAgentHarness();
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+    });
+    await adapter.spawn();
+    await runTurn(proc, adapter, WITH_USAGE);
+    await runTurn(proc, adapter, WITHOUT_USAGE);
+
+    const regressionCount = (): number =>
+      loggerMock.warn.mock.calls.filter(
+        ([message, fields]) =>
+          String(message).includes('no token usage') && fields?.reason === 'usage-regression',
+      ).length;
+    expect(regressionCount()).toBe(1);
+
+    await adapter.terminate(false);
+    await adapter.spawn();
+    // A fresh session: usage reported, then dropped again. Must warn again.
+    await runTurn(proc, adapter, WITH_USAGE);
+    await runTurn(proc, adapter, WITHOUT_USAGE);
+    expect(regressionCount()).toBe(2);
+
+    proc.exit();
+  });
+
+  it('stays at one info line for a short turn from an agent that never reports usage', async () => {
+    const proc = createInitializedAgentHarness();
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+    });
+    await adapter.spawn();
+
+    await runTurn(proc, adapter, WITHOUT_USAGE);
+    await runTurn(proc, adapter, WITHOUT_USAGE);
+    await runTurn(proc, adapter, WITHOUT_USAGE);
+
+    expect(
+      loggerMock.warn.mock.calls.filter(([message]) =>
+        String(message).includes('no token usage'),
+      ),
+    ).toHaveLength(0);
+    expect(
+      loggerMock.info.mock.calls.filter(([message]) =>
+        String(message).includes('context bar stays empty'),
+      ),
+    ).toHaveLength(1);
+
+    proc.exit();
   });
 });

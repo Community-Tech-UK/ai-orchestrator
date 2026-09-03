@@ -8,9 +8,11 @@ import {
   LoopRepoBaselineSnapshotSchema,
 } from './loop-audit.schemas';
 import { LoopPhase4ConfigSchema } from './loop-phase4.schemas';
+import { LoopAutoUnstickStateSchema } from './loop-auto-unstick.schemas';
 import { RequiredModelIdSchema } from './common.schemas';
 export * from './loop-audit.schemas';
 export * from './loop-phase4.schemas';
+export * from './loop-auto-unstick.schemas';
 
 const LOOP_MAX_WALL_TIME_MS_SCHEMA_CAP = 7 * 24 * 60 * 60 * 1000;
 export const LoopStageSchema = z.enum(['PLAN', 'REVIEW', 'IMPLEMENT']);
@@ -428,7 +430,7 @@ export const LoopQueueDrainModeSchema = z.enum(['all', 'one-at-a-time']);
 export const LoopPendingInputSourceSchema = z.enum([
   'human', 'block-override', 'plan-regen', 'phase-recovery',
   'context-survival', 'announce-then-halt', 'subagent-result', 'wakeup',
-  'cap-wrap-up',
+  'cap-wrap-up', 'auto-unstick',
 ]);
 
 export const LoopPendingInputSchema = z.object({
@@ -712,6 +714,7 @@ export const LoopStateSchema = z.object({
   /** Ping-pong runtime state (round count, issue ledger, reviewer spend).
    *  Optional — only present on loops running in ping-pong mode. */
   pingPong: LoopPingPongStateSchema.optional(),
+  autoUnstick: LoopAutoUnstickStateSchema.optional(),
 });
 
 export const LoopRunSummarySchema = z.object({

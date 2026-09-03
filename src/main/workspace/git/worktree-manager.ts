@@ -43,6 +43,7 @@ import {
   type BasePromotionResult,
   type SharedIntegrationResult,
 } from './worktree-integration';
+import { detectCrossWorktreeConflicts as detectCrossWorktreeConflictsForSessions } from './worktree-conflict';
 
 const logger = getLogger('WorktreeManager');
 
@@ -363,69 +364,12 @@ export class WorktreeManager extends EventEmitter {
   // ============ Cross-Worktree Conflict Detection ============
 
   async detectCrossWorktreeConflicts(currentId: string, currentFiles: string[]): Promise<CrossWorktreeConflict[]> {
-    const conflicts: CrossWorktreeConflict[] = [];
-
-    for (const [id, session] of this.sessions) {
-      if (id === currentId) continue;
-      if (!['active', 'completed'].includes(session.status)) continue;
-
-      const otherFiles =
-        session.filesChanged.length > 0 ? session.filesChanged : (await this.getWorktreeStats(session)).filesChanged;
-
-      const overlap = currentFiles.filter((f) => otherFiles.includes(f));
-
-      for (const file of overlap) {
-        const existing = conflicts.find((c) => c.file === file);
-        if (existing) {
-          existing.worktrees.push(id);
-        } else {
-          const severity = this.assessConflictSeverity(file);
-
-          conflicts.push({
-            file,
-            worktrees: [currentId, id],
-            description: `File modified in multiple worktrees: ${file}`,
-            severity,
-            mergeOrder: this.suggestMergeOrder(currentId, id),
-          });
-        }
-      }
-    }
-
-    return conflicts;
-  }
-
-  private assessConflictSeverity(file: string): 'high' | 'medium' | 'low' {
-    const highSeverityPatterns = [
-      /package\.json$/,
-      /package-lock\.json$/,
-      /\.lock$/,
-      /schema\./,
-      /migration/,
-      /index\.(ts|js|tsx|jsx)$/,
-    ];
-
-    if (highSeverityPatterns.some((p) => p.test(file))) {
-      return 'high';
-    }
-
-    if (/\.(ts|js|tsx|jsx|py|go|rs)$/.test(file)) {
-      return 'medium';
-    }
-
-    return 'low';
-  }
-
-  private suggestMergeOrder(id1: string, id2: string): string[] {
-    const session1 = this.sessions.get(id1);
-    const session2 = this.sessions.get(id2);
-
-    if (!session1 || !session2) return [id1, id2];
-
-    if (session1.additions + session1.deletions < session2.additions + session2.deletions) {
-      return [id1, id2];
-    }
-    return [id2, id1];
+    return detectCrossWorktreeConflictsForSessions({
+      sessions: this.sessions,
+      currentId,
+      currentFiles,
+      getWorktreeStats: (session) => this.getWorktreeStats(session),
+    });
   }
 
   // ============ Merge Operations ============

@@ -660,6 +660,9 @@ export class LoopControlComponent implements OnDestroy {
       running: active.status === 'running',
       paused: this.progressPause(),
       blocked: this.pauseKind() === 'blocked',
+      autoUnstickInFlight: Boolean(
+        active.autoUnstick && active.autoUnstick.seq === last.seq,
+      ),
     });
   });
 

@@ -1,9 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   buildFileMenuItems,
+  buildMessageContextMenuItems,
   getSelectedTextInItem,
+  visibleFailedImages,
   withSelectionItem,
 } from './output-stream-context-menu';
+import type { DisplayItem } from './display-item.types';
+import type { FailedImageRef } from '../../../../shared/types/instance.types';
 import type { ContextMenuItem } from '../../shared/components/context-menu/context-menu.component';
 import type { LinkedFileTarget } from './output-stream.types';
 
@@ -183,5 +187,37 @@ describe('buildFileMenuItems', () => {
     expect(actions.copyPath).toHaveBeenCalledTimes(1);
     expect(actions.copyFile).toHaveBeenCalledTimes(1);
     expect(actions.openInFileManager).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('buildMessageContextMenuItems', () => {
+  it('offers copy and fork for a user message with a buffer index', () => {
+    const item = {
+      id: 'item-1',
+      type: 'message',
+      bufferIndex: 3,
+      message: { id: 'm1', type: 'user', content: 'hello' },
+    } as DisplayItem;
+    const actions = { copyMessage: vi.fn(), forkFromHere: vi.fn() };
+    const items = buildMessageContextMenuItems(item, actions);
+    expect(items.map((entry) => entry.label)).toEqual(['Copy message', 'Fork from here']);
+    items[0].action();
+    items[1].action();
+    expect(actions.copyMessage).toHaveBeenCalledTimes(1);
+    expect(actions.forkFromHere).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('visibleFailedImages', () => {
+  it('hides unsupported bare-URL inferences and keeps markdown failures', () => {
+    const failures = [
+      { src: 'https://example.com/a.png', kind: 'remote', reason: 'unsupported', message: 'a', origin: 'bare' },
+      { src: 'https://example.com/b.png', kind: 'remote', reason: 'unsupported', message: 'b', origin: 'markdown' },
+      { src: 'https://example.com/c.png', kind: 'remote', reason: 'fetch_failed', message: 'c' },
+    ] as FailedImageRef[];
+    expect(visibleFailedImages(failures).map((failure) => failure.src)).toEqual([
+      'https://example.com/b.png',
+      'https://example.com/c.png',
+    ]);
   });
 });

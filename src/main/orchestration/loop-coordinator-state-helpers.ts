@@ -135,6 +135,7 @@ export function cloneLoopStateForBroadcast(s: LoopState): LoopState {
     completionAttempts: s.completionAttempts,
     contextWindowCalibration: s.contextWindowCalibration ? { ...s.contextWindowCalibration } : undefined,
     loopControl: s.loopControl ? { ...s.loopControl } : undefined,
+    autoUnstick: s.autoUnstick ? { ...s.autoUnstick } : undefined,
     inFlightIteration: s.inFlightIteration ? { ...s.inFlightIteration } : undefined,
     terminalIntentPending: s.terminalIntentPending
       ? { ...s.terminalIntentPending, evidence: s.terminalIntentPending.evidence.map((item) => ({ ...item })) }

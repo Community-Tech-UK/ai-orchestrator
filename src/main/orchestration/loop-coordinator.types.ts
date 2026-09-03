@@ -30,6 +30,13 @@ export const COST_PER_M_TOKENS_CENTS = 1500;
 export const DEFAULT_ITERATION_TIMEOUT_MS = 30 * 60 * 1000;
 export const LOOP_BREAKER_OPEN_BACKOFF_MS = 65 * 1000;
 export const LOOP_MAX_BREAKER_OPEN_WAITS = 3;
+/**
+ * Pause between retries of an attempt whose whole output was a provider
+ * transport failure (DNS/gateway/socket). Retrying such an attempt instantly is
+ * pointless — the observed outage produced three sub-second attempts in a row —
+ * so back off long enough for a blip to clear before spending the next attempt.
+ */
+export const LOOP_TRANSPORT_FAILURE_BACKOFF_MS = 5 * 1000;
 
 /**
  * Per-iteration token usage as reported by the adapter. Mirrors

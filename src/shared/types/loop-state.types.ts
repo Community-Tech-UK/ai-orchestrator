@@ -180,7 +180,16 @@ export type LoopPendingInputSource =
   | 'announce-then-halt'
   | 'subagent-result'
   | 'wakeup'
-  | 'cap-wrap-up';
+  | 'cap-wrap-up'
+  | 'auto-unstick';
+
+/** Last automatic change-of-approach nudge, if the coordinator injected one. */
+export interface LoopAutoUnstickState {
+  seq: number;
+  attempt: number;
+  max: number;
+  signalId: string;
+}
 
 export interface LoopPendingInput {
   id: string;
@@ -633,4 +642,11 @@ export interface LoopState {
    * {@link LoopReviewAngleCacheEntry}.
    */
   reviewAngleCache?: Record<string, LoopReviewAngleCacheEntry>;
+  /**
+   * Last automatic change-of-approach nudge. Set when the coordinator injects
+   * an `auto-unstick` intervention after a fixable CRITICAL; cleared on OK or
+   * a passing verify. The HUD uses this so it does not ask for a hint while
+   * the next iteration is already being steered.
+   */
+  autoUnstick?: LoopAutoUnstickState;
 }

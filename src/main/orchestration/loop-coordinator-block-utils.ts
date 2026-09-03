@@ -9,6 +9,7 @@ import {
 } from '../../shared/types/loop.types';
 import type { DegradedReason } from '../cli/adapters/degraded-output-classifier';
 import { evaluatePostCompactionCanary } from './loop-context-survival';
+import { isTransportFailureOnlyOutput } from './loop-transport-failure-output';
 
 const execFileAsync = promisify(execFile);
 
@@ -85,6 +86,13 @@ export async function evaluatePostCompactionCanaryPause(params: {
     compactedAtSeq: params.postCompaction.seq,
   };
 }
+
+/** Why an attempt counts as degraded — drives the bounded retry at the coordinator seam. */
+export type DegradedIterationKind =
+  | 'invocation-error'
+  | 'void-iteration'
+  | 'transport-failure'
+  | 'adapter-degraded';
 
 export interface DegradedIterationChildResult {
   output: string;
@@ -198,7 +206,7 @@ export function isCircuitBreakerOpenError(invocationError: string | null | undef
 export function classifyDegradedIteration(
   childResult: DegradedIterationChildResult | null,
   invocationError: string | null,
-): 'invocation-error' | 'void-iteration' | 'adapter-degraded' | null {
+): DegradedIterationKind | null {
   if (!childResult) {
     return invocationError ? 'invocation-error' : null;
   }
@@ -211,5 +219,12 @@ export function classifyDegradedIteration(
   const noOutput = childResult.output.trim().length === 0;
   const noWork = childResult.filesChanged.length === 0 && childResult.toolCalls.length === 0;
   if (noOutput && noWork) return 'void-iteration';
+  // A CLI whose transport failed prints the failure as the assistant turn and
+  // exits 0 (`Error: RetriableError: [unavailable] getaddrinfo ENOTFOUND …`).
+  // That is non-empty, so it escapes the void check — and without this branch it
+  // is counted as a real turn, which lets a brief outage burn sub-second
+  // iterations straight through the cap. Requires no work at all, so a turn that
+  // reported a transport error *and* did something is untouched.
+  if (noWork && isTransportFailureOnlyOutput(childResult.output)) return 'transport-failure';
   return null;
 }

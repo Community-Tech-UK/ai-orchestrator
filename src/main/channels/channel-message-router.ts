@@ -20,7 +20,6 @@
  */
 
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import { crossPlatformBasename } from '../../shared/utils/cross-platform-path';
 import { getLogger } from '../logging/logger';
@@ -29,6 +28,24 @@ import type { ChannelPersistence } from './channel-persistence';
 import { RateLimiter } from './rate-limiter';
 import type { BaseChannelAdapter, ChannelAutocompleteChoice, ChannelAutocompleteRequest } from './channel-adapter';
 import { getRecentDirectoriesManager } from '../core/config/recent-directories-manager';
+import {
+  getActiveInstances,
+  getHibernatedByProject,
+  getProjectDescriptors,
+  getProjectKey,
+  getProjectLabel,
+  getRevivableInstances,
+  getRouteableInstances,
+  isActiveSession,
+  sortByLastActivity,
+  resolveDefaultWorkingDirectory,
+  resolveNamedTarget,
+  resolveProject,
+  resolveProjectByNumberOrName,
+  type ChannelProjectResolverDeps,
+  type ProjectDescriptor,
+  type ResolvedNamedTarget,
+} from './channel-project-resolver';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getSessionAdmissionService } from '../session/session-admission-service';
 import {
@@ -89,25 +106,7 @@ interface ParsedIntent {
   commandArgs?: string;
 }
 
-interface ProjectDescriptor {
-  key: string;
-  label: string;
-  workingDirectory: string | null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  activeInstances: any[];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  hibernatedInstances: any[];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  historyEntries: any[];
-  lastActivity: number;
-}
-
 type ChannelPin = SavedChannelRoutePin;
-
-type ResolvedNamedTarget =
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  | { kind: 'instance'; instance: any }
-  | { kind: 'project'; project: ProjectDescriptor };
 
 interface KnownChannelInstance {
   id: string;
@@ -164,26 +163,6 @@ const MAX_LIVE_STREAM_FLUSHES = 3;
 const DM_COMPLETION_PING_MIN_MS = 20_000;
 /** Minimum gap between tool-activity heartbeats on a long turn (#4). */
 const TOOL_HEARTBEAT_INTERVAL_MS = 30_000;
-const NO_PROJECT_KEY = '__no_project__';
-const NO_PROJECT_LABEL = '(no project)';
-const ACTIVE_SESSION_STATUSES = new Set([
-  'initializing',
-  'ready',
-  'idle',
-  'busy',
-  'processing',
-  'thinking_deeply',
-  'waiting_for_input',
-  'waiting_for_permission',
-  'interrupting',
-  'cancelling',
-  'interrupt-escalating',
-  'cancelled',
-  'respawning',
-  'waking',
-  'degraded',
-]);
-
 export class ChannelMessageRouter {
   private rateLimiter = new RateLimiter(RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS);
   private unsubscribe: (() => void) | null = null;
@@ -448,34 +427,18 @@ export class ChannelMessageRouter {
 
   // ============ Instance helpers ============
 
-  /**
-   * Get all instances grouped by project (derived from workingDirectory basename).
-   */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private getProjectMap(): Map<string, any[]> {
-    const im = this.getInstanceManager();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const instances: any[] = im.getAllInstances?.() ?? im.getInstances?.() ?? [];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const map = new Map<string, any[]>();
-
-    for (const inst of instances) {
-      const dir = (inst.workingDirectory || '').trim();
-      const key = this.getProjectKey(dir);
-      if (!map.has(key)) {
-        map.set(key, []);
-      }
-      map.get(key)!.push(inst);
-    }
-    return map;
+  private projectResolverDeps(): ChannelProjectResolverDeps {
+    return {
+      getInstances: () => {
+        const im = this.getInstanceManager();
+        return im.getAllInstances?.() ?? im.getInstances?.() ?? [];
+      },
+      getPendingProjects: (pickKey) => this.pendingProjectPicks.get(pickKey),
+    };
   }
 
-  /**
-   * Normalize a working directory into a stable project key.
-   */
   private getProjectKey(workingDirectory: string | null | undefined): string {
-    const normalized = (workingDirectory ?? '').trim();
-    return normalized ? normalized.toLowerCase() : NO_PROJECT_KEY;
+    return getProjectKey(workingDirectory);
   }
 
   /**
@@ -488,222 +451,44 @@ export class ChannelMessageRouter {
    * existing project directory the user has actually worked in, then fall back
    * to the home directory. Never returns the filesystem root or an empty path.
    */
-  private async resolveDefaultWorkingDirectory(): Promise<string> {
-    try {
-      const recent = await getRecentDirectoriesManager().getDirectories({ sortBy: 'lastAccessed' });
-      for (const entry of recent) {
-        const dir = (entry.path || '').trim();
-        if (dir && this.isSafeWorkingDirectory(dir) && this.directoryExists(dir)) {
-          return dir;
-        }
-      }
-    } catch {
-      // Ignore recent-directory failures; the home-dir fallback is always safe.
-    }
-    return os.homedir();
-  }
-
-  /** A working directory is safe if it is not the filesystem root. */
-  private isSafeWorkingDirectory(dir: string): boolean {
-    const resolved = path.resolve(dir);
-    return resolved !== path.parse(resolved).root;
-  }
-
-  private directoryExists(dir: string): boolean {
-    try {
-      return fs.statSync(dir).isDirectory();
-    } catch {
-      return false;
-    }
+  private resolveDefaultWorkingDirectory(): Promise<string> {
+    return resolveDefaultWorkingDirectory();
   }
 
   private getProjectLabel(workingDirectory: string | null | undefined, fallbackLabel?: string): string {
-    const normalized = (workingDirectory ?? '').trim();
-    if (fallbackLabel?.trim()) {
-      return fallbackLabel.trim();
-    }
-    if (!normalized) {
-      return NO_PROJECT_LABEL;
-    }
-    return path.basename(normalized) || normalized;
+    return getProjectLabel(workingDirectory, fallbackLabel);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private isActiveSession(instance: any): boolean {
-    return ACTIVE_SESSION_STATUSES.has(String(instance.status || ''));
+    return isActiveSession(instance);
   }
 
   private sortByLastActivity<T extends { lastActivity?: number }>(instances: T[]): T[] {
-    return [...instances].sort((a, b) => (b.lastActivity || 0) - (a.lastActivity || 0));
+    return sortByLastActivity(instances);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private getActiveInstances(project: ProjectDescriptor): any[] {
-    return this.sortByLastActivity(
-      project.activeInstances.filter(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (instance: any) => this.isActiveSession(instance),
-      ),
-    );
+    return getActiveInstances(project);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private getRevivableInstances(project: ProjectDescriptor): any[] {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const byId = new Map<string, any>();
-    for (const entry of project.hibernatedInstances) {
-      const id = entry.instanceId || entry.id;
-      if (!id || byId.has(id)) {
-        continue;
-      }
-      byId.set(id, {
-        id,
-        displayName: entry.displayName,
-        workingDirectory: entry.workingDirectory || project.workingDirectory || '',
-        status: 'hibernated',
-        lastActivity: entry.hibernatedAt || entry.lastActivity,
-      });
-    }
-    return this.sortByLastActivity([...byId.values()]);
+    return getRevivableInstances(project);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private getRouteableInstances(project: ProjectDescriptor): any[] {
-    return [
-      ...this.getActiveInstances(project),
-      ...this.getRevivableInstances(project),
-    ];
+    return getRouteableInstances(project);
   }
 
-  private async getProjectDescriptors(): Promise<Map<string, ProjectDescriptor>> {
-    const descriptors = new Map<string, ProjectDescriptor>();
-
-    const ensureDescriptor = (
-      workingDirectory: string | null | undefined,
-      fallbackLabel?: string,
-    ): ProjectDescriptor => {
-      const normalized = (workingDirectory ?? '').trim() || null;
-      const key = this.getProjectKey(normalized);
-      const existing = descriptors.get(key);
-      if (existing) {
-        if (!existing.workingDirectory && normalized) {
-          existing.workingDirectory = normalized;
-        }
-        if (existing.label === NO_PROJECT_LABEL && fallbackLabel?.trim()) {
-          existing.label = fallbackLabel.trim();
-        }
-        return existing;
-      }
-
-      const descriptor: ProjectDescriptor = {
-        key,
-        label: this.getProjectLabel(normalized, fallbackLabel),
-        workingDirectory: normalized,
-        activeInstances: [],
-        hibernatedInstances: [],
-        historyEntries: [],
-        lastActivity: 0,
-      };
-      descriptors.set(key, descriptor);
-      return descriptor;
-    };
-
-    try {
-      const recentDirectories = await getRecentDirectoriesManager().getDirectories({
-        sortBy: 'lastAccessed',
-      });
-      for (const entry of recentDirectories) {
-        const descriptor = ensureDescriptor(entry.path, entry.displayName);
-        descriptor.lastActivity = Math.max(descriptor.lastActivity, entry.lastAccessed || 0);
-      }
-    } catch {
-      // Ignore recent-directory failures; live/history state still builds a project list.
-    }
-
-    for (const instances of this.getProjectMap().values()) {
-      for (const instance of instances) {
-        const descriptor = ensureDescriptor(instance.workingDirectory);
-        if (instance.status === 'hibernated') {
-          descriptor.hibernatedInstances.push({
-            instanceId: instance.id,
-            displayName: instance.displayName,
-            workingDirectory: instance.workingDirectory,
-            hibernatedAt: instance.lastActivity || 0,
-          });
-        } else {
-          descriptor.activeInstances.push(instance);
-        }
-        descriptor.lastActivity = Math.max(descriptor.lastActivity, instance.lastActivity || 0);
-      }
-    }
-
-    for (const instances of this.getHibernatedByProject().values()) {
-      for (const instance of instances) {
-        const descriptor = ensureDescriptor(instance.workingDirectory);
-        descriptor.hibernatedInstances.push(instance);
-        descriptor.lastActivity = Math.max(descriptor.lastActivity, instance.hibernatedAt || 0);
-      }
-    }
-
-    for (const { dir, entries } of this.getHistoryByProject().values()) {
-      const descriptor = ensureDescriptor(dir);
-      descriptor.historyEntries.push(...entries);
-      for (const entry of entries) {
-        descriptor.lastActivity = Math.max(
-          descriptor.lastActivity,
-          entry.endedAt || entry.createdAt || 0,
-        );
-      }
-    }
-
-    return descriptors;
+  private getProjectDescriptors(): Promise<Map<string, ProjectDescriptor>> {
+    return getProjectDescriptors(this.projectResolverDeps());
   }
 
-  private async resolveProject(projectName: string): Promise<ProjectDescriptor | null> {
-    const normalizedQuery = projectName.trim();
-    if (!normalizedQuery) {
-      return null;
-    }
-
-    const descriptors = await this.getProjectDescriptors();
-    const queryLower = normalizedQuery.toLowerCase();
-
-    const byKey = descriptors.get(this.getProjectKey(normalizedQuery));
-    if (byKey) {
-      return byKey;
-    }
-
-    const exactLabelMatch = [...descriptors.values()].find(
-      descriptor => descriptor.label.toLowerCase() === queryLower,
-    );
-    if (exactLabelMatch) {
-      return exactLabelMatch;
-    }
-
-    const prefixMatch = [...descriptors.values()].find(descriptor => {
-      const workingDirectory = descriptor.workingDirectory?.toLowerCase() || '';
-      return descriptor.label.toLowerCase().startsWith(queryLower) || workingDirectory.startsWith(queryLower);
-    });
-    if (prefixMatch) {
-      return prefixMatch;
-    }
-
-    if (fs.existsSync(normalizedQuery)) {
-      const resolvedPath = path.resolve(normalizedQuery);
-      if (fs.statSync(resolvedPath).isDirectory()) {
-        return {
-          key: this.getProjectKey(resolvedPath),
-          label: this.getProjectLabel(resolvedPath),
-          workingDirectory: resolvedPath,
-          activeInstances: [],
-          hibernatedInstances: [],
-          historyEntries: [],
-          lastActivity: Date.now(),
-        };
-      }
-    }
-
-    return null;
+  private resolveProject(projectName: string): Promise<ProjectDescriptor | null> {
+    return resolveProject(this.projectResolverDeps(), projectName);
   }
 
   /**
@@ -711,49 +496,19 @@ export class ChannelMessageRouter {
    * If the input is a number like "3", look up from the stored pendingProjectPicks.
    * Otherwise fall through to normal resolveProject.
    */
-  private async resolveProjectByNumberOrName(
+  private resolveProjectByNumberOrName(
     input: string,
     pickKey: string,
   ): Promise<ProjectDescriptor | null> {
-    const num = parseInt(input, 10);
-    if (!isNaN(num) && String(num) === input.trim() && this.pendingProjectPicks.has(pickKey)) {
-      const projects = this.pendingProjectPicks.get(pickKey)!;
-      if (num >= 1 && num <= projects.length) {
-        return projects[num - 1];
-      }
-    }
-    return this.resolveProject(input);
+    return resolveProjectByNumberOrName(this.projectResolverDeps(), input, pickKey);
   }
 
-  private async resolveNamedTarget(
+  private resolveNamedTarget(
     projectName: string,
     instanceName?: string,
     strictInstanceName = false,
   ): Promise<ResolvedNamedTarget | null> {
-    const project = await this.resolveProject(projectName);
-    if (!project) {
-      return null;
-    }
-
-    const routeableInstances = this.getRouteableInstances(project);
-
-    if (instanceName) {
-      const needle = instanceName.toLowerCase();
-      const matchedInstance = routeableInstances.find(instance => {
-        const displayName = (instance.displayName || '').toLowerCase();
-        return displayName.includes(needle) || String(instance.id || '').toLowerCase() === needle;
-      });
-      if (matchedInstance) {
-        return { kind: 'instance', instance: matchedInstance };
-      }
-      return strictInstanceName ? null : project.workingDirectory ? { kind: 'project', project } : null;
-    }
-
-    if (routeableInstances.length > 0) {
-      return { kind: 'instance', instance: routeableInstances[0] };
-    }
-
-    return project.workingDirectory ? { kind: 'project', project } : null;
+    return resolveNamedTarget(this.projectResolverDeps(), projectName, instanceName, strictInstanceName);
   }
 
   private async handleAutocompleteRequest(request: ChannelAutocompleteRequest): Promise<void> {
@@ -852,52 +607,9 @@ export class ChannelMessageRouter {
 
   // ============ Command handlers ============
 
-  /**
-   * Get hibernated instances grouped by project.
-   */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private getHibernatedByProject(): Map<string, any[]> {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { getHibernationManager } = require('../process/hibernation-manager');
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const hibernated: any[] = getHibernationManager().getHibernatedInstances?.() ?? [];
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const map = new Map<string, any[]>();
-      for (const h of hibernated) {
-        const dir = (h.workingDirectory || '').trim();
-        const key = this.getProjectKey(dir);
-        if (!map.has(key)) map.set(key, []);
-        map.get(key)!.push(h);
-      }
-      return map;
-    } catch {
-      return new Map();
-    }
-  }
-
-  /**
-   * Get conversation history entries grouped by project.
-   */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private getHistoryByProject(): Map<string, { dir: string; entries: any[] }> {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { getHistoryManager } = require('../history/history-manager');
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const entries: any[] = getHistoryManager().getEntries?.() ?? [];
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const map = new Map<string, { dir: string; entries: any[] }>();
-      for (const e of entries) {
-        const dir = (e.workingDirectory || '').trim();
-        const key = this.getProjectKey(dir);
-        if (!map.has(key)) map.set(key, { dir, entries: [] });
-        map.get(key)!.entries.push(e);
-      }
-      return map;
-    } catch {
-      return new Map();
-    }
+    return getHibernatedByProject();
   }
 
   private async handleListCommand(

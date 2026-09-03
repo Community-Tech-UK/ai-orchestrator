@@ -145,12 +145,14 @@ import type {
 } from '../../shared/types/provider-quota.types';
 import type { ProviderLimitLedger } from '../core/system/provider-limit-ledger';
 import { isProviderNotice } from '../cli/provider-notice';
+import { transportOutagePauseReason } from './loop-transport-failure-output';
 import { resolveIterationCost } from './loop-iteration-cost';
 import { isParkingDecision } from './loop-quota-throttle';
 import {
   DEFAULT_ITERATION_TIMEOUT_MS,
   LOOP_BREAKER_OPEN_BACKOFF_MS,
   LOOP_MAX_BREAKER_OPEN_WAITS,
+  LOOP_TRANSPORT_FAILURE_BACKOFF_MS,
   type LoopAdapterCleanupHook,
   type LoopChildResult,
   type LoopIntentPersistHook,
@@ -176,6 +178,7 @@ import {
   evaluatePingPongCompletion as evaluatePingPongCompletionGate,
   type PingPongTerminal,
 } from './loop-pingpong-completion';
+import { runLoopAutoUnstick } from './loop-auto-unstick';
 import { handleLoopFinalAuditBlockedCompletion, handleVerifiedNoChangeReviewDrivenCompletion } from './loop-final-audit-blocked-completion';
 import { isVerifiedNoChangeCompletionClaim } from './loop-verified-completion-claim';
 import type { PingPongReviewer } from './agentic-pingpong-reviewer';
@@ -1314,6 +1317,10 @@ export class LoopCoordinator extends EventEmitter {
     if (checkpoint.planRegenerationCount > 0) {
       this.completionContext.setPlanRegenerationCount(state.id, checkpoint.planRegenerationCount);
     }
+    const restoredAutoUnstickAttempts = state.autoUnstick?.attempt ?? 0;
+    if (restoredAutoUnstickAttempts > 0) {
+      this.completionContext.setAutoUnstickCount(state.id, restoredAutoUnstickAttempts);
+    }
     if (checkpoint.pendingContextReset) this.completionContext.requestContextReset(state.id);
     this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
     return state;
@@ -1832,18 +1839,9 @@ export class LoopCoordinator extends EventEmitter {
         await writeLoopPreflightArtifact(state, preflight);
         this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
         if (state.config.audit.preflightMode === 'block' && preflight.status === 'failed') {
-          state.status = 'paused';
-          state.lastCompletionOutcome = 'unverifiable';
           const reason = 'preflight verification failed before implementation';
-          const signal = preflightBlockedSignal(reason, preflight);
-          state.endReason = reason;
-          this.completionContext.setConvergenceNote(state.id, reason);
-          this.emit('loop:paused-no-progress', {
-            loopRunId: state.id,
-            reason,
-            signal,
-          });
-          this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
+          state.lastCompletionOutcome = 'unverifiable';
+          this.pauseWithBlockedSignal(state, reason, preflightBlockedSignal(reason, preflight));
           continue;
         }
       }
@@ -2130,6 +2128,12 @@ export class LoopCoordinator extends EventEmitter {
           detail: { reason: degraded, invocationError: invocationError ?? undefined, workspaceEffect: attemptEvidence.workspaceEffect },
         });
         logger.warn('Retrying degraded loop iteration', { loopRunId: state.id, seq, attempt: degradedAttempts, reason: degraded, workspaceEffect: attemptEvidence.workspaceEffect });
+        // A transport failure fails again immediately if retried immediately —
+        // give the network a moment before spending the next attempt.
+        if (degraded === 'transport-failure') {
+          await sleep(LOOP_TRANSPORT_FAILURE_BACKOFF_MS);
+          if (isTerminalLoopRuntimeState(state) || this.lifecycle.isCancelled(state.id)) break;
+        }
         // WS5: preserve the surviving native thread when the adapter proved it
         // is reusable; otherwise force a fresh session so a wedged same-session
         // adapter recycles.
@@ -2217,25 +2221,31 @@ export class LoopCoordinator extends EventEmitter {
         probeTimeoutMs: 5000,
       });
       if (canaryPause) {
-        state.status = 'paused';
-        state.endReason = canaryPause.reason;
-        if (!this.completionContext.hasConvergenceNote(state.id)) {
-          this.completionContext.setConvergenceNote(state.id, canaryPause.reason);
-        }
-        const signal: ProgressSignalEvidence = {
+        this.pauseWithBlockedSignal(state, canaryPause.reason, {
           id: 'BLOCKED',
           verdict: 'CRITICAL',
           message: canaryPause.reason,
           detail: { canary: 'post-compaction', compactedAtSeq: canaryPause.compactedAtSeq, probeDetail: canaryPause.probeDetail },
-        };
-        this.emit('loop:paused-no-progress', { loopRunId: state.id, signal });
-        this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
-        logger.warn('Loop paused — post-compaction health canary failed', {
-          loopRunId: state.id,
-          seq,
-          compactedAtSeq: canaryPause.compactedAtSeq,
-          probeDetail: canaryPause.probeDetail,
-        });
+        }, { seq, cause: 'post-compaction canary' });
+        continue;
+      }
+
+      // -- provider transport outage backstop --
+      // The bounded retries above absorb a blip. If the retries are spent and
+      // the turn is STILL nothing but a transport error, and the previous
+      // recorded iteration was too, the provider endpoint is unreachable — the
+      // agent is not stalling. Recording these as real iterations is what let a
+      // DNS outage burn sub-second turns straight through the cap while the UI
+      // blamed the agent ("re-reading the same files"). Nothing was written
+      // (no files, no tool calls), so pausing is safe and resumable.
+      const outageReason = transportOutagePauseReason(childResult, history[history.length - 1]);
+      if (outageReason) {
+        this.pauseWithBlockedSignal(state, outageReason, {
+          id: 'BLOCKED',
+          verdict: 'CRITICAL',
+          message: outageReason,
+          detail: { cause: 'provider-transport-failure', seq },
+        }, { seq, cause: 'provider transport failure' });
         continue;
       }
 
@@ -3272,6 +3282,26 @@ export class LoopCoordinator extends EventEmitter {
         return;
       }
 
+      const runAutoUnstickDecision = (): boolean => {
+        const previousAutoUnstick = state.autoUnstick;
+        const injected = runLoopAutoUnstick({
+          state,
+          seq,
+          verdict: evaluation.verdict,
+          signals: evaluation.signals,
+          verifyPassed: iteration.verifyStatus === 'passed',
+          getAttempts: () => this.completionContext.getAutoUnstickCount(state.id),
+          setAttempts: (count) => this.completionContext.setAutoUnstickCount(state.id, count),
+          emit: (eventName, payload) => this.emit(eventName, payload),
+        });
+        if (injected || previousAutoUnstick !== state.autoUnstick) {
+          this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
+        }
+        return injected;
+      };
+      const autoUnstickRecovered = evaluation.verdict === 'OK' || iteration.verifyStatus === 'passed';
+      let autoUnstuck = autoUnstickRecovered ? runAutoUnstickDecision() : false;
+
       if (pauseBecauseCompletionCannotBeVerified) {
         state.status = 'paused';
         this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
@@ -3291,7 +3321,10 @@ export class LoopCoordinator extends EventEmitter {
       const suppressNoProgressForCapWrapUp = Boolean(
         this.completionContext.getCapWrapUp(state.id) && checkLoopHardCaps(state) !== null,
       );
-      if (!reviewDriven && !suppressNoProgressForCapWrapUp && evaluation.verdict === 'CRITICAL' && iteration.verifyStatus !== 'passed') {
+      if (!autoUnstickRecovered) {
+        autoUnstuck = runAutoUnstickDecision();
+      }
+      if (!autoUnstuck && !reviewDriven && !suppressNoProgressForCapWrapUp && evaluation.verdict === 'CRITICAL' && iteration.verifyStatus !== 'passed') {
         // -- LF-5: branch-and-select before pausing (opt-in, default off) --
         // When exploration is enabled and a cost cap is set, fan out candidate
         // iterations, verify + select the best, and adopt the winner instead of
@@ -3364,7 +3397,11 @@ export class LoopCoordinator extends EventEmitter {
         logger.info('Suppressed no-progress pause', {
           loopRunId: state.id,
           seq,
-          reason: suppressNoProgressForCapWrapUp ? 'cap-wrap-up' : 'verify-passed',
+          reason: autoUnstuck
+            ? 'auto-unstick'
+            : suppressNoProgressForCapWrapUp
+              ? 'cap-wrap-up'
+              : 'verify-passed',
         });
       }
 
@@ -3595,6 +3632,28 @@ export class LoopCoordinator extends EventEmitter {
       // (loop-handlers upserts the run on that event).
     }
     return outcome.switched;
+  }
+
+  /**
+   * Pause the run on a structural BLOCKED condition (preflight gate, health
+   * canary, provider outage): mark paused, seal the reason as the convergence
+   * note, and broadcast the signal so the UI shows WHY rather than falling
+   * through to a generic no-progress verdict.
+   */
+  private pauseWithBlockedSignal(
+    state: LoopState,
+    reason: string,
+    signal: ProgressSignalEvidence,
+    log?: { seq: number; cause: string },
+  ): void {
+    state.status = 'paused';
+    state.endReason = reason;
+    if (!this.completionContext.hasConvergenceNote(state.id)) {
+      this.completionContext.setConvergenceNote(state.id, reason);
+    }
+    this.emit('loop:paused-no-progress', { loopRunId: state.id, reason, signal });
+    this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
+    if (log) logger.warn(`Loop paused — ${log.cause}`, { loopRunId: state.id, seq: log.seq, reason });
   }
 
   /**

@@ -69,10 +69,6 @@ import type {
   InstanceSettledEvent,
   InstanceSettledWaitOptions,
 } from './instance-settled-tracker';
-import type {
-  RlmContextInfo,
-  UnifiedMemoryContextInfo,
-} from './instance-types';
 import { WarmStartManager } from './warm-start-manager';
 import { StuckProcessDetector } from './stuck-process-detector';
 import { shouldProbeAdapterProcess, StaleRuntimeReconciler } from './stale-runtime-reconciler';
@@ -133,9 +129,16 @@ import {
 import { getPromptHistoryService } from '../prompt-history/prompt-history-service';
 import { resolveSpawnReasoningEffort } from './lifecycle/reasoning-effort-resolution';
 import {
-  getIndexedCodebaseContextService,
-  type IndexedCodebaseContextInfo,
-} from '../indexing/indexed-codebase-context';
+  INPUT_CONTEXT_DEADLINE_MS,
+  buildContextBlock,
+  buildInputContextMetadata,
+  buildInputContexts,
+  logInputContexts,
+  queueDeferredInputContexts,
+  resolveInputContextsBeforeDeadline,
+  runInputPreflight,
+  type InputContextAssemblyDeps,
+} from './instance-input-contexts';
 import {
   getResourceGovernorCreationBlockReason,
   sanitizeCreateConfig,
@@ -150,7 +153,6 @@ import {
 const logger = getLogger('InstanceManager');
 const CHILD_STARTUP_TIMEOUT_MS = 60_000;
 const INPUT_PREFLIGHT_DEADLINE_MS = 5_000;
-const INPUT_CONTEXT_DEADLINE_MS = 500;
 const STEER_INTERRUPT_STATUSES = new Set<InstanceStatus>([
   'busy',
   'processing',
@@ -166,21 +168,6 @@ const SEND_TERMINAL_STATUSES = new Set<InstanceStatus>([
   'cancelled',
   'superseded',
 ]);
-interface InputContextBundle {
-  rlmContext: RlmContextInfo | null;
-  unifiedMemoryContext: UnifiedMemoryContextInfo | null;
-  indexedCodebaseContext: IndexedCodebaseContextInfo | null;
-}
-
-interface InputPreflightTimeoutOptions<T> {
-  instanceId: string;
-  phase: string;
-  timeoutMs: number;
-  operation: () => Promise<T>;
-  onTimeout?: () => T;
-  timeoutMessage?: string;
-}
-
 export interface InstanceStateChangedEvent {
   instanceId: string;
   status: InstanceStatus;
@@ -1815,7 +1802,7 @@ export class InstanceManager extends EventEmitter {
       });
     }
 
-    const handledSwitchModeReply = await this.runInputPreflight({
+    const handledSwitchModeReply = await runInputPreflight({
       instanceId,
       phase: 'switch-mode-reply',
       timeoutMs: INPUT_PREFLIGHT_DEADLINE_MS,
@@ -1839,7 +1826,7 @@ export class InstanceManager extends EventEmitter {
       uiActionId?: string;
     } | undefined;
     const isSlashCommandInput = message.trim().startsWith('/');
-    const resolvedCommand = await this.runInputPreflight({
+    const resolvedCommand = await runInputPreflight({
       instanceId,
       phase: 'command-resolution',
       timeoutMs: INPUT_PREFLIGHT_DEADLINE_MS,
@@ -1869,7 +1856,7 @@ export class InstanceManager extends EventEmitter {
     // session's title/summary into the prompt so the agent has that context.
     // No-op (no search) unless the message contains an @T- token.
     try {
-      const refResolution = await this.runInputPreflight({
+      const refResolution = await runInputPreflight({
         instanceId,
         phase: 'session-reference-resolution',
         timeoutMs: INPUT_PREFLIGHT_DEADLINE_MS,
@@ -1914,23 +1901,27 @@ export class InstanceManager extends EventEmitter {
     // Calculate context budget and build contexts. Context retrieval improves
     // answer quality, but it must not hold the renderer's send acknowledgement.
     // Anything slower than the deadline is queued for the next user turn.
-    const contextPromise = this.buildInputContexts(instance, resolvedMessage);
-    const inputContexts = await this.resolveInputContextsBeforeDeadline(
+    const inputContextDeps: InputContextAssemblyDeps = {
+      context: this.context,
+      queueContinuityPreamble: (id, preamble) => this.communication.queueContinuityPreamble(id, preamble),
+    };
+    const contextPromise = buildInputContexts(inputContextDeps, instance, resolvedMessage);
+    const inputContexts = await resolveInputContextsBeforeDeadline(
       instanceId,
       contextPromise,
     );
 
     if (inputContexts) {
-      this.logInputContexts(instanceId, inputContexts, 'current');
+      logInputContexts(instanceId, inputContexts, 'current');
     } else {
       logger.info('Context generation exceeded send deadline; sending current turn without retrieved context', {
         instanceId,
         deadlineMs: INPUT_CONTEXT_DEADLINE_MS,
       });
-      this.queueDeferredInputContexts(instanceId, contextPromise);
+      queueDeferredInputContexts(inputContextDeps, instanceId, contextPromise);
     }
 
-    const metadata = this.buildInputContextMetadata(inputContexts);
+    const metadata = buildInputContextMetadata(inputContexts);
 
     // Add user message to output buffer
     const userMessage = {
@@ -2019,7 +2010,7 @@ export class InstanceManager extends EventEmitter {
       return;
     }
 
-    let contextBlock = appendActiveGoalContext(this.buildContextBlock(inputContexts), instance);
+    let contextBlock = appendActiveGoalContext(buildContextBlock(inputContextDeps, inputContexts), instance);
 
     const isFirstTrackedInput = !this.hasReceivedFirstMessage.has(instanceId);
     const hasPriorConversationHistory = instance.outputBuffer.some(
@@ -2091,278 +2082,6 @@ export class InstanceManager extends EventEmitter {
         error: hookError,
         timestamp: Date.now(),
       });
-    }
-  }
-
-  private async buildInputContexts(
-    instance: Instance,
-    message: string,
-  ): Promise<InputContextBundle> {
-    const assembly = await getContextEngine().assemble({
-      instance,
-      message,
-      contextPort: this.context,
-      taskId: generateId(),
-      buildIndexedCodebaseContext: (targetInstance, targetMessage) =>
-        this.buildIndexedCodebaseContext(targetInstance, targetMessage),
-    });
-
-    return {
-      rlmContext: assembly.rlmContext,
-      unifiedMemoryContext: assembly.unifiedMemoryContext,
-      indexedCodebaseContext: assembly.indexedCodebaseContext,
-    };
-  }
-
-  private async runInputPreflight<T>({
-    instanceId,
-    phase,
-    timeoutMs,
-    operation,
-    onTimeout,
-    timeoutMessage,
-  }: InputPreflightTimeoutOptions<T>): Promise<T> {
-    const startedAt = Date.now();
-    let timedOut = false;
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    const deadline = new Promise<T>((resolve, reject) => {
-      timeoutId = setTimeout(() => {
-        timedOut = true;
-        logger.warn('Input preflight exceeded deadline', {
-          instanceId,
-          phase,
-          timeoutMs,
-          durationMs: Date.now() - startedAt,
-        });
-
-        if (onTimeout) {
-          resolve(onTimeout());
-          return;
-        }
-
-        reject(new Error(timeoutMessage ?? `${phase} timed out after ${timeoutMs}ms`));
-      }, timeoutMs);
-      if (
-        typeof timeoutId === 'object'
-        && timeoutId !== null
-        && 'unref' in timeoutId
-        && typeof timeoutId.unref === 'function'
-      ) {
-        timeoutId.unref();
-      }
-    });
-
-    logger.debug('Input preflight started', { instanceId, phase, timeoutMs });
-
-    try {
-      const result = await Promise.race([operation(), deadline]);
-      logger.debug('Input preflight completed', {
-        instanceId,
-        phase,
-        durationMs: Date.now() - startedAt,
-        timedOut,
-      });
-      return result;
-    } catch (error) {
-      logger.warn('Input preflight failed', {
-        instanceId,
-        phase,
-        durationMs: Date.now() - startedAt,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    } finally {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-    }
-  }
-
-  private async resolveInputContextsBeforeDeadline(
-    instanceId: string,
-    contextPromise: Promise<InputContextBundle>,
-  ): Promise<InputContextBundle | null> {
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    const deadline = new Promise<null>((resolve) => {
-      timeoutId = setTimeout(() => resolve(null), INPUT_CONTEXT_DEADLINE_MS);
-      if (
-        typeof timeoutId === 'object'
-        && timeoutId !== null
-        && 'unref' in timeoutId
-        && typeof timeoutId.unref === 'function'
-      ) {
-        timeoutId.unref();
-      }
-    });
-
-    try {
-      return await Promise.race([contextPromise, deadline]);
-    } catch (error) {
-      logger.warn('Context generation failed before send deadline; sending without retrieved context', {
-        instanceId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return {
-        rlmContext: null,
-        unifiedMemoryContext: null,
-        indexedCodebaseContext: null,
-      };
-    } finally {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-    }
-  }
-
-  private queueDeferredInputContexts(
-    instanceId: string,
-    contextPromise: Promise<InputContextBundle>,
-  ): void {
-    void contextPromise
-      .then((contexts) => {
-        this.logInputContexts(instanceId, contexts, 'deferred');
-        const contextBlock = this.buildContextBlock(contexts);
-        if (contextBlock) {
-          this.communication.queueContinuityPreamble(instanceId, contextBlock);
-        }
-      })
-      .catch((error) => {
-        logger.warn('Deferred context generation failed', {
-          instanceId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      });
-  }
-
-  private buildContextBlock(contexts: InputContextBundle | null): string | null {
-    if (!contexts) {
-      return null;
-    }
-
-    const contextBlocks = [
-      this.context.formatUnifiedMemoryContextBlock(contexts.unifiedMemoryContext),
-      this.formatIndexedCodebaseContextBlock(contexts.indexedCodebaseContext),
-      this.context.formatRlmContextBlock(contexts.rlmContext),
-    ].filter(Boolean) as string[];
-
-    return contextBlocks.length > 0 ? contextBlocks.join('\n\n') : null;
-  }
-
-  private buildInputContextMetadata(contexts: InputContextBundle | null): Record<string, unknown> {
-    const metadata: Record<string, unknown> = {};
-    if (!contexts) {
-      return metadata;
-    }
-
-    const { rlmContext, unifiedMemoryContext, indexedCodebaseContext } = contexts;
-    if (rlmContext) {
-      metadata['rlmContext'] = {
-        injected: true,
-        tokens: rlmContext.tokens,
-        sectionsAccessed: rlmContext.sectionsAccessed,
-        durationMs: rlmContext.durationMs,
-        source: rlmContext.source,
-      };
-    }
-    if (unifiedMemoryContext) {
-      metadata['unifiedMemoryContext'] = {
-        injected: true,
-        tokens: unifiedMemoryContext.tokens,
-        longTermCount: unifiedMemoryContext.longTermCount,
-        proceduralCount: unifiedMemoryContext.proceduralCount,
-        durationMs: unifiedMemoryContext.durationMs,
-      };
-    }
-    if (indexedCodebaseContext) {
-      metadata['indexedCodebaseContext'] = {
-        injected: true,
-        tokens: indexedCodebaseContext.tokens,
-        resultCount: indexedCodebaseContext.results.length,
-        storeId: indexedCodebaseContext.storeId,
-        durationMs: indexedCodebaseContext.durationMs,
-      };
-    }
-
-    return metadata;
-  }
-
-  private logInputContexts(
-    instanceId: string,
-    contexts: InputContextBundle,
-    phase: 'current' | 'deferred',
-  ): void {
-    const { rlmContext, unifiedMemoryContext, indexedCodebaseContext } = contexts;
-    const prefix = phase === 'deferred' ? 'Deferred ' : '';
-
-    if (rlmContext) {
-      logger.info(`${prefix}RLM context injected`, {
-        instanceId,
-        tokens: rlmContext.tokens,
-        sections: rlmContext.sectionsAccessed.length,
-        durationMs: rlmContext.durationMs,
-      });
-    }
-
-    if (unifiedMemoryContext) {
-      logger.info(`${prefix}UnifiedMemory context injected`, {
-        instanceId,
-        tokens: unifiedMemoryContext.tokens,
-        longTermCount: unifiedMemoryContext.longTermCount,
-        proceduralCount: unifiedMemoryContext.proceduralCount,
-        durationMs: unifiedMemoryContext.durationMs,
-      });
-    }
-
-    if (indexedCodebaseContext) {
-      logger.info(`${prefix}Indexed codebase context injected`, {
-        instanceId,
-        tokens: indexedCodebaseContext.tokens,
-        resultCount: indexedCodebaseContext.results.length,
-        storeId: indexedCodebaseContext.storeId,
-        durationMs: indexedCodebaseContext.durationMs,
-      });
-    }
-  }
-
-  private async buildIndexedCodebaseContext(
-    instance: Instance,
-    message: string,
-  ): Promise<IndexedCodebaseContextInfo | null> {
-    if (instance.parentId) {
-      return null;
-    }
-
-    try {
-      return await getIndexedCodebaseContextService().buildContext({
-        workspacePath: instance.workingDirectory,
-        query: message,
-        maxTokens: 900,
-        topK: 5,
-      });
-    } catch (error) {
-      logger.warn('Failed to build indexed codebase context', {
-        instanceId: instance.id,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return null;
-    }
-  }
-
-  private formatIndexedCodebaseContextBlock(
-    context: IndexedCodebaseContextInfo | null,
-  ): string | null {
-    if (!context) {
-      return null;
-    }
-
-    try {
-      return getIndexedCodebaseContextService().formatContextBlock(context);
-    } catch (error) {
-      logger.warn('Failed to format indexed codebase context', {
-        storeId: context.storeId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return null;
     }
   }
 

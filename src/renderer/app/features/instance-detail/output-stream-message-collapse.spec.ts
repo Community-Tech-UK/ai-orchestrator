@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { shouldCollapseUserMessage } from './output-stream-message-collapse';
+import { shouldCollapseUserMessage, toggleExpandedId } from './output-stream-message-collapse';
 
 describe('shouldCollapseUserMessage', () => {
   it('returns false for non-user messages', () => {
@@ -18,5 +18,13 @@ describe('shouldCollapseUserMessage', () => {
   it('returns true for multi-line user messages above the line threshold', () => {
     const content = Array.from({ length: 12 }, (_, index) => `Line ${index + 1}`).join('\n');
     expect(shouldCollapseUserMessage({ type: 'user', content })).toBe(true);
+  });
+});
+
+describe('toggleExpandedId', () => {
+  it('adds and removes an id', () => {
+    const added = toggleExpandedId(new Set<string>(), 'm1');
+    expect([...added]).toEqual(['m1']);
+    expect([...toggleExpandedId(added, 'm1')]).toEqual([]);
   });
 });

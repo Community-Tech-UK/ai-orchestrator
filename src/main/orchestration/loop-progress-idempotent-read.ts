@@ -18,6 +18,15 @@ function readResultKey(call: LoopIteration['toolCalls'][number]): string | null 
  * Signal I — Idempotent read identity.
  * Argument hashes are deliberately ignored: Signal G covers identical args,
  * while this catches semantically identical reads through different paths.
+ *
+ * The window spans several iterations, so the run of repeated reads can have
+ * ended before `current`. Re-reporting it then (and escalating WARN→CRITICAL on
+ * the strength of `history`'s own copy of the signal) accuses the agent of
+ * re-reading during a turn in which it read nothing at all — which is exactly
+ * what happened when two provider-transport failures were recorded as
+ * iterations: three sub-second turns with no tool calls at all were labelled
+ * "Re-reading the same files · STUCK". The signal therefore requires the
+ * CURRENT iteration to have contributed the repeat it reports.
  */
 export function signalI_idempotentReadIdentity(
   history: LoopIteration[],
@@ -47,6 +56,8 @@ export function signalI_idempotentReadIdentity(
   }
 
   if (repeatCount < threshold || !lastKey) return null;
+  // Only report a run the current turn is still part of (see above).
+  if (!current.toolCalls.some((call) => readResultKey(call) === lastKey)) return null;
   const wasAlreadyFlagged = history.at(-1)?.progressSignals.some((signal) => signal.id === 'I') ?? false;
   return {
     id: 'I',

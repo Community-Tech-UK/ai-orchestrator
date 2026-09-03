@@ -85,6 +85,8 @@ import {
   type AcpAssistantTurnState,
 } from './acp-assistant-stream';
 import { DEFAULT_ACTIVE_TOOL_TIMEOUT_MS, hasActiveAcpToolCall } from './acp-prompt-timeout-policy';
+import { classifyMissingUsage, describeTruncatedAcpTurn } from './acp-transport-failure';
+import { findTrailingTransportFailure } from '../transport-failure';
 import { buildRetryRecoveredMessage, buildRetryStateMessage } from './acp-retry-state';
 import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
 const logger = getLogger('AcpCliAdapter');
@@ -623,7 +625,11 @@ export class AcpCliAdapter extends BaseCliAdapter {
       // LT-018: publish the raw ACP usage aggregate (not the LT-100 estimate
       // above) so occupancy stays honest ("no usage ⇒ no event") even when
       // cost falls back to an estimate.
-      this.publishContextUsageFromTurn(result.usage);
+      const providerUsageReported = this.publishContextUsageFromTurn(result.usage, duration);
+      // A severed backend stream is reported by the agent as assistant text on
+      // an otherwise-normal turn, so the truncation has to be recovered from
+      // the text itself — `stopReason` says 'end_turn' either way.
+      const transportFailure = findTrailingTransportFailure(responseText);
       const response: CliResponse = {
         id: turn?.responseId ?? responseId,
         role: 'assistant',
@@ -631,12 +637,25 @@ export class AcpCliAdapter extends BaseCliAdapter {
         usage,
         metadata: {
           stopReason: result.stopReason,
+          ...(transportFailure ? { transportFailure, truncatedTurn: true } : {}),
         },
       };
 
       if (turn) {
         this.resolveRetryNotice(turn);
         this.emitFinalAssistantFlushes(turn);
+      }
+      if (transportFailure) {
+        const truncated = describeTruncatedAcpTurn({
+          adapter: this.getName(),
+          failure: transportFailure,
+          stopReason: result.stopReason,
+          providerUsageReported,
+          durationMs: duration,
+          contentLength: responseText.length,
+        });
+        logger.warn(truncated.logMessage, truncated.logFields);
+        this.emit('output', truncated.notice);
       }
       this.emit('status', 'idle');
       this.completeResponse(response);
@@ -694,6 +713,14 @@ export class AcpCliAdapter extends BaseCliAdapter {
     this.currentPromptRequestId = null;
     this.systemPromptSent = false;
     this.rtkAwarenessSent = false;
+    // Usage telemetry is per-session state like the flags above. Carrying it
+    // into a re-spawned session would suppress the first missing-usage warning
+    // of the new one, and would let a stale `hasReportedUsage` report a usage
+    // *regression* against a session that never reported any.
+    this.hasReportedUsage = false;
+    this.loggedMissingUsageWarning = false;
+    this.loggedMissingUsage = false;
+    this.cumulativeTokens = 0;
     this.toolCalls.clear();
     this.stdoutBuffer = '';
     await super.terminate(graceful);
@@ -2061,13 +2088,38 @@ export class AcpCliAdapter extends BaseCliAdapter {
   private loggedMissingUsage = false;
 
   /**
+   * True once any turn in this session reported real provider usage. Most
+   * agents either always report usage or never do; the interesting case is a
+   * session that reported it and then stopped, which means a usage frame went
+   * missing rather than the agent not supporting usage at all.
+   */
+  private hasReportedUsage = false;
+
+  /** One missing-usage warning per session, not one per turn. */
+  private loggedMissingUsageWarning = false;
+
+  /**
    * Emit a `context` event from a turn's ACP usage (LT-018). The actual
    * shaping (aggregate math, "is there anything to report") lives in
    * {@link buildAcpContextUsageEvent}; this method only owns the session
    * state (`cumulativeTokens`, the once-per-session missing-usage log) and
    * the `emit`/`logger` side effects.
+   *
+   * Returns whether the agent reported usable usage for this turn, which the
+   * caller records alongside a truncated turn as diagnostic context — it is
+   * NOT a gate on that path.
+   *
+   * Missing usage is escalated here, on its own terms, via
+   * {@link classifyMissingUsage}: a session that reported usage and then stops
+   * has dropped a frame, and a session that never reports usage still warns
+   * once its first substantial turn goes unaccounted for. A short turn from an
+   * agent that simply does not support usage stays at one info line, because
+   * that is unremarkable and warning about it every session would be noise.
    */
-  private publishContextUsageFromTurn(usage: AcpPromptUsage | undefined): void {
+  private publishContextUsageFromTurn(
+    usage: AcpPromptUsage | undefined,
+    durationMs: number,
+  ): boolean {
     const { event, cumulativeTokensAfter, usageKeys } = buildAcpContextUsageEvent(
       usage,
       this.cumulativeTokens,
@@ -2075,17 +2127,35 @@ export class AcpCliAdapter extends BaseCliAdapter {
     );
 
     if (!event) {
-      if (this.loggedMissingUsage) return;
+      const missingUsageReason = classifyMissingUsage({
+        hasReportedUsage: this.hasReportedUsage,
+        durationMs,
+      });
+      if (missingUsageReason && !this.loggedMissingUsageWarning) {
+        this.loggedMissingUsageWarning = true;
+        logger.warn('ACP turn reported no token usage where usage was expected', {
+          adapter: this.getName(),
+          reason: missingUsageReason,
+          durationMs,
+          profile: this.acpConfig.contextCapabilityProfile ?? 'none',
+          usageKeys,
+          cumulativeTokens: this.cumulativeTokens,
+        });
+        return false;
+      }
+      if (this.loggedMissingUsage) return false;
       this.loggedMissingUsage = true;
       logger.info('ACP turn reported no token usage; context bar stays empty for this session', {
         profile: this.acpConfig.contextCapabilityProfile ?? 'none',
         usageKeys,
       });
-      return;
+      return false;
     }
 
+    this.hasReportedUsage = true;
     this.cumulativeTokens = cumulativeTokensAfter;
     this.emit('context', event);
+    return true;
   }
 
   private async sendRequest<TResult>(method: string, params?: unknown): Promise<TResult> {

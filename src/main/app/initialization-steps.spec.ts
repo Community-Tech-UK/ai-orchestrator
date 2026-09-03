@@ -67,3 +67,21 @@ describe('Governed proposal review inbox initialization', () => {
     expect(names).toContain('Governed proposal review inbox');
   });
 });
+
+describe('late-runtime initialization steps', () => {
+  it('keeps loop, channel, and cross-project steps after the early boot list', () => {
+    const steps = createInitializationSteps({
+      instanceManager: {} as InstanceManager,
+      windowManager: {} as WindowManager,
+      isStatelessExecProvider: () => false,
+      getNodeLatencyForInstance: () => undefined,
+      syncRemoteNodeMetricsToLoadBalancer: () => undefined,
+    });
+    const names = steps.map((step) => step.name);
+
+    expect(names.indexOf('Workflow invokers')).toBeLessThan(names.indexOf('Loop store'));
+    expect(names.indexOf('Loop store')).toBeLessThan(names.indexOf('Channel manager'));
+    expect(names.indexOf('Channel manager')).toBeLessThan(names.indexOf('Cross-project patterns'));
+    expect(names.indexOf('Cross-project patterns')).toBeLessThan(names.indexOf('Governed proposal review inbox'));
+  });
+});

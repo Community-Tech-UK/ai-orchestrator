@@ -73,11 +73,15 @@ export const PROGRESS_SIGNAL_CATALOG: Record<string, ProgressSignalCatalogEntry>
     fixability: 'maybe',
     nextStep: 'A hint that names the remaining gap usually works. If it already looks done, inspect and accept.',
   },
+  // The detector keys on tool + result hash and deliberately ignores arguments
+  // (signal G covers identical args), so this fires for the same *answer* via a
+  // different path, and for any read-only lookup — grep, glob, ls, search —
+  // not just file reads. The copy must not promise "the same file".
   I: {
-    title: 'Re-reading the same files',
-    meaning: 'A read-only tool keeps returning the same result with no edits in between.',
+    title: 'Re-reading the same content',
+    meaning: 'A read-only lookup — read, grep, ls, search — keeps returning the same result with no edits in between, even if the path differs.',
     fixability: 'fixable',
-    nextStep: 'Hint what to change next, or tell it to stop re-reading and edit.',
+    nextStep: 'Hint what to change next, or tell it to stop looking and edit.',
   },
   // Main reuses this one id for every out-of-band pause: a BLOCKED.md or block
   // intent from the agent, a resource-governor pause, and a failed preflight
@@ -238,12 +242,16 @@ function implicationFor(
   running: boolean,
   paused: boolean,
   blocked: boolean,
+  autoUnstickInFlight: boolean,
 ): string {
   if (blocked) {
     return 'The loop cannot continue on its own. It is waiting on you.';
   }
   if (paused) {
     return 'The loop paused because it could not prove progress. It will not continue until you hint, resume, or stop.';
+  }
+  if (running && severity === 'CRITICAL' && autoUnstickInFlight) {
+    return 'The loop is trying a different approach on its own. A hint still helps if you already know a better path.';
   }
   if (running && severity === 'CRITICAL') {
     return 'The loop is still running. If this keeps happening it will pause on its own. A hint now often unsticks it.';
@@ -260,8 +268,9 @@ function actionsFor(
   running: boolean,
   paused: boolean,
   blocked: boolean,
+  autoUnstickInFlight: boolean,
 ): LoopIssueAction[] {
-  const hintPrimary = !blocked && fixability !== 'not-by-hint' && (severity === 'CRITICAL' || paused);
+  const hintPrimary = !blocked && !autoUnstickInFlight && fixability !== 'not-by-hint' && (severity === 'CRITICAL' || paused);
   const actions: LoopIssueAction[] = [
     { kind: 'hint', label: 'Give a hint', primary: hintPrimary },
     { kind: 'inspect', label: 'See why', primary: blocked || (!hintPrimary && !paused) },
@@ -308,6 +317,8 @@ export function buildLoopIssueView(input: {
   running: boolean;
   paused: boolean;
   blocked?: boolean;
+  /** True when the coordinator already injected a change-of-approach nudge. */
+  autoUnstickInFlight?: boolean;
 }): LoopIssueView | null {
   const pauseSignal = input.pauseSignal ? signalViews([input.pauseSignal])[0] : null;
   const severity = [input.verdict, pauseSignal?.verdict ?? 'OK']
@@ -331,6 +342,7 @@ export function buildLoopIssueView(input: {
   const headline = headlineFor(worstSignals);
   const fixability = rollupFixability(worstSignals.length > 0 ? worstSignals : signals);
   const blocked = input.blocked === true;
+  const autoUnstickInFlight = input.autoUnstickInFlight === true;
   const problem = worstSignals[0]?.message
     ?? signals[0]?.message
     ?? catalogForSignal(input.signals[0]?.id ?? '').meaning;
@@ -339,13 +351,15 @@ export function buildLoopIssueView(input: {
     chipLabel: progressVerdictWord(severity),
     headline,
     problem,
-    implication: implicationFor(severity, input.running, input.paused, blocked),
+    implication: implicationFor(severity, input.running, input.paused, blocked, autoUnstickInFlight),
     fixability,
     fixabilityLabel: fixabilityLabel(fixability),
     nextStep: blocked
       ? catalogForSignal('BLOCKED').nextStep
-      : (worstSignals[0] ? catalogForSignal(worstSignals[0].id).nextStep : FALLBACK_CATALOG.nextStep),
-    actions: actionsFor(severity, fixability, input.running, input.paused, blocked),
+      : autoUnstickInFlight
+        ? 'It is already changing approach. Hint only if you have a specific next step.'
+        : (worstSignals[0] ? catalogForSignal(worstSignals[0].id).nextStep : FALLBACK_CATALOG.nextStep),
+    actions: actionsFor(severity, fixability, input.running, input.paused, blocked, autoUnstickInFlight),
     signals: worstSignals.length > 0 ? worstSignals : signals,
   };
 }

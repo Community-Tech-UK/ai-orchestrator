@@ -40,7 +40,6 @@ import type {
   FileAttachment
 } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
-import { extractThinkingContent } from '../../../shared/utils/thinking-extractor';
 import {
   MODEL_PRICING,
   CLAUDE_MODELS,
@@ -70,6 +69,10 @@ import {
 import { probeVersionStatus } from './cli-status-probe';
 import { structuredOutputContent, type StructuredOutputCandidate } from './structured-output-content';
 import { parseClaudeStreamError } from './claude-stream-error';
+import {
+  processClaudeAssistantMessage,
+  type ClaudeAssistantMessageHost,
+} from './claude-assistant-message';
 import {
   type CliAsyncWorkEvent,
   parseClaudeAsyncWorkToolResult,
@@ -1260,137 +1263,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     const raw = message as unknown as RawCliPayload;
     switch (message.type) {
       case 'assistant': {
-        const assistantMsg = raw;
-        const assistantTimestamp = message.timestamp || Date.now();
-
-        // Claude can wrap provider failures in an `assistant` envelope.
-        const streamError = parseClaudeStreamError(assistantMsg as unknown as Record<string, unknown>);
-        if (streamError) {
-          this.emit('error', streamError.error);
-          break;
-        }
-
-        // Emit each text block as its OWN assistant output in document order,
-        // interleaved with tool_use — never concatenated into one buffer flushed
-        // after the loop (which merged a [text, tool_use, text] message into a
-        // single string emitted after the tool, losing ordering and boundaries).
-        // Per-block commit makes assistant text impossible to drop or reorder
-        // across interleaved tool_use or non-content events. `precedingText` is
-        // the response so far in this message, fed to AskUserQuestion as its
-        // preamble; `pendingThinking` carries thinking to the next text block.
-        let precedingText = '';
-        let pendingThinking: ThinkingContent[] = [];
-
-        const emitAssistantTextBlock = (rawText: string): void => {
-          // headerStyle off: Claude emits reasoning as structured `thinking`
-          // blocks, so re-parsing text mis-classifies real answers as thinking.
-          const extracted = extractThinkingContent(rawText, { headerStyle: false });
-          const response = extracted.response;
-          const blockThinking = [
-            ...pendingThinking,
-            ...extracted.thinking.map(t => ({ ...t, timestamp: assistantTimestamp })),
-          ];
-          pendingThinking = [];
-          if (response.trim() || blockThinking.length > 0) {
-            this.emit('output', {
-              id: generateId(),
-              timestamp: assistantTimestamp,
-              type: 'assistant',
-              content: response,
-              thinking: blockThinking.length > 0 ? blockThinking : undefined,
-              thinkingExtracted: true,
-            });
-          }
-          if (response.trim()) {
-            precedingText = precedingText ? `${precedingText}\n${response}` : response;
-          }
-        };
-
-        if (assistantMsg.message?.content) {
-          for (const block of assistantMsg.message.content) {
-            // Handle structured thinking blocks from Claude API (extended thinking)
-            if (block.type === 'thinking' && block.thinking) {
-              pendingThinking.push({
-                id: generateId(),
-                content: block.thinking,
-                format: 'structured',
-                timestamp: assistantTimestamp
-              });
-            } else if (block.type === 'text' && block.text) {
-              emitAssistantTextBlock(block.text);
-            } else if (block.type === 'tool_use' && block.name) {
-              const toolUseId = block.id || generateId();
-              const toolInput = block.input || {};
-              this.rememberToolUse(toolUseId, block.name, toolInput);
-              this.emitAsyncWork(parseClaudeAsyncWorkToolUse(block.name, toolUseId, toolInput));
-
-              // Surface inline tool usage from assistant blocks for consistency.
-              this.emit('output', {
-                id: generateId(),
-                timestamp: assistantTimestamp,
-                type: 'tool_use',
-                content: `Using tool: ${block.name}`,
-                metadata: {
-                  name: block.name,
-                  id: toolUseId,
-                  input: toolInput,
-                }
-              });
-
-              // Claude sometimes asks questions via AskUserQuestion tool_use blocks
-              // without a top-level input_required event.
-              if (block.name === 'AskUserQuestion') {
-                this.emitAskUserQuestionInputRequired(
-                  toolUseId,
-                  toolInput,
-                  assistantTimestamp,
-                  precedingText
-                );
-              }
-            }
-          }
-        } else if (typeof assistantMsg.content === 'string') {
-          emitAssistantTextBlock(assistantMsg.content);
-        }
-
-        // Flush thinking that never found a following text block (thinking-only
-        // message), matching the prior behaviour of still surfacing an output.
-        if (pendingThinking.length > 0) {
-          this.emit('output', {
-            id: generateId(),
-            timestamp: assistantTimestamp,
-            type: 'assistant',
-            content: '',
-            thinking: pendingThinking,
-            thinkingExtracted: true,
-          });
-        }
-
-        // Extract context usage from assistant message (for real-time updates).
-        // This is per-API-call usage and correctly reflects current context occupancy.
-        if (assistantMsg.message?.usage) {
-          const usage = assistantMsg.message.usage;
-          // All input tokens (cached or not) occupy the context window.
-          // input_tokens = non-cached, cache_creation/cache_read = cached portions.
-          const totalUsedTokens =
-            (usage.input_tokens || 0) +
-            (usage.cache_creation_input_tokens || 0) +
-            (usage.cache_read_input_tokens || 0) +
-            (usage.output_tokens || 0);
-
-          const contextWindow = this.lastKnownContextWindow;
-          const percentage = (totalUsedTokens / contextWindow) * 100;
-
-          this.hasPerCallUsageThisTurn = true;
-          this.lastObservedContextUsage = { used: totalUsedTokens, total: contextWindow };
-          this.emit('context', {
-            used: totalUsedTokens,
-            total: contextWindow,
-            percentage: Math.min(percentage, 100)
-          });
-        }
-
-        this.emit('status', 'busy' as InstanceStatus);
+        processClaudeAssistantMessage(this as unknown as ClaudeAssistantMessageHost, message, raw);
         break;
       }
 

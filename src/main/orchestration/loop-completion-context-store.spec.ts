@@ -37,6 +37,7 @@ describe('LoopCompletionContextStore', () => {
       phase: 'pending-turn',
     });
     store.setEnvelopeRewrapCount('a', 2);
+    store.setAutoUnstickCount('a', 1);
 
     expect(store.getDownshiftModel('a')).toBe('small-model');
     expect(store.getCapWrapUp('a')).toEqual({
@@ -48,6 +49,7 @@ describe('LoopCompletionContextStore', () => {
       phase: 'pending-turn',
     });
     expect(store.getEnvelopeRewrapCount('a')).toBe(2);
+    expect(store.getAutoUnstickCount('a')).toBe(1);
   });
 
   it('clears every completion hint for one terminal run without touching peers', () => {
@@ -65,6 +67,7 @@ describe('LoopCompletionContextStore', () => {
         phase: 'pending-turn',
       });
       store.setEnvelopeRewrapCount(id, 1);
+      store.setAutoUnstickCount(id, 1);
     }
 
     store.clearRun('a');
@@ -76,6 +79,7 @@ describe('LoopCompletionContextStore', () => {
     expect(store.getDownshiftModel('a')).toBeUndefined();
     expect(store.getCapWrapUp('a')).toBeUndefined();
     expect(store.getEnvelopeRewrapCount('a')).toBe(0);
+    expect(store.getAutoUnstickCount('a')).toBe(0);
     expect(store.getConvergenceNote('b')).toBe('b');
   });
 });
