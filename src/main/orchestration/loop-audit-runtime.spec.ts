@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { defaultLoopConfig, type LoopConfig, type LoopIteration, type LoopState } from '../../shared/types/loop.types';
 import { resolveLoopArtifactPaths } from './loop-artifact-paths';
-import { LOOP_PREFLIGHT_VERIFY_BUDGET_MS, runLoopFinalAudit, runLoopPreflight } from './loop-audit-runtime';
+import { PREFLIGHT_VERIFY_SKIPPED_NO_CHEAP_NOTE, runLoopFinalAudit, runLoopPreflight } from './loop-audit-runtime';
 import { captureLoopRepoBaseline } from './loop-repo-state';
 import { LoopStageMachine } from './loop-stage-machine';
 
@@ -81,8 +81,40 @@ describe('runLoopPreflight', () => {
   // Regression: `record` mode gates nothing, yet it was awaited before
   // iteration 0 with the full `verifyTimeoutMs`. A repo whose verify runs the
   // whole suite spent the entire 600s budget producing "timed out" before the
-  // agent had taken a single turn.
-  it('caps the baseline verify budget when the preflight is not a gate', async () => {
+  // agent had taken a single turn. The 180s cap (LT-531) still timed out on
+  // this workspace when no cheap command was configured (LT-532), so record
+  // mode now skips the slow command instead of running it.
+  it('does not run the full verify when the preflight is not a gate and no cheap command ran', async () => {
+    let verifyRuns = 0;
+    const detector = {
+      runQuickVerify: async () => ({ status: 'skipped' as const, output: '', durationMs: 0 }),
+      runVerify: async () => {
+        verifyRuns += 1;
+        return { status: 'passed' as const, output: 'green', durationMs: 5 };
+      },
+    };
+
+    const result = await runLoopPreflight(
+      makeLoopState({ config: preflightState('record', 600_000) }),
+      detector,
+    );
+    expect(verifyRuns).toBe(0);
+    expect(result.status).toBe('skipped');
+    expect(result.commands).toEqual([expect.objectContaining({
+      label: 'verify',
+      status: 'skipped',
+      outputExcerpt: PREFLIGHT_VERIFY_SKIPPED_NO_CHEAP_NOTE,
+    })]);
+
+    const shortBudget = await runLoopPreflight(
+      makeLoopState({ config: preflightState('record', 30_000) }),
+      detector,
+    );
+    expect(verifyRuns).toBe(0);
+    expect(shortBudget.status).toBe('skipped');
+  });
+
+  it('keeps the configured verify budget when the preflight is a gate', async () => {
     const seen: number[] = [];
     const detector = {
       runQuickVerify: async () => ({ status: 'skipped' as const, output: '', durationMs: 0 }),
@@ -92,18 +124,16 @@ describe('runLoopPreflight', () => {
       },
     };
 
-    await runLoopPreflight(makeLoopState({ config: preflightState('record', 600_000) }), detector);
-    expect(seen).toEqual([LOOP_PREFLIGHT_VERIFY_BUDGET_MS]);
-
-    // A shorter configured budget is honoured as-is — the cap is a ceiling.
-    seen.length = 0;
-    await runLoopPreflight(makeLoopState({ config: preflightState('record', 30_000) }), detector);
-    expect(seen).toEqual([30_000]);
-
-    // `block` mode is a real gate, so it keeps the full configured budget.
-    seen.length = 0;
     await runLoopPreflight(makeLoopState({ config: preflightState('block', 600_000) }), detector);
     expect(seen).toEqual([600_000]);
+
+    seen.length = 0;
+    await runLoopPreflight(makeLoopState({ config: preflightState('block', 30_000) }), detector);
+    expect(seen).toEqual([30_000]);
+
+    seen.length = 0;
+    await runLoopPreflight(makeLoopState({ config: preflightState('record', 600_000) }), detector);
+    expect(seen).toEqual([]);
   });
 
   // Regression: a `record` preflight ran the cheap command and THEN the slow

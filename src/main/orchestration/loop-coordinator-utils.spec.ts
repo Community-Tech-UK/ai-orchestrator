@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   boundFullOutput,
   excerpt,
+  excerptVerifyOutput,
   MAX_LOOP_OUTPUT_FULL_CHARS,
 } from './loop-coordinator-utils';
 
@@ -35,5 +36,22 @@ describe('boundFullOutput', () => {
     const msg = 'z'.repeat(20_000);
     expect(excerpt(msg).length).toBeLessThan(boundFullOutput(msg).length);
     expect(boundFullOutput(msg)).toBe(msg);
+  });
+});
+
+describe('excerptVerifyOutput', () => {
+  it('keeps the last failing line from a head-noisy fixture', () => {
+    const noisy = [
+      'webpack compiling...',
+      'lots of preamble '.repeat(400),
+      'PASS src/ok.spec.ts',
+      'FAIL src/broken.spec.ts',
+      '  Expected true to be false',
+      'npm ERR! Test failed. See above for more details.',
+    ].join('\n');
+    const out = excerptVerifyOutput(noisy, 800);
+    expect(out.startsWith('Last failing line: npm ERR!')).toBe(true);
+    expect(out).toContain('FAIL src/broken.spec.ts');
+    expect(out.length).toBeLessThan(noisy.length);
   });
 });

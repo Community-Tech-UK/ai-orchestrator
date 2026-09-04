@@ -10,13 +10,16 @@ import type {
 } from '../../shared/types/loop.types';
 import {
   clampPingPongMaxRounds,
+  clampPingPongReviewerTimeoutSeconds,
   createLoopPendingInput,
   defaultPingPongState,
   isReviewerAvailabilityFault,
 } from '../../shared/types/loop.types';
 import { collectWorkspaceDiff } from './loop-diff';
+import { loopExecutionCwd } from './loop-cwd';
 import { redactForEgress } from '../security/content-egress-gate';
 import { isReviewDrivenProductionChange } from './loop-coordinator-completion-gates';
+import { excerptVerifyOutput } from './loop-coordinator-utils';
 import { resolvePingPongSubject } from './pingpong-intent-classifier';
 import type { LoopCleanReviewClassifier } from './loop-clean-review-classifier';
 import { emitBuilderDoneSignalActivity, resolvePingPongBuilderDone } from './loop-pingpong-builder-done';
@@ -39,8 +42,6 @@ const logger = getLogger('LoopPingPong');
 
 type LoopEmit = (eventName: string, payload: unknown) => void;
 
-/** Default deep-dive timeout for an agentic reviewer round. */
-const DEFAULT_REVIEWER_TIMEOUT_MS = 15 * 60 * 1000;
 /**
  * Repeated reviewer-QUALITY faults (the reviewer ran but emitted unusable
  * output) → reviewer-unreliable. Strict: a reviewer that keeps producing garbage
@@ -263,9 +264,13 @@ export async function evaluatePingPongCompletion(
   // 1) Has the builder declared done this iteration? (one side of mutual convergence)
   const builderVerdict = await resolvePingPongBuilderDone(iteration.completionSignalsFired, classifyCleanReview, {
     goal: state.config.initialPrompt,
-    workspaceCwd: state.config.workspaceCwd,
+    // Work product, not loop state — see `loop-cwd.ts`.
+    executionCwd: loopExecutionCwd(state.config),
     iterationOutput: fullOutput ?? '',
     config: state.config.completion,
+  }, {
+    lastLedgerCompleteWorkHash: pp.lastLedgerCompleteWorkHash,
+    currentWorkHash: iteration.workHash,
   });
   if (!builderVerdict.clean) {
     // Builder is still working — not a review round.
@@ -307,6 +312,10 @@ export async function evaluatePingPongCompletion(
     };
   }
 
+  if (builderVerdict.signal?.id === 'ledger-complete') {
+    pp.lastLedgerCompleteWorkHash = iteration.workHash;
+  }
+
   const subject = deps.resolveSubject
     ? await deps.resolveSubject(state, fullOutput).catch(() => resolvePingPongSubject(state, fullOutput))
     : resolvePingPongSubject(state, fullOutput);
@@ -316,8 +325,8 @@ export async function evaluatePingPongCompletion(
   const noProductionChangeThisRound = productionChanges.length === 0;
 
   // When isolation is active the agent edits the worktree, not the repo root —
-  // use executionCwd so the ping-pong reviewer sees the actual changes.
-  const diffCwd = state.config.executionCwd ?? state.config.workspaceCwd;
+  // use the execution cwd so the ping-pong reviewer sees the actual changes.
+  const diffCwd = loopExecutionCwd(state.config);
   const workspaceDiff = collectWorkspaceDiff(diffCwd);
   // WS3: the diff leaves the process for a different-provider reviewer session —
   // pass it through the egress gate (marker-preserving) before it reaches any
@@ -332,7 +341,11 @@ export async function evaluatePingPongCompletion(
   const reviewDiff = diffEgress.content;
   const reviewer = deps.reviewer ?? agenticPingPongReviewer;
   const localAdvisoryReviewer = deps.localAdvisoryReviewer ?? runLocalOnlyFreshEyesReview;
-  const timeoutMs = Math.max(60_000, (reviewCfg.timeoutSeconds || 0) * 1000 || DEFAULT_REVIEWER_TIMEOUT_MS);
+  // A ping-pong round spawns a full agentic reviewer session, so it gets its own
+  // budget. It must NOT inherit `crossModelReview.timeoutSeconds` (ships as 90s
+  // for the one-shot headless reviewer) — that timed out ~half of all rounds,
+  // and an UNRELIABLE round never advances `roundCount`, so convergence stalled.
+  const timeoutMs = clampPingPongReviewerTimeoutSeconds(ppCfg.reviewerTimeoutSeconds) * 1000;
 
   emitBuilderDoneSignalActivity(emit, { loopRunId: state.id, seq, stage, verdict: builderVerdict });
 
@@ -577,7 +590,7 @@ export async function evaluatePingPongCompletion(
           createLoopPendingInput(
             'The ping-pong reviewer APPROVED, but the configured verify command FAILED. ' +
             'Treat this as a blocking issue and fix it before re-declaring done:\n\n' +
-            (verify.output.slice(0, 8192) || '(verify produced no output)') +
+            (excerptVerifyOutput(verify.output, 8192) || '(verify produced no output)') +
             buildLocalAdvisoryBlock(advisoryFindings),
           ),
         );

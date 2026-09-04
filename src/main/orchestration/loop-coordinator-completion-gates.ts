@@ -12,6 +12,7 @@ import {
 } from '../../shared/types/loop.types';
 import type { LoopCompletionDetector } from './loop-completion-detector';
 import { LOOP_STATE_DIR_NAME } from './loop-artifact-paths';
+import { loopExecutionCwd } from './loop-cwd';
 import { collectWorkspaceDiff } from './loop-diff';
 import { redactForEgress } from '../security/content-egress-gate';
 import {
@@ -32,13 +33,31 @@ import {
 } from './loop-fresh-eyes-reviewer';
 import { getReviewArtifact, persistReviewArtifact, verifyAnchor } from './review-artifact-anchor';
 import { buildReviewAngleCacheHook, computeRequiredCoverageMet, persistReviewCoverageReport } from './review-coverage';
-import type { LoopCleanReviewClassifier } from './loop-clean-review-classifier';
+import {
+  CLEAN_REVIEW_SENTINEL,
+  UNCLEAR_CLEAN_REVIEW,
+  type LoopCleanReviewClassifier,
+} from './loop-clean-review-classifier';
+import { hasTerminalSentinelLine } from './loop-terminal-sentinels';
 import type { LoopStageMachine } from './loop-stage-machine';
-import { applyVerifyOutcomeToIteration, verifyFailureIntervention } from './loop-coordinator-utils';
+import { applyVerifyOutcomeToIteration, excerptVerifyOutput, verifyFailureIntervention } from './loop-coordinator-utils';
+import { runLoopVerify } from './loop-verify-runner';
 
 const logger = getLogger('LoopCoordinator');
 
 type LoopEmit = (eventName: string, payload: unknown) => void;
+
+function shouldRunCleanReviewClassifier(
+  output: string,
+  noOutstandingPhrase: string | undefined,
+  signals: readonly { sufficient: boolean }[],
+): boolean {
+  if (signals.some((signal) => signal.sufficient)) return true;
+  if (hasTerminalSentinelLine(output, CLEAN_REVIEW_SENTINEL)) return true;
+  const phrase = (noOutstandingPhrase ?? 'There are no outstanding issues').trim().toLowerCase();
+  if (!phrase) return false;
+  return output.replace(/\s+/g, ' ').toLowerCase().includes(phrase);
+}
 
 /**
  * Result of the fresh-eyes cross-model review gate. `ran`/`errored` let the
@@ -179,22 +198,33 @@ export async function evaluateReviewDrivenCompletion(args: {
 
   const productionChanges = iteration.filesChanged.filter((f) => isReviewDrivenProductionChange(f.path));
   const noProductionChanges = productionChanges.length === 0;
-  const reviewVerdict = await classifyCleanReview({
-    goal: state.config.initialPrompt,
-    workspaceCwd: state.config.workspaceCwd,
-    iterationOutput: fullOutput ?? '',
-    config: cfg,
-  });
+  const reviewVerdict = shouldRunCleanReviewClassifier(
+    fullOutput ?? '',
+    cfg.noOutstandingPhrase,
+    iteration.completionSignalsFired,
+  )
+    ? await classifyCleanReview({
+      goal: state.config.initialPrompt,
+      // The classifier is told where the work is, not where loop state lives.
+      executionCwd: loopExecutionCwd(state.config),
+      iterationOutput: fullOutput ?? '',
+      config: cfg,
+    })
+    : UNCLEAR_CLEAN_REVIEW;
 
   let verifyOk = true;
   if (reviewVerdict.clean && noProductionChanges && cfg.verifyCommand?.trim()) {
-    const v = await completionDetector.runVerify(state.config);
+    const { final: v, verifyLabel } = await runLoopVerify({
+      runQuickVerify: () => completionDetector.runQuickVerify(state.config),
+      runVerify: () => completionDetector.runVerify(state.config),
+      runVerifyTwice: cfg.runVerifyTwice === true,
+    });
     applyVerifyOutcomeToIteration(iteration, v);
     if (v.status === 'failed') {
       verifyOk = false;
       state.pendingInterventions.push(
         createLoopPendingInput(
-          verifyFailureIntervention('verify', v.output, v.failureKind),
+          verifyFailureIntervention(verifyLabel, v.output, v.failureKind),
         ),
       );
     }
@@ -380,8 +410,8 @@ export async function runFreshEyesReviewGate(args: {
   emit('loop:fresh-eyes-review-started', { loopRunId: state.id, signal: signalId });
 
   // When isolation is active the agent edits the worktree, not the repo root —
-  // use executionCwd so the reviewer sees the actual changes.
-  const diffCwd = state.config.executionCwd ?? state.config.workspaceCwd;
+  // use the execution cwd so the reviewer sees the actual changes.
+  const diffCwd = loopExecutionCwd(state.config);
   const workspaceDiff = collectWorkspaceDiff(diffCwd);
   // WS3: the diff is reviewer egress — gate it here so EVERY reviewer
   // implementation (not just the default cross-model service, which gates
@@ -405,7 +435,7 @@ export async function runFreshEyesReviewGate(args: {
   // diff. Keyed by a fresh id per attempt so a resumed/retried gate never
   // verifies a finding against a stale attempt's artifact.
   const reviewAttemptId = `fer_${randomUUID()}`;
-  const verifyOutputExcerpt = verifyOutput.slice(0, 4096);
+  const verifyOutputExcerpt = excerptVerifyOutput(verifyOutput, 4096);
   persistReviewArtifact({
     state,
     iterationSeq: iteration.seq,
@@ -425,7 +455,11 @@ export async function runFreshEyesReviewGate(args: {
   try {
     reviewResult = await reviewer({
       loopRunId: state.id,
-      workspaceCwd: state.config.workspaceCwd,
+      // The reviewer reads files and runs commands against the work product, so
+      // it gets the same cwd the diff was collected from — matching ping-pong
+      // (`loop-pingpong-completion.ts`). Passing the repo root here made the
+      // local fresh-eyes reviewer inspect a different tree than it reviewed.
+      workspaceCwd: diffCwd,
       goal: state.config.initialPrompt,
       // Without these the headless path cannot tell who built the work, and
       // used to assume Claude did — which barred Claude from checking a Codex

@@ -58,10 +58,38 @@ describe('mapCopilotServerEvent', () => {
         data: { currentTokens: 12_000, tokenLimit: 128_000, messagesLength: 4 },
       }),
     ).toEqual({ kind: 'context', used: 12_000, total: 128_000 });
+    expect(
+      mapCopilotServerEvent({
+        type: 'session.usage_info',
+        data: {
+          currentTokens: 85_000,
+          tokenLimit: 100_000,
+          conversationTokens: 5_000,
+          systemTokens: 10_000,
+          toolDefinitionsTokens: 70_000,
+        },
+      }),
+    ).toEqual({
+      kind: 'context',
+      used: 85_000,
+      total: 100_000,
+      conversationTokens: 5_000,
+      systemTokens: 10_000,
+      toolDefinitionsTokens: 70_000,
+    });
     // Missing/invalid limits never fabricate a context reading.
     expect(
       mapCopilotServerEvent({ type: 'session.usage_info', data: { currentTokens: 5 } }),
     ).toEqual({ kind: 'ignored', type: 'session.usage_info' });
+  });
+
+  it('ignores session.usage_checkpoint (billing/resume aggregate, not occupancy)', () => {
+    expect(
+      mapCopilotServerEvent({
+        type: 'session.usage_checkpoint',
+        data: { currentTokens: 90_000, tokenLimit: 100_000, conversationTokens: 80_000 },
+      }),
+    ).toEqual({ kind: 'ignored', type: 'session.usage_checkpoint' });
   });
 
   it('maps session errors with type/code passthrough', () => {

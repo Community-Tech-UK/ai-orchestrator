@@ -15,6 +15,8 @@ export interface InvokeLoopChildIterationInput {
   emitter: EventEmitter;
   state: LoopState;
   prompt: string;
+  /** Goal-bearing prompt used only for model routing (T2). */
+  routingPrompt?: string;
   stage: LoopStage;
   forceContextReset: boolean;
   downshiftModel?: string;
@@ -70,12 +72,20 @@ export function invokeLoopChildIteration(input: InvokeLoopChildIterationInput): 
     );
     let timeout: ReturnType<typeof setTimeout> | undefined;
     let lastActivityAt = 0;
+    const startedAt = Date.now();
+    const maxWallMs = iterationTimeoutMs * 2;
     const seq = state.totalIterations;
 
     const onActivity = (payload: unknown): void => {
       const activity = payload as LoopActivityPayload;
       if (activity.loopRunId !== state.id || activity.seq !== seq) return;
-      if (activity.kind === 'stream-idle' || activity.kind === 'error') return;
+      if (
+        activity.kind === 'stream-idle'
+        || activity.kind === 'error'
+        || activity.kind === 'heartbeat'
+      ) {
+        return;
+      }
       lastActivityAt = Date.now();
     };
 
@@ -94,11 +104,25 @@ export function invokeLoopChildIteration(input: InvokeLoopChildIterationInput): 
     const handleTimeout = (): void => {
       timeout = undefined;
       if (settled) return;
-      const idleMs = lastActivityAt > 0 ? Date.now() - lastActivityAt : Number.POSITIVE_INFINITY;
+      const now = Date.now();
+      const elapsedMs = now - startedAt;
+      const remainingWallMs = maxWallMs - elapsedMs;
+      if (remainingWallMs <= 0) {
+        settled = true;
+        cleanup();
+        emitter.emit('loop:iteration-timeout', {
+          loopRunId: state.id,
+          seq,
+          iterationTimeoutMs,
+        });
+        reject(new Error(`Loop iteration timed out after ${iterationTimeoutMs}ms`));
+        return;
+      }
+      const idleMs = lastActivityAt > 0 ? now - lastActivityAt : Number.POSITIVE_INFINITY;
       if (lastActivityAt > 0 && idleMs < streamIdleTimeoutMs) {
         const nextDelayMs = Math.max(
           1,
-          Math.min(iterationTimeoutMs, streamIdleTimeoutMs - idleMs),
+          Math.min(iterationTimeoutMs, streamIdleTimeoutMs - idleMs, remainingWallMs),
         );
         logger.info('Loop iteration timeout checkpoint extended while child is active', {
           loopRunId: state.id,
@@ -137,6 +161,7 @@ export function invokeLoopChildIteration(input: InvokeLoopChildIterationInput): 
       idempotencyKey: input.idempotencyKey,
       config: state.config,
       prompt: input.prompt,
+      routingPrompt: input.routingPrompt,
       loopControlEnv: input.loopControlEnv,
       iterationTimeoutMs: state.config.iterationTimeoutMs,
       streamIdleTimeoutMs: state.config.streamIdleTimeoutMs,
@@ -166,6 +191,7 @@ function toInvocationError(result: LoopChildInvocationError): Error {
   if (result.provider !== undefined) error.provider = result.provider;
   if (result.model !== undefined) error.model = result.model;
   if (result.instanceId !== undefined) error.instanceId = result.instanceId;
+  if (result.partialUsage !== undefined) error.partialUsage = result.partialUsage;
   // WS5: carry the failed attempt's workspace-effect evidence to the retry seam.
   if (result.attemptEvidence !== undefined) error.attemptEvidence = result.attemptEvidence;
   return error;

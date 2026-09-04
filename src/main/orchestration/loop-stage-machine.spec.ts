@@ -286,7 +286,7 @@ describe('LoopStageMachine', () => {
     expect(p).toContain('System Reminder');
     expect(p).toContain('Current stage');
     expect(p).toContain('IMPLEMENT');
-    expect(p).toContain('Caps remaining');
+    expect(p).toContain('Loop budget remaining (this run, not the model window)');
     expect(p).toContain('6 iteration');
     expect(p).toContain('LOOP_TASKS.md');
     expect(p).toContain('exactly one');
@@ -407,6 +407,33 @@ describe('LoopStageMachine', () => {
     expect(iter5).toContain('My specific goal text');
   });
 
+  it('T2: omits the goal and prior observations when reanchorGoal is false', () => {
+    const m = new LoopStageMachine(tmpDir, RUN_ID);
+    const cfg = defaultLoopConfig(tmpDir, 'My specific goal text');
+    const skipped = m.buildPrompt({
+      config: cfg,
+      iterationSeq: 2,
+      pendingInterventions: [],
+      priorObservations: ['do not resend this'],
+      reanchorGoal: false,
+    });
+    expect(skipped).not.toContain('Goal (persistent across iterations)');
+    expect(skipped).not.toContain('My specific goal text');
+    expect(skipped).not.toContain('Prior Observations');
+    expect(skipped).not.toContain('do not resend this');
+
+    const rdSkipped = m.buildReviewDrivenPrompt({
+      config: cfg,
+      iterationSeq: 2,
+      pendingInterventions: [],
+      priorObservations: ['do not resend this'],
+      reanchorGoal: false,
+    });
+    expect(rdSkipped).not.toContain('Goal (persistent across iterations)');
+    expect(rdSkipped).not.toContain('My specific goal text');
+    expect(rdSkipped).not.toContain('Prior observations');
+  });
+
   it('buildPrompt injects existing-session context as runtime background without changing the goal', () => {
     const m = new LoopStageMachine(tmpDir, RUN_ID);
     const cfg = defaultLoopConfig(tmpDir, 'My current loop goal');
@@ -417,18 +444,29 @@ describe('LoopStageMachine', () => {
       pendingInterventions: [],
       existingSessionContext: '<conversation_history>old session marker</conversation_history>',
     });
+    // T15: replay is bootstrap context. Iteration 3 of a fresh-child loop reads
+    // the loop's own state files instead of paying for the parent chat again —
+    // unless the caller explicitly re-arms it (post-recycle).
     const iter3 = m.buildPrompt({
       config: cfg,
       iterationSeq: 3,
       pendingInterventions: [],
       existingSessionContext: '<conversation_history>old session marker</conversation_history>',
     });
+    const iter3PostRecycle = m.buildPrompt({
+      config: cfg,
+      iterationSeq: 3,
+      pendingInterventions: [],
+      existingSessionContext: '<conversation_history>old session marker</conversation_history>',
+      includeSessionReplay: true,
+    });
 
     expect(cfg.initialPrompt).toBe('My current loop goal');
     expect(iter0).toContain('Existing Session Context (read-only background)');
     expect(iter0).toContain('old session marker');
-    expect(iter3).toContain('Existing Session Context (read-only background)');
-    expect(iter3).toContain('old session marker');
+    expect(iter3).not.toContain('Existing Session Context (read-only background)');
+    expect(iter3).not.toContain('old session marker');
+    expect(iter3PostRecycle).toContain('old session marker');
     expect(iter0.indexOf('Existing Session Context')).toBeLessThan(iter0.indexOf('Goal (persistent across iterations)'));
   });
 
@@ -776,5 +814,24 @@ describe('LoopStageMachine.buildReviewDrivenPrompt', () => {
     expect(prompt).toContain('ROADMAP.md');
     expect(prompt).toContain(m.paths.phasesDir);
     expect(prompt).toContain('LOOP_TASKS.md');
+  });
+
+  it('embeds a custom continuation directive when one is supplied', () => {
+    const m = new LoopStageMachine(tmpDir, RUN_ID);
+    const cfg = {
+      ...defaultLoopConfig(tmpDir, 'build the thing'),
+      completion: {
+        ...defaultLoopConfig(tmpDir, 'x').completion,
+        mode: 'review-driven' as const,
+      },
+    };
+    const prompt = m.buildReviewDrivenPrompt({
+      config: cfg,
+      iterationSeq: 1,
+      pendingInterventions: [],
+      iterationPrompt: 'Prefer the smaller public API.',
+    });
+    expect(prompt).toContain('## Continuation directive (later iterations)');
+    expect(prompt).toContain('Prefer the smaller public API.');
   });
 });

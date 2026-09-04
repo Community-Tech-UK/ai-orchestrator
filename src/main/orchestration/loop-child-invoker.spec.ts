@@ -54,7 +54,7 @@ describe('invokeLoopChildIteration timeout', () => {
     ]);
   });
 
-  it('extends the checkpoint while heartbeat activity is still arriving', async () => {
+  it('does not extend the checkpoint on heartbeat-only activity', async () => {
     const emitter = new EventEmitter();
     emitter.on('loop:invoke-iteration', () => { /* never settle */ });
     const timeouts: unknown[] = [];
@@ -68,6 +68,7 @@ describe('invokeLoopChildIteration timeout', () => {
       forceContextReset: false,
       idempotencyKey: 'k-2',
     });
+    const expectTimeout = expect(pending).rejects.toThrow('Loop iteration timed out after 40ms');
 
     await vi.advanceTimersByTimeAsync(20);
     emitter.emit('loop:activity', {
@@ -77,10 +78,93 @@ describe('invokeLoopChildIteration timeout', () => {
       message: 'CLI heartbeat received',
     });
     await vi.advanceTimersByTimeAsync(20);
+    await expectTimeout;
+    expect(timeouts).toHaveLength(1);
+  });
+
+  it('extends the checkpoint while tool activity is still arriving, up to the wall cap', async () => {
+    const emitter = new EventEmitter();
+    emitter.on('loop:invoke-iteration', () => { /* never settle */ });
+    const timeouts: unknown[] = [];
+    emitter.on('loop:iteration-timeout', (payload) => timeouts.push(payload));
+
+    const pending = invokeLoopChildIteration({
+      emitter,
+      state: makeState({ iterationTimeoutMs: 40, streamIdleTimeoutMs: 30 }),
+      prompt: 'go',
+      stage: 'IMPLEMENT',
+      forceContextReset: false,
+      idempotencyKey: 'k-3',
+    });
+
+    await vi.advanceTimersByTimeAsync(20);
+    emitter.emit('loop:activity', {
+      loopRunId: 'loop-1',
+      seq: 0,
+      kind: 'tool_use',
+      message: 'tool started',
+    });
+    await vi.advanceTimersByTimeAsync(20);
     expect(timeouts).toEqual([]);
 
-    await vi.advanceTimersByTimeAsync(30);
+    await vi.advanceTimersByTimeAsync(50);
     await expect(pending).rejects.toThrow('Loop iteration timed out after 40ms');
     expect(timeouts).toHaveLength(1);
+  });
+});
+
+describe('invokeLoopChildIteration failure payload', () => {
+  it('carries sanitized partial usage onto the rejected Error so it survives to the coordinator', async () => {
+    const emitter = new EventEmitter();
+    emitter.on('loop:invoke-iteration', (payload: { callback: (result: unknown) => void }) => {
+      payload.callback({
+        error: 'ACP prompt turn failed.',
+        model: 'grok-4.6',
+        partialUsage: { inputTokens: 1_200, outputTokens: 800, totalTokens: 2_000, isEstimated: true },
+      });
+    });
+
+    const failure = await invokeLoopChildIteration({
+      emitter,
+      state: makeState({ iterationTimeoutMs: 10_000, streamIdleTimeoutMs: 5_000 }),
+      prompt: 'go',
+      stage: 'IMPLEMENT',
+      forceContextReset: false,
+      idempotencyKey: 'k-partial',
+    }).then(
+      () => { throw new Error('expected the iteration to reject'); },
+      (err: unknown) => err as Error & { partialUsage?: unknown; model?: string },
+    );
+
+    expect(failure.message).toBe('ACP prompt turn failed.');
+    expect(failure.model).toBe('grok-4.6');
+    expect(failure.partialUsage).toEqual({
+      inputTokens: 1_200,
+      outputTokens: 800,
+      totalTokens: 2_000,
+      isEstimated: true,
+    });
+  });
+
+  it('leaves partial usage off an error the child reported without it', async () => {
+    const emitter = new EventEmitter();
+    emitter.on('loop:invoke-iteration', (payload: { callback: (result: unknown) => void }) => {
+      payload.callback({ error: 'spawn failed' });
+    });
+
+    const failure = await invokeLoopChildIteration({
+      emitter,
+      state: makeState({ iterationTimeoutMs: 10_000, streamIdleTimeoutMs: 5_000 }),
+      prompt: 'go',
+      stage: 'IMPLEMENT',
+      forceContextReset: false,
+      idempotencyKey: 'k-nopartial',
+    }).then(
+      () => { throw new Error('expected the iteration to reject'); },
+      (err: unknown) => err as Error & { partialUsage?: unknown },
+    );
+
+    expect(failure.message).toBe('spawn failed');
+    expect('partialUsage' in failure).toBe(false);
   });
 });

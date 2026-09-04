@@ -387,6 +387,22 @@ describe('Loop schemas — type/schema drift guards', () => {
       expect(parsed.justCompacted).toEqual({ seq: 7, reason: 'utilization recycle' });
     });
 
+    it('round-trips lastThreadCaps (T2 skip snapshot)', () => {
+      const parsed = LoopStateSchema.parse({
+        ...baseState,
+        lastThreadCaps: {
+          supportsResume: true,
+          sameThreadContinuation: true,
+          model: 'claude-sonnet-4-6',
+        },
+      });
+      expect(parsed.lastThreadCaps).toEqual({
+        supportsResume: true,
+        sameThreadContinuation: true,
+        model: 'claude-sonnet-4-6',
+      });
+    });
+
     it('round-trips contextWindowCalibration (B6 provider window learning)', () => {
       const parsed = LoopStateSchema.parse({
         ...baseState,

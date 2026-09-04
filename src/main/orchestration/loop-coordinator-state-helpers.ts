@@ -1,5 +1,6 @@
 import * as path from 'path';
 import { createHash } from 'crypto';
+import { existsSync, readdirSync, type Dirent } from 'fs';
 import { getLogger } from '../logging/logger';
 import type {
   LoopConfig,
@@ -16,6 +17,8 @@ import {
   LOOP_MAX_PLAN_REGENERATIONS,
 } from '../../shared/types/loop.types';
 import { resolveLoopArtifactPaths } from './loop-artifact-paths';
+import { loopExecutionCwd } from './loop-cwd';
+import { isDiffCapableWorkspace } from './loop-diff';
 import { LOOP_TEXT_FILE_MAX_BYTES, readUtf8FileHead, readUtf8FileHeadSync } from './bounded-file-read';
 import { parseOutstandingSections } from './loop-stage-markdown';
 
@@ -61,9 +64,10 @@ export function materializeLoopConfig(
 
 /**
  * D2 (#6, prompt-only interim): the directive injected into the ONE final
- * wrap-up iteration a capped loop runs before terminating. Strong instruction
- * only — tools are NOT API-disabled (that variant needs per-provider adapter
- * plumbing and is deferred), so this is best-effort by design.
+ * wrap-up iteration a capped loop runs before terminating. Claude enforces
+ * `disableTools` via `setDisallowedToolsOverride`; Read/Edit/Write stay
+ * allowed so NOTES.md can be written. Other providers still receive a
+ * tool-capable wrap-up turn (T45 Wave 2 parks those).
  */
 export function buildCapWrapUpDirective(
   cap: 'iterations' | 'wall-time' | 'tokens' | 'cost',
@@ -441,6 +445,61 @@ export function nonGitReviewWorkspaceWarning(
     + 'Point the loop at the repository itself if you want diff-based review.';
 }
 
+/** Immediate subdirectories of `dir` that are themselves git repositories. */
+function gitRepoChildren(dir: string): string[] {
+  let entries: Dirent[];
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  return entries
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+    .map((entry) => path.join(dir, entry.name))
+    .filter((child) => existsSync(path.join(child, '.git')));
+}
+
+/**
+ * Start-time guard: a reviewer-backed loop pointed at a non-git directory can
+ * never obtain a diff, so `collectWorkspaceDiff` hands every reviewer an empty
+ * string. A reviewer shown nothing has nothing to object to, which reads as
+ * approval — the loop then converges on a rubber stamp, or (with ping-pong, the
+ * only terminal path) never converges at all while burning full-price reviewer
+ * sessions on an empty diff.
+ *
+ * This used to be an advisory log only. It fired eight times in a single
+ * app.log while the affected loops silently produced meaningless reviews, so it
+ * is now a hard refusal: fail fast at start with an actionable message rather
+ * than run a review gate that cannot work.
+ *
+ * Returns the error message, or null when the loop may proceed.
+ */
+export function blindReviewerWorkspaceStartError(
+  config: Pick<LoopConfig, 'workspaceCwd' | 'executionCwd' | 'completion'>,
+  isDiffCapable: (cwd: string) => boolean = isDiffCapableWorkspace,
+): string | null {
+  if (!isReviewerBackedLoop(config as LoopConfig)) return null;
+  const cwd = loopExecutionCwd(config);
+  // Ask the SAME question `collectWorkspaceDiff` asks. Stat-ing `.git` would
+  // wrongly refuse a subdirectory of a repository (no `.git` of its own, diffs
+  // fine) and is redundant for a linked worktree (`.git` is a file there).
+  if (isDiffCapable(cwd)) return null;
+
+  const candidates = gitRepoChildren(cwd);
+  const hint = candidates.length === 1
+    ? ` Did you mean ${candidates[0]}?`
+    : candidates.length > 1
+      ? ` Git repositories directly below it: ${candidates.slice(0, 5).join(', ')}.`
+      : '';
+  return (
+    `This loop runs a cross-model or ping-pong reviewer, but its workspace `
+    + `(${cwd}) is not a git repository, so every review round would be handed an `
+    + `empty diff and would approve by default.${hint} `
+    + `Point the loop at the repository itself, or turn the reviewer off `
+    + `(completion.crossModelReview.enabled = false).`
+  );
+}
+
 /**
  * Log + emit the non-git review-workspace advisory, when it applies.
  *
@@ -456,7 +515,7 @@ export function emitNonGitReviewWorkspaceWarning(
 ): void {
   const message = nonGitReviewWorkspaceWarning(config, baselineSource);
   if (!message) return;
-  const workspaceCwd = config.executionCwd?.trim() || config.workspaceCwd;
+  const workspaceCwd = loopExecutionCwd(config);
   logger.warn('Loop start: workspace is not a git repository — reviewers will receive no diff', {
     loopRunId,
     workspaceCwd,

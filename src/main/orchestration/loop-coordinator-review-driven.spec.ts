@@ -14,7 +14,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -42,6 +42,11 @@ const maybe = gitOk ? it : it.skip;
 
 beforeEach(() => {
   workspace = mkdtempSync(join(tmpdir(), 'loop-review-driven-'));
+  // A reviewer-backed loop must live in a git repository — otherwise every
+  // review round is handed an empty diff and approves by default, which
+  // `blindReviewerWorkspaceStartError` refuses at start. It asks git
+  // (`rev-parse --is-inside-work-tree`), so this has to be a real repo.
+  execFileSync('git', ['init', '--quiet'], { cwd: workspace, stdio: 'ignore' });
   writeFileSync(join(workspace, 'STAGE.md'), 'IMPLEMENT\n');
   coordinator = new LoopCoordinator();
   coordinator.setCleanReviewClassifier(async (input) =>
@@ -195,6 +200,11 @@ describe('LoopCoordinator review-driven completion', () => {
       verifyOutputExcerpt: '',
     };
     const completionDetector = {
+      runQuickVerify: async () => ({
+        status: 'skipped' as const,
+        output: '',
+        durationMs: 0,
+      }),
       runVerify: async () => ({
         status: 'failed' as const,
         output: 'verify command failed to spawn: ENOENT',

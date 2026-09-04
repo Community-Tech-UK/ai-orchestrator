@@ -30,7 +30,7 @@ export const DEFAULT_LOOP_PROMPT =
   'out of the plan, then rename the plan with _completed and stop. Describe them in your summary as deferred ' +
   'live checks recorded in that file. Verify everything runnable with tests, the dev app, or the CLI before ' +
   'deferring.\n\n' +
-  'Before stopping, review your own work with fresh eyes. Fix any issues you find. ' +
+  'Before stopping, re-read the diff and self-review. Fix any issues you find. ' +
   'If blocked, explain the blocker clearly and stop.';
 
 const LEGACY_DEFAULT_LOOP_PROMPTS = [
@@ -71,6 +71,12 @@ const LEGACY_DEFAULT_LOOP_PROMPTS = [
   're-review your work with fresh eyes and fix any issues. If a plan file is fully ' +
   'implemented and verified, rename it with _completed. If blocked, explain the blocker clearly and stop.',
 ];
+
+export function isCanonicalLoopPrompt(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  return trimmed === DEFAULT_LOOP_PROMPT || LEGACY_DEFAULT_LOOP_PROMPTS.includes(trimmed);
+}
 
 /**
  * Hash a workspace path into a short, opaque bucket id. Filesystem-friendly

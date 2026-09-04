@@ -22,7 +22,11 @@
  */
 
 import type { ContextUsageObservation } from '../cli/adapters/base-cli-adapter.types';
-import { LOOP_CONTEXT_WINDOW_TOKENS } from '../../shared/types/loop.types';
+import {
+  LOOP_CONTEXT_CEILING_AGGREGATE_TOKENS,
+  LOOP_CONTEXT_CEILING_ITERATIONS,
+  LOOP_CONTEXT_WINDOW_TOKENS,
+} from '../../shared/types/loop.types';
 
 export type { ContextUsageObservation };
 
@@ -81,6 +85,17 @@ export function shouldRecycleLoopContext(input: {
   cumulativeTokens?: number;
   /** B6 learned/configured provider window (denominator fallback for a known sample). */
   calibratedWindowTokens?: number;
+  /**
+   * T1 ceiling: resume-capable adapters with unknown occupancy recycle after
+   * N iterations or M aggregate tokens. Omit to keep the WS4 "unknown never
+   * recycles" behaviour (tests, callers that have not opted in).
+   */
+  ceiling?: {
+    supportsResume: boolean;
+    iterationsSinceRecycle: number;
+    maxIterations?: number;
+    maxAggregateTokens?: number;
+  };
 }): ContextRecycleDecision {
   const pct = (v: number): string => `${Math.round(v * 100)}%`;
   if (!input.enabled) {
@@ -97,41 +112,133 @@ export function shouldRecycleLoopContext(input: {
     ? ` (aggregate session tokens: ${Math.floor(input.cumulativeTokens).toLocaleString('en-US')} — cost accounting only, not occupancy)`
     : '';
 
+  const occupancy = occupancyRecycleDecision({
+    observation,
+    resetAtUtilization: input.resetAtUtilization,
+    calibratedWindowTokens: input.calibratedWindowTokens,
+    aggregateNote,
+    pct,
+  });
+  return applyCeilingRecycle(occupancy, input);
+}
+
+function occupancyRecycleDecision(args: {
+  observation: ContextUsageObservation;
+  resetAtUtilization: number;
+  calibratedWindowTokens?: number;
+  aggregateNote: string;
+  pct: (v: number) => string;
+}): ContextRecycleDecision {
+  const observation = args.observation;
   if (observation.status === 'unknown') {
     return {
       recycle: false,
       utilization: 0,
       reason: `context occupancy unavailable — ${UNKNOWN_REASON_TEXT[observation.reason]}; `
-        + `not recycling${aggregateNote}`,
+        + `not recycling${args.aggregateNote}`,
       occupancyUnavailable: true,
     };
   }
-
+  if (observation.windowTrusted === false) {
+    return {
+      recycle: false,
+      utilization: 0,
+      reason: `context occupancy unavailable — ${UNKNOWN_REASON_TEXT['invalid-sample']}; `
+        + `window is not provider-trusted, not recycling${args.aggregateNote}`,
+      occupancyUnavailable: true,
+    };
+  }
   const usableTotal = Number.isFinite(observation.total) && observation.total > 0
     ? observation.total
-    : (typeof input.calibratedWindowTokens === 'number'
-        && Number.isFinite(input.calibratedWindowTokens)
-        && input.calibratedWindowTokens > 0
-      ? input.calibratedWindowTokens
+    : (typeof args.calibratedWindowTokens === 'number'
+        && Number.isFinite(args.calibratedWindowTokens)
+        && args.calibratedWindowTokens > 0
+      ? args.calibratedWindowTokens
       : null);
   if (!Number.isFinite(observation.used) || observation.used <= 0 || usableTotal === null) {
     return {
       recycle: false,
       utilization: 0,
       reason: `context occupancy unavailable — ${UNKNOWN_REASON_TEXT['invalid-sample']}; `
-        + `not recycling${aggregateNote}`,
+        + `not recycling${args.aggregateNote}`,
       occupancyUnavailable: true,
     };
   }
-
   const utilization = observation.used / usableTotal;
-  const recycle = utilization >= input.resetAtUtilization;
+  if (staticOverheadBlocksRecycle(observation, args.resetAtUtilization, usableTotal)) {
+    return {
+      recycle: false,
+      utilization,
+      reason: `static-overhead already ≥ reset ${args.pct(args.resetAtUtilization)}; `
+        + `a new session cannot drop occupancy — not recycling`,
+      occupancyUnavailable: false,
+    };
+  }
+  const recycle = utilization >= args.resetAtUtilization;
   return {
     recycle,
     utilization,
     reason: recycle
-      ? `context occupancy ${pct(utilization)} ≥ reset ${pct(input.resetAtUtilization)} — recycling to a fresh session`
-      : `context occupancy ${pct(utilization)} < reset ${pct(input.resetAtUtilization)}`,
+      ? `context occupancy ${args.pct(utilization)} ≥ reset ${args.pct(args.resetAtUtilization)} — recycling to a fresh session`
+      : `context occupancy ${args.pct(utilization)} < reset ${args.pct(args.resetAtUtilization)}`,
     occupancyUnavailable: false,
   };
+}
+
+function applyCeilingRecycle(
+  occupancy: ContextRecycleDecision,
+  input: {
+    cumulativeTokens?: number;
+    ceiling?: {
+      supportsResume: boolean;
+      iterationsSinceRecycle: number;
+      maxIterations?: number;
+      maxAggregateTokens?: number;
+    };
+  },
+): ContextRecycleDecision {
+  if (occupancy.recycle) return occupancy;
+  const ceiling = input.ceiling;
+  if (!ceiling?.supportsResume) return occupancy;
+  const ceilingEligible = occupancy.occupancyUnavailable || occupancy.reason.includes('static-overhead');
+  if (!ceilingEligible) return occupancy;
+  const maxIterations = ceiling.maxIterations ?? LOOP_CONTEXT_CEILING_ITERATIONS;
+  const maxAggregate = ceiling.maxAggregateTokens ?? LOOP_CONTEXT_CEILING_AGGREGATE_TOKENS;
+  const aggregate = input.cumulativeTokens ?? 0;
+  const hitIterations = ceiling.iterationsSinceRecycle >= maxIterations;
+  const hitTokens = aggregate >= maxAggregate;
+  if (!hitIterations && !hitTokens) return occupancy;
+  const trigger = hitIterations
+    ? `${ceiling.iterationsSinceRecycle} iterations ≥ ceiling ${maxIterations}`
+    : `${Math.floor(aggregate).toLocaleString('en-US')} aggregate tokens ≥ ceiling ${maxAggregate.toLocaleString('en-US')}`;
+  return {
+    recycle: true,
+    utilization: occupancy.utilization,
+    reason: `occupancyUnavailable + ceiling (${trigger}) — ${occupancy.reason}`,
+    occupancyUnavailable: occupancy.occupancyUnavailable,
+  };
+}
+
+/**
+ * T1a anti-thrash: when conversation is still small but system + tool-definition
+ * tokens already fill the window to the recycle threshold, a fresh session
+ * cannot drop occupancy. Skip recycle (T1 ceiling may still apply later).
+ * Requires the Copilot split fields; absent splits never take this path.
+ */
+function staticOverheadBlocksRecycle(
+  observation: Extract<ContextUsageObservation, { status: 'known' }>,
+  resetAtUtilization: number,
+  total: number,
+): boolean {
+  const conversation = observation.conversationTokens;
+  const system = observation.systemTokens;
+  const tools = observation.toolDefinitionsTokens;
+  if (typeof conversation !== 'number' || !Number.isFinite(conversation)
+    || typeof system !== 'number' || !Number.isFinite(system)
+    || typeof tools !== 'number' || !Number.isFinite(tools)
+    || total <= 0) {
+    return false;
+  }
+  if (conversation / total >= resetAtUtilization) return false;
+  return (system + tools) / total >= resetAtUtilization;
 }

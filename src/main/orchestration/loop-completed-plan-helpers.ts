@@ -7,10 +7,19 @@ import * as fsp from 'fs/promises';
 import * as path from 'path';
 import { isInsideOrEqual } from '../util/path-helpers';
 import type { LoopConfig } from '../../shared/types/loop.types';
+import { loopExecutionCwd } from './loop-cwd';
 
-export function completedPlanFileCandidates(config: Pick<LoopConfig, 'workspaceCwd' | 'planFile'>): string[] {
+/**
+ * The plan file is part of the agent's work product, so it is resolved against
+ * the execution cwd — under isolation the agent renames the plan inside its
+ * worktree, and resolving against the repo root made the rename invisible to
+ * `requireCompletedFileRename`. See `loop-cwd.ts`.
+ */
+type PlanFileConfig = Pick<LoopConfig, 'workspaceCwd' | 'executionCwd' | 'planFile'>;
+
+export function completedPlanFileCandidates(config: PlanFileConfig): string[] {
   if (!config.planFile) return [];
-  const workspace = path.resolve(config.workspaceCwd);
+  const workspace = path.resolve(loopExecutionCwd(config));
   const original = path.resolve(workspace, config.planFile);
   if (!isInsideOrEqual(workspace, original)) return [];
   const ext = path.extname(original);
@@ -31,7 +40,7 @@ export function completedPlanFileCandidates(config: Pick<LoopConfig, 'workspaceC
  * pattern.
  */
 export function isCompletedRenameForPlan(
-  config: Pick<LoopConfig, 'workspaceCwd' | 'planFile'>,
+  config: PlanFileConfig,
   filePath: string,
 ): boolean {
   if (!config.planFile) return false;

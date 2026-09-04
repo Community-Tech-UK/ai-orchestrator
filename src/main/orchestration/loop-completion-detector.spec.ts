@@ -6,6 +6,7 @@ import {
   CompletedFileWatcher,
   LoopCompletionDetector,
   buildVerifyInvocation,
+  classifyCommandVerifyFailure,
   isCompletedRenameForPlan,
   parseAgentMoreWorkRemaining,
   MORE_WORK_REMAINING_SENTINEL,
@@ -807,6 +808,15 @@ describe('LoopCompletionDetector.runVerify', () => {
         process.env['SHELL'] = previousShell;
       }
     }
+  });
+});
+
+describe('classifyCommandVerifyFailure', () => {
+  it('labels missing-module output as environment only when isolation is on', () => {
+    const output = "Error: Cannot find module '@angular/core'";
+    expect(classifyCommandVerifyFailure(output, true)).toBe('environment');
+    expect(classifyCommandVerifyFailure(output, false)).toBe('command');
+    expect(classifyCommandVerifyFailure('expected 2 to equal 1', true)).toBe('command');
   });
 });
 

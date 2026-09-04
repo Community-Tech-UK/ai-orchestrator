@@ -26,6 +26,8 @@ export interface LoopContextDisciplineInput {
   calibratedWindowTokens?: number;
   /** True when this loop already received the bounded unavailable diagnostic. */
   alreadyNotifiedUnavailable: boolean;
+  /** Same-session iterations since the last recycle (T1 ceiling). */
+  iterationsSinceRecycle?: number;
 }
 
 export interface LoopContextDisciplineOutcome {
@@ -37,9 +39,13 @@ export interface LoopContextDisciplineOutcome {
 export function evaluateLoopContextDiscipline(
   input: LoopContextDisciplineInput,
 ): LoopContextDisciplineOutcome {
-  const source = input.adapter as { getLastContextUsage?: () => ContextUsageObservation } | undefined;
+  const source = input.adapter as {
+    getLastContextUsage?: () => ContextUsageObservation;
+    getRuntimeCapabilities?: () => { supportsResume?: boolean };
+  } | undefined;
   const observation: ContextUsageObservation = source?.getLastContextUsage?.()
     ?? { status: 'unknown', reason: 'not-reported' };
+  const supportsResume = source?.getRuntimeCapabilities?.()?.supportsResume === true;
   const decision = shouldRecycleLoopContext({
     enabled: input.enabled,
     resetAtUtilization: input.resetAtUtilization,
@@ -50,10 +56,15 @@ export function evaluateLoopContextDiscipline(
       && input.calibratedWindowTokens > 0
       ? { calibratedWindowTokens: input.calibratedWindowTokens }
       : {}),
+    ceiling: {
+      supportsResume,
+      iterationsSinceRecycle: input.iterationsSinceRecycle ?? 0,
+    },
   });
   return {
     decision,
     notifyUnavailable: decision.occupancyUnavailable
+      && !decision.recycle
       && input.enabled
       && !input.alreadyNotifiedUnavailable,
   };

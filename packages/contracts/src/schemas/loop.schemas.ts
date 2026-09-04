@@ -4,15 +4,19 @@ import {
   LoopAuditConfigInputSchema,
   LoopFinalAuditResultSchema,
   LoopPhaseRecoveryStateSchema,
+  LoopCapWrapUpIntentSchema,
+  LoopThreadCapsSchema,
   LoopPreflightResultSchema,
   LoopRepoBaselineSnapshotSchema,
 } from './loop-audit.schemas';
 import { LoopPhase4ConfigSchema } from './loop-phase4.schemas';
 import { LoopAutoUnstickStateSchema } from './loop-auto-unstick.schemas';
+import { LoopActivityKindSchema } from './loop-activity.schemas';
 import { RequiredModelIdSchema } from './common.schemas';
 export * from './loop-audit.schemas';
 export * from './loop-phase4.schemas';
 export * from './loop-auto-unstick.schemas';
+export * from './loop-activity.schemas';
 
 const LOOP_MAX_WALL_TIME_MS_SCHEMA_CAP = 7 * 24 * 60 * 60 * 1000;
 export const LoopStageSchema = z.enum(['PLAN', 'REVIEW', 'IMPLEMENT']);
@@ -51,29 +55,8 @@ export const LoopCompletionOutcomeSchema = z.enum([
   'rename-gate',
   'review-blocked',
 ]);
-/**
- * Every activity kind the main process can put on the `loop:activity` push
- * channel (LT-021). This is the single source of truth: `LoopInvocationActivity`
- * in the main process derives its kind from `LoopActivityKind` below, so adding
- * one there without adding it here is a type error rather than an event the
- * renderer-boundary validator silently drops.
- */
-export const LoopActivityKindSchema = z.enum([
-  'spawned',
-  'status',
-  'tool_use',
-  'tool_result',
-  'assistant',
-  'system',
-  'input_required',
-  'error',
-  'stream-idle',
-  'complete',
-  'heartbeat',
-]);
-
 export const LoopVerdictSchema = z.enum(['OK', 'WARN', 'CRITICAL']);
-export const LoopVerifyFailureKindSchema = z.enum(['command', 'timeout', 'infra']);
+export const LoopVerifyFailureKindSchema = z.enum(['command', 'timeout', 'infra', 'environment']);
 export const LoopProviderSchema = z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']);
 export const LoopReviewStyleSchema = z.enum(['single', 'debate', 'star-chamber']);
 export const LoopContextStrategySchema = z.enum(['fresh-child', 'hybrid', 'same-session']);
@@ -167,6 +150,12 @@ export const LoopPingPongConfigSchema = z.object({
   subject: z.enum(['auto', 'plan', 'impl']).optional(),
   maxRounds: z.number().int().min(1).max(20).optional(),
   freshReviewerEachRound: z.boolean().optional(),
+  /**
+   * Wall-clock budget for ONE agentic reviewer session (seconds). Distinct from
+   * `LoopCrossModelReviewConfigSchema.timeoutSeconds`, which budgets the legacy
+   * one-shot headless reviewer. Absent ⇒ the 15-minute default.
+   */
+  reviewerTimeoutSeconds: z.number().int().min(60).max(60 * 60).optional(),
 });
 
 /** One durable ping-pong ledger issue. Mirrors `PingPongIssue`. */
@@ -197,6 +186,7 @@ export const LoopPingPongStateSchema = z.object({
   triedReviewerProviders: z.array(z.string()).optional(),
   skipNextRound: z.boolean().optional(),
   forceArbitration: z.boolean().optional(),
+  lastLedgerCompleteWorkHash: z.string().optional(),
   reviewerTokensUsed: z.number().int().nonnegative(),
   reviewerCostCents: z.number().int().nonnegative(),
 });
@@ -599,6 +589,7 @@ export const LoopIterationSchema = z.object({
   verifySummary: z.string().optional(),
   finalAudit: LoopFinalAuditResultSchema.optional(),
   semanticProgress: LoopSemanticProgressResultSchema.optional(),
+  model: z.string().optional(),
 });
 
 export const LoopStateSchema = z.object({
@@ -711,10 +702,13 @@ export const LoopStateSchema = z.object({
     seq: z.number().int().nonnegative(),
     reason: z.string(),
   }).optional(),
+  /** T2: last successful child thread capabilities. Optional for back-compat. */
+  lastThreadCaps: LoopThreadCapsSchema.optional(),
   /** Ping-pong runtime state (round count, issue ledger, reviewer spend).
    *  Optional — only present on loops running in ping-pong mode. */
   pingPong: LoopPingPongStateSchema.optional(),
   autoUnstick: LoopAutoUnstickStateSchema.optional(),
+  capWrapUpIntent: LoopCapWrapUpIntentSchema.optional(),
 });
 
 export const LoopRunSummarySchema = z.object({

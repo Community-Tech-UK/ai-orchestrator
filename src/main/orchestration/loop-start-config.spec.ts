@@ -212,13 +212,13 @@ describe('prepareLoopStartConfig (LF-3a)', () => {
     expect(prepared.nextObjectivePlanner).toBeTypeOf('function');
   });
 
-  it('defaults user-started audit to gate, record preflight, and prompted plan packets for substantial loops', async () => {
+  it('defaults user-started audit to observe / off / off, matching the engine', async () => {
     const prepared = await prepareLoopStartConfig(mkConfig());
 
     expect(prepared.audit).toEqual({
-      finalAuditMode: 'gate',
-      preflightMode: 'record',
-      planPacketMode: 'prompted',
+      finalAuditMode: 'observe',
+      preflightMode: 'off',
+      planPacketMode: 'off',
       cleanlinessScan: true,
     });
   });
@@ -231,7 +231,7 @@ describe('prepareLoopStartConfig (LF-3a)', () => {
     expect(prepared.audit?.planPacketMode).toBe('off');
   });
 
-  it('defaults plan packets to prompted for long prompts and plan-file loops', async () => {
+  it('does not auto-enable plan packets for long prompts or plan-file loops', async () => {
     const longPrompt = 'x'.repeat(800);
     const byPrompt = await prepareLoopStartConfig(mkConfig({
       initialPrompt: longPrompt,
@@ -242,8 +242,8 @@ describe('prepareLoopStartConfig (LF-3a)', () => {
       caps: { ...defaultLoopConfig(workspace, 'g').caps, maxIterations: 3 },
     }));
 
-    expect(byPrompt.audit?.planPacketMode).toBe('prompted');
-    expect(byPlanFile.audit?.planPacketMode).toBe('prompted');
+    expect(byPrompt.audit?.planPacketMode).toBe('off');
+    expect(byPlanFile.audit?.planPacketMode).toBe('off');
   });
 
   it('preserves explicit user-started audit overrides', async () => {

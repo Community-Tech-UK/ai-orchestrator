@@ -245,19 +245,11 @@ async function normalizeManagedIsolation<T extends LoopStartConfigLike>(config: 
 function prepareUserStartedAuditConfig(config: LoopStartConfigLike): LoopConfig['audit'] {
   const audit = config.audit;
   return {
-    finalAuditMode: audit?.finalAuditMode ?? 'gate',
-    preflightMode: audit?.preflightMode ?? 'record',
-    planPacketMode: audit?.planPacketMode ?? defaultPlanPacketMode(config),
+    finalAuditMode: audit?.finalAuditMode ?? 'observe',
+    preflightMode: audit?.preflightMode ?? 'off',
+    planPacketMode: audit?.planPacketMode ?? 'off',
     cleanlinessScan: audit?.cleanlinessScan ?? true,
   };
 }
 
-function defaultPlanPacketMode(config: LoopStartConfigLike): LoopConfig['audit']['planPacketMode'] {
-  if (config.planFile?.trim()) return 'prompted';
-  if (config.initialPrompt.length >= 800) return 'prompted';
-  const maxIterations = config.caps?.maxIterations;
-  if (maxIterations === null) return 'prompted';
-  const configuredOrDefault = maxIterations ?? defaultLoopConfig(config.workspaceCwd, config.initialPrompt).caps.maxIterations;
-  const effectiveMaxIterations = configuredOrDefault ?? Number.POSITIVE_INFINITY;
-  return effectiveMaxIterations >= 5 ? 'prompted' : 'off';
-}
+

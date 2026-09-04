@@ -63,7 +63,7 @@ const SCRATCH_DIR = path.join(ROOT, '_scratch');
 // JSON report" while the log tail shows a different run entirely. Set
 // AIO_TEST_OUT_SUFFIX (e.g. to a session id) to give a run its own files; the
 // default paths stay unchanged for CI, docs, and single-session use.
-const OUT_SUFFIX = (process.env.AIO_TEST_OUT_SUFFIX || '')
+const OUT_SUFFIX = (process.env.AIO_TEST_OUT_SUFFIX || `pid-${process.pid}`)
   .replace(/[^A-Za-z0-9._-]/g, '')
   .slice(0, 64);
 const suffixed = (base, ext) => `${base}${OUT_SUFFIX ? `.${OUT_SUFFIX}` : ''}${ext}`;
@@ -78,6 +78,9 @@ const passthroughArgs = process.argv.slice(2);
 // A "targeted" run names specific files/paths; skip the slower full-gate preflight.
 const isTargetedRun = passthroughArgs.some((a) => !a.startsWith('-'));
 const hasExplicitCacheFlag = passthroughArgs.some((a) => a === '--cache' || a === '--no-cache');
+if (process.env.ORCHESTRATOR_LOOP_CONTROL_FILE && process.env.AIO_TEST_NO_CACHE !== '0') {
+  process.env.AIO_TEST_NO_CACHE = '1';
+}
 // Opt into a cold cache after mass deletes/renames, or when debugging flaky cache hits.
 const forceNoCache =
   process.env.AIO_TEST_NO_CACHE === '1' || process.env.AIO_TEST_NO_CACHE === 'true';

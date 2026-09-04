@@ -138,8 +138,10 @@ describe('defaultLoopContextSurvivalManager', () => {
       action: 'none',
       forceContextReset: false,
     });
-    expect(decision.reason).toContain('completion signal fired under token target');
+    expect(decision.reason).toContain('completion signal fired under loop token cap');
+    expect(decision.nudge).toContain('loop token cap');
     expect(decision.nudge).toContain('Keep working');
+    expect(decision.nudge).not.toContain('1000000');
   });
 
   it('keeps budget tracking isolated by loop id', async () => {
@@ -213,7 +215,11 @@ describe('defaultLoopContextSurvivalManager', () => {
 
     it('composes the stale-cache micro tier with forceContextReset when utilization also meets the LF-1 reset threshold', async () => {
       const state = makeState('loop-b4-stale-over-budget');
-      state.totalTokens = 150_000; // 75% of the 200k loop context window ≥ default 60% reset threshold.
+      // Pin the threshold rather than inheriting the default: this test is about
+      // COMPOSING the stale-cache micro tier with a full recycle, not about
+      // whatever the shipped reset threshold happens to be.
+      state.config.context = { compaction: { enabled: true, resetAtUtilization: 0.6, clearToolResults: true } };
+      state.totalTokens = 150_000; // 75% of the 200k loop context window ≥ the 60% threshold set above.
       const t0 = 1_000_000;
 
       await defaultLoopContextSurvivalManager.onIterationSealed({
@@ -323,6 +329,43 @@ describe('defaultLoopContextSurvivalManager', () => {
       expect(decision.rehydrate).not.toContain(path.join(cwd, 'src', 'over-cap.ts'));
     });
 
+    /**
+     * Under isolation the agent's plan and edited files live in the worktree,
+     * while LOOP_TASKS.md is durable loop state at the repo root. Resolving the
+     * work-product paths against the repo root silently dropped the plan
+     * pointer from the post-reset note — or picked up an unrelated same-named
+     * file another loop had left there. See `loop-cwd.ts`.
+     */
+    it('resolves work-product paths against the worktree but the ledger against the repo root', async () => {
+      cwd = await fsp.mkdtemp(path.join(os.tmpdir(), 'aio-loop-survival-iso-'));
+      const worktree = path.join(cwd, '.worktrees', 'session');
+      await fsp.mkdir(path.join(worktree, 'src'), { recursive: true });
+
+      const state = makeState('loop-rehydrate-iso', cwd);
+      state.config.executionCwd = worktree;
+      state.config.isolateLoopWorkspaces = true;
+      state.config.planFile = 'PLAN.md';
+      await fsp.writeFile(path.join(worktree, 'PLAN.md'), '# Plan\n', 'utf8');
+      // A decoy at the repo root: this is the file the old code would have
+      // picked up instead of the agent's real one.
+      await fsp.writeFile(path.join(cwd, 'PLAN.md'), '# Someone else\n', 'utf8');
+      const tasksPath = resolveLoopArtifactPaths(cwd, state.id).tasks;
+      await fsp.mkdir(path.dirname(tasksPath), { recursive: true });
+      await fsp.writeFile(tasksPath, '- [ ] one\n', 'utf8');
+
+      const decision = await defaultLoopContextSurvivalManager.onIterationSealed({
+        state,
+        iteration: makeIteration(400),
+        childResult: makeReset(400, [{ path: 'src/foo.ts' }]),
+      });
+
+      expect(decision.rehydrate).toContain(path.join(worktree, 'PLAN.md'));
+      expect(decision.rehydrate).not.toContain(path.join(cwd, 'PLAN.md'));
+      expect(decision.rehydrate).toContain(path.join(worktree, 'src', 'foo.ts'));
+      // The ledger is loop state, so it stays at the repo root.
+      expect(decision.rehydrate).toContain(tasksPath);
+    });
+
     it('includes recently read files in post-reset rehydration candidates', async () => {
       cwd = await fsp.mkdtemp(path.join(os.tmpdir(), 'aio-loop-survival-'));
       const state = makeState('loop-rehydrate-read-1', cwd);
@@ -378,7 +421,9 @@ describe('defaultLoopContextSurvivalManager', () => {
       expect(injected.kind).toBe('queue');
       expect(injected.source).toBe('context-survival');
       expect(injected.message).toContain('Restored working set');
-      expect(injected.message).toContain('do the thing');
+      expect(injected.message).toContain('HANDOFF.json');
+      expect(injected.message).toContain('sha256:');
+      expect(injected.message).not.toContain('do the thing');
     });
 
     it('still rehydrates after a reset even when interventions are already queued (suppressNudge)', async () => {
@@ -406,6 +451,76 @@ describe('defaultLoopContextSurvivalManager', () => {
       expect(messages.some((m) => m.includes('Keep working'))).toBe(false);
     });
 
+    it('queues no keep-working nudge when maxTokens is null', async () => {
+      const state = makeState('loop-null-cap');
+      state.config.caps.maxTokens = null;
+      const iteration = makeIteration(5_000, true);
+
+      const decision = await defaultLoopContextSurvivalManager.onIterationSealed({
+        state,
+        iteration,
+        childResult: makeChildResult(iteration.tokens),
+      });
+
+      expect(decision.nudge).toBeUndefined();
+      expect(decision.reason).not.toContain('loop token cap');
+    });
+
+    it('queues no context-survival nudge for review-driven + closed ledger + null maxTokens', async () => {
+      const state = makeState('loop-review-driven-ledger');
+      state.config.caps.maxTokens = null;
+      state.config.completion.mode = 'review-driven';
+      const iteration = makeIteration(2_989, false);
+      iteration.completionSignalsFired = [
+        { id: 'ledger-complete', sufficient: true, detail: 'all leaves resolved', openCount: 0 },
+      ];
+
+      await applyLoopContextSurvivalDecision({
+        manager: defaultLoopContextSurvivalManager,
+        state,
+        iteration,
+        childResult: makeChildResult(iteration.tokens),
+        pendingContextReset: new Set<string>(),
+        emit: () => undefined,
+      });
+
+      expect(state.pendingInterventions.filter((item) => item.source === 'context-survival')).toHaveLength(0);
+    });
+
+    it('does not inject keep-working when the coordinator is about to complete', async () => {
+      const state = makeState('loop-about-to-complete');
+      const iteration = makeIteration(5_000, true);
+      const decision = await defaultLoopContextSurvivalManager.onIterationSealed({
+        state,
+        iteration,
+        childResult: makeChildResult(iteration.tokens),
+        aboutToComplete: true,
+      });
+      expect(decision.nudge).toBeUndefined();
+    });
+
+    it('ignores ledger-complete on ping-pong even when a user token cap is set', async () => {
+      const state = makeState('loop-pp-ledger');
+      state.config.completion.mode = 'review-driven';
+      state.config.completion.crossModelReview = {
+        enabled: true,
+        blockingSeverities: ['critical', 'high'],
+        timeoutSeconds: 90,
+        reviewDepth: 'structured',
+        pingPong: { enabled: true },
+      };
+      const iteration = makeIteration(5_000, false);
+      iteration.completionSignalsFired = [
+        { id: 'ledger-complete', sufficient: true, detail: 'all leaves resolved', openCount: 0 },
+      ];
+      const decision = await defaultLoopContextSurvivalManager.onIterationSealed({
+        state,
+        iteration,
+        childResult: makeChildResult(iteration.tokens),
+      });
+      expect(decision.nudge).toBeUndefined();
+    });
+
     it('skips unreadable rehydrate paths without throwing and without injecting an empty note', async () => {
       cwd = await fsp.mkdtemp(path.join(os.tmpdir(), 'aio-loop-survival-'));
       const state = makeState('loop-rehydrate-4', cwd);
@@ -426,7 +541,9 @@ describe('defaultLoopContextSurvivalManager', () => {
         }),
       ).resolves.not.toThrow();
 
-      expect(state.pendingInterventions).toHaveLength(0);
+      // T6 still writes HANDOFF.json (goal + empty ledger) when files are gone.
+      expect(state.pendingInterventions).toHaveLength(1);
+      expect(state.pendingInterventions[0]!.message).toContain('HANDOFF.json');
     });
   });
 });

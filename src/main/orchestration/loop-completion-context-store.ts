@@ -41,6 +41,10 @@ export class LoopCompletionContextStore {
     return pending;
   }
 
+  peekContextReset(loopRunId: string): boolean {
+    return this.pendingContextResets.has(loopRunId);
+  }
+
   setPendingFailover(loopRunId: string, provider: string): void {
     this.pendingFailovers.set(loopRunId, provider);
   }

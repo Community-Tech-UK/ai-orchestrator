@@ -1691,6 +1691,122 @@ describe('AcpCliAdapter', () => {
     proc.exit();
   });
 
+  it('blames the agent, not a phantom tool call, when nothing was outstanding at the timeout', async () => {
+    // Regression: the timeout text used to claim the agent "may be stuck on an
+    // orphaned tool call or permission request" unconditionally. In the
+    // incident this covers, the last tool call had completed ten minutes
+    // earlier and cursor-agent simply stopped emitting updates, so the message
+    // pointed the investigation at the wrong subsystem.
+    const proc = createInitializedAgentHarness();
+
+    proc.onRequest('session/prompt', () => {
+      proc.notify('session/update', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'gh-run-view',
+          title: 'gh run view',
+          kind: 'execute',
+          status: 'pending',
+        },
+      });
+      proc.notify('session/update', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'tool_call_update',
+          toolCallId: 'gh-run-view',
+          status: 'completed',
+        },
+      });
+      // ...and then silence.
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      promptTimeoutMs: 40,
+      activeToolTimeoutMs: 400,
+      stallWarningMs: 0,
+    });
+    await adapter.spawn();
+
+    await expect(adapter.sendMessage({ role: 'user', content: 'deploy it please' }))
+      .rejects.toThrow(/No tool call or permission request was outstanding/);
+
+    proc.exit();
+  });
+
+  it('does not blame a permission request left over from an earlier turn', async () => {
+    // `pendingPermissionRequests` has no turn-boundary clear and a failed
+    // response write leaks an entry, so without turn-scoping the next turn's
+    // timeout would confidently blame a dead turn's permission request.
+    const proc = createInitializedAgentHarness();
+
+    proc.onRequest('session/prompt', () => {
+      /* silent: the agent stops responding with nothing outstanding */
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      promptTimeoutMs: 40,
+      stallWarningMs: 0,
+    });
+    await adapter.spawn();
+
+    // Strand a permission request from before this turn started.
+    (adapter as unknown as {
+      pendingPermissionRequests: Map<string, {
+        key: string; rpcId: string; sessionId: string; title: string;
+        kind: string; options: unknown[]; createdAt: number;
+      }>;
+    }).pendingPermissionRequests.set('stale', {
+      key: 'stale',
+      rpcId: 'stale-rpc',
+      sessionId: 'sess-acp-1',
+      title: 'Write file from a dead turn',
+      kind: 'edit',
+      options: [],
+      createdAt: Date.now() - 60_000,
+    });
+
+    await expect(adapter.sendMessage({ role: 'user', content: 'deploy it please' }))
+      .rejects.toThrow(/No tool call or permission request was outstanding/);
+
+    proc.exit();
+  });
+
+  it('names the outstanding tool call when the active-tool lease expires', async () => {
+    const proc = createInitializedAgentHarness();
+
+    proc.onRequest('session/prompt', () => {
+      proc.notify('session/update', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'long-suite',
+          title: 'Run complete test suite',
+          kind: 'execute',
+          status: 'pending',
+        },
+      });
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      promptTimeoutMs: 200,
+      activeToolTimeoutMs: 40,
+      stallWarningMs: 0,
+    });
+    await adapter.spawn();
+
+    await expect(adapter.sendMessage({ role: 'user', content: 'run tests' }))
+      .rejects.toThrow(/Tool call Run complete test suite was still pending/);
+
+    proc.exit();
+  });
+
   it('rejects non-prompt ACP requests after requestTimeoutMs when the agent is silent', async () => {
     const proc = new FakeAcpProcess();
     // Respond to initialize but never to session/new — forces spawn() to hit
@@ -1902,10 +2018,10 @@ describe('AcpCliAdapter', () => {
     });
     await adapter.spawn();
 
-    const errorOutputs: { content: string; metadata: Record<string, unknown> }[] = [];
+    const noticeOutputs: { type: string; content: string; metadata: Record<string, unknown> }[] = [];
     adapter.on('output', (message: { type: string; content: string; metadata: Record<string, unknown> }) => {
-      if (message.type === 'error') {
-        errorOutputs.push({ content: message.content, metadata: message.metadata });
+      if (message.metadata?.['source'] === 'acp-stall-warning') {
+        noticeOutputs.push({ type: message.type, content: message.content, metadata: message.metadata });
       }
     });
     const stallEvents: Record<string, unknown>[] = [];
@@ -1916,13 +2032,88 @@ describe('AcpCliAdapter', () => {
     await new Promise((resolve) => setTimeout(resolve, 80));
 
     expect(stallEvents).toHaveLength(1);
-    expect(stallEvents[0]).toMatchObject({ adapter: expect.any(String) });
-    expect(errorOutputs.some((m) => m.metadata['source'] === 'acp-stall-warning')).toBe(true);
+    expect(stallEvents[0]).toMatchObject({ adapter: expect.any(String), waitKind: 'unowned' });
+    expect(noticeOutputs).not.toHaveLength(0);
+    // `system`, not `error`: an in-flight wait the turn may still recover from
+    // must not render as a red failure on every interactive ACP chat.
+    expect(noticeOutputs[0]?.type).toBe('system');
+    expect(noticeOutputs[0]?.metadata['watchdogWarning']).toBe(true);
+    expect(noticeOutputs[0]?.content).toContain('may be stuck');
 
     // Let the pending promise drain so the test doesn't hang; cancel will
     // reject it locally now (fix #3).
     adapter.interrupt();
     await pending.catch(() => { /* expected */ });
+
+    proc.exit();
+  });
+
+  it('names a long-running tool instead of calling a healthy turn stuck', async () => {
+    // Regression guard in both directions. Suppressing the warning while a tool
+    // is active would hide an agent that died holding a `pending` tool call
+    // until the 60-minute activeToolTimeoutMs lease — the exact orphaned-tool
+    // hang this adapter documents. Warning "this turn may be stuck" through a
+    // legitimate long build would train the user to ignore the notice. So it
+    // warns, but says what it is actually waiting on.
+    const proc = createInitializedAgentHarness();
+
+    proc.onRequest('session/prompt', (message) => {
+      proc.notify('session/update', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'long-build',
+          title: 'npm run build',
+          kind: 'execute',
+          status: 'in_progress',
+        },
+      });
+
+      setTimeout(() => {
+        proc.notify('session/update', {
+          sessionId: 'sess-acp-1',
+          update: {
+            sessionUpdate: 'tool_call_update',
+            toolCallId: 'long-build',
+            status: 'completed',
+          },
+        });
+        proc.respond(message.id, { stopReason: 'end_turn' });
+      }, 120);
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      stallWarningMs: 30,
+      promptTimeoutMs: 60_000,
+      activeToolTimeoutMs: 60_000,
+    });
+    await adapter.spawn();
+
+    const notices: { type: string; content: string }[] = [];
+    adapter.on('output', (message: { type: string; content: string; metadata?: Record<string, unknown> }) => {
+      if (message.metadata?.['source'] === 'acp-stall-warning') {
+        notices.push({ type: message.type, content: message.content });
+      }
+    });
+    const stallEvents: Record<string, unknown>[] = [];
+    adapter.on('stall_warning', (payload: Record<string, unknown>) => stallEvents.push(payload));
+
+    await adapter.sendMessage({ role: 'user', content: 'run the build' });
+
+    // Fires repeatedly...
+    expect(stallEvents.length).toBeGreaterThan(1);
+    expect(stallEvents.every((event) => event['waitKind'] === 'tool')).toBe(true);
+    // ...but the transcript gets exactly one notice per wait kind per turn.
+    // `system` messages bypass both the output buffer's repeated-error
+    // suppression and the renderer's identical-message collapse, so without the
+    // latch a long legitimate tool run floods the buffer and evicts real
+    // evidence from the window child-diagnostics reads.
+    expect(notices).toHaveLength(1);
+    expect(notices[0]?.type).toBe('system');
+    expect(notices[0]?.content).toContain('npm run build');
+    expect(notices[0]?.content).not.toContain('stuck');
 
     proc.exit();
   });
@@ -2273,6 +2464,55 @@ describe('AcpCliAdapter truncated turns', () => {
 
     proc.exit();
   });
+
+  /**
+   * Verbatim from instance `uk95fj93z` (cursor/grok-4.6-high-fast, 2026-09-03):
+   * a 73.9-minute turn with 1411 tool calls that the provider refused. It
+   * reported `end_turn`, the app recorded a clean `busy -> idle`, and nothing
+   * reached the log, so the plan it was implementing silently stopped a third
+   * of the way through.
+   */
+  const PROVIDER_REFUSAL = 'Error: RetriableError: [resource_exhausted] Error';
+
+  it('flags a turn the provider refused, despite end_turn', async () => {
+    const proc = createInitializedAgentHarness();
+    promptWith(proc, ['Implementing W1.4 and continuing through Wave 1.', `\n\n${PROVIDER_REFUSAL}`], {
+      stopReason: 'end_turn',
+      usage: { inputTokens: 23, outputTokens: 8149, totalTokens: 8172 },
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+    });
+    await adapter.spawn();
+
+    const outputHandler = vi.fn();
+    adapter.on('output', outputHandler);
+
+    const response = await adapter.sendMessage({ role: 'user', content: 'go' });
+
+    expect(response.metadata).toMatchObject({
+      stopReason: 'end_turn',
+      truncatedTurn: true,
+      providerRefusal: PROVIDER_REFUSAL,
+    });
+    // A refusal is not a severed stream, so it must not claim to be one.
+    expect(response.metadata).not.toHaveProperty('transportFailure');
+
+    const notices = outputHandler.mock.calls
+      .map(([message]) => message)
+      .filter((message) => message.metadata?.source === 'acp-provider-refusal');
+    expect(notices).toHaveLength(1);
+    expect(notices[0].content).toContain(PROVIDER_REFUSAL);
+    expect(notices[0].content).toContain('quota or capacity limit');
+
+    // The partial work is kept, and the loop's degraded path stays untouched.
+    expect(response.content).toContain('Implementing W1.4');
+    expect(response.degradedReason).toBeUndefined();
+
+    proc.exit();
+  });
 });
 
 describe('AcpCliAdapter missing-usage escalation', () => {
@@ -2386,6 +2626,234 @@ describe('AcpCliAdapter missing-usage escalation', () => {
         String(message).includes('context bar stays empty'),
       ),
     ).toHaveLength(1);
+
+    proc.exit();
+  });
+});
+
+describe('AcpCliAdapter liveness and failed-turn usage', () => {
+  beforeEach(() => {
+    PermissionRegistry._resetForTesting();
+  });
+
+  afterEach(() => {
+    PermissionRegistry._resetForTesting();
+  });
+
+  it('emits no heartbeat for a turn the agent never sends a session/update for', async () => {
+    const proc = createInitializedAgentHarness();
+    proc.onRequest('session/prompt', (message) => {
+      proc.respondError(message.id, -32003, 'Prompt timed out');
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+    });
+    await adapter.spawn();
+
+    let heartbeats = 0;
+    adapter.on('heartbeat', () => { heartbeats++; });
+
+    await expect(adapter.sendMessage({ role: 'user', content: 'hello' }))
+      .rejects.toThrow(/Prompt timed out/);
+
+    // A pending `session/prompt` is not evidence of life — only real inbound
+    // provider traffic is.
+    expect(heartbeats).toBe(0);
+
+    proc.exit();
+  });
+
+  it('emits one heartbeat per valid inbound session/update', async () => {
+    const proc = createInitializedAgentHarness();
+    proc.onRequest('session/prompt', (message) => {
+      proc.notify('session/update', {
+        sessionId: 'sess-acp-1',
+        update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'working' } },
+      });
+      // A different session's update must not count as this session's liveness.
+      proc.notify('session/update', {
+        sessionId: 'sess-other',
+        update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'noise' } },
+      });
+      proc.respond(message.id, { stopReason: 'end_turn' });
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+    });
+    await adapter.spawn();
+
+    let heartbeats = 0;
+    adapter.on('heartbeat', () => { heartbeats++; });
+
+    await adapter.sendMessage({ role: 'user', content: 'hello' });
+
+    expect(heartbeats).toBe(1);
+
+    proc.exit();
+  });
+
+  it('attaches an estimated partial-usage snapshot when a turn fails after producing material', async () => {
+    const proc = createInitializedAgentHarness();
+    proc.onRequest('session/prompt', (message) => {
+      proc.notify('session/update', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: 'I read the file and started editing it.' },
+        },
+      });
+      proc.respondError(message.id, -32003, 'Prompt timed out');
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      model: 'grok-4.6',
+      workingDirectory: '/tmp',
+    });
+    await adapter.spawn();
+
+    const failure = await adapter
+      .sendMessage({ role: 'user', content: 'implement the plan' })
+      .then(() => null)
+      .catch((err: unknown) => err as Error & {
+        partialUsage?: { totalTokens?: number; isEstimated?: boolean };
+        partialModel?: string;
+      });
+
+    expect(failure).not.toBeNull();
+    expect(failure!.partialUsage?.totalTokens).toBeGreaterThan(0);
+    expect(failure!.partialUsage?.isEstimated).toBe(true);
+    expect(failure!.partialModel).toBe('grok-4.6');
+
+    proc.exit();
+  });
+
+  it('retains partial usage when the agent process dies mid-turn', async () => {
+    // The `'exit'` handler nulls `currentPrompt` synchronously before it
+    // rejects the pending request, so an adapter that re-read the field after
+    // the await lost a crashed turn's material entirely. Distinct from the
+    // respondError tests above: those leave the process alive.
+    const proc = createInitializedAgentHarness();
+    proc.onRequest('session/prompt', () => {
+      proc.notify('session/update', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: 'I read the file and started editing it.' },
+        },
+      });
+      setTimeout(() => proc.exit(1, null), 0);
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      model: 'grok-4.6',
+      workingDirectory: '/tmp',
+    });
+    await adapter.spawn();
+
+    const failure = await adapter
+      .sendMessage({ role: 'user', content: 'implement the plan' })
+      .then(() => null)
+      .catch((err: unknown) => err as Error & {
+        partialUsage?: { totalTokens?: number; isEstimated?: boolean };
+        partialModel?: string;
+      });
+
+    expect(failure).not.toBeNull();
+    expect(failure!.message).toMatch(/exited/);
+    expect(failure!.partialUsage?.totalTokens).toBeGreaterThan(0);
+    expect(failure!.partialUsage?.isEstimated).toBe(true);
+    expect(failure!.partialModel).toBe('grok-4.6');
+  });
+
+  it('invents no usage when a failed turn produced nothing to estimate from', async () => {
+    // A realistic, non-empty iteration prompt. The prompt alone estimates to a
+    // positive input count, so this only stays uncharged because the attach is
+    // gated on observed assistant/tool material — spec Required Behaviour 7.
+    const proc = createInitializedAgentHarness();
+    proc.onRequest('session/prompt', (message) => {
+      proc.respondError(message.id, -32003, 'Prompt timed out');
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      model: 'grok-4.6',
+      workingDirectory: '/tmp',
+    });
+    await adapter.spawn();
+
+    const failure = await adapter
+      .sendMessage({ role: 'user', content: 'implement the plan in docs/plans/example_plan.md' })
+      .then(() => null)
+      .catch((err: unknown) => err as Error & { partialUsage?: unknown; partialModel?: unknown });
+
+    expect(failure).not.toBeNull();
+    expect(failure!.partialUsage).toBeUndefined();
+    expect(failure!.partialModel).toBeUndefined();
+
+    proc.exit();
+  });
+
+  it('invents no usage when the child dies before the agent says anything', async () => {
+    const proc = createInitializedAgentHarness();
+    proc.onRequest('session/prompt', () => {
+      setTimeout(() => proc.exit(1, null), 0);
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      model: 'grok-4.6',
+      workingDirectory: '/tmp',
+    });
+    await adapter.spawn();
+
+    const failure = await adapter
+      .sendMessage({ role: 'user', content: 'implement the plan in docs/plans/example_plan.md' })
+      .then(() => null)
+      .catch((err: unknown) => err as Error & { partialUsage?: unknown; partialModel?: unknown });
+
+    expect(failure).not.toBeNull();
+    expect(failure!.partialUsage).toBeUndefined();
+    expect(failure!.partialModel).toBeUndefined();
+  });
+
+  it('counts only tool activity as material when the agent produced no text', async () => {
+    const proc = createInitializedAgentHarness();
+    proc.onRequest('session/prompt', (message) => {
+      proc.notify('session/update', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'tool-1',
+          title: 'Read docs/plans/example_plan.md',
+          status: 'in_progress',
+        },
+      });
+      proc.respondError(message.id, -32003, 'Prompt timed out');
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      model: 'grok-4.6',
+      workingDirectory: '/tmp',
+    });
+    await adapter.spawn();
+
+    const failure = await adapter
+      .sendMessage({ role: 'user', content: 'implement the plan in docs/plans/example_plan.md' })
+      .then(() => null)
+      .catch((err: unknown) => err as Error & {
+        partialUsage?: { totalTokens?: number; isEstimated?: boolean };
+      });
+
+    expect(failure).not.toBeNull();
+    expect(failure!.partialUsage?.totalTokens).toBeGreaterThan(0);
+    expect(failure!.partialUsage?.isEstimated).toBe(true);
 
     proc.exit();
   });

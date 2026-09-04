@@ -56,7 +56,7 @@
     "check:dead": "node scripts/check-dead-exports.js",
     "check:provider-parity": "node scripts/check-provider-parity.js",
     "audit:claude-cost": "node scripts/claude-cost-audit-report.mjs",
-    "verify:architecture": "node scripts/check-import-boundaries.js && node scripts/generate-architecture-inventory.js --check",
+    "verify:architecture": "node scripts/check-import-boundaries.js && node scripts/check-loop-cwd-discipline.js && node scripts/generate-architecture-inventory.js --check",
     "verify:boundaries": "node scripts/check-import-boundaries.js",
     "generate:architecture": "node scripts/generate-architecture-inventory.js --write",
     "smoke:electron": "node scripts/electron-smoke-check.js",

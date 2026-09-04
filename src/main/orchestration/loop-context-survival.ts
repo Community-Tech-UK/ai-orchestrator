@@ -1,12 +1,23 @@
 import path from 'path';
-import { promises as fsp } from 'fs';
 import { BudgetAction } from '../context/token-budget-tracker';
 import { getCompactionCoordinator } from '../context/compaction-coordinator';
 import { getLogger } from '../logging/logger';
 import { resolveLoopArtifactPaths } from './loop-artifact-paths';
+import { loopExecutionCwd, loopStateCwd } from './loop-cwd';
 import { loopContextUtilization } from './loop-context-discipline';
 import type { LoopChildResult } from './loop-coordinator.types';
-import { createLoopPendingInput, type LoopIteration, type LoopState } from '../../shared/types/loop.types';
+import {
+  createLoopPendingInput,
+  defaultLoopContextConfig,
+  type LoopIteration,
+  type LoopState,
+} from '../../shared/types/loop.types';
+import {
+  clipHandoffInjectNote,
+  loadRehydrationNote,
+  MAX_REHYDRATE_FILES,
+  writeLoopHandoff,
+} from './loop-recycle-handoff';
 
 const DEFAULT_CONTEXT_BUDGET_TOKENS = 1_000_000;
 const logger = getLogger('LoopContextSurvival');
@@ -19,21 +30,25 @@ const logger = getLogger('LoopContextSurvival');
 // a buried magic number.
 export const CONTEXT_CACHE_TTL_MS = 60 * 60 * 1000;
 
-// B5a: post-compaction rehydration. After a context reset (LF-1 full recycle,
-// PLAN→IMPLEMENT transition, or degraded-adapter recovery — anything that
-// leaves `childResult.contextCompacted` set), the next prompt starts from a
-// blank session. Re-inject the plan file, the active LOOP_TASKS.md ledger, and
-// this iteration's recently read/edited files so the fresh session doesn't have
-// to rediscover them from scratch. Bounded so a noisy run can't dominate the
-// next prompt.
-const MAX_REHYDRATE_FILES = 5;
-const MAX_REHYDRATE_BYTES_PER_FILE = 20_000;
-const MAX_REHYDRATE_TOTAL_BYTES = 50_000;
+// B5a / T39: post-compaction rehydration. Caps and pointer+hash loading live
+// in loop-recycle-handoff.ts (OpenClaw 1200 / 2800). T6 writes HANDOFF.json.
+
+/** Gated-mode forensic signals that do not mean review-driven/ping-pong is finishing. */
+const GATED_ONLY_SURVIVAL_SIGNAL_IDS = new Set([
+  'ledger-complete',
+  'done-sentinel',
+  'completed-rename',
+]);
 
 export interface LoopContextSurvivalContext {
   state: LoopState;
   iteration: LoopIteration;
   childResult: LoopChildResult;
+  /**
+   * Coordinator already decided this iteration will stop or pause. Survival
+   * must not inject a keep-working nudge on top of a real finish.
+   */
+  aboutToComplete?: boolean;
 }
 
 export interface LoopContextSurvivalDecision {
@@ -111,7 +126,41 @@ function hasSufficientCompletionSignal(iteration: LoopIteration): boolean {
   return iteration.completionSignalsFired.some((signal) => signal.sufficient);
 }
 
+function isReviewDrivenOrPingPong(state: LoopState): boolean {
+  return state.config.completion.mode === 'review-driven'
+    || state.config.completion.crossModelReview?.pingPong?.enabled === true;
+}
+
+/**
+ * Keep-working is only for a user-set loop token cap when a real completion
+ * attempt is still being rejected. A null cap is not a 1M target (T24).
+ * Review-driven / ping-pong must ignore gated forensic signals (T24/T28).
+ */
+function shouldQueueKeepWorkingNudge(
+  state: LoopState,
+  iteration: LoopIteration,
+  aboutToComplete: boolean,
+): boolean {
+  if (aboutToComplete) return false;
+  if (state.config.caps.maxTokens == null) return false;
+  if (!hasSufficientCompletionSignal(iteration)) return false;
+  if (isReviewDrivenOrPingPong(state)) {
+    const remaining = iteration.completionSignalsFired
+      .filter((signal) => signal.sufficient)
+      .filter((signal) => !GATED_ONLY_SURVIVAL_SIGNAL_IDS.has(signal.id));
+    if (remaining.length === 0) return false;
+  }
+  return true;
+}
+
+function loopTokenCapNudge(iterationTokens: number, maxTokens: number): string {
+  const fillPercentage = Math.round((iterationTokens / maxTokens) * 100);
+  return `Stopped at ${fillPercentage}% of the loop token cap (${iterationTokens} / ${maxTokens}). Keep working — do not summarize.`;
+}
+
 function resolveBudgetTokens(state: LoopState): number {
+  // Tracker STOP is mapped to noDecision (T27) — this fallback is bookkeeping
+  // only and must never appear in a user-facing nudge.
   return state.config.caps.maxTokens ?? DEFAULT_CONTEXT_BUDGET_TOKENS;
 }
 
@@ -173,18 +222,25 @@ function isBorrowedAdapterSelfManaged(state: LoopState, childResult: LoopChildRe
  * absolute paths.
  */
 function buildRehydrationPaths(state: LoopState, childResult: LoopChildResult): string[] {
-  const cwd = state.config.workspaceCwd;
+  // This function genuinely needs BOTH cwds, which is why it is spelled out:
+  // the plan file and the agent's read/changed paths are work product (they
+  // live in the worktree under isolation), while LOOP_TASKS.md is durable loop
+  // state that must stay at the repo root. Resolving the former against the
+  // repo root silently dropped the plan pointer from every post-reset
+  // rehydration note — or, worse, picked up an unrelated same-named file left
+  // there by another loop. See `loop-cwd.ts`.
+  const executionCwd = loopExecutionCwd(state.config);
   const out: string[] = [];
   const seen = new Set<string>();
   const add = (candidate: string | undefined | null) => {
     if (!candidate || out.length >= MAX_REHYDRATE_FILES) return;
-    const resolved = path.isAbsolute(candidate) ? candidate : path.join(cwd, candidate);
+    const resolved = path.isAbsolute(candidate) ? candidate : path.join(executionCwd, candidate);
     if (seen.has(resolved)) return;
     seen.add(resolved);
     out.push(resolved);
   };
   add(state.config.planFile);
-  add(resolveLoopArtifactPaths(cwd, state.id).tasks);
+  add(resolveLoopArtifactPaths(loopStateCwd(state.config), state.id).tasks);
   for (const readPath of childResult.filesRead ?? []) {
     add(readPath);
   }
@@ -194,29 +250,10 @@ function buildRehydrationPaths(state: LoopState, childResult: LoopChildResult): 
   return out;
 }
 
-/** Load rehydration file contents into one budgeted note, skipping unreadable paths. */
-async function loadRehydrationContent(paths: readonly string[]): Promise<string> {
-  const sections: string[] = [];
-  let remaining = MAX_REHYDRATE_TOTAL_BYTES;
-  for (const filePath of paths) {
-    if (remaining <= 0) break;
-    let raw: string;
-    try {
-      raw = await fsp.readFile(filePath, 'utf8');
-    } catch {
-      continue; // Missing/unreadable (e.g. no plan file configured) — skip silently.
-    }
-    const perFileCap = Math.min(MAX_REHYDRATE_BYTES_PER_FILE, remaining);
-    const clipped = raw.length > perFileCap ? `${raw.slice(0, perFileCap)}\n… [truncated]` : raw;
-    sections.push(`### ${filePath}\n${clipped}`);
-    remaining -= clipped.length;
-  }
-  return sections.join('\n\n');
-}
 
 class DefaultLoopContextSurvivalManager implements LoopContextSurvivalManager {
   async onIterationSealed(
-    { state, iteration, childResult }: LoopContextSurvivalContext,
+    { state, iteration, childResult, aboutToComplete }: LoopContextSurvivalContext,
   ): Promise<LoopContextSurvivalDecision> {
     // B4 idle-gap measurement happens before any early return so the next
     // iteration always has a fresh baseline, and is recorded unconditionally
@@ -250,6 +287,8 @@ class DefaultLoopContextSurvivalManager implements LoopContextSurvivalManager {
     });
 
     if (budget.action === BudgetAction.STOP) {
+      // T27: TokenBudgetTracker.STOP is not a loop governor. Map it to noDecision
+      // so diminishing-returns / fill-percentage never halt a cheap finish.
       return withRehydrate(noDecision(budget.reason ?? 'token budget stop condition reached'));
     }
 
@@ -260,21 +299,18 @@ class DefaultLoopContextSurvivalManager implements LoopContextSurvivalManager {
     // coordinator-owned message/turn list for ANY `contextStrategy` to run
     // `Microcompact.compact()` against (`same-session` = one persistent
     // adapter process owning its own transcript; `fresh-child` = a new
-    // one-shot process per iteration with nothing to compact; `hybrid` mixes
-    // both). `Microcompact` IS wired today, but only inside
-    // `ContextCompactor.compactLayered()` (`context-compactor.ts`), which
-    // operates on a *different*, singleton, instance-scoped turn buffer used
-    // by the borrowed-chat-instance compaction path — not something this
-    // per-loop manager can safely drive for an arbitrary loop's persistent
-    // session. So `action:'micro'` cannot literally invoke `Microcompact`
-    // from here; it is the cheap tier of the *decision*, using the levers
-    // `applyLoopContextSurvivalDecision` actually has: bookkeeping + a
-    // reason recorded on the emitted event/log (never silent — the point of
-    // B4 is that this is visible even though it's a no-op on disk), plus
-    // `forceContextReset` composed in ONLY when LF-1's own recycle threshold
-    // is independently already met (never an extra reset LF-1 wouldn't
-    // already be about to trigger on its next cumulative-token check in
-    // `default-invokers.ts`) — i.e. "prefer the cheap tier, escalate only
+    // one-shot process per iteration with nothing to compact; `hybrid` is
+    // treated as fresh-child by the invoker). `Microcompact`
+    // IS wired today, but only inside `ContextCompactor.compactLayered()`
+    // (`context-compactor.ts`), which operates on a *different*, singleton,
+    // instance-scoped turn buffer used by the borrowed-chat-instance compaction
+    // path — not something this per-loop manager can safely drive for an
+    // arbitrary loop's persistent session. So `action:'micro'` is a logged
+    // no-op (T4), not a compact: bookkeeping + a reason on the emitted
+    // event/log, plus `forceContextReset` composed in ONLY when LF-1's own
+    // recycle threshold is independently already met (never an extra reset
+    // LF-1 wouldn't already be about to trigger on its next occupancy check
+    // in `default-invokers.ts`) — i.e. "prefer the cheap tier, escalate only
     // when it's insufficient" without duplicating or racing LF-1.
     //
     // Two triggers land here, both gated by the §9 `selfManagesAutoCompaction`
@@ -283,7 +319,8 @@ class DefaultLoopContextSurvivalManager implements LoopContextSurvivalManager {
     // recommended even when utilization wouldn't trigger one) and micro-tier
     // utilization pressure below LF-1's own reset threshold.
     if (cacheStale && !isBorrowedAdapterSelfManaged(state, childResult)) {
-      const resetAtUtilization = state.config.context?.compaction.resetAtUtilization ?? 0.6;
+      const resetAtUtilization = state.config.context?.compaction.resetAtUtilization
+        ?? defaultLoopContextConfig().compaction.resetAtUtilization;
       const utilization = loopContextUtilization(state.totalTokens);
       const alsoOverThreshold = utilization >= resetAtUtilization;
       const gapMinutes = Math.round((gap ?? 0) / 60_000);
@@ -294,16 +331,17 @@ class DefaultLoopContextSurvivalManager implements LoopContextSurvivalManager {
           ? `idle ${gapMinutes}m exceeds cache TTL and utilization ${Math.round(utilization * 100)}% ` +
             `already meets the reset threshold — composing with a full recycle rather than a second reset`
           : `idle ${gapMinutes}m exceeds cache TTL (~60min) — cache prefix will be rewritten on the next ` +
-            'call regardless; recording a cheap context nudge (no coordinator-owned turn list to prune)',
+            'call regardless; recording a cheap context note (no coordinator-owned turn list to prune)',
       });
     }
 
-    if (hasSufficientCompletionSignal(iteration) && budget.nudgeMessage) {
+    const maxTokens = state.config.caps.maxTokens;
+    if (shouldQueueKeepWorkingNudge(state, iteration, aboutToComplete === true) && maxTokens != null) {
       return withRehydrate({
         action: 'none',
         forceContextReset: false,
-        nudge: budget.nudgeMessage,
-        reason: 'completion signal fired under token target',
+        nudge: loopTokenCapNudge(iteration.tokens, maxTokens),
+        reason: 'completion signal fired under loop token cap',
       });
     }
 
@@ -340,16 +378,30 @@ export async function applyLoopContextSurvivalDecision(
     );
   }
 
-  // B5: rehydrate plan/ledger/recent files after a context reset. Best-effort
-  // — a read failure here must never block the loop from continuing.
+  // B5 / T6 / T39: write HANDOFF.json, then a capped path+hash note.
   let rehydrated = false;
-  if (decision.rehydrate && decision.rehydrate.length > 0) {
+  const shouldRehydrate = Boolean(options.childResult.contextCompacted)
+    || Boolean(decision.rehydrate && decision.rehydrate.length > 0);
+  if (shouldRehydrate) {
     try {
-      const content = await loadRehydrationContent(decision.rehydrate);
-      if (content.trim()) {
+      const dest = await writeLoopHandoff({
+        state: options.state,
+        iteration: options.iteration,
+        childResult: options.childResult,
+      });
+      const content = decision.rehydrate && decision.rehydrate.length > 0
+        ? await loadRehydrationNote(decision.rehydrate)
+        : '';
+      const parts = [
+        dest ? `Read \`${dest}\` first (goal and open ledger ids).` : '',
+        content.trim(),
+      ].filter(Boolean);
+      if (parts.length > 0) {
         options.state.pendingInterventions.push(
           createLoopPendingInput(
-            `Restored working set (context was just reset to a fresh session):\n\n${content}`,
+            clipHandoffInjectNote(
+              `Restored working set (context was just reset to a fresh session):\n\n${parts.join('\n\n')}`,
+            ),
             { kind: 'queue', source: 'context-survival' },
           ),
         );

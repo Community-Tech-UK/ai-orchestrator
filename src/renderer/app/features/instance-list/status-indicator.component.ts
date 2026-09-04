@@ -61,12 +61,16 @@ const STATUS_LABELS: Record<InstanceStatus, string> = {
       @if (showSpinnerIndicator()) {
         <div
           class="status-spinner"
+          role="img"
+          [attr.aria-label]="label()"
           [style.--spinner-color]="color()"
           [title]="label()"
         ></div>
       } @else {
         <div
           class="status-indicator"
+          role="img"
+          [attr.aria-label]="label()"
           [style.backgroundColor]="color()"
           [class.pulsing]="isPulsing()"
           [title]="label()"
@@ -143,17 +147,13 @@ export class StatusIndicatorComponent {
   visibleLabel = computed(() => this.label());
 
   isPulsing = computed(() =>
-    this.status() === 'busy' ||
-    this.status() === 'processing' ||
-    this.status() === 'thinking_deeply' ||
     this.status() === 'initializing' ||
-    this.status() === 'interrupting' ||
-    this.status() === 'cancelling' ||
-    this.status() === 'interrupt-escalating' ||
     this.status() === 'respawning' ||
     this.status() === 'hibernating' ||
     this.status() === 'waking' ||
-    this.status() === 'degraded'
+    this.status() === 'interrupting' ||
+    this.status() === 'cancelling' ||
+    this.status() === 'interrupt-escalating'
   );
 
   showSpinnerIndicator = computed(() =>

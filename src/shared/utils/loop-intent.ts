@@ -53,9 +53,12 @@ export interface ConvergeUntilCleanDetection {
  */
 export function detectConvergeUntilCleanIntent(
   initialPrompt: string,
-  iterationPrompt?: string,
+  _iterationPrompt?: string,
 ): ConvergeUntilCleanDetection {
-  const text = `${initialPrompt ?? ''}\n${iterationPrompt ?? ''}`;
+  // Scan the goal only. The panel's default continuation used to contain
+  // "fresh eyes" and auto-enabled a second-model review on every default loop
+  // (T31). An explicit `{ enabled: false }` still wins at the coordinator.
+  const text = initialPrompt ?? '';
 
   if (FRESH_EYES_RE.test(text)) {
     return { matched: true, reason: 'fresh-eyes-phrase' };

@@ -15,6 +15,14 @@ import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 import { ReactionIpcService } from '../../core/services/ipc/reaction-ipc.service';
 import { ToastService } from '../../core/services/toast.service';
 import { LoopStore } from '../../core/state/loop.store';
+import { buildHonestyChips, buildLoopAuditChips } from './loop-audit-chips.util';
+import { buildRunConfigSummary, iterationCapLabel } from './loop-run-config-summary.util';
+import {
+  activeCostUsage,
+  activeTokenUsage,
+  currentIterationLabel,
+  isUsageUnsettled,
+} from './loop-usage-copy.util';
 import {
   activityKindLabel,
   buildInspectorProgress,
@@ -139,24 +147,24 @@ import { RendererPollSchedulerService } from '../../core/services/renderer-poll-
         <span class="ls-text">
           {{ runningIteration() ? ('iteration ' + iterationNumber(runningIteration()!.seq) + ' running') : (a.totalIterations + ' iterations run') }}/{{ iterationCapLabel(a.config.caps.maxIterations) }}
           · stage {{ runningIteration()?.stage ?? a.currentStage }}
-          · current {{ runningIteration() ? duration(currentIterationElapsed()) : 'idle' }}
+          · current {{ currentIterationLabel() }}
           · total {{ duration(elapsed()) }}
-          · {{ tokens(a.totalTokens) }}
-          · {{ cost(a.totalCostCents) }}
+          · {{ activeTokenUsage(a.totalTokens) }}
+          · {{ activeCostUsage(a.totalCostCents) }}
         </span>
         <span class="ls-actions">
           @if (a.status === 'running') {
-            <button type="button" (click)="onPause()" title="Pause loop">Pause</button>
+            <button type="button" (click)="onPause()" title="Pause loop" aria-label="Pause loop">Pause</button>
           } @else if (a.status === 'paused' || (a.status === 'provider-limit' && a.endedAt === null)) {
             @if (pauseKind() === 'awaiting-review') {
-              <button type="button" class="ls-accept" (click)="onAcceptCompletion()" title="Accept the work as complete">Accept as complete</button>
+              <button type="button" class="ls-accept" (click)="onAcceptCompletion()" title="Accept the work as complete" aria-label="Accept the work as complete">Accept as complete</button>
             }
-            <button type="button" (click)="onResumeAnyway()" title="Resume loop">Resume</button>
+            <button type="button" (click)="onResumeAnyway()" title="Resume loop" aria-label="Resume loop">Resume</button>
           }
-          <button type="button" (click)="onToggleInspector()" title="Show loop trace">{{ inspectorExpanded() ? 'Hide trace' : 'Inspect' }}</button>
-          <button type="button" (click)="onInjectHint()" title="Inject a hint into next iteration">Hint</button>
-          <button type="button" (click)="onQueueFollowUp()" title="Queue a message to run before the loop finishes">Follow-up</button>
-          <button type="button" class="ls-stop" (click)="onStop()" title="Stop loop">Stop</button>
+          <button type="button" (click)="onToggleInspector()" title="Show loop trace" aria-label="Inspect loop trace">{{ inspectorExpanded() ? 'Hide trace' : 'Inspect' }}</button>
+          <button type="button" (click)="onInjectHint()" title="Inject a hint into next iteration" aria-label="Inject a hint into the next iteration">Hint</button>
+          <button type="button" (click)="onQueueFollowUp()" title="Queue a message to run before the loop finishes" aria-label="Queue a follow-up before the loop finishes">Follow-up</button>
+          <button type="button" class="ls-stop" (click)="onStop()" title="Stop loop" aria-label="Stop loop">Stop</button>
         </span>
       </div>
 
@@ -172,7 +180,7 @@ import { RendererPollSchedulerService } from '../../core/services/renderer-poll-
 
       @if (pingPong(); as pp) {
         <div class="loop-pingpong" title="Conversational ping-pong review">
-          <span class="lp-badge">PING-PONG</span>
+          <span class="lp-badge">REVIEW PING-PONG</span>
           <span class="lp-text">
             round {{ pp.roundCount }}/{{ pingPongMaxRounds() }}
             @if (pp.lastReviewerProvider) { · reviewer {{ pp.lastReviewerProvider }} }
@@ -189,6 +197,14 @@ import { RendererPollSchedulerService } from '../../core/services/renderer-poll-
         </div>
       }
 
+      @if (honestyChips().length > 0) {
+        <div class="loop-honesty" title="Loop runtime honesty">
+          @for (chip of honestyChips(); track chip) {
+            <span class="lp-badge">{{ chip }}</span>
+          }
+        </div>
+      }
+
       @if (showGate()) {
         <div class="loop-gate" title="Completion gate — what the loop must clear to stop">
           @for (step of gateSteps(); track step.key) {
@@ -200,9 +216,17 @@ import { RendererPollSchedulerService } from '../../core/services/renderer-poll-
       }
 
       @if (auditStatus(); as audit) {
-        <div class="loop-audit" title="Preflight and final audit status">
-          <span class="lau-chip" [attr.data-state]="audit.preflightState">{{ audit.preflightLabel }}</span>
-          <span class="lau-chip" [attr.data-state]="audit.finalAuditState">{{ audit.finalAuditLabel }}</span>
+        <div class="loop-audit">
+          <span
+            class="lau-chip"
+            [attr.data-state]="audit.preflightState"
+            [title]="audit.preflightTitle"
+          >{{ audit.preflightLabel }}</span>
+          <span
+            class="lau-chip"
+            [attr.data-state]="audit.finalAuditState"
+            [title]="audit.finalAuditTitle"
+          >{{ audit.finalAuditLabel }}</span>
           @if (audit.reportFile) {
             <code>{{ audit.reportFile }}</code>
           }
@@ -663,6 +687,8 @@ export class LoopControlComponent implements OnDestroy {
       autoUnstickInFlight: Boolean(
         active.autoUnstick && active.autoUnstick.seq === last.seq,
       ),
+      reviewDriven: active.config.completion.mode === 'review-driven'
+        || Boolean(active.config.completion.crossModelReview?.pingPong?.enabled),
     });
   });
 
@@ -721,60 +747,23 @@ export class LoopControlComponent implements OnDestroy {
   auditStatus = computed(() => {
     const a = this.active();
     if (!a) return null;
-    const auditConfig = a.config.audit;
-    if (!auditConfig && !a.preflight && !a.latestFinalAudit) return null;
-    const preflightMode = auditConfig?.preflightMode ?? 'off';
-    const finalAuditMode = auditConfig?.finalAuditMode ?? 'off';
-    const preflightStatus = a.preflight?.status ?? (preflightMode === 'off' ? 'off' : 'pending');
-    const finalAuditStatus = a.latestFinalAudit?.status ?? (finalAuditMode === 'off' ? 'skipped' : 'pending');
-    // A verify command that blew its wall-clock budget and one whose tests are
-    // red are both `status: 'failed'`, but they need opposite fixes from the
-    // operator (shorten the command vs fix the code). Say which it was.
-    const preflightTimedOut = preflightStatus === 'failed'
-      && (a.preflight?.commands?.some((c) => c.failureKind === 'timeout') ?? false);
-    return {
-      preflightState: preflightStatus,
-      finalAuditState: finalAuditStatus,
-      preflightLabel: preflightTimedOut
-        ? 'Preflight timed out'
-        : `Preflight ${this.auditStatusLabel(preflightStatus)}`,
-      finalAuditLabel: `Audit ${finalAuditMode} ${this.auditStatusLabel(finalAuditStatus)}`,
-      reportFile: a.latestFinalAudit?.reportPath
-        ? this.basename(a.latestFinalAudit.reportPath)
-        : null,
-    };
+    return buildLoopAuditChips({
+      audit: a.config.audit,
+      preflight: a.preflight,
+      latestFinalAudit: a.latestFinalAudit,
+    });
   });
 
-  /**
-   * LF-8: a compact, read-only summary of the ACTIVE run's config — so the user
-   * can see what spawned the running loop (provider, context strategy, caps,
-   * verify, enabled options) without re-opening the start panel. Collapsed by
-   * default in the strip.
-   */
-  runConfigSummary = computed<{ label: string; value: string }[]>(() => {
+  honestyChips = computed(() => {
     const a = this.active();
     if (!a) return [];
-    const c = a.config;
-    const cost = c.caps.maxCostCents === null ? 'no cap' : formatCostCents(c.caps.maxCostCents);
-    const tokenCap = c.caps.maxTokens === null ? 'no token cap' : humanTokens(c.caps.maxTokens);
-    const flags: string[] = [];
-    if (c.completion.requireCompletedFileRename) flags.push('rename-gate');
-    if (c.completion.runVerifyTwice) flags.push('verify×2');
-    if (c.completion.crossModelReview?.enabled) flags.push('fresh-eyes');
-    if (c.context?.compaction.enabled) flags.push('context-recycle');
-    if (c.exploration?.enabled) flags.push('branch-select');
-    if (c.plan?.regenerateOnStall) flags.push('regen-on-stall');
-    if (c.semanticProgress?.enabled) flags.push('semantic-progress');
-    if (c.allowDestructiveOps) flags.push('destructive-ops');
-    return [
-      { label: 'Provider', value: c.provider },
-      { label: 'Context', value: c.contextStrategy },
-      { label: 'Start stage', value: c.initialStage },
-      { label: 'Caps', value: `${this.iterationCapLabel(c.caps.maxIterations)} iters · ${humanDuration(c.caps.maxWallTimeMs)} · ${tokenCap} · ${cost}` },
-      { label: 'Verify', value: c.completion.verifyCommand || (a.manualReviewOnly ? 'manual review (no command)' : 'auto-detected') },
-      { label: 'Options', value: flags.length ? flags.join(', ') : 'defaults' },
-    ];
+    return buildHonestyChips({
+      autoUnstick: a.autoUnstick,
+      capWrapUpIntent: a.capWrapUpIntent,
+    });
   });
+
+  runConfigSummary = computed(() => buildRunConfigSummary(this.active()));
 
   runningIteration = computed(() => {
     const id = this.chatId();
@@ -973,15 +962,6 @@ export class LoopControlComponent implements OnDestroy {
     this.reactionEventUnsub?.();
   }
 
-  private auditStatusLabel(status: string): string {
-    return status === 'needs-review' ? 'needs review' : status;
-  }
-
-  private basename(filePath: string): string {
-    const normalized = filePath.replace(/\\/g, '/');
-    return normalized.slice(normalized.lastIndexOf('/') + 1) || normalized;
-  }
-
   // ────── summary card actions ──────
 
   async onCopyInitialPrompt(prompt: string): Promise<void> {
@@ -1147,6 +1127,24 @@ export class LoopControlComponent implements OnDestroy {
       .join('\n\n');
   }
 
+  private readonly usageUnsettled = computed(
+    () => isUsageUnsettled(Boolean(this.runningIteration()), this.active()?.status),
+  );
+
+  protected readonly currentIterationLabel = computed(() => currentIterationLabel(
+    Boolean(this.runningIteration()),
+    this.currentIterationElapsed(),
+    this.usageUnsettled(),
+  ));
+
+  protected activeTokenUsage(totalTokens: number): string {
+    return activeTokenUsage(totalTokens, this.usageUnsettled());
+  }
+
+  protected activeCostUsage(totalCostCents: number): string {
+    return activeCostUsage(totalCostCents, this.usageUnsettled());
+  }
+
   protected readonly duration = humanDuration;
   protected readonly tokens = humanTokens;
   protected readonly cost = formatCostCents;
@@ -1155,8 +1153,7 @@ export class LoopControlComponent implements OnDestroy {
   protected readonly toolDetail = summarizeToolDetail;
   protected readonly iterationNumber = displayIterationNumber;
   protected readonly executionPath = effectiveLoopExecutionPath;
-  protected readonly iterationCapLabel = (maxIterations: number | null): string =>
-    maxIterations === null ? '∞' : String(maxIterations);
+  protected readonly iterationCapLabel = iterationCapLabel;
   protected readonly summaryStatusLabel = terminalStatusLabel;
   protected readonly managedStatus = managedWorktreeStatus;
   protected readonly verdictHeader = progressVerdictHeaderWord;

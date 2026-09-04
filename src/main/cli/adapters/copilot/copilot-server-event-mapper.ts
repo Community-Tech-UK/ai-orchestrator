@@ -33,7 +33,7 @@ export type MappedCopilotServerEffect =
       errorMessage?: string;
       result?: unknown;
     }
-  | { kind: 'context'; used: number; total: number }
+  | { kind: 'context'; used: number; total: number; conversationTokens?: number; systemTokens?: number; toolDefinitionsTokens?: number }
   | { kind: 'session-error'; message: string; errorType?: string; errorCode?: string }
   | { kind: 'turn-start' }
   | { kind: 'turn-end' }
@@ -109,6 +109,10 @@ export function mapCopilotServerEvent(event: CopilotServerEvent): MappedCopilotS
       };
     }
 
+    case 'session.usage_checkpoint':
+      // Billing/resume aggregate — never occupancy (T1a / G17).
+      return { kind: 'ignored', type: event.type };
+
     case 'session.usage_info': {
       // REAL context occupancy — a major upgrade over exec mode's estimate.
       const used = num(data['currentTokens']);
@@ -116,7 +120,17 @@ export function mapCopilotServerEvent(event: CopilotServerEvent): MappedCopilotS
       if (used === undefined || total === undefined || total <= 0) {
         return { kind: 'ignored', type: event.type };
       }
-      return { kind: 'context', used, total };
+      const conversationTokens = num(data['conversationTokens']);
+      const systemTokens = num(data['systemTokens']);
+      const toolDefinitionsTokens = num(data['toolDefinitionsTokens']);
+      return {
+        kind: 'context',
+        used,
+        total,
+        ...(conversationTokens !== undefined ? { conversationTokens } : {}),
+        ...(systemTokens !== undefined ? { systemTokens } : {}),
+        ...(toolDefinitionsTokens !== undefined ? { toolDefinitionsTokens } : {}),
+      };
     }
 
     case 'session.error': {

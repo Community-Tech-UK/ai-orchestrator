@@ -80,6 +80,25 @@ const defaultGitRunner: GitRunner = (args, cwd) => {
   }
 };
 
+/**
+ * Can a reviewer diff be produced from this directory at all?
+ *
+ * This is the SINGLE predicate for "the reviewer will get ground truth". Note
+ * it is `git rev-parse --is-inside-work-tree`, not the presence of a `.git`
+ * entry: a subdirectory of a repository has no `.git` of its own yet diffs
+ * fine, and a linked worktree's `.git` is a file rather than a directory.
+ * Anything gating on diff availability (e.g. the reviewer-backed start guard)
+ * must call this rather than stat-ing `.git`, or it will refuse workspaces that
+ * work perfectly well.
+ */
+export function isDiffCapableWorkspace(
+  workspaceCwd: string,
+  runner: GitRunner = defaultGitRunner,
+): boolean {
+  const insideRepo = runner(['rev-parse', '--is-inside-work-tree'], workspaceCwd);
+  return insideRepo.status === 0 && /true/i.test(insideRepo.stdout);
+}
+
 /** Read an untracked file's leading bytes for inclusion as a "new file" block. */
 function readUntrackedHead(absPath: string, maxChars: number): { text: string; truncated: boolean } | null {
   try {
@@ -104,8 +123,7 @@ export function collectWorkspaceDiff(
   const maxChars = options.maxChars ?? DEFAULT_MAX_CHARS;
   const maxUntrackedFileChars = options.maxUntrackedFileChars ?? DEFAULT_MAX_UNTRACKED_FILE_CHARS;
 
-  const insideRepo = runner(['rev-parse', '--is-inside-work-tree'], workspaceCwd);
-  if (insideRepo.status !== 0 || !/true/i.test(insideRepo.stdout)) {
+  if (!isDiffCapableWorkspace(workspaceCwd, runner)) {
     return { diff: '', source: 'none', truncated: false, changedFiles: [] };
   }
 

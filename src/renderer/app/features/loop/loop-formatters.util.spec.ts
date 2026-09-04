@@ -12,6 +12,7 @@ import {
   humanTokens,
   loopPauseReason,
   loopStatusLabel,
+  loopStatusTone,
   loopStatusPill,
   managedWorktreeStatus,
   progressVerdictView,
@@ -147,6 +148,15 @@ describe('loopStatusLabel', () => {
 
   it('falls through unknown statuses verbatim (forward-compat)', () => {
     expect(loopStatusLabel('not-yet-defined')).toBe('not-yet-defined');
+  });
+});
+
+describe('loopStatusTone', () => {
+  it('maps failed and error to the same error tone', () => {
+    expect(loopStatusTone('failed')).toBe('error');
+    expect(loopStatusTone('error')).toBe('error');
+    expect(loopStatusTone('completed')).toBe('ok');
+    expect(loopStatusTone('running')).toBe('running');
   });
 });
 

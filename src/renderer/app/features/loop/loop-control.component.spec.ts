@@ -484,9 +484,9 @@ describe('LoopControlComponent', () => {
   });
 
   // Regression: a verify command that blew its wall-clock budget rendered as
-  // "Preflight failed", indistinguishable from red tests. The operator fix is
-  // the opposite one (shorten the command, not fix the code).
-  it('labels a preflight that timed out distinctly from one whose command failed', () => {
+  // "Preflight failed", indistinguishable from red tests. Record mode cannot
+  // block the run, so a timeout there is "baseline unknown", not a red gate.
+  it('labels a record-mode preflight timeout as an unknown baseline, not a failure', () => {
     const state = activeState();
     state.config.audit = {
       finalAuditMode: 'off',
@@ -502,6 +502,38 @@ describe('LoopControlComponent', () => {
         command: 'npm run verify',
         status: 'failed',
         durationMs: 599_998,
+        outputExcerpt: '(verify timed out after 600000ms)',
+        failureKind: 'timeout',
+      }],
+    };
+
+    listeners.stateChanged.forEach((cb) => cb({ loopRunId: 'loop-1', state }));
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Preflight baseline unknown');
+    expect(text).not.toContain('Preflight failed');
+    expect(text).not.toContain('Preflight timed out');
+    const chip = fixture.nativeElement.querySelector('.lau-chip') as HTMLElement | null;
+    expect(chip?.getAttribute('data-state')).toBe('skipped');
+  });
+
+  it('keeps a gating preflight timeout labelled as timed out', () => {
+    const state = activeState();
+    state.config.audit = {
+      finalAuditMode: 'off',
+      preflightMode: 'block',
+      planPacketMode: 'prompted',
+      cleanlinessScan: true,
+    };
+    state.preflight = {
+      status: 'failed',
+      ranAt: 1778310001000,
+      commands: [{
+        label: 'verify',
+        command: 'npm run verify',
+        status: 'failed',
+        durationMs: 600_000,
         outputExcerpt: '(verify timed out after 600000ms)',
         failureKind: 'timeout',
       }],
@@ -596,6 +628,88 @@ describe('LoopControlComponent', () => {
     expect(fixture.nativeElement.textContent).not.toContain('Loop ·');
     expect(fixture.nativeElement.textContent).not.toContain('Loop paused — no progress');
   });
+
+  it('reports the first in-flight iteration as pending rather than a settled zero', () => {
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: { ...activeState(), totalIterations: 0, totalTokens: 0, totalCostCents: 0 },
+    }));
+    listeners.iterationStarted.forEach((cb) => cb({ loopRunId: 'loop-1', seq: 0, stage: 'IMPLEMENT' }));
+    fixture.detectChanges();
+
+    const text = statusStripText();
+    expect(text).toContain('tokens pending');
+    expect(text).toContain('cost pending');
+    expect(text).not.toContain('0 tok');
+    expect(text).not.toContain('$0.00');
+  });
+
+  it('splits settled totals from the unsettled current turn once earlier iterations exist', () => {
+    listeners.stateChanged.forEach((cb) => cb({ loopRunId: 'loop-1', state: activeState() }));
+    listeners.iterationStarted.forEach((cb) => cb({ loopRunId: 'loop-1', seq: 1, stage: 'IMPLEMENT' }));
+    fixture.detectChanges();
+
+    const text = statusStripText();
+    expect(text).toContain('2.0k tok settled + current pending');
+    expect(text).toContain('$0.05 settled + current pending');
+  });
+
+  it('still reports pending usage for a renderer that connected mid-iteration', () => {
+    // `runningIterationByLoop` is filled only by the live `loop:iteration-started`
+    // push, so a reloaded renderer never sees one for the turn already in flight.
+    // The run's own `running` status must still keep it off a settled zero.
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: { ...activeState(), totalIterations: 0, totalTokens: 0, totalCostCents: 0 },
+    }));
+    fixture.detectChanges();
+
+    const text = statusStripText();
+    expect(text).toContain('tokens pending');
+    expect(text).toContain('cost pending');
+    expect(text).not.toContain('0 tok');
+    expect(text).not.toContain('$0.00');
+    // `currentIterationElapsed()` is a hard 0 without a running iteration, so
+    // the elapsed field must not claim the turn just started.
+    expect(elapsedSegment()).toBe('pending');
+  });
+
+  it('shows a real elapsed time once the iteration-started event arrives', () => {
+    listeners.stateChanged.forEach((cb) => cb({ loopRunId: 'loop-1', state: activeState() }));
+    listeners.iterationStarted.forEach((cb) => cb({ loopRunId: 'loop-1', seq: 1, stage: 'IMPLEMENT' }));
+    fixture.detectChanges();
+
+    // Match the elapsed segment itself — the token segment also ends in
+    // "current pending" once earlier iterations have settled.
+    expect(elapsedSegment()).toBe('0s');
+  });
+
+  it('shows plain settled totals once the run is no longer running', () => {
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: { ...activeState(), status: 'paused' },
+    }));
+    fixture.detectChanges();
+
+    const text = statusStripText();
+    expect(text).toContain('2.0k tok');
+    expect(text).toContain('$0.05');
+    expect(text).not.toContain('pending');
+    expect(elapsedSegment()).toBe('idle');
+  });
+
+  /** The `· current <x> ·` segment of the status strip, whitespace-collapsed. */
+  function elapsedSegment(): string {
+    const match = /·\s*current\s+(.+?)\s*·\s*total/.exec(statusStripText().replace(/\s+/g, ' '));
+    if (!match) throw new Error(`No current segment in: ${statusStripText()}`);
+    return match[1];
+  }
+
+  function statusStripText(): string {
+    const strip = fixture.nativeElement.querySelector('.ls-text') as HTMLElement | null;
+    if (!strip) throw new Error('Missing loop status strip');
+    return strip.textContent ?? '';
+  }
 
   function bannerButton(label: string): HTMLButtonElement {
     const buttons = Array.from(

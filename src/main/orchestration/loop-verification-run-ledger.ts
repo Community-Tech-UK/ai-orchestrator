@@ -2,6 +2,7 @@ import type { LoopIteration, LoopState } from '../../shared/types/loop.types';
 import { getLogger } from '../logging/logger';
 import { getRLMDatabase } from '../persistence/rlm-database';
 import type { LoopCompletionDetector, VerifyOutcome } from './loop-completion-detector';
+import { loopExecutionCwd } from './loop-cwd';
 import { VerificationRunRecorder } from './verification-run-recorder';
 import { VerificationRunStore, type VerificationRun } from './verification-run-store';
 
@@ -98,7 +99,7 @@ export class LoopVerificationRunLedger {
         scope: 'loop',
         loopRunId: state.id,
         command: execution.command,
-        cwd: state.config.executionCwd?.trim() || state.config.workspaceCwd,
+        cwd: loopExecutionCwd(state.config),
         exitCode: execution.exitCode,
         durationMs: execution.durationMs,
         ...(iteration ? { workHash: iteration.workHash } : {}),

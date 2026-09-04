@@ -40,7 +40,7 @@
             <dt>Prompt hash</dt>
             <dd class="hash-row">
               <code>{{ b.spawnPromptHash }}</code>
-              <button type="button" class="text-btn" (click)="copyPromptHash()">Copy</button>
+              <button type="button" class="text-btn" (click)="copyPromptHash()" aria-label="Copy spawn prompt hash">Copy</button>
             </dd>
           }
           @if (b.timeoutReason) {

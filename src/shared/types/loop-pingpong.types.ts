@@ -117,11 +117,30 @@ export interface LoopPingPongConfig {
   maxRounds?: number;
   /** Spawn a brand-new reviewer instance each round (fresh eyes). Default true. */
   freshReviewerEachRound?: boolean;
+  /**
+   * Wall-clock budget for ONE agentic reviewer session, in seconds. Default 900
+   * (15 min), clamped to 60..3600.
+   *
+   * This is deliberately NOT `crossModelReview.timeoutSeconds`. That field
+   * budgets the legacy one-shot headless diff reviewer — a single prompt with a
+   * diff pasted in — and ships as 90 s. A ping-pong round is a different thing
+   * entirely: it spawns a fresh root-level CLI instance that loads the repo map
+   * and memory, reads the diff, inspects files and runs commands before it can
+   * answer. Reusing the 90 s figure timed out roughly half of all rounds
+   * (`fault: "timeout"`) and, because an UNRELIABLE round never advances
+   * `roundCount`, stalled convergence indefinitely.
+   */
+  reviewerTimeoutSeconds?: number;
 }
 
 export const PINGPONG_DEFAULT_MAX_ROUNDS = 15;
 export const PINGPONG_MIN_MAX_ROUNDS = 1;
 export const PINGPONG_MAX_MAX_ROUNDS = 20;
+
+/** Wall-clock budget for one agentic reviewer session. See `reviewerTimeoutSeconds`. */
+export const PINGPONG_DEFAULT_REVIEWER_TIMEOUT_SECONDS = 15 * 60;
+export const PINGPONG_MIN_REVIEWER_TIMEOUT_SECONDS = 60;
+export const PINGPONG_MAX_REVIEWER_TIMEOUT_SECONDS = 60 * 60;
 
 /** Clamp a requested ping-pong round cap into the supported range. */
 export function clampPingPongMaxRounds(value: number | undefined): number {
@@ -134,6 +153,21 @@ export function clampPingPongMaxRounds(value: number | undefined): number {
   );
 }
 
+/**
+ * Clamp a requested reviewer budget (seconds) into the supported range.
+ * `undefined` / non-finite ⇒ the 15-minute default, so a config persisted
+ * before this field existed gets the safe value rather than the old 90 s.
+ */
+export function clampPingPongReviewerTimeoutSeconds(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) {
+    return PINGPONG_DEFAULT_REVIEWER_TIMEOUT_SECONDS;
+  }
+  return Math.min(
+    PINGPONG_MAX_REVIEWER_TIMEOUT_SECONDS,
+    Math.max(PINGPONG_MIN_REVIEWER_TIMEOUT_SECONDS, Math.round(value)),
+  );
+}
+
 export function defaultPingPongConfig(): LoopPingPongConfig {
   return {
     enabled: true,
@@ -141,6 +175,7 @@ export function defaultPingPongConfig(): LoopPingPongConfig {
     subject: 'auto',
     maxRounds: PINGPONG_DEFAULT_MAX_ROUNDS,
     freshReviewerEachRound: true,
+    reviewerTimeoutSeconds: PINGPONG_DEFAULT_REVIEWER_TIMEOUT_SECONDS,
   };
 }
 
@@ -187,6 +222,8 @@ export interface LoopPingPongState {
   skipNextRound?: boolean;
   /** User forced a jump to human arbitration. */
   forceArbitration?: boolean;
+  /** Last workHash that opened a ping-pong round via a stale-prone `ledger-complete`. */
+  lastLedgerCompleteWorkHash?: string;
   /** Cumulative reviewer-side spend (folded into the loop budget). */
   reviewerTokensUsed: number;
   reviewerCostCents: number;

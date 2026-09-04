@@ -33,6 +33,7 @@ import {
   type ObservedVerificationCommand,
 } from './loop-anti-self-grading';
 import { parseTaskLedger } from './loop-task-ledger';
+import { loopExecutionCwd } from './loop-cwd';
 import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
 import { readUtf8FileHead } from './bounded-file-read';
 import { isInsideOrEqual } from '../util/path-helpers';
@@ -116,7 +117,19 @@ export class CompletedFileWatcher {
   private scanTimer: NodeJS.Timeout | null = null;
 
   constructor(
-    public readonly workspaceCwd: string,
+    /**
+     * The EXECUTION cwd — where the agent's plan file actually lives (the
+     * worktree under isolation). Callers resolve it with `loopExecutionCwd`.
+     *
+     * It must match what `isCompletedRenameForPlan` resolves against, because
+     * `watchTargets()` also uses it as the containment filter for
+     * `additionalWatchDirs`. Watching the repo root instead only worked while
+     * every worktree happened to be nested under it; point `executionCwd`
+     * anywhere else (an external clone, a remote-worker checkout) and the live
+     * watcher would silently drop the real plan directory, leaving the
+     * once-per-iteration poll as the only detector. See `loop-cwd.ts`.
+     */
+    public readonly executionCwd: string,
     public readonly pattern = '*_[Cc]ompleted.md',
     private readonly additionalWatchDirs: string[] = [],
   ) {}
@@ -285,7 +298,7 @@ export class CompletedFileWatcher {
   }
 
   private watchTargets(): string[] {
-    const workspace = path.resolve(this.workspaceCwd);
+    const workspace = path.resolve(this.executionCwd);
     const targets = new Set<string>([workspace]);
     for (const dir of this.additionalWatchDirs) {
       const resolved = path.isAbsolute(dir)
@@ -341,7 +354,7 @@ export interface CompletionObservationInput {
   verificationRuns?: readonly ObservedVerificationCommand[];
 }
 
-export type VerifyFailureKind = 'command' | 'timeout' | 'infra';
+export type VerifyFailureKind = 'command' | 'timeout' | 'infra' | 'environment';
 
 export type VerifyOutcome =
   | { status: 'passed'; output: string; durationMs: number }
@@ -372,6 +385,14 @@ export function isSubstantiveInvestigationReport(content: string): boolean {
   const trimmed = content.trim();
   if (trimmed.length < MIN_INVESTIGATION_REPORT_CHARS) return false;
   return FILE_LINE_CITATION_RE.test(trimmed);
+}
+
+const ENVIRONMENT_VERIFY_RE =
+  /Cannot find module|ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND|npm ERR!|ELIFECYCLE|ENOENT.*node_modules/i;
+
+export function classifyCommandVerifyFailure(output: string, isolated: boolean): VerifyFailureKind {
+  if (isolated && ENVIRONMENT_VERIFY_RE.test(output)) return 'environment';
+  return 'command';
 }
 
 /**
@@ -542,7 +563,9 @@ export class LoopCompletionDetector {
     // we use the same `parsePlanChecklist` function here so the runtime
     // measurement matches the baseline measurement exactly.
     if (config.planFile && !state.planChecklistFullyCheckedAtStart) {
-      const planPath = path.resolve(config.workspaceCwd, config.planFile);
+      // The plan is work product: under isolation the agent ticks the checklist
+      // in its worktree copy, not the repo root's. See `loop-cwd.ts`.
+      const planPath = path.resolve(loopExecutionCwd(config), config.planFile);
       try {
         const text = (await readUtf8FileHead(planPath)).text;
         const { checked, fullyChecked } = parsePlanChecklist(text);
@@ -654,7 +677,17 @@ export class LoopCompletionDetector {
       // distinct 'skipped' so the coordinator refuses to stop on it.
       return { status: 'skipped', output: '(no verify command configured)', durationMs: 0 };
     }
-    return this.spawnVerify(cmd, config.workspaceCwd, config.completion.verifyTimeoutMs, 'verify');
+    return this.spawnVerify(
+      cmd,
+      // Resolved HERE, at the sink, not by the caller: the verify command must
+      // run where the agent actually worked. Under isolation `workspaceCwd` is
+      // the repo root and grading it means grading other sessions' uncommitted
+      // work — see `loop-cwd.ts`.
+      loopExecutionCwd(config),
+      config.completion.verifyTimeoutMs,
+      'verify',
+      config.isolateLoopWorkspaces === true,
+    );
   }
 
   /**
@@ -675,25 +708,41 @@ export class LoopCompletionDetector {
       return { status: 'skipped', output: '(no quick verify command configured)', durationMs: 0 };
     }
     const timeout = config.completion.quickVerifyTimeoutMs ?? 120_000;
-    return this.spawnVerify(cmd, config.workspaceCwd, timeout, 'quick-verify');
+    return this.spawnVerify(
+      cmd,
+      // Same as `runVerify`: resolved at the sink. See `loop-cwd.ts`.
+      loopExecutionCwd(config),
+      timeout,
+      'quick-verify',
+      config.isolateLoopWorkspaces === true,
+    );
   }
 
   private spawnVerify(
     cmd: string,
-    workspaceCwd: string,
+    /** Execution cwd — where the agent worked, resolved by the caller above. */
+    executionCwd: string,
     timeoutMs: number,
     label: 'verify' | 'quick-verify',
+    isolated: boolean,
   ): Promise<VerifyOutcome> {
     const started = Date.now();
     return new Promise<VerifyOutcome>((resolve) => {
       const inv = buildVerifyInvocation(cmd);
       const child = spawn(inv.file, inv.args, {
-        cwd: workspaceCwd,
+        cwd: executionCwd,
         // On non-Windows we invoke the user's login shell directly (`-lc`), so
         // `shell` must stay off — `inv.file` already IS the shell. On Windows
         // `useShellOption` is true and we fall back to the prior `shell: true`.
         shell: inv.useShellOption,
-        env: { ...process.env, CI: '1' },
+        env: {
+          ...process.env,
+          CI: '1',
+          AIO_TEST_OUT_SUFFIX:
+            process.env['AIO_TEST_OUT_SUFFIX']
+            || `loop-verify-${process.pid}-${Date.now().toString(36)}`,
+          AIO_TEST_NO_CACHE: '1',
+        },
       });
       let stdout = '';
       let stderr = '';
@@ -732,7 +781,7 @@ export class LoopCompletionDetector {
             output,
             durationMs: Date.now() - started,
             exitCode: code,
-            failureKind: 'command',
+            failureKind: classifyCommandVerifyFailure(output, isolated),
           });
         }
       });
@@ -773,7 +822,8 @@ export class LoopCompletionDetector {
     state: LoopState,
   ): Promise<string | null> {
     if (!config.planFile) return null;
-    const workspace = path.resolve(config.workspaceCwd);
+    // Work product — resolved against the execution cwd. See `loop-cwd.ts`.
+    const workspace = path.resolve(loopExecutionCwd(config));
     const original = path.resolve(workspace, config.planFile);
     if (!isInsideOrEqual(workspace, original)) return null;
     if (await pathExists(original)) return null;

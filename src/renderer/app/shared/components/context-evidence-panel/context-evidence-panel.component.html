@@ -142,9 +142,9 @@
                   }
                   <div class="inspection-actions">
                     @if (hasMoreChunks(record)) {
-                      <button type="button" (click)="readNextChunk(record)">Load next chunk</button>
+                      <button type="button" (click)="readNextChunk(record)" [attr.aria-label]="'Load next chunk of evidence ' + record.id">Load next chunk</button>
                     }
-                    <button type="button" (click)="closeInspection()">Close</button>
+                    <button type="button" (click)="closeInspection()" aria-label="Close evidence inspection">Close</button>
                   </div>
                 </div>
               }

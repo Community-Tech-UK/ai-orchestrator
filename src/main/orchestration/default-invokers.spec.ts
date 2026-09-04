@@ -85,6 +85,7 @@ vi.mock('../../shared/types/provider.types', async (importOriginal) => ({
 
 import {
   classifyCheapModelEligible,
+  _resetCheapEligibleCacheForTesting,
   registerDefaultDebateInvoker,
   registerDefaultMultiVerifyInvoker,
   registerDefaultReviewInvoker,
@@ -704,6 +705,7 @@ describe('resolveModelForInvocation (intent-routing Phase 2)', () => {
 describe('classifyCheapModelEligible (routingClassification slot)', () => {
   beforeEach(() => {
     hoisted.auxGenerate.mockReset();
+    _resetCheapEligibleCacheForTesting();
   });
 
   it('returns true when the aux model reports eligible', async () => {
@@ -749,5 +751,22 @@ describe('classifyCheapModelEligible (routingClassification slot)', () => {
     expect(userPrompt).toContain('Summarize the README in three bullets.');
     expect(userPrompt).not.toContain('many coordinator instructions');
     expect(userPrompt).not.toContain('more scaffold');
+  });
+
+  it('classifies the same persistent goal only once', async () => {
+    hoisted.auxGenerate.mockResolvedValue({
+      text: JSON.stringify({ eligible: true, reason: 'simple goal' }),
+      decision: { slot: 'routingClassification' },
+    });
+    const loopPrompt = [
+      '# Loop Mode — Iteration 4',
+      '## Goal (persistent across iterations)',
+      'Summarize the README in three bullets.',
+      '## Step 2 — Do this iteration\'s work',
+    ].join('\n');
+
+    expect(await classifyCheapModelEligible(loopPrompt)).toBe(true);
+    expect(await classifyCheapModelEligible(loopPrompt.replace('Iteration 4', 'Iteration 5'))).toBe(true);
+    expect(hoisted.auxGenerate).toHaveBeenCalledTimes(1);
   });
 });

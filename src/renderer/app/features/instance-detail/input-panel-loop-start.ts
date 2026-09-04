@@ -1,4 +1,5 @@
 import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
+import { isCanonicalLoopPrompt } from '../loop/loop-prompt-history.service';
 
 export interface LoopStartRequestPayload {
   config: LoopStartConfigInput;
@@ -34,10 +35,14 @@ export async function tryStartLoopFromPanel(
 
   const firstMessage = deps.message().trim();
   const panelPrompt = panelConfig.initialPrompt.trim();
+  const reviewDriven = panelConfig.completion?.mode === 'review-driven'
+    || Boolean(panelConfig.completion?.crossModelReview?.pingPong?.enabled);
+  const sendContinuation = Boolean(firstMessage)
+    && !(reviewDriven && isCanonicalLoopPrompt(panelPrompt));
   const finalConfig: LoopStartConfigInput = {
     ...panelConfig,
     initialPrompt: firstMessage || panelPrompt,
-    iterationPrompt: firstMessage ? panelPrompt : undefined,
+    iterationPrompt: sendContinuation ? panelPrompt : undefined,
   };
 
   const attachments = await Promise.all(

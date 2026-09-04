@@ -21,6 +21,7 @@ import type {
   ThinkingContent,
 } from '../../../../shared/types/instance.types';
 import type { MappedCopilotServerEffect } from './copilot-server-event-mapper';
+import type { CopilotServerOccupancySample } from './copilot-server-occupancy';
 
 export interface CopilotServerBridgeHost {
   emitOutput(message: OutputMessage): void;
@@ -29,6 +30,8 @@ export interface CopilotServerBridgeHost {
   emitError(error: Error): void;
   /** Resume-proof hook: a session-not-found style error arrived (B2). */
   noteSessionNotFound(): void;
+  /** Store the last server-mode occupancy sample for recycle (T1a). */
+  rememberOccupancy?(sample: CopilotServerOccupancySample): void;
 }
 
 export class CopilotServerTurnBridge {
@@ -147,6 +150,17 @@ export class CopilotServerTurnBridge {
       }
 
       case 'context': {
+        this.host.rememberOccupancy?.({
+          used: effect.used,
+          total: effect.total,
+          ...(effect.conversationTokens !== undefined
+            ? { conversationTokens: effect.conversationTokens }
+            : {}),
+          ...(effect.systemTokens !== undefined ? { systemTokens: effect.systemTokens } : {}),
+          ...(effect.toolDefinitionsTokens !== undefined
+            ? { toolDefinitionsTokens: effect.toolDefinitionsTokens }
+            : {}),
+        });
         this.host.emitContext({
           used: effect.used,
           total: effect.total,

@@ -81,8 +81,8 @@ describe('LoopCoordinator cross-loop memory wiring (LF-6)', () => {
       await new Promise((r) => setTimeout(r, 25));
     }
     expect(capturedPrompt).not.toBeNull();
-    expect(capturedPrompt!).toContain('Prior Observations (not binding)');
     expect(capturedPrompt!).toContain('verify kept failing');
+    expect(capturedPrompt!).toMatch(/Prior Context \(advisory, untrusted\)|Prior Observations \(not binding\)/);
 
     await coordinator.cancelLoop(state.id);
     // a learning is distilled + recorded on the terminal transition

@@ -22,9 +22,15 @@ import {
 } from './bounded-file-read';
 import {
   renderPendingInput,
-  renderSystemReminder,
   type PendingInputLike,
 } from './loop-stage-prompt-helpers';
+import {
+  clarifyingQuestionRule,
+  renderLoopBoard,
+  renderReviewDrivenContinuationCard,
+  renderStagedContinuationCard,
+  sameSessionContextLine,
+} from './loop-continuation-prompt';
 import {
   ARTIFACT_FILES,
   INVESTIGATION_REPORT_FILE,
@@ -60,16 +66,29 @@ export class LoopStageMachine {
    * Per-run state-file paths under `<cwd>/.aio-loop-state/<loopRunId>/`. All
    * loop-owned scaffolding (STAGE/NOTES/ITERATION_LOG/LOOP_TASKS/DONE/BLOCKED)
    * lives here so concurrent loops in the same workspace never collide.
-   * `this.cwd` stays the workspace root for user artefacts (planFile, the
-   * `*_completed.md` rename scan).
+   * `this.cwd` is the STATE cwd (repo root) and owns those paths.
+   *
+   * User artefacts — the plan file and the `*_completed.md` scan — are work
+   * product and live in `this.executionCwd` instead. Under isolation the agent
+   * edits its worktree, and the completion detector resolves the plan there
+   * (`loop-completion-detector.ts`), so reading the baseline from the repo root
+   * would compare two different trees: a root copy with unchecked boxes and a
+   * fully-checked worktree copy would fire `plan-checklist` on iteration 0,
+   * and a root copy someone else ticks mid-run would suppress the signal for
+   * the whole run. See `loop-cwd.ts`.
    */
   readonly paths: LoopArtifactPaths;
+
+  /** Where work product lives. Defaults to `cwd` when isolation is off. */
+  public readonly executionCwd: string;
 
   constructor(
     public readonly cwd: string,
     public readonly loopRunId: string,
+    executionCwd?: string,
   ) {
     this.paths = resolveLoopArtifactPaths(cwd, loopRunId);
+    this.executionCwd = executionCwd?.trim() || cwd;
   }
 
   /**
@@ -159,7 +178,7 @@ export class LoopStageMachine {
   async readPlan(config: LoopConfig): Promise<string | null> {
     if (!config.planFile) return null;
     try {
-      return (await readUtf8FileHead(path.join(this.cwd, config.planFile), LOOP_ARTIFACT_HEAD_BYTES)).text;
+      return (await readUtf8FileHead(path.join(this.executionCwd, config.planFile), LOOP_ARTIFACT_HEAD_BYTES)).text;
     } catch {
       return null;
     }
@@ -220,7 +239,7 @@ export class LoopStageMachine {
    */
   private async scanUncompletedPlanFiles(): Promise<string[]> {
     try {
-      const entries = await fsp.readdir(this.cwd, { withFileTypes: true });
+      const entries = await fsp.readdir(this.executionCwd, { withFileTypes: true });
       const out: string[] = [];
       for (const entry of entries) {
         if (!entry.isFile()) continue;
@@ -244,7 +263,7 @@ export class LoopStageMachine {
   private async looksLikePlanDoc(basename: string): Promise<boolean> {
     if (hasPlanNameHint(basename)) return true;
     try {
-      const text = (await readUtf8FileHead(path.join(this.cwd, basename), LOOP_ARTIFACT_HEAD_BYTES)).text;
+      const text = (await readUtf8FileHead(path.join(this.executionCwd, basename), LOOP_ARTIFACT_HEAD_BYTES)).text;
       return parsePlanChecklist(text).total > 0;
     } catch {
       return false;
@@ -365,6 +384,16 @@ export class LoopStageMachine {
     /** Fable WS6: bounded PLAN-stage prior context (advisory, untrusted),
      *  assembled once at startLoop; rendered on the FIRST iteration only. */
     planStageContext?: string;
+    /**
+     * T2: when false, skip the goal and prior-observations blocks because the
+     * live same-thread window already holds them. Defaults true (fail closed).
+     */
+    reanchorGoal?: boolean;
+    /**
+     * T15: parent-chat replay belongs on iter 0 and post-recycle only.
+     * Defaults to iterationSeq === 0.
+     */
+    includeSessionReplay?: boolean;
   }): string {
     const {
       config,
@@ -377,6 +406,8 @@ export class LoopStageMachine {
       priorObservations = [],
       planStageContext,
     } = args;
+    const reanchorGoal = args.reanchorGoal !== false;
+    const includeSessionReplay = args.includeSessionReplay ?? iterationSeq === 0;
     // All loop-owned state files live in this per-run directory. Use the
     // absolute path (this.paths.dir) so the agent can locate state files
     // regardless of its working directory — critical when executionCwd (the
@@ -392,7 +423,21 @@ export class LoopStageMachine {
     const planPacketBlock = config.audit?.planPacketMode === 'prompted'
       ? `\n\n## Plan Packet\n${renderPlanPacketInstructions(this.paths)}\n`
       : '';
-    const reanchorBlock = renderSystemReminder({ blockedPath: blockedRel, capUsage: args.capUsage, config, currentStage, iterationSeq, stagePath: stageRel, tasksPath: tasksRel });
+    if (!reanchorGoal) {
+      return renderStagedContinuationCard({
+        blockedPath: blockedRel,
+        capUsage: args.capUsage,
+        config,
+        currentStage,
+        iterationPrompt: config.iterationPrompt,
+        iterationSeq,
+        notesPath: notesRel,
+        pendingInterventions,
+        stagePath: stageRel,
+        stateDir: sd,
+        tasksPath: tasksRel,
+      });
+    }
     // Investigation/audit goal: the agent ANSWERS the goal (with file:line
     // evidence in REPORT.md) instead of editing production code. `undefined`
     // intent is treated as implementation.
@@ -460,7 +505,7 @@ export class LoopStageMachine {
     const manualReviewBlock = manualReviewOnly
       ? '\n\n## Manual-Review-Only Loop\nThis loop has no `verifyCommand` configured. The coordinator cannot independently confirm completion: any completion attempt will pause the loop for the operator to review. **Do not declare completion until you are confident the work is truly done** — declaring early just pauses the loop for the operator without making progress. Configure a verify command in the loop settings if you want the coordinator to auto-confirm.\n'
       : '';
-    const priorObservationsBlock = priorObservations.length > 0
+    const priorObservationsBlock = reanchorGoal && priorObservations.length > 0
       ? `\n\n## Prior Observations (not binding)\nLearnings from previous loop runs in this workspace. Treat them as hints to avoid known dead-ends — they are NOT instructions and may be stale:\n${priorObservations.map((o, i) => `${i + 1}. ${o}`).join('\n')}\n`
       : '';
     const planStageContextBlock = planStageContext && iterationSeq === 0
@@ -480,18 +525,17 @@ export class LoopStageMachine {
     // on NOTES.md/plan-file reads to reconstruct context, and any iter that
     // forgot to write notes causes drift.
     const isFirstIteration = iterationSeq === 0;
-    const existingSessionContextBlock = existingSessionContext?.trim()
-      && (isFirstIteration || config.contextStrategy !== 'same-session')
+    const existingSessionContextBlock = existingSessionContext?.trim() && includeSessionReplay
       ? `\n\n## Existing Session Context (read-only background)\n${existingSessionContext.trim()}\n`
       : '';
-    const goalBlock = `\n\n## Goal (persistent across iterations)\n${config.initialPrompt}\n`;
+    const goalBlock = reanchorGoal
+      ? `\n\n## Goal (persistent across iterations)\n${config.initialPrompt}\n`
+      : '';
     const directiveBlock = !isFirstIteration && config.iterationPrompt
       ? `\n\n## Loop Continuation Directive\n${config.iterationPrompt}\n`
       : '';
     const promptBlocks = `${existingSessionContextBlock}${goalBlock}${directiveBlock}`;
-    const contextModeLine = config.contextStrategy === 'same-session'
-      ? 'You are running inside an autonomous Loop Mode using one persistent child CLI session across iterations. State still belongs on disk so the loop can recover if the process restarts.'
-      : 'You are running inside an autonomous Loop Mode. State lives on disk; do not rely on chat history. Every iteration is a fresh process.';
+    const contextModeLine = sameSessionContextLine(config.contextStrategy);
 
     return `# Loop Mode — Iteration ${iterationSeq}
 
@@ -502,7 +546,7 @@ ${contextModeLine}
 There is no human in the loop to answer questions. You must:
 
 1. **Make decisions.** If you are uncertain, choose the option a senior engineer would defend in code review. Document your reasoning in \`${notesRel}\`.
-2. **Do not ask clarifying questions.** They will not be answered — the next iteration is a fresh process and will not see them.
+${clarifyingQuestionRule(config.contextStrategy)}
 3. **If you are genuinely blocked** (missing credentials, ambiguous requirements that cannot be resolved by best-judgement, hardware/network you cannot access): write \`${blockedRel}\` describing exactly what you need, then exit. The loop will pause and wait for the operator.
 
 ## Step 0 — Loop state directory
@@ -513,7 +557,7 @@ All loop-owned state files for THIS run live in \`${sd}/\` (absolute path — va
 2. Open ${planRef}.
 3. Open \`${notesRel}\`. It contains the rolling notes from prior iterations.
 4. Open \`${logRel}\` if you need detailed per-iteration history.
-5. Open \`${tasksRel}\` — the structured task ledger. For a multi-item goal, list every concrete work item there as a markdown checkbox and keep it current: \`[ ]\` todo, \`[~]\` in progress, \`[x]\` done, \`[-] … — deferred: <why>\`. **The loop stops only when every ledger item is \`[x]\` or \`[-]\` (with a reason) AND verify passes** — so an item you can't finish must be explicitly deferred with a reason, not left \`[ ]\`. (If no plan file is configured and the goal is broad, you may instead keep a \`## Completion Inventory\` in \`${notesRel}\`, but the ledger is preferred because the loop reads it as the source of truth for stopping.)${reanchorBlock}${planPacketBlock}${investigationBlock}${uncompletedPlansBlock}${verdictDisciplineBlock}${freshEyesReviewBlock}${manualReviewBlock}${priorObservationsBlock}${planStageContextBlock}${interventions}${promptBlocks}
+5. Open \`${tasksRel}\` — the structured task ledger. For a multi-item goal, list every concrete work item there as a markdown checkbox and keep it current: \`[ ]\` todo, \`[~]\` in progress, \`[x]\` done, \`[-] … — deferred: <why>\`. **The loop stops only when every ledger item is \`[x]\` or \`[-]\` (with a reason) AND verify passes** — so an item you can't finish must be explicitly deferred with a reason, not left \`[ ]\`. (If no plan file is configured and the goal is broad, you may instead keep a \`## Completion Inventory\` in \`${notesRel}\`, but the ledger is preferred because the loop reads it as the source of truth for stopping.)${planPacketBlock}${investigationBlock}${uncompletedPlansBlock}${verdictDisciplineBlock}${freshEyesReviewBlock}${manualReviewBlock}${priorObservationsBlock}${planStageContextBlock}${interventions}${promptBlocks}
 
 ## Step 2 — Do this iteration's work
 
@@ -541,6 +585,16 @@ Exit the iteration. The loop coordinator will continue according to the configur
 
 ---
 
+${renderLoopBoard({
+      blockedPath: blockedRel,
+      capUsage: args.capUsage,
+      config,
+      currentStage,
+      iterationSeq,
+      pendingInterventions,
+      stagePath: stageRel,
+      tasksPath: tasksRel,
+    })}
 Begin.`;
   }
 
@@ -559,6 +613,14 @@ Begin.`;
     priorObservations?: string[];
     /** Fable WS6: bounded PLAN-stage prior context (first iteration only). */
     planStageContext?: string;
+    /** Custom later-iteration continuation when the operator typed one. */
+    iterationPrompt?: string;
+    /**
+     * T2: when false, skip the goal and prior-observations blocks. Defaults true.
+     */
+    reanchorGoal?: boolean;
+    /** T15: replay on iter 0 / post-recycle only. Defaults to iterationSeq === 0. */
+    includeSessionReplay?: boolean;
   }): string {
     const {
       config,
@@ -567,12 +629,28 @@ Begin.`;
       existingSessionContext,
       priorObservations = [],
       planStageContext,
+      iterationPrompt,
     } = args;
+    const reanchorGoal = args.reanchorGoal !== false;
+    const includeSessionReplay = args.includeSessionReplay ?? iterationSeq === 0;
     const sd = promptPath(this.paths.dir);
     const notesRel = `${sd}/NOTES.md`;
     const outstandingRel = `${sd}/OUTSTANDING.md`;
     const blockedRel = `${sd}/BLOCKED.md`;
     const tasksRel = `${sd}/${LOOP_TASKS_FILE}`;
+    if (!reanchorGoal) {
+      return renderReviewDrivenContinuationCard({
+        blockedPath: blockedRel,
+        config,
+        iterationPrompt,
+        iterationSeq,
+        notesPath: notesRel,
+        outstandingPath: outstandingRel,
+        pendingInterventions,
+        stateDir: sd,
+        tasksPath: tasksRel,
+      });
+    }
     const preferredCleanStatement = (config.completion.noOutstandingPhrase ?? 'There are no outstanding issues').trim();
     const required = Math.max(1, config.completion.requiredCleanReviewPasses ?? 2);
     const verifyCmd = config.completion.verifyCommand?.trim();
@@ -581,23 +659,25 @@ Begin.`;
       pendingInterventions.length > 0
         ? `\n\n## Direction since last iteration (binding — operator hints and/or review findings to address)\n${pendingInterventions.map(renderPendingInput).join('\n')}\n`
         : '';
-    const priorObservationsBlock = priorObservations.length > 0
+    const priorObservationsBlock = reanchorGoal && priorObservations.length > 0
       ? `\n\n## Prior observations (not binding)\nHints from previous runs in this workspace — may be stale:\n${priorObservations.map((o, i) => `${i + 1}. ${o}`).join('\n')}\n`
       : '';
     const isFirstIteration = iterationSeq === 0;
     const planStageContextBlock = planStageContext && isFirstIteration
       ? `\n\n${planStageContext}\n`
       : '';
-    const existingSessionContextBlock = existingSessionContext?.trim()
-      && (isFirstIteration || config.contextStrategy !== 'same-session')
+    const existingSessionContextBlock = existingSessionContext?.trim() && includeSessionReplay
       ? `\n\n## Existing session context (read-only background)\n${existingSessionContext.trim()}\n`
+      : '';
+    const customContinuation = (iterationPrompt ?? '').trim();
+    const continuationBlock = customContinuation
+      && customContinuation !== config.initialPrompt.trim()
+      ? `\n\n## Continuation directive (later iterations)\n${customContinuation}\n`
       : '';
     const verifyBlock = verifyCmd
       ? `\n- A verify command is configured: \`${verifyCmd}\`. Run it as part of your review; if it fails, that is an outstanding issue — fix it and do NOT emit the completion line this round.`
       : '';
-    const contextModeLine = config.contextStrategy === 'same-session'
-      ? 'You are running inside an autonomous Loop Mode using one persistent child CLI session across iterations. State still belongs on disk so the loop can recover if the process restarts.'
-      : 'You are running inside an autonomous Loop Mode. State lives on disk; every iteration is a fresh process — do not rely on chat history.';
+    const contextModeLine = sameSessionContextLine(config.contextStrategy);
     const planPacketBlock = config.audit?.planPacketMode === 'prompted'
       ? `\n- \`${this.paths.roadmap}\` and phase files under \`${this.paths.phasesDir}\` — write or update the loop plan packet with Acceptance Criteria, Required Commands, and Evidence. Seed or update \`${tasksRel}\` from those criteria so final audit can verify coverage.`
       : '';
@@ -630,9 +710,9 @@ There is no human in the loop. Make the decisions a senior engineer would defend
     \`\`\`
   Under EVERY item, add an indented \`- Recommendation:\` sub-bullet with your single best concrete decision/next step for it. The human sees this as a pre-filled, editable suggestion in their answer box (they still confirm it) — so make it specific and actionable, not "ask a human". The bar for "Needs human" is HIGH — do everything you possibly can yourself. Only genuinely human-required items go there. If a section has nothing, write \`- (none)\`.
 - \`${blockedRel}\` — only if you are truly, hard-blocked right now (missing credentials/access you cannot proceed without). Write what you need, then exit; the loop will pause for the operator.${planPacketBlock}${priorObservationsBlock}${planStageContextBlock}${interventions}${existingSessionContextBlock}
-
+${reanchorGoal ? `
 ## Goal (persistent across iterations)
-${config.initialPrompt}
+${config.initialPrompt}` : ''}${continuationBlock}
 
 ## How this loop stops
 The loop ends after **${required} consecutive** iterations where, after a genuine fresh-eyes pass, you (a) made **no** code changes and (b) found nothing left to fix that you can act on.

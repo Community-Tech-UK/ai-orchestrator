@@ -243,6 +243,7 @@ function implicationFor(
   paused: boolean,
   blocked: boolean,
   autoUnstickInFlight: boolean,
+  reviewDriven: boolean,
 ): string {
   if (blocked) {
     return 'The loop cannot continue on its own. It is waiting on you.';
@@ -254,6 +255,9 @@ function implicationFor(
     return 'The loop is trying a different approach on its own. A hint still helps if you already know a better path.';
   }
   if (running && severity === 'CRITICAL') {
+    if (reviewDriven) {
+      return 'The loop is still running. Review-driven mode will not pause on this signal by itself. A hint now often unsticks it.';
+    }
     return 'The loop is still running. If this keeps happening it will pause on its own. A hint now often unsticks it.';
   }
   if (running && severity === 'WARN') {
@@ -319,6 +323,8 @@ export function buildLoopIssueView(input: {
   blocked?: boolean;
   /** True when the coordinator already injected a change-of-approach nudge. */
   autoUnstickInFlight?: boolean;
+  /** Review-driven / ping-pong loops do not pause on progress CRITICAL. */
+  reviewDriven?: boolean;
 }): LoopIssueView | null {
   const pauseSignal = input.pauseSignal ? signalViews([input.pauseSignal])[0] : null;
   const severity = [input.verdict, pauseSignal?.verdict ?? 'OK']
@@ -351,7 +357,14 @@ export function buildLoopIssueView(input: {
     chipLabel: progressVerdictWord(severity),
     headline,
     problem,
-    implication: implicationFor(severity, input.running, input.paused, blocked, autoUnstickInFlight),
+    implication: implicationFor(
+      severity,
+      input.running,
+      input.paused,
+      blocked,
+      autoUnstickInFlight,
+      input.reviewDriven === true,
+    ),
     fixability,
     fixabilityLabel: fixabilityLabel(fixability),
     nextStep: blocked
@@ -393,6 +406,8 @@ export function buildIterationEvidenceView(iteration: {
     verifyText = 'Verify timed out — the command itself did not finish, so this is not a test failure.';
   } else if (iteration.verifyFailureKind === 'infra') {
     verifyText = 'Verify could not run (infrastructure), so this is not a test failure.';
+  } else if (iteration.verifyFailureKind === 'environment') {
+    verifyText = 'Verify failed because the isolated workspace is missing dependencies (for example node_modules), not because the tests themselves failed.';
   } else if (iteration.verifyStatus === 'failed') {
     verifyText = 'Verify ran and failed.';
   } else if (iteration.verifyStatus === 'passed') {

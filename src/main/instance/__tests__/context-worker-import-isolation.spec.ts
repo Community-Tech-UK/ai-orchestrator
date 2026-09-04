@@ -50,7 +50,11 @@ const WORKER_ENTRY = resolve(SPEC_DIR, '../context-worker-main.ts');
 // HEAD-to-working-tree closure diff confirmed exactly five additions: the two
 // request handlers, the leaf RLM IPC serializer, context-section-filter-metadata,
 // and semantic-vector-delta-repair. None is a barrel or imports Electron.
-const CLOSURE_SIZE_CEILING = 143;
+// 2026-09-03: 143 after `loop-activity.schemas.ts` was extracted from
+// `loop.schemas.ts` so the loop activity-kind enum can live beside the other
+// split loop schema leaves. Diff-verified as that one new leaf; it does not
+// import Electron.
+const CLOSURE_SIZE_CEILING = 144;
 
 function resolveImport(spec: string, fromFile: string): string | null {
   if (!spec.startsWith('.')) return null; // bare module (electron, node:*, npm)

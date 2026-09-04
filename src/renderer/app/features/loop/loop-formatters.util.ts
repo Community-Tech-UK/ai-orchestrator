@@ -184,6 +184,35 @@ export function summaryHasDistinctIterationPrompt(summary: {
   );
 }
 
+export type LoopStatusTone = 'ok' | 'warn' | 'error' | 'running' | 'paused' | 'neutral';
+
+export function loopStatusTone(status: string): LoopStatusTone {
+  switch (status) {
+    case 'completed':
+      return 'ok';
+    case 'running':
+      return 'running';
+    case 'paused':
+    case 'completed-needs-review':
+    case 'needs-human-arbitration':
+      return 'paused';
+    case 'error':
+    case 'failed':
+    case 'reviewer-unreliable':
+    case 'reviewer-unavailable':
+    case 'builder-unreliable':
+      return 'error';
+    case 'cap-reached':
+    case 'cost-exceeded':
+    case 'provider-limit':
+    case 'no-progress':
+    case 'cancelled':
+      return 'warn';
+    default:
+      return 'neutral';
+  }
+}
+
 /**
  * Friendly label for *any* loop status — used for the persisted
  * past-runs list which can include running/paused entries (e.g. when

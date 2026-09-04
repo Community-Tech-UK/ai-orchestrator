@@ -16,13 +16,13 @@ import {
   type RemoteReviewerProvider,
 } from '../../../../shared/types/reviewer-provider.types';
 import { resolveLoopGoalIntent } from '../../../../shared/utils/loop-intent';
+import { defaultLoopContextConfig } from '../../../../shared/types/loop.types';
 
 // Defaults that match defaultLoopConfig() in src/shared/types/loop.types.ts.
 // We must include all sub-fields whenever caps/completion/progressThresholds
 // are sent — those strict blocks fail validation if they are present but empty.
 const DEFAULT_CAPS = {
   maxIterations: 50,
-  maxToolCallsPerIteration: 200,
 };
 /** WS6: finite per-iteration turn default (mirrors
  *  LOOP_DEFAULT_MAX_TURNS_PER_ITERATION = 30 in shared loop types). */
@@ -82,9 +82,9 @@ const DEFAULT_NEXT_OBJECTIVE_PLANNING = {
   cadence: 1,
 };
 const DEFAULT_AUDIT = {
-  finalAuditMode: 'gate' as const,
-  preflightMode: 'record' as const,
-  planPacketMode: 'prompted' as const,
+  finalAuditMode: 'observe' as const,
+  preflightMode: 'off' as const,
+  planPacketMode: 'off' as const,
   cleanlinessScan: true,
 };
 type PlanPacketMode = 'off' | 'prompted';
@@ -184,7 +184,7 @@ export class LoopConfigPanelComponent {
   /** Per-iteration stream-idle warning, exposed in seconds for UI sanity. */
   streamIdleTimeoutSec = signal(300);
   requireRename = signal(false);
-  runVerifyTwice = signal(true);
+  runVerifyTwice = signal(false);
   /** LF-1: recycle the same-session adapter to a fresh session on long runs. */
   compactContext = signal(true);
   /** LF-4: disposable plan — regenerate from the goal on repeated stall. */
@@ -198,14 +198,20 @@ export class LoopConfigPanelComponent {
   preflightMode = signal<'off' | 'record' | 'block'>(DEFAULT_AUDIT.preflightMode);
   planPacketMode = signal<PlanPacketMode>(DEFAULT_AUDIT.planPacketMode);
   cleanlinessScan = signal(DEFAULT_AUDIT.cleanlinessScan);
-  /** Reset threshold as a fraction (mirrors defaultLoopContextConfig 0.6). */
-  compactionResetUtilization = signal(0.6);
+  /**
+   * Reset threshold as a fraction. Seeded from the shared default rather than
+   * copied: this panel sends `context.compaction` unconditionally, so a
+   * hardcoded literal here silently overrides the shipped default for every
+   * loop started from the UI — which is how the old 0.6 threshold survived a
+   * change to the default and kept recycling long runs every few iterations.
+   */
+  compactionResetUtilization = signal(defaultLoopContextConfig().compaction.resetAtUtilization);
   compactionThresholdPct = computed(() => Math.round(this.compactionResetUtilization() * 100));
   operatorReviewedCompletion = signal(false);
   freshEyesReview = signal(false);
   /** Ping-pong mode: a different-provider agentic reviewer reviews every
    *  builder done-declaration until both models agree (or a backstop fires). */
-  pingPongEnabled = signal(true);
+  pingPongEnabled = signal(false);
   pingPongReviewerProvider = signal<'auto' | RemoteReviewerProvider>('auto');
   readonly pingPongReviewerOptions = REMOTE_REVIEWER_PROVIDER_DEFINITIONS;
   pingPongSubject = signal<'auto' | 'plan' | 'impl'>('auto');
@@ -236,14 +242,12 @@ export class LoopConfigPanelComponent {
   showAdvanced = signal(false);
   private planPacketModeManuallyOverridden = false;
   planFileRequiresRename = computed(() => this.planFile().trim().length > 0);
-  effectiveRequireRename = computed(() => this.planFileRequiresRename() || this.requireRename());
-  private defaultPlanPacketMode = computed<PlanPacketMode>(() => {
-    if (this.planFile().trim()) return 'prompted';
-    if (this.prompt().length >= 800) return 'prompted';
-    const maxIterations = this.maxIterations();
-    if (maxIterations === null) return 'prompted';
-    return maxIterations >= 5 ? 'prompted' : 'off';
-  });
+  effectiveRequireRename = computed(() =>
+    this.showGatedChrome() && (this.planFileRequiresRename() || this.requireRename()),
+  );
+  /** Recipe, stages, and rename-gate only apply to gated runs that are not ping-pong. */
+  showGatedChrome = computed(() => this.completionMode() === 'gated' && !this.pingPongEnabled());
+  private defaultPlanPacketMode = computed<PlanPacketMode>(() => 'off');
 
   constructor() {
     // Fable WS6: populate the recipe picker (falls back to the static
@@ -521,6 +525,11 @@ export class LoopConfigPanelComponent {
     this.failoverProviders.set([...current]);
   }
 
+  onCompletionModeChange(mode: 'review-driven' | 'gated'): void {
+    this.completionMode.set(mode);
+    if (mode === 'gated') this.pingPongEnabled.set(false);
+  }
+
   buildConfig(): LoopStartConfigInput | null {
     if (!this.canSubmit()) return null;
     const provider = this.provider();
@@ -533,11 +542,11 @@ export class LoopConfigPanelComponent {
       workspaceCwd: this.workspaceCwd(),
       planFile,
       provider,
-      reviewStyle: this.reviewStyle(),
-      contextStrategy: this.contextStrategy(),
-      initialStage: this.initialStage(),
+      reviewStyle: 'single',
+      contextStrategy: this.contextStrategy() === 'hybrid' ? 'fresh-child' : this.contextStrategy(),
+      initialStage: this.showGatedChrome() ? this.initialStage() : 'IMPLEMENT',
       maxTurnsPerIteration: this.maxTurns(),
-      loopRecipe: this.loopRecipe(),
+      loopRecipe: this.showGatedChrome() ? this.loopRecipe() : undefined,
       ...(this.failoverEnabled() && this.failoverProviders().length > 0
         ? {
             failover: {
@@ -552,7 +561,6 @@ export class LoopConfigPanelComponent {
         maxWallTimeMs: this.maxHours() * 60 * 60 * 1000,
         maxTokens: this.maxTokens(),
         maxCostCents: maxDollars === null ? null : maxDollars * 100,
-        maxToolCallsPerIteration: DEFAULT_CAPS.maxToolCallsPerIteration,
       },
       completion: {
         // Ping-pong runs ON TOP of review-driven mode (dedicated completion
@@ -597,7 +605,14 @@ export class LoopConfigPanelComponent {
                 reviewDepth: 'structured' as const,
               },
             }
-          : {}),
+          : {
+              crossModelReview: {
+                enabled: false,
+                blockingSeverities: ['critical', 'high'] as ('critical' | 'high' | 'medium' | 'low')[],
+                timeoutSeconds: 90,
+                reviewDepth: 'structured' as const,
+              },
+            }),
       },
       // Only override progressThresholds when the user has opted into a
       // non-default behaviour. Otherwise omit it entirely so the main

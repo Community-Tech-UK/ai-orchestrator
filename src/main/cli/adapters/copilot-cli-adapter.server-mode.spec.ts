@@ -174,5 +174,60 @@ describe('CopilotCliAdapter server mode', () => {
 
     expect(adapter.getSpawnMode()).toBe('subprocess-exec');
     expect(adapter.getAdapterCapabilities().residentSession).toBe(false);
+    expect(adapter.getContextCapabilities().occupancyReporting).toBe('aggregate-only');
+    expect(adapter.getLastContextUsage()).toEqual({ status: 'unknown', reason: 'aggregate-only' });
+  });
+
+  it('T1a: server-mode usage_info occupancy recycles; terminate reverts to aggregate-only', async () => {
+    loadCopilotSdkMock.mockReturnValue(FAKE_SDK);
+    const session = makeFakeServerSession();
+    serverStartMock.mockResolvedValue(session);
+    const adapter = new CopilotCliAdapter({});
+    await spawnAdapter(adapter);
+
+    expect(adapter.getContextCapabilities().occupancyReporting).toBe('current');
+    expect(adapter.getLastContextUsage()).toEqual({ status: 'unknown', reason: 'not-reported' });
+
+    const onEffect = serverStartMock.mock.calls[0][0].onEffect as (effect: unknown) => void;
+    onEffect({
+      kind: 'context',
+      used: 70_000,
+      total: 100_000,
+      conversationTokens: 20_000,
+      systemTokens: 5_000,
+      toolDefinitionsTokens: 10_000,
+    });
+    const observation = adapter.getLastContextUsage();
+    expect(observation).toMatchObject({
+      status: 'known',
+      used: 70_000,
+      total: 100_000,
+      source: 'provider-session',
+      windowTrusted: true,
+    });
+
+    const { shouldRecycleLoopContext } = await import('../../orchestration/loop-context-discipline');
+    expect(shouldRecycleLoopContext({
+      enabled: true,
+      resetAtUtilization: 0.6,
+      observation,
+    }).recycle).toBe(true);
+
+    await adapter.terminate();
+    expect(adapter.getContextCapabilities().occupancyReporting).toBe('aggregate-only');
+    expect(adapter.getLastContextUsage()).toEqual({ status: 'unknown', reason: 'aggregate-only' });
+  });
+
+  it('T1a: routed account sessions stay aggregate-only (no server occupancy)', async () => {
+    loadCopilotSdkMock.mockReturnValue(FAKE_SDK);
+    serverStartMock.mockResolvedValue(makeFakeServerSession());
+    const adapter = new CopilotCliAdapter({
+      systemPrompt: 'Be terse.',
+      accountProfileId: 'legacy',
+    });
+    await spawnAdapter(adapter);
+    expect(serverStartMock).not.toHaveBeenCalled();
+    expect(adapter.getContextCapabilities().occupancyReporting).toBe('aggregate-only');
+    expect(adapter.getLastContextUsage()).toEqual({ status: 'unknown', reason: 'aggregate-only' });
   });
 });

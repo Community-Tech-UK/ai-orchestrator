@@ -1682,6 +1682,21 @@ describe('InstanceCommunicationManager', () => {
     // Content is forwarded as the evidence argument for the stuck-detector
     // evidence-hash fence (P4.5).
     expect(onOutput).toHaveBeenCalledWith(instance.id, 'Real adapter output');
+
+    // A watchdog's own "this looks stuck" notice arrives through the adapter
+    // output path with countAsProcessOutput set, but it is not the process
+    // making progress. Counting it resets the stuck detector's clock and its
+    // softWarningEmitted latch, so a repeating watchdog would indefinitely
+    // postpone the escalation it exists to trigger.
+    onOutput.mockClear();
+    manager.addToOutputBuffer(
+      instance,
+      createMessage('system', 'This turn hasn\'t produced any output for 300s', {
+        metadata: { watchdogWarning: true, source: 'acp-stall-warning' },
+      }),
+      { countAsProcessOutput: true },
+    );
+    expect(onOutput).not.toHaveBeenCalled();
   });
 
   it('drops stale output listeners from an older adapter generation', async () => {

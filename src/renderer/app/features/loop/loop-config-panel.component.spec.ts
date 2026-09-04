@@ -6,6 +6,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { LoopConfigPanelComponent } from './loop-config-panel.component';
+import { defaultLoopContextConfig } from '../../../../shared/types/loop.types';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
 const template = readFileSync(resolve(specDirectory, './loop-config-panel.component.html'), 'utf8');
@@ -60,7 +61,8 @@ describe('LoopConfigPanelComponent', () => {
     fixture.detectChanges();
   });
 
-  it('requires completed-plan renames whenever a plan file is configured', () => {
+  it('requires completed-plan renames whenever a plan file is configured on a gated loop', () => {
+    component.onCompletionModeChange('gated');
     component.planFile.set('PLAN.md');
     fixture.detectChanges();
 
@@ -132,21 +134,19 @@ describe('LoopConfigPanelComponent', () => {
     expect(component.buildConfig()?.failover?.providers).toEqual(['gemini']);
   });
 
-  it('defaults ping-pong review to checked and emits ping-pong completion config', () => {
+  it('defaults ping-pong review to off and does not emit ping-pong completion config', () => {
     const checkbox = fixture.nativeElement.querySelector('.pingpong-toggle input') as HTMLInputElement | null;
     const config = component.buildConfig();
 
-    expect(component.pingPongEnabled()).toBe(true);
-    expect(checkbox?.checked).toBe(true);
-    expect(config?.completion?.crossModelReview?.pingPong).toEqual({
-      enabled: true,
-      reviewerProvider: 'auto',
-      subject: 'auto',
-      maxRounds: 15,
-    });
+    expect(component.pingPongEnabled()).toBe(false);
+    expect(checkbox?.checked).toBe(false);
+    expect(config?.completion?.crossModelReview?.pingPong).toBeUndefined();
+    expect(config?.completion?.crossModelReview?.enabled).toBe(false);
   });
 
   it('offers Antigravity, not legacy Gemini, as an explicit ping-pong reviewer', () => {
+    component.pingPongEnabled.set(true);
+    fixture.detectChanges();
     const options = Array.from(
       fixture.nativeElement.querySelectorAll('#loop-cfg-pp-reviewer option'),
       (option: Element) => ({
@@ -160,6 +160,8 @@ describe('LoopConfigPanelComponent', () => {
   });
 
   it('offers Grok Build and persists it as the ping-pong reviewer', () => {
+    component.pingPongEnabled.set(true);
+    fixture.detectChanges();
     const options = Array.from(
       fixture.nativeElement.querySelectorAll('#loop-cfg-pp-reviewer option'),
       (option: Element) => ({
@@ -169,17 +171,27 @@ describe('LoopConfigPanelComponent', () => {
     );
 
     expect(options).toContainEqual({ label: 'Grok Build', value: 'grok' });
+    component.pingPongEnabled.set(true);
     component.pingPongReviewerProvider.set('grok');
     expect(component.buildConfig()?.completion?.crossModelReview?.pingPong?.reviewerProvider)
       .toBe('grok');
   });
 
   it('emits the canonical Antigravity provider for ping-pong review', () => {
+    component.pingPongEnabled.set(true);
     component.pingPongReviewerProvider.set('antigravity');
 
     const config = component.buildConfig();
 
     expect(config?.completion?.crossModelReview?.pingPong?.reviewerProvider).toBe('antigravity');
+  });
+
+  it('turns ping-pong off when the operator picks gated completion', () => {
+    component.pingPongEnabled.set(true);
+    component.onCompletionModeChange('gated');
+    fixture.detectChanges();
+    expect(component.pingPongEnabled()).toBe(false);
+    expect(component.buildConfig()?.completion?.mode).toBe('gated');
   });
 
   it('can opt out of ping-pong review', () => {
@@ -190,7 +202,7 @@ describe('LoopConfigPanelComponent', () => {
     const config = component.buildConfig();
 
     expect(checkbox?.checked).toBe(false);
-    expect(config?.completion?.crossModelReview).toBeUndefined();
+    expect(config?.completion?.crossModelReview?.enabled).toBe(false);
   });
 
   it('defaults the loop provider from the current chat provider', () => {
@@ -243,6 +255,7 @@ describe('LoopConfigPanelComponent', () => {
   });
 
   it('Fable WS6: defaults the loop recipe to coding and emits it in the config', () => {
+    component.onCompletionModeChange('gated');
     const config = component.buildConfig();
 
     expect(component.loopRecipe()).toBe('coding');
@@ -250,6 +263,7 @@ describe('LoopConfigPanelComponent', () => {
   });
 
   it('Fable WS6: a selected recipe is emitted in the config', () => {
+    component.onCompletionModeChange('gated');
     component.recipeOptions.set([
       { name: 'coding', description: 'd', source: 'built-in' },
       { name: 'doc-work', description: 'd', source: 'built-in' },
@@ -378,10 +392,18 @@ describe('LoopConfigPanelComponent', () => {
     expect(config?.contextStrategy).toBe('same-session');
   });
 
-  it('defaults the context recycle threshold to 60%', () => {
+  /**
+   * The panel sends `context.compaction` unconditionally, so a literal here
+   * silently overrides the shipped default for every UI-started loop. Assert
+   * against the shared default rather than a number, or the two drift apart —
+   * which is exactly what happened when the default moved off 0.6 and every
+   * loop created from the UI kept recycling its session every few iterations.
+   */
+  it('defaults the context recycle threshold to the shared loop default', () => {
     const config = component.buildConfig();
 
-    expect(config?.context?.compaction.resetAtUtilization).toBe(0.6);
+    expect(config?.context?.compaction.resetAtUtilization)
+      .toBe(defaultLoopContextConfig().compaction.resetAtUtilization);
   });
 
   it('emits an explicit estimated usage cap when provided', () => {
@@ -437,9 +459,9 @@ describe('LoopConfigPanelComponent', () => {
     const config = component.buildConfig();
 
     expect(config?.audit).toEqual({
-      finalAuditMode: 'gate',
-      preflightMode: 'record',
-      planPacketMode: 'prompted',
+      finalAuditMode: 'observe',
+      preflightMode: 'off',
+      planPacketMode: 'off',
       cleanlinessScan: true,
     });
   });
@@ -501,7 +523,7 @@ describe('LoopConfigPanelComponent', () => {
 
   it('sends fresh-eyes review config only when explicitly enabled', () => {
     component.pingPongEnabled.set(false);
-    expect(component.buildConfig()?.completion?.crossModelReview).toBeUndefined();
+    expect(component.buildConfig()?.completion?.crossModelReview?.enabled).toBe(false);
 
     component.freshEyesReview.set(true);
     fixture.detectChanges();

@@ -45,7 +45,7 @@ export function renderSystemReminder(options: {
   const blockedText = readBlockedForPrompt(options.blockedPath);
   return `\n\n## System Reminder\n` +
     `- Current stage: ${options.currentStage} (read \`${options.stagePath}\`; it is the source of truth).\n` +
-    `- Caps remaining: ${renderCapsRemaining(options.config, options.iterationSeq, options.capUsage)}.\n` +
+    `- Loop budget remaining (this run, not the model window): ${renderCapsRemaining(options.config, options.iterationSeq, options.capUsage)}.\n` +
     `${renderLedgerReminder(ledger, options.iterationSeq, options.tasksPath)}\n` +
     `${renderBlockStatus(options.blockedPath, blockedText)}\n`;
 }

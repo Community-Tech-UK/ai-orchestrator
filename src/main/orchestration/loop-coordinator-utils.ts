@@ -5,12 +5,12 @@ import { completedPlanFileCandidates } from './loop-completion-detector';
 export interface VerifyOutcomeLike {
   status: 'passed' | 'skipped' | 'failed';
   output: string;
-  failureKind?: 'command' | 'timeout' | 'infra';
+  failureKind?: 'command' | 'timeout' | 'infra' | 'environment';
 }
 
 export function applyVerifyOutcomeToIteration(iteration: LoopIteration, outcome: VerifyOutcomeLike): void {
   iteration.verifyStatus = outcome.status === 'skipped' ? 'not-run' : outcome.status;
-  iteration.verifyOutputExcerpt = excerpt(outcome.output);
+  iteration.verifyOutputExcerpt = excerptVerifyOutput(outcome.output);
   iteration.verifyFailureKind = outcome.status === 'failed' ? outcome.failureKind : undefined;
 }
 
@@ -19,7 +19,13 @@ export function verifyFailureIntervention(
   output: string,
   failureKind: VerifyOutcomeLike['failureKind'],
 ): string {
-  const excerpted = excerpt(output, 8192) || `(${friendlyLabel} produced no output)`;
+  const excerpted = excerptVerifyOutput(output, 8192) || `(${friendlyLabel} produced no output)`;
+  if (failureKind === 'environment') {
+    return `Your completion was rejected because the ${friendlyLabel} command failed in the isolated worktree environment. ` +
+      'The worktree has no node_modules (or another runtime dependency is missing); this is not evidence that the code or tests are wrong. ' +
+      'Provision dependencies or disable isolation, then re-declare completion:\n\n' +
+      excerpted;
+  }
   if (failureKind === 'infra') {
     return `Your completion was rejected because the ${friendlyLabel} command could not be started. ` +
       'This is a verification infrastructure failure, not evidence that the code/tests are wrong. ' +
@@ -113,6 +119,26 @@ export function excerpt(s: string, max = 4096): string {
   if (s.length <= max) return s;
   const half = Math.floor(max / 2);
   return s.slice(0, half) + '\n…\n' + s.slice(-half);
+}
+
+const FAILING_LINE_RE =
+  /(?:FAIL|Error:|Cannot find module|npm ERR!|ELIFECYCLE|exited with code\s+\d+|exit code[: ]\s*\d+)/i;
+
+/** Head+tail excerpt with the last failing script / exit line as a header. */
+export function excerptVerifyOutput(s: string, max = 8192): string {
+  const body = excerpt(s, max);
+  if (!s) return body;
+  const lines = s.split(/\r?\n/);
+  let lastFailing = '';
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i]?.trim() ?? '';
+    if (line && FAILING_LINE_RE.test(line)) {
+      lastFailing = line.slice(0, 300);
+      break;
+    }
+  }
+  if (!lastFailing) return body;
+  return `Last failing line: ${lastFailing}\n\n${body}`;
 }
 
 /**

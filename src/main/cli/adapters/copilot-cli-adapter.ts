@@ -52,6 +52,12 @@ import {
 import { probeVersionStatus } from './cli-status-probe';
 import { killProcessGroup } from './base-cli-process-utils';
 import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
+import type { ContextUsageObservation } from './base-cli-adapter.types';
+import {
+  copilotContextCapabilities,
+  copilotLastContextUsage,
+  type CopilotServerOccupancySample,
+} from './copilot/copilot-server-occupancy';
 
 // ============ Re-exports from extracted modules (public API preserved) ============
 
@@ -139,6 +145,8 @@ export class CopilotCliAdapter extends BaseCliAdapter {
   /** WS14 server mode: persistent SDK-backed session; null = exec-per-message. */
   private serverSession: CopilotServerSession | null = null;
   private serverBridge: CopilotServerTurnBridge | null = null;
+  /** Last `session.usage_info` sample while server mode is live (T1a recycle). */
+  private lastServerOccupancy: CopilotServerOccupancySample | null = null;
 
   /**
    * Node-local Copilot home for the routed account, or `null` for an
@@ -266,16 +274,11 @@ export class CopilotCliAdapter extends BaseCliAdapter {
   }
 
   override getContextCapabilities(): ProviderContextCapabilities {
-    return {
-      toolResultControl: 'post-retention',
-      toolResultVisibility: 'full',
-      transcriptControl: 'none',
-      occupancyReporting: 'aggregate-only',
-      cumulativeReporting: 'available',
-      interruptProof: 'none',
-      compactionProof: 'none',
-      sameThreadContinuation: false,
-    };
+    return copilotContextCapabilities(this.serverSession !== null);
+  }
+
+  override getLastContextUsage(): ContextUsageObservation {
+    return copilotLastContextUsage(this.serverSession !== null, this.lastServerOccupancy);
   }
 
   async checkStatus(): Promise<CliStatus> {
@@ -919,6 +922,9 @@ export class CopilotCliAdapter extends BaseCliAdapter {
         emitOutput: (message) => this.emit('output', message),
         emitStatus: (status) => this.emit('status', status),
         emitContext: (usage) => this.emit('context', usage),
+        rememberOccupancy: (sample) => {
+          this.lastServerOccupancy = sample;
+        },
         emitError: (error) => this.emit('error', error),
         noteSessionNotFound: () => {
           if (this.lastResumeAttemptResult?.source === 'native') {
@@ -1051,6 +1057,7 @@ export class CopilotCliAdapter extends BaseCliAdapter {
       const session = this.serverSession;
       this.serverSession = null;
       this.serverBridge = null;
+      this.lastServerOccupancy = null;
       await session.dispose();
     }
     await super.terminate(graceful);

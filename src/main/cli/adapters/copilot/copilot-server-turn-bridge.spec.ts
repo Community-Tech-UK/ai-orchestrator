@@ -85,6 +85,27 @@ describe('CopilotServerTurnBridge', () => {
     expect(host.contexts[0].isEstimated).toBeUndefined();
   });
 
+  it('remembers occupancy samples including Copilot split fields', () => {
+    const samples: Array<{ used: number; total: number; conversationTokens?: number }> = [];
+    const host = makeHost();
+    host.rememberOccupancy = (sample) => { samples.push(sample); };
+    new CopilotServerTurnBridge(host).handleEffect({
+      kind: 'context',
+      used: 80_000,
+      total: 100_000,
+      conversationTokens: 20_000,
+      systemTokens: 10_000,
+      toolDefinitionsTokens: 50_000,
+    });
+    expect(samples).toEqual([{
+      used: 80_000,
+      total: 100_000,
+      conversationTokens: 20_000,
+      systemTokens: 10_000,
+      toolDefinitionsTokens: 50_000,
+    }]);
+  });
+
   it('routes session errors to output+error and flags session-not-found for resume proof', () => {
     const host = makeHost();
     const bridge = new CopilotServerTurnBridge(host);

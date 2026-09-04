@@ -20,6 +20,7 @@ import { createLoopPendingInput } from '../../shared/types/loop.types';
 import type { LoopConfig, LoopIteration, LoopStage, LoopState } from '../../shared/types/loop.types';
 import type { LoopCleanReviewClassification, LoopCleanReviewClassifier } from './loop-clean-review-classifier';
 import type { FreshEyesSeverity } from './loop-fresh-eyes-reviewer';
+import { loopExecutionCwd } from './loop-cwd';
 
 const logger = getLogger('LoopCoordinator');
 
@@ -188,7 +189,7 @@ export async function enforceReviewBackEdgeAction(args: EnforceReviewBackEdgeArg
   try {
     cleanReview = await classifyCleanReview({
       goal: state.config.initialPrompt,
-      workspaceCwd: state.config.workspaceCwd,
+      executionCwd: loopExecutionCwd(state.config),
       iterationOutput: iteration.outputFull || iteration.outputExcerpt,
       config: { noOutstandingPhrase: state.config.completion.noOutstandingPhrase },
     });

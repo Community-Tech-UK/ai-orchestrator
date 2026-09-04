@@ -1,7 +1,7 @@
 <div class="service-panel">
   <header>
     <h3>Service</h3>
-    <button (click)="refresh()">Refresh</button>
+    <button type="button" (click)="refresh()" aria-label="Refresh node service status">Refresh</button>
   </header>
   @if (status() === null) {
     <p class="muted">No status yet — the node may not be running as a service.</p>
@@ -13,9 +13,9 @@
       @if (status()!.uptimeSeconds) { <dt>Uptime</dt><dd>{{ status()!.uptimeSeconds }}s</dd> }
     </dl>
     <div class="actions">
-      <button (click)="restart()" [disabled]="status()!.state === 'not-installed'">Restart</button>
-      <button (click)="stop()"    [disabled]="status()!.state !== 'running'">Stop</button>
-      <button class="danger" (click)="uninstall()" [disabled]="status()!.state === 'not-installed'">Uninstall</button>
+      <button type="button" (click)="restart()" [disabled]="status()!.state === 'not-installed'" aria-label="Restart node service">Restart</button>
+      <button type="button" (click)="stop()"    [disabled]="status()!.state !== 'running'" aria-label="Stop node service">Stop</button>
+      <button type="button" class="danger" (click)="uninstall()" [disabled]="status()!.state === 'not-installed'" aria-label="Uninstall node service">Uninstall</button>
     </div>
   }
 </div>

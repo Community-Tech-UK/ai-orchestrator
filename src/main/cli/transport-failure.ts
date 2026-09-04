@@ -26,6 +26,17 @@
  *    of real work, so both the length ceiling and the error-opening test reject
  *    it.
  *
+ * 3. **The backend REFUSED the request.** Same masquerade, different cause: the
+ *    stream was not severed, the provider declined to serve the turn.
+ *    {@link findTrailingProviderRefusal} matches this. Observed 2026-09-03
+ *    (instance `uk95fj93z`, cursor/grok-4.6-high-fast): a 74-minute turn with
+ *    1411 tool calls ended `\n\nError: RetriableError: [resource_exhausted]
+ *    Error`, again with `stopReason: 'end_turn'` and a clean `busy → idle`.
+ *    Neither detector above fires on it — the whole turn is far too long for
+ *    shape 1, and the detail after the status tag is the single word `Error`,
+ *    so shape 2 finds no transport evidence to corroborate. The status code
+ *    itself is the only signal, which is why this needs its own detector.
+ *
  * Sibling of `provider-notice.ts`, which covers the other masquerade:
  * usage/limit notices printed as assistant output.
  */
@@ -167,13 +178,13 @@ function lastEvidenceEnd(detail: string): number {
 }
 
 /**
- * True when descriptive English continues past the evidence — the shape of a
- * model writing ABOUT errnos rather than a serializer reporting one. Codes,
- * numbers, and dotted tokens (hostnames, paths, ratios) are not prose.
+ * How many plain English words `text` contains — the measure of "is this a
+ * model writing ABOUT errnos, or a serializer reporting one". Codes, numbers,
+ * and dotted tokens (hostnames, paths, ratios) are not prose and do not count.
  */
-function trailsIntoProse(detail: string, evidenceEnd: number): boolean {
+function countPlainWords(text: string): number {
   let words = 0;
-  for (const token of detail.slice(evidenceEnd).split(/\s+/)) {
+  for (const token of text.split(/\s+/)) {
     // Sentence-final punctuation must go BEFORE the dotted-token test, or the
     // full stop ending an ordinary sentence reads as a hostname and buys the
     // sentence a free word (`ECONNRESET during nightly restart.`).
@@ -194,10 +205,18 @@ function trailsIntoProse(detail: string, evidenceEnd: number): boolean {
       if (!part) continue;
       if (/\d/.test(part)) continue;
       if (part === part.toUpperCase()) continue;
-      if (++words > MAX_TRAILING_PROSE_WORDS) return true;
+      words++;
     }
   }
-  return false;
+  return words;
+}
+
+/**
+ * True when descriptive English continues past the transport evidence — the
+ * shape of a model writing ABOUT errnos rather than a serializer reporting one.
+ */
+function trailsIntoProse(detail: string, evidenceEnd: number): boolean {
+  return countPlainWords(detail.slice(evidenceEnd)) > MAX_TRAILING_PROSE_WORDS;
 }
 
 /**
@@ -213,6 +232,38 @@ function lastStatusTagEnd(text: string): number {
   }
   STATUS_TAG.lastIndex = 0;
   return end;
+}
+
+/**
+ * The final line of `output` when it is a serialized status chain —
+ * `Error: <Class>: [status] <detail>` — split at the last status tag, or null.
+ *
+ * Everything here is shared ground between the trailing detectors: consider
+ * only the last line, cap its length, require an error-shaped opening, require
+ * a status tag, and veto any detail containing narration. What the two
+ * detectors then disagree about is what makes the detail credible — transport
+ * evidence, or an allowlisted refusal code.
+ *
+ * Because the split is at the LAST tag, the returned `detail` can never contain
+ * a tag, so a status tag can never serve as its own corroboration.
+ */
+function trailingStatusChain(output: string | null | undefined): { tail: string; detail: string } | null {
+  if (!output) return null;
+  const text = output.trimEnd();
+  if (!text) return null;
+
+  const lastBreak = text.lastIndexOf('\n');
+  const tail = (lastBreak === -1 ? text : text.slice(lastBreak + 1)).trim();
+  if (!tail || tail.length > MAX_TRANSPORT_FAILURE_TAIL_CHARS) return null;
+  if (!ERROR_OPENING.test(tail)) return null;
+
+  const detailStart = lastStatusTagEnd(tail);
+  if (detailStart === -1) return null;
+
+  const detail = tail.slice(detailStart);
+  if (NARRATIVE_MARKER.test(detail)) return null;
+
+  return { tail, detail };
 }
 
 /** True when `text` reads like a transport-layer error report. */
@@ -277,24 +328,73 @@ export function isTransportFailureOnlyOutput(output: string | null | undefined):
  * review rounds of speculative widening produced five false-positive classes.
  */
 export function findTrailingTransportFailure(output: string | null | undefined): string | null {
-  if (!output) return null;
-  const text = output.trimEnd();
-  if (!text) return null;
+  const chain = trailingStatusChain(output);
+  if (!chain) return null;
 
-  const lastBreak = text.lastIndexOf('\n');
-  const tail = (lastBreak === -1 ? text : text.slice(lastBreak + 1)).trim();
-  if (!tail || tail.length > MAX_TRANSPORT_FAILURE_TAIL_CHARS) return null;
-  if (!ERROR_OPENING.test(tail)) return null;
-
-  const detailStart = lastStatusTagEnd(tail);
-  if (detailStart === -1) return null;
-
-  const detail = tail.slice(detailStart);
-  if (NARRATIVE_MARKER.test(detail)) return null;
-
-  const evidenceEnd = lastEvidenceEnd(detail);
+  const evidenceEnd = lastEvidenceEnd(chain.detail);
   if (evidenceEnd === -1) return null;
-  if (trailsIntoProse(detail, evidenceEnd)) return null;
+  if (trailsIntoProse(chain.detail, evidenceEnd)) return null;
 
-  return tail;
+  return chain.tail;
+}
+
+/**
+ * Status codes that mean the provider REFUSED to serve the request, as opposed
+ * to the connection to it failing. Kept deliberately tiny: every entry must
+ * come from a captured sample, for the same reason the transport detector's
+ * evidence list does. A bracketed lowercase snake_case status is emitted by a
+ * transport serializer and is not a thing prose contains, so a literal token
+ * here cannot introduce a new false-positive *class* — but each one added
+ * without a sample is a guess about text nobody has seen.
+ *
+ * Codes NOT listed on purpose: `[canceled]`, `[unavailable]` and `[internal]`
+ * are the transport detector's territory, and admitting them here would flag
+ * the closing lines it spent five review rounds learning to reject
+ * (`Error: [foo] [canceled] happened during rename.`).
+ *
+ * Captured so far:
+ * - `resource_exhausted` — cursor-agent, 2026-09-03, instance `uk95fj93z`.
+ */
+const REFUSAL_STATUS_TAG = /\[resource_exhausted\]/i;
+
+/**
+ * How many plain words may follow a refusal status tag.
+ *
+ * The captured sample carries one (`[resource_exhausted] Error`) because the
+ * CLI serialized the status with no message at all. The bound is set a little
+ * above that so a refusal that does carry a terse reason (`quota exceeded`,
+ * `rate limit exceeded`) is still caught, while staying far short of a
+ * sentence. {@link NARRATIVE_MARKER} vetoes the prose that fits inside it.
+ */
+export const MAX_REFUSAL_DETAIL_WORDS = 4;
+
+/**
+ * The provider-refusal status a turn *ended* on, or null when it did not end
+ * on one.
+ *
+ * Same masquerade as {@link findTrailingTransportFailure} and the same
+ * consequence — the reply is cut off but the work before it is real — with a
+ * different cause and therefore a different detector. A severed stream leaves
+ * an errno or syscall in the detail to corroborate it; a refusal leaves the
+ * status code and frequently nothing else, so the code itself has to carry the
+ * signal. That is only tractable against a closed allowlist
+ * ({@link REFUSAL_STATUS_TAG}), which is why this cannot simply be folded into
+ * the transport detector's evidence list.
+ *
+ * The two are mutually exclusive by construction: no allowlisted refusal code
+ * appears in {@link TRANSPORT_EVIDENCE_PATTERNS}. Callers that run both should
+ * still prefer the transport result when it fires, since it is the better
+ * corroborated of the two.
+ *
+ * Inherits every guard the transport detector earned: the final line only, the
+ * length ceiling, an error-shaped opening, no narrative word in the detail, and
+ * a hard bound on how much plain English may follow the tag. Widen the
+ * allowlist only against a real captured instance.
+ */
+export function findTrailingProviderRefusal(output: string | null | undefined): string | null {
+  const chain = trailingStatusChain(output);
+  if (!chain) return null;
+  if (!REFUSAL_STATUS_TAG.test(chain.tail)) return null;
+  if (countPlainWords(chain.detail) > MAX_REFUSAL_DETAIL_WORDS) return null;
+  return chain.tail;
 }

@@ -23,7 +23,7 @@
     </select>
   </label>
   <div class="actions">
-    <button type="button" (click)="refresh()" [disabled]="loading() || !workingDirectory().trim()">
+    <button type="button" (click)="refresh()" [disabled]="loading() || !workingDirectory().trim()" aria-label="Refresh workspace MCP connectors">
       Refresh
     </button>
   </div>
@@ -43,7 +43,7 @@
       <span>Env JSON</span>
       <textarea [value]="envJson()" (input)="onEnvInput($event)" rows="3"></textarea>
     </label>
-    <button type="button" class="primary" (click)="save()" [disabled]="loading()">
+    <button type="button" class="primary" (click)="save()" [disabled]="loading()" aria-label="Save workspace MCP connector">
       Save workspace connector
     </button>
   </div>
@@ -57,7 +57,7 @@
             <strong>{{ connector.name }}</strong>
             <span>{{ connector.provider }} · {{ connector.transport }}</span>
           </div>
-          <button type="button" (click)="remove(connector.id)" [disabled]="loading()">Delete</button>
+          <button type="button" (click)="remove(connector.id)" [disabled]="loading()" [attr.aria-label]="'Delete workspace connector ' + connector.name">Delete</button>
         </li>
       }
     </ul>

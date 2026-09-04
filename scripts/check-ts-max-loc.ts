@@ -345,7 +345,13 @@ const ALLOWLIST: Record<string, number> = {
   // Added 2026-07-16 at 714 (Fable WS6 Task 3: planStageContext threaded through
   // buildPrompt/buildReviewDrivenPrompt; recipe stage-work now resolves via
   // loop-recipes.ts). Re-tighten after the prompt-builder extraction.
-  'src/main/orchestration/loop-stage-machine.ts': 714,
+  // Raised 714 -> 794 for the enhancements-backlog Wave 1 prompt work: the
+  // execution-cwd split (plan/`*_completed.md` reads move to executionCwd, with
+  // the incident documented inline), plus the T2 `reanchorGoal` and T15
+  // `includeSessionReplay` gates on both prompt builders. The continuation
+  // cards themselves already live in loop-continuation-prompt.ts — the growth
+  // here is gating and documentation. Re-tighten at the next builder split.
+  'src/main/orchestration/loop-stage-machine.ts': 794,
   // Sat at exactly 700 — the hard limit — so any correctness fix touching it
   // trips this gate. The +3 is the ledger-complete route into the ping-pong
   // builder-done gate, without which a loop whose task ledger was fully

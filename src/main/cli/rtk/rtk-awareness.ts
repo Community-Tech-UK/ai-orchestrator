@@ -7,7 +7,8 @@
  *
  * Sourced from `rtk/hooks/codex/rtk-awareness.md` upstream and trimmed to
  * the load-bearing lines. ~500 chars — well under any provider's prompt
- * cap, safe to prepend on every turn.
+ * cap. Inject once per persistent session; every spawn only when
+ * `supportsResume === false`. Do not prepend on every Codex/ACP resume turn.
  */
 export const RTK_AWARENESS_PROMPT = `# RTK (Token Killer) — active in this session
 

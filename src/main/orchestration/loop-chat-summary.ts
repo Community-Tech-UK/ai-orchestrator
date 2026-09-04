@@ -188,7 +188,7 @@ const MAX_HANDOFF_FINAL_CHARS = 8_000;
 export function buildLoopContextHandoff(state: LoopState): string {
   const last = state.lastIteration;
   const lines = [
-    `[Loop context] A background "${state.config.reviewStyle}" loop just ran to completion in this workspace as part of this chat. You did not see its iterations, so use the summary below to answer any follow-up questions about it.`,
+    `[Loop context] A background autonomous loop just ran to completion in this workspace as part of this chat. You did not see its iterations, so use the summary below to answer any follow-up questions about it.`,
     '',
     `Objective: ${truncate(state.config.initialPrompt.trim(), MAX_HANDOFF_OBJECTIVE_CHARS)}`,
     `Outcome: ${state.status}${state.endReason ? ` - ${state.endReason}` : ''}`,

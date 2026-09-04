@@ -105,7 +105,7 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
       // a quick verify". Callers wanting the split set both fields.
       quickVerifyCommand: undefined,
       quickVerifyTimeoutMs: 120_000,
-      runVerifyTwice: true,
+      runVerifyTwice: false,
       requireCompletedFileRename: false,
       // F2 (#22): coordinator-enforced REVIEW→PLAN back-edge cap. 0 disables.
       maxReviewCycles: 10,

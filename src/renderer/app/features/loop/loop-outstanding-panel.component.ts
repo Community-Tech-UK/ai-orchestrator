@@ -10,7 +10,7 @@ import {
 } from '@angular/core';
 import type { LoopOutstandingItemPayload } from '@contracts/schemas/loop';
 import { LoopStore } from '../../core/state/loop.store';
-import { loopStatusLabel, relativeTime, formatTimestamp } from './loop-formatters.util';
+import { loopStatusLabel, loopStatusTone, relativeTime, formatTimestamp } from './loop-formatters.util';
 
 /**
  * The non-empty answer the user has typed this session but not yet saved — an
@@ -135,7 +135,7 @@ export function buildOutstandingQuery(
                 <div class="o-row-main">
                   <div class="o-text">{{ item.text }}</div>
                   <div class="o-meta">
-                    <span class="o-loop-status" [attr.data-status]="item.loopStatus">{{ statusLabel(item.loopStatus) }}</span>
+                    <span class="o-loop-status" [attr.data-status]="item.loopStatus" [attr.data-tone]="statusTone(item.loopStatus)">{{ statusLabel(item.loopStatus) }}</span>
                     <span class="o-time" [title]="absoluteTime(item.createdAt)">{{ relTime(item.createdAt) }}</span>
                     @if (item.status !== 'open') {
                       <span class="o-resolved">{{ item.status }}</span>
@@ -177,7 +177,7 @@ export function buildOutstandingQuery(
                 <div class="o-row-main">
                   <div class="o-text">{{ item.text }}</div>
                   <div class="o-meta">
-                    <span class="o-loop-status" [attr.data-status]="item.loopStatus">{{ statusLabel(item.loopStatus) }}</span>
+                    <span class="o-loop-status" [attr.data-status]="item.loopStatus" [attr.data-tone]="statusTone(item.loopStatus)">{{ statusLabel(item.loopStatus) }}</span>
                     <span class="o-time" [title]="absoluteTime(item.createdAt)">{{ relTime(item.createdAt) }}</span>
                     @if (item.status !== 'open') {
                       <span class="o-resolved">{{ item.status }}</span>
@@ -270,6 +270,10 @@ export function buildOutstandingQuery(
       font-size: 9px; font-weight: 600;
       padding: 1px 5px; border-radius: 3px; background: rgba(255,255,255,0.08); opacity: 0.7;
     }
+    .o-loop-status[data-tone="ok"] { color: #8edc8e; background: rgba(142,220,142,0.12); }
+    .o-loop-status[data-tone="warn"] { color: #f7c07a; background: rgba(247,192,122,0.12); }
+    .o-loop-status[data-tone="error"] { color: #f78c7c; background: rgba(247,140,124,0.12); }
+    .o-loop-status[data-tone="paused"] { color: #c8b482; background: rgba(200,180,130,0.12); }
     .o-loop-status[data-status="completed-needs-review"] { color: #f7c07a; background: rgba(247,192,122,0.12); }
     .o-loop-status[data-status="completed"] { color: #8edc8e; background: rgba(142,220,142,0.12); }
     .o-time { opacity: 0.55; font-family: var(--font-mono, monospace); font-size: 10px; }
@@ -553,6 +557,10 @@ export class LoopOutstandingPanelComponent {
 
   protected statusLabel(status: string): string {
     return loopStatusLabel(status);
+  }
+
+  protected statusTone(status: string): string {
+    return loopStatusTone(status);
   }
 
   protected relTime(ts: number): string {

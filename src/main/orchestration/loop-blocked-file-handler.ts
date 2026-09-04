@@ -4,6 +4,7 @@ import {
   type ProgressSignalEvidence,
 } from '../../shared/types/loop.types';
 import { getBlockOverrideInterventionText } from './loop-coordinator-block-utils';
+import { loopExecutionCwd } from './loop-cwd';
 
 interface BlockedFileContents {
   message: string;
@@ -42,7 +43,9 @@ export class LoopBlockedFileHandler {
       this.dependencies.isToolchainClassBlock(blockedFile.message, [])
     ) {
       const probe = await this.dependencies.runLivenessProbe(
-        state.config.workspaceCwd,
+        // Same as the block-intent probe: a healthy repo root says nothing about
+        // a wedged worktree, and this result can override the block.
+        loopExecutionCwd(state.config),
         probeConfig?.timeoutMs ?? 5000,
       );
       if (probe.alive) {

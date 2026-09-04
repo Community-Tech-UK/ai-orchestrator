@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { getLogger } from '../logging/logger';
 import { gitExec } from '../workspace/git/git-exec';
 import { getGitWriteQueue } from '../workspace/git/git-write-queue';
+import { loopExecutionCwd } from './loop-cwd';
 import type { LoopIteration } from '../../shared/types/loop.types';
 import {
   normalizeLoopPhase4Config,
@@ -115,7 +116,7 @@ export async function runLoopCommitRatchet(
     };
   }
 
-  const cwd = executionCwd ?? input.workspaceCwd;
+  const cwd = loopExecutionCwd(input);
   return getGitWriteQueue().enqueue(`loop-ratchet:${input.loopRunId}`, async () => {
     const lastKeptCommit = input.lastKeptCommit?.trim()
       || await gitExec(['rev-parse', 'HEAD'], cwd);

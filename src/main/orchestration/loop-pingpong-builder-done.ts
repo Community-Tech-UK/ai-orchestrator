@@ -56,22 +56,44 @@ export interface PingPongBuilderDoneVerdict extends LoopCleanReviewClassificatio
   signal?: CompletionSignalEvidence;
 }
 
+export interface PingPongBuilderDoneOptions {
+  /**
+   * Work hash of the last iteration that already opened a ping-pong round on
+   * `ledger-complete`. A later seal with the same hash must not re-open a
+   * reviewer (T33).
+   */
+  lastLedgerCompleteWorkHash?: string;
+  currentWorkHash?: string;
+}
+
 /**
  * Decide whether the builder has declared done for this iteration.
  *
  * @param completionSignals This iteration's signals from `LoopCompletionDetector`.
  *   Absent/empty ⇒ sentinel-only behaviour.
  * @param classifyCleanReview Prose classifier, called only when no sufficient
- *   signal is present.
+ *   signal is present (and never for a stale ledger-complete).
  * @param classifierInput Input for that classifier.
  */
 export async function resolvePingPongBuilderDone(
   completionSignals: readonly CompletionSignalEvidence[] | undefined,
   classifyCleanReview: LoopCleanReviewClassifier,
   classifierInput: LoopCleanReviewClassifierInput,
+  options?: PingPongBuilderDoneOptions,
 ): Promise<PingPongBuilderDoneVerdict> {
   const sufficientSignal = completionSignals?.find((signal) => signal.sufficient);
   if (sufficientSignal) {
+    if (sufficientSignal.id === 'ledger-complete') {
+      const last = options?.lastLedgerCompleteWorkHash;
+      const current = options?.currentWorkHash;
+      if (last !== undefined && current !== undefined && last === current) {
+        return {
+          clean: false,
+          confidence: 1,
+          reason: 'stale ledger-complete; workHash unchanged since last ping-pong round',
+        };
+      }
+    }
     return {
       clean: true,
       confidence: 1,

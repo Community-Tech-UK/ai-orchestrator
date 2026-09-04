@@ -17,6 +17,7 @@ import {
   formatTimestamp,
   humanTokens,
   loopStatusLabel,
+  loopStatusTone,
   managedWorktreeStatus,
   relativeTime,
 } from './loop-formatters.util';
@@ -106,7 +107,7 @@ export function deriveReattemptSeed(
             @for (run of runs(); track run.id) {
               <div class="pr-row" role="listitem">
                 <div class="pr-row-head">
-                  <span class="pr-status" [attr.data-status]="run.status">{{ statusLabel(run.status) }}</span>
+                  <span class="pr-status" [attr.data-status]="run.status" [attr.data-tone]="statusTone(run.status)">{{ statusLabel(run.status) }}</span>
                   <span class="pr-time" [title]="absoluteTime(run.startedAt)">{{ relTime(run.startedAt) }}</span>
                   <span class="pr-meta">{{ run.totalIterations }} iter · {{ tokens(run.totalTokens) }} · {{ cost(run.totalCostCents) }}</span>
                   @if (managedStatus(run); as managed) {
@@ -198,6 +199,11 @@ export function deriveReattemptSeed(
       padding: 1px 6px; border-radius: 3px;
       background: rgba(255,255,255,0.08);
     }
+    .pr-status[data-tone="ok"]        { color: #8edc8e; background: rgba(142,220,142,0.12); }
+    .pr-status[data-tone="warn"]      { color: #f7c07a; background: rgba(247,192,122,0.12); }
+    .pr-status[data-tone="error"]     { color: #f78c7c; background: rgba(247,140,124,0.12); }
+    .pr-status[data-tone="paused"]    { color: #c8b482; background: rgba(200,180,130,0.12); }
+    .pr-status[data-tone="running"]   { color: #8ec8dc; background: rgba(142,200,220,0.12); }
     .pr-status[data-status="completed"]   { color: #8edc8e; background: rgba(142,220,142,0.12); }
     .pr-status[data-status="cancelled"]   { color: #c8b482; background: rgba(200,180,130,0.12); }
     .pr-status[data-status="cap-reached"] { color: #f7c07a; background: rgba(247,192,122,0.12); }
@@ -409,6 +415,10 @@ export class LoopPastRunsPanelComponent implements OnDestroy {
 
   protected statusLabel(status: string): string {
     return loopStatusLabel(status);
+  }
+
+  protected statusTone(status: string): string {
+    return loopStatusTone(status);
   }
 
   protected tokens(n: number): string {

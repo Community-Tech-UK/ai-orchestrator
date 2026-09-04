@@ -5,6 +5,7 @@
  */
 
 import type { HelpEntry } from '../../../shared/help/help-content.types';
+import { LOOP_MODE_HELP } from '../../../shared/help/content/loop.help';
 
 export const GENERAL_TAB_HELP: HelpEntry = {
   sections: [
@@ -127,6 +128,7 @@ export const ORCHESTRATION_TAB_HELP: HelpEntry = {
       heading: 'What this does',
       body: 'Controls how many agents run at once, how deep they can delegate to each other, and how idle agents are cleaned up. These settings govern resource use and agent spawning.',
     },
+    ...LOOP_MODE_HELP.sections,
     {
       kind: 'callout',
       variant: 'tip',

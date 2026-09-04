@@ -22,6 +22,7 @@ import {
   type OpenAICompatibleChatConfig,
 } from './openai-compatible-chat-adapter';
 import { AcpCliAdapter } from './acp-cli-adapter';
+import { resolveAcpStallWarningMs } from './acp-prompt-timeout-policy';
 import { RemoteCliAdapter } from './remote-cli-adapter';
 import { RemoteLocalModelAdapter } from './remote-local-model-adapter';
 import { CliDetectionService, CliType } from '../cli-detection';
@@ -430,7 +431,7 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
     timeout: options.timeout,
     requestTimeoutMs: 20_000,
     concurrencyAcquireTimeoutMs: 30_000,
-    stallWarningMs: options.childId ? 90_000 : undefined,
+    stallWarningMs: resolveAcpStallWarningMs(Boolean(options.childId)),
     // Wire the permission registry so Copilot's `session/request_permission`
     // RPCs can be auto-timed-out and surfaced to the UI. Without this,
     // a permission prompt from Copilot would block the `session/prompt`
@@ -497,6 +498,7 @@ export function createCursorAdapter(options: UnifiedSpawnOptions): AcpCliAdapter
     systemPrompt: options.systemPrompt,
     rtkEnabled: Boolean(options.rtk?.enabled && options.rtk.binaryPath),
     timeout: options.timeout,
+    stallWarningMs: resolveAcpStallWarningMs(Boolean(options.childId)),
     // Same rationale as createCopilotAdapter: keep the ACP permission
     // auto-timeout active so `session/request_permission` hangs surface
     // in the UI instead of silently blocking the prompt turn. YOLO loops
@@ -578,6 +580,7 @@ export function createGrokAdapter(options: UnifiedSpawnOptions): AcpCliAdapter {
     systemPrompt: options.systemPrompt,
     rtkEnabled: Boolean(options.rtk?.enabled && options.rtk.binaryPath),
     timeout: options.timeout,
+    stallWarningMs: resolveAcpStallWarningMs(Boolean(options.childId)),
     permissionRegistry: getPermissionRegistry(),
     permissionContext: buildAcpPermissionContext(options, 'grok'),
     concurrencyLimiter: getProviderConcurrencyLimiter(),

@@ -49,6 +49,16 @@ export interface LoopChildUsage {
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
   reasoningTokens?: number;
+  /**
+   * Aggregate count, when an adapter reports one instead of a breakdown.
+   * Populate it ALONGSIDE the breakdown fields, never on its own:
+   * `hasUsageBreakdown()` in `loop-iteration-cost.ts` would then pick the
+   * `computed` basis, and `computeTokenCost()` ignores `totalTokens` entirely —
+   * yielding $0.00 for a non-zero token charge.
+   */
+  totalTokens?: number;
+  /** True when these counts came from a local heuristic, not provider telemetry. */
+  isEstimated?: boolean;
 }
 
 export interface LoopChildResult {
@@ -85,6 +95,15 @@ export interface LoopChildResult {
   transcriptBound?: boolean;
   /** WS5: workspace-effect evidence for this attempt (side-effect-aware retry). */
   attemptEvidence?: LoopInvocationAttemptEvidence;
+  /**
+   * T2: capabilities of the adapter that actually ran this attempt.
+   * Coordinator copies this onto `LoopState.lastThreadCaps`.
+   */
+  threadCaps?: {
+    supportsResume: boolean;
+    sameThreadContinuation: boolean;
+    model: string | null;
+  };
 }
 
 export interface LoopChildInvocationError {
@@ -97,6 +116,8 @@ export interface LoopChildInvocationError {
   provider?: string;
   model?: string;
   instanceId?: string;
+  /** Sanitized usage observed before a failed turn settled. Never implies a completed iteration. */
+  partialUsage?: LoopChildUsage;
   /** WS5: workspace-effect evidence for the failed attempt (side-effect-aware retry). */
   attemptEvidence?: LoopInvocationAttemptEvidence;
 }

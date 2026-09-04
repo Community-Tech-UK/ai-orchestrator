@@ -4,7 +4,7 @@
       <h2>Webhook Routes</h2>
       <span class="muted">Server: {{ serverLabel() }}</span>
     </div>
-    <button class="btn" type="button" [disabled]="loading()" (click)="refresh()">
+    <button class="btn" type="button" [disabled]="loading()" (click)="refresh()" aria-label="Refresh webhook routes">
       {{ loading() ? 'Refreshing...' : 'Refresh' }}
     </button>
   </div>
@@ -79,7 +79,7 @@
       <span>Unsigned dev</span>
     </label>
     <div class="form-actions">
-      <button class="btn btn--primary" type="submit" [disabled]="!canCreate()">
+      <button class="btn btn--primary" type="submit" [disabled]="!canCreate()" aria-label="Create webhook route">
         {{ saving() ? 'Creating...' : 'Create Route' }}
       </button>
     </div>

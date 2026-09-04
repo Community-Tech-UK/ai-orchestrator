@@ -67,6 +67,7 @@ type DebateInvocationSchema =
 // resolving through this module.
 export {
   classifyCheapModelEligible,
+  _resetCheapEligibleCacheForTesting,
   resolveModelForInvocation,
   type RoutingIntent,
 } from './invocation-model-resolver';
@@ -77,6 +78,7 @@ import {
   shouldPreferScaffoldingProvider,
   type RoutingIntent,
 } from './invocation-model-resolver';
+import { snapshotLoopThreadCaps } from './loop-goal-reanchor';
 
 function isBaseCliAdapterLike(adapter: CliAdapter): adapter is CliAdapter & { sendMessage: (m: CliMessage) => Promise<CliResponse> } {
   return typeof (adapter as { sendMessage?: unknown }).sendMessage === 'function';
@@ -145,6 +147,8 @@ async function invokeCliTextResponse(params: {
   routingPolicyKey?: OrchestrationRoutingPolicyKey;
   systemPrompt?: string;
   prompt: string;
+  /** T2: always-goal-bearing text for model routing / cheap classification. */
+  routingPrompt?: string;
   context?: string;
   breakerKey: string;
   correlationId: string;
@@ -218,11 +222,12 @@ async function invokeCliTextResponse(params: {
     : await resolveCliType(requestedProvider as Parameters<typeof resolveCliType>[0], defaultCli);
   // The ollama scaffolding override is a concrete installed model — the tier
   // map has no ollama entries, so resolveModelForInvocation cannot produce one.
+  const routingPrompt = params.routingPrompt ?? params.prompt;
   let model = scaffoldingChoice?.model ?? resolveModelForInvocation({
     cliType,
     requestedProvider,
     payloadModel: params.payloadModel,
-    prompt: params.prompt,
+    prompt: routingPrompt,
     routingIntent: params.routingIntent,
     routingPolicyKey: params.routingPolicyKey,
   });
@@ -239,7 +244,7 @@ async function invokeCliTextResponse(params: {
     !isCodexChatgpt &&
     getModelRouter().getConfig().enabled &&
     getSettingsManager().getAll().auxiliaryLlmRoutingClassificationEnabled &&
-    (await classifyCheapModelEligible(params.prompt))
+    (await classifyCheapModelEligible(routingPrompt))
   ) {
     const providerHint =
       requestedProvider && requestedProvider !== 'auto' ? requestedProvider : cliType;
@@ -748,6 +753,7 @@ import { DurableLoopMemoryStore } from './loop-memory';
 import { maybeExternalizeLoopOutput } from './loop-output-externalize';
 import { buildBranchCandidatePrompt } from './loop-branch-task-prompt';
 import { getWorktreeManager } from '../workspace/git/worktree-manager';
+import { loopExecutionCwd } from './loop-cwd';
 import {
   classifyIterationErrors,
   createPersistentLoopAdapter,
@@ -890,6 +896,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
   // LF-1: cumulative same-session tokens per loop, used to decide when to
   // recycle the persistent adapter to a fresh session (context discipline).
   const loopContextTokens = new Map<string, number>();
+  const loopContextIterations = new Map<string, number>();
   // WS4: loops already told (once) that occupancy is unavailable, so the
   // unknown-observation diagnostic stays bounded instead of firing per iteration.
   const loopOccupancyUnavailableNotified = new Set<string>();
@@ -928,6 +935,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     persistentLoopAdapters.delete(loopRunId);
     persistentLoopAdapterModels.delete(loopRunId);
     loopContextTokens.delete(loopRunId);
+    loopContextIterations.delete(loopRunId);
     if (adapter) {
       const set = activeLoopAdapters.get(loopRunId);
       if (set) {
@@ -978,6 +986,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     persistentLoopAdapters.delete(loopRunId);
     persistentLoopAdapterModels.delete(loopRunId);
     loopContextTokens.delete(loopRunId); // LF-1: drop cumulative-token tracking.
+    loopContextIterations.delete(loopRunId);
     loopOccupancyUnavailableNotified.delete(loopRunId); // WS4: reset the bounded diagnostic.
     if (adapters.size === 0) return Promise.resolve();
     const promise = Promise.allSettled(
@@ -1143,6 +1152,8 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       stage: string;
       seq: number;
       prompt: string;
+      /** T2: goal-bearing prompt for model routing when `prompt` omitted the goal. */
+      routingPrompt?: string;
       config: {
         contextStrategy?: string;
         // LF-1 context-discipline block (optional; defaults applied below).
@@ -1172,7 +1183,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       logger.warn('loop:invoke-iteration payload missing callback');
       return;
     }
-    const workspaceDir = p.executionCwd ?? p.workspaceCwd;
+    const workspaceDir = loopExecutionCwd(p);
     const capture = createLoopInvocationCapture({
       workspaceDir,
       rwLocksEnabled: p.config?.phase4?.toolRwLocks?.enabled === true,
@@ -1236,7 +1247,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     };
     emitActivity({
       kind: 'status',
-      message: `Iteration ${p.seq + 1} starting in ${p.executionCwd ?? p.workspaceCwd}`,
+      message: `Iteration ${p.seq + 1} starting in ${workspaceDir}`,
       detail: { provider: p.provider, contextStrategy: p.config?.contextStrategy ?? 'same-session' },
     });
     // Agentic-turn backstop: `null` disables, `undefined` falls back to the
@@ -1322,7 +1333,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         reusedAdapter = await createPersistentLoopAdapter({
           provider: p.provider,
           model: persistentModel,
-          workingDirectory: p.executionCwd ?? p.workspaceCwd,
+          workingDirectory: loopExecutionCwd(p),
           timeoutMs: loopIterationTimeoutMs,
           streamIdleTimeoutMs: loopActiveTimeoutMs,
           maxTurns: loopMaxTurns,
@@ -1358,7 +1369,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         // Spawn the CLI inside the loop's execution directory. When worktree
         // isolation is active, executionCwd is the per-session worktree path;
         // otherwise it falls back to workspaceCwd (the repo root).
-        workingDirectory: p.executionCwd ?? p.workspaceCwd,
+        workingDirectory: loopExecutionCwd(p),
         requestedProvider: p.provider,
         payloadModel: p.model,
         // Opt this (Loop Mode) call into cost-tiered routing. Routing only
@@ -1368,6 +1379,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         routingPolicyKey: 'loop',
         systemPrompt: undefined,
         prompt: p.prompt,
+        routingPrompt: p.routingPrompt ?? p.prompt,
         breakerKey: `loop-orchestration:${p.provider}`,
         correlationId: p.correlationId,
         // Wall-clock checkpoint per iteration — generous by default so
@@ -1470,6 +1482,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
               'This iteration is failed closed to prevent silently accepting concurrent writes.',
           ].join('\n').trim()
         : retainedOutput;
+      const threadCaps = snapshotLoopThreadCaps(activeAdapterRef ?? reusedAdapter, result.model);
       const childResult: LoopChildResult = {
         childInstanceId: null,
         output: outputWithSafetyFailure,
@@ -1506,6 +1519,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
           providerThreadReusable: Boolean(sameSession && reusedAdapter),
           reason: result.degradedReason ?? attemptObserver.failureNote(),
         }),
+        ...(threadCaps ? { threadCaps } : {}),
       };
 
       // LF-1: context discipline for the loop's OWN persistent same-session
@@ -1518,9 +1532,8 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         const ctxCfg = p.config?.context?.compaction ?? defaultLoopContextConfig().compaction;
         const cumulative = (loopContextTokens.get(p.loopRunId) ?? 0) + (result.tokens || 0);
         loopContextTokens.set(p.loopRunId, cumulative);
-        // WS4: recycle ONLY on the adapter's proven current occupancy (the
-        // discriminated observation) — the aggregate/synthetic-window fallback
-        // is gone. See loop-context-discipline-runtime for the seam logic.
+        const iterationsSinceRecycle = (loopContextIterations.get(p.loopRunId) ?? 0) + 1;
+        loopContextIterations.set(p.loopRunId, iterationsSinceRecycle);
         const { decision, notifyUnavailable } = evaluateLoopContextDiscipline({
           adapter: persistentLoopAdapters.get(p.loopRunId),
           enabled: ctxCfg.enabled,
@@ -1528,6 +1541,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
           cumulativeTokens: cumulative,
           ...(typeof p.contextWindowTokens === 'number' ? { calibratedWindowTokens: p.contextWindowTokens } : {}),
           alreadyNotifiedUnavailable: loopOccupancyUnavailableNotified.has(p.loopRunId),
+          iterationsSinceRecycle,
         });
         if (notifyUnavailable) {
           loopOccupancyUnavailableNotified.add(p.loopRunId);

@@ -69,7 +69,7 @@
       </label>
     </div>
 
-    <button class="btn primary" type="submit" data-testid="campaign-submit" [disabled]="busy()">
+    <button class="btn primary" type="submit" data-testid="campaign-submit" [disabled]="busy()" aria-label="Create overnight campaign">
       {{ busy() ? 'Creating...' : 'Create Campaign' }}
     </button>
   </form>
@@ -85,7 +85,12 @@
             <strong>{{ item.campaign.label }}</strong>
             <span class="status-chip" [attr.data-status]="item.campaign.status">{{ item.campaign.status }}</span>
           </div>
-          <button class="btn small" type="button" (click)="toggleExpand(item.campaign.id)">
+          <button
+            class="btn small"
+            type="button"
+            (click)="toggleExpand(item.campaign.id)"
+            [attr.aria-label]="expandedCampaignId() === item.campaign.id ? 'Collapse campaign details' : 'Expand campaign details'"
+          >
             {{ expandedCampaignId() === item.campaign.id ? 'Collapse' : 'Expand' }}
           </button>
         </div>
@@ -94,13 +99,13 @@
 
         <div class="row-actions">
           @if (item.campaign.status === 'active') {
-            <button class="btn small" type="button" (click)="pause(item.campaign.id)">Pause</button>
+            <button class="btn small" type="button" (click)="pause(item.campaign.id)" aria-label="Pause this campaign">Pause</button>
           }
           @if (item.campaign.status === 'paused') {
-            <button class="btn small" type="button" (click)="resume(item.campaign.id)">Resume</button>
+            <button class="btn small" type="button" (click)="resume(item.campaign.id)" aria-label="Resume this campaign">Resume</button>
           }
           @if (item.campaign.status === 'active' || item.campaign.status === 'paused') {
-            <button class="btn small danger" type="button" (click)="kill(item.campaign.id)">Kill</button>
+            <button class="btn small danger" type="button" (click)="kill(item.campaign.id)" aria-label="Kill this campaign">Kill</button>
           }
         </div>
 
@@ -122,6 +127,7 @@
               type="button"
               [disabled]="!isDeclarationHashValid(item.campaign.id)"
               (click)="approveDeclaration(item.campaign.id)"
+              aria-label="Approve campaign declaration"
             >
               Approve Declaration
             </button>

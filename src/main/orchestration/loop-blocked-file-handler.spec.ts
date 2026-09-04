@@ -63,6 +63,35 @@ describe('LoopBlockedFileHandler', () => {
     expect(harness.emit).not.toHaveBeenCalled();
   });
 
+  /**
+   * The probe result can OVERRIDE a block, so probing the wrong directory is a
+   * safety failure: under isolation the repo root is trivially alive while the
+   * agent's worktree is wedged, which would silently discard a legitimate
+   * block. See `loop-cwd.ts`.
+   */
+  it('probes the execution cwd, not the repo root, when isolation is active', async () => {
+    const state = makeState();
+    state.config.executionCwd = '/tmp/workspace/.worktrees/session';
+    state.config.isolateLoopWorkspaces = true;
+    const harness = makeHarness();
+
+    await harness.handler.handle(state);
+
+    expect(harness.runLivenessProbe).toHaveBeenCalledWith(
+      '/tmp/workspace/.worktrees/session',
+      expect.any(Number),
+    );
+  });
+
+  it('probes the repo root when isolation is off', async () => {
+    const state = makeState();
+    const harness = makeHarness();
+
+    await harness.handler.handle(state);
+
+    expect(harness.runLivenessProbe).toHaveBeenCalledWith('/tmp/workspace', expect.any(Number));
+  });
+
   it('overrides a toolchain block when the liveness probe succeeds', async () => {
     const state = makeState();
     const setConvergenceNote = vi.fn();

@@ -713,9 +713,9 @@ describe('LOOP_START handler — kickoff prompt persistence', () => {
       'chat-1',
       expect.objectContaining({
         audit: {
-          finalAuditMode: 'gate',
-          preflightMode: 'record',
-          planPacketMode: 'prompted',
+          finalAuditMode: 'observe',
+          preflightMode: 'off',
+          planPacketMode: 'off',
           cleanlinessScan: true,
         },
         completion: expect.objectContaining({
@@ -966,9 +966,9 @@ describe('LOOP_RESUME_WITH_ANSWERS handler', () => {
         workspaceCwd: '/work/project',
         planFile: undefined,
         audit: {
-          finalAuditMode: 'gate',
-          preflightMode: 'record',
-          planPacketMode: 'prompted',
+          finalAuditMode: 'observe',
+          preflightMode: 'off',
+          planPacketMode: 'off',
           cleanlinessScan: true,
         },
         // LF-3a: the operator-reviewed fallback carries its own finite cap

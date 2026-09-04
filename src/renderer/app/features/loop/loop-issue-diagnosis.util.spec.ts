@@ -192,6 +192,18 @@ describe('buildLoopIssueView', () => {
     expect(view!.actions.find((action) => action.kind === 'inspect')?.primary).toBe(true);
   });
 
+  it('does not claim a review-driven loop will pause on its own', () => {
+    const view = buildLoopIssueView({
+      verdict: 'CRITICAL',
+      signals: [{ id: 'G', verdict: 'CRITICAL', message: 'same tool, same args' }],
+      running: true,
+      paused: false,
+      reviewDriven: true,
+    });
+    expect(view!.implication).toContain('Review-driven mode will not pause');
+    expect(view!.implication).not.toContain('it will pause on its own');
+  });
+
   it('treats a running WARN as a watch, not a stop', () => {
     const view = buildLoopIssueView({
       verdict: 'WARN',
@@ -268,5 +280,19 @@ describe('buildIterationEvidenceView', () => {
     });
     expect(view.verifyText).toContain('timed out');
     expect(view.verifyText).toContain('not a test failure');
+  });
+
+  it('distinguishes an isolated-workspace environment failure from a failed command', () => {
+    const view = buildIterationEvidenceView({
+      progressSignals: [],
+      completionSignalsFired: [],
+      verifyStatus: 'failed',
+      verifyFailureKind: 'environment',
+      testPassCount: 0,
+      testFailCount: 0,
+      filesChanged: [],
+    });
+    expect(view.verifyText).toContain('missing dependencies');
+    expect(view.verifyText).toContain('node_modules');
   });
 });

@@ -28,7 +28,11 @@ import {
 } from './base-cli-adapter';
 import { getLogger } from '../../logging/logger';
 import { generateId } from '../../../shared/utils/id-generator';
-import { buildAcpContextUsageEvent, toAcpCliUsage } from './acp-usage-estimator';
+import {
+  buildAcpContextUsageEvent,
+  estimateAcpCliUsage,
+  toAcpCliUsage,
+} from './acp-usage-estimator';
 import type { FileAttachment, OutputMessage } from '../../../shared/types/instance.types';
 import type {
   AcpAgentCapabilities,
@@ -84,9 +88,22 @@ import {
   resolveAcpChunkTurn,
   type AcpAssistantTurnState,
 } from './acp-assistant-stream';
-import { DEFAULT_ACTIVE_TOOL_TIMEOUT_MS, hasActiveAcpToolCall } from './acp-prompt-timeout-policy';
-import { classifyMissingUsage, describeTruncatedAcpTurn } from './acp-transport-failure';
-import { findTrailingTransportFailure } from '../transport-failure';
+import {
+  AcpStallWatchdog,
+  buildAcpStallContext,
+  buildAcpStallOutputMessage,
+  type AcpStallReport,
+} from './acp-stall-watchdog';
+import {
+  DEFAULT_ACTIVE_TOOL_TIMEOUT_MS,
+  classifyAcpTurnWait,
+  describeAcpPromptTimeoutCause,
+  hasActiveAcpToolCall,
+  selectCurrentTurnPermissions,
+  type AcpTurnWaitKind,
+  type AcpTurnWait,
+} from './acp-prompt-timeout-policy';
+import { classifyMissingUsage, classifyTurnEndingFailure, describeTruncatedAcpTurn, turnEndingFailureMetadata } from './acp-transport-failure';
 import { buildRetryRecoveredMessage, buildRetryStateMessage } from './acp-retry-state';
 import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
 const logger = getLogger('AcpCliAdapter');
@@ -132,21 +149,21 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 const DEFAULT_PROMPT_TIMEOUT_MS = 10 * 60_000;
 
 /**
- * The activity-aware prompt timeout is the authoritative ACP liveness owner.
- * Keep the earlier heuristic warning disabled unless a caller explicitly opts
- * in: legitimate remote/browser work can remain quiet for several minutes,
- * and surfacing that as a transcript error tells users to cancel healthy work.
+ * The activity-aware prompt timeout is still the authoritative ACP liveness
+ * owner; the stall watchdog only narrates the wait. Off unless a caller opts
+ * in — `adapter-factory` supplies the real interval via
+ * `resolveAcpStallWarningMs`, so this default only covers direct construction
+ * and tests.
+ *
+ * The old reason for leaving it off everywhere was that legitimate
+ * remote/browser work can stay quiet for minutes and a transcript error would
+ * tell users to cancel healthy work. That is now addressed by what the warning
+ * *says* rather than by staying silent: it names the tool call or permission
+ * request being waited on, and only claims the turn may be stuck when nothing
+ * owns the silence. Suppressing instead would hide an agent that died holding
+ * a `pending` tool call until the 60-minute `activeToolTimeoutMs` lease.
  */
 const DEFAULT_STALL_WARNING_MS = 0;
-
-/**
- * Loop Mode's iteration timeout only extends on `loop:activity`. Cursor ACP
- * often stays alive with `session_info_update` / pending tools that never
- * become assistant/tool events, so the 30-minute loop backstop fires while
- * `session/prompt` is still in flight (0 iterations, 0 tokens). Ping while a
- * prompt is open so the loop treats ACP as the liveness owner.
- */
-const PROMPT_LIVENESS_HEARTBEAT_MS = 15_000;
 
 const DEFAULT_CLIENT_INFO: AcpImplementationInfo = {
   name: 'ai-orchestrator',
@@ -196,6 +213,10 @@ interface AcpPendingPermissionRequest {
   title: string;
   kind: AcpToolKind;
   options: AcpPermissionOption[];
+  /** When the request arrived. `pendingPermissionRequests` is not cleared at
+   *  turn boundaries (a failed `sendResponse` write leaks the entry), so the
+   *  turn diagnosis filters on this rather than blaming a dead turn's request. */
+  createdAt: number;
 }
 
 interface AcpPendingElicitationRequest {
@@ -259,10 +280,11 @@ export interface AcpCliAdapterConfig extends Omit<CliAdapterConfig, 'command' | 
   concurrencyKey?: string;
   /** `'overflow'` takes reserved extra slots once the interactive cap is full. */
   concurrencyPriority?: 'normal' | 'overflow';
-  /** Emit a `stall_warning` event + error OutputMessage if a prompt turn
-   *  goes this long without any `session/update` notification. Disabled by
-   *  default because quiet external work is not proof of a stalled turn;
-   *  the activity-aware prompt timeout remains authoritative. */
+  /** Emit a `stall_warning` event + a `system` OutputMessage if a prompt turn
+   *  goes this long without any `session/update` notification. All three ACP
+   *  factories set it (`resolveAcpStallWarningMs`); 0 opts out. The
+   *  activity-aware prompt timeout remains authoritative — this only narrates
+   *  the wait so a long silence is visible before the turn fails. */
   stallWarningMs?: number;
 }
 
@@ -330,7 +352,9 @@ export class AcpCliAdapter extends BaseCliAdapter {
   /** Stall watchdog timer — fires if a prompt turn receives no
    *  `session/update` for longer than `stallWarningMs`. Rearmed on
    *  every inbound update; cleared when the turn settles. */
-  private stallTimer: ReturnType<typeof setTimeout> | null = null;
+  private stallWatchdog: AcpStallWatchdog | null = null;
+  /** Wait kinds already surfaced to the transcript for the current turn. */
+  private readonly stallKindsNoticed = new Set<AcpTurnWaitKind>();
   private protocolErrorOutputCount = 0;
 
   constructor(config: AcpCliAdapterConfig) {
@@ -603,52 +627,54 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
     const responseId = this.generateResponseId();
     this.toolCalls.clear();
-    this.currentPrompt = createAcpAssistantTurn(responseId);
+    this.stallKindsNoticed.clear();
+    // Hold the turn in a local. The process `'exit'` handler nulls
+    // `this.currentPrompt` synchronously *before* it rejects the pending
+    // request, and that rejection only resumes this await a microtask later —
+    // so re-reading the field after the await loses a crashed turn's buffered
+    // output and its partial-usage estimate entirely.
+    const turn = createAcpAssistantTurn(responseId);
+    this.currentPrompt = turn;
     this.emit('status', 'busy');
     this.armStallWatchdog();
-    this.emit('heartbeat');
-    const livenessTimer = setInterval(() => this.emit('heartbeat'), PROMPT_LIVENESS_HEARTBEAT_MS);
-    if (typeof livenessTimer.unref === 'function') livenessTimer.unref();
 
     try {
       const result = await this.sendRequest<AcpSessionPromptResult>('session/prompt', promptParams);
-      const turn = this.currentPrompt;
-      const duration = turn ? Date.now() - turn.startedAt : 0;
-      const responseText = turn?.chunks.join('') ?? '';
+      const duration = Date.now() - turn.startedAt;
+      const responseText = turn.chunks.join('');
       const usage = toAcpCliUsage(
         result.usage,
         duration,
         message.content,
         responseText,
-        turn?.toolActivityChunks.join('\n') ?? '',
+        turn.toolActivityChunks.join('\n'),
       );
       // LT-018: publish the raw ACP usage aggregate (not the LT-100 estimate
       // above) so occupancy stays honest ("no usage ⇒ no event") even when
       // cost falls back to an estimate.
       const providerUsageReported = this.publishContextUsageFromTurn(result.usage, duration);
-      // A severed backend stream is reported by the agent as assistant text on
-      // an otherwise-normal turn, so the truncation has to be recovered from
-      // the text itself — `stopReason` says 'end_turn' either way.
-      const transportFailure = findTrailingTransportFailure(responseText);
+      // A severed stream and a refused request are both reported by the agent
+      // as assistant text on an otherwise-normal turn, so the truncation has to
+      // be recovered from the text — `stopReason` says 'end_turn' either way.
+      const endingFailure = classifyTurnEndingFailure(responseText);
       const response: CliResponse = {
-        id: turn?.responseId ?? responseId,
+        id: turn.responseId,
         role: 'assistant',
         content: responseText,
         usage,
         metadata: {
           stopReason: result.stopReason,
-          ...(transportFailure ? { transportFailure, truncatedTurn: true } : {}),
+          ...(endingFailure ? turnEndingFailureMetadata(endingFailure) : {}),
         },
       };
 
-      if (turn) {
-        this.resolveRetryNotice(turn);
-        this.emitFinalAssistantFlushes(turn);
-      }
-      if (transportFailure) {
+      this.resolveRetryNotice(turn);
+      this.emitFinalAssistantFlushes(turn);
+      if (endingFailure) {
         const truncated = describeTruncatedAcpTurn({
           adapter: this.getName(),
-          failure: transportFailure,
+          kind: endingFailure.kind,
+          failure: endingFailure.failure,
           stopReason: result.stopReason,
           providerUsageReported,
           durationMs: duration,
@@ -661,12 +687,38 @@ export class AcpCliAdapter extends BaseCliAdapter {
       this.completeResponse(response);
       return response;
     } catch (error) {
-      if (this.currentPrompt) {
-        this.emitFinalAssistantFlushes(this.currentPrompt);
+      const failure = toError(error, 'ACP prompt turn failed.');
+      this.emitFinalAssistantFlushes(turn);
+      const partialText = turn.chunks.join('');
+      const partialToolActivity = turn.toolActivityChunks.join('\n');
+      // The prompt alone is not "partial material". `estimateAcpCliUsage()`
+      // counts `message.content` as input, so a turn that died before the agent
+      // said or did anything would still estimate a positive total purely from
+      // the prompt we sent — and a transport failure that never reached the
+      // provider would be charged for tokens nobody spent. Require observed
+      // assistant text or tool activity first; only then is the prompt fair to
+      // count as the input side of a real, partially-served turn.
+      const partialUsage = partialText || partialToolActivity
+        ? estimateAcpCliUsage(
+            message.content,
+            partialText,
+            partialToolActivity,
+            Date.now() - turn.startedAt,
+          )
+        : undefined;
+      if (partialUsage?.totalTokens) {
+        Object.assign(failure, {
+          partialUsage,
+          ...(this.acpConfig.model ? { partialModel: this.acpConfig.model } : {}),
+        });
+        logger.info('ACP failed turn retained estimated partial usage', {
+          adapter: this.getName(),
+          totalTokens: partialUsage.totalTokens,
+          durationMs: partialUsage.duration,
+        });
       }
-      throw error;
+      throw failure;
     } finally {
-      clearInterval(livenessTimer);
       this.recentAssistantTurn = this.currentPrompt ?? this.recentAssistantTurn;
       this.currentPrompt = null;
       this.currentPromptRequestId = null;
@@ -749,86 +801,54 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
   // ============ Stall Watchdog ============
 
-  /**
-   * Start the stall watchdog for the current prompt turn. Does nothing
-   * when `stallWarningMs` is 0 (explicit opt-out) or when no prompt is
-   * currently in flight.
-   */
-  /**
-   * D11: Repeating stall watchdog — fires every `stallWarningMs` until the turn
-   * settles or `clearStallWatchdog()` is called. Replaces the one-shot pattern.
-   */
+  /** Start the stall watchdog for the current turn. No-op when `stallWarningMs`
+   *  is 0 (opt-out) or no prompt is in flight. Timer mechanics live in
+   *  AcpStallWatchdog; this owns what a stall *says*. */
   private armStallWatchdog(): void {
     this.clearStallWatchdog();
     const timeoutMs = this.acpConfig.stallWarningMs ?? DEFAULT_STALL_WARNING_MS;
     if (timeoutMs <= 0) return;
 
-    const scheduleNext = (): void => {
-      const armedAt = Date.now();
-      this.stallTimer = setTimeout(() => {
-        // Guard: turn has already settled.
-        if (!this.currentPromptRequestId) return;
+    this.stallWatchdog = new AcpStallWatchdog(timeoutMs, {
+      isTurnActive: () => this.currentPromptRequestId !== null,
+      turnStartedAt: () => this.currentPrompt?.startedAt ?? null,
+      // Same observation the `session/prompt` timeout reports from, so a
+      // warning and the failure that may follow it never disagree.
+      classifyWait: () => this.classifyCurrentTurnWait(),
+      report: (report) => this.reportStall(report),
+    });
+    this.stallWatchdog.arm();
+  }
 
-        const durationMs = this.currentPrompt
-          ? Date.now() - this.currentPrompt.startedAt
-          : timeoutMs;
-        const inactiveMs = Date.now() - armedAt;
+  private reportStall(report: AcpStallReport): void {
+    const context = buildAcpStallContext(
+      report,
+      this.getName(),
+      this.sessionId,
+      this.currentPromptRequestId,
+    );
+    // Always logged and always emitted as an event — the diagnostic record of a
+    // stall should be complete.
+    logger.warn('ACP prompt turn appears stalled', context);
+    this.emit('stall_warning', context);
 
-        logger.warn('ACP prompt turn appears stalled', {
-          adapter: this.getName(),
-          sessionId: this.sessionId,
-          promptRequestId: this.currentPromptRequestId,
-          timeoutMs,
-          durationMs,
-          inactiveMs,
-        });
-        // Emit a structured warning the UI can render as "This turn looks
-        // stuck — cancel?" without forcibly failing the prompt.
-        this.emit('stall_warning', {
-          adapter: this.getName(),
-          sessionId: this.sessionId,
-          promptRequestId: this.currentPromptRequestId,
-          timeoutMs,
-          durationMs,
-          inactiveMs,
-        });
-
-        // Also land it on the output buffer so chat history records the
-        // stall event and the child-exit summary picks it up.
-        this.emit('output', {
-          id: generateId(),
-          timestamp: Date.now(),
-          type: 'error',
-          content: `This turn hasn't produced any output for ${Math.round(inactiveMs / 1000)}s — it may be stuck. Cancel the turn to try again.`,
-          metadata: {
-            source: 'acp-stall-warning',
-            transport: 'acp',
-            adapter: this.getName(),
-            severity: 'warning',
-            timeoutMs,
-            durationMs,
-            inactiveMs,
-          },
-        } satisfies OutputMessage);
-
-        // Re-arm for the next interval so warnings repeat until the turn settles.
-        scheduleNext();
-      }, timeoutMs);
-
-      if (typeof this.stallTimer?.unref === 'function') {
-        this.stallTimer.unref();
-      }
-    };
-
-    scheduleNext();
+    // The transcript gets one notice per wait kind per turn. `system` messages
+    // are NOT covered by the output buffer's repeated-content suppression
+    // (which is gated on `type === 'error'`, instance-communication.ts) nor by
+    // the renderer's identical-message collapse, so without this latch a long
+    // legitimate tool run would append a notice every interval and evict real
+    // evidence from the 20-message window child-diagnostics reads. Matches the
+    // app's own stuck-process watchdog, which latches per state.
+    if (this.stallKindsNoticed.has(report.wait.kind)) return;
+    this.stallKindsNoticed.add(report.wait.kind);
+    this.emit('output', buildAcpStallOutputMessage(report, this.getName(), generateId()));
   }
 
   /**
    * Reset the stall watchdog — called when we receive a `session/update`.
-   * Equivalent to rearming from scratch (so repeated activity keeps the
-   * watchdog silent) while preserving the "already emitted" flag so we
-   * don't re-fire immediately on a single update that barely beats the
-   * deadline.
+   * Re-arms from scratch, so repeated activity keeps the watchdog silent. The
+   * per-turn notice latch is deliberately NOT reset here: it is scoped to the
+   * turn, so a burst of updates cannot re-open the transcript to repeats.
    */
   private resetStallWatchdog(): void {
     if (!this.currentPromptRequestId) return;
@@ -839,10 +859,8 @@ export class AcpCliAdapter extends BaseCliAdapter {
    * Clear the stall watchdog. Called at turn completion and on terminate.
    */
   private clearStallWatchdog(): void {
-    if (this.stallTimer) {
-      clearTimeout(this.stallTimer);
-      this.stallTimer = null;
-    }
+    this.stallWatchdog?.clear();
+    this.stallWatchdog = null;
   }
 
   override interrupt(): InterruptResult {
@@ -1535,6 +1553,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       title: optionalString(toolCall['title']) ?? toolCallId,
       kind: (optionalString(toolCall['kind']) as AcpToolKind | undefined) ?? 'other',
       options,
+      createdAt: Date.now(),
     };
     this.pendingPermissionRequests.set(key, pending);
 
@@ -2227,15 +2246,22 @@ export class AcpCliAdapter extends BaseCliAdapter {
       const promptInactivityText = method === 'session/prompt'
         ? ' without a session/update'
         : '';
+      // Report what was actually outstanding when the lease expired. The old
+      // fixed text asserted an orphaned tool call or permission request even
+      // when both had completed and the agent had simply gone quiet, which
+      // pointed every later investigation at the wrong subsystem.
+      const cause = method === 'session/prompt'
+        ? describeAcpPromptTimeoutCause(this.classifyCurrentTurnWait())
+        : 'The agent never answered this request.';
       const error = new Error(
-        `ACP ${method} request timed out after ${timeoutMs}ms${promptInactivityText} (id=${id}). ` +
-        'The agent may be stuck on an orphaned tool call or permission request.',
+        `ACP ${method} request timed out after ${timeoutMs}ms${promptInactivityText} (id=${id}). ${cause}`,
       );
       logger.warn('ACP request timeout', {
         adapter: this.getName(),
         method,
         id,
         timeoutMs,
+        cause,
       });
       if (method === 'session/prompt') {
         this.cancelTimedOutPrompt(id, timeoutMs);
@@ -2248,6 +2274,23 @@ export class AcpCliAdapter extends BaseCliAdapter {
       timer.unref();
     }
     return timer;
+  }
+
+  /**
+   * What the current turn is waiting on, from observed state only. Permission
+   * requests are filtered to the live turn: `pendingPermissionRequests` has no
+   * turn-boundary clear, so an entry leaked by a failed response write would
+   * otherwise be reported as this turn's cause.
+   */
+  private classifyCurrentTurnWait(): AcpTurnWait {
+    const turnStartedAt = this.currentPrompt?.startedAt ?? null;
+    return classifyAcpTurnWait({
+      toolCalls: this.toolCalls.values(),
+      permissions: selectCurrentTurnPermissions(
+        this.pendingPermissionRequests.values(),
+        turnStartedAt,
+      ),
+    });
   }
 
   private refreshCurrentPromptTimeout(): void {

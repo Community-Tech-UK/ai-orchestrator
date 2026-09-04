@@ -26,10 +26,10 @@
         />
       </label>
       <div class="row-actions">
-        <button class="btn small" type="button" [disabled]="busy()" (click)="skip(escalation.id)">
+        <button class="btn small" type="button" [disabled]="busy()" (click)="skip(escalation.id)" aria-label="Skip this escalation">
           Skip
         </button>
-        <button class="btn small primary" type="button" [disabled]="busy()" (click)="resolve(escalation.id)">
+        <button class="btn small primary" type="button" [disabled]="busy()" (click)="resolve(escalation.id)" aria-label="Resolve this escalation">
           Resolve
         </button>
       </div>

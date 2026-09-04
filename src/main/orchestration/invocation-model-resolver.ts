@@ -15,6 +15,7 @@ import { getAuxiliaryLlmService } from '../rlm/auxiliary-llm-service';
 import type { CliType } from '../cli/cli-detection';
 import { resolveRoutingPolicyTier } from './routing-tier-policy';
 import type { OrchestrationRoutingPolicyKey } from '../../shared/types/settings.types';
+import { getSettingsManager } from '../core/config/settings-manager';
 
 const logger = getLogger('DefaultInvokers');
 
@@ -145,6 +146,56 @@ export function resolveModelForInvocation(args: {
   return resolveDefaultModel(args.cliType, args.payloadModel);
 }
 
+/**
+ * T2: shared loop model resolution so the coordinator skip predicate and the
+ * invoker cannot diverge. Uses the routing prompt (always goal-bearing), never
+ * the maybe-skipped send prompt.
+ */
+export async function resolveLoopChildModel(args: {
+  cliType: CliType;
+  requestedProvider: string;
+  payloadModel?: string;
+  routingPrompt: string;
+}): Promise<string | undefined> {
+  let model = resolveModelForInvocation({
+    cliType: args.cliType,
+    requestedProvider: args.requestedProvider,
+    payloadModel: args.payloadModel,
+    prompt: args.routingPrompt,
+    routingIntent: 'loop',
+    routingPolicyKey: 'loop',
+  });
+  const explicitlyRequested = isExplicitModel(args.payloadModel);
+  const isCodexChatgpt =
+    (args.cliType === 'codex' || args.requestedProvider === 'codex')
+    && readCodexAuthMode() === 'chatgpt';
+  if (
+    !explicitlyRequested
+    && !isCodexChatgpt
+    && getModelRouter().getConfig().enabled
+    && getSettingsManager().getAll().auxiliaryLlmRoutingClassificationEnabled
+    && (await classifyCheapModelEligible(args.routingPrompt))
+  ) {
+    const providerHint =
+      args.requestedProvider && args.requestedProvider !== 'auto'
+        ? args.requestedProvider
+        : args.cliType;
+    const fastModel = resolveRoutedModel(args.routingPrompt, {
+      provider: providerHint,
+      explicitModel: 'fast',
+    }).model;
+    if (fastModel && fastModel !== model) {
+      logger.info('routingClassification: task is cheap-model eligible, preferring fast tier', {
+        from: model,
+        to: fastModel,
+        provider: providerHint,
+      });
+      model = fastModel;
+    }
+  }
+  return model;
+}
+
 export function shouldPreferScaffoldingProvider(params: {
   routingIntent?: RoutingIntent;
   explicitRequestedProvider?: string;
@@ -156,15 +207,28 @@ export function shouldPreferScaffoldingProvider(params: {
   return params.explicitRequestedProvider === 'auto';
 }
 
+const cheapEligibleCache = new Map<string, boolean>();
+
+/** Test-only: drop the goal-slice cache so specs do not leak across cases. */
+export function _resetCheapEligibleCacheForTesting(): void {
+  cheapEligibleCache.clear();
+}
+
+function cheapEligibleRequestSlice(prompt: string): string {
+  const goalMatch = prompt.match(
+    /(?:^|\n)## Goal \(persistent across iterations\)\s*\n([\s\S]*?)(?=\n##\s|$)/,
+  );
+  return (goalMatch?.[1]?.trim() || prompt.trim()).slice(0, 4_000)
+    .replace(/<\/routing_request/gi, '<\\/routing_request');
+}
+
 /** Auxiliary `routingClassification` slot: is the task cheap-model eligible?
  *  Returns false on ANY failure so the heuristic decision stands. */
 export async function classifyCheapModelEligible(prompt: string): Promise<boolean> {
   try {
-    const goalMatch = prompt.match(
-      /(?:^|\n)## Goal \(persistent across iterations\)\s*\n([\s\S]*?)(?=\n##\s|$)/,
-    );
-    const request = (goalMatch?.[1]?.trim() || prompt.trim()).slice(0, 4_000)
-      .replace(/<\/routing_request/gi, '<\\/routing_request');
+    const request = cheapEligibleRequestSlice(prompt);
+    const cached = cheapEligibleCache.get(request);
+    if (cached !== undefined) return cached;
     const { text } = await getAuxiliaryLlmService().generate(
       'routingClassification',
       'You classify whether a coding/agent request is simple enough to be handled by a small, ' +
@@ -177,8 +241,13 @@ export async function classifyCheapModelEligible(prompt: string): Promise<boolea
     );
     // Fence/prose-tolerant outermost-object extraction (matches the other aux-slot parsers).
     const match = text.match(/\{[\s\S]*\}/);
-    if (!match) return false;
-    return (JSON.parse(match[0]) as { eligible?: unknown }).eligible === true;
+    if (!match) {
+      cheapEligibleCache.set(request, false);
+      return false;
+    }
+    const eligible = (JSON.parse(match[0]) as { eligible?: unknown }).eligible === true;
+    cheapEligibleCache.set(request, eligible);
+    return eligible;
   } catch {
     return false;
   }

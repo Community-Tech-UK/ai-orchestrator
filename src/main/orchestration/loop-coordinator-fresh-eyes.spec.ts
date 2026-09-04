@@ -18,6 +18,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LoopCoordinator, type LoopChildResult, type FreshEyesReviewerResult } from './loop-coordinator';
@@ -38,6 +39,11 @@ let coordinator: LoopCoordinator;
 
 beforeEach(() => {
   workspace = mkdtempSync(join(tmpdir(), 'loop-fresh-eyes-'));
+  // A reviewer-backed loop must live in a git repository — otherwise every
+  // review round is handed an empty diff and approves by default, which
+  // `blindReviewerWorkspaceStartError` refuses at start. It asks git
+  // (`rev-parse --is-inside-work-tree`), so this has to be a real repo.
+  execFileSync('git', ['init', '--quiet'], { cwd: workspace, stdio: 'ignore' });
   writeFileSync(join(workspace, 'STAGE.md'), 'IMPLEMENT\n');
   coordinator = new LoopCoordinator();
 });

@@ -5,6 +5,7 @@ import type {
 } from '../../shared/types/loop.types';
 import { createLoopPendingInput } from '../../shared/types/loop.types';
 import { getLogger } from '../logging/logger';
+import { loopExecutionCwd } from './loop-cwd';
 import {
   archiveBlockedFileForIntent as archiveBlockedFileForIntentHelper,
 } from './loop-coordinator-state-helpers';
@@ -87,7 +88,10 @@ export async function pauseForBlockIntentAction(params: {
   let failedProbeDetail: string | undefined;
   if (probeCfg?.enabled !== false && isToolchainClassBlockHelper(intent.summary, intent.evidence)) {
     const probe = await runWorkspaceLivenessProbeHelper(
-      state.config.workspaceCwd,
+      // Probe the tree the agent actually works in. Under isolation the repo
+      // root is trivially alive while the worktree is wedged, which would
+      // auto-override a legitimate block. See `loop-cwd.ts`.
+      loopExecutionCwd(state.config),
       probeCfg?.timeoutMs ?? 5000,
     );
     if (probe.alive) {

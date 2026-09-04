@@ -458,6 +458,68 @@ describe('LoopCoordinator degraded iteration retry', () => {
       await coordinator.cancelLoop(state.id);
     }
   });
+
+  it('re-sends the parent-chat replay when a retry forces a fresh session on a later iteration', async () => {
+    // T15 sends the replay on iteration 0 and post-recycle only. A degraded
+    // retry that cannot preserve the thread IS a recycle — the retried child is
+    // a brand-new session — so it must get the replay back even though the
+    // first attempt at that seq deliberately went without it.
+    const marker = 'parent-chat-replay-marker-xyz';
+    const promptsBySeq = new Map<number, string[]>();
+    let invokeCount = 0;
+    coordinator.on('loop:invoke-iteration', (payload: unknown) => {
+      const p = payload as {
+        seq: number;
+        prompt: string;
+        forceContextReset?: boolean;
+        callback: (result: LoopChildResult | { error: string }) => void;
+      };
+      invokeCount += 1;
+      const seen = promptsBySeq.get(p.seq) ?? [];
+      seen.push(p.prompt);
+      promptsBySeq.set(p.seq, seen);
+      // seq 0 succeeds; the FIRST attempt at seq 1 fails retryably, which
+      // forces a fresh session for the second attempt at seq 1.
+      if (p.seq === 1 && seen.length === 1) {
+        p.callback({ error: 'boom', attemptEvidence: noneObservedEvidence } as never);
+        return;
+      }
+      p.callback(iterationResult(`attempt-${invokeCount}`));
+    });
+
+    const state = await coordinator.startLoop(
+      'chat-replay-on-forced-reset',
+      {
+        initialPrompt: 'keep going',
+        workspaceCwd: workspace,
+        caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 2 },
+        degradedIterationRetry: { enabled: true, maxRetries: 2 },
+        completion: {
+          ...defaultLoopConfig(workspace, 'x').completion,
+          verifyCommand: 'false',
+          runVerifyTwice: false,
+          requireCompletedFileRename: false,
+          crossModelReview: { enabled: false, blockingSeverities: ['critical'], timeoutSeconds: 10, reviewDepth: 'structured' },
+        },
+      },
+      undefined,
+      { existingSessionContext: marker },
+    );
+
+    try {
+      await waitForCondition(() => (promptsBySeq.get(1)?.length ?? 0) >= 2, 8000);
+      const seq0 = promptsBySeq.get(0) ?? [];
+      const seq1 = promptsBySeq.get(1) ?? [];
+      expect(seq0[0]).toContain(marker);
+      // First attempt at seq 1: no recycle yet, so no replay.
+      expect(seq1[0]).not.toContain(marker);
+      // Retry after the forced reset: replay AND goal are back.
+      expect(seq1[1]).toContain(marker);
+      expect(seq1[1]).toContain('keep going');
+    } finally {
+      await coordinator.cancelLoop(state.id);
+    }
+  }, 15_000);
 });
 
 async function waitForCondition(predicate: () => boolean, timeoutMs = 2000): Promise<void> {

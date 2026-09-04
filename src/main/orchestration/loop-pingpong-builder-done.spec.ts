@@ -5,7 +5,7 @@ import type { CompletionSignalEvidence } from '../../shared/types/loop.types';
 
 const classifierInput = {
   goal: 'finish the widget',
-  workspaceCwd: '/repo',
+  executionCwd: '/repo',
   iterationOutput: 'I found several remaining issues and will keep going.',
   config: { noOutstandingPhrase: 'There are no outstanding issues' },
 };
@@ -37,6 +37,20 @@ describe('resolvePingPongBuilderDone', () => {
     const classify = notClean();
     await resolvePingPongBuilderDone([signal({})], classify, classifierInput);
 
+    expect(classify).not.toHaveBeenCalled();
+  });
+
+  it('does not treat a stale ledger-complete as builder-done when workHash is unchanged', async () => {
+    const classify = notClean();
+    const verdict = await resolvePingPongBuilderDone(
+      [signal({})],
+      classify,
+      classifierInput,
+      { lastLedgerCompleteWorkHash: 'abc', currentWorkHash: 'abc' },
+    );
+
+    expect(verdict.clean).toBe(false);
+    expect(verdict.reason).toContain('stale ledger-complete');
     expect(classify).not.toHaveBeenCalled();
   });
 

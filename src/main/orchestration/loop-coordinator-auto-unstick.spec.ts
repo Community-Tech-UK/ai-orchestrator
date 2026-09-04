@@ -4,6 +4,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -29,6 +30,11 @@ let coordinator: LoopCoordinator;
 
 beforeEach(() => {
   workspace = mkdtempSync(join(tmpdir(), 'loop-auto-unstick-'));
+  // A reviewer-backed loop must live in a git repository — otherwise every
+  // review round is handed an empty diff and approves by default, which
+  // `blindReviewerWorkspaceStartError` refuses at start. It asks git
+  // (`rev-parse --is-inside-work-tree`), so this has to be a real repo.
+  execFileSync('git', ['init', '--quiet'], { cwd: workspace, stdio: 'ignore' });
   coordinator = new LoopCoordinator();
   vi.clearAllMocks();
 });

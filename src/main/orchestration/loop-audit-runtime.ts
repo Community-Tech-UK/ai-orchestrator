@@ -11,6 +11,7 @@ import type {
   LoopState,
 } from '../../shared/types/loop.types';
 import { excerpt } from './loop-coordinator-utils';
+import { configForLoopExecutionCwd, loopExecutionCwd } from './loop-cwd';
 import type { LoopCompletionDetector, VerifyOutcome } from './loop-completion-detector';
 import { resolveLoopArtifactPaths, type LoopArtifactPaths } from './loop-artifact-paths';
 import {
@@ -38,9 +39,12 @@ export interface LoopPreflightVerificationExecution {
   startedAt: number;
 }
 
-export function effectiveLoopRepoCwd(config: Pick<LoopConfig, 'workspaceCwd' | 'executionCwd'>): string {
-  return config.executionCwd?.trim() || config.workspaceCwd;
-}
+/**
+ * @deprecated Prefer `loopExecutionCwd` from `./loop-cwd` — the single home for
+ * the state-cwd vs execution-cwd decision. Kept as a re-export so existing
+ * audit-runtime call sites keep working without churn.
+ */
+export const effectiveLoopRepoCwd = loopExecutionCwd;
 
 export async function captureAndPersistLoopRepoBaseline(
   repoCwd: string,
@@ -106,6 +110,14 @@ export const LOOP_PREFLIGHT_VERIFY_BUDGET_MS = 180_000;
 export const PREFLIGHT_VERIFY_SKIPPED_NOTE =
   '(not run: quick-verify already established the baseline, and a `record` preflight gates nothing)';
 
+/**
+ * Why a non-gating preflight skipped the slow command when no cheap one ran.
+ * Observed 2026-09-03: with no quick-verify, the 180s cap still burned three
+ * minutes of dead time to produce "timed out" — UNKNOWN, not a baseline.
+ */
+export const PREFLIGHT_VERIFY_SKIPPED_NO_CHEAP_NOTE =
+  '(not run: no quick-verify configured, and a `record` preflight gates nothing)';
+
 /** True when the preflight can actually stop the run, i.e. it has to prove something. */
 function isGatingPreflight(config: LoopConfig): boolean {
   return config.audit.preflightMode === 'block';
@@ -159,6 +171,21 @@ export async function runLoopPreflight(
       });
       return { status: 'passed', ranAt, commands };
     }
+  }
+  if (verifyCommand && config.audit.preflightMode === 'record') {
+    // Same rationale as the quick-verify short-circuit above, for the case
+    // where there is no cheap command at all. The auto-inferred workspace
+    // `verify` in this repo cannot finish inside the capped budget, so running
+    // it only produces a red timeout chip and delays iteration 1. `block`
+    // still has to run the command it gates on.
+    commands.push({
+      label: 'verify',
+      command: verifyCommand,
+      status: 'skipped',
+      durationMs: 0,
+      outputExcerpt: PREFLIGHT_VERIFY_SKIPPED_NO_CHEAP_NOTE,
+    });
+    return { status: 'skipped', ranAt, commands };
   }
   if (verifyCommand) {
     const startedAt = Date.now();
@@ -317,10 +344,7 @@ function captureRepoBaseline(repoCwd: string): LoopRepoBaselineSnapshot {
 }
 
 function configForEffectiveRepoCwd(state: LoopState): LoopConfig {
-  const repoCwd = effectiveLoopRepoCwd(state.config);
-  return repoCwd === state.config.workspaceCwd
-    ? state.config
-    : { ...state.config, workspaceCwd: repoCwd };
+  return configForLoopExecutionCwd(state.config);
 }
 
 function renderLoopPreflightMarkdown(
@@ -346,9 +370,15 @@ function renderLoopPreflightMarkdown(
     mode !== 'block'
     && preflight.commands.some((command) => command.label === 'verify' && command.status === 'skipped')
   ) {
+    const skippedAfterQuick = preflight.commands.some(
+      (command) => command.label === 'quick-verify' && command.status === 'passed',
+    );
     lines.push(
-      '- Note: the baseline stopped after quick-verify. A `record` preflight never gates the run,'
-      + ' so the full verify was not worth the dead time ahead of iteration 1.',
+      skippedAfterQuick
+        ? '- Note: the baseline stopped after quick-verify. A `record` preflight never gates the run,'
+          + ' so the full verify was not worth the dead time ahead of iteration 1.'
+        : '- Note: the full verify was not run. A `record` preflight never gates the run, and with no'
+          + ' quick-verify command a timeout would only prove the budget, not the tree.',
       '',
     );
   }

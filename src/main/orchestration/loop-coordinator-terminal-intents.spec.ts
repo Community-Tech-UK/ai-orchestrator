@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
@@ -32,6 +33,11 @@ const LOOP_EVENT_TIMEOUT_MS = 10_000;
 
 beforeEach(() => {
   workspace = mkdtempSync(join(tmpdir(), 'loop-terminal-intents-'));
+  // A reviewer-backed loop must live in a git repository — otherwise every
+  // review round is handed an empty diff and approves by default, which
+  // `blindReviewerWorkspaceStartError` refuses at start. It asks git
+  // (`rev-parse --is-inside-work-tree`), so this has to be a real repo.
+  execFileSync('git', ['init', '--quiet'], { cwd: workspace, stdio: 'ignore' });
   writeFileSync(join(workspace, 'STAGE.md'), 'IMPLEMENT\n');
   coordinator = new LoopCoordinator();
 });

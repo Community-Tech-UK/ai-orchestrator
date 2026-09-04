@@ -250,7 +250,7 @@ export type CliSpawnMode =
  * totals for an unknown observation — aggregates are cost/diagnostics only.
  */
 export type ContextUsageObservation =
-  | { status: 'known'; used: number; total: number; source: 'provider-turn' | 'provider-session' }
+  | { status: 'known'; used: number; total: number; source: 'provider-turn' | 'provider-session'; conversationTokens?: number; systemTokens?: number; toolDefinitionsTokens?: number; windowTrusted?: boolean }
   | { status: 'unknown'; reason: 'not-reported' | 'aggregate-only' | 'invalid-sample' };
 
 /**

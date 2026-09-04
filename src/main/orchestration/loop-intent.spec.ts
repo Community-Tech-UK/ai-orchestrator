@@ -29,10 +29,10 @@ describe('detectConvergeUntilCleanIntent', () => {
     expect(looksLikeConvergeUntilCleanIntent('Audit the codebase until there are no bugs left')).toBe(true);
   });
 
-  it('matches the cue in the iterationPrompt even when the goal is plain', () => {
+  it('does NOT match a cue that lives only in the iterationPrompt', () => {
     expect(
       looksLikeConvergeUntilCleanIntent('Implement the feature', 'please continue, re-review with fresh eyes'),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it('does NOT match a plain implementation goal', () => {

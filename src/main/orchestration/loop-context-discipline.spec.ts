@@ -94,6 +94,76 @@ describe('shouldRecycleLoopContext — known occupancy', () => {
     expect(noUsed.recycle).toBe(false);
     expect(noUsed.occupancyUnavailable).toBe(true);
   });
+
+  it('T1a: currentTokens/tokenLimit at the reset threshold recycles', () => {
+    const d = shouldRecycleLoopContext({
+      enabled: true,
+      resetAtUtilization: 0.6,
+      observation: {
+        status: 'known',
+        used: 70_000,
+        total: 100_000,
+        source: 'provider-session',
+        windowTrusted: true,
+      },
+    });
+    expect(d.recycle).toBe(true);
+    expect(d.utilization).toBeCloseTo(0.7, 5);
+  });
+
+  it('T1a: high-tools / low-conversation still recycles unless static overhead alone meets the threshold', () => {
+    const stillRecycles = shouldRecycleLoopContext({
+      enabled: true,
+      resetAtUtilization: 0.6,
+      observation: {
+        status: 'known',
+        used: 70_000,
+        total: 100_000,
+        source: 'provider-session',
+        windowTrusted: true,
+        conversationTokens: 5_000,
+        systemTokens: 10_000,
+        toolDefinitionsTokens: 40_000,
+      },
+    });
+    expect(stillRecycles.recycle).toBe(true);
+    expect(stillRecycles.reason).not.toContain('static-overhead');
+
+    const blocked = shouldRecycleLoopContext({
+      enabled: true,
+      resetAtUtilization: 0.6,
+      observation: {
+        status: 'known',
+        used: 85_000,
+        total: 100_000,
+        source: 'provider-session',
+        windowTrusted: true,
+        conversationTokens: 5_000,
+        systemTokens: 10_000,
+        toolDefinitionsTokens: 70_000,
+      },
+    });
+    expect(blocked.recycle).toBe(false);
+    expect(blocked.occupancyUnavailable).toBe(false);
+    expect(blocked.reason).toContain('static-overhead');
+  });
+
+  it('T1a: an untrusted window never becomes a recycle percentage', () => {
+    const d = shouldRecycleLoopContext({
+      enabled: true,
+      resetAtUtilization: 0.6,
+      observation: {
+        status: 'known',
+        used: 180_000,
+        total: 200_000,
+        source: 'provider-session',
+        windowTrusted: false,
+      },
+    });
+    expect(d.recycle).toBe(false);
+    expect(d.occupancyUnavailable).toBe(true);
+    expect(d.reason).toContain('not provider-trusted');
+  });
 });
 
 describe('shouldRecycleLoopContext — unknown occupancy (aggregate can never recycle)', () => {
@@ -123,5 +193,76 @@ describe('shouldRecycleLoopContext — unknown occupancy (aggregate can never re
       expect(d.occupancyUnavailable).toBe(true);
       expect(d.reason).toContain('occupancy unavailable');
     }
+  });
+});
+
+describe('shouldRecycleLoopContext — T1 ceiling', () => {
+  it('recycles resume-capable unknown occupancy after the iteration ceiling', () => {
+    const d = shouldRecycleLoopContext({
+      enabled: true,
+      resetAtUtilization: 0.6,
+      observation: unknown('aggregate-only'),
+      cumulativeTokens: 10_000,
+      ceiling: { supportsResume: true, iterationsSinceRecycle: 8 },
+    });
+    expect(d.recycle).toBe(true);
+    expect(d.reason).toContain('occupancyUnavailable + ceiling');
+    expect(d.reason).toContain('8 iterations');
+  });
+
+  it('recycles resume-capable unknown occupancy after the aggregate-token ceiling', () => {
+    const d = shouldRecycleLoopContext({
+      enabled: true,
+      resetAtUtilization: 0.6,
+      observation: unknown('aggregate-only'),
+      cumulativeTokens: 100_000,
+      ceiling: { supportsResume: true, iterationsSinceRecycle: 2 },
+    });
+    expect(d.recycle).toBe(true);
+    expect(d.reason).toContain('100,000 aggregate tokens');
+  });
+
+  it('never ceilings Gemini/Antigravity (supportsResume false)', () => {
+    const d = shouldRecycleLoopContext({
+      enabled: true,
+      resetAtUtilization: 0.6,
+      observation: unknown('aggregate-only'),
+      cumulativeTokens: 7_000_000,
+      ceiling: { supportsResume: false, iterationsSinceRecycle: 50 },
+    });
+    expect(d.recycle).toBe(false);
+    expect(d.occupancyUnavailable).toBe(true);
+  });
+
+  it('WS4: unknown without a ceiling argument still does not recycle', () => {
+    const d = shouldRecycleLoopContext({
+      enabled: true,
+      resetAtUtilization: 0.6,
+      observation: unknown('aggregate-only'),
+      cumulativeTokens: 7_000_000,
+    });
+    expect(d.recycle).toBe(false);
+  });
+
+  it('falls through to the ceiling after a static-overhead occupancy skip', () => {
+    const d = shouldRecycleLoopContext({
+      enabled: true,
+      resetAtUtilization: 0.6,
+      observation: {
+        status: 'known',
+        used: 85_000,
+        total: 100_000,
+        source: 'provider-session',
+        windowTrusted: true,
+        conversationTokens: 5_000,
+        systemTokens: 10_000,
+        toolDefinitionsTokens: 70_000,
+      },
+      cumulativeTokens: 100_000,
+      ceiling: { supportsResume: true, iterationsSinceRecycle: 2 },
+    });
+    expect(d.recycle).toBe(true);
+    expect(d.reason).toContain('static-overhead');
+    expect(d.reason).toContain('occupancyUnavailable + ceiling');
   });
 });

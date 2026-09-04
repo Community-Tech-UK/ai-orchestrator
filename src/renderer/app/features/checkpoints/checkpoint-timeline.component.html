@@ -12,7 +12,7 @@
   @if (error() && !loading()) {
     <div class="error-banner" role="alert">
       <span>{{ error() }}</span>
-      <button class="btn retry-btn" (click)="load()">Retry</button>
+      <button class="btn retry-btn" (click)="load()" aria-label="Retry loading checkpoints">Retry</button>
     </div>
   }
 
@@ -81,8 +81,8 @@
           Any progress since this point will be lost.
         </p>
         <div class="confirm-actions">
-          <button class="btn cancel-btn" (click)="cancelRestore()">Cancel</button>
-          <button class="btn confirm-btn" (click)="confirmRestore()">Restore</button>
+          <button class="btn cancel-btn" (click)="cancelRestore()" aria-label="Cancel checkpoint restore">Cancel</button>
+          <button class="btn confirm-btn" (click)="confirmRestore()" aria-label="Confirm checkpoint restore">Restore</button>
         </div>
       </div>
     </div>

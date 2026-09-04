@@ -30,6 +30,7 @@
       class="btn primary"
       type="button"
       data-testid="vault-unlock-button"
+      aria-label="Unlock credential vault"
       [disabled]="busy() || status()?.locked === false"
       (click)="unlock()"
     >
@@ -39,6 +40,7 @@
       class="btn"
       type="button"
       data-testid="vault-lock-button"
+      aria-label="Lock credential vault"
       [disabled]="busy() || status()?.locked !== false"
       (click)="lock()"
     >

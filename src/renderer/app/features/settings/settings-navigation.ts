@@ -108,14 +108,14 @@ export const NAV_ITEMS: SettingsNavItem[] = [
     label: 'Orchestration',
     summary: 'Control how many agents can run and how they spawn child work.',
     group: 'Agent behavior',
-    keywords: 'children instances nesting limits idle',
+    keywords: 'children instances nesting limits idle loop model terra sonnet recycle same-session iteration',
   },
   {
     id: 'auxiliary-models',
     label: 'Auxiliary Models',
     summary: 'Route helper calls through local or cheap models.',
     group: 'Agent behavior',
-    keywords: 'ollama local gemma auxiliary llm routing cheap',
+    keywords: 'ollama local gemma auxiliary llm routing cheap loop classify',
   },
   {
     id: 'review',

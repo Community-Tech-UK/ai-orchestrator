@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  findTrailingProviderRefusal,
   findTrailingTransportFailure,
   isTransportFailureOnlyOutput,
+  MAX_REFUSAL_DETAIL_WORDS,
   MAX_TRANSPORT_FAILURE_TAIL_CHARS,
 } from './transport-failure';
 
@@ -311,5 +313,98 @@ describe('isTransportFailureOnlyOutput vs findTrailingTransportFailure', () => {
     for (const failure of OBSERVED_FAILURES) {
       expect(isTransportFailureOnlyOutput(failure), failure).toBe(true);
     }
+  });
+});
+
+describe('findTrailingProviderRefusal', () => {
+  /**
+   * Verbatim from instance `uk95fj93z` (cursor/grok-4.6-high-fast, 2026-09-03).
+   * A 73.9-minute turn with 1411 tool calls ended on this line, reported
+   * `stopReason: 'end_turn'`, and was recorded as a clean `busy → idle`. The
+   * detail after the status tag is the single word `Error` — the CLI serialized
+   * the status with no message — which is why the transport detector cannot see
+   * it and this one has to key on the status code.
+   */
+  const OBSERVED_REFUSAL = 'Error: RetriableError: [resource_exhausted] Error';
+
+  it('finds the observed refusal appended to a long, productive turn', () => {
+    expect(findTrailingProviderRefusal(`${REAL_TURN_PREFIX}\n\n${OBSERVED_REFUSAL}`))
+      .toBe(OBSERVED_REFUSAL);
+  });
+
+  it('finds a refusal that is the entire output', () => {
+    expect(findTrailingProviderRefusal(OBSERVED_REFUSAL)).toBe(OBSERVED_REFUSAL);
+  });
+
+  it('admits a refusal that carries a terse reason', () => {
+    // Not captured, but inside the word budget on purpose: a serializer that
+    // does fill in a message writes a noun phrase, not a sentence.
+    const tail = 'Error: RetriableError: [resource_exhausted] quota exceeded';
+    expect(findTrailingProviderRefusal(`${REAL_TURN_PREFIX}\n\n${tail}`)).toBe(tail);
+  });
+
+  it('rejects prose about a refusal', () => {
+    // Every one of these is a plausible closing line for a turn that FINISHED
+    // while working on this very file.
+    const cases = [
+      'Error: RetriableError: [resource_exhausted] was fixed by raising the cap.',
+      'Error: RetriableError: [resource_exhausted] is now parked and resumed.',
+      'Error: RetriableError: resource_exhausted handling now retries once.',
+      'The provider returned [resource_exhausted] so I added a detector.',
+    ];
+    for (const tail of cases) {
+      expect(findTrailingProviderRefusal(`${REAL_TURN_PREFIX}\n\n${tail}`), tail).toBeNull();
+    }
+  });
+
+  it('rejects a detail longer than the word budget', () => {
+    const words = Array.from({ length: MAX_REFUSAL_DETAIL_WORDS + 1 }, () => 'reason').join(' ');
+    const tail = `Error: RetriableError: [resource_exhausted] ${words}`;
+    expect(findTrailingProviderRefusal(`${REAL_TURN_PREFIX}\n\n${tail}`)).toBeNull();
+  });
+
+  it('does not fire on statuses outside the captured allowlist', () => {
+    // Admitting these would resurrect the false positives the transport
+    // detector spent five review rounds learning to reject.
+    const cases = [
+      'Error: [foo] [canceled] happened during rename.',
+      'Error: [internal] RetriableError',
+      'Error: RetriableError: [deadline_exceeded] Error',
+    ];
+    for (const tail of cases) {
+      expect(findTrailingProviderRefusal(`${REAL_TURN_PREFIX}\n\n${tail}`), tail).toBeNull();
+    }
+  });
+
+  it('inherits the guards the transport detector earned', () => {
+    expect(findTrailingProviderRefusal('')).toBeNull();
+    expect(findTrailingProviderRefusal(null)).toBeNull();
+    expect(findTrailingProviderRefusal(undefined)).toBeNull();
+    // Not the final line: the model kept going, so the turn was not truncated.
+    expect(
+      findTrailingProviderRefusal(`${OBSERVED_REFUSAL}\n\nRetried and it went through.`),
+    ).toBeNull();
+    // No error-shaped opening.
+    expect(
+      findTrailingProviderRefusal(`${REAL_TURN_PREFIX}\n\nDone: [resource_exhausted] Error`),
+    ).toBeNull();
+    // Over the tail length ceiling.
+    const padded = `Error: RetriableError: [resource_exhausted] ${'x'.repeat(MAX_TRANSPORT_FAILURE_TAIL_CHARS)}`;
+    expect(findTrailingProviderRefusal(`${REAL_TURN_PREFIX}\n\n${padded}`)).toBeNull();
+  });
+
+  it('stays disjoint from the transport detector', () => {
+    // The split is the point: a refusal has no transport evidence to find, and
+    // a severed stream is not an allowlisted refusal code.
+    expect(findTrailingTransportFailure(`${REAL_TURN_PREFIX}\n\n${OBSERVED_REFUSAL}`)).toBeNull();
+    for (const failure of OBSERVED_FAILURES) {
+      expect(findTrailingProviderRefusal(`${REAL_TURN_PREFIX}\n\n${failure}`), failure).toBeNull();
+    }
+  });
+
+  it('is still caught by the whole-output detector when nothing else happened', () => {
+    // The loop coordinator's path was already covered — a refusal on its own
+    // carries the `RetriableError` structural marker — and must stay that way.
+    expect(isTransportFailureOnlyOutput(OBSERVED_REFUSAL)).toBe(true);
   });
 });

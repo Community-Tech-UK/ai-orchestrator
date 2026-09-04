@@ -2393,7 +2393,13 @@ export class InstanceCommunicationManager extends EventEmitter {
     options?: { countAsProcessOutput?: boolean }
   ): void {
     message = redactRecoveryOutputMessage(instance, message);
-    if (options?.countAsProcessOutput) {
+    // A watchdog's own "this looks stuck" notice is not the process making
+    // progress. Feeding it to the stuck detector resets `lastOutputAt` and
+    // clears `softWarningEmitted`, so a repeating watchdog would indefinitely
+    // postpone the escalation it exists to trigger. instance-manager.ts adds
+    // its own stuck notice without `countAsProcessOutput` for the same reason.
+    const isWatchdogNotice = message.metadata?.['watchdogWarning'] === true;
+    if (options?.countAsProcessOutput && !isWatchdogNotice) {
       // Pass content so the stuck detector's evidence-hash fence (P4.5) can tell
       // genuine progress from repeated identical output.
       this.deps.onOutput?.(instance.id, message.content);

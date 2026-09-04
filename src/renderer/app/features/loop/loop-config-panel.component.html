@@ -60,14 +60,15 @@
 
   <section class="row">
     <label for="loop-cfg-mode">When is it done?</label>
-    <select id="loop-cfg-mode" [ngModel]="completionMode()" (ngModelChange)="completionMode.set($event)">
+    <select id="loop-cfg-mode" [ngModel]="completionMode()" (ngModelChange)="onCompletionModeChange($event)">
       <option value="review-driven">Loop until no issues (re-review &amp; fix)</option>
       <option value="gated">Gated (verify / declared-done)</option>
     </select>
   </section>
 
-  <section class="row">
-    <label for="loop-cfg-recipe">Loop recipe <span class="hint">(stage prompts)</span></label>
+  @if (showGatedChrome()) {
+    <section class="row">
+      <label for="loop-cfg-recipe">Loop recipe <span class="hint">(stage prompts)</span></label>
     <select id="loop-cfg-recipe" [ngModel]="loopRecipe()" (ngModelChange)="loopRecipe.set($event)">
       @for (option of recipeOptions(); track option.name) {
         <option [value]="option.name" [title]="option.description">
@@ -75,7 +76,8 @@
         </option>
       }
     </select>
-  </section>
+    </section>
+  }
 
   <section class="row failover-row">
     <label class="failover-toggle">
@@ -99,7 +101,7 @@
     }
   </section>
 
-  @if (completionMode() === 'review-driven') {
+  @if (completionMode() === 'review-driven' && !pingPongEnabled()) {
     <section class="row">
       <label for="loop-cfg-clean-passes">
         Clean reviews to finish
@@ -113,7 +115,7 @@
     <label class="pingpong-toggle">
       <input type="checkbox" [checked]="pingPongEnabled()" (change)="pingPongEnabled.set(toggleEvent($event))" />
       Ping-pong review
-      <span class="hint">(a different model deep-dives every round until both agree)</span>
+      <span class="hint">(a different model deep-dives every round until both agree; off by default)</span>
     </label>
   </section>
   @if (pingPongEnabled()) {
@@ -173,7 +175,9 @@
   <section class="row budget-note">
     <p class="hint budget-copy">
       The spend check runs between iterations, so a single iteration is bounded
-      primarily by the turn cap.
+      primarily by the turn cap. Every tripped cap currently takes one extra
+      wrap-up iteration so the child can write LOOP_TASKS.md and NOTES.md. That
+      extra turn is shown on the HUD as wrap-up.
     </p>
   </section>
 
@@ -189,6 +193,7 @@
 
   @if (showAdvanced()) {
     <div class="advanced-section">
+      <h4 class="advanced-group">Safety / scope</h4>
       <section class="row">
         <label for="loop-cfg-plan">Plan file <span class="hint">(optional)</span></label>
         <input id="loop-cfg-plan" type="text" placeholder="PLAN.md" [ngModel]="planFile()" (ngModelChange)="planFile.set($event)" />
@@ -207,7 +212,7 @@
 
       <section class="row split audit-config">
         <div>
-          <label for="loop-cfg-preflight">Preflight</label>
+          <label for="loop-cfg-preflight">Preflight <span class="hint">(observe = log only; record never blocks)</span></label>
           <select id="loop-cfg-preflight" [ngModel]="preflightMode()" (ngModelChange)="preflightMode.set($event)">
             <option value="off">Off</option>
             <option value="record">Record only</option>
@@ -215,7 +220,7 @@
           </select>
         </div>
         <div>
-          <label for="loop-cfg-final-audit">Final audit</label>
+          <label for="loop-cfg-final-audit">Final audit <span class="hint">(observe = log; gate = block completion)</span></label>
           <select id="loop-cfg-final-audit" [ngModel]="finalAuditMode()" (ngModelChange)="finalAuditMode.set($event)">
             <option value="observe">Observe</option>
             <option value="gate">Gate completion</option>
@@ -223,7 +228,7 @@
           </select>
         </div>
         <div>
-          <label for="loop-cfg-plan-packet">Plan packet</label>
+          <label for="loop-cfg-plan-packet">Plan packet <span class="hint">(prompted adds planner tokens)</span></label>
           <select id="loop-cfg-plan-packet" [ngModel]="planPacketMode()" (ngModelChange)="onPlanPacketModeChange($event)">
             <option value="off">Off</option>
             <option value="prompted">Prompt in PLAN</option>
@@ -231,21 +236,14 @@
         </div>
       </section>
 
+      <h4 class="advanced-group">Review &amp; quality</h4>
       <section class="row split">
         <div>
-          <label for="loop-cfg-provider">Provider</label>
+          <label for="loop-cfg-provider">Provider <span class="hint">(automation default — routed balanced unless pinned)</span></label>
           <select id="loop-cfg-provider" [ngModel]="provider()" (ngModelChange)="onProviderChange($event)">
             @for (option of providerOptions(); track option) {
               <option [value]="option">{{ providerLabel(option) }}</option>
             }
-          </select>
-        </div>
-        <div>
-          <label for="loop-cfg-review">Review style</label>
-          <select id="loop-cfg-review" [ngModel]="reviewStyle()" (ngModelChange)="reviewStyle.set($event)">
-            <option value="debate">3-agent debate</option>
-            <option value="star-chamber">Star Chamber</option>
-            <option value="single">Single agent</option>
           </select>
         </div>
       </section>
@@ -255,19 +253,21 @@
         <select id="loop-cfg-context" [ngModel]="contextStrategy()" (ngModelChange)="contextStrategy.set($event)">
           <option value="same-session">Same session — default; conversation persists across iters</option>
           <option value="fresh-child">Fresh child — each iter starts clean and reloads state from disk</option>
-          <option value="hybrid">Hybrid — not yet implemented; falls back to fresh-child</option>
         </select>
       </section>
 
-      <section class="row">
-        <label for="loop-cfg-stage">Start stage <span class="hint">(default continues work directly)</span></label>
+      @if (showGatedChrome()) {
+        <section class="row">
+          <label for="loop-cfg-stage">Start stage <span class="hint">(default continues work directly)</span></label>
         <select id="loop-cfg-stage" [ngModel]="initialStage()" (ngModelChange)="initialStage.set($event)">
           <option value="IMPLEMENT">Implement — continue toward the goal</option>
           <option value="PLAN">Plan — write or improve a plan first</option>
           <option value="REVIEW">Review — re-read the plan before implementation</option>
         </select>
-      </section>
+        </section>
+      }
 
+      <h4 class="advanced-group">Stall &amp; cost</h4>
       <section class="row split">
         <div>
           <label for="loop-cfg-iter-timeout">Iteration timeout (min)</label>
@@ -303,7 +303,7 @@
           />
           AIO-managed isolated workspace
           <span class="hint">
-            (recommended; harvests, integrates, promotes to the starting branch, then cleans up)
+            (recommended; harvests, integrates, promotes. Verify may run without node_modules until deps are provisioned.)
           </span>
         </label>
         @if (!managedIsolation()) {
@@ -312,23 +312,31 @@
             isolated changes or automatic promotion for this run.
           </div>
         }
-        <label>
-          <input
-            type="checkbox"
-            [checked]="effectiveRequireRename()"
-            [disabled]="planFileRequiresRename()"
-            (change)="requireRename.set(toggleEvent($event))"
-          />
-          Require <code>*_Completed.md</code> plan rename before stopping
-        </label>
+        @if (showGatedChrome()) {
+          <label>
+            <input
+              type="checkbox"
+              [checked]="effectiveRequireRename()"
+              [disabled]="planFileRequiresRename()"
+              (change)="requireRename.set(toggleEvent($event))"
+            />
+            Require <code>*_Completed.md</code> plan rename before stopping
+          </label>
+        }
         <label>
           <input type="checkbox" [checked]="runVerifyTwice()" (change)="runVerifyTwice.set(toggleEvent($event))" />
           Run verify command twice (anti-flake)
+          <span class="hint">(off by default — doubles verify cost when on)</span>
         </label>
         <label>
           <input type="checkbox" [checked]="compactContext()" (change)="compactContext.set(toggleEvent($event))" />
           Recycle context on long runs
-          <span class="hint">(fresh session at {{ compactionThresholdPct() }}% — bounds context rot)</span>
+          <span class="hint">
+            (Claude resident and Codex app-server recycle at {{ compactionThresholdPct() }}% of the live window.
+            Resume-capable providers without occupancy — Copilot exec, Cursor, ACP — recycle every 8 iterations or 100k aggregate tokens.
+            Gemini and Antigravity cannot recycle: each iteration is a fresh process.
+            Loop Mode does not use Settings compaction thresholds. After recycle, rehydrate can inject up to 50KB of files — that is not a cheap compact.)
+          </span>
         </label>
         @if (compactContext()) {
           <div class="cfg-inline-grid">

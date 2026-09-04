@@ -151,7 +151,7 @@ export interface LoopToolCallRecord {
   declaredTimeoutMs?: number;
 }
 
-export type LoopVerifyFailureKind = 'command' | 'timeout' | 'infra';
+export type LoopVerifyFailureKind = 'command' | 'timeout' | 'infra' | 'environment';
 
 /**
  * Drain timing for a queued loop message (Pi Task 18 taxonomy):
@@ -615,6 +615,16 @@ export interface LoopState {
    * canary, then cleared. Carries the compacting seq + reason for diagnostics.
    */
   justCompacted?: { seq: number; reason: string };
+  /**
+   * T2: capabilities of the child thread that last completed successfully.
+   * Cleared on recycle / failover / missing snapshot so the next prompt
+   * re-anchors. Coordinator never reads the adapter map for this.
+   */
+  lastThreadCaps?: {
+    supportsResume: boolean;
+    sameThreadContinuation: boolean;
+    model: string | null;
+  };
   freshEyesForcedByContradiction?: boolean;
   /**
    * D6 (#7) part 3: true while the last fresh-eyes gate review ran CLEAN and

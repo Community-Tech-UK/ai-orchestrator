@@ -43,12 +43,16 @@ export type {
 } from './loop-pingpong.types';
 export {
   clampPingPongMaxRounds,
+  clampPingPongReviewerTimeoutSeconds,
   defaultPingPongConfig,
   defaultPingPongState,
   isReviewerAvailabilityFault,
   PINGPONG_DEFAULT_MAX_ROUNDS,
+  PINGPONG_DEFAULT_REVIEWER_TIMEOUT_SECONDS,
   PINGPONG_MAX_MAX_ROUNDS,
+  PINGPONG_MAX_REVIEWER_TIMEOUT_SECONDS,
   PINGPONG_MIN_MAX_ROUNDS,
+  PINGPONG_MIN_REVIEWER_TIMEOUT_SECONDS,
 } from './loop-pingpong.types';
 
 export const DEFAULT_LOOP_MAX_WALL_TIME_MS = 50 * 60 * 60 * 1000;
@@ -249,8 +253,8 @@ export interface LoopCompletionConfig {
   quickVerifyCommand?: string;
   /** Quick-verify timeout in ms (if quickVerifyCommand is set). */
   quickVerifyTimeoutMs?: number;    // default 120_000 (2 min)
-  /** Run verify twice (anti-flake) before final stop. */
-  runVerifyTwice: boolean;          // default true
+  /** Run verify twice (anti-flake) before final stop. Default off; opt-in. */
+  runVerifyTwice: boolean;          // default false
   /**
    * Belt-and-braces: also require a *_Completed.md rename to actually have
    * happened during the loop before stopping. This is useful for explicit
@@ -388,9 +392,15 @@ export interface LoopContextCompactionConfig {
   enabled: boolean;
   /**
    * Utilization (0..1 of the loop context window) at which the loop recycles
-   * its own same-session adapter to a fresh session. Default 0.6 — conservative
-   * so subtle constraints aren't dropped, and well under the dual-threshold
-   * blocking band.
+   * its own same-session adapter to a fresh session.
+   *
+   * Default 0.85. Was 0.6, which recycled far too eagerly: a long run lost its
+   * session every ~3 iterations and the fresh agent re-derived work it had
+   * already done from the durable state files, which the progress detector then
+   * (correctly) reported as "repeating the same work". Recycling is not free —
+   * it trades accumulated reasoning for headroom — so it should happen when
+   * headroom is genuinely short, not routinely. Still well under the
+   * dual-threshold blocking band.
    */
   resetAtUtilization: number;
   /**
@@ -406,7 +416,7 @@ export interface LoopContextConfig {
 }
 
 export function defaultLoopContextConfig(): LoopContextConfig {
-  return { compaction: { enabled: true, resetAtUtilization: 0.6, clearToolResults: true } };
+  return { compaction: { enabled: true, resetAtUtilization: 0.85, clearToolResults: true } };
 }
 
 /**
@@ -415,6 +425,15 @@ export function defaultLoopContextConfig(): LoopContextConfig {
  * context; the point is a *relative* ceiling, not an exact match to any model.
  */
 export const LOOP_CONTEXT_WINDOW_TOKENS = 200_000;
+
+/**
+ * T1 ceiling: when occupancy is unknown (or static-overhead blocked a recycle)
+ * and the adapter can resume, recycle anyway after this many same-session
+ * iterations or this many aggregate tokens. Conservative sibling pins:
+ * claw-code auto-compact at 100k cumulative input.
+ */
+export const LOOP_CONTEXT_CEILING_ITERATIONS = 8;
+export const LOOP_CONTEXT_CEILING_AGGREGATE_TOKENS = 100_000;
 
 /**
  * Default per-iteration agentic-turn backstop passed to the child CLI as

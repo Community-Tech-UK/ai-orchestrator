@@ -21,6 +21,12 @@
 import type { LoopFailoverConfig } from '../../shared/types/loop.types';
 import type { LoopProvider } from '../../shared/types/loop.types';
 import type { LoopStage, LoopState } from '../../shared/types/loop.types';
+import type { ProviderId } from '../../shared/types/provider-quota.types';
+import { detectAvailableClis } from '../cli/cli-detection';
+import { classifyLoopError } from '../core/loop-error-classification';
+import { getProviderLimitLedgerPort } from '../core/system/provider-limit-ledger';
+import { getNotificationService } from '../notifications/notification-service';
+import { getFailoverManager } from '../providers/failover-manager';
 import { getLogger } from '../logging/logger';
 
 const logger = getLogger('LoopFailover');
@@ -170,4 +176,61 @@ export function attemptLoopFailover(
     logger.warn('Loop failover attempt threw — continuing to terminal handling', { loopRunId: state.id, seq, note });
     return { switched: false, note };
   }
+}
+
+export async function runCoordinatorLoopFailover(args: {
+  state: LoopState;
+  error: unknown;
+  seq: number;
+  stage: LoopStage;
+  downshiftModel?: string | null;
+  onSwitched: (from: LoopProvider) => void;
+  emit: (eventName: string, payload: unknown) => void;
+}): Promise<boolean> {
+  if (!args.state.config.failover?.enabled) return false;
+
+  let installed: ReadonlySet<string>;
+  try {
+    const clis = await detectAvailableClis();
+    installed = new Set(clis.filter((cli) => cli.installed).map((cli) => cli.name));
+  } catch {
+    installed = new Set();
+  }
+  const outcome = attemptLoopFailover(args.state, args.error, args.seq, args.stage, {
+    classify: (err) => classifyLoopError(err, {
+      provider: args.state.config.provider,
+      model: args.downshiftModel ?? undefined,
+    }),
+    selectTarget: (request) => getFailoverManager().selectLoopFailoverTarget(request),
+    isProviderParked: (provider) => Boolean(getProviderLimitLedgerPort().getActive({
+      provider: provider as ProviderId,
+      model: null,
+      now: Date.now(),
+    })),
+    installedProviders: installed,
+    notify: (input) => {
+      try {
+        getNotificationService().notify({
+          kind: 'loop-failover',
+          title: input.title,
+          body: input.body,
+          urgency: 'normal',
+          fingerprintFields: { loopRunId: args.state.id, seq: args.seq },
+        });
+      } catch { /* notification is best-effort */ }
+    },
+    emitActivity: (payload) => args.emit('loop:activity', {
+      loopRunId: args.state.id,
+      seq: args.seq,
+      stage: args.stage,
+      timestamp: Date.now(),
+      kind: 'status',
+      message: payload.message,
+      detail: payload.detail,
+    }),
+  });
+  if (outcome.switched && outcome.from) {
+    args.onSwitched(outcome.from);
+  }
+  return outcome.switched;
 }

@@ -8,7 +8,7 @@ import {
 
 const AMBIGUOUS_INPUT = {
   goal: 'Ship the feature',
-  workspaceCwd: '/work',
+  executionCwd: '/work',
   // Deliberately ambiguous so the deterministic regex classifier yields low
   // confidence and the model (auxiliary) path is exercised.
   iterationOutput: 'Made some progress and things are looking decent so far.',
@@ -55,7 +55,7 @@ describe('loop clean-review classifier — loopScoring offload', () => {
     expect(frontier).not.toHaveBeenCalled();
   });
 
-  it('escalates to the frontier LLM only when the slot allows frontier fallback', async () => {
+  it('does not escalate loopScoring to the frontier LLM even when fallback is allowed', async () => {
     const decision = {
       slot: 'loopScoring' as const,
       provider: 'local-fallback' as const,
@@ -69,9 +69,12 @@ describe('loop clean-review classifier — loopScoring offload', () => {
     const result = await defaultCleanReviewClassifier(AMBIGUOUS_INPUT);
 
     expect(aux).toHaveBeenCalledTimes(1);
-    expect(frontier).toHaveBeenCalledWith(expect.any(String), expect.any(String), decision);
-    expect(result.clean).toBe(false);
-    expect(result.reason).toBe('frontier');
+    expect(frontier).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      clean: false,
+      confidence: 0,
+      reason: 'clean-review sentiment unclear',
+    });
   });
 
   it('fails unclear without the frontier LLM when the auxiliary backend throws', async () => {
@@ -99,7 +102,7 @@ describe('loop clean-review classifier — loopScoring offload', () => {
     });
   });
 
-  it('does not retry a rejected authorized frontier classification', async () => {
+  it('does not call the frontier LLM when authorized fallback is rejected', async () => {
     const decision = {
       slot: 'loopScoring' as const,
       provider: 'local-fallback' as const,
@@ -112,7 +115,7 @@ describe('loop clean-review classifier — loopScoring offload', () => {
 
     const result = await defaultCleanReviewClassifier(AMBIGUOUS_INPUT);
 
-    expect(frontier).toHaveBeenCalledTimes(1);
+    expect(frontier).not.toHaveBeenCalled();
     expect(result).toEqual({
       clean: false,
       confidence: 0,

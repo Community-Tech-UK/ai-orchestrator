@@ -10,7 +10,14 @@ export { CLEAN_REVIEW_SENTINEL } from './loop-terminal-sentinels';
 
 export interface LoopCleanReviewClassifierInput {
   goal: string;
-  workspaceCwd: string;
+  /**
+   * The EXECUTION cwd (see `loop-cwd.ts`) — where the agent's work actually
+   * lives. Named `executionCwd` rather than `workspaceCwd` deliberately: three
+   * call sites used to pass the repo root here, and a same-named field made
+   * that invisible at every one of them. The rename turns the choice into a
+   * compile error instead of a silent mismatch.
+   */
+  executionCwd: string;
   iterationOutput: string;
   config: Pick<LoopCompletionConfig, 'noOutstandingPhrase'>;
 }
@@ -36,6 +43,8 @@ export const DEFAULT_CLEAN_REVIEW_TIMEOUT_MS = 20_000;
 export const defaultCleanReviewClassifier: LoopCleanReviewClassifier = async (input) => {
   const deterministic = classifyCleanReviewText(input.iterationOutput, input.config.noOutstandingPhrase);
   if (deterministic.confidence >= 0.9) return deterministic;
+  // Unresolved-work at 0.85 is already a decision; do not spend loopScoring on it.
+  if (!deterministic.clean && deterministic.confidence > 0) return deterministic;
 
   const model = await withCleanReviewTimeout(runModelCleanReviewClassifier(input), DEFAULT_CLEAN_REVIEW_TIMEOUT_MS);
   if (!model.clean && model.confidence >= 0.6) return model;
@@ -116,7 +125,7 @@ async function runModelCleanReviewClassifier(
 ): Promise<LoopCleanReviewClassification> {
   const context = [
     `GOAL:\n${input.goal}`,
-    `WORKSPACE:\n${input.workspaceCwd}`,
+    `WORKSPACE:\n${input.executionCwd}`,
     `REVIEW OUTPUT:\n${input.iterationOutput.slice(0, 5000)}`,
   ].join('\n\n');
   const prompt =
@@ -140,19 +149,9 @@ async function runModelCleanReviewClassifier(
   if (aux.source !== 'fallback') {
     return parseCleanReviewClassification(aux.text);
   }
-  if (!aux.allowFrontierFallback || !aux.decision) {
-    // Local unavailable, guard authorization missing, or frontier disallowed:
-    // remain unclear rather than issuing an uncorrelated paid call.
-    return UNCLEAR_CLEAN_REVIEW;
-  }
-
-  try {
-    const raw = await frontierBackend(prompt, context, aux.decision);
-    if (raw == null) return UNCLEAR_CLEAN_REVIEW;
-    return parseCleanReviewClassification(raw);
-  } catch {
-    return UNCLEAR_CLEAN_REVIEW;
-  }
+  // Never escalate loopScoring to frontier (T26). Remain unclear.
+  void frontierBackend;
+  return UNCLEAR_CLEAN_REVIEW;
 }
 
 export function parseCleanReviewClassification(raw: string): LoopCleanReviewClassification {

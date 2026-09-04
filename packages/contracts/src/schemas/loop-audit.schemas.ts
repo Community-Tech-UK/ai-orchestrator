@@ -5,6 +5,21 @@ export const LoopPreflightModeSchema = z.enum(['off', 'record', 'block']);
 export const LoopPlanPacketModeSchema = z.enum(['off', 'prompted']);
 export const LoopAuditStatusSchema = z.enum(['passed', 'failed', 'needs-review', 'skipped']);
 
+export const LoopThreadCapsSchema = z.object({
+  supportsResume: z.boolean(),
+  sameThreadContinuation: z.boolean(),
+  model: z.string().nullable(),
+});
+
+export const LoopCapWrapUpIntentSchema = z.object({
+  cap: z.enum(['iterations', 'wall-time', 'tokens', 'cost']),
+  originalReason: z.string(),
+  triggerIteration: z.number().int().nonnegative(),
+  measurement: z.number().optional(),
+  limit: z.number().optional(),
+  phase: z.enum(['pending-turn', 'turn-complete']),
+});
+
 export const LoopAuditConfigSchema = z.object({
   finalAuditMode: LoopFinalAuditModeSchema.default('observe'),
   preflightMode: LoopPreflightModeSchema.default('off'),

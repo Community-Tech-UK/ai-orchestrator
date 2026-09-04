@@ -5879,7 +5879,7 @@
     },
     {
       "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 3981
+      "lines": 3997
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-mempalace-knowledge-features_completed.md",
@@ -5911,7 +5911,7 @@
     },
     {
       "path": "src/main/instance/instance-communication.spec.ts",
-      "lines": 3195
+      "lines": 3210
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase1-contracts-package_completed.md",
@@ -5920,6 +5920,10 @@
     {
       "path": "docs/superpowers/plans/2026-04-16-worker-agent-autostart-service.md",
       "lines": 2867
+    },
+    {
+      "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
+      "lines": 2861
     },
     {
       "path": "docs/superpowers/plans/2026-04-18-inline-images-in-chat_completed.md",
@@ -5950,12 +5954,12 @@
       "lines": 2663
     },
     {
-      "path": "docs/superpowers/plans/2026-04-03-remote-nodes-phase3-4-6-7.COMPLETED.md",
-      "lines": 2659
+      "path": "src/main/instance/instance-communication.ts",
+      "lines": 2660
     },
     {
-      "path": "src/main/instance/instance-communication.ts",
-      "lines": 2654
+      "path": "docs/superpowers/plans/2026-04-03-remote-nodes-phase3-4-6-7.COMPLETED.md",
+      "lines": 2659
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
@@ -5974,20 +5978,16 @@
       "lines": 2395
     },
     {
-      "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
-      "lines": 2393
-    },
-    {
       "path": "docs/superpowers/plans/2026-07-04-control-center-shell-plan_completed.md",
       "lines": 2372
     },
     {
-      "path": "docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan_completed.md",
-      "lines": 2339
+      "path": "src/main/cli/adapters/acp-cli-adapter.ts",
+      "lines": 2370
     },
     {
-      "path": "src/main/cli/adapters/acp-cli-adapter.ts",
-      "lines": 2327
+      "path": "docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan_completed.md",
+      "lines": 2339
     },
     {
       "path": "docs/superpowers/plans/2026-04-09-resilient-codex-resume-and-agent-observability_completed.md",
@@ -6094,16 +6094,16 @@
       "lines": 1714
     },
     {
+      "path": "src/main/orchestration/default-invokers.ts",
+      "lines": 1671
+    },
+    {
       "path": "src/main/browser-gateway/browser-gateway-service.credentials.spec.ts",
       "lines": 1665
     },
     {
       "path": "src/main/local-ai-guard/local-ai-health-repository.spec.ts",
       "lines": 1660
-    },
-    {
-      "path": "src/main/orchestration/default-invokers.ts",
-      "lines": 1657
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
@@ -6310,6 +6310,10 @@
       "lines": 1270
     },
     {
+      "path": "packages/contracts/src/schemas/__tests__/loop.schemas.spec.ts",
+      "lines": 1269
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-13-collapsible-system-events_completed.md",
       "lines": 1268
     },
@@ -6339,10 +6343,6 @@
     },
     {
       "path": "docs/superpowers/plans/2026-03-11-f11-scale-operations.md",
-      "lines": 1253
-    },
-    {
-      "path": "packages/contracts/src/schemas/__tests__/loop.schemas.spec.ts",
       "lines": 1253
     },
     {
@@ -6430,12 +6430,12 @@
       "lines": 1165
     },
     {
-      "path": "src/renderer/app/features/loop/loop-control.component.ts",
-      "lines": 1164
+      "path": "src/main/cli/adapters/copilot-cli-adapter.ts",
+      "lines": 1163
     },
     {
-      "path": "src/main/cli/adapters/copilot-cli-adapter.ts",
-      "lines": 1156
+      "path": "src/renderer/app/features/loop/loop-control.component.ts",
+      "lines": 1161
     },
     {
       "path": "src/main/orchestration/multi-verify-coordinator.ts",
@@ -6630,6 +6630,10 @@
       "lines": 982
     },
     {
+      "path": "src/main/orchestration/loop-coordinator-review-driven.spec.ts",
+      "lines": 981
+    },
+    {
       "path": "src/main/context-evidence/encrypted-evidence-blob-store.spec.ts",
       "lines": 980
     },
@@ -6644,10 +6648,6 @@
     {
       "path": "src/main/orchestration/cli-verification-extension.ts",
       "lines": 975
-    },
-    {
-      "path": "src/main/orchestration/loop-coordinator-review-driven.spec.ts",
-      "lines": 971
     },
     {
       "path": "docs/superpowers/specs/2026-04-21-mcp-multi-provider-management-design.md",
@@ -6690,12 +6690,12 @@
       "lines": 937
     },
     {
-      "path": "packages/contracts/src/schemas/loop.schemas.ts",
-      "lines": 936
-    },
-    {
       "path": "docs/superpowers/plans/2026-06-05-auxiliary-local-model-routing_completed.md",
       "lines": 935
+    },
+    {
+      "path": "packages/contracts/src/schemas/loop.schemas.ts",
+      "lines": 930
     },
     {
       "path": "src/renderer/app/features/memory/memory-browser.component.ts",
@@ -6706,15 +6706,15 @@
       "lines": 925
     },
     {
+      "path": "src/main/orchestration/loop-completion-detector.spec.ts",
+      "lines": 921
+    },
+    {
       "path": "src/renderer/app/features/plugins/plugins-page.component.ts",
       "lines": 920
     },
     {
       "path": "src/main/ipc/learning-ipc-handler.spec.ts",
-      "lines": 911
-    },
-    {
-      "path": "src/main/orchestration/loop-completion-detector.spec.ts",
       "lines": 911
     },
     {
@@ -6759,6 +6759,10 @@
     },
     {
       "path": "src/main/orchestration/loop-coordinator-terminal-intents.spec.ts",
+      "lines": 887
+    },
+    {
+      "path": "src/renderer/app/features/loop/loop-control.component.spec.ts",
       "lines": 881
     },
     {
@@ -6810,6 +6814,10 @@
       "lines": 858
     },
     {
+      "path": "src/main/orchestration/loop-completion-detector.ts",
+      "lines": 857
+    },
+    {
       "path": "docs/superpowers/specs/2026-04-17-wave2-provider-normalization-design.md",
       "lines": 854
     },
@@ -6859,6 +6867,10 @@
     },
     {
       "path": "src/main/orchestration/event-store/__tests__/event-store.spec.ts",
+      "lines": 838
+    },
+    {
+      "path": "src/main/orchestration/loop-stage-machine.spec.ts",
       "lines": 838
     },
     {
@@ -6950,8 +6962,8 @@
       "lines": 808
     },
     {
-      "path": "src/main/orchestration/loop-completion-detector.ts",
-      "lines": 807
+      "path": "src/shared/types/loop.types.ts",
+      "lines": 808
     },
     {
       "path": "docs/superpowers/plans/2026-05-02-conversation-ledger-codex-native-adapter_completed.md",

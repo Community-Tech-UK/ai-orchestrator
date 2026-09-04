@@ -19,7 +19,9 @@ describe('LoopCompletionContextStore', () => {
     store.requestContextReset('a');
     store.setPendingFailover('a', 'claude');
 
+    expect(store.peekContextReset('a')).toBe(true);
     expect(store.consumeContextReset('a')).toBe(true);
+    expect(store.peekContextReset('a')).toBe(false);
     expect(store.consumeContextReset('a')).toBe(false);
     expect(store.consumePendingFailover('a')).toBe('claude');
     expect(store.consumePendingFailover('a')).toBeUndefined();
