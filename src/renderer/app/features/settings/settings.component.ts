@@ -112,7 +112,7 @@ import {
   styleUrl: './settings.component.scss',
 })
 export class SettingsComponent {
-  private store = inject(SettingsStore);
+  protected readonly store = inject(SettingsStore);
   private router = inject(Router);
   private route = inject(ActivatedRoute);
   private appIpc = inject(AppIpcService);

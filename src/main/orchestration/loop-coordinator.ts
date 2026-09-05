@@ -236,6 +236,9 @@ import { CodeRetrievalService } from '../codemem/code-retrieval-service';
 import { getLessonStore } from '../memory/lesson-store';
 import { getRecallTraceStore } from '../memory/retrieval-eval/recall-trace-store';
 import { getSettingsManager } from '../core/config/settings-manager';
+import { notifyLoopTerminal } from './loop-terminal-notification';
+import { reportInterventionReceipts } from './intervention-receipt';
+import { clearInFlightIteration } from './loop-state-helpers';
 import { captureReviewLessonForVerdict } from './loop-review-lesson-capture-wiring';
 import { creditSurfacedLessonUse } from './loop-lesson-use-credit';
 import {
@@ -1920,10 +1923,13 @@ export class LoopCoordinator extends EventEmitter {
       // emptying the queue up front, so a crash between inject and delivery
       // re-queues the operator's direction rather than losing it.
       const lease = prepareIterationInterventions(state.pendingInterventions, seq);
-      if (lease.released > 0 || lease.dropped.length > 0) {
-        logger.warn('Loop intervention queue adjusted before dispatch', {
-          loopRunId: state.id, seq, released: lease.released, dropped: lease.dropped.length,
-        });
+      // B3: receipts say where each operator message actually went. Silent when
+      // everything was simply delivered; speaks only when one did NOT.
+      const receipts = reportInterventionReceipts({
+        leased: lease.leased, dropped: lease.dropped, releasedCount: lease.released, seq,
+      });
+      if (receipts.line) {
+        logger.warn('Loop intervention receipts', { loopRunId: state.id, seq, ...receipts });
       }
       const drainNowInterventions = lease.leased;
       const runtimeCtx = this.runtimeContexts.get(state.id);
@@ -2185,7 +2191,7 @@ export class LoopCoordinator extends EventEmitter {
         } else if (isParkedLoopRuntimeState(state)) {
           // D6: inner retry loop exited because the parent instance was interrupted
           // or the loop parked. Propagate to runLoop's top-of-iteration pause check.
-          this.clearInFlightIteration(state, seq);
+          clearInFlightIteration(state, seq);
           this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
           continue;
         } else {
@@ -2193,7 +2199,7 @@ export class LoopCoordinator extends EventEmitter {
           // provider-fault category retries the iteration on a fallback
           // provider (iteration boundary; fresh session) instead of dying.
           if (invocationFailure && await this.tryLoopFailover(state, invocationFailure, seq, stage)) {
-            this.clearInFlightIteration(state, seq);
+            clearInFlightIteration(state, seq);
             this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
             continue;
           }
@@ -2201,7 +2207,7 @@ export class LoopCoordinator extends EventEmitter {
           return;
         }
       }
-      this.clearInFlightIteration(state, seq);
+      clearInFlightIteration(state, seq);
 
       // If the loop was cancelled (or terminated otherwise) while the
       // iteration was in flight, drop the result silently. Don't accumulate
@@ -3738,18 +3744,12 @@ export class LoopCoordinator extends EventEmitter {
   private parkAttemptForReview(
     state: LoopState, seq: number, evidence: LoopInvocationAttemptEvidence, reason: string,
   ): void {
-    this.clearInFlightIteration(state, seq);
+    clearInFlightIteration(state, seq);
     pauseIterationForAttemptReview({
       state, seq, evidence, reason,
       emit: (eventName, payload) => this.emit(eventName, payload),
       terminate: (status, fullReason) => this.terminate(state, status, fullReason),
     });
-  }
-
-  private clearInFlightIteration(state: LoopState, seq: number): void {
-    if (state.inFlightIteration?.seq === seq) {
-      state.inFlightIteration = undefined;
-    }
   }
 
   private async importTerminalIntentsForBoundary(
@@ -3896,6 +3896,7 @@ export class LoopCoordinator extends EventEmitter {
     // human-gated work is persisted + surfaced instead of being lost in the
     // hidden per-run state dir. Best-effort; failures never block termination.
     captureLoopOutstanding(state);
+    notifyLoopTerminal(state, status, reason); // N1
     // LF-6: distill a terminal learning BEFORE the convergence note is cleared.
     recordLoopLearningForState({
       state,

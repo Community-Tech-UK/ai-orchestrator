@@ -61,9 +61,26 @@ describe('ModelPickerController', () => {
     controller.setChat(chatRecord({ provider: 'codex' }), false);
     TestBed.tick();
     expect(controller.reasoningOptions().map((o) => o.id)).toEqual([
-      'default', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh',
+      'default',
     ]);
-    expect(controller.reasoningOptions().find((o) => o.id === 'high')?.isDefault).toBe(true);
+    expect(controller.reasoningOptions()[0]?.isDefault).toBeUndefined();
+  });
+
+  it('uses model capabilities for Codex options and a supported default', () => {
+    const controller = TestBed.inject(ModelPickerController);
+    const model = { id: 'gpt-6-astra', name: 'Astra', tier: 'powerful' as const,
+      reasoning: { supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const, defaultEffort: 'medium' as const } };
+    const options = controller.reasoningOptionsForProvider('codex', {
+      ...model, reasoning: { ...model.reasoning, supportedEfforts: [...model.reasoning.supportedEfforts] },
+    });
+    expect(options.map(o => [o.id, o.label])).toEqual([
+      ['default', 'Provider'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'],
+      ['xhigh', 'XHigh'], ['max', 'Max'], ['ultra', 'Ultra'],
+    ]);
+    expect(options.filter(o => o.isDefault).map(o => o.id)).toEqual(['medium']);
+    expect(controller.reasoningOptionsForProvider('codex', {
+      ...model, reasoning: { supportedEfforts: ['low', 'medium'], defaultEffort: 'medium' },
+    }).filter(o => o.isDefault).map(o => o.id)).toEqual(['medium']);
   });
 
   it('returns no reasoning options for providers that do not support reasoning', () => {

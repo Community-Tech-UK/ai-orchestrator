@@ -34,6 +34,7 @@ function makeDeps(overrides: Partial<ContextAttributionDeps> = {}): ContextAttri
     readFile: async (path) => (path === '/proj/CLAUDE.md' ? 'a'.repeat(400) : ''),
     createBrowserTools: () => [TOOL, TOOL],
     createDeferredBrowserTools: () => [TOOL],
+    createStableBrowserTools: () => [TOOL],
     createOrchestratorTools: () => [TOOL],
     createCodememTools: () => [TOOL],
     createComputerUseTools: () => [TOOL],
@@ -88,6 +89,14 @@ describe('computeContextAttribution', () => {
     expect(deferredBucket.detail!.map((d) => d.label)).toContain('browser-gateway (deferred)');
     // Deferred surface (1 stub tool) is cheaper than eager (2 stub tools).
     expect(deferredBucket.tokens).toBeLessThan(eagerBucket.tokens);
+  });
+
+  it('attributes the fixed stable surface separately from dynamic deferral', async () => {
+    const input = makeInput();
+    input.mcpProfile.browserGateway = 'stable';
+    const report = await computeContextAttribution(input, makeDeps());
+    expect(bucket(report, 'mcpToolSchemas')!.detail!.map(detail => detail.label))
+      .toContain('browser-gateway (stable)');
   });
 
   it('splits conversation, tool traffic, and attachments by message kind', async () => {

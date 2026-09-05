@@ -6,6 +6,8 @@ export interface UnifiedReasoningOption {
   label: string;
   /** Marks the provider's default effort for badging. */
   isDefault?: boolean;
+  /** Displays a persisted selection outside the current advertised choices. */
+  disabled?: boolean;
 }
 
 export type UnifiedSelection =

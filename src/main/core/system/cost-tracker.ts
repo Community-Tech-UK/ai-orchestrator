@@ -378,7 +378,8 @@ export class CostTracker extends EventEmitter {
       }
       bySession[entry.sessionId].cost += entry.cost;
       bySession[entry.sessionId].tokens +=
-        entry.inputTokens + entry.outputTokens + (entry.reasoningTokens || 0);
+        entry.inputTokens + entry.outputTokens + (entry.reasoningTokens || 0)
+        + (entry.cacheReadTokens || 0) + (entry.cacheWriteTokens || 0);
       bySession[entry.sessionId].requests += 1;
       if (entry.isEstimated) bySession[entry.sessionId].hasEstimated = true;
     }
@@ -504,7 +505,12 @@ export class CostTracker extends EventEmitter {
       const percentage = (check.usage / check.limit) * 100;
 
       for (const threshold of this.budget.alertThresholds) {
-        const alertKey = `${check.type}-${threshold}`;
+        // A threshold reached in one session must not silence every other
+        // session. Dollar-based alerts already account for cache discounts;
+        // gross token totals must not drive paid compaction here.
+        const alertKey = check.type === 'session'
+          ? `session-${JSON.stringify(sessionId)}-${threshold}`
+          : `${check.type}-${threshold}`;
         if (percentage >= threshold && !this.alertedThresholds.has(alertKey)) {
           this.alertedThresholds.add(alertKey);
 

@@ -197,9 +197,10 @@ export class NewSessionDraftService {
 
       const sameProvider = draft.provider === provider;
       // Reasoning is per-provider. On a switch, reset to the new provider's
-      // default effort (High for Claude and Codex, provider-decided/null
+      // default effort (Medium for Astra, High for other Codex/Claude models,
+      // provider-decided/null
       // otherwise) rather than always clearing.
-      const nextReasoning = sameProvider ? draft.reasoningEffort : getDefaultReasoningEffort(provider);
+      const nextReasoning = sameProvider ? draft.reasoningEffort : getDefaultReasoningEffort(provider, nextModel);
       const nextLaunchMode = this.resolveDraftLaunchMode(provider, sameProvider ? draft.launchMode : null);
       if (
         sameProvider

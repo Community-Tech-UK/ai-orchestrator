@@ -47,6 +47,7 @@ const EFFORT_LABELS: Record<ReasoningEffort, string> = {
   high: 'High',
   xhigh: 'Extra high',
   max: 'Max',
+  ultra: 'Ultra',
   workflow: 'Workflow',
 };
 
@@ -104,7 +105,7 @@ export async function resolveMobileSessionPlan(params: {
     }
   }
 
-  const reasoningEffort = params.reasoningEffort ?? getDefaultReasoningEffort(resolvedProvider);
+  const reasoningEffort = params.reasoningEffort ?? getDefaultReasoningEffort(resolvedProvider, resolvedModel);
 
   return {
     provider: resolvedProvider,

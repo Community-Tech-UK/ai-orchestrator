@@ -26,5 +26,12 @@ export interface SettingMetadata {
   min?: number;
   max?: number;
   placeholder?: string;
+  /**
+   * Omit from GENERIC, category-driven listings (the Advanced tab renders whole
+   * categories). It does not mean "not user-visible": a tab that owns a setting
+   * and selects it by explicit key still renders it. Without this distinction
+   * every `computerUse*` key appeared twice — once via the `mcp` category on
+   * Advanced, once on the dedicated Computer Use tab.
+   */
   hidden?: boolean;
 }

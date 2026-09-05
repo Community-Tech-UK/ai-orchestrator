@@ -10,6 +10,7 @@ import { getLogger } from '../logging/logger';
 import { getRLMDatabase } from '../persistence/rlm-database';
 import { getDocReviewService } from '../doc-review/doc-review-service';
 import { getAgentTreePersistence } from '../session/agent-tree-persistence';
+import { startPendingApprovalWatcher } from '../orchestration/pending-approval-watcher';
 import { getPermissionRegistry } from '../orchestration/permission-registry';
 import { getOrchestrationSnapshotManager } from '../orchestration/orchestration-snapshot';
 import { getWorkflowManager } from '../workflows/workflow-manager';
@@ -97,6 +98,11 @@ export function createCrossProjectPatternsStep(
             });
           }
         });
+
+        // N9: a pending approval shows only as a per-row chip, which means
+        // nothing overnight — the failure mode is sessions sitting blocked for
+        // hours with no one aware. One aggregate reminder, not one per approval.
+        startPendingApprovalWatcher({ listPending: () => store.listPending() });
 
         permissionRegistry.on('permission:resolved', (decision: {
           requestId: string;

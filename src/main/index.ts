@@ -29,6 +29,8 @@ import { BaseCliAdapter } from './cli/adapters/base-cli-adapter';
 import { runCleanupFunctions } from './util/cleanup-registry';
 import { providerAdapterRegistry } from './providers/provider-adapter-registry';
 import { registerBuiltInProviders } from './providers/register-built-in-providers';
+import { startBuildSkewWatcher } from './app/build-skew-watcher';
+import { installShutdownSignalProbes } from './app/shutdown-forensics';
 import { createInitializationSteps } from './app/initialization-steps';
 import { resolveHarnessUserDataPath } from './app/user-data-path';
 import { shutdownTracer } from './observability/otel-setup';
@@ -103,6 +105,13 @@ function writeShutdownAudit(event: string, details?: Record<string, unknown>): v
     // Shutdown audit is best-effort; never block quit or startup on logging.
   }
 }
+
+// N7: nothing recorded an EXTERNAL kill. A SIGTERM from a supervisor, a Ctrl-C,
+// and an OOM kill were indistinguishable after the fact — they left no line at
+// all. Registered early so a signal during startup is still captured.
+installShutdownSignalProbes({
+  write: (record) => writeShutdownAudit('shutdown-signal', { ...record }),
+});
 
 function recordShutdownTrigger(source: string, details: Record<string, unknown> = {}): void {
   shutdownTrigger = {
@@ -324,6 +333,10 @@ app.whenReady().then(async () => {
 
   orchestratorApp = new HarnessApp();
   await orchestratorApp.initialize();
+
+  // N6: warn when the running main process is older than `dist/main` on disk.
+  // LT-012 shipped three days of stale build with every typecheck green.
+  startBuildSkewWatcher();
 
   // macOS: Re-create window when dock icon is clicked
   app.on('activate', async () => {

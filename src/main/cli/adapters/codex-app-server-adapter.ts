@@ -50,6 +50,7 @@ import {
   type CodexContextDiagnosticSink,
 } from './codex/context-pressure-diagnostics';
 import { CodexContextCostController } from './codex/context-cost-controller';
+import { tokenCount } from './codex/token-usage-breakdown';
 import { buildObservedCompactionEvents } from './codex/compaction-presentation';
 import type {
   ProviderContextActionHandlerResult,
@@ -75,6 +76,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
   protected override spawnMode: CliSpawnMode = 'unknown';
   protected appServerClient: AppServerClient | null = null;
   protected appServerThreadId: string | null = null;
+  protected effectiveServiceTier: string | null = null;
   protected readonly appServerRuntime = new CodexAppServerThreadRuntime();
   protected appServerInitEpoch = 0;
   protected isSpawned = false;
@@ -141,6 +143,8 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
     const client = await this.connectAppServer(cwd);
     this.attachAppServerRequestHandler(client);
     client.setContextDiagnosticsCollector?.(this.contextDiagnostics);
+    // Resume can publish historical totals before its RPC response arrives.
+    const unsubscribeUsage = client.subscribeNotifications?.((notification) => this.seedIdleUsage(notification));
     const result = await initializeCodexAppServer({
       client,
       config: this.cliConfig,
@@ -153,10 +157,11 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
       onFailedAttempt: (attempt) => {
         this.lastResumeAttemptResult = attempt;
       },
-    });
+    }).finally(() => unsubscribeUsage?.());
     if (!result) return;
 
     this.lastResumeAttemptResult = result.resumeAttempt;
+    this.effectiveServiceTier = result.effectiveServiceTier;
     this.shouldResumeNextTurn = false;
     this.resumeCursor = result.resumeCursor;
     this.appServerClient = result.client;
@@ -173,6 +178,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
       },
       (notification) => this.handleIdleAppServerNotification(notification),
       (exitError) => {
+        this.flushPartialUsage();
         if (!this.isSpawned) return;
         this.mcpElicitationBridge.cancelAll();
         const code = exitError ? 1 : 0;
@@ -241,6 +247,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
   }
 
   protected handleIdleAppServerNotification(notification: AppServerNotification): void {
+    if (!this.appServerRuntime.hasActiveTurn()) this.handleIdleUsage(notification);
     if (notification.method === 'serverRequest/resolved') {
       const requestId = notification.params['requestId'];
       if (typeof requestId === 'number' || typeof requestId === 'string') {
@@ -253,6 +260,42 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
     if (typeof threadId !== 'string' || threadId !== this.getAppServerThreadId()) return;
     this.contextDiagnostics?.recordCompactionObserved();
     this.handleObservedThreadCompaction(threadId);
+  }
+
+  private seedIdleUsage(notification: AppServerNotification): void {
+    if (notification.method !== 'thread/tokenUsage/updated') return;
+    const threadId = notification.params['threadId'];
+    const usage = (notification.params['tokenUsage'] ?? notification.params['token_usage']) as Record<string, unknown> | undefined;
+    const total = (usage?.['total'] ?? usage?.['total_token_usage']) as Record<string, unknown> | undefined;
+    if (typeof threadId === 'string' && total) this.usageAccounting.seed(threadId, total);
+  }
+
+  protected handleIdleUsage(notification: AppServerNotification, flush = true): void {
+    const { method, params } = notification;
+    if (!['thread/tokenUsage/updated', 'turn/started', 'turn/completed'].includes(method)) return;
+    const threadId = notification.params['threadId'];
+    if (typeof threadId !== 'string') return;
+    if (!this.usageAccounting.ownsThread(threadId)) {
+      if (threadId === this.getAppServerThreadId()) this.seedIdleUsage(notification);
+      return;
+    }
+    const child = threadId !== this.getAppServerThreadId();
+    const turn = params['turn'] as { id?: string; usage?: Record<string, unknown> } | undefined;
+    if (method === 'turn/started') { this.usageAccounting.beginNativeTurn(threadId, turn?.id); return; }
+    if (method === 'turn/completed') this.usageAccounting.fallback(threadId, turn?.usage, child, turn?.id);
+    else {
+      const usage = (notification.params['tokenUsage'] ?? notification.params['token_usage']) as Record<string, unknown> | undefined;
+      const total = (usage?.['total'] ?? usage?.['total_token_usage']) as Record<string, unknown> | undefined;
+      const last = (usage?.['last'] ?? usage?.['last_token_usage']) as Record<string, unknown> | undefined;
+      this.usageAccounting.observe(threadId, total, last, child);
+      if (!child) {
+        const occupancy = tokenCount(last?.['totalTokens'] ?? last?.['total_tokens']);
+        const window = tokenCount(usage?.['modelContextWindow'] ?? usage?.['model_context_window']);
+        if (occupancy > 0) this.lastTurnTokens = occupancy;
+        if (window > 0) this.codexReportedContextWindow = window;
+      }
+    }
+    if (flush) this.flushPartialUsage();
   }
 
   protected handleObservedThreadCompaction(threadId: string): void {
@@ -462,6 +505,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
       });
     }
     this.appServerThreadId = newThreadId;
+    this.effectiveServiceTier = startResult.serviceTier ?? null;
     this.sessionId = newThreadId;
     this.resumeCursor = nextResumeCursor;
     this.systemPromptSent = false;
@@ -568,6 +612,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
   }
 
   override async terminate(graceful = true): Promise<void> {
+    this.flushPartialUsage();
     this.mcpElicitationBridge.cancelAll();
     this.isSpawned = false;
     this.useAppServer = false;

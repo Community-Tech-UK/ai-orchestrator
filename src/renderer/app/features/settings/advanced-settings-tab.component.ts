@@ -307,18 +307,6 @@ interface AdvancedSection {
       }
     </section>
 
-    <section class="advanced-section" aria-labelledby="planned-settings-heading">
-      <div class="future-settings-note">
-        <h3 id="planned-settings-heading" class="subsection-title">
-          Planned settings
-        </h3>
-        <ul>
-          <li>Session auto-save/restore</li>
-          <li>Notification preferences</li>
-          <li>Per-project settings</li>
-        </ul>
-      </div>
-    </section>
   `,
   styleUrl: './advanced-settings-tab.component.scss',
 })
@@ -338,7 +326,11 @@ export class AdvancedSettingsTabComponent {
       title: 'Runtime controls',
       description: 'Low-level tuning for the model, output parser, diagnostics, and how far instruction files scan. Leave these unless you\'re debugging a specific issue.',
       keys: [
-        'customModelOverride',
+        // 'customModelOverride' retired (S1.9): nothing reads it at runtime —
+        // `migrateLegacyCustomModelOverride` moves any value into
+        // `customModelsByProvider` and then clears it, so a value typed here
+        // did nothing and then vanished. The key and its migration stay for
+        // existing installs; only the control is gone.
         'parserBufferMaxKB',
         'commandDiagnosticsAvailable',
         'broadRootFileThreshold',

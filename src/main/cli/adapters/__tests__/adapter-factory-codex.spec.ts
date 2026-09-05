@@ -134,15 +134,15 @@ describe('adapter factory - codex', () => {
     }).cliConfig.reasoningEffort).toBeUndefined();
   });
 
-  it('forwards max reasoning effort to Codex', () => {
+  it.each(['max', 'ultra'] as const)('forwards %s reasoning effort to Codex', (effort) => {
     const adapter = createCodexAdapter({
       workingDirectory: '/tmp',
-      reasoningEffort: 'max',
+      reasoningEffort: effort,
     });
 
     expect((adapter as unknown as {
       cliConfig: { reasoningEffort?: string };
-    }).cliConfig.reasoningEffort).toBe('max');
+    }).cliConfig.reasoningEffort).toBe(effort);
   });
 
   it('includes the chrome-devtools attach server block in the Codex TOML', () => {

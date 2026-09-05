@@ -41,6 +41,13 @@ import type { AppSettings } from '../../../../shared/types/settings.types';
             cutting down on tokens used — which lowers cost and speeds up responses.
             The stats below come from RTK&apos;s local tracking file on this machine.
           </p>
+          <p class="section-desc rtk-caveat">
+            <strong>These are RTK&apos;s own counts, not your provider&apos;s billing.</strong>
+            They measure command output that RTK shortened, and they only cover commands
+            that actually went through RTK. Anything an agent ran without the
+            <code>rtk</code> prefix leaves no record at all, so treat the totals as a
+            floor on what RTK did, not as a measure of what a run cost you.
+          </p>
         </div>
         <button type="button" class="btn" (click)="refresh()" [disabled]="loading()">
           {{ loading() ? 'Refreshing…' : 'Refresh' }}
@@ -103,11 +110,11 @@ import type { AppSettings } from '../../../../shared/types/settings.types';
             <div class="summary-value">{{ s.commands | number }}</div>
           </div>
           <div class="summary-card">
-            <div class="summary-label">Tokens saved</div>
+            <div class="summary-label">Tokens saved (RTK estimate)</div>
             <div class="summary-value">{{ s.totalSaved | number }}</div>
           </div>
           <div class="summary-card">
-            <div class="summary-label">Average reduction</div>
+            <div class="summary-label">Average output reduction</div>
             <div class="summary-value">{{ s.avgSavingsPct | number: '1.0-1' }}%</div>
           </div>
           <div class="summary-card">
@@ -123,7 +130,7 @@ import type { AppSettings } from '../../../../shared/types/settings.types';
               <tr>
                 <th>Shell command</th>
                 <th class="num">Runs</th>
-                <th class="num">Tokens saved</th>
+                <th class="num">Tokens saved (est.)</th>
                 <th class="num">Avg saving</th>
               </tr>
             </thead>

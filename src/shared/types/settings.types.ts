@@ -575,6 +575,10 @@ export interface AppSettings extends DesktopComputerUseSettings {
   // Notifications
   /** Show a desktop notification when an agent transitions from busy to idle. Default: true. */
   notifyOnAgentCompletion: boolean;
+  /** N1: notify when a LOOP run reaches a terminal state, not just a chat turn. */
+  notifyOnLoopTerminal: boolean;
+  /** N10: when notifications make a sound — always, only when unfocused, or never. */
+  notificationSoundMode: 'always' | 'blurred' | 'never';
   /** Minimum interval between desktop notifications of the same kind. */
   notificationCooldownSeconds: number;
   /** Keep normal-priority desktop notifications in the in-app center overnight. */

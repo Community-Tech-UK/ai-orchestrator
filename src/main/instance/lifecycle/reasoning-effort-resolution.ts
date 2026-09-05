@@ -31,6 +31,7 @@ import type { InstanceCreateConfig } from '../../../shared/types/instance.types'
 export function resolveSpawnReasoningEffort(
   source: Pick<InstanceCreateConfig, 'reasoningEffort' | 'modelRuntimeTarget'>,
   provider: string | null | undefined,
+  model?: string | null,
 ): ReasoningEffort | undefined {
   // Local-model runtimes are served by adapters that never read
   // `reasoningEffort`. Defaulting one in would only mislead the picker, which
@@ -38,5 +39,5 @@ export function resolveSpawnReasoningEffort(
   if (source.modelRuntimeTarget?.kind === 'local-model') return undefined;
   if (source.reasoningEffort === null) return undefined;
   if (source.reasoningEffort !== undefined) return source.reasoningEffort;
-  return getDefaultReasoningEffort(provider) ?? undefined;
+  return getDefaultReasoningEffort(provider, model) ?? undefined;
 }

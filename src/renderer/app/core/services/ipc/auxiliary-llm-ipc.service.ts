@@ -57,16 +57,4 @@ export class AuxiliaryLlmIpcService {
     >;
   }
 
-  async saveSettings(payload: {
-    auxiliaryLlmEnabled?: boolean;
-    auxiliaryLlmRoutingMode?: string;
-    auxiliaryLlmAllowRemoteWorkerModels?: boolean;
-    auxiliaryLlmUseLocalhostOllama?: boolean;
-    auxiliaryLlmEndpointsJson?: string;
-    auxiliaryLlmSlotsJson?: string;
-    auxiliaryLlmRoutingClassificationEnabled?: boolean;
-  }): Promise<IpcResponse<{ ok: boolean }>> {
-    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.auxiliaryLlmSaveSettings(payload) as Promise<IpcResponse<{ ok: boolean }>>;
-  }
 }

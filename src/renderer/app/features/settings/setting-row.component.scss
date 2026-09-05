@@ -303,3 +303,41 @@ input[type='number'] {
     min-height: 0;
   }
 }
+
+/* S1.1 — the four `type: 'json'` keys previously rendered an empty control cell. */
+.json-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+
+  textarea {
+    width: 100%;
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    font-size: 12px;
+    line-height: 1.45;
+    resize: vertical;
+  }
+}
+
+.json-error {
+  margin: 0;
+  font-size: 11px;
+  /* Not colour alone: the message itself names the problem. */
+  color: var(--error, #f78c7c);
+}
+
+/* UX4.1 — per-setting reset, shown only when the value differs from default. */
+.setting-reset {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  border-radius: 4px;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.14));
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+
+  &:hover { background: rgba(255, 255, 255, 0.06); }
+}

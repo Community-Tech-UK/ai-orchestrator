@@ -52,6 +52,9 @@ export const INTEGRATION_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'computerUseEnabled',
+    // S1.5: owned by the Computer Use tab; keep it out of the generic
+    // `mcp` category listing on Advanced, which rendered all six a second time.
+    hidden: true,
     label: 'Enable Computer Use',
     description: 'Expose the Harness-owned computer-use MCP server to local agents. Keep this off unless you are ready to approve app-scoped desktop access.',
     type: 'boolean',
@@ -59,6 +62,9 @@ export const INTEGRATION_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'computerUseAllowedAppsJson',
+    // S1.5: owned by the Computer Use tab; keep it out of the generic
+    // `mcp` category listing on Advanced, which rendered all six a second time.
+    hidden: true,
     label: 'Computer Use allowed apps',
     description: 'JSON array of app ids, bundle ids, executable paths, or display names allowed for observe-only Computer Use.',
     type: 'json',
@@ -66,6 +72,9 @@ export const INTEGRATION_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'computerUseDeniedAppsJson',
+    // S1.5: owned by the Computer Use tab; keep it out of the generic
+    // `mcp` category listing on Advanced, which rendered all six a second time.
+    hidden: true,
     label: 'Computer Use denied apps',
     description: 'JSON array of app ids, bundle ids, executable paths, or display names that Computer Use must never inspect or control.',
     type: 'json',
@@ -73,6 +82,9 @@ export const INTEGRATION_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'computerUseRequireApprovalForInput',
+    // S1.5: owned by the Computer Use tab; keep it out of the generic
+    // `mcp` category listing on Advanced, which rendered all six a second time.
+    hidden: true,
     label: 'Require approval for Computer Use input',
     description: 'Require explicit approval before any desktop input action can run. Input tools stay unavailable until the policy and token checks are active.',
     type: 'boolean',
@@ -80,6 +92,9 @@ export const INTEGRATION_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'computerUseAutonomyLevel',
+    // S1.5: owned by the Computer Use tab; keep it out of the generic
+    // `mcp` category listing on Advanced, which rendered all six a second time.
+    hidden: true,
     label: 'Computer Use autonomy level',
     description: 'How much of the desktop agents may drive. Guarded blocks terminals, provider apps, System Settings, password managers, the Enter and Space keys, and any sign-in or payment control. Trusted permits all of those but still refuses to drive Harness\u2019s own window and refuses quit/force-quit hotkeys. Unrestricted removes both remaining limits \u2014 including letting an agent click its own approval prompts.',
     type: 'select',
@@ -92,6 +107,9 @@ export const INTEGRATION_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'computerUseStoreScreenshotsForEscalations',
+    // S1.5: owned by the Computer Use tab; keep it out of the generic
+    // `mcp` category listing on Advanced, which rendered all six a second time.
+    hidden: true,
     label: 'Store Computer Use escalation screenshots',
     description: 'Allow Computer Use to retain screenshot artifacts only when an escalation is raised. Screenshot bytes are never written to the audit log.',
     type: 'boolean',
@@ -117,6 +135,25 @@ export const INTEGRATION_SETTINGS_METADATA: SettingMetadata[] = [
     description: 'Show a desktop notification when an agent goes from busy to idle (only when this window is not focused).',
     type: 'boolean',
     category: 'general',
+  },
+  {
+    key: 'notifyOnLoopTerminal',
+    label: 'Notify when a loop run ends',
+    description: 'Show a desktop notification when a Loop Mode run finishes, is stopped, errors, or needs your review. A run that needs a decision notifies even when this window is focused; a clean finish does not.',
+    type: 'boolean',
+    category: 'general',
+  },
+  {
+    key: 'notificationSoundMode',
+    label: 'Notification sound',
+    description: 'When desktop notifications make a sound. "Only when away" keeps quiet while you are looking at the app but still sounds for an overnight run. Alerts that need a decision always sound.',
+    type: 'select',
+    category: 'general',
+    options: [
+      { value: 'blurred', label: 'Only when away (default)' },
+      { value: 'always', label: 'Always' },
+      { value: 'never', label: 'Never' },
+    ],
   },
   {
     key: 'channelToolHeartbeat',

@@ -197,6 +197,26 @@ describe('UnifiedCatalogStore', () => {
     expect(ipc.getUnifiedModelCatalog).toHaveBeenCalledTimes(2);
   });
 
+  it('replaces picker effort capabilities on a catalog update', async () => {
+    const models = [entry({ id: 'gpt-6-astra', provider: 'codex',
+      reasoning: { supportedEfforts: ['low', 'medium', 'high'], defaultEffort: 'medium' },
+    })];
+    ipc = makeIpc(models);
+    const store = setup();
+    await store.refresh();
+    expect(store.displayModelsForProvider('codex')[0]?.reasoning).toEqual({
+      supportedEfforts: ['low', 'medium', 'high'], defaultEffort: 'medium',
+    });
+    models[0] = entry({ id: 'gpt-6-astra', provider: 'codex',
+      reasoning: { supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'], defaultEffort: 'medium' },
+    });
+    ipc.firePush();
+    await flush();
+    expect(store.displayModelsForProvider('codex')[0]?.reasoning).toEqual({
+      supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'], defaultEffort: 'medium',
+    });
+  });
+
   it('refresh populates the renderer-side normalization snapshot', async () => {
     ipc = makeIpc([
       entry({ id: 'claude-future-opus', provider: 'claude', tier: 'powerful' }),

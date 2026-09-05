@@ -78,6 +78,7 @@ describe('Codex app-server model/list discovery', () => {
         name: 'GPT-5.5',
         tier: 'powerful',
         family: 'GPT',
+        reasoning: { supportedEfforts: [] },
         pinned: true,
       },
       {
@@ -85,6 +86,7 @@ describe('Codex app-server model/list discovery', () => {
         name: 'GPT-5.3 Codex Spark',
         tier: 'fast',
         family: 'GPT',
+        reasoning: { supportedEfforts: [] },
       },
     ]);
     expect(client.request).toHaveBeenNthCalledWith(1, 'model/list', {
@@ -109,10 +111,35 @@ describe('Codex app-server model/list discovery', () => {
     }]);
 
     await expect(listCodexModelsFromAppServer(client)).resolves.toEqual([
-      { id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol', tier: 'powerful', family: 'GPT', pinned: true },
-      { id: 'gpt-5.6-terra', name: 'GPT-5.6 Terra', tier: 'balanced', family: 'GPT' },
-      { id: 'gpt-5.6-luna', name: 'GPT-5.6 Luna', tier: 'fast', family: 'GPT' },
+      { id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol', tier: 'powerful', family: 'GPT', pinned: true, reasoning: { supportedEfforts: [] } },
+      { id: 'gpt-5.6-terra', name: 'GPT-5.6 Terra', tier: 'balanced', family: 'GPT', reasoning: { supportedEfforts: [] } },
+      { id: 'gpt-5.6-luna', name: 'GPT-5.6 Luna', tier: 'fast', family: 'GPT', reasoning: { supportedEfforts: [] } },
     ]);
+  });
+
+
+  it('preserves each model effort list and native default without conflating max and xhigh', async () => {
+    const efforts = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const;
+    const client = makeClient([{ data: [
+      codexModel({ model: 'gpt-6-astra', defaultReasoningEffort: 'medium',
+        supportedReasoningEfforts: efforts.map(reasoningEffort => ({ reasoningEffort, description: '' })) }),
+      codexModel({ model: 'limited-model', defaultReasoningEffort: 'low',
+        supportedReasoningEfforts: [{ reasoningEffort: 'low', description: '' }] }),
+    ] }]);
+    const models = await listCodexModelsFromAppServer(client);
+    expect(models.map(model => model.reasoning)).toEqual([
+      { supportedEfforts: efforts, defaultEffort: 'medium' },
+      { supportedEfforts: ['low'], defaultEffort: 'low' },
+    ]);
+  });
+
+  it('filters unknown, malformed and duplicate effort metadata from the runtime', async () => {
+    const model = JSON.parse(JSON.stringify(codexModel()));
+    model.supportedReasoningEfforts = [null, {}, { reasoningEffort: 'future-effort' },
+      { reasoningEffort: 'workflow' }, { reasoningEffort: 'high' }, { reasoningEffort: 'high' }];
+    model.defaultReasoningEffort = 'future-effort';
+    const models = await listCodexModelsFromAppServer(makeClient([{ data: [model] }]));
+    expect(models[0]?.reasoning).toEqual({ supportedEfforts: ['high'] });
   });
 
   it('dedupes by runnable model slug and ignores hidden or malformed entries', async () => {

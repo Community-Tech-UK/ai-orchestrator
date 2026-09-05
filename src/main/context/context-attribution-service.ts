@@ -32,7 +32,7 @@ const DETAIL_LIMIT = 6;
 /** Which MCP tool groups are injected for this instance (handler-derived). */
 export interface McpInjectionProfile {
   /** 'off' when no browser gateway is injected (e.g. remote instance). */
-  browserGateway: 'eager' | 'deferred' | 'off';
+  browserGateway: 'eager' | 'deferred' | 'stable' | 'off';
   orchestratorTools: boolean;
   codemem: boolean;
   computerUse: boolean;
@@ -47,7 +47,7 @@ export interface ContextAttributionInput {
 }
 
 interface InstructionStackLike {
-  sources: Array<{ path: string; loaded: boolean; applied: boolean }>;
+  sources: { path: string; loaded: boolean; applied: boolean }[];
 }
 
 export interface ContextAttributionDeps {
@@ -55,6 +55,7 @@ export interface ContextAttributionDeps {
   readFile(path: string): Promise<string>;
   createBrowserTools(): McpServerToolDefinition[];
   createDeferredBrowserTools(): McpServerToolDefinition[];
+  createStableBrowserTools(): McpServerToolDefinition[];
   createOrchestratorTools(): McpServerToolDefinition[];
   createCodememTools(): McpServerToolDefinition[];
   createComputerUseTools(): McpServerToolDefinition[];
@@ -67,6 +68,7 @@ function defaultDeps(): ContextAttributionDeps {
   const fs = require('node:fs/promises') as typeof import('node:fs/promises');
   const resolver = require('../core/config/instruction-resolver') as typeof import('../core/config/instruction-resolver');
   const browser = require('../browser-gateway/browser-mcp-tools') as typeof import('../browser-gateway/browser-mcp-tools');
+  const stable = require('../browser-gateway/browser-mcp-stable-tools') as typeof import('../browser-gateway/browser-mcp-stable-tools');
   const deferral = require('../browser-gateway/browser-mcp-deferral') as typeof import('../browser-gateway/browser-mcp-deferral');
   const orchestrator = require('../mcp/orchestrator-tools-mcp-forwarder') as typeof import('../mcp/orchestrator-tools-mcp-forwarder');
   const codemem = require('../codemem/codemem-mcp-forwarder') as typeof import('../codemem/codemem-mcp-forwarder');
@@ -77,9 +79,10 @@ function defaultDeps(): ContextAttributionDeps {
     resolveInstructionStack: (params) => resolver.resolveInstructionStack(params),
     readFile: (filePath) => fs.readFile(filePath, 'utf-8'),
     createBrowserTools: () => browser.createBrowserMcpTools(noopClient),
+    createStableBrowserTools: () => stable.createStableBrowserMcpTools(noopClient),
     createDeferredBrowserTools: () =>
       deferral
-        .createDeferredBrowserMcpTools(noopClient, { onReveal: () => {} })
+        .createDeferredBrowserMcpTools(noopClient, { onReveal: () => undefined })
         .filter((tool) => !tool.hidden),
     createOrchestratorTools: () => orchestrator.createOrchestratorToolsForwarderTools(noopClient),
     createCodememTools: () => codemem.createCodememForwarderTools(noopClient),
@@ -184,6 +187,9 @@ export async function computeContextAttribution(
     addServer('browser-gateway', deps.createBrowserTools);
   } else if (mcpProfile.browserGateway === 'deferred') {
     addServer('browser-gateway (deferred)', deps.createDeferredBrowserTools);
+  }
+  if (mcpProfile.browserGateway === 'stable') {
+    addServer('browser-gateway (stable)', deps.createStableBrowserTools);
   }
   if (mcpProfile.orchestratorTools) addServer('orchestrator-tools', deps.createOrchestratorTools);
   if (mcpProfile.codemem) addServer('codemem', deps.createCodememTools);

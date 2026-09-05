@@ -4,6 +4,9 @@ import { evaluateContextWindowGuard } from '../context/context-window-guard';
 import { getCrossModelReviewService } from '../orchestration/cross-model-review-service';
 import { getDebateCoordinator } from '../orchestration/debate-coordinator';
 import { getDoomLoopDetector } from '../orchestration/doom-loop-detector';
+import { toolLoopNotice } from '../orchestration/tool-loop-notice';
+import { getNotificationService } from '../notifications/notification-service';
+import { getSettingsManager } from '../core/config/settings-manager';
 import type { UserActionRequest } from '../orchestration/orchestration-handler';
 import { getOrchestrationActivityBridge } from '../orchestration/orchestration-activity-bridge';
 import { getMultiVerifyCoordinator } from '../orchestration/multi-verify-coordinator';
@@ -496,6 +499,32 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
       count: event.count,
     });
     windowManager.sendToRenderer('instance:doom-loop', event);
+    // N2: the toast this renders is the right surface for someone watching and
+    // the wrong one for someone who is not — and an agent repeating a tool call
+    // burns money mostly while nobody is looking.
+    try {
+      const notice = toolLoopNotice({
+        severity: event.severity === 'critical' ? 'critical' : 'warning',
+        toolName: event.toolName,
+        windowDescription: event.windowDescription,
+        autoInterruptEnabled:
+          getSettingsManager().get('toolLoopAutoInterrupt') === true,
+      });
+      if (notice) {
+        getNotificationService().notify({
+          kind: 'tool-loop',
+          instanceId: event.instanceId,
+          title: notice.title,
+          body: notice.body,
+          urgency: notice.urgency,
+          fingerprintFields: { instanceId: event.instanceId, toolName: event.toolName },
+        });
+      }
+    } catch (err) {
+      logger.debug('Tool loop notification failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   });
 
   const orchestration = instanceManager.getOrchestrationHandler();

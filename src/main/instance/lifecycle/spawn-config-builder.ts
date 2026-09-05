@@ -30,9 +30,11 @@ import {
   type BrowserGatewayMcpConfigOptions,
   buildChromeDevtoolsMcpConfigJson,
   resolveChromeDevtoolsBrowserUrl,
-  supportsDeferredBrowserGatewayTools,
+  resolveBrowserGatewayToolMode,
+  type BrowserGatewayToolMode,
   type ChromeDevtoolsMcpConfigOptions,
 } from '../../browser-gateway';
+import { createStableBrowserMcpTools } from '../../browser-gateway/browser-mcp-stable-tools';
 import {
   buildComputerUseMcpConfigJson,
   DESKTOP_DEGRADED_TOOL_NAMES,
@@ -91,12 +93,12 @@ export interface SpawnConfigBuilderDeps {
  */
 export class SpawnConfigBuilder {
   private rtkHookEligibility: boolean | null = null;
-  private browserToolSchemaMeasurement: {
+  private browserToolSchemaMeasurements = new Map<BrowserGatewayToolMode, {
     visibleToolCount: number;
     visibleSchemaBytes: number;
     fullToolCount: number;
     fullSchemaBytes: number;
-  } | null = null;
+  }>();
   private readonly settings: SettingsManager;
 
   constructor(deps: SpawnConfigBuilderDeps) {
@@ -371,9 +373,9 @@ export class SpawnConfigBuilder {
     }
     // Some clients do not install callable wrappers after tools/list_changed.
     // Log and return the effective mode, not the requested UI mode.
-    const toolDeferral = mode === 'deferred'
-      && supportsDeferredBrowserGatewayTools(provider);
-    this.logBrowserToolSchemaBytes(instanceId, toolDeferral);
+    const toolMode = resolveBrowserGatewayToolMode(provider, mode === 'deferred');
+    const toolDeferral = toolMode !== 'eager';
+    this.logBrowserToolSchemaBytes(instanceId, toolMode);
     return {
       aioMcpCliPath,
       socketPath,
@@ -389,10 +391,10 @@ export class SpawnConfigBuilder {
    * deferral win is measurable per spawn. Computed from static tool
    * definitions only — no gateway round trip.
    */
-  private logBrowserToolSchemaBytes(instanceId: string, toolDeferral: boolean): void {
+  private logBrowserToolSchemaBytes(instanceId: string, toolMode: BrowserGatewayToolMode): void {
     try {
-      const measurement = this.getBrowserToolSchemaMeasurement();
-      if (!toolDeferral) {
+      const measurement = this.getBrowserToolSchemaMeasurement(toolMode);
+      if (toolMode === 'eager') {
         logger.info('Browser gateway tool schemas injected eagerly', {
           instanceId,
           toolCount: measurement.fullToolCount,
@@ -400,7 +402,7 @@ export class SpawnConfigBuilder {
         });
         return;
       }
-      logger.info('Browser gateway tool schemas deferred', { instanceId, ...measurement });
+      logger.info('Browser gateway tool schemas deferred', { instanceId, toolMode, ...measurement });
     } catch (error) {
       logger.warn('Failed to measure browser tool schema bytes', {
         instanceId,
@@ -410,25 +412,29 @@ export class SpawnConfigBuilder {
   }
 
   /** Static per-process measurement — tool definitions never change at runtime. */
-  private getBrowserToolSchemaMeasurement(): {
+  private getBrowserToolSchemaMeasurement(toolMode: BrowserGatewayToolMode): {
     visibleToolCount: number;
     visibleSchemaBytes: number;
     fullToolCount: number;
     fullSchemaBytes: number;
   } {
-    if (!this.browserToolSchemaMeasurement) {
+    let measurement = this.browserToolSchemaMeasurements.get(toolMode);
+    if (!measurement) {
       const noopClient = { call: async () => ({}) };
       const fullTools = createBrowserMcpTools(noopClient);
-      const deferredTools = createDeferredBrowserMcpTools(noopClient, { onReveal: () => {} });
+      const deferredTools = toolMode === 'stable'
+        ? createStableBrowserMcpTools(noopClient)
+        : createDeferredBrowserMcpTools(noopClient, { onReveal: () => undefined });
       const visibleTools = deferredTools.filter((tool) => !tool.hidden);
-      this.browserToolSchemaMeasurement = {
+      measurement = {
         visibleToolCount: visibleTools.length,
         visibleSchemaBytes: measureToolSchemaBytes(visibleTools),
         fullToolCount: fullTools.length,
         fullSchemaBytes: measureToolSchemaBytes(fullTools),
       };
+      this.browserToolSchemaMeasurements.set(toolMode, measurement);
     }
-    return this.browserToolSchemaMeasurement;
+    return measurement;
   }
 
   getComputerUseMcpOptions(

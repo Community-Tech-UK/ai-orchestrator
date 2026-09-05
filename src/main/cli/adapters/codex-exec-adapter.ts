@@ -166,7 +166,7 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
     }
     if (!this.shouldUseResumeCommand() && this.cliConfig.systemPrompt?.trim()) {
       content = wrapCodexSystemInstructions(
-        CodexExecAdapter.truncateSystemPrompt(this.cliConfig.systemPrompt.trim()),
+        this.cliConfig.systemPrompt,
         content,
       );
     }
@@ -207,10 +207,7 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
         const execution = await this.executePreparedMessage(preparedMessage, { timeoutMs, phase });
         const response = execution.response;
         if (response.usage && typeof response.usage.cost !== 'number') {
-          response.usage.cost = computeTokenCost(this.cliConfig.model, {
-            inputTokens: response.usage.inputTokens || 0,
-            outputTokens: response.usage.outputTokens || 0,
-          });
+          response.usage.cost = computeTokenCost(this.cliConfig.model, response.usage);
         }
         const hasMeaningfulOutput =
           response.content.trim().length > 0 || (response.toolCalls?.length || 0) > 0;
@@ -343,18 +340,15 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
     }
 
     if (response.usage) {
-      const turnTokens = response.usage.inputTokens !== undefined
-        || response.usage.outputTokens !== undefined
-        ? (response.usage.inputTokens || 0) + (response.usage.outputTokens || 0)
-        : (response.usage.totalTokens || 0);
+      const turnTokens = response.usage.totalTokens
+        ?? ((response.usage.inputTokens || 0) + (response.usage.outputTokens || 0)
+          + (response.usage.cacheReadTokens || 0) + (response.usage.cacheWriteTokens || 0)
+          + (response.usage.reasoningTokens || 0));
       this.cumulativeTokensUsed += turnTokens;
       const turnCostUsd = typeof response.usage.cost === 'number'
         && Number.isFinite(response.usage.cost)
         ? Math.max(0, response.usage.cost)
-        : computeTokenCost(this.cliConfig.model, {
-            inputTokens: response.usage.inputTokens || 0,
-            outputTokens: response.usage.outputTokens || 0,
-          });
+        : computeTokenCost(this.cliConfig.model, response.usage);
       response.usage.cost = turnCostUsd;
       this.cumulativeCostUsd += turnCostUsd;
       const contextWindow = this.resolveContextWindow();
@@ -450,19 +444,6 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
 
   protected static readonly MAX_REPLAY_CHARS_PER_ENTRY = 1200;
   protected static readonly MAX_REPLAY_ENTRIES = 16;
-  private static readonly MAX_SYSTEM_PROMPT_CHARS = 4000;
-
-  protected static truncateSystemPrompt(prompt: string): string {
-    if (prompt.length <= this.MAX_SYSTEM_PROMPT_CHARS) return prompt;
-    const tailChars = 800;
-    const headChars = this.MAX_SYSTEM_PROMPT_CHARS - tailChars;
-    return (
-      prompt.slice(0, headChars) +
-      '\n[... middle of system prompt truncated to protect Codex latency ...]\n' +
-      prompt.slice(-tailChars)
-    );
-  }
-
   protected abstract resolveDeadlineMs(): number;
   protected abstract resolveTurnIdleTimeoutMs(): number;
 }

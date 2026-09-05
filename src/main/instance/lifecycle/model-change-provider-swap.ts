@@ -34,13 +34,13 @@ export type SwapTargetProvider = Exclude<InstanceProvider, 'auto'>;
  */
 const PROVIDER_REASONING_EFFORTS: Partial<Record<InstanceProvider, readonly ReasoningEffort[]>> = {
   claude: ['low', 'medium', 'high', 'xhigh', 'max', 'workflow'],
-  codex: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'],
+  codex: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
 };
 
 /**
  * Map a unified reasoning effort onto the target provider. Returns the effort
  * unchanged when supported, the nearest supported tier when there is an
- * obvious one (Codex caps at xhigh), and undefined (provider default) when
+ * obvious one (Claude workflow maps to Codex xhigh), and undefined (provider default) when
  * the target has no equivalent — logging the drop so it is diagnosable.
  */
 export function mapReasoningEffortForProvider(
@@ -54,7 +54,7 @@ export function mapReasoningEffortForProvider(
     return undefined;
   }
   if (supported.includes(effort)) return effort;
-  if (provider === 'codex' && (effort === 'max' || effort === 'workflow')) {
+  if (provider === 'codex' && effort === 'workflow') {
     logger.info('Mapping reasoning effort to nearest supported tier', { provider, effort, mapped: 'xhigh' });
     return 'xhigh';
   }

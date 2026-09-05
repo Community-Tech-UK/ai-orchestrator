@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ConversationLedgerService, INTERNAL_ORCHESTRATOR_NATIVE_THREAD_ID } from '../conversation-ledger';
 import { NativeConversationRegistry } from '../conversation-ledger/native-conversation-registry';
 import { defaultDriverFactory } from '../db/better-sqlite3-driver';
@@ -12,6 +12,11 @@ import { ChatService } from './chat-service';
 import { resolveSpawnReasoningEffort } from '../instance/lifecycle/reasoning-effort-resolution';
 import type { ConversationEvidenceDeletionResult } from '../conversation-ledger/context-evidence-ledger.types';
 
+const modelDefaults = vi.hoisted(() => ({ defaultModelByProvider: {} as Record<string, string> }));
+vi.mock('../core/config/settings-manager', () => ({
+  getSettingsManager: () => ({ getAll: () => modelDefaults }),
+}));
+
 const CHAT_PAGINATION_TEST_TIMEOUT_MS = 15_000;
 
 describe('ChatService', () => {
@@ -20,6 +25,7 @@ describe('ChatService', () => {
   const services: ChatService[] = [];
 
   afterEach(async () => {
+    modelDefaults.defaultModelByProvider = {};
     for (const service of services) service.dispose();
     services.length = 0;
     ChatService._resetForTesting();
@@ -1199,6 +1205,15 @@ describe('ChatService', () => {
 
       const lastCreate = instanceManager.creates[instanceManager.creates.length - 1];
       expect(lastCreate.reasoningEffort).toBe('high');
+    });
+
+    it('uses medium when an omitted chat model resolves to remembered Astra', async () => {
+      modelDefaults.defaultModelByProvider = { codex: 'gpt-6-astra' };
+      const { service, instanceManager } = createHarness();
+      const chat = await service.createChat({ provider: 'codex', currentCwd: '/work/project' });
+      expect(chat.chat.reasoningEffort).toBe('medium');
+      await service.sendMessage({ chatId: chat.chat.id, text: 'Hi' });
+      expect(instanceManager.creates.at(-1)?.reasoningEffort).toBe('medium');
     });
 
     it('keeps explicit null reasoningEffort as provider-decided', async () => {

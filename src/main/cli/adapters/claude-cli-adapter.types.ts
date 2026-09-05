@@ -98,7 +98,7 @@ export interface DeferredToolUse {
 }
 
 export type ClaudeCliReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
-export type UnifiedReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'workflow';
+export type UnifiedReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra' | 'workflow';
 
 /**
  * Claude CLI specific spawn options

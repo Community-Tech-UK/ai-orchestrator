@@ -82,7 +82,7 @@ describe('browser-mcp-config', () => {
     expect(withoutDeferral?.env).not.toHaveProperty('AI_ORCHESTRATOR_BROWSER_TOOL_DEFERRAL');
   });
 
-  it('keeps the Codex bridge eager because functions.exec does not install revealed tools', () => {
+  it('gives Codex stable wrappers without depending on tool-list changes', () => {
     const bridge = resolveBrowserGatewayBridgeSpec({
       ...options,
       provider: 'codex',
@@ -90,6 +90,7 @@ describe('browser-mcp-config', () => {
     });
 
     expect(bridge?.env).not.toHaveProperty('AI_ORCHESTRATOR_BROWSER_TOOL_DEFERRAL');
+    expect(bridge?.env).toHaveProperty('AI_ORCHESTRATOR_BROWSER_TOOL_STABLE', '1');
   });
 
   it('keeps the Cursor bridge eager because its MCP client does not install revealed tools', () => {
@@ -99,6 +100,12 @@ describe('browser-mcp-config', () => {
       toolDeferral: true,
     });
 
+    expect(bridge?.env).not.toHaveProperty('AI_ORCHESTRATOR_BROWSER_TOOL_DEFERRAL');
+  });
+
+  it('keeps the full Codex surface when deferral is disabled', () => {
+    const bridge = resolveBrowserGatewayBridgeSpec({ ...options, provider: 'codex', toolDeferral: false });
+    expect(bridge?.env).not.toHaveProperty('AI_ORCHESTRATOR_BROWSER_TOOL_STABLE');
     expect(bridge?.env).not.toHaveProperty('AI_ORCHESTRATOR_BROWSER_TOOL_DEFERRAL');
   });
 

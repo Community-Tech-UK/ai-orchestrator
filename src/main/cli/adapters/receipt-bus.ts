@@ -27,6 +27,7 @@ export interface ReceiptPayloadMap {
   context: ContextUsage;
   error: Error | string;
   complete: CliResponse;
+  usage: NonNullable<CliResponse['usage']>;
   exit: { code: number | null; signal: string | null };
   spawned: number;
   spawn_mode: SpawnModeChange;

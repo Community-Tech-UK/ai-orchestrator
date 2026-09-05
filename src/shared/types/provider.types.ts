@@ -5,6 +5,7 @@
 import type { PluginProviderName } from '@contracts/types/provider-runtime-events';
 import { getProviderModelContextWindow } from './provider-context-window';
 import type { LocalModelCatalogMetadata } from './unified-model-catalog.types';
+import type { ModelReasoningCapabilities } from './model-reasoning';
 
 export { getProviderModelContextWindow };
 export {
@@ -144,21 +145,25 @@ export interface ProviderSessionOptions {
   yoloMode?: boolean;
 }
 
-export const REASONING_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'workflow'] as const;
+export const REASONING_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'workflow'] as const;
 export type ReasoningEffort = typeof REASONING_EFFORTS[number];
 
 /**
  * The reasoning effort a provider runs at when the user hasn't picked one.
  *
  * Claude's CLI defaults to `high` (the "Default" the Claude app badges on the
- * High row), so we surface it explicitly. Codex also defaults to `high` so
+ * High row), so we surface it explicitly. Astra uses `medium`; other Codex
+ * models default to `high` so
  * fresh Codex sessions use a strong reasoning budget without automatically
  * selecting Max. Providers without an app-level default stay
  * provider-decided (`null` -> no `--effort` flag).
  */
-export function getDefaultReasoningEffort(provider: string | null | undefined): ReasoningEffort | null {
+export function getDefaultReasoningEffort(
+  provider: string | null | undefined,
+  model?: string | null,
+): ReasoningEffort | null {
   if (provider === 'claude') return 'high';
-  if (provider === 'codex') return 'high';
+  if (provider === 'codex') return model?.trim().toLowerCase() === 'gpt-6-astra' ? 'medium' : 'high';
   if (provider === 'grok') return 'high';
   return null;
 }
@@ -235,6 +240,7 @@ export const PROVIDER_MODEL_REPLACEMENTS: Readonly<
  * OpenAI model identifiers
  */
 export const OPENAI_MODELS = {
+  GPT6_ASTRA: 'gpt-6-astra',
   GPT56_SOL: 'gpt-5.6-sol',
   GPT56_TERRA: 'gpt-5.6-terra',
   GPT56_LUNA: 'gpt-5.6-luna',
@@ -412,6 +418,10 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
   // Claude 3.5 models (legacy)
   'claude-3-5-sonnet-20241022': { input: 3.0, output: 15.0 },
   'claude-3-5-haiku-20241022': { input: 0.8, output: 4.0 },
+  // Standard API-equivalent rates; subscription quota is reported separately.
+  // Astra verified 2026-09-05: developers.openai.com/api/docs/models/gpt-6-astra.
+  // The flat table does not model its >272K prompt or priority premiums.
+  [OPENAI_MODELS.GPT6_ASTRA]: { input: 10.0, output: 50.0 },
   // OpenAI / Codex models (GPT-5 family)
   [OPENAI_MODELS.GPT56_SOL]: { input: 5.0, output: 30.0 },
   [OPENAI_MODELS.GPT56_TERRA]: { input: 2.5, output: 15.0 },
@@ -459,6 +469,7 @@ export interface ModelDisplayInfo {
   pinned?: boolean;
   family?: string;
   localModel?: LocalModelCatalogMetadata;
+  reasoning?: ModelReasoningCapabilities;
 }
 
 /**
@@ -496,6 +507,7 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     { id: OPENAI_MODELS.GPT56_SOL, name: 'GPT-5.6 Sol', tier: 'powerful', pinned: true, family: 'GPT' },
     { id: OPENAI_MODELS.GPT56_TERRA, name: 'GPT-5.6 Terra', tier: 'balanced', family: 'GPT' },
     { id: OPENAI_MODELS.GPT56_LUNA, name: 'GPT-5.6 Luna', tier: 'fast', family: 'GPT' },
+    { id: OPENAI_MODELS.GPT6_ASTRA, name: 'GPT-6 Astra', tier: 'powerful', family: 'GPT' },
     { id: OPENAI_MODELS.GPT55, name: 'GPT-5.5', tier: 'powerful', pinned: true, family: 'GPT' },
     { id: OPENAI_MODELS.GPT53_CODEX, name: 'GPT-5.3 Codex', tier: 'balanced', family: 'GPT' },
     { id: OPENAI_MODELS.GPT53_CODEX_SPARK, name: 'GPT-5.3 Codex Spark', tier: 'fast', family: 'GPT' },

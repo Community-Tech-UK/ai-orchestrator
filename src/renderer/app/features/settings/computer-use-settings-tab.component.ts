@@ -64,7 +64,10 @@ export class ComputerUseSettingsTabComponent implements OnInit {
   private readonly desktop = inject(DesktopGatewayIpcService);
 
   readonly settingRows = computed(() =>
-    this.store.metadata.filter((meta) => COMPUTER_USE_SETTING_KEYS.has(meta.key) && !meta.hidden),
+    // Selected by explicit key: this tab is the canonical home for these
+    // settings, so `hidden` (which means "keep out of generic category
+    // listings") must not apply here.
+    this.store.metadata.filter((meta) => COMPUTER_USE_SETTING_KEYS.has(meta.key)),
   );
 
   /** Local loading/error cover the tab-owned apps/grants/audit data only. */

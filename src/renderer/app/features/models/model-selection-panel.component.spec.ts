@@ -72,7 +72,7 @@ describe('ModelSelectionPanelComponent', () => {
     selectedModelId?: string | null;
     selectedReasoning?: ReasoningEffort | null;
     modelsForProvider?: (provider: PickerProvider) => ModelDisplayInfo[];
-    reasoningOptionsForProvider?: (provider: PickerProvider) => UnifiedReasoningOption[];
+    reasoningOptionsForProvider?: (provider: PickerProvider, model?: ModelDisplayInfo) => UnifiedReasoningOption[];
     disabledReasonForProvider?: (provider: PickerProvider) => string | undefined;
   } = {}): void {
     fixture.componentRef.setInput('providers', overrides.providers ?? ['claude', 'codex']);
@@ -281,6 +281,71 @@ describe('ModelSelectionPanelComponent', () => {
         level: 'high',
       },
     ]);
+  });
+
+  it('renders model-specific levels, preserves Provider, and emits ultra unchanged', () => {
+    const codexModels = signal<ModelDisplayInfo[]>([
+      { id: 'gpt-6-astra', name: 'Astra', tier: 'powerful', reasoning: {
+        supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'], defaultEffort: 'high',
+      } },
+      { id: 'limited', name: 'Limited', tier: 'fast', reasoning: {
+        supportedEfforts: ['low', 'medium'], defaultEffort: 'medium',
+      } },
+    ]);
+    setInputs({
+      providers: ['codex'], selectedProvider: 'codex', selectedModelId: 'gpt-6-astra',
+      selectedReasoning: null,
+      modelsForProvider: () => codexModels(),
+      reasoningOptionsForProvider: (_provider, model) => [
+        { id: 'default', label: 'Provider' },
+        ...(model?.reasoning?.supportedEfforts ?? []).map(id => ({
+          id, label: id, isDefault: id === model?.reasoning?.defaultEffort,
+        })),
+      ],
+    });
+    (fixture.nativeElement.querySelector('[data-provider="codex"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    const getSelect = (id: string): HTMLSelectElement => fixture.nativeElement.querySelector(`#model-reasoning-codex-${id}`);
+    expect(Array.from(getSelect('gpt-6-astra').options).map(o => o.value)).toEqual([
+      'default', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra',
+    ]);
+    expect(Array.from(getSelect('limited').options).map(o => o.value)).toEqual(['default', 'low', 'medium']);
+    expect(getSelect('gpt-6-astra').value).toBe('default');
+    expect(getSelect('limited').value).toBe('medium');
+    const emitted: UnifiedSelection[] = [];
+    fixture.componentInstance.selection.subscribe(s => emitted.push(s));
+    getSelect('gpt-6-astra').value = 'ultra';
+    getSelect('gpt-6-astra').dispatchEvent(new Event('change', { bubbles: true }));
+    fixture.detectChanges();
+    expect(emitted).toEqual([{ kind: 'reasoning', provider: 'codex', modelId: 'gpt-6-astra', level: 'ultra' }]);
+    fixture.componentRef.setInput('selectedReasoning', 'ultra');
+    fixture.detectChanges();
+    codexModels.update(models => models.map(model => ({ ...model, reasoning: { supportedEfforts: ['high'], defaultEffort: 'high' } })));
+    fixture.detectChanges();
+    expect(Array.from(getSelect('gpt-6-astra').options).map(o => o.value)).toEqual(['default', 'high', 'ultra']);
+    expect(getSelect('gpt-6-astra').value).toBe('ultra');
+    expect(getSelect('gpt-6-astra').selectedOptions[0].label.trim()).toBe('Ultra (unavailable)');
+    expect(getSelect('gpt-6-astra').selectedOptions[0].disabled).toBe(true);
+    expect(fixture.componentInstance.selectedReasoning()).toBe('ultra');
+    expect(emitted).toHaveLength(1);
+    getSelect('gpt-6-astra').dispatchEvent(new Event('change', { bubbles: true }));
+    expect(emitted).toHaveLength(1); // Unavailable selections cannot be recommitted.
+    getSelect('gpt-6-astra').value = 'default';
+    getSelect('gpt-6-astra').dispatchEvent(new Event('change', { bubbles: true }));
+    expect(emitted[1]).toEqual({ kind: 'reasoning', provider: 'codex', modelId: 'gpt-6-astra', level: null });
+  });
+
+  it('shows a saved effort as current while Codex capabilities are unknown', () => {
+    setInputs({
+      providers: ['codex'], selectedProvider: 'codex', selectedModelId: 'gpt-5.5',
+      selectedReasoning: 'medium',
+      reasoningOptionsForProvider: () => [{ id: 'default', label: 'Provider' }],
+    });
+    const select = fixture.nativeElement.querySelector('.model-picker-row__reasoning') as HTMLSelectElement;
+    expect(select.value).toBe('medium');
+    expect(select.selectedOptions[0].label.trim()).toBe('Medium (current)');
+    expect(select.selectedOptions[0].disabled).toBe(true);
+    expect(fixture.componentInstance.selectedReasoning()).toBe('medium');
   });
 
   // Mirrors the controller's Claude reasoning list (high is the default).

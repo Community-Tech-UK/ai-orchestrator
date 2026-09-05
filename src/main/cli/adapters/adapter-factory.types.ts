@@ -100,7 +100,7 @@ export interface UnifiedSpawnOptions {
   /** JSON Schema object for structured output (Codex app-server mode). */
   outputSchema?: Record<string, unknown>;
   /** Reasoning effort level for the model. Claude also accepts session-only max/workflow. */
-  reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'workflow';
+  reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra' | 'workflow';
   /** WS14 — Claude `--fallback-model` override (settings default applies when unset). */
   fallbackModel?: string;
   /** WS14 — serialized JSON Schema for Claude `--json-schema` structured one-shot output. */

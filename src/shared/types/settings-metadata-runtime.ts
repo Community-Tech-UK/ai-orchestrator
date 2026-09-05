@@ -1,3 +1,4 @@
+import { AUTOMATION_PROVIDER_DEFINITIONS } from './automation-provider.types';
 import type { SettingMetadata } from './settings-metadata.types';
 
 export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
@@ -53,6 +54,9 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'customModelOverride',
+    // S1.9: legacy. Superseded by `customModelsByProvider`; kept only so the
+    // migration has something to read. Not shown in generic listings.
+    hidden: true,
     label: 'Custom model override',
     description: 'Force a specific model name for every new instance, ignoring the Default model setting. Leave empty to use the CLI\'s own default.',
     type: 'string',
@@ -124,6 +128,11 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
     description: 'When a chat session cannot recover on its current provider (auth, quota, or provider outages), automatically move the conversation to the next provider in this list instead of leaving it dead. Empty = off. Setting this is your consent to send the conversation to those providers.',
     type: 'multi-select',
     category: 'advanced',
+    // S1.2: this shipped with no `options`, so the row rendered zero
+    // checkboxes and the setting could not be changed from the UI at all.
+    // Sourced from the canonical automation vocabulary rather than a second
+    // hand-maintained list that could drift from it.
+    options: AUTOMATION_PROVIDER_DEFINITIONS.map((p) => ({ value: p.id, label: p.label })),
   },
   {
     key: 'sessionFailoverMaxSwitches',

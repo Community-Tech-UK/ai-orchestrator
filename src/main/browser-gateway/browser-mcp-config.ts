@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import type { AcpMcpServerConfig } from '../../shared/types/cli.types';
 import { BROWSER_TOOL_DEFERRAL_ENV } from './browser-mcp-deferral';
+import { BROWSER_TOOL_STABLE_ENV } from './browser-mcp-stable-tools';
 import { tomlArray, tomlBareKey, tomlString } from './mcp-config-toml-helpers';
 
 /**
@@ -26,9 +27,8 @@ export interface BrowserGatewayMcpConfigOptions {
   instanceId: string;
   provider?: string;
   /**
-   * WS9 tool-schema economy: when true the forwarder registers only the core
-   * tool set plus `browser.tool_search`/`browser.tool_describe`; the rest load
-   * on demand. Sets AI_ORCHESTRATOR_BROWSER_TOOL_DEFERRAL=1 in the bridge env.
+   * Request a compact surface: Codex uses fixed search/describe/execute wrappers;
+   * dynamic clients reveal tools on demand. Unsupported clients remain eager.
    */
   toolDeferral?: boolean;
   exists?: (candidatePath: string) => boolean;
@@ -51,6 +51,17 @@ export function supportsDeferredBrowserGatewayTools(provider?: string): boolean 
   return normalized !== 'codex' && normalized !== 'cursor';
 }
 
+export type BrowserGatewayToolMode = 'eager' | 'deferred' | 'stable';
+
+/** Shared by config injection and schema telemetry; Codex 0.153.4 MCP discovery
+ * and invocation verified without inference. Cursor has no invocation evidence.
+ */
+export function resolveBrowserGatewayToolMode(provider?: string, toolDeferral = false): BrowserGatewayToolMode {
+  if (!toolDeferral) return 'eager';
+  if (provider?.trim().toLowerCase() === 'codex') return 'stable';
+  return supportsDeferredBrowserGatewayTools(provider) ? 'deferred' : 'eager';
+}
+
 export function resolveBrowserGatewayBridgeSpec(
   options: BrowserGatewayMcpConfigOptions,
 ): BrowserGatewayBridgeSpec | null {
@@ -59,18 +70,16 @@ export function resolveBrowserGatewayBridgeSpec(
     return null;
   }
 
-  // Codex and Cursor currently snapshot their callable tool registries from
-  // the initial MCP tools/list response. Search/describe can reveal a hidden
-  // tool, but neither client installs the callable wrapper after
-  // notifications/tools/list_changed. Keep both eager until their clients can
-  // consume dynamic MCP tool-list changes.
-  const toolDeferral = options.toolDeferral === true
-    && supportsDeferredBrowserGatewayTools(options.provider);
+  // Snapshotting clients require fixed callable wrappers. Never enable dynamic
+  // list changes for them; Cursor retains eager mode until independently proven.
+  const toolMode = resolveBrowserGatewayToolMode(options.provider, options.toolDeferral);
   const env = {
     AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: options.socketPath,
     AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: options.instanceId,
     ...(options.provider ? { AI_ORCHESTRATOR_BROWSER_PROVIDER: options.provider } : {}),
-    ...(toolDeferral ? { [BROWSER_TOOL_DEFERRAL_ENV]: '1' } : {}),
+    ...(toolMode === 'stable'
+      ? { [BROWSER_TOOL_STABLE_ENV]: '1' }
+      : toolMode === 'deferred' ? { [BROWSER_TOOL_DEFERRAL_ENV]: '1' } : {}),
   };
 
   return {

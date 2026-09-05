@@ -10,7 +10,6 @@ import type {
   ThinkingContent,
 } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
-import { computeTokenCost } from '../../../shared/data/model-pricing';
 import { extractThinkingContent } from '../../../shared/utils/thinking-extractor';
 import type {
   AppServerNotification,
@@ -29,6 +28,7 @@ import { wrapRtkAwareness } from '../rtk/rtk-awareness';
 import { hasPendingBrowserApproval } from './codex/browser-approval-watchdog';
 import { wrapCodexSystemInstructions } from './codex/codex-prompt-blocks';
 import { createCodexTurnCaptureState } from './codex/app-server-thread-runtime';
+import { CodexAppServerRuntimeError } from './codex/app-server-runtime-errors';
 
 /** Executes app-server turns using the notification-routing layer. */
 export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificationAdapter {
@@ -41,12 +41,13 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     if (!this.getAppServerClient() || !this.getAppServerThreadId()) {
       throw new Error('App-server not initialized');
     }
+    if (this.appServerRuntime.hasActiveTurn()) throw new CodexAppServerRuntimeError({
+      kind: 'request-rejected', message: 'Codex app-server runtime already has an active turn', recoverability: 'retry-thread',
+    });
 
-    // Reset per-turn flag/breakdown so the fallback path only ever uses a
-    // sample captured DURING this turn, never a stale one left over from the
-    // previous turn if this one doesn't receive a notification at all.
-    this.hasTokenUsageNotification = false;
-    this.lastTurnUsageBreakdown = null;
+    const rootThreadId = this.getAppServerThreadId()!;
+    const resumed = this.lastResumeAttemptResult?.confirmed === true
+      && ['native', 'jsonl-scan', 'running-adopted'].includes(this.lastResumeAttemptResult.source);
 
     // App-server turns accept multimodal inputs. Keep supported images as
     // `localImage` items and only fall back to file references for everything
@@ -58,11 +59,7 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
 
     // Include system prompt on the very first turn only.
     if (!this.systemPromptSent && this.cliConfig.systemPrompt?.trim()) {
-      // Oversized prompts (usually merged project-instruction files Codex
-      // already loads natively) are truncated to the cap rather than silently
-      // dropped — dropping delivered NOTHING (no role, no tool permissions)
-      // while still marking the prompt as sent.
-      const prompt = CodexAppServerTurnAdapter.truncateSystemPrompt(this.cliConfig.systemPrompt.trim());
+      const prompt = this.cliConfig.systemPrompt;
       content = wrapCodexSystemInstructions(prompt, content);
       this.systemPromptSent = true;
     }
@@ -87,7 +84,24 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
       throw new Error('Cannot send empty app-server turn input');
     }
 
-    const turnState = await this.captureTurn(input, metadata);
+    let turnState: TurnCaptureState;
+    // Attachment preparation can yield; do not reset another in-flight turn's counters.
+    if (this.appServerRuntime.hasActiveTurn()) throw new CodexAppServerRuntimeError({
+      kind: 'request-rejected', message: 'Codex app-server runtime already has an active turn', recoverability: 'retry-thread',
+    });
+    this.hasTokenUsageNotification = false;
+    this.usageAccounting.beginTurn(rootThreadId, resumed);
+    try {
+      turnState = await this.captureTurn(input, metadata);
+    } catch (error) {
+      this.flushPartialUsage();
+      throw error;
+    }
+    this.usageAccounting.fallback(rootThreadId, turnState.finalTurn?.usage as Record<string, unknown> | undefined);
+    this.cumulativeTokensUsed = this.usageAccounting.cumulativeTokens;
+    if (turnState.finalTurn?.status === 'failed' || turnState.finalTurn?.status === 'interrupted' || turnState.error) {
+      this.flushPartialUsage();
+    }
 
     if (await this.contextCostController.recoverAfterTurn({
       turnStatus: turnState.finalTurn?.status,
@@ -112,6 +126,8 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
       const errorMsg = finalTurnError ?? capturedError ?? 'Codex turn failed';
       throw new Error(errorMsg);
     }
+
+    if (turnStatus === 'interrupted') return;
 
     // Emit the final response
     const responseContent = turnState.lastAgentMessage || '';
@@ -164,96 +180,18 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
       });
     }
 
-    // Context tracking: prefer thread/tokenUsage/updated notifications (accurate
-    // per-call data with last/total breakdown). Only fall back to turn/completed
-    // usage when the notification wasn't received (e.g. older Codex versions).
-    // turn/completed usage contains AGGREGATE input_tokens across all internal
-    // agentic sub-calls, NOT actual context window occupancy.
-    let finalTurnCostUsd = 0;
-    /**
-     * LT-090: on some app-server builds `turn/completed`'s own `usage` field
-     * comes back empty (reproduced across a trivial reply, a substantive
-     * prose turn, and a tool-using turn, all in one live session), even
-     * though a `thread/tokenUsage/updated` notification with real numbers
-     * arrived earlier in the SAME turn (captured into
-     * `lastTurnUsageBreakdown`, reset to null at the top of this method).
-     * Only set when `turnState.finalTurn?.usage` is falsy below — the two
-     * paths are mutually exclusive, so a turn's cost is never counted twice.
-     */
-    let fallbackUsage: CliResponse['usage'];
-    if (turnState.finalTurn?.usage) {
-      const usage = turnState.finalTurn.usage;
-      const inputTokens = usage.input_tokens || 0;
-      const outputTokens = usage.output_tokens || 0;
-      const turnTokens = inputTokens + outputTokens;
-
-      // Codex's CLI reports no dollar cost (unlike Claude's total_cost_usd), so
-      // price the real per-turn input/output split with the shared pricing
-      // table and accumulate it. Surfaced via costEstimate on context events.
-      finalTurnCostUsd = computeTokenCost(this.cliConfig.model, {
-        inputTokens,
-        outputTokens,
-      });
-      this.cumulativeCostUsd += finalTurnCostUsd;
-
-      if (!this.hasTokenUsageNotification) {
-        // No accurate notification received — aggregate turn tokens are NOT
-        // context-window occupancy (they sum across all internal sub-calls
-        // and routinely exceed the context window after a single complex
-        // turn). Use the last known good occupancy if we have one; otherwise
-        // emit 0 with isEstimated:true rather than clamping the aggregate to
-        // 100% of the context window (which would falsely show a full bar).
-        const contextWindow = this.resolveContextWindow();
-        this.cumulativeTokensUsed += turnTokens;
-
-        if (this.lastTurnTokens > 0) {
-          // Re-emit the last known good occupancy (from a previous
-          // thread/tokenUsage/updated notification) with updated spend.
-          this.emit('context', {
-            used: this.lastTurnTokens,
-            total: contextWindow,
-            percentage: contextWindow > 0 ? Math.min((this.lastTurnTokens / contextWindow) * 100, 100) : 0,
-            cumulativeTokens: this.cumulativeTokensUsed,
-            costEstimate: this.cumulativeCostUsd,
-          });
-        } else {
-          // No prior occupancy data — we genuinely don't know occupancy.
-          // Emit 0 with isEstimated:true and surface lifetime spend via
-          // cumulativeTokens. Do NOT cache this in lastTurnTokens, so the
-          // next real notification can populate it cleanly.
-          this.emit('context', {
-            used: 0,
-            total: contextWindow,
-            percentage: 0,
-            cumulativeTokens: this.cumulativeTokensUsed,
-            costEstimate: this.cumulativeCostUsd,
-            isEstimated: true,
-          });
-        }
-      } else {
-        // Accurate notification was already emitted — just update cumulative
-        // spend for cost tracking if the notification didn't cover it.
-        if (this.cumulativeTokensUsed === 0) {
-          this.cumulativeTokensUsed += turnTokens;
-        }
-      }
-    } else if (this.lastTurnUsageBreakdown) {
-      // LT-090 fallback: `turn/completed` reported no usage for this turn, but
-      // a `thread/tokenUsage/updated` notification during the SAME turn did.
-      // `cumulativeTokensUsed` is intentionally left untouched here — the
-      // notification handler already applied it in real time
-      // (`codex-app-server-notification-adapter.ts`) when the notification
-      // arrived, so redoing it here would double-count.
-      const { inputTokens, outputTokens } = this.lastTurnUsageBreakdown;
-      finalTurnCostUsd = computeTokenCost(this.cliConfig.model, { inputTokens, outputTokens });
-      this.cumulativeCostUsd += finalTurnCostUsd;
-      fallbackUsage = {
-        inputTokens,
-        outputTokens,
-        totalTokens: inputTokens + outputTokens,
-        cost: finalTurnCostUsd,
-      };
-    }
+    const usage = this.usageAccounting.take(this.cliConfig.model);
+    this.cumulativeCostUsd += usage?.cost ?? 0;
+    const contextWindow = this.resolveContextWindow();
+    this.emit('context', {
+      used: this.lastTurnTokens,
+      total: contextWindow,
+      percentage: contextWindow > 0 ? Math.min((this.lastTurnTokens / contextWindow) * 100, 100) : 0,
+      cumulativeTokens: this.cumulativeTokensUsed,
+      costEstimate: this.cumulativeCostUsd,
+      ...(this.lastTurnTokens === 0 ? { isEstimated: true } : {}),
+    });
+    this.emit('cost', { costEstimate: this.cumulativeCostUsd });
 
     // Build and emit the complete response
     const response: CliResponse = {
@@ -261,12 +199,13 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
       content: turnState.lastAgentMessage || '',
       role: 'assistant',
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-      usage: turnState.finalTurn?.usage ? {
-        inputTokens: turnState.finalTurn.usage.input_tokens || 0,
-        outputTokens: turnState.finalTurn.usage.output_tokens || 0,
-        totalTokens: (turnState.finalTurn.usage.input_tokens || 0) + (turnState.finalTurn.usage.output_tokens || 0),
-        cost: finalTurnCostUsd,
-      } : fallbackUsage,
+      usage,
+      metadata: { codexUsage: {
+        model: this.cliConfig.model ?? null,
+        initializedServiceTier: this.effectiveServiceTier,
+        requestedTurnServiceTier: this.cliConfig.fastMode ? 'priority' : null,
+        costBasis: 'standard-api-equivalent',
+      } },
     };
     this.completeResponse(response);
   }
@@ -280,6 +219,8 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
    */
   private belongsToTurn(state: TurnCaptureState, notification: AppServerNotification): boolean {
     const messageThreadId = notification.params['threadId'] as string | undefined;
+    if (messageThreadId && messageThreadId !== state.threadId && this.usageAccounting.ownsThread(messageThreadId)
+      && ['thread/tokenUsage/updated', 'turn/started', 'turn/completed'].includes(notification.method)) return true;
     if (!messageThreadId || !state.threadIds.has(messageThreadId)) {
       return false;
     }

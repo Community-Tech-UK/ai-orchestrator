@@ -18,9 +18,25 @@ export function resolveCodexTurnUsageBreakdown(
   last: Record<string, unknown> | undefined,
 ): CodexTurnUsageBreakdown {
   return {
-    inputTokens: Number(last?.['inputTokens'] ?? last?.['input_tokens'] ?? 0) || 0,
-    outputTokens: Number(last?.['outputTokens'] ?? last?.['output_tokens'] ?? 0) || 0,
-    cacheReadTokens: Number(last?.['cachedInputTokens'] ?? last?.['cached_input_tokens'] ?? 0) || 0,
-    reasoningTokens: Number(last?.['reasoningOutputTokens'] ?? last?.['reasoning_output_tokens'] ?? 0) || 0,
+    inputTokens: tokenCount(last?.['inputTokens'] ?? last?.['input_tokens']),
+    outputTokens: tokenCount(last?.['outputTokens'] ?? last?.['output_tokens']),
+    cacheReadTokens: tokenCount(last?.['cachedInputTokens'] ?? last?.['cached_input_tokens']),
+    reasoningTokens: tokenCount(last?.['reasoningOutputTokens'] ?? last?.['reasoning_output_tokens']),
+  };
+}
+
+export function tokenCount(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+/** Native cache/reasoning counts are subsets; AIO pricing expects disjoint buckets. */
+export function disjointCodexUsage(raw: CodexTurnUsageBreakdown): CodexTurnUsageBreakdown {
+  const cacheReadTokens = Math.min(raw.inputTokens, raw.cacheReadTokens);
+  const reasoningTokens = Math.min(raw.outputTokens, raw.reasoningTokens);
+  return {
+    inputTokens: raw.inputTokens - cacheReadTokens,
+    outputTokens: raw.outputTokens - reasoningTokens,
+    cacheReadTokens,
+    reasoningTokens,
   };
 }

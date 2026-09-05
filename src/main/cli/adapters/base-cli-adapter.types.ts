@@ -343,6 +343,7 @@ export type CliEvent =
   | 'context'     // Context/token usage update
   | 'error'       // Error occurred
   | 'complete'    // Response finished
+  | 'usage'       // Partial usage without successful response completion
   | 'exit'        // Process exited
   | 'spawned'     // Process spawned
   | 'spawn_mode'  // B9: spawn mode established or changed at runtime
@@ -359,6 +360,7 @@ export interface CliAdapterEvents {
   'context': (usage: ContextUsage) => void;
   'error': (error: Error | string) => void;
   'complete': (response: CliResponse) => void;
+  'usage': (usage: CliUsage) => void;
   'exit': (code: number | null, signal: string | null) => void;
   'spawned': (pid: number) => void;
   'spawn_mode': (change: SpawnModeChange) => void;

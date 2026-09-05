@@ -457,7 +457,7 @@ function userInputToText(input: UserInput[]): string {
 }
 
 function normalizeReasoningEffort(value: string | null | undefined) {
-  return value === 'none' || value === 'minimal' || value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh'
+  return value === 'none' || value === 'minimal' || value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh' || value === 'max' || value === 'ultra'
     ? value
     : null;
 }

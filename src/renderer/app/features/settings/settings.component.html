@@ -114,6 +114,17 @@
             </div>
           </div>
         }
+        @if (store.error(); as settingsError) {
+          <!-- S1.4: the store records why a write was rejected, but only two tabs
+               rendered it, so on every other tab the control silently snapped
+               back with no explanation. role=alert so it is announced, not just
+               drawn. -->
+          <div class="settings-error-banner" role="alert">
+            <strong>That change was not saved.</strong>
+            <span>{{ settingsError }}</span>
+            <button type="button" class="btn-dismiss" (click)="store.clearError()">Dismiss</button>
+          </div>
+        }
         <div class="settings-body" [class.wide]="isWideTab()" [class.hidden]="isLoading()">
           @switch (activeTab()) {
             @case ('general') {

@@ -511,6 +511,8 @@ export const SETTINGS_TOOL_POLICY = {
   rtkEnabled: open(z.boolean(), true),
   rtkBundledOnly: open(z.boolean(), true),
   notifyOnAgentCompletion: open(z.boolean()),
+  notifyOnLoopTerminal: open(z.boolean()),
+  notificationSoundMode: open(z.enum(['always', 'blurred', 'never'])),
   channelToolHeartbeat: open(z.boolean()),
   notificationCooldownSeconds: open(z.number().finite().int().min(0).max(3600)),
   notificationQuietHoursEnabled: open(z.boolean()),

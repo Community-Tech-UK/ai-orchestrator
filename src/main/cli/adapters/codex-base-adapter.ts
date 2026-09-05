@@ -15,7 +15,7 @@ import { discoverCodexModels } from './codex/model-list';
 import { probeVersionStatus } from './cli-status-probe';
 import { ActivityStateDetector } from '../../providers/activity-state-detector';
 import type { ResumeCursor } from '../../session/session-continuity';
-import type { CodexTurnUsageBreakdown } from './codex/token-usage-breakdown';
+import { CodexUsageAccounting } from './codex/usage-accounting';
 
 const logger = getLogger('CodexBaseAdapter');
 
@@ -29,21 +29,26 @@ export abstract class CodexBaseAdapter extends BaseCliAdapter {
   protected cumulativeCostUsd = 0;
   protected lastTurnTokens = 0;
   protected hasTokenUsageNotification = false;
-  /**
-   * Full input/output/cache/reasoning breakdown from the most recent
-   * `thread/tokenUsage/updated` `last` sample — captured alongside
-   * {@link lastTurnTokens} (which only tracks the combined total).
-   *
-   * LT-090: on some app-server builds `turn/completed`'s own `usage` field
-   * comes back empty (`turnState.finalTurn?.usage` is `undefined`) even
-   * though the turn genuinely used tokens — reproduced across a trivial
-   * reply, a substantive prose turn, and a tool-using turn, all in the same
-   * live session. `thread/tokenUsage/updated` is the one place a per-call
-   * breakdown detailed enough to price a turn is available, so
-   * `CodexAppServerTurnAdapter` falls back to this field when `turn.usage`
-   * is absent, rather than silently recording no cost for that turn.
-   */
-  protected lastTurnUsageBreakdown: CodexTurnUsageBreakdown | null = null;
+  protected readonly usageAccounting = new CodexUsageAccounting();
+
+  protected flushPartialUsage(): void {
+    const usage = this.usageAccounting.take(this.cliConfig.model);
+    if (!usage) return;
+    this.cumulativeCostUsd += usage.cost ?? 0;
+    this.emit('usage', usage);
+    // Re-publish the authoritative total; notification spend is already included.
+    this.cumulativeTokensUsed = this.usageAccounting.cumulativeTokens;
+    const contextWindow = this.resolveContextWindow();
+    this.emit('context', {
+      used: this.lastTurnTokens,
+      total: contextWindow,
+      percentage: contextWindow > 0 ? Math.min((this.lastTurnTokens / contextWindow) * 100, 100) : 0,
+      cumulativeTokens: this.cumulativeTokensUsed,
+      costEstimate: this.cumulativeCostUsd,
+      ...(this.lastTurnTokens === 0 ? { isEstimated: true } : {}),
+    });
+    this.emit('cost', { costEstimate: this.cumulativeCostUsd });
+  }
   protected codexReportedContextWindow = 0;
   protected resumeCursor: ResumeCursor | null = null;
   protected lastResumeAttemptResult: ResumeAttemptResult | null = null;

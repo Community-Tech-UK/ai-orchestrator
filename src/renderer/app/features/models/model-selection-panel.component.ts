@@ -209,6 +209,7 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
                       <option
                         [value]="reasoningOptionValue(option)"
                         [selected]="row.reasoningValue === reasoningOptionValue(option)"
+                        [disabled]="option.disabled ?? false"
                       >
                         {{ option.label }}{{ option.isDefault ? ' (default)' : '' }}
                       </option>
@@ -664,7 +665,7 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
     (provider: PickerProvider) => ModelDisplayInfo[]
   >();
   readonly reasoningOptionsForProvider = input.required<
-    (provider: PickerProvider) => UnifiedReasoningOption[]
+    (provider: PickerProvider, model?: ModelDisplayInfo) => UnifiedReasoningOption[]
   >();
   readonly disabledReasonForProvider = input<
     ((provider: PickerProvider) => string | undefined) | undefined | null
@@ -748,11 +749,23 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
       const providerLabel = labels[provider] ?? provider;
       const providerColor = this.providerColor(provider);
       const providerDisabledReason = disabledReasonForProvider(provider);
-      const reasoningOptions = reasoningOptionsForProvider(provider);
 
       return modelsForProvider(provider).map((model) => {
+        const availableReasoningOptions = reasoningOptionsForProvider(provider, model);
         const key = modelKey(provider, model.id);
         const selected = provider === selectedProvider && model.id === selectedModelId;
+        // A catalog refresh must not claim the persisted effort changed or
+        // restart a live session. Keep the selection visible when capabilities
+        // are unknown or no longer include it.
+        const reasoningOptions: UnifiedReasoningOption[] = selected && selectedReasoning
+          && availableReasoningOptions.length > 0
+          && !availableReasoningOptions.some(option => option.id === selectedReasoning)
+          ? [...availableReasoningOptions, {
+            id: selectedReasoning,
+            label: `${selectedReasoning[0].toUpperCase()}${selectedReasoning.slice(1)} (${provider === 'codex' && !model.reasoning ? 'current' : 'unavailable'})`,
+            disabled: true,
+          }]
+          : availableReasoningOptions;
         const disabledReason = providerDisabledReason ?? localModelDisabledReason(model);
         return {
           key,
@@ -856,7 +869,7 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
     const option = row.reasoningOptions.find((candidate) =>
       this.reasoningOptionValue(candidate) === value,
     );
-    if (!option) return;
+    if (!option || option.disabled) return;
 
     this.selection.emit({
       kind: 'reasoning',
@@ -962,7 +975,10 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
   ): string {
     if (reasoningOptions.length === 0) return 'default';
     const fallback = defaultReasoningOptionId(reasoningOptions);
-    if (selected) return selectedReasoning ?? fallback;
+    if (selected) {
+      const current = selectedReasoning ?? 'default';
+      if (reasoningOptions.some((option) => option.id === current)) return current;
+    }
     return fallback;
   }
 }

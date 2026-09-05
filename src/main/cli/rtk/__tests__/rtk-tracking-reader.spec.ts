@@ -368,3 +368,111 @@ describe('rtk-tracking-reader', () => {
     });
   });
 });
+
+/**
+ * T5 compliance. These assert the two things the plan actually needs and the
+ * one thing it asked for that cannot be delivered honestly.
+ *
+ * Measured against the real database on this machine while building this:
+ * 251,656 filtered vs 87,125 proxied (25.7% bypass, well over the plan's 10%
+ * warning threshold), and 13,707 parse failures against 26,819 commands in a
+ * 7-day window — i.e. about half of attempted rtk invocations produced no
+ * filtering at all, while `rtk gain` still reported savings from the rest.
+ */
+describe('RtkTrackingReader.getCompliance (T5)', () => {
+  let complianceRoot: string;
+  let existingDbPath: string;
+
+  beforeEach(() => {
+    complianceRoot = mkdtempSync(path.join(tmpdir(), 'rtk-compliance-'));
+    existingDbPath = path.join(complianceRoot, 'history.db');
+    // `getDriver()` refuses to open a path that does not exist, so the fake
+    // driver would never be reached without a real file here.
+    writeFileSync(existingDbPath, '');
+  });
+
+  afterEach(() => {
+    rmSync(complianceRoot, { recursive: true, force: true });
+    _resetForTesting();
+  });
+
+  function readerWith(rows: {
+    commands: { rtk_cmd: string }[];
+    failures?: { fallback_succeeded: number }[];
+    withFailuresTable?: boolean;
+  }) {
+    const driver = {
+      prepare: (sql: string) => ({
+        get: (..._params: unknown[]) => {
+          if (sql.includes('FROM commands')) {
+            const proxied = rows.commands.filter((c) => c.rtk_cmd.startsWith('rtk proxy')).length;
+            return { proxied, filtered: rows.commands.length - proxied };
+          }
+          const failures = rows.failures ?? [];
+          return {
+            total: failures.length,
+            recovered: failures.filter((f) => f.fallback_succeeded === 1).length,
+          };
+        },
+        all: (..._params: unknown[]) =>
+          (rows.withFailuresTable === false ? [] : [{ name: 'parse_failures' }]),
+      }),
+      pragma: () => [{ name: 'project_path' }],
+      close: () => {},
+    } as unknown as SqliteDriver;
+
+    return new RtkTrackingReader({
+      dbPathOverride: existingDbPath,
+      driverFactory: () => driver,
+    });
+  }
+
+  it('counts rtk proxy invocations as bypass, not as filtering', () => {
+    const result = readerWith({
+      commands: [
+        { rtk_cmd: 'rtk git status' },
+        { rtk_cmd: 'rtk proxy npm test' },
+        { rtk_cmd: 'rtk proxy cargo build' },
+        { rtk_cmd: 'rtk npm run build' },
+      ],
+    }).getCompliance();
+
+    expect(result?.filtered).toBe(2);
+    expect(result?.proxied).toBe(2);
+    expect(result?.proxyRatePct).toBe(50);
+  });
+
+  it('reports the parse-failure rate, which the savings summary hides entirely', () => {
+    const result = readerWith({
+      commands: [{ rtk_cmd: 'rtk git status' }],
+      failures: [{ fallback_succeeded: 1 }, { fallback_succeeded: 1 }, { fallback_succeeded: 0 }],
+    }).getCompliance();
+
+    expect(result?.parseFailures).toBe(3);
+    expect(result?.parseFailuresRecovered).toBe(2);
+    // 3 failures out of 4 attempted invocations.
+    expect(result?.parseFailureRatePct).toBe(75);
+  });
+
+  it('names what it cannot measure instead of implying full coverage', () => {
+    const result = readerWith({ commands: [{ rtk_cmd: 'rtk git status' }] }).getCompliance();
+    expect(result?.unmeasurable.join(' ')).toContain('RTK_DISABLED');
+    expect(result?.unmeasurable.join(' ')).toContain('no rtk prefix');
+  });
+
+  it('omits parse failures from a project-scoped query rather than attributing global ones', () => {
+    const result = readerWith({
+      commands: [{ rtk_cmd: 'rtk git status' }],
+      failures: [{ fallback_succeeded: 1 }],
+    }).getCompliance({ projectPath: '/repo' });
+
+    expect(result?.parseFailures).toBe(0);
+    expect(result?.unmeasurable.join(' ')).toContain('not recorded per project');
+  });
+
+  it('returns null rates rather than a flattering zero when there is no data', () => {
+    const result = readerWith({ commands: [] }).getCompliance();
+    expect(result?.proxyRatePct).toBeNull();
+    expect(result?.parseFailureRatePct).toBeNull();
+  });
+});

@@ -220,4 +220,25 @@ describe('assembleInstanceSystemPrompt context manifest capture (WS-C6)', () => 
     expect(serialized).not.toContain('Secret system prompt text');
     expect(serialized).not.toContain('/Users/secret-person');
   });
+
+  it('records the bounded memory actually supplied and removes only identical instruction copies', async () => {
+    const deps = makeDeps();
+    deps.buildObservationContext.mockResolvedValue('Relevant prior finding.\n'.repeat(500));
+    deps.buildWakeContextText.mockResolvedValue('Outstanding request: finish the known fix before repeating research.');
+    const result = await assembleInstanceSystemPrompt({
+      instance: makeInstance(),
+      config: { workingDirectory: '/tmp/project', provider: 'codex' },
+      resolvedAgent: baseAgent,
+      instructionPrompts: ['Shared governing instruction', 'Shared governing instruction', 'Distinct project instruction'],
+      initialUserMessageContent: undefined,
+      deps,
+    });
+    expect(result.systemPrompt.split('Shared governing instruction')).toHaveLength(2);
+    expect(result.systemPrompt).toContain('Distinct project instruction');
+    expect(result.systemPrompt).toContain('Outstanding request');
+    const snapshot = getContextManifestHistory('inst-1')[0];
+    expect(snapshot.note).toContain('observation-memory:');
+    expect(snapshot.entries.find((entry) => entry.kind === 'observation-memory')!.charLength).toBeLessThanOrEqual(1_200);
+    expect(snapshot.entries.filter((entry) => entry.status === 'supplied').map(({ status: _status, ...entry }) => entry)).toEqual(result.systemPromptManifest);
+  });
 });

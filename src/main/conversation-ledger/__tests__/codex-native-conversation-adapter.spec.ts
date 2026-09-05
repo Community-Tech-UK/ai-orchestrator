@@ -93,7 +93,7 @@ describe('CodexNativeConversationAdapter', () => {
     expect(snapshot.messages).toMatchObject([{ role: 'user', content: 'hello' }]);
   });
 
-  it('resumes and sends turns through app-server', async () => {
+  it.each(['max', 'ultra'] as const)('resumes and sends turns through app-server with %s effort', async (reasoningEffort) => {
     const client = new FakeClient({
       'thread/resume': { threadId: 'thread_1', thread: { id: 'thread_1', name: 'Resumed' } },
       'turn/start': {
@@ -112,12 +112,13 @@ describe('CodexNativeConversationAdapter', () => {
     await adapter.resumeThread({ provider: 'codex', nativeThreadId: 'thread_1', workspacePath: '/tmp/project' });
     const result = await adapter.sendTurn(
       { provider: 'codex', nativeThreadId: 'thread_1', workspacePath: '/tmp/project' },
-      { text: 'continue' }
+      { text: 'continue', reasoningEffort }
     );
 
     expect(result.messages).toMatchObject([{ role: 'assistant', content: 'answer' }]);
     expect(client.requests.map(request => request.method)).toEqual(['thread/resume', 'turn/start']);
     expect(client.requests[1]?.params).not.toHaveProperty('reasoningEffort');
+    expect(client.requests[1]?.params).toMatchObject({ effort: reasoningEffort });
   });
 
   it('discovers fixture-backed filesystem sessions', async () => {

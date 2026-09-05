@@ -54,6 +54,7 @@ import { TodoStore } from '../../core/state/todo.store';
 import { AutomationStore } from '../../core/state/automation.store';
 import { RemoteBrowseModalComponent } from '../../shared/components/remote-browse-modal/remote-browse-modal.component';
 import { WelcomeCoordinatorService } from './welcome-coordinator.service';
+import { HistoryPreviewSessionService } from './history-preview-session.service';
 import { FileAttachmentService } from './file-attachment.service';
 import { UnifiedCatalogStore } from '../models/unified-catalog.store';
 import type { PendingSelection } from '../models/compact-model-picker.types';
@@ -62,7 +63,6 @@ import { resolveContextWarningLevel } from './context-warning-level';
 import {
   getConversationHistoryTitle,
   inferConversationHistoryProvider,
-  type ConversationData,
   type ConversationHistoryEntry,
 } from '../../../../shared/types/history.types';
 import {
@@ -135,6 +135,7 @@ export class InstanceDetailComponent {
   private router = inject(Router);
   private store = inject(InstanceStore);
   private historyStore = inject(HistoryStore);
+  private historySessions = inject(HistoryPreviewSessionService);
   private settingsStore = inject(SettingsStore);
   private ipc = inject(IpcFacadeService);
   private recentDirsService = inject(RecentDirectoriesIpcService);
@@ -188,9 +189,17 @@ export class InstanceDetailComponent {
         ...(conversation.messages as OutputMessage[]),
         ...(this.historyPreviewPendingRestoreMessages()[entry.id] ?? []),
       ],
-      restoring: this.historyPreviewRestoringEntryId() === entry.id,
+      restoring: this.historySessions.isRestoring(entry.id),
       error: this.historyPreviewError(),
     };
+  });
+  /** Keep continuation defaults aligned with the pick without rewriting history metadata. */
+  readonly historyPreviewComposerProvider = computed<InstanceProvider>(() => {
+    const preview = this.historyPreview();
+    const pending = preview ? this.historySessions.selection(preview.entry.id) : null;
+    return pending && pending.provider !== 'local-model'
+      ? pending.provider
+      : preview?.provider ?? 'claude';
   });
   readonly historyPreviewOlderMessagesProbe = async (): Promise<{
     hasMore: boolean;
@@ -380,13 +389,11 @@ export class InstanceDetailComponent {
   private lastDismissedPercentage = 0;
   private lastRecoveryBannerKey: string | null = null;
   private lastRestartToastKey: string | null = null;
-  private historyPreviewRestorePromise: Promise<string | null> | null = null;
-  private historyPreviewRestorePromiseEntryId: string | null = null;
-  private historyPreviewRestoringEntryId = signal<string | null>(null);
-  private historyPreviewRestoredEntryId: string | null = null;
-  private historyPreviewRestoredInstanceId: string | null = null;
   private historyPreviewPendingRestoreMessages = signal<Record<string, OutputMessage[]>>({});
-  historyPreviewError = signal<string | null>(null);
+  historyPreviewError = computed(() => {
+    const entryId = this.historyStore.previewConversation()?.entry.id;
+    return entryId ? this.historySessions.error(entryId) : null;
+  });
 
   // Recovery detection: instance was restored but provider context is missing or unproven.
   isReplayFallback = computed(() => {
@@ -809,7 +816,7 @@ export class InstanceDetailComponent {
   }
 
   onHistoryPreviewDraftStarted(): void {
-    void this.ensureHistoryPreviewRestored();
+    void this.ensureHistoryPreviewRestored(false);
   }
 
   async onHistoryPreviewSendMessage(message: string): Promise<void> {
@@ -819,8 +826,7 @@ export class InstanceDetailComponent {
     const folders = this.historyPreviewPendingFolders();
     const files = this.historyPreviewPendingFiles();
     const finalMessage = this.fileAttachment.prependPendingFolders(message, folders);
-    const alreadyRestored = this.historyPreviewRestoredEntryId === preview.entry.id
-      && !!this.historyPreviewRestoredInstanceId;
+    const alreadyRestored = !!this.historySessions.restoredInstanceId(preview.entry.id);
     const pendingSendId = alreadyRestored
       ? null
       : this.addHistoryPreviewPendingRestoreMessage(preview.entry.id, finalMessage);
@@ -861,10 +867,21 @@ export class InstanceDetailComponent {
       return;
     }
 
+    const submittedSelection = this.historySessions.selection(preview.entry.id);
     try {
       const instanceId = await this.ensureHistoryPreviewRestored();
       if (!instanceId) {
-        payload.onResolved(false, this.historyPreviewError() || 'Could not restore history entry for loop.');
+        payload.onResolved(false, this.historySessions.error(preview.entry.id) || 'Could not restore history entry for loop.');
+        return;
+      }
+
+      // The loop config was captured on submission, while prepare intentionally
+      // applies the latest choice. Do not launch an older provider configuration
+      // if the user changed that choice during restore; preserve the form for retry.
+      if (this.historySessions.selection(preview.entry.id) !== submittedSelection) {
+        const message = 'The model choice changed while restoring. Start the loop again to use the latest choice.';
+        this.historySessions.setError(preview.entry.id, message);
+        payload.onResolved(false, message);
         return;
       }
 
@@ -881,7 +898,7 @@ export class InstanceDetailComponent {
             },
           });
         }
-        this.historyPreviewError.set(`Loop start failed: ${msg}`);
+        this.historySessions.setError(preview.entry.id, `Loop start failed: ${msg}`);
         payload.onResolved(false, msg);
         return;
       }
@@ -894,7 +911,7 @@ export class InstanceDetailComponent {
       this.selectRestoredHistoryPreview(preview.id, instanceId);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      this.historyPreviewError.set(`Loop start failed: ${msg}`);
+      this.historySessions.setError(preview.entry.id, `Loop start failed: ${msg}`);
       payload.onResolved(false, msg);
     }
   }
@@ -931,8 +948,7 @@ export class InstanceDetailComponent {
       return;
     }
 
-    this.historyPreviewRestoredEntryId = null;
-    this.historyPreviewRestoredInstanceId = null;
+    this.historySessions.complete(preview.entry.id);
     this.historyStore.clearSelection();
   }
 
@@ -1443,71 +1459,12 @@ export class InstanceDetailComponent {
     this.reviewBadgeInfo.set(result);
   }
 
-  private ensureHistoryPreviewRestored(): Promise<string | null> {
+  private ensureHistoryPreviewRestored(applySelection = true): Promise<string | null> {
     const conversation = this.historyStore.previewConversation();
-    if (!conversation) {
-      return Promise.resolve(null);
-    }
-
-    const entryId = conversation.entry.id;
-    if (
-      this.historyPreviewRestoredEntryId === entryId
-      && this.historyPreviewRestoredInstanceId
-    ) {
-      if (this.store.getInstance(this.historyPreviewRestoredInstanceId)) {
-        return Promise.resolve(this.historyPreviewRestoredInstanceId);
-      }
-      this.historyPreviewRestoredEntryId = null;
-      this.historyPreviewRestoredInstanceId = null;
-    }
-
-    if (
-      this.historyPreviewRestorePromise
-      && this.historyPreviewRestorePromiseEntryId === entryId
-    ) {
-      return this.historyPreviewRestorePromise;
-    }
-
-    this.historyPreviewError.set(null);
-    this.historyPreviewRestoringEntryId.set(entryId);
-    const restorePromise = this.restoreHistoryPreview(conversation).finally(() => {
-      if (this.historyPreviewRestorePromiseEntryId !== entryId) {
-        return;
-      }
-
-      this.historyPreviewRestorePromise = null;
-      this.historyPreviewRestorePromiseEntryId = null;
-      this.historyPreviewRestoringEntryId.set(null);
-    });
-
-    this.historyPreviewRestorePromise = restorePromise;
-    this.historyPreviewRestorePromiseEntryId = entryId;
-    return restorePromise;
-  }
-
-  private async restoreHistoryPreview(
-    conversation: ConversationData
-  ): Promise<string | null> {
-    const result = await this.historyStore.restoreEntry(
-      conversation.entry.id,
-      conversation.entry.workingDirectory
-    );
-
-    if (!result.success || !result.instanceId) {
-      this.historyPreviewError.set(result.error || 'Failed to restore history entry.');
-      return null;
-    }
-
-    if (result.restoredMessages && result.restoredMessages.length > 0) {
-      this.store.setInstanceMessages(result.instanceId, result.restoredMessages as OutputMessage[]);
-    }
-    if (result.restoreMode) {
-      this.store.setInstanceRestoreMode(result.instanceId, result.restoreMode);
-    }
-
-    this.historyPreviewRestoredEntryId = conversation.entry.id;
-    this.historyPreviewRestoredInstanceId = result.instanceId;
-    return result.instanceId;
+    if (!conversation) return Promise.resolve(null);
+    return applySelection
+      ? this.historySessions.prepare(conversation)
+      : this.historySessions.restore(conversation);
   }
 
   private selectRestoredHistoryPreview(previewId: string, instanceId: string): void {
@@ -1523,8 +1480,7 @@ export class InstanceDetailComponent {
       return;
     }
 
-    this.historyPreviewRestoredEntryId = null;
-    this.historyPreviewRestoredInstanceId = null;
+    this.historySessions.complete(preview.entry.id);
     this.historyStore.clearSelection();
     this.store.setSelectedInstance(instanceId);
   }

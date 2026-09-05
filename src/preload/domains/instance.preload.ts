@@ -320,7 +320,7 @@ export function createInstanceDomain(
     changeModel: (payload: {
       instanceId: string;
       model?: string;
-      reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'workflow' | null;
+      reasoningEffort?: ReasoningEffort | null;
       modelRuntimeTarget?: ModelRuntimeTarget;
       provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok';
     }): Promise<IpcResponse> => {

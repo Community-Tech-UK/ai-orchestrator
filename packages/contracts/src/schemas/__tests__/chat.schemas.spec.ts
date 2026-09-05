@@ -100,6 +100,7 @@ describe('chat schemas', () => {
       'high',
       'xhigh',
       'max',
+      'ultra',
       'workflow',
     ]);
     expect(ChatReasoningEffortSchema.safeParse('max').success).toBe(true);

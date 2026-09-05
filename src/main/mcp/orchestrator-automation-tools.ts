@@ -202,7 +202,7 @@ export const UpdateAutomationArgsSchema = z
     }).optional(),
     /** New reasoning-effort level for the spawned agent. Omit to leave unchanged. */
     reasoningEffort: z
-      .enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'workflow'])
+      .enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'workflow'])
       .optional(),
     /** Whether each run executes with auto-approval (yolo) mode. Omit to leave unchanged. */
     yoloMode: z.boolean().optional(),
@@ -457,7 +457,7 @@ export function createAutomationToolDefinitions(
           },
           reasoningEffort: {
             type: 'string',
-            enum: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'workflow'],
+            enum: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'workflow'],
             description: 'New reasoning-effort level for the spawned agent. Omit to leave unchanged.',
           },
           yoloMode: {

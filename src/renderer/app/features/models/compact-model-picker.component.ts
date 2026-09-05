@@ -27,12 +27,12 @@ import { ModelSelectionPanelComponent } from './model-selection-panel.component'
 import { DynamicModelCatalogService } from './dynamic-model-catalog.service';
 import { UnifiedCatalogStore } from './unified-catalog.store';
 import {
-  getDefaultReasoningEffort,
   getModelsForProvider,
   getPrimaryModelForProvider,
   type ModelDisplayInfo,
   type ReasoningEffort,
 } from '../../../../shared/types/provider.types';
+import { getModelDefaultReasoningEffort } from '../../../../shared/types/model-reasoning';
 import type { ModelRuntimeTarget } from '../../../../shared/types/local-model-runtime.types';
 import { decodeLocalModelSelector } from '../../../../shared/utils/local-model-selector';
 import type { ChatRecord } from '../../../../shared/types/chat.types';
@@ -50,6 +50,7 @@ const REASONING_LABELS: Record<ReasoningEffort, string> = {
   high: 'High',
   xhigh: 'XHigh',
   max: 'Max',
+  ultra: 'Ultra',
   workflow: 'Workflow',
 };
 
@@ -82,13 +83,13 @@ const REASONING_LABELS: Record<ReasoningEffort, string> = {
         <span class="compact-picker__sep" aria-hidden="true">·</span>
         <span class="compact-picker__label compact-picker__label--model">{{ modelLabel() }}</span>
         @if (reasoningSuffix()) {
-          <span class="compact-picker__reasoning-suffix">· {{ reasoningSuffix() }}</span>
+          <span class="compact-picker__reasoning-suffix">· Thinking: {{ reasoningSuffix() }}</span>
         }
         <span class="compact-picker__chevron" aria-hidden="true">▾</span>
       </button>
 
-      @if (statusPill()) {
-        <span class="compact-picker__status" role="status">{{ statusPill() }}</span>
+      @if (displayStatus(); as status) {
+        <span class="compact-picker__status" role="status">{{ status }}</span>
       }
       @if (catalogFreshness()) {
         <span
@@ -209,6 +210,12 @@ export class CompactModelPickerComponent {
   readonly providers = input<PickerProvider[] | null | undefined>(null);
   readonly selectedLocalModelNodeId = input<string | null | undefined>(null);
   readonly disabledReason = input<string | null | undefined>(null);
+  /** Hosts with asynchronous operations own confirmation, rather than a form-state commit. */
+  readonly showSelectionStatus = input(true);
+  readonly statusText = input<string | null>(null);
+  protected readonly displayStatus = computed(() =>
+    this.statusText() ?? (this.showSelectionStatus() ? this.statusPill() : null),
+  );
 
   private readonly _mode = computed(() => this.mode());
   private readonly _chat = computed(() => this.chat() ?? null);
@@ -276,9 +283,10 @@ export class CompactModelPickerComponent {
   /** Bound `[reasoningOptionsForProvider]` callback for the selection panel. */
   protected readonly reasoningOptionsForProviderFn = (
     provider: PickerProvider,
+    model?: ModelDisplayInfo,
   ): UnifiedReasoningOption[] => {
     return this.controller
-      .reasoningOptionsForProvider(provider)
+      .reasoningOptionsForProvider(provider, model)
       .map((opt) => ({ id: opt.id, label: opt.label, isDefault: opt.isDefault }));
   };
 
@@ -391,7 +399,9 @@ export class CompactModelPickerComponent {
 
   protected readonly reasoningSuffix = computed<string | null>(() => {
     const r = this.controller.selectedReasoningEffort();
-    return r ? REASONING_LABELS[r] ?? r : null;
+    if (r) return REASONING_LABELS[r] ?? r;
+    const provider = this.selectedPickerProvider();
+    return provider === 'claude' || provider === 'codex' ? 'Provider default' : null;
   });
 
   /**
@@ -448,7 +458,7 @@ export class CompactModelPickerComponent {
       const ok = await this.controller.commitSelection({
         provider: selection.provider,
         modelId: newDefaultModel,
-        reasoning: getDefaultReasoningEffort(selection.provider),
+        reasoning: getModelDefaultReasoningEffort(selection.provider, this.modelsForProviderFn(selection.provider).find((m) => m.id === newDefaultModel)?.reasoning, newDefaultModel),
         ...(modelRuntimeTarget ? { modelRuntimeTarget } : {}),
       });
       if (ok) this.flashStatus(`Provider: ${PROVIDER_MENU_LABELS[selection.provider]}`);
@@ -460,7 +470,7 @@ export class CompactModelPickerComponent {
       const ok = await this.controller.commitSelection({
         provider: selection.provider,
         modelId: selection.modelId,
-        reasoning: getDefaultReasoningEffort(selection.provider),
+        reasoning: getModelDefaultReasoningEffort(selection.provider, this.modelsForProviderFn(selection.provider).find((m) => m.id === selection.modelId)?.reasoning, selection.modelId),
         trackUsage: true,
         ...(modelRuntimeTarget ? { modelRuntimeTarget } : {}),
       });
@@ -469,7 +479,7 @@ export class CompactModelPickerComponent {
           this.modelsForProviderFn(selection.provider).find((m) => m.id === selection.modelId)?.name
           ?? selection.modelId;
         const restartHint = this._chat()?.currentInstanceId ? ' — runtime restarting' : '';
-        this.flashStatus(`Switched to ${label}${restartHint}`);
+        this.flashStatus(`${this._mode() === 'pending-create' ? 'Selected' : 'Switched to'} ${label}${restartHint}`);
       }
       return;
     }
@@ -489,7 +499,7 @@ export class CompactModelPickerComponent {
         ?? selection.modelId;
       const reasoningSuffix = selection.level ? ` · ${REASONING_LABELS[selection.level]}` : '';
       const restartHint = this._chat()?.currentInstanceId ? ' — runtime restarting' : '';
-      this.flashStatus(`Switched to ${label}${reasoningSuffix}${restartHint}`);
+      this.flashStatus(`${this._mode() === 'pending-create' ? 'Selected' : 'Switched to'} ${label}${reasoningSuffix}${restartHint}`);
     }
   }
 

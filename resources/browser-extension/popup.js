@@ -9,6 +9,58 @@ const version = document.getElementById('version');
 const gatewayEnabledToggle = document.getElementById('gateway-enabled');
 const gatewayEnabledState = document.getElementById('gateway-enabled-state');
 
+const secretProtectionPanel = document.getElementById('secret-protection');
+const protectedOrigins = document.getElementById('protected-origins');
+const secretRecoveryHelp = document.getElementById('secret-recovery-help');
+const secretRecoveryConfirm = document.getElementById('secret-recovery-confirm');
+const resetSecretProtectionButton = document.getElementById('reset-secret-protection');
+let secretReviewToken = null;
+
+secretRecoveryConfirm.addEventListener('change', (event) => {
+  resetSecretProtectionButton.disabled = !event.isTrusted
+    || !secretRecoveryConfirm.checked || !secretReviewToken;
+});
+resetSecretProtectionButton.addEventListener('click', resetSecretProtection);
+
+async function resetSecretProtection(event) {
+  if (!event.isTrusted || !secretRecoveryConfirm.checked || !secretReviewToken) return;
+  resetSecretProtectionButton.disabled = true;
+  secretRecoveryConfirm.disabled = true;
+  const reviewToken = secretReviewToken;
+  secretReviewToken = null;
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'reset_secret_protection', confirmed: true, reviewToken,
+    });
+    if (!response?.ok) throw new Error('Protection was not reset. Reopen the popup and review it again.');
+    status.textContent = 'Protection reset. Browser Gateway is still off. Turn it on when ready.';
+    await refreshSecretProtection();
+  } catch (error) {
+    status.textContent = error instanceof Error ? error.message : String(error);
+  }
+}
+
+async function refreshSecretProtection() {
+  secretReviewToken = null;
+  secretRecoveryConfirm.checked = false;
+  secretRecoveryConfirm.disabled = true;
+  resetSecretProtectionButton.disabled = true;
+  const response = await chrome.runtime.sendMessage({ type: 'get_secret_protection' });
+  if (!response?.ok) {
+    // Old installed extensions do not support this message yet.
+    secretProtectionPanel.hidden = true;
+    return;
+  }
+  const origins = Array.isArray(response.origins) ? response.origins : [];
+  secretProtectionPanel.hidden = origins.length === 0 && !response.tabCount;
+  protectedOrigins.textContent = origins.join(', ') + ' (' + (response.tabCount ?? 0) + ' tracked tabs)';
+  secretReviewToken = response.reviewToken || null;
+  secretRecoveryConfirm.disabled = !secretReviewToken;
+  secretRecoveryHelp.textContent = secretReviewToken
+    ? 'Review all affected tabs, including tabs opened from them, and any stored site data before resetting.'
+    : 'Turn Browser Gateway off above and wait for active commands to finish. Reopen this popup to review.';
+}
+
 const GATEWAY_LABELS = {
   local: 'Harness app',
   relay: 'Worker relay',
@@ -97,6 +149,11 @@ async function refreshStatus() {
 }
 
 function renderStatus(response) {
+  void refreshSecretProtection().catch(() => {
+    secretReviewToken = null;
+    secretRecoveryConfirm.disabled = true;
+    resetSecretProtectionButton.disabled = true;
+  });
   version.textContent = response.extensionVersion ? `v${response.extensionVersion}` : '';
   const gatewayEnabled = response.gatewayEnabled !== false;
   renderGatewayToggle(gatewayEnabled);

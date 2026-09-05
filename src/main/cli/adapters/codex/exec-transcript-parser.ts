@@ -4,6 +4,7 @@ import { extractThinkingContent, type ThinkingBlock } from '../../../../shared/u
 import { parseNdjsonLine, parseStreamingJson } from '../../json-parse';
 import type { CodexDiagnostic } from './exec-diagnostics';
 import { extractReasoningSections, mergeReasoningSections } from './reasoning';
+import { disjointCodexUsage, resolveCodexTurnUsageBreakdown } from './token-usage-breakdown';
 
 export interface CodexParsedTranscript {
   hasMeaningfulOutput: boolean;
@@ -70,12 +71,14 @@ export function parseCodexExecTranscript(
 
       if (type === 'turn.completed' && event['usage'] && typeof event['usage'] === 'object') {
         const usageEvent = event['usage'] as Record<string, unknown>;
-        const inputTokens = typeof usageEvent['input_tokens'] === 'number' ? usageEvent['input_tokens'] : 0;
-        const outputTokens = typeof usageEvent['output_tokens'] === 'number' ? usageEvent['output_tokens'] : 0;
+        const raw = resolveCodexTurnUsageBreakdown(usageEvent);
+        const normalized = disjointCodexUsage(raw);
         usage = {
-          inputTokens,
-          outputTokens,
-          totalTokens: inputTokens + outputTokens,
+          inputTokens: normalized.inputTokens,
+          outputTokens: normalized.outputTokens,
+          ...(normalized.cacheReadTokens ? { cacheReadTokens: normalized.cacheReadTokens } : {}),
+          ...(normalized.reasoningTokens ? { reasoningTokens: normalized.reasoningTokens } : {}),
+          totalTokens: raw.inputTokens + raw.outputTokens,
         };
         continue;
       }

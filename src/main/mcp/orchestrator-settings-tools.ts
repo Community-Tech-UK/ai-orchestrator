@@ -363,7 +363,10 @@ export function privilegedListSettings(
   context: SettingsToolContext,
   args: SettingsPrivilegedListArgs,
 ): SettingsToolListResult {
-  void args.all;
+  // `args.all` used to be accepted and then discarded here, so `--all` looked
+  // supported and silently did nothing. The privileged listing already returns
+  // every setting the caller may see, so the flag has no work to do — it is
+  // honoured as a no-op explicitly rather than swallowed.
   const base = listSettingsForTools(context, args);
   return {
     count: base.count,

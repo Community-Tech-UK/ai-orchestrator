@@ -10,6 +10,12 @@ describe('resolveSpawnReasoningEffort', () => {
     expect(resolveSpawnReasoningEffort({ reasoningEffort: undefined }, 'codex')).toBe('high');
   });
 
+  it('defaults Astra to medium while preserving explicit efforts', () => {
+    expect(resolveSpawnReasoningEffort({}, 'codex', 'gpt-6-astra')).toBe('medium');
+    expect(resolveSpawnReasoningEffort({ reasoningEffort: 'high' }, 'codex', 'gpt-6-astra')).toBe('high');
+    expect(resolveSpawnReasoningEffort({ reasoningEffort: null }, 'codex', 'gpt-6-astra')).toBeUndefined();
+  });
+
   it('treats null as the explicit "let the provider decide" choice', () => {
     // The model picker renders a "Provider — let the provider decide" row that
     // emits null. Collapsing it into the app default would make that control

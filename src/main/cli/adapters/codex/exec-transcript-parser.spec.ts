@@ -2,6 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { parseCodexExecTranscript } from './exec-transcript-parser';
 
 describe('parseCodexExecTranscript', () => {
+  it('normalizes cached input and reasoning subsets without losing them or doubling totals', () => {
+    const parsed = parseCodexExecTranscript(JSON.stringify({ type: 'turn.completed', usage: {
+      input_tokens: 100, cached_input_tokens: 80, output_tokens: 20, reasoning_output_tokens: 4,
+    } }), [], 'response-1');
+    expect(parsed.response.usage).toEqual({ inputTokens: 20, cacheReadTokens: 80, outputTokens: 16, reasoningTokens: 4, totalTokens: 120 });
+  });
+
   it('preserves dynamic tool call names and arguments', () => {
     const transcript = [
       JSON.stringify({

@@ -11,7 +11,7 @@ import {
   extractCodexAppServerError,
   formatCodexAppServerError,
 } from './codex/app-server-errors';
-import { resolveCodexTurnUsageBreakdown } from './codex/token-usage-breakdown';
+import { tokenCount } from './codex/token-usage-breakdown';
 import {
   handleItemCompleted,
   handleItemStarted,
@@ -39,6 +39,9 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
     // This prevents orphaned output events from violating the event ordering
     // contract (all output must arrive before 'complete').
     if (state.completed) {
+      // Usage may trail completion in the same provider batch. Keep it in the
+      // pending response until the runtime finishes capture and drains costs.
+      this.handleIdleUsage(notification, false);
       return;
     }
 
@@ -68,6 +71,7 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
         const threadObj = params['thread'] as Record<string, unknown> | undefined;
         const tId = (threadObj?.['id'] as string) || params['threadId'] as string | undefined;
         if (tId) {
+          this.usageAccounting.trackThread(tId);
           state.threadIds.add(tId);
           // Extract label from multiple sources (matches codex-plugin-cc)
           const label = (threadObj?.['name'] as string)
@@ -96,6 +100,7 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
           : undefined;
         const tId = params['threadId'] as string | undefined;
         if (turnId && tId) {
+          this.usageAccounting.beginNativeTurn(tId, turnId);
           state.threadTurnIds.set(tId, turnId);
           // Track subagent turns
           if (tId !== state.threadId) {
@@ -118,6 +123,7 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
       case 'turn/completed': {
         const turn = params['turn'] as TurnCaptureState['finalTurn'] | undefined;
         const tId = params['threadId'] as string | undefined;
+        this.usageAccounting.fallback(tId ?? state.threadId, turn?.usage as Record<string, unknown> | undefined, !!tId && tId !== state.threadId, turn?.id);
 
         // If this is a subagent turn completing, just remove from tracking
         if (tId && tId !== state.threadId) {
@@ -147,12 +153,26 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
 
         // last.totalTokens = actual context window occupancy for the most recent API call.
         // Guard against NaN from malformed fields (empty strings, objects, etc.).
-        const lastTotal = Number(last?.['totalTokens'] ?? last?.['total_tokens'] ?? 0) || 0;
-        const cumulativeTotal = Number(total?.['totalTokens'] ?? total?.['total_tokens'] ?? 0) || 0;
+        const threadId = typeof params['threadId'] === 'string' ? params['threadId'] : state.threadId;
+        const isChild = threadId !== state.threadId;
+        this.usageAccounting.observe(threadId, total, last, isChild);
+        this.cumulativeTokensUsed = this.usageAccounting.cumulativeTokens;
+        const costEstimate = this.cumulativeCostUsd + (this.usageAccounting.peek(this.cliConfig.model)?.cost ?? 0);
+        if (isChild) {
+          const contextWindow = this.resolveContextWindow();
+          this.emit('context', {
+            used: this.lastTurnTokens, total: contextWindow,
+            percentage: Math.min((this.lastTurnTokens / contextWindow) * 100, 100),
+            cumulativeTokens: this.cumulativeTokensUsed, costEstimate,
+            ...(this.lastTurnTokens === 0 ? { isEstimated: true } : {}),
+          });
+          break;
+        }
+        const lastTotal = tokenCount(last?.['totalTokens'] ?? last?.['total_tokens']);
 
         // Use model_context_window from Codex when available (authoritative source)
         // Persist Codex-reported context window for future resolveContextWindow() calls
-        const codexContextWindow = Number(tokenUsage['modelContextWindow'] ?? tokenUsage['model_context_window'] ?? 0) || 0;
+        const codexContextWindow = tokenCount(tokenUsage['modelContextWindow'] ?? tokenUsage['model_context_window']);
         if (codexContextWindow > 0) {
           this.codexReportedContextWindow = codexContextWindow;
         }
@@ -165,11 +185,6 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
         const used = hasAccurateOccupancy ? lastTotal : this.lastTurnTokens;
         if (hasAccurateOccupancy) {
           this.lastTurnTokens = lastTotal;
-          // LT-090: also keep the per-call breakdown, not just the total.
-          this.lastTurnUsageBreakdown = resolveCodexTurnUsageBreakdown(last);
-        }
-        if (cumulativeTotal > 0) {
-          this.cumulativeTokensUsed = cumulativeTotal;
         }
         this.hasTokenUsageNotification = true;
 
@@ -178,12 +193,12 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
           total: contextWindow,
           percentage: Math.min((used / contextWindow) * 100, 100),
           cumulativeTokens: this.cumulativeTokensUsed,
-          costEstimate: this.cumulativeCostUsd,
+          costEstimate,
           // If we don't have per-call occupancy AND no prior occupancy, flag it
           ...(!hasAccurateOccupancy && used === 0 ? { isEstimated: true } : {}),
         });
-        if (cumulativeTotal > 0) {
-          this.contextCostController.observe(cumulativeTotal, contextWindow);
+        if (this.cumulativeTokensUsed > 0) {
+          this.contextCostController.observe(this.cumulativeTokensUsed, contextWindow);
         }
         break;
       }
@@ -213,6 +228,7 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
       }
 
       case 'thread/compacted': {
+        if (params['threadId'] && params['threadId'] !== state.threadId) break;
         this.handleObservedThreadCompaction(state.threadId);
         break;
       }
@@ -249,7 +265,7 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
     } else if (method === 'item/completed' && params['item']) {
       const threadId = params['threadId'];
       collector.recordItemCompleted(params['item'], !threadId || threadId === state.threadId);
-    } else if (method === 'thread/tokenUsage/updated') {
+    } else if (method === 'thread/tokenUsage/updated' && (!params['threadId'] || params['threadId'] === state.threadId)) {
       const usage = params['tokenUsage'] ?? params['token_usage'];
       if (usage) collector.recordTokenUsage(usage);
     } else if (method === 'thread/compacted') {

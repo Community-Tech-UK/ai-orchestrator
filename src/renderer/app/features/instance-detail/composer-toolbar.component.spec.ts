@@ -21,6 +21,7 @@ import {
   shouldHydrateComposerPickerSelection,
 } from './composer-toolbar.component';
 import { InstanceIpcService } from '../../core/services/ipc';
+import { InstanceStore } from '../../core/state/instance.store';
 import { ToastService } from '../../core/services/toast.service';
 import type { ContextUsage } from '../../core/state/instance/instance.types';
 import type {
@@ -100,6 +101,7 @@ describe('ComposerToolbarComponent', () => {
     await TestBed.configureTestingModule({
       imports: [ComposerToolbarComponent],
       providers: [
+        { provide: InstanceStore, useValue: {} },
         { provide: InstanceIpcService, useValue: ipcStub },
         { provide: ToastService, useValue: toastStub },
       ],
@@ -546,6 +548,7 @@ describe('ComposerToolbarComponent context ring label (rendered)', () => {
     await TestBed.configureTestingModule({
       imports: [ComposerToolbarComponent],
       providers: [
+        { provide: InstanceStore, useValue: {} },
         { provide: InstanceIpcService, useValue: ipcStub },
         { provide: ToastService, useValue: toastStub },
       ],
@@ -594,6 +597,7 @@ describe('ComposerToolbarComponent aggregate occupancy (LT-034)', () => {
     await TestBed.configureTestingModule({
       imports: [ComposerToolbarComponent],
       providers: [
+        { provide: InstanceStore, useValue: {} },
         { provide: InstanceIpcService, useValue: ipcStub },
         { provide: ToastService, useValue: toastStub },
       ],

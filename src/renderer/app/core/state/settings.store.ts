@@ -39,6 +39,11 @@ export class SettingsStore {
   readonly settings = this._settings.asReadonly();
   readonly loading = this._loading.asReadonly();
   readonly error = this._error.asReadonly();
+
+  /** S1.4: lets the settings shell dismiss a surfaced write rejection. */
+  clearError(): void {
+    this._error.set(null);
+  }
   readonly isInitialized = this._initialized.asReadonly();
   /** The staged, un-persisted appearance preview, or null when none is active. */
   readonly appearancePreview = this._appearancePreview.asReadonly();
@@ -71,13 +76,6 @@ export class SettingsStore {
   readonly thinkingDefaultExpanded = computed(() => this._settings().thinkingDefaultExpanded);
   readonly showCost = computed(() => this._settings().showCost ?? true);
   readonly contextWarningThreshold = computed(() => this._settings().contextWarningThreshold);
-  readonly featureFlags = computed(() => {
-    const settings = this._settings();
-    return Object.fromEntries(
-      Object.entries(settings).filter(([, value]) => typeof value === 'boolean'),
-    ) as Record<string, boolean>;
-  });
-
   // Settings metadata for UI
   readonly metadata = SETTINGS_METADATA;
 

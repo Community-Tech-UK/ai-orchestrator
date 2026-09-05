@@ -38,6 +38,7 @@ import type {
 } from '../../shared/types/instance.types';
 import { createPromptHistoryEntryId } from '../../shared/types/prompt-history.types';
 import { getLogger } from '../logging/logger';
+import { capResolvedInstructionStack } from '../core/config/instruction-cap';
 import { resolveInstructionStack } from '../core/config/instruction-resolver';
 import { getHibernationManager } from '../process/hibernation-manager';
 import { getSessionContinuityManager } from '../session/session-continuity';
@@ -1198,9 +1199,18 @@ export class InstanceLifecycleManager extends EventEmitter {
       });
     }
 
-    return resolution.mergedContent
-      ? resolution.mergedContent.split('\n\n---\n\n')
-      : [];
+    // T10: the stack is otherwise uncapped — every discovered instruction file
+    // read whole and re-sent on every fresh spawn.
+    const capped = capResolvedInstructionStack(resolution);
+    if (capped.trimmed.length > 0 || capped.dropped.length > 0) {
+      logger.warn('Instruction stack exceeded its fresh-session budget', {
+        trimmed: capped.trimmed,
+        dropped: capped.dropped,
+        originalChars: resolution.mergedContent.length,
+        cappedChars: capped.parts.reduce((sum, part) => sum + part.length, 0),
+      });
+    }
+    return capped.parts;
   }
 
   // ============================================
@@ -1538,7 +1548,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         }
 
         instance.currentModel = resolvedModel;
-        const resolvedReasoningEffort = resolveSpawnReasoningEffort(config, resolvedCliType);
+        const resolvedReasoningEffort = resolveSpawnReasoningEffort(config, resolvedCliType, resolvedModel);
         instance.reasoningEffort = resolvedReasoningEffort;
 
         // Fast mode: explicit per-instance override > per-provider remembered >

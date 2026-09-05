@@ -27,6 +27,8 @@ import { getLogger } from '../logging/logger';
 import { getOperatorDatabase } from '../operator/operator-database';
 import { addAllowedRoot } from '../security/path-validator';
 import { ChatStore } from './chat-store';
+import { getSettingsManager } from '../core/config/settings-manager';
+import { resolveInitialModel } from '../instance/lifecycle/resolve-initial-model';
 import {
   buildReplayBlock,
   CHAT_REPLAY_MESSAGE_LIMIT,
@@ -226,12 +228,19 @@ export class ChatService {
         operatorThreadKind: 'chat',
       },
     });
+    const settings = getSettingsManager().getAll();
+    const effortModel = resolveInitialModel({
+      configModelOverride: input.model,
+      provider: input.provider ?? '',
+      defaultModelByProvider: settings.defaultModelByProvider,
+      defaultModel: settings.defaultModel,
+    });
     const chat = this.store.insert({
       id,
       name,
       provider: input.provider,
       model: input.model ?? null,
-      reasoningEffort: input.reasoningEffort === undefined ? getDefaultReasoningEffort(input.provider) : input.reasoningEffort,
+      reasoningEffort: input.reasoningEffort === undefined ? getDefaultReasoningEffort(input.provider, effortModel) : input.reasoningEffort,
       currentCwd: input.currentCwd,
       yolo: input.yolo ?? false,
       ledgerThreadId: thread.id,

@@ -2,6 +2,7 @@ import type {
   LocalModelEndpointProvider,
   LocalModelSource,
 } from './local-model-runtime.types';
+import type { ModelReasoningCapabilities } from './model-reasoning';
 
 /**
  * Shared types for the UnifiedModelCatalogService.
@@ -90,6 +91,8 @@ export interface UnifiedModelEntry {
   isCustom?: boolean;
   /** Sanitized local-model runtime metadata for picker badges and disabled rows. */
   localModel?: LocalModelCatalogMetadata;
+  /** Model-specific reasoning choices published by the provider runtime. */
+  reasoning?: ModelReasoningCapabilities;
   /**
    * Wall-clock timestamp (ms since epoch) when this entry was last refreshed
    * from its primary source.

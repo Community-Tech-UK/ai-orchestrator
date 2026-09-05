@@ -10,7 +10,7 @@ import {
 } from './common.schemas';
 import { CopilotProfileIdSchema } from './copilot-account.schemas';
 
-const ReasoningEffortSchema = z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'workflow']);
+const ReasoningEffortSchema = z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'workflow']);
 export const InstanceLaunchModeSchema = z.enum(['orchestrated', 'interactive']);
 export const InstanceStatusSchema = z.enum([
   'initializing',

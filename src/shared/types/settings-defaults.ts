@@ -351,6 +351,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
   // Notifications
   notifyOnAgentCompletion: true,
+  notifyOnLoopTerminal: true,
+  notificationSoundMode: 'blurred',
   channelToolHeartbeat: false,
   notificationCooldownSeconds: 30,
   notificationQuietHoursEnabled: false,

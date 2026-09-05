@@ -77,6 +77,10 @@ const secretTaintedTabs = new Map();
 const secretTaintedOrigins = new Set();
 let secretTaintsLoaded = false;
 let secretTaintLoadPromise = null;
+const secretObservationGuardErrors = new WeakSet();
+let activeBrowserCommandCount = 0;
+let secretRecoveryInProgress = false;
+let secretRecoveryRequest = null;
 
 chrome.runtime.onInstalled.addListener(() => {
   // 0.5 = 30s, the MV3 minimum (Chrome ≥120). This alarm is the recovery path
@@ -187,12 +191,18 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   void reportTabInventory();
 });
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || typeof message.type !== 'string') {
     return false;
   }
 
   switch (message.type) {
+    case 'get_secret_protection':
+    case 'reset_secret_protection':
+      handleSecretProtectionMessage(message, sender)
+        .then(sendResponse)
+        .catch(() => sendResponse({ ok: false, error: 'Secret protection could not be changed. Reopen the popup and review it again.' }));
+      return true;
     case 'getStatus':
       sendResponse(getStatusPayload());
       return false;
@@ -287,7 +297,8 @@ async function loadGatewayEnabled() {
       const values = await chrome.storage?.local?.get?.(GATEWAY_ENABLED_STORAGE_KEY);
       gatewayEnabled = values?.[GATEWAY_ENABLED_STORAGE_KEY] !== false;
     } catch {
-      gatewayEnabled = true;
+      // A failed read must not override a saved OFF state after recovery.
+      gatewayEnabled = false;
     }
     gatewayStateLoaded = true;
     gatewayStatePromise = null;
@@ -297,6 +308,11 @@ async function loadGatewayEnabled() {
 }
 
 async function setGatewayEnabled(enabled) {
+  // Resolve startup first so its delayed storage read cannot overwrite OFF.
+  await loadGatewayEnabled();
+  if (secretRecoveryInProgress) {
+    throw new Error('Secret protection recovery is still running.');
+  }
   gatewayStateLoaded = true;
   gatewayEnabled = enabled === true;
   try {
@@ -984,6 +1000,7 @@ function markSecretTaint(tabId, origin) {
 
 async function markSecretTaintLocked(tabId, origin) {
   await loadSecretTaints();
+  secretRecoveryRequest = null;
   secretTaintedOrigins.add(origin);
   secretTaintedTabs.set(String(tabId), origin);
   // Tag every current same-origin tab before the secret-bearing injection.
@@ -1000,7 +1017,10 @@ async function markSecretTaintLocked(tabId, origin) {
       continue;
     }
     if (/^https?:\/\//i.test(tab?.url ?? '')) {
-      const frameOrigin = await taintedFrameOriginForTabId(tab.id);
+      // At write time an uninspectable tab could receive the new value and
+      // navigate before a later probe. Keep that lineage conservative. Ordinary
+      // observations instead fail temporarily without adding a permanent mark.
+      const frameOrigin = await taintedFrameOriginForTabId(tab.id).catch(() => origin);
       if (typeof frameOrigin === 'string') {
         secretTaintedTabs.set(String(tab.id), frameOrigin);
       }
@@ -1012,10 +1032,64 @@ async function markSecretTaintLocked(tabId, origin) {
   await persistSecretTaints();
 }
 
-async function clearSecretTaint(tabId) {
-  await loadSecretTaints();
-  if (!secretTaintedTabs.delete(String(tabId))) return;
-  await persistSecretTaints();
+function clearSecretTaint(tabId) {
+  return runWithSecretObservationBoundary(async () => {
+    await loadSecretTaints();
+    if (!secretTaintedTabs.delete(String(tabId))) return;
+    await persistSecretTaints();
+  });
+}
+
+// Recovery is an operator action in our extension popup, never a browser tool
+// or a message from an injected/content script. It deliberately leaves the
+// gateway OFF, so clearing protection cannot immediately publish a page.
+async function handleSecretProtectionMessage(message, sender) {
+  if (sender?.id !== chrome.runtime.id
+    || sender?.url !== chrome.runtime.getURL('popup.html') || sender?.tab) {
+    throw new Error('secret_recovery_requires_extension_popup');
+  }
+  return runWithSecretObservationBoundary(async () => {
+    await loadGatewayEnabled();
+    await loadSecretTaints();
+    const stateKey = () => JSON.stringify({
+      origins: [...secretTaintedOrigins].sort(),
+      tabs: [...secretTaintedTabs.entries()].sort(),
+    });
+    if (message.type === 'get_secret_protection') {
+      const canReview = !gatewayEnabled && activeBrowserCommandCount === 0
+        && !secretRecoveryInProgress;
+      secretRecoveryRequest = canReview ? {
+        token: crypto.randomUUID(), state: stateKey(), expiresAt: Date.now() + 300000,
+      } : null;
+      return {
+        ok: true,
+        origins: [...secretTaintedOrigins].sort(),
+        tabCount: secretTaintedTabs.size,
+        reviewToken: secretRecoveryRequest?.token ?? null,
+      };
+    }
+    if (message.type !== 'reset_secret_protection' || message.confirmed !== true
+      || !secretRecoveryRequest || message.reviewToken !== secretRecoveryRequest.token
+      || Date.now() > secretRecoveryRequest.expiresAt
+      || secretRecoveryRequest.state !== stateKey()
+      || gatewayEnabled || activeBrowserCommandCount !== 0 || secretRecoveryInProgress) {
+      throw new Error('secret_recovery_requires_current_operator_review_and_idle_gateway');
+    }
+    secretRecoveryRequest = null;
+    secretRecoveryInProgress = true;
+    try {
+      // Persist first. A storage failure must leave the in-memory guard intact.
+      await chrome.storage.local.set({
+        [GATEWAY_ENABLED_STORAGE_KEY]: false,
+        [SECRET_TAINT_STORAGE_KEY]: { version: 2, origins: [], tabs: {} },
+      });
+      secretTaintedTabs.clear();
+      secretTaintedOrigins.clear();
+      return { ok: true };
+    } finally {
+      secretRecoveryInProgress = false;
+    }
+  });
 }
 
 function browserTabOrigin(tab) {
@@ -1031,16 +1105,27 @@ async function taintedFrameOriginForTabId(tabId) {
     return null;
   }
   let frameResults;
+  let timer;
   try {
-    frameResults = await chrome.scripting.executeScript({
-      target: { tabId, allFrames: true },
-      func: credentialFrameOriginProbe,
-    });
+    frameResults = await Promise.race([
+      chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        func: credentialFrameOriginProbe,
+      }),
+      new Promise((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('frame_probe_timeout')), 1500);
+      }),
+    ]);
+    if (!Array.isArray(frameResults) || frameResults.length === 0
+      || frameResults.some((entry) => typeof entry?.result?.origin !== 'string')) {
+      throw new Error('frame_probe_incomplete');
+    }
   } catch {
-    // Once any origin is tainted, an uninspectable web tab cannot be proved not
-    // to contain a frame from it. Fail closed instead of capturing text or a
-    // screenshot that may contain a value restored from same-origin storage.
-    return secretTaintedOrigins.values().next().value ?? null;
+    // Uncertainty blocks this read but is not evidence of a secret transfer.
+    // Never persist an arbitrary protected origin onto an unrelated tab.
+    throw new Error('browser_secret_inspection_unavailable');
+  } finally {
+    clearTimeout(timer);
   }
   for (const entry of frameResults ?? []) {
     const origin = entry?.result?.origin;
@@ -1093,8 +1178,27 @@ async function secretTaintOriginForTabId(tabId) {
 async function assertSecretObservationAllowed(command) {
   if (!SECRET_OBSERVATION_COMMANDS.has(command?.command)) return;
   const tabId = requireTargetTabId(command);
-  if (typeof await secretTaintOriginForTabId(tabId) === 'string') {
-    throw new Error('browser_secret_observation_blocked_for_tainted_origin');
+  let origin;
+  let message;
+  try {
+    origin = await secretTaintOriginForTabId(tabId);
+  } catch {
+    message = 'browser_secret_inspection_unavailable: command not run. '
+      + 'The extension could not check this tab safely. Let the tab finish loading '
+      + 'and check extension site access before retrying the read.';
+  }
+  if (typeof origin === 'string') {
+    message = 'browser_secret_observation_blocked_for_tainted_origin: command not run. '
+      + 'Secret protection is active. The operator can review and reset it in the '
+      + 'Harness extension popup with Browser Gateway off. Navigation or a new tab '
+      + 'does not clear confirmed protection.';
+  }
+  if (message) {
+    const error = new Error(message);
+    // Only extension-created PRE-DISPATCH guard errors may claim not-run.
+    // Never trust a matching message copied into a page-controlled exception.
+    secretObservationGuardErrors.add(error);
+    throw error;
   }
 }
 
@@ -1104,7 +1208,9 @@ async function targetSecretTaintOrigin(command) {
     return null;
   }
   try {
-    return await secretTaintOriginForTabId(tabId);
+    // Classification can persist newly inherited lineage before/after command
+    // execution. It must share recovery's boundary just like page observation.
+    return await runWithSecretObservationBoundary(() => secretTaintOriginForTabId(tabId));
   } catch {
     // Storage uncertainty fails closed. The empty string is deliberately an
     // opaque sentinel: callers check only whether the result is a string and
@@ -1114,6 +1220,9 @@ async function targetSecretTaintOrigin(command) {
 }
 
 function browserCommandErrorMessage(command, error, targetSecretTainted = false) {
+  if (secretObservationGuardErrors.has(error)) {
+    return error.message;
+  }
   if (
     command?.command === 'type'
     && typeof command?.payload?.credentialOrigin === 'string'
@@ -1218,7 +1327,16 @@ function runCommandWithWatchdog(command) {
     }, timeoutMs);
 
     Promise.resolve()
-      .then(() => executeBrowserCommand(command))
+      .then(async () => {
+        activeBrowserCommandCount += 1;
+        try {
+          return await executeBrowserCommand(command);
+        } finally {
+          // The watchdog may settle first. Recovery must still wait for the
+          // actual operation, including a late secret-bearing injection.
+          activeBrowserCommandCount -= 1;
+        }
+      })
       .then((result) => {
         if (settled) {
           return;
@@ -3080,13 +3198,14 @@ async function buildTabPayloadLocked(tab, options = {}) {
   // through page text or screenshot bytes.
   let secretTainted = true;
   let secretTaintedOrigin = '';
+  let inspectionUnavailable = false;
   try {
     const storedOrigin = await secretTaintOriginForTab(tab);
     secretTainted = typeof storedOrigin === 'string';
     secretTaintedOrigin = storedOrigin ?? '';
   } catch {
-    // Storage uncertainty fails closed for observation; URL/title metadata is
-    // still safe and keeps target discovery operational.
+    // No page-controlled metadata is safe while inspection is unavailable.
+    inspectionUnavailable = true;
   }
   let page = options.includeText && !secretTainted
     // capturePageText() no longer rejects on a permission failure (see below),
@@ -3116,7 +3235,7 @@ async function buildTabPayloadLocked(tab, options = {}) {
       screenshotBase64 = undefined;
     }
   }
-  const safeUrl = secretTainted ? secretTaintedOrigin + '/' : tab.url;
+  const safeUrl = secretTainted ? (secretTaintedOrigin ? secretTaintedOrigin + '/' : 'https://redacted.invalid/') : tab.url;
 
   return {
     tabId: tab.id,
@@ -3125,14 +3244,17 @@ async function buildTabPayloadLocked(tab, options = {}) {
     // document.title and the URL path/query/hash are page-controlled. A page
     // can mirror an input value into either synchronously from its input event,
     // so tainted payloads expose only fixed metadata plus the canonical origin.
-    title: secretTainted ? 'Secret-filled tab' : page.title || tab.title || tab.url,
+    title: inspectionUnavailable ? 'Tab inspection unavailable'
+      : secretTainted ? 'Secret-filled tab' : page.title || tab.title || tab.url,
     text: page.text || '',
     // Only present when the page text genuinely could not be read (e.g. the
     // extension has no host permission for this origin). Omitted entirely on
     // a normal read, including a legitimately empty page, so existing callers
     // that only look at `text` are unaffected.
     ...(secretTainted
-      ? { textUnavailableReason: 'browser_secret_observation_blocked_for_tainted_origin' }
+      ? { textUnavailableReason: inspectionUnavailable
+          ? 'browser_secret_inspection_unavailable'
+          : 'browser_secret_observation_blocked_for_tainted_origin' }
       : page.textUnavailableReason
         ? { textUnavailableReason: page.textUnavailableReason }
         : {}),

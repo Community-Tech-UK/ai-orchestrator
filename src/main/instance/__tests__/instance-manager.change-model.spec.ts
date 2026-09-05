@@ -1296,21 +1296,25 @@ describe('InstanceManager', () => {
       );
     });
 
-    it('maps the reasoning effort onto the target provider during a swap', async () => {
+    it.each([
+      ['workflow', 'xhigh'],
+      ['max', 'max'],
+      ['ultra', 'ultra'],
+    ] as const)('maps %s to %s when swapping to Codex', async (effort, expected) => {
       const instance = await manager.createInstance({
         workingDirectory: TEST_WORKING_DIR,
         modelOverride: 'sonnet',
       });
       await instance.readyPromise;
-      instance.reasoningEffort = 'max'; // Claude-only tier
+      instance.reasoningEffort = effort;
       mockCreateCliAdapter.mockClear();
 
       const updated = await manager.changeModel(instance.id, 'gpt-5.5', undefined, undefined, 'codex');
 
-      expect(updated.reasoningEffort).toBe('xhigh');
+      expect(updated.reasoningEffort).toBe(expected);
       expect(mockCreateCliAdapter).toHaveBeenCalledWith(
         'codex',
-        expect.objectContaining({ reasoningEffort: 'xhigh' }),
+        expect.objectContaining({ reasoningEffort: expected }),
         expect.anything(),
       );
     });

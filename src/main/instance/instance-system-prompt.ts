@@ -42,11 +42,11 @@ import {
 import { getOutputStyleRegistry } from './output-style-registry';
 import { buildToolPermissionPrompt } from './lifecycle/tool-permission-prompt';
 import { isRestoreOrReplayContinuity } from './lifecycle/create-validation-helpers';
-import {
-  createSystemPromptComposer,
-  type SystemPromptBlockKind,
-  type SystemPromptBlockManifestEntry,
+import type {
+  SystemPromptBlockKind,
+  SystemPromptBlockManifestEntry,
 } from '../context/prompt-injection-contract';
+import { createBudgetedSystemPromptComposer } from '../context/budgeted-system-prompt';
 import {
   buildContextManifestEntries,
   recordContextManifest,
@@ -152,7 +152,7 @@ export async function assembleInstanceSystemPrompt(
   const { instance, config, resolvedAgent, instructionPrompts, initialUserMessageContent, deps } = params;
   const settings = getSettingsManager();
 
-  const systemPromptComposer = createSystemPromptComposer();
+  const systemPromptComposer = createBudgetedSystemPromptComposer(config.provider);
   // WS-C6: kinds where a real fetch/build failure or deadline timeout was
   // observed (as opposed to "genuinely no content this time") — see
   // context-manifest-store.ts's 'unavailable' status.
@@ -160,7 +160,9 @@ export async function assembleInstanceSystemPrompt(
 
   let instructionsBlockContent = resolvedAgent.systemPrompt || '';
   if (instructionPrompts.length > 0) {
-    const instructionSection = instructionPrompts.join('\n\n---\n\n');
+    // Only remove byte-identical copies supplied to this assembly. A file's
+    // presence on disk is not evidence that the native provider loaded it.
+    const instructionSection = [...new Set(instructionPrompts)].join('\n\n---\n\n');
     instructionsBlockContent = `${instructionSection}\n\n---\n\n${instructionsBlockContent}`;
     logger.info('Prepended instruction prompts to system prompt', { count: instructionPrompts.length });
   }
@@ -480,6 +482,7 @@ export async function assembleInstanceSystemPrompt(
     instance.id,
     manifestTrigger,
     buildContextManifestEntries(systemPromptManifest, unavailableBlockKinds),
+    { note: systemPromptComposer.budgetNote() },
   );
 
   return { systemPrompt, systemPromptManifest, initialRuntimeContextBlock };

@@ -34,8 +34,11 @@ const SETTINGS_LOCK_RETRY_INTERVAL_MS = 50;
  * Merge order: User (global) -> Project (repo-local) -> Local (gitignored) -> Env -> CLI args.
  * Motivated by claw-code ConfigSource enum (claude2.md section 9.1).
  */
-export const CONFIG_SOURCE_PRECEDENCE = ['user', 'project', 'local', 'env', 'cli'] as const;
-export type ConfigSourceLevel = typeof CONFIG_SOURCE_PRECEDENCE[number];
+/**
+ * Precedence order, lowest to highest. Declared as a union rather than an array
+ * because nothing ever iterated the array — it existed only to derive this type.
+ */
+export type ConfigSourceLevel = 'user' | 'project' | 'local' | 'env' | 'cli';
 
 // Type for the internal store with the methods we need
 interface Store<T> {

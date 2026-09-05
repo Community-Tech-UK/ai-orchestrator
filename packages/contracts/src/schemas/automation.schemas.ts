@@ -37,6 +37,7 @@ export const AutomationReasoningEffortSchema = z.enum([
   'high',
   'xhigh',
   'max',
+  'ultra',
   'workflow',
 ]);
 

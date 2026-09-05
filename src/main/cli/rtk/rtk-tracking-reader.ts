@@ -58,6 +58,47 @@ export interface RtkCommandStat {
   avgSavingsPct: number;
 }
 
+/**
+ * T5 — RTK compliance, measured rather than assumed.
+ *
+ * The plan asks for "the `RTK_DISABLED` bypass rate (warn above 10% over 7
+ * days)". An earlier reading of this file concluded no bypass signal existed.
+ * That was wrong, and the correction matters:
+ *
+ *  - `rtk proxy <cmd>` runs WITHOUT filtering but still records a row, and its
+ *    `rtk_cmd` starts `rtk proxy`, so proxy bypass IS countable.
+ *  - `rtk run <cmd>` is documented as raw, no filtering or tracking.
+ *  - There is a SECOND table, `parse_failures`, that the first pass missed
+ *    entirely: commands rtk could not parse and fell back to raw execution.
+ *    These produce no saving but are invisible in the savings summary.
+ *
+ * What remains genuinely unmeasurable from this database, and must never be
+ * presented as if it were: a command the agent ran with no `rtk` prefix at all,
+ * and a command run under `RTK_DISABLED`. Neither writes a row, so their share
+ * is unknown — not zero. `unmeasurable` below exists to say so out loud.
+ */
+export interface RtkComplianceSummary {
+  /** Commands rtk actually filtered. */
+  filtered: number;
+  /** Commands routed through `rtk proxy` — tracked, but deliberately unfiltered. */
+  proxied: number;
+  /** `proxied / (filtered + proxied)`, 0–100. Null when there is nothing to divide. */
+  proxyRatePct: number | null;
+  /** Rows in `parse_failures` for the window. */
+  parseFailures: number;
+  /** Of those, how many still executed successfully unfiltered. */
+  parseFailuresRecovered: number;
+  /**
+   * `parseFailures / (commands + parseFailures)`, 0–100. This is the share of
+   * attempted rtk invocations that produced no filtering at all.
+   */
+  parseFailureRatePct: number | null;
+  /** Days covered, echoing the caller's window so a UI cannot mislabel it. */
+  windowDays: number | null;
+  /** Named, machine-readable reasons the picture is incomplete. */
+  unmeasurable: readonly string[];
+}
+
 export interface RtkCommandRecord {
   /** ISO 8601 timestamp. */
   timestamp: string;
@@ -211,6 +252,91 @@ export class RtkTrackingReader {
       this.hasProjectColumnCache = false;
     }
     return this.hasProjectColumnCache;
+  }
+
+  /** True when a table exists; `parse_failures` predates neither rtk nor us safely. */
+  private hasTable(driver: SqliteDriver, table: string): boolean {
+    try {
+      const rows = driver
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name = ?")
+        .all(table) as { name: string }[];
+      return rows.length > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Compliance picture for a window. Returns null when the DB cannot be read —
+   * never a zeroed summary, which would read as "perfect compliance" when the
+   * truth is "no data".
+   */
+  getCompliance(opts: { projectPath?: string; sinceMs?: number } = {}): RtkComplianceSummary | null {
+    const driver = this.getDriver();
+    if (!driver) return null;
+
+    const hasProject = this.hasProjectColumn(driver);
+    const filter = this.buildFilter(opts, hasProject);
+    const unmeasurable = [
+      'commands the agent ran with no rtk prefix at all (no row is written)',
+      'commands run under RTK_DISABLED (no row is written)',
+      'commands run via `rtk run` (documented as raw, no tracking)',
+    ];
+
+    try {
+      const row = driver
+        .prepare(
+          `SELECT
+             COALESCE(SUM(CASE WHEN rtk_cmd LIKE 'rtk proxy%' THEN 1 ELSE 0 END), 0) AS proxied,
+             COALESCE(SUM(CASE WHEN rtk_cmd LIKE 'rtk proxy%' THEN 0 ELSE 1 END), 0) AS filtered
+           FROM commands ${filter.clause}`,
+        )
+        .get(...filter.params) as { proxied: number; filtered: number } | undefined;
+
+      const proxied = row?.proxied ?? 0;
+      const filtered = row?.filtered ?? 0;
+      const attempted = proxied + filtered;
+
+      let parseFailures = 0;
+      let parseFailuresRecovered = 0;
+      // `parse_failures` has no project_path column, so a project-scoped query
+      // must not silently report global failures as if they were this project's.
+      const failuresAreScopable = !opts.projectPath;
+      if (failuresAreScopable && this.hasTable(driver, 'parse_failures')) {
+        const clause = opts.sinceMs !== undefined ? 'WHERE timestamp >= ?' : '';
+        const params = opts.sinceMs !== undefined ? [new Date(opts.sinceMs).toISOString()] : [];
+        const pf = driver
+          .prepare(
+            `SELECT COUNT(*) AS total,
+                    COALESCE(SUM(CASE WHEN fallback_succeeded = 1 THEN 1 ELSE 0 END), 0) AS recovered
+             FROM parse_failures ${clause}`,
+          )
+          .get(...params) as { total: number; recovered: number } | undefined;
+        parseFailures = pf?.total ?? 0;
+        parseFailuresRecovered = pf?.recovered ?? 0;
+      }
+
+      const invocations = attempted + parseFailures;
+      return {
+        filtered,
+        proxied,
+        proxyRatePct: attempted > 0 ? (proxied / attempted) * 100 : null,
+        parseFailures,
+        parseFailuresRecovered,
+        parseFailureRatePct: invocations > 0 ? (parseFailures / invocations) * 100 : null,
+        windowDays: opts.sinceMs !== undefined
+          ? Math.max(1, Math.round((Date.now() - opts.sinceMs) / 86_400_000))
+          : null,
+        unmeasurable: opts.projectPath
+          ? [...unmeasurable, 'parse failures are not recorded per project, so they are omitted here']
+          : unmeasurable,
+      };
+    } catch (err) {
+      logger.warn('rtk compliance query failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    }
   }
 
   /**

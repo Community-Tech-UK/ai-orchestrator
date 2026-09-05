@@ -26,14 +26,28 @@ export async function tryStartLoopFromPanel(
   ackTimeoutMs: number,
 ): Promise<boolean> {
   if (deps.isLoopStarting()) return false;
-  const panelConfig = deps.panelConfig();
-  if (!panelConfig) {
+  if (!deps.panelConfig()) {
     deps.setShowLoopPanel(true);
     deps.setLoopStartError('Loop config is incomplete - fix the prompt or settings above before sending.');
     return false;
   }
 
   const firstMessage = deps.message().trim();
+  const attachments = await Promise.all(
+    deps.pendingFiles().map(async (file) => ({
+      name: file.name,
+      data: new Uint8Array(await file.arrayBuffer()),
+    })),
+  );
+
+  // Reading attachments yields to model/provider and advanced-panel edits.
+  // Capture their current configuration together immediately before emitting.
+  const panelConfig = deps.panelConfig();
+  if (!panelConfig) {
+    deps.setShowLoopPanel(true);
+    deps.setLoopStartError('Loop config changed while preparing attachments. Check the settings and start again.');
+    return false;
+  }
   const panelPrompt = panelConfig.initialPrompt.trim();
   const reviewDriven = panelConfig.completion?.mode === 'review-driven'
     || Boolean(panelConfig.completion?.crossModelReview?.pingPong?.enabled);
@@ -44,13 +58,6 @@ export async function tryStartLoopFromPanel(
     initialPrompt: firstMessage || panelPrompt,
     iterationPrompt: sendContinuation ? panelPrompt : undefined,
   };
-
-  const attachments = await Promise.all(
-    deps.pendingFiles().map(async (file) => ({
-      name: file.name,
-      data: new Uint8Array(await file.arrayBuffer()),
-    })),
-  );
 
   deps.setLoopStarting(true);
   deps.setLoopStartError(null);

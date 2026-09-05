@@ -111,6 +111,7 @@ export class UnifiedCatalogStore {
         name: known?.name ?? entry.name ?? humanizeModelId(entry.id),
         tier: entry.tier,
         ...(known?.pinned ? { pinned: known.pinned } : {}),
+        ...(entry.reasoning ? { reasoning: entry.reasoning } : {}),
         ...(known?.family ?? entry.family ? { family: known?.family ?? entry.family } : {}),
       };
     });

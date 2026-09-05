@@ -5867,11 +5867,15 @@
     },
     {
       "path": "resources/browser-extension/background.js",
-      "lines": 4951
+      "lines": 5072
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave1-command-registry-and-overlay-plan_completed.md",
       "lines": 4447
+    },
+    {
+      "path": "_archive/2026-09-03-enhancements-todo-merged-source.md",
+      "lines": 4356
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave6-doctor-diagnostics-updates-artifacts-plan_completed.md",
@@ -5879,7 +5883,7 @@
     },
     {
       "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 3998
+      "lines": 3999
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-mempalace-knowledge-features_completed.md",
@@ -5894,11 +5898,11 @@
       "lines": 3564
     },
     {
-      "path": "docs/superpowers/plans/2026-04-28-wave2-navigation-pickers-prompt-recall-plan_completed.md",
-      "lines": 3523
+      "path": "src/main/instance/instance-lifecycle.ts",
+      "lines": 3533
     },
     {
-      "path": "src/main/instance/instance-lifecycle.ts",
+      "path": "docs/superpowers/plans/2026-04-28-wave2-navigation-pickers-prompt-recall-plan_completed.md",
       "lines": 3523
     },
     {
@@ -5951,7 +5955,7 @@
     },
     {
       "path": "src/main/instance/instance-communication.ts",
-      "lines": 2686
+      "lines": 2692
     },
     {
       "path": "src/main/channels/channel-message-router.ts",
@@ -5963,7 +5967,7 @@
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
-      "lines": 2574
+      "lines": 2577
     },
     {
       "path": "docs/superpowers/plans/2026-04-07-remote-folder-browsing.md",
@@ -6059,7 +6063,7 @@
     },
     {
       "path": "src/main/browser-gateway/browser-extension-assets.spec.ts",
-      "lines": 1862
+      "lines": 1863
     },
     {
       "path": "docs/superpowers/plans/2026-04-01-claude-code-hardening.md",
@@ -6118,10 +6122,6 @@
       "lines": 1626
     },
     {
-      "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
-      "lines": 1620
-    },
-    {
       "path": "docs/superpowers/plans/2026-03-15-session-resume-improvements.md",
       "lines": 1613
     },
@@ -6131,6 +6131,10 @@
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.create.spec.ts",
+      "lines": 1576
+    },
+    {
+      "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
       "lines": 1576
     },
     {
@@ -6147,7 +6151,7 @@
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.change-model.spec.ts",
-      "lines": 1528
+      "lines": 1532
     },
     {
       "path": "src/renderer/app/features/browser/browser-page.component.spec.ts",
@@ -6214,12 +6218,12 @@
       "lines": 1380
     },
     {
-      "path": "src/main/mcp/orchestrator-tools-rpc-server.spec.ts",
-      "lines": 1362
+      "path": "src/main/chats/chat-service.spec.ts",
+      "lines": 1369
     },
     {
-      "path": "src/main/chats/chat-service.spec.ts",
-      "lines": 1354
+      "path": "src/main/mcp/orchestrator-tools-rpc-server.spec.ts",
+      "lines": 1362
     },
     {
       "path": "src/renderer/app/core/state/source-control.store.spec.ts",
@@ -6534,6 +6538,10 @@
       "lines": 1059
     },
     {
+      "path": "src/renderer/app/features/models/model-selection-panel.component.ts",
+      "lines": 1051
+    },
+    {
       "path": "src/main/indexing/codebase-indexing-auto-coordinator.spec.ts",
       "lines": 1043
     },
@@ -6546,12 +6554,12 @@
       "lines": 1038
     },
     {
-      "path": "src/renderer/app/features/models/model-selection-panel.component.ts",
-      "lines": 1035
-    },
-    {
       "path": "src/renderer/app/features/instance-detail/user-action-request.component.ts",
       "lines": 1034
+    },
+    {
+      "path": "src/main/browser-gateway/browser-extension-origin-bound-secret.spec.ts",
+      "lines": 1033
     },
     {
       "path": "src/main/cli/adapters/cursor-cli-adapter.ts",
@@ -6568,10 +6576,6 @@
     {
       "path": "src/main/cli/adapters/base-cli-adapter.ts",
       "lines": 1026
-    },
-    {
-      "path": "src/main/browser-gateway/browser-extension-origin-bound-secret.spec.ts",
-      "lines": 1025
     },
     {
       "path": "src/main/mcp/mcp-manager.ts",
@@ -6731,7 +6735,7 @@
     },
     {
       "path": "src/renderer/app/core/services/new-session-draft.service.ts",
-      "lines": 900
+      "lines": 901
     },
     {
       "path": "src/main/workspace/lsp-manager.ts",
@@ -6902,6 +6906,10 @@
       "lines": 836
     },
     {
+      "path": "src/main/chats/chat-service.ts",
+      "lines": 834
+    },
+    {
       "path": "docs/plans/2026-07-30-sibling-audit-round2_plan_completed.md",
       "lines": 833
     },
@@ -6920,10 +6928,6 @@
     {
       "path": "docs/superpowers/plans/2026-07-04-back-navigation-hotfix-plan_completed.md",
       "lines": 826
-    },
-    {
-      "path": "src/main/chats/chat-service.ts",
-      "lines": 825
     },
     {
       "path": "src/main/learning/ab-testing.ts",
@@ -6974,6 +6978,10 @@
       "lines": 808
     },
     {
+      "path": "src/main/core/config/settings-control-policy.ts",
+      "lines": 806
+    },
+    {
       "path": "docs/superpowers/plans/2026-05-02-conversation-ledger-codex-native-adapter_completed.md",
       "lines": 805
     },
@@ -6987,10 +6995,6 @@
     },
     {
       "path": "src/main/core/config/claude-md-loader.ts",
-      "lines": 804
-    },
-    {
-      "path": "src/main/core/config/settings-control-policy.ts",
       "lines": 804
     },
     {

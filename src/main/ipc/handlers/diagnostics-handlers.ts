@@ -11,6 +11,8 @@ import { getSkillDiagnosticsService } from '../../diagnostics/skill-diagnostics-
 import { getSettingsManager } from '../../core/config/settings-manager';
 import { getContextManifestHistory } from '../../context/context-manifest-store';
 import { getLogger } from '../../logging/logger';
+import { resolveBrowserGatewayToolMode } from '../../browser-gateway/browser-mcp-config';
+import { getInstanceBrowserToolsMode, resolveBrowserToolsMode } from '../../instance/lifecycle/browser-tool-scoping';
 import type { InstanceManager } from '../../instance/instance-manager';
 import type { WindowManager } from '../../window-manager';
 
@@ -152,12 +154,16 @@ export function registerDiagnosticsHandlers(deps: DiagnosticsHandlerDependencies
         /* eslint-enable @typescript-eslint/no-require-imports */
         const settings = getSettingsManager().getAll();
         const isRemote = instance.executionLocation?.type === 'remote';
-        const browserInjected = !isRemote && Boolean(getBrowserGatewayRpcSocketPath());
+        const requestedBrowserMode = resolveBrowserToolsMode(
+          getInstanceBrowserToolsMode(instance.id), settings.browserMcpToolDeferral,
+        );
+        const browserInjected = !isRemote && requestedBrowserMode !== 'off'
+          && Boolean(getBrowserGatewayRpcSocketPath());
         const report = await computeContextAttribution({
           instance,
           mcpProfile: {
             browserGateway: browserInjected
-              ? (settings.browserMcpToolDeferral ? 'deferred' : 'eager')
+              ? resolveBrowserGatewayToolMode(instance.provider, requestedBrowserMode === 'deferred')
               : 'off',
             orchestratorTools: isOrchestratorRuntimeInjectionProvider(instance.provider),
             codemem: !isRemote && settings.codememEnabled,

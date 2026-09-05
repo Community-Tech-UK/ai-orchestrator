@@ -15,6 +15,9 @@ import { QuickActionDispatcherService } from '../orchestration/quick-action-disp
 import { TodoStore } from '../../core/state/todo.store';
 import { WelcomeCoordinatorService } from './welcome-coordinator.service';
 import { FileAttachmentService } from './file-attachment.service';
+import { HistoryPreviewSessionService } from './history-preview-session.service';
+import { InstanceIpcService } from '../../core/services/ipc/instance-ipc.service';
+import { DraftService } from '../../core/services/draft.service';
 import { InstanceDetailComponent } from './instance-detail.component';
 import { OutputStreamComponent } from './output-stream.component';
 import { LoopStore } from '../../core/state/loop.store';
@@ -67,8 +70,10 @@ describe('InstanceDetailComponent history preview restore send', () => {
     remember: ReturnType<typeof vi.fn>;
   };
   let forkSession: ReturnType<typeof vi.fn>;
+  const changeModel = vi.fn();
 
   beforeEach(async () => {
+    changeModel.mockReset();
     historyStore = {
       previewConversation: signal(createConversation()),
       restoreEntry: vi.fn(),
@@ -114,6 +119,7 @@ describe('InstanceDetailComponent history preview restore send', () => {
       imports: [InstanceDetailComponent],
       providers: [
         { provide: InstanceStore, useValue: instanceStore },
+        { provide: InstanceIpcService, useValue: { changeModel } },
         { provide: HistoryStore, useValue: historyStore },
         { provide: SettingsStore, useValue: createSettingsStoreMock() },
         { provide: IpcFacadeService, useValue: { forkSession } },
@@ -180,8 +186,107 @@ describe('InstanceDetailComponent history preview restore send', () => {
     expect(instanceStore.setSelectedInstance).toHaveBeenCalledWith('restored-1');
   });
 
+  it('waits for the selected model to apply before sending the first restored message', async () => {
+    const sessions = TestBed.inject(HistoryPreviewSessionService);
+    sessions.select('history-1', { provider: 'codex', model: 'gpt-6-astra', reasoning: 'high' });
+    historyStore.restoreEntry.mockResolvedValue({ success: true, instanceId: 'restored-1' });
+    let confirm!: (value: unknown) => void;
+    changeModel.mockReturnValue(new Promise(resolve => { confirm = resolve; }));
+    const send = fixture.componentInstance.onHistoryPreviewSendMessage('Use the new model');
+    await vi.waitFor(() => expect(changeModel).toHaveBeenCalled());
+    expect(instanceStore.sendInput).not.toHaveBeenCalled();
+    expect(changeModel).toHaveBeenCalledWith('restored-1', 'gpt-6-astra', 'high', undefined, 'codex');
+    confirm({ success: true, data: { id: 'restored-1', currentModel: 'gpt-6-astra', provider: 'codex' } });
+    await send;
+    expect(instanceStore.sendInput).toHaveBeenCalledWith('restored-1', 'Use the new model', []);
+  });
+
+  it('retains the message and attachments when the selected model fails and retries without another restore', async () => {
+    const sessions = TestBed.inject(HistoryPreviewSessionService);
+    const drafts = TestBed.inject(DraftService);
+    const file = new File(['example'], 'example.txt', { type: 'text/plain' });
+    drafts.addPendingFiles('history-preview:history-1', [file]);
+    sessions.select('history-1', { provider: 'codex', model: 'gpt-6-astra', reasoning: 'high' });
+    historyStore.restoreEntry.mockResolvedValue({ success: true, instanceId: 'restored-1' });
+    changeModel.mockResolvedValueOnce({ success: false, error: { message: 'Model unavailable' } });
+    await fixture.componentInstance.onHistoryPreviewSendMessage('Retain this message');
+    expect(instanceStore.sendInput).not.toHaveBeenCalled();
+    expect(drafts.getDraft('history-preview:history-1')).toBe('Retain this message');
+    expect(drafts.getPendingFiles('history-preview:history-1')).toEqual([file]);
+    expect(fixture.componentInstance.historyPreviewError()).toContain('Model unavailable');
+    changeModel.mockResolvedValue({ success: true, data: { id: 'restored-1', currentModel: 'gpt-6-astra', provider: 'codex' } });
+    await fixture.componentInstance.onHistoryPreviewSendMessage('Retain this message');
+    expect(historyStore.restoreEntry).toHaveBeenCalledOnce();
+    expect(instanceStore.sendInput).toHaveBeenCalledWith('restored-1', 'Retain this message', [file]);
+  });
+
+  it('does not start a loop or edited resend if its pending model cannot be applied', async () => {
+    TestBed.inject(HistoryPreviewSessionService).select('history-1', { provider: 'codex', model: 'gpt-6-astra', reasoning: 'high' });
+    historyStore.restoreEntry.mockResolvedValue({ success: true, instanceId: 'restored-1' });
+    changeModel.mockResolvedValue({ success: false, error: { message: 'Model unavailable' } });
+    const onResolved = vi.fn();
+    await fixture.componentInstance.onHistoryPreviewLoopStartRequested({ config: validLoopConfig(), firstMessage: 'Continue', attachments: [], onResolved });
+    expect(loopStore.start).not.toHaveBeenCalled();
+    expect(onResolved).toHaveBeenCalledWith(false, expect.stringContaining('Model unavailable'));
+    await fixture.componentInstance.onResendEdited({ messageIndex: 0, text: 'Edited' });
+    expect(forkSession).not.toHaveBeenCalled();
+  });
+
+  it.each(['loop', 'edited resend'])('holds %s until the pending model is confirmed', async (path) => {
+    TestBed.inject(HistoryPreviewSessionService).select('history-1', { provider: 'codex', model: 'gpt-6-astra', reasoning: 'high' });
+    historyStore.restoreEntry.mockResolvedValue({ success: true, instanceId: 'restored-1' });
+    loopStore.start.mockResolvedValue({ ok: true });
+    forkSession.mockResolvedValue({ success: true, data: { id: 'fork-1' } });
+    let confirm!: (value: unknown) => void;
+    changeModel.mockReturnValue(new Promise(resolve => { confirm = resolve; }));
+    const onResolved = vi.fn();
+    const pending = path === 'loop'
+      ? fixture.componentInstance.onHistoryPreviewLoopStartRequested({ config: validLoopConfig(), firstMessage: 'Continue', attachments: [], onResolved })
+      : fixture.componentInstance.onResendEdited({ messageIndex: 0, text: 'Edited' });
+    await vi.waitFor(() => expect(changeModel).toHaveBeenCalledOnce());
+    expect(loopStore.start).not.toHaveBeenCalled();
+    expect(forkSession).not.toHaveBeenCalled();
+    confirm({ success: true, data: { id: 'restored-1', provider: 'codex', currentModel: 'gpt-6-astra' } });
+    await pending;
+    if (path === 'loop') {
+      expect(loopStore.start).toHaveBeenCalledWith('restored-1', validLoopConfig(), []);
+      expect(onResolved).toHaveBeenCalledWith(true);
+    } else {
+      expect(forkSession).toHaveBeenCalledWith('restored-1', 0, expect.any(String), 'Edited', expect.objectContaining({ preserveRuntimeSettings: true }));
+    }
+  });
+
   it('wires loop starts from the history preview composer', () => {
     expect(instanceDetailTemplate).toContain('(loopStartRequested)="onHistoryPreviewLoopStartRequested($event)"');
+  });
+
+  it('retains loop composition for resubmission if the model changes during restore', async () => {
+    const sessions = TestBed.inject(HistoryPreviewSessionService);
+    sessions.select('history-1', { provider: 'claude', model: 'opus', reasoning: 'max' });
+    let restore!: (value: unknown) => void;
+    historyStore.restoreEntry.mockReturnValue(new Promise(resolve => { restore = resolve; }));
+    changeModel.mockResolvedValue({ success: true, data: { id: 'restored-1', provider: 'codex', currentModel: 'gpt-6-astra' } });
+    const onResolved = vi.fn();
+    const pending = fixture.componentInstance.onHistoryPreviewLoopStartRequested({ config: validLoopConfig(), firstMessage: 'Continue', attachments: [], onResolved });
+    sessions.select('history-1', { provider: 'codex', model: 'gpt-6-astra', reasoning: 'high' });
+    restore({ success: true, instanceId: 'restored-1' });
+    await pending;
+    expect(loopStore.start).not.toHaveBeenCalled();
+    expect(onResolved).toHaveBeenCalledWith(false, expect.stringContaining('Start the loop again'));
+    expect(historyStore.clearSelection).not.toHaveBeenCalled();
+    expect(sessions.selection('history-1')?.provider).toBe('codex');
+    loopStore.start.mockResolvedValue({ ok: true });
+    await fixture.componentInstance.onHistoryPreviewLoopStartRequested({ config: { ...validLoopConfig(), provider: 'codex' }, firstMessage: 'Continue', attachments: [], onResolved });
+    expect(loopStore.start).toHaveBeenCalledWith('restored-1', expect.objectContaining({ provider: 'codex' }), []);
+    expect(historyStore.restoreEntry).toHaveBeenCalledOnce();
+  });
+
+  it('updates continuation provider defaults while preserving historical transcript metadata', () => {
+    expect(fixture.componentInstance.historyPreviewComposerProvider()).toBe('claude');
+    TestBed.inject(HistoryPreviewSessionService).select('history-1', { provider: 'codex', model: 'gpt-6-astra', reasoning: 'high' });
+    expect(fixture.componentInstance.historyPreviewComposerProvider()).toBe('codex');
+    expect(fixture.componentInstance.historyPreview()?.provider).toBe('claude');
+    expect(instanceDetailTemplate).toContain('[provider]="historyPreviewComposerProvider()"');
   });
 
   it('keeps history preview prompt and pagination probes off live instance storage', async () => {

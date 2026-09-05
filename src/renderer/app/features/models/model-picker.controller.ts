@@ -3,7 +3,9 @@ import {
   getDefaultReasoningEffort,
   getModelsForProvider,
   type ReasoningEffort,
+  type ModelDisplayInfo,
 } from '../../../../shared/types/provider.types';
+import { getModelDefaultReasoningEffort } from '../../../../shared/types/model-reasoning';
 import { ChatStore } from '../../core/state/chat.store';
 import type { ChatRecord } from '../../../../shared/types/chat.types';
 import type {
@@ -235,8 +237,10 @@ export class ModelPickerController {
    * intelligence submenus for any provider (not just the currently-selected
    * one) when the user hovers a non-current provider's model.
    */
-  reasoningOptionsForProvider(provider: string): ModelPickerReasoningOption[] {
-    const defaultEffort = getDefaultReasoningEffort(provider);
+  reasoningOptionsForProvider(provider: string, model?: ModelDisplayInfo): ModelPickerReasoningOption[] {
+    const defaultEffort = provider === 'codex'
+      ? getModelDefaultReasoningEffort(provider, model?.reasoning, model?.id)
+      : getDefaultReasoningEffort(provider);
     const markDefault = (options: ModelPickerReasoningOption[]): ModelPickerReasoningOption[] =>
       options.map((option) =>
         defaultEffort !== null && option.id === defaultEffort
@@ -259,16 +263,15 @@ export class ModelPickerController {
     }
 
     if (provider === 'codex') {
-      // Codex defaults to high in the app, but keep an explicit provider-decide
-      // row so users can clear the override and let the CLI decide.
+      // Capabilities belong to a model, not a provider. Without discovery only
+      // provider-decided is safe; never guess unsupported options for a new model.
       return markDefault([
         { id: 'default', label: 'Provider', description: 'Let the provider decide' },
-        { id: 'none', label: 'Off', description: 'No extra reasoning effort' },
-        { id: 'minimal', label: 'Minimal', description: 'Light reasoning' },
-        { id: 'low', label: 'Low', description: 'Shorter thinking' },
-        { id: 'medium', label: 'Medium', description: 'Balanced thinking' },
-        { id: 'high', label: 'High', description: 'Deeper thinking' },
-        { id: 'xhigh', label: 'Max', description: 'Largest thinking budget' },
+        ...(model?.reasoning?.supportedEfforts ?? []).map((id) => ({
+          id,
+          label: id === 'none' ? 'Off' : id === 'xhigh' ? 'XHigh' : id[0].toUpperCase() + id.slice(1),
+          description: '',
+        })),
       ]);
     }
 

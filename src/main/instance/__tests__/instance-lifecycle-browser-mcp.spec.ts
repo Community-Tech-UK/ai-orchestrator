@@ -79,8 +79,8 @@ vi.mock('../../browser-gateway', () => ({
   createBrowserMcpTools: browserGatewayMocks.createBrowserMcpTools,
   createDeferredBrowserMcpTools: browserGatewayMocks.createDeferredBrowserMcpTools,
   measureToolSchemaBytes: browserGatewayMocks.measureToolSchemaBytes,
-  supportsDeferredBrowserGatewayTools: (provider?: string) =>
-    provider !== 'codex' && provider !== 'cursor',
+  resolveBrowserGatewayToolMode: (provider?: string, deferred?: boolean) =>
+    !deferred || provider === 'cursor' ? 'eager' : provider === 'codex' ? 'stable' : 'deferred',
 }));
 
 vi.mock('../../desktop-gateway', () => ({
@@ -152,7 +152,7 @@ describe('SpawnConfigBuilder — Browser Gateway MCP config', () => {
     );
   });
 
-  it('reports and configures the actual eager Browser Gateway surface for Codex', () => {
+  it('reports and configures the actual stable Browser Gateway surface for Codex', () => {
     const builder = makeBuilder({ browserMcpToolDeferral: true });
 
     const options = builder.getBrowserGatewayMcpOptions(
@@ -161,14 +161,10 @@ describe('SpawnConfigBuilder — Browser Gateway MCP config', () => {
       'codex',
     );
 
-    expect(options).not.toHaveProperty('toolDeferral');
+    expect(options).toHaveProperty('toolDeferral', true);
     expect(loggerMocks.info).toHaveBeenCalledWith(
-      'Browser gateway tool schemas injected eagerly',
-      expect.objectContaining({ instanceId: 'instance-codex' }),
-    );
-    expect(loggerMocks.info).not.toHaveBeenCalledWith(
       'Browser gateway tool schemas deferred',
-      expect.anything(),
+      expect.objectContaining({ instanceId: 'instance-codex', toolMode: 'stable', visibleToolCount: 9 }),
     );
   });
 

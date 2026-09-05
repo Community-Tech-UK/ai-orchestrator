@@ -322,7 +322,7 @@ function formatSettingsHelp(): string {
     'Usage: aio-mcp settings <command>',
     '',
     'Commands:',
-    '  list [--json] [--category <category>] [--all]',
+    '  list [--json] [--category <category>]',
     '  get <key> [--json]',
     '  set <key> <json-value> [--json]',
     '  reset <key> [--json]',

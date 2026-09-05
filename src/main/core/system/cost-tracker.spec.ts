@@ -53,6 +53,27 @@ describe('CostTracker.recordUsage', () => {
     expect(summary.totalCacheReadTokens).toBe(200);
     expect(summary.totalCacheWriteTokens).toBe(100);
     expect(summary.totalCost).toBeCloseTo(0.01, 10);
+    expect(summary.bySession['sess-1'].tokens).toBe(1800);
+  });
+
+  it('alerts independently for each session and deduplicates subsequent entries within that session', () => {
+    const alerts: number[] = [];
+    tracker.on('budget-alert', (alert) => alerts.push(alert.currentUsage));
+    tracker.setBudget({ enabled: true, dailyLimit: 0, weeklyLimit: 0, monthlyLimit: 0, perSessionLimit: 5, alertThresholds: [50] });
+    tracker.recordUsage('a', 'session-a', 'model', 0, 0, 0, 0, 3);
+    tracker.recordUsage('b', 'session-b', 'model', 0, 0, 0, 0, 3);
+    tracker.recordUsage('a', 'session-a', 'model', 0, 0, 0, 0, 1);
+    expect(alerts).toEqual([3, 3]);
+  });
+
+  it('bases session alerts on priced spend rather than treating cached tokens as uncached', () => {
+    const alerts: unknown[] = [];
+    tracker.on('budget-alert', (alert) => alerts.push(alert));
+    tracker.setBudget({ enabled: true, dailyLimit: 0, weeklyLimit: 0, monthlyLimit: 0, perSessionLimit: 2, alertThresholds: [100] });
+    tracker.recordUsage('cached', 'cached-session', 'claude-sonnet-4-6', 0, 0, 1_000_000);
+    expect(alerts).toHaveLength(0);
+    tracker.recordUsage('uncached', 'uncached-session', 'claude-sonnet-4-6', 1_000_000, 0);
+    expect(alerts).toHaveLength(1);
   });
 
   it('stores reasoning token counts separately and bills them at the output rate', () => {

@@ -18,6 +18,7 @@ export interface CodexAppServerInitializationResult {
   resumeAttempt: ResumeAttemptResult;
   resumeCursor: ResumeCursor | null;
   threadId: string | null;
+  effectiveServiceTier: string | null;
 }
 
 export interface CodexAppServerInitializationOptions {
@@ -71,6 +72,7 @@ export async function initializeCodexAppServer(
   const resumeRequested = shouldResume;
   const hasSpecificResumeTarget = Boolean(requestedResumeSessionId);
   let threadId: string | null = null;
+  let effectiveServiceTier: string | null = null;
   let resumeSource: ResumeCursor['scanSource'] | null = null;
   let resumeAttempt: ResumeAttemptResult = resumeRequested
     ? {
@@ -101,6 +103,7 @@ export async function initializeCodexAppServer(
           sandbox,
         });
         const resumedThreadId = resumeResult.threadId || resumeResult.thread?.id || null;
+        effectiveServiceTier = resumeResult.serviceTier ?? null;
         if (resumedThreadId === requestedResumeSessionId) {
           threadId = resumedThreadId;
           resumeSource = 'native';
@@ -159,6 +162,7 @@ export async function initializeCodexAppServer(
               sandbox,
             });
             threadId = resumeResult.threadId || resumeResult.thread?.id || null;
+            effectiveServiceTier = resumeResult.serviceTier ?? null;
             resumeSource = 'thread-list';
             resumeAttempt = {
               source: 'native',
@@ -197,6 +201,7 @@ export async function initializeCodexAppServer(
             sandbox,
           });
           threadId = resumeResult.threadId || resumeResult.thread?.id || null;
+          effectiveServiceTier = resumeResult.serviceTier ?? null;
           resumeSource = 'jsonl-scan';
           resumeAttempt = {
             source: 'jsonl-scan',
@@ -242,6 +247,7 @@ export async function initializeCodexAppServer(
         serviceTier: config.fastMode ? 'priority' : null,
       });
       threadId = startResult.threadId || startResult.thread?.id || null;
+      effectiveServiceTier = startResult.serviceTier ?? null;
       resumeSource = null;
       resumeAttempt = resumeRequested
         ? {
@@ -271,6 +277,7 @@ export async function initializeCodexAppServer(
     return {
       client,
       threadId,
+      effectiveServiceTier,
       resumeAttempt,
       resumeCursor: threadId
         ? {

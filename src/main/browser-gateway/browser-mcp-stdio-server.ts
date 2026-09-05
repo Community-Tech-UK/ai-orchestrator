@@ -11,6 +11,7 @@ import {
   createDeferredBrowserMcpTools,
 } from './browser-mcp-deferral';
 import { createBrowserMcpTools } from './browser-mcp-tools';
+import { BROWSER_TOOL_STABLE_ENV, createStableBrowserMcpTools } from './browser-mcp-stable-tools';
 import {
   BROWSER_GATEWAY_RPC_PROTOCOL_VERSION,
   computeBrowserToolSurfaceHash,
@@ -154,7 +155,9 @@ export async function runBrowserMcpForwarder(
   const toolDeferral = process.env[BROWSER_TOOL_DEFERRAL_ENV] === '1';
   const revealedNames = new Set<string>();
   let revealRestoreFailed = false;
-  if (toolDeferral) {
+  if (process.env[BROWSER_TOOL_STABLE_ENV] === '1') {
+    server.registerTools(createStableBrowserMcpTools(client));
+  } else if (toolDeferral) {
     // WS9 deferral: list only the core set + search/describe; all tools stay
     // dispatchable. Reveals push a list_changed so the client re-lists.
     server.registerTools(

@@ -1712,6 +1712,12 @@ export class InstanceCommunicationManager extends EventEmitter {
       }
     });
 
+    adapter.on('usage', (usage: CliResponse['usage']) => {
+      if (isStaleAdapterEvent('usage')) return;
+      const instance = this.deps.getInstance(instanceId);
+      if (instance) this.recordCompletionCost(instanceId, instance, { id: generateId(), content: '', role: 'assistant', usage });
+    });
+
     adapter.on('complete', async (response: CliResponse) => {
       if (isStaleAdapterEvent('complete')) {
         return;

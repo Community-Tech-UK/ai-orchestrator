@@ -531,7 +531,7 @@ export function createOrchestratorToolsForwarderTools(
           },
           reasoningEffort: {
             type: 'string',
-            enum: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'workflow'],
+            enum: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'workflow'],
             description: 'New reasoning-effort level for the spawned agent. Omit to leave unchanged.',
           },
           yoloMode: {

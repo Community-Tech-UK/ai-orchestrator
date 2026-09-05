@@ -22,6 +22,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   computed,
   effect,
   inject,
@@ -44,6 +45,9 @@ import type {
 import type { ReasoningEffort } from '../../../../shared/types/provider.types';
 import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
 import { DEFAULT_INSTANCE_PROVIDERS, PROVIDER_MENU_LABELS } from '../models/provider-menu.constants';
+import { UnifiedCatalogStore } from '../models/unified-catalog.store';
+import { getModelsForProvider } from '../../../../shared/types/provider.types';
+import { HistoryPreviewSessionService, historyEntryIdFromPreview } from './history-preview-session.service';
 
 /** Circumference of the SVG ring (r=8, so C ≈ 50.27). */
 const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
@@ -102,6 +106,8 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
           [providers]="pickerProviders"
           [selection]="pickerSelection()!"
           [disabledReason]="modelSwitchDisabledReason()"
+          [showSelectionStatus]="false"
+          [statusText]="selectionStatus()"
           (selectionChange)="onPickerSelectionChange($event)"
         />
       }
@@ -210,10 +216,19 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
 export class ComposerToolbarComponent {
   private readonly ipc = inject(InstanceIpcService);
   private readonly toast = inject(ToastService);
+  private readonly historySessions = inject(HistoryPreviewSessionService);
+  private readonly catalog = inject(UnifiedCatalogStore);
+  private readonly liveStatus = signal<{ instanceId: string; text: string } | null>(null);
+  private statusTimer: ReturnType<typeof setTimeout> | undefined;
+  private selectionRequest = 0;
   /** Tracks which instance the picker was last fully seeded for. */
   private lastSeededInstanceId: string | null = null;
 
   constructor() {
+    inject(DestroyRef).onDestroy(() => {
+      ++this.selectionRequest;
+      clearTimeout(this.statusTimer);
+    });
     // Re-seed the picker from the bound instance's provider + model whenever the
     // instance changes. The live composer is a single reused node whose
     // [instanceId]/[provider]/[currentModel] inputs swap when you switch
@@ -240,7 +255,10 @@ export class ComposerToolbarComponent {
       const instanceChanged = instanceId !== this.lastSeededInstanceId;
 
       if (instanceChanged) {
+        ++this.selectionRequest;
         this.lastSeededInstanceId = instanceId;
+        clearTimeout(this.statusTimer);
+        this.liveStatus.set(null);
         this.pendingSelection.set(derived);
         return;
       }
@@ -305,6 +323,7 @@ export class ComposerToolbarComponent {
    * disable the picker.
    */
   readonly modelSwitchDisabledReason = computed(() => {
+    if (this.historyEntryId()) return undefined;
     const status = this.instanceStatus();
     if (status === 'terminated' || status === 'failed' || status === 'hibernated') {
       return 'Model changes require a live session.';
@@ -390,41 +409,57 @@ export class ComposerToolbarComponent {
     return `Context window: ${pct}% used (${u.used.toLocaleString()} / ${u.total.toLocaleString()} tokens)`;
   });
 
-  readonly pickerSelection = computed<PendingSelection | null>(() => this.pendingSelection());
+  private readonly historyEntryId = computed(() => historyEntryIdFromPreview(this.instanceId()));
+  readonly pickerSelection = computed<PendingSelection | null>(() => {
+    const entryId = this.historyEntryId();
+    return (entryId ? this.historySessions.selection(entryId) : null) ?? this.pendingSelection();
+  });
+  readonly selectionStatus = computed(() => {
+    const entryId = this.historyEntryId();
+    const pending = entryId ? this.historySessions.selection(entryId) : null;
+    if (pending) return `Will use ${this.modelName(pending)} when resumed`;
+    const status = this.liveStatus();
+    return status?.instanceId === this.instanceId() ? status.text : null;
+  });
+
+  private modelName(selection: PendingSelection): string {
+    const models = this.catalog.displayModelsForProvider(selection.provider);
+    return (models.length ? models : getModelsForProvider(selection.provider))
+      .find(model => model.id === selection.model)?.name
+      ?? (selection.modelRuntimeTarget?.kind === 'local-model' ? selection.modelRuntimeTarget.modelId : null)
+      ?? selection.model ?? 'the provider default';
+  }
 
   async onPickerSelectionChange(sel: PendingSelection): Promise<void> {
+    const entryId = this.historyEntryId();
+    if (entryId) {
+      this.historySessions.select(entryId, sel);
+      return;
+    }
+    if (this.modelSwitchDisabledReason()) return;
+    if (sel.provider === 'local-model' && !sel.modelRuntimeTarget) return;
+    const instanceId = this.instanceId();
+    const request = ++this.selectionRequest;
     this.pendingSelection.set(sel);
-
-    // Reasoning effort is owned by the picker. When the user didn't pick a
-    // level (reasoning === null), pass undefined so the backend preserves the
-    // instance's current effort rather than forcing a default.
-    const reasoningEffort = sel.reasoning ?? undefined;
-
-    if (sel.modelRuntimeTarget) {
-      // Local-model runtime targets route via modelRuntimeTarget, never via a
-      // CLI provider swap.
-      this.settleSelection(sel, await this.ipc.changeModel(
-        this.instanceId(),
-        sel.modelRuntimeTarget.kind === 'local-model' ? sel.modelRuntimeTarget.modelId : sel.model ?? undefined,
-        reasoningEffort,
-        sel.modelRuntimeTarget,
-      ));
-      return;
+    clearTimeout(this.statusTimer);
+    this.liveStatus.set({ instanceId, text: 'Applying model change…' });
+    try {
+      const target = sel.modelRuntimeTarget;
+      const response = target
+        ? await this.ipc.changeModel(
+          instanceId, target.kind === 'local-model' ? target.modelId : sel.model ?? undefined,
+          sel.reasoning ?? undefined, target,
+        )
+        : await this.ipc.changeModel(
+          instanceId, sel.model ?? undefined, sel.reasoning ?? undefined, undefined,
+          sel.provider === 'local-model' ? undefined : sel.provider,
+        );
+      this.settleSelection(instanceId, request, response);
+    } catch (error) {
+      this.settleSelection(instanceId, request, {
+        success: false, error: { message: error instanceof Error ? error.message : String(error) },
+      });
     }
-    if (sel.provider === 'local-model') {
-      // A local-model pick without a decoded runtime target is incomplete.
-      return;
-    }
-    // Cross-provider swaps pass the target provider; a missing model falls
-    // back to the backend's remembered per-provider default.
-    if (!sel.model && !sel.provider) return;
-    this.settleSelection(sel, await this.ipc.changeModel(
-      this.instanceId(),
-      sel.model ?? undefined,
-      reasoningEffort,
-      undefined,
-      sel.provider,
-    ));
   }
 
   /**
@@ -437,11 +472,33 @@ export class ComposerToolbarComponent {
    * silently, since this component talks to IPC directly and never saw the
    * failure. Roll the label back to backend truth and say what went wrong.
    *
-   * Only rolls back the pick it was called for: a newer selection made while
-   * this request was in flight owns the picker and settles on its own response.
+   * A newer request owns the picker. Backend hydration may replace the selection
+   * object before IPC resolves, so request ownership must be tracked separately.
    */
-  private settleSelection(sent: PendingSelection, response: IpcResponse): void {
-    if (response.success || this.pendingSelection() !== sent) return;
+  private settleSelection(instanceId: string, request: number, response: IpcResponse): void {
+    if (this.instanceId() !== instanceId || this.selectionRequest !== request) return;
+    if (response.success) {
+      const data = response.data as {
+        desiredRuntime?: DesiredRuntime;
+        provider?: InstanceProvider;
+        currentModel?: string;
+        reasoningEffort?: ReasoningEffort | null;
+        runtimeSummary?: InstanceRuntimeSummary;
+      } | undefined;
+      const confirmed = data?.provider && data.currentModel
+        ? deriveComposerPickerSelection(data.provider, data.currentModel, data.reasoningEffort, data.runtimeSummary)
+        : null;
+      if (confirmed && !data?.desiredRuntime) this.pendingSelection.set(confirmed);
+      const status = { instanceId, text: data?.desiredRuntime
+        ? 'Model change queued until the session is ready'
+        : confirmed ? `Switched to ${this.modelName(confirmed)}` : 'Model change accepted' };
+      this.liveStatus.set(status);
+      this.statusTimer = setTimeout(() => {
+        if (this.liveStatus() === status) this.liveStatus.set(null);
+      }, 3000);
+      return;
+    }
+    this.liveStatus.set(null);
     this.pendingSelection.set(deriveComposerPickerSelection(
       this.provider(),
       this.currentModel(),

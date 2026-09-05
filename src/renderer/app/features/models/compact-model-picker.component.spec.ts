@@ -12,6 +12,7 @@ import { UsageStore } from '../../core/state/usage.store';
 import {
   getModelsForProvider,
   type ModelDisplayInfo,
+  type ReasoningEffort,
 } from '../../../../shared/types/provider.types';
 import type { ChatRecord } from '../../../../shared/types/chat.types';
 import type { PendingSelection } from './compact-model-picker.types';
@@ -68,7 +69,10 @@ describe('CompactModelPickerComponent', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     selectedInstance.set(null);
-    unifiedModelsByProvider = {};
+    unifiedModelsByProvider = { codex: [
+      { id: 'gpt-5.5', name: 'GPT-5.5', tier: 'powerful', reasoning: { supportedEfforts: ['low', 'medium', 'high', 'xhigh'], defaultEffort: 'medium' } },
+      { id: 'gpt-5.5-mini', name: 'GPT-5.5 Mini', tier: 'fast', reasoning: { supportedEfforts: ['low', 'medium', 'high'], defaultEffort: 'medium' } },
+    ] };
     unifiedCatalog.lastBuiltAt.set(null);
     TestBed.configureTestingModule({
       imports: [CompactModelPickerComponent],
@@ -123,16 +127,31 @@ describe('CompactModelPickerComponent', () => {
     expect(dynamicCatalog.modelsFor).not.toHaveBeenCalled();
   });
 
-  it('shows the reasoning suffix only when reasoning is non-null', () => {
+  it('shows provider-default thinking and updates to the explicit level', () => {
     fixture.componentRef.setInput('mode', 'live-instance');
     fixture.componentRef.setInput('chat', chatRecord({ provider: 'claude', model: 'sonnet', reasoningEffort: null }));
     fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('.compact-picker__reasoning-suffix')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.compact-picker__reasoning-suffix')?.textContent)
+      .toContain('Thinking: Provider default');
 
     fixture.componentRef.setInput('chat', chatRecord({ provider: 'claude', model: 'sonnet', reasoningEffort: 'high' }));
     fixture.detectChanges();
     const suffix = fixture.nativeElement.querySelector('.compact-picker__reasoning-suffix') as HTMLElement;
     expect(suffix?.textContent).toContain('High');
+  });
+
+  it.each([
+    { provider: 'codex', reasoning: null, expected: 'Thinking: Provider default' },
+    { provider: 'codex', reasoning: 'ultra', expected: 'Thinking: Ultra' },
+    { provider: 'codex', reasoning: 'none', expected: 'Thinking: Off' },
+    { provider: 'gemini', reasoning: null, expected: null },
+  ] as const)('renders pending thinking for $provider / $reasoning', ({ provider, reasoning, expected }) => {
+    fixture.componentRef.setInput('mode', 'pending-create');
+    fixture.componentRef.setInput('selection', { provider, model: 'test-model', reasoning });
+    fixture.detectChanges();
+    const suffix = fixture.nativeElement.querySelector('.compact-picker__reasoning-suffix');
+    if (expected) expect(suffix?.textContent).toContain(expected);
+    else expect(suffix).toBeNull();
   });
 
   it('opens the unified menu when the chip is clicked', () => {
@@ -211,6 +230,47 @@ describe('CompactModelPickerComponent', () => {
     expect(chatStore.setModel).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { reasoning: { supportedEfforts: ['low', 'medium'] as const, defaultEffort: 'medium' as const }, expected: 'medium' },
+    { reasoning: undefined, expected: null },
+  ])('commits a supported model default or provider default when metadata is missing', async ({ reasoning, expected }) => {
+    unifiedModelsByProvider['codex'] = [{ id: 'limited-model', name: 'Limited', tier: 'fast',
+      ...(reasoning ? { reasoning: { ...reasoning, supportedEfforts: [...reasoning.supportedEfforts] } } : {}),
+    }];
+    fixture.componentRef.setInput('mode', 'pending-create');
+    fixture.componentRef.setInput('selection', { provider: 'codex', model: null, reasoning: null });
+    fixture.detectChanges();
+    const emitted: PendingSelection[] = [];
+    fixture.componentInstance.selectionChange.subscribe(s => emitted.push(s));
+    await (fixture.componentInstance as unknown as {
+      onUnifiedSelect: (s: UnifiedSelection) => Promise<void>;
+    }).onUnifiedSelect({ kind: 'model', provider: 'codex', modelId: 'limited-model' });
+    expect(emitted).toEqual([{ provider: 'codex', model: 'limited-model', reasoning: expected }]);
+  });
+
+  it.each([true, false])('selects Astra at medium with catalog capabilities: %s', async (hasCapabilities) => {
+    unifiedModelsByProvider['codex'] = [{ id: 'gpt-6-astra', name: 'Astra', tier: 'powerful',
+      ...(hasCapabilities ? { reasoning: { supportedEfforts: ['low', 'medium', 'high', 'ultra'] as ReasoningEffort[], defaultEffort: 'medium' as const } } : {}),
+    }];
+    fixture.componentRef.setInput('mode', 'pending-create');
+    fixture.componentRef.setInput('selection', { provider: 'codex', model: 'gpt-5.5', reasoning: 'high' });
+    fixture.detectChanges();
+    const emitted: PendingSelection[] = [];
+    fixture.componentInstance.selectionChange.subscribe(s => emitted.push(s));
+    const picker = fixture.componentInstance as unknown as {
+      onUnifiedSelect: (s: UnifiedSelection) => Promise<void>;
+      reasoningOptionsForProviderFn: (provider: string, model: ModelDisplayInfo) => { id: string; isDefault?: boolean }[];
+    };
+    await picker.onUnifiedSelect({ kind: 'model', provider: 'codex', modelId: 'gpt-6-astra' });
+    fixture.detectChanges();
+    expect(emitted).toEqual([{ provider: 'codex', model: 'gpt-6-astra', reasoning: 'medium' }]);
+    expect(fixture.nativeElement.querySelector('.compact-picker__chip')?.textContent).toContain('Thinking: Medium');
+    if (hasCapabilities) {
+      expect(picker.reasoningOptionsForProviderFn('codex', unifiedModelsByProvider['codex'][0])
+        .filter(option => option.isDefault).map(option => option.id)).toEqual(['medium']);
+    }
+  });
+
   it('cross-provider model commit restores provider default reasoning', async () => {
     fixture.componentRef.setInput('mode', 'pending-create');
     fixture.componentRef.setInput('selection', {
@@ -234,7 +294,7 @@ describe('CompactModelPickerComponent', () => {
 
   it('live provider row commits the unified-catalog default model with default reasoning', async () => {
     unifiedModelsByProvider['codex'] = [
-      { id: 'gpt-live-codex', name: 'Live Codex', tier: 'powerful', family: 'GPT' },
+      { id: 'gpt-live-codex', name: 'Live Codex', tier: 'powerful', family: 'GPT', reasoning: { supportedEfforts: ['low', 'high'] } },
       { id: 'gpt-5.5', name: 'GPT 5.5', tier: 'balanced', family: 'GPT' },
     ];
     fixture.componentRef.setInput('mode', 'live-instance');

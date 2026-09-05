@@ -211,6 +211,11 @@
         overflow-wrap: anywhere;
       }
 
+      #secret-protection .disclosure {
+        color: CanvasText;
+        font-size: 12px;
+      }
+
       #status {
         min-height: 18px;
         margin-top: 10px;
@@ -247,6 +252,18 @@
     <section class="panel" aria-labelledby="shared-tabs-title">
       <h2 id="shared-tabs-title" class="panel-title">Shared tabs</h2>
       <div id="shared-tabs"></div>
+    </section>
+    <section id="secret-protection" class="panel" aria-labelledby="secret-protection-title" hidden>
+      <h2 id="secret-protection-title" class="panel-title">Secret protection</h2>
+      <p class="disclosure">Agents cannot read protected tabs. Protection covers these sites and tabs that may have received their secrets, even after navigation.</p>
+      <div id="protected-origins" class="disclosure"></div>
+      <p id="secret-recovery-help" class="disclosure">Turn Browser Gateway off above before reviewing protection.</p>
+      <label class="disclosure">
+        <input id="secret-recovery-confirm" type="checkbox" disabled>
+        I have reviewed all affected tabs and stored site data. I approve agents reading them again, including any secrets still present.
+      </label>
+      <button id="reset-secret-protection" type="button" disabled>Reset secret protection</button>
+      <p class="disclosure">This clears protection flags for this browser profile. It does not delete passwords, cookies or site data. A new protected fill applies protection again.</p>
     </section>
     <button id="reload" class="dev-only" type="button">Reload Extension</button>
     <div id="status" role="status"></div>

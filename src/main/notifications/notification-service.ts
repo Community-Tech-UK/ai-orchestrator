@@ -1,5 +1,6 @@
-import { Notification } from 'electron';
+import { BrowserWindow, Notification } from 'electron';
 import { getSettingsManager } from '../core/config/settings-manager';
+import { resolveSoundMode, shouldBeSilent } from './notification-sound';
 import type {
   NotificationDelivery,
   NotificationRecord,
@@ -57,11 +58,20 @@ const MAX_FINGERPRINTS = 2_000;
 const electronDesktopNotificationPort: DesktopNotificationPort = {
   isSupported: () => Notification.isSupported(),
   show: ({ title, body, urgency, onClick }) => {
+    // N10: `silent: false` was hardcoded, so every notification made a sound
+    // with no way to change it. Focus is read here rather than passed in — the
+    // service can ask Electron directly, so callers do not have to thread a
+    // window handle they may not have.
+    const silent = shouldBeSilent({
+      mode: resolveSoundMode(getSettingsManager().get('notificationSoundMode')),
+      focused: BrowserWindow.getAllWindows().some((w) => w.isFocused()),
+      urgency: urgency === 'critical' ? 'critical' : 'normal',
+    });
     const notification = new Notification({
       title,
       body,
       urgency: urgency === 'critical' ? 'critical' : 'normal',
-      silent: false,
+      silent,
     });
     if (onClick) notification.on('click', onClick);
     notification.show();

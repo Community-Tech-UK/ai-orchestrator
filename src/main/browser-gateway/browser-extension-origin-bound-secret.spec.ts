@@ -117,7 +117,8 @@ describe('extension origin-bound secret typing', () => {
       'secretTaintLoadPromise',
       'requireTargetTabId',
       'secretTaintOriginForTabId',
-      `${extractFunctionSource(background, 'loadSecretTaints')}
+      `const secretObservationGuardErrors = new WeakSet();
+${extractFunctionSource(background, 'loadSecretTaints')}
 ${extractFunctionSource(background, 'assertSecretObservationAllowed')}
 return assertSecretObservationAllowed;`,
     );
@@ -232,7 +233,8 @@ return buildTabPayload;`,
       'capturePageText',
       'captureTabScreenshot',
       'runWithSecretObservationBoundary',
-      `${extractFunctionSource(background, 'persistSecretTaints')}
+      `let secretRecoveryRequest = null;
+${extractFunctionSource(background, 'persistSecretTaints')}
 ${extractFunctionSource(background, 'clearSecretTaint')}
 ${extractFunctionSource(background, 'browserTabOrigin')}
 ${extractFunctionSource(background, 'credentialFrameOriginProbe')}
@@ -335,7 +337,8 @@ return { clearSecretTaint, buildTabPayload };`,
       'secretTaintedOrigins',
       'loadSecretTaints',
       'runWithSecretObservationBoundary',
-      `${extractFunctionSource(background, 'persistSecretTaints')}
+      `let secretRecoveryRequest = null;
+${extractFunctionSource(background, 'persistSecretTaints')}
 ${extractFunctionSource(background, 'browserTabOrigin')}
 ${extractFunctionSource(background, 'credentialFrameOriginProbe')}
 ${extractFunctionSource(background, 'taintedFrameOriginForTabId')}
@@ -386,7 +389,8 @@ return markSecretTaint;`,
       'scheduleNextPoll',
       'POLL_TIMEOUT_MS',
       'targetSecretTaintOrigin',
-      `${extractFunctionSource(background, 'browserCommandErrorMessage')}
+      `const secretObservationGuardErrors = new WeakSet();
+${extractFunctionSource(background, 'browserCommandErrorMessage')}
 ${extractFunctionSource(background, 'runBrowserCommand')}
 return runBrowserCommand;`,
     );
@@ -486,7 +490,8 @@ return runBrowserCommand;`,
       'persistBridgeStatus',
       'scheduleNextPoll',
       'targetSecretTaintOrigin',
-      `${extractFunctionSource(background, 'browserCommandErrorMessage')}
+      `const secretObservationGuardErrors = new WeakSet();
+${extractFunctionSource(background, 'browserCommandErrorMessage')}
 ${extractFunctionSource(background, 'runBrowserCommand')}
 return runBrowserCommand;`,
     );
@@ -533,7 +538,8 @@ return runBrowserCommand;`,
       'persistBridgeStatus',
       'scheduleNextPoll',
       'targetSecretTaintOrigin',
-      `${extractFunctionSource(background, 'browserCommandErrorMessage')}
+      `const secretObservationGuardErrors = new WeakSet();
+${extractFunctionSource(background, 'browserCommandErrorMessage')}
 ${extractFunctionSource(background, 'runBrowserCommand')}
 return runBrowserCommand;`,
     );
@@ -578,7 +584,8 @@ return runBrowserCommand;`,
       'persistBridgeStatus',
       'scheduleNextPoll',
       'targetSecretTaintOrigin',
-      `${extractFunctionSource(background, 'browserCommandErrorMessage')}
+      `const secretObservationGuardErrors = new WeakSet();
+${extractFunctionSource(background, 'browserCommandErrorMessage')}
 ${extractFunctionSource(background, 'runBrowserCommand')}
 return runBrowserCommand;`,
     );
@@ -628,7 +635,8 @@ return runBrowserCommand;`,
       'persistBridgeStatus',
       'scheduleNextPoll',
       'targetSecretTaintOrigin',
-      `${extractFunctionSource(background, 'browserCommandErrorMessage')}
+      `const secretObservationGuardErrors = new WeakSet();
+${extractFunctionSource(background, 'browserCommandErrorMessage')}
 ${extractFunctionSource(background, 'runBrowserCommand')}
 return runBrowserCommand;`,
     );

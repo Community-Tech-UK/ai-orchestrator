@@ -45,8 +45,9 @@ describe('mapReasoningEffortForProvider', () => {
     expect(mapReasoningEffortForProvider('codex', undefined)).toBeUndefined();
   });
 
-  it('caps Claude-only tiers at xhigh for Codex', () => {
-    expect(mapReasoningEffortForProvider('codex', 'max')).toBe('xhigh');
+  it('preserves Codex max and ultra and caps Claude workflow at xhigh', () => {
+    expect(mapReasoningEffortForProvider('codex', 'max')).toBe('max');
+    expect(mapReasoningEffortForProvider('codex', 'ultra')).toBe('ultra');
     expect(mapReasoningEffortForProvider('codex', 'workflow')).toBe('xhigh');
   });
 

@@ -512,6 +512,7 @@ describe('CodexCliAdapter', () => {
       ]));
       expect(result.contexts).toEqual([
         expect.objectContaining({ used: 120, total: 1_000 }),
+        expect.objectContaining({ used: 120, total: 1_000 }),
       ]);
       expect(result.completions).toEqual([
         expect.objectContaining({ content: 'Synthetic assistant response' }),
@@ -716,6 +717,7 @@ describe('CodexCliAdapter', () => {
       ]));
       expect(result.contexts).toEqual([
         expect.objectContaining({ used: 120, total: 1_000 }),
+        expect.objectContaining({ used: 120, total: 1_000 }),
       ]);
       expect(result.completions).toHaveLength(1);
       expect(warning).toHaveBeenCalledTimes(1);
@@ -726,7 +728,7 @@ describe('CodexCliAdapter', () => {
   });
 
   describe('LT-090: cost tracking when turn/completed has no usage', () => {
-    it('records real cost/usage from the last thread/tokenUsage/updated sample when turn.usage is absent', async () => {
+    it('records disjoint cost/usage from thread/tokenUsage/updated when turn.usage is absent', async () => {
       const adapter = new CodexCliAdapter();
       const client = createSyntheticTurnClient([
         { method: 'turn/started', params: { threadId: 'thread-1', turn: { id: 'turn-1' } } },
@@ -770,8 +772,9 @@ describe('CodexCliAdapter', () => {
 
       expect(completions).toHaveLength(1);
       expect(completions[0].usage).toBeDefined();
-      expect(completions[0].usage?.inputTokens).toBe(100);
-      expect(completions[0].usage?.outputTokens).toBe(20);
+      expect(completions[0].usage?.inputTokens).toBe(20);
+      expect(completions[0].usage?.outputTokens).toBe(16);
+      expect(completions[0].usage).toMatchObject({ cacheReadTokens: 80, reasoningTokens: 4 });
       expect(completions[0].usage?.totalTokens).toBe(120);
       expect(completions[0].usage?.cost).toBeGreaterThan(0);
     });

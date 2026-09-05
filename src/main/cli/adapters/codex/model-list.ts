@@ -10,6 +10,7 @@ import { withAppServer } from './app-server-client';
 import {
   MAX_MODEL_ID_LENGTH,
   PROVIDER_MODEL_LIST,
+  REASONING_EFFORTS,
   type ModelDisplayInfo,
 } from '../../../../shared/types/provider.types';
 
@@ -166,7 +167,17 @@ function toCodexModelDisplayInfo(
     tier: known?.tier ?? classifyCodexModelTier(id),
     family: known?.family ?? classifyCodexModelFamily(id),
     pinned: known?.pinned || model.isDefault ? true : undefined,
+    reasoning: toCodexReasoningCapabilities(model),
   };
+}
+
+function toCodexReasoningCapabilities(model: ModelListModel): ModelDisplayInfo['reasoning'] {
+  if (!Array.isArray(model.supportedReasoningEfforts)) return undefined;
+  // Keep only effort values AIO can validate and send; workflow is Claude-only.
+  const advertised = new Set(model.supportedReasoningEfforts.map((option) => option?.reasoningEffort));
+  const supportedEfforts = REASONING_EFFORTS.filter((effort) => effort !== 'workflow' && advertised.has(effort));
+  const defaultEffort = supportedEfforts.find((effort) => effort === model.defaultReasoningEffort);
+  return { supportedEfforts, ...(defaultEffort ? { defaultEffort } : {}) };
 }
 
 function classifyCodexModelTier(modelId: string): ModelDisplayInfo['tier'] {

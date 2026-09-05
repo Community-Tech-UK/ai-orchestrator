@@ -534,6 +534,7 @@ export class UnifiedModelCatalogService extends EventEmitter {
           pricingSource,
           contextWindow,
           source: 'cli-discovered',
+          ...(m.reasoning ? { reasoning: m.reasoning } : {}),
           discoveredAt,
         };
         next.set(catalogKey(provider, m.id), entry);

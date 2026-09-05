@@ -135,6 +135,11 @@ describe('SettingsStore system theme listener', () => {
       'mcpCleanupBackupsOnQuit',
       'mcpDisableProviderBackups',
       'mcpAllowWorldWritableParent',
+    ]);
+    // Computer Use owns a dedicated tab; retain its metadata while excluding
+    // those rows from the generic MCP listing (the concurrent S1.5 change).
+    expect(store.metadata.filter((setting) => setting.category === 'mcp' && setting.hidden)
+      .map((setting) => setting.key)).toEqual([
       'computerUseEnabled',
       'computerUseAllowedAppsJson',
       'computerUseDeniedAppsJson',
