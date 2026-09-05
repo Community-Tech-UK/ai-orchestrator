@@ -17,20 +17,12 @@
  * `ESRCH` when the process is gone. `EPERM` means the process EXISTS but
  * belongs to another user — alive, not absent.
  *
- * **NOT WIRED — but the premise is narrower than "cannot happen".** On the
- * happy path there is nothing to wait on: `invokeLoopChildIteration` resolves
- * only via the adapter callback, and `spawnVerify` resolves on the child's
- * `close` event. There IS one real case, and it is where this belongs when it
- * is wired: on a verify TIMEOUT, `spawnVerify` sends `SIGKILL` and resolves
- * immediately WITHOUT awaiting `close`, and the signal reaches the shell rather
- * than necessarily its grandchildren — so the loop can start the next iteration
- * while a build or test process from the previous one is still alive, competing
- * for the same ports, lockfiles and CPU.
- *
- * Wiring that safely needs the timeout path to surface the pid it killed, which
- * it does not today. Until then this stays unused rather than guessing at a pid.
+ * Wired from `loop-spawn-verify.ts` on verify timeout: kill the spawn *and*
+ * its descendants (the login-shell wrapper otherwise leaves npm/vitest alive
+ * with `ppid=1`), then wait here before the next iteration starts.
  */
 
+import { execFileSync } from 'node:child_process';
 import { getLogger } from '../logging/logger';
 
 const logger = getLogger('LoopWaitOnPid');
@@ -129,5 +121,70 @@ export async function waitOnPid(args: {
         reason: 'liveness probe stopped answering — continuing rather than assuming an exit',
       };
     }
+  }
+}
+
+/** Bound for reaping a SIGKILL'd verify tree before the next iteration. */
+export const VERIFY_REAP_TIMEOUT_MS = 30_000;
+
+export interface KillProcessTreeDeps {
+  listChildren?: (pid: number) => number[];
+  kill?: (pid: number, signal: NodeJS.Signals) => void;
+}
+
+/**
+ * SIGKILL `pid` and every descendant. A login-shell verify (`zsh -lc npm …`)
+ * dies on `child.kill()` while npm/vitest keep running as orphans — that is
+ * what blew this loop's 600s coordinator timeout.
+ */
+export function killProcessTree(
+  pid: number | null | undefined,
+  deps: KillProcessTreeDeps = {},
+): void {
+  if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) return;
+  if (process.platform === 'win32' && !deps.listChildren) {
+    try {
+      execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], { timeout: 5_000 });
+    } catch {
+      // already gone
+    }
+    return;
+  }
+  const listChildren = deps.listChildren ?? listChildPids;
+  const kill = deps.kill ?? ((p, signal) => { process.kill(p, signal); });
+  const seen = new Set<number>();
+  const stack = [pid];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    if (seen.has(current)) continue;
+    seen.add(current);
+    for (const child of listChildren(current)) {
+      if (!seen.has(child)) stack.push(child);
+    }
+  }
+  for (const target of seen) {
+    try {
+      kill(target, 'SIGKILL');
+    } catch {
+      // already gone
+    }
+  }
+}
+
+function listChildPids(pid: number): number[] {
+  if (process.platform === 'win32') {
+    return [];
+  }
+  try {
+    const out = execFileSync('pgrep', ['-P', String(pid)], {
+      encoding: 'utf8',
+      timeout: 1_000,
+    });
+    return out
+      .split(/\s+/)
+      .map((part) => Number(part))
+      .filter((n) => Number.isInteger(n) && n > 0);
+  } catch {
+    return [];
   }
 }

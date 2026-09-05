@@ -497,8 +497,8 @@ export class ContextWorkerClient implements
     this.rpcTracker.rejectAll(new Error('shutdown'));
     if (this.worker) {
       try {
-        const id = this.nextId();
-        await this.postRpc({ type: 'shutdown', id });
+        // Do not await a shutdown RPC ack — a silent worker blocked here for rpcTimeoutMs.
+        this.worker.postMessage({ type: 'shutdown', id: this.nextId() });
       } catch {
         // best-effort
       }

@@ -22,6 +22,7 @@ import { promises as fsp, type Dirent } from 'node:fs';
 import * as path from 'node:path';
 import { getLogger } from '../logging/logger';
 import { applyVerifyOutcomeToIteration } from './loop-coordinator-utils';
+import { loopExecutionCwd } from './loop-cwd';
 import { createLoopPendingInput, type LoopIteration, type LoopState } from '../../shared/types/loop.types';
 
 const logger = getLogger('LoopArtifactFreshness');
@@ -198,7 +199,7 @@ export async function evaluateLoopArtifactFreshness(state: {
   config: { workspaceCwd: string; executionCwd?: string };
   staleArtifactRejections?: number;
 }): Promise<{ reason: string; intervention: string } | null> {
-  const workspaceCwd = state.config.executionCwd ?? state.config.workspaceCwd;
+  const workspaceCwd = loopExecutionCwd(state.config);
   const outputDir = await resolveBuildOutputDir(workspaceCwd);
   if (!outputDir) return null;
   const result = await checkArtifactFreshness({ workspaceCwd, outputDir });

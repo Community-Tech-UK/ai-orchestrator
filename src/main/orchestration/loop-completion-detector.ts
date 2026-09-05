@@ -19,7 +19,6 @@
  *   6. plan-checklist   — PLAN.md checkbox completion ratio = 1.0
  */
 
-import { spawn } from 'child_process';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -34,6 +33,7 @@ import {
 } from './loop-anti-self-grading';
 import { parseTaskLedger } from './loop-task-ledger';
 import { loopExecutionCwd } from './loop-cwd';
+import { spawnVerifyCommand } from './loop-spawn-verify';
 import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
 import { readUtf8FileHead } from './bounded-file-read';
 import { isInsideOrEqual } from '../util/path-helpers';
@@ -365,6 +365,8 @@ export type VerifyOutcome =
       durationMs: number;
       exitCode: number | null;
       failureKind: VerifyFailureKind;
+      /** Set on timeout after the spawn pid is known (L16 reap). */
+      pid?: number;
     };
 
 /** Minimum trimmed length for an investigation REPORT.md to count as substantive. */
@@ -679,10 +681,6 @@ export class LoopCompletionDetector {
     }
     return this.spawnVerify(
       cmd,
-      // Resolved HERE, at the sink, not by the caller: the verify command must
-      // run where the agent actually worked. Under isolation `workspaceCwd` is
-      // the repo root and grading it means grading other sessions' uncommitted
-      // work — see `loop-cwd.ts`.
       loopExecutionCwd(config),
       config.completion.verifyTimeoutMs,
       'verify',
@@ -710,7 +708,6 @@ export class LoopCompletionDetector {
     const timeout = config.completion.quickVerifyTimeoutMs ?? 120_000;
     return this.spawnVerify(
       cmd,
-      // Same as `runVerify`: resolved at the sink. See `loop-cwd.ts`.
       loopExecutionCwd(config),
       timeout,
       'quick-verify',
@@ -720,81 +717,14 @@ export class LoopCompletionDetector {
 
   private spawnVerify(
     cmd: string,
-    /** Execution cwd — where the agent worked, resolved by the caller above. */
     executionCwd: string,
     timeoutMs: number,
     label: 'verify' | 'quick-verify',
     isolated: boolean,
   ): Promise<VerifyOutcome> {
-    const started = Date.now();
-    return new Promise<VerifyOutcome>((resolve) => {
-      const inv = buildVerifyInvocation(cmd);
-      const child = spawn(inv.file, inv.args, {
-        cwd: executionCwd,
-        // On non-Windows we invoke the user's login shell directly (`-lc`), so
-        // `shell` must stay off — `inv.file` already IS the shell. On Windows
-        // `useShellOption` is true and we fall back to the prior `shell: true`.
-        shell: inv.useShellOption,
-        env: {
-          ...process.env,
-          CI: '1',
-          AIO_TEST_OUT_SUFFIX:
-            process.env['AIO_TEST_OUT_SUFFIX']
-            || `loop-verify-${process.pid}-${Date.now().toString(36)}`,
-          AIO_TEST_NO_CACHE: '1',
-        },
-      });
-      let stdout = '';
-      let stderr = '';
-      const cap = (chunk: Buffer | string, target: 'stdout' | 'stderr') => {
-        const s = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
-        if (target === 'stdout') {
-          stdout += s;
-          if (stdout.length > 200_000) stdout = stdout.slice(-200_000);
-        } else {
-          stderr += s;
-          if (stderr.length > 200_000) stderr = stderr.slice(-200_000);
-        }
-      };
-      child.stdout?.on('data', (b) => cap(b, 'stdout'));
-      child.stderr?.on('data', (b) => cap(b, 'stderr'));
-
-      const to = setTimeout(() => {
-        try { child.kill('SIGKILL'); } catch { /* noop */ }
-        resolve({
-          status: 'failed',
-          output: `${stdout}\n${stderr}\n(${label} timed out after ${timeoutMs}ms)`,
-          durationMs: Date.now() - started,
-          exitCode: null,
-          failureKind: 'timeout',
-        });
-      }, timeoutMs);
-
-      child.on('close', (code) => {
-        clearTimeout(to);
-        const output = `${stdout}${stderr ? `\n--- stderr ---\n${stderr}` : ''}`;
-        if (code === 0) {
-          resolve({ status: 'passed', output, durationMs: Date.now() - started });
-        } else {
-          resolve({
-            status: 'failed',
-            output,
-            durationMs: Date.now() - started,
-            exitCode: code,
-            failureKind: classifyCommandVerifyFailure(output, isolated),
-          });
-        }
-      });
-      child.on('error', (err) => {
-        clearTimeout(to);
-        resolve({
-          status: 'failed',
-          output: `${label} command failed to spawn: ${err.message}`,
-          durationMs: Date.now() - started,
-          exitCode: null,
-          failureKind: 'infra',
-        });
-      });
+    return spawnVerifyCommand(cmd, executionCwd, timeoutMs, label, isolated, {
+      buildInvocation: buildVerifyInvocation,
+      classifyFailure: classifyCommandVerifyFailure,
     });
   }
 

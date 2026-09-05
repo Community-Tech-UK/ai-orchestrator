@@ -30,6 +30,7 @@ describe('ContextWorkerClient (LT-170: cross-process skill-activation forwarding
     fakeWorker = makeFakeWorkerHandle();
     client = new ContextWorkerClient({
       userDataPath: '/tmp/lt170-spec',
+      rpcTimeoutMs: 50,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       workerFactory: (): any => fakeWorker,
     });
@@ -38,6 +39,16 @@ describe('ContextWorkerClient (LT-170: cross-process skill-activation forwarding
   afterEach(async () => {
     await client.shutdown();
     SkillAttributionService._resetForTesting();
+  });
+
+  it('shutdown terminates without waiting for a shutdown RPC ack', async () => {
+    const started = Date.now();
+    await client.shutdown();
+    expect(Date.now() - started).toBeLessThan(200);
+    expect(fakeWorker.terminate).toHaveBeenCalled();
+    expect(fakeWorker.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'shutdown' }),
+    );
   });
 
   it('re-emits a worker-forwarded activation on the main process singleton so the existing renderer-push listener fires', () => {

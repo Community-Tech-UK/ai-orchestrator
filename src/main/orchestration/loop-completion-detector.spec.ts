@@ -785,6 +785,7 @@ describe('LoopCompletionDetector.runVerify', () => {
     if (r.status !== 'failed') throw new Error('expected failed verify outcome');
     expect(r.failureKind).toBe('timeout');
     expect(r.exitCode).toBeNull();
+    expect(typeof r.pid).toBe('number');
   });
 
   it('reports spawn failures as infrastructure failures', async () => {
