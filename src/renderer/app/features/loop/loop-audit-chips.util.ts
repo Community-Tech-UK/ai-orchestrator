@@ -29,9 +29,21 @@ export interface LoopAuditChipView {
  * tree is UNKNOWN, not that tests are red — painting it as a blocking failure
  * sent operators hunting for a broken build (LT-302 wording, LT-532 residual).
  */
+/** L6: short HUD wording per named non-convergence reason. */
+const NON_CONVERGENCE_CHIP: Readonly<Record<string, string>> = {
+  code_review_non_converging: 'review not converging',
+  landable_uncommitted: 'landable · uncommitted',
+  scope_expanded: 'scope widened',
+  no_progress: 'no progress',
+};
+
 export function buildHonestyChips(input: {
   autoUnstick?: { attempt: number; max: number; signalId: string } | null;
   capWrapUpIntent?: { cap: string } | null;
+  /** L6: the named reason the run stopped converging, when one was found. */
+  nonConvergence?: { reason: string } | null;
+  /** L6: ledger leaves deferred with a reason. The work is not dropped. */
+  parkedLeaves?: readonly { id: string }[] | null;
 } | null | undefined): string[] {
   if (!input) return [];
   const chips: string[] = [];
@@ -40,6 +52,15 @@ export function buildHonestyChips(input: {
   }
   if (input.capWrapUpIntent) {
     chips.push(`wrap-up · ${input.capWrapUpIntent.cap} cap`);
+  }
+  // L6: name the diagnosis on the HUD. "no progress" alone is true and useless;
+  // "review not converging" tells the operator which lever to pull.
+  if (input.nonConvergence) {
+    chips.push(NON_CONVERGENCE_CHIP[input.nonConvergence.reason] ?? input.nonConvergence.reason);
+  }
+  const parked = input.parkedLeaves?.length ?? 0;
+  if (parked > 0) {
+    chips.push(`${parked} item${parked === 1 ? '' : 's'} parked`);
   }
   return chips;
 }

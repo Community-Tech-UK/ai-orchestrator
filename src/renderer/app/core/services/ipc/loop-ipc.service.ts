@@ -127,7 +127,6 @@ export interface LoopStartConfigInput {
     maxWallTimeMs: number;
     maxTokens: number | null;
     maxCostCents: number | null;
-    maxToolCallsPerIteration: number;
   }>;
   completion?: Partial<{
     mode: 'review-driven' | 'gated';
@@ -475,7 +474,12 @@ export class LoopIpcService {
     if (!this.api) return () => { /* noop */ };
     return this.api.onLoopIterationComplete((p) => this.ngZone.run(() => cb(p as { loopRunId: string; seq: number; verdict: string })));
   }
-  onPausedNoProgress(cb: (data: { loopRunId: string; signal: { id: string; message: string; verdict: string } }) => void): () => void {
+  onPausedNoProgress(cb: (data: {
+    loopRunId: string;
+    signal: { id: string; message: string; verdict: string };
+    nonConvergence?: { reason: string; message: string; seq: number };
+    autoUnstickExhausted?: boolean;
+  }) => void): () => void {
     if (!this.api) return () => { /* noop */ };
     return this.api.onLoopPausedNoProgress((p) => this.ngZone.run(() => cb(p as { loopRunId: string; signal: { id: string; message: string; verdict: string } })));
   }

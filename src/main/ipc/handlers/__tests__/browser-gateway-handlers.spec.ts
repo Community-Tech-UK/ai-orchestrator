@@ -208,6 +208,8 @@ describe('registerBrowserGatewayHandlers', () => {
     expect(sendInput).toHaveBeenCalledWith(
       'instance-7',
       expect.stringContaining('approved by the user'),
+      undefined,
+      { automatedInput: true },
     );
   });
 
@@ -231,6 +233,8 @@ describe('registerBrowserGatewayHandlers', () => {
     expect(sendInput).toHaveBeenCalledWith(
       'instance-9',
       expect.stringContaining('denied by the user'),
+      undefined,
+      { automatedInput: true },
     );
   });
 
@@ -318,7 +322,12 @@ describe('registerBrowserGatewayHandlers', () => {
       handler({ admissionId: 'adm-blocked', instanceId: 'instance-7', message: 'retry now' });
       await new Promise((resolve) => setTimeout(resolve, 0));
 
-      expect(sendInput).toHaveBeenCalledWith('instance-7', 'retry now');
+      expect(sendInput).toHaveBeenCalledWith(
+        'instance-7',
+        'retry now',
+        undefined,
+        { automatedInput: true },
+      );
       expect(admissionMocks.markDelivered).toHaveBeenCalledWith('adm-blocked');
     });
   });

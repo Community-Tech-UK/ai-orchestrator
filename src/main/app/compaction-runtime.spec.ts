@@ -330,6 +330,8 @@ describe('setupCompactionCoordinator', () => {
     expect(managerSendInput).toHaveBeenCalledWith(
       'inst-1',
       expect.stringContaining('[Context Compaction Continuity Package]'),
+      undefined,
+      { automatedInput: true },
     );
     // Real compaction → boundary marker should be emitted.
     expect(emitOutputMessage).toHaveBeenCalledWith(

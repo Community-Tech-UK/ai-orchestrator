@@ -15,10 +15,10 @@ import * as os from 'node:os';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
-  classifyFreshEyesBlocking,
   runFreshEyesReviewGate,
   trackRepeatedCompletionEvidence,
 } from './loop-coordinator-completion-gates';
+import { classifyFreshEyesBlocking } from './fresh-eyes-blocking';
 import type { FreshEyesFinding, FreshEyesReviewer } from './loop-fresh-eyes-reviewer';
 import {
   defaultLoopConfig,
@@ -155,12 +155,15 @@ describe('runFreshEyesReviewGate — D6 instant ALLOW (anti-self-grading)', () =
     expect(result.ran).toBe(true);
   });
 
+  // L2: the instant ALLOW stays behind the `antiSelfGrading` opt-in. Skipping a
+  // real cross-model review by default is a trust-boundary change the plan does
+  // not authorise, so the shipped default must still run the reviewer.
   it('runs the reviewer when antiSelfGrading is off even with a cached verdict', async () => {
     const state = makeState({ freshEyesCleanForWorkState: true });
     state.config.completion.antiSelfGrading = false;
     const reviewer = vi.fn(cleanReview);
 
-    await runFreshEyesReviewGate(gateArgs(state, makeIteration(), reviewer));
+    await runFreshEyesReviewGate(gateArgs(state, makeIteration({ filesChanged: [] }), reviewer));
 
     expect(reviewer).toHaveBeenCalledOnce();
   });

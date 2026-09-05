@@ -153,6 +153,33 @@ describe('signal C — stage stagnation', () => {
     const state = makeState({ currentStage: 'PLAN', iterationsOnCurrentStage: T.stageCriticalIterations.PLAN });
     expect(signalC_stageStagnation(state, T, false)?.verdict).toBe('CRITICAL');
   });
+
+  // Review-driven loops have no stage machine: the agent is never asked to
+  // advance STAGE.md, so `iterationsOnCurrentStage` only ever counts up and this
+  // signal used to fire CRITICAL on every iteration past the threshold, forever.
+  // That is what terminated healthy review-driven runs as `completed-needs-review`.
+  it('is silent for review-driven loops, which have no stages to stagnate on', () => {
+    const reviewDriven = { ...cfg, completion: { ...cfg.completion, mode: 'review-driven' as const } };
+    for (const iterations of [
+      T.stageCriticalIterations.IMPLEMENT,
+      T.stageCriticalIterations.IMPLEMENT * 4,
+    ]) {
+      const state = makeState({
+        config: reviewDriven,
+        currentStage: 'IMPLEMENT',
+        iterationsOnCurrentStage: iterations,
+      });
+      expect(signalC_stageStagnation(state, T, false)).toBeNull();
+    }
+  });
+
+  it('still fires for a staged loop at the same iteration count', () => {
+    const state = makeState({
+      currentStage: 'IMPLEMENT',
+      iterationsOnCurrentStage: T.stageCriticalIterations.IMPLEMENT,
+    });
+    expect(signalC_stageStagnation(state, T, false)?.verdict).toBe('CRITICAL');
+  });
 });
 
 describe('signal D — test oscillation', () => {

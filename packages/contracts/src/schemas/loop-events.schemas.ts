@@ -66,6 +66,20 @@ export const LoopPausedNoProgressEventSchema = z.object({
   signal: ProgressSignalEvidenceSchema,
   reason: z.string().optional(),
   decision: z.record(z.string(), z.unknown()).optional(),
+  /**
+   * L6: the NAMED reason the run stopped converging. Declared explicitly rather
+   * than left to `.passthrough()` so the renderer can rely on its shape — a
+   * banner that still says "no-progress" when the backend knows it is
+   * "the reviewer keeps raising the same finding" is the whole bug L6 exists
+   * to fix.
+   */
+  nonConvergence: z.object({
+    reason: z.enum(['code_review_non_converging', 'landable_uncommitted', 'scope_expanded', 'no_progress']),
+    message: z.string(),
+    seq: z.number().int().nonnegative(),
+  }).optional(),
+  /** L14: set when auto-unstick spent every attempt before this pause. */
+  autoUnstickExhausted: z.boolean().optional(),
 }).passthrough();
 
 export const LoopClaimedDoneButFailedEventSchema = z.object({

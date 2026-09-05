@@ -684,6 +684,11 @@ export interface LoopConfig {
 // LOC-ratchet headroom; re-exported here so import sites are unchanged.
 export { defaultLoopConfig } from './loop-config-defaults';
 export type { LoopPhase4Config } from './loop-phase4.types';
+export type {
+  LoopInferredPhase,
+  LoopNonConvergenceReason,
+  LoopParkedLeaf,
+} from './loop-health.types';
 
 export type LoopStage = 'PLAN' | 'REVIEW' | 'IMPLEMENT';
 

@@ -379,11 +379,16 @@ describe('LoopCoordinator degraded iteration retry', () => {
     ).toBeNull();
   });
 
-  it('WS5: a degraded attempt that already WROTE into the workspace pauses for review, never replays', async () => {
-    let invokeCount = 0;
+  it('WS5: a degraded attempt that WROTE into the workspace is never replayed, but the run survives it', async () => {
+    // The observer diffs the whole execution cwd, so `writes-observed` can be a
+    // concurrent writer rather than this attempt. Ending the run on that
+    // evidence is what killed every loop between 2026-07-01 and 2026-09-04, so
+    // the spent attempt is now booked as an iteration and the loop moves on.
+    // The WS5 invariant that remains: the SAME seq is never invoked twice.
+    const seqs: number[] = [];
     coordinator.on('loop:invoke-iteration', (payload: unknown) => {
-      const p = payload as { callback: (result: LoopChildResult | { error: string }) => void };
-      invokeCount += 1;
+      const p = payload as { seq: number; callback: (result: LoopChildResult | { error: string }) => void };
+      seqs.push(p.seq);
       p.callback({
         error: 'stream cut mid-write',
         attemptEvidence: {
@@ -411,14 +416,13 @@ describe('LoopCoordinator degraded iteration retry', () => {
     });
 
     try {
-      await waitForCondition(() => coordinator.getLoop(state.id)?.status === 'completed-needs-review', 5000);
-      // NO replay happened — the writes-observed attempt sealed the run.
-      expect(invokeCount).toBe(1);
+      // It gets past iteration 1 instead of being sealed there.
+      await waitForCondition(() => seqs.length >= 2, 5000);
       const final = coordinator.getLoop(state.id);
-      expect(final?.endReason).toContain('Iteration 1 paused for review');
-      expect(final?.endReason).toContain('double-apply');
-      expect(final?.endEvidence?.['workspaceEffect']).toBe('writes-observed');
-      expect(final?.endEvidence?.['changedPaths']).toEqual(['src/half-written.ts']);
+      // No seq is ever invoked twice — the failed attempt was booked, not replayed.
+      expect(new Set(seqs).size).toBe(seqs.length);
+      expect(final?.endReason ?? '').not.toContain('paused for review');
+      expect(final?.status).not.toBe('completed-needs-review');
     } finally {
       await coordinator.cancelLoop(state.id);
     }

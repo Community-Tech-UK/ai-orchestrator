@@ -21,6 +21,7 @@ import { getEventLoopLagMonitor } from '../runtime/event-loop-lag-monitor';
 import { getContextWorkerClient } from '../instance/context-worker-client';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { WindowManager } from '../window-manager';
+import type { LoopState } from '../../shared/types/loop.types';
 import { getAuxiliaryLlmService } from '../rlm/auxiliary-llm-service';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getProviderQuotaService } from '../core/system/provider-quota-service';
@@ -29,6 +30,9 @@ import { maybeStartWorkerModeOnLaunch } from '../remote-node/worker-mode-autosta
 import { initializeContextEvidenceRuntime } from '../context-evidence/evidence-maintenance-service';
 import { initializeLocalAiGuardRuntime } from '../local-ai-guard';
 import { initializeInstanceAsyncWorkContinuation } from '../instance/instance-async-work-continuation';
+import { initializeInstanceAnnounceThenHaltContinuation } from '../instance/instance-announce-then-halt-continuation';
+import { getLoopCoordinator } from '../orchestration/loop-coordinator';
+import { isActiveLoopRuntimeState } from '../orchestration/loop-runtime-status';
 import { createLateRuntimeInitializationSteps } from './late-runtime-initialization-steps';
 
 const logger = getLogger('AppInitialization');
@@ -77,6 +81,26 @@ export function createLocalAiGuardInitializationStep(
           reason: 'runtime-startup-error',
         });
       }
+    },
+  };
+}
+
+export function createAnnounceThenHaltContinuationInitializationStep(
+  instanceManager: InstanceManager,
+  initialize: typeof initializeInstanceAnnounceThenHaltContinuation =
+    initializeInstanceAnnounceThenHaltContinuation,
+  getActiveLoops: () => Array<Pick<LoopState, 'chatId' | 'status' | 'endedAt'>> =
+    () => getLoopCoordinator().getActiveLoops(),
+): AppInitializationStep {
+  return {
+    name: 'Announce-then-halt continuation',
+    fn: () => {
+      initialize(
+        instanceManager,
+        (instanceId) => getActiveLoops().some(
+          (loop) => loop.chatId === instanceId && isActiveLoopRuntimeState(loop),
+        ),
+      );
     },
   };
 }
@@ -318,6 +342,7 @@ export function createInitializationSteps(
       name: 'Background task continuation',
       fn: () => { initializeInstanceAsyncWorkContinuation(instanceManager); },
     },
+    createAnnounceThenHaltContinuationInitializationStep(instanceManager),
     { name: 'Verification invokers', fn: () => registerDefaultMultiVerifyInvoker(instanceManager) },
     { name: 'Automations', fn: () => initializeAutomations(instanceManager) },
     { name: 'Review invokers', fn: () => registerDefaultReviewInvoker(instanceManager) },

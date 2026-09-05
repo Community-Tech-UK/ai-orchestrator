@@ -150,6 +150,7 @@ const ProviderSpawnedEventSchema = z.object({
 
 const ProviderCompleteEventSchema = z.object({
   kind: z.literal('complete'),
+  requestCountAtCompletion: z.number().int().nonnegative().optional(),
   tokensUsed: z.number().int().nonnegative().optional(),
   inputTokens: z.number().int().nonnegative().optional(),
   outputTokens: z.number().int().nonnegative().optional(),

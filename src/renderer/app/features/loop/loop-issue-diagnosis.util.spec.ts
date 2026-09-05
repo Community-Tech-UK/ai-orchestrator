@@ -31,6 +31,30 @@ describe('progressVerdictView', () => {
       value: 'OK',
     });
   });
+
+  // Gate 9 lost the verdict for screen-reader users and gate 10 produced
+  // "OK. The loop is blocked and needs you" in one breath. Both existed only
+  // because an aria-label replaced the pill's visible text. The label is now the
+  // accessible name, so it must always carry the verdict word itself.
+  it('always names the verdict in the visible label', () => {
+    for (const verdict of ['OK', 'WARN', 'CRITICAL']) {
+      for (const running of [true, false]) {
+        const view = progressVerdictView(verdict, running, 'Something specific');
+        expect(view.label, `${verdict}/${running}`).toContain(progressVerdictWord(verdict));
+        expect(progressVerdictView(verdict, running).label).toContain(progressVerdictWord(verdict));
+      }
+    }
+  });
+
+  // The banner's reason and the pill's own verdict come from different sources
+  // on purpose; keeping them in separate fields is what stops them being fused.
+  it('keeps the banner headline out of the verdict label', () => {
+    const view = progressVerdictView('OK', false, 'The loop is blocked and needs you');
+    expect(view.label).toBe('OK');
+    expect(view.title).toBe('The loop is blocked and needs you');
+    expect(Object.keys(view).sort()).toEqual(['label', 'title', 'value']);
+  });
+
 });
 
 describe('catalogForSignal', () => {

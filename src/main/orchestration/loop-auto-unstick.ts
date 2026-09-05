@@ -19,7 +19,9 @@ export const AUTO_UNSTICK_MAX_ATTEMPTS = 2;
  * escapes (pause, plan-regen, branch-select) and is the review-driven
  * success signature.
  */
-const ELIGIBLE = new Set(['G', 'B', 'E', 'I', 'D', 'D-prime', 'H']);
+export const AUTO_UNSTICK_ELIGIBLE_SIGNALS: ReadonlySet<string> =
+  new Set(['G', 'B', 'E', 'I', 'D', 'D-prime', 'H']);
+const ELIGIBLE = AUTO_UNSTICK_ELIGIBLE_SIGNALS;
 
 const SIGNAL_PRIORITY = ['G', 'B', 'E', 'I', 'D', 'D-prime', 'H'];
 

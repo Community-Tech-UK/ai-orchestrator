@@ -7,6 +7,12 @@ export interface LoopBannerNoProgress {
   kind: 'no-progress';
   loopRunId: string;
   signalId: string;
+  /**
+   * L6: when the backend produced a named diagnosis, this is ITS message —
+   * "the reviewer keeps raising the same finding" rather than the raw
+   * progress-signal text. The named reason and any parked items are shown as
+   * HUD chips, so they are deliberately not duplicated onto the banner.
+   */
   message: string;
   shownAt: number;
 }

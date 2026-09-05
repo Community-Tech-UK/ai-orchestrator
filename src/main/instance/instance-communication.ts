@@ -100,6 +100,7 @@ import { bindRawAdapterProviderEvents } from './instance-communication-provider-
 import { InstanceContinuityInputQueue } from './instance-continuity-input-queue';
 import { InstanceToolResultProcessor } from './instance-tool-result-processor';
 import { getInstanceAsyncWorkRegistry } from './instance-async-work-registry';
+import { throwIfInstanceInputAborted } from './instance-input-cancellation';
 export type { CommunicationDependencies } from './instance-communication.types';
 
 const logger = getLogger('InstanceCommunication');
@@ -255,9 +256,13 @@ export class InstanceCommunicationManager extends EventEmitter {
     };
   }
 
-  private toProviderCompleteEvent(response: CliResponse): ProviderRuntimeEvent {
+  private toProviderCompleteEvent(
+    response: CliResponse,
+    requestCountAtCompletion?: number,
+  ): ProviderRuntimeEvent {
     return {
       kind: 'complete',
+      ...(requestCountAtCompletion !== undefined ? { requestCountAtCompletion } : {}),
       ...(response.usage?.totalTokens !== undefined ? { tokensUsed: response.usage.totalTokens } : {}),
       ...(response.usage?.cost !== undefined ? { costUsd: response.usage.cost } : {}),
       ...(response.usage?.duration !== undefined ? { durationMs: response.usage.duration } : {}),
@@ -581,8 +586,13 @@ export class InstanceCommunicationManager extends EventEmitter {
     message: string,
     attachments?: FileAttachment[],
     contextBlock?: string | null,
-    options?: { autoContinuation?: boolean }
+    options?: {
+      autoContinuation?: boolean;
+      signal?: AbortSignal;
+      beforeProviderDispatch?: () => void;
+    }
   ): Promise<void> {
+    throwIfInstanceInputAborted(options?.signal);
     logger.info('sendInput called', { instanceId, autoContinuation: options?.autoContinuation === true });
     const instance = this.deps.getInstance(instanceId);
     let adapter = this.deps.getAdapter(instanceId);
@@ -666,6 +676,7 @@ export class InstanceCommunicationManager extends EventEmitter {
 
     if (this.deps.refreshAdapterRuntimeConfig) {
       await this.deps.refreshAdapterRuntimeConfig(instanceId);
+      throwIfInstanceInputAborted(options?.signal);
       adapter = this.deps.getAdapter(instanceId);
       if (!adapter) {
         logger.error('Adapter disappeared after runtime config refresh', undefined, {
@@ -695,8 +706,8 @@ export class InstanceCommunicationManager extends EventEmitter {
       logger.info('Skipped adapter dispatch because the provider has an active known limit', { instanceId });
       return;
     }
-    const finalContextBlock = this.continuityInputQueue.consume(instanceId, contextBlock);
-    this.lastSentMessages.set(instanceId, { message, attachments, contextBlock: finalContextBlock });
+    const preparedContext = this.continuityInputQueue.prepare(instanceId, contextBlock);
+    const finalContextBlock = preparedContext.contextBlock;
 
     const isAutoContinuation = options?.autoContinuation === true;
     const finalMessageBase = finalContextBlock ? `${finalContextBlock}\n\n${message}` : message;
@@ -711,18 +722,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       },
       this.hookManager,
     );
-
-    // Hard checkpoint: snapshot before user message
-    if (this.deps.createSnapshot) {
-      const name = `Before: ${message.slice(0, 50)}`;
-      try {
-        this.deps.createSnapshot(instanceId, name, undefined, 'checkpoint');
-      } catch (err) {
-        logger.debug('Failed to create checkpoint snapshot', { instanceId, error: String(err) });
-      }
-    }
-    // Reset autonomous tool counter on user input
-    this.toolResultProcessor.resetAutonomousCount(instanceId);
+    throwIfInstanceInputAborted(options?.signal);
 
     // Budget gate: silent. Never throws a message at the user; the CLI
     // handles its own context and the CompactionCoordinator auto-compacts
@@ -810,18 +810,35 @@ export class InstanceCommunicationManager extends EventEmitter {
     // adapter events still override this (recordOutput resets the clock;
     // tool_executing extends timeouts for long tool runs). Adapters that
     // return from sendInput() quickly (Claude, Gemini) are unaffected.
-    this.deps.onToolStateChange?.(instanceId, 'generating');
-    // Observe-only receipt (Phase A of SessionAdmissionService). Never adds
-    // latency or a new failure mode: recordUserSend() swallows its own
-    // errors and returns null on failure, and the mark* calls below are
-    // fail-soft no-ops when admissionRecord is null.
-    const admissionRecord = getSessionAdmissionService().recordUserSend(
-      instanceId,
-      finalMessage,
-      attachments,
-      finalContextBlock,
-    );
+    let admissionRecord: ReturnType<ReturnType<typeof getSessionAdmissionService>['recordUserSend']> = null;
     try {
+      throwIfInstanceInputAborted(options?.signal);
+      options?.beforeProviderDispatch?.();
+      preparedContext.commit();
+      this.lastSentMessages.set(instanceId, { message, attachments, contextBlock: finalContextBlock });
+      // These mutations belong to a real provider-dispatch attempt. Keeping
+      // them behind the cancellation and budget gates prevents an abandoned
+      // auto-continuation from creating phantom send state.
+      if (this.deps.createSnapshot) {
+        const name = `Before: ${message.slice(0, 50)}`;
+        try {
+          this.deps.createSnapshot(instanceId, name, undefined, 'checkpoint');
+        } catch (err) {
+          logger.debug('Failed to create checkpoint snapshot', { instanceId, error: String(err) });
+        }
+      }
+      this.toolResultProcessor.resetAutonomousCount(instanceId);
+      this.deps.onToolStateChange?.(instanceId, 'generating');
+      // Observe-only receipt (Phase A of SessionAdmissionService). Never adds
+      // latency or a new failure mode: recordUserSend() swallows its own
+      // errors and returns null on failure, and the mark* calls below are
+      // fail-soft no-ops when admissionRecord is null.
+      admissionRecord = getSessionAdmissionService().recordUserSend(
+        instanceId,
+        finalMessage,
+        attachments,
+        finalContextBlock,
+      );
       await adapter.sendInput(finalMessage, attachments);
       logger.info('Message sent to adapter');
       if (admissionRecord) getSessionAdmissionService().markDelivered(admissionRecord.admissionId);
@@ -850,6 +867,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         }
 
         try {
+          throwIfInstanceInputAborted(options?.signal);
           await adapter.sendInput(finalMessage, attachments);
           logger.info('Message sent to adapter after dropping unsupported attachments', {
             instanceId,
@@ -941,6 +959,7 @@ export class InstanceCommunicationManager extends EventEmitter {
           this.transitionInstanceStatus(instance, 'busy');
           this.deps.queueUpdate(instanceId, 'busy');
 
+          throwIfInstanceInputAborted(options?.signal);
           adapter.sendInput(retryMessage, attachments).catch(retryErr => {
             logger.error('Retry after compaction failed (sendInput path)', retryErr instanceof Error ? retryErr : undefined, { instanceId });
             this.transitionInstanceStatus(instance, 'idle');
@@ -1697,6 +1716,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       if (isStaleAdapterEvent('complete')) {
         return;
       }
+      const requestCountAtProviderCompletion = this.deps.getInstance(instanceId)?.requestCount;
       if (this.deps.drainContextEvidence) {
         await this.deps.drainContextEvidence(instanceId);
       }
@@ -1726,8 +1746,14 @@ export class InstanceCommunicationManager extends EventEmitter {
           adapterGenerationAtSubscribe,
         );
       }
-      emitProviderRuntimeEvent(this.toProviderCompleteEvent(response), {
-        raw: { source: 'adapter-event:complete', payload: toJsonSafeProviderEventPayload(response) },
+      emitProviderRuntimeEvent(this.toProviderCompleteEvent(
+        response,
+        requestCountAtProviderCompletion,
+      ), {
+        raw: {
+          source: 'adapter-event:complete',
+          payload: toJsonSafeProviderEventPayload(response),
+        },
       });
       if (completedInstance) {
         this.recordCompletionCost(instanceId, completedInstance, response);

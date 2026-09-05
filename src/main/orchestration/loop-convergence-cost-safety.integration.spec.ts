@@ -148,11 +148,11 @@ describe('WS9 §2 — aggregate tokens can never fabricate occupancy', () => {
 });
 
 describe('WS9 §3/§4 — degraded turn with vs without workspace writes', () => {
-  it('a degraded attempt that WROTE pauses with sealed bounded evidence; no replay', async () => {
-    let invokeCount = 0;
+  it('a degraded attempt that WROTE is never replayed, and the run continues past it', async () => {
+    const seqs: number[] = [];
     coordinator.on('loop:invoke-iteration', (payload: unknown) => {
-      const p = payload as { callback: (result: LoopChildResult | { error: string }) => void };
-      invokeCount += 1;
+      const p = payload as { seq: number; callback: (result: LoopChildResult | { error: string }) => void };
+      seqs.push(p.seq);
       // The 101-byte/900-second shape: tiny output, died mid-write, but the
       // workspace observation shows a real write.
       p.callback({
@@ -171,11 +171,12 @@ describe('WS9 §3/§4 — degraded turn with vs without workspace writes', () =>
       degradedIterationRetry: { enabled: true, maxRetries: 2 },
     }));
 
-    await waitForCondition(() => coordinator.getLoop(state.id)?.status === 'completed-needs-review');
-    expect(invokeCount).toBe(1); // sealed — never replayed
-    const final = coordinator.getLoop(state.id);
-    expect(final?.endEvidence?.['workspaceEffect']).toBe('writes-observed');
-    expect(final?.endEvidence?.['changedPaths']).toEqual(['src/half.ts']);
+    // A whole-workspace delta is not proof THIS attempt wrote it, so the run is
+    // no longer sealed here — it books the spent attempt and moves to the next
+    // seq. What must still hold: no seq is ever invoked twice.
+    await waitForCondition(() => seqs.length >= 2);
+    expect(new Set(seqs).size).toBe(seqs.length);
+    expect(coordinator.getLoop(state.id)?.endReason ?? '').not.toContain('paused for review');
   });
 
   it('the same failure with a PROVEN clean workspace retries exactly once per budget without duplicating the seq', async () => {

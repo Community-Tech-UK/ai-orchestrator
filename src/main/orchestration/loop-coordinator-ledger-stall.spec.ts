@@ -103,7 +103,6 @@ describe('LoopCoordinator ledger-progress stall backstop', () => {
         maxWallTimeMs: 120_000,
         maxTokens: 1_000_000,
         maxCostCents: 4,
-        maxToolCallsPerIteration: 200,
       },
       completion: {
         ...defaultLoopConfig(workspace, 'x').completion,
@@ -125,7 +124,10 @@ describe('LoopCoordinator ledger-progress stall backstop', () => {
     expect(final?.status).toBe('cap-reached');
     expect(event.reason).toMatch(/cost/i);
     expect(final?.endReason).toBe(event.reason);
-    expect(invocations).toBe(5);
+    // T45 (Decision 4): a COST cap stops immediately — the wrap-up turn would
+    // pay another full iteration to overshoot the budget that just stopped the
+    // run. Iteration and wall-time caps still get their wrap-up turn.
+    expect(invocations).toBe(4);
   }, 30_000);
 
   it('allows verified completion to win on the cap wrap-up turn', async () => {
@@ -278,7 +280,6 @@ describe('LoopCoordinator ledger-progress stall backstop', () => {
         maxWallTimeMs: 120_000,
         maxTokens: 1_000_000,
         maxCostCents: 100_000,
-        maxToolCallsPerIteration: 200,
       },
       completion: {
         ...defaultLoopConfig(workspace, 'x').completion,

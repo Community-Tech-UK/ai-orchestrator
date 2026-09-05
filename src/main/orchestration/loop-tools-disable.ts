@@ -91,3 +91,23 @@ export function applyWrapUpToolsDisable(adapter: unknown): WrapUpToolsDisableHan
     },
   };
 }
+
+/**
+ * T45 (Wave 2) — providers whose adapter can actually ENFORCE the wrap-up
+ * tools-disable, rather than merely being asked to behave in the prompt.
+ *
+ * The wrap-up turn's whole premise is "summarise, do not start new work". On
+ * Claude that is enforced (`setDisallowedToolsOverride`); everywhere else the
+ * child keeps a full toolset and a directive it may ignore, so a capped run can
+ * spend its extra paid turn starting work it will never finish — the opposite
+ * of a hand-off.
+ *
+ * Keep this in sync with the adapters implementing
+ * `setDisallowedToolsOverride`; `loop-tools-disable.spec.ts` asserts the pairing
+ * so it cannot drift silently.
+ */
+const WRAP_UP_TOOLS_DISABLE_PROVIDERS: ReadonlySet<string> = new Set(['claude']);
+
+export function providerEnforcesWrapUpToolsDisable(provider: string | undefined): boolean {
+  return WRAP_UP_TOOLS_DISABLE_PROVIDERS.has((provider ?? '').trim().toLowerCase());
+}

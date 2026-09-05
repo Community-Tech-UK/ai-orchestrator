@@ -46,11 +46,23 @@ describe('resolveRoutedModel (intent-routing Phase 1)', () => {
     expect(decision.model).toBe(resolveModelForTier('powerful', 'gemini'));
   });
 
-  it('passes through unchanged when the target provider has no model for the tier', () => {
+  // T43: passing the Claude decision through was the bug. Grok has no
+  // `balanced` row, so `sonnet` reached the Grok adapter, was repaired to
+  // grok-4.6 downstream, and the HUD showed a Claude id while the flagship ran.
+  it('never leaks a Claude id to a provider with no model for the tier', () => {
     const decision = resolveRoutedModel('list', { provider: 'no-such-provider' });
-    // Stays claude-centric (the fast-tier default) and is not annotated as resolved.
-    expect(decision.model).toBe(DEFAULT_ROUTING_CONFIG.fastModel);
+    expect(decision.model).toBe('');
+    expect(decision.reason).toContain('letting the CLI choose');
     expect(decision.reason).not.toContain('resolved to');
+  });
+
+  it('falls back to the target provider\'s own primary id when one exists', () => {
+    // Grok catalogues only a `powerful` row, so a fast-tier decision must land
+    // on a Grok id rather than `haiku`.
+    const decision = resolveRoutedModel('list', { provider: 'grok' });
+    expect(decision.tier).toBe('fast');
+    expect(decision.model).not.toBe(DEFAULT_ROUTING_CONFIG.fastModel);
+    expect(decision.model).toContain('grok');
   });
 
   it('does not match keywords as substrings (word-boundary regression)', () => {

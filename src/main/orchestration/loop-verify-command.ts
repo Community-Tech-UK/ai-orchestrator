@@ -38,6 +38,31 @@ export interface ResolvedLoopVerification {
   verifyCommand: string;
   /** Provenance of an inferred command (e.g. `package.json script "verify"`). */
   inferredSource?: string;
+  /**
+   * T42: set when a verifier WAS detected but was refused because another
+   * writer is mid-edit in this unisolated workspace. Distinguishes "no
+   * verifier here" from "the verifier would grade someone else's work".
+   */
+  contendedPaths?: string[];
+}
+
+/**
+ * T42: paths whose presence as UNTRACKED files means another agent is editing
+ * this workspace right now. A mid-edit spec file or a live loop-state directory
+ * turns a green suite red for reasons that have nothing to do with the child,
+ * and the HUD then blames the child for it.
+ */
+export function findContendedWorkspacePaths(gitStatusPorcelain: string): string[] {
+  const contended: string[] = [];
+  for (const line of gitStatusPorcelain.split('\n')) {
+    if (!line.startsWith('?? ')) continue;
+    const rel = line.slice(3).trim().replace(/^"|"$/g, '');
+    if (!rel) continue;
+    const normalized = rel.split('\\').join('/');
+    if (normalized.startsWith('.aio-loop-')) contended.push(normalized);
+    else if (/\.spec\.(ts|tsx|js|mjs)$/.test(normalized)) contended.push(normalized);
+  }
+  return contended;
 }
 
 export interface ResolveLoopVerificationInput {
@@ -54,6 +79,17 @@ export interface ResolveLoopVerificationInput {
   requireAuthority: boolean;
   /** Injectable for tests; defaults to {@link inferLoopVerifyCommand}. */
   infer?: (workspaceCwd: string) => Promise<InferredLoopVerifyCommand | null>;
+  /**
+   * T42: the loop will run in its own worktree, so a concurrent writer in the
+   * repo root cannot poison its verify. Skips the contention probe.
+   */
+  isolated?: boolean;
+  /**
+   * T42: returns `git status --porcelain` for the workspace, or `null` when it
+   * cannot be read (not a repo, git missing). Injectable for tests; `null`
+   * fails open — an unreadable status is never treated as contention.
+   */
+  gitStatus?: (workspaceCwd: string) => Promise<string | null>;
 }
 
 /**
@@ -90,11 +126,38 @@ export async function resolveLoopVerification(
   if (!inferred || !isAutoAdoptable(inferred)) {
     return { authority: 'none', verifyCommand: '' };
   }
+  // T42/T44: adopting a suite that a second agent is mid-edit in produces reds
+  // this loop did not cause, and the child is then told to fix them. An
+  // explicit command still runs (the operator chose it); only silent adoption
+  // is refused, and only when the loop is NOT isolated.
+  if (!input.isolated) {
+    const status = await (input.gitStatus ?? readGitStatusPorcelain)(input.workspaceCwd);
+    const contended = status === null ? [] : findContendedWorkspacePaths(status);
+    if (contended.length > 0) {
+      return { authority: 'none', verifyCommand: '', contendedPaths: contended };
+    }
+  }
   return {
     authority: 'inferred',
     verifyCommand: inferred.command,
     inferredSource: inferred.source,
   };
+}
+
+async function readGitStatusPorcelain(workspaceCwd: string): Promise<string | null> {
+  try {
+    const { execFile } = await import('node:child_process');
+    const { promisify } = await import('node:util');
+    const run = promisify(execFile);
+    const { stdout } = await run('git', ['status', '--porcelain'], {
+      cwd: workspaceCwd,
+      timeout: 15_000,
+      maxBuffer: 8 * 1024 * 1024,
+    });
+    return stdout;
+  } catch {
+    return null;
+  }
 }
 
 /** True when an inferred command verifies the loop's OWN tree. */

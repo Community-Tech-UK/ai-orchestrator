@@ -14,21 +14,6 @@ import { isTransportFailureOnlyOutput } from './loop-transport-failure-output';
 const execFileAsync = promisify(execFile);
 
 /**
- * Pi Task 18: split a pending-input queue by drain timing. `follow-up` hints are
- * held back for the completion seam; everything else (`queue`/`steer`) drains
- * into the current prompt. See `LoopPendingInputKind`.
- */
-export function partitionPendingByDrainTiming(
-  pending: readonly (string | LoopPendingInput)[],
-): { drainNow: LoopPendingInput[]; deferredFollowUps: LoopPendingInput[] } {
-  const coerced = pending.map(coercePendingInput);
-  return {
-    drainNow: coerced.filter((i) => i.kind !== 'follow-up'),
-    deferredFollowUps: coerced.filter((i) => i.kind === 'follow-up'),
-  };
-}
-
-/**
  * Pi Task 18: when the loop would complete, convert queued `follow-up` messages
  * into next-iteration hints so they run "before you finish."
  *

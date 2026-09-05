@@ -12,6 +12,7 @@ import { runBrowserExtensionNativeHost } from '../main/browser-gateway/browser-e
 import { installWorkerFileLogging } from './worker-file-logger';
 import { runWorkerSupervisor } from './worker-supervisor';
 import { acquireSingleInstanceLock } from './single-instance-lock';
+import { captureRuntimeVitals, startRuntimeVitalsLogging } from './worker-runtime-vitals';
 
 const SUPERVISE_FLAG = '--supervise';
 
@@ -23,7 +24,11 @@ async function main(): Promise<void> {
   }
 
   if (argv[0] === 'pair') {
-    const result = await runPairCommand(argv.slice(1));
+    // The launcher scripts append --supervise to whatever the user typed, so a
+    // `start-worker.sh pair "<link>"` carries it through to here. The pair
+    // parser rejects unknown `--` options outright, and supervision is not a
+    // pair concern anyway — it is re-added below once pairing succeeds.
+    const result = await runPairCommand(argv.slice(1).filter((a) => a !== SUPERVISE_FLAG));
     if (!result.startWorker) {
       process.exit(result.exitCode);
     }
@@ -43,7 +48,12 @@ async function main(): Promise<void> {
   // crashes. Only meaningful outside service mode — WinSW/launchd/systemd already
   // supervise. The Windows Startup launcher runs `node index.js --supervise`.
   if (!serviceMode && argv.includes(SUPERVISE_FLAG)) {
-    installWorkerFileLogging();
+    // Own log file: the supervised child also installs file logging, and two
+    // processes appending to one path keep independent size counters, so they
+    // would race each other's rotation. Splitting them also makes the restart
+    // history readable on its own — "did it come back?" is the first question
+    // after a worker disappears.
+    installWorkerFileLogging({ fileName: 'worker-supervisor.log' });
     const childArgs = argv.filter((a) => a !== SUPERVISE_FLAG);
     const code = await runWorkerSupervisor({ childArgs });
     process.exit(code);
@@ -79,8 +89,33 @@ async function main(): Promise<void> {
     );
     process.exit(0);
   }
-  // Release the lock on a hard exit too (crash/exit paths that skip shutdown()).
-  process.on('exit', () => lock.release());
+  // Exit forensics. A worker that vanishes silently is impossible to diagnose
+  // after the fact: on 2026-09-03 this process stopped mid-log-line and stayed
+  // dead for 23 hours with no shutdown line, no crash handler line and no
+  // Windows error record. These handlers make the next occurrence self-
+  // describing — if a final line IS present the exit ran JavaScript (and names
+  // the cause), and if it is ABSENT the process was hard-killed from outside
+  // (TerminateProcess / V8 fatal abort), which is itself the answer.
+  //
+  // `exit` handlers must be synchronous; the file logger uses appendFileSync,
+  // so the line is on disk before the process goes.
+  process.on('exit', (code) => {
+    // Release FIRST. The log line below goes through the patched console, which
+    // re-throws whatever the mirrored write throws (a torn-down stdout during
+    // exit can raise ERR_STREAM_DESTROYED) — and a throw here would skip the
+    // release the previous handler always performed.
+    lock.release();
+    try {
+      console.warn(
+        `[WorkerAgent] process exiting ${JSON.stringify({
+          code,
+          ...captureRuntimeVitals(),
+        })}`,
+      );
+    } catch {
+      // Nothing useful left to do on the way out.
+    }
+  });
 
   const agent = new WorkerAgent(config, activeConfigPath);
 
@@ -96,6 +131,16 @@ async function main(): Promise<void> {
 
   process.on('SIGINT', () => void shutdown('SIGINT'));
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
+  // Windows delivers SIGHUP when the owning console window is closed and
+  // SIGBREAK on Ctrl+Break. The worker is a child of a long-lived `cmd /K`
+  // console, so "someone closed the window" is a live failure mode — without
+  // these it exits with no record at all.
+  process.on('SIGHUP', () => void shutdown('SIGHUP'));
+  process.on('SIGBREAK', () => void shutdown('SIGBREAK'));
+
+  // Resource trend, so a future silent death can be attributed to (or cleared
+  // of) heap exhaustion from the last line written before the gap.
+  startRuntimeVitalsLogging();
 
   // Survive our own bugs. A worker with no supervision that hits an
   // uncaughtException / unhandledRejection would exit and stay dead until the

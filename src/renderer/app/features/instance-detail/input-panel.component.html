@@ -505,9 +505,10 @@
             [class.loop-mode]="loopArmed()"
             [disabled]="disabled() || !canSend()"
             (click)="onSend()"
-            [title]="loopStarting() ? 'Starting loop...' : (loopArmed() ? 'Start loop (Enter)' : (isInitializing() || isSteeringTarget() ? 'Queue message (Enter)' : 'Send message (Enter)'))"
+            [appTooltip]="sendButtonLabel()"
+            [attr.aria-label]="sendButtonLabel()"
           >
-            <span class="send-icon">{{ loopArmed() ? '↻' : '↑' }}</span>
+            <span class="send-icon" aria-hidden="true">{{ loopArmed() ? '↻' : '↑' }}</span>
           </button>
         }
       </div>

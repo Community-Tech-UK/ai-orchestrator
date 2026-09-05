@@ -165,6 +165,7 @@ describe('ProviderRuntimeEventEnvelopeSchema', () => {
         ...baseEnv,
         event: {
           kind: 'complete',
+          requestCountAtCompletion: 7,
           tokensUsed: 100,
           stopReason: 'end_turn',
           quota: { exhausted: false },
@@ -172,6 +173,7 @@ describe('ProviderRuntimeEventEnvelopeSchema', () => {
       }).event;
     expect(completeEvent).toMatchObject({
       kind: 'complete',
+      requestCountAtCompletion: 7,
       stopReason: 'end_turn',
       quota: { exhausted: false },
     });

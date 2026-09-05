@@ -17,7 +17,6 @@ export interface LoopConfigInput {
     maxWallTimeMs: number;
     maxTokens: number | null;
     maxCostCents: number | null;
-    maxToolCallsPerIteration: number;
   }>;
   completion?: Partial<{
     completedFilenamePattern: string;

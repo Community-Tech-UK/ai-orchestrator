@@ -157,7 +157,14 @@ export class LoopStageMachine {
       const text = (await readUtf8FileHead(this.paths.stage, 1024)).text.trim();
       const parsed = this.parseStage(text);
       if (parsed) return parsed;
-      logger.warn('STAGE.md unparseable; defaulting to initialStage', { content: text.slice(0, 80) });
+      // Review-driven loops have no stage machine, so the agent is never asked
+      // to keep STAGE.md to PLAN/REVIEW/IMPLEMENT and routinely parks something
+      // else there (`COMPLETE` is the common one). That is not a fault in this
+      // mode, and warning on it every iteration made healthy runs read as
+      // broken. Staged loops still warn — there it IS a real fault.
+      if (config.completion.mode !== 'review-driven') {
+        logger.warn('STAGE.md unparseable; defaulting to initialStage', { content: text.slice(0, 80) });
+      }
       return config.initialStage;
     } catch {
       return config.initialStage;

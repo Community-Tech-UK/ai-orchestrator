@@ -305,11 +305,41 @@ const CLI_TO_PROVIDER_TYPE: Record<string, ProviderType> = {
 };
 
 /**
+ * T41 — Antigravity's house default.
+ *
+ * `antigravity` is a CLI-only provider with no `ProviderType` member, so it had
+ * no `CLI_TO_PROVIDER_TYPE` entry and `getDefaultModelForCli('antigravity')`
+ * returned `undefined`: a router-off Antigravity spawn passed no `--model` and
+ * agy silently picked its own. This must be an EXACT `agy models` display
+ * label (G35) — agy ignores an unknown `--model` without warning — so it is
+ * read from the catalog rather than written out by hand.
+ */
+export function antigravityDefaultModel(): string | undefined {
+  // Named explicitly, not picked by tier: the antigravity catalog has three
+  // pinned `balanced` rows (Gemini Flash, Claude Sonnet, GPT-OSS), so a
+  // `.find()` would make the house default an accident of array order. This is
+  // the same row `DEFAULT_REVIEWER_MODEL_BY_PROVIDER.antigravity` uses.
+  //
+  // Resolved lazily and validated against the catalog: `provider.types` and
+  // this module import each other, so a module-eval read of
+  // PROVIDER_MODEL_LIST sees `undefined`; and agy ignores an unknown --model
+  // without warning (G35), so a catalog rename must fall back to the first
+  // balanced row rather than forward a label agy no longer accepts.
+  const models = PROVIDER_MODEL_LIST['antigravity'] ?? [];
+  const preferred = models.find((model) => model.id === ANTIGRAVITY_HOUSE_DEFAULT_MODEL_ID);
+  return (preferred ?? models.find((model) => model.tier === 'balanced' && model.pinned))?.id;
+}
+
+/** The agy display label AIO picks when nothing else pins one. */
+export const ANTIGRAVITY_HOUSE_DEFAULT_MODEL_ID = 'Gemini 3.5 Flash (Medium)';
+
+/**
  * Get the default model for a CLI type.
  * Uses DEFAULT_MODELS to ensure the CLI always gets an explicit model
  * rather than falling back to its own (potentially outdated) built-in default.
  */
 export function getDefaultModelForCli(cliType: string): string | undefined {
+  if (cliType === 'antigravity') return antigravityDefaultModel();
   const providerType = CLI_TO_PROVIDER_TYPE[cliType];
   return providerType ? DEFAULT_MODELS[providerType] : undefined;
 }

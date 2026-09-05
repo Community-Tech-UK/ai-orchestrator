@@ -8,6 +8,7 @@ import {
   decideDegradedRetry,
   deriveAttemptEvidenceFromResult,
   unknownAttemptEvidence,
+  unreplayableAttemptResult,
   type LoopInvocationAttemptEvidence,
 } from './loop-invocation-attempt';
 
@@ -57,7 +58,7 @@ describe('decideDegradedRetry — retry matrix', () => {
     })).toEqual({ action: 'proceed' });
   });
 
-  it('degraded + writes-observed → pause-review naming the changed paths, never a replay', () => {
+  it('degraded + writes-observed → continue WITHOUT replay, naming the changed paths', () => {
     const d = decideDegradedRetry({
       evidence: evidence({
         workspaceEffect: 'writes-observed',
@@ -65,22 +66,39 @@ describe('decideDegradedRetry — retry matrix', () => {
       }),
       degradedReason: 'transient-error', attemptsSoFar: 0, maxRetries: 5,
     });
-    expect(d.action).toBe('pause-review');
-    if (d.action === 'pause-review') {
+    // Never a replay (the WS5 invariant) — but the run is NOT ended either: the
+    // delta is a whole-workspace diff and may belong to a concurrent writer.
+    expect(d.action).toBe('continue-without-replay');
+    if (d.action === 'continue-without-replay') {
       expect(d.reason).toContain('src/a.ts');
       expect(d.reason).toContain('src/b.ts');
       expect(d.reason).toContain('double-apply');
+      expect(d.reason).toContain('another writer');
     }
   });
 
-  it('writes-observed pause bounds the path list', () => {
+  it('writes-observed bounds the path list', () => {
     const files = Array.from({ length: 20 }, (_, i) => change(`src/f${i}.ts`));
     const d = decideDegradedRetry({
       evidence: evidence({ workspaceEffect: 'writes-observed', filesChanged: files }),
       degradedReason: 'void', attemptsSoFar: 0, maxRetries: 5,
     });
-    expect(d.action).toBe('pause-review');
-    if (d.action === 'pause-review') expect(d.reason).toContain('+12 more');
+    expect(d.action).toBe('continue-without-replay');
+    if (d.action === 'continue-without-replay') expect(d.reason).toContain('+12 more');
+  });
+
+  it('a one-off writes-observed failure does not end the run, but a repeated one still can', () => {
+    // Regression guard for the real failure: the decision must not depend on
+    // how dirty the tree looks, because the loop cannot attribute the dirt.
+    const noisy = evidence({
+      workspaceEffect: 'writes-observed',
+      filesChanged: [change('grok.md'), change('fable_todo2.md')],
+    });
+    for (const attemptsSoFar of [0, 1, 4]) {
+      expect(decideDegradedRetry({
+        evidence: noisy, degradedReason: 'invocation-error', attemptsSoFar, maxRetries: 5,
+      }).action).toBe('continue-without-replay');
+    }
   });
 
   it('degraded + unknown workspace state → pause-review with the observer note', () => {
@@ -125,5 +143,47 @@ describe('unknownAttemptEvidence', () => {
     expect(e.outcome).toBe('failed');
     expect(e.workspaceEffect).toBe('unknown');
     expect(e.reason).toContain('timed out');
+  });
+});
+
+describe('unreplayableAttemptResult', () => {
+  const observed = {
+    outcome: 'failed' as const,
+    outputExcerpt: 'boom',
+    workspaceEffect: 'writes-observed' as const,
+    filesChanged: [change('src/a.ts'), change('grok.md')],
+    providerThreadReusable: false,
+  };
+
+  it('claims NO files changed, so unattributable writes cannot fake progress', () => {
+    // Crediting these paths would reset the review-driven stall counter
+    // (`madeProductionChange`) and mask a genuinely stuck loop.
+    const r = unreplayableAttemptResult(observed, 'ECONNRESET', 'not replayed');
+    expect(r.filesChanged).toEqual([]);
+    expect(r.toolCalls).toEqual([]);
+    expect(r.tokens).toBe(0);
+    expect(r.exitedCleanly).toBe(false);
+  });
+
+  it('reports the observed paths and the reason in the output for the human', () => {
+    const r = unreplayableAttemptResult(observed, 'ECONNRESET', 'workspace writes observed');
+    expect(r.output).toContain('workspace writes observed');
+    expect(r.output).toContain('src/a.ts');
+    expect(r.output).toContain('grok.md');
+    expect(r.output).toContain('ECONNRESET');
+  });
+
+  it('keeps the invocation error as a stable bucket so signal E can escalate repeats', () => {
+    const a = unreplayableAttemptResult(observed, 'ECONNRESET', 'r');
+    const b = unreplayableAttemptResult(observed, 'ECONNRESET', 'r');
+    const other = unreplayableAttemptResult(observed, 'ETIMEDOUT', 'r');
+    expect(a.errors[0]?.bucket).toBe('provider-invocation-error');
+    // Identical errors hash identically — that is what lets E count repeats.
+    expect(a.errors[0]?.exactHash).toBe(b.errors[0]?.exactHash);
+    expect(a.errors[0]?.exactHash).not.toBe(other.errors[0]?.exactHash);
+  });
+
+  it('records no error when there was no invocation error', () => {
+    expect(unreplayableAttemptResult(observed, null, 'r').errors).toEqual([]);
   });
 });

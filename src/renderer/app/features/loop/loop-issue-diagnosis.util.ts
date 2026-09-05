@@ -180,6 +180,13 @@ export function progressVerdictView(
     : hasRunningIteration
       ? 'Last completed iteration progress verdict'
       : 'Latest progress verdict';
+  // `title` deliberately follows the pause BANNER when one is up, while `value`
+  // still reports the last iteration's own verdict — the two come from different
+  // sources by design (see the banner test in loop-control.component.spec.ts).
+  // Do not fuse them into one accessible name: gate 10 showed that produces
+  // "OK. The loop is blocked and needs you" in a single utterance. The pill's
+  // visible text names the verdict; the tooltip explains; the issue card carries
+  // the same headline as real text for assistive tech.
   return { label, title, value: verdict };
 }
 

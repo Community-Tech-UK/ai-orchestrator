@@ -104,9 +104,14 @@ export function renderReviewDrivenContinuationCard(options: {
   iterationPrompt?: string;
 }): string {
   const preferred = (options.config.completion.noOutstandingPhrase ?? 'There are no outstanding issues').trim();
+  // T8: interventions change every iteration, so they belong behind the board
+  // marker with the rest of the volatile tail. Keeping them in the prefix would
+  // bust the provider prompt cache on every steered iteration.
   const interventions = options.pendingInterventions.length > 0
-    ? `\nDirection since last iteration (binding):\n${options.pendingInterventions.map(renderPendingInput).join('\n')}\n`
-    : '\nDirection since last iteration: none.\n';
+    ? `Direction since last iteration (binding):\n${options.pendingInterventions.map(renderPendingInput).join('\n')}`
+    : 'Direction since last iteration: none.';
+  // The continuation directive comes from config and does not change between
+  // iterations of a run, so it stays in the stable prefix.
   const directive = options.iterationPrompt?.trim()
     && options.iterationPrompt.trim() !== options.config.initialPrompt.trim()
     ? `\nContinuation directive:\n${options.iterationPrompt.trim()}\n`
@@ -118,10 +123,11 @@ ${sameSessionContextLine(options.config.contextStrategy)}
 Schema unchanged — read \`${options.notesPath}\`, \`${options.outstandingPath}\`, and \`${options.tasksPath}\`. Advance the goal, re-review with fresh eyes, and use the same clean-review sentence and sentinel as iteration 0 when you are actually done.
 
 Clean-review sentence (unchanged): ${preferred}
-${directive}${interventions}
+${directive}
 ${LOOP_PROMPT_BOARD_MARKER}
 
 Iteration ${options.iterationSeq}. If blocked, write \`${options.blockedPath}\` then exit.
+${interventions}
 
 Begin.`;
 }

@@ -19,6 +19,7 @@
 import { getLogger } from '../logging/logger';
 import { getModelRouter, type RoutingDecision } from './model-router';
 import {
+  getDefaultModelForCli,
   isModelTier,
   normalizeModelAliasForProvider,
   resolveModelForTier,
@@ -82,12 +83,39 @@ export function applyProviderResolution(
       };
     }
 
-    // No model found for this tier+provider — let lifecycle validation handle it.
-    logger.warn('No model found for tier in target provider, passing through', {
+    // T43: the provider has no row for this tier. Passing the decision through
+    // unchanged shipped a CLAUDE id to a non-Claude CLI — Grok has no
+    // `balanced` row, so `sonnet` reached the Grok adapter, was repaired to
+    // grok-4.6 downstream, and the HUD showed a Claude id while the flagship
+    // ran. Fall back to the provider's own primary id instead; if it has none,
+    // clear the model so the caller omits `-m` and the CLI uses its own default
+    // rather than being handed another provider's alias.
+    const providerPrimary = getDefaultModelForCli(provider)
+      ?? resolveModelForTier('powerful', provider)
+      ?? resolveModelForTier('fast', provider);
+    if (providerPrimary) {
+      logger.warn('No model found for tier in target provider — using its primary id', {
+        tier: decision.tier,
+        provider,
+        originalModel: decision.model,
+        resolvedModel: providerPrimary,
+      });
+      return {
+        ...decision,
+        model: providerPrimary,
+        reason: `${decision.reason} → no ${decision.tier} tier for ${provider}; using "${providerPrimary}"`,
+      };
+    }
+    logger.warn('No model found for tier or provider primary — omitting the model', {
       tier: decision.tier,
       provider,
       originalModel: decision.model,
     });
+    return {
+      ...decision,
+      model: '',
+      reason: `${decision.reason} → no model catalogued for ${provider}; letting the CLI choose`,
+    };
   }
 
   return decision;

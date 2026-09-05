@@ -191,6 +191,8 @@ describe('ReactionEngine', () => {
       expect(mockInstanceManager.sendInput).toHaveBeenCalledWith(
         'inst-1',
         expect.stringContaining('CI failing'),
+        undefined,
+        { automatedInput: true },
       );
       expect(mockMarkDelivered).toHaveBeenCalledWith('adm-default');
     });
@@ -274,6 +276,8 @@ describe('ReactionEngine', () => {
       expect(mockInstanceManager.sendInput).toHaveBeenCalledWith(
         'inst-1',
         expect.stringContaining('Changes requested'),
+        undefined,
+        { automatedInput: true },
       );
     });
   });

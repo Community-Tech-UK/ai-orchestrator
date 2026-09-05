@@ -21,9 +21,22 @@ const PROJECT_MARKERS = [
   'build.gradle',
 ];
 
+/**
+ * Stable identity for a discovered project set, used to suppress repeated
+ * "nothing changed" scan logs. Order-insensitive so a differing readdir order
+ * does not read as a change.
+ */
+function projectSetSignature(projects: DiscoveredProject[]): string {
+  return projects
+    .map((p) => `${p.path}|${[...p.markers].sort().join(',')}`)
+    .sort()
+    .join('\n');
+}
+
 export class ProjectDiscovery {
   private cachedProjects: DiscoveredProject[] = [];
   private scanTimer: ReturnType<typeof setInterval> | null = null;
+  private lastLoggedSignature: string | null = null;
 
   async scan(roots: string[]): Promise<DiscoveredProject[]> {
     const results: DiscoveredProject[] = [];
@@ -33,7 +46,20 @@ export class ProjectDiscovery {
     }
 
     this.cachedProjects = results;
-    logger.info('Scan complete', { count: results.length });
+
+    // Log at info ONLY when the discovered set actually changes. The worker
+    // rebuilds capabilities on every heartbeat (10s), so an unconditional info
+    // line here wrote ~8,600 identical "Scan complete { count: 1 }" lines a day
+    // into worker-agent.log. With 5MB x 5 rotation that flushed the forensic
+    // window in a few days and left nothing to read after a silent worker
+    // death. Unchanged scans stay at debug.
+    const signature = projectSetSignature(results);
+    if (signature !== this.lastLoggedSignature) {
+      logger.info('Scan complete', { count: results.length, changed: true });
+      this.lastLoggedSignature = signature;
+    } else {
+      logger.debug('Scan complete (unchanged)', { count: results.length });
+    }
     return results;
   }
 

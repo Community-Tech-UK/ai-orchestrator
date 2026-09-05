@@ -39,6 +39,15 @@ type ConsoleMethod = 'log' | 'info' | 'warn' | 'error' | 'debug';
 
 const CONSOLE_METHODS: ConsoleMethod[] = ['log', 'info', 'warn', 'error', 'debug'];
 
+type StreamName = 'stdout' | 'stderr';
+type StreamWrite = (
+  chunk: unknown,
+  encoding?: unknown,
+  callback?: unknown,
+) => boolean;
+
+const STREAM_NAMES: StreamName[] = ['stdout', 'stderr'];
+
 export class WorkerFileLogger {
   private readonly filePath: string;
   private readonly maxBytes: number;
@@ -47,7 +56,9 @@ export class WorkerFileLogger {
   private currentSize = 0;
   private installed = false;
   private disabled = false;
+  private mirroring = false;
   private readonly originals = new Map<ConsoleMethod, (...args: unknown[]) => void>();
+  private readonly originalStreamWrites = new Map<StreamName, StreamWrite>();
 
   constructor(options: WorkerFileLoggerOptions = {}) {
     const logDir = options.logDir ?? path.join(os.homedir(), '.orchestrator', 'logs');
@@ -89,11 +100,78 @@ export class WorkerFileLogger {
       console[method] = (...args: unknown[]): void => {
         this.append(method, args);
         if (this.mirrorToConsole) {
-          original(...args);
+          // Flag the mirrored write so the stream hook below does not record
+          // the same line a second time.
+          this.mirroring = true;
+          try {
+            original(...args);
+          } finally {
+            this.mirroring = false;
+          }
         }
       };
     }
+    this.installStreamCapture();
     return this;
+  }
+
+  /**
+   * Also tee raw `process.stdout` / `process.stderr` writes.
+   *
+   * Patching `console.*` alone silently drops everything that writes to the
+   * streams directly — Node's own `DeprecationWarning`/`ExperimentalWarning`
+   * output, `process.emitWarning`, and native-module stderr. Those lines were
+   * present back when the launcher shell-redirected stdout to a file and
+   * vanished once the console-patch logger became the only sink, which is
+   * exactly the evidence you want after an unexplained death.
+   *
+   * Note the limit: V8's own fatal handler ("FATAL ERROR: ... JavaScript heap
+   * out of memory") is written by C++ straight to fd 2 and bypasses this hook.
+   * Capturing that still requires an fd-level `2>>` redirect in the launcher.
+   */
+  private installStreamCapture(): void {
+    for (const name of STREAM_NAMES) {
+      const stream = process[name];
+      if (!stream || typeof stream.write !== 'function') {
+        continue;
+      }
+      // Keep the ORIGINAL property value, unbound, so uninstall() restores the
+      // exact same function reference. Binding here would leave a fresh wrapper
+      // behind on every install/uninstall cycle.
+      const originalWrite = stream.write as unknown as StreamWrite;
+      this.originalStreamWrites.set(name, originalWrite);
+      const patched: StreamWrite = (chunk, encoding, callback) => {
+        if (!this.mirroring) {
+          this.captureStreamChunk(name, chunk);
+        }
+        return originalWrite.call(stream, chunk, encoding, callback);
+      };
+      (stream as unknown as { write: StreamWrite }).write = patched;
+    }
+  }
+
+  private captureStreamChunk(name: StreamName, chunk: unknown): void {
+    if (this.disabled) {
+      return;
+    }
+    try {
+      const text =
+        typeof chunk === 'string'
+          ? chunk
+          : Buffer.isBuffer(chunk)
+            ? chunk.toString('utf-8')
+            : null;
+      if (text === null) {
+        return;
+      }
+      for (const line of text.split(/\r?\n/)) {
+        if (line.trim().length > 0) {
+          this.appendLine(name, line);
+        }
+      }
+    } catch {
+      // Never let logging throw into the hot path.
+    }
   }
 
   /** Restore the original console methods (used by tests / clean shutdown). */
@@ -108,6 +186,11 @@ export class WorkerFileLogger {
       }
     }
     this.originals.clear();
+    for (const [name, originalWrite] of this.originalStreamWrites) {
+      (process[name] as unknown as { write: StreamWrite }).write = originalWrite;
+    }
+    this.originalStreamWrites.clear();
+    this.mirroring = false;
     this.installed = false;
   }
 

@@ -191,7 +191,12 @@ export function createLateRuntimeInitializationSteps(
           (parentId: string, announcements: ChildAnnouncement[], message: string) => {
             const parent = instanceManager.getInstance(parentId);
             if (parent && parent.status !== 'terminated') {
-              instanceManager.sendInput(parentId, message).catch((err) => {
+              instanceManager.sendInput(
+                parentId,
+                message,
+                undefined,
+                { automatedInput: true },
+              ).catch((err) => {
                 logger.warn('Failed to deliver child announcement to parent', {
                   parentId,
                   childIds: announcements.map((announcement) => announcement.childId),

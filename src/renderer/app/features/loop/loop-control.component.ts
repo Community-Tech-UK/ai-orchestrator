@@ -1,4 +1,7 @@
 import { SlicePipe } from '@angular/common';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
+import { chipTooltipFor, metricStripTooltipFor, resumeTooltipFor } from './loop-tooltip-copy.util';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -10,7 +13,6 @@ import {
   signal,
   untracked,
 } from '@angular/core';
-import type { LoopIterationPayload } from '@contracts/schemas/loop';
 import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 import { ReactionIpcService } from '../../core/services/ipc/reaction-ipc.service';
 import { ToastService } from '../../core/services/toast.service';
@@ -32,6 +34,8 @@ import {
   formatCostCents,
   humanDuration,
   humanTokens,
+  loopErrorSummary,
+  loopIterationDuration,
   loopPauseReason,
   loopStatusPill,
   managedWorktreeStatus,
@@ -72,7 +76,7 @@ import { RendererPollSchedulerService } from '../../core/services/renderer-poll-
 @Component({
   selector: 'app-loop-control',
   standalone: true,
-  imports: [SlicePipe, LoopInspectorProgressComponent, LoopIssueCardComponent, LoopIterationEvidenceComponent, LoopPastRunsPanelComponent, PromptModalComponent, RlmStorageMaintenanceComponent, VerificationRunHistoryComponent],
+  imports: [AioTooltipDirective, SlicePipe, LoopInspectorProgressComponent, LoopIssueCardComponent, LoopIterationEvidenceComponent, LoopPastRunsPanelComponent, PromptModalComponent, RlmStorageMaintenanceComponent, VerificationRunHistoryComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (banner(); as b) {
@@ -139,12 +143,19 @@ import { RendererPollSchedulerService } from '../../core/services/renderer-poll-
     @if (active(); as a) {
       <div class="loop-status" [class.paused]="a.status === 'paused' || (a.status === 'provider-limit' && a.endedAt === null)">
         @if (statusPill(); as pill) {
-          <span class="ls-pill" [attr.data-pill]="pill.kind">{{ pill.label }}</span>
+          <span class="ls-pill" [attr.data-pill]="pill.kind" [appTooltip]="copy('loop.statusPill')">{{ pill.label }}</span>
         }
         @if (latestVerdict(); as verdict) {
-          <span class="ls-verdict" [attr.data-verdict]="verdict.value" [title]="verdict.title">{{ verdict.label }}</span>
+          <!-- No role and no aria-label ON PURPOSE: this span has visible text, so that text
+               IS its accessible name, and role=img would REPLACE it (gates 9 and 10).
+               tabindex=0 because the tooltip is the ONLY carrier of the explanation in some
+               states - showIssueCard is null under any banner, and only the no-progress
+               banner re-renders the headline; claimed-failed and awaiting-review show static
+               text. Focusable means the tooltip opens on keyboard focus and stamps
+               aria-describedby, so the explanation is reachable without a mouse. -->
+          <span class="ls-verdict" tabindex="0" [attr.data-verdict]="verdict.value" [appTooltip]="verdict.title">{{ verdict.label }}</span>
         }
-        <span class="ls-text">
+        <span class="ls-text" [appTooltip]="metricStripTooltip()" appTooltipVariant="dense">
           {{ runningIteration() ? ('iteration ' + iterationNumber(runningIteration()!.seq) + ' running') : (a.totalIterations + ' iterations run') }}/{{ iterationCapLabel(a.config.caps.maxIterations) }}
           · stage {{ runningIteration()?.stage ?? a.currentStage }}
           · current {{ currentIterationLabel() }}
@@ -154,17 +165,17 @@ import { RendererPollSchedulerService } from '../../core/services/renderer-poll-
         </span>
         <span class="ls-actions">
           @if (a.status === 'running') {
-            <button type="button" (click)="onPause()" title="Pause loop" aria-label="Pause loop">Pause</button>
+            <button type="button" (click)="onPause()" [appTooltip]="copy('loop.pause')" aria-label="Pause loop">Pause</button>
           } @else if (a.status === 'paused' || (a.status === 'provider-limit' && a.endedAt === null)) {
             @if (pauseKind() === 'awaiting-review') {
-              <button type="button" class="ls-accept" (click)="onAcceptCompletion()" title="Accept the work as complete" aria-label="Accept the work as complete">Accept as complete</button>
+              <button type="button" class="ls-accept" (click)="onAcceptCompletion()" [appTooltip]="copy('loop.acceptCompletion')" aria-label="Accept the work as complete">Accept as complete</button>
             }
-            <button type="button" (click)="onResumeAnyway()" title="Resume loop" aria-label="Resume loop">Resume</button>
+            <button type="button" (click)="onResumeAnyway()" [appTooltip]="resumeTooltip()" aria-label="Resume loop">Resume</button>
           }
-          <button type="button" (click)="onToggleInspector()" title="Show loop trace" aria-label="Inspect loop trace">{{ inspectorExpanded() ? 'Hide trace' : 'Inspect' }}</button>
-          <button type="button" (click)="onInjectHint()" title="Inject a hint into next iteration" aria-label="Inject a hint into the next iteration">Hint</button>
-          <button type="button" (click)="onQueueFollowUp()" title="Queue a message to run before the loop finishes" aria-label="Queue a follow-up before the loop finishes">Follow-up</button>
-          <button type="button" class="ls-stop" (click)="onStop()" title="Stop loop" aria-label="Stop loop">Stop</button>
+          <button type="button" (click)="onToggleInspector()" [appTooltip]="copy('loop.inspect')" aria-label="Inspect loop trace">{{ inspectorExpanded() ? 'Hide trace' : 'Inspect' }}</button>
+          <button type="button" (click)="onInjectHint()" [appTooltip]="copy('loop.hint')" aria-label="Inject a hint into the next iteration">Hint</button>
+          <button type="button" (click)="onQueueFollowUp()" [appTooltip]="copy('loop.followUp')" aria-label="Queue a follow-up before the loop finishes">Follow-up</button>
+          <button type="button" class="ls-stop" (click)="onStop()" aria-label="Stop loop">Stop</button>
         </span>
       </div>
 
@@ -179,8 +190,8 @@ import { RendererPollSchedulerService } from '../../core/services/renderer-poll-
       }
 
       @if (pingPong(); as pp) {
-        <div class="loop-pingpong" title="Conversational ping-pong review">
-          <span class="lp-badge">REVIEW PING-PONG</span>
+        <div class="loop-pingpong">
+          <span class="lp-badge" [appTooltip]="copy('loop.chip.reviewPingPong')">REVIEW PING-PONG</span>
           <span class="lp-text">
             round {{ pp.roundCount }}/{{ pingPongMaxRounds() }}
             @if (pp.lastReviewerProvider) { · reviewer {{ pp.lastReviewerProvider }} }
@@ -190,26 +201,26 @@ import { RendererPollSchedulerService } from '../../core/services/renderer-poll-
           </span>
           @if (a.status === 'running') {
             <span class="lp-actions">
-              <button type="button" (click)="onPingPongSkipRound()" title="Skip the next reviewer round">Skip round</button>
-              <button type="button" (click)="onPingPongForceArbitration()" title="Stop and hand the open issues to a human">Arbitrate</button>
+              <button type="button" (click)="onPingPongSkipRound()" appTooltip="Skips the next reviewer round; the loop continues without it.">Skip round</button>
+              <button type="button" (click)="onPingPongForceArbitration()" appTooltip="Stops the review rounds and hands the open issues to you.">Arbitrate</button>
             </span>
           }
         </div>
       }
 
       @if (honestyChips().length > 0) {
-        <div class="loop-honesty" title="Loop runtime honesty">
+        <div class="loop-honesty">
           @for (chip of honestyChips(); track chip) {
-            <span class="lp-badge">{{ chip }}</span>
+            <span class="lp-badge" [appTooltip]="chipTooltip(chip)">{{ chip }}</span>
           }
         </div>
       }
 
       @if (showGate()) {
-        <div class="loop-gate" title="Completion gate — what the loop must clear to stop">
+        <div class="loop-gate" appTooltip="What the loop must clear before it is allowed to stop.">
           @for (step of gateSteps(); track step.key) {
             @if (step.state !== 'skipped') {
-              <span class="lg-step" [attr.data-state]="step.state">{{ step.label }}</span>
+              <span class="lg-step" [attr.data-state]="step.state">{{ step.text }}</span>
             }
           }
         </div>
@@ -217,15 +228,18 @@ import { RendererPollSchedulerService } from '../../core/services/renderer-poll-
 
       @if (auditStatus(); as audit) {
         <div class="loop-audit">
+          <!-- tabindex: tooltip carries the "does not block the run" correction (house rule 4). -->
           <span
             class="lau-chip"
+            tabindex="0"
             [attr.data-state]="audit.preflightState"
-            [title]="audit.preflightTitle"
+            [appTooltip]="audit.preflightTitle"
           >{{ audit.preflightLabel }}</span>
           <span
             class="lau-chip"
+            tabindex="0"
             [attr.data-state]="audit.finalAuditState"
-            [title]="audit.finalAuditTitle"
+            [appTooltip]="audit.finalAuditTitle"
           >{{ audit.finalAuditLabel }}</span>
           @if (audit.reportFile) {
             <code>{{ audit.reportFile }}</code>
@@ -412,7 +426,7 @@ import { RendererPollSchedulerService } from '../../core/services/renderer-poll-
           <span class="lsum-title-text">
             Loop ended — <span class="lsum-status-pill" [attr.data-status]="s.status">{{ summaryStatusLabel(s.status) }}</span>
           </span>
-          <button type="button" class="lsum-close" (click)="onDismissSummary()" aria-label="Dismiss">×</button>
+          <button type="button" class="lsum-close" (click)="onDismissSummary()" appTooltip="Hides this summary. The run and its record are kept." aria-label="Dismiss">×</button>
         </div>
         <div class="lsum-line">
           {{ s.iterations }} iterations · {{ duration(s.endedAt - s.startedAt) }} · {{ tokens(s.tokens) }} · {{ cost(s.costCents) }}
@@ -481,7 +495,7 @@ import { RendererPollSchedulerService } from '../../core/services/renderer-poll-
                     type="button"
                     class="lsum-recap-copy"
                     (click)="onCopyFinalResponse(li.outputFull || li.outputExcerpt)"
-                    [title]="copiedSummaryPart() === 'response' ? 'Copied!' : 'Copy the full final response'"
+                    [appTooltip]="copiedSummaryPart() === 'response' ? 'Copied!' : 'Copy the full final response'"
                   >{{ copiedSummaryPart() === 'response' ? 'Copied ✓' : 'Copy' }}</button>
                 </div>
                 <pre class="lsum-recap-pre">{{ li.outputFull || li.outputExcerpt }}</pre>
@@ -508,14 +522,14 @@ import { RendererPollSchedulerService } from '../../core/services/renderer-poll-
             class="lsum-prompt-btn"
             (click)="onCopyInitialPrompt(s.initialPrompt)"
             [disabled]="!s.initialPrompt"
-            [title]="copiedSummaryPart() === 'initial' ? 'Copied!' : 'Copy the first-iteration prompt'"
+            [appTooltip]="copiedSummaryPart() === 'initial' ? 'Copied!' : 'Copy the first-iteration prompt'"
           >{{ copiedSummaryPart() === 'initial' ? 'Copied ✓' : 'Copy prompt' }}</button>
           @if (summaryHasDistinctIterationPrompt(s)) {
             <button
               type="button"
               class="lsum-prompt-btn"
               (click)="onCopyIterationPrompt(s.iterationPrompt!)"
-              [title]="copiedSummaryPart() === 'iteration' ? 'Copied!' : 'Copy the later-iteration continuation directive'"
+              [appTooltip]="copiedSummaryPart() === 'iteration' ? 'Copied!' : 'Copy the later-iteration continuation directive'"
             >{{ copiedSummaryPart() === 'iteration' ? 'Copied ✓' : 'Copy continuation' }}</button>
           }
         </div>
@@ -760,8 +774,17 @@ export class LoopControlComponent implements OnDestroy {
     return buildHonestyChips({
       autoUnstick: a.autoUnstick,
       capWrapUpIntent: a.capWrapUpIntent,
+      nonConvergence: a.nonConvergence,
+      parkedLeaves: a.parkedLeaves,
     });
   });
+
+  /** UX1/UX3 tooltip copy. Rules live in `loop-tooltip-copy.util.ts`. */
+  protected copy = copyFor;
+  protected chipTooltip = chipTooltipFor;
+  protected readonly resumeTooltip = computed(() => resumeTooltipFor(this.pauseKind()));
+  protected readonly metricStripTooltip = computed(() =>
+    metricStripTooltipFor(Boolean(this.active()), this.active()?.inferredPhase));
 
   runConfigSummary = computed(() => buildRunConfigSummary(this.active()));
 
@@ -1117,16 +1140,6 @@ export class LoopControlComponent implements OnDestroy {
     }
   }
 
-  protected iterationDuration(iteration: LoopIterationPayload): number {
-    return (iteration.endedAt ?? Date.now()) - iteration.startedAt;
-  }
-
-  protected errorSummary(iteration: LoopIterationPayload): string {
-    return iteration.errors
-      .map((error) => `${error.bucket}: ${error.excerpt}`)
-      .join('\n\n');
-  }
-
   private readonly usageUnsettled = computed(
     () => isUsageUnsettled(Boolean(this.runningIteration()), this.active()?.status),
   );
@@ -1135,15 +1148,12 @@ export class LoopControlComponent implements OnDestroy {
     Boolean(this.runningIteration()),
     this.currentIterationElapsed(),
     this.usageUnsettled(),
+    // L4: only while the run is live — a finished run's last phase is history.
+    this.active()?.status === 'running' ? this.active()?.inferredPhase ?? null : null,
   ));
 
-  protected activeTokenUsage(totalTokens: number): string {
-    return activeTokenUsage(totalTokens, this.usageUnsettled());
-  }
-
-  protected activeCostUsage(totalCostCents: number): string {
-    return activeCostUsage(totalCostCents, this.usageUnsettled());
-  }
+  protected readonly activeTokenUsage = (t: number) => activeTokenUsage(t, this.usageUnsettled());
+  protected readonly activeCostUsage = (c: number) => activeCostUsage(c, this.usageUnsettled());
 
   protected readonly duration = humanDuration;
   protected readonly tokens = humanTokens;
@@ -1157,4 +1167,6 @@ export class LoopControlComponent implements OnDestroy {
   protected readonly summaryStatusLabel = terminalStatusLabel;
   protected readonly managedStatus = managedWorktreeStatus;
   protected readonly verdictHeader = progressVerdictHeaderWord;
+  protected readonly iterationDuration = loopIterationDuration;
+  protected readonly errorSummary = loopErrorSummary;
 }

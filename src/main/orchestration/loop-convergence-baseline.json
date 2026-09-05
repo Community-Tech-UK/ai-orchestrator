@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "scenarios": {
+    "clean-no-change-review": {
+      "childCalls": 1,
+      "promptBytesTotal": 12472,
+      "terminalStatus": "paused"
+    },
+    "one-blocker-then-clean": {
+      "childCalls": 2,
+      "promptBytesTotal": 24950,
+      "terminalStatus": "paused"
+    },
+    "same-thread-claimed": {
+      "childCalls": 4,
+      "promptBytesTotal": 50938,
+      "terminalStatus": "cap-reached"
+    },
+    "no-terminal-signal": {
+      "childCalls": 4,
+      "promptBytesTotal": 50758,
+      "terminalStatus": "cap-reached"
+    }
+  }
+}

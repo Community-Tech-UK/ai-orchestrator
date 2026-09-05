@@ -372,6 +372,7 @@ export async function evaluatePingPongCompletion(
     maxRounds,
     diff: reviewDiff,
     diffSource: workspaceDiff.source,
+    changedFiles: workspaceDiff.changedFiles,
     blockingSeverities: reviewCfg.blockingSeverities,
     timeoutMs,
     signal: deps.signal,

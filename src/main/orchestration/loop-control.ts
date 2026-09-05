@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
+import { resolveLoopControlCliPath } from './loop-control-cli-path';
 import * as fs from 'node:fs/promises';
 import * as fsSync from 'node:fs';
 import * as path from 'node:path';
@@ -22,6 +23,29 @@ export const LOOP_WAKEUP_MIN_DELAY_MS = 60_000;
 export const LOOP_WAKEUP_MAX_DELAY_MS = 3_600_000;
 const LOOP_CONTROL_STALE_GRACE_MS = 24 * 60 * 60 * 1_000;
 
+/**
+ * N5 — this process's boot epoch, stamped into `control.json` and every intent.
+ *
+ * **Attribution only. Deliberately not a rejection rule.** N5 asked for a
+ * run-epoch so markers from a previous boot could be ignored, but they already
+ * are: `prepareLoopControl` mints a fresh `secret` on EVERY call (including
+ * restore-from-checkpoint), and `validateIntentAgainstRuntime` rejects any
+ * intent whose secret does not match. A previous-boot intent therefore never
+ * reaches an epoch comparison.
+ *
+ * An epoch check was written and removed. It was unreachable behind the secret
+ * check, and had it ever become reachable it would have compared against
+ * `runtime.currentIterationSeq`, which `prepareLoopControl` resets to 0 on
+ * restore — so it would have rejected every pre-crash intent instead of the
+ * stale ones. What the epoch is genuinely worth is telling you WHICH boot wrote
+ * an archived marker when you are reading `rejected/` after an incident.
+ */
+const LOOP_CONTROL_RUN_EPOCH = randomUUID();
+
+export function loopControlRunEpoch(): string {
+  return LOOP_CONTROL_RUN_EPOCH;
+}
+
 export interface LoopControlRuntime extends LoopControlMetadata {
   secret: string;
 }
@@ -29,6 +53,8 @@ export interface LoopControlRuntime extends LoopControlMetadata {
 export interface LoopControlFile {
   version: 1;
   promptVersion: 1;
+  /** N5: the boot that wrote this file. See `LOOP_CONTROL_RUN_EPOCH`. */
+  runEpoch: string;
   loopRunId: string;
   workspaceCwd: string;
   controlDir: string;
@@ -41,6 +67,8 @@ export interface LoopControlFile {
 
 interface RawIntentFile {
   version: 1;
+  /** N5: the boot that wrote this intent. Absent on pre-N5 files. */
+  runEpoch?: string;
   id: string;
   loopRunId: string;
   iterationSeq: number;
@@ -112,6 +140,7 @@ export async function writeLoopControlFile(
   const controlFile: LoopControlFile = {
     version: LOOP_CONTROL_VERSION,
     promptVersion: LOOP_CONTROL_PROMPT_VERSION,
+    runEpoch: LOOP_CONTROL_RUN_EPOCH,
     loopRunId: runtime.loopRunId,
     workspaceCwd: runtime.workspaceCwd,
     controlDir: runtime.controlDir,
@@ -404,6 +433,7 @@ export async function writeIntentFromCli(
   const id = `intent-${Date.now()}-${randomUUID().slice(0, 8)}`;
   const intent: RawIntentFile = {
     version: LOOP_CONTROL_VERSION,
+    runEpoch: LOOP_CONTROL_RUN_EPOCH,
     id,
     loopRunId: control.loopRunId,
     iterationSeq: control.currentIterationSeq,
@@ -489,6 +519,7 @@ function parseRawIntent(value: unknown): RawIntentFile {
     : [];
   return {
     version: data['version'] === 1 ? 1 : (() => { throw new Error('Intent version must be 1'); })(),
+    ...(typeof data['runEpoch'] === 'string' && data['runEpoch'] ? { runEpoch: data['runEpoch'] } : {}),
     id: readStringField(data, 'id'),
     loopRunId: readStringField(data, 'loopRunId'),
     iterationSeq: readNonnegativeIntegerField(data, 'iterationSeq'),
@@ -611,33 +642,6 @@ async function pruneStaleLoopControlDirs(workspace: string, activeLoopRunIds: Se
       if (!stat || Date.now() - stat.mtimeMs < LOOP_CONTROL_STALE_GRACE_MS) return;
       await fs.rm(controlDir, { recursive: true, force: true }).catch(() => undefined);
     }));
-}
-
-async function resolveLoopControlCliPath(controlDir: string): Promise<string> {
-  const binaryName = process.platform === 'win32' ? 'aio-loop-control.exe' : 'aio-loop-control';
-  const resourcePath = typeof process.resourcesPath === 'string'
-    ? path.join(process.resourcesPath, 'loop-control-cli', binaryName)
-    : '';
-  const candidates = [
-    resourcePath,
-    path.resolve('dist/loop-control-cli-sea', binaryName),
-  ].filter(Boolean);
-  for (const candidate of candidates) {
-    if (fsSync.existsSync(candidate)) return candidate;
-  }
-
-  const shimPath = path.join(controlDir, process.platform === 'win32' ? 'aio-loop-control.cmd' : 'aio-loop-control');
-  const scriptCandidates = [
-    path.resolve('dist/loop-control-cli/index.js'),
-    path.resolve('dist/main/orchestration/loop-control-cli.js'),
-  ];
-  const scriptPath = scriptCandidates.find((candidate) => fsSync.existsSync(candidate)) ?? scriptCandidates[0];
-  if (process.platform === 'win32') {
-    await fs.writeFile(shimPath, `@echo off\r\nnode "${scriptPath}" %*\r\n`, { mode: 0o700 });
-  } else {
-    await fs.writeFile(shimPath, `#!/usr/bin/env sh\nexec node "${scriptPath}" "$@"\n`, { mode: 0o700 });
-  }
-  return shimPath;
 }
 
 async function readSizedJsonFile<T>(filePath: string, maxBytes: number): Promise<T> {

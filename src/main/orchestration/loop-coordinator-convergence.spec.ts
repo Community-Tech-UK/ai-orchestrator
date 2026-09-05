@@ -90,7 +90,6 @@ const CAPS = {
   maxWallTimeMs: 120_000,
   maxTokens: 1_000_000,
   maxCostCents: 100_000,
-  maxToolCallsPerIteration: 200,
 };
 
 describe('LoopCoordinator convergence (Piece B)', () => {

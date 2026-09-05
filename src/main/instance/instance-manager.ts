@@ -149,6 +149,10 @@ import {
   drainContextEvidenceQueue,
   getContextEvidenceCoordinator,
 } from '../context-evidence/context-evidence-coordinator';
+import {
+  throwIfInstanceInputAborted,
+  type InstanceSendInputOptions,
+} from './instance-input-cancellation';
 
 const logger = getLogger('InstanceManager');
 const CHILD_STARTUP_TIMEOUT_MS = 60_000;
@@ -417,7 +421,7 @@ export class InstanceManager extends EventEmitter {
       isEnabled: () => this.settings.get('instanceProviderLimitResumeEnabled') === true,
       setWaitReason: (id, waitReason) => this.queueInstanceUpdate(id, { waitReason }),
       resendInput: (id, prompt) => {
-        void this.sendInput(id, prompt).catch((err) =>
+        void this.sendInput(id, prompt, undefined, { automatedInput: true }).catch((err) =>
           logger.warn('Provider-limit resume re-send failed', {
             instanceId: id,
             error: err instanceof Error ? err.message : String(err),
@@ -1695,12 +1699,18 @@ export class InstanceManager extends EventEmitter {
     instanceId: string,
     message: string,
     attachments?: FileAttachment[],
-    options?: { isRetry?: boolean; autoContinuation?: boolean },
+    options?: InstanceSendInputOptions,
   ): Promise<void> {
     const instance = this.state.getInstance(instanceId);
     if (!instance) {
       throw new Error(`Instance ${instanceId} not found`);
     }
+    throwIfInstanceInputAborted(options?.signal);
+    this.emit('instance:input-started', {
+      instanceId,
+      autoContinuation: options?.autoContinuation === true || options?.automatedInput === true,
+    });
+    throwIfInstanceInputAborted(options?.signal);
 
     // Stamp activity BEFORE any await: the send can park for seconds on init
     // waits, and a reclaimer sampling mid-send must not cull a live session.
@@ -1722,7 +1732,7 @@ export class InstanceManager extends EventEmitter {
       autoContinuation: options?.autoContinuation,
       timestamp: Date.now(),
     });
-
+    const deferInputCommitUntilDispatch = options?.signal !== undefined && !options?.isRetry;
     let hookError: string | undefined;
     try {
 
@@ -1744,6 +1754,7 @@ export class InstanceManager extends EventEmitter {
         this.computeInitWaitBudgetMs(instance),
         'Instance wake timed out',
       );
+      throwIfInstanceInputAborted(options?.signal);
       // Cast via string to bypass TS narrowing (status was mutated by the wake).
       const postWakeStatus = instance.status as string;
       if (postWakeStatus === 'failed' || postWakeStatus === 'error') {
@@ -1762,6 +1773,7 @@ export class InstanceManager extends EventEmitter {
         this.computeInitWaitBudgetMs(instance),
         'Instance initialization timed out',
       );
+      throwIfInstanceInputAborted(options?.signal);
       if (instance.status === 'failed') {
         throw new Error('Instance initialization failed');
       }
@@ -1776,6 +1788,7 @@ export class InstanceManager extends EventEmitter {
         this.computeInitWaitBudgetMs(instance),
         'Instance respawn timed out',
       );
+      throwIfInstanceInputAborted(options?.signal);
       if (instance.status === 'error' || instance.status === 'failed') {
         throw new Error('Instance respawn after interrupt failed');
       }
@@ -1800,6 +1813,7 @@ export class InstanceManager extends EventEmitter {
         userPrompt: message,
         content: message,
       });
+      throwIfInstanceInputAborted(options?.signal);
     }
 
     const handledSwitchModeReply = await runInputPreflight({
@@ -1809,6 +1823,7 @@ export class InstanceManager extends EventEmitter {
       operation: () => this.maybeHandleSwitchModeReply(instanceId, message),
       onTimeout: () => false,
     });
+    throwIfInstanceInputAborted(options?.signal);
     if (handledSwitchModeReply) {
       return;
     }
@@ -1837,6 +1852,7 @@ export class InstanceManager extends EventEmitter {
       onTimeout: isSlashCommandInput ? undefined : () => null,
       timeoutMessage: `Slash command resolution timed out after ${INPUT_PREFLIGHT_DEADLINE_MS}ms`,
     });
+    throwIfInstanceInputAborted(options?.signal);
     if (resolvedCommand) {
       resolvedCommandName = resolvedCommand.command.name;
       resolvedMessage = resolvedCommand.resolvedPrompt;
@@ -1873,8 +1889,10 @@ export class InstanceManager extends EventEmitter {
     } catch (error) {
       logger.debug('Session reference resolution failed', { instanceId, error: String(error) });
     }
+    throwIfInstanceInputAborted(options?.signal);
 
-    if (!options?.isRetry && message.trim()) {
+    const recordPromptHistory = (): void => {
+      if (options?.isRetry || !message.trim()) return;
       try {
         getPromptHistoryService().record({
           instanceId,
@@ -1892,11 +1910,15 @@ export class InstanceManager extends EventEmitter {
           error: error instanceof Error ? error.message : String(error),
         });
       }
-    }
+    };
+    if (!deferInputCommitUntilDispatch) recordPromptHistory();
 
     // Update activity and request count
-    instance.requestCount++;
-    instance.lastActivity = Date.now();
+    throwIfInstanceInputAborted(options?.signal);
+    if (!deferInputCommitUntilDispatch) {
+      instance.requestCount++;
+      instance.lastActivity = Date.now();
+    }
 
     // Calculate context budget and build contexts. Context retrieval improves
     // answer quality, but it must not hold the renderer's send acknowledgement.
@@ -1910,7 +1932,10 @@ export class InstanceManager extends EventEmitter {
       instanceId,
       contextPromise,
     );
-
+    throwIfInstanceInputAborted(options?.signal);
+    const queueLateInputContexts = (): void => {
+      queueDeferredInputContexts(inputContextDeps, instanceId, contextPromise);
+    };
     if (inputContexts) {
       logInputContexts(instanceId, inputContexts, 'current');
     } else {
@@ -1918,7 +1943,9 @@ export class InstanceManager extends EventEmitter {
         instanceId,
         deadlineMs: INPUT_CONTEXT_DEADLINE_MS,
       });
-      queueDeferredInputContexts(inputContextDeps, instanceId, contextPromise);
+      if (!deferInputCommitUntilDispatch) {
+        queueLateInputContexts();
+      }
     }
 
     const metadata = buildInputContextMetadata(inputContexts);
@@ -2016,18 +2043,13 @@ export class InstanceManager extends EventEmitter {
     const hasPriorConversationHistory = instance.outputBuffer.some(
       (output) => output.type === 'user' || output.type === 'assistant'
     );
-
     // Prepend orchestration prompt only for genuinely fresh conversations.
     const orchestrationPromptInjected = isFirstTrackedInput && !hasPriorConversationHistory;
-    if (isFirstTrackedInput) {
+    const commitFirstMessageTracking = (): void => {
+      if (!isFirstTrackedInput) return;
       this.hasReceivedFirstMessage.add(instanceId);
 
       if (!hasPriorConversationHistory) {
-        const orchestrationPrompt = this.orchestrationMgr.getOrchestrationPrompt(instanceId, instance.currentModel);
-        const prefix = contextBlock ? `${contextBlock}\n\n` : '';
-        contextBlock = `${prefix}${orchestrationPrompt}\n\n---`;
-
-        // Auto-generate a title from the first user message (fire-and-forget)
         getAutoTitleService().maybeGenerateTitle(
           instanceId,
           message,
@@ -2045,6 +2067,15 @@ export class InstanceManager extends EventEmitter {
           instance.isRenamed,
           attachments?.map((a) => a.name),
         ).catch(() => { /* non-critical */ });
+      }
+    };
+    if (isFirstTrackedInput) {
+      if (!deferInputCommitUntilDispatch) commitFirstMessageTracking();
+
+      if (!hasPriorConversationHistory) {
+        const orchestrationPrompt = this.orchestrationMgr.getOrchestrationPrompt(instanceId, instance.currentModel);
+        const prefix = contextBlock ? `${contextBlock}\n\n` : '';
+        contextBlock = `${prefix}${orchestrationPrompt}\n\n---`;
       }
     }
 
@@ -2064,13 +2095,32 @@ export class InstanceManager extends EventEmitter {
     // This ensures the user message appears before the AI response in the chat,
     // since sendInput may trigger streaming output that arrives during the await.
     // Skip on retries to avoid duplicate user bubbles in the chat.
-    if (!options?.isRetry) {
+    if (!options?.isRetry && !deferInputCommitUntilDispatch) {
+      throwIfInstanceInputAborted(options?.signal);
       this.communication.addToOutputBuffer(instance, userMessage);
       this.publishOutput(instanceId, userMessage);
     }
 
+    throwIfInstanceInputAborted(options?.signal);
+    const beforeProviderDispatch = deferInputCommitUntilDispatch || options?.beforeProviderDispatch ? (): void => {
+          throwIfInstanceInputAborted(options.signal);
+          options.beforeProviderDispatch?.();
+          throwIfInstanceInputAborted(options.signal);
+          if (deferInputCommitUntilDispatch) {
+            recordPromptHistory();
+            instance.requestCount++;
+            instance.lastActivity = Date.now();
+            commitFirstMessageTracking();
+            this.communication.addToOutputBuffer(instance, userMessage);
+            this.publishOutput(instanceId, userMessage);
+            if (!inputContexts) queueLateInputContexts();
+          }
+        }
+      : undefined;
     await this.communication.sendInput(instanceId, resolvedMessage, attachments, contextBlock, {
       autoContinuation: options?.autoContinuation === true,
+      signal: options?.signal,
+      beforeProviderDispatch,
     });
     } catch (error) {
       hookError = error instanceof Error ? error.message : String(error);

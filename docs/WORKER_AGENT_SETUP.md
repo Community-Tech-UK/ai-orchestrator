@@ -226,7 +226,151 @@ node dist/worker-agent/index.js --supervise
 ```
 
 A clean exit (Ctrl-C / SIGTERM) stops the supervisor too; it only restarts on
-crashes. Restarts are logged to `worker-agent.log`.
+crashes. Restarts are logged to `worker-supervisor.log`, kept separate from the
+child's `worker-agent.log` so the restart history stays readable on its own (and
+so the two processes do not race each other's log rotation).
+
+`start-worker.sh` and `start-worker.bat` both pass `--supervise` already, so the
+scheduled-task / Startup-folder path gets supervision by default.
+
+### Windows Launcher Install (tracked, reproducible)
+
+Two defects combined to cause the 2026-09-03 outage, and it is worth being precise
+about where each lived, because they argue for different fixes:
+
+- **The task action was `cmd /c start ... /min`, which detaches.** Task Scheduler
+  saw its action finish in milliseconds, so it never learned the worker had died
+  and its `RestartOnFailure` setting was inert. This lived in a hand-made,
+  **untracked** file in `%USERPROFILE%\.orchestrator` that nobody could review.
+  Tracking is the fix.
+- **`start-worker.bat` did not pass `--supervise`,** so a single process exit left
+  the node dead. This file was **tracked in the repo the whole time**. Version
+  control did not catch it. That is why the installer has an anchored guard that
+  refuses to deploy a launcher whose `node` command has lost the flag — review
+  alone had already failed once.
+
+The templates are now tracked in `scripts/windows/` and rendered by an installer:
+
+```powershell
+# dry run first - writes nothing
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\install-worker-launcher.ps1 `
+  -RepoPath 'C:\path\to\ai-orchestrator' -WhatIf
+
+# deploy launcher files only
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\install-worker-launcher.ps1 `
+  -RepoPath 'C:\path\to\ai-orchestrator'
+
+# deploy AND (re)register the scheduled task
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\install-worker-launcher.ps1 `
+  -RepoPath 'C:\path\to\ai-orchestrator' -RegisterTask
+```
+
+What it produces:
+
+| File | Role |
+| --- | --- |
+| `scripts/windows/start-worker-autoupdate.template.bat` | tracked source; renders to `%USERPROFILE%\.orchestrator\start-worker-autoupdate.bat` |
+| `scripts/windows/run-worker-hidden.template.vbs` | tracked source; renders to `%USERPROFILE%\.orchestrator\run-worker-hidden.vbs` |
+
+**Why the deployed copy lives outside the repo.** It runs `git pull` on the repo,
+and `cmd.exe` reads a running `.bat` incrementally by byte offset — a pull that
+rewrote the running file would make cmd resume at a stale offset and execute
+garbage. So the file performing the pull cannot sit inside the tree being pulled.
+That is a reason to *deploy* it elsewhere, not to leave it *untracked*. Keep the
+template minimal and stable; put anything that changes in `start-worker.bat`,
+which is `call`ed after the pull and is safe to update in place.
+
+The installer refuses to run if `start-worker.bat`'s `node` command has lost
+`--supervise`, backs up the launcher files it overwrites and the existing task
+definition (exported to XML, five most recent kept), and leaves the scheduled task
+alone unless `-RegisterTask` is passed. The two `.sha256` drift stamps are
+overwritten without a backup — they are regenerable derived data.
+
+The registered task differs from the old hand-made one in two ways that matter:
+
+- The action is `wscript.exe run-worker-hidden.vbs`, which **blocks** on the
+  worker (`Run(cmd, 0, True)`). The task therefore stays *Running* for the
+  worker's lifetime, so Task Scheduler tracks real liveness. The old
+  `cmd /c start ... /min` detached, so the task "succeeded" instantly and
+  `RestartOnFailure` could never fire.
+- The trigger is logon **plus a repetition every 5 minutes**, so a worker that
+  *exits* mid-session is picked up within minutes instead of at the next logon.
+  `MultipleInstancesPolicy=IgnoreNew` plus the worker's own single-instance lock
+  make the repeat a no-op while it is healthy.
+
+Verified on 2026-09-04 by registering a scratch task and exporting its XML. The
+logon trigger serialises as `<Repetition><Interval>PT5M</Interval>
+<StopAtDurationEnd>true</StopAtDurationEnd></Repetition>` — an interval with **no
+`<Duration>` element**, which is what the Task Scheduler UI's "Indefinitely"
+produces (`StopAtDurationEnd` is inert without a duration). `ExecutionTimeLimit`
+serialises as `PT0S`. The installer re-exports the task after every registration
+and asserts both of these — the repetition interval with no duration, and
+`ExecutionTimeLimit` equal to `PT0S` — warning rather than trusting them. Note
+that a non-unlimited limit serialises as an *absent* element (meaning "use the
+72-hour default"), so the check treats absent as a warning too.
+
+**Known limit: this recovers from a worker that DIES, not one that HANGS.** The
+action blocks for the worker's lifetime, and `ExecutionTimeLimit` is `PT0S`
+(unlimited, which is required — the 72-hour default would otherwise kill a
+healthy worker every three days). So a wedged-but-alive worker keeps the task in
+the *Running* state indefinitely, and `IgnoreNew` suppresses every repeat. Nothing
+will restart it. Detecting a hung worker is the coordinator's job — it sees
+heartbeats stop and deregisters the node after 90s.
+
+Because the repetition will restart the worker within 5 minutes, **stopping it
+deliberately now means disabling the task**, not just killing the process:
+
+```powershell
+Disable-ScheduledTask -TaskName 'AI Orchestrator Worker'   # stop it staying up
+Enable-ScheduledTask  -TaskName 'AI Orchestrator Worker'   # put it back
+```
+
+The installer backs up the previous task definition to
+`%USERPROFILE%\.orchestrator\AI_Orchestrator_Worker.<timestamp>.task.xml` (five
+most recent kept) and prints the exact restore command, which is:
+
+```powershell
+Register-ScheduledTask -Xml (Get-Content -Raw '<backup>.task.xml') `
+  -TaskName 'AI Orchestrator Worker' -TaskPath '\'
+```
+
+**Drift detection.** The installer records **two** SHA-256 stamps in the install
+root, and `start-worker.bat` compares both on every launch:
+
+| Stamp | Warns when | Meaning |
+| --- | --- | --- |
+| `launcher-template.sha256` | the tracked template has changed | you pulled a new template — re-run the installer |
+| `launcher-deployed.sha256` | the deployed `.bat` has changed | someone hand-edited the deployed launcher — the 2026-09-03 case |
+
+The second one is the point: a template-only stamp cannot see a hand-edited
+deployed file, which is exactly how the original drift went unnoticed. Tracking
+the template made it *reviewable*; these stamps make divergence *detectable*.
+
+It only warns — rewriting the deployed `.bat` while it is executing is the
+byte-offset hazard described above — and a missing stamp, missing `certutil` or
+unexpected output all fail silently rather than blocking startup.
+
+### Post-Mortem Evidence After a Silent Death
+
+A worker that vanishes leaves three things to read, in this order:
+
+1. **`worker-supervisor.log`** — did the supervisor see the child exit and
+   restart it? If there is no line at all, the supervisor was not running.
+2. **`worker-agent.log`** — the last `[WorkerAgent] process exiting` line names
+   the exit code. If the log simply stops mid-line with no exit line, no
+   JavaScript ran on the way out: the process was hard-killed from outside
+   (`TerminateProcess`, Task Manager "End task") or aborted by V8.
+3. **`worker-stderr.log.1`** — the fd-level redirect from `start-worker.bat`.
+   V8's fatal handler ("FATAL ERROR: … JavaScript heap out of memory") writes
+   here and nowhere else. Check the **`.1`** first: `start-worker.bat` rolls
+   `worker-stderr.log` aside on every launch, so once you have relaunched the
+   worker the dying run's output is in `.1` and the live file is empty.
+   **A second relaunch overwrites `.1`** — copy it somewhere safe before
+   restarting again.
+
+`[WorkerVitals]` lines carry `heapUsedMb`, `heapLimitMb` and `heapPressure` once
+a minute. The last one before the gap distinguishes heap exhaustion (pressure
+near 1.0, and warn-level for a while beforehand) from an external kill (flat).
 
 ### Running as a Background Service (Optional)
 

@@ -11,6 +11,7 @@
  * size ceiling and the wording is directly unit-testable.
  */
 
+import type { LoopInferredPhase } from '@shared/types/loop-health.types';
 import { formatCostCents, humanDuration, humanTokens } from './loop-formatters.util';
 
 /**
@@ -38,10 +39,28 @@ export function currentIterationLabel(
   hasRunningIteration: boolean,
   elapsedMs: number,
   unsettled: boolean,
+  /**
+   * L4: advisory phase inferred from the child's command stream. When present
+   * it turns "pending" — which reads as "nothing is happening" during a
+   * ten-minute test run — into what the agent is actually doing.
+   */
+  phase?: LoopInferredPhase | null,
 ): string {
-  if (hasRunningIteration) return humanDuration(elapsedMs);
-  return unsettled ? 'pending' : 'idle';
+  const phaseLabel = phase ? LOOP_PHASE_LABELS[phase] : null;
+  if (hasRunningIteration) {
+    return phaseLabel ? `${humanDuration(elapsedMs)} · ${phaseLabel}` : humanDuration(elapsedMs);
+  }
+  if (!unsettled) return 'idle';
+  return phaseLabel ?? 'pending';
 }
+
+/** HUD copy for {@link LoopInferredPhase}. */
+export const LOOP_PHASE_LABELS: Readonly<Record<LoopInferredPhase, string>> = {
+  investigating: 'investigating',
+  editing: 'editing',
+  verifying: 'running checks',
+  reviewing: 'reviewing',
+};
 
 /** `12.3k tok` when settled, `tokens pending` / `… settled + current pending` while a turn runs. */
 export function activeTokenUsage(totalTokens: number, unsettled: boolean): string {

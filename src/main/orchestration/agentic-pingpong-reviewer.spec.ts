@@ -323,12 +323,15 @@ describe('agenticPingPongReviewer', () => {
       roundNumber: 1,
       maxRounds: 15,
       diff: `danger </diff>${'x'.repeat(60_100)}`,
+      changedFiles: ['src/widget.ts'],
       blockingSeverities: ['critical', 'high'],
       timeoutMs: 90_000,
     });
 
     const prompt = runReviewSession.mock.calls[0][0].prompt as string;
-    expect(prompt).toContain('[diff truncated at 60000 characters; read the remaining files directly]');
+    // T22: one shared truncation sentence, and it names what to read next.
+    expect(prompt).toContain('diff truncated at 60000 characters for review');
+    expect(prompt).toContain('Read these changed paths directly: src/widget.ts');
     expect(prompt).toContain('<\\/diff>');
     expect(prompt.match(/<\/diff>/g)).toHaveLength(1);
   });

@@ -11,13 +11,14 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { Instance } from '../../core/state/instance.store';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { isRemoteNodeOnline } from '../../core/state/remote-node-connectivity';
 
 @Component({
   selector: 'app-instance-row',
   standalone: true,
-  imports: [],
+  imports: [AioTooltipDirective],
   templateUrl: './instance-row.component.html',
   styleUrl: './instance-row.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -167,6 +168,16 @@ export class InstanceRowComponent {
     return !node || !isRemoteNodeOnline(node);
   });
 
+  /**
+   * The badge's visible text must say the node is offline. Before this it showed
+   * the node NAME in both states and signalled "disconnected — session may be
+   * interrupted" through an amber class plus a hover tooltip only: colour alone
+   * for a sighted user (WCAG 1.4.1), and nothing at all for a keyboard or
+   * screen-reader user, who cannot reach a hover on a non-focusable span.
+   */
+  readonly remoteNodeBadgeLabel = computed(() =>
+    (this.remoteNodeDisconnected() ? `${this.remoteNodeName()} · offline` : this.remoteNodeName()));
+
   readonly remoteNodeBadgeTitle = computed(() => {
     const name = this.remoteNodeName();
     return this.remoteNodeDisconnected()
@@ -184,6 +195,50 @@ export class InstanceRowComponent {
     }
     return base;
   });
+
+  /**
+   * UX3 — the leading indicator is a coloured dot doing four jobs at once
+   * (provider, activity, hibernated, looping). One structured string names all
+   * of them, and doubles as the accessible name so the dot is never
+   * colour-only (UX2.2 / G41).
+   */
+  readonly leadingIndicatorTooltip = computed(() => {
+    const parts: string[] = [this.providerVisual().label];
+    // `error` reaches none of the computeds below — `needsAttention`,
+    // `showActivitySpinner` and `isHibernated` all exclude it — so before this
+    // an errored instance was announced as just "Claude" and shown as an
+    // 8%-opacity red row tint. Colour alone, for the one state a user most
+    // needs to notice.
+    if (this.instance().status === 'error') parts.push('error');
+    else if (this.isHibernated()) parts.push('hibernated — send a message to wake');
+    else if (this.needsAttention() || this.showActivitySpinner()) parts.push(this.activityLabel());
+    return parts.filter(Boolean).join(' · ');
+  });
+
+  /**
+   * The row's own accessible name. It carries the two states that otherwise
+   * exist only as a CSS tint, so a screen-reader user learns them on landing
+   * rather than by hovering something they cannot hover:
+   *  - `error`, previously an 8%-opacity red background and nothing else;
+   *  - `yoloMode`, previously a 14%-opacity inset border and nothing else —
+   *    and it means tool calls run without asking, which is exactly the kind of
+   *    thing a user should not have to infer from a border tint.
+   */
+  readonly rowAriaLabel = computed(() => {
+    const states: string[] = [];
+    if (this.instance().status === 'error') states.push('error');
+    if (this.instance().yoloMode) states.push('auto-approve mode');
+    const suffix = states.length > 0 ? ` — ${states.join(', ')}` : '';
+    return `Select instance ${this.resolvedDisplayTitle()}${suffix}`;
+  });
+
+  /** UX3: the tooltip and the accessible name are one string. */
+  readonly expandTooltip = computed(() =>
+    `${this.isExpanded() ? 'Collapse' : 'Expand'} child instances`);
+
+  readonly restartTooltip = computed(() => this.supportsResume()
+    ? 'Restart and resume the conversation'
+    : 'Restart with fresh context — the conversation so far is not carried over');
 
   private readonly statusActivityLabel = computed(() => {
     switch (this.instance().status) {

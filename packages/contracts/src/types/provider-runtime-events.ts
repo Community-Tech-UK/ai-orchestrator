@@ -269,6 +269,8 @@ export type DegradedReason =
 /** Response turn completed. */
 export interface ProviderCompleteEvent {
   kind: 'complete';
+  /** Instance request count captured synchronously when the provider completed. */
+  requestCountAtCompletion?: number;
   /** Tokens used in this turn. */
   tokensUsed?: number;
   inputTokens?: number;

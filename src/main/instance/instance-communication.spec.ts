@@ -1161,6 +1161,7 @@ describe('InstanceCommunicationManager', () => {
 
     expect(emitProviderRuntimeEvent).toHaveBeenCalledWith(instance.id, {
       kind: 'complete',
+      requestCountAtCompletion: instance.requestCount,
       tokensUsed: 42,
       costUsd: 0.25,
       durationMs: 500,
@@ -1347,6 +1348,52 @@ describe('InstanceCommunicationManager', () => {
     );
   });
 
+  it('captures the completion request count before context evidence drains', async () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    let releaseDrain: (() => void) | undefined;
+    const drainContextEvidence = vi.fn().mockImplementation(
+      () => new Promise<void>((resolve) => {
+        releaseDrain = resolve;
+      }),
+    );
+    manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, currentAdapter) => {
+        adapters.set(id, currentAdapter);
+      },
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+      drainContextEvidence,
+      emitProviderRuntimeEvent,
+    });
+    adapters.set(instance.id, adapter);
+    manager.setupAdapterEvents(instance.id, adapter);
+
+    (adapter as unknown as EventEmitter).emit('complete', {
+      id: 'response-before-new-turn',
+      role: 'assistant',
+      content: "I'll now run the tests.",
+    } satisfies CliResponse);
+    expect(drainContextEvidence).toHaveBeenCalledWith(instance.id);
+    instance.requestCount = 1;
+    releaseDrain?.();
+    await flushOutputHandlers();
+
+    expect(emitProviderRuntimeEvent).toHaveBeenCalledWith(
+      instance.id,
+      expect.objectContaining({
+        kind: 'complete',
+        requestCountAtCompletion: 0,
+      }),
+      expect.anything(),
+    );
+  });
+
   it('propagates the A3 degradedReason tag onto the complete runtime event', () => {
     const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
     adapters.set(instance.id, adapter);
@@ -1361,7 +1408,7 @@ describe('InstanceCommunicationManager', () => {
 
     expect(emitProviderRuntimeEvent).toHaveBeenCalledWith(
       instance.id,
-      { kind: 'complete', degradedReason: 'delayed' },
+      { kind: 'complete', degradedReason: 'delayed', requestCountAtCompletion: 0 },
       expect.objectContaining({ raw: expect.objectContaining({ source: 'adapter-event:complete' }) }),
     );
   });
@@ -1379,7 +1426,7 @@ describe('InstanceCommunicationManager', () => {
 
     expect(emitProviderRuntimeEvent).toHaveBeenCalledWith(
       instance.id,
-      { kind: 'complete' },
+      { kind: 'complete', requestCountAtCompletion: 0 },
       expect.objectContaining({ raw: expect.objectContaining({ source: 'adapter-event:complete' }) }),
     );
   });
@@ -2594,12 +2641,14 @@ describe('budget gate', () => {
   let queueUpdate: ReturnType<typeof vi.fn>;
   let comm: InstanceCommunicationManager;
   let adapter: FakeAdapter;
+  let createSnapshot: ReturnType<typeof vi.fn>;
 
   function build(overrides: { used: number; total: number }): void {
     instance = createInstance();
     instance.contextUsage = { used: overrides.used, total: overrides.total, percentage: 0 };
     adapters = new Map();
     queueUpdate = vi.fn();
+    createSnapshot = vi.fn();
     adapter = new FakeAdapter('claude-cli');
     adapters.set(instance.id, adapter as unknown as CliAdapter);
 
@@ -2618,6 +2667,7 @@ describe('budget gate', () => {
       ingestToUnifiedMemory: vi.fn(),
       getBudgetTracker: () => tracker,
       getContextUsage: () => instance.contextUsage,
+      createSnapshot,
     });
   }
 
@@ -2653,6 +2703,35 @@ describe('budget gate', () => {
     // UI was unstuck via queueUpdate('idle', ...)
     const idleCall = queueUpdate.mock.calls.find(call => call[1] === 'idle');
     expect(idleCall).toBeDefined();
+  });
+
+  it('keeps queued continuity and prior send state when the auto-continuation budget gate blocks', async () => {
+    build({ used: 50_000, total: 200_000 });
+    await comm.sendInput(instance.id, 'original user turn');
+    const internal = comm as unknown as {
+      lastSentMessages: Map<string, { message: string }>;
+    };
+
+    comm.queueContinuityPreamble(instance.id, 'queued late context');
+    instance.contextUsage = { used: 180_000, total: 200_000, percentage: 90 };
+    await comm.sendInput(
+      instance.id,
+      'automated nudge',
+      undefined,
+      undefined,
+      { autoContinuation: true },
+    );
+
+    expect(adapter.sendInput).toHaveBeenCalledTimes(1);
+    expect(createSnapshot).toHaveBeenCalledTimes(1);
+    expect(internal.lastSentMessages.get(instance.id)?.message).toBe('original user turn');
+
+    instance.contextUsage = { used: 50_000, total: 200_000, percentage: 25 };
+    await comm.sendInput(instance.id, 'new human turn');
+    expect(adapter.sendInput).toHaveBeenLastCalledWith(
+      'queued late context\n\nnew human turn',
+      undefined,
+    );
   });
 
   it('passes through normally when context is well under 90%', async () => {

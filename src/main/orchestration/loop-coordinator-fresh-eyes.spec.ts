@@ -175,7 +175,6 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
         maxWallTimeMs: 60_000,
         maxTokens: 1_000_000,
         maxCostCents: 100,
-        maxToolCallsPerIteration: 200,
       },
       // Always set verifyCommand to a no-op success so verify-before-stop passes.
       completion: {
@@ -412,7 +411,6 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
         maxWallTimeMs: 60_000,
         maxTokens: 1_000_000,
         maxCostCents: 100,
-        maxToolCallsPerIteration: 200,
       },
       completion: {
         ...base,
@@ -482,7 +480,6 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
         maxWallTimeMs: 60_000,
         maxTokens: 1_000_000,
         maxCostCents: 100,
-        maxToolCallsPerIteration: 200,
       },
       completion: {
         ...defaultLoopConfig(workspace, 'x').completion,
@@ -534,7 +531,6 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
         maxWallTimeMs: 60_000,
         maxTokens: 1_000_000,
         maxCostCents: 100,
-        maxToolCallsPerIteration: 200,
       },
       completion: {
         ...defaultLoopConfig(workspace, 'x').completion,

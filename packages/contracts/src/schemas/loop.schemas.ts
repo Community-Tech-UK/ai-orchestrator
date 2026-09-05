@@ -1,4 +1,21 @@
 import { z } from 'zod';
+import { LoopHealthStateFieldsSchema } from './loop-health.schemas';
+
+export { LoopHealthStateFieldsSchema } from './loop-health.schemas';
+import {
+  LegacyLoopPendingInputSchema,
+  LoopPendingInputKindSchema,
+  LoopPendingInputSchema,
+  LoopQueueDrainModeSchema,
+} from './loop-pending-input.schemas';
+
+export {
+  LegacyLoopPendingInputSchema,
+  LoopPendingInputKindSchema,
+  LoopPendingInputSchema,
+  LoopPendingInputSourceSchema,
+  LoopQueueDrainModeSchema,
+} from './loop-pending-input.schemas';
 import {
   LoopAuditConfigSchema,
   LoopAuditConfigInputSchema,
@@ -78,7 +95,8 @@ export const LoopHardCapsSchema = z.object({
   maxWallTimeMs: z.number().int().positive().max(LOOP_MAX_WALL_TIME_MS_SCHEMA_CAP),
   maxTokens: z.number().int().positive().max(100_000_000).nullable(),
   maxCostCents: z.number().int().nonnegative().max(1_000_000).nullable(),
-  maxToolCallsPerIteration: z.number().int().positive().max(10_000),
+  // T40: `maxToolCallsPerIteration` removed — never enforced; legacy payloads
+  // carrying it still parse (the key is stripped, not rejected).
   /** LF-7: bound on verified-but-ungated completion attempts before the loop
    *  stops as `cap-reached`. Optional; defaults to 3 via `defaultLoopConfig`. */
   maxCompletionAttempts: z.number().int().positive().max(100).optional(),
@@ -414,40 +432,6 @@ export const LoopToolCallRecordSchema = z.object({
   declaredTimeoutMs: z.number().positive().optional(),
 });
 
-export const LoopPendingInputKindSchema = z.enum(['steer', 'queue', 'follow-up']);
-/** Task 18 drain policy. Mirrors `LoopQueueDrainMode`. */
-export const LoopQueueDrainModeSchema = z.enum(['all', 'one-at-a-time']);
-export const LoopPendingInputSourceSchema = z.enum([
-  'human', 'block-override', 'plan-regen', 'phase-recovery',
-  'context-survival', 'announce-then-halt', 'subagent-result', 'wakeup',
-  'cap-wrap-up', 'auto-unstick',
-]);
-
-export const LoopPendingInputSchema = z.object({
-  id: z.string().min(1),
-  kind: LoopPendingInputKindSchema,
-  message: z.string().min(1),
-  enqueuedAt: z.number().int().nonnegative(),
-  source: LoopPendingInputSourceSchema,
-  /** Task 18 drain policy; absent is treated as `all`. */
-  drainMode: LoopQueueDrainModeSchema.optional(),
-});
-
-const LegacyLoopPendingInputSchema = z.string().min(1).transform((message) => ({
-  id: `legacy-${Math.abs(hashPendingMessage(message))}`,
-  kind: 'queue' as const,
-  message,
-  enqueuedAt: 0,
-  source: 'human' as const,
-}));
-
-function hashPendingMessage(input: string): number {
-  let hash = 0;
-  for (let i = 0; i < input.length; i++) {
-    hash = Math.imul(31, hash) + input.charCodeAt(i);
-  }
-  return hash;
-}
 
 export const LoopErrorRecordSchema = z.object({
   bucket: z.string(),
@@ -662,6 +646,7 @@ export const LoopStateSchema = z.object({
    *  back-compat with loop-state rows persisted before the field existed. */
   completionAttempts: z.number().int().nonnegative().default(0),
   announceThenHaltNudgeCount: z.number().int().nonnegative().default(0),
+  ...LoopHealthStateFieldsSchema.shape,
   /** LF-7: outcome of the most recent completion attempt. Optional for
    *  back-compat with rows persisted before the field existed. */
   lastCompletionOutcome: LoopCompletionOutcomeSchema.optional(),
@@ -673,6 +658,7 @@ export const LoopStateSchema = z.object({
   /** D6 (#7): cached clean fresh-eyes verdict, valid while no production file
    *  changed since. Mirrors `LoopState.freshEyesCleanForWorkState`. */
   freshEyesCleanForWorkState: z.boolean().optional(),
+
   /** B6: runtime context-window calibration learned from a provider overflow. */
   contextWindowCalibration: LoopContextWindowCalibrationSchema.optional(),
   /** LF-4: LOOP_TASKS.md fully resolved at startLoop (staleness guard).

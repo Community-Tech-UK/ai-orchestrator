@@ -1,7 +1,7 @@
 {
   "name": "harness",
   "version": "0.1.0",
-  "description": "Harness — desktop application for managing multiple AI CLI instances",
+  "description": "Harness \u2014 desktop application for managing multiple AI CLI instances",
   "main": "dist/main/main-process-entry.js",
   "workspaces": [
     "packages/*"
@@ -90,7 +90,8 @@
     "release:validate-tag": "node scripts/validate-release-tag.js",
     "release:validate-assets": "node scripts/validate-release-assets.js",
     "audit:production": "node scripts/audit-production-dependencies.js",
-    "audit:build": "node scripts/audit-build-dependencies.js && node scripts/verify-release-toolchain.js"
+    "audit:build": "node scripts/audit-build-dependencies.js && node scripts/verify-release-toolchain.js",
+    "audit:native-titles": "node scripts/audit-native-titles.js"
   },
   "keywords": [
     "ai",

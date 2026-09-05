@@ -21,6 +21,8 @@ import {
   summaryHasDistinctIterationPrompt,
   summarizeToolDetail,
   terminalStatusLabel,
+  loopErrorSummary,
+  loopIterationDuration,
 } from './loop-formatters.util';
 
 describe('humanDuration', () => {
@@ -92,6 +94,9 @@ describe('operator-facing loop projections', () => {
   });
 
   it('labels an in-flight run verdict as belonging to the last completed iteration', () => {
+    // The pill carries no aria-label: its visible text is its accessible name,
+    // and `title` is a separate description. See the matrix test in
+    // `loop-issue-diagnosis.util.spec.ts`.
     expect(progressVerdictView('CRITICAL', true)).toEqual({
       label: 'LAST ITER · STUCK',
       title: 'Last completed iteration progress verdict',
@@ -550,5 +555,81 @@ describe('buildInspectorProgress', () => {
     const p = buildInspectorProgress({ ...base, totalIterations: 1, iterationsOnCurrentStage: 1, runningSeq: null });
     expect(p.headline).toBe('1 iteration run');
     expect(p.stageText).toBe('IMPLEMENT · 1 iter on stage');
+  });
+});
+
+describe('loopIterationDuration', () => {
+  it('measures a finished iteration between its own timestamps', () => {
+    expect(loopIterationDuration({ startedAt: 1_000, endedAt: 4_500 } as never)).toBe(3_500);
+  });
+
+  it('measures a still-running iteration up to now', () => {
+    const now = Date.now();
+    const elapsed = loopIterationDuration({ startedAt: now - 2_000, endedAt: null } as never);
+    expect(elapsed).toBeGreaterThanOrEqual(2_000);
+    expect(elapsed).toBeLessThan(60_000);
+  });
+});
+
+describe('loopErrorSummary', () => {
+  it('prefixes each error with its bucket', () => {
+    const text = loopErrorSummary({
+      errors: [
+        { bucket: 'build', excerpt: 'tsc failed' },
+        { bucket: 'test', excerpt: '3 failing' },
+      ],
+    } as never);
+    expect(text).toBe('build: tsc failed\n\ntest: 3 failing');
+  });
+
+  it('is empty when there are no errors', () => {
+    expect(loopErrorSummary({ errors: [] } as never)).toBe('');
+  });
+});
+
+/**
+ * Gate 13: the strip rendered `step.label` — a static word like "verify" — and
+ * carried done/blocked/pending in `[attr.data-state]` plus a CSS colour only.
+ * A colour-blind or screen-reader user saw "declared verify rename review stop"
+ * with no way to tell which step was blocking the loop (WCAG 1.4.1).
+ *
+ * The tooltip guard in `icon-control-tooltip.spec.ts` could not catch this: it
+ * only inspects elements that already carry `[appTooltip]`, and these steps
+ * carry none. Colour-only state is a wider class than tooltip reachability.
+ */
+describe('completionGateSteps — state is in the text, not only the colour', () => {
+  function stepsFor(overrides: Parameters<typeof completionGateSteps>[0]) {
+    return completionGateSteps(overrides);
+  }
+
+  it('names a blocked step in its rendered text', () => {
+    const steps = stepsFor({
+      status: 'paused',
+      verifyStatus: 'failed',
+      lastCompletionOutcome: 'verify-failed',
+    });
+    const verify = steps.find((s) => s.key === 'verify');
+    expect(verify?.state).toBe('blocked');
+    expect(verify?.text).toContain('verify');
+    expect(verify?.text).toContain('blocked');
+  });
+
+  it('distinguishes done from pending in text alone', () => {
+    const steps = stepsFor({ status: 'completed', verifyStatus: 'passed' });
+    const rendered = steps.filter((s) => s.state !== 'skipped').map((s) => s.text);
+    // Strip every state word out; what remains must NOT identify the states,
+    // i.e. the state really is carried by the text rather than by position.
+    for (const s of steps) {
+      if (s.state === 'skipped') continue;
+      expect(s.text, `${s.key} omits its state`).toContain(s.state);
+    }
+    expect(rendered.length).toBeGreaterThan(0);
+  });
+
+  it('leaves a skipped step unlabelled since it is never rendered', () => {
+    const steps = stepsFor({ status: 'running', freshEyesEnabled: false, manualReviewOnly: false });
+    const review = steps.find((s) => s.key === 'review');
+    expect(review?.state).toBe('skipped');
+    expect(review?.text).toBe('review');
   });
 });

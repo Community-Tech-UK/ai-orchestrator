@@ -280,7 +280,6 @@ describe('Loop schemas — type/schema drift guards', () => {
           maxWallTimeMs: 60_000,
           maxTokens: 100_000,
           maxCostCents: 100,
-          maxToolCallsPerIteration: 100,
         },
         progressThresholds: {
           identicalHashWarnConsecutive: 2,
@@ -428,13 +427,28 @@ describe('Loop schemas — type/schema drift guards', () => {
   });
 
   describe('LoopHardCapsSchema', () => {
+    // T40: the field was removed from the schema. A checkpoint persisted before
+    // the removal must still restore — the key is stripped, not rejected — or
+    // every in-flight loop would fail validation on the upgrade.
+    it('still parses a legacy checkpoint carrying maxToolCallsPerIteration', () => {
+      const parsed = LoopHardCapsSchema.parse({
+        maxIterations: 50,
+        maxWallTimeMs: 60_000,
+        maxTokens: null,
+        maxCostCents: null,
+        maxToolCallsPerIteration: 200,
+      });
+
+      expect(parsed.maxIterations).toBe(50);
+      expect(parsed).not.toHaveProperty('maxToolCallsPerIteration');
+    });
+
     it('accepts null maxIterations as an unbounded iteration cap', () => {
       const parsed = LoopHardCapsSchema.parse({
         maxIterations: null,
         maxWallTimeMs: 60_000,
         maxTokens: null,
         maxCostCents: 100_000,
-        maxToolCallsPerIteration: 100,
       });
 
       expect(parsed.maxIterations).toBeNull();
@@ -446,7 +460,6 @@ describe('Loop schemas — type/schema drift guards', () => {
         maxWallTimeMs: 60_000,
         maxTokens: null,
         maxCostCents: 100_000,
-        maxToolCallsPerIteration: 100,
       });
 
       expect(parsed.maxTokens).toBeNull();
@@ -458,7 +471,6 @@ describe('Loop schemas — type/schema drift guards', () => {
         maxWallTimeMs: 60_000,
         maxTokens: 100_000,
         maxCostCents: null,
-        maxToolCallsPerIteration: 100,
       });
 
       expect(parsed.maxCostCents).toBeNull();
@@ -483,7 +495,6 @@ describe('Loop schemas — type/schema drift guards', () => {
             maxWallTimeMs: 60_000,
             maxTokens: 100_000,
             maxCostCents: 100,
-            maxToolCallsPerIteration: 100,
           },
           progressThresholds: {
             identicalHashWarnConsecutive: 2,
@@ -563,7 +574,6 @@ describe('Loop schemas — type/schema drift guards', () => {
             maxWallTimeMs: 60_000,
             maxTokens: 100_000,
             maxCostCents: 100,
-            maxToolCallsPerIteration: 100,
           },
           progressThresholds: {
             identicalHashWarnConsecutive: 2,
@@ -758,7 +768,6 @@ describe('Loop schemas — type/schema drift guards', () => {
           maxWallTimeMs: 60_000,
           maxTokens: 100_000,
           maxCostCents: 100,
-          maxToolCallsPerIteration: 100,
         },
         progressThresholds: {
           identicalHashWarnConsecutive: 2,
@@ -921,7 +930,6 @@ describe('Loop schemas — type/schema drift guards', () => {
         maxWallTimeMs: 50 * 60 * 60 * 1000,
         maxTokens: null,
         maxCostCents: null,
-        maxToolCallsPerIteration: 200,
       },
       progressThresholds: {
         identicalHashWarnConsecutive: 2,

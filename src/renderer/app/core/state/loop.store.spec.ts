@@ -10,7 +10,12 @@ describe('LoopStore', () => {
     iterationStarted: Listener<{ loopRunId: string; seq: number; stage: string }>[];
     activity: Listener<LoopActivityPayload>[];
     iterationComplete: Listener<{ loopRunId: string; seq: number; verdict: string }>[];
-    pausedNoProgress: Listener<{ loopRunId: string; signal: { id: string; message: string; verdict: string } }>[];
+    pausedNoProgress: Listener<{
+      loopRunId: string;
+      signal: { id: string; message: string; verdict: string };
+      nonConvergence?: { reason: string; message: string; seq: number };
+      autoUnstickExhausted?: boolean;
+    }>[];
     claimedDoneButFailed: Listener<{ loopRunId: string; signal: string; failure: string }>[];
     terminalIntentRecorded: Listener<{ loopRunId: string; intent: NonNullable<LoopStatePayload['terminalIntentPending']> }>[];
     terminalIntentRejected: Listener<{ loopRunId: string; intent: NonNullable<LoopStatePayload['terminalIntentPending']>; reason: string }>[];
@@ -343,6 +348,50 @@ describe('LoopStore', () => {
       seq: 5,
       detail: { count: 1, remaining: 2 },
     });
+  });
+
+  // L6: the operator has to see WHY, not just that something stalled. A banner
+  // that still says "identical work hash" when the backend knows it is "the
+  // reviewer keeps raising the same finding" is the bug L6 exists to fix.
+  it('prefers the named non-convergence diagnosis over the raw progress signal', () => {
+    store.ensureWired();
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: { ...activeState(), status: 'paused' },
+    }));
+
+    listeners.pausedNoProgress.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      signal: { id: 'A', message: 'identical work hash', verdict: 'CRITICAL' },
+      nonConvergence: {
+        reason: 'code_review_non_converging',
+        message: 'The reviewer has raised the same 2 unresolved finding(s) across 4 rounds.',
+        seq: 12,
+      },
+      autoUnstickExhausted: true,
+    }));
+
+    const banner = store.bannerForChat('chat-1')();
+    expect(banner).toMatchObject({
+      kind: 'no-progress',
+      signalId: 'A',
+      message: 'The reviewer has raised the same 2 unresolved finding(s) across 4 rounds.',
+    });
+  });
+
+  it('still falls back to the raw signal when no diagnosis was produced', () => {
+    store.ensureWired();
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: { ...activeState(), status: 'paused' },
+    }));
+
+    listeners.pausedNoProgress.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      signal: { id: 'A', message: 'identical work hash', verdict: 'CRITICAL' },
+    }));
+
+    expect(store.bannerForChat('chat-1')()).toMatchObject({ message: 'identical work hash' });
   });
 
   it('clears the no-progress banner when the loop reaches a terminal state', () => {
@@ -946,7 +995,6 @@ function activeState(): LoopStatePayload {
         maxWallTimeMs: 14_400_000,
         maxTokens: 1_000_000,
         maxCostCents: 50_000,
-        maxToolCallsPerIteration: 200,
       },
       progressThresholds: {
         identicalHashWarnConsecutive: 2,

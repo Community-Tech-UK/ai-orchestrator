@@ -355,7 +355,6 @@ describe('LoopCoordinator completion classification hardening', () => {
         maxWallTimeMs: 60_000,
         maxTokens: 1_000_000,
         maxCostCents: 100,
-        maxToolCallsPerIteration: 200,
       },
       completion: {
         ...defaultLoopConfig(workspace, 'x').completion,
@@ -434,7 +433,6 @@ describe('LoopCoordinator completion classification hardening', () => {
         maxWallTimeMs: 60_000,
         maxTokens: 1_000_000,
         maxCostCents: 100,
-        maxToolCallsPerIteration: 200,
       },
       completion: {
         ...defaultLoopConfig(workspace, 'x').completion,
@@ -525,7 +523,6 @@ describe('LoopCoordinator skipped-verify completion gate', () => {
         maxWallTimeMs: 60_000,
         maxTokens: 1_000_000,
         maxCostCents: 100,
-        maxToolCallsPerIteration: 200,
       },
       completion: {
         ...defaultLoopConfig(workspace, 'x').completion,

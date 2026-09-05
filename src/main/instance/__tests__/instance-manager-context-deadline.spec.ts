@@ -538,6 +538,155 @@ describe('InstanceManager context deadline', () => {
     expect(mockCommunicationSendInput.mock.calls[0]?.[3]).toBeNull();
   });
 
+  it('does not commit cancellable input state before provider dispatch', async () => {
+    const enteredCommunication = deferred<void>();
+    const releaseCommunication = deferred<void>();
+    mockCommunicationSendInput.mockImplementation(async (
+      _instanceId: string,
+      _message: string,
+      _attachments: unknown,
+      _contextBlock: unknown,
+      rawOptions: unknown,
+    ) => {
+      const options = rawOptions as {
+        signal?: AbortSignal;
+        beforeProviderDispatch?: () => void;
+      };
+      enteredCommunication.resolve();
+      await releaseCommunication.promise;
+      if (options.signal?.aborted) {
+        const error = new Error('cancelled');
+        error.name = 'AbortError';
+        throw error;
+      }
+      options.beforeProviderDispatch?.();
+    });
+    const instance = makeInstance();
+    mockStateInstances.set(instance.id, instance);
+    const manager = new InstanceManager(undefined, createContextPort());
+    const controller = new AbortController();
+
+    const send = manager.sendInput(
+      instance.id,
+      'Continue now.',
+      undefined,
+      { autoContinuation: true, signal: controller.signal },
+    );
+    await enteredCommunication.promise;
+    controller.abort();
+    releaseCommunication.resolve();
+
+    await expect(send).rejects.toMatchObject({ name: 'AbortError' });
+    expect(instance.requestCount).toBe(0);
+    expect(instance.outputBuffer).toHaveLength(1);
+    expect(mockPromptHistoryRecord).not.toHaveBeenCalled();
+  });
+
+  it('commits cancellable input state at the provider-dispatch boundary', async () => {
+    mockCommunicationSendInput.mockImplementation(async (
+      _instanceId: string,
+      _message: string,
+      _attachments: unknown,
+      _contextBlock: unknown,
+      rawOptions: unknown,
+    ) => {
+      const options = rawOptions as { beforeProviderDispatch?: () => void };
+      options.beforeProviderDispatch?.();
+    });
+    const instance = makeInstance();
+    mockStateInstances.set(instance.id, instance);
+    const manager = new InstanceManager(undefined, createContextPort());
+
+    await manager.sendInput(
+      instance.id,
+      'Continue now.',
+      undefined,
+      { autoContinuation: true, signal: new AbortController().signal },
+    );
+
+    expect(instance.requestCount).toBe(1);
+    expect(instance.outputBuffer.at(-1)).toMatchObject({
+      type: 'user',
+      content: 'Continue now.',
+    });
+    expect(mockPromptHistoryRecord).toHaveBeenCalledOnce();
+  });
+
+  it('rechecks a caller dispatch guard before committing cancellable input state', async () => {
+    const enteredCommunication = deferred<void>();
+    const releaseCommunication = deferred<void>();
+    let providerDispatched = false;
+    mockCommunicationSendInput.mockImplementation(async (
+      _instanceId: string,
+      _message: string,
+      _attachments: unknown,
+      _contextBlock: unknown,
+      rawOptions: unknown,
+    ) => {
+      const options = rawOptions as { beforeProviderDispatch?: () => void };
+      enteredCommunication.resolve();
+      await releaseCommunication.promise;
+      options.beforeProviderDispatch?.();
+      providerDispatched = true;
+    });
+    const instance = makeInstance();
+    mockStateInstances.set(instance.id, instance);
+    const manager = new InstanceManager(undefined, createContextPort());
+    let eligible = true;
+    const dispatchGuard = vi.fn(() => {
+      if (eligible) return;
+      const error = new Error('automatic input is no longer eligible');
+      error.name = 'AbortError';
+      throw error;
+    });
+
+    const send = manager.sendInput(
+      instance.id,
+      'Continue now.',
+      undefined,
+      {
+        autoContinuation: true,
+        signal: new AbortController().signal,
+        beforeProviderDispatch: dispatchGuard,
+      },
+    );
+    await enteredCommunication.promise;
+    eligible = false;
+    releaseCommunication.resolve();
+
+    await expect(send).rejects.toMatchObject({ name: 'AbortError' });
+
+    expect(dispatchGuard).toHaveBeenCalledOnce();
+    expect(providerDispatched).toBe(false);
+    expect(instance.requestCount).toBe(0);
+    expect(instance.outputBuffer).toHaveLength(1);
+    expect(mockPromptHistoryRecord).not.toHaveBeenCalled();
+  });
+
+  it('marks non-continuation automated sends as chain-preserving input', async () => {
+    const instance = makeInstance();
+    mockStateInstances.set(instance.id, instance);
+    const manager = new InstanceManager(undefined, createContextPort());
+    const inputStarted = vi.fn();
+    manager.on('instance:input-started', inputStarted);
+
+    await manager.sendInput(
+      instance.id,
+      'Automated feedback.',
+      undefined,
+      { automatedInput: true },
+    );
+
+    expect(inputStarted).toHaveBeenCalledWith({
+      instanceId: instance.id,
+      autoContinuation: true,
+    });
+    expect(mockCommunicationSendInput.mock.calls[0]?.[4]).toMatchObject({
+      autoContinuation: false,
+    });
+    expect(mockPromptHistoryRecord).toHaveBeenCalledOnce();
+  });
+
   it('queues late context for the next turn after sending without it', async () => {
     const rlm = deferred<RlmContextInfo | null>();
     const unified = deferred<UnifiedMemoryContextInfo | null>();
@@ -571,6 +720,56 @@ describe('InstanceManager context deadline', () => {
     expect(mockQueueContinuityPreamble).toHaveBeenCalledWith(
       instance.id,
       expect.stringContaining('late rlm context'),
+    );
+  });
+
+  it('queues late context after a cancellable send reaches provider dispatch', async () => {
+    const rlm = deferred<RlmContextInfo | null>();
+    const unified = deferred<UnifiedMemoryContextInfo | null>();
+    const indexed = deferred<IndexedCodebaseContextInfo | null>();
+    const contextPort = createContextPort({
+      buildRlmContext: vi.fn(() => rlm.promise),
+      buildUnifiedMemoryContext: vi.fn(() => unified.promise),
+    });
+    mockIndexedBuildContext.mockImplementation(() => indexed.promise);
+    mockCommunicationSendInput.mockImplementation(async (
+      _instanceId: string,
+      _message: string,
+      _attachments: unknown,
+      _contextBlock: unknown,
+      rawOptions: unknown,
+    ) => {
+      const options = rawOptions as { beforeProviderDispatch?: () => void };
+      options.beforeProviderDispatch?.();
+    });
+    const instance = makeInstance();
+    mockStateInstances.set(instance.id, instance);
+    const manager = new InstanceManager(undefined, contextPort);
+
+    const sendPromise = manager.sendInput(
+      instance.id,
+      'Continue now.',
+      undefined,
+      { autoContinuation: true, signal: new AbortController().signal },
+    );
+    await advancePastContextDeadline();
+    await sendPromise;
+
+    rlm.resolve({
+      context: 'late automatic context',
+      tokens: 10,
+      sectionsAccessed: ['s1'],
+      durationMs: 501,
+      source: 'semantic',
+    });
+    unified.resolve(null);
+    indexed.resolve(null);
+    await vi.advanceTimersByTimeAsync(0);
+    await flushMicrotasks();
+
+    expect(mockQueueContinuityPreamble).toHaveBeenCalledWith(
+      instance.id,
+      expect.stringContaining('late automatic context'),
     );
   });
 

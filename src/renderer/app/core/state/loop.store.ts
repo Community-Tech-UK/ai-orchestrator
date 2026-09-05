@@ -185,14 +185,17 @@ export class LoopStore {
       this.clearRunningIteration(loopRunId);
     });
 
-    this.ipc.onPausedNoProgress(({ loopRunId, signal }) => {
+    this.ipc.onPausedNoProgress(({ loopRunId, signal, nonConvergence }) => {
       const chatId = this.findChatIdForLoop(loopRunId);
       if (!chatId) return;
       this.setBanner(chatId, {
         kind: 'no-progress',
         loopRunId,
         signalId: signal.id,
-        message: signal.message,
+        // L6: prefer the named diagnosis. The raw progress-signal text says
+        // WHAT the detector saw ("identical work hash"); the diagnosis says
+        // what to DO about it, which is what a human reading a pause needs.
+        message: nonConvergence?.message ?? signal.message,
         shownAt: Date.now(),
       });
     });

@@ -11,8 +11,17 @@ export interface LoopHardCaps {
    * an optional local safety cap, not a provider billing/subscription limit.
    */
   maxCostCents: number | null;
-  /** Per-iteration tool-call cap. Default 200. */
-  maxToolCallsPerIteration: number;
+  /**
+   * T40 (Decision 12): `maxToolCallsPerIteration` was removed. It was stored,
+   * merged and clamped, but `checkLoopHardCaps` never read it and nothing else
+   * in `src/main/orchestration` did either — a control that looked like a stop
+   * and was not one. The number that actually fires is the doom-loop
+   * `runawayCap`, a warn/critical EVENT gated by `toolLoopAutoInterrupt`.
+   * `maxTurnsPerIteration` (on `LoopConfig`) IS wired and is the real
+   * per-iteration bound. Do not reintroduce a second stop beside doom-loop
+   * runaway without deciding which one owns the terminal decision (G30).
+   * Legacy persisted configs carrying the key are ignored, not rejected.
+   */
   /**
    * LF-7: max number of completion attempts where verify PASSED but the
    * `*_Completed.md` rename belt-and-braces gate kept blocking, before the

@@ -130,14 +130,17 @@ describe('collectWorkspaceDiff', () => {
 
   it('truncates when the combined diff exceeds maxChars', () => {
     workspace = mkdtempSync(join(tmpdir(), 'loop-diff-'));
-    const huge = 'x'.repeat(5_000);
+    const huge = ['+++ b/src/big.ts', 'x'.repeat(5_000)].join('\n');
     const out = collectWorkspaceDiff(
       workspace,
       { maxChars: 1_000 },
       fakeRunner({ trackedDiff: huge }),
     );
     expect(out.truncated).toBe(true);
-    expect(out.diff.length).toBeLessThanOrEqual(1_000 + 64);
-    expect(out.diff).toContain('diff truncated for review');
+    // T22: the shared note names the cap and the paths the reviewer must read.
+    expect(out.diff).toContain('diff truncated at 1000 characters for review');
+    expect(out.diff).toContain('do NOT treat the missing text as unchanged');
+    expect(out.diff).toContain('Read these changed paths directly: src/big.ts');
+    expect(out.diff.length).toBeLessThanOrEqual(1_000 + 400);
   });
 });

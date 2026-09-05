@@ -23,6 +23,7 @@ import {
   ReviewSeveritySchema,
 } from '../../shared/types/review-severity';
 import { extractLastJsonPayload } from '../agents/review-json-extract';
+import { MAX_REVIEW_DIFF_CHARS, renderDiffTruncationNote } from './loop-diff';
 import {
   filterProvidersForAutomation,
   isProviderExcludedFromAutomation,
@@ -111,6 +112,8 @@ export interface PingPongReviewerInput {
   /** Unified diff of the change (impl mode). */
   diff?: string;
   diffSource?: 'git' | 'none';
+  /** T22: changed paths, named by the shared truncation note. */
+  changedFiles?: readonly string[];
   /** Severities that block convergence. */
   blockingSeverities: readonly PingPongSeverity[];
   /** Hard wall-clock timeout for the reviewer session. */
@@ -154,7 +157,6 @@ const MIN_FILES_INSPECTED = 1;
 /** Cap on NEW low/medium findings per round to throttle nitpick churn. */
 const MAX_NEW_LOW_FINDINGS = 5;
 const MAX_FORMAT_REPAIR_PROMPT_CHARS = 40_000;
-const MAX_REVIEW_DIFF_CHARS = 60_000;
 
 function escapeClosingTag(text: string, tagName: string): string {
   return text.replace(new RegExp(`</${tagName}`, 'gi'), `<\\/${tagName}`);
@@ -304,8 +306,10 @@ function buildPrompt(input: PingPongReviewerInput): string {
         `whatever files you need. Find correctness, security, edge-case, and test-coverage ` +
         `issues. Cite file:line and what you inspected for every finding.`;
 
+  // T22: defensive clamp for callers that pass a diff from elsewhere; the
+  // collector already caps and appends the same sentence.
   const diffTruncationMarker = rawDiff.length > MAX_REVIEW_DIFF_CHARS
-    ? `\n[diff truncated at ${MAX_REVIEW_DIFF_CHARS} characters; read the remaining files directly]`
+    ? `\n${renderDiffTruncationNote(input.changedFiles ?? [])}`
     : '';
   const boundedDiff = escapeClosingTag(rawDiff.slice(0, MAX_REVIEW_DIFF_CHARS), 'diff');
   // An impl-mode review with no diff is the dangerous case: the reviewer would

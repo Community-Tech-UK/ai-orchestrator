@@ -33,7 +33,7 @@ export interface WorkspaceDiff {
 }
 
 export interface CollectWorkspaceDiffOptions {
-  /** Hard cap on the returned diff text. Default 64 KB. */
+  /** Hard cap on the returned diff text. Defaults to `MAX_REVIEW_DIFF_CHARS`. */
   maxChars?: number;
   /** Per-untracked-file content cap. Default 16 KB. */
   maxUntrackedFileChars?: number;
@@ -45,8 +45,36 @@ export interface CollectWorkspaceDiffOptions {
  */
 export type GitRunner = (args: string[], cwd: string) => { status: number | null; stdout: string };
 
-const DEFAULT_MAX_CHARS = 64_000;
+/**
+ * T22 — the single review-payload cap. Fresh-eyes and ping-pong previously
+ * disagreed (64k collected, re-capped to 60k inside the ping-pong reviewer),
+ * so a fresh-eyes reviewer silently received 4k more material than a ping-pong
+ * reviewer on the same change. One constant, one truncation sentence, both
+ * paths. `loop-repo-state.ts`'s 96k is a baseline-hash budget, not a reviewer
+ * budget (G16) — do not unify it with this.
+ */
+export const MAX_REVIEW_DIFF_CHARS = 60_000;
 const DEFAULT_MAX_UNTRACKED_FILE_CHARS = 16_000;
+
+/** How many paths the truncation note names before it summarises the rest. */
+const MAX_TRUNCATION_NOTE_PATHS = 40;
+
+/**
+ * T22 — the one truncation sentence. A truncated diff is worse than useless if
+ * the reviewer cannot tell what it is missing, so the note names the remaining
+ * paths and tells the reviewer to read them rather than infer from silence.
+ */
+export function renderDiffTruncationNote(
+  changedFiles: readonly string[],
+  maxChars = MAX_REVIEW_DIFF_CHARS,
+): string {
+  const head = `… (diff truncated at ${maxChars} characters for review — do NOT treat the missing text as unchanged)`;
+  if (changedFiles.length === 0) return head;
+  const named = changedFiles.slice(0, MAX_TRUNCATION_NOTE_PATHS);
+  const rest = changedFiles.length - named.length;
+  const more = rest > 0 ? `, and ${rest} more` : '';
+  return `${head}\nRead these changed paths directly: ${named.join(', ')}${more}`;
+}
 
 /**
  * Untracked paths never forwarded to reviewers. `.aio-loop-control` notably
@@ -66,7 +94,7 @@ function isIgnoredUntracked(relPath: string): boolean {
   return IGNORED_UNTRACKED_PREFIXES.some((prefix) => normalized.startsWith(prefix));
 }
 
-const defaultGitRunner: GitRunner = (args, cwd) => {
+export const defaultGitRunner: GitRunner = (args, cwd) => {
   try {
     const res = spawnSync('git', args, {
       cwd,
@@ -120,7 +148,7 @@ export function collectWorkspaceDiff(
   options: CollectWorkspaceDiffOptions = {},
   runner: GitRunner = defaultGitRunner,
 ): WorkspaceDiff {
-  const maxChars = options.maxChars ?? DEFAULT_MAX_CHARS;
+  const maxChars = options.maxChars ?? MAX_REVIEW_DIFF_CHARS;
   const maxUntrackedFileChars = options.maxUntrackedFileChars ?? DEFAULT_MAX_UNTRACKED_FILE_CHARS;
 
   if (!isDiffCapableWorkspace(workspaceCwd, runner)) {
@@ -162,10 +190,11 @@ export function collectWorkspaceDiff(
     }
   }
 
+  const sortedChangedFiles = [...changedFiles].sort();
   let diff = sections.join('\n\n');
   let truncated = false;
   if (diff.length > maxChars) {
-    diff = diff.slice(0, maxChars) + '\n… (diff truncated for review)';
+    diff = `${diff.slice(0, maxChars)}\n${renderDiffTruncationNote(sortedChangedFiles, maxChars)}`;
     truncated = true;
   }
 
@@ -173,6 +202,6 @@ export function collectWorkspaceDiff(
     diff,
     source: 'git',
     truncated,
-    changedFiles: [...changedFiles].sort(),
+    changedFiles: sortedChangedFiles,
   };
 }

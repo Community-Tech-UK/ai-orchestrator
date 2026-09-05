@@ -10,7 +10,7 @@
 import { afterEach, describe, it, expect, beforeEach, vi } from 'vitest';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WorktreeManager, _resetWorktreeManagerForTesting } from './worktree-manager';
@@ -279,5 +279,69 @@ describe('WorktreeManager.integrateWorktree — auto-integration (real git)', ()
       committed: false,
       hasUncommittedWork: true,
     });
+  });
+});
+
+/**
+ * T37 — `installDependencies` must never report success on an empty worktree.
+ *
+ * A `.worktreeinclude` entry that is `missing` at the root is reported as a
+ * clean batch (an include list may name optional paths), so believing the batch
+ * result alone would silently skip provisioning and hand the loop an empty
+ * tree — the exact failure T37 exists to close.
+ */
+describe('WorktreeManager.installDependencies include-list fallback (T37)', () => {
+  let repoRoot: string;
+  let worktreePath: string;
+
+  beforeEach(() => {
+    _resetWorktreeManagerForTesting();
+    repoRoot = mkdtempSync(join(tmpdir(), 'wt-deps-root-'));
+    worktreePath = mkdtempSync(join(tmpdir(), 'wt-deps-wt-'));
+  });
+
+  afterEach(() => {
+    rmSync(repoRoot, { recursive: true, force: true });
+    rmSync(worktreePath, { recursive: true, force: true });
+  });
+
+  function install(mgr: WorktreeManager): Promise<void> {
+    return (mgr as unknown as {
+      installDependencies(root: string, wt: string): Promise<void>;
+    }).installDependencies(repoRoot, worktreePath);
+  }
+
+  it('falls through to provisioning when the include list names a path the root does not have', async () => {
+    writeFileSync(join(repoRoot, '.worktreeinclude'), 'node_modules\n');
+    // `provisionNodeModules` runs the install command in the WORKTREE, and only
+    // when that directory has a package.json — mirror a real checkout.
+    writeFileSync(join(worktreePath, 'package.json'), '{"name":"x","version":"1.0.0"}');
+    const mgr = WorktreeManager.getInstance();
+    // The install command drops a marker so the assertion proves provisioning
+    // was ATTEMPTED, rather than merely observing an empty worktree (which is
+    // also what the silent-skip bug produced). A script file rather than
+    // `node -e` keeps the quoting portable across shells.
+    const marker = join(worktreePath, 'install-ran.txt');
+    writeFileSync(
+      join(worktreePath, 'install-marker.js'),
+      "require('fs').writeFileSync('install-ran.txt', 'ran');\n",
+    );
+    mgr.configure({ installDeps: true, installCommand: 'node install-marker.js' });
+
+    await install(mgr);
+
+    expect(existsSync(marker)).toBe(true);
+  });
+
+  it('accepts the include list when it actually populated node_modules', async () => {
+    writeFileSync(join(repoRoot, '.worktreeinclude'), 'node_modules\n');
+    mkdirSync(join(repoRoot, 'node_modules', 'left-pad'), { recursive: true });
+    writeFileSync(join(repoRoot, 'node_modules', 'left-pad', 'index.js'), 'module.exports = 1;');
+    const mgr = WorktreeManager.getInstance();
+    mgr.configure({ installDeps: true });
+
+    await install(mgr);
+
+    expect(existsSync(join(worktreePath, 'node_modules', 'left-pad', 'index.js'))).toBe(true);
   });
 });

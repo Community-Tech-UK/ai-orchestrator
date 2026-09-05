@@ -107,6 +107,55 @@ describe('LoopPreIterationGuard', () => {
     );
   });
 
+  // T45 (Decision 4): a run that already blew its token or cost cap must not
+  // pay another full scaffold to overshoot the budget that stopped it.
+  it('skips the wrap-up turn when the tripped cap is tokens', async () => {
+    const state = makeState();
+    state.config.caps.maxTokens = 1_000;
+    state.totalTokens = 5_000;
+    const harness = makeHarness();
+
+    await expect(harness.guard.run(state)).resolves.toBe('terminal');
+    expect(state.pendingInterventions).toHaveLength(0);
+    expect(harness.emit).not.toHaveBeenCalledWith('loop:cap-wrap-up', expect.anything());
+    expect(harness.terminate).toHaveBeenCalledWith(state, 'cap-reached', expect.stringContaining('oken'));
+  });
+
+  it('skips the wrap-up turn when the tripped cap is cost', async () => {
+    const state = makeState();
+    state.config.caps.maxCostCents = 100;
+    state.totalCostCents = 500;
+    const harness = makeHarness();
+
+    await expect(harness.guard.run(state)).resolves.toBe('terminal');
+    expect(state.pendingInterventions).toHaveLength(0);
+    expect(harness.emit).not.toHaveBeenCalledWith('loop:cap-wrap-up', expect.anything());
+  });
+
+  // T45 (Wave 2): the wrap-up is only a hand-off when "do not start new work"
+  // is enforced. A prompt-only provider keeps every tool and may start work it
+  // will never finish, so the extra paid turn is pure waste.
+  it('skips the wrap-up turn on a provider that cannot enforce tools-disable', async () => {
+    const state = makeState();
+    state.config.provider = 'gemini';
+    state.config.caps.maxIterations = 0;
+    const harness = makeHarness();
+
+    await expect(harness.guard.run(state)).resolves.toBe('terminal');
+    expect(state.pendingInterventions).toHaveLength(0);
+    expect(harness.emit).not.toHaveBeenCalledWith('loop:cap-wrap-up', expect.anything());
+  });
+
+  it('still wraps up on a wall-time cap', async () => {
+    const state = makeState();
+    state.config.caps.maxWallTimeMs = 1;
+    state.startedAt = Date.now() - 10_000;
+    const harness = makeHarness();
+
+    await expect(harness.guard.run(state)).resolves.toBe('continue');
+    expect(state.pendingInterventions).toHaveLength(1);
+  });
+
   it('terminalizes a restored pending cap intent without reopening the work budget', async () => {
     const state = makeState();
     state.capWrapUpIntent = {

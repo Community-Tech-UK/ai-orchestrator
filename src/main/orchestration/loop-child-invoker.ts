@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import type { LoopStage, LoopState } from '../../shared/types/loop.types';
 import { getLogger } from '../logging/logger';
 import type { LoopControlEnv } from './loop-control';
+import { inferLoopPhase, type LoopInferredPhase } from './loop-phase-inference';
 import {
   DEFAULT_ITERATION_TIMEOUT_MS,
   type LoopChildInvocationCallbackResult,
@@ -29,12 +30,19 @@ export interface InvokeLoopChildIterationInput {
    * falls back to the prompt-only directive elsewhere.
    */
   disableTools?: boolean;
+  /**
+   * L4: advisory intra-iteration phase inferred from the command stream.
+   * Called only when the classification changes. Never gates anything.
+   */
+  onPhase?: (phase: LoopInferredPhase) => void;
 }
 
 interface LoopActivityPayload {
   loopRunId?: string;
   seq?: number;
   kind?: string;
+  message?: string;
+  detail?: Record<string, unknown>;
 }
 
 function contextWindowTokensForInvocation(
@@ -76,9 +84,24 @@ export function invokeLoopChildIteration(input: InvokeLoopChildIterationInput): 
     const maxWallMs = iterationTimeoutMs * 2;
     const seq = state.totalIterations;
 
+    let lastPhase: LoopInferredPhase | null = null;
     const onActivity = (payload: unknown): void => {
       const activity = payload as LoopActivityPayload;
       if (activity.loopRunId !== state.id || activity.seq !== seq) return;
+      // L4: advisory phase inference, before the deadline filter — a heartbeat
+      // never reaches here anyway, and a tool_use should update the phase even
+      // if a later rule changes what counts as deadline progress.
+      if (input.onPhase && typeof activity.message === 'string') {
+        const phase = inferLoopPhase({
+          kind: activity.kind ?? '',
+          message: activity.message,
+          detail: activity.detail,
+        });
+        if (phase && phase !== lastPhase) {
+          lastPhase = phase;
+          input.onPhase(phase);
+        }
+      }
       if (
         activity.kind === 'stream-idle'
         || activity.kind === 'error'

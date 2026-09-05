@@ -791,7 +791,9 @@ export function buildLoopBranchSelectorDeps(instanceManager: InstanceManager): B
           session = await wm.createWorktree(
             `loop-branch-${input.loopRunId}`,
             `branch-select candidate ${i + 1} (${provider})`,
-            { repoRoot: input.workspaceCwd, skipInstall: true, taskType: 'feature' },
+            // T37: branch-select candidates run the same verify as the loop,
+            // so they need the same dependency provisioning.
+            { repoRoot: input.workspaceCwd, taskType: 'feature' },
           );
         } catch (err) {
           logger.warn('Branch-select: createWorktree failed; skipping candidate', {

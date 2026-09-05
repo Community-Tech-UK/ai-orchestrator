@@ -12,6 +12,7 @@
  * need (the loop control component runs a 1Hz tick) and pass `now` in
  * if they want to override (mostly for tests).
  */
+import type { LoopIterationPayload } from '@contracts/schemas/loop';
 import type { LoopWorktreeLifecycle } from '../../../../shared/types/loop.types';
 
 /** Renders a wall-clock duration in milliseconds as `Ns`, `NmSs`, `NhMm`,
@@ -454,6 +455,14 @@ export interface LoopGateStep {
   key: 'declared' | 'verify' | 'rename' | 'review' | 'stop';
   label: string;
   state: GateStepState;
+  /**
+   * What the strip actually renders. The state has to be IN the text: it was
+   * previously carried by `[attr.data-state]` and a CSS colour alone, so a
+   * colour-blind or screen-reader user saw "declared verify rename review stop"
+   * with no way to tell which step was blocked (WCAG 1.4.1). The audit chips two
+   * lines below already did this correctly; this is the strip catching up.
+   */
+  text: string;
 }
 
 /**
@@ -506,13 +515,29 @@ export function completionGateSteps(input: {
 
   const stop: GateStepState = terminalDone ? 'done' : 'pending';
 
+  const step = (
+    key: LoopGateStep['key'],
+    label: string,
+    state: GateStepState,
+  ): LoopGateStep => ({ key, label, state, text: gateStepText(label, state) });
+
   return [
-    { key: 'declared', label: 'declared', state: declared },
-    { key: 'verify', label: 'verify', state: verify },
-    { key: 'rename', label: 'rename', state: rename },
-    { key: 'review', label: 'review', state: review },
-    { key: 'stop', label: 'stop', state: stop },
+    step('declared', 'declared', declared),
+    step('verify', 'verify', verify),
+    step('rename', 'rename', rename),
+    step('review', 'review', review),
+    step('stop', 'stop', stop),
   ];
+}
+
+/**
+ * Words, not glyphs. A tick or cross is announced inconsistently across screen
+ * readers (and sometimes skipped entirely), which would reproduce the very gap
+ * this exists to close. `skipped` steps are never rendered, so they need no
+ * wording.
+ */
+function gateStepText(label: string, state: GateStepState): string {
+  return state === 'skipped' ? label : `${label} ${state}`;
 }
 
 /** "5s ago" / "2m ago" / "3h ago" / "4d ago" / "Apr 12". `now` exists for
@@ -660,4 +685,14 @@ export function buildInspectorProgress(input: {
     metrics,
     completionText,
   };
+}
+
+/** Elapsed time for an iteration. A still-running one is measured to now. */
+export function loopIterationDuration(iteration: LoopIterationPayload): number {
+  return (iteration.endedAt ?? Date.now()) - iteration.startedAt;
+}
+
+/** Every error on an iteration as one bucket-prefixed block. */
+export function loopErrorSummary(iteration: LoopIterationPayload): string {
+  return iteration.errors.map((error) => `${error.bucket}: ${error.excerpt}`).join('\n\n');
 }

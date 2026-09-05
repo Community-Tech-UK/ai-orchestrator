@@ -168,8 +168,8 @@ export class CampaignCoordinator extends EventEmitter {
       `campaign:${campaign.id}`,
       `${campaign.spec.title} ${node.id}`,
       {
+        // T37: campaign nodes verify in their worktree like any other loop.
         repoRoot: node.loopConfig.workspaceCwd,
-        skipInstall: true,
       },
     );
     return session.worktreePath;

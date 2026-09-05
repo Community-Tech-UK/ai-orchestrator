@@ -4,16 +4,31 @@ import {
   ɵresolveComponentResources as resolveComponentResources,
 } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import type { LoopIterationPayload, LoopStatePayload } from '@contracts/schemas/loop';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 import { LoopIpcService, type LoopActivityPayload } from '../../core/services/ipc/loop-ipc.service';
 import { LoopStore } from '../../core/state/loop.store';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { LoopControlComponent } from './loop-control.component';
 
 // Angular verifies standalone component resources before TestBed applies the
 // metadata override below, so resolve the extracted stylesheet for JIT tests.
 await resolveComponentResources(() => Promise.resolve(''));
+
+
+/**
+ * The pill's explanation lives in its `[appTooltip]` input, not in a DOM
+ * attribute. It deliberately carries no `aria-label`: the span has visible text,
+ * so that text is its accessible name, and `role="img"` + `aria-label` would
+ * replace it (gates 9 and 10).
+ */
+function verdictTooltip(fixture: ComponentFixture<LoopControlComponent>): string {
+  const el = fixture.debugElement.query(By.css('.ls-verdict'));
+  expect(el, 'expected the verdict pill to render').toBeTruthy();
+  return el.injector.get(AioTooltipDirective).appTooltip() ?? '';
+}
 
 describe('LoopControlComponent', () => {
   let fixture: ComponentFixture<LoopControlComponent>;
@@ -134,7 +149,7 @@ describe('LoopControlComponent', () => {
     }));
     fixture.detectChanges();
 
-    const inspect = fixture.nativeElement.querySelector('.ls-actions button[title="Show loop trace"]') as HTMLButtonElement;
+    const inspect = fixture.nativeElement.querySelector('.ls-actions button[aria-label="Inspect loop trace"]') as HTMLButtonElement;
     inspect.click();
     await fixture.whenStable();
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -160,7 +175,7 @@ describe('LoopControlComponent', () => {
     }));
     fixture.detectChanges();
 
-    const pause = fixture.nativeElement.querySelector('.ls-actions button[title="Pause loop"]') as HTMLButtonElement;
+    const pause = fixture.nativeElement.querySelector('.ls-actions button[aria-label="Pause loop"]') as HTMLButtonElement;
     pause.click();
     await settle(fixture);
 
@@ -175,7 +190,7 @@ describe('LoopControlComponent', () => {
     }));
     fixture.detectChanges();
 
-    const resume = fixture.nativeElement.querySelector('.ls-actions button[title="Resume loop"]') as HTMLButtonElement | null;
+    const resume = fixture.nativeElement.querySelector('.ls-actions button[aria-label="Resume loop"]') as HTMLButtonElement | null;
     expect(fixture.nativeElement.textContent).toContain('PROVIDER LIMIT');
     expect(resume).toBeTruthy();
 
@@ -243,7 +258,12 @@ describe('LoopControlComponent', () => {
     expect(activityPath.textContent?.trim()).toBe('/tmp/project/.worktrees/loop-1');
     const verdict = fixture.nativeElement.querySelector('.ls-verdict') as HTMLElement;
     expect(verdict.textContent?.trim()).toBe('LAST ITER · WATCH');
-    expect(verdict.title).toBe('Last iteration: Repeating the same work');
+    expect(verdict.getAttribute('aria-label')).toBeNull();
+    // Gate 11: under a claimed-failed or awaiting-review banner the card is
+    // suppressed and the banner shows static text, so this tooltip is the only
+    // carrier of the explanation. It must be reachable without a mouse.
+    expect(verdict.getAttribute('tabindex')).toBe('0');
+    expect(verdictTooltip(fixture)).toContain('Last iteration: Repeating the same work');
 
     const card = fixture.nativeElement.querySelector('app-loop-issue-card') as HTMLElement;
     expect(card.textContent).toContain('Repeating the same work');
@@ -252,7 +272,7 @@ describe('LoopControlComponent', () => {
     expect(card.textContent).toContain('Give a hint');
     expect(card.textContent).not.toContain('G:CRITICAL');
 
-    const inspect = fixture.nativeElement.querySelector('.ls-actions button[title="Show loop trace"]') as HTMLButtonElement;
+    const inspect = fixture.nativeElement.querySelector('.ls-actions button[aria-label="Inspect loop trace"]') as HTMLButtonElement;
     inspect.click();
     await settle(fixture);
     const inspectorText = fixture.nativeElement.querySelector('.loop-inspector').textContent as string;
@@ -366,8 +386,11 @@ describe('LoopControlComponent', () => {
     // The status strip renders alongside the banner — its chip tooltip must not
     // contradict it with the stale iteration reason.
     const verdict = fixture.nativeElement.querySelector('.ls-verdict') as HTMLElement;
-    expect(verdict.title).toBe('The loop is blocked and needs you');
-    expect(verdict.title).not.toContain('Repeating the same tool calls');
+    expect(verdictTooltip(fixture)).toContain('The loop is blocked and needs you');
+    expect(verdictTooltip(fixture)).not.toContain('Repeating the same tool calls');
+    // Gate 10: never fuse the pill's own verdict with the banner's reason into a
+    // single accessible name — it announces "OK. The loop is blocked".
+    expect(verdict.getAttribute('aria-label')).toBeNull();
   });
 
   it('does not blame progress for a provider-limit park or an awaiting-review pause', () => {
@@ -420,7 +443,8 @@ describe('LoopControlComponent', () => {
 
     const verdict = fixture.nativeElement.querySelector('.ls-verdict') as HTMLElement;
     expect(verdict.textContent?.trim()).toBe('LAST ITER · WATCH');
-    expect(verdict.title).toBe('Last iteration: Repeating the same work');
+    expect(verdict.getAttribute('aria-label')).toBeNull();
+    expect(verdictTooltip(fixture)).toContain('Last iteration: Repeating the same work');
   });
 
   it('uses one-based summary labels and plain-language prompt roles', () => {
@@ -788,7 +812,6 @@ function activeState(): LoopStatePayload {
         maxWallTimeMs: 14_400_000,
         maxTokens: 1_000_000,
         maxCostCents: 50_000,
-        maxToolCallsPerIteration: 200,
       },
       progressThresholds: {
         identicalHashWarnConsecutive: 2,

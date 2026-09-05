@@ -218,6 +218,17 @@ export function signalC_stageStagnation(
   th: LoopProgressThresholds,
   meaningfulLedgerActivity = false,
 ): ProgressSignalEvidence | null {
+  // Review-driven loops have no stage machine. `buildReviewDrivenPrompt` never
+  // asks the agent to advance STAGE.md, so `readStage` returns the configured
+  // initial stage on every iteration, the coordinator's `stage !== currentStage`
+  // reset never fires, and `iterationsOnCurrentStage` only counts up. Past the
+  // IMPLEMENT critical threshold that made C fire CRITICAL on EVERY remaining
+  // iteration — and C is a strong signal, so it is never downgraded to WARN.
+  // That is what drove the review-driven stall accumulator to terminate healthy
+  // runs: loop-1788424058473-d5dc4480 spent iterations 12-16 with C as the only
+  // CRITICAL while its ledger reported all 9 items resolved. A constant cannot
+  // stagnate; genuine stalls in this mode still surface through A/B/D/E/G/H/I.
+  if (state.config.completion.mode === 'review-driven') return null;
   const stage = state.currentStage;
   const count = state.iterationsOnCurrentStage;
   const warn = th.stageWarnIterations[stage];

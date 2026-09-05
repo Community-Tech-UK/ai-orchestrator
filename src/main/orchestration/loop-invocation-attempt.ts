@@ -30,6 +30,7 @@
  * Pure module — no I/O — shared by the coordinator retry loop and its tests.
  */
 
+import { createHash } from 'node:crypto';
 import type { LoopFileChange } from '../../shared/types/loop-state.types';
 
 export type LoopWorkspaceEffect = 'none-observed' | 'writes-observed' | 'unknown';
@@ -122,6 +123,7 @@ export function buildAttemptReviewEndEvidence(
 export type DegradedRetryDecision =
   | { action: 'proceed' }
   | { action: 'retry'; preserveThread: boolean; note: string }
+  | { action: 'continue-without-replay'; reason: string }
   | { action: 'pause-review'; reason: string };
 
 /**
@@ -145,13 +147,25 @@ export function decideDegradedRetry(input: {
       .slice(0, 8)
       .map((change) => change.path)
       .join(', ');
+    // A delta in the execution cwd is NOT proof that this attempt wrote it.
+    // `createAttemptDeltaObserver` diffs the whole tree, so any concurrent
+    // writer — another agent session, an editor, a background job — lands in
+    // the same evidence. Terminating the run on that evidence is what killed
+    // healthy loops: 0 of 35 runs reached `completed` between 2026-07-01 and
+    // 2026-09-04, several sealed with another session's scratch files named as
+    // the "writes". So we keep WS5's actual invariant — never blindly REPLAY a
+    // possibly-dirty attempt — and drop the part that was never required by it:
+    // ending the run. The attempt is spent, the loop moves to the next
+    // iteration. `unknown` below still parks, because there the observer itself
+    // failed and we cannot even see the workspace.
     return {
-      action: 'pause-review',
+      action: 'continue-without-replay',
       reason:
-        `Degraded iteration (${input.degradedReason}) already wrote into the workspace — `
-        + `automatic replay could double-apply work. Changed: ${paths || '(paths unavailable)'}`
+        `Degraded iteration (${input.degradedReason}) ran with workspace writes observed — `
+        + `not replayed, because a replay could double-apply work. Changed: ${paths || '(paths unavailable)'}`
         + `${input.evidence.filesChanged.length > 8 ? ` (+${input.evidence.filesChanged.length - 8} more)` : ''}. `
-        + `Paused for review instead of replaying.`,
+        + `These paths are a whole-workspace delta and may belong to another writer. `
+        + `Continuing with the next iteration instead of replaying this one.`,
     };
   }
 
@@ -173,5 +187,59 @@ export function decideDegradedRetry(input: {
     note: input.evidence.providerThreadReusable
       ? 'no workspace writes observed — retrying on the surviving native thread'
       : 'no workspace writes observed — retrying with a fresh session',
+  };
+}
+
+/**
+ * The iteration record for a `continue-without-replay` decision: the attempt is
+ * spent, so the loop books it as an iteration and advances to the next seq
+ * rather than dying.
+ *
+ * `filesChanged` is deliberately EMPTY even though the observer saw a delta.
+ * Those paths are not attributable to this attempt (see `decideDegradedRetry`),
+ * and crediting them here would fake progress — in review-driven mode a
+ * "production change" resets the stall counter, so unattributed writes would
+ * mask a genuinely stuck loop. They are reported in `output` for the human.
+ *
+ * The invocation error IS kept as an error record so signal E still escalates a
+ * provider that keeps failing the same way; that is what terminates a run when
+ * the failure is persistent rather than a one-off.
+ */
+export function unreplayableAttemptResult(
+  evidence: LoopInvocationAttemptEvidence,
+  invocationError: string | null,
+  reason: string,
+): {
+  childInstanceId: null;
+  output: string;
+  tokens: number;
+  filesChanged: [];
+  toolCalls: [];
+  errors: { bucket: string; exactHash: string; excerpt: string }[];
+  testPassCount: null;
+  testFailCount: null;
+  exitedCleanly: false;
+} {
+  const observed = evidence.filesChanged.map((change) => change.path);
+  return {
+    childInstanceId: null,
+    output: [
+      `Iteration attempt was not replayed: ${reason}`,
+      observed.length ? `Workspace delta observed during the attempt: ${observed.join(', ')}` : '',
+      invocationError ? `Provider invocation error: ${invocationError}` : '',
+    ].filter(Boolean).join('\n'),
+    tokens: 0,
+    filesChanged: [],
+    toolCalls: [],
+    errors: invocationError
+      ? [{
+          bucket: 'provider-invocation-error',
+          exactHash: createHash('sha256').update(invocationError).digest('hex'),
+          excerpt: invocationError,
+        }]
+      : [],
+    testPassCount: null,
+    testFailCount: null,
+    exitedCleanly: false,
   };
 }

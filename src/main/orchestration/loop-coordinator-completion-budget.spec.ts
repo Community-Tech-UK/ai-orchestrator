@@ -98,7 +98,6 @@ describe('LoopCoordinator completion-attempt budget (LF-7)', () => {
         maxWallTimeMs: 60_000,
         maxTokens: 1_000_000,
         maxCostCents: 100,
-        maxToolCallsPerIteration: 200,
         maxCompletionAttempts: 1,
       },
       completion: {
@@ -151,7 +150,6 @@ describe('LoopCoordinator completion-attempt budget (LF-7)', () => {
         maxWallTimeMs: 60_000,
         maxTokens: 1_000_000,
         maxCostCents: 100,
-        maxToolCallsPerIteration: 200,
         maxCompletionAttempts: 3,
       },
       completion: {

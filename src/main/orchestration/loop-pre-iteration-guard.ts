@@ -12,9 +12,22 @@ import {
   isParkedLoopRuntimeState,
   isTerminalLoopRuntimeState,
 } from './loop-runtime-status';
+import { providerEnforcesWrapUpToolsDisable } from './loop-tools-disable';
 
 type LoopCap = LoopCapWrapUpIntent['cap'];
 type PreIterationResult = 'continue' | 'restart' | 'terminal';
+
+/**
+ * T45 (Decision 4) — caps whose wrap-up turn is skipped.
+ *
+ * The wrap-up is one extra paid iteration so a capped run ends with a
+ * structured hand-off instead of an abrupt cut. That trade only makes sense
+ * when the thing that ran out is iterations or wall time. A run that has
+ * already blown its TOKEN or COST cap would pay another full scaffold to
+ * overshoot the very budget that stopped it, which is the opposite of what the
+ * cap is for.
+ */
+const CAPS_WITHOUT_WRAP_UP: ReadonlySet<LoopCap> = new Set<LoopCap>(['tokens', 'cost']);
 
 interface LoopPreIterationGuardDependencies {
   isCancelled(loopRunId: string): boolean;
@@ -65,7 +78,13 @@ export class LoopPreIterationGuard {
       cap,
       this.dependencies.getConvergenceNote(state.id),
     );
-    const wrapUpEnabled = state.config.caps.capWrapUpIteration ?? true;
+    // T45: the wrap-up is only a hand-off if "do not start new work" is
+    // enforced. On a prompt-only provider the child keeps every tool and may
+    // start work it will never finish, so the extra paid turn is pure waste —
+    // the last NOTES.md is the hand-off instead.
+    const wrapUpEnabled = (state.config.caps.capWrapUpIteration ?? true)
+      && !CAPS_WITHOUT_WRAP_UP.has(cap)
+      && providerEnforcesWrapUpToolsDisable(state.config.provider);
     if (
       wrapUpEnabled &&
       !existingIntent &&

@@ -1,8 +1,9 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  findContendedWorkspacePaths,
   inferLoopVerifyCommand,
   resolveLoopVerification,
   type InferredLoopVerifyCommand,
@@ -188,3 +189,107 @@ function writePackageJson(scripts: Record<string, string>): void {
   if (!workspace) throw new Error('workspace not initialised');
   writeFileSync(join(workspace, 'package.json'), JSON.stringify({ scripts }, null, 2));
 }
+
+/**
+ * T42/T44 — a workspace another agent is mid-edit in must not have its suite
+ * silently adopted as this loop's completion authority.
+ */
+describe('resolveLoopVerification concurrent-writer guard (T42)', () => {
+  const inferred = async () => ({
+    command: 'npm run verify',
+    source: 'package.json script "verify"',
+    scope: 'workspace' as const,
+  });
+
+  it('refuses to auto-adopt when untracked spec files signal another writer', async () => {
+    const result = await resolveLoopVerification({
+      workspaceCwd: '/repo',
+      requireAuthority: true,
+      infer: inferred,
+      gitStatus: async () => '?? src/main/foo.spec.ts\n M src/main/foo.ts\n',
+    });
+
+    expect(result.authority).toBe('none');
+    expect(result.verifyCommand).toBe('');
+    expect(result.contendedPaths).toEqual(['src/main/foo.spec.ts']);
+  });
+
+  it('treats a live loop-state directory as contention', async () => {
+    const result = await resolveLoopVerification({
+      workspaceCwd: '/repo',
+      requireAuthority: true,
+      infer: inferred,
+      gitStatus: async () => '?? .aio-loop-state/loop-9/\n',
+    });
+
+    expect(result.contendedPaths).toEqual(['.aio-loop-state/loop-9/']);
+  });
+
+  it('adopts the verifier when only ordinary untracked files are present', async () => {
+    const result = await resolveLoopVerification({
+      workspaceCwd: '/repo',
+      requireAuthority: true,
+      infer: inferred,
+      gitStatus: async () => '?? docs/plans/some-plan.md\n?? notes.txt\n',
+    });
+
+    expect(result.authority).toBe('inferred');
+    expect(result.verifyCommand).toBe('npm run verify');
+  });
+
+  it('skips the probe entirely when the loop is isolated', async () => {
+    const gitStatus = vi.fn();
+    const result = await resolveLoopVerification({
+      workspaceCwd: '/repo',
+      requireAuthority: true,
+      isolated: true,
+      infer: inferred,
+      gitStatus,
+    });
+
+    expect(gitStatus).not.toHaveBeenCalled();
+    expect(result.authority).toBe('inferred');
+  });
+
+  it('fails open when git status cannot be read', async () => {
+    const result = await resolveLoopVerification({
+      workspaceCwd: '/repo',
+      requireAuthority: true,
+      infer: inferred,
+      gitStatus: async () => null,
+    });
+
+    expect(result.authority).toBe('inferred');
+  });
+
+  // An explicit command is the operator's choice; the guard only blocks silent
+  // adoption.
+  it('never blocks an explicitly supplied verify command', async () => {
+    const result = await resolveLoopVerification({
+      workspaceCwd: '/repo',
+      verifyCommand: 'npm test',
+      requireAuthority: true,
+      infer: inferred,
+      gitStatus: async () => '?? src/main/foo.spec.ts\n',
+    });
+
+    expect(result.authority).toBe('explicit');
+    expect(result.verifyCommand).toBe('npm test');
+  });
+});
+
+describe('findContendedWorkspacePaths (T42)', () => {
+  it('reports only untracked entries', () => {
+    expect(findContendedWorkspacePaths(' M src/a.spec.ts\n?? src/b.spec.ts\n'))
+      .toEqual(['src/b.spec.ts']);
+  });
+
+  it('strips the quoting git applies to unusual path names', () => {
+    expect(findContendedWorkspacePaths('?? "src/main/c d.spec.ts"\n'))
+      .toEqual(['src/main/c d.spec.ts']);
+  });
+
+  it('returns nothing for a clean status', () => {
+    expect(findContendedWorkspacePaths('')).toEqual([]);
+  });
+});

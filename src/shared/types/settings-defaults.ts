@@ -15,7 +15,7 @@ import type {
 } from './settings.types';
 import { DEFAULT_DESKTOP_COMPUTER_USE_SETTINGS } from './desktop-gateway-settings.types';
 import type { RemoteReviewerProvider } from './reviewer-provider.types';
-import { CLAUDE_MODELS, COPILOT_MODELS, GROK_MODELS, OPENAI_MODELS } from './provider.types';
+import { CLAUDE_MODELS, COPILOT_MODELS, GOOGLE_MODELS, GROK_MODELS, OPENAI_MODELS } from './provider.types';
 
 export const DEFAULT_CONTEXT_EVIDENCE_MODE_BY_PROVIDER = Object.freeze({
   claude: 'off',
@@ -54,14 +54,33 @@ export const DEFAULT_REVIEWER_MODEL_BY_PROVIDER: Readonly<Record<RemoteReviewerP
 /**
  * Model used by loop iterations and the orchestration invokers, per provider.
  *
- * Only codex is pinned: Terra scores within ~1.2pt of Sol on SWE-Bench Pro and
- * ~1.4pt on Terminal-Bench 2.1 at half the output rate, which is the right
- * trade for a high-volume automated path. Providers left unset keep resolving
- * to their interactive default, so this change is scoped to the burn we
- * actually measured rather than silently re-tiering every provider.
+ * T41: every pin here matches what the router's `balanced` tier already picks
+ * for a loop, so the pin changes nothing while routing is on — it stops the
+ * house flagship default riding the highest-volume path when routing is off or
+ * skipped, which is the only case that was ever surprising.
+ *
+ *   - codex → Terra: within ~1.2pt of Sol on SWE-Bench Pro and ~1.4pt on
+ *     Terminal-Bench 2.1 at half the output rate.
+ *   - claude → Sonnet: the balanced tier. Unpinned, a router-off loop rode
+ *     Opus (or Opus-1M for a new chat) on every iteration.
+ *   - gemini → Gemini 3 Flash: the balanced tier. Unpinned, router-off landed
+ *     on Gemini 3.1 Pro.
+ *   - grok → grok-4.6: Grok has NO balanced row, so `applyProviderResolution`
+ *     warned and passed the Claude decision through unchanged; `sonnet` then
+ *     reached `createCliAdapter('grok')`, was repaired to grok-4.6, and the HUD
+ *     showed a Claude id while the flagship ran. Pinning the id that actually
+ *     runs makes the display honest. Raise this the day a cheaper Grok id
+ *     appears on the live `grok models` list (G34).
+ *
+ * Copilot is deliberately absent: it is an EBRD-only seat, its first balanced
+ * row is Claude Sonnet 4.6, and silently retargeting it is out of scope.
+ * `providersExcludedFromAutomation` still gates any automatic choice.
  */
 export const DEFAULT_LOOP_MODEL_BY_PROVIDER: Readonly<Record<string, string>> = {
   codex: OPENAI_MODELS.GPT56_TERRA,
+  claude: CLAUDE_MODELS.SONNET,
+  gemini: GOOGLE_MODELS.GEMINI_3_FLASH,
+  grok: GROK_MODELS.GROK_46,
 };
 
 /**

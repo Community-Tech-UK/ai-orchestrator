@@ -30,6 +30,12 @@ import { getLogger } from '../../logging/logger';
 import { getGitWriteQueue } from './git-write-queue';
 import { gitExec, gitExecSafe } from './git-exec';
 import { provisionWorktreeDependencies } from './worktree-deps';
+import {
+  applyWorktreeIncludes,
+  readWorktreeIncludes,
+  WORKTREE_INCLUDE_FILE,
+  worktreeHasDependencies,
+} from './worktree-include';
 import { assignWorktreeRendererPort } from './worktree-port';
 import {
   deleteLocalBranchIfPresent,
@@ -229,13 +235,38 @@ export class WorktreeManager extends EventEmitter {
   }
 
   /**
-   * P6: near-instant spin-up. Clone the root node_modules with an APFS
-   * copy-on-write clone (symlink-preserving), then assert the workspace
-   * symlinks and verify/repair the native-ABI binary. Falls back to a plain
-   * copy and finally the configured install command on EXDEV/non-APFS.
+   * T37 first, P6 second.
+   *
+   * A `.worktreeinclude` list symlinks the root's gitignored heavy paths into
+   * the worktree in milliseconds and shares the already-correct native
+   * binaries. When the list is absent — or an entry fails — we fall back to the
+   * P6 pipeline: APFS copy-on-write clone of `node_modules`, then a plain copy,
+   * then the configured install command.
    */
   private async installDependencies(repoRoot: string, worktreePath: string): Promise<void> {
     try {
+      const includes = await readWorktreeIncludes(repoRoot);
+      if (includes.length > 0) {
+        const result = await applyWorktreeIncludes(repoRoot, worktreePath, includes);
+        // A clean batch is not proof of a usable worktree: a `missing` entry is
+        // reported as success, so an absent root `node_modules` (fresh clone,
+        // disk cleanup, CI checkout) would otherwise leave the worktree empty
+        // and silently skip provisioning — the exact T37 failure. Ask the
+        // question that matters instead.
+        if (result.ok && await worktreeHasDependencies(worktreePath)) {
+          logger.info('WorktreeManager: dependencies linked from the include list', {
+            worktreePath,
+            includeFile: WORKTREE_INCLUDE_FILE,
+            entries: result.entries,
+          });
+          return;
+        }
+        logger.warn('WorktreeManager: include list did not produce dependencies — provisioning instead', {
+          worktreePath,
+          includeFile: WORKTREE_INCLUDE_FILE,
+          entries: result.entries,
+        });
+      }
       const { method, symlinks, nativeAbi } = await provisionWorktreeDependencies(
         repoRoot,
         worktreePath,

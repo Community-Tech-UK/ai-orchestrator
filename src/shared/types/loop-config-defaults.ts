@@ -44,7 +44,6 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
       maxWallTimeMs: DEFAULT_LOOP_MAX_WALL_TIME_MS,
       maxTokens: DEFAULT_LOOP_MAX_TOKENS,
       maxCostCents: DEFAULT_LOOP_MAX_COST_CENTS,
-      maxToolCallsPerIteration: 200,
       maxCompletionAttempts: 3,
       // D2 (#6 interim): end capped runs with a structured hand-off iteration.
       capWrapUpIteration: true,

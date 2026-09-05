@@ -423,7 +423,12 @@ export function setupCompactionCoordinator(
         // session id, resetTotalTokensUsed) and archives the old messages, so
         // the continuity package below becomes the seed of an empty context.
         await instanceManager.restartFreshInstance(instanceId);
-        await instanceManager.sendInput(instanceId, continuityPrompt);
+        await instanceManager.sendInput(
+          instanceId,
+          continuityPrompt,
+          undefined,
+          { automatedInput: true },
+        );
 
         logger.info('restart-with-summary compaction completed', {
           instanceId,

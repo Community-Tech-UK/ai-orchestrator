@@ -290,7 +290,7 @@ export function registerBrowserGatewayHandlers(
     const instanceManager = deps.instanceManager;
     getSessionAdmissionService().registerRedeliveryHandler('browser-gateway', (ctx) => {
       void instanceManager
-        .sendInput(ctx.instanceId, ctx.message)
+        .sendInput(ctx.instanceId, ctx.message, undefined, { automatedInput: true })
         .then(() => getSessionAdmissionService().markDelivered(ctx.admissionId))
         .catch((error: unknown) => {
           getSessionAdmissionService().markFailed(
@@ -359,7 +359,7 @@ function register<TPayload extends BrowserGatewayIpcPayload>(
  * so it is naturally excluded. Failures are swallowed (logged only) — resuming
  * the turn must never fail the approval IPC response, and the grant is already
  * persisted regardless. Uses the user-typed `sendInput` path (no
- * `autoContinuation`) so it behaves exactly like the manual message it replaces,
+ * `autoContinuation`) so it retains the user-input context-budget behavior,
  * rather than hard-blocking at high context.
  */
 function resumeInstanceAfterBrowserDecision(
@@ -412,7 +412,7 @@ function resumeInstanceAfterBrowserDecision(
     return;
   }
 
-  void instanceManager.sendInput(instanceId, message)
+  void instanceManager.sendInput(instanceId, message, undefined, { automatedInput: true })
     .then(() => getSessionAdmissionService().markDelivered(outcome.admissionId))
     .catch((error) => {
       getSessionAdmissionService().markFailed(

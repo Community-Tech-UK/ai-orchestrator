@@ -18,6 +18,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { DOCUMENT } from '@angular/common';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { CopilotAccountChipComponent } from '../../shared/components/copilot-account-chip.component';
 import { CommandStore } from '../../core/state/command.store';
 import type { ExtendedCommand } from '../../core/state/command.store';
@@ -127,6 +128,7 @@ const LOOP_START_ACK_TIMEOUT_MS = 30_000;
   selector: 'app-input-panel',
   standalone: true,
   imports: [
+    AioTooltipDirective,
     AgentSelectorComponent,
     CompactModelPickerComponent,
     ComposerAutocompleteComponent,
@@ -468,6 +470,21 @@ export class InputPanelComponent implements OnDestroy {
   isDraftComposer = computed(() => this.instanceId() === 'new');
 
   /** True when the instance is starting up or waking from hibernation — input should be blocked */
+  /**
+   * UX3 — the composer's primary control. Its only content is a glyph
+   * (`↑` / `↻`), so without this it has NO accessible name at all: a screen
+   * reader announces an unlabelled button. One string serves as both the
+   * tooltip and the accessible name (the TooltipIconButton contract), and the
+   * glyph is `aria-hidden` so it is not announced as the name.
+   */
+  readonly sendButtonLabel = computed(() => {
+    if (this.loopStarting()) return 'Starting loop…';
+    if (this.loopArmed()) return 'Start loop (Enter)';
+    return this.isInitializing() || this.isSteeringTarget()
+      ? 'Queue message (Enter)'
+      : 'Send message (Enter)';
+  });
+
   readonly isInitializing = computed(() => {
     const status = this.instanceStatus();
     return status === 'initializing' || status === 'waking';

@@ -36,7 +36,6 @@ function normalizeLoopCaps(
     ...merged,
     maxTokens,
     maxWallTimeMs: Math.max(1, Math.floor(merged.maxWallTimeMs)),
-    maxToolCallsPerIteration: Math.max(1, Math.floor(merged.maxToolCallsPerIteration)),
   };
 }
 

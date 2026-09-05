@@ -13,14 +13,14 @@
       (keydown.space)="instanceSelect.emit(instance().id)"
       tabindex="0"
       role="button"
-      [attr.aria-label]="'Select instance ' + resolvedDisplayTitle()"
+      [attr.aria-label]="rowAriaLabel()"
     >
       <!-- Child connector for non-root children without their own children -->
       @if (!hasChildren() && depth() > 0) {
         <span class="child-connector">└</span>
       }
 
-      <span class="leading-indicator" [title]="needsAttention() ? activityLabel() : showActivitySpinner() ? activityLabel() : isHibernated() ? 'Hibernated — send a message to wake' : providerVisual().label">
+      <span class="leading-indicator" role="img" [appTooltip]="leadingIndicatorTooltip()" [attr.aria-label]="leadingIndicatorTooltip()">
         <span
           class="provider-badge"
           [class.provider-busy]="showActivitySpinner()"
@@ -90,9 +90,9 @@
               }
             }
           @if (needsAttention()) {
-            <span class="attention-overlay-dot" [title]="activityLabel()"></span>
+            <span class="attention-overlay-dot" aria-hidden="true"></span>
           } @else if (isHibernated()) {
-            <span class="hibernated-overlay-dot" title="Hibernated — send a message to wake"></span>
+            <span class="hibernated-overlay-dot" aria-hidden="true"></span>
           }
         </span>
       </span>
@@ -100,10 +100,10 @@
       <div class="instance-info">
         <div class="instance-name-row">
           @if (hasUnreadCompletion()) {
-            <span class="unread-dot" title="Completed — click to view"></span>
+            <span class="unread-dot" role="img" appTooltip="Completed — click to view" aria-label="Completed"></span>
           }
           @if (isAutomation()) {
-            <span class="automation-clock" title="Started by a scheduled automation" aria-label="Automation session">
+            <span class="automation-clock" appTooltip="Started by a scheduled automation" aria-label="Automation session">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <circle cx="12" cy="12" r="9" />
                 <path d="M12 7v5l3.5 2" />
@@ -112,25 +112,25 @@
           }
           <span class="instance-name">{{ resolvedDisplayTitle() }}</span>
           @if (hasPendingApproval()) {
-            <span class="approval-chip" title="This instance has a pending permission request">Awaiting approval</span>
+            <span class="approval-chip" appTooltip="This instance has a pending permission request">Awaiting approval</span>
           }
           @if (hasChildren() && !isExpanded()) {
-            <span class="collapsed-badge" title="Child instances (click arrow to expand)">+{{ resolvedChildCount() }}</span>
+            <span class="collapsed-badge" appTooltip="Child instances — use the arrow to expand" [attr.aria-label]="resolvedChildCount() + ' child instances'">+{{ resolvedChildCount() }}</span>
           }
         </div>
         @if (isRemote()) {
           <span
             class="remote-badge"
             [class.remote-badge-warning]="remoteNodeDisconnected()"
-            [title]="remoteNodeBadgeTitle()"
+            [appTooltip]="remoteNodeBadgeTitle()"
           >
-            {{ remoteNodeName() }}
+            {{ remoteNodeBadgeLabel() }}
           </span>
         }
       </div>
 
       @if (hasDiffStats()) {
-        <div class="diff-stats" [title]="diffTooltip()">
+        <div class="diff-stats" [appTooltip]="diffTooltip()">
           @if (diffStatsLabel().added) {
             <span class="diff-added">{{ diffStatsLabel().added }}</span>
           }
@@ -152,7 +152,8 @@
           class="expand-btn"
           [class.expanded]="isExpanded()"
           (click)="onToggleExpand($event)"
-          title="{{ isExpanded() ? 'Collapse' : 'Expand' }} children"
+          [appTooltip]="expandTooltip()"
+          [attr.aria-label]="expandTooltip()"
         >
           <span class="chevron">›</span>
         </button>
@@ -161,7 +162,8 @@
       <div class="instance-actions">
         <button
           class="action-btn restart"
-          [title]="supportsResume() ? 'Restart and resume conversation' : 'Restart with fresh context'"
+          [appTooltip]="restartTooltip()"
+          [attr.aria-label]="restartTooltip()"
           (click)="onRestart($event)"
           [disabled]="instance().status === 'initializing'"
         >
@@ -169,7 +171,8 @@
         </button>
         <button
           class="action-btn terminate"
-          title="Terminate instance"
+          appTooltip="Terminate instance — ends this session, which cannot be resumed"
+          aria-label="Terminate instance — ends this session, which cannot be resumed"
           (click)="onTerminate($event)"
         >
           ×

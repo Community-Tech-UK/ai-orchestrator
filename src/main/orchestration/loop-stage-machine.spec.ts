@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -7,11 +7,17 @@ import { resolveLoopArtifactPaths, loopStateFile, type LoopArtifactPaths } from 
 import { parseTaskLedger } from './loop-task-ledger';
 import { defaultLoopConfig } from '../../shared/types/loop.types';
 
+const { warnSpy } = vi.hoisted(() => ({ warnSpy: vi.fn() }));
+vi.mock('../logging/logger', () => ({
+  getLogger: () => ({ info: vi.fn(), warn: warnSpy, error: vi.fn(), debug: vi.fn() }),
+}));
+
 const RUN_ID = 'loop-test-1';
 let tmpDir: string;
 let paths: LoopArtifactPaths;
 
 beforeEach(() => {
+  warnSpy.mockClear();
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'loop-stage-test-'));
   paths = resolveLoopArtifactPaths(tmpDir, RUN_ID);
 });
@@ -72,13 +78,27 @@ describe('LoopStageMachine', () => {
     expect(stage).toBe('PLAN');
   });
 
-  it('readStage falls back to initialStage when STAGE.md is gibberish', async () => {
+  it('readStage falls back to initialStage when STAGE.md is gibberish, and warns', async () => {
     fs.mkdirSync(paths.dir, { recursive: true });
     fs.writeFileSync(paths.stage, 'BANANA\n');
     const m = new LoopStageMachine(tmpDir, RUN_ID);
     const cfg = defaultLoopConfig(tmpDir, 'x');
     const stage = await m.readStage(cfg);
     expect(stage).toBe('IMPLEMENT');
+    expect(warnSpy).toHaveBeenCalledWith('STAGE.md unparseable; defaulting to initialStage', expect.anything());
+  });
+
+  it('readStage does NOT warn for a review-driven loop, which has no stage machine', async () => {
+    // The review-driven prompt never asks the agent to keep STAGE.md to a valid
+    // stage, and agents routinely park `COMPLETE` there. Warning every iteration
+    // made healthy runs read as broken in the logs.
+    fs.mkdirSync(paths.dir, { recursive: true });
+    fs.writeFileSync(paths.stage, 'COMPLETE\n');
+    const m = new LoopStageMachine(tmpDir, RUN_ID);
+    const base = defaultLoopConfig(tmpDir, 'x');
+    const cfg = { ...base, completion: { ...base.completion, mode: 'review-driven' as const } };
+    expect(await m.readStage(cfg)).toBe(cfg.initialStage);
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 
   it('buildPrompt scopes the loop state files under the per-run .aio-loop-state dir', () => {

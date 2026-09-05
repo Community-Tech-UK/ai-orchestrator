@@ -1,4 +1,5 @@
 import type { LoopOutstanding } from './loop-outstanding.types';
+import type { LoopInferredPhase, LoopNonConvergenceReason, LoopParkedLeaf } from './loop-health.types';
 import type { LoopPingPongState } from './loop-pingpong.types';
 import type { ReviewResult } from './cross-model-review.types';
 import type {
@@ -181,7 +182,9 @@ export type LoopPendingInputSource =
   | 'subagent-result'
   | 'wakeup'
   | 'cap-wrap-up'
-  | 'auto-unstick';
+  | 'auto-unstick'
+  /** L1: same-session "you are not done" nudge on a quiet turn. */
+  | 'idle-nudge';
 
 /** Last automatic change-of-approach nudge, if the coordinator injected one. */
 export interface LoopAutoUnstickState {
@@ -203,6 +206,14 @@ export interface LoopPendingInput {
    * completion seam instead of the whole batch.
    */
   drainMode?: LoopQueueDrainMode;
+  /**
+   * L8 lease. Set when the payload is handed to iteration `leaseSeq`; cleared
+   * by the ack after delivery, or re-queued when the lease goes stale. See
+   * `loop-intervention-lease.ts`.
+   */
+  leaseSeq?: number;
+  /** L8 lease timestamp (epoch ms). */
+  leasedAt?: number;
 }
 
 export function createLoopPendingInput(
@@ -549,6 +560,25 @@ export interface LoopState {
   recentWarnIterationSeqs: number[];
   completionAttempts: number;
   announceThenHaltNudgeCount?: number;
+  /**
+   * L6: ledger leaves deferred because they demonstrably could not converge.
+   * The work is NEVER dropped — a parked leaf keeps its id, its reason and the
+   * iteration it was parked at, and stays visible on OUTSTANDING.md.
+   */
+  parkedLeaves?: LoopParkedLeaf[];
+  /**
+   * L6: consecutive CRITICAL stalls on the current ledger leaf. Its own
+   * counter on purpose — see `trackLeafStall`.
+   */
+  leafStall?: { leafId: string; criticalIterations: number };
+  /** L6: the named reason this run stopped converging, when one was found. */
+  nonConvergence?: { reason: LoopNonConvergenceReason; message: string; seq: number };
+  /** L7: completion attempts rejected for stale build output (bounded retry). */
+  staleArtifactRejections?: number;
+  /** L1: same-session idle nudges queued this run (bounded by MAX_IDLE_NUDGES). */
+  idleNudgeCount?: number;
+  /** L1: iteration the last idle nudge was queued for — one per iteration. */
+  idleNudgeSeq?: number;
   lastCompletionOutcome?: LoopCompletionOutcome;
   /**
    * D6 (#7) edit-invalidates-proof: the iteration work-hash recorded when the
@@ -635,6 +665,14 @@ export interface LoopState {
    * coordinator on any later production-file change and by a blocked review.
    */
   freshEyesCleanForWorkState?: boolean;
+  /**
+   * L4: advisory intra-iteration phase inferred from the child's command
+   * stream (`loop-phase-inference.ts`). HUD-only — no terminal decision reads
+   * it, and it is deliberately absent until the first classifiable tool call.
+   */
+  inferredPhase?: LoopInferredPhase;
+  /** When {@link inferredPhase} was last set (epoch ms). */
+  inferredPhaseAt?: number;
   pingPong?: LoopPingPongState;
   /**
    * WS-A3: durably persisted reviewed-artifact snapshots, keyed by

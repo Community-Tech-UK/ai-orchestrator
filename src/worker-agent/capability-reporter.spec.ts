@@ -32,6 +32,7 @@ vi.mock('../main/remote-node/project-discovery', () => ({
 }));
 
 import { reportCapabilities, parseLmStudioLoadedModels } from './capability-reporter';
+import { ProjectDiscovery } from '../main/remote-node/project-discovery';
 import { LOCAL_AI_TARGET_NUMERIC_LIMITS } from '../shared/types/local-ai-guard.types';
 import * as fs from 'fs';
 import { execFileSync } from 'child_process';
@@ -682,5 +683,22 @@ describe('capability-reporter', () => {
         Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
       }
     });
+  });
+});
+
+describe('project discovery reuse across heartbeats', () => {
+  it('reuses one ProjectDiscovery instead of building a fresh one per call', async () => {
+    // reportCapabilities runs on every heartbeat (10s). ProjectDiscovery only
+    // suppresses the repeat "Scan complete" log while it keeps its own
+    // change-detection state, so a per-call instance silently reinstates the
+    // ~8,600 lines/day of log spam that rotates the crash forensics away.
+    const ctor = vi.mocked(ProjectDiscovery);
+    const before = ctor.mock.calls.length;
+
+    await reportCapabilities(['/tmp/one']);
+    await reportCapabilities(['/tmp/one']);
+    await reportCapabilities(['/tmp/one']);
+
+    expect(ctor.mock.calls.length).toBe(before);
   });
 });

@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { runPairCommand } from './pair-cli';
+import { parsePairCommandArgs, runPairCommand } from './pair-cli';
 
 describe('pair-cli', () => {
   let tempDir: string;
@@ -127,5 +127,28 @@ describe('pair-cli', () => {
     expect(persisted['authToken']).toBe('new-pair-token');
     expect(persisted).not.toHaveProperty('nodeToken');
     expect(persisted).not.toHaveProperty('recoveryToken');
+  });
+});
+
+describe('parsePairCommandArgs launcher argv shape', () => {
+  it('accepts a bare pairing link', () => {
+    expect(parsePairCommandArgs(['aio-pair://example']).input).toBe('aio-pair://example');
+  });
+
+  it('still rejects a genuinely unknown option', () => {
+    expect(() => parsePairCommandArgs(['aio-pair://example', '--nonsense'])).toThrow(
+      /Unknown pair option: --nonsense/,
+    );
+  });
+
+  it('rejects --supervise, so index.ts must strip it before calling pair', () => {
+    // start-worker.sh / start-worker.bat append --supervise to whatever the
+    // user typed, which puts it in `pair`'s argv. This assertion pins WHY
+    // index.ts filters the flag out before delegating: without that filter,
+    // `start-worker.sh pair "<link>"` dies with a fatal error instead of
+    // pairing. If pair ever learns to ignore the flag, delete the filter too.
+    expect(() => parsePairCommandArgs(['aio-pair://example', '--supervise'])).toThrow(
+      /Unknown pair option: --supervise/,
+    );
   });
 });

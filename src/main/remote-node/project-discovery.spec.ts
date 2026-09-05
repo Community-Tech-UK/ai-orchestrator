@@ -154,3 +154,64 @@ describe('ProjectDiscovery', () => {
     );
   });
 });
+
+describe('ProjectDiscovery scan logging', () => {
+  const mockReaddir = vi.mocked(fs.readdir);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function stubTree(entries: MockDirent[]): void {
+    mockReaddir.mockImplementation(async (dirPath: unknown) =>
+      (dirPath === '/root' ? entries : []) as never,
+    );
+  }
+
+  it('logs at info the first time a project set is seen', async () => {
+    const discovery = new ProjectDiscovery();
+    stubTree([makeFile('package.json')]);
+
+    await discovery.scan(['/root']);
+
+    expect(mockLogger.info).toHaveBeenCalledWith(
+      'Scan complete',
+      expect.objectContaining({ count: 1, changed: true }),
+    );
+  });
+
+  it('drops repeat scans of an unchanged set to debug', async () => {
+    // The worker rebuilds capabilities every 10s heartbeat. Before this, each
+    // one wrote an identical info line — ~8,600/day — which rotated the log
+    // window away and destroyed the forensics after a silent worker death.
+    const discovery = new ProjectDiscovery();
+    stubTree([makeFile('package.json')]);
+
+    await discovery.scan(['/root']);
+    mockLogger.info.mockClear();
+
+    await discovery.scan(['/root']);
+    await discovery.scan(['/root']);
+
+    expect(mockLogger.info).not.toHaveBeenCalled();
+    expect(mockLogger.debug).toHaveBeenCalledWith(
+      'Scan complete (unchanged)',
+      expect.objectContaining({ count: 1 }),
+    );
+  });
+
+  it('logs at info again as soon as the project set changes', async () => {
+    const discovery = new ProjectDiscovery();
+    stubTree([makeFile('package.json')]);
+    await discovery.scan(['/root']);
+    mockLogger.info.mockClear();
+
+    stubTree([makeFile('package.json'), makeFile('Cargo.toml')]);
+    await discovery.scan(['/root']);
+
+    expect(mockLogger.info).toHaveBeenCalledWith(
+      'Scan complete',
+      expect.objectContaining({ changed: true }),
+    );
+  });
+});

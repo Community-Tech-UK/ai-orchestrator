@@ -14,4 +14,12 @@ echo "Starting worker agent..."
 #   AIO_WORKER_TOKEN=<token> ./start-worker.sh --coordinator http://host:3000
 #
 # The legacy --token CLI flag still works but is deprecated.
-node dist/worker-agent/index.js "$@"
+#
+# --supervise runs the worker under its own restart parent so a single process
+# exit does not leave the node silently dead (see docs/WORKER_AGENT_SETUP.md).
+# A clean Ctrl-C / SIGTERM still stops the supervisor too.
+#
+# The flag goes LAST: index.ts dispatches positional subcommands off argv[0]
+# ("native-host", "pair", "install-extension-relay"), so putting it first would
+# shadow them. Supervision is selected with argv.includes(), not by position.
+node dist/worker-agent/index.js "$@" --supervise

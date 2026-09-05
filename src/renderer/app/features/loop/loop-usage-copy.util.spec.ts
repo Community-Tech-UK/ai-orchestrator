@@ -33,6 +33,16 @@ describe('currentIterationLabel', () => {
   it('keeps idle formatting when the run is not running', () => {
     expect(currentIterationLabel(false, 0, false)).toBe('idle');
   });
+
+  // L4: "pending" during a ten-minute test run reads as "nothing is happening".
+  it('names the inferred phase instead of a bare pending', () => {
+    expect(currentIterationLabel(false, 0, true, 'verifying')).toBe('running checks');
+    expect(currentIterationLabel(true, 90_000, true, 'editing')).toBe('1m30s · editing');
+  });
+
+  it('never lets a phase override the not-running case', () => {
+    expect(currentIterationLabel(false, 0, false, 'editing')).toBe('idle');
+  });
 });
 
 describe('activeTokenUsage / activeCostUsage', () => {

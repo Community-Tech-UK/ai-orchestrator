@@ -125,7 +125,7 @@ describe('LF-5 branch-select deps', () => {
     return {
       loopRunId: 'loop-1', workspaceCwd: '/ws', goal: 'g',
       exploration: { enabled: true, fanout: 3, crossModel: false, selector: 'verify+listwise' },
-      caps: { maxIterations: 50, maxWallTimeMs: 1, maxTokens: 1_000_000, maxCostCents: 1000, maxToolCallsPerIteration: 200 },
+      caps: { maxIterations: 50, maxWallTimeMs: 1, maxTokens: 1_000_000, maxCostCents: 1000 },
       spentTokens: 0, spentCents: 0, prompt: 'p', provider: 'claude',
       verifyCommand: '', verifyTimeoutMs: 1000, iterationTimeoutMs: 1000, ...over,
     };

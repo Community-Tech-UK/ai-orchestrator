@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { drainFollowUpsForCompletion, partitionPendingByDrainTiming } from './loop-coordinator-block-utils';
+import { drainFollowUpsForCompletion } from './loop-coordinator-block-utils';
 import { createLoopPendingInput } from '../../shared/types/loop.types';
 
 const followUp = (message: string, drainMode?: 'all' | 'one-at-a-time') =>
@@ -42,16 +42,5 @@ describe('drainFollowUpsForCompletion (Task 18 drainMode)', () => {
     ])!;
     expect(result.requeued[0].message).toBe('steer-hint');
     expect(result.requeued[0].kind).toBe('queue');
-  });
-});
-
-describe('partitionPendingByDrainTiming', () => {
-  it('holds back follow-ups from prompt-build and drains queue/steer now', () => {
-    const { drainNow, deferredFollowUps } = partitionPendingByDrainTiming([
-      createLoopPendingInput('now', { kind: 'queue' }),
-      followUp('later'),
-    ]);
-    expect(drainNow.map((i) => i.message)).toEqual(['now']);
-    expect(deferredFollowUps.map((i) => i.message)).toEqual(['later']);
   });
 });

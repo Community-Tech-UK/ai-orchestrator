@@ -10,7 +10,7 @@ import {
   createLoopPendingInput,
   defaultCrossModelReviewConfig,
 } from '../../shared/types/loop.types';
-import type { LoopCompletionDetector } from './loop-completion-detector';
+import type { LoopCompletionDetector, VerifyOutcome } from './loop-completion-detector';
 import { LOOP_STATE_DIR_NAME } from './loop-artifact-paths';
 import { loopExecutionCwd } from './loop-cwd';
 import { collectWorkspaceDiff } from './loop-diff';
@@ -31,7 +31,8 @@ import {
   type FreshEyesReviewerResult,
   type FreshEyesSeverity,
 } from './loop-fresh-eyes-reviewer';
-import { getReviewArtifact, persistReviewArtifact, verifyAnchor } from './review-artifact-anchor';
+import { getReviewArtifact, persistReviewArtifact } from './review-artifact-anchor';
+import { classifyFreshEyesBlocking } from './fresh-eyes-blocking';
 import { buildReviewAngleCacheHook, computeRequiredCoverageMet, persistReviewCoverageReport } from './review-coverage';
 import {
   CLEAN_REVIEW_SENTINEL,
@@ -41,7 +42,7 @@ import {
 import { hasTerminalSentinelLine } from './loop-terminal-sentinels';
 import type { LoopStageMachine } from './loop-stage-machine';
 import { applyVerifyOutcomeToIteration, excerptVerifyOutput, verifyFailureIntervention } from './loop-coordinator-utils';
-import { runLoopVerify } from './loop-verify-runner';
+import { runLoopVerify, type LoopVerifyReplayPort } from './loop-verify-runner';
 
 const logger = getLogger('LoopCoordinator');
 
@@ -94,77 +95,6 @@ export interface FreshEyesGateResult {
   coverage?: LoopReviewAngleCoverageEntry[];
 }
 
-/**
- * WS-A3: split a review's severity-blocking candidates into those that may
- * actually block completion and those demoted to advisory because their
- * evidence could not be trusted.
- *
- * A finding blocks only if:
- *   (a) it is `evidenceClass: 'deterministic-gate'` — a hard-coded, non-LLM
- *       safety check (the secret-redaction sentinel), which is authoritative
- *       by construction and needs no anchor, OR
- *   (b) it carries an `anchor` whose quote {@link verifyAnchor}s as
- *       `verified` or `re-anchored` against `diffArtifactContent` — the
- *       durably persisted diff this exact review attempt was shown.
- *
- * Everything else (no anchor at all, or `evidence_unverified`) is demoted:
- * still visible, carries a `demotedReason`, but cannot block on severity
- * alone — a hallucinated, stale, or mislocated finding can no longer force
- * another loop cycle with nothing to prove the cited code exists.
- */
-export function classifyFreshEyesBlocking(
-  candidates: readonly FreshEyesFinding[],
-  diffArtifactContent: string,
-): { blocking: FreshEyesFinding[]; demoted: FreshEyesFinding[] } {
-  const blocking: FreshEyesFinding[] = [];
-  const demoted: FreshEyesFinding[] = [];
-
-  for (const finding of candidates) {
-    if (finding.evidenceClass === 'deterministic-gate') {
-      blocking.push(finding);
-      continue;
-    }
-
-    if (finding.anchor) {
-      const result = verifyAnchor(diffArtifactContent, finding.anchor);
-      if (result.status === 'verified') {
-        blocking.push({ ...finding, anchorStatus: 'verified' });
-        continue;
-      }
-      if (result.status === 're-anchored') {
-        blocking.push({
-          ...finding,
-          anchorStatus: 're-anchored',
-          anchor: {
-            ...finding.anchor,
-            ...(result.resolvedLineRange ? { lineRange: result.resolvedLineRange } : {}),
-            ...(result.resolvedFile ? { file: result.resolvedFile } : {}),
-          },
-        });
-        continue;
-      }
-      demoted.push({
-        ...finding,
-        anchorStatus: 'evidence_unverified',
-        demotedReason:
-          'The cited evidence quote could not be located in the reviewed diff — the finding may ' +
-          'be stale, hallucinated, or mislocated. Demoted to advisory; it will not block completion ' +
-          'on its own.',
-      });
-      continue;
-    }
-
-    demoted.push({
-      ...finding,
-      demotedReason:
-        'No locatable evidence quote was supplied for this severity-blocking finding. Demoted to ' +
-        'advisory; it will not block completion on its own.',
-    });
-  }
-
-  return { blocking, demoted };
-}
-
 export async function evaluateReviewDrivenCompletion(args: {
   state: LoopState;
   iteration: LoopIteration;
@@ -173,6 +103,14 @@ export async function evaluateReviewDrivenCompletion(args: {
   seq: number;
   stage: LoopStage;
   completionDetector: LoopCompletionDetector;
+  /**
+   * T30: route review-driven verifies through the coordinator's recorded
+   * runner so this path lands in the verification ledger like the gated one.
+   * Falls back to the raw detector when a caller does not supply it.
+   */
+  runRecordedVerify?: (kind: 'verify' | 'quick-verify') => Promise<VerifyOutcome>;
+  /** L2: identical-tree replay port, owned by the verification run ledger. */
+  verifyReplay?: LoopVerifyReplayPort<VerifyOutcome>;
   runFreshEyesReviewGate: (
     signalId: string,
     iteration: LoopIteration,
@@ -214,10 +152,15 @@ export async function evaluateReviewDrivenCompletion(args: {
 
   let verifyOk = true;
   if (reviewVerdict.clean && noProductionChanges && cfg.verifyCommand?.trim()) {
+    const runVerifyOfKind = args.runRecordedVerify
+      ?? ((kind: 'verify' | 'quick-verify') => (kind === 'quick-verify'
+        ? completionDetector.runQuickVerify(state.config)
+        : completionDetector.runVerify(state.config)));
     const { final: v, verifyLabel } = await runLoopVerify({
-      runQuickVerify: () => completionDetector.runQuickVerify(state.config),
-      runVerify: () => completionDetector.runVerify(state.config),
+      runQuickVerify: () => runVerifyOfKind('quick-verify'),
+      runVerify: () => runVerifyOfKind('verify'),
       runVerifyTwice: cfg.runVerifyTwice === true,
+      replay: args.verifyReplay,
     });
     applyVerifyOutcomeToIteration(iteration, v);
     if (v.status === 'failed') {
@@ -386,6 +329,14 @@ export async function runFreshEyesReviewGate(args: {
   // (edit-invalidates-proof, symmetric with the stale-verify rung). A
   // contradiction-forced review always runs for real. Opt-in via
   // `completion.antiSelfGrading`.
+  //
+  // L2 note: the plan's "ALLOW a reviewer immediately when the last turn made
+  // no edits" lands here, and the mechanism is already built — but it stays
+  // behind `antiSelfGrading` (default off) deliberately. Un-gating it would
+  // change, for every existing loop, when a real cross-model review is skipped,
+  // and the plan names anti-self-grading load-bearing without listing this as
+  // one of its decisions. Turning it on by default is James's call, not the
+  // implementer's; see the open question recorded in the plan.
   if (
     state.config.completion.antiSelfGrading === true
     && !forcedByContradiction

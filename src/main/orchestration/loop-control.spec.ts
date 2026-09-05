@@ -8,6 +8,7 @@ import {
   importLoopTerminalIntents,
   listArchivedImportedIntents,
   listArchivedImportedIntentsByLoop,
+  loopControlRunEpoch,
   LOOP_CONTROL_MAX_JSON_BYTES,
   prepareLoopControl,
   readLoopControlFileFromEnv,
@@ -327,3 +328,96 @@ function silentIo() {
     stderr: { write: () => true },
   };
 }
+
+/**
+ * N5 — a marker written by a previous boot must not be applied to the turn
+ * running now, while genuine crash-recovery imports still work.
+ */
+describe('loop-control run epoch (N5)', () => {
+  function intentFilesIn(dir: string): string[] {
+    return fs.readdirSync(dir).filter((name) => name.endsWith('.json'));
+  }
+
+  /** Rewrite the single pending intent's runEpoch to simulate a previous boot. */
+  function rewriteIntentEpoch(epoch: string | undefined): void {
+    const [name] = intentFilesIn(runtime.intentsDir);
+    const filePath = path.join(runtime.intentsDir, name!);
+    const raw = JSON.parse(fs.readFileSync(filePath, 'utf8')) as Record<string, unknown>;
+    if (epoch === undefined) delete raw['runEpoch'];
+    else raw['runEpoch'] = epoch;
+    fs.writeFileSync(filePath, JSON.stringify(raw));
+  }
+
+  async function writeCompleteIntent(seq: number): Promise<void> {
+    await writeLoopControlFile(runtime, seq);
+    const code = await runLoopControlCli(
+      ['node', 'aio-loop-control', 'complete', '--summary', 'done'],
+      buildLoopControlEnv(runtime) as unknown as NodeJS.ProcessEnv,
+      silentIo(),
+    );
+    expect(code).toBe(0);
+  }
+
+  it('stamps the boot epoch into control.json', () => {
+    const control = JSON.parse(fs.readFileSync(runtime.controlFile, 'utf8')) as { runEpoch?: string };
+    expect(control.runEpoch).toEqual(expect.any(String));
+    expect(control.runEpoch).toBe(loopControlRunEpoch());
+  });
+
+  it('stamps the boot epoch into an intent it writes', async () => {
+    await writeCompleteIntent(2);
+    const [name] = intentFilesIn(runtime.intentsDir);
+    const raw = JSON.parse(fs.readFileSync(path.join(runtime.intentsDir, name!), 'utf8')) as {
+      runEpoch?: string;
+    };
+    expect(raw.runEpoch).toBe(loopControlRunEpoch());
+  });
+
+  // The epoch is attribution, NOT a rejection rule: a differing epoch on an
+  // otherwise valid intent must still import, or crash recovery breaks.
+  it('imports an intent whose epoch differs, because the epoch never gates', async () => {
+    await writeCompleteIntent(2);
+    rewriteIntentEpoch('epoch-from-a-previous-boot');
+
+    const imported = await importLoopTerminalIntents(runtime, {
+      maxIterationSeq: 2,
+      terminalEligible: true,
+    });
+
+    expect(imported.rejected).toEqual([]);
+    expect(imported.accepted).toHaveLength(1);
+  });
+
+  it('accepts a pre-N5 intent that carries no epoch at all', async () => {
+    await writeCompleteIntent(2);
+    rewriteIntentEpoch(undefined);
+
+    const imported = await importLoopTerminalIntents(runtime, {
+      maxIterationSeq: 2,
+      terminalEligible: true,
+    });
+
+    expect(imported.rejected).toEqual([]);
+    expect(imported.accepted).toHaveLength(1);
+  });
+
+  // What ACTUALLY ignores a previous-boot marker, and the reason the epoch does
+  // not need to: every boot mints a new secret, so an intent signed by the
+  // previous boot cannot validate against this one.
+  it('rejects a previous-boot intent on the rotated secret, not the epoch', async () => {
+    await writeCompleteIntent(2);
+    const [name] = intentFilesIn(runtime.intentsDir);
+    const filePath = path.join(runtime.intentsDir, name!);
+    const raw = JSON.parse(fs.readFileSync(filePath, 'utf8')) as Record<string, unknown>;
+    raw['secret'] = 'a-secret-from-a-previous-boot';
+    fs.writeFileSync(filePath, JSON.stringify(raw));
+
+    const imported = await importLoopTerminalIntents(runtime, {
+      maxIterationSeq: 2,
+      terminalEligible: true,
+    });
+
+    expect(imported.accepted).toEqual([]);
+    expect(imported.rejected[0]?.reason).toContain('secret does not match');
+  });
+});

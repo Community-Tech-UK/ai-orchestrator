@@ -175,9 +175,11 @@
   <section class="row budget-note">
     <p class="hint budget-copy">
       The spend check runs between iterations, so a single iteration is bounded
-      primarily by the turn cap. Every tripped cap currently takes one extra
-      wrap-up iteration so the child can write LOOP_TASKS.md and NOTES.md. That
-      extra turn is shown on the HUD as wrap-up.
+      primarily by the turn cap. An iteration or wall-time cap takes one extra
+      wrap-up iteration so the child can write LOOP_TASKS.md and NOTES.md — that
+      turn is shown on the HUD as wrap-up. A token or cost cap stops
+      immediately: paying another full turn would overshoot the budget that just
+      stopped the run.
     </p>
   </section>
 

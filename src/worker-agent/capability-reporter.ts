@@ -26,6 +26,17 @@ import {
   LOCAL_MODEL_PROBE_TIMEOUT_MS,
 } from './local-model-config';
 
+/**
+ * One long-lived scanner for the whole process.
+ *
+ * `reportCapabilities` runs on every heartbeat (10s by default), so building a
+ * `ProjectDiscovery` per call threw away its state each time — including the
+ * "has this project set actually changed?" check that keeps the scan out of the
+ * log. That wrote ~8,600 identical lines a day into worker-agent.log and
+ * rotated the crash forensics out of the window.
+ */
+const sharedProjectDiscovery = new ProjectDiscovery();
+
 const WORKER_AGENT_STARTED_AT = Date.now();
 const WORKER_AGENT_VERSION =
   process.env['AIO_WORKER_AGENT_VERSION']
@@ -47,8 +58,7 @@ export async function reportCapabilities(
   const supportedClis = detectClis();
   const gpu = detectGpu();
 
-  const discovery = new ProjectDiscovery();
-  const projects = await discovery.scan(workingDirectories);
+  const projects = await sharedProjectDiscovery.scan(workingDirectories);
 
   const localModelEndpoints = await detectLocalModelEndpoints();
   const localSttEndpoints = await detectLocalSttEndpoints();

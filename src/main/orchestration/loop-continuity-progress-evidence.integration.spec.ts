@@ -148,7 +148,6 @@ describe('loop continuity/progress/evidence incident integration', () => {
         maxWallTimeMs: 120_000,
         maxTokens: 1_000_000,
         maxCostCents: 4,
-        maxToolCallsPerIteration: 200,
       },
       completion: {
         ...defaultLoopConfig(workspace, 'x').completion,
@@ -168,7 +167,9 @@ describe('loop continuity/progress/evidence incident integration', () => {
     const event = await terminal;
     const final = coordinator.getLoop(state.id);
     expect(initializeForRequest).toHaveBeenCalledTimes(1);
-    expect(requestResponse).toHaveBeenCalledTimes(5);
+    // T45 (Decision 4): the cost cap terminates without a wrap-up turn, so the
+    // run is one paid iteration shorter than before.
+    expect(requestResponse).toHaveBeenCalledTimes(4);
     expect(new Set(observedThreads)).toEqual(new Set([nativeThread]));
     expect(observedCoverages.every((coverage) => coverage === 'complete')).toBe(true);
     expect([...observedPaths].sort()).toEqual([

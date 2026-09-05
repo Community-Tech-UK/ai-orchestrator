@@ -133,3 +133,42 @@ describe('buildHonestyChips', () => {
     ]);
   });
 });
+
+/**
+ * L6 — the diagnosis has to reach the operator. A banner and HUD that still say
+ * "no progress" while the backend knows it is "the reviewer keeps raising the
+ * same finding" is the entire bug L6 exists to fix.
+ */
+describe('buildHonestyChips — L6 diagnosis and parked leaves', () => {
+  it('names the diagnosis rather than leaving it backend-only', () => {
+    expect(buildHonestyChips({ nonConvergence: { reason: 'code_review_non_converging' } }))
+      .toEqual(['review not converging']);
+    expect(buildHonestyChips({ nonConvergence: { reason: 'landable_uncommitted' } }))
+      .toEqual(['landable · uncommitted']);
+    expect(buildHonestyChips({ nonConvergence: { reason: 'scope_expanded' } }))
+      .toEqual(['scope widened']);
+  });
+
+  it('falls back to the raw reason for an unrecognised value', () => {
+    expect(buildHonestyChips({ nonConvergence: { reason: 'something_new' } }))
+      .toEqual(['something_new']);
+  });
+
+  it('shows that work was set aside, and how much', () => {
+    expect(buildHonestyChips({ parkedLeaves: [{ id: 'a' }] })).toEqual(['1 item parked']);
+    expect(buildHonestyChips({ parkedLeaves: [{ id: 'a' }, { id: 'b' }] })).toEqual(['2 items parked']);
+  });
+
+  it('shows nothing when nothing is parked and nothing was diagnosed', () => {
+    expect(buildHonestyChips({ parkedLeaves: [], nonConvergence: null })).toEqual([]);
+  });
+
+  it('keeps the existing chips alongside the new ones', () => {
+    expect(buildHonestyChips({
+      autoUnstick: { attempt: 2, max: 2, signalId: 'G' },
+      capWrapUpIntent: { cap: 'iterations' },
+      nonConvergence: { reason: 'scope_expanded' },
+      parkedLeaves: [{ id: 'a' }],
+    })).toEqual(['unstick 2/2 · G', 'wrap-up · iterations cap', 'scope widened', '1 item parked']);
+  });
+});

@@ -75,6 +75,7 @@ export class ThreadWakeupRunner {
         instanceId,
         automation.action.prompt,
         automation.action.attachments,
+        { automatedInput: true },
       );
       getSessionAdmissionService().markDelivered(admission.admissionId);
       const summary = `Wakeup prompt delivered to thread ${instanceId}.`;
@@ -97,7 +98,7 @@ export class ThreadWakeupRunner {
 
   private handleRedelivery(ctx: RedeliveryContext): void {
     void this.instanceManager
-      .sendInput(ctx.instanceId, ctx.message, ctx.attachments)
+      .sendInput(ctx.instanceId, ctx.message, ctx.attachments, { automatedInput: true })
       .then(() => getSessionAdmissionService().markDelivered(ctx.admissionId))
       .catch((error: unknown) => {
         getSessionAdmissionService().markFailed(

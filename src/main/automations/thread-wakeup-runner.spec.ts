@@ -132,7 +132,12 @@ describe('ThreadWakeupRunner', () => {
       reason: 'thread-wakeup',
     });
     expect(attachInstance).toHaveBeenCalledWith('run-1', 'instance-1', 3_000);
-    expect(sendInput).toHaveBeenCalledWith('instance-1', 'Continue the work', automation.action.attachments);
+    expect(sendInput).toHaveBeenCalledWith(
+      'instance-1',
+      'Continue the work',
+      automation.action.attachments,
+      { automatedInput: true },
+    );
     expect(terminalizeRun).toHaveBeenCalledWith(
       'run-1',
       'succeeded',
@@ -265,7 +270,12 @@ describe('ThreadWakeupRunner', () => {
 
       await runner.fireThreadWakeup({ run, automation, destination });
 
-      expect(sendInput).toHaveBeenCalledWith('instance-1', 'Continue the work', automation.action.attachments);
+      expect(sendInput).toHaveBeenCalledWith(
+        'instance-1',
+        'Continue the work',
+        automation.action.attachments,
+        { automatedInput: true },
+      );
       expect(mockMarkDelivered).toHaveBeenCalledWith('adm-admitted');
     });
 
@@ -281,7 +291,12 @@ describe('ThreadWakeupRunner', () => {
       sendInput.mockResolvedValue(undefined);
       handler({ admissionId: 'adm-redeliver', instanceId: 'instance-9', message: 'wake up' });
 
-      expect(sendInput).toHaveBeenCalledWith('instance-9', 'wake up', undefined);
+      expect(sendInput).toHaveBeenCalledWith(
+        'instance-9',
+        'wake up',
+        undefined,
+        { automatedInput: true },
+      );
     });
   });
 });

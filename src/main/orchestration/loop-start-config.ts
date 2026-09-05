@@ -118,8 +118,26 @@ export async function prepareLoopStartConfig(
     verifyCommand: config.completion?.verifyCommand,
     allowOperatorReviewedCompletion: config.completion?.allowOperatorReviewedCompletion,
     requireAuthority: goalIntent.intent === 'implementation',
+    // T42: an isolated loop verifies its own worktree, so a concurrent writer
+    // in the repo root cannot poison it.
+    isolated: config.isolateLoopWorkspaces === true,
   });
   if (goalIntent.intent === 'implementation' && verification.authority === 'none') {
+    // T42/T44: a detected-but-refused verifier is a different problem from no
+    // verifier at all, and the operator needs to be told which one they have.
+    if (verification.contendedPaths && verification.contendedPaths.length > 0) {
+      const shown = verification.contendedPaths.slice(0, 5).join(', ');
+      const more = verification.contendedPaths.length > 5
+        ? ` (and ${verification.contendedPaths.length - 5} more)`
+        : '';
+      throw new Error(
+        `${config.workspaceCwd} has a verifier, but another agent is mid-edit in it: `
+        + `${shown}${more}. Auto-adopting that suite would grade someone else's `
+        + 'uncommitted work and report their failures as this loop\'s. Turn on isolation '
+        + '(the loop gets its own worktree), set the verify command explicitly, or wait '
+        + 'for the other session to finish.',
+      );
+    }
     throw new Error(
       'Implementation loops need a verification authority, and none was detected in '
       + `${config.workspaceCwd}. Set a verify command (tests/build/typecheck), add a `

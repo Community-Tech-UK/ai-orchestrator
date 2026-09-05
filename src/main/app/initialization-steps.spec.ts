@@ -11,10 +11,35 @@ vi.mock('electron', () => ({
 import type { InstanceManager } from '../instance/instance-manager';
 import type { WindowManager } from '../window-manager';
 import {
+  createAnnounceThenHaltContinuationInitializationStep,
   createGovernedProposalInitializationStep,
   createInitializationSteps,
   createLocalAiGuardInitializationStep,
 } from './initialization-steps';
+
+describe('Announce-then-halt continuation initialization', () => {
+  it('supplies an active managed-loop ownership predicate', () => {
+    const instanceManager = {} as InstanceManager;
+    const initialize = vi.fn();
+    const step = createAnnounceThenHaltContinuationInitializationStep(
+      instanceManager,
+      initialize,
+      () => [
+        { chatId: 'active-root', status: 'running', endedAt: null },
+        { chatId: 'finished-root', status: 'completed', endedAt: 1 },
+      ],
+    );
+
+    step.fn();
+
+    expect(initialize).toHaveBeenCalledOnce();
+    expect(initialize.mock.calls[0]?.[0]).toBe(instanceManager);
+    const isManagedLoopInstance = initialize.mock.calls[0]?.[1] as (instanceId: string) => boolean;
+    expect(isManagedLoopInstance('active-root')).toBe(true);
+    expect(isManagedLoopInstance('finished-root')).toBe(false);
+    expect(isManagedLoopInstance('ordinary-root')).toBe(false);
+  });
+});
 
 describe('Local AI Guard initialization', () => {
   it('initializes fail-soft when runtime startup throws', () => {
@@ -79,6 +104,7 @@ describe('late-runtime initialization steps', () => {
     });
     const names = steps.map((step) => step.name);
 
+    expect(names).toContain('Announce-then-halt continuation');
     expect(names.indexOf('Workflow invokers')).toBeLessThan(names.indexOf('Loop store'));
     expect(names.indexOf('Loop store')).toBeLessThan(names.indexOf('Channel manager'));
     expect(names.indexOf('Channel manager')).toBeLessThan(names.indexOf('Cross-project patterns'));
