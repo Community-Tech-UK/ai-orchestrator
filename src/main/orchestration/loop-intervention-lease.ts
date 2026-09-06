@@ -193,6 +193,15 @@ export interface PreparedIterationInterventions {
   released: number;
   /** Payloads dropped because the queue exceeded its ceiling. */
   dropped: LeasedLoopPendingInput[];
+  /**
+   * Payloads the merge budget held back this iteration.
+   *
+   * Returned as the array, not just folded into `sealNote`'s count: B3's
+   * receipts need to name WHICH messages were held, and discarding them here
+   * made the "held" outcome structurally unreportable — the receipt branch for
+   * it existed but could never fire from the coordinator.
+   */
+  sealed: LeasedLoopPendingInput[];
 }
 
 /**
@@ -214,5 +223,6 @@ export function prepareIterationInterventions(
     sealNote: renderSealNote(lease.sealed.length),
     released: released.released,
     dropped: bounded.dropped,
+    sealed: lease.sealed,
   };
 }

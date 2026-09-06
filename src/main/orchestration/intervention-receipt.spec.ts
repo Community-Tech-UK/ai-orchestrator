@@ -5,7 +5,12 @@ import {
   reportInterventionReceipts,
   summariseReceipts,
 } from './intervention-receipt';
-import type { LeasedLoopPendingInput } from './loop-intervention-lease';
+import {
+  MAX_MERGED_STEERING_CHARS,
+  prepareIterationInterventions,
+  type LeasedLoopPendingInput,
+} from './loop-intervention-lease';
+import type { LoopPendingInput } from '../../shared/types/loop-state.types';
 
 const NOW = 2_000_000;
 
@@ -123,5 +128,41 @@ describe('reportInterventionReceipts', () => {
 
   it('handles an empty lease step without inventing a line', () => {
     expect(reportInterventionReceipts({ leased: [], seq: 1, now: NOW }).line).toBeNull();
+  });
+});
+
+/**
+ * The wiring gap the Wave 6 gate found: `held` receipts were structurally
+ * unreachable. `prepareIterationInterventions` folded the sealed payloads into
+ * a COUNT (`sealNote`) and discarded the array, so the coordinator had nothing
+ * to pass and the `held` branch could never fire in production — while the
+ * pure-function tests above passed happily on a hand-supplied array.
+ *
+ * This drives the REAL lease function, not a fixture, so the branch stays
+ * reachable end to end.
+ */
+describe('held receipts are reachable from the real lease (B3 wiring)', () => {
+  function bigInput(id: string): LoopPendingInput {
+    return {
+      id,
+      kind: 'steer',
+      // Large enough that the merge budget cannot fit them all.
+      message: 'x'.repeat(Math.floor(MAX_MERGED_STEERING_CHARS * 0.7)),
+      enqueuedAt: Date.now() - 1_000,
+      source: 'human',
+    } as LoopPendingInput;
+  }
+
+  it('prepareIterationInterventions returns the sealed payloads, not just a count', () => {
+    const lease = prepareIterationInterventions([bigInput('a'), bigInput('b')], 1);
+    expect(lease.sealed.length).toBeGreaterThan(0);
+    expect(lease.sealNote).not.toBe('');
+  });
+
+  it('those sealed payloads produce a held receipt', () => {
+    const lease = prepareIterationInterventions([bigInput('a'), bigInput('b')], 1);
+    const summary = reportInterventionReceipts({ ...lease, releasedCount: lease.released, seq: 1 });
+    expect(summary.held).toBeGreaterThan(0);
+    expect(summary.line).toContain('held back by the merge budget');
   });
 });

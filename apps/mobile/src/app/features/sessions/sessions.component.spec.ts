@@ -1,4 +1,6 @@
 import '@angular/compiler';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   SESSION_PAGE_SIZE,
@@ -43,5 +45,20 @@ describe('session row status chip', () => {
       status: 'idle',
       pendingApprovalCount: 0,
     })).toEqual({ kind: 'past', label: 'past' });
+  });
+});
+
+
+describe('SessionsComponent connection header', () => {
+  const source = readFileSync(resolve('src/app/features/sessions/sessions.component.ts'), 'utf8');
+
+  /**
+   * This screen used to hard-code 'Connected'/'Offline', so an expired pairing
+   * read as an ordinary network drop one level below the Projects screen.
+   */
+  it('reports the connection state rather than a hard-coded Offline', () => {
+    expect(source).toContain('[subtitle]="connectionHeadline()"');
+    expect(source).toContain('connectionHeadline(this.gateway.state())');
+    expect(source).not.toContain("online() ? 'Connected' : 'Offline'");
   });
 });

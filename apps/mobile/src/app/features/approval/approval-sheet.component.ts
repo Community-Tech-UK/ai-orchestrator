@@ -127,6 +127,15 @@ interface FileDiffView {
           </div>
         }
       }
+
+      <!--
+        Rendered once, outside every branch. It previously lived inside two of the
+        four branches, so the commonest prompt kind (permission) silently dropped
+        it and a rejected decision looked like a dead button.
+      -->
+      @if (error()) {
+        <p class="sheet-error" role="alert">{{ error() }}</p>
+      }
     </div>
   `,
   styles: [
@@ -207,6 +216,7 @@ interface FileDiffView {
       .actions button { flex: 1; min-height: 52px; border: none; border-radius: var(--radius-md); padding: 12px 16px; font-size: 17px; font-weight: 600; }
       .actions button:disabled { opacity: 0.5; }
       .deny { background: var(--surface-2, #2c2c2e); color: var(--accent-error, #ff453a); }
+      .sheet-error { margin: 0 0 8px; color: var(--accent-error, #ff453a); font-size: 13px; }
       .allow { background: var(--primitive-white); color: var(--primitive-black); }
     `,
   ],
@@ -215,6 +225,12 @@ export class ApprovalSheetComponent {
   private readonly haptics = inject(HapticsService);
 
   readonly prompt = input.required<MobilePromptDto>();
+  /**
+   * Why the last decision didn't go through. The sheet covers most of the screen,
+   * so without this a rejected token left the prompt sitting there with no
+   * explanation and the connection pill hidden behind the scrim.
+   */
+  readonly error = input<string | null>(null);
   readonly decision = output<ApprovalDecision>();
   readonly dismiss = output<void>();
   readonly open = output<void>();

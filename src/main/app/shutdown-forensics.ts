@@ -89,29 +89,54 @@ export interface InstallSignalProbesOptions {
   /** Test seam for the process facts. */
   readProbe?: () => SignalProbe;
   on?: (signal: ShutdownSignal, handler: () => void) => void;
+  /** Test seam for deregistering our own listener before re-raising. */
+  off?: (signal: ShutdownSignal, handler: () => void) => void;
+  /** Test seam for the re-raise that restores default termination. */
+  reRaise?: (signal: ShutdownSignal) => void;
   signals?: readonly ShutdownSignal[];
 }
 
 /**
- * Register handlers that record the signal and then get out of the way.
+ * Register handlers that record the signal and then let the process die.
  *
- * They do NOT exit or swallow: adding a handler for a signal suppresses Node's
- * default termination, so the handler must not become the reason the app fails
- * to die. Recording is all it does; existing quit paths still run.
+ * **Re-raising is mandatory, not tidiness.** Installing ANY listener for
+ * SIGINT/SIGTERM removes Node's default terminate-on-signal action. A handler
+ * that only records therefore keeps the process alive: a supervisor's SIGTERM
+ * stops working, every restart escalates to SIGKILL — which cannot be trapped
+ * and so is never recorded — and the feature destroys the very forensic trail
+ * it exists to create. The first version of this file did exactly that, and its
+ * own comment claimed the opposite.
+ *
+ * So each handler records, removes ITSELF (not every listener — other code may
+ * legitimately have its own), and re-sends the signal so the default action now
+ * applies. If another listener is still registered, that listener owns the
+ * outcome, which is correct: this module's job is to observe, not to override.
  */
 export function installShutdownSignalProbes(options: InstallSignalProbesOptions): void {
   const readProbe = options.readProbe
     ?? (() => ({ pid: process.pid, ppid: process.ppid, uptimeSeconds: process.uptime() }));
   const on = options.on
     ?? ((signal: ShutdownSignal, handler: () => void) => { process.on(signal, handler); });
+  const off = options.off
+    ?? ((signal: ShutdownSignal, handler: () => void) => { process.off(signal, handler); });
+  const reRaise = options.reRaise
+    ?? ((signal: ShutdownSignal) => { process.kill(process.pid, signal); });
 
   for (const signal of options.signals ?? TRAPPED_SHUTDOWN_SIGNALS) {
-    on(signal, () => {
+    const handler = (): void => {
       try {
         options.write(buildShutdownSignalRecord(signal, readProbe()));
       } catch {
         // A forensic record must never be the reason a shutdown hangs.
       }
-    });
+      try {
+        off(signal, handler);
+        reRaise(signal);
+      } catch {
+        // If re-raising somehow fails, do not leave the process wedged.
+        process.exit(0);
+      }
+    };
+    on(signal, handler);
   }
 }

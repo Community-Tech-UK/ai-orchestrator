@@ -50,6 +50,12 @@ describe('installShutdownSignalProbes', () => {
       write,
       readProbe: () => probe,
       on: (signal, handler) => handlers.set(signal, handler),
+      // These seams MUST be injected. Without them the defaults are
+      // `process.off` and `process.kill(process.pid, signal)` — invoking a
+      // handler would signal the vitest worker itself, which is exactly what
+      // happened when the re-raise landed without updating this helper.
+      off: () => {},
+      reRaise: () => {},
     });
     return handlers;
   }
@@ -75,5 +81,63 @@ describe('installShutdownSignalProbes', () => {
   it('swallows a writer failure rather than throwing during teardown', () => {
     const handlers = install(() => { throw new Error('disk full'); });
     expect(() => handlers.get('SIGINT')!()).not.toThrow();
+  });
+});
+
+/**
+ * The critical regression: a handler that only records SUPPRESSES Node's default
+ * terminate-on-signal action, so a supervisor's SIGTERM stops working and every
+ * restart escalates to SIGKILL — which cannot be trapped and is therefore never
+ * recorded. The feature would destroy the trail it exists to create.
+ *
+ * Reproduced with a real `process.on` handler before this was fixed: the process
+ * survived SIGTERM and had to be killed.
+ */
+describe('installShutdownSignalProbes — must not keep the process alive', () => {
+  function install() {
+    const handlers = new Map<ShutdownSignal, () => void>();
+    const removed: ShutdownSignal[] = [];
+    const reRaised: ShutdownSignal[] = [];
+    installShutdownSignalProbes({
+      write: vi.fn(),
+      readProbe: () => probe,
+      on: (signal, handler) => handlers.set(signal, handler),
+      off: (signal) => removed.push(signal),
+      reRaise: (signal) => reRaised.push(signal),
+    });
+    return { handlers, removed, reRaised };
+  }
+
+  it('re-raises the signal so default termination applies', () => {
+    const { handlers, reRaised } = install();
+    handlers.get('SIGTERM')!();
+    expect(reRaised).toEqual(['SIGTERM']);
+  });
+
+  it('removes its own listener before re-raising, or the re-raise loops forever', () => {
+    const { handlers, removed, reRaised } = install();
+    handlers.get('SIGINT')!();
+    expect(removed).toEqual(['SIGINT']);
+    expect(reRaised).toEqual(['SIGINT']);
+  });
+
+  it('still re-raises when the forensic write throws', () => {
+    const reRaised: ShutdownSignal[] = [];
+    const handlers = new Map<ShutdownSignal, () => void>();
+    installShutdownSignalProbes({
+      write: () => { throw new Error('disk full'); },
+      readProbe: () => probe,
+      on: (signal, handler) => handlers.set(signal, handler),
+      off: () => {},
+      reRaise: (signal) => reRaised.push(signal),
+    });
+    handlers.get('SIGTERM')!();
+    expect(reRaised).toEqual(['SIGTERM']);
+  });
+
+  it('re-raises every trapped signal, not just the first', () => {
+    const { handlers, reRaised } = install();
+    for (const signal of TRAPPED_SHUTDOWN_SIGNALS) handlers.get(signal)!();
+    expect(reRaised).toEqual([...TRAPPED_SHUTDOWN_SIGNALS]);
   });
 });

@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { AppLockService } from '../../core/app-lock.service';
+import { connectionLabel } from '../../core/connection-status';
 import { GatewayClient } from '../../core/gateway-client.service';
 import { HostStore } from '../../core/host-store';
 import { MobileHeaderComponent } from '../../shared/mobile-header.component';
@@ -139,7 +140,7 @@ export class HostsComponent {
 
   protected stateLabel(id: string): string {
     if (id !== this.activeId()) return '';
-    return this.gateway.state() === 'connected' ? 'online' : this.gateway.state();
+    return connectionLabel(this.gateway.state());
   }
 
   protected hostAriaLabel(id: string, name: string): string {

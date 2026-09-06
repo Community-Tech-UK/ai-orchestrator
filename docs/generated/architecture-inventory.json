@@ -5830,7 +5830,7 @@
   "largeFiles": [
     {
       "path": "docs/plans/livetest-remediation-register.md",
-      "lines": 8434
+      "lines": 8817
     },
     {
       "path": "docs/superpowers/plans/2026-04-21-mcp-multi-provider-management_completed.md",
@@ -5858,7 +5858,7 @@
     },
     {
       "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 3999
+      "lines": 3997
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-mempalace-knowledge-features_completed.md",
@@ -6193,15 +6193,15 @@
       "lines": 1380
     },
     {
+      "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
+      "lines": 1374
+    },
+    {
       "path": "src/main/chats/chat-service.spec.ts",
       "lines": 1369
     },
     {
       "path": "src/main/mcp/orchestrator-tools-rpc-server.spec.ts",
-      "lines": 1362
-    },
-    {
-      "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
       "lines": 1362
     },
     {
@@ -6485,16 +6485,16 @@
       "lines": 1096
     },
     {
+      "path": "src/main/review/local-review-tool-runner.spec.ts",
+      "lines": 1095
+    },
+    {
       "path": "src/main/orchestration/__tests__/multi-verify-coordinator.spec.ts",
       "lines": 1092
     },
     {
       "path": "src/main/remote-node/__tests__/rpc-event-router.spec.ts",
       "lines": 1091
-    },
-    {
-      "path": "src/main/review/local-review-tool-runner.spec.ts",
-      "lines": 1088
     },
     {
       "path": "src/main/context/__tests__/context-compactor.spec.ts",

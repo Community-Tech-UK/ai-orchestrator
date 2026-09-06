@@ -5,6 +5,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { SettingsStore } from '../../core/state/settings.store';
 import { SettingRowComponent } from './setting-row.component';
+import { RoutingMatrixComponent } from './routing-matrix.component';
 import type { AppSettings } from '../../../../shared/types/settings.types';
 import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
 import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
@@ -29,7 +30,7 @@ interface LoopProviderView {
 @Component({
   selector: 'app-orchestration-settings-tab',
   standalone: true,
-  imports: [SettingRowComponent, CompactModelPickerComponent],
+  imports: [SettingRowComponent, CompactModelPickerComponent, RoutingMatrixComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="settings-list-card" aria-label="Orchestration settings">
@@ -41,6 +42,13 @@ interface LoopProviderView {
           (valueChange)="onSettingChange($event)"
         />
       }
+    </section>
+
+    <section class="settings-list-card" aria-label="Model routing">
+      <!-- S4.2: orchestrationRoutingPolicyJson previously had no UI at all, so
+           the only way to move an expensive gate onto a cheaper model was to
+           hand-edit JSON through the settings CLI. -->
+      <app-routing-matrix />
     </section>
 
     <section class="settings-list-card loop-models" aria-label="Loop models">

@@ -132,28 +132,6 @@ export const SettingsToolUpdateNodeConfigPayloadSchema = z.object({
 
 const ConfigPathSchema = z.string().min(1).max(2000);
 
-export const ConfigResolvePayloadSchema = z.object({
-  workingDirectory: WorkingDirectorySchema,
-});
-
-export const ConfigGetProjectPayloadSchema = z.object({
-  configPath: ConfigPathSchema,
-});
-
-export const ConfigSaveProjectPayloadSchema = z.object({
-  configPath: ConfigPathSchema,
-  config: z.record(z.string(), z.unknown()), // ProjectConfig is complex, validate structure
-});
-
-export const ConfigCreateProjectPayloadSchema = z.object({
-  projectDir: WorkingDirectorySchema,
-  config: z.record(z.string(), z.unknown()).optional(),
-});
-
-export const ConfigFindProjectPayloadSchema = z.object({
-  startDir: WorkingDirectorySchema,
-});
-
 export const InstructionTrustApprovePayloadSchema = z.object({
   files: z.array(z.object({
     path: z.string().min(1).max(4000),

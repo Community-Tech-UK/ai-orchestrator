@@ -12,6 +12,12 @@ const logger = getLogger('MobileGateway');
 
 const DEFAULT_PAIRING_TTL_MS = 10 * 60 * 1000; // 10 minutes to scan the QR
 const DEFAULT_DEVICE_TOKEN_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
+/**
+ * Sliding renewal is persisted at most this often per device, so ordinary request
+ * traffic doesn't rewrite settings on every call. Capped to half the token's own
+ * TTL so short-lived tokens still renew.
+ */
+const TOKEN_RENEW_PERSIST_INTERVAL_MS = 24 * 60 * 60 * 1000; // 1 day
 const SETTINGS_KEY = 'mobileGatewayDevices' as const;
 
 function generateToken(bytes = 32): string {
@@ -84,13 +90,15 @@ export class MobileDeviceRegistry {
     this.pendingPairings.delete(token);
 
     const now = Date.now();
+    const tokenTtlMs = Math.max(60_000, params.tokenTtlMs ?? DEFAULT_DEVICE_TOKEN_TTL_MS);
     const device: MobileDevice = {
       deviceId: randomUUID(),
       label: (params.label?.trim() || 'iPhone').slice(0, 64),
       token: generateToken(32),
       createdAt: now,
       lastSeenAt: now,
-      expiresAt: now + Math.max(60_000, params.tokenTtlMs ?? DEFAULT_DEVICE_TOKEN_TTL_MS),
+      expiresAt: now + tokenTtlMs,
+      tokenTtlMs,
     };
     this.devicesByToken.set(device.token, device);
     this.persist();
@@ -114,8 +122,28 @@ export class MobileDeviceRegistry {
       logger.info('Rejected expired mobile device token', { deviceId: device.deviceId });
       return null;
     }
-    device.lastSeenAt = Date.now();
+    const now = Date.now();
+    device.lastSeenAt = now;
+    this.renewToken(device, now);
     return device;
+  }
+
+  /**
+   * Extend a token's life each time it is used. The expiry used to be a fixed
+   * deadline from pairing, so a phone in daily use still went dead overnight and
+   * every later request 401'd. A rejected WebSocket handshake carries no readable
+   * status on the phone, so that surfaced as a generic "can't connect" and looked
+   * like a Tailscale fault. A device left unused past its TTL still expires.
+   */
+  private renewToken(device: MobileDevice, now: number): void {
+    const ttlMs = device.tokenTtlMs ?? DEFAULT_DEVICE_TOKEN_TTL_MS;
+    const renewedExpiry = now + ttlMs;
+    const interval = Math.min(TOKEN_RENEW_PERSIST_INTERVAL_MS, Math.floor(ttlMs / 2));
+    if (renewedExpiry - device.expiresAt < interval) {
+      return;
+    }
+    device.expiresAt = renewedExpiry;
+    this.persist();
   }
 
   listDevices(): MobileDeviceSummary[] {

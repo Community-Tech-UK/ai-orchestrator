@@ -1925,9 +1925,7 @@ export class LoopCoordinator extends EventEmitter {
       const lease = prepareIterationInterventions(state.pendingInterventions, seq);
       // B3: receipts say where each operator message actually went. Silent when
       // everything was simply delivered; speaks only when one did NOT.
-      const receipts = reportInterventionReceipts({
-        leased: lease.leased, dropped: lease.dropped, releasedCount: lease.released, seq,
-      });
+      const receipts = reportInterventionReceipts({ ...lease, releasedCount: lease.released, seq });
       if (receipts.line) {
         logger.warn('Loop intervention receipts', { loopRunId: state.id, seq, ...receipts });
       }

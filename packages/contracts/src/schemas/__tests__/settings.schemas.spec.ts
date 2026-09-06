@@ -14,11 +14,6 @@ import {
   SettingsToolResetPayloadSchema,
   SettingsToolSetPayloadSchema,
   SettingsToolUpdateNodeConfigPayloadSchema,
-  ConfigResolvePayloadSchema,
-  ConfigGetProjectPayloadSchema,
-  ConfigSaveProjectPayloadSchema,
-  ConfigCreateProjectPayloadSchema,
-  ConfigFindProjectPayloadSchema,
   InstructionsResolvePayloadSchema,
   InstructionsCreateDraftPayloadSchema,
   RemoteConfigFetchUrlPayloadSchema,
@@ -38,9 +33,9 @@ describe('settings.schemas', () => {
     expect(() => SettingsGetPayloadSchema.parse({ key: '' })).toThrow();
   });
 
-  it('ConfigResolvePayloadSchema requires workingDirectory', () => {
-    expect(() => ConfigResolvePayloadSchema.parse({})).toThrow();
-  });
+  // The five `Config*PayloadSchema` entries were removed with the project-scope
+  // feature (Decision 17): the channels, handlers and preload bridges are gone,
+  // so schemas validating payloads nobody can send were dead weight.
 
   it('exports all settings-group schemas as Zod schemas', () => {
     const schemas = [
@@ -50,8 +45,6 @@ describe('settings.schemas', () => {
       SettingsToolSetPayloadSchema, SettingsPrivilegedGetPayloadSchema,
       SettingsPrivilegedListPayloadSchema, SettingsPrivilegedResetPayloadSchema,
       SettingsPrivilegedSetPayloadSchema, SettingsToolUpdateNodeConfigPayloadSchema,
-      ConfigResolvePayloadSchema, ConfigGetProjectPayloadSchema, ConfigSaveProjectPayloadSchema,
-      ConfigCreateProjectPayloadSchema, ConfigFindProjectPayloadSchema,
       InstructionsResolvePayloadSchema, InstructionsCreateDraftPayloadSchema,
       RemoteConfigFetchUrlPayloadSchema, RemoteConfigFetchWellKnownPayloadSchema,
       RemoteConfigFetchGitHubPayloadSchema, RemoteConfigDiscoverGitPayloadSchema,

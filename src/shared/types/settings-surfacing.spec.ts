@@ -3,6 +3,8 @@
  * exhaustive. The `satisfies` clause gives exhaustiveness at compile time; these
  * tests guard the parts a type cannot check.
  */
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { SETTING_SURFACING, internalSettingKeys, type SettingSurfacing } from './settings-surfacing';
@@ -35,11 +37,19 @@ describe('SETTING_SURFACING', () => {
     expect(broken).toEqual([]);
   });
 
-  /** A `bespoke` key is owned by a dedicated tab, so it must be hidden from generic ones. */
-  it('every `bespoke` key has metadata marked hidden', () => {
+  /**
+   * A `bespoke` key is owned by a dedicated tab. That is either a metadata entry
+   * marked `hidden`, or a hand-coded picker with no metadata at all. What it must
+   * NOT be is metadata that still shows in generic category listings, which would
+   * mean it renders twice.
+   */
+  it('no `bespoke` key still appears in generic category listings', () => {
     const broken = entries
       .filter(([, v]) => v === 'bespoke')
-      .filter(([key]) => metaByKey.get(key)?.hidden !== true)
+      .filter(([key]) => {
+        const meta = metaByKey.get(key);
+        return meta !== undefined && meta.hidden !== true;
+      })
       .map(([key]) => key);
     expect(broken).toEqual([]);
   });
@@ -51,6 +61,30 @@ describe('SETTING_SURFACING', () => {
       .filter(([key]) => metaByKey.has(key))
       .map(([key]) => key);
     expect(contradictory).toEqual([]);
+  });
+
+  /**
+   * The check that was MISSING, and that let four live controls sit misfiled as
+   * `internal`. The old spec only cross-checked `SETTINGS_METADATA`, so a
+   * hand-coded picker — which never enters that array — was invisible to it:
+   * the registry was exhaustive but not true.
+   *
+   * Scanning the settings feature sources catches exactly that case.
+   */
+  it('no `internal` key is actually edited by a settings component', () => {
+    const dir = join(__dirname, '..', '..', 'renderer', 'app', 'features', 'settings');
+    const sources = readdirSync(dir)
+      .filter((f) => (f.endsWith('.ts') || f.endsWith('.html')) && !f.includes('.spec.'))
+      .map((f) => readFileSync(join(dir, f), 'utf8'))
+      .join('\n');
+
+    const leaked = entries
+      .filter(([, v]) => v === 'internal')
+      // A bare mention is not proof of editing; require the key to be written.
+      .filter(([key]) => new RegExp(`(store\\.get|settings\\(\\)|update\\(\\s*\\{)[^\\n]{0,80}\\b${key}\\b|\\b${key}\\b\\s*:`).test(sources))
+      .map(([key]) => key);
+
+    expect(leaked).toEqual([]);
   });
 
   it('every metadata key is classified', () => {

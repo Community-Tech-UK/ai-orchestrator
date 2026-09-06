@@ -13,6 +13,7 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
+import { composerBlockedText, hostAvailabilityText } from '../../core/connection-status';
 import { DraftStore } from '../../core/draft-store';
 import { GatewayClient } from '../../core/gateway-client.service';
 import { HapticsService } from '../../core/haptics.service';
@@ -77,7 +78,7 @@ const DRAFT_KEY = 'new-session';
           <app-mobile-icon name="host" />
           <span class="context-row__copy">
             <span>{{ hostName() }}</span>
-            <small>{{ online() ? 'Connected host' : 'Host unavailable' }}</small>
+            <small>{{ hostAvailability() }}</small>
           </span>
           <app-mobile-icon class="context-row__chevron" name="chevron-down" />
         </button>
@@ -157,7 +158,7 @@ const DRAFT_KEY = 'new-session';
         @if (error()) {
           <p class="composer-error" role="alert">{{ error() }}</p>
         } @else if (!online()) {
-          <p class="composer-hint">Reconnect to a host to start a session.</p>
+          <p class="composer-hint">{{ composerBlocked() }}</p>
         }
 
         <div class="composer-toolbar">
@@ -357,6 +358,9 @@ export class NewSessionComponent implements OnInit {
 
   protected readonly providers = PROVIDERS;
   protected readonly online = this.gateway.online;
+  /** Both distinguish an expired pairing from an ordinary network drop. */
+  protected readonly hostAvailability = computed(() => hostAvailabilityText(this.gateway.state()));
+  protected readonly composerBlocked = computed(() => composerBlockedText(this.gateway.state()));
   protected readonly dirs = signal<MobileRecentDirDto[]>([]);
   protected readonly loadingDirs = signal(true);
   protected readonly dirsError = signal<string | null>(null);

@@ -1,0 +1,52 @@
+/* S4.2 — routing policy table. Override state is never colour alone: an
+   overridden row shows a "Reset" button and a default row shows the word
+   "default", so the state is readable without seeing the highlight. */
+.routing-matrix { margin: 0 0 16px; }
+
+.rm-desc { margin: 2px 0 10px; font-size: 12px; opacity: 0.85; }
+
+.rm-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+
+  th, td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+    vertical-align: top;
+  }
+
+  thead th {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    opacity: 0.7;
+  }
+}
+
+.rm-gate { font-weight: 500; }
+.rm-gate-label { display: block; }
+.rm-gate-desc { display: block; margin-top: 2px; font-weight: 400; font-size: 11px; opacity: 0.75; }
+
+.rm-table tr.is-overridden { background: rgba(125, 211, 252, 0.06); }
+
+.rm-reset { text-align: right; white-space: nowrap; }
+
+.rm-reset-btn {
+  padding: 2px 9px;
+  font-size: 11px;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.14));
+  background: transparent;
+  color: inherit;
+}
+
+.rm-default-note { font-size: 11px; opacity: 0.55; }
+.rm-note { margin: 8px 0 0; font-size: 11px; opacity: 0.8; }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}

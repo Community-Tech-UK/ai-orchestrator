@@ -2,6 +2,49 @@
 setlocal
 cd /d "%~dp0"
 
+REM Bail out early when a worker is already running for this checkout.
+REM
+REM The scheduled task fires every few minutes by design. When the worker is
+REM already alive - started by hand, or from another console - every one of those
+REM firings used to run `git pull`, rebuild dist\worker-agent\index.js, and only
+REM THEN fail, because cmd cannot open worker-stderr.log for append while the live
+REM worker holds it. Observed 2026-09-06: the task rewrote the running worker's own
+REM code every 5 minutes and reported LAST-RESULT 1 each time, which also makes the
+REM task's result useless as a health signal.
+REM
+REM Checked BEFORE the build, since the build is the part that writes over the code
+REM the live worker is running from. Matching is on the absolute path of THIS
+REM checkout's entrypoint, so a worker from a different clone does not silence this
+REM one, and native-host helper processes (which share the entrypoint) are excluded.
+REM
+REM Fails OPEN: exit 0 means "definitely already running, skip"; anything else -
+REM no PowerShell, a CIM failure, an unreadable command line - proceeds exactly as
+REM before. Skipping when nothing is running would silently disable the keep-alive,
+REM which is the failure this whole launcher exists to prevent, so the doubt has to
+REM resolve toward doing the work.
+REM The skip is gated on the code being EXACTLY "0", tested as a string, and the
+REM statements are flattened out of an if-block on purpose.
+REM
+REM `if errorlevel 1` compares SIGNED, so a powershell.exe killed by something
+REM outside itself - an EDR agent taking exception to a process enumeration, a
+REM native CIM fault - exits -1, `errorlevel 1` reads FALSE, and `if not
+REM errorlevel 1` would fire the skip after nothing whatsoever was determined.
+REM That is the silent false positive this check must never produce.
+REM
+REM %%errorlevel%% cannot be read inside a parenthesised block either: it expands
+REM when the block is PARSED, before the command in it has run. Hence the gotos
+REM rather than nesting, and no reliance on delayed expansion, which is not in
+REM scope here.
+set "AIO_LIVE_PATH=%~dp0dist\worker-agent\index.js"
+where powershell >nul 2>&1
+if not "%errorlevel%"=="0" goto :aio_live_check_done
+powershell -NoProfile -ExecutionPolicy Bypass -Command "if (-not $env:AIO_LIVE_PATH) { exit 2 }; try { $ps = @(Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" -ErrorAction Stop) } catch { exit 2 }; foreach ($p in $ps) { $c = $p.CommandLine; if (-not $c) { continue }; if ($c.IndexOf('native-host', [StringComparison]::OrdinalIgnoreCase) -ge 0) { continue }; if ($c.IndexOf($env:AIO_LIVE_PATH, [StringComparison]::OrdinalIgnoreCase) -ge 0) { exit 0 } }; exit 2" >nul 2>&1
+if not "%errorlevel%"=="0" goto :aio_live_check_done
+echo A worker is already running for this checkout - nothing to do.
+exit /b 0
+:aio_live_check_done
+set "AIO_LIVE_PATH="
+
 echo Building worker agent...
 call npx tsx build-worker-agent.ts
 if errorlevel 1 (

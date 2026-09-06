@@ -125,9 +125,16 @@ describe('LocalReviewToolRunner', () => {
         ? { name: toolName, arguments: { path: path.relative(workspacePath, fifoPath) } }
         : { name: toolName, arguments: { path: 'src', query: 'needle' } });
 
+      // The probe window distinguishes "rejected the FIFO promptly" from "blocked
+      // until the runner's own 2s operationTimeoutMs fired". 250ms was too tight:
+      // it raced CPU contention rather than the runner, and failed reproducibly
+      // under the full parallel suite while passing in isolation. 1s keeps a 2x
+      // margin below the real timeout, so the assertion still fails if the runner
+      // ever starts blocking — which is the behaviour under test.
+      const PROMPT_REJECTION_BUDGET_MS = 1_000;
       const result = await Promise.race([
         pending,
-        delay(250).then(() => 'still-pending' as const),
+        delay(PROMPT_REJECTION_BUDGET_MS).then(() => 'still-pending' as const),
       ]);
       if (result === 'still-pending') {
         await writeFile(fifoPath, '');

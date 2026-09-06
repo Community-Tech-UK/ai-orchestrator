@@ -27,7 +27,9 @@ lifecycle. Keep it current; delete anything that stops being true.
 > `docs/plans/2026-07-19-livetest-failure-remediation_plan.md`. Per-check evidence still goes in
 > the owning `*_livetest.md`.
 >
-> Finish with a status report at `docs/plans/<today>-livetest-backlog-status-report.md`.
+> Finish by updating `docs/plans/livetest-backlog.md`. Do **not** create a new dated
+> status report — the fifteen that existed were merged into that one living document on
+> 2026-09-06 and deleted.
 
 If you want a narrower run, replace the first line with e.g. "Work only the reconciler-family
 livetests" — everything else in the prompt still applies.
@@ -241,12 +243,25 @@ session — never kill by pattern match alone.
 
 ## 5. Recording rules
 
+The current backlog classification and operator punch-list live in
+[`livetest-backlog.md`](livetest-backlog.md#environment-preflight--verified-2026-09-06).
+Do not use `_scratch/livetest-matrix.md`, `_scratch/livetest-human-punchlist.md`, or an older dated
+status report as present-tense authority; they are disposable or historical. Rebuild the current
+matrix from active `*_livetest.md` files and the remediation register when the linked report ages.
+
+“Needs James” is reserved for a real operator-only boundary: login/OAuth/MFA, credential entry,
+TCC/System Settings, a hard-denied app, a physical device, destructive/release action, production
+routing change, or an unresolved product choice. Local UI in general is not in that category: use
+`windows-pc` first and, after a failed preflight, the standing local fallback authorization. A
+disconnected worker, missing fixture, open defect, absent read surface, or unimplemented feature is
+a technical/external prerequisite, not a James action.
+
 - **Per-check evidence** → the owning `*_livetest.md`, as a new dated `## Evidence run — <date>`
   section. Preserve prior dated sections; never rewrite history.
 - **Reproduced defects** → `docs/plans/livetest-remediation-register.md`
   (index row + full section) and a status section in
   `docs/plans/2026-07-19-livetest-failure-remediation_plan.md`. This is the spec's own rule 6.
-- **Cross-cutting rollup** → `docs/plans/<date>-livetest-backlog-status-report.md`. **Not
+- **Cross-cutting rollup** → `docs/plans/livetest-backlog.md` (update in place). **Not
   `_scratch/`** — that is disposable and the user will not find it there. `_scratch/` is fine for
   the working matrix and scratch scripts.
 - **Never** rename a doc `_livetest_completed.md` unless *every* check in it passes with current
@@ -299,5 +314,5 @@ renderer bundle plus an unused preload wrapper.
   turn; a six-send skill probe is ~5 minutes of wall clock.
 - Some blockers are genuinely external and no amount of effort moves them: unsigned releases
   (needs CI secrets + a pushed tag), an exhausted provider quota, an extension/binary build that no
-  longer exists on disk. Record them plainly and move on — see
-  `_scratch/livetest-human-punchlist.md`.
+  longer exists on disk. Record them plainly and move on — see the current operator list in
+  [`livetest-backlog.md`](livetest-backlog.md#recommended-order-of-work).

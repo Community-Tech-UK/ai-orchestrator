@@ -4,14 +4,20 @@ import {
   type MobileDevicePersistence,
 } from './mobile-device-registry';
 
-function memPersistence(): MobileDevicePersistence & { dump: () => string | undefined } {
+function memPersistence(): MobileDevicePersistence & {
+  dump: () => string | undefined;
+  saveCount: () => number;
+} {
   let store: string | undefined;
+  let saves = 0;
   return {
     load: () => store,
     save: (json: string) => {
+      saves += 1;
       store = json;
     },
     dump: () => store,
+    saveCount: () => saves,
   };
 }
 
@@ -109,6 +115,60 @@ describe('MobileDeviceRegistry', () => {
 
       vi.setSystemTime(new Date('2026-06-01T00:00:00Z')); // well past 60s TTL
       expect(registry.validateToken(result.device.token)).toBeNull();
+    });
+
+    it('slides the expiry forward while the device keeps using its token', () => {
+      const pairing = registry.issuePairing();
+      const result = registry.pair({ pairingToken: pairing.pairingToken });
+      if (result.status !== 'paired') throw new Error('expected pairing to succeed');
+      const originalExpiry = result.device.expiresAt;
+
+      // Day 80 of a 90-day token: still valid, and using it must push the deadline out.
+      vi.setSystemTime(new Date('2026-03-22T00:00:00Z'));
+      expect(registry.validateToken(result.device.token)).not.toBeNull();
+      expect(result.device.expiresAt).toBeGreaterThan(originalExpiry);
+
+      // Past the ORIGINAL deadline, the renewed token still works — this is the
+      // regression: an in-use phone used to 401 here and could only report it as
+      // a generic connection failure.
+      vi.setSystemTime(new Date(originalExpiry + 60_000));
+      expect(registry.validateToken(result.device.token)).not.toBeNull();
+    });
+
+    it('persists a renewal so it survives a restart', () => {
+      const pairing = registry.issuePairing();
+      const result = registry.pair({ pairingToken: pairing.pairingToken });
+      if (result.status !== 'paired') throw new Error('expected pairing to succeed');
+      const originalExpiry = result.device.expiresAt;
+
+      vi.setSystemTime(new Date('2026-03-22T00:00:00Z'));
+      registry.validateToken(result.device.token);
+
+      const reloaded = new MobileDeviceRegistry(persistence);
+      vi.setSystemTime(new Date(originalExpiry + 60_000));
+      expect(reloaded.validateToken(result.device.token)).not.toBeNull();
+    });
+
+    it('still expires a device that goes unused for a full TTL', () => {
+      const pairing = registry.issuePairing();
+      const result = registry.pair({ pairingToken: pairing.pairingToken });
+      if (result.status !== 'paired') throw new Error('expected pairing to succeed');
+
+      // Never validated in between, so nothing renewed it.
+      vi.setSystemTime(new Date(result.device.expiresAt + 1));
+      expect(registry.validateToken(result.device.token)).toBeNull();
+    });
+
+    it('does not rewrite storage on every request', () => {
+      const pairing = registry.issuePairing();
+      const result = registry.pair({ pairingToken: pairing.pairingToken });
+      if (result.status !== 'paired') throw new Error('expected pairing to succeed');
+      const saves = persistence.saveCount();
+
+      for (let i = 0; i < 25; i += 1) {
+        registry.validateToken(result.device.token);
+      }
+      expect(persistence.saveCount()).toBe(saves);
     });
   });
 });

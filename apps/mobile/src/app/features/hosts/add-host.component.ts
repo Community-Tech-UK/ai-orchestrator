@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
-import { GatewayClient } from '../../core/gateway-client.service';
+import { pairWithHost } from '../../core/pairing';
 import { HostStore } from '../../core/host-store';
 import type { PairingPayload } from '../../core/models';
 import { QrScannerService } from '../../core/qr-scanner.service';
@@ -167,7 +167,7 @@ export class AddHostComponent {
     this.busy.set(true);
     this.error.set(null);
     try {
-      const result = await GatewayClient.pair(
+      const result = await pairWithHost(
         this.host().trim(),
         this.port(),
         this.token().trim(),

@@ -12,6 +12,11 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
+import {
+  connectionHeadline,
+  connectionLabel,
+  emptyTranscriptText,
+} from '../../core/connection-status';
 import { DraftStore } from '../../core/draft-store';
 import { GatewayClient } from '../../core/gateway-client.service';
 import { HapticsService } from '../../core/haptics.service';
@@ -99,6 +104,9 @@ export class ConversationComponent {
   protected readonly modelsError = signal<string | null>(null);
   protected readonly modelCatalog = signal<MobileModelCatalog | null>(null);
   protected readonly online = this.gateway.online;
+  /** Distinguishes an expired pairing from an ordinary network drop. */
+  protected readonly connectionHeadline = computed(() => connectionHeadline(this.gateway.state()));
+  protected readonly emptyTranscript = computed(() => emptyTranscriptText(this.gateway.state()));
   protected readonly renderMarkdown = renderMobileMarkdown;
   protected readonly isLoopTranscriptMessage = isLoopTranscriptMessage;
   protected readonly toolLabel = toolLabel;
@@ -131,7 +139,7 @@ export class ConversationComponent {
         ? ''
         : `context ${this.instance()?.contextPercentage}%`,
       this.instance()?.model ?? '',
-      this.online() ? '' : 'offline',
+      this.online() ? '' : connectionLabel(this.gateway.state()),
     ].filter(Boolean);
     return detail.join(' · ');
   });
@@ -459,8 +467,11 @@ export class ConversationComponent {
     try {
       await this.gateway.terminate(this.instanceId());
       this.back();
-    } catch {
-      /* ignore */
+    } catch (err) {
+      // Was silent, so a rejected token made this look like a dead button. Match
+      // the notice pattern the send/stop/cancel actions already use.
+      this.haptics.error();
+      this.showNotice(`Terminate failed: ${errorText(err)}`, true);
     }
   }
 
@@ -470,8 +481,9 @@ export class ConversationComponent {
     if (name && name.trim()) {
       try {
         await this.gateway.rename(this.instanceId(), name.trim());
-      } catch {
-        /* ignore */
+      } catch (err) {
+        this.haptics.error();
+        this.showNotice(`Rename failed: ${errorText(err)}`, true);
       }
     }
   }

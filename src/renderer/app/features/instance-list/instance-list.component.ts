@@ -585,7 +585,10 @@ export class InstanceListComponent implements OnDestroy {
       label: 'Terminate session',
       divider: true,
       danger: true,
-      action: () => void this.store.terminateInstance(instance.id),
+      // Decision 16(b): route through the SAME confirmation as the row button.
+      // This path was missed when the dialog landed, so right-click → Terminate
+      // still killed a session instantly with no warning at all.
+      action: () => this.onTerminateInstance(instance.id),
     });
 
     return items;
@@ -1042,6 +1045,15 @@ export class InstanceListComponent implements OnDestroy {
   @HostListener('document:keydown', ['$event'])
   onDocumentKeyDown(event: KeyboardEvent): void {
     if (event.key !== 'Escape') {
+      return;
+    }
+
+    if (this.pendingTerminateId() !== null) {
+      // The overlay's own (keydown.escape) only fires when it holds focus, and
+      // nothing focuses it. Every other dismissible overlay in this component
+      // is handled here; terminate was missed.
+      event.preventDefault();
+      this.cancelTerminate();
       return;
     }
 

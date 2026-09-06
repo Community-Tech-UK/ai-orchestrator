@@ -9,6 +9,11 @@ import {
   signal,
 } from '@angular/core';
 import { Router } from '@angular/router';
+import {
+  connectionHelpText,
+  connectionLabel,
+  offlineBannerText,
+} from '../../core/connection-status';
 import { GatewayClient } from '../../core/gateway-client.service';
 import { HostStore } from '../../core/host-store';
 import type { MobileRecentDirDto } from '../../core/models';
@@ -162,14 +167,12 @@ export function projectsEmptyStateTitle(
         <div class="mobile-empty-state projects-empty">
           <app-mobile-icon name="host" />
           <h2>Connection unavailable</h2>
-          <p>{{ state() === 'connecting' ? 'Connecting to the selected host.' : 'Reconnect to Tailscale or choose another host.' }}</p>
+          <p>{{ connectionHelp() }}</p>
           <button class="mobile-primary-button" type="button" (click)="toHosts()">Manage hosts</button>
         </div>
       } @else {
         @if (!online()) {
-          <p id="projects-offline-help" class="projects-offline">
-            Offline. Cached sessions remain available; reconnect to start new work.
-          </p>
+          <p id="projects-offline-help" class="projects-offline">{{ offlineBanner() }}</p>
         }
 
         @if (mode() === 'project') {
@@ -317,8 +320,10 @@ export class ProjectsComponent implements OnInit {
     () => this.gateway.snapshot()?.hostName ?? this.hostStore.activeHost()?.name ?? 'Host',
   );
   protected readonly hostSubtitle = computed(() =>
-    this.online() ? this.hostName() : `${this.hostName()} · ${this.state()}`,
+    this.online() ? this.hostName() : `${this.hostName()} · ${connectionLabel(this.state())}`,
   );
+  protected readonly connectionHelp = computed(() => connectionHelpText(this.state()));
+  protected readonly offlineBanner = computed(() => offlineBannerText(this.state()));
   protected readonly connectionColor = computed(() =>
     this.online() ? 'var(--accent-online)' : 'var(--text-secondary)',
   );

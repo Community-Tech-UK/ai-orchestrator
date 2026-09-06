@@ -12,7 +12,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 const ROOT = join(__dirname, '..', '..', '..', '..', '..');
 const COMPONENT = readFileSync(
@@ -59,92 +59,46 @@ describe('the shipped component actually defers termination (Decision 16b)', () 
 });
 
 
-import { signal } from '@angular/core';
 
 /**
- * The behavioural contract, exercised against a faithful stand-in. Kept BELOW
- * the source assertions above, which are what tie it to the real component.
+ * The reimplemented-stand-in block that used to live here has been DELETED.
+ *
+ * The Wave 6 gate was right about it: it rebuilt `pendingTerminateId`,
+ * `onTerminateInstance`, `confirmTerminate` and `cancelTerminate` from scratch
+ * and tested the copy, so all seven of its tests would have passed with the real
+ * component's confirmation logic removed. This file's own header claimed that
+ * anti-pattern had been fixed — true of the source-assertion block above, and
+ * not true of the block below it.
+ *
+ * What replaces it is source assertions covering the paths that were actually
+ * broken, both found by that gate.
  */
-interface TerminateHost {
-  pendingTerminateId: ReturnType<typeof signal<string | null>>;
-  pendingTerminateName: () => string;
-  onTerminateInstance: (id: string) => void;
-  confirmTerminate: () => void;
-  cancelTerminate: () => void;
-}
-
-/** Mirrors the component's implementation so the contract is testable in isolation. */
-function makeHost(terminate: (id: string) => void, names: Record<string, string> = {}): TerminateHost {
-  const pendingTerminateId = signal<string | null>(null);
-  return {
-    pendingTerminateId,
-    pendingTerminateName: () => {
-      const id = pendingTerminateId();
-      return id ? names[id] ?? 'this session' : '';
-    },
-    onTerminateInstance: (id) => pendingTerminateId.set(id),
-    confirmTerminate: () => {
-      const id = pendingTerminateId();
-      if (!id) return;
-      pendingTerminateId.set(null);
-      terminate(id);
-    },
-    cancelTerminate: () => pendingTerminateId.set(null),
-  };
-}
-
-describe('terminate confirmation (Decision 16b)', () => {
-  it('does NOT terminate on the first click', () => {
-    const terminate = vi.fn();
-    const host = makeHost(terminate);
-    host.onTerminateInstance('inst-1');
-    expect(terminate).not.toHaveBeenCalled();
-    expect(host.pendingTerminateId()).toBe('inst-1');
+describe('every terminate path goes through the confirmation (Decision 16b)', () => {
+  it('the context menu no longer calls the store directly', () => {
+    const menu = COMPONENT.slice(
+      COMPONENT.indexOf("id: 'terminate-session'"),
+      COMPONENT.indexOf("id: 'terminate-session'") + 600,
+    );
+    expect(menu).toContain('this.onTerminateInstance(instance.id)');
+    expect(menu).not.toContain('this.store.terminateInstance(instance.id)');
   });
 
-  it('terminates only after confirmation', () => {
-    const terminate = vi.fn();
-    const host = makeHost(terminate);
-    host.onTerminateInstance('inst-1');
-    host.confirmTerminate();
-    expect(terminate).toHaveBeenCalledWith('inst-1');
+  it('exactly one place in the component reaches the store', () => {
+    const calls = COMPONENT.match(/this\.store\.terminateInstance\(/g) ?? [];
+    expect(calls).toHaveLength(1);
   });
 
-  it('cancelling terminates nothing and clears the prompt', () => {
-    const terminate = vi.fn();
-    const host = makeHost(terminate);
-    host.onTerminateInstance('inst-1');
-    host.cancelTerminate();
-    expect(terminate).not.toHaveBeenCalled();
-    expect(host.pendingTerminateId()).toBeNull();
-  });
-
-  /** A stray confirm with nothing pending must not kill an arbitrary session. */
-  it('confirming with nothing pending is a no-op', () => {
-    const terminate = vi.fn();
-    makeHost(terminate).confirmTerminate();
-    expect(terminate).not.toHaveBeenCalled();
-  });
-
-  it('names the session so you know which one you are ending', () => {
-    const host = makeHost(vi.fn(), { 'inst-1': 'api-refactor' });
-    host.onTerminateInstance('inst-1');
-    expect(host.pendingTerminateName()).toBe('api-refactor');
-  });
-
-  it('falls back to a safe name when the instance is unknown', () => {
-    const host = makeHost(vi.fn());
-    host.onTerminateInstance('gone');
-    expect(host.pendingTerminateName()).toBe('this session');
-  });
-
-  it('a second terminate request replaces the pending one rather than queueing', () => {
-    const terminate = vi.fn();
-    const host = makeHost(terminate);
-    host.onTerminateInstance('inst-1');
-    host.onTerminateInstance('inst-2');
-    host.confirmTerminate();
-    expect(terminate).toHaveBeenCalledTimes(1);
-    expect(terminate).toHaveBeenCalledWith('inst-2');
+  /**
+   * The overlay's own `(keydown.escape)` only fires when it holds focus, and
+   * nothing focuses it — so dismissal has to be handled by the component's
+   * existing document-level listener, where every other overlay already is.
+   */
+  it('Escape is handled by the document listener, not only the overlay binding', () => {
+    const handler = COMPONENT.slice(
+      COMPONENT.indexOf('onDocumentKeyDown('),
+      COMPONENT.indexOf('onDocumentKeyDown(') + 1200,
+    );
+    expect(handler).toContain('pendingTerminateId()');
+    expect(handler).toContain('cancelTerminate()');
   });
 });

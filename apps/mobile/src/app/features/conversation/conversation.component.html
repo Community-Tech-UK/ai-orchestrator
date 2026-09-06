@@ -28,7 +28,7 @@
 
   @if (menuOpen()) {
     <div class="popover">
-      <button (click)="rename()">Rename</button>
+      <button (click)="rename()" [disabled]="!online()">Rename</button>
       <button (click)="openModelSheet()" [disabled]="!online() || !instance()">Change model…</button>
       <button (click)="interrupt(true)" [disabled]="!online()">
         {{ stopping() ? 'Force-cancel (stop again)' : 'Stop (interrupt)' }}
@@ -93,7 +93,7 @@
           </div>
         }
       } @empty {
-        <p class="muted center">{{ online() ? 'No messages yet.' : 'Connecting…' }}</p>
+        <p class="muted center">{{ emptyTranscript() }}</p>
       }
       @if (working()) {
         <div class="typing" role="status" aria-label="Agent is working">
@@ -184,7 +184,7 @@
           </button>
         }
       </div>
-      <span class="composer-status">{{ online() ? activityLabel() : 'Offline' }}</span>
+      <span class="composer-status">{{ online() ? activityLabel() : connectionHeadline() }}</span>
       @if (canDictate) {
         <button
           type="button"

@@ -1,4 +1,5 @@
 import { Injectable, computed, effect, inject, signal } from '@angular/core';
+import { authFailureMessage } from './connection-status';
 import { HostStore } from './host-store';
 import type {
   MobileAttachmentDto,
@@ -19,11 +20,18 @@ import type {
   PairedHost,
 } from './models';
 
-export type ConnectionState = 'disconnected' | 'connecting' | 'connected';
+/**
+ * `unauthorized` means the host answered but rejected our device token (expired or
+ * revoked): re-pairing is the only fix, so it must not be reported as a network
+ * problem.
+ */
+export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'unauthorized';
 
 const RECONNECT_MS = 3000;
-/** Pairing must reach the host over Tailscale; bound it so the UI can't hang forever. */
-const PAIR_TIMEOUT_MS = 10000;
+/** Retry cadence once the token is known bad — retrying fast cannot help. */
+const UNAUTHORIZED_RETRY_MS = 30000;
+/** Bound the post-failure auth probe so a black-holed host can't stall reconnects. */
+const AUTH_PROBE_TIMEOUT_MS = 5000;
 const EMPTY_PAUSE: MobilePauseDto = { isPaused: false, reasons: [], pausedAt: null, lastChange: 0 };
 const LOCAL_MESSAGE_ID_PREFIX = 'local-';
 const LOCAL_ECHO_REPLACE_WINDOW_MS = 2 * 60_000;
@@ -67,6 +75,12 @@ export class GatewayClient {
    * after a reconnect (the socket drops as the phone roams networks).
    */
   private activeView: string | null = null;
+  /**
+   * Bumped on every teardown so an in-flight auth probe from a previous
+   * connection can tell it has been superseded. The host id alone is not enough:
+   * switching away from a host and back lands on the same id.
+   */
+  private connectGeneration = 0;
 
   constructor() {
     // (Re)connect whenever the active host changes.
@@ -158,8 +172,10 @@ export class GatewayClient {
       return;
     }
     this.ws = ws;
+    let opened = false;
 
     ws.onopen = () => {
+      opened = true;
       this._state.set('connected');
       // Re-assert which conversation is open so a reconnect doesn't resurrect the
       // dot for a session the user is still watching.
@@ -176,7 +192,13 @@ export class GatewayClient {
       if (this.ws === ws) {
         this.ws = null;
         this._state.set('disconnected');
-        this.scheduleReconnect(host);
+        if (opened) {
+          this.scheduleReconnect(host);
+        } else {
+          // Never completed the handshake — find out whether that was the network
+          // or a rejected token before deciding what to tell the user.
+          void this.diagnoseFailedHandshake(host);
+        }
       }
     };
     ws.onerror = () => {
@@ -264,7 +286,7 @@ export class GatewayClient {
     this.lastSeq.delete(instanceId);
   }
 
-  private scheduleReconnect(host: PairedHost): void {
+  private scheduleReconnect(host: PairedHost, delayMs: number = RECONNECT_MS): void {
     if (this.reconnectTimer || this.currentHostId !== host.id) {
       return;
     }
@@ -273,10 +295,51 @@ export class GatewayClient {
       if (this.currentHostId === host.id) {
         this.openSocket(host);
       }
-    }, RECONNECT_MS);
+    }, delayMs);
+  }
+
+  /**
+   * A browser WebSocket surfaces a rejected handshake as a bare close event: the
+   * gateway's 401 for an expired or revoked device token is invisible, so an auth
+   * failure and an unreachable host look identical and both got blamed on
+   * Tailscale. REST does expose the status, so probe an authenticated endpoint and
+   * classify the failure before scheduling the next attempt.
+   */
+  private async diagnoseFailedHandshake(host: PairedHost): Promise<void> {
+    const generation = this.connectGeneration;
+    let unauthorized = false;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), AUTH_PROBE_TIMEOUT_MS);
+    try {
+      const scheme = host.secure ? 'https' : 'http';
+      const res = await fetch(`${scheme}://${host.host}:${host.port}/api/snapshot`, {
+        headers: { authorization: `Bearer ${host.token}` },
+        signal: controller.signal,
+      });
+      unauthorized = res.status === 401 || res.status === 403;
+    } catch {
+      // Aborted or a network failure: we never reached the host, so this is a
+      // genuine connectivity problem and 'disconnected' already describes it.
+    } finally {
+      clearTimeout(timeout);
+    }
+    // A reconnect, or a whole new connection, may have landed while the probe was
+    // in flight; neither should be overwritten by this stale result.
+    if (
+      this.connectGeneration !== generation ||
+      this.currentHostId !== host.id ||
+      this._state() === 'connected'
+    ) {
+      return;
+    }
+    if (unauthorized) {
+      this._state.set('unauthorized');
+    }
+    this.scheduleReconnect(host, unauthorized ? UNAUTHORIZED_RETRY_MS : RECONNECT_MS);
   }
 
   private teardown(): void {
+    this.connectGeneration += 1;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -300,13 +363,16 @@ export class GatewayClient {
   // REST — every command goes to the active host with its bearer token.
   // ---------------------------------------------------------------------------
 
-  private base(): { url: string; headers: Record<string, string> } | null {
+  private base(): { url: string; headers: Record<string, string>; hostId: string } | null {
     const host = this.hostStore.activeHost();
     if (!host) return null;
     const scheme = host.secure ? 'https' : 'http';
     return {
       url: `${scheme}://${host.host}:${host.port}`,
       headers: { authorization: `Bearer ${host.token}`, 'content-type': 'application/json' },
+      // Retained so a slow response can tell whether it still speaks for the
+      // host the user is actually looking at.
+      hostId: host.id,
     };
   }
 
@@ -320,6 +386,18 @@ export class GatewayClient {
     });
     if (!res.ok) {
       const err = (await res.json().catch(() => ({}))) as { error?: string };
+      if (res.status === 401) {
+        // The token is dead for every endpoint, not just this one, so converge the
+        // whole app on the state that names the real fix and replace the gateway's
+        // bare "Unauthorized" — which screens rendered verbatim — with something
+        // the user can act on. Only speak for the active host: a slow response
+        // from a host the user has since switched away from must not label a
+        // healthy connection as expired.
+        if (this.hostStore.activeHost()?.id === base.hostId) {
+          this._state.set('unauthorized');
+        }
+        throw new Error(authFailureMessage());
+      }
       throw new Error(err.error || `HTTP ${res.status}`);
     }
     return (await res.json().catch(() => ({}))) as T;
@@ -423,6 +501,12 @@ export class GatewayClient {
     );
     if (!res.ok) {
       const err = (await res.json().catch(() => ({}))) as { error?: string };
+      if (res.status === 401) {
+        // A push can target a host other than the one we're connected to, so only
+        // reflect the dead token globally when it is the active host.
+        if (target.id === this.hostStore.activeHost()?.id) this._state.set('unauthorized');
+        throw new Error(authFailureMessage());
+      }
       throw new Error(err.error || `HTTP ${res.status}`);
     }
     this._prompts.set(this._prompts().filter((p) => p.requestId !== body.requestId));
@@ -541,53 +625,6 @@ export class GatewayClient {
     });
   }
 
-  /**
-   * REST: exchange a one-time pairing token for a long-lived device token.
-   *
-   * The host is reached over the Tailscale tunnel; if Tailscale isn't connected
-   * on the phone (or the Mac gateway is down) the request would otherwise hang
-   * indefinitely, so we bound it with a timeout and surface a clear,
-   * actionable error instead of spinning forever on "Pairing…".
-   */
-  static async pair(
-    host: string,
-    port: number,
-    pairingToken: string,
-    label: string,
-    secure = false,
-  ): Promise<{ deviceId: string; token: string; hostName: string; expiresAt: number }> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), PAIR_TIMEOUT_MS);
-    const scheme = secure ? 'https' : 'http';
-    let res: Response;
-    try {
-      res = await fetch(`${scheme}://${host}:${port}/pair`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ pairingToken, label }),
-        signal: controller.signal,
-      });
-    } catch {
-      // AbortError (timeout) or a network failure both mean we never reached the
-      // gateway — almost always Tailscale not being connected on the phone.
-      throw new Error(
-        `Couldn't reach ${host}:${port}. Check that Tailscale is connected on this phone ` +
-          `(same tailnet as the Mac) and the gateway is running, then try again.`,
-      );
-    } finally {
-      clearTimeout(timeout);
-    }
-    if (!res.ok) {
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
-      throw new Error(body.error || `Pairing failed (HTTP ${res.status})`);
-    }
-    return (await res.json()) as {
-      deviceId: string;
-      token: string;
-      hostName: string;
-      expiresAt: number;
-    };
-  }
 }
 
 function findOptimisticUserEchoIndex(

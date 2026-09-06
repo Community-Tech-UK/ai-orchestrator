@@ -376,6 +376,30 @@ bad principal instead. So: *yes* gets the elevation advice, *no* says elevation 
 probably not the cause and lists the likely alternatives, and *unknown* says
 plainly that neither can be ruled out and to check the service first.
 
+### The launcher skips itself when a worker is already up
+
+`start-worker.bat` checks, before it builds anything, whether a worker is already
+running from this checkout, and exits 0 if so.
+
+Without that check the repetition is actively harmful whenever the worker was
+started outside the task — by hand, or from another console. Every firing ran
+`git pull`, rebuilt `dist\worker-agent\index.js` **underneath the running worker**,
+and only then failed, because `cmd` cannot open `worker-stderr.log` for append
+while the live worker holds it. Observed on 2026-09-06: a rebuild every five
+minutes and `LastTaskResult 1` every time, which also destroys the task result as a
+health signal.
+
+It matches the absolute path of this checkout's entrypoint (so a worker from a
+different clone does not silence this one) and skips `native-host` helper
+processes, which share that entrypoint. It fails **open**: only a definite match
+skips, and a missing PowerShell, a CIM failure or an unreadable command line all
+proceed exactly as before. Skipping when nothing is running would silently disable
+the keep-alive, so the doubt has to resolve toward doing the work.
+
+In the intended steady state this rarely fires, because the task owns the worker:
+the blocking VBS keeps the task *Running* for the worker's lifetime and
+`MultipleInstancesPolicy=IgnoreNew` suppresses the repeats.
+
 **Known limit: this recovers from a worker that DIES, not one that HANGS.** The
 action blocks for the worker's lifetime, and `ExecutionTimeLimit` is `PT0S`
 (unlimited, which is required — the 72-hour default would otherwise kill a

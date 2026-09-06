@@ -123,6 +123,19 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
     category: 'advanced',
   },
   {
+    key: 'orchestrationRoutingPolicyJson',
+    label: 'Model tier per orchestration gate',
+    description: 'Which model tier each background gate (loop, verify, review, debate, synthesis) runs on. Edited by the routing table on the Orchestration tab; this entry exists so the value is linted and classified rather than invisible.',
+    type: 'json',
+    category: 'orchestration',
+    // S4.2: owned by `routing-matrix.component.ts`, which selects it by name.
+    // Hidden keeps it out of generic category listings so it is not rendered
+    // twice — once as a raw JSON box and once as the table.
+    hidden: true,
+    stage: 'stable',
+    keywords: ['routing', 'tier', 'cost', 'model', 'debate', 'verify'],
+  },
+  {
     key: 'sessionFailoverProviders',
     label: 'Fallback providers for failed sessions',
     description: 'When a chat session cannot recover on its current provider (auth, quota, or provider outages), automatically move the conversation to the next provider in this list instead of leaving it dead. Empty = off. Setting this is your consent to send the conversation to those providers.',

@@ -23,6 +23,7 @@ import type { MobilePromptDto } from './core/models';
     @if (activePrompt(); as p) {
       <app-approval-sheet
         [prompt]="p"
+        [error]="decideErrorFor(p)"
         (decision)="decide(p, $event)"
         (open)="openSession(p)"
         (dismiss)="dismiss(p)"
@@ -51,6 +52,17 @@ export class AppComponent implements OnInit {
     return open.length ? open[open.length - 1] : null;
   });
 
+  /**
+   * Why the last approval decision failed, shown on the sheet itself. Keyed by
+   * prompt so an error can never attach itself to a different prompt.
+   */
+  private readonly decideError = signal<{ promptId: string; message: string } | null>(null);
+
+  protected decideErrorFor(prompt: MobilePromptDto): string | null {
+    const failure = this.decideError();
+    return failure?.promptId === prompt.id ? failure.message : null;
+  }
+
   async ngOnInit(): Promise<void> {
     void this.gateway; // keep the eager injection (its auto-reconnect effect is live)
     await this.appLock.init(); // raise the biometric gate before anything renders behind it
@@ -62,6 +74,7 @@ export class AppComponent implements OnInit {
   }
 
   protected async decide(prompt: MobilePromptDto, decision: ApprovalDecision): Promise<void> {
+    this.decideError.set(null);
     try {
       await this.gateway.respond(prompt.instanceId, {
         requestId: prompt.requestId,
@@ -69,8 +82,14 @@ export class AppComponent implements OnInit {
         decisionScope: decision.scope,
         response: decision.response,
       });
-    } catch {
-      /* the prompt stays if the call fails */
+    } catch (err) {
+      // The prompt stays, and now says why. Silently swallowing this left a
+      // rejected token looking like a dead button, with the connection pill
+      // hidden behind the sheet.
+      this.decideError.set({
+        promptId: prompt.id,
+        message: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 

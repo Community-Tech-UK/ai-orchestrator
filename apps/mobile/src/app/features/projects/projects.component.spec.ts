@@ -34,6 +34,23 @@ describe('ProjectsComponent structure', () => {
     expect(projectsEmptyStateTitle('all', '')).toBe('No projects yet');
   });
 
+  /**
+   * A phone whose token expires after months of use still has cached sessions, so
+   * it renders the offline banner, not the empty state. Both surfaces (and the
+   * header subtitle) must therefore be state-driven rather than hard-coded, or the
+   * re-pair prompt never reaches the user who needs it.
+   */
+  it('drives every offline surface from the connection state', () => {
+    expect(source).toContain('{{ offlineBanner() }}');
+    expect(source).toContain('{{ connectionHelp() }}');
+    expect(source).toContain('offlineBannerText(this.state())');
+    expect(source).toContain('connectionHelpText(this.state())');
+    // The header used to interpolate the raw enum, printing "Mac · unauthorized".
+    expect(source).toContain('connectionLabel(this.state())');
+    expect(source).not.toContain('${this.hostName()} · ${this.state()}');
+    expect(source).not.toContain('Offline. Cached sessions remain available; reconnect');
+  });
+
   it('keeps offline recovery and active-press ordering explicit', () => {
     expect(source).toContain('Connection unavailable');
     expect(source).toContain('beginRowPress()');

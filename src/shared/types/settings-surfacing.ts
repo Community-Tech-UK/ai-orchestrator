@@ -14,9 +14,12 @@
  * The classifications are derived from how each key ACTUALLY surfaces today,
  * not from how anyone thinks it should:
  *  - `tab`      — has metadata and appears in a category-driven tab.
- *  - `bespoke`  — has metadata but is marked `hidden`, meaning a dedicated tab
- *                 owns it and selects it by explicit key (see `hidden` in
- *                 `settings-metadata.types.ts`).
+ *  - `bespoke`  — a dedicated tab owns it. That is EITHER a metadata entry
+ *                 marked `hidden` (selected by explicit key), OR a hand-coded
+ *                 picker that never enters `SETTINGS_METADATA` at all. The
+ *                 second case was originally misfiled as `internal`, because the
+ *                 spec only cross-checked against `SETTINGS_METADATA` and so
+ *                 could not see a bespoke picker — exhaustive, but not true.
  *  - `internal` — no metadata: not user-editable through the settings UI at
  *                 all. Many are legitimately internal (usage counters, learned
  *                 model memory, enrollment tokens, per-provider maps written by
@@ -37,9 +40,12 @@ export const SETTING_SURFACING = {
   defaultWorkingDirectory: 'tab',
   defaultCli: 'tab',
   defaultModel: 'tab',
-  defaultModelByProvider: 'internal',
-  automationDefaultCli: 'internal',
-  automationDefaultModel: 'internal',
+  // Written by the general-settings model picker (store.update at :250).
+  defaultModelByProvider: 'bespoke',
+  // Edited by the general-settings-tab picker, not by a metadata-driven row.
+  automationDefaultCli: 'bespoke',
+  // Edited by the general-settings-tab picker, not by a metadata-driven row.
+  automationDefaultModel: 'bespoke',
   defaultFastMode: 'tab',
   defaultFastModeByProvider: 'internal',
   modelUsageByKey: 'internal',
@@ -126,8 +132,10 @@ export const SETTING_SURFACING = {
   crossModelReviewProviders: 'tab',
   crossModelReviewTimeout: 'tab',
   crossModelReviewTypes: 'tab',
-  crossModelReviewModelByProvider: 'internal',
-  loopModelByProvider: 'internal',
+  // Edited by the review-settings-tab picker, not by a metadata-driven row.
+  crossModelReviewModelByProvider: 'bespoke',
+  // Edited by the orchestration-settings-tab picker, not by a metadata-driven row.
+  loopModelByProvider: 'bespoke',
   crossModelReviewLocalEnabled: 'tab',
   crossModelReviewLocalSelectorId: 'tab',
   crossModelReviewLocalTimeout: 'tab',
@@ -223,7 +231,9 @@ export const SETTING_SURFACING = {
   localAiGuardDefaultFallbackPolicy: 'tab',
   localAiGuardDailyFallbackBudgetUsd: 'tab',
   localAiGuardConfirmAboveInputTokens: 'tab',
-  orchestrationRoutingPolicyJson: 'internal',
+  // S4.2: was 'internal' because it had no UI at all. Now rendered by the
+  // routing-matrix table on the Orchestration tab, which selects it by name.
+  orchestrationRoutingPolicyJson: 'bespoke',
   reactionsEnabled: 'tab',
   reactionsPollIntervalMs: 'tab',
   transcriptVirtualization: 'internal',

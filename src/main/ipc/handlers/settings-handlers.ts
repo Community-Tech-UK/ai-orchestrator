@@ -7,17 +7,11 @@ import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
 import { validateIpcPayload } from '@contracts/schemas/common';
 import {
-  ConfigCreateProjectPayloadSchema,
-  ConfigFindProjectPayloadSchema,
-  ConfigGetProjectPayloadSchema,
-  ConfigResolvePayloadSchema,
-  ConfigSaveProjectPayloadSchema,
   SettingsBulkUpdatePayloadSchema,
   SettingsGetPayloadSchema,
   SettingsResetOnePayloadSchema,
   SettingsUpdatePayloadSchema,
 } from '@contracts/schemas/settings';
-import type { AppSettings, ProjectConfig } from '../../../shared/types/settings.types';
 import { getSettingsManager } from '../../core/config/settings-manager';
 import { getRemoteConfigManager } from '../../core/config/remote-config';
 import {

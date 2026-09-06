@@ -20,6 +20,12 @@ export interface MobileDevice {
   lastSeenAt: number;
   /** Epoch ms when the device token expires and the phone must re-pair. */
   expiresAt: number;
+  /**
+   * The TTL this device was paired with, retained so sliding renewal extends the
+   * token by its own lifetime rather than the current default. Absent on records
+   * paired before renewal existed; those fall back to the default TTL.
+   */
+  tokenTtlMs?: number;
   /** APNs device token for push notifications (set after pairing, Phase 2). */
   apnsToken?: string;
 }

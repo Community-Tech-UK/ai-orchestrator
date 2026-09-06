@@ -92,6 +92,7 @@ describe('NewSessionComponent provider settings', () => {
           provide: GatewayClient,
           useValue: {
             online: signal(true),
+            state: signal('connected'),
             snapshot: signal(null),
             recentDirs: vi.fn().mockResolvedValue([]),
             sessionPlan: vi.fn().mockResolvedValue(RESOLVED_PLAN),

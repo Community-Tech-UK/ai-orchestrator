@@ -50,7 +50,12 @@ Live: `running`, `paused`. Terminal: `completed`, `completed-needs-review`,
 
 The active strip shows an always-on **status pill** (RUNNING / NEEDS REVIEW /
 PAUSED · NO PROGRESS / BLOCKED / DONE / STOPPED) and a **verdict chip**
-(OK/WARN/CRITICAL from the latest iteration). Paused loops are disambiguated:
+(OK / WATCH / STUCK — the detector still stores WARN/CRITICAL). A WATCH or
+STUCK chip is never the whole story: while the loop is still running, a
+diagnosis card answers what happened, whether it is fixable, and what to do
+(hint / inspect / stop). Paused loops keep the banner and reuse the same copy
+instead of `(signal A)`. Inspector evidence lists each signal's title and
+detector message, not `G:CRITICAL`. Paused loops are disambiguated:
 
 - **awaiting-review** — no verify command; the loop thinks it's done and waits
   for an operator. Action: **Accept as complete** (or Configure verify / Stop).
@@ -112,7 +117,7 @@ and regenerate it from the goal" directive instead of pausing — bounded by
   cache and replaced with a compact head+tail preview before the loop retains
   it — bounding peak memory on chatty iterations (test-counts/errors are parsed
   from the full text first; the appended DONE marker survives in the tail).
-- **Cost cap (LF-3):** `caps.maxCostCents` defaults to `1000` ($10). A non-null
+- **Cost cap (LF-3):** `caps.maxCostCents` defaults to `null` (no cap). A non-null
   cap is required for operator-reviewed completion and branch-and-select.
 - **NOTES.md curation (LF-3):** bounded on long runs; the `## Completion
   Inventory` section is preserved verbatim. Emits `loop:notes-curated`.

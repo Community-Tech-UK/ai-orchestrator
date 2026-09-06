@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { Router } from '@angular/router';
+import { connectionHeadline } from '../../core/connection-status';
 import { GatewayClient } from '../../core/gateway-client.service';
 import { isWorking, statusLabel } from '../../core/status';
 import { MobileHeaderComponent } from '../../shared/mobile-header.component';
@@ -68,7 +69,7 @@ function sessionTone(row: SessionChipInput): MobileSessionRowView['tone'] {
     <section class="sessions-screen">
       <app-mobile-header
         [title]="projectName()"
-        [subtitle]="online() ? 'Connected' : 'Offline'"
+        [subtitle]="connectionHeadline()"
         [statusColor]="online() ? 'var(--accent-online)' : 'var(--text-secondary)'"
       >
         <button
@@ -129,6 +130,8 @@ export class SessionsComponent {
   readonly projectKey = input('');
 
   protected readonly online = this.gateway.online;
+  /** Distinguishes an expired pairing from an ordinary network drop. */
+  protected readonly connectionHeadline = computed(() => connectionHeadline(this.gateway.state()));
   protected readonly visibleCount = signal(SESSION_PAGE_SIZE);
   protected readonly sessions = computed<SessionRow[]>(() => {
     const key = this.projectKey();
