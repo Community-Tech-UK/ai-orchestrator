@@ -15,6 +15,7 @@ import type {
 import { getLogger } from '../logging/logger';
 import { normalizeUsage, type UsageLike } from '../../shared/util/usage-normalization';
 import { toJsonSafeProviderEventPayload } from './provider-event-raw-payload';
+import { readCapturedToolArguments } from './tool-call-argument-material';
 
 const bridgeLogger = getLogger('AdapterRuntimeEventBridge');
 
@@ -609,9 +610,13 @@ function capUnknownEventPayload(value: unknown): unknown {
  * handling so today's event volume/behavior is unchanged.
  */
 export function toProviderToolUseObservedEvent(toolCall: CliToolCall): ProviderToolUseObservedEvent {
+  // An ACP `{ kind }`-only argument object (Cursor grep / Read File) carries no
+  // material, so no `argsHash` is produced and `DoomLoopDetector` fails open
+  // for the pairing detectors, exactly as it does for a missing `callId`.
+  const capturedArguments = readCapturedToolArguments(toolCall.arguments);
   const argsHash =
-    toolCall.arguments !== undefined
-      ? hashStable(stableStringify(stripAnnotationFieldsForHash(toolCall.arguments)))
+    capturedArguments !== undefined
+      ? hashStable(stableStringify(stripAnnotationFieldsForHash(capturedArguments)))
       : undefined;
   return {
     kind: 'tool_use_observed',

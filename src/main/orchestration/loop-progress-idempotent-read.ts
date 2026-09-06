@@ -10,6 +10,10 @@ function isReadOnlyToolName(toolName: string): boolean {
 
 function readResultKey(call: LoopIteration['toolCalls'][number]): string | null {
   if (!call.success || !call.resultHash) return null;
+  // Without the arguments there is no way to know whether two identical
+  // result hashes are one read repeated or two different reads that happen
+  // to summarise the same way (Cursor's grep result is only a match count).
+  if (call.argsCaptured === false) return null;
   if (!isReadOnlyToolName(call.toolName)) return null;
   return `${call.toolName.toLowerCase()}::${call.resultHash}`;
 }

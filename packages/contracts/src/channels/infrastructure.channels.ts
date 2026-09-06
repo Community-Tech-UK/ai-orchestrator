@@ -27,11 +27,6 @@ export const INFRASTRUCTURE_CHANNELS = {
   SETTINGS_IMPORT: 'settings:import',
 
   // Config operations (hierarchical configuration)
-  CONFIG_RESOLVE: 'config:resolve',
-  CONFIG_GET_PROJECT: 'config:get-project',
-  CONFIG_SAVE_PROJECT: 'config:save-project',
-  CONFIG_CREATE_PROJECT: 'config:create-project',
-  CONFIG_FIND_PROJECT: 'config:find-project',
 
   // Instruction inspection and migration
   INSTRUCTIONS_RESOLVE: 'instructions:resolve',

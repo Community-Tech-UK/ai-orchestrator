@@ -7,8 +7,23 @@ describe('INFRASTRUCTURE_CHANNELS', () => {
   });
 
   it('has config channels', () => {
-    expect(INFRASTRUCTURE_CHANNELS.CONFIG_RESOLVE).toBe('config:resolve');
+    // The five `config:*` project-scope channels were removed (Decision 17):
+    // `.ai-orchestrator.json` was read, parsed and then affected nothing — no
+    // component called any of them — so they were IPC surface with no consumer.
     expect(INFRASTRUCTURE_CHANNELS.INSTRUCTIONS_RESOLVE).toBe('instructions:resolve');
+  });
+
+  it('no longer exposes the removed project-scope config channels', () => {
+    const channels = INFRASTRUCTURE_CHANNELS as Record<string, string>;
+    for (const removed of [
+      'CONFIG_RESOLVE',
+      'CONFIG_GET_PROJECT',
+      'CONFIG_SAVE_PROJECT',
+      'CONFIG_CREATE_PROJECT',
+      'CONFIG_FIND_PROJECT',
+    ]) {
+      expect(channels[removed], removed).toBeUndefined();
+    }
   });
 
   it('has app channels', () => {

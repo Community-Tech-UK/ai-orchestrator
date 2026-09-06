@@ -84,6 +84,58 @@ describe('createLoopInvocationCapture', () => {
     }
   });
 
+  it('gives uncaptured ACP arguments a per-call hash and marks them argsCaptured: false', () => {
+    // Cursor grep / Read File: `{ kind }` only after the adapter drops the
+    // empty rawInput. Two such calls must not look like the same call.
+    const capture = createLoopInvocationCapture({ workspaceDir: '/workspace/project', now: () => 0 });
+    capture.recordActivity({
+      kind: 'tool_use',
+      message: 'Using tool: grep',
+      detail: { id: 'g-1', name: 'grep', input: { kind: 'search' } },
+    });
+    capture.recordActivity({
+      kind: 'tool_use',
+      message: 'Using tool: grep',
+      detail: { id: 'g-2', name: 'grep', input: { kind: 'search', rawInput: {} } },
+    });
+    capture.recordActivity({
+      kind: 'tool_use',
+      message: 'Using tool: wc',
+      detail: { id: 'w-1', name: 'wc', input: { kind: 'execute', rawInput: { command: 'wc -l a' } } },
+    });
+    capture.recordActivity({
+      kind: 'tool_use',
+      message: 'Using tool: wc',
+      detail: { id: 'w-2', name: 'wc', input: { kind: 'execute', rawInput: { command: 'wc -l a' } } },
+    });
+
+    const [grep1, grep2, wc1, wc2] = capture.finalize().toolCalls;
+    expect(grep1.argsCaptured).toBe(false);
+    expect(grep2.argsCaptured).toBe(false);
+    expect(grep1.argsHash).not.toBe(grep2.argsHash);
+    // Captured arguments keep their stable, repeat-detectable hash.
+    expect(wc1.argsCaptured).toBeUndefined();
+    expect(wc1.argsHash).toBe(wc2.argsHash);
+  });
+
+  it('leaves resultHash unset when the tool_result carries no result string', () => {
+    const capture = createLoopInvocationCapture({ workspaceDir: '/workspace/project', now: () => 0 });
+    capture.recordActivity({
+      kind: 'tool_use',
+      message: 'Using tool: grep',
+      detail: { id: 'g-1', name: 'grep', input: { kind: 'search' } },
+    });
+    capture.recordActivity({
+      kind: 'tool_result',
+      message: 'Tool result: grep',
+      detail: { id: 'g-1', name: 'grep' },
+    });
+    const [grep] = capture.finalize().toolCalls;
+    expect(grep.resultHash).toBeUndefined();
+    expect(grep.durationMs).toBe(0);
+    expect(grep.success).toBe(true);
+  });
+
   it('records overlapping write tool conflicts only when rw locks are enabled', () => {
     const disabled = createLoopInvocationCapture({ workspaceDir: '/workspace/project' });
     disabled.recordActivity({

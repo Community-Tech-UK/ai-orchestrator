@@ -341,3 +341,21 @@ input[type='number'] {
 
   &:hover { background: rgba(255, 255, 255, 0.06); }
 }
+
+/* S2.2 — stage / restart / dependency badges. The word itself carries the
+   meaning; colour is decoration, and each pill has a tooltip explaining it. */
+.stage-pill {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 1px 7px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: 3px;
+  border: 1px solid currentColor;
+  opacity: 0.9;
+}
+
+.stage-pill[data-stage='experimental'],
+.stage-pill[data-stage='under development'] { color: #eab308; }
+.stage-pill[data-stage='deprecated'] { color: #f78c7c; }

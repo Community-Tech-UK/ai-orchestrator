@@ -12,12 +12,10 @@
  * exact rather than approximate — a "restore defaults" that guesses is how a
  * profile feature loses trust.
  *
- * **NOT WIRED.** Nothing applies these yet. The data and the diff/active-profile
- * policy are complete and tested, but there is no picker in Settings and no CLI
- * verb, so switching profiles is not something a user can currently do. This is
- * recorded rather than papered over: a profile module that nothing can apply is
- * a data file, not a feature, and the honest label for it is unwired. Wiring is
- * a settings-row plus an apply handler; it was left out rather than half-done.
+ * Applied by `settings-profile-row.component.ts` on the General settings tab,
+ * which is the only thing that writes these values. It states which settings a
+ * switch would change before making it: a profile control that silently
+ * rewrites five settings is worse than no profile control.
  */
 
 import type { AppSettings } from './settings.types';

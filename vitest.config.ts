@@ -4,7 +4,7 @@ import type { Plugin } from 'vite';
 import { defineConfig } from 'vitest/config';
 import { aliases } from './vitest.aliases';
 import { testHeapExecArgv } from './vitest.heap';
-import { testMaxForks } from './vitest.pool';
+import { resolveTestMaxForks } from './vitest.pool';
 
 function angularJitPlugin(): Plugin {
   const config = ts.readConfigFile('tsconfig.json', ts.sys.readFile);
@@ -69,7 +69,7 @@ export default defineConfig({
     poolOptions: {
       forks: {
         execArgv: testHeapExecArgv(),
-        maxForks: testMaxForks(),
+        maxForks: resolveTestMaxForks(),
       },
     },
     // Multi-project: renderer gets Angular TestBed; everything else skips it

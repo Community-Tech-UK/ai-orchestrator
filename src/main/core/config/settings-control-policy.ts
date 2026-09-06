@@ -513,6 +513,7 @@ export const SETTINGS_TOOL_POLICY = {
   notifyOnAgentCompletion: open(z.boolean()),
   notifyOnLoopTerminal: open(z.boolean()),
   notificationSoundMode: open(z.enum(['always', 'blurred', 'never'])),
+  dismissedHints: open(z.array(z.string())),
   channelToolHeartbeat: open(z.boolean()),
   notificationCooldownSeconds: open(z.number().finite().int().min(0).max(3600)),
   notificationQuietHoursEnabled: open(z.boolean()),
@@ -571,6 +572,9 @@ export const SETTINGS_TOOL_POLICY = {
 
   // WS-C10 — flagged transcript DOM virtualization prototype (off by default)
   transcriptVirtualization: open(z.boolean()),
+
+  // Transcript rendering of provider commentary — presentation only.
+  progressNoteDisplay: open(z.enum(['expanded', 'compact', 'hidden'])),
 } satisfies Record<keyof AppSettings, SettingsToolPolicy>;
 
 export function getSettingsToolPolicy(key: string): SettingsToolPolicy {

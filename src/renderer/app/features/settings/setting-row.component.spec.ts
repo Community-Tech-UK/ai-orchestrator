@@ -1,9 +1,11 @@
 import { ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { SettingMetadata } from '../../../../shared/types/settings.types';
 import { DEFAULT_SETTINGS } from '../../../../shared/types/settings-defaults';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { SettingRowComponent } from './setting-row.component';
 
 await resolveComponentResources((url) => {
@@ -210,5 +212,55 @@ describe('SettingRowComponent — reset to default (S1.3)', () => {
     // is not in `keyof AppSettings`.
     const orphan = { ...booleanSetting, key: 'notARealSettingKey' } as unknown as SettingMetadata;
     expect(resetButton(render(orphan, true))).toBeNull();
+  });
+});
+
+/**
+ * S2.2 — stage, restart and dependency badges. The point is that a user can see
+ * "this is experimental" or "this needs a restart" on the control itself,
+ * rather than discovering it when the toggle appears to do nothing.
+ */
+describe('SettingRowComponent — stage badges (S2.2)', () => {
+  const stageBase: SettingMetadata = {
+    key: 'showThinking', label: 'Show thinking', description: 'Show model reasoning.',
+    type: 'boolean', category: 'general',
+  };
+
+  function pills(fixture: ReturnType<typeof render>): string[] {
+    return Array.from(fixture.nativeElement.querySelectorAll('.stage-pill'))
+      .map((el) => (el as HTMLElement).textContent?.trim() ?? '');
+  }
+
+  it('shows no badges on an ordinary stable setting', () => {
+    expect(pills(render(stageBase, true))).toEqual([]);
+  });
+
+  it('marks an experimental setting', () => {
+    const meta: SettingMetadata = { ...stageBase, stage: 'experimental' };
+    expect(pills(render(meta, true))).toContain('experimental');
+  });
+
+  it('says when a change needs a restart', () => {
+    const meta: SettingMetadata = { ...stageBase, requiresRestart: true };
+    expect(pills(render(meta, true))).toContain('restart required');
+  });
+
+  it('names the setting a dependent control needs', () => {
+    const meta: SettingMetadata = { ...stageBase, dependsOn: 'computerUseEnabled' };
+    expect(pills(render(meta, true))).toContain('requires computerUseEnabled');
+  });
+
+  /**
+   * The word alone is not the message — each badge explains itself on hover.
+   * `[appTooltip]` is a property binding, so it is read from the live directive
+   * rather than from a DOM attribute that never exists.
+   */
+  it('gives every badge an explanation, not just a label', () => {
+    const meta: SettingMetadata = { ...stageBase, stage: 'deprecated' };
+    const fixture = render(meta, true);
+    const pill = fixture.debugElement.query(By.css('.stage-pill'));
+    expect(pill, 'expected a stage pill to render').toBeTruthy();
+    const tooltip = pill.injector.get(AioTooltipDirective).appTooltip();
+    expect(tooltip).toContain('going away');
   });
 });

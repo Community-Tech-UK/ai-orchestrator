@@ -5,6 +5,7 @@
 import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { DEFAULT_SETTINGS } from '../../../../shared/types/settings-defaults';
+import { badgesFor } from '../../../../shared/types/settings-stage';
 import type { SettingMetadata } from '../../../../shared/types/settings.types';
 
 interface SettingRowApi {
@@ -30,6 +31,15 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
         </p>
         @if (rowBadge(); as badge) {
           <span class="risk-pill">{{ badge }}</span>
+        }
+        <!-- S2.2: stage / restart / dependency. Each badge carries its own
+             explanation, so the word is never the whole message. -->
+        @for (stageBadge of stageBadges(); track stageBadge.text) {
+          <span
+            class="stage-pill"
+            [attr.data-stage]="stageBadge.text"
+            [appTooltip]="stageBadge.detail"
+          >{{ stageBadge.text }}</span>
         }
         @if (isModified()) {
           <button
@@ -141,6 +151,9 @@ export class SettingRowComponent {
    * control. The default is read from `DEFAULT_SETTINGS` rather than passed in,
    * so every caller gets it without threading a new input through five tabs.
    */
+  /** S2.2 badges: lifecycle stage, restart requirement, and dependency. */
+  protected readonly stageBadges = computed(() => badgesFor(this.setting()));
+
   protected readonly defaultValue = computed<unknown>(
     () => (DEFAULT_SETTINGS as unknown as Record<string, unknown>)[this.setting().key],
   );

@@ -10,10 +10,12 @@
 
 import { generateId } from '../../../../shared/utils/id-generator';
 import type {
+  CodexMessagePhase,
   ThreadItem,
   TurnCaptureState,
   TurnPhase,
 } from './app-server-types';
+import { toCodexMessagePhase } from './app-server-types';
 import {
   getCommandAggregatedOutput,
   getCommandExitCode,
@@ -47,6 +49,7 @@ export interface CodexItemNotificationHost {
     state: TurnCaptureState,
     itemId: string | undefined,
     text: string,
+    phase: CodexMessagePhase | null,
   ): string;
 }
 
@@ -238,7 +241,12 @@ export function handleItemCompleted(
       state.messages.push({ lifecycle: 'completed', phase: itemPhase, text });
 
       if (!threadId || threadId === state.threadId) {
-        state.lastAgentMessage = host.reconcileCompletedAgentMessage(state, item.id, text);
+        state.lastAgentMessage = host.reconcileCompletedAgentMessage(
+          state,
+          item.id,
+          text,
+          toCodexMessagePhase(itemPhase),
+        );
         if (itemPhase === 'final_answer') {
           state.finalAnswerSeen = true;
           host.scheduleInferredCompletion(state);

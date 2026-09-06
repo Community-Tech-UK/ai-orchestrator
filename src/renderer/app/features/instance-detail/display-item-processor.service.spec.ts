@@ -418,6 +418,34 @@ describe('DisplayItemProcessor', () => {
     expect(items[0].message?.content).toBe('Hello world');
   });
 
+  it('adopts the latest metadata when a streaming message is updated', () => {
+    // Codex only reveals an assistant message's phase at item/completed, after
+    // every delta has been emitted. Keeping the first frame's metadata would
+    // pin the bubble to phase-less metadata and the transcript would never
+    // learn it was a progress note.
+    const first = makeMsg({
+      id: 'stream1',
+      content: 'Checking',
+      metadata: { streaming: true, accumulatedContent: 'Checking' },
+    });
+    processor.process([first]);
+
+    const tagged = makeMsg({
+      id: 'stream1',
+      content: '',
+      metadata: {
+        streaming: true,
+        accumulatedContent: 'Checking the Apple tab.',
+        messagePhase: 'commentary',
+      },
+    });
+    const items = processor.process([first, tagged]);
+
+    expect(items.length).toBe(1);
+    expect(items[0].message?.content).toBe('Checking the Apple tab.');
+    expect(items[0].message?.metadata?.['messagePhase']).toBe('commentary');
+  });
+
   it('should merge tool messages across process() calls', () => {
     const toolUse = makeMsg({ type: 'tool_use', id: 'tu1' });
     processor.process([toolUse]);

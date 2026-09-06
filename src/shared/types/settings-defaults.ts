@@ -353,6 +353,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   notifyOnAgentCompletion: true,
   notifyOnLoopTerminal: true,
   notificationSoundMode: 'blurred',
+  dismissedHints: [],
   channelToolHeartbeat: false,
   notificationCooldownSeconds: 30,
   notificationQuietHoursEnabled: false,
@@ -417,4 +418,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
   // WS-C10 — flagged transcript DOM virtualization (off by default; see settings.types.ts)
   transcriptVirtualization: false,
+
+  // Provider commentary is collapsed, not hidden: it is the only transcript
+  // content during a long turn (see settings.types.ts).
+  progressNoteDisplay: 'compact',
 };

@@ -3,10 +3,13 @@ import { extractThinkingContent } from '../../../shared/utils/thinking-extractor
 import { getLogger } from '../../logging/logger';
 import type {
   AppServerNotification,
+  CodexMessagePhase,
+  StreamingAgentMessage,
   ThreadItem,
   TurnCaptureState,
   TurnPhase,
 } from './codex/app-server-types';
+import { toCodexMessagePhase } from './codex/app-server-types';
 import {
   extractCodexAppServerError,
   formatCodexAppServerError,
@@ -29,8 +32,8 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
         this.emit('output', payload);
       },
       scheduleInferredCompletion: (state) => this.scheduleInferredCompletion(state),
-      reconcileCompletedAgentMessage: (state, itemId, text) =>
-        this.reconcileCompletedAgentMessage(state, itemId, text),
+      reconcileCompletedAgentMessage: (state, itemId, text, phase) =>
+        this.reconcileCompletedAgentMessage(state, itemId, text, phase),
     };
   }
 
@@ -295,7 +298,7 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
 
   private emitStreamingAgentDeltaForStream(
     state: TurnCaptureState,
-    stream: { outputId: string; content: string; deltaSeen: boolean },
+    stream: StreamingAgentMessage,
     delta: string,
   ): void {
     stream.content += delta;
@@ -313,6 +316,7 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
         accumulatedContent,
         thinkingExtracted: true,
         phase: 'finalizing' as TurnPhase,
+        ...(stream.phase ? { messagePhase: stream.phase } : {}),
         ...(state.turnId ? { turnId: state.turnId } : {}),
       },
       thinking: extracted.thinking.length > 0 ? extracted.thinking : undefined,
@@ -320,10 +324,26 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
     });
   }
 
+  /**
+   * Re-emit a streamed message so the renderer picks up its now-known phase.
+   *
+   * The phase only arrives with `item/completed`, after every delta for that
+   * message has already been emitted, so the transcript would otherwise keep
+   * the phase-less metadata it saw first. An empty delta leaves the accumulated
+   * text untouched; only the metadata bag changes.
+   *
+   * Only commentary needs the extra frame. Every other message renders exactly
+   * as it already did, so refreshing those would be pure overhead.
+   */
+  private emitStreamingAgentPhase(state: TurnCaptureState, stream: StreamingAgentMessage): void {
+    if (!stream.deltaSeen || stream.phase !== 'commentary') return;
+    this.emitStreamingAgentDeltaForStream(state, stream, '');
+  }
+
   private getStreamingAgentMessage(
     state: TurnCaptureState,
     itemId: string | null,
-  ): { outputId: string; content: string; deltaSeen: boolean } {
+  ): StreamingAgentMessage {
     const key = this.getAgentMessageStreamKey(state, itemId);
     let stream = state.streamingAgentMessages.get(key);
     if (!stream) {
@@ -341,7 +361,7 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
   private findStreamingAgentMessage(
     state: TurnCaptureState,
     itemId: string | null,
-  ): { outputId: string; content: string; deltaSeen: boolean } | null {
+  ): StreamingAgentMessage | null {
     if (itemId) {
       const exact = state.streamingAgentMessages.get(itemId);
       if (exact) {
@@ -366,14 +386,21 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
     state: TurnCaptureState,
     itemId: string | undefined,
     text: string,
+    phase: CodexMessagePhase | null = null,
   ): string {
     const stream = this.findStreamingAgentMessage(state, itemId ?? null);
     if (!stream?.deltaSeen) {
       return text;
     }
 
+    // Deltas carry no phase, so this is the first point at which we know
+    // whether the bubble the renderer already drew is a running commentary
+    // note or the turn's final answer.
+    if (phase) stream.phase = phase;
+
     if (text === stream.content || stream.content.startsWith(text)) {
       state.finalAgentOutputId = stream.outputId;
+      this.emitStreamingAgentPhase(state, stream);
       return stream.content;
     }
 
@@ -381,6 +408,8 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
       const suffix = text.slice(stream.content.length);
       if (suffix) {
         this.emitStreamingAgentDeltaForStream(state, stream, suffix);
+      } else {
+        this.emitStreamingAgentPhase(state, stream);
       }
       state.finalAgentOutputId = stream.outputId;
       return text;
@@ -395,6 +424,7 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
     });
     stream.content = text;
     state.finalAgentOutputId = stream.outputId;
+    this.emitStreamingAgentPhase(state, stream);
     return text;
   }
 
@@ -432,7 +462,12 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
         state.messages.push({ lifecycle: 'completed', phase: itemPhase, text });
       }
 
-      state.lastAgentMessage = this.reconcileCompletedAgentMessage(state, item.id, text);
+      state.lastAgentMessage = this.reconcileCompletedAgentMessage(
+        state,
+        item.id,
+        text,
+        toCodexMessagePhase(itemPhase),
+      );
       if (itemPhase === 'final_answer') {
         state.finalAnswerSeen = true;
       }

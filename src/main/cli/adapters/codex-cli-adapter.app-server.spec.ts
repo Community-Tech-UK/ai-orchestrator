@@ -1914,6 +1914,84 @@ describe('CodexCliAdapter', () => {
       expect(state.finalAgentOutputId).toBe(outputs[0].id);
     });
 
+    it('tags a commentary message with its phase once item/completed resolves it', () => {
+      const adapter = new CodexCliAdapter();
+      const internals = adapter as unknown as {
+        createTurnCaptureState(threadId: string): { turnId: string | null };
+        handleTurnNotification(
+          state: unknown,
+          notification: { method: string; params: Record<string, unknown> },
+        ): void;
+      };
+      const state = internals.createTurnCaptureState('thread-1');
+      state.turnId = 'turn-1';
+      const outputs: {
+        id: string;
+        content: string;
+        metadata?: Record<string, unknown>;
+      }[] = [];
+      adapter.on('output', (message) => outputs.push(message as typeof outputs[number]));
+
+      internals.handleTurnNotification(state, {
+        method: 'item/agentMessage/delta',
+        params: { threadId: 'thread-1', itemId: 'item-1', delta: 'Checking the Apple tab.' },
+      });
+      internals.handleTurnNotification(state, {
+        method: 'item/completed',
+        params: {
+          threadId: 'thread-1',
+          item: {
+            id: 'item-1',
+            type: 'agentMessage',
+            text: 'Checking the Apple tab.',
+            phase: 'commentary',
+          },
+        },
+      });
+
+      // The delta lands before the phase is known, so the phase arrives as a
+      // second emit against the same output id rather than on the first frame.
+      expect(outputs).toHaveLength(2);
+      expect(outputs[0].metadata?.['messagePhase']).toBeUndefined();
+      expect(outputs[1].id).toBe(outputs[0].id);
+      expect(outputs[1]).toMatchObject({
+        content: '',
+        metadata: { messagePhase: 'commentary', accumulatedContent: 'Checking the Apple tab.' },
+      });
+    });
+
+    it('leaves a final answer and a phase-less build untagged', () => {
+      const adapter = new CodexCliAdapter();
+      const internals = adapter as unknown as {
+        createTurnCaptureState(threadId: string): { turnId: string | null };
+        handleTurnNotification(
+          state: unknown,
+          notification: { method: string; params: Record<string, unknown> },
+        ): void;
+      };
+      const outputs: { metadata?: Record<string, unknown> }[] = [];
+      adapter.on('output', (message) => outputs.push(message as typeof outputs[number]));
+
+      for (const [index, phase] of (['final_answer', undefined] as const).entries()) {
+        const state = internals.createTurnCaptureState(`thread-${index}`);
+        state.turnId = `turn-${index}`;
+        internals.handleTurnNotification(state, {
+          method: 'item/agentMessage/delta',
+          params: { threadId: `thread-${index}`, itemId: `item-${index}`, delta: 'Done.' },
+        });
+        internals.handleTurnNotification(state, {
+          method: 'item/completed',
+          params: {
+            threadId: `thread-${index}`,
+            item: { id: `item-${index}`, type: 'agentMessage', text: 'Done.', ...(phase ? { phase } : {}) },
+          },
+        });
+      }
+
+      expect(outputs).toHaveLength(2);
+      expect(outputs.every((output) => output.metadata?.['messagePhase'] === undefined)).toBe(true);
+    });
+
     it('reconciles canonical turn-completed agent items when the streamed item id differs', () => {
       const adapter = new CodexCliAdapter();
       const internals = adapter as unknown as {

@@ -304,3 +304,41 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* S5 — settings lint. Severity is never colour alone: each row prints its own
+   severity word, so a colour-blind or screen-reader user gets the same answer. */
+.settings-lint {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.lint-ok, .lint-summary { margin: 4px 0 0; font-size: 12px; }
+.lint-list { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+
+.lint-item {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 6px 8px;
+  align-items: baseline;
+  font-size: 12px;
+
+  code { font-size: 11px; opacity: 0.9; }
+  .lint-problem, .lint-fix { grid-column: 1 / -1; }
+  .lint-fix { opacity: 0.75; }
+}
+
+.lint-sev {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid currentColor;
+}
+
+.lint-item[data-severity='error'] .lint-sev { color: #f78c7c; }
+.lint-item[data-severity='warning'] .lint-sev { color: #eab308; }
+.lint-item[data-severity='info'] .lint-sev { color: rgba(231, 231, 234, 0.7); }

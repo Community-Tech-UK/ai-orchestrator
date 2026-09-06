@@ -40,6 +40,20 @@ function workCycle(id: string, children: DisplayItem[]): DisplayItem {
   return { id, type: 'work-cycle', children };
 }
 
+function progressNote(id: string): DisplayItem {
+  return {
+    id,
+    type: 'message',
+    message: {
+      id: `${id}-m`,
+      type: 'assistant',
+      content: 'Checking the Apple tab.',
+      timestamp: 1,
+      metadata: { messagePhase: 'commentary' },
+    } as DisplayItem['message'],
+  };
+}
+
 // Stub matching the showThinking=false semantics: a thought-group is "empty"
 // (renders nothing in the accordion path) when it has no standalone response.
 const isThoughtGroupEmpty = (item: DisplayItem): boolean => !item.response;
@@ -50,6 +64,7 @@ describe('filterDisplayItems', () => {
     const result = filterDisplayItems(items, {
       hideToolGroups: false,
       hideEmptyThoughts: false,
+      hideProgressNotes: false,
       isThoughtGroupEmpty,
     });
     expect(result).toBe(items);
@@ -60,6 +75,7 @@ describe('filterDisplayItems', () => {
     const result = filterDisplayItems(items, {
       hideToolGroups: true,
       hideEmptyThoughts: false,
+      hideProgressNotes: false,
       isThoughtGroupEmpty,
     });
     expect(result.map((i) => i.id)).toEqual(['a', 'c']);
@@ -74,6 +90,7 @@ describe('filterDisplayItems', () => {
     const result = filterDisplayItems(items, {
       hideToolGroups: false,
       hideEmptyThoughts: true,
+      hideProgressNotes: false,
       isThoughtGroupEmpty,
     });
     expect(result.map((i) => i.id)).toEqual(['a', 'planning', 'c']);
@@ -86,6 +103,7 @@ describe('filterDisplayItems', () => {
     const result = filterDisplayItems([group], {
       hideToolGroups: false,
       hideEmptyThoughts: true,
+      hideProgressNotes: false,
       isThoughtGroupEmpty,
     });
     expect(result[0]).not.toBe(group);
@@ -97,6 +115,7 @@ describe('filterDisplayItems', () => {
     const result = filterDisplayItems(items, {
       hideToolGroups: false,
       hideEmptyThoughts: true,
+      hideProgressNotes: false,
       isThoughtGroupEmpty,
     });
     expect(result.map((i) => i.id)).toEqual(['a', 'c']);
@@ -107,6 +126,7 @@ describe('filterDisplayItems', () => {
     const result = filterDisplayItems(items, {
       hideToolGroups: false,
       hideEmptyThoughts: true,
+      hideProgressNotes: false,
       isThoughtGroupEmpty,
     });
     expect(result.map((i) => i.id)).toEqual(['withResponse']);
@@ -120,6 +140,7 @@ describe('filterDisplayItems', () => {
     const result = filterDisplayItems([cycle], {
       hideToolGroups: false,
       hideEmptyThoughts: true,
+      hideProgressNotes: false,
       isThoughtGroupEmpty,
     });
     expect(result).toHaveLength(1);
@@ -136,6 +157,7 @@ describe('filterDisplayItems', () => {
     const result = filterDisplayItems([cycle], {
       hideToolGroups: false,
       hideEmptyThoughts: true,
+      hideProgressNotes: false,
       isThoughtGroupEmpty,
     });
     expect(result).toHaveLength(0);
@@ -150,6 +172,7 @@ describe('filterDisplayItems', () => {
     const result = filterDisplayItems([cycle, toolGroup('topTool'), message('m')], {
       hideToolGroups: true,
       hideEmptyThoughts: true,
+      hideProgressNotes: false,
       isThoughtGroupEmpty,
     });
     expect(result.map((i) => i.id)).toEqual(['cycle', 'm']);
@@ -164,8 +187,55 @@ describe('filterDisplayItems', () => {
     filterDisplayItems([cycle], {
       hideToolGroups: false,
       hideEmptyThoughts: true,
+      hideProgressNotes: false,
       isThoughtGroupEmpty,
     });
     expect(cycle.children?.map((c) => c.id)).toEqual(['planning', 'err']);
+  });
+});
+
+describe('filterDisplayItems — progress notes', () => {
+  it('keeps progress notes when they are not hidden', () => {
+    const items = [progressNote('a'), message('b')];
+    const result = filterDisplayItems(items, {
+      hideToolGroups: false,
+      hideEmptyThoughts: false,
+      hideProgressNotes: false,
+      isThoughtGroupEmpty,
+    });
+    expect(result).toBe(items);
+  });
+
+  it('drops progress notes but keeps final answers when hidden', () => {
+    const items = [progressNote('a'), message('b'), progressNote('c')];
+    const result = filterDisplayItems(items, {
+      hideToolGroups: false,
+      hideEmptyThoughts: false,
+      hideProgressNotes: true,
+      isThoughtGroupEmpty,
+    });
+    expect(result.map((item) => item.id)).toEqual(['b']);
+  });
+
+  it('drops progress notes nested inside a work-cycle', () => {
+    const items = [workCycle('cycle', [progressNote('a'), message('b')])];
+    const result = filterDisplayItems(items, {
+      hideToolGroups: false,
+      hideEmptyThoughts: false,
+      hideProgressNotes: true,
+      isThoughtGroupEmpty,
+    });
+    expect(result[0].children?.map((child) => child.id)).toEqual(['b']);
+  });
+
+  it('drops a work-cycle whose only content was progress notes', () => {
+    const items = [workCycle('cycle', [progressNote('a')]), message('b')];
+    const result = filterDisplayItems(items, {
+      hideToolGroups: false,
+      hideEmptyThoughts: false,
+      hideProgressNotes: true,
+      isThoughtGroupEmpty,
+    });
+    expect(result.map((item) => item.id)).toEqual(['b']);
   });
 });

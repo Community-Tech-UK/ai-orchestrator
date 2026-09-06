@@ -837,7 +837,10 @@ describe('InstanceManager tool-loop detector wiring — LT-062 output-message br
         kind: 'tool_use',
         toolName: 'edit',
         toolUseId: `c${i}`,
-        input: { kind: 'edit' },
+        // A populated rawInput: a `{ kind }`-only ACP argument object is
+        // "uncaptured" (see tool-call-argument-material.ts) and fails open,
+        // which would mask the double-counting this test guards against.
+        input: { kind: 'edit', rawInput: { path: 'watch.txt' } },
       });
       manager.emitProviderRuntimeEvent('inst-acp', {
         kind: 'output',

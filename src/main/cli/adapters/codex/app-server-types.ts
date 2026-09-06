@@ -474,6 +474,33 @@ export type TurnPhase =
   | 'finalizing'
   | 'failed';
 
+/**
+ * Codex tags every agent message with the channel it was written for.
+ * `commentary` is the running preamble the base prompt requires at least every
+ * 60 s during a turn; `final_answer` is the self-contained turn result. The
+ * field is optional because older app-server builds omit it — treat an absent
+ * phase as a final answer so nothing is ever demoted by accident.
+ */
+export type CodexMessagePhase = 'commentary' | 'final_answer';
+
+/**
+ * Narrow a raw `item.phase` string to a known message phase. Anything absent or
+ * unrecognised returns null, which every caller treats as "final answer" — the
+ * pre-existing behaviour, so an unknown phase never hides a message.
+ */
+export function toCodexMessagePhase(phase: unknown): CodexMessagePhase | null {
+  return phase === 'commentary' || phase === 'final_answer' ? phase : null;
+}
+
+/** One in-flight streamed assistant message, keyed by Codex item id. */
+export interface StreamingAgentMessage {
+  outputId: string;
+  content: string;
+  deltaSeen: boolean;
+  /** Resolved from `item/completed`; unknown while deltas are still arriving. */
+  phase?: CodexMessagePhase;
+}
+
 export interface TurnProgressUpdate {
   message: string;
   phase: TurnPhase | null;
@@ -527,11 +554,7 @@ export interface TurnCaptureState {
   /** All agent messages with lifecycle/phase metadata. */
   messages: { lifecycle: string; phase: string | null; text: string }[];
   /** Streaming assistant messages keyed by Codex item id. */
-  streamingAgentMessages: Map<string, {
-    outputId: string;
-    content: string;
-    deltaSeen: boolean;
-  }>;
+  streamingAgentMessages: Map<string, StreamingAgentMessage>;
   /** Output id used for the final root assistant message, if streamed. */
   finalAgentOutputId: string | null;
   /** File changes from item/completed notifications. */

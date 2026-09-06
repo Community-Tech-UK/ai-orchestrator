@@ -29,6 +29,12 @@ export type OrchestrationRoutingPolicyKey =
 export type OrchestrationRoutingPolicyValue = 'auto' | 'fast' | 'balanced' | 'powerful';
 
 export type SidebarStyle = 'standard' | 'compact';
+/**
+ * How the transcript renders provider commentary ("progress notes") — the
+ * running updates Codex is required to emit at least every 60 s during a turn,
+ * as distinct from the turn's final answer.
+ */
+export type ProgressNoteDisplay = 'expanded' | 'compact' | 'hidden';
 export type CanonicalCliType = 'claude' | 'gemini' | 'antigravity' | 'codex' | 'copilot' | 'auto' | 'cursor' | 'grok';
 export type CliType = CanonicalCliType | 'openai'; // legacy alias kept for persisted settings compatibility
 export type ConfigSource = 'project' | 'user' | 'default';

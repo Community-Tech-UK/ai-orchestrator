@@ -412,30 +412,6 @@ export class SettingsStore {
     document.documentElement.setAttribute('data-sidebar-style', sidebarStyle);
   }
 
-  // ============================================
-  // Project Config Operations
-  // ============================================
-
-  async resolveConfig(workingDirectory?: string): Promise<Record<string, unknown> | null> {
-    const resp = await this.settingsIpc.resolveConfig(workingDirectory);
-    return resp.success ? (resp.data as Record<string, unknown>) : null;
-  }
-
-  async getProjectConfig(configPath: string): Promise<Record<string, unknown> | null> {
-    const resp = await this.settingsIpc.getProjectConfig(configPath);
-    return resp.success ? (resp.data as Record<string, unknown>) : null;
-  }
-
-  async saveProjectConfig(configPath: string, config: Record<string, unknown>): Promise<boolean> {
-    const resp = await this.settingsIpc.saveProjectConfig(configPath, config);
-    return resp.success;
-  }
-
-  async findProjectConfig(startDir: string): Promise<string | null> {
-    const resp = await this.settingsIpc.findProjectConfig(startDir);
-    return resp.success ? (resp.data as string) : null;
-  }
-
   /**
    * Cleanup on destroy
    */

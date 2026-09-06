@@ -389,8 +389,33 @@ export class InstanceListComponent implements OnDestroy {
     this.store.setSelectedInstance(instanceId);
   }
 
+  /**
+   * Decision 16(b) — Terminate ends a session that cannot be resumed, and it was
+   * one click with only a hover tooltip as warning. The tooltip house rules say
+   * a destructive consequence must not live only in a hover; this is the
+   * disclosure that satisfies them.
+   */
+  readonly pendingTerminateId = signal<string | null>(null);
+
+  readonly pendingTerminateName = computed(() => {
+    const id = this.pendingTerminateId();
+    if (!id) return '';
+    return this.store.instances().find((i) => i.id === id)?.displayName ?? 'this session';
+  });
+
   onTerminateInstance(instanceId: string): void {
-    this.store.terminateInstance(instanceId);
+    this.pendingTerminateId.set(instanceId);
+  }
+
+  confirmTerminate(): void {
+    const id = this.pendingTerminateId();
+    if (!id) return;
+    this.pendingTerminateId.set(null);
+    this.store.terminateInstance(id);
+  }
+
+  cancelTerminate(): void {
+    this.pendingTerminateId.set(null);
   }
 
   onRestartInstance(instanceId: string): void {

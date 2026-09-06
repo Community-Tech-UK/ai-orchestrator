@@ -105,6 +105,7 @@ import {
 } from './acp-prompt-timeout-policy';
 import { classifyMissingUsage, classifyTurnEndingFailure, describeTruncatedAcpTurn, turnEndingFailureMetadata } from './acp-transport-failure';
 import { buildRetryRecoveredMessage, buildRetryStateMessage } from './acp-retry-state';
+import { buildAcpToolCallArguments, renderAcpRawOutput } from './acp-tool-call-material';
 import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
 const logger = getLogger('AcpCliAdapter');
 
@@ -1439,10 +1440,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
     const toolCall: CliToolCall = {
       id: toolCallId,
       name: title,
-      arguments: {
-        kind: observed.kind,
-        ...(update.rawInput ? { rawInput: update.rawInput } : {}),
-      },
+      arguments: buildAcpToolCallArguments(observed.kind, update.rawInput),
     };
     this.emit('tool_use', toolCall);
     this.emit('output', {
@@ -1489,7 +1487,8 @@ export class AcpCliAdapter extends BaseCliAdapter {
       rawInput: update.rawInput ?? observed?.rawInput,
     });
 
-    const renderedOutput = this.extractToolOutputText(update.content);
+    // Cursor never populates `content`; its results arrive in `rawOutput` only (see acp-tool-call-material.ts).
+    const renderedOutput = this.extractToolOutputText(update.content) || renderAcpRawOutput(update.rawOutput);
     if (renderedOutput) {
       // LT-100 estimate material too (see handleToolCallCreated above).
       this.currentPrompt?.toolActivityChunks.push(renderedOutput);
@@ -1512,11 +1511,9 @@ export class AcpCliAdapter extends BaseCliAdapter {
       const toolCall: CliToolCall = {
         id: toolCallId,
         name: title,
-        arguments: {
-          kind,
-          ...(update.rawInput ?? observed?.rawInput ? { rawInput: update.rawInput ?? observed?.rawInput } : {}),
-        },
-        result: renderedOutput,
+        arguments: buildAcpToolCallArguments(kind, update.rawInput ?? observed?.rawInput),
+        // No `result` key when nothing was captured: downstream hashing fails open on absent, not on ''.
+        ...(renderedOutput ? { result: renderedOutput } : {}),
       };
       this.emit('tool_result', toolCall);
     }

@@ -85,7 +85,9 @@ Both projects now run parallel isolated forks (`isolate` defaults to true, so ea
 | `main` | 1467 | ~550s | 153s | 125s |
 | `renderer` | 288 | 35s | 25s | — |
 
-`vitest.pool.ts` sizes concurrency from the cores the host has **spare** — `min(8, floor(cores - load1) - 1)` — not from its core count. Past 8 the returns are small, and a fixed fan-out multiplies badly here: several agent sessions share this checkout and each may start its own suite. A run launched at load average 467 on 18 cores took 1907s and failed four timing-sensitive specs. A saturated host now degrades to a single fork, which is no worse than the `singleFork` behaviour this replaced, and `AIO_TEST_MAX_FORKS=N` pins the count for benchmarking or CI (clamped to 64, so a typo cannot fork-bomb the host).
+`vitest.pool.ts` sizes concurrency from the cores the host has **spare** — `min(8, floor(cores - busy) - 1)` — not from its core count. Past 8 the returns are small, and a fixed fan-out multiplies badly here: several agent sessions share this checkout and each may start its own suite. A run launched at load average 467 on 18 cores took 1907s and failed four timing-sensitive specs. A saturated host now degrades to a single fork, which is no worse than the `singleFork` behaviour this replaced, and `AIO_TEST_MAX_FORKS=N` pins the count for benchmarking or CI (clamped to 64, so a typo cannot fork-bomb the host).
+
+`busy` is measured from `os.cpus()` tick deltas over a 300ms window when the config loads (`sampleBusyCores()`), with the one-minute load average as the fallback only when no sample is available. Until 2026-09-05 the load average was the primary signal, and it lags: a loop agent that has just finished `npm run verify` inside its iteration leaves load1 at 25–57 on 18 cores, so the coordinator's own verify seconds later was sized to one fork, finished 822 of 1977 files in its 600s budget, and timed out on parallelism rather than on any test.
 
 CPU starvation is not a neutral slowdown for specs that shell out under a timeout. Unlocking parallelism surfaced three such cases, all pre-existing:
 

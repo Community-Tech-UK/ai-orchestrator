@@ -235,11 +235,6 @@ export class IpcFacadeService {
   setSetting = this.settings.setSetting.bind(this.settings);
   updateSettings = this.settings.updateSettings.bind(this.settings);
   onSettingsChanged = this.settings.onSettingsChanged.bind(this.settings);
-  resolveConfig = this.settings.resolveConfig.bind(this.settings);
-  getProjectConfig = this.settings.getProjectConfig.bind(this.settings);
-  saveProjectConfig = this.settings.saveProjectConfig.bind(this.settings);
-  createProjectConfig = this.settings.createProjectConfig.bind(this.settings);
-  findProjectConfig = this.settings.findProjectConfig.bind(this.settings);
   remoteConfigFetch = this.settings.remoteConfigFetch.bind(this.settings);
   remoteConfigGet = this.settings.remoteConfigGet.bind(this.settings);
   remoteConfigSetSource = this.settings.remoteConfigSetSource.bind(this.settings);

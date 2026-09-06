@@ -373,6 +373,84 @@ describe('AcpCliAdapter', () => {
     proc.exit();
   });
 
+  it('renders Cursor rawOutput results and drops empty rawInput from tool arguments', async () => {
+    // Frames recorded from a live `cursor-agent acp` session (2026-09-05):
+    // grep / Read File arrive with `rawInput: {}`, and every result comes
+    // back in `rawOutput`, never in `content`. Before this the adapter emitted
+    // `result: ''` for all of them and `{ kind, rawInput: {} }` as arguments,
+    // so the loop's repeat detectors saw one identical call repeated forever.
+    const proc = createInitializedAgentHarness();
+
+    proc.onRequest('session/prompt', (message) => {
+      const update = (payload: Record<string, unknown>) =>
+        proc.notify('session/update', { sessionId: 'sess-acp-1', update: payload });
+      update({ sessionUpdate: 'tool_call', toolCallId: 'grep-1', title: 'grep', kind: 'search', status: 'pending', rawInput: {} });
+      update({ sessionUpdate: 'tool_call', toolCallId: 'read-1', title: 'Read File', kind: 'read', status: 'pending', rawInput: {} });
+      update({
+        sessionUpdate: 'tool_call',
+        toolCallId: 'exec-1',
+        title: '`wc -l notes.txt`',
+        kind: 'execute',
+        status: 'pending',
+        rawInput: { command: 'wc -l notes.txt' },
+      });
+      update({ sessionUpdate: 'tool_call', toolCallId: 'think-1', title: 'Thinking', kind: 'think', status: 'pending' });
+      update({ sessionUpdate: 'tool_call_update', toolCallId: 'grep-1', status: 'completed', rawOutput: { totalMatches: 2, truncated: false } });
+      update({ sessionUpdate: 'tool_call_update', toolCallId: 'read-1', status: 'completed', rawOutput: { content: 'alpha line one\nbeta line two\n' } });
+      update({
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'exec-1',
+        status: 'completed',
+        rawOutput: { exitCode: 1, stdout: '       2 notes.txt\n', stderr: 'warn: x' },
+      });
+      update({ sessionUpdate: 'tool_call_update', toolCallId: 'think-1', status: 'completed' });
+      proc.respond(message.id, { stopReason: 'end_turn' });
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+    });
+    await adapter.spawn();
+
+    const outputHandler = vi.fn();
+    const toolUseHandler = vi.fn();
+    const toolResultHandler = vi.fn();
+    adapter.on('output', outputHandler);
+    adapter.on('tool_use', toolUseHandler);
+    adapter.on('tool_result', toolResultHandler);
+
+    await adapter.sendMessage({ role: 'user', content: 'search' });
+
+    // Arguments: `{ kind }` alone when rawInput is empty; rawInput kept when it has keys.
+    expect(toolUseHandler).toHaveBeenCalledWith(expect.objectContaining({ id: 'grep-1', arguments: { kind: 'search' } }));
+    expect(toolUseHandler).toHaveBeenCalledWith(expect.objectContaining({ id: 'read-1', arguments: { kind: 'read' } }));
+    expect(toolUseHandler).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'exec-1', arguments: { kind: 'execute', rawInput: { command: 'wc -l notes.txt' } } }),
+    );
+
+    // Results: rendered from rawOutput.
+    expect(toolResultHandler).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'grep-1', result: JSON.stringify({ totalMatches: 2, truncated: false }) }),
+    );
+    expect(toolResultHandler).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'read-1', result: 'alpha line one\nbeta line two\n' }),
+    );
+    expect(toolResultHandler).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'exec-1', result: '       2 notes.txt\n\n--- stderr ---\nwarn: x\n(exit code 1)' }),
+    );
+    expect(outputHandler).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'tool_result', content: 'alpha line one\nbeta line two\n' }),
+    );
+
+    // Nothing captured at all: no `result` key, so downstream hashing fails open.
+    const thinkResult = toolResultHandler.mock.calls.map(([call]) => call).find((call) => call.id === 'think-1');
+    expect(thinkResult).toBeDefined();
+    expect(thinkResult).not.toHaveProperty('result');
+
+    proc.exit();
+  });
+
   it('treats available_commands_update + session_info_update as silent metadata, not chat output', async () => {
     // Regression: cursor-agent ACP sends `availableCommands` (camelCase per
     // the current spec) plus a `session_info_update` carrying the auto-

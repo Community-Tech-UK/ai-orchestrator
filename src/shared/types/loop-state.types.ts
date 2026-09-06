@@ -130,16 +130,15 @@ export interface LoopFileChange {
   path: string;
   additions: number;
   deletions: number;
-  /**
-   * Hash of the resulting line set after this iteration. Used to compute
-   * churn (lines that revert to a prior state across iterations).
-   */
+  /** Hash of the resulting line set after this iteration; used to compute churn (lines reverting to a prior state across iterations). */
   contentHash: string;
 }
 
 export interface LoopToolCallRecord {
   toolName: string;
   argsHash: string;
+  /** `false` when the adapter exposed no argument material (Cursor ACP `rawInput: {}`): `argsHash` is then per-call and Signal I abstains. Absent means captured. */
+  argsCaptured?: boolean;
   /** Hash of the tool_result content when the adapter exposes it. */
   resultHash?: string;
   success: boolean;

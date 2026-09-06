@@ -58,6 +58,7 @@ import {
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import type { LinkKind } from '../../../../shared/utils/link-detection';
 import { shouldCollapseUserMessage, toggleExpandedId } from './output-stream-message-collapse';
+import { isProgressNoteMessage } from './progress-note';
 import { filterDisplayItems } from './output-stream-item-filter';
 import { isLoopOriginatedUserMessage as detectLoopOriginatedUserMessage } from './loop-message-detection';
 import {
@@ -176,6 +177,9 @@ export class OutputStreamComponent {
 
   protected copiedMessageId = signal<string | null>(null);
   protected expandedUserMessageIds = signal(new Set<string>());
+  /** Progress notes the operator has clicked open. Separate from the user-message
+   *  set so clearing one never disturbs the other. */
+  protected expandedProgressNoteIds = signal(new Set<string>());
   protected compactionRecoveryState = signal<Record<string, 'recovering' | 'queued' | 'failed'>>({});
   private copyResetTimer: number | null = null;
 
@@ -283,16 +287,17 @@ export class OutputStreamComponent {
   });
 
   /** Display items filtered by visibility settings. Tool-groups (when tool
-   *  calls are hidden) and empty thought-groups (when thinking is hidden) are
-   *  stripped from both the top level and from work-cycle children, so a
-   *  collapsed cycle never advertises content that renders to an empty box.
-   *  This is the raw list; visibleItems() stabilises its references before the
-   *  template renders it. */
+   *  calls are hidden), empty thought-groups (when thinking is hidden) and
+   *  progress notes (when those are set to Hidden) are stripped from both the
+   *  top level and from work-cycle children, so a collapsed cycle never
+   *  advertises content that renders to an empty box. This is the raw list;
+   *  visibleItems() stabilises its references before the template renders it. */
   private readonly filteredItems = computed<RenderedDisplayItem[]>(() => {
     const showThinking = this.showThinking();
     return filterDisplayItems(this.displayItems(), {
       hideToolGroups: !this.effectiveShowToolCalls(),
       hideEmptyThoughts: !showThinking,
+      hideProgressNotes: this.progressNoteDisplay() === 'hidden',
       isThoughtGroupEmpty: (item) =>
         !this.messageFormat.hasThoughtGroupContent(item, showThinking),
     });
@@ -336,6 +341,10 @@ export class OutputStreamComponent {
    *  settings-defaults.ts and transcript-virtualizer-controller.ts. */
   protected readonly virtualizationEnabled = computed(
     () => this.settingsStore.settings().transcriptVirtualization,
+  );
+  /** How to render provider commentary: full bubble, clamped, or dropped. */
+  protected readonly progressNoteDisplay = computed(
+    () => this.settingsStore.settings().progressNoteDisplay,
   );
   /** Windowed rendering over `windowedItems()` by measured/estimated row
    *  height, with top-level user messages always pinned (the jump rail and
@@ -1132,6 +1141,23 @@ export class OutputStreamComponent {
 
   protected toggleUserMessageExpansion(messageId: string): void {
     this.expandedUserMessageIds.update((current) => toggleExpandedId(current, messageId));
+  }
+
+  /**
+   * True when this message should render as a clamped, dimmed progress note.
+   * `hidden` is handled by the display-item filter and `expanded` deliberately
+   * returns false, leaving the message to render as an ordinary reply.
+   */
+  protected isProgressNote(message: OutputMessage): boolean {
+    return this.progressNoteDisplay() === 'compact' && isProgressNoteMessage(message);
+  }
+
+  protected isProgressNoteExpanded(messageId: string): boolean {
+    return this.expandedProgressNoteIds().has(messageId);
+  }
+
+  protected toggleProgressNoteExpansion(messageId: string): void {
+    this.expandedProgressNoteIds.update((current) => toggleExpandedId(current, messageId));
   }
 
   onContextMenu(event: MouseEvent, item: DisplayItem): void {

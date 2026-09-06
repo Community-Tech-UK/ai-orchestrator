@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { probePidLiveness, waitOnPid, type PidLiveness } from './loop-wait-on-pid';
+import { killProcessTree, probePidLiveness, waitOnPid, type PidLiveness } from './loop-wait-on-pid';
 
 function killThrowing(code: string) {
   return () => { throw Object.assign(new Error(code), { code }); };
@@ -104,5 +104,45 @@ describe('waitOnPid (L5)', () => {
 
     expect(result.outcome).toBe('skipped');
     expect(result.reason).toBe('wait cancelled');
+  });
+});
+
+describe('killProcessTree (L16)', () => {
+  it('is a no-op for unusable pids', () => {
+    const kill = vi.fn();
+    killProcessTree(null, { kill, listChildren: () => [2] });
+    killProcessTree(0, { kill, listChildren: () => [2] });
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  it('SIGKILLs the root and every descendant once', () => {
+    const killed: number[] = [];
+    const children: Record<number, number[]> = {
+      10: [11, 12],
+      11: [13],
+      12: [],
+      13: [],
+    };
+    killProcessTree(10, {
+      listChildren: (pid) => children[pid] ?? [],
+      kill: (pid) => { killed.push(pid); },
+    });
+    expect(killed.sort((a, b) => a - b)).toEqual([10, 11, 12, 13]);
+  });
+
+  it('reaps a login-shell grandchild on unix', async () => {
+    if (process.platform === 'win32') return;
+    const { spawn } = await import('node:child_process');
+    const child = spawn('/bin/sh', ['-c', 'sleep 60'], { stdio: 'ignore' });
+    expect(child.pid).toBeGreaterThan(0);
+    await new Promise((resolve) => { setTimeout(resolve, 150); });
+    killProcessTree(child.pid);
+    const waited = await waitOnPid({
+      pid: child.pid,
+      timeoutMs: 2_000,
+      pollIntervalMs: 50,
+    });
+    expect(waited.outcome).not.toBe('timeout');
+    expect(probePidLiveness(child.pid)).toBe('gone');
   });
 });

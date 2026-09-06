@@ -194,6 +194,8 @@ export const SETTING_SURFACING = {
   notifyOnAgentCompletion: 'tab',
   notifyOnLoopTerminal: 'tab',
   notificationSoundMode: 'tab',
+  // Written by dismissing a hint, never edited directly.
+  dismissedHints: 'internal',
   notificationCooldownSeconds: 'tab',
   notificationQuietHoursEnabled: 'tab',
   notificationQuietHoursStartHour: 'tab',
@@ -225,6 +227,7 @@ export const SETTING_SURFACING = {
   reactionsEnabled: 'tab',
   reactionsPollIntervalMs: 'tab',
   transcriptVirtualization: 'internal',
+  progressNoteDisplay: 'tab',
 
   // Inherited from `DesktopComputerUseSettings` rather than declared in the
   // `AppSettings` body — which is exactly why the first generated version of

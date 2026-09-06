@@ -473,6 +473,30 @@ describe('signal I — idempotent read identity', () => {
 
     expect(signalI_idempotentReadIdentity(history, current, T)).toBeNull();
   });
+
+  it('abstains for reads whose arguments the adapter did not capture', () => {
+    // Cursor's grep reports only a match count, so three different searches
+    // that each found two hits share a result hash. Without arguments the
+    // signal cannot tell them apart and must not call that a re-read.
+    const uncapturedGrep = (argsHash: string) => ({
+      toolName: 'grep',
+      argsHash,
+      argsCaptured: false,
+      resultHash: 'two-matches',
+      success: true,
+      durationMs: 1,
+    });
+    const history = [
+      makeIteration({ seq: 0, toolCalls: [uncapturedGrep('u-0'), uncapturedGrep('u-1')], workHash: 'w0' }),
+    ];
+    const current = makeIteration({
+      seq: 1,
+      toolCalls: [uncapturedGrep('u-2'), uncapturedGrep('u-3')],
+      workHash: 'w1',
+    });
+
+    expect(signalI_idempotentReadIdentity(history, current, T)).toBeNull();
+  });
 });
 
 describe('signal H — output similarity', () => {

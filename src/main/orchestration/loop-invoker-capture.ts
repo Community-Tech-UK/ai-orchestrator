@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 import * as path from 'path';
 import type { LoopErrorRecord, LoopToolCallRecord } from '../../shared/types/loop.types';
 import type { LoopInvocationActivity } from './loop-invocation-activity';
+import { readCapturedToolArguments } from '../providers/tool-call-argument-material';
 
 export interface LoopInvocationCaptureSnapshot {
   toolCalls: LoopToolCallRecord[];
@@ -87,11 +88,18 @@ export function createLoopInvocationCapture(options: {
       const input = readToolInput(detail);
       const id = readString(detail, 'id') ?? `anonymous-${anonymousSeq++}`;
       const startedAt = now();
+      // An adapter that sends arguments with no material (an ACP `{ kind }`
+      // shell — Cursor's grep and Read File) gets a per-call hash so Signal G
+      // cannot count "the same call" 78 times, plus `argsCaptured: false` so
+      // Signal I knows it cannot tell those reads apart either.
+      const argsCaptured = input === undefined || readCapturedToolArguments(input) !== undefined;
       const hashMaterial = input ?? {
         message: activity.message,
         detail: scrubToolDetail(detail),
       };
-      const argsHash = hashStable(`${toolName}:${stableStringify(hashMaterial)}`);
+      const argsHash = argsCaptured
+        ? hashStable(`${toolName}:${stableStringify(hashMaterial)}`)
+        : hashStable(`${toolName}:uncaptured:${id}`);
       const index = toolCalls.length;
       // E2 (#12) capture half: persist the agent-declared timeout on the
       // sealed record so post-hoc consumers (watchdog tuning, progress
@@ -102,6 +110,7 @@ export function createLoopInvocationCapture(options: {
         argsHash,
         success: true,
         durationMs: 0,
+        ...(argsCaptured ? {} : { argsCaptured: false }),
         ...(declaredTimeoutMs !== undefined ? { declaredTimeoutMs } : {}),
       });
       pending.set(id, { id, startedAt, index });
@@ -126,13 +135,17 @@ export function createLoopInvocationCapture(options: {
       const tracked = id ? pending.get(id) : firstPending(pending);
       if (!tracked) return;
       pendingWrites.delete(tracked.id);
-      const content = readResultString(detail, 'result') ?? readResultString(detail, 'content') ?? activity.message;
+      // No result string means the adapter captured nothing — leave
+      // `resultHash` unset so Signal I skips the call. Hashing the constant
+      // "Tool result: <name>" message instead made every uncaptured result
+      // look identical.
+      const content = readResultString(detail, 'result') ?? readResultString(detail, 'content');
       const success = readBoolean(detail, 'success') ?? (readBoolean(detail, 'isError') === true ? false : true);
       toolCalls[tracked.index] = {
         ...toolCalls[tracked.index],
         success,
         durationMs: Math.max(0, now() - tracked.startedAt),
-        resultHash: hashStable(content),
+        ...(content !== undefined ? { resultHash: hashStable(content) } : {}),
       };
       pending.delete(tracked.id);
       return;

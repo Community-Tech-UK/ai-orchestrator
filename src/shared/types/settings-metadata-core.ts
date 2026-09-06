@@ -219,6 +219,18 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
     ],
   },
   {
+    key: 'progressNoteDisplay',
+    label: 'Agent progress notes',
+    description: 'Codex writes a running progress update at least every 60 seconds during a turn, separately from its final answer. Choose how the transcript shows them.',
+    type: 'select',
+    category: 'display',
+    options: [
+      { value: 'compact', label: 'Compact — dimmed and clamped, click to expand' },
+      { value: 'expanded', label: 'Full — same as any other reply' },
+      { value: 'hidden', label: 'Hidden — show only final answers' },
+    ],
+  },
+  {
     key: 'sidebarStyle',
     label: 'Sidebar style',
     description: 'How wide the left sidebar is in the main workspace.',

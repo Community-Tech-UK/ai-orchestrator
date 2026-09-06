@@ -12,6 +12,8 @@ import { CliHealthSettingsTabComponent } from './cli-health-settings-tab.compone
 import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
 import { DoctorStore } from '../../core/state/doctor.store';
 import { SettingsStore } from '../../core/state/settings.store';
+import { runSettingsDoctor } from '../../../../shared/types/settings-doctor';
+import { DEFAULT_SETTINGS } from '../../../../shared/types/settings-defaults';
 import type {
   BrowserAutomationHealthSnapshot,
   DoctorSectionId,
@@ -58,6 +60,35 @@ function isDoctorSection(value: string | null): value is DoctorSectionId {
           {{ store.loading() ? 'Refreshing...' : 'Refresh' }}
         </button>
       </header>
+
+      <!-- S5: settings lint. Settings fail quietly — a number outside its own
+           declared range, a JSON key holding unparseable text — and none of it
+           throws, so it surfaces hours later as "this feature isn't working". -->
+      <div class="settings-lint">
+        <h4 class="subsection-title">Settings check</h4>
+        @if (settingsReport(); as lint) {
+          @if (lint.healthy) {
+            <p class="lint-ok">No problems found in your settings.</p>
+          } @else {
+            <p class="lint-summary">
+              {{ lint.errors }} error{{ lint.errors === 1 ? '' : 's' }},
+              {{ lint.warnings }} warning{{ lint.warnings === 1 ? '' : 's' }}.
+            </p>
+            <ul class="lint-list">
+              @for (finding of lint.findings; track finding.key + finding.problem) {
+                <li class="lint-item" [attr.data-severity]="finding.severity">
+                  <code>{{ finding.key }}</code>
+                  <span class="lint-sev">{{ finding.severity }}</span>
+                  <span class="lint-problem">{{ finding.problem }}</span>
+                  @if (finding.fix) {
+                    <span class="lint-fix">{{ finding.fix }}</span>
+                  }
+                </li>
+              }
+            </ul>
+          }
+        }
+      </div>
 
       @if (store.error()) {
         <div class="error-banner">{{ store.error() }}</div>
@@ -312,6 +343,18 @@ function isDoctorSection(value: string | null): value is DoctorSectionId {
 export class DoctorSettingsTabComponent implements OnInit {
   protected readonly store = inject(DoctorStore);
   private readonly settings = inject(SettingsStore);
+
+  /**
+   * S5 settings lint. Recomputes from the live settings signal, so fixing a
+   * value clears its finding without a refresh. No `pathExists` checker is
+   * passed: the renderer cannot stat the filesystem, and a guessed "the path is
+   * fine" would be worse than staying quiet about it.
+   */
+  protected readonly settingsReport = computed(() => runSettingsDoctor({
+    settings: this.settings.settings() as unknown as Record<string, unknown>,
+    metadata: this.settings.metadata,
+    defaults: DEFAULT_SETTINGS as unknown as Record<string, unknown>,
+  }));
   private readonly ipc = inject(ElectronIpcService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);

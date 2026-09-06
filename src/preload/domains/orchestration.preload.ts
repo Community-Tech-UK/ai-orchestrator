@@ -109,55 +109,6 @@ export function createOrchestrationDomain(ipcRenderer: IpcRenderer, ch: typeof I
     // Configuration (Hierarchical)
     // ============================================
 
-    /**
-     * Resolve configuration for a working directory
-     * Returns merged config with source tracking (project > user > default)
-     */
-    resolveConfig: (workingDirectory?: string): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.CONFIG_RESOLVE, {
-        workingDirectory
-      });
-    },
-
-    /**
-     * Get project config from a specific path
-     */
-    getProjectConfig: (configPath: string): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.CONFIG_GET_PROJECT, { configPath });
-    },
-
-    /**
-     * Save project config to a specific path
-     */
-    saveProjectConfig: (
-      configPath: string,
-      config: Record<string, unknown>
-    ): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.CONFIG_SAVE_PROJECT, {
-        configPath,
-        config
-      });
-    },
-
-    /**
-     * Create a new project config file
-     */
-    createProjectConfig: (
-      projectDir: string,
-      config?: Record<string, unknown>
-    ): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.CONFIG_CREATE_PROJECT, {
-        projectDir,
-        config
-      });
-    },
-
-    /**
-     * Find project config path by searching up the directory tree
-     */
-    findProjectConfig: (startDir: string): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.CONFIG_FIND_PROJECT, { startDir });
-    },
 
     /**
      * Resolve the active instruction stack for a working directory and optional context files.

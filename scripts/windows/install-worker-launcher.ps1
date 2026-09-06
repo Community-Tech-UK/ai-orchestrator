@@ -39,10 +39,14 @@ param(
   [Parameter(Mandatory = $true)]
   [string]$RepoPath,
 
-  # NOTE: start-worker.bat's drift check hardcodes %USERPROFILE%\.orchestrator
-  # when looking for the stamp files. Overriding this is supported for testing,
-  # but a non-default install root silently disables that check (it fails safe -
-  # no stamp found means no warning, never a false alarm).
+  # NOTE: start-worker.bat hardcodes %USERPROFILE%\.orchestrator when it looks for
+  # the launcher files and stamps, and has no way to discover a custom root.
+  # The two drift COMPARISONS still fail safe under an override - no stamp found
+  # means no warning, never a false alarm. The "not fully installed" check does
+  # NOT: it warns precisely because the default root is empty, so a successful
+  # install under a non-default root makes it cry wolf on every worker start.
+  # Overriding this is supported for testing; on a machine that actually runs the
+  # worker, leave it at the default.
   [string]$InstallRoot = (Join-Path $env:USERPROFILE '.orchestrator'),
 
   [string]$TaskName = 'AI Orchestrator Worker',
@@ -52,11 +56,58 @@ param(
   # lock, so a repeat while healthy is a no-op.
   [int]$RepeatMinutes = 5,
 
+  # The account the worker actually runs as, which is NOT always the account you
+  # are running this script as. "Run as administrator" can switch you into a
+  # separate admin account; do that and every default here silently follows the
+  # WRONG profile - $env:USERPROFILE, and therefore -InstallRoot, and the task's
+  # principal and logon trigger. On 2026-09-06 that produced a task registered for
+  # 9950x3d\CTAdmin pointing at C:\Users\CTAdmin\.orchestrator\run-worker-hidden.vbs,
+  # which the worker user could not even read. It looked registered, reported an
+  # armed NextRunTime, and could never run: LogonType Interactive for an account
+  # with no interactive session just accumulates missed runs.
+  [string]$WorkerUser = "$env:USERDOMAIN\$env:USERNAME",
+
   [switch]$RegisterTask
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+# Tri-state, because "I could not tell" is a real answer and collapsing it into
+# "no" is how a tool starts lying. `Get-ScheduledTask -TaskName X -ErrorAction
+# SilentlyContinue` hides a stopped Task Scheduler service exactly as well as it
+# hides an absent task, and the registration-failure diagnosis below reads this
+# value: told "no" while the service was down, it would confidently rule elevation
+# out and send the operator hunting a bad principal instead. Enumerating throws on
+# a genuine service or permission fault, which is the distinction we need.
+function Get-TaskPresence {
+  param([string]$Name)
+  try {
+    $all = Get-ScheduledTask -ErrorAction Stop
+  } catch {
+    return 'unknown'
+  }
+  if ($all | Where-Object { $_.TaskName -eq $Name }) { return 'yes' }
+  return 'no'
+}
+
+# Resolve an account's real profile directory from the SID, rather than trusting
+# $env:USERPROFILE, which describes whoever is running this script and not
+# necessarily the account the worker runs as.
+function Get-UserProfilePath {
+  param([string]$Account)
+  try {
+    $sid = (New-Object Security.Principal.NTAccount($Account)).Translate(
+      [Security.Principal.SecurityIdentifier]).Value
+  } catch {
+    return $null
+  }
+  $key = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$sid"
+  $entry = Get-ItemProperty -Path $key -ErrorAction SilentlyContinue
+  if (-not $entry) { return $null }
+  if (-not $entry.PSObject.Properties['ProfileImagePath']) { return $null }
+  return $entry.ProfileImagePath
+}
 
 function Assert-NotOneDrivePath {
   param([string]$PathValue, [string]$Label)
@@ -139,6 +190,93 @@ if (-not (Select-String -LiteralPath $startWorker -Pattern '(?im)^\s*(call\s+)?n
   throw "start-worker.bat has no 'node ... --supervise' command. Refusing to install an unsupervised launcher: $startWorker"
 }
 
+# Am I elevated? Computed once: two different checks below need it.
+$isElevated = (New-Object Security.Principal.WindowsPrincipal(
+  [Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole(
+  [Security.Principal.WindowsBuiltInRole]::Administrator)
+
+# The trap this catches is subtle enough to deserve a nudge even when nothing is
+# provably wrong. On a machine where "Run as administrator" signs you into a
+# SEPARATE admin account, every default here follows that account - and it does so
+# CONSISTENTLY, so -InstallRoot and -WorkerUser agree with each other and the
+# consistency check below passes happily while the whole install lands in the
+# wrong profile. Only the operator knows which account runs the worker, so say
+# which one we are about to use and let them correct it.
+#
+# A warning, not a throw: where UAC elevates the same account - the common case -
+# this is merely redundant, and refusing there would be an over-correction.
+if ($isElevated -and -not $PSBoundParameters.ContainsKey('WorkerUser')) {
+  Write-Warning "Running elevated as '$env:USERDOMAIN\$env:USERNAME' and -WorkerUser was not given, so the worker will be installed FOR THAT ACCOUNT. If 'Run as administrator' put you in a different account from the one that runs the worker, re-run with -WorkerUser and -InstallRoot naming the worker's account."
+}
+
+# Refuse to install into a profile that does not belong to the account the worker
+# will run as.
+#
+# Deliberately NOT gated on -RegisterTask: the four launcher files are deployed
+# either way, so scattering them into the wrong profile does not need the task
+# step to happen. Running before any write is the whole point - cleaning up a
+# half-install in another account's profile needs elevation all over again.
+$workerProfile = Get-UserProfilePath -Account $WorkerUser
+if (-not $workerProfile) {
+  Write-Warning "Could not resolve a profile directory for '$WorkerUser' (no ProfileList entry - the account may never have logged on here); skipping the install-root consistency check. Verify the deployed paths by hand."
+} else {
+  # Equality is legitimate: -InstallRoot may point at the profile root itself.
+  # Otherwise require a real directory boundary, so C:\Users\shutuX is not read as
+  # living inside C:\Users\shutu. GetFullPath does not collapse 8.3 short names,
+  # subst drives or UNC equivalents of the same directory, so a root hand-typed in
+  # one of those forms can still be refused; give the plain path instead.
+  $rootFull = [IO.Path]::GetFullPath($InstallRoot).TrimEnd('\')
+  $profFull = [IO.Path]::GetFullPath($workerProfile).TrimEnd('\')
+  $inside = $rootFull.Equals($profFull, [StringComparison]::OrdinalIgnoreCase) -or
+            $rootFull.StartsWith($profFull + '\', [StringComparison]::OrdinalIgnoreCase)
+  if (-not $inside) {
+    # Carry every parameter actually in force. A corrected command that quietly
+    # reverts -TaskName or -RepeatMinutes to their defaults would register a
+    # DIFFERENT task and leave the operator's real one just as broken - the exact
+    # trap the registration-failure message further down already avoids.
+    #
+    # -WhatIf included for the same reason, and it is the sharpest case: this guard
+    # is deliberately NOT wrapped in ShouldProcess, so it fires during a dry run
+    # too. Someone previewing first - which this script's own .EXAMPLE tells them
+    # to do - would otherwise be handed a command that silently performs the real
+    # install. A correction must never be more dangerous than what it corrects.
+    $fixed = "powershell -ExecutionPolicy Bypass -File `"$PSCommandPath`" -RepoPath `"$RepoPath`"" +
+             " -InstallRoot `"$(Join-Path $workerProfile '.orchestrator')`"" +
+             " -WorkerUser `"$WorkerUser`" -TaskName `"$TaskName`" -RepeatMinutes $RepeatMinutes" +
+             $(if ($RegisterTask) { ' -RegisterTask' } else { '' }) +
+             $(if ($WhatIfPreference) { ' -WhatIf' } else { '' })
+    throw @"
+Install root does not belong to the worker account. Nothing has been written.
+
+  worker account : $WorkerUser
+  its profile    : $workerProfile
+  -InstallRoot   : $InstallRoot
+  running as     : $env:USERDOMAIN\$env:USERNAME
+
+You are almost certainly in an elevated shell for a different admin account, so
+the default -InstallRoot followed that account's profile instead of the worker's.
+Re-run naming them explicitly:
+
+  $fixed
+"@
+  }
+}
+
+$taskPresence = 'unknown'
+if ($RegisterTask) {
+  $taskPresence = Get-TaskPresence -Name $TaskName
+  # Gated on a task ALREADY EXISTING, not merely on -RegisterTask. Creating a task
+  # for the current interactive user does not normally need elevation; it is
+  # replacing one somebody else registered elevated that gets refused. Warning
+  # unconditionally would train the reader to ignore it on exactly the first run
+  # where it is noise.
+  if ($taskPresence -eq 'yes' -and -not $isElevated) {
+    $filesNote = if ($WhatIfPreference) { 'this is a dry run, so nothing will be written' }
+                 else { 'the launcher files will still deploy' }
+    Write-Warning "Not running elevated, and a task named '$TaskName' already exists. Replacing it requires elevation; $filesNote, and the task step will print the exact command to re-run if it is refused."
+  }
+}
+
 $templateDir = Join-Path $RepoPath 'scripts\windows'
 $batTemplate = Join-Path $templateDir 'start-worker-autoupdate.template.bat'
 $vbsTemplate = Join-Path $templateDir 'run-worker-hidden.template.vbs'
@@ -200,7 +338,8 @@ if (-not $RegisterTask) {
   return
 }
 
-$userId = "$env:USERDOMAIN\$env:USERNAME"
+# The worker account, not whoever is running this script. See -WorkerUser.
+$userId = $WorkerUser
 
 # Get-ScheduledTask searches every task folder, but Export/Register default to
 # the root '\'. Carry the existing task's own TaskPath through, or a task living
@@ -225,11 +364,25 @@ if ($existing) {
 # instantly the way `cmd /c start` did.
 $action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument "`"$deployedVbs`"" -WorkingDirectory $RepoPath
 
-# Logon trigger, plus repetition so a dead worker is picked up within
-# $RepeatMinutes instead of waiting for the next logon.
-$trigger = New-ScheduledTaskTrigger -AtLogOn -User $userId
-$repeatSource = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes $RepeatMinutes)
-$trigger.Repetition = $repeatSource.Repetition
+# TWO separate triggers, and the split is the whole point.
+#
+# A repetition attached to a LOGON trigger only begins when that trigger
+# activates - at the next logon. Register the task from an already-established
+# session (the normal case: you are sitting at the machine) and the keep-alive is
+# dormant until the user next logs off and on. That state is indistinguishable
+# from a working install until the moment you need it. On 2026-09-05 the worker
+# died at 15:23 and nothing came for it for six hours.
+#
+# So the keep-alive gets its OWN time trigger, whose repetition runs from its
+# start boundary regardless of session state, and the logon trigger is left to do
+# nothing but start the worker promptly at logon. After registration we assert
+# NextRunTime is populated - that is the observable which separates "actually
+# scheduled" from "serialised but dormant", and the XML alone cannot tell them
+# apart.
+$logonTrigger = New-ScheduledTaskTrigger -AtLogOn -User $userId
+$keepAliveTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
+  -RepetitionInterval (New-TimeSpan -Minutes $RepeatMinutes)
+$triggers = @($logonTrigger, $keepAliveTrigger)
 
 $settings = New-ScheduledTaskSettingsSet `
   -MultipleInstances IgnoreNew `
@@ -245,9 +398,62 @@ $settings = New-ScheduledTaskSettingsSet `
 $principal = New-ScheduledTaskPrincipal -UserId $userId -LogonType Interactive -RunLevel Limited
 
 if ($PSCmdlet.ShouldProcess($TaskName, 'Register scheduled task')) {
-  Register-ScheduledTask -TaskName $TaskName -TaskPath $taskPath -Action $action -Trigger $trigger `
-    -Settings $settings -Principal $principal -Force | Out-Null
-  Write-Host "  registered scheduled task '$TaskName' (logon + every $RepeatMinutes min)"
+  # Replacing an existing task needs rights over that task, which a standard user
+  # does not have when it was created elevated. Left bare, that surfaces as a raw
+  # "Access is denied" pointing at this line, AFTER the launcher files have
+  # already been written - which reads like a total failure when in fact only the
+  # task step was refused. Say what to do about it.
+  try {
+    Register-ScheduledTask -TaskName $TaskName -TaskPath $taskPath -Action $action -Trigger $triggers `
+      -Settings $settings -Principal $principal -Force | Out-Null
+  } catch {
+    # Do not assert a cause that was not tested. Elevation is only the likely
+    # explanation when a task was ALREADY there to be replaced; a first-time
+    # registration failing is far more likely to be a bad principal, a missing
+    # logon right, or a malformed trigger, and sending that operator away to
+    # elevate wastes the one message they get. Report what is known and let the
+    # underlying exception speak for the rest.
+    #
+    # Echo back the parameters actually in force too. A re-run line hardcoded to
+    # the defaults would quietly retarget a non-default -InstallRoot or -TaskName,
+    # registering a second task somewhere else while the real one stayed broken.
+    $rerun = "powershell -ExecutionPolicy Bypass -File `"$PSCommandPath`" -RepoPath `"$RepoPath`" -InstallRoot `"$InstallRoot`" -WorkerUser `"$WorkerUser`" -TaskName `"$TaskName`" -RepeatMinutes $RepeatMinutes -RegisterTask"
+    $diagnosis = if ($taskPresence -eq 'yes') {
+@"
+A task named '$TaskName' already existed, and replacing one usually requires
+elevation. Re-run this script from an ELEVATED PowerShell (right-click >
+Run as administrator):
+
+  $rerun
+"@
+    } elseif ($taskPresence -eq 'no') {
+@"
+No task named '$TaskName' existed, so this was a first-time registration and
+elevation is probably NOT the cause - read the error above before assuming it is.
+Common causes are a principal the current user cannot register, a missing logon
+right, or a rejected trigger. The command that failed was:
+
+  $rerun
+"@
+    } else {
+@"
+Scheduled tasks could not be listed earlier, so whether '$TaskName' already
+existed is unknown and NEITHER elevation nor a first-time registration fault can
+be ruled out. Check the Task Scheduler service is running, then read the error
+above. The command that failed was:
+
+  $rerun
+"@
+    }
+    throw @"
+Could not register the scheduled task '$TaskName': $($_.Exception.Message)
+
+The launcher files in $InstallRoot were deployed; only the task step failed.
+$diagnosis
+Until it succeeds, nothing will restart this worker if its process tree dies.
+"@
+  }
+  Write-Host "  registered scheduled task '$TaskName' (logon + keep-alive every $RepeatMinutes min)"
 
   # Read the registered task back and assert the two settings that silently
   # break the design if they ever change: the repetition must be indefinite, and
@@ -280,9 +486,12 @@ if ($PSCmdlet.ShouldProcess($TaskName, 'Register scheduled task')) {
       Write-Host '  verified execution time limit: PT0S (unlimited)'
     }
 
-    $repetition = $xml.SelectSingleNode('//t:LogonTrigger/t:Repetition', $ns)
+    # The keep-alive repetition lives on the TIME trigger, not the logon trigger -
+    # see the trigger block above for why. Looking it up under LogonTrigger would
+    # now silently find nothing and report a broken keep-alive on a good install.
+    $repetition = $xml.SelectSingleNode('//t:TimeTrigger/t:Repetition', $ns)
     if (-not $repetition) {
-      Write-Warning 'Registered task has NO repetition block - the keep-alive is not active.'
+      Write-Warning 'Registered task has NO repetition block on its time trigger - the keep-alive is not active.'
     } else {
       $interval = $repetition.SelectSingleNode('t:Interval', $ns)
       $duration = $repetition.SelectSingleNode('t:Duration', $ns)
@@ -294,8 +503,27 @@ if ($PSCmdlet.ShouldProcess($TaskName, 'Register scheduled task')) {
         Write-Host "  verified repetition: every $($interval.InnerText), indefinitely"
       }
     }
+
+    # The XML can serialise a perfect repetition that Task Scheduler is not
+    # actually counting down - that is exactly the trap the time trigger exists to
+    # avoid, so prove it rather than assume it. A populated NextRunTime is the only
+    # evidence that the keep-alive is armed right now, in this session.
+    $nextRun = (Get-ScheduledTask -TaskName $TaskName -TaskPath $taskPath | Get-ScheduledTaskInfo).NextRunTime
+    if (-not $nextRun) {
+      # Double-quoted here-string on purpose: the single-quoted form does not
+      # interpolate, so a hardcoded name would send an operator who passed
+      # -TaskName off to inspect a task that is either absent or, on a host
+      # running two workers, somebody else's.
+      Write-Warning @"
+Task registered but NextRunTime is EMPTY - the keep-alive is NOT armed, so a dead
+worker will not be picked up. Check that the time trigger survived registration:
+  (Get-ScheduledTask -TaskName '$TaskName').Triggers | Format-List *
+"@
+    } else {
+      Write-Host "  verified keep-alive is armed: next run at $nextRun"
+    }
   } catch {
-    Write-Warning "Could not verify the repetition setting (the task WAS registered): $_"
+    Write-Warning "Could not verify the trigger settings (the task WAS registered): $_"
   }
 }
 

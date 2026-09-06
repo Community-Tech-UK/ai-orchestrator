@@ -394,6 +394,23 @@ describe('WS-B10 tool observation normalization', () => {
     });
   });
 
+  it('produces no argsHash for an ACP kind-only argument object', () => {
+    // Cursor's grep and Read File arrive as `rawInput: {}`; the adapter emits
+    // `{ kind }` alone. Hashing that made every grep in a session "identical"
+    // and tripped repeat-no-progress on genuinely different searches.
+    const grep = toProviderToolUseObservedEvent({ id: 'c-1', name: 'grep', arguments: { kind: 'search' } });
+    expect(grep.argsHash).toBeUndefined();
+    expect(grep.argsSummary).toBe(JSON.stringify({ kind: 'search' }));
+    const read = toProviderToolUseObservedEvent({ id: 'c-2', name: 'Read File', arguments: { kind: 'read', rawInput: {} } });
+    expect(read.argsHash).toBeUndefined();
+
+    // Real input still hashes, and differently per command.
+    const wc = toProviderToolUseObservedEvent({ id: 'c-3', name: '`wc -l`', arguments: { kind: 'execute', rawInput: { command: 'wc -l a' } } });
+    const ls = toProviderToolUseObservedEvent({ id: 'c-4', name: '`ls`', arguments: { kind: 'execute', rawInput: { command: 'ls' } } });
+    expect(wc.argsHash).toEqual(expect.any(String));
+    expect(ls.argsHash).not.toBe(wc.argsHash);
+  });
+
   it('truncates an overlong summary', () => {
     const longResult = 'y'.repeat(500);
     const event = toProviderToolResultObservedEvent({ id: 'tool-3', name: 'Bash', arguments: {}, result: longResult });

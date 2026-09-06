@@ -2,8 +2,9 @@
  * Visibility filtering for the output-stream display items.
  *
  * Strips items that the current display settings hide — tool-groups (when tool
- * calls are hidden) and empty thought-groups (when thinking is hidden) — from
- * both the top level and from inside work-cycle children. This keeps a
+ * calls are hidden), empty thought-groups (when thinking is hidden) and
+ * provider progress notes (when those are set to Hidden) — from both the top
+ * level and from inside work-cycle children. This keeps a
  * collapsed work-cycle's summary honest: it must not advertise "1 thought" or
  * "2 Bash" for content that would render to an empty box. Work-cycles whose
  * children all get filtered out are dropped entirely.
@@ -19,6 +20,7 @@
  */
 
 import type { DisplayItem } from './display-item-processor.service';
+import { isProgressNoteMessage } from './progress-note';
 
 export interface DisplayItemFilterOptions {
   /** Drop tool-group items (and tool-group children of work-cycles). */
@@ -36,6 +38,13 @@ export interface DisplayItemFilterOptions {
    * content-inspection logic (which lives in MessageFormatService).
    */
   isThoughtGroupEmpty: (item: DisplayItem) => boolean;
+  /**
+   * Drop assistant messages a provider wrote to its commentary channel. Only
+   * set when the operator picks "Hidden" for progress notes; the default
+   * collapses them instead, because during a long turn they are the only
+   * content the transcript has.
+   */
+  hideProgressNotes: boolean;
 }
 
 /** True when the thought-group carries any non-empty reasoning/narration text. */
@@ -67,9 +76,13 @@ function resolveItemForDisplay(
   item: DisplayItem,
   options: DisplayItemFilterOptions,
 ): DisplayItem | null {
-  const { hideToolGroups, hideEmptyThoughts, isThoughtGroupEmpty } = options;
+  const { hideToolGroups, hideEmptyThoughts, hideProgressNotes, isThoughtGroupEmpty } = options;
 
   if (hideToolGroups && item.type === 'tool-group') {
+    return null;
+  }
+
+  if (hideProgressNotes && item.type === 'message' && isProgressNoteMessage(item.message)) {
     return null;
   }
 
@@ -90,8 +103,8 @@ export function filterDisplayItems<T extends DisplayItem>(
   items: T[],
   options: DisplayItemFilterOptions,
 ): T[] {
-  const { hideToolGroups, hideEmptyThoughts } = options;
-  if (!hideToolGroups && !hideEmptyThoughts) {
+  const { hideToolGroups, hideEmptyThoughts, hideProgressNotes } = options;
+  if (!hideToolGroups && !hideEmptyThoughts && !hideProgressNotes) {
     return items;
   }
 

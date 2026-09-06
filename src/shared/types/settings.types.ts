@@ -33,6 +33,7 @@ import type {
   DefaultMissedRunPolicy,
   DisplayDensity,
   PauseReachabilityProbeMode,
+  ProgressNoteDisplay,
   ProjectPluginTrust,
   SidebarStyle,
   ThemeMode,
@@ -579,6 +580,8 @@ export interface AppSettings extends DesktopComputerUseSettings {
   notifyOnLoopTerminal: boolean;
   /** N10: when notifications make a sound — always, only when unfocused, or never. */
   notificationSoundMode: 'always' | 'blurred' | 'never';
+  /** UX5: hint ids the user has dismissed. Dismissed means gone for good. */
+  dismissedHints: string[];
   /** Minimum interval between desktop notifications of the same kind. */
   notificationCooldownSeconds: number;
   /** Keep normal-priority desktop notifications in the in-app center overnight. */
@@ -777,6 +780,16 @@ export interface AppSettings extends DesktopComputerUseSettings {
    * ResizeObserver or extra scroll listener is attached.
    */
   transcriptVirtualization: boolean;
+
+  /**
+   * How the transcript renders provider commentary — assistant messages a CLI
+   * wrote to its running-update channel rather than as the turn's answer. Codex
+   * emits one at least every 60 s per its base prompt (`phase: "commentary"`).
+   *
+   * DEFAULT: `compact` — dimmed and clamped, one click from full text. Not
+   * `hidden`: during a long turn these are the only transcript content there is.
+   */
+  progressNoteDisplay: ProgressNoteDisplay;
 }
 
 export { SETTINGS_METADATA } from './settings-metadata';

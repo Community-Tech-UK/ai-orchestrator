@@ -5,6 +5,9 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { SettingsStore } from '../../core/state/settings.store';
 import { SettingRowComponent } from './setting-row.component';
+import { SettingsProfileRowComponent } from './settings-profile-row.component';
+import { InlineHintComponent } from '../../shared/hint/inline-hint.component';
+import { activeProfile } from '../../../../shared/types/settings-profiles';
 import type { AppSettings } from '../../../../shared/types/settings.types';
 import { getPrimaryModelForProvider } from '../../../../shared/types/provider.types';
 import { AppUpdateSettingsComponent } from './app-update-settings.component';
@@ -26,7 +29,13 @@ const DEFAULT_MODEL_PROVIDERS: DefaultModelProvider[] = [
 @Component({
   selector: 'app-general-settings-tab',
   standalone: true,
-  imports: [SettingRowComponent, AppUpdateSettingsComponent, CompactModelPickerComponent],
+  imports: [
+    SettingRowComponent,
+    AppUpdateSettingsComponent,
+    CompactModelPickerComponent,
+    SettingsProfileRowComponent,
+    InlineHintComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="settings-list-card default-model" aria-label="Default provider and model">
@@ -117,6 +126,13 @@ const DEFAULT_MODEL_PROVIDERS: DefaultModelProvider[] = [
       </div>
     </section>
 
+    <section class="settings-list-card" aria-label="Run profile">
+      <!-- UX5: earned, not shown on every visit — it appears only once the user
+           has enough instances for profiles to be worth explaining. -->
+      <app-inline-hint hintId="settings-overview-profiles" [condition]="hasNotFoundProfiles()" />
+      <app-settings-profile-row class="settings-list-item" />
+    </section>
+
     <section class="settings-list-card" aria-label="General settings">
       @for (setting of genericGeneralSettings(); track setting.key) {
         <app-setting-row
@@ -134,6 +150,16 @@ const DEFAULT_MODEL_PROVIDERS: DefaultModelProvider[] = [
 export class GeneralSettingsTabComponent {
   store = inject(SettingsStore);
   readonly defaultModelProviders = DEFAULT_MODEL_PROVIDERS;
+
+  /**
+   * UX5 gate: mention profiles only to someone still on the interactive
+   * defaults, i.e. who has not found them. Once you are on Overnight — or have
+   * hand-tuned a custom mix — the hint has nothing left to tell you, so it
+   * stops appearing without ever needing to be dismissed.
+   */
+  protected readonly hasNotFoundProfiles = computed(
+    () => activeProfile(this.store.settings()) === 'interactive',
+  );
 
   readonly genericGeneralSettings = computed(() =>
     this.store.generalSettings().filter(

@@ -113,6 +113,27 @@
         -webkit-line-clamp: 8;
       }
 
+      /* Provider progress notes — the running commentary a CLI emits during a
+         turn, as opposed to its final answer. Dimmed and clamped so a long turn
+         reads as one thread of work rather than a stack of near-identical
+         status bubbles. Full text stays one click away. */
+      .message.progress-note {
+        opacity: 0.72;
+        border-left: 2px solid var(--border-color);
+        padding-left: 8px;
+      }
+
+      .message.progress-note:hover {
+        opacity: 1;
+      }
+
+      .message.progress-note .markdown-content.progress-note-collapsed {
+        display: -webkit-box;
+        overflow: hidden;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+      }
+
       .message-expand-btn {
         display: inline-flex;
         align-items: center;

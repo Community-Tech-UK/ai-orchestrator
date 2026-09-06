@@ -234,7 +234,15 @@ export class DisplayItemProcessor {
                 : msg.content;
             target[targetIdx] = {
               ...target[targetIdx],
-              message: { ...target[targetIdx].message!, content: accumulatedContent },
+              message: {
+                ...target[targetIdx].message!,
+                content: accumulatedContent,
+                // Take the latest metadata, not the first frame's. Codex only
+                // learns an assistant message's phase at `item/completed`,
+                // after every delta has been emitted, so keeping the original
+                // bag would pin the bubble to phase-less metadata forever.
+                metadata: msg.metadata,
+              },
             };
           }
           continue;

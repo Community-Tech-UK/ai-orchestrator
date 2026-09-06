@@ -95,47 +95,6 @@ export class SettingsIpcService {
   // Configuration (Hierarchical)
   // ============================================
 
-  /**
-   * Resolve configuration for a working directory
-   * Returns merged config with source tracking (project > user > default)
-   */
-  async resolveConfig(workingDirectory?: string): Promise<IpcResponse> {
-    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.resolveConfig(workingDirectory);
-  }
-
-  /**
-   * Get project config from a specific path
-   */
-  async getProjectConfig(configPath: string): Promise<IpcResponse> {
-    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.getProjectConfig(configPath);
-  }
-
-  /**
-   * Save project config to a specific path
-   */
-  async saveProjectConfig(configPath: string, config: Record<string, unknown>): Promise<IpcResponse> {
-    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.saveProjectConfig(configPath, config);
-  }
-
-  /**
-   * Create a new project config file
-   */
-  async createProjectConfig(projectDir: string, config?: Record<string, unknown>): Promise<IpcResponse> {
-    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.createProjectConfig(projectDir, config);
-  }
-
-  /**
-   * Find project config path by searching up the directory tree
-   */
-  async findProjectConfig(startDir: string): Promise<IpcResponse> {
-    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.findProjectConfig(startDir);
-  }
-
   // ============================================
   // Remote Config
   // ============================================

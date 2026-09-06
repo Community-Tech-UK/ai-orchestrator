@@ -1,5 +1,33 @@
 # Token & Memory Optimization Suite — Implementation Plan
 
+> **RECONCILED 2026-09-04** (gate G5 of `2026-09-03-enhancements-backlog_plan.md`, task W4.1).
+> This plan sat unsuffixed since February while parts of it silently shipped. Verified against
+> today's tree by reading the executing call paths, not by grepping for symbol names:
+>
+> | Task | State | Evidence |
+> |---|---|---|
+> | 1 — Observation masking in smart compaction | **SHIPPED** | `maskStaleToolOutputs` defined at `src/main/rlm/smart-compaction.ts:706` and called on the live compaction path at `:463`. |
+> | 2 — Token-efficient tool-use header | **SHIPPED, differently than specified** | **Correction 2026-09-06 (adversarial second pass on the W4.6 wave gate): the prior "no header anywhere" claim was false** — `token-efficient-tools-2025-02-19` is sent on every Anthropic API call: `anthropic-api-provider.ts:278` (standard `.create()` path), `:495` (`.countTokens()` path), and `context-editing-fallback.ts:322` (the context-editing fallback path, via its `betas` array). It differs from Task 2's spec in three ways: applied per-request inside each call rather than via `defaultHeaders` at client construction; uses beta version `2025-02-19` rather than the spec's `2025-05-14`; and has no `enableTokenEfficientTools` config toggle to disable it — it is unconditional. Functionally shipped; the original spec's exact shape (configurable, set once at init) was not followed. |
+> | 3–5 — Output supervisor (truncation, loop detection, pipeline wiring) | **NOT SHIPPED** | No `OutputSupervisor` symbol exists. Superseded in intent by T7 of the enhancements plan (truncate-to-disk + prune on the CHILD session), which targets the loop path this one never reached. |
+> | 6–7 — AgentDropout (early consensus, debate round skipping) | **NOT SHIPPED** | No `AgentDropout` symbol exists. |
+> | 8–9 — Event-based decision logs | **NOT SHIPPED** | No `DecisionLog` / `decision_logs` symbol or table. |
+> | 10 — Parent context compression | **NOT SHIPPED** | No implementation. Overlaps T10 of the enhancements plan (bootstrap caps on a fresh window). |
+> | 11–12 — Conflict detector for Memory-R1 | **SHIPPED** | `src/main/memory/conflict-detector.ts`, exported from `memory/index.ts:100`, and genuinely wired: `observation-store.ts:72` calls `detectObservationConflicts` from `storeObservation`, which calls `getConflictDetector().heuristicCheck` at `:517`. |
+> | 13 — Final integration verification | **NOT RUN** | Blocked on the tasks above. |
+>
+> **Decision:** the shipped tasks (1, 2, 11, 12) are done and need no further work. Task 2's
+> deviation from spec (unconditional, per-request, older beta version) is accepted as-is — nobody
+> has asked to disable token-efficient-tools, so the missing config toggle is not a gap worth
+> building for. The rest are
+> DEFERRED rather than abandoned — tasks 3–5 and 10 are partly superseded by T7/T10 of the
+> enhancements plan, which aim the same idea at the loop transcript (the surface that actually
+> costs money) instead of the RLM session objects this plan targeted. Do not implement 3–5 or 10
+> from here without first checking those items.
+>
+> This plan therefore stays open only for tasks 6–9 and 13. Nothing under `src/main/context/`
+> should be edited against this document without re-reading this block first (G5).
+
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Implement 7 token/memory optimizations that reduce costs 20-50% across compaction, verification, child spawning, and memory management.

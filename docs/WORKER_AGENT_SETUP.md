@@ -293,21 +293,88 @@ The registered task differs from the old hand-made one in two ways that matter:
   worker's lifetime, so Task Scheduler tracks real liveness. The old
   `cmd /c start ... /min` detached, so the task "succeeded" instantly and
   `RestartOnFailure` could never fire.
-- The trigger is logon **plus a repetition every 5 minutes**, so a worker that
-  *exits* mid-session is picked up within minutes instead of at the next logon.
+- There are **two triggers**. A logon trigger starts the worker promptly at
+  logon, and a separate **time trigger repeating every 5 minutes** is the
+  keep-alive, so a worker that *exits* mid-session is picked up within minutes.
   `MultipleInstancesPolicy=IgnoreNew` plus the worker's own single-instance lock
   make the repeat a no-op while it is healthy.
 
-Verified on 2026-09-04 by registering a scratch task and exporting its XML. The
-logon trigger serialises as `<Repetition><Interval>PT5M</Interval>
-<StopAtDurationEnd>true</StopAtDurationEnd></Repetition>` — an interval with **no
-`<Duration>` element**, which is what the Task Scheduler UI's "Indefinitely"
-produces (`StopAtDurationEnd` is inert without a duration). `ExecutionTimeLimit`
-serialises as `PT0S`. The installer re-exports the task after every registration
-and asserts both of these — the repetition interval with no duration, and
-`ExecutionTimeLimit` equal to `PT0S` — warning rather than trusting them. Note
-that a non-unlimited limit serialises as an *absent* element (meaning "use the
-72-hour default"), so the check treats absent as a warning too.
+The keep-alive is deliberately **not** attached to the logon trigger. A trigger's
+repetition only begins when that trigger activates, so a repetition hung off the
+logon trigger stays dormant until the next logon — and you almost always register
+the task from a session that is already logged on. The XML looks identical either
+way, which is what makes it dangerous.
+
+The installer re-exports the task after every registration and asserts three
+things rather than trusting them:
+
+1. the time trigger's repetition serialises as `<Repetition><Interval>PT5M
+   </Interval><StopAtDurationEnd>true</StopAtDurationEnd></Repetition>` — an
+   interval with **no `<Duration>` element**, which is what the Task Scheduler
+   UI's "Indefinitely" produces (`StopAtDurationEnd` is inert without a duration);
+2. `ExecutionTimeLimit` equals `PT0S`. A non-unlimited limit serialises as an
+   *absent* element (meaning "use the 72-hour default"), so absent is a warning too;
+3. **`NextRunTime` is populated.** This is the only one that proves the keep-alive
+   is armed in the current session; the first two can all pass on a task Task
+   Scheduler is not counting down. If it is blank, the keep-alive is not running.
+
+### Elevating can put you in a different account
+
+Registering over an existing task requires an **elevated** PowerShell. Without it
+the launcher files still deploy and only the task step is refused.
+
+**Check `whoami` in that elevated shell before you run anything.** If "Run as
+administrator" signs you into a separate admin account rather than elevating your
+own, every default in the installer silently follows that account: `$env:USERPROFILE`
+and therefore `-InstallRoot`, plus the task's principal and logon trigger. On
+2026-09-06 that produced a task registered for `9950x3d\CTAdmin`, pointing at
+`C:\Users\CTAdmin\.orchestrator\run-worker-hidden.vbs`. It reported an armed
+`NextRunTime` and could never run — `LogonType Interactive` for an account with no
+interactive session just accumulates missed runs — and undoing it needed elevation
+all over again.
+
+Three things now guard against it.
+
+`-WorkerUser` names the account the worker runs as (defaulting to the current user)
+and drives both the principal and the logon trigger.
+
+Before anything is written — whether or not `-RegisterTask` was passed, since the
+launcher files deploy either way — the installer resolves that account's real
+profile directory from its SID and **refuses to run** if `-InstallRoot` does not sit
+inside it, printing a corrected command that carries every parameter already in
+force — including `-WhatIf`, since the guard fires during a dry run too and a
+correction that quietly performed the real install would be worse than the mistake
+it is correcting.
+
+That check compares `-InstallRoot` against `-WorkerUser`, so it cannot catch the
+case where both defaulted to the *same* wrong account. For that, running elevated
+without an explicit `-WorkerUser` prints a warning naming the account about to be
+used. Only you know which account runs the worker, so it warns rather than refuses:
+where UAC elevates the same account, refusing would be an over-correction.
+
+For a cross-account install, name both:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\install-worker-launcher.ps1 `
+  -RepoPath 'C:\Users\shutu\Documents\Work\orchestrat0r\ai-orchestrator' `
+  -InstallRoot 'C:\Users\shutu\.orchestrator' `
+  -WorkerUser '9950X3D\shutu' -RegisterTask
+```
+
+Separately, the installer warns up front when a task already exists *and* the shell
+is not elevated — the one combination that actually gets refused, since creating a
+task for the current user usually does not need elevation. If registration is
+refused anyway, it prints the exact command to re-run, carrying through whatever
+`-InstallRoot`, `-WorkerUser`, `-TaskName` and `-RepeatMinutes` were in force.
+
+That message names a cause only when it knows one. It checks whether the task
+already existed as a **tri-state** — yes, no, or unknown — because
+`-ErrorAction SilentlyContinue` on a name lookup hides a stopped Task Scheduler
+service just as well as it hides an absent task. Told "no" while the service was
+down, the installer would confidently rule elevation out and send you hunting a
+bad principal instead. So: *yes* gets the elevation advice, *no* says elevation is
+probably not the cause and lists the likely alternatives, and *unknown* says
+plainly that neither can be ruled out and to check the service first.
 
 **Known limit: this recovers from a worker that DIES, not one that HANGS.** The
 action blocks for the worker's lifetime, and `ExecutionTimeLimit` is `PT0S`
@@ -346,9 +413,79 @@ The second one is the point: a template-only stamp cannot see a hand-edited
 deployed file, which is exactly how the original drift went unnoticed. Tracking
 the template made it *reviewable*; these stamps make divergence *detectable*.
 
-It only warns — rewriting the deployed `.bat` while it is executing is the
-byte-offset hazard described above — and a missing stamp, missing `certutil` or
-unexpected output all fail silently rather than blocking startup.
+**Both stamp comparisons are guarded on the stamp existing, so neither can see a
+host where the installer was never run at all.** That is a third and different
+failure, and it is the one that caused the 2026-09-05 outage: `windows-pc` had
+picked up the tracked `--supervise` fix by `git pull`, so the worker looked
+correct, while the scheduled task was still the old detached `cmd /c start` form
+and no `run-worker-hidden.vbs` or stamps existed. `start-worker.bat` therefore
+also checks the five things an install produces — the deployed `.bat`, the
+`.vbs`, both stamps, and **the scheduled task itself** — and warns, naming each
+missing one, when any is absent. Silence from the drift check is not evidence of
+a healthy install; only the absence of *both* warnings is.
+
+The task probe is not redundant with the four files. All four are written *before*
+the installer's `-RegisterTask` gate, so their presence proves the launcher was
+deployed and nothing more: install without `-RegisterTask`, or lose the task later
+to a GPO reset, an AV sweep or a re-registration refused for lack of elevation,
+and every file is still on disk while nothing is left to start the worker.
+
+The probe reports two distinct states. **Missing** — no such task. **Stale** — the
+task exists but its action does not point at **this host's own**
+`%USERPROFILE%\.orchestrator\run-worker-hidden.vbs`, so it is the old hand-made
+`cmd /c start ... /min` shape, or a launcher in someone else's profile, or
+something else entirely. That is precisely what windows-pc had all through the
+2026-09-05 outage, and a bare existence check would have called it healthy.
+
+The comparison is against the **full path**, not the filename. A filename-only
+match reported a task pointing at `C:\Users\CTAdmin\.orchestrator\run-worker-hidden.vbs`
+as healthy on 2026-09-06 — a launcher in an admin account's profile that the worker
+user could not even read.
+
+It runs `Get-ScheduledTask` through PowerShell rather than `schtasks`, and the
+reason is worth keeping. `schtasks /fo list /v` prints one flat verbose record, so
+grepping it for the launcher filename also matches the `Comment` and `Author`
+fields — a task merely *documented* as running the `.vbs`, while still carrying the
+old action, would be waved through. Narrowing the grep to the `Task To Run` label
+would be worse still, because that label is localised. `Get-ScheduledTask` exposes
+`Execute` and `Arguments` on their own, and enumerates every task folder, which
+keeps the probe consistent with the installer's own preservation of a non-root
+`TaskPath`.
+
+It enumerates and then filters, rather than asking for the one name with
+`-ErrorAction SilentlyContinue`. That shorthand suppresses *every* non-terminating
+error, so a stopped Task Scheduler service would be reported as "missing" and send
+the reader off to re-run an installer that cannot fix it. Listing throws on a real
+service or permission fault, and only a successful listing that does not contain
+the name means missing.
+
+The probe communicates by exit code: **0** healthy, **2** missing, **3** stale.
+**1, or anything else, means it could not answer and nothing is printed** — so a
+blocked or absent PowerShell fails open exactly like the `certutil` steps. The
+batch side guards on `errorlevel 4` before testing 3 and 2, because `if errorlevel`
+means "greater than or equal": without that guard a PowerShell that failed to
+launch at all (cmd reports 9009) would be read as "stale".
+
+Disabled tasks are deliberately *not* flagged: `Disable-ScheduledTask` is the
+documented way to stop the worker on purpose.
+
+When the install is incomplete, the drift warning is **suppressed**. Otherwise a
+deleted `start-worker-autoupdate.bat` alongside a moved-on template would print
+`missing: ...start-worker-autoupdate.bat` and then claim that same file "was
+hand-edited". The remedy is the same installer re-run either way.
+
+Three limits worth knowing. `start-worker.bat` hardcodes
+`%USERPROFILE%\.orchestrator` and cannot discover an `-InstallRoot` override, so a
+successful install under a custom root makes this warning fire on every start.
+The same applies to `-TaskName`: the batch file looks for the default
+`AI Orchestrator Worker`, so a task registered under any other name reads as
+missing. Leave both at their defaults on any machine that actually runs the
+worker. And the warning only ever warns — it never changes the exit code or blocks
+startup.
+
+All three checks only warn. Rewriting the deployed `.bat` while it is executing is
+the byte-offset hazard described above, and a missing `certutil` or unexpected
+hash output still fails silently rather than blocking startup.
 
 ### Post-Mortem Evidence After a Silent Death
 

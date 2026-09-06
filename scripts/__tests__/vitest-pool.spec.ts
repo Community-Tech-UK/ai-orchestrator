@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { testMaxForks } from '../../vitest.pool';
+import { availableParallelism } from 'node:os';
+import { sampleBusyCores, testMaxForks } from '../../vitest.pool';
 
 /**
  * Both Vitest projects ran `singleFork: true` until 2026-08-20, which put every
@@ -70,6 +71,38 @@ describe('test worker fan-out', () => {
     // some special way, just the plain core-count path.
     expect(testMaxForks(4, 0)).toBe(3);
     expect(testMaxForks(18, 0)).toBe(8);
+  });
+
+  it('prefers the measured busy-core count over a stale load average', () => {
+    // 2026-09-05: a loop agent's own `npm run verify` had just finished, so
+    // load1 was 25 on 18 cores while the host was idle again. Sizing from
+    // load1 gave the coordinator's verify one fork and a 600s timeout.
+    expect(testMaxForks(18, 25, 1.2)).toBe(8);
+    // The measurement is also what catches a burst load1 has not seen yet.
+    expect(testMaxForks(18, 2, 15.4)).toBe(1);
+    expect(testMaxForks(18, 2, 9.5)).toBe(7);
+  });
+
+  it('falls back to the load average when the host cannot be sampled', () => {
+    expect(testMaxForks(18, 25, null)).toBe(1);
+    expect(testMaxForks(18, 6, null)).toBe(8);
+  });
+
+  it('samples busy cores as a value between zero and the core count', () => {
+    const busy = sampleBusyCores(50);
+    expect(busy).not.toBeNull();
+    expect(busy).toBeGreaterThanOrEqual(0);
+    expect(busy).toBeLessThanOrEqual(availableParallelism());
+  });
+
+  it('returns null instead of throwing when the sleep primitive is unavailable', () => {
+    const original = Atomics.wait;
+    Atomics.wait = (() => { throw new TypeError('Atomics.wait cannot be called in this context'); }) as typeof Atomics.wait;
+    try {
+      expect(sampleBusyCores(10)).toBeNull();
+    } finally {
+      Atomics.wait = original;
+    }
   });
 
   it('keeps singleFork out of the default config', () => {
