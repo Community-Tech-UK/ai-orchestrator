@@ -39,9 +39,16 @@ npx tsc --noEmit -p tsconfig.spec.json
 npm run lint
 npm run check:ts-max-loc
 npm run build:main
+npm run build:renderer
 npm run test:quiet
 ```
 
+- `npm run build:renderer` is a required gate for the same reason `build:main` is,
+  and was added after a broken production build shipped invisibly past all the
+  other checks. Neither `tsc --noEmit` invocation compiles Angular templates, so
+  a template type error, a bad binding, or an AOT failure is green everywhere
+  else and only fails when someone actually builds the UI. This is the LT-012
+  class of gap on the renderer side.
 - `npm run build:main` is a required gate, not an optional extra. Neither `tsc --noEmit`
   invocation reads `tsconfig.electron.json`, so both can be green while the app cannot be
   rebuilt at all — that is exactly how LT-012 shipped three days of stale `dist/main` code.

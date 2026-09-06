@@ -1,0 +1,4 @@
+# T37 (.worktreeinclude): gitignored paths symlinked into a fresh worktree
+# after `git worktree add`, so an isolated loop can run its verify command
+# instead of failing on an empty tree. See src/main/workspace/git/worktree-include.ts.
+node_modules
