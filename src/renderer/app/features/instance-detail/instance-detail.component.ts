@@ -1245,6 +1245,10 @@ export class InstanceDetailComponent {
       || inst.status === 'cancelling'
       || inst.status === 'interrupt-escalating'
     ) {
+      // B7: park BEFORE the interrupt. The interrupt drives the session back to
+      // `idle`, and both drain triggers treat `idle` as "go" — parking after
+      // the await would lose the race with the queue it is meant to hold.
+      this.store.parkQueueAfterInterrupt(inst.id);
       const interrupted = await this.store.interruptInstance(inst.id);
       if (!interrupted) {
         // Interrupt was rejected (e.g., status desync between frontend and backend).

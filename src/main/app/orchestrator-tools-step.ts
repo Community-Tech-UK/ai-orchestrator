@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { isVisibleOutputMessage } from '../../shared/types/tool-outcome';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { resolveCliType } from '../cli/adapters/adapter-factory';
 import { DEFAULT_SETTINGS } from '../../shared/types/settings.types';
@@ -558,7 +559,9 @@ export function createOrchestratorToolsStep(
             instanceId: instance.id,
             status: instance.status,
             done: !WORKING_STATUSES.has(instance.status),
-            buffer: instance.outputBuffer ?? [],
+            // LT-196: the invisible tool-outcome record is miner-only and has no
+            // place in an agent-facing node-output read.
+            buffer: (instance.outputBuffer ?? []).filter(isVisibleOutputMessage),
             limit: args.limit,
             afterSeq: args.afterSeq,
             maxContentChars: MAX_MESSAGE_CONTENT,

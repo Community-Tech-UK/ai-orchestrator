@@ -562,9 +562,11 @@
       [messages]="queuedMessages()"
       [holdReasonLabel]="holdReasonLabel()"
       [canSteer]="canSteerActiveTurn()"
+      [parked]="queueParked()"
       (editMessage)="onEditQueuedMessage($event)"
       (steerMessage)="onSteerQueuedMessage($event)"
       (cancelMessage)="onCancelQueuedMessage($event)"
+      (resumeQueue)="onResumeQueue()"
     />
   }
 </div>

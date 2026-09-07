@@ -20,6 +20,10 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
   standalone: true,
   imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  // UX4.2 — the anchor settings search scrolls to. On the host rather than the
+  // inner div so a caller can find the row without knowing this component's
+  // internal markup.
+  host: { '[attr.data-setting-key]': 'setting().key' },
   template: `
     <div class="setting-row" [attr.data-tone]="rowTone()">
       <div class="setting-info">

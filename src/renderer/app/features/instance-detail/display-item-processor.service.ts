@@ -124,7 +124,11 @@ export class DisplayItemProcessor {
 
     for (let i = messages.length - 1; i >= 0; i--) {
       const message = messages[i];
-      if (!this.isTransientHealthWarning(message) || !hasLaterSessionOutput) {
+      // LT-196: `tool_outcome` is a miner-only record with no visual form. It
+      // is dropped here, centrally, so it can never reach a display item and
+      // reintroduce the tool noise LT-062 removed.
+      const hidden = message.type === 'tool_outcome';
+      if (!hidden && (!this.isTransientHealthWarning(message) || !hasLaterSessionOutput)) {
         entries.push({ message, bufferIndex: historyOffset + i });
       }
       if (this.isSessionOutput(message)) {

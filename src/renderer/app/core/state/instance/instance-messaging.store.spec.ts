@@ -583,6 +583,124 @@ describe('InstanceMessagingStore', () => {
     ]);
   });
 
+  describe('B7 — Stop parks the queue instead of draining it', () => {
+    beforeEach(() => {
+      // These tests deliberately let a send through, unlike the quota-park
+      // block above which only ever asserts that nothing was sent. Without a
+      // resolved response the drain path rejects on `response.success`.
+      ipcMock.sendInput.mockResolvedValue({ success: true });
+    });
+
+    function parkedWithOneQueued() {
+      const currentStore = store!;
+      const currentStateService = stateService!;
+      currentStateService.addInstance(createInstance({ status: 'idle' }));
+      currentStateService.messageQueue.set(
+        new Map([['inst-1', [{ message: 'queued before Stop' }]]]),
+      );
+      currentStore.parkQueueAfterInterrupt('inst-1');
+      return currentStore;
+    }
+
+    it('holds the queue across the 2-second watchdog', async () => {
+      const currentStore = parkedWithOneQueued();
+      await vi.advanceTimersByTimeAsync(2100);
+      expect(ipcMock.sendInput).not.toHaveBeenCalled();
+      expect(currentStore.getQueuedMessageCount('inst-1')).toBe(1);
+    });
+
+    it('holds the queue against a direct drain on the next ready transition', async () => {
+      const currentStore = parkedWithOneQueued();
+      currentStore.processMessageQueue('inst-1');
+      await vi.advanceTimersByTimeAsync(150);
+      expect(ipcMock.sendInput).not.toHaveBeenCalled();
+      expect(currentStore.getQueuedMessageCount('inst-1')).toBe(1);
+    });
+
+    it('sends once the user resumes', async () => {
+      const currentStore = parkedWithOneQueued();
+      currentStore.resumeParkedQueue('inst-1');
+      await vi.advanceTimersByTimeAsync(150);
+      expect(ipcMock.sendInput).toHaveBeenCalled();
+    });
+
+    it('does not park when Stop is pressed with an empty queue', async () => {
+      const currentStore = store!;
+      const currentStateService = stateService!;
+      currentStateService.addInstance(createInstance({ status: 'idle' }));
+      currentStore.parkQueueAfterInterrupt('inst-1');
+      expect(currentStore.isQueueParked('inst-1')).toBe(false);
+
+      // A message queued afterwards must still send: the user never asked to
+      // hold this one.
+      currentStateService.messageQueue.set(new Map([['inst-1', [{ message: 'later' }]]]));
+      currentStore.processMessageQueue('inst-1');
+      await vi.advanceTimersByTimeAsync(150);
+      expect(ipcMock.sendInput).toHaveBeenCalled();
+    });
+
+    /**
+     * The stale-flag scenario, driven through the REAL cancel path.
+     *
+     * An earlier version of this test emptied the queue by hand and then called
+     * `processMessageQueue` itself — a call no UI action makes — so it proved
+     * only that the self-heal function works, not that anything reaches it. The
+     * production path is `onCancelQueuedMessage` -> `cancelQueuedMessage` ->
+     * `removeFromQueue`, which touches no drain trigger at all: the flag
+     * survived the emptied queue and then blocked the next, unrelated message
+     * for that instance permanently.
+     */
+    it('does not strand a later message after every parked one is cancelled', async () => {
+      const currentStore = store!;
+      const currentStateService = stateService!;
+      currentStateService.addInstance(createInstance({ status: 'idle' }));
+      currentStateService.messageQueue.set(
+        new Map([['inst-1', [{ message: 'first' }, { message: 'second' }]]]),
+      );
+      currentStore.parkQueueAfterInterrupt('inst-1');
+      expect(currentStore.isQueueParked('inst-1')).toBe(true);
+
+      // Cancel each parked message the way the composer does.
+      currentStore.cancelQueuedMessage('inst-1', 1);
+      expect(currentStore.isQueueParked('inst-1')).toBe(true);
+      currentStore.cancelQueuedMessage('inst-1', 0);
+      expect(currentStore.isQueueParked('inst-1')).toBe(false);
+
+      // A completely unrelated later message must send normally.
+      currentStateService.messageQueue.set(new Map([['inst-1', [{ message: 'brand new' }]]]));
+      currentStore.processMessageQueue('inst-1');
+      await vi.advanceTimersByTimeAsync(150);
+      expect(ipcMock.sendInput).toHaveBeenCalled();
+    });
+
+    it('keeps the park while cancelling only some of the queue', async () => {
+      const currentStore = store!;
+      const currentStateService = stateService!;
+      currentStateService.addInstance(createInstance({ status: 'idle' }));
+      currentStateService.messageQueue.set(
+        new Map([['inst-1', [{ message: 'first' }, { message: 'second' }]]]),
+      );
+      currentStore.parkQueueAfterInterrupt('inst-1');
+
+      currentStore.cancelQueuedMessage('inst-1', 0);
+      currentStore.processMessageQueue('inst-1');
+      await vi.advanceTimersByTimeAsync(150);
+      expect(ipcMock.sendInput).not.toHaveBeenCalled();
+      expect(currentStore.getQueuedMessageCount('inst-1')).toBe(1);
+    });
+
+    it('clearing the queue releases the park', () => {
+      const currentStore = parkedWithOneQueued();
+      currentStore.clearMessageQueue('inst-1');
+      expect(currentStore.isQueueParked('inst-1')).toBe(false);
+    });
+
+    it('parks only the stopped instance', () => {
+      const currentStore = parkedWithOneQueued();
+      expect(currentStore.isQueueParked('inst-2')).toBe(false);
+    });
+  });
+
   describe('quota-park gating (2026-07-11 park-fix)', () => {
     it('does not drain a quota-parked instance even though it sits at idle', async () => {
       const currentStore = store!;

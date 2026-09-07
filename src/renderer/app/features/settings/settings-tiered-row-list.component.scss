@@ -1,0 +1,16 @@
+:host { display: contents; }
+
+.settings-tiered-row-list__advanced-toggle {
+  align-self: flex-start;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.65));
+  cursor: pointer;
+  font-size: var(--text-xs, 11px);
+  padding: 8px 12px;
+  text-align: left;
+  width: 100%;
+
+  &:hover { color: var(--text-primary, #fff); }
+  &:focus-visible { outline: 2px solid var(--focus-ring, #6ea8fe); outline-offset: -2px; }
+}

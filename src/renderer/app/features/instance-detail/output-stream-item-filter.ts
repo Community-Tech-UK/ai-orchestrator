@@ -17,6 +17,10 @@
  * it as a collapsed-by-default "Thought process" accordion. The reasoning stays
  * one click away instead of either vanishing or filling the transcript.
  * Thought-groups with no reasoning text at all are still dropped.
+ *
+ * Stripping items leaves thought-groups adjacent that the processor could not
+ * merge (it will not merge across a tool-group). `thought-group-coalescer.ts`
+ * runs after this pass and folds those together.
  */
 
 import type { DisplayItem } from './display-item-processor.service';

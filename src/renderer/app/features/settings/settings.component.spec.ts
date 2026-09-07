@@ -327,4 +327,97 @@ describe('SettingsComponent', () => {
     expect(emit).toHaveBeenCalledOnce();
     expect(router.navigate).toHaveBeenCalledWith(['/']);
   });
+
+  describe('UX4.2 — search lands on a row, not just a tab', () => {
+    /**
+     * `scrollToSettingRow` is a real DOM operation, so these give it a real DOM:
+     * a row element is appended to the component's own host, which is what the
+     * method queries. Nothing here re-implements the search or the scroll.
+     */
+    function addRow(key: string): HTMLElement {
+      const row = document.createElement('div');
+      row.setAttribute('data-setting-key', key);
+      row.scrollIntoView = vi.fn();
+      fixture.nativeElement.appendChild(row);
+      return row;
+    }
+
+    function frame(): Promise<void> {
+      return new Promise((r) => requestAnimationFrame(() => r()));
+    }
+
+    it('offers no jump target for an empty query', () => {
+      component.searchQuery.set('');
+      expect(component.searchRowMatch()).toBeNull();
+    });
+
+    it('finds a real setting and names the tab it lives on', () => {
+      component.searchQuery.set('Context-full warning at');
+      const match = component.searchRowMatch();
+      expect(match?.key).toBe('contextWarningThreshold');
+      expect(match?.tab).toBeTruthy();
+    });
+
+    it('switches to the matched row’s tab', () => {
+      component.searchQuery.set('Context-full warning at');
+      const tab = component.searchRowMatch()!.tab;
+      component.jumpToSearchMatch();
+      expect(component.activeTab()).toBe(tab);
+    });
+
+    it('does nothing when there is no match', () => {
+      const before = component.activeTab();
+      component.searchQuery.set('zzzz-no-such-setting');
+      component.jumpToSearchMatch();
+      expect(component.activeTab()).toBe(before);
+    });
+
+    it('scrolls the row into view and marks it for the landing pulse', async () => {
+      component.searchQuery.set('Context-full warning at');
+      const row = addRow('contextWarningThreshold');
+      component.jumpToSearchMatch();
+      await frame();
+      expect(row.scrollIntoView).toHaveBeenCalled();
+      expect(row.classList.contains('settings-search-landing')).toBe(true);
+    });
+
+    it('opens a collapsed advanced disclosure so a hidden row can be reached', async () => {
+      component.searchQuery.set('Context-full warning at');
+      const toggle = document.createElement('button');
+      toggle.className = 'settings-tiered-row-list__advanced-toggle';
+      toggle.setAttribute('aria-expanded', 'false');
+      const clicked = vi.fn();
+      toggle.addEventListener('click', clicked);
+      fixture.nativeElement.appendChild(toggle);
+
+      component.jumpToSearchMatch();
+      await frame();
+      expect(clicked).toHaveBeenCalled();
+    });
+
+    /**
+     * Deliberately verified by breaking it: with the cancellation check removed
+     * this test fails, which is the only way to know the guard is load-bearing
+     * rather than decorative.
+     */
+    it('stops chasing the row once the user scrolls', async () => {
+      component.searchQuery.set('Context-full warning at');
+      component.jumpToSearchMatch();
+      window.dispatchEvent(new Event('wheel'));
+      const row = addRow('contextWarningThreshold');
+      await frame();
+      await frame();
+      expect(row.scrollIntoView).not.toHaveBeenCalled();
+    });
+
+    it('gives up rather than looping forever when the row never appears', async () => {
+      component.searchQuery.set('Context-full warning at');
+      component.jumpToSearchMatch();
+      for (let i = 0; i < 10; i += 1) await frame();
+      // Adding the row after the retry budget is spent must not resurrect it.
+      const row = addRow('contextWarningThreshold');
+      await frame();
+      expect(row.scrollIntoView).not.toHaveBeenCalled();
+    });
+  });
 });

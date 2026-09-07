@@ -85,6 +85,15 @@ await resolveComponentResources((url) => {
     return Promise.resolve(loopConfigPanelStyles);
   }
 
+  // `resolveComponentResources` is global: it resolves pending resources for
+  // EVERY component left in the shared registry by other specs in this worker,
+  // not just the ones under test here. Rejecting an unrelated resource fails
+  // this whole suite for a component it never renders — which is what happened
+  // when the loop feature gained new components. Resolve the rest to empty.
+  if (url.endsWith('.html') || url.endsWith('.scss')) {
+    return Promise.resolve('');
+  }
+
   return Promise.reject(new Error(`Unexpected component resource: ${url}`));
 });
 
@@ -238,7 +247,9 @@ describe('InputPanelComponent composer autocomplete integration', () => {
         { provide: NewSessionDraftService, useValue: newSessionDraft },
         { provide: SettingsStore, useValue: { defaultYoloMode: signal(false) } },
         { provide: ActionDispatchService, useValue: { dispatch: vi.fn() } },
-        { provide: InstanceStore, useValue: { getInstance: vi.fn(() => undefined) } },
+        { provide: InstanceStore,
+          useValue: { getInstance: vi.fn(() => undefined), isQueueParked: () => false },
+         },
         {
           provide: KeybindingService,
           useValue: { setContext: vi.fn(), onAction: vi.fn(() => vi.fn()) },

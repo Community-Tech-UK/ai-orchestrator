@@ -8,17 +8,37 @@ import type {
   LoopOutstandingItemPayload,
   LoopTerminalIntentPayload,
 } from '@contracts/schemas/loop';
+import type { AwayRecapPayload } from '@contracts/schemas/loop';
 import { ElectronIpcService, type IpcResponse } from './electron-ipc.service';
-import type { AnchorStatus, EvidenceClass } from '../../../../../shared/types/review-evidence';
+import type { AnchorStatus, EvidenceClass, FindingAnchor } from '../../../../../shared/types/review-evidence';
 
 /**
  * WS-A3: renderer-facing summary of a fresh-eyes finding. Mirrors the fields
  * of `FreshEyesFinding` (`src/main/orchestration/loop-fresh-eyes-reviewer.ts`)
  * that the UI actually needs to display; kept local (not imported from main)
- * since the renderer never needs `anchor.quote` or other main-only detail.
+ * rather than because the renderer needs less — N4 widened this to carry the
+ * anchor, which was on the wire all along.
  * All fields beyond `title`/`severity` are optional and absence is normal —
  * older/degraded events simply carry fewer of them.
  */
+/**
+ * N3 — renderer-facing shape of `loop:branch-select`. Mirrors
+ * `BranchSelectResult` (`src/main/orchestration/loop-branch-select.ts`) plus
+ * the run/iteration identity the coordinator spreads alongside it.
+ */
+export interface LoopBranchSelectPayload {
+  loopRunId: string;
+  seq: number;
+  adopted: boolean;
+  reason: string;
+  candidateCount: number;
+  winnerId?: string;
+  winnerProvider?: string;
+  scores?: Record<string, number>;
+  /** The whole round's spend, when any candidate reported a cost. */
+  totalCostUsd?: number;
+}
+
 export interface FreshEyesFindingSummary {
   title: string;
   body?: string;
@@ -27,6 +47,12 @@ export interface FreshEyesFindingSummary {
   advisory?: boolean;
   anchorStatus?: AnchorStatus;
   evidenceClass?: EvidenceClass;
+  /**
+   * N4: the citation — quote plus best-effort file/line hints. This was always
+   * on the wire (`loop-coordinator-completion-gates.ts` emits the findings
+   * unfiltered); only this declaration was narrower than the payload.
+   */
+  anchor?: FindingAnchor;
   /** Set only on a finding demoted from blocking to advisory (WS-A3). */
   demotedReason?: string;
 }
@@ -341,6 +367,22 @@ export class LoopIpcService {
     return fn(limit);
   }
 
+  /**
+   * N12: runs that ended after `awaySince`, summarised. Guarded the same way as
+   * `listRuns` — an older preload has no bridge, and a missing bridge must read
+   * as "unavailable, reload" rather than a silent empty recap.
+   */
+  async getAwayRecap(awaySince: number): Promise<IpcResponse<{ recap: AwayRecapPayload | null }>> {
+    if (!this.api) return notInElectron();
+    const fn = (this.api as unknown as {
+      loopGetAwayRecap?: (since: number) => Promise<IpcResponse<{ recap: AwayRecapPayload | null }>>;
+    }).loopGetAwayRecap;
+    if (typeof fn !== 'function') {
+      return { success: false, error: { message: 'away-recap bridge unavailable. Reload the app.' } };
+    }
+    return fn(awaySince);
+  }
+
   async getIterations(loopRunId: string, fromSeq?: number, toSeq?: number): Promise<IpcResponse<{ iterations: LoopIterationPayload[] }>> {
     if (!this.api) return notInElectron();
     return this.api.loopGetIterations(loopRunId, fromSeq, toSeq) as Promise<IpcResponse<{ iterations: LoopIterationPayload[] }>>;
@@ -510,6 +552,20 @@ export class LoopIpcService {
   onFreshEyesReviewBlocked(cb: (data: { loopRunId: string; signal: string; reviewersUsed: string[]; blockingFindings: FreshEyesFindingSummary[]; summary?: string; demotedFindings?: FreshEyesFindingSummary[]; coverage?: ReviewAngleCoverageSummary[] }) => void): () => void {
     if (!this.api) return () => { /* noop */ };
     return this.api.onLoopFreshEyesReviewBlocked((p) => this.ngZone.run(() => cb(p as { loopRunId: string; signal: string; reviewersUsed: string[]; blockingFindings: FreshEyesFindingSummary[]; summary?: string; demotedFindings?: FreshEyesFindingSummary[]; coverage?: ReviewAngleCoverageSummary[] })));
+  }
+  /**
+   * N3 — a branch-and-select fan-out round.
+   *
+   * Optional-subscribe like its siblings: an older preload has no such method,
+   * and the renderer must degrade to "no card" rather than throwing.
+   */
+  onBranchSelect(cb: (data: LoopBranchSelectPayload) => void): () => void {
+    if (!this.api) return () => { /* noop */ };
+    const subscribe = (this.api as unknown as {
+      onLoopBranchSelect?: (cb: (p: unknown) => void) => () => void;
+    }).onLoopBranchSelect;
+    if (typeof subscribe !== 'function') return () => { /* noop */ };
+    return subscribe((p) => this.ngZone.run(() => cb(p as LoopBranchSelectPayload)));
   }
   onSteeringDowngraded(cb: (data: LoopSteeringDowngradedPayload) => void): () => void {
     if (!this.api) return () => { /* noop */ };

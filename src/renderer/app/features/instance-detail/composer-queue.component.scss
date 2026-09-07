@@ -175,3 +175,31 @@
     color: var(--warning-color, #ffb74d);
   }
 }
+
+/* B7 — the parked-queue banner. */
+.queue-parked {
+  align-items: center;
+  background: rgba(247, 190, 124, 0.12);
+  border: 1px solid rgba(247, 190, 124, 0.4);
+  border-radius: 4px;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  margin: 6px 0;
+  padding: 6px 8px;
+}
+
+.queue-parked__text { font-size: 11px; }
+
+.queue-parked__resume {
+  background: transparent;
+  border: 1px solid rgba(247, 190, 124, 0.55);
+  border-radius: 4px;
+  color: inherit;
+  cursor: pointer;
+  flex: none;
+  font-size: 11px;
+  padding: 2px 10px;
+
+  &:hover { background: rgba(247, 190, 124, 0.18); }
+}

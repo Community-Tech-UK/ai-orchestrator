@@ -30,6 +30,7 @@ import { getSendInputTimeoutMs } from './instance-messaging-send-utils';
 import { canRestartForTerminalSend, getRetryDisposition } from './messaging-retry-disposition';
 import { InstanceStatusReconcilerService } from './instance-status-reconciler.service';
 import { QueuePersistenceService } from './queue-persistence.service';
+import { createQueuePark } from './instance-queue-park';
 
 // Max transient-failure retries before dropping a queued message. Sized so the
 // cumulative wait exceeds one large-context restart (resume failure → replay).
@@ -44,6 +45,10 @@ export class InstanceMessagingStore {
   private pauseStore = inject(PauseStore);
   private statusReconciler = inject(InstanceStatusReconcilerService);
   private queuePersistence = inject(QueuePersistenceService);
+  /** B7 — queues held back after a user-initiated Stop. Signal-backed, so the
+   *  composer's parked banner updates without another change-detection trigger. */
+  private readonly queuePark = createQueuePark();
+
   private queueWatchdog: ReturnType<typeof setInterval> | null = null;
   private interruptRequests = new Map<string, number>();
   private terminalRestartRequests = new Set<string>();
@@ -119,6 +124,28 @@ export class InstanceMessagingStore {
   // ============================================
 
   /**
+   * B7 — hold this instance's queue after the user pressed Stop.
+   *
+   * Called from the user-facing Stop handler only. `interruptInstance` itself
+   * is also used internally to deliver a steer, and parking there would park
+   * the queue the steer is draining.
+   */
+  parkQueueAfterInterrupt(instanceId: string): void {
+    this.queuePark.park(instanceId, this.getQueuedMessageCount(instanceId));
+  }
+
+  /** B7 — the explicit Resume action on the parked-queue banner. */
+  resumeParkedQueue(instanceId: string): void {
+    this.queuePark.unpark(instanceId);
+    this.processMessageQueue(instanceId);
+  }
+
+  /** B7 — whether the composer should show the parked banner. */
+  isQueueParked(instanceId: string): boolean {
+    return this.queuePark.isParked(instanceId);
+  }
+
+  /**
    * Get queued message count for an instance (reactive)
    */
   getQueuedMessageCount(instanceId: string): number {
@@ -136,6 +163,8 @@ export class InstanceMessagingStore {
    * Clear the message queue for an instance
    */
   clearMessageQueue(instanceId: string): void {
+    // B7: clearing the queue removes the thing being held back.
+    this.queuePark.unpark(instanceId);
     const cleared = this.stateService.messageQueue().get(instanceId);
     this.stateService.messageQueue.update((map) => {
       const newMap = new Map(map);
@@ -195,6 +224,7 @@ export class InstanceMessagingStore {
     if (!queue || index < 0 || index >= queue.length) return null;
 
     const removed = queue[index];
+    let emptied = false;
 
     this.stateService.messageQueue.update((map) => {
       const newMap = new Map(map);
@@ -205,11 +235,21 @@ export class InstanceMessagingStore {
       ];
       if (newQueue.length === 0) {
         newMap.delete(instanceId);
+        emptied = true;
       } else {
         newMap.set(instanceId, newQueue);
       }
       return newMap;
     });
+
+    // B7: unpark HERE, at the mutation that empties the queue.
+    //
+    // The park's self-heal in `processMessageQueue` is not enough on its own:
+    // cancelling queued messages one at a time never calls it, so the flag
+    // survived an emptied queue and then blocked the next, unrelated message
+    // for that instance — permanently, since the heal only fires on an empty
+    // queue and by then the queue was no longer empty.
+    if (emptied) this.queuePark.unpark(instanceId);
 
     return removed;
   }
@@ -601,6 +641,10 @@ export class InstanceMessagingStore {
     this.terminalRestartRequests.delete(instanceId);
 
     const queue = this.stateService.messageQueue().get(instanceId);
+    // B7: checked BEFORE the empty-queue return, because this is also the
+    // self-heal — an empty queue clears a park flag that would otherwise
+    // strand the next message queued for this instance.
+    if (this.queuePark.blocksDrain(instanceId, queue?.length ?? 0)) return;
     if (!queue || queue.length === 0) return;
 
     // Take the first message from the queue. It is NOT removed from the

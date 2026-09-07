@@ -175,6 +175,24 @@ function runVitest() {
   });
 }
 
+// Vitest builds its timeout error by overwriting the error's stack with a
+// placeholder captured at collection time (`new Error('STACK_TRACE_ERROR')`),
+// which clobbers the "Test timed out in Nms." header. The jest-style JSON
+// report only carries that stack, so a timed-out test reaches us as a bare
+// `Error: STACK_TRACE_ERROR` with no hint that it was a timeout at all — which
+// is exactly how a permanently red CI shard read as an unexplained crash.
+// Restore the meaning; the stack frames underneath are still the useful ones
+// (they point at the `it(...)` call site).
+const VITEST_TIMEOUT_PLACEHOLDER = 'Error: STACK_TRACE_ERROR';
+
+function explainTimeoutMessage(message, durationMs) {
+  if (typeof message !== 'string' || !message.startsWith(VITEST_TIMEOUT_PLACEHOLDER)) {
+    return message;
+  }
+  const ran = Number.isFinite(durationMs) ? ` after ~${Math.round(durationMs)}ms` : '';
+  return `Error: test or hook timed out${ran} (vitest drops its timeout message from the JSON report; raise the timeout argument on the test below or fix what is hanging)${message.slice(VITEST_TIMEOUT_PLACEHOLDER.length)}`;
+}
+
 /** Parse vitest's jest-compatible JSON report into a tidy failure list + totals. */
 function readReport() {
   let raw;
@@ -194,10 +212,11 @@ function readReport() {
     const file = suite.name ? path.relative(ROOT, suite.name) : '(unknown file)';
     for (const a of suite.assertionResults || []) {
       if (a.status === 'failed') {
+        const messages = Array.isArray(a.failureMessages) ? a.failureMessages : [];
         failures.push({
           file,
           title: a.fullName || a.title || '(unnamed test)',
-          messages: Array.isArray(a.failureMessages) ? a.failureMessages : [],
+          messages: messages.map((m) => explainTimeoutMessage(m, a.duration)),
         });
       }
     }

@@ -1909,6 +1909,21 @@ describe('InstanceManager', () => {
       expect(instance.status).toBe('ready');
     });
 
+    it('counts the wake as activity so the idle sweep does not re-hibernate it', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Wake Resets Activity',
+      });
+      await instance.readyPromise;
+      await manager.hibernateInstance(instance.id);
+      instance.lastActivity = Date.now() - 3 * 60 * 60 * 1000;
+      const beforeWake = Date.now();
+
+      await manager.wakeInstance(instance.id);
+
+      expect(instance.lastActivity).toBeGreaterThanOrEqual(beforeWake);
+    });
+
     it('is a no-op for an instance that is already awake', async () => {
       const instance = await manager.createInstance({
         workingDirectory: TEST_WORKING_DIR,

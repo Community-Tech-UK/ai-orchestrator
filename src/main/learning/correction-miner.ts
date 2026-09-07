@@ -5,10 +5,18 @@
  * Corpus survey (2026-07-30): the only reliably queryable per-tool-call
  * signal in AIO's archived history (`HistoryManager.loadConversation`) is the
  * `OutputMessage` stream every CLI adapter emits — `type: 'tool_use'` /
- * `type: 'tool_result'` pairs correlated by an id, where `tool_result`
- * carries `metadata.is_error: boolean` on Claude, ACP, Codex-exec, Cursor,
- * and Copilot adapters (Gemini does not set it explicitly and is silently
- * skipped — no false signal is manufactured). Command text is read from
+ * `type: 'tool_result'` pairs correlated by an id. Only Codex's `tool_result`
+ * actually carries `metadata.is_error` (LT-196): Claude raw-emits tool results
+ * on an internal channel and writes no visible `tool_result` at all (LT-062),
+ * and the ACP adapters used by Copilot/Cursor/Grok wrote a `status` string
+ * with no `is_error` key. ACP now sets `is_error` on its own visible
+ * `tool_result`, so it needs no separate record. Claude, which deliberately
+ * emits no visible `tool_result` at all, instead writes a transcript-invisible
+ * `tool_outcome` that this module treats as closing an open `tool_use` exactly
+ * like a `tool_result` — as does an ACP call that rendered no output, where no
+ * visible result was written to carry the flag. Antigravity emits
+ * no tool result at all and is silently skipped — no false signal is
+ * manufactured. Command text is read from
  * `metadata.input.command` / `metadata.arguments.command` / `metadata.command`,
  * which covers the Bash/shell-style tool shapes those adapters use; tools
  * without a command string (Read/Edit/WebFetch/...) are not minable by
@@ -140,7 +148,11 @@ export function extractToolInvocations(messages: readonly MinableMessage[]): Too
       });
       return;
     }
-    if (message.type === 'tool_result') {
+    // LT-196: `tool_outcome` is the transcript-invisible record Claude writes
+    // because it emits no visible `tool_result` at all, and that an ACP call
+    // falls back to when it rendered no output. It closes an open `tool_use`
+    // exactly like a `tool_result`. Codex and ordinary ACP calls are unchanged.
+    if (message.type === 'tool_result' || message.type === 'tool_outcome') {
       const correlationId = extractResultCorrelationId(message.metadata);
       const pending = correlationId ? open.get(correlationId) : undefined;
       if (!pending || !correlationId) return;

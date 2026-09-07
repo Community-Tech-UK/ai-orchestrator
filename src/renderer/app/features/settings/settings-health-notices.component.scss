@@ -1,0 +1,32 @@
+.settings-health-notices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+
+.settings-health-notice {
+  align-items: baseline;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.12));
+  border-radius: 6px;
+  display: flex;
+  font-size: var(--text-xs, 11px);
+  gap: 8px;
+  line-height: 1.5;
+  margin: 0;
+  padding: 8px 10px;
+}
+
+.settings-health-notice__severity {
+  flex: none;
+  font-weight: 600;
+  opacity: 0.9;
+}
+
+/* Tint reinforces the word; it never carries the meaning on its own. */
+.settings-health-notice[data-severity='warning'] {
+  border-color: rgba(247, 190, 124, 0.45);
+
+  .settings-health-notice__severity { color: #f7be7c; }
+}

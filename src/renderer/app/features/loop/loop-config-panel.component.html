@@ -7,6 +7,17 @@
     <button type="button" class="close" (click)="dismissed.emit()" aria-label="Close">×</button>
   </header>
 
+  <!-- B4: name the intent, then adjust. The contract line is resolved by the
+       host from the LIVE values, never from the preset's canned prose once a
+       field has been overridden. -->
+  <app-loop-preset-picker
+    [selectedPresetId]="selectedPresetId()"
+    [contractText]="displayedContract()"
+    [overrides]="presetOverrides()"
+    (presetSelected)="applyPreset($event)"
+    (presetReset)="resetToPreset()"
+  />
+
   @if (recentPrompts().length > 0 || !prompt().trim()) {
     <div class="recall-row">
       <span class="recall-label">Recent</span>

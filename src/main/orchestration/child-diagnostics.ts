@@ -1,4 +1,5 @@
 import { createHash } from 'crypto';
+import { isVisibleOutputMessage } from '../../shared/types/tool-outcome';
 import type { ChildDiagnosticBundle } from '../../shared/types/agent-tree.types';
 import type { Instance } from '../../shared/types/instance.types';
 import { getChildResultStorage } from './child-result-storage';
@@ -22,7 +23,10 @@ export async function buildChildDiagnosticBundle(
       timestamp: child.lastActivity ?? child.createdAt,
     }];
   const summary = await getChildResultStorage().getChildSummary(child.id).catch(() => null);
-  const recentOutputTail = child.outputBuffer.slice(-20).map((message) => ({
+  // LT-196: miner-only records must not reach plugin hooks or the rendered
+  // diagnostic modal. Filtered before both projections below.
+  const visibleBuffer = child.outputBuffer.filter(isVisibleOutputMessage);
+  const recentOutputTail = visibleBuffer.slice(-20).map((message) => ({
     type: message.type,
     content: truncate(message.content, MAX_OUTPUT_CONTENT),
     timestamp: message.timestamp,
@@ -46,7 +50,7 @@ export async function buildChildDiagnosticBundle(
       : undefined,
     statusTimeline,
     lastHeartbeatAt: child.lastActivity,
-    recentEvents: child.outputBuffer.slice(-20).map((message) => {
+    recentEvents: visibleBuffer.slice(-20).map((message) => {
       const metadata = typeof message.metadata === 'object' && message.metadata !== null
         ? message.metadata as Record<string, unknown>
         : undefined;

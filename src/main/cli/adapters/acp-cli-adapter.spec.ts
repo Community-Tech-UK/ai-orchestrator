@@ -373,6 +373,121 @@ describe('AcpCliAdapter', () => {
     proc.exit();
   });
 
+  it('LT-196: tool_use carries the command and tool_result carries is_error, so the miner can mine ACP sessions', async () => {
+    // Copilot/Cursor/Grok all spawn through this adapter. Two gaps kept the
+    // correction miner from ever mining them: the `tool_use` metadata had no
+    // command (so the miner never opened an invocation at all), and the
+    // `tool_result` metadata had a `status` string but no `is_error`.
+    const proc = createInitializedAgentHarness();
+
+    proc.onRequest('session/prompt', (message) => {
+      const update = (payload: Record<string, unknown>) =>
+        proc.notify('session/update', { sessionId: 'sess-acp-1', update: payload });
+      update({
+        sessionUpdate: 'tool_call',
+        toolCallId: 'bad-1',
+        title: '`grep --bogus-flag x`',
+        kind: 'execute',
+        status: 'pending',
+        rawInput: { command: 'grep --bogus-flag x' },
+      });
+      update({
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'bad-1',
+        status: 'failed',
+        rawOutput: { stderr: 'grep: unrecognized option --bogus-flag' },
+      });
+      // A terminal failure that renders NO output at all (exit-code-only).
+      // Nothing would close the miner's invocation without a fallback record.
+      update({
+        sessionUpdate: 'tool_call',
+        toolCallId: 'quiet-fail',
+        title: '`false`',
+        kind: 'execute',
+        status: 'pending',
+        rawInput: { command: 'false' },
+      });
+      update({ sessionUpdate: 'tool_call_update', toolCallId: 'quiet-fail', status: 'failed' });
+      update({
+        sessionUpdate: 'tool_call',
+        toolCallId: 'cancel-1',
+        title: '`sleep 60`',
+        kind: 'execute',
+        status: 'pending',
+        rawInput: { command: 'sleep 60' },
+      });
+      update({
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'cancel-1',
+        status: 'cancelled',
+        rawOutput: { stdout: 'partial output before cancel' },
+      });
+      // Cancelled with NO output: the sixth combination. Neither a visible
+      // result (nothing to render) nor a fallback record (no outcome to
+      // report) — deliberately zero closing messages.
+      update({
+        sessionUpdate: 'tool_call',
+        toolCallId: 'cancel-quiet',
+        title: '`sleep 90`',
+        kind: 'execute',
+        status: 'pending',
+        rawInput: { command: 'sleep 90' },
+      });
+      update({ sessionUpdate: 'tool_call_update', toolCallId: 'cancel-quiet', status: 'cancelled' });
+      proc.respond(message.id, { stopReason: 'end_turn' });
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+    });
+    await adapter.spawn();
+
+    const outputs: { type: string; content: string; metadata?: Record<string, unknown> }[] = [];
+    adapter.on('output', (m: { type: string; content: string; metadata?: Record<string, unknown> }) => outputs.push(m));
+
+    await adapter.sendMessage({ role: 'user', content: 'go' });
+
+    // The command must reach the tool_use, or the miner drops the call before
+    // it ever looks at an outcome.
+    const use = outputs.find((o) => o.type === 'tool_use' && o.metadata?.['toolCallId'] === 'bad-1');
+    expect(use?.metadata?.['input']).toEqual({ command: 'grep --bogus-flag x' });
+
+    const failed = outputs.find((o) => o.type === 'tool_result' && o.metadata?.['toolCallId'] === 'bad-1');
+    expect(failed?.metadata).toMatchObject({ is_error: true });
+
+    // `cancelled` is neither outcome: no is_error at all, so the miner reads it
+    // as unobserved rather than as a confirmed fix (+0.15 confidence).
+    const cancelled = outputs.find((o) => o.type === 'tool_result' && o.metadata?.['toolCallId'] === 'cancel-1');
+    expect(cancelled).toBeDefined();
+    expect(cancelled?.metadata).not.toHaveProperty('is_error');
+
+    // A call WITH output gets exactly one closing message — the visible
+    // tool_result. No second record to race it and be dropped as an orphan.
+    expect(outputs.some((o) => o.type === 'tool_outcome'
+      && o.metadata?.['tool_use_id'] === 'bad-1')).toBe(false);
+
+    // A terminal failure with NO output emits no visible tool_result, so the
+    // invisible record is the one closing message instead of zero.
+    expect(outputs.some((o) => o.type === 'tool_result'
+      && o.metadata?.['toolCallId'] === 'quiet-fail')).toBe(false);
+    const quietFail = outputs.find((o) => o.type === 'tool_outcome'
+      && o.metadata?.['tool_use_id'] === 'quiet-fail');
+    expect(quietFail?.metadata).toMatchObject({ is_error: true });
+
+    // Cancelled produces neither: no visible result, and no fallback record.
+    expect(outputs.some((o) => o.type === 'tool_outcome'
+      && o.metadata?.['tool_use_id'] === 'cancel-1')).toBe(false);
+
+    // Cancelled with no output at all: zero closing messages of either kind.
+    expect(outputs.some((o) => o.type === 'tool_result'
+      && o.metadata?.['toolCallId'] === 'cancel-quiet')).toBe(false);
+    expect(outputs.some((o) => o.type === 'tool_outcome'
+      && o.metadata?.['tool_use_id'] === 'cancel-quiet')).toBe(false);
+
+    proc.exit();
+  });
+
   it('renders Cursor rawOutput results and drops empty rawInput from tool arguments', async () => {
     // Frames recorded from a live `cursor-agent acp` session (2026-09-05):
     // grep / Read File arrive with `rawInput: {}`, and every result comes

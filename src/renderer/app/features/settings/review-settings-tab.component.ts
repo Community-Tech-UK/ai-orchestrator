@@ -4,7 +4,7 @@
 
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { SettingsStore } from '../../core/state/settings.store';
-import { SettingRowComponent } from './setting-row.component';
+import { SettingsTieredRowListComponent } from './settings-tiered-row-list.component';
 import {
   CrossModelReviewIpcService,
   type ReviewerNotice,
@@ -13,8 +13,8 @@ import type { AppSettings } from '../../../../shared/types/settings.types';
 import type { ModelDisplayInfo } from '../../../../shared/types/provider.types';
 import { UnifiedCatalogStore } from '../models/unified-catalog.store';
 import { ProviderIpcService } from '../../core/services/ipc/provider-ipc.service';
-import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
-import type { PendingSelection } from '../models/compact-model-picker.types';
+
+import { ProviderModelOverrideComponent } from './provider-model-override.component';
 import {
   REMOTE_REVIEWER_PROVIDER_DEFINITIONS,
   normalizeRemoteReviewerProvider,
@@ -47,21 +47,26 @@ const LOCAL_REVIEW_SETTING_KEYS = new Set<keyof AppSettings>([
 @Component({
   selector: 'app-review-settings-tab',
   standalone: true,
-  imports: [SettingRowComponent, CompactModelPickerComponent],
+  imports: [ProviderModelOverrideComponent, SettingsTieredRowListComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="settings-list-card" aria-label="Cross-model review settings">
-      @for (setting of genericReviewSettings(); track setting.key) {
-        <app-setting-row
-          class="settings-list-item"
-          [setting]="setting"
-          [value]="store.get(setting.key)"
-          (valueChange)="onSettingChange($event)"
-        />
-      }
+      <app-settings-tiered-row-list
+        [settings]="genericReviewSettings()"
+        [valueFor]="readSetting"
+        (valueChange)="onSettingChange($event)"
+      />
     </section>
 
-    <section class="settings-list-card reviewer-priority" aria-label="Reviewer priority">
+    <!-- UX4.2: the anchor lives on the section, not the <ol> inside the @else.
+         On the list it vanished whenever the user removed every reviewer — the
+         empty state renders instead — so a search for "Reviewer CLIs" landed on
+         nothing in exactly the state where you would go looking for it. -->
+    <section
+      class="settings-list-card reviewer-priority"
+      aria-label="Reviewer priority"
+      data-setting-key="crossModelReviewProviders"
+    >
       <header class="reviewer-priority__header">
         <div class="reviewer-priority__heading">
           <h3 class="reviewer-priority__title">Reviewer priority</h3>
@@ -123,26 +128,15 @@ const LOCAL_REVIEW_SETTING_KEYS = new Set<keyof AppSettings>([
                 }
               </div>
 
-              <div class="reviewer-list__model-picker">
-                <span class="reviewer-list__model-source">
-                  {{ modelFor(provider.id) ? 'Pinned override' : 'Auto' }}
-                </span>
-                <app-compact-model-picker
-                  mode="pending-create"
-                  [providers]="[provider.id]"
-                  [selection]="reviewerSelectionFor(provider.id)"
-                  (selectionChange)="onReviewerModelPicked(provider.id, $event)"
-                />
-                <button
-                  type="button"
-                  class="reviewer-list__model-reset"
-                  [disabled]="!modelFor(provider.id)"
-                  [attr.aria-label]="'Let ' + provider.label + ' choose its review model'"
-                  (click)="resetReviewerModel(provider.id)"
-                >
-                  Auto
-                </button>
-              </div>
+              <app-provider-model-override
+                class="reviewer-list__model-picker"
+                settingsKey="crossModelReviewModelByProvider"
+                [provider]="provider.id"
+                unpinnedSourceLabel="Auto"
+                resetLabel="Auto"
+                [resetAriaLabel]="'Let ' + provider.label + ' choose its review model'"
+                unpinnedModel="auto"
+              />
 
               <button
                 type="button"
@@ -181,7 +175,7 @@ const LOCAL_REVIEW_SETTING_KEYS = new Set<keyof AppSettings>([
       </header>
 
       <div class="reviewer-add">
-        <label class="reviewer-add__label" for="crossModelReviewLocalSelectorId">
+        <label class="reviewer-add__label" for="crossModelReviewLocalSelectorId" data-setting-key="crossModelReviewLocalSelectorId">
           Local reviewer model
         </label>
         <select
@@ -237,7 +231,7 @@ const LOCAL_REVIEW_SETTING_KEYS = new Set<keyof AppSettings>([
       }
 
       <div class="reviewer-add">
-        <label class="reviewer-add__label" for="crossModelReviewLocalEnabled">
+        <label class="reviewer-add__label" for="crossModelReviewLocalEnabled" data-setting-key="crossModelReviewLocalEnabled">
           <input
             id="crossModelReviewLocalEnabled"
             type="checkbox"
@@ -249,7 +243,7 @@ const LOCAL_REVIEW_SETTING_KEYS = new Set<keyof AppSettings>([
       </div>
 
       <div class="reviewer-add">
-        <label class="reviewer-add__label" for="crossModelReviewLocalTimeout">
+        <label class="reviewer-add__label" for="crossModelReviewLocalTimeout" data-setting-key="crossModelReviewLocalTimeout">
           Local reviewer timeout (seconds)
         </label>
         <input
@@ -263,7 +257,7 @@ const LOCAL_REVIEW_SETTING_KEYS = new Set<keyof AppSettings>([
       </div>
 
       <div class="reviewer-add">
-        <label class="reviewer-add__label" for="crossModelReviewLocalMaxToolRounds">
+        <label class="reviewer-add__label" for="crossModelReviewLocalMaxToolRounds" data-setting-key="crossModelReviewLocalMaxToolRounds">
           Local reviewer max tool rounds
         </label>
         <input
@@ -281,6 +275,10 @@ const LOCAL_REVIEW_SETTING_KEYS = new Set<keyof AppSettings>([
 })
 export class ReviewSettingsTabComponent {
   store = inject(SettingsStore);
+
+  /** Read a value by key. A bound arrow so the template can pass it as a value. */
+  protected readonly readSetting = (key: string): unknown =>
+    this.store.get(key as keyof AppSettings);
   private unifiedCatalog = inject(UnifiedCatalogStore);
   private reviewHealth = inject(CrossModelReviewIpcService);
   private providerIpc = inject(ProviderIpcService);
@@ -371,31 +369,6 @@ export class ReviewSettingsTabComponent {
 
   onSettingChange(event: { key: string; value: unknown }): void {
     this.store.set(event.key as keyof AppSettings, event.value as string | number | boolean);
-  }
-
-  /** Current override model id for a reviewer, or '' when on auto. */
-  modelFor(provider: string): string {
-    return this.store.get('crossModelReviewModelByProvider')?.[provider] ?? '';
-  }
-
-  reviewerSelectionFor(provider: RemoteReviewerProvider): PendingSelection {
-    return { provider, model: this.modelFor(provider) || 'auto', reasoning: null };
-  }
-
-  onReviewerModelPicked(
-    provider: RemoteReviewerProvider,
-    selection: PendingSelection,
-  ): void {
-    if (selection.provider !== provider || !selection.model) return;
-    const next = { ...(this.store.get('crossModelReviewModelByProvider') ?? {}) };
-    next[provider] = selection.model;
-    void this.store.set('crossModelReviewModelByProvider', next);
-  }
-
-  resetReviewerModel(provider: RemoteReviewerProvider): void {
-    const next = { ...(this.store.get('crossModelReviewModelByProvider') ?? {}) };
-    delete next[provider];
-    void this.store.set('crossModelReviewModelByProvider', next);
   }
 
   /** Move a reviewer up (-1) or down (+1) in the priority order. */

@@ -7,6 +7,7 @@
  */
 
 import { app } from 'electron';
+import { isVisibleOutputMessage } from '../../shared/types/tool-outcome';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
@@ -129,7 +130,9 @@ export class ChildResultStorage {
 
     // Save full transcript to file
     const transcriptPath = path.join(this.config.storagePath, `${resultId}-transcript.json`);
-    const transcript = outputBuffer.map((m) => ({
+    // LT-196: miner-only records never belong in a stored child transcript.
+    const visible = outputBuffer.filter(isVisibleOutputMessage);
+    const transcript = visible.map((m) => ({
       type: m.type,
       content: m.content,
       timestamp: m.timestamp,
@@ -137,7 +140,7 @@ export class ChildResultStorage {
     await fs.writeFile(transcriptPath, JSON.stringify(transcript, null, 2));
 
     // Calculate token counts
-    const fullTranscriptText = outputBuffer.map((m) => m.content).join('\n');
+    const fullTranscriptText = visible.map((m) => m.content).join('\n');
     const fullTranscriptTokens = this.llmService.countTokens(fullTranscriptText);
     const summaryTokens = this.llmService.countTokens(command.summary);
 

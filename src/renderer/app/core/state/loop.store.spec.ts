@@ -23,6 +23,7 @@ describe('LoopStore', () => {
     freshEyesReviewPassed: Listener<{ loopRunId: string; signal: string; reviewersUsed: string[]; nonBlockingFindings: number; summary?: string; demotedFindings?: unknown[]; coverage?: unknown[] }>[];
     freshEyesReviewFailed: Listener<{ loopRunId: string; signal: string; error: string; coverage?: unknown[] }>[];
     freshEyesReviewBlocked: Listener<{ loopRunId: string; signal: string; reviewersUsed: string[]; blockingFindings: unknown[]; summary?: string; demotedFindings?: unknown[]; coverage?: unknown[] }>[];
+    branchSelect: Listener<Record<string, unknown>>[];
     steeringDowngraded: Listener<{ loopRunId: string; requestedKind: 'steer'; effectiveKind: 'queue'; reason: string }>[];
     followUpDrained: Listener<{ loopRunId: string; seq: number; count: number; remaining: number }>[];
     completed: Listener<{ loopRunId: string; signal: string; verifyOutput: string }>[];
@@ -52,6 +53,7 @@ describe('LoopStore', () => {
     onFreshEyesReviewPassed: ReturnType<typeof vi.fn>;
     onFreshEyesReviewFailed: ReturnType<typeof vi.fn>;
     onFreshEyesReviewBlocked: ReturnType<typeof vi.fn>;
+    onBranchSelect: ReturnType<typeof vi.fn>;
     onSteeringDowngraded: ReturnType<typeof vi.fn>;
     onFollowUpDrained: ReturnType<typeof vi.fn>;
     onCompleted: ReturnType<typeof vi.fn>;
@@ -82,6 +84,7 @@ describe('LoopStore', () => {
       freshEyesReviewPassed: [],
       freshEyesReviewFailed: [],
       freshEyesReviewBlocked: [],
+      branchSelect: [],
       steeringDowngraded: [],
       followUpDrained: [],
       completed: [],
@@ -111,6 +114,7 @@ describe('LoopStore', () => {
       onFreshEyesReviewPassed: vi.fn((cb) => subscribe(listeners.freshEyesReviewPassed, cb)),
       onFreshEyesReviewFailed: vi.fn((cb) => subscribe(listeners.freshEyesReviewFailed, cb)),
       onFreshEyesReviewBlocked: vi.fn((cb) => subscribe(listeners.freshEyesReviewBlocked, cb)),
+      onBranchSelect: vi.fn((cb) => subscribe(listeners.branchSelect, cb)),
       onSteeringDowngraded: vi.fn((cb) => subscribe(listeners.steeringDowngraded, cb)),
       onFollowUpDrained: vi.fn((cb) => subscribe(listeners.followUpDrained, cb)),
       onCompleted: vi.fn((cb) => subscribe(listeners.completed, cb)),
@@ -919,6 +923,34 @@ describe('LoopStore', () => {
       expect(store.recentRuns()).toHaveLength(1);
     });
   });
+
+  /**
+   * N3 — end to end: a real `loop:branch-select` event reaches the store and
+   * becomes an addressable episode. The channel existed for the whole life of
+   * branch-select with nothing subscribed, so this is the test that would have
+   * caught that.
+   */
+  it('records a branch-select round against its run and iteration', () => {
+    const store = TestBed.inject(LoopStore);
+    store.ensureWired();
+
+    listeners.branchSelect.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      seq: 4,
+      adopted: true,
+      reason: 'candidate 2 passed verify',
+      candidateCount: 3,
+      winnerProvider: 'codex',
+      totalCostUsd: 1.5,
+    }));
+
+    const episode = store.branchEpisodeFor('loop-1', 4);
+    expect(episode?.adopted).toBe(true);
+    expect(episode?.candidateCount).toBe(3);
+    expect(episode?.totalCostUsd).toBe(1.5);
+    expect(store.branchEpisodeFor('loop-1', 5)).toBeNull();
+  });
+
 });
 
 function validConfig(): LoopStartConfigInput {

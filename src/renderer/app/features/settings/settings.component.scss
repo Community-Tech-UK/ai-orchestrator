@@ -8,3 +8,21 @@
 @use './settings.component.shell' as *;
 @use './settings.component.nav' as *;
 @use './settings.component.content' as *;
+
+/* UX4.2 — the jump-to-row affordance under the sidebar search box. */
+.search-jump {
+  background: transparent;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.14));
+  border-radius: 4px;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.7));
+  cursor: pointer;
+  font-size: var(--text-xs, 11px);
+  margin: 0 12px 8px;
+  overflow: hidden;
+  padding: 4px 8px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  &:hover { background: var(--glass-strong, rgba(255, 255, 255, 0.06)); color: var(--text-primary, #fff); }
+}

@@ -387,6 +387,58 @@ describe('MobileGatewayServer', () => {
     expect(res.status).toBe(401);
   });
 
+  /**
+   * End-to-end proof the DELETE route is actually dispatched, not merely that the
+   * handler exists: removing a host on the phone must kill the token on the Mac,
+   * otherwise the desktop's paired-device list keeps entries the user deleted.
+   */
+  it('lets a device revoke its own pairing, killing the token immediately', async () => {
+    const token = await pairToken();
+    expect((await authed(token, '/api/instances')).status).toBe(200);
+
+    const res = await authed(token, '/api/devices/me', { method: 'DELETE' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ revoked: true });
+
+    // The whole point: the token is dead for every route from here on.
+    expect((await authed(token, '/api/instances')).status).toBe(401);
+    expect(registry.listDevices()).toHaveLength(0);
+  });
+
+  it('accepts the device naming its own id instead of "me"', async () => {
+    const pairing = registry.issuePairing();
+    const paired = await fetch(`http://127.0.0.1:${port}/pair`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pairingToken: pairing.pairingToken, label: 'Test iPhone' }),
+    });
+    const body = (await paired.json()) as { token: string; deviceId: string };
+
+    const res = await authed(body.token, `/api/devices/${body.deviceId}`, { method: 'DELETE' });
+    expect(res.status).toBe(200);
+    expect(registry.listDevices()).toHaveLength(0);
+  });
+
+  it('refuses to let one paired device revoke another', async () => {
+    const victim = await pairToken();
+    const attacker = await pairToken();
+
+    const res = await authed(attacker, '/api/devices/some-other-device', { method: 'DELETE' });
+    expect(res.status).toBe(403);
+
+    // Both tokens must still work: nothing was revoked.
+    expect((await authed(victim, '/api/instances')).status).toBe(200);
+    expect((await authed(attacker, '/api/instances')).status).toBe(200);
+    expect(registry.listDevices()).toHaveLength(2);
+  });
+
+  it('requires a bearer token to revoke', async () => {
+    await pairToken();
+    const res = await fetch(`http://127.0.0.1:${port}/api/devices/me`, { method: 'DELETE' });
+    expect(res.status).toBe(401);
+    expect(registry.listDevices()).toHaveLength(1);
+  });
+
   it('pairs then lists instances with the device token', async () => {
     const token = await pairToken();
     const res = await authed(token, '/api/instances');
@@ -418,6 +470,84 @@ describe('MobileGatewayServer', () => {
     expect(snapshot.instances.find((i) => i.id === 'b')?.isLooping).toBe(true);
     expect(snapshot.instances.find((i) => i.id === 'c')?.isLooping).toBe(false);
     expect(snapshot.projects.find((p) => p.path === '/repo/alpha')?.busyCount).toBe(2);
+  });
+
+  /**
+   * The point of revoking a lost phone. The token is checked only at the upgrade,
+   * so deleting it used to stop the NEXT connection while the socket the device
+   * already held kept streaming output indefinitely.
+   */
+  it('closes a revoked device\'s live socket instead of only blocking new ones', async () => {
+    source.instances = [inst({ id: 'a', status: 'idle' })];
+    const pairing = registry.issuePairing();
+    const paired = await fetch(`http://127.0.0.1:${port}/pair`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pairingToken: pairing.pairingToken, label: 'Lost iPhone' }),
+    });
+    const { token, deviceId } = (await paired.json()) as { token: string; deviceId: string };
+
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?token=${token}`);
+    const closed = new Promise<number>((resolve) => ws.once('close', (code) => resolve(code)));
+    await new Promise<void>((resolve, reject) => {
+      ws.once('open', resolve);
+      ws.once('error', reject);
+    });
+
+    // Revoke exactly as the desktop's Paired devices list does.
+    expect(registry.revokeDevice(deviceId)).toBe(true);
+
+    // 4001 = "your pairing was revoked", not an incidental network drop.
+    await expect(closed).resolves.toBe(4001);
+  });
+
+  it('leaves other devices connected when one is revoked', async () => {
+    source.instances = [inst({ id: 'a', status: 'idle' })];
+    const keepPairing = registry.issuePairing();
+    const keepRes = await fetch(`http://127.0.0.1:${port}/pair`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pairingToken: keepPairing.pairingToken, label: 'Keep' }),
+    });
+    const keep = (await keepRes.json()) as { token: string; deviceId: string };
+
+    const dropPairing = registry.issuePairing();
+    const dropRes = await fetch(`http://127.0.0.1:${port}/pair`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pairingToken: dropPairing.pairingToken, label: 'Drop' }),
+    });
+    const drop = (await dropRes.json()) as { token: string; deviceId: string };
+
+    const keepWs = new WebSocket(`ws://127.0.0.1:${port}/ws?token=${keep.token}`);
+    const dropWs = new WebSocket(`ws://127.0.0.1:${port}/ws?token=${drop.token}`);
+    const dropClosed = new Promise<number>((resolve) =>
+      dropWs.once('close', (code) => resolve(code)),
+    );
+    let keepClosedCode: number | null = null;
+    keepWs.once('close', (code) => {
+      keepClosedCode = code;
+    });
+    await Promise.all([
+      new Promise<void>((resolve, reject) => {
+        keepWs.once('open', resolve);
+        keepWs.once('error', reject);
+      }),
+      new Promise<void>((resolve, reject) => {
+        dropWs.once('open', resolve);
+        dropWs.once('error', reject);
+      }),
+    ]);
+
+    try {
+      registry.revokeDevice(drop.deviceId);
+      await expect(dropClosed).resolves.toBe(4001);
+
+      expect(keepClosedCode).toBeNull();
+      expect(keepWs.readyState).toBe(WebSocket.OPEN);
+    } finally {
+      keepWs.close();
+    }
   });
 
   it('broadcasts a refreshed snapshot when loop state changes', async () => {
@@ -476,6 +606,46 @@ describe('MobileGatewayServer', () => {
   });
 
   // ---- seq / fromSeq resume (B2 transport-hardening) ----
+
+  it('LT-196: a hidden tool_outcome mid-window neither ships to the client nor corrupts maxSeq', async () => {
+    // `seq` is the pre-filter buffer index. Deriving `maxSeq` from the
+    // post-filter count under-reports once a hidden message is dropped from
+    // the middle of a window, and the client re-requests messages it already
+    // has on its next resume.
+    source.instances = [
+      inst({
+        id: 'a',
+        outputBuffer: [
+          { id: 'm0', timestamp: 1, type: 'user', content: 'zero' },
+          {
+            id: 'm1',
+            timestamp: 2,
+            type: 'tool_outcome',
+            content: 'grep: unrecognized option --bogus-flag',
+            metadata: { tool_use_id: 'toolu_1', is_error: true },
+          },
+          { id: 'm2', timestamp: 3, type: 'assistant', content: 'two' },
+          { id: 'm3', timestamp: 4, type: 'assistant', content: 'three' },
+        ],
+      } as Partial<Instance>),
+    ];
+    const token = await pairToken();
+    const res = await authed(token, '/api/instances/a/messages?fromSeq=0');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { messages: MobileMessageDto[]; meta: { maxSeq: number } };
+
+    // The window starts at buffer index 1, which is the hidden record. It never
+    // reaches the client, and the survivors keep their true buffer indices.
+    // `MobileMessageDto['type']` does not include `tool_outcome` at all, so the
+    // compiler already forbids one appearing here; the ids prove it was dropped.
+    expect(body.messages.map((m) => m.id)).toEqual(['m2', 'm3']);
+    expect(body.messages.map((m) => m.seq)).toEqual([2, 3]);
+
+    // The resume cursor must be the last survivor's own seq (3). Derived from
+    // the post-filter count it would be firstIdx + 2 - 1 = 2, and the client's
+    // next request from seq 2 would redeliver m3.
+    expect(body.meta.maxSeq).toBe(3);
+  });
 
   it('attaches a stable seq to each message in the legacy (no fromSeq) path', async () => {
     source.instances = [

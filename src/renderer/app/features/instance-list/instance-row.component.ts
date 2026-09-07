@@ -13,6 +13,7 @@ import {
 import { Instance } from '../../core/state/instance.store';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
+import { ToolLoopAlertStore } from '../../core/state/tool-loop-alert.store';
 import { isRemoteNodeOnline } from '../../core/state/remote-node-connectivity';
 
 @Component({
@@ -25,6 +26,7 @@ import { isRemoteNodeOnline } from '../../core/state/remote-node-connectivity';
 })
 export class InstanceRowComponent {
   private readonly remoteNodeStore = inject(RemoteNodeStore);
+  private readonly toolLoopAlerts = inject(ToolLoopAlertStore);
 
   // Required inputs
   instance = input.required<Instance>();
@@ -123,9 +125,18 @@ export class InstanceRowComponent {
         return { icon: 'default', color: '#9CA3AF', label: 'Provider' } as const;
     }
   });
+  /**
+   * N2 — a critical tool loop wants a person as much as a blocked prompt does,
+   * and it happens mid-turn, so the two prior statuses could never show it: the
+   * session looks busy, which is exactly what a loop looks like from outside.
+   */
+  readonly hasToolLoopAlert = computed(() =>
+    this.toolLoopAlerts.hasCriticalAlert(this.instance().id));
+
   readonly needsAttention = computed(() =>
     this.instance().status === 'waiting_for_input' ||
-    this.instance().status === 'waiting_for_permission'
+    this.instance().status === 'waiting_for_permission' ||
+    this.hasToolLoopAlert()
   );
   readonly showActivitySpinner = computed(() =>
     this.isLooping() ||
@@ -187,6 +198,12 @@ export class InstanceRowComponent {
 
   readonly activityLabel = computed(() => {
     const base = this.statusActivityLabel();
+    if (this.hasToolLoopAlert()) {
+      // Leads, because it is the reason the row is asking for attention. The
+      // underlying status ("Working") is true and actively misleading on its
+      // own here — a looping session looks busy.
+      return base ? `Tool loop detected · ${base}` : 'Tool loop detected';
+    }
     if (this.isLooping()) {
       // Surface the loop in the tooltip so the violet ring isn't a mystery.
       // When the underlying status also has a label (e.g. "Working"), append

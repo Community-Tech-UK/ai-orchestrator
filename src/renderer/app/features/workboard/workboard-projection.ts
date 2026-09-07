@@ -19,6 +19,7 @@ import {
   attentionLevelForInstanceStatus,
   attentionLevelForLoopStatus,
   attentionLevelForRepoJobStatus,
+  isAtLeastAsUrgent,
   mostUrgentAttentionLevel,
   type AttentionLevel,
 } from '../../../../shared/attention/attention-level';
@@ -92,16 +93,34 @@ export function repoJobStatusToLane(status: RepoJobStatus): WorkboardLane {
 }
 
 /**
- * WS-C2 snooze hand-raise predicate: true when an item's current attention
- * level should automatically clear an active snooze. `working` and
- * `waiting` are the two "still in progress, nothing to see" levels — a
- * snooze survives those. Anything else — the item newly needs a decision
- * (`blocked`), failed, was flagged for review, or finished (`idle`) — raises
- * its hand and un-snoozes automatically, matching the plan's "becomes
- * blocked-on-you, fails, or completes" wording.
+ * WS-C2 snooze hand-raise predicate: true when an item should automatically
+ * un-snooze, given its level now and the level it held when it was snoozed.
+ *
+ * LT-481: this was previously keyed on `current` alone and returned true for
+ * anything that was not `working`/`waiting`. Every card in the Needs You lane
+ * is `blocked`/`failed`/`review` by construction, so snoozing one cleared its
+ * own snooze within a refresh tick — the button appeared to do nothing. The
+ * baseline makes "raises its hand" mean an actual rise, not merely being
+ * loud in the first place.
+ *
+ * A snooze clears when either:
+ *  - the item finished (`idle`) — completion is always worth surfacing, even
+ *    though `idle` is the *least* urgent rank; or
+ *  - the item is at a "loud" level (not `working`/`waiting`) that is strictly
+ *    more urgent than the level it held at snooze time.
+ *
+ * It survives `working`/`waiting` churn (including `working` → `waiting`,
+ * which is a rank *rise* but carries no new demand on the user) and survives
+ * staying at, or dropping below, its snooze-time urgency.
  */
-export function attentionLevelClearsSnooze(level: AttentionLevel): boolean {
-  return level !== 'working' && level !== 'waiting';
+export function snoozeClearedByAttention(
+  current: AttentionLevel,
+  baseline: AttentionLevel,
+): boolean {
+  if (current === 'idle') return true;
+  const quiet = current === 'working' || current === 'waiting';
+  if (quiet) return false;
+  return isAtLeastAsUrgent(current, baseline) && current !== baseline;
 }
 
 /** Repository jobs are not in the shared lifecycle module; project them here. */

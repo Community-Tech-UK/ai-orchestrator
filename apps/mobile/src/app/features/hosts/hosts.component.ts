@@ -1,9 +1,11 @@
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { AppLockService } from '../../core/app-lock.service';
 import { connectionLabel } from '../../core/connection-status';
 import { GatewayClient } from '../../core/gateway-client.service';
 import { HostStore } from '../../core/host-store';
+import type { PairedHost } from '../../core/models';
+import { unpairFromHost } from '../../core/pairing';
 import { MobileHeaderComponent } from '../../shared/mobile-header.component';
 import { MobileIconComponent } from '../../shared/mobile-icon.component';
 
@@ -41,7 +43,7 @@ import { MobileIconComponent } from '../../shared/mobile-icon.component';
         <h1 class="hosts-title">Your hosts</h1>
         <ul class="host-list">
           @for (host of hosts(); track host.id) {
-            <li>
+            <li class="host-item">
               <button
                 class="host-row mobile-pressable"
                 type="button"
@@ -60,9 +62,21 @@ import { MobileIconComponent } from '../../shared/mobile-icon.component';
                 <span class="host-row__state">{{ stateLabel(host.id) }}</span>
                 <app-mobile-icon name="chevron-down" />
               </button>
+              <button
+                class="host-remove mobile-pressable"
+                type="button"
+                (click)="remove(host)"
+                [attr.aria-label]="'Remove ' + host.name"
+              >
+                <app-mobile-icon name="close" />
+              </button>
             </li>
           }
         </ul>
+      }
+
+      @if (notice()) {
+        <p class="hosts-notice" role="alert">{{ notice() }}</p>
       }
 
       <section class="security-section" aria-labelledby="security-heading">
@@ -92,6 +106,15 @@ import { MobileIconComponent } from '../../shared/mobile-icon.component';
       .hosts-empty h1 { font-size: var(--font-size-xl); }
       .hosts-empty p { margin: 0; line-height: var(--line-height-normal); }
       .host-list { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
+      .host-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-1); align-items: center; }
+      .host-remove {
+        display: flex; align-items: center; justify-content: center;
+        min-width: 44px; min-height: 44px; padding: 0;
+        border: none; border-radius: var(--radius-md);
+        background: var(--surface-2, #2c2c2e); color: var(--text-secondary);
+      }
+      .host-remove:active { background: rgba(255, 255, 255, 0.055); }
+      .hosts-notice { margin: var(--space-1) 0 0; color: var(--accent-error, #ff453a); font-size: var(--font-size-sm); }
       .host-row, .lock-row {
         display: grid; width: 100%; min-height: 64px; align-items: center; gap: var(--space-3);
         border: 0; border-radius: var(--radius-md); background: transparent; color: var(--text);
@@ -128,6 +151,8 @@ export class HostsComponent {
   protected readonly online = this.gateway.online;
   protected readonly lockEnabled = this.appLock.enabled;
   protected readonly lockAvailable = this.appLock.available;
+  /** Set when a removal couldn't revoke the token on the host. */
+  protected readonly notice = signal<string | null>(null);
 
   protected lockSubtitle(): string {
     if (!this.lockAvailable()) return 'Biometrics unavailable on this device';
@@ -146,6 +171,29 @@ export class HostsComponent {
   protected hostAriaLabel(id: string, name: string): string {
     const state = this.stateLabel(id);
     return state ? `Open ${name}, ${state}` : `Open ${name}`;
+  }
+
+  /**
+   * Removing a host is destructive — the device token is the only copy and
+   * reconnecting means pairing again — so confirm first, matching the terminate
+   * flow in the conversation screen.
+   *
+   * Revoking on the host first means the Mac's paired-device list doesn't keep an
+   * entry the user has already deleted here. It's best-effort: an unreachable host
+   * or an already-dead token must not block the local removal, but the user is
+   * told when the token may still be live so they can finish the job on the Mac.
+   */
+  protected async remove(host: PairedHost): Promise<void> {
+    if (!confirm(`Remove ${host.name}? You'll need to pair again to reconnect.`)) return;
+    this.notice.set(null);
+    const revoked = await unpairFromHost(host);
+    await this.hostStore.removeHost(host.id);
+    if (!revoked) {
+      this.notice.set(
+        `Removed ${host.name}, but couldn't reach it to revoke this phone's access. ` +
+          `Revoke it on the Mac under Settings, Mobile, Paired devices.`,
+      );
+    }
   }
 
   protected add(): void {

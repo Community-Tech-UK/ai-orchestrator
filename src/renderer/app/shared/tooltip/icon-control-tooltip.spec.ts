@@ -33,9 +33,16 @@ const { hasTextualName, tagNameOf, findMatchingClose, isInteractive } = require_
 const REPO_ROOT = join(__dirname, '..', '..', '..', '..', '..');
 
 /** Templates migrated to `[appTooltip]` in Wave 3. */
+/**
+ * Template files, not component files. `loop-control` used to carry an inline
+ * template and was listed as a `.ts`; when that template moved to its own
+ * `.html` the scan silently found zero hosts — caught only because these tests
+ * assert the host count is greater than zero, which is exactly why that
+ * assertion is here.
+ */
 const MIGRATED_TEMPLATES = [
   'src/renderer/app/features/instance-list/instance-row.component.html',
-  'src/renderer/app/features/loop/loop-control.component.ts',
+  'src/renderer/app/features/loop/loop-control.component.html',
 ];
 
 const TAG_RE = /<[a-zA-Z][\w-]*(?:"[^"]*"|'[^']*'|[^>"'])*>/g;

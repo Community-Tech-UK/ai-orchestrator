@@ -6,6 +6,16 @@
       <span class="queue-hold-reason">{{ holdReasonLabel() }}</span>
     }
   </div>
+  @if (parked()) {
+    <!-- B7: Stop holds the queue. Said plainly, because a queue that silently
+         stops sending looks identical to one that is broken. -->
+    <div class="queue-parked" role="status">
+      <span class="queue-parked__text">
+        Sending paused — queued messages will not send until you resume.
+      </span>
+      <button type="button" class="queue-parked__resume" (click)="resumeQueue.emit()">Resume</button>
+    </div>
+  }
   <div class="queued-messages">
     @for (queuedMsg of messages(); track $index; let i = $index) {
       <div class="queued-message-item">

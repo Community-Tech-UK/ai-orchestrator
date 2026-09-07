@@ -40,6 +40,7 @@ import type {
   FileAttachment
 } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
+import { buildToolOutcomeMessage } from '../../../shared/types/tool-outcome';
 import {
   MODEL_PRICING,
   CLAUDE_MODELS,
@@ -1297,6 +1298,22 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
                 arguments: context?.input ?? {},
                 result: block.content,
               });
+              // LT-196: the raw emit above is live-only and is discarded, so the
+              // archived transcript carried no per-call outcome and the
+              // correction miner found nothing for Claude. Record the outcome as
+              // a transcript-invisible message. This does NOT undo LT-062 — the
+              // record is a distinct `tool_outcome` type that no renderer
+              // displays, not a visible `tool_result`.
+              this.emit('output', buildToolOutcomeMessage(
+                {
+                  toolUseId: block.tool_use_id,
+                  isError: block.is_error === true,
+                  toolName: context?.name ?? '',
+                  resultText: block.content,
+                },
+                generateId(),
+                Date.now(),
+              ));
             }
 
             // Log ALL tool_result errors for diagnostic visibility

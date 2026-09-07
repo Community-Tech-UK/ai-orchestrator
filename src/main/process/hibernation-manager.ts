@@ -19,7 +19,7 @@ const DEFAULT_RESUME_HIBERNATION_GRACE_MS = 60_000;
 const DEFAULT_CONTEXT_STALENESS_THRESHOLD_MS = 75 * 60 * 1000; // 75 minutes
 
 export interface HibernationConfig {
-  idleThresholdMs: number;          // How long idle before hibernation (default: 30min)
+  idleThresholdMs: number;          // How long idle before hibernation (default: 30min; synced from the autoTerminateIdleMinutes setting by the idle sweep)
   enableAutoHibernation: boolean;   // Auto-hibernate idle instances
   checkIntervalMs: number;          // How often to check for idle instances
   maxHibernated: number;            // Max hibernated instances to keep

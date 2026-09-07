@@ -56,6 +56,7 @@ export type MobilePairResult =
  */
 export class MobileDeviceRegistry {
   private readonly devicesByToken = new Map<string, MobileDevice>();
+  private readonly revocationListeners = new Set<(deviceId: string) => void>();
   private readonly pendingPairings = new Map<string, MobilePairingCredential>();
   private loaded = false;
 
@@ -167,10 +168,42 @@ export class MobileDeviceRegistry {
         this.devicesByToken.delete(token);
         this.persist();
         logger.info('Revoked mobile device', { deviceId });
+        this.notifyRevoked(deviceId);
         return true;
       }
     }
     return false;
+  }
+
+  /**
+   * Observe revocations so live transports can drop the device.
+   *
+   * Deleting the token only stops the *next* handshake: the gateway checks it at
+   * the WebSocket upgrade and never again, so a revoked phone kept streaming on
+   * the socket it already held. Revoking a lost device has to cut the live
+   * connection, not just the ability to make a new one.
+   *
+   * Returns an unsubscribe function.
+   */
+  onDeviceRevoked(listener: (deviceId: string) => void): () => void {
+    this.revocationListeners.add(listener);
+    return () => {
+      this.revocationListeners.delete(listener);
+    };
+  }
+
+  private notifyRevoked(deviceId: string): void {
+    for (const listener of this.revocationListeners) {
+      try {
+        listener(deviceId);
+      } catch (err) {
+        // A failing listener must not leave the token half-revoked.
+        logger.warn('Device revocation listener failed', {
+          deviceId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
   }
 
   setApnsToken(deviceId: string, apnsToken: string): boolean {

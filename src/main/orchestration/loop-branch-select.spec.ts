@@ -15,6 +15,7 @@ import {
   type BranchCandidate,
   type BranchSelectDeps,
   type BranchSelectInput,
+  sumCandidateCostUsd,
 } from './loop-branch-select';
 import { passingVerifyCommand } from './loop-test-commands';
 import { defaultLoopConfig, defaultLoopExplorationConfig } from '../../shared/types/loop.types';
@@ -182,5 +183,37 @@ describe('runBranchSelect orchestration (LF-5)', () => {
         }),
       ]),
     }));
+  });
+});
+
+describe('sumCandidateCostUsd (N3)', () => {
+  const candidate = (over: Record<string, unknown> = {}) => ({
+    id: 'c1', provider: 'claude', workdir: '/tmp/w', verifyPassed: true,
+    filesChanged: 1, summary: 'x', ...over,
+  } as BranchCandidate);
+
+  it('is undefined when no candidate reported a cost', () => {
+    // Never 0: "nothing was reported" and "it was free" are different facts,
+    // and a fan-out round is never actually free.
+    expect(sumCandidateCostUsd([candidate(), candidate()])).toBeUndefined();
+  });
+
+  it('is undefined for an empty round', () => {
+    expect(sumCandidateCostUsd([])).toBeUndefined();
+  });
+
+  it('sums the whole round, not just the winner', () => {
+    expect(sumCandidateCostUsd([
+      candidate({ costUsd: 0.5 }),
+      candidate({ costUsd: 0.25 }),
+    ])).toBe(0.75);
+  });
+
+  it('ignores candidates with no reported cost rather than counting them as zero', () => {
+    expect(sumCandidateCostUsd([candidate({ costUsd: 0.5 }), candidate()])).toBe(0.5);
+  });
+
+  it('keeps a genuine zero when a provider reports one', () => {
+    expect(sumCandidateCostUsd([candidate({ costUsd: 0 })])).toBe(0);
   });
 });

@@ -23,6 +23,39 @@ vi.mock('./child-result-storage', () => ({
 }));
 
 describe('buildChildDiagnosticBundle', () => {
+  it('LT-196: never exposes a tool_outcome record to plugin hooks or the diagnostic modal', async () => {
+    // This bundle is handed to third-party plugin code via the
+    // `orchestration.child.failed` hook and rendered verbatim in the child
+    // diagnostic modal. The miner-only record must reach neither.
+    const child = {
+      id: 'child-lt196',
+      parentId: 'parent-1',
+      status: 'failed',
+      provider: 'claude',
+      workingDirectory: '/tmp',
+      outputBuffer: [
+        { id: 'u1', timestamp: 1, type: 'user', content: 'run it' },
+        {
+          id: 'o1',
+          timestamp: 2,
+          type: 'tool_outcome',
+          content: 'grep: unrecognized option --bogus-flag',
+          metadata: { tool_use_id: 'toolu_1', is_error: true },
+        },
+        { id: 'a1', timestamp: 3, type: 'assistant', content: 'that failed' },
+      ],
+    } as unknown as Instance;
+
+    const bundle = await buildChildDiagnosticBundle(child, 'task');
+
+    expect(bundle.recentOutputTail.some((m) => m.type === 'tool_outcome')).toBe(false);
+    expect(bundle.recentEvents.some((e) => e.type === 'tool_outcome')).toBe(false);
+    const serialized = JSON.stringify(bundle);
+    expect(serialized).not.toContain('unrecognized option');
+    // Not over-broad: ordinary messages still come through.
+    expect(bundle.recentOutputTail.map((m) => m.type)).toEqual(['user', 'assistant']);
+  });
+
   it('captures spawn, routing, status, output, event, and artifact diagnostics', async () => {
     const child = {
       id: 'child-1',

@@ -27,6 +27,7 @@ import {
 import { snapshotLastIteration } from './loop-store-summary';
 import { loopStateToRunSummary, upsertRecentRun } from './loop-store-recent-runs';
 import { coverageSuffix, followUpDrainedActivity, steeringDowngradedActivity } from './loop-store-task18-activity';
+import { createBranchEpisodeStore } from './loop-store-branch-episodes';
 
 /** Discriminated result of a recent-run refresh. On error the store preserves
  *  the prior list so the Workboard keeps showing what it already held. */
@@ -159,6 +160,10 @@ export class LoopStore {
   /**
    * Wire IPC listeners once at app startup. Safe to call multiple times.
    */
+  /** N3 — branch-and-select rounds, keyed by run and iteration. */
+  private readonly branchEpisodes = createBranchEpisodeStore();
+  readonly branchEpisodeFor = this.branchEpisodes.get;
+
   ensureWired(): void {
     if (this.wired) return;
     this.wired = true;
@@ -307,6 +312,9 @@ export class LoopStore {
         detail: { signal, reviewersUsed, blockingFindings, summary, demotedFindings, coverage },
       });
     });
+    // N3: the channel has existed since branch-select shipped; nothing had
+    // ever subscribed to it.
+    this.ipc.onBranchSelect((event) => this.branchEpisodes.record(event));
     this.ipc.onSteeringDowngraded((event) => this.addActivity(steeringDowngradedActivity(event, this.activeByLoop(event.loopRunId))));
     this.ipc.onFollowUpDrained((event) => this.addActivity(followUpDrainedActivity(event, this.activeByLoop(event.loopRunId))));
     this.ipc.onCompleted(({ loopRunId }) => {

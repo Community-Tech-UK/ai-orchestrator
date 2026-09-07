@@ -17,6 +17,9 @@ import {
 } from '../../../../shared/types/reviewer-provider.types';
 import { resolveLoopGoalIntent } from '../../../../shared/utils/loop-intent';
 import { defaultLoopContextConfig } from '../../../../shared/types/loop.types';
+import { LoopPresetPickerComponent } from './loop-preset-picker.component';
+import type { LoopPresetId } from './loop-presets';
+import { createLoopPresetController } from './loop-config-panel-presets';
 
 // Defaults that match defaultLoopConfig() in src/shared/types/loop.types.ts.
 // We must include all sub-fields whenever caps/completion/progressThresholds
@@ -101,7 +104,7 @@ type PlanPacketMode = 'off' | 'prompted';
 @Component({
   selector: 'app-loop-config-panel',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, LoopPresetPickerComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './loop-config-panel.component.html',
   styleUrl: './loop-config-panel.component.scss',
@@ -239,6 +242,24 @@ export class LoopConfigPanelComponent {
    *  explicitly selects the legacy shared-checkout compatibility mode. */
   managedIsolation = signal(true);
   allowDestructive = signal(false);
+  /** B4 — presets live in their own module; this panel is at its LOC ceiling. */
+  private readonly presets = createLoopPresetController({
+    fields: this,
+    verifyCommand: () => this.verifyCommand(),
+  });
+
+  readonly selectedPresetId = this.presets.selectedPresetId;
+  readonly presetOverrides = this.presets.overrides;
+  readonly displayedContract = this.presets.displayedContract;
+
+  applyPreset(id: LoopPresetId): void {
+    this.presets.apply(id);
+  }
+
+  resetToPreset(): void {
+    this.presets.resetToPreset();
+  }
+
   showAdvanced = signal(false);
   private planPacketModeManuallyOverridden = false;
   planFileRequiresRename = computed(() => this.planFile().trim().length > 0);

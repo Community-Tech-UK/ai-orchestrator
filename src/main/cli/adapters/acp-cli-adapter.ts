@@ -105,7 +105,7 @@ import {
 } from './acp-prompt-timeout-policy';
 import { classifyMissingUsage, classifyTurnEndingFailure, describeTruncatedAcpTurn, turnEndingFailureMetadata } from './acp-transport-failure';
 import { buildRetryRecoveredMessage, buildRetryStateMessage } from './acp-retry-state';
-import { buildAcpToolCallArguments, renderAcpRawOutput } from './acp-tool-call-material';
+import { buildAcpMinableInput, buildAcpToolCallArguments, buildAcpToolOutcomeFallback, renderAcpRawOutput } from './acp-tool-call-material';
 import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
 const logger = getLogger('AcpCliAdapter');
 
@@ -1462,6 +1462,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
         title: observed.title,
         status: observed.status,
         transport: 'acp',
+        ...buildAcpMinableInput(update.rawInput),
       },
     } satisfies OutputMessage);
   }
@@ -1503,6 +1504,9 @@ export class AcpCliAdapter extends BaseCliAdapter {
           title,
           status,
           transport: 'acp',
+          // LT-196: outcome rides this already-correlated message; `cancelled`
+          // is neither outcome, so it is left unset and read as null.
+          ...(status === 'completed' || status === 'failed' ? { is_error: status === 'failed' } : {}),
         },
       } satisfies OutputMessage);
     }
@@ -1516,6 +1520,12 @@ export class AcpCliAdapter extends BaseCliAdapter {
         ...(renderedOutput ? { result: renderedOutput } : {}),
       };
       this.emit('tool_result', toolCall);
+      // LT-196: covers a terminal call that rendered no output (see helper).
+      const fallback = buildAcpToolOutcomeFallback(
+        { toolCallId, status, title, hasRenderedOutput: Boolean(renderedOutput) },
+        generateId(), Date.now(),
+      );
+      if (fallback) this.emit('output', fallback);
     }
   }
 

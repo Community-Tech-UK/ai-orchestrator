@@ -6,6 +6,7 @@ import {
   LoopByIdPayloadSchema,
   LoopInterveneePayloadSchema,
   LoopListByChatPayloadSchema,
+  LoopGetAwayRecapPayloadSchema,
   LoopListRunsPayloadSchema,
   LoopGetIterationsPayloadSchema,
   VerificationRunsListPayloadSchema,
@@ -17,6 +18,7 @@ import {
   LoopAssessScopePayloadSchema,
 } from '@contracts/schemas/loop';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
+import { buildAwayRecap } from '../../orchestration/away-recap';
 import { getLoopCoordinator } from '../../orchestration/loop-coordinator';
 import { getDocReviewService } from '../../doc-review/doc-review-service';
 import { buildLoopCheckpoint } from '../../orchestration/loop-checkpoint';
@@ -500,6 +502,25 @@ export function registerLoopHandlers(deps: {
       return { success: true, data: { runs } };
     } catch (error) {
       return errorResponse('LOOP_LIST_RUNS_FAILED', error);
+    }
+  });
+
+  // N12: the recap the renderer shows on refocus. Main only filters `loop_runs`
+  // through a caller-supplied boundary — no main-process "when were you last
+  // here" state, no push channel, no window-manager changes. Zero LLM calls.
+  ipcMain.handle(IPC_CHANNELS.LOOP_GET_AWAY_RECAP, async (_event, payload: unknown): Promise<IpcResponse> => {
+    try {
+      const validated = validateIpcPayload(
+        LoopGetAwayRecapPayloadSchema, payload, 'LOOP_GET_AWAY_RECAP',
+      );
+      const recap = buildAwayRecap({
+        runs: store.listRuns(200),
+        awaySince: validated.awaySince,
+        now: Date.now(),
+      });
+      return { success: true, data: { recap } };
+    } catch (error) {
+      return errorResponse('LOOP_GET_AWAY_RECAP_FAILED', error);
     }
   });
 

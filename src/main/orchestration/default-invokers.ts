@@ -802,6 +802,8 @@ export function buildLoopBranchSelectorDeps(instanceManager: InstanceManager): B
           continue;
         }
         let response = '';
+        // N3: the candidate's spend was already being computed and discarded.
+        let costUsd: number | undefined;
         try {
           const result = await invokeCliTextResponse({
             instanceManager,
@@ -823,6 +825,9 @@ export function buildLoopBranchSelectorDeps(instanceManager: InstanceManager): B
             autoAnswerInputRequired: true,
           });
           response = result.response;
+          // Only when the provider actually reported one — an estimate recorded
+          // as a measurement is worse than no figure.
+          if (result.costKnown) costUsd = result.cost;
         } catch (err) {
           logger.warn('Branch-select: candidate invocation failed', {
             loopRunId: input.loopRunId, index: i, error: branchSelectErr(err),
@@ -840,7 +845,11 @@ export function buildLoopBranchSelectorDeps(instanceManager: InstanceManager): B
         } catch { /* diff is best-effort */ }
         // Commit the candidate's edits onto its branch so the winner is mergeable.
         commitWorktreeChanges(session.worktreePath);
-        candidates.push({ id: session.id, provider, workdir: session.worktreePath, verifyPassed, filesChanged, summary });
+        candidates.push({
+          id: session.id, provider, workdir: session.worktreePath,
+          verifyPassed, filesChanged, summary,
+          ...(costUsd === undefined ? {} : { costUsd }),
+        });
       }
       return candidates;
     },

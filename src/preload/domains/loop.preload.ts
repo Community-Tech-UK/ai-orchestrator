@@ -114,6 +114,8 @@ export function createLoopDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
       ipcRenderer.invoke(ch.LOOP_LIST_RUNS_FOR_CHAT, { chatId, limit }),
     loopListRuns: (limit?: number): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_LIST_RUNS, { limit }),
+    loopGetAwayRecap: (awaySince: number): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.LOOP_GET_AWAY_RECAP, { awaySince }),
     loopGetIterations: (loopRunId: string, fromSeq?: number, toSeq?: number): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_GET_ITERATIONS, { loopRunId, fromSeq, toSeq }),
     verificationRunsList: (params: { loopRunId?: string; instanceId?: string }): Promise<IpcResponse> =>
@@ -171,6 +173,9 @@ export function createLoopDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
     onLoopLedgerLint: sub(ch.LOOP_LEDGER_LINT),
     onLoopSteeringDowngraded: sub(ch.LOOP_STEERING_DOWNGRADED),
     onLoopFollowUpDrained: sub(ch.LOOP_FOLLOW_UP_DRAINED),
+    // N3: emitted by the coordinator since branch-select shipped, but never
+    // exposed — so nothing in the renderer could ever see a fan-out round.
+    onLoopBranchSelect: sub(ch.LOOP_BRANCH_SELECT),
     onLoopMoreWorkDeclared: sub(ch.LOOP_MORE_WORK_DECLARED),
     onLoopFailed: sub(ch.LOOP_FAILED),
     onLoopCapReached: sub(ch.LOOP_CAP_REACHED),

@@ -1,7 +1,10 @@
-/** Pairing bootstrap: exchanging a one-time QR token for a device token. */
+/** Pairing lifecycle: exchanging a one-time QR token for a device token, and giving it back. */
+import type { PairedHost } from './models';
 
 /** Pairing must reach the host over Tailscale; bound it so the UI can't hang forever. */
 const PAIR_TIMEOUT_MS = 10000;
+/** Unpairing is best-effort and must never hold up removing the host locally. */
+const UNPAIR_TIMEOUT_MS = 5000;
 
 export interface PairResult {
   deviceId: string;
@@ -55,4 +58,31 @@ export async function pairWithHost(
     throw new Error(body.error || `Pairing failed (HTTP ${res.status})`);
   }
   return (await res.json()) as PairResult;
+}
+
+/**
+ * Ask the host to revoke this device's token — the inverse of pairing.
+ *
+ * Best-effort by design, and the caller removes the local entry either way: the
+ * usual reasons to remove a host are that it is unreachable or that its token has
+ * already expired, and in both cases there is nothing left to revoke. Returns
+ * true only when the host confirmed it, so the caller can say so if it didn't.
+ */
+export async function unpairFromHost(host: PairedHost): Promise<boolean> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), UNPAIR_TIMEOUT_MS);
+  try {
+    const scheme = host.secure ? 'https' : 'http';
+    const res = await fetch(`${scheme}://${host.host}:${host.port}/api/devices/me`, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${host.token}` },
+      signal: controller.signal,
+    });
+    return res.ok;
+  } catch {
+    // Unreachable host or aborted request: nothing was revoked.
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
 }

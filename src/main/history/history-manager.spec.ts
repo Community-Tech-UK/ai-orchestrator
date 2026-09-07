@@ -209,6 +209,74 @@ describe('HistoryManager', () => {
     expect(fs.existsSync(path.join(storageDir, `${entry.id}.json.gz`))).toBe(false);
   });
 
+  it('LT-196: folds tool-outcome records into the archive so the miner can read them back', async () => {
+    // This is the seam the whole feature rests on. The record is deliberately
+    // kept out of `outputBuffer` (see `tool-outcome-store.ts`), so the ONLY
+    // thing putting it in front of the correction miner is the merge in
+    // `getCompleteArchiveMessages()`. Without this test, reordering that
+    // concatenation or dropping the `getToolOutcomes()` call would silently
+    // kill the feature with every other test still green.
+    const { HistoryManager } = await import('./history-manager');
+    const {
+      recordToolOutcome,
+      getToolOutcomes,
+      _resetToolOutcomeStoreForTesting,
+    } = await import('../learning/tool-outcome-store');
+    _resetToolOutcomeStoreForTesting();
+    const manager = track(new HistoryManager());
+
+    // A genuine failure-then-correction shape: the tool_use messages live in
+    // the buffer, their outcomes only in the side store.
+    const buffer = [
+      message('u1', 'user', 'fix the grep', 1),
+      message('t1', 'tool_use', 'Bash', 2, { id: 'toolu_1', name: 'Bash', input: { command: 'grep --bogus-flag x' } }),
+      message('t2', 'tool_use', 'Bash', 4, { id: 'toolu_2', name: 'Bash', input: { command: 'grep -F x' } }),
+    ];
+    recordToolOutcome('instance-lt196', message(
+      'o1', 'tool_outcome', 'grep: unrecognized option --bogus-flag', 3,
+      { tool_use_id: 'toolu_1', is_error: true, name: 'Bash' },
+    ));
+    recordToolOutcome('instance-lt196', message(
+      'o2', 'tool_outcome', '', 5,
+      { tool_use_id: 'toolu_2', is_error: false, name: 'Bash' },
+    ));
+
+    await manager.archiveInstance(makeInstance({
+      id: 'instance-lt196',
+      historyThreadId: 'thread-lt196',
+      outputBuffer: buffer,
+    }));
+
+    const entry = manager.getEntries().find((item) => item.historyThreadId === 'thread-lt196');
+    expect(entry).toBeDefined();
+    const conversation = await manager.loadConversation(entry!.id);
+
+    // Both records survived the round trip, in timestamp order with their pairs.
+    const archived = conversation?.messages ?? [];
+    expect(archived.map((m) => m.id)).toEqual(['u1', 't1', 'o1', 't2', 'o2']);
+    const failure = archived.find((m) => m.id === 'o1');
+    expect(failure?.type).toBe('tool_outcome');
+    expect(failure?.metadata).toMatchObject({ tool_use_id: 'toolu_1', is_error: true });
+
+    // And the miner can actually pair them from exactly this transcript.
+    const { mineCorrections } = await import('../learning/correction-miner');
+    const pairs = mineCorrections(archived.map((m) => ({
+      type: m.type,
+      content: m.content,
+      timestamp: m.timestamp,
+      metadata: m.metadata,
+    })));
+    expect(pairs.length).toBeGreaterThanOrEqual(1);
+    expect(pairs[0]).toMatchObject({
+      failCommand: 'grep --bogus-flag x',
+      fixCommand: 'grep -F x',
+      fixIsError: false,
+    });
+
+    // Archiving clears the store — the records have served their purpose.
+    expect(getToolOutcomes('instance-lt196')).toEqual([]);
+  });
+
   it('archives disk-backed overflow before the retained output tail', async () => {
     const { getOutputStorageManager } = await import('../memory/output-storage');
     const { HistoryManager } = await import('./history-manager');

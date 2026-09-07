@@ -4,12 +4,13 @@ import { AutomationStore } from '../../core/state/automation.store';
 import { LoopStore } from '../../core/state/loop.store';
 import { RepoJobStore } from '../../core/state/repo-job.store';
 import {
-  attentionLevelClearsSnooze,
   buildWorkboardLanes,
   deriveWorkspaceOptions,
   filterItemsByWorkspace,
   projectWorkboard,
+  snoozeClearedByAttention,
 } from './workboard-projection';
+import type { AttentionLevel } from '../../../../shared/attention/attention-level';
 import type {
   WorkboardItem,
   WorkboardLanes,
@@ -57,8 +58,12 @@ export class WorkboardStore {
   /** WS-C2 snooze: session-only (no natural persistence layer exists yet for
    *  Workboard view state — everything else here is either derived or an
    *  injected clock). Losing snoozes on reload is acceptable: a reload
-   *  always re-shows every genuinely live item, which is the safe default. */
-  private readonly snoozedIdsSignal = signal<ReadonlySet<string>>(new Set());
+   *  always re-shows every genuinely live item, which is the safe default.
+   *
+   *  LT-481: keyed to the attention level held at snooze time, not just the
+   *  item id. Without the baseline the hand-raise predicate cleared a snooze
+   *  the instant it was set on anything already in the Needs You lane. */
+  private readonly snoozedSignal = signal<ReadonlyMap<string, AttentionLevel>>(new Map());
 
   constructor() {
     // The Workboard is the only surface that needs the global recent-loop read
@@ -77,22 +82,23 @@ export class WorkboardStore {
     });
 
     // WS-C2 snooze hand-raise: automatically drop a snooze once the item's
-    // attention level rises (see `attentionLevelClearsSnooze`) or the item
-    // leaves the projection entirely. Runs on every `items()` recompute so
-    // the card reappears the moment it actually needs you, not on the next
-    // manual refresh.
+    // attention genuinely rises above its snooze-time level (see
+    // `snoozeClearedByAttention`) or the item leaves the projection entirely.
+    // Runs on every `items()` recompute so the card reappears the moment it
+    // actually needs you, not on the next manual refresh.
     effect(() => {
       const currentItems = this.items();
-      const snoozed = untracked(() => this.snoozedIdsSignal());
+      const snoozed = untracked(() => this.snoozedSignal());
       if (snoozed.size === 0) return;
-      const stillSnoozed = new Set<string>();
+      const stillSnoozed = new Map<string, AttentionLevel>();
       for (const item of currentItems) {
-        if (snoozed.has(item.id) && !attentionLevelClearsSnooze(item.attentionLevel)) {
-          stillSnoozed.add(item.id);
+        const baseline = snoozed.get(item.id);
+        if (baseline !== undefined && !snoozeClearedByAttention(item.attentionLevel, baseline)) {
+          stillSnoozed.set(item.id, baseline);
         }
       }
       if (stillSnoozed.size !== snoozed.size) {
-        untracked(() => this.snoozedIdsSignal.set(stillSnoozed));
+        untracked(() => this.snoozedSignal.set(stillSnoozed));
       }
     });
   }
@@ -126,7 +132,7 @@ export class WorkboardStore {
    *  workspace filter and snooze are independent — snoozing never affects
    *  the workspace picker's counts (those come from the unfiltered `items()`). */
   readonly visibleItems = computed<WorkboardItem[]>(() => {
-    const snoozed = this.snoozedIdsSignal();
+    const snoozed = this.snoozedSignal();
     const filtered = this.filteredItems();
     if (snoozed.size === 0) return filtered;
     return filtered.filter((item) => !snoozed.has(item.id));
@@ -237,21 +243,29 @@ export class WorkboardStore {
    *  attention rises again (see the hand-raise effect in the constructor) —
    *  callers never need to un-snooze a genuinely urgent item themselves. */
   snoozeItem(itemId: string): void {
-    this.snoozedIdsSignal.update((ids) => (ids.has(itemId) ? ids : new Set(ids).add(itemId)));
+    // LT-481: record the level the item holds right now. The hand-raise
+    // predicate compares against this baseline, so snoozing an already-loud
+    // card no longer clears itself on the next projection tick.
+    const baseline = this.items().find((item) => item.id === itemId)?.attentionLevel;
+    if (baseline === undefined) return;
+    this.snoozedSignal.update((snoozed) => {
+      if (snoozed.has(itemId)) return snoozed;
+      return new Map(snoozed).set(itemId, baseline);
+    });
   }
 
   /** Explicit user un-snooze (e.g. an "undo" affordance). */
   unsnoozeItem(itemId: string): void {
-    this.snoozedIdsSignal.update((ids) => {
-      if (!ids.has(itemId)) return ids;
-      const next = new Set(ids);
+    this.snoozedSignal.update((snoozed) => {
+      if (!snoozed.has(itemId)) return snoozed;
+      const next = new Map(snoozed);
       next.delete(itemId);
       return next;
     });
   }
 
   isSnoozed(itemId: string): boolean {
-    return this.snoozedIdsSignal().has(itemId);
+    return this.snoozedSignal().has(itemId);
   }
 }
 

@@ -1,0 +1,79 @@
+.loop-presets { display: flex; flex-direction: column; gap: 8px; }
+
+.loop-presets__title {
+  font-size: 12px;
+  margin: 0;
+  opacity: 0.8;
+}
+
+.loop-presets__choices {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.loop-presets__choice {
+  background: transparent;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.14));
+  border-radius: 6px;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  text-align: left;
+
+  &:hover { background: var(--glass-strong, rgba(255, 255, 255, 0.05)); }
+
+  /* Selection is a border plus a filled background, not colour alone. */
+  &.is-selected {
+    background: rgba(110, 168, 254, 0.14);
+    border-color: rgba(110, 168, 254, 0.6);
+  }
+}
+
+.loop-presets__choice-label { font-size: 12px; font-weight: 600; }
+.loop-presets__choice-intent { font-size: 11px; line-height: 1.4; opacity: 0.75; }
+
+.loop-presets__contract {
+  border-left: 2px solid var(--border-color, rgba(255, 255, 255, 0.18));
+  font-size: 11px;
+  line-height: 1.55;
+  margin: 0;
+  opacity: 0.85;
+  padding-left: 10px;
+}
+
+.loop-presets__overrides-toggle,
+.loop-presets__reset {
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 11px;
+  opacity: 0.8;
+  padding: 2px 0;
+  text-align: left;
+  text-decoration: underline;
+
+  &:hover { opacity: 1; }
+}
+
+.loop-presets__overrides-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  list-style: none;
+  margin: 4px 0;
+  padding: 0;
+}
+
+.loop-presets__override {
+  display: flex;
+  font-size: 11px;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.loop-presets__override-values { opacity: 0.75; }

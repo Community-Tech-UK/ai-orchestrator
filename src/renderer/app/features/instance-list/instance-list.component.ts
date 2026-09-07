@@ -18,6 +18,7 @@ import {
 import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-drop';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 import { InstanceStore, type Instance } from '../../core/state/instance.store';
+import { TerminateConfirmStore } from '../../shared/terminate-confirm/terminate-confirm.store';
 import type { OutputMessage } from '../../core/state/instance/instance.types';
 import { HistoryStore } from '../../core/state/history.store';
 import { LoopStore } from '../../core/state/loop.store';
@@ -86,6 +87,7 @@ import { getSystemFileManagerLabel } from '../instance-detail/output-stream.util
 export class InstanceListComponent implements OnDestroy {
   private host = inject(ElementRef<HTMLElement>);
   private store = inject(InstanceStore);
+  private terminateConfirm = inject(TerminateConfirmStore);
   private historyStore = inject(HistoryStore);
   private loopStore = inject(LoopStore);
   private recentDirectoriesService = inject(RecentDirectoriesIpcService);
@@ -391,31 +393,13 @@ export class InstanceListComponent implements OnDestroy {
 
   /**
    * Decision 16(b) — Terminate ends a session that cannot be resumed, and it was
-   * one click with only a hover tooltip as warning. The tooltip house rules say
-   * a destructive consequence must not live only in a hover; this is the
-   * disclosure that satisfies them.
+   * one click with only a hover tooltip as warning. The confirmation itself
+   * lives in `TerminateConfirmStore` so that every entry point shares it: it was
+   * local state here, which left the Cmd+W `close-instance` action terminating
+   * without any prompt at all.
    */
-  readonly pendingTerminateId = signal<string | null>(null);
-
-  readonly pendingTerminateName = computed(() => {
-    const id = this.pendingTerminateId();
-    if (!id) return '';
-    return this.store.instances().find((i) => i.id === id)?.displayName ?? 'this session';
-  });
-
   onTerminateInstance(instanceId: string): void {
-    this.pendingTerminateId.set(instanceId);
-  }
-
-  confirmTerminate(): void {
-    const id = this.pendingTerminateId();
-    if (!id) return;
-    this.pendingTerminateId.set(null);
-    this.store.terminateInstance(id);
-  }
-
-  cancelTerminate(): void {
-    this.pendingTerminateId.set(null);
+    this.terminateConfirm.request(instanceId);
   }
 
   onRestartInstance(instanceId: string): void {
@@ -1045,15 +1029,6 @@ export class InstanceListComponent implements OnDestroy {
   @HostListener('document:keydown', ['$event'])
   onDocumentKeyDown(event: KeyboardEvent): void {
     if (event.key !== 'Escape') {
-      return;
-    }
-
-    if (this.pendingTerminateId() !== null) {
-      // The overlay's own (keydown.escape) only fires when it holds focus, and
-      // nothing focuses it. Every other dismissible overlay in this component
-      // is handled here; terminate was missed.
-      event.preventDefault();
-      this.cancelTerminate();
       return;
     }
 

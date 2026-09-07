@@ -359,3 +359,27 @@ input[type='number'] {
 .stage-pill[data-stage='experimental'],
 .stage-pill[data-stage='under development'] { color: #eab308; }
 .stage-pill[data-stage='deprecated'] { color: #f78c7c; }
+
+/**
+ * UX4.2 — the landing pulse for a row reached from settings search.
+ *
+ * Lives here, not in the settings shell's stylesheet, because Angular's
+ * emulated view encapsulation scopes a rule to the component that RENDERED the
+ * element. A `.settings-search-landing` rule written in `settings.component.scss`
+ * would be rewritten with that component's scope attribute and never match this
+ * host, so the pulse would silently do nothing.
+ */
+:host(.settings-search-landing) .setting-row {
+  animation: settings-search-landing-pulse 1.6s ease-out 1;
+  border-radius: 6px;
+}
+
+@keyframes settings-search-landing-pulse {
+  0%, 100% { background: transparent; }
+  15%, 55% { background: rgba(110, 168, 254, 0.16); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* A pulse is decoration; the scroll already did the work of locating the row. */
+  :host(.settings-search-landing) .setting-row { animation: none; }
+}

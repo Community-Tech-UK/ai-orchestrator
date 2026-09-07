@@ -15,6 +15,8 @@ import type { ModelDisplayInfo } from '../../../../shared/types/provider.types';
 import { ProviderIpcService } from '../../core/services/ipc/provider-ipc.service';
 import { SettingRowComponent } from './setting-row.component';
 import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
+import { ProviderModelOverrideComponent } from './provider-model-override.component';
+import { SettingsTieredRowListComponent } from './settings-tiered-row-list.component';
 
 await resolveComponentResources((url) => {
   if (url.endsWith('.html') || url.endsWith('.scss')) {
@@ -243,9 +245,19 @@ describe('ReviewSettingsTabComponent', () => {
         { provide: CrossModelReviewIpcService, useValue: reviewHealth },
       ],
     });
+        // S4.3 moved the picker inside ProviderModelOverrideComponent, so stubbing
+    // only this tab's imports no longer reaches it.
+    TestBed.overrideComponent(ProviderModelOverrideComponent, {
+      set: { imports: [CompactModelPickerStubComponent], styles: [''], styleUrl: undefined, styleUrls: [] },
+    });
     TestBed.overrideComponent(ReviewSettingsTabComponent, {
       set: {
-        imports: [SettingRowComponent, CompactModelPickerStubComponent],
+        imports: [
+          SettingRowComponent,
+          CompactModelPickerStubComponent,
+          SettingsTieredRowListComponent,
+          ProviderModelOverrideComponent,
+        ],
         styles: [''],
         styleUrl: undefined,
         styleUrls: [],
@@ -544,4 +556,47 @@ describe('ReviewSettingsTabComponent', () => {
     if (!picker) throw new Error(`No reviewer model picker for ${provider}`);
     return picker;
   }
+
+  /**
+   * UX4.2 — the search anchors have to survive the data states the tab can
+   * actually be in. The static catalog scan only sees whether the attribute
+   * appears in the source, so it could not tell that this anchor once lived
+   * inside the `@else` of the reviewer list: removing every reviewer rendered
+   * the empty state instead and the anchor disappeared, in exactly the state
+   * where someone would go looking for the setting.
+   */
+  describe('search anchors survive every data state', () => {
+    const anchored = [
+      'crossModelReviewProviders',
+      'crossModelReviewLocalEnabled',
+      'crossModelReviewLocalSelectorId',
+      'crossModelReviewLocalTimeout',
+      'crossModelReviewLocalMaxToolRounds',
+    ];
+
+    function anchors(): string[] {
+      return Array.from(
+        fixture.nativeElement.querySelectorAll('[data-setting-key]') as NodeListOf<HTMLElement>,
+      ).map((el) => el.getAttribute('data-setting-key') ?? '');
+    }
+
+    it('renders every anchor with reviewers configured', () => {
+      fixture.detectChanges();
+      for (const key of anchored) expect(anchors(), key).toContain(key);
+    });
+
+    it('still renders every anchor with NO reviewers configured', () => {
+      store.setValue('crossModelReviewProviders', []);
+      fixture.detectChanges();
+      expect(fixture.nativeElement.textContent).toContain('No reviewers selected');
+      for (const key of anchored) expect(anchors(), key).toContain(key);
+    });
+
+    it('still renders every anchor with local review switched off', () => {
+      store.setValue('crossModelReviewLocalEnabled', false);
+      fixture.detectChanges();
+      for (const key of anchored) expect(anchors(), key).toContain(key);
+    });
+  });
+
 });

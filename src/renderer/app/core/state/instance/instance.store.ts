@@ -724,6 +724,19 @@ export class InstanceStore implements OnDestroy {
     this.outputStore.flushInstanceOutput(instanceId);
   }
 
+  /** B7 — Stop parks the queue; these expose it to the composer. */
+  parkQueueAfterInterrupt(instanceId: string): void {
+    this.messagingStore.parkQueueAfterInterrupt(instanceId);
+  }
+
+  resumeParkedQueue(instanceId: string): void {
+    this.messagingStore.resumeParkedQueue(instanceId);
+  }
+
+  isQueueParked(instanceId: string): boolean {
+    return this.messagingStore.isQueueParked(instanceId);
+  }
+
   /** Get queued message count for an instance (reactive) */
   getQueuedMessageCount(instanceId: string): number {
     return this.messagingStore.getQueuedMessageCount(instanceId);

@@ -8,6 +8,10 @@ import {
   signal,
 } from '@angular/core';
 import { NotificationCenterStore } from '../../core/state/notification-center.store';
+import { ToolLoopAlertStore } from '../../core/state/tool-loop-alert.store';
+import { InstanceStore } from '../../core/state/instance.store';
+import { SettingsStore } from '../../core/state/settings.store';
+import type { NotificationRecord } from '../../../../shared/types/notification.types';
 
 @Component({
   selector: 'app-notification-center',
@@ -47,6 +51,20 @@ import { NotificationCenterStore } from '../../core/state/notification-center.st
                 <div class="notification-center-item-body">
                   <strong>{{ record.title }}</strong>
                   <span>{{ record.body }}</span>
+                  @if (showToolLoopActions(record)) {
+                    <div class="notification-center-actions">
+                      <button
+                        type="button"
+                        class="notification-center-action"
+                        (click)="interruptLoop(record)"
+                      >Interrupt now</button>
+                      <button
+                        type="button"
+                        class="notification-center-action"
+                        (click)="enableAutoInterrupt()"
+                      >Turn on auto-interrupt</button>
+                    </div>
+                  }
                 </div>
                 <button
                   type="button"
@@ -154,10 +172,24 @@ import { NotificationCenterStore } from '../../core/state/notification-center.st
       padding: 0.2rem 0.35rem;
     }
     .notification-center-dismiss:hover { background: var(--glass-strong); color: var(--text-primary); }
+    .notification-center-actions { display: flex; gap: 0.35rem; margin-top: 0.35rem; }
+    .notification-center-action {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm, 4px);
+      color: var(--text-primary);
+      cursor: pointer;
+      font-size: var(--text-xs);
+      padding: 0.2rem 0.5rem;
+    }
+    .notification-center-action:hover { background: var(--glass-strong); }
   `],
 })
 export class NotificationCenterComponent implements OnInit {
   protected readonly store = inject(NotificationCenterStore);
+  private readonly toolLoopAlerts = inject(ToolLoopAlertStore);
+  private readonly instances = inject(InstanceStore);
+  private readonly settings = inject(SettingsStore);
   private readonly elementRef = inject<ElementRef<HTMLElement>>(ElementRef);
   protected readonly open = signal(false);
 
@@ -175,6 +207,32 @@ export class NotificationCenterComponent implements OnInit {
     const target = event.target;
     if (target instanceof Node && this.elementRef.nativeElement.contains(target)) return;
     this.open.set(false);
+  }
+
+  /**
+   * N2 — a stored notification carries frozen text. Gating the actions on the
+   * LIVE alert rather than on the record's own body is the point: once the loop
+   * has resolved, "Interrupt now" would be offering to interrupt a turn that
+   * already ended, and the body's promise ("it will keep going") is no longer
+   * true. Also hidden once auto-interrupt is on, for the same reason — the
+   * consequence the record describes no longer applies.
+   */
+  protected showToolLoopActions(record: NotificationRecord): boolean {
+    if (record.kind !== 'tool-loop') return false;
+    if (this.settings.settings().toolLoopAutoInterrupt === true) return false;
+    return this.toolLoopAlerts.hasCriticalAlert(record.instanceId);
+  }
+
+  protected interruptLoop(record: NotificationRecord): void {
+    if (!record.instanceId) return;
+    const instanceId = record.instanceId;
+    void this.instances.interruptInstance(instanceId);
+    // The operator has acted; keeping the alert would keep offering the action.
+    this.toolLoopAlerts.acknowledge(instanceId);
+  }
+
+  protected enableAutoInterrupt(): void {
+    void this.settings.update({ toolLoopAutoInterrupt: true });
   }
 
   protected dismiss(id: string): void {

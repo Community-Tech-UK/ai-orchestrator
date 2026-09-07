@@ -15,6 +15,8 @@ import { getPrimaryModelForProvider } from '../../../../shared/types/provider.ty
 import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
 import { SettingsStore } from '../../core/state/settings.store';
 import { GeneralSettingsTabComponent } from './general-settings-tab.component';
+import { InlineHintComponent } from '../../shared/hint/inline-hint.component';
+import { OVERNIGHT_PROFILE } from '../../../../shared/types/settings-profiles';
 
 await resolveComponentResources((url) => {
   if (url.endsWith('.html') || url.endsWith('.scss')) return Promise.resolve('');
@@ -103,8 +105,12 @@ describe('GeneralSettingsTabComponent model defaults', () => {
       'grok',
     ]);
     expect(picker.selection).toEqual({ provider: 'claude', model: 'opus', reasoning: null });
-    expect(fixture.nativeElement.querySelector('[data-setting-key="defaultModel"]')).toBeNull();
-    expect(fixture.nativeElement.querySelector('[data-setting-key="defaultCli"]')).toBeNull();
+    // Neither key renders as a metadata-driven row — the picker replaces both.
+    // Narrowed to `app-setting-row` because UX4.2 puts a `data-setting-key`
+    // search anchor on the picker section itself, which is a landing target,
+    // not a generic row.
+    expect(fixture.nativeElement.querySelector('app-setting-row[data-setting-key="defaultModel"]')).toBeNull();
+    expect(fixture.nativeElement.querySelector('app-setting-row[data-setting-key="defaultCli"]')).toBeNull();
   });
 
   it('persists provider and per-provider model memory from the shared picker', () => {
@@ -235,4 +241,76 @@ describe('GeneralSettingsTabComponent automation model default', () => {
     if (!picker) throw new Error('No automation model picker');
     return picker.componentInstance as CompactModelPickerStubComponent;
   }
+});
+
+/**
+ * UX5 — the one mounted inline hint.
+ *
+ * `hasNotFoundProfiles()` is the gate that decides whether it appears, and it
+ * had no test of its own: the hint policy and the component that renders a hint
+ * were both covered, but nothing checked that the condition wired into the
+ * template is the one described. So this renders the real `InlineHintComponent`
+ * against the real gate rather than asserting on the computed in isolation.
+ */
+describe('GeneralSettingsTabComponent — profiles hint (UX5)', () => {
+  let fixture: ComponentFixture<GeneralSettingsTabComponent>;
+  let store: FakeSettingsStore;
+
+  async function mount(): Promise<void> {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [GeneralSettingsTabComponent],
+      providers: [{ provide: SettingsStore, useValue: store }],
+    });
+    TestBed.overrideComponent(GeneralSettingsTabComponent, {
+      set: {
+        imports: [
+          SettingRowStubComponent,
+          CompactModelPickerStubComponent,
+          AppUpdateSettingsStubComponent,
+          InlineHintComponent,
+        ],
+        styles: [''],
+        styleUrl: undefined,
+        styleUrls: [],
+      },
+    });
+    await TestBed.compileComponents();
+    fixture = TestBed.createComponent(GeneralSettingsTabComponent);
+    fixture.detectChanges();
+  }
+
+  function hint(): Element | null {
+    return fixture.nativeElement.querySelector('.inline-hint');
+  }
+
+  beforeEach(() => {
+    store = new FakeSettingsStore();
+  });
+
+  it('shows to someone still on the interactive defaults', async () => {
+    await mount();
+    expect(hint()).not.toBeNull();
+  });
+
+  it('stops appearing once the operator is on Overnight, without a dismissal', async () => {
+    store.settings.update((current) => ({ ...current, ...OVERNIGHT_PROFILE.values }));
+    await mount();
+    expect(hint()).toBeNull();
+  });
+
+  it('stops appearing for a hand-tuned mix that matches no profile', async () => {
+    store.settings.update((current) => ({ ...current, toolLoopAutoInterrupt: true }));
+    await mount();
+    expect(hint()).toBeNull();
+  });
+
+  it('respects a dismissal even on the interactive defaults', async () => {
+    store.settings.update((current) => ({
+      ...current,
+      dismissedHints: ['settings-overview-profiles'],
+    }));
+    await mount();
+    expect(hint()).toBeNull();
+  });
 });

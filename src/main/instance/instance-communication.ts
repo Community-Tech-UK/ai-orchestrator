@@ -3,6 +3,7 @@
  */
 
 import { isOccupancyPressureReading } from '../../shared/utils/context-occupancy';
+import { clearToolOutcomes, recordToolOutcome } from '../learning/tool-outcome-store';
 import { EventEmitter } from 'events';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import { BaseCliAdapter, type CliResponse } from '../cli/adapters/base-cli-adapter';
@@ -397,6 +398,7 @@ export class InstanceCommunicationManager extends EventEmitter {
     this.continuityInputQueue.cleanup(instanceId);
     this.lastErrorContent.delete(instanceId);
     this.toolResultProcessor.cleanup(instanceId);
+    clearToolOutcomes(instanceId); // LT-196: already archived by now.
     getInstanceAsyncWorkRegistry().clearInstance(instanceId);
   }
 
@@ -1111,6 +1113,14 @@ export class InstanceCommunicationManager extends EventEmitter {
 
     adapter.on('output', async (message: OutputMessage) => {
       if (isStaleAdapterEvent('output')) {
+        return;
+      }
+      // LT-196: never enters the visible transcript. Held in a side store and
+      // merged in only at archive assembly, keeping it out of `outputBuffer`,
+      // disk storage, every buffer consumer and the event bus. See
+      // `tool-outcome-store.ts`.
+      if (message.type === 'tool_outcome') {
+        recordToolOutcome(instanceId, message);
         return;
       }
       // Persist provenance before instance metadata is added below. The visible

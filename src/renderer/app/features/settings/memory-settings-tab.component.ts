@@ -4,30 +4,31 @@
 
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { SettingsStore } from '../../core/state/settings.store';
-import { SettingRowComponent } from './setting-row.component';
+import { SettingsTieredRowListComponent } from './settings-tiered-row-list.component';
 import type { AppSettings } from '../../../../shared/types/settings.types';
 
 @Component({
   selector: 'app-memory-settings-tab',
   standalone: true,
-  imports: [SettingRowComponent],
+  imports: [SettingsTieredRowListComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="settings-list-card" aria-label="Memory settings">
-      @for (setting of store.memorySettings(); track setting.key) {
-        <app-setting-row
-          class="settings-list-item"
-          [setting]="setting"
-          [value]="store.get(setting.key)"
-          (valueChange)="onSettingChange($event)"
-        />
-      }
+      <app-settings-tiered-row-list
+        [settings]="store.memorySettings()"
+        [valueFor]="readSetting"
+        (valueChange)="onSettingChange($event)"
+      />
     </section>
   `,
   styleUrl: './memory-settings-tab.component.scss'
 })
 export class MemorySettingsTabComponent {
   store = inject(SettingsStore);
+
+  /** Read a value by key. A bound arrow so the template can pass it as a value. */
+  protected readonly readSetting = (key: string): unknown =>
+    this.store.get(key as keyof AppSettings);
 
   onSettingChange(event: { key: string; value: unknown }): void {
     this.store.set(event.key as keyof AppSettings, event.value as AppSettings[keyof AppSettings]);

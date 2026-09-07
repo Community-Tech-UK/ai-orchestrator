@@ -182,6 +182,10 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
       : { ...envelope, model: instance.currentModel };
 
     let message = toOutputMessageFromProviderEnvelope(enrichedEnvelope);
+    // LT-196: the tool-outcome record is miner-only. It carries no conversation
+    // and must not be projected into the persisted continuity document, where
+    // the role fallback would file it as an ordinary turn.
+    if (message?.type === 'tool_outcome') return;
     if (message && isProviderThreadCompactionMessage(message)) {
       const markerId = recordProviderThreadCompactionMarker({
         instanceId: enrichedEnvelope.instanceId,

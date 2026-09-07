@@ -31,6 +31,18 @@ function isSecureStorageUnavailable(err: unknown): boolean {
 }
 
 /**
+ * Do two entries describe the same gateway endpoint? Compared case-insensitively
+ * because a MagicDNS name can be typed or scanned with any casing, while the
+ * numeric port must match exactly.
+ */
+export function isSameEndpoint(
+  a: Pick<PairedHost, 'host' | 'port'>,
+  b: Pick<PairedHost, 'host' | 'port'>,
+): boolean {
+  return a.host.trim().toLowerCase() === b.host.trim().toLowerCase() && a.port === b.port;
+}
+
+/**
  * Persisted list of paired hosts + the active selection.
  *
  * On native iOS, the host list (including bearer tokens) is kept in Keychain via
@@ -75,9 +87,28 @@ export class HostStore {
     this._activeId.set(active.value ?? this._hosts()[0]?.id ?? null);
   }
 
+  /**
+   * Add a freshly paired host, superseding any existing entry for the same
+   * machine.
+   *
+   * Every `/pair` mints a brand-new deviceId, so de-duplicating on id alone never
+   * recognised a re-pair of the same Mac: the expired entry was left behind and
+   * the list filled up with dead hosts. A tailnet address belongs to exactly one
+   * machine, so the endpoint is the identity that survives re-pairing.
+   *
+   * (A host that changes its tailnet address still adds a second entry; that one
+   * is genuinely ambiguous, and the list has a Remove control for it.)
+   */
   async addHost(host: PairedHost): Promise<void> {
-    this._hosts.set([...this._hosts().filter((h) => h.id !== host.id), host]);
-    if (!this._activeId()) {
+    const current = this._hosts();
+    const superseded = current.filter((h) => h.id !== host.id && isSameEndpoint(h, host));
+    const supersededIds = new Set(superseded.map((h) => h.id));
+    const kept = current.filter((h) => h.id !== host.id && !supersededIds.has(h.id));
+    // Keep the earliest pairing date: this is the same host, newly re-paired.
+    const addedAt = Math.min(host.addedAt, ...superseded.map((h) => h.addedAt));
+    this._hosts.set([...kept, { ...host, addedAt }]);
+    const active = this._activeId();
+    if (!active || supersededIds.has(active)) {
       this._activeId.set(host.id);
     }
     await this.persist();

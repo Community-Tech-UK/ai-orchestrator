@@ -22,6 +22,7 @@
         placeholder="Search settings…"
         [value]="searchQuery()"
         (input)="onSearch($event)"
+        (keydown.enter)="jumpToSearchMatch()"
         (keydown.escape)="onSearchEscape($event)"
         aria-label="Search settings"
       />
@@ -36,6 +37,15 @@
         </button>
       }
     </div>
+
+    <!-- UX4.2: search reaches the individual row, not just the tab it lives on. -->
+    @if (searchRowMatch(); as match) {
+      <button
+        type="button"
+        class="search-jump"
+        (click)="jumpToSearchMatch()"
+      >Jump to “{{ match.label }}”</button>
+    }
 
     <nav id="settings-section-navigation" class="settings-nav">
       @for (item of ungroupedItems(); track item.id) {
@@ -125,6 +135,10 @@
             <button type="button" class="btn-dismiss" (click)="store.clearError()">Dismiss</button>
           </div>
         }
+        <!-- S3.4: settings that are individually valid but contradict each other,
+             shown beside the controls they are about rather than in one global
+             dump where most of them would be meaningless. -->
+        <app-settings-health-notices [tab]="activeTab()" />
         <div class="settings-body" [class.wide]="isWideTab()" [class.hidden]="isLoading()">
           @switch (activeTab()) {
             @case ('general') {

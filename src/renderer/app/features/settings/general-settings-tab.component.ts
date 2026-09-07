@@ -4,7 +4,7 @@
 
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { SettingsStore } from '../../core/state/settings.store';
-import { SettingRowComponent } from './setting-row.component';
+import { SettingsTieredRowListComponent } from './settings-tiered-row-list.component';
 import { SettingsProfileRowComponent } from './settings-profile-row.component';
 import { InlineHintComponent } from '../../shared/hint/inline-hint.component';
 import { activeProfile } from '../../../../shared/types/settings-profiles';
@@ -30,15 +30,19 @@ const DEFAULT_MODEL_PROVIDERS: DefaultModelProvider[] = [
   selector: 'app-general-settings-tab',
   standalone: true,
   imports: [
-    SettingRowComponent,
     AppUpdateSettingsComponent,
     CompactModelPickerComponent,
     SettingsProfileRowComponent,
-    InlineHintComponent,
-  ],
+    InlineHintComponent, SettingsTieredRowListComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="settings-list-card default-model" aria-label="Default provider and model">
+    <!-- UX4.2: this compound picker IS the row for both keys, so it carries
+         their search anchors; there is no generic row to land on. -->
+    <section
+      class="settings-list-card default-model"
+      aria-label="Default provider and model"
+      data-setting-key="defaultCli"
+    >
       <div class="default-model__info">
         <span class="default-model__label">Default provider and model</span>
         <p class="default-model__description">
@@ -46,7 +50,7 @@ const DEFAULT_MODEL_PROVIDERS: DefaultModelProvider[] = [
           a separate model for each provider.
         </p>
       </div>
-      <div class="default-model__control">
+      <div class="default-model__control" data-setting-key="defaultModel">
         <div class="default-model__modes" role="group" aria-label="Default model routing">
           <button
             type="button"
@@ -134,14 +138,11 @@ const DEFAULT_MODEL_PROVIDERS: DefaultModelProvider[] = [
     </section>
 
     <section class="settings-list-card" aria-label="General settings">
-      @for (setting of genericGeneralSettings(); track setting.key) {
-        <app-setting-row
-          class="settings-list-item"
-          [setting]="setting"
-          [value]="store.get(setting.key)"
-          (valueChange)="onSettingChange($event)"
-        />
-      }
+      <app-settings-tiered-row-list
+        [settings]="genericGeneralSettings()"
+        [valueFor]="readSetting"
+        (valueChange)="onSettingChange($event)"
+      />
     </section>
     <app-update-settings />
   `,
@@ -149,6 +150,10 @@ const DEFAULT_MODEL_PROVIDERS: DefaultModelProvider[] = [
 })
 export class GeneralSettingsTabComponent {
   store = inject(SettingsStore);
+
+  /** Read a value by key. A bound arrow so the template can pass it as a value. */
+  protected readonly readSetting = (key: string): unknown =>
+    this.store.get(key as keyof AppSettings);
   readonly defaultModelProviders = DEFAULT_MODEL_PROVIDERS;
 
   /**

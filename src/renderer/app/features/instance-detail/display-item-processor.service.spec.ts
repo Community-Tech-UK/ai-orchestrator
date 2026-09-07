@@ -46,6 +46,24 @@ describe('DisplayItemProcessor', () => {
     expect(items[0].message?.id).toBe(msg.id);
   });
 
+  it('LT-196: never renders a tool_outcome record, and does not disturb its neighbours', () => {
+    // The outcome record exists only so the correction miner can read a real
+    // `is_error` from the archived transcript. Rendering it would reintroduce
+    // exactly the tool noise LT-062 removed.
+    const before = makeMsg({ content: 'before' });
+    const outcome = makeMsg({
+      type: 'tool_outcome',
+      content: 'grep: unrecognized option --bogus-flag',
+      metadata: { tool_use_id: 'toolu_1', is_error: true, name: 'Bash' },
+    });
+    const after = makeMsg({ content: 'after' });
+
+    const items = processor.process([before, outcome, after]);
+
+    expect(items.some((i) => i.message?.id === outcome.id)).toBe(false);
+    expect(items.map((i) => i.message?.content)).toEqual(['before', 'after']);
+  });
+
   it('should group consecutive tool messages into a tool-group', () => {
     const msgs = [
       makeMsg({ type: 'tool_use', id: 'tu1' }),

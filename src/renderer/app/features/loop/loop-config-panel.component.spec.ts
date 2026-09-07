@@ -614,4 +614,90 @@ describe('LoopConfigPanelComponent', () => {
 
     expect(config?.context?.compaction.resetAtUtilization).toBe(0.75);
   });
+
+  describe('B4 loop presets', () => {
+    /** Real DOM clicks through the rendered picker, not direct applyPreset calls. */
+    function presetButton(id: string): HTMLButtonElement {
+      const el = fixture.nativeElement.querySelector(`[data-preset-id="${id}"]`) as HTMLButtonElement | null;
+      expect(el, `expected the ${id} preset to render`).toBeTruthy();
+      return el as HTMLButtonElement;
+    }
+    function contractText(): string {
+      return (fixture.nativeElement.querySelector('.loop-presets__contract') as HTMLElement)
+        ?.textContent?.trim() ?? '';
+    }
+
+    it('applies the preset’s values when its button is clicked', () => {
+      presetButton('plan-only').click();
+      fixture.detectChanges();
+
+      expect(component.initialStage()).toBe('PLAN');
+      expect(component.operatorReviewedCompletion()).toBe(true);
+      expect(component.maxDollars()).toBe(5);
+      expect(component.selectedPresetId()).toBe('plan-only');
+    });
+
+    it('switching presets replaces the previous values', () => {
+      presetButton('plan-only').click();
+      fixture.detectChanges();
+      presetButton('review-until-clean').click();
+      fixture.detectChanges();
+
+      expect(component.operatorReviewedCompletion()).toBe(false);
+      expect(component.requiredCleanPasses()).toBe(3);
+      expect(component.selectedPresetId()).toBe('review-until-clean');
+    });
+
+    it('shows the preset’s own contract while nothing is overridden', () => {
+      presetButton('safe-implementation').click();
+      fixture.detectChanges();
+      expect(contractText()).toContain('never runs a destructive command');
+      expect(component.presetOverrides()).toEqual([]);
+    });
+
+    /**
+     * The bug this feature shipped with the first time: overriding a field left
+     * the canned prose on screen, so a run with destructive commands enabled
+     * still advertised that it never runs one.
+     */
+    it('stops showing the canned prose once a field is overridden', () => {
+      presetButton('safe-implementation').click();
+      fixture.detectChanges();
+      component.allowDestructive.set(true);
+      fixture.detectChanges();
+
+      expect(contractText()).not.toContain('never runs a destructive command');
+      expect(contractText()).toContain('allowed to run destructive commands');
+      expect(component.presetOverrides().map((o) => o.field)).toEqual(['allowDestructive']);
+    });
+
+    it('resetting puts the preset’s values back', () => {
+      presetButton('safe-implementation').click();
+      fixture.detectChanges();
+      component.allowDestructive.set(true);
+      fixture.detectChanges();
+
+      component.resetToPreset();
+      fixture.detectChanges();
+
+      expect(component.allowDestructive()).toBe(false);
+      expect(component.presetOverrides()).toEqual([]);
+    });
+
+    /**
+     * The case a preset can never cover: an operator who hand-tuned everything
+     * and picked no preset at all. Previously they got no summary whatsoever.
+     */
+    it('summarises a hand-tuned config with no preset selected', () => {
+      expect(component.selectedPresetId()).toBeNull();
+      expect(contractText().length).toBeGreaterThan(40);
+      expect(contractText()).toContain('cannot run destructive commands');
+    });
+
+    it('the always-on summary follows the live values', () => {
+      component.managedIsolation.set(false);
+      fixture.detectChanges();
+      expect(contractText()).toContain('no isolation');
+    });
+  });
 });

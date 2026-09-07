@@ -830,7 +830,7 @@ describe('ClaudeCliAdapter rate_limit_event handling', () => {
 describe('ClaudeCliAdapter LT-062 raw tool_result emission', () => {
   function makeAdapter() {
     const adapter = new ClaudeCliAdapter();
-    const outputs: Array<{ type: string; content: string }> = [];
+    const outputs: Array<{ type: string; content: string; metadata?: Record<string, unknown> }> = [];
     const toolResults: Array<{ id: string; name: string; arguments: unknown; result?: string }> = [];
     adapter.on('output', (o: { type: string; content: string }) => outputs.push(o));
     adapter.on('tool_result', (t: { id: string; name: string; arguments: unknown; result?: string }) => toolResults.push(t));
@@ -866,6 +866,60 @@ describe('ClaudeCliAdapter LT-062 raw tool_result emission', () => {
     });
     // No 'output'-typed tool_result — the visible chat transcript is unchanged.
     expect(outputs.some((o) => o.type === 'tool_result')).toBe(false);
+  });
+
+  it('LT-196: writes a transcript-invisible tool_outcome carrying the real is_error', () => {
+    const { outputs, processCliMessage } = makeAdapter();
+
+    processCliMessage({
+      type: 'assistant',
+      timestamp: 1,
+      message: { content: [{ type: 'tool_use', id: 'toolu_err', name: 'Bash', input: { command: 'grep --bogus-flag x' } }] },
+    });
+    processCliMessage({
+      type: 'user',
+      timestamp: 2,
+      message: {
+        content: [{
+          type: 'tool_result',
+          tool_use_id: 'toolu_err',
+          content: 'grep: unrecognized option --bogus-flag',
+          is_error: true,
+        }],
+      },
+    });
+
+    const outcomes = outputs.filter((o) => o.type === 'tool_outcome');
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0]?.metadata).toMatchObject({
+      tool_use_id: 'toolu_err',
+      is_error: true,
+      name: 'Bash',
+    });
+    // The error text rides along so the miner can classify the failure.
+    expect(outcomes[0]?.content).toContain('unrecognized option');
+    // LT-062 still holds: the record is NOT a visible tool_result.
+    expect(outputs.some((o) => o.type === 'tool_result')).toBe(false);
+  });
+
+  it('LT-196: records is_error false and no error text for an ordinary success', () => {
+    const { outputs, processCliMessage } = makeAdapter();
+
+    processCliMessage({
+      type: 'assistant',
+      timestamp: 1,
+      message: { content: [{ type: 'tool_use', id: 'toolu_ok', name: 'Bash', input: { command: 'echo hi' } }] },
+    });
+    processCliMessage({
+      type: 'user',
+      timestamp: 2,
+      message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_ok', content: 'hi' }] },
+    });
+
+    const outcomes = outputs.filter((o) => o.type === 'tool_outcome');
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0]?.metadata).toMatchObject({ tool_use_id: 'toolu_ok', is_error: false });
+    expect(outcomes[0]?.content).toBe('');
   });
 
   it('emits one raw tool_result per block for repeated identical calls (doom-loop repro shape)', () => {

@@ -58,6 +58,7 @@ import {
   type DashboardProjectContext,
 } from './dashboard-project-context';
 import { runCancelOperationCascade } from './dashboard-cancel-operation';
+import { TerminateConfirmStore } from '../../shared/terminate-confirm/terminate-confirm.store';
 
 @Component({
   selector: 'app-dashboard',
@@ -92,6 +93,7 @@ import { runCancelOperationCascade } from './dashboard-cancel-operation';
 export class DashboardComponent implements OnInit, OnDestroy {
   private router = inject(Router);
   store = inject(InstanceStore);
+  private terminateConfirm = inject(TerminateConfirmStore);
   historyStore = inject(HistoryStore);
   cliStore = inject(CliStore);
   settingsStore = inject(SettingsStore);
@@ -390,9 +392,10 @@ export class DashboardComponent implements OnInit, OnDestroy {
         when: ['instance-selected'],
         run: () => {
           const instance = this.store.selectedInstance();
-          if (instance) {
-            void this.store.terminateInstance(instance.id);
-          }
+          // Decision 16(b): Cmd+W is the default binding for this action, and it
+          // used to end the session outright. Terminating is irreversible, so it
+          // asks first here exactly as the row's × button does.
+          if (instance) this.terminateConfirm.request(instance.id);
         },
       }),
       this.actionDispatch.register({

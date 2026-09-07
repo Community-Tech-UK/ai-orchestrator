@@ -23,15 +23,16 @@
  *      while every sibling icon kept a hint. An `aria-label` is not "inline" —
  *      it is invisible to everyone not using a screen reader. Deleting a
  *      disclosure is never how you comply with a disclosure rule.
- *    - It is not satisfied by adding the hover back either. **Terminate does
- *      not currently meet this rule.** Its consequence lives in `appTooltip` +
- *      `aria-label`, which are hover-only and AT-only; there is no persistently
- *      visible warning and no confirmation step
- *      (`instance-row.component.ts` `onTerminate` → `instance-list.component.ts`
- *      `onTerminateInstance` → `store.terminateInstance`, no confirm anywhere).
- *      Closing it properly means an inline caption or a confirm dialog — a UX
- *      change beyond the tooltip rollout, so it is recorded as an open decision
- *      in the backlog plan rather than papered over by softening this rule.
+ *    - It is not satisfied by adding the hover back either. When this rule was
+ *      first written, Terminate did NOT meet it: the consequence lived only in
+ *      `appTooltip` + `aria-label`, both hover-only or AT-only, with no
+ *      persistently visible warning and no confirmation anywhere on the path.
+ *      That was recorded as an open decision rather than papered over by
+ *      softening the rule, and Decision 16(b) then closed it with a real confirm
+ *      dialog (`shared/terminate-confirm/`), reached by every entry point —
+ *      the row button, the context menu, and the Cmd+W `close-instance` action,
+ *      which was itself found terminating without a prompt. The rule stands as
+ *      written; what changed is the code, which is the correct order.
  * 4. **A tooltip may elaborate; it may not be the only carrier.** If a tooltip
  *    says something the element's visible text does not — a state, not just an
  *    explanation of the state — then a mouse-only hover is the only way to learn

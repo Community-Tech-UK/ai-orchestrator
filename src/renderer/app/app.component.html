@@ -88,6 +88,12 @@
 
   <app-local-ai-fallback-banner />
 
+  <!-- N12: recap of loop runs that ended while the window was unfocused. -->
+  <app-away-recap-banner />
+  <!-- Decision 16(b): mounted app-wide, not in the collapsible sidebar, so the
+       Cmd+W close-instance action can always reach it. -->
+  <app-terminate-confirm-dialog />
+
   <main class="app-main">
     @if (settingsStore.isInitialized() && settingsStore.harnessRole() === 'unset') {
       <app-role-choice (roleSelected)="selectHarnessRole($event)" />

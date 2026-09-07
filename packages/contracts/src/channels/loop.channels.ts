@@ -14,6 +14,7 @@ export const LOOP_CHANNELS = {
   /** Bounded, newest-first list of recent loop runs across all chats. Powers
    *  the Workboard's global recovery of active/recently-terminal loop items. */
   LOOP_LIST_RUNS: 'loop:list-runs',
+  LOOP_GET_AWAY_RECAP: 'loop:get-away-recap',
   LOOP_GET_ITERATIONS: 'loop:get-iterations',
   /** Read the durable verification execution ledger for one loop or instance. */
   VERIFICATION_RUNS_LIST: 'verification-runs:list',

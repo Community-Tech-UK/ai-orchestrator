@@ -13,6 +13,8 @@ import { UsageStore } from './core/state/usage.store';
 import { SkillStore } from './core/state/skill.store';
 import { PromptHistoryStore } from './core/state/prompt-history.store';
 import { ModelFavoritesService } from './features/models/model-favorites.service';
+import { AwayRecapBannerComponent } from './shared/away-recap/away-recap-banner.component';
+import { TerminateConfirmDialogComponent } from './shared/terminate-confirm/terminate-confirm-dialog.component';
 import { ProviderQuotaChipComponent } from './shared/components/provider-quota-chip/provider-quota-chip.component';
 import { CliUpdatePillComponent } from './features/title-bar/cli-update-pill.component';
 import { TerminalDrawerComponent } from './features/terminal-drawer/terminal-drawer.component';
@@ -94,6 +96,8 @@ const WINDOW_CONTROLS_FALLBACK_INSET = 150;
   selector: 'app-root',
   standalone: true,
   imports: [
+    AwayRecapBannerComponent,
+    TerminateConfirmDialogComponent,
     RouterOutlet,
     ProviderQuotaChipComponent,
     CliUpdatePillComponent,

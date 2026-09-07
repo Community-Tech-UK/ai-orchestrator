@@ -3,6 +3,7 @@
  */
 
 import { getLogger } from '../logging/logger';
+import { isVisibleOutputMessage } from '../../shared/types/tool-outcome';
 import { OrchestrationHandler } from '../orchestration/orchestration-handler';
 import { OutcomeTracker } from '../learning/outcome-tracker';
 import { StrategyLearner } from '../learning/strategy-learner';
@@ -468,9 +469,13 @@ export class InstanceOrchestrationManager {
         }
 
         const lastN = command.lastN || 100;
-        const messages = child.outputBuffer.slice(-lastN).map((msg) => {
-          return `[${msg.type}] ${msg.content}`;
-        });
+        // LT-196: `tool_outcome` is a miner-only record. This output is injected
+        // into the *requesting parent's* live conversation, so an unfiltered
+        // read feeds raw tool-failure text into another agent's context.
+        const messages = child.outputBuffer
+          .filter(isVisibleOutputMessage)
+          .slice(-lastN)
+          .map((msg) => `[${msg.type}] ${msg.content}`);
 
         callback(messages);
       }

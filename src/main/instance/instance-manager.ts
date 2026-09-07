@@ -2193,7 +2193,7 @@ export class InstanceManager extends EventEmitter {
     // child's own output when auto-capturing a result. Without this tag, the
     // child's "last assistant" message could be one of the parent's messages
     // we copied in for context — producing an echo-back result.
-    const seededOutputBuffer = parent.outputBuffer.slice(-50).map((msg) => ({
+    const seededOutputBuffer = parent.outputBuffer.filter((m) => m.type !== 'tool_outcome').slice(-50).map((msg) => ({
       ...msg,
       metadata: { ...(msg.metadata ?? {}), seededFromParent: true },
     }));

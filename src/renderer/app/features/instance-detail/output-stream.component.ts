@@ -60,6 +60,7 @@ import type { LinkKind } from '../../../../shared/utils/link-detection';
 import { shouldCollapseUserMessage, toggleExpandedId } from './output-stream-message-collapse';
 import { isProgressNoteMessage } from './progress-note';
 import { filterDisplayItems } from './output-stream-item-filter';
+import { EMPTY_THOUGHT_COALESCE_STATE, coalesceThoughtGroups, type ThoughtCoalesceState } from './thought-group-coalescer';
 import { isLoopOriginatedUserMessage as detectLoopOriginatedUserMessage } from './loop-message-detection';
 import {
   EMPTY_STABLE_DISPLAY_ITEMS_STATE,
@@ -286,21 +287,30 @@ export class OutputStreamComponent {
     return !this.isChild();
   });
 
+  /** Carrier for the post-filter thought-group merge, mutated inside
+   *  filteredItems() and read on the next recompute. See the coalescer. */
+  private thoughtCoalesceState: ThoughtCoalesceState = EMPTY_THOUGHT_COALESCE_STATE;
+
   /** Display items filtered by visibility settings. Tool-groups (when tool
    *  calls are hidden), empty thought-groups (when thinking is hidden) and
    *  progress notes (when those are set to Hidden) are stripped from both the
    *  top level and from work-cycle children, so a collapsed cycle never
-   *  advertises content that renders to an empty box. This is the raw list;
-   *  visibleItems() stabilises its references before the template renders it. */
+   *  advertises content that renders to an empty box. Thought-groups left
+   *  adjacent by that stripping are then merged into one panel, so hiding tool
+   *  calls doesn't turn a turn's reasoning into a stack of "Thought process (1)"
+   *  boxes. This is the raw list; visibleItems() stabilises its references
+   *  before the template renders it. */
   private readonly filteredItems = computed<RenderedDisplayItem[]>(() => {
     const showThinking = this.showThinking();
-    return filterDisplayItems(this.displayItems(), {
+    const filtered = filterDisplayItems(this.displayItems(), {
       hideToolGroups: !this.effectiveShowToolCalls(),
       hideEmptyThoughts: !showThinking,
       hideProgressNotes: this.progressNoteDisplay() === 'hidden',
       isThoughtGroupEmpty: (item) =>
         !this.messageFormat.hasThoughtGroupContent(item, showThinking),
     });
+    this.thoughtCoalesceState = coalesceThoughtGroups(filtered, this.thoughtCoalesceState);
+    return this.thoughtCoalesceState.result as RenderedDisplayItem[];
   });
 
   /**

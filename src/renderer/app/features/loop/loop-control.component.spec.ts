@@ -4,6 +4,9 @@ import {
   ɵresolveComponentResources as resolveComponentResources,
 } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { By } from '@angular/platform-browser';
 import type { LoopIterationPayload, LoopStatePayload } from '@contracts/schemas/loop';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -15,7 +18,20 @@ import { LoopControlComponent } from './loop-control.component';
 
 // Angular verifies standalone component resources before TestBed applies the
 // metadata override below, so resolve the extracted stylesheet for JIT tests.
-await resolveComponentResources(() => Promise.resolve(''));
+/**
+ * The template moved out of the component (B5 pushed the file past its LOC
+ * ratchet), so it has to be loaded for real here — resolving it to '' would
+ * render nothing and every DOM assertion below would pass or fail for the
+ * wrong reason. Unrelated components left in the shared registry by other
+ * specs still resolve to empty.
+ */
+const LOOP_CONTROL_TEMPLATE = readFileSync(
+  resolve(dirname(fileURLToPath(import.meta.url)), './loop-control.component.html'),
+  'utf8',
+);
+
+await resolveComponentResources((url) =>
+  Promise.resolve(url.endsWith('loop-control.component.html') ? LOOP_CONTROL_TEMPLATE : ''));
 
 
 /**
@@ -37,6 +53,7 @@ describe('LoopControlComponent', () => {
     iterationStarted: Listener<{ loopRunId: string; seq: number; stage: string }>[];
     activity: Listener<LoopActivityPayload>[];
     pausedNoProgress: Listener<{ loopRunId: string; signal: { id: string; message: string; verdict: string } }>[];
+    freshEyesBlocked: Listener<Record<string, unknown>>[];
   };
   let ipc: {
     start: ReturnType<typeof vi.fn>;
@@ -59,6 +76,7 @@ describe('LoopControlComponent', () => {
     onFreshEyesReviewPassed: ReturnType<typeof vi.fn>;
     onFreshEyesReviewFailed: ReturnType<typeof vi.fn>;
     onFreshEyesReviewBlocked: ReturnType<typeof vi.fn>;
+    onBranchSelect: ReturnType<typeof vi.fn>;
     onSteeringDowngraded: ReturnType<typeof vi.fn>;
     onFollowUpDrained: ReturnType<typeof vi.fn>;
     onCompleted: ReturnType<typeof vi.fn>;
@@ -76,6 +94,7 @@ describe('LoopControlComponent', () => {
       iterationStarted: [],
       activity: [],
       pausedNoProgress: [],
+      freshEyesBlocked: [],
     };
     ipc = {
       start: vi.fn(),
@@ -100,7 +119,8 @@ describe('LoopControlComponent', () => {
       onFreshEyesReviewStarted: vi.fn(() => noop),
       onFreshEyesReviewPassed: vi.fn(() => noop),
       onFreshEyesReviewFailed: vi.fn(() => noop),
-      onFreshEyesReviewBlocked: vi.fn(() => noop),
+      onFreshEyesReviewBlocked: vi.fn((cb) => subscribe(listeners.freshEyesBlocked, cb)),
+      onBranchSelect: vi.fn(() => noop),
       onSteeringDowngraded: vi.fn(() => noop),
       onFollowUpDrained: vi.fn(() => noop),
       onCompleted: vi.fn(() => noop),
@@ -113,6 +133,11 @@ describe('LoopControlComponent', () => {
 
     TestBed.overrideComponent(LoopControlComponent, {
       set: {
+        // `set` replaces the metadata wholesale, which puts back the
+        // unresolved `templateUrl` the resolver above already handled. Pass the
+        // real template through so the override does not blank the component.
+        template: LOOP_CONTROL_TEMPLATE,
+        templateUrl: undefined,
         styles: [],
         styleUrl: undefined,
         styleUrls: [],
@@ -743,6 +768,92 @@ describe('LoopControlComponent', () => {
     if (!button) throw new Error(`Missing banner button: ${label}`);
     return button;
   }
+  /**
+   * N4 — end to end through the REAL `LoopStore`, not a hand-built activity:
+   * a genuine `loop:fresh-eyes-review-blocked` payload goes in, and the
+   * component's own narrowing function has to produce a panel-ready detail
+   * from whatever the store stored. If the store ever stops carrying the full
+   * findings on `detail`, this fails.
+   */
+  it('turns a real fresh-eyes-blocked event into structured findings for the panel', () => {
+    listeners.stateChanged.forEach((cb) => cb({ loopRunId: 'loop-1', state: activeState() }));
+    fixture.detectChanges();
+
+    listeners.freshEyesBlocked.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      signal: 'blocking-findings',
+      reviewersUsed: ['codex'],
+      summary: 'One problem.',
+      blockingFindings: [{
+        title: 'Null deref in the parser',
+        body: 'The parser assumes a node exists.',
+        severity: 'high',
+        anchorStatus: 'verified',
+        anchor: { file: 'src/parse.ts', lineRange: [40, 42], quote: 'node.value' },
+      }],
+      demotedFindings: [{ title: 'Style nit', demotedReason: 'anchor could not be verified' }],
+    }));
+    fixture.detectChanges();
+
+    const component = fixture.componentInstance as unknown as {
+      activity: () => { detail?: unknown }[];
+      findingsDetail: (detail: unknown) => { blockingFindings: { title: string; anchor?: { quote: string } }[]; demotedFindings: unknown[] } | null;
+    };
+    const blocked = component.activity().map((e) => component.findingsDetail(e.detail)).find(Boolean);
+
+    expect(blocked?.blockingFindings).toHaveLength(1);
+    // The anchor is the part the flat activity line dropped.
+    expect(blocked?.blockingFindings[0]?.anchor?.quote).toBe('node.value');
+    expect(blocked?.demotedFindings).toHaveLength(1);
+  });
+
+  /**
+   * B5 — the wiring, not the reducer. `loop-causal-timeline.spec.ts` covers the
+   * reduction thoroughly; nothing covered the one line that connects it to the
+   * live run, so breaking that integration point would have gone unnoticed.
+   */
+  it('derives a causal timeline from the live run', () => {
+    expect(fixture.componentInstance.causalTimeline()).toBeNull();
+
+    // A terminal run is not "active" for the chat, so there is no timeline to
+    // show; `paused` is the interesting live case — blocked, and it says so.
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: { ...activeState(), status: 'paused', totalIterations: 7 },
+    }));
+    fixture.detectChanges();
+
+    const timeline = fixture.componentInstance.causalTimeline();
+    expect(timeline?.steps.map((s) => s.id)).toEqual(['work', 'verify', 'review', 'decision']);
+    expect(timeline?.blockingStepId).toBe('work');
+    expect(timeline?.nextAutomaticAction).toContain('stays paused until you resume');
+  });
+
+  it('routes a timeline recovery action to the resume handler', async () => {
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: { ...activeState(), status: 'paused' },
+    }));
+    fixture.detectChanges();
+
+    fixture.componentInstance.onTimelineRecovery('resume');
+    await fixture.whenStable();
+    expect(ipc.resume).toHaveBeenCalled();
+  });
+
+  it('does not invent an action for a recovery that has none', async () => {
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: { ...activeState(), status: 'paused' },
+    }));
+    fixture.detectChanges();
+    ipc.resume.mockClear();
+
+    fixture.componentInstance.onTimelineRecovery('review-now');
+    await fixture.whenStable();
+    expect(ipc.resume).not.toHaveBeenCalled();
+  });
+
 });
 
 const noop = (): void => undefined;

@@ -120,6 +120,24 @@ export class ProviderRuntimeEventBus {
    * Context events are coalesced. Status events are deduplicated.
    */
   enqueue(pending: PendingEnvelope): void {
+    // LT-196: the `tool_outcome` record is miner-only, and no live subscriber
+    // has a use for it — but several copy message content onward: plugins
+    // receive it untruncated, the observation ingestor embeds it into the
+    // vector store and renders it on the Observations page, and the mobile
+    // gateway broadcasts it. Three review rounds each found a different
+    // subscriber leaking it, so it is stopped here, where every subscriber is
+    // fed, rather than at subscriber N+1.
+    //
+    // DO NOT DELETE THIS AS REDUNDANT. Interactive turns are also intercepted
+    // upstream in `instance-communication.ts`, but headless loop-owned
+    // adapters are owned by the loop invoker, not by
+    // `InstanceCommunicationManager` (see `loop-provider-event-capture.ts`),
+    // and publish straight to this bus. For that path this guard is the only
+    // thing standing between raw tool-failure text and every subscriber.
+    if (pending.event.kind === 'output'
+      && (pending.event as { messageType?: string }).messageType === 'tool_outcome') {
+      return;
+    }
     this.captureRawBackedEvent(pending);
     const kind = pending.event.kind;
 

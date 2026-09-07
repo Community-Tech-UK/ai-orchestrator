@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { LoopHealthStateFieldsSchema } from './loop-health.schemas';
 
 export { LoopHealthStateFieldsSchema } from './loop-health.schemas';
+export * from './loop-away-recap.schemas';
 import {
   LegacyLoopPendingInputSchema,
   LoopPendingInputKindSchema,

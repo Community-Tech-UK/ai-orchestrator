@@ -34,6 +34,141 @@ function pair(command: string, resultContent: string, isError: boolean | undefin
   return [toolUse(command, id), toolResult(id, resultContent, isError)];
 }
 
+/** LT-196: the transcript-invisible record Claude writes (and ACP falls back to). */
+function toolOutcome(id: string, content: string, isError: boolean): MinableMessage {
+  return {
+    type: 'tool_outcome',
+    content,
+    timestamp: Date.now(),
+    metadata: { tool_use_id: id, is_error: isError, name: 'Bash' },
+  };
+}
+
+describe('LT-196: tool_outcome records feed the miner', () => {
+  it('closes an open tool_use exactly like a tool_result does', () => {
+    const id = `lt196-${seq++}`;
+    const invocations = extractToolInvocations([
+      toolUse('grep --bogus-flag foo', id),
+      toolOutcome(id, 'grep: unrecognized option --bogus-flag', true),
+    ]);
+    expect(invocations).toHaveLength(1);
+    expect(invocations[0]).toMatchObject({
+      command: 'grep --bogus-flag foo',
+      resultText: 'grep: unrecognized option --bogus-flag',
+      isError: true,
+      toolName: 'Bash',
+    });
+  });
+
+  it('records a successful outcome as isError false', () => {
+    const id = `lt196-${seq++}`;
+    const invocations = extractToolInvocations([
+      toolUse('grep foo bar.txt', id),
+      toolOutcome(id, '', false),
+    ]);
+    expect(invocations).toHaveLength(1);
+    expect(invocations[0]?.isError).toBe(false);
+  });
+
+  it('mines a real failure-then-correction pair from tool_outcome records alone', () => {
+    // The exact shape a *Claude* session now archives: no `tool_result` message
+    // anywhere, only tool_use + the invisible record. ACP providers use a
+    // different shape and are covered separately below.
+    const failId = `lt196-${seq++}`;
+    const fixId = `lt196-${seq++}`;
+    const messages: MinableMessage[] = [
+      toolUse('grep --bogus-flag needle haystack.txt', failId),
+      toolOutcome(failId, 'grep: unrecognized option --bogus-flag', true),
+      toolUse('grep -F needle haystack.txt', fixId),
+      toolOutcome(fixId, '', false),
+    ];
+    expect(messages.some((m) => m.type === 'tool_result')).toBe(false);
+
+    const pairs = findCorrectionPairs(extractToolInvocations(messages));
+    expect(pairs.length).toBeGreaterThanOrEqual(1);
+    expect(pairs[0]).toMatchObject({
+      baseCommand: 'grep',
+      failCommand: 'grep --bogus-flag needle haystack.txt',
+      fixCommand: 'grep -F needle haystack.txt',
+      fixIsError: false,
+    });
+  });
+
+  it('mines a real ACP-shaped session (Copilot/Cursor/Grok)', () => {
+    // The real shapes AcpCliAdapter emits: `tool_use` metadata is
+    // { toolCallId, kind, name, title, status, transport, input }, and
+    // `tool_result` metadata is { sessionUpdate, toolCallId, title, status,
+    // transport, is_error }. Correlation is by `toolCallId`, not `tool_use_id`,
+    // and the command lives under `input.command`.
+    const acpUse = (id: string, command: string): MinableMessage => ({
+      type: 'tool_use',
+      content: `\`${command}\``,
+      timestamp: Date.now(),
+      metadata: {
+        toolCallId: id,
+        kind: 'execute',
+        name: 'execute',
+        title: `\`${command}\``,
+        status: 'pending',
+        transport: 'acp',
+        input: { command },
+      },
+    });
+    const acpResult = (id: string, content: string, isError: boolean): MinableMessage => ({
+      type: 'tool_result',
+      content,
+      timestamp: Date.now(),
+      metadata: {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: id,
+        title: 'x',
+        status: isError ? 'failed' : 'completed',
+        transport: 'acp',
+        is_error: isError,
+      },
+    });
+
+    const messages: MinableMessage[] = [
+      acpUse('acp-1', 'grep --bogus-flag needle haystack.txt'),
+      acpResult('acp-1', 'grep: unrecognized option --bogus-flag', true),
+      acpUse('acp-2', 'grep -F needle haystack.txt'),
+      acpResult('acp-2', 'needle', false),
+    ];
+
+    const invocations = extractToolInvocations(messages);
+    expect(invocations).toHaveLength(2);
+    expect(invocations[0]).toMatchObject({
+      command: 'grep --bogus-flag needle haystack.txt',
+      isError: true,
+    });
+
+    const pairs = findCorrectionPairs(invocations);
+    expect(pairs.length).toBeGreaterThanOrEqual(1);
+    expect(pairs[0]).toMatchObject({
+      baseCommand: 'grep',
+      failCommand: 'grep --bogus-flag needle haystack.txt',
+      fixCommand: 'grep -F needle haystack.txt',
+      fixIsError: false,
+    });
+  });
+
+  it('drops an ACP tool_use with no command, as before (nothing to mine)', () => {
+    // A read/think call carries no command; it must not open an invocation.
+    const messages: MinableMessage[] = [{
+      type: 'tool_use',
+      content: 'Read File',
+      timestamp: Date.now(),
+      metadata: { toolCallId: 'acp-r', kind: 'read', name: 'read', transport: 'acp' },
+    }];
+    expect(extractToolInvocations(messages)).toHaveLength(0);
+  });
+
+  it('leaves the Codex tool_result path working unchanged', () => {
+    const messages = pair('npm test --flag-x', 'unrecognized option --flag-x', true);
+    expect(extractToolInvocations(messages)).toHaveLength(1);
+  });
+});
+
 describe('extractToolInvocations', () => {
   it('correlates tool_use/tool_result pairs into invocations with command + isError', () => {
     const messages = pair('npm test --flag-x', 'unrecognized option --flag-x', true);

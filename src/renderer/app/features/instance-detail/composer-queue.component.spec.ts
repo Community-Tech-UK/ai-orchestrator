@@ -59,3 +59,50 @@ describe('ComposerQueueComponent', () => {
     expect(steers).toEqual([0]);
   });
 });
+
+describe('ComposerQueueComponent — parked queue (B7)', () => {
+  async function mount(parked: boolean) {
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({ imports: [ComposerQueueComponent] }).compileComponents();
+    const fixture = TestBed.createComponent(ComposerQueueComponent);
+    const instance = fixture.componentInstance as unknown as {
+      messages: () => unknown[];
+      parked: () => boolean;
+    };
+    instance.messages = () => [{ message: 'held back' }];
+    instance.parked = () => parked;
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  it('says nothing about pausing while the queue is draining normally', async () => {
+    const fixture = await mount(false);
+    expect(fixture.nativeElement.querySelector('.queue-parked')).toBeNull();
+  });
+
+  it('explains that sending is paused rather than leaving it to look broken', async () => {
+    const fixture = await mount(true);
+    const banner = fixture.nativeElement.querySelector('.queue-parked') as HTMLElement;
+    expect(banner).not.toBeNull();
+    expect(banner.textContent).toContain('will not send until you resume');
+  });
+
+  it('offers a Resume action and emits it', async () => {
+    const fixture = await mount(true);
+    let resumed = 0;
+    fixture.componentInstance.resumeQueue.subscribe(() => { resumed += 1; });
+    (fixture.nativeElement.querySelector('.queue-parked__resume') as HTMLButtonElement).click();
+    expect(resumed).toBe(1);
+  });
+
+  it('announces the pause rather than only drawing it', async () => {
+    const fixture = await mount(true);
+    expect((fixture.nativeElement.querySelector('.queue-parked') as HTMLElement).getAttribute('role'))
+      .toBe('status');
+  });
+
+  it('still lists the held messages, so the user sees what is waiting', async () => {
+    const fixture = await mount(true);
+    expect(fixture.nativeElement.textContent).toContain('held back');
+  });
+});

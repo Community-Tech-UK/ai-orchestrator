@@ -623,38 +623,4 @@
         (cancelled)="onRenameCancelled()"
       />
 
-      <!-- Decision 16(b): terminating a session cannot be undone, and it used to
-           be one click behind a hover-only warning. -->
-      @if (pendingTerminateId()) {
-        <div
-          class="confirm-overlay"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="terminate-confirm-title"
-          tabindex="0"
-          (click)="cancelTerminate()"
-          (keydown.escape)="cancelTerminate()"
-        >
-          <div
-            class="confirm-dialog"
-            tabindex="-1"
-            (click)="$event.stopPropagation()"
-            (keydown)="$event.stopPropagation()"
-          >
-            <h3 id="terminate-confirm-title">Terminate {{ pendingTerminateName() }}?</h3>
-            <p>
-              This ends the session. It cannot be resumed, and any work the agent
-              has not written to disk is lost.
-            </p>
-            <div class="confirm-actions">
-              <button type="button" class="btn-cancel" (click)="cancelTerminate()">Keep running</button>
-              <button
-                type="button"
-                class="btn-confirm danger"
-                (click)="confirmTerminate()"
-              >Terminate</button>
-            </div>
-          </div>
-        </div>
-      }
     </div>

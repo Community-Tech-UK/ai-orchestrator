@@ -73,6 +73,15 @@ export interface BranchCandidate {
   filesChanged: number;
   /** Short diff/summary used for list-wise comparison. */
   summary: string;
+  /**
+   * N3: what this candidate's CLI turn cost, when the provider reported it.
+   *
+   * Omitted rather than `0` when unknown — matching the `costKnown` convention
+   * used elsewhere — because a fan-out round whose cost is unknown and one that
+   * genuinely cost nothing are different facts, and a UI showing "$0.00" for
+   * the first would be confidently wrong.
+   */
+  costUsd?: number;
 }
 
 export interface BranchSelectResult {
@@ -82,9 +91,33 @@ export interface BranchSelectResult {
   winnerProvider?: string;
   candidateCount: number;
   scores?: Record<string, number>;
+  /**
+   * N3: the whole round's spend, not just the winner's — every candidate ran a
+   * real CLI turn before losing, and a fan-out's cost is the reason it is gated
+   * behind a cost cap in the first place.
+   */
+  totalCostUsd?: number;
 }
 
 export type LoopBranchSelector = (input: BranchSelectInput) => Promise<BranchSelectResult>;
+
+/**
+ * Total spend across a fan-out round.
+ *
+ * Returns undefined — never 0 — when no candidate reported a known cost, so a
+ * caller can tell "nothing was reported" from "it was free".
+ */
+/** Spread helper so a result omits the key entirely when nothing is known. */
+function withCost(candidates: readonly BranchCandidate[]): { totalCostUsd?: number } {
+  const total = sumCandidateCostUsd(candidates);
+  return total === undefined ? {} : { totalCostUsd: total };
+}
+
+export function sumCandidateCostUsd(candidates: readonly BranchCandidate[]): number | undefined {
+  const known = candidates.filter((c) => typeof c.costUsd === 'number');
+  if (known.length === 0) return undefined;
+  return known.reduce((sum, c) => sum + (c.costUsd ?? 0), 0);
+}
 
 // ============ Pure gating ============
 
@@ -208,7 +241,13 @@ export async function runBranchSelect(input: BranchSelectInput, deps: BranchSele
     }
     const selection = selectWinner(candidates, listwise);
     if (!selection.winner) {
-      return { adopted: false, reason: selection.reason, candidateCount: candidates.length, scores: selection.scores };
+      return {
+        adopted: false,
+        reason: selection.reason,
+        candidateCount: candidates.length,
+        scores: selection.scores,
+        ...withCost(candidates),
+      };
     }
     await deps.adopt(selection.winner, runtimeInput.workspaceCwd);
     return {
@@ -218,13 +257,19 @@ export async function runBranchSelect(input: BranchSelectInput, deps: BranchSele
       winnerProvider: selection.winner.provider,
       candidateCount: candidates.length,
       scores: selection.scores,
+      ...withCost(candidates),
     };
   } catch (err) {
     logger.warn('Branch-select round failed; falling back to pause', {
       loopRunId: input.loopRunId,
       error: err instanceof Error ? err.message : String(err),
     });
-    return { adopted: false, reason: `branch-select error: ${err instanceof Error ? err.message : String(err)}`, candidateCount: candidates.length };
+    return {
+      adopted: false,
+      reason: `branch-select error: ${err instanceof Error ? err.message : String(err)}`,
+      candidateCount: candidates.length,
+      ...withCost(candidates),
+    };
   } finally {
     // Robust cleanup: discard every worktree regardless of outcome.
     try {

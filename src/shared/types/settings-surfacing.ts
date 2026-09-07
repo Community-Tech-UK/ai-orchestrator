@@ -77,7 +77,10 @@ export const SETTING_SURFACING = {
   thinkingDefaultExpanded: 'tab',
   showCost: 'tab',
   maxRecentDirectories: 'tab',
-  keybindingCustomizations: 'internal',
+  // Edited by the "Import shortcuts" textarea on the Keyboard tab
+  // (`keyboard-settings-tab.component.ts` `onImport`), which writes through
+  // `KeybindingService` — so the key name never appears in the settings folder.
+  keybindingCustomizations: 'bespoke',
   customModelOverride: 'bespoke',
   customModelsByProvider: 'bespoke',
   modelCatalogRemoteOverrideUrl: 'tab',
@@ -145,25 +148,25 @@ export const SETTING_SURFACING = {
   copilotAccountRoutingRules: 'bespoke',
   pingPongReviewerProvider: 'tab',
   pingPongMaxRounds: 'tab',
-  voiceSttRoutingMode: 'internal',
-  voiceLocalSttEnabled: 'internal',
-  voiceLocalSttWorkerNodeId: 'internal',
-  voiceLocalSttModel: 'internal',
-  voiceLocalSttLanguage: 'internal',
-  voiceThisDeviceSttEndpointUrl: 'internal',
-  voiceThisDeviceSttApiKeyEnv: 'internal',
-  voiceLocalSttMaxSegmentMs: 'internal',
-  workerMode: 'internal',
-  remoteNodesEnabled: 'internal',
-  remoteNodesServerPort: 'internal',
-  remoteNodesServerHost: 'internal',
-  remoteNodesEnrollmentToken: 'internal',
-  remoteNodesAutoOffloadBrowser: 'internal',
-  remoteNodesAutoOffloadAndroid: 'internal',
-  remoteNodesAutoOffloadGpu: 'internal',
-  remoteNodesNamespace: 'internal',
-  remoteNodesRequireTls: 'internal',
-  remoteNodesTlsMode: 'internal',
+  voiceSttRoutingMode: 'bespoke', // voice tab
+  voiceLocalSttEnabled: 'bespoke', // voice tab
+  voiceLocalSttWorkerNodeId: 'bespoke', // voice tab
+  voiceLocalSttModel: 'bespoke', // voice tab
+  voiceLocalSttLanguage: 'bespoke', // voice tab
+  voiceThisDeviceSttEndpointUrl: 'bespoke', // voice tab
+  voiceThisDeviceSttApiKeyEnv: 'bespoke', // voice tab
+  voiceLocalSttMaxSegmentMs: 'bespoke', // voice tab
+  workerMode: 'bespoke', // remote-nodes tab
+  remoteNodesEnabled: 'bespoke', // remote-nodes tab
+  remoteNodesServerPort: 'bespoke', // remote-nodes tab
+  remoteNodesServerHost: 'bespoke', // remote-nodes tab
+  remoteNodesEnrollmentToken: 'bespoke', // remote-nodes tab
+  remoteNodesAutoOffloadBrowser: 'bespoke', // remote-nodes tab
+  remoteNodesAutoOffloadAndroid: 'bespoke', // remote-nodes tab
+  remoteNodesAutoOffloadGpu: 'bespoke', // remote-nodes tab
+  remoteNodesNamespace: 'bespoke', // remote-nodes tab
+  remoteNodesRequireTls: 'bespoke', // remote-nodes tab
+  remoteNodesTlsMode: 'bespoke', // remote-nodes tab
   remoteNodesTlsCertPath: 'internal',
   remoteNodesTlsKeyPath: 'internal',
   remoteNodesRegisteredNodes: 'internal',
@@ -174,13 +177,13 @@ export const SETTING_SURFACING = {
   mobileGatewayPort: 'internal',
   mobileGatewayBindInterface: 'internal',
   mobileGatewayDevices: 'internal',
-  mobileGatewayTlsCertPath: 'internal',
-  mobileGatewayTlsKeyPath: 'internal',
-  mobileGatewayApnsKeyP8: 'internal',
-  mobileGatewayApnsKeyId: 'internal',
-  mobileGatewayApnsTeamId: 'internal',
-  mobileGatewayApnsBundleId: 'internal',
-  mobileGatewayApnsProduction: 'internal',
+  mobileGatewayTlsCertPath: 'bespoke', // mobile tab
+  mobileGatewayTlsKeyPath: 'bespoke', // mobile tab
+  mobileGatewayApnsKeyP8: 'bespoke', // mobile tab
+  mobileGatewayApnsKeyId: 'bespoke', // mobile tab
+  mobileGatewayApnsTeamId: 'bespoke', // mobile tab
+  mobileGatewayApnsBundleId: 'bespoke', // mobile tab
+  mobileGatewayApnsProduction: 'bespoke', // mobile tab
   pauseFeatureEnabled: 'tab',
   pauseOnVpnEnabled: 'tab',
   pauseVpnInterfacePattern: 'tab',
@@ -213,21 +216,25 @@ export const SETTING_SURFACING = {
   injectRepoMap: 'internal',
   repoMapTokenBudget: 'internal',
   detectDegradedAdapterOutput: 'internal',
-  toolLoopAutoInterrupt: 'internal',
+  // Two real controls: the Overnight profile row (`OVERNIGHT_PROFILE.values`)
+  // and the notification-centre "Turn on auto-interrupt" action (N2).
+  toolLoopAutoInterrupt: 'bespoke',
   approvalAdjudicationEnabled: 'internal',
   enableSpawnWorkerOffload: 'internal',
   projectPluginTrust: 'internal',
-  allowPrCreation: 'internal',
-  auxiliaryLlmEnabled: 'internal',
-  auxiliaryLlmRoutingMode: 'internal',
+  // A checkbox on the source-control panel, which is not a settings tab —
+  // `source-control-repo-actions.component.ts` `onTogglePrCreation`.
+  allowPrCreation: 'bespoke',
+  auxiliaryLlmEnabled: 'bespoke', // auxiliary-models tab
+  auxiliaryLlmRoutingMode: 'bespoke', // auxiliary-models tab
   auxiliaryLlmAllowRemoteWorkerModels: 'internal',
-  auxiliaryLlmUseLocalhostOllama: 'internal',
-  auxiliaryLlmDailySpendCapUsd: 'internal',
+  auxiliaryLlmUseLocalhostOllama: 'bespoke', // auxiliary-models tab
+  auxiliaryLlmDailySpendCapUsd: 'bespoke', // auxiliary-models tab
   auxiliaryLlmEndpointsJson: 'internal',
-  auxiliaryLlmSlotsJson: 'internal',
-  auxiliaryLlmQuickModel: 'internal',
-  auxiliaryLlmQualityModel: 'internal',
-  auxiliaryLlmRoutingClassificationEnabled: 'internal',
+  auxiliaryLlmSlotsJson: 'bespoke', // auxiliary-models tab
+  auxiliaryLlmQuickModel: 'bespoke', // auxiliary-models tab
+  auxiliaryLlmQualityModel: 'bespoke', // auxiliary-models tab
+  auxiliaryLlmRoutingClassificationEnabled: 'bespoke', // auxiliary-models tab
   localAiGuardDefaultFallbackPolicy: 'tab',
   localAiGuardDailyFallbackBudgetUsd: 'tab',
   localAiGuardConfirmAboveInputTokens: 'tab',

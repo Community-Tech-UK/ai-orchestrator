@@ -500,6 +500,20 @@ export class InputPanelComponent implements OnDestroy {
       || status === 'cancelling'
       || status === 'interrupt-escalating';
   });
+  /**
+   * B7 — is this instance's queue held back after a Stop?
+   *
+   * Read from the store rather than passed in: the parked state is owned by the
+   * messaging store, and threading it through the parent would give two sources
+   * of truth for the same fact.
+   */
+  readonly queueParked = computed(() => this.instanceStoreRef.isQueueParked(this.instanceId()));
+
+  /** B7 — the Resume button on the parked-queue banner. */
+  onResumeQueue(): void {
+    this.instanceStoreRef.resumeParkedQueue(this.instanceId());
+  }
+
   readonly canSteerActiveTurn = computed(() => {
     const status = this.instanceStatus();
     return status === 'busy'

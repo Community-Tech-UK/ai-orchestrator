@@ -672,6 +672,10 @@ export class InstanceContextManager implements InstanceContextPort {
           break;
         case 'system':
           return;
+        // LT-196: the invisible tool-outcome record is miner-only. It must not
+        // consume context tokens or reach the model as an "external" section.
+        case 'tool_outcome':
+          return;
         case 'error':
           sectionType = 'external';
           sectionName = `Error at ${new Date(message.timestamp).toISOString()}`;

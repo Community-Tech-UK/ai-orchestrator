@@ -1,0 +1,50 @@
+/* N12 — while-you-were-away recap. Outcome is never colour alone: every card
+   prints its outcome word ("Needs you" / "Stopped short" / "Finished"). */
+.away-recap {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 10px 14px;
+  margin: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.away-recap__headline { display: block; font-size: 12px; }
+.away-recap__list { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+
+.away-recap__card {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 12px;
+}
+
+.away-recap__outcome {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid currentColor;
+}
+
+.away-recap__card[data-outcome='needs-you'] .away-recap__outcome { color: #f78c7c; }
+.away-recap__card[data-outcome='stopped-short'] .away-recap__outcome { color: #eab308; }
+.away-recap__card[data-outcome='finished'] .away-recap__outcome { color: #8edc8e; }
+
+.away-recap__meta { opacity: 0.75; font-size: 11px; }
+
+.away-recap__dismiss {
+  flex: none;
+  padding: 3px 10px;
+  font-size: 11px;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.14));
+  background: transparent;
+  color: inherit;
+}

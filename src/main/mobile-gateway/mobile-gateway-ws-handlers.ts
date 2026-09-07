@@ -29,6 +29,12 @@ export interface WsHandlerDeps {
   readonly clients: Set<WebSocket>;
   readonly clientAlive: WeakMap<WebSocket, boolean>;
   readonly activeViewByClient: Map<WebSocket, string>;
+  /**
+   * Which device each live socket belongs to. The token is only checked at the
+   * upgrade, so without this a revoked device keeps streaming on the socket it
+   * already holds — exactly the case revoking a lost phone needs to stop.
+   */
+  readonly deviceIdByClient: Map<WebSocket, string>;
   buildSnapshot(): MobileSnapshot;
   markCompletionViewed(instanceId: string): void;
 }
@@ -46,7 +52,8 @@ export function handleWsUpgrade(
       return;
     }
     const token = url.searchParams.get('token') || bearerFromHeader(req.headers['authorization']);
-    if (!deps.registry.validateToken(token)) {
+    const device = deps.registry.validateToken(token);
+    if (!device) {
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
       socket.destroy();
       return;
@@ -57,7 +64,7 @@ export function handleWsUpgrade(
       return;
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
-      handleWsConnection(deps, ws);
+      handleWsConnection(deps, ws, device.deviceId);
     });
   } catch (err) {
     logger.warn('WS upgrade failed', { error: err instanceof Error ? err.message : String(err) });
@@ -65,18 +72,23 @@ export function handleWsUpgrade(
   }
 }
 
-export function handleWsConnection(deps: WsHandlerDeps, ws: WebSocket): void {
+export function handleWsConnection(deps: WsHandlerDeps, ws: WebSocket, deviceId?: string): void {
   deps.clients.add(ws);
   deps.clientAlive.set(ws, true);
+  if (deviceId) {
+    deps.deviceIdByClient.set(ws, deviceId);
+  }
   ws.on('pong', () => deps.clientAlive.set(ws, true));
   ws.on('message', (data) => handleWsClientMessage(deps, ws, data));
   ws.on('close', () => {
     deps.clients.delete(ws);
     deps.activeViewByClient.delete(ws);
+    deps.deviceIdByClient.delete(ws);
   });
   ws.on('error', () => {
     deps.clients.delete(ws);
     deps.activeViewByClient.delete(ws);
+    deps.deviceIdByClient.delete(ws);
   });
   // Initial snapshot (includes pending prompts + pause state).
   ws.send(
@@ -121,4 +133,32 @@ export function isInstanceBeingViewed(deps: WsHandlerDeps, instanceId: string): 
     if (viewed === instanceId) return true;
   }
   return false;
+}
+
+/**
+ * Drop every live socket belonging to a revoked device.
+ *
+ * The bearer token is validated only at the upgrade, so deleting it stops the
+ * next connection but not the one already open. Without this, a lost phone
+ * revoked from the desktop kept receiving output on the socket it already held —
+ * which is the whole point of revoking it. 4001 is an application close code
+ * meaning "your pairing was revoked".
+ */
+export function closeSocketsForDevice(deps: WsHandlerDeps, deviceId: string): void {
+  let closed = 0;
+  for (const [client, id] of deps.deviceIdByClient) {
+    if (id !== deviceId) continue;
+    deps.deviceIdByClient.delete(client);
+    deps.clients.delete(client);
+    deps.activeViewByClient.delete(client);
+    closed += 1;
+    try {
+      client.close(4001, 'Device revoked');
+    } catch {
+      // Already dead; nothing left for the close handlers to clean up.
+    }
+  }
+  if (closed > 0) {
+    logger.info('Closed sockets for revoked mobile device', { deviceId, closed });
+  }
 }

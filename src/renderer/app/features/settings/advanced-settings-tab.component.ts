@@ -14,6 +14,7 @@ import { SettingsStore } from '../../core/state/settings.store';
 import { SettingsIpcService } from '../../core/services/ipc/settings-ipc.service';
 import { BrowserGatewayIpcService } from '../../core/services/ipc/browser-gateway-ipc.service';
 import { SettingRowComponent } from './setting-row.component';
+import { SettingsTieredRowListComponent } from './settings-tiered-row-list.component';
 import { SettingsNavIconComponent } from './ui/settings-nav-icon.component';
 import type { AppSettings } from '../../../../shared/types/settings.types';
 import type { SettingMetadata } from '../../../../shared/types/settings-metadata.types';
@@ -56,7 +57,7 @@ interface AdvancedSection {
   selector: 'app-advanced-settings-tab',
   changeDetection: ChangeDetectionStrategy.OnPush,
   standalone: true,
-  imports: [SettingRowComponent, SettingsNavIconComponent],
+  imports: [SettingRowComponent, SettingsNavIconComponent, SettingsTieredRowListComponent],
   template: `
     @for (section of advancedSections(); track section.id) {
       <section
@@ -127,14 +128,11 @@ interface AdvancedSection {
         </p>
       </div>
       <div class="settings-list-card">
-        @for (setting of store.mcpSettings(); track setting.key) {
-          <app-setting-row
-            class="settings-list-item"
-            [setting]="setting"
-            [value]="store.get(setting.key)"
-            (valueChange)="onSettingChange($event)"
-          />
-        }
+        <app-settings-tiered-row-list
+          [settings]="store.mcpSettings()"
+          [valueFor]="readSetting"
+          (valueChange)="onSettingChange($event)"
+        />
       </div>
     </section>
 
@@ -312,6 +310,10 @@ interface AdvancedSection {
 })
 export class AdvancedSettingsTabComponent {
   store = inject(SettingsStore);
+
+  /** Read a value by key. A bound arrow so the template can pass it as a value. */
+  protected readonly readSetting = (key: string): unknown =>
+    this.store.get(key as keyof AppSettings);
   private settingsIpc = inject(SettingsIpcService);
   private browserGatewayIpc = inject(BrowserGatewayIpcService);
 

@@ -8,6 +8,8 @@ import { SettingsStore } from '../../core/state/settings.store';
 import { OPENAI_MODELS } from '../../../../shared/types/provider.types';
 import { SettingRowComponent } from './setting-row.component';
 import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
+import { ProviderModelOverrideComponent } from './provider-model-override.component';
+import { SettingsTieredRowListComponent } from './settings-tiered-row-list.component';
 
 await resolveComponentResources((url) => {
   if (url.endsWith('.html') || url.endsWith('.scss')) {
@@ -53,9 +55,19 @@ describe('OrchestrationSettingsTabComponent', () => {
         { provide: SettingsStore, useValue: store },
       ],
     });
+        // S4.3 moved the picker inside ProviderModelOverrideComponent, so stubbing
+    // only this tab's imports no longer reaches it.
+    TestBed.overrideComponent(ProviderModelOverrideComponent, {
+      set: { imports: [CompactModelPickerStubComponent], styles: [''], styleUrl: undefined, styleUrls: [] },
+    });
     TestBed.overrideComponent(OrchestrationSettingsTabComponent, {
       set: {
-        imports: [SettingRowComponent, CompactModelPickerStubComponent],
+        imports: [
+          SettingRowComponent,
+          CompactModelPickerStubComponent,
+          SettingsTieredRowListComponent,
+          ProviderModelOverrideComponent,
+        ],
         styles: [''],
         styleUrl: undefined,
         styleUrls: [],

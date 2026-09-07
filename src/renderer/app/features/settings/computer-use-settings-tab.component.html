@@ -1,13 +1,10 @@
 <section class="cu-tab" aria-label="Computer Use settings">
   <section class="settings-list-card" aria-label="Computer Use policy">
-    @for (setting of settingRows(); track setting.key) {
-      <app-setting-row
-        class="settings-list-item"
-        [setting]="setting"
-        [value]="store.get(setting.key)"
-        (valueChange)="onSettingChange($event)"
-      />
-    }
+    <app-settings-tiered-row-list
+      [settings]="settingRows()"
+      [valueFor]="readSetting"
+      (valueChange)="onSettingChange($event)"
+    />
   </section>
 
   <section class="cu-card" aria-label="Driver health">

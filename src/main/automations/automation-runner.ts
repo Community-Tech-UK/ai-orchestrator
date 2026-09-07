@@ -1,4 +1,5 @@
 import { getLogger } from '../logging/logger';
+import { isVisibleOutputMessage } from '../../shared/types/tool-outcome';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { Instance } from '../../shared/types/instance.types';
 import type {
@@ -462,7 +463,10 @@ export class AutomationRunner {
       tracking.seenAssistantOutput = true;
       tracking.lastAssistantOutput = assistant.content;
     }
-    tracking.outputChunks.push(...instance.outputBuffer.slice(-20).map((message) => ({
+    // LT-196: miner-only records are not automation output.
+    tracking.outputChunks.push(...instance.outputBuffer
+      .filter(isVisibleOutputMessage)
+      .slice(-20).map((message) => ({
       kind: message.type,
       content: message.content,
       timestamp: message.timestamp,

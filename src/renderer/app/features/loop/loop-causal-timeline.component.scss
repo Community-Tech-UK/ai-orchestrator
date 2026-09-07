@@ -1,0 +1,83 @@
+.loop-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.loop-timeline__steps {
+  display: grid;
+  gap: 4px;
+  grid-template-columns: repeat(4, 1fr);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.loop-timeline__step {
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.12));
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+}
+
+.loop-timeline__step-label { font-weight: 600; }
+.loop-timeline__step-state { opacity: 0.65; }
+.loop-timeline__step-detail { line-height: 1.45; opacity: 0.85; }
+
+/* Tint reinforces the state word; it never carries the state alone. */
+.loop-timeline__step[data-state='blocked'] {
+  border-color: rgba(247, 140, 124, 0.55);
+  background: rgba(247, 140, 124, 0.1);
+}
+.loop-timeline__step[data-state='active'] {
+  border-color: rgba(110, 168, 254, 0.5);
+}
+.loop-timeline__step[data-state='skipped'] { opacity: 0.55; }
+
+.loop-timeline__next { margin: 0; line-height: 1.5; }
+.loop-timeline__next-label { font-weight: 600; opacity: 0.75; }
+
+.loop-timeline__recovery {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.loop-timeline__recovery-btn {
+  background: transparent;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.2));
+  border-radius: 4px;
+  color: inherit;
+  cursor: pointer;
+  flex: none;
+  font-size: 11px;
+  padding: 3px 10px;
+
+  &:hover { background: var(--glass-strong, rgba(255, 255, 255, 0.06)); }
+}
+
+.loop-timeline__recovery-desc { opacity: 0.75; }
+
+.loop-timeline__spend {
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  opacity: 0.8;
+}
+
+.loop-timeline__spend-source { opacity: 0.75; }
+
+/* Announced, not shown: the visible timeline above already says all of it. */
+.loop-timeline__announcement {
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}

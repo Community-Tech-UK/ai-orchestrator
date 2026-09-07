@@ -101,6 +101,12 @@ function toOutputMessageType(
     case 'system':
     case 'tool_use':
     case 'tool_result':
+    // LT-196: must be preserved, not defaulted. These switches take a loose
+    // `string`/`unknown`, so TypeScript never flagged the new member here —
+    // and a `default: 'assistant'` relabels the miner-only outcome record as
+    // an assistant message, carrying raw tool-failure text onto every live
+    // consumer (mobile broadcast, continuity persistence) past their filters.
+    case 'tool_outcome':
     case 'error':
       return messageType;
     default:

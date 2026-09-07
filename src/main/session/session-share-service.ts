@@ -1,4 +1,5 @@
 import * as fs from 'fs/promises';
+import { isVisibleOutputMessage } from '../../shared/types/tool-outcome';
 import * as path from 'path';
 import type { ChildResult } from '../../shared/types/child-result.types';
 import type { ConversationData } from '../../shared/types/history.types';
@@ -172,9 +173,14 @@ export class SessionShareService {
     messages: OutputMessage[];
     parentId: string;
   }): Promise<SessionShareBundle> {
-    const sanitizedMessages = params.messages.map((message) =>
-      this.sanitizeMessage(message, params.workingDirectory),
-    );
+    // LT-196: a shared/replayed bundle is a transcript export, and the Replay
+    // page renders every message in it unconditionally. The invisible
+    // `tool_outcome` record exists only to feed the correction miner, so it is
+    // dropped here — rendering it would put raw tool error text back on a
+    // user-facing surface, which is exactly what LT-062 removed.
+    const sanitizedMessages = params.messages
+      .filter(isVisibleOutputMessage)
+      .map((message) => this.sanitizeMessage(message, params.workingDirectory));
     const continuitySnapshots = this.getContinuitySnapshots(params.parentId);
     const fileSnapshotSessions = this.getFileSnapshotSessions(params.parentId);
     const childResults = await getChildResultStorage().getResultsForParent(params.parentId);

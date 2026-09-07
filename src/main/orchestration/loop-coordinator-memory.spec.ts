@@ -34,6 +34,19 @@ import {
 let workspace: string;
 let coordinator: LoopCoordinator;
 
+/**
+ * Poll until `predicate` holds or the deadline passes. Deliberately does not
+ * throw: the caller keeps its own assertion, so a real wiring break still
+ * reports the specific expectation that failed rather than a generic timeout.
+ */
+async function waitForCondition(predicate: () => boolean, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
 beforeEach(() => {
   workspace = mkdtempSync(join(tmpdir(), 'loop-memory-coord-'));
   writeFileSync(join(workspace, 'STAGE.md'), 'IMPLEMENT\n');
@@ -76,10 +89,16 @@ describe('LoopCoordinator cross-loop memory wiring (LF-6)', () => {
     // surfaceLearnings was consulted at start
     expect(stubStore.surfaceLearnings).toHaveBeenCalledWith(workspace, 3);
 
-    // wait for the first iteration to capture the prompt
-    for (let i = 0; i < 60 && capturedPrompt === null; i++) {
-      await new Promise((r) => setTimeout(r, 25));
-    }
+    // Wait for the first iteration to capture the prompt. The old budget here
+    // was a fixed 60 × 25ms = 1.5s, and assembling the first iteration prompt
+    // (lessons/codemem surfacing, stage context, session replay) already costs
+    // ~0.7s on an idle dev Mac — so a shared CI runner running several vitest
+    // forks blew straight through it and this test was a permanently red CI
+    // shard. Wait on the condition with real headroom instead of a fixed tick
+    // count; a genuine wiring break still fails, just at the deadline. The
+    // explicit 30s test timeout below has to clear this wait plus teardown —
+    // vitest's 5s default would abort the wait before it could ever succeed.
+    await waitForCondition(() => capturedPrompt !== null, 15_000);
     expect(capturedPrompt).not.toBeNull();
     expect(capturedPrompt!).toContain('verify kept failing');
     expect(capturedPrompt!).toMatch(/Prior Context \(advisory, untrusted\)|Prior Observations \(not binding\)/);
@@ -90,7 +109,7 @@ describe('LoopCoordinator cross-loop memory wiring (LF-6)', () => {
     const rec = recordLearning.mock.calls[0][0] as { workspaceCwd: string; status: string };
     expect(rec.workspaceCwd).toBe(workspace);
     expect(rec.status).toBe('cancelled');
-  });
+  }, 30_000);
 
   // LT-29x (fable-ws16 livetest, checks 5/lessons + 6): before this fix,
   // nothing in production ever called `getRecallTraceStore().record({surface:

@@ -2238,7 +2238,11 @@ export class InstanceLifecycleManager extends EventEmitter {
           await adapter.sendInput(this.buildReplayContinuityMessage(instance, fallbackReason));
         }
 
-        // Remove from HibernationManager tracking.
+        // Remove from HibernationManager tracking. Waking counts as activity:
+        // without this reset a session woken by a tab click (no send) still
+        // carries its pre-hibernation lastActivity and the idle sweep would
+        // hibernate it again as soon as the wake cooldown lapses.
+        instance.lastActivity = Date.now();
         getHibernationManager().markAwoken(instanceId);
 
         this.transitionState(instance, 'ready');

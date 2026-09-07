@@ -234,7 +234,7 @@ export interface ThinkingContent {
 export interface OutputMessage {
   id: string;
   timestamp: number;
-  type: 'assistant' | 'user' | 'system' | 'tool_use' | 'tool_result' | 'error';
+  type: 'assistant' | 'user' | 'system' | 'tool_use' | 'tool_result' | 'tool_outcome' | 'error';
   content: string;
   metadata?: Record<string, unknown>;
   /** File attachments associated with this message. */

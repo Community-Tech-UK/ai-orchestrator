@@ -152,6 +152,41 @@ describe('SessionShareService', () => {
     expect(bundle.summary.fileSnapshotSessionCount).toBe(1);
   });
 
+  it('LT-196: never exports the invisible tool_outcome record into a shared bundle', async () => {
+    // The Replay & Share page renders every message in a bundle unconditionally
+    // (no allow-list), so exporting the miner-only record would put raw tool
+    // error text back on a user-facing surface — the noise LT-062 removed.
+    childResultsMock.mockResolvedValue([]);
+    listSnapshotsMock.mockReturnValue([]);
+    getSessionsForInstanceMock.mockReturnValue([]);
+
+    const instance = {
+      id: 'instance-lt196',
+      displayName: 'Tooling Session',
+      createdAt: 1,
+      status: 'idle',
+      workingDirectory: os.tmpdir(),
+      outputBuffer: [
+        { id: 'u1', timestamp: 10, type: 'user', content: 'run the thing' },
+        {
+          id: 'o1',
+          timestamp: 11,
+          type: 'tool_outcome',
+          content: 'grep: unrecognized option --bogus-flag',
+          metadata: { tool_use_id: 'toolu_1', is_error: true, name: 'Bash' },
+        },
+        { id: 'a1', timestamp: 12, type: 'assistant', content: 'fixed it' },
+      ] as OutputMessage[],
+      retainedPrompts: [] as OutputMessage[],
+    } as Instance;
+
+    const { getSessionShareService } = await import('../session-share-service');
+    const bundle = await getSessionShareService().createBundle({ instance });
+
+    expect(bundle.messages.some((m) => m.type === 'tool_outcome')).toBe(false);
+    expect(bundle.messages.map((m) => m.content)).toEqual(['run the thing', 'fixed it']);
+  });
+
   it('carries a prompt the live buffer no longer holds into the bundle', async () => {
     // A replayed bundle is imported as a live session, so a bundle built from
     // the trimmed buffer alone resumes without the original request.

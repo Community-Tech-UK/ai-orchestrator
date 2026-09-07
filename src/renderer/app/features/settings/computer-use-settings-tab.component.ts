@@ -24,7 +24,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { SettingsStore } from '../../core/state/settings.store';
 import { ComputerUsePermissionStore } from '../../core/state/computer-use-permission.store';
-import { SettingRowComponent } from './setting-row.component';
+import { SettingsTieredRowListComponent } from './settings-tiered-row-list.component';
 import { DesktopGatewayIpcService } from '../../core/services/ipc/desktop-gateway-ipc.service';
 import type { AppSettings } from '../../../../shared/types/settings.types';
 import type {
@@ -53,13 +53,17 @@ interface CapabilityRow {
 @Component({
   standalone: true,
   selector: 'app-computer-use-settings-tab',
-  imports: [CommonModule, SettingRowComponent],
+  imports: [CommonModule, SettingsTieredRowListComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './computer-use-settings-tab.component.html',
   styleUrl: './computer-use-settings-tab.component.scss',
 })
 export class ComputerUseSettingsTabComponent implements OnInit {
   readonly store = inject(SettingsStore);
+
+  /** Read a value by key. A bound arrow so the template can pass it as a value. */
+  protected readonly readSetting = (key: string): unknown =>
+    this.store.get(key as keyof AppSettings);
   readonly permissions = inject(ComputerUsePermissionStore);
   private readonly desktop = inject(DesktopGatewayIpcService);
 

@@ -120,7 +120,7 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'autoTerminateIdleMinutes',
     label: 'Close idle agents after',
-    description: 'Automatically shut down an agent after this many minutes with no activity, to free up resources. 0 keeps them running indefinitely.',
+    description: 'After this many minutes with no activity, hibernate an idle session (it stays in the sidebar and wakes on your next message). Idle helper agents are hibernated too if they have done work, or closed if they have not. 0 keeps everything running indefinitely.',
     type: 'number',
     category: 'orchestration',
     min: 0,

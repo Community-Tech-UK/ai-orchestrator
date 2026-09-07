@@ -382,6 +382,18 @@ function readCompilerOptions(): ts.CompilerOptions {
   return compilerOptionsCache;
 }
 
+/**
+ * Budget for the two tests that build a whole `ts.Program` over every
+ * production file under `src/main`. That cost scales with the codebase, not
+ * with the assertion: on an idle dev Mac the manifest sweep already takes
+ * ~15s, and a shared CI runner executing several vitest forks at once is a
+ * multiple of that. The previous 15s budget therefore turned into a permanent
+ * red CI shard (a timeout, reported only as `Error: STACK_TRACE_ERROR`) while
+ * the same test stayed green locally. This timeout exists to catch a hang, not
+ * to police how long a full TypeScript program takes to build.
+ */
+const FULL_PROGRAM_TEST_TIMEOUT_MS = 120_000;
+
 function createOwnershipProgram(virtualSources: Record<string, string> = {}): ts.Program {
   const options = readCompilerOptions();
   const virtualFiles = new Map<string, string>(
@@ -3321,7 +3333,7 @@ describe('RLM process ownership', () => {
       'rlm/context-manager.ts',
     ]));
     expect(manifestDifferences(analysis.calls, expectedManifest)).toEqual([]);
-  }, 15_000);
+  }, FULL_PROGRAM_TEST_TIMEOUT_MS);
 
   it('detects owner calls through named aliases and namespace imports', () => {
     const calls = analyzeFixtureOwnerCalls('fixture-alias.ts')
@@ -3334,7 +3346,7 @@ describe('RLM process ownership', () => {
       { role: 'fixture', file: 'instance/fixture-alias.ts', callee: 'RLMContextManager.getInstance', count: 1 },
       { role: 'fixture', file: 'instance/fixture-alias.ts', callee: 'UnifiedMemoryController.getInstance', count: 1 },
     ]);
-  }, 15_000);
+  }, FULL_PROGRAM_TEST_TIMEOUT_MS);
 
   it('detects immutable local alias chains for every owner call form', () => {
     const program = getSemanticFixtureProgram();

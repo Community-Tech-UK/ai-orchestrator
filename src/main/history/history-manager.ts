@@ -13,6 +13,7 @@
  */
 
 import { app } from 'electron';
+import { clearToolOutcomes, getToolOutcomes } from '../learning/tool-outcome-store';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as zlib from 'zlib';
@@ -131,6 +132,7 @@ export class HistoryManager {
       }
 
       const messages = await this.getCompleteArchiveMessages(instance);
+      clearToolOutcomes(instance.id); // LT-196: folded in above; done with them.
       const threadKey = this.getInstanceThreadKey(instance);
       const previousEntries = this.index.entries.filter(
         (existingEntry) => this.getEntryThreadKey(existingEntry) === threadKey
@@ -413,6 +415,9 @@ export class HistoryManager {
       ...storedMessages,
       ...retainedPromptsMissingFrom(instance.retainedPrompts, persisted),
       ...retainedMessages,
+      // LT-196: held out of `outputBuffer`; folded in only here — see
+      // `tool-outcome-store.ts`.
+      ...getToolOutcomes(instance.id),
     ]) {
       messagesById.set(message.id, message);
     }

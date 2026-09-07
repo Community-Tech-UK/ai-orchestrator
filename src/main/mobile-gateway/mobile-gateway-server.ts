@@ -49,13 +49,18 @@ import {
   readJsonBody,
   sendJsonResponse,
 } from './mobile-gateway-http-utils';
-import { handleMobileHistory, handleMobileHistoryMessages } from './mobile-gateway-history-handlers';
+import {
+  handleMobileHistory,
+  handleMobileHistoryMessages,
+  handleMobileInstanceMessages,
+} from './mobile-gateway-history-handlers';
 import {
   handleMobileQueueRoutes,
   MobileInputQueue,
   shouldQueueInput,
 } from './mobile-input-queue';
 import {
+  closeSocketsForDevice,
   handleWsUpgrade,
   isInstanceBeingViewed,
   type WsHandlerDeps,
@@ -74,10 +79,7 @@ import {
   sendMobilePromptPush,
   type BrowserEscalationPushInput,
 } from './mobile-gateway-push';
-import {
-  handleApnsTokenRequest,
-  handleLiveActivityTokenRequest,
-} from './mobile-gateway-device-token-handlers';
+import { handleMobileDeviceRoutes } from './mobile-gateway-device-token-handlers';
 import { isActiveLoopRuntimeState } from '../orchestration/loop-runtime-status';
 import { getLoopCoordinator } from '../orchestration/loop-coordinator';
 import {
@@ -231,6 +233,9 @@ export class MobileGatewayServer {
    * disconnect/reap so a dropped socket never pins a session as "being viewed".
    */
   private readonly activeViewByClient = new Map<WebSocket, string>();
+  /** Which device each live socket belongs to, so a revoked one can be cut off. */
+  private readonly deviceIdByClient = new Map<WebSocket, string>();
+  private unsubscribeRevocations: (() => void) | null = null;
 
   /** Pending "needs you" prompts keyed by requestId. */
   private readonly prompts = new Map<string, MobilePromptDto>();
@@ -424,6 +429,14 @@ export class MobileGatewayServer {
     // frames on a shell-capable, remotely-reachable server.
     this.wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
 
+    // Revoking a device must cut its live socket, not just block the next one.
+    // Covers both routes into the registry: the desktop's Paired devices list and
+    // the phone's own DELETE /api/devices/me.
+    this.unsubscribeRevocations?.();
+    this.unsubscribeRevocations = this.registry.onDeviceRevoked((deviceId) =>
+      closeSocketsForDevice(this.wsDeps(), deviceId),
+    );
+
     httpServer.on('upgrade', (req, socket, head) => {
       handleWsUpgrade(this.wsDeps(), req, socket, head);
     });
@@ -491,12 +504,16 @@ export class MobileGatewayServer {
       logger.info('Mobile gateway stopped');
     }
 
+    this.unsubscribeRevocations?.();
+    this.unsubscribeRevocations = null;
+    this.deviceIdByClient.clear();
     this.boundPort = 0;
     this.startedAt = 0;
     this.secure = false;
     this.tlsHostname = null;
     return this.getStatus();
   }
+
 
   isRunning(): boolean {
     return this.httpServer !== null;
@@ -742,12 +759,15 @@ export class MobileGatewayServer {
     if (this.clients.size === 0) return;
     const message = toOutputMessageFromProviderEnvelope(envelope);
     if (!message) return;
+    // LT-196: the invisible tool-outcome record has no mobile representation.
+    const dto = serializeMessage(message);
+    if (dto === null) return;
     this.broadcast({
       type: 'instance-output',
       data: {
         instanceId: envelope.instanceId,
         seq: envelope.seq,
-        message: serializeMessage(message),
+        message: dto,
       },
     });
   }
@@ -977,6 +997,7 @@ export class MobileGatewayServer {
       clients: this.clients,
       clientAlive: this.clientAlive,
       activeViewByClient: this.activeViewByClient,
+      deviceIdByClient: this.deviceIdByClient,
       buildSnapshot: () => this.buildSnapshot(),
       markCompletionViewed: (instanceId: string) => this.markCompletionViewed(instanceId),
     };
@@ -1077,26 +1098,17 @@ export class MobileGatewayServer {
             return await this.handleHistoryMessages(res, decodeURIComponent(segments[2]));
           }
         }
-        if (segments[1] === 'devices' && segments.length === 4 && method === 'POST') {
-          const targetDeviceId = decodeURIComponent(segments[2]);
-          if (segments[3] === 'apns-token') {
-            return await handleApnsTokenRequest(
-              this.deviceTokenDeps(),
-              req,
-              res,
-              targetDeviceId,
-              device.deviceId,
-            );
-          }
-          if (segments[3] === 'live-activity-token') {
-            return await handleLiveActivityTokenRequest(
-              this.deviceTokenDeps(),
-              req,
-              res,
-              targetDeviceId,
-              device.deviceId,
-            );
-          }
+        if (
+          await handleMobileDeviceRoutes(
+            this.deviceTokenDeps(),
+            req,
+            res,
+            segments,
+            method,
+            device.deviceId,
+          )
+        ) {
+          return;
         }
       }
 
@@ -1126,67 +1138,18 @@ export class MobileGatewayServer {
   }
 
   private handleMessages(res: ServerResponse, instanceId: string, url: URL): void {
-    const instance = this.source().getInstance(instanceId);
-    if (!instance) {
-      this.sendJson(res, 404, { error: 'Instance not found' });
-      return;
-    }
-
-    // Fetching the transcript means the phone is viewing this session — drop its
-    // unread completion dot (mirrors the desktop "selected instance" clear).
-    this.markCompletionViewed(instanceId);
-
-    const buffer = instance.outputBuffer ?? [];
-    const rawFromSeq = url.searchParams.get('fromSeq');
-
-    // Absent fromSeq: legacy path — last MESSAGE_REPLAY_LIMIT messages, byte-for-byte
-    // equivalent to before except each DTO now carries its buffer index as `seq`.
-    if (rawFromSeq === null) {
-      const start = Math.max(0, buffer.length - MESSAGE_REPLAY_LIMIT);
-      const messages = buffer
-        .slice(start)
-        .map((msg, sliceIdx) => serializeMessage(msg, start + sliceIdx));
-      this.sendJson(res, 200, messages);
-      return;
-    }
-
-    // fromSeq present: parse and validate.
-    const parsed = Number(rawFromSeq);
-    // Treat NaN, negative, or non-integer as "start from 0" (safe degradation —
-    // the client sent garbage but we still serve something useful rather than 400).
-    const fromSeq = Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : 0;
-
-    // Messages with buffer index strictly greater than fromSeq.
-    // "seq" of message at buffer[i] === i (0-based).
-    // Slice from (fromSeq + 1) onward, then cap to MESSAGE_REPLAY_LIMIT.
-    const firstIdx = fromSeq + 1;
-    const available = Math.max(0, buffer.length - firstIdx);
-    const hasMore = available > MESSAGE_REPLAY_LIMIT;
-    // Take at most MESSAGE_REPLAY_LIMIT messages starting at firstIdx.
-    const sliceEnd = firstIdx + MESSAGE_REPLAY_LIMIT;
-    const sliced = buffer.slice(firstIdx, sliceEnd);
-    const messages = sliced.map((msg, sliceIdx) => serializeMessage(msg, firstIdx + sliceIdx));
-
-    const maxSeq = messages.length > 0 ? (firstIdx + messages.length - 1) : fromSeq;
-
-    logger.info('Mobile: client attached from seq', {
-      instanceId,
-      fromSeq,
-      returned: messages.length,
-      hasMore,
-      bufferLength: buffer.length,
-    });
-
-    const envelope: MobileMessagesResumeDto = {
-      messages,
-      meta: {
-        fromSeq,
-        returned: messages.length,
-        hasMore,
-        maxSeq,
+    handleMobileInstanceMessages(
+      {
+        getInstance: (id) => this.source().getInstance(id),
+        markCompletionViewed: (id) => this.markCompletionViewed(id),
+        messageReplayLimit: MESSAGE_REPLAY_LIMIT,
+        sendJson: (r, code, payload) => this.sendJson(r, code, payload),
+        logger,
       },
-    };
-    this.sendJson(res, 200, envelope);
+      res,
+      instanceId,
+      url,
+    );
   }
 
   private async handleInput(

@@ -22,10 +22,13 @@ export class ComposerQueueComponent {
   readonly messages = input<ComposerQueuedMessage[]>([]);
   readonly holdReasonLabel = input<string | null>(null);
   readonly canSteer = input(false);
+  /** B7 — the queue is held back after a user-initiated Stop. */
+  readonly parked = input(false);
 
   readonly editMessage = output<number>();
   readonly steerMessage = output<number>();
   readonly cancelMessage = output<number>();
+  readonly resumeQueue = output<void>();
 
   protected truncate(message: string): string {
     return truncateQueuedMessage(message);

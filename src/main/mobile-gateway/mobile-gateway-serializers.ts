@@ -125,7 +125,14 @@ export function serializeInstance(
   };
 }
 
-export function serializeMessage(message: OutputMessage, seq?: number): MobileMessageDto {
+/**
+ * LT-196: returns `null` for a `tool_outcome` record. That message exists only
+ * to feed the correction miner from the archived transcript and has no mobile
+ * representation — callers drop the nulls *after* mapping so `seq`, which is a
+ * buffer index, stays aligned with the unfiltered buffer.
+ */
+export function serializeMessage(message: OutputMessage, seq?: number): MobileMessageDto | null {
+  if (message.type === 'tool_outcome') return null;
   return {
     id: message.id,
     timestamp: message.timestamp,

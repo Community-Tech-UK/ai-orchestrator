@@ -27,6 +27,7 @@ import { initializeSessionRecoveryRuntime } from './session-recovery-initializat
 import { getResourceGovernor } from '../process/resource-governor';
 import { getCliAutoUpdateService } from '../cli/cli-auto-update-service';
 import { getHibernationManager } from '../process/hibernation-manager';
+import { runIdleHibernationSweep } from '../process/idle-hibernation-sweep';
 import { getPoolManager } from '../process/pool-manager';
 import { getLoadBalancer } from '../process/load-balancer';
 import { getCrossModelReviewService } from '../orchestration/cross-model-review-service';
@@ -307,21 +308,27 @@ export function createLateRuntimeInitializationSteps(
         const hibernation = getHibernationManager();
         hibernation.start();
         hibernation.on('check-idle', () => {
-          const instances = instanceManager.getAllInstances()
-            .filter((instance) => instance.status === 'idle' && instance.parentId)
-            .map((instance) => ({
+          // Chats of loops that have not ended (running, paused, or parked on a
+          // provider limit) must keep their adapter for the loop to resume into.
+          const liveLoopChats = new Set<string>(
+            getLoopCoordinator().getActiveLoops()
+              .filter((loop) => loop.endedAt === null)
+              .map((loop) => loop.chatId),
+          );
+          runIdleHibernationSweep({
+            hasLiveLoop: (id) => liveLoopChats.has(id),
+            hibernation,
+            getInstances: () => instanceManager.getAllInstances().map((instance) => ({
               id: instance.id,
               status: instance.status,
+              parentId: instance.parentId,
               lastActivity: instance.lastActivity,
-            }));
-          const candidates = hibernation.getHibernationCandidates(instances);
-          for (const candidate of candidates) {
-            instanceManager.terminateInstance(candidate.id, true).catch((err) => {
-              logger.warn('Failed to terminate idle child instance', {
-                error: err instanceof Error ? err.message : String(err),
-              });
-            });
-          }
+              isRemote: instance.executionLocation?.type === 'remote',
+              displayName: instance.displayName,
+            })),
+            getIdleMinutes: () => getSettingsManager().get('autoTerminateIdleMinutes'),
+            hibernateInstance: (id) => instanceManager.hibernateInstance(id),
+          });
         });
       },
     },

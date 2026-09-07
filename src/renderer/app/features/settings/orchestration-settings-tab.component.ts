@@ -4,12 +4,12 @@
 
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { SettingsStore } from '../../core/state/settings.store';
-import { SettingRowComponent } from './setting-row.component';
+import { SettingsTieredRowListComponent } from './settings-tiered-row-list.component';
 import { RoutingMatrixComponent } from './routing-matrix.component';
 import type { AppSettings } from '../../../../shared/types/settings.types';
-import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
-import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
+import type { PickerProvider } from '../models/compact-model-picker.types';
 import { getDefaultModelForCli } from '../../../../shared/types/provider.types';
+import { ProviderModelOverrideComponent } from './provider-model-override.component';
 
 /** Providers that can run a loop. Mirrors LoopProvider in loop.types.ts. */
 const LOOP_PROVIDER_DEFINITIONS: readonly { id: PickerProvider; label: string }[] = [
@@ -30,18 +30,15 @@ interface LoopProviderView {
 @Component({
   selector: 'app-orchestration-settings-tab',
   standalone: true,
-  imports: [SettingRowComponent, CompactModelPickerComponent, RoutingMatrixComponent],
+  imports: [ProviderModelOverrideComponent, RoutingMatrixComponent, SettingsTieredRowListComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="settings-list-card" aria-label="Orchestration settings">
-      @for (setting of store.orchestrationSettings(); track setting.key) {
-        <app-setting-row
-          class="settings-list-item"
-          [setting]="setting"
-          [value]="store.get(setting.key)"
-          (valueChange)="onSettingChange($event)"
-        />
-      }
+      <app-settings-tiered-row-list
+        [settings]="store.orchestrationSettings()"
+        [valueFor]="readSetting"
+        (valueChange)="onSettingChange($event)"
+      />
     </section>
 
     <section class="settings-list-card" aria-label="Model routing">
@@ -67,26 +64,15 @@ interface LoopProviderView {
         @for (provider of loopProviders(); track provider.id) {
           <li class="loop-models__item">
             <span class="loop-models__name">{{ provider.label }}</span>
-            <div class="loop-models__picker">
-              <span class="loop-models__source">
-                {{ modelFor(provider.id) ? 'Pinned override' : 'Session default' }}
-              </span>
-              <app-compact-model-picker
-                mode="pending-create"
-                [providers]="[provider.id]"
-                [selection]="selectionFor(provider.id)"
-                (selectionChange)="onLoopModelPicked(provider.id, $event)"
-              />
-              <button
-                type="button"
-                class="loop-models__reset"
-                [disabled]="!modelFor(provider.id)"
-                [attr.aria-label]="'Use session default for ' + provider.label + ' loops'"
-                (click)="resetLoopModel(provider.id)"
-              >
-                Use default
-              </button>
-            </div>
+            <app-provider-model-override
+              class="loop-models__picker"
+              settingsKey="loopModelByProvider"
+              [provider]="provider.id"
+              unpinnedSourceLabel="Session default"
+              resetLabel="Use default"
+              [resetAriaLabel]="'Use session default for ' + provider.label + ' loops'"
+              [unpinnedModel]="defaultModelFor(provider.id)"
+            />
           </li>
         }
       </ol>
@@ -97,34 +83,17 @@ interface LoopProviderView {
 export class OrchestrationSettingsTabComponent {
   store = inject(SettingsStore);
 
+  /** Read a value by key. A bound arrow so the template can pass it as a value. */
+  protected readonly readSetting = (key: string): unknown =>
+    this.store.get(key as keyof AppSettings);
+
   readonly loopProviders = computed<LoopProviderView[]>(() =>
     LOOP_PROVIDER_DEFINITIONS.map((provider) => ({ ...provider })),
   );
 
-  /** Current loop model for a provider, or '' when following the session default. */
-  modelFor(provider: PickerProvider): string {
-    return this.store.get('loopModelByProvider')?.[provider] ?? '';
-  }
-
-  selectionFor(provider: PickerProvider): PendingSelection {
-    return {
-      provider,
-      model: this.modelFor(provider) || getDefaultModelForCli(provider) || null,
-      reasoning: null,
-    };
-  }
-
-  onLoopModelPicked(provider: PickerProvider, selection: PendingSelection): void {
-    if (selection.provider !== provider || !selection.model) return;
-    const next = { ...(this.store.get('loopModelByProvider') ?? {}) };
-    next[provider] = selection.model;
-    void this.store.set('loopModelByProvider', next);
-  }
-
-  resetLoopModel(provider: PickerProvider): void {
-    const next = { ...(this.store.get('loopModelByProvider') ?? {}) };
-    delete next[provider];
-    void this.store.set('loopModelByProvider', next);
+  /** What the picker shows for a provider with nothing pinned. */
+  defaultModelFor(provider: PickerProvider): string | null {
+    return getDefaultModelForCli(provider) || null;
   }
 
   onSettingChange(event: { key: string; value: unknown }): void {

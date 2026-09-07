@@ -17,7 +17,7 @@ import {
 } from '@angular/core';
 import { SettingsStore } from '../../core/state/settings.store';
 import { ViewLayoutService } from '../../core/services/view-layout.service';
-import { SettingRowComponent } from './setting-row.component';
+import { SettingsTieredRowListComponent } from './settings-tiered-row-list.component';
 import { SettingsCardComponent } from './ui/settings-card.component';
 import { SegmentedControlComponent, type SegmentOption } from './ui/segmented-control.component';
 import { SaveStateBannerComponent, type SaveState } from './ui/save-state-banner.component';
@@ -33,12 +33,10 @@ import type {
   selector: 'app-display-settings-tab',
   standalone: true,
   imports: [
-    SettingRowComponent,
     SettingsCardComponent,
     SegmentedControlComponent,
     SaveStateBannerComponent,
-    InlineHelpComponent,
-  ],
+    InlineHelpComponent, SettingsTieredRowListComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-settings-card
@@ -46,7 +44,8 @@ import type {
       title="Workspace appearance"
       description="Choose how the app looks. Changes are previewed live — nothing is saved until you click Apply."
     >
-      <div class="field">
+      <!-- UX4.2: this bespoke field IS the row for theme; it carries the search anchor. -->
+      <div class="field" data-setting-key="theme">
         <div class="field-text">
           <span class="field-label">Theme</span>
           <span class="field-hint">Sets the overall color scheme of the app.</span>
@@ -61,7 +60,8 @@ import type {
         </div>
       </div>
 
-      <div class="field">
+      <!-- UX4.2: this bespoke field IS the row for fontSize; it carries the search anchor. -->
+      <div class="field" data-setting-key="fontSize">
         <div class="field-text">
           <span class="field-label">Font size</span>
           <span class="field-hint">Controls how large text appears in agent responses and the transcript. The preview sentence below updates as you drag.</span>
@@ -80,7 +80,8 @@ import type {
         </div>
       </div>
 
-      <div class="field">
+      <!-- UX4.2: this bespoke field IS the row for displayDensity; it carries the search anchor. -->
+      <div class="field" data-setting-key="displayDensity">
         <div class="field-text">
           <span class="field-label">Density</span>
           <span class="field-hint">Comfortable adds more breathing room between elements; Compact tightens everything up to fit more on screen.</span>
@@ -95,7 +96,8 @@ import type {
         </div>
       </div>
 
-      <div class="field">
+      <!-- UX4.2: this bespoke field IS the row for sidebarStyle; it carries the search anchor. -->
+      <div class="field" data-setting-key="sidebarStyle">
         <div class="field-text">
           <span class="field-label">Sidebar</span>
           <span class="field-hint">Standard shows the full sidebar with labels; Compact narrows it to icons only, freeing up horizontal space.</span>
@@ -130,14 +132,11 @@ import type {
     <section class="output-section">
       <h3 class="subsection-title">Transcript and workspace history</h3>
       <div class="settings-list-card">
-        @for (setting of outputSettings(); track setting.key) {
-          <app-setting-row
-            class="settings-list-item"
-            [setting]="setting"
-            [value]="store.get(setting.key)"
-            (valueChange)="onSettingChange($event)"
-          />
-        }
+        <app-settings-tiered-row-list
+          [settings]="outputSettings()"
+          [valueFor]="readSetting"
+          (valueChange)="onSettingChange($event)"
+        />
       </div>
     </section>
 
@@ -165,6 +164,10 @@ import type {
 })
 export class DisplaySettingsTabComponent {
   readonly store = inject(SettingsStore);
+
+  /** Read a value by key. A bound arrow so the template can pass it as a value. */
+  protected readonly readSetting = (key: string): unknown =>
+    this.store.get(key as keyof AppSettings);
   private viewLayoutService = inject(ViewLayoutService);
 
   /** Display-category settings other than the live-preview appearance ones. */

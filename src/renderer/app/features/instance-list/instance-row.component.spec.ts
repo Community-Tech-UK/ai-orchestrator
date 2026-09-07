@@ -20,6 +20,7 @@ import { basename, join } from 'node:path';
 
 import { InstanceRowComponent } from './instance-row.component';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
+import { ToolLoopAlertStore } from '../../core/state/tool-loop-alert.store';
 import type { Instance } from '../../../../shared/types/instance.types';
 
 // This component uses `templateUrl`, so the usual `() => Promise.resolve('')`
@@ -225,5 +226,72 @@ describe('InstanceRowComponent — tooltip disclosure', () => {
       fixture.detectChanges();
       expect(query('.leading-indicator').getAttribute('aria-label')).toContain('error');
     });
+  });
+});
+
+/**
+ * N2 — a critical tool loop must reach the row.
+ *
+ * The two statuses `needsAttention` used to check (`waiting_for_input`,
+ * `waiting_for_permission`) could never fire for this: a looping session is
+ * mid-turn and reads as `busy`, which is indistinguishable from healthy work
+ * from outside. So these assert the badge appears on `busy` specifically, and
+ * that a row reads only its OWN instance's alert.
+ */
+describe('InstanceRowComponent — tool-loop badge (N2)', () => {
+  let fixture: ComponentFixture<HostComponent>;
+  let looping: Set<string>;
+
+  beforeEach(async () => {
+    looping = new Set<string>();
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({
+      imports: [HostComponent],
+      providers: [
+        { provide: RemoteNodeStore, useValue: { nodeById: () => null } },
+        {
+          provide: ToolLoopAlertStore,
+          useValue: { hasCriticalAlert: (id: string) => looping.has(id) },
+        },
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(HostComponent);
+    fixture.detectChanges();
+  });
+
+  afterEach(() => fixture.destroy());
+
+  function attentionDot(): Element | null {
+    return fixture.nativeElement.querySelector('.attention-overlay-dot');
+  }
+
+  it('shows no attention dot for an ordinary busy instance', () => {
+    fixture.componentInstance.instance.set(makeInstance({ status: 'busy' }));
+    fixture.detectChanges();
+    expect(attentionDot()).toBeNull();
+  });
+
+  it('shows the attention dot mid-turn when its own instance is looping', () => {
+    looping.add('inst-1');
+    fixture.componentInstance.instance.set(makeInstance({ status: 'busy' }));
+    fixture.detectChanges();
+    expect(attentionDot()).not.toBeNull();
+  });
+
+  it('reads only its own row — another instance looping does not badge it', () => {
+    looping.add('some-other-instance');
+    fixture.componentInstance.instance.set(makeInstance({ status: 'busy' }));
+    fixture.detectChanges();
+    expect(attentionDot()).toBeNull();
+  });
+
+  it('names the loop in the activity label, leading the underlying status', () => {
+    looping.add('inst-1');
+    fixture.componentInstance.instance.set(makeInstance({ status: 'busy' }));
+    fixture.detectChanges();
+    // The leading indicator's accessible name is the structured one; the row's
+    // own label is just "Select instance <name>".
+    const indicator = fixture.nativeElement.querySelector('.leading-indicator') as HTMLElement;
+    expect(indicator.getAttribute('aria-label') ?? '').toContain('Tool loop detected');
   });
 });

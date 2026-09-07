@@ -1,0 +1,24 @@
+:host {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.provider-model-override__source {
+  font-size: var(--text-xs, 11px);
+  opacity: 0.7;
+  white-space: nowrap;
+}
+
+.provider-model-override__reset {
+  background: transparent;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.14));
+  border-radius: 4px;
+  color: inherit;
+  cursor: pointer;
+  font-size: var(--text-xs, 11px);
+  padding: 3px 10px;
+
+  &:disabled { cursor: default; opacity: 0.4; }
+  &:not(:disabled):hover { background: var(--glass-strong, rgba(255, 255, 255, 0.06)); }
+}

@@ -56,3 +56,60 @@ export async function handleLiveActivityTokenRequest(
   const ok = deps.registry.setLiveActivityToken(deviceId, instanceId, token);
   deps.sendJson(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'Device not found' });
 }
+
+/**
+ * DELETE /api/devices/:id — drop this device's pairing.
+ *
+ * Self-service only. Removing a host on the phone used to leave a live bearer
+ * token on the Mac until its TTL lapsed, so the desktop's paired-device list
+ * filled up with entries the owner had already deleted. `me` is accepted so a
+ * client that has forgotten its own id can still unpair. A device may never
+ * revoke another one — that stays a desktop-only action.
+ */
+export function handleRevokeDeviceRequest(
+  deps: DeviceTokenHandlerDeps,
+  res: ServerResponse,
+  deviceId: string,
+  authedDeviceId: string,
+): void {
+  if (deviceId !== 'me' && deviceId !== authedDeviceId) {
+    deps.sendJson(res, 403, { error: 'Can only revoke your own device' });
+    return;
+  }
+  // Always revoke the authenticated device, never the path value.
+  const revoked = deps.registry.revokeDevice(authedDeviceId);
+  deps.sendJson(res, 200, { revoked });
+}
+
+/**
+ * Dispatch every `/api/devices/...` route, mirroring `handleMobileQueueRoutes`.
+ * Returns true when the request was handled, so the server's routing block stays
+ * one line per route group rather than growing a stanza per endpoint.
+ */
+export async function handleMobileDeviceRoutes(
+  deps: DeviceTokenHandlerDeps,
+  req: IncomingMessage,
+  res: ServerResponse,
+  segments: string[],
+  method: string,
+  authedDeviceId: string,
+): Promise<boolean> {
+  if (segments[1] !== 'devices') return false;
+
+  if (segments.length === 3 && method === 'DELETE') {
+    handleRevokeDeviceRequest(deps, res, decodeURIComponent(segments[2]), authedDeviceId);
+    return true;
+  }
+  if (segments.length === 4 && method === 'POST') {
+    const targetDeviceId = decodeURIComponent(segments[2]);
+    if (segments[3] === 'apns-token') {
+      await handleApnsTokenRequest(deps, req, res, targetDeviceId, authedDeviceId);
+      return true;
+    }
+    if (segments[3] === 'live-activity-token') {
+      await handleLiveActivityTokenRequest(deps, req, res, targetDeviceId, authedDeviceId);
+      return true;
+    }
+  }
+  return false;
+}
