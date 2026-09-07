@@ -25,6 +25,12 @@ export interface PendingApprovalDigest {
   approvals: number;
   /** Age of the oldest, in ms. */
   oldestAgeMs: number;
+  /**
+   * The instance holding the oldest approval. N9's banner offers to jump
+   * there, and "the one that has been waiting longest" is the only defensible
+   * choice when several are blocked.
+   */
+  oldestInstanceId: string;
   title: string;
   body: string;
 }
@@ -58,7 +64,8 @@ export function pendingApprovalDigest(input: DigestInput): PendingApprovalDigest
   if (live.length === 0) return null;
 
   const instances = new Set(live.map((a) => a.instanceId)).size;
-  const oldestAgeMs = Math.max(...live.map((a) => input.now - a.createdAt));
+  const oldest = live.reduce((a, b) => (a.createdAt <= b.createdAt ? a : b));
+  const oldestAgeMs = input.now - oldest.createdAt;
   const sessionWord = instances === 1 ? 'session is' : 'sessions are';
   const approvalWord = live.length === 1 ? 'approval' : 'approvals';
 
@@ -66,6 +73,7 @@ export function pendingApprovalDigest(input: DigestInput): PendingApprovalDigest
     instances,
     approvals: live.length,
     oldestAgeMs,
+    oldestInstanceId: oldest.instanceId,
     title: 'Sessions are waiting for approval',
     body: `${instances} ${sessionWord} blocked on ${live.length} ${approvalWord}. `
       + `The oldest has been waiting ${humanAge(oldestAgeMs)}.`,

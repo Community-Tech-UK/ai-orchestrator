@@ -945,6 +945,213 @@ describe('HistoryManager', () => {
     expect(fs.existsSync(path.join(storageDir, `${entry.id}.json.gz`))).toBe(true);
   });
 
+  /**
+   * A legacy entry with no `historyThreadId` makes the constructor schedule the
+   * backfill, which rewrites that entry's `.json.gz` while `archiveEntry` is
+   * rewriting the same file. Both used to `writeFile` the destination directly:
+   * the second call's `O_TRUNC` emptied the file between the first call's write
+   * and its size check, so `archiveEntry` rejected with "Conversation file
+   * written as 0 bytes" roughly once per CI run, and whichever save landed last
+   * silently dropped the other's field.
+   */
+  it('keeps both the startup backfill and the archive write when they target one entry', async () => {
+    const storageDir = path.join(userDataDir, 'conversation-history');
+    fs.mkdirSync(storageDir, { recursive: true });
+
+    // No historyThreadId -> requiresHistoryThreadIdBackfill() -> startup rewrites this file.
+    const entry = {
+      id: 'entry-concurrent',
+      displayName: 'Concurrent',
+      createdAt: 10,
+      endedAt: 20,
+      workingDirectory: '/tmp/concurrent',
+      messageCount: 1,
+      firstUserMessage: 'hello',
+      lastUserMessage: 'hello',
+      status: 'completed' as const,
+      originalInstanceId: 'instance-concurrent',
+      parentId: null,
+      sessionId: 'session-concurrent',
+    };
+
+    fs.writeFileSync(
+      path.join(storageDir, 'index.json'),
+      JSON.stringify({ version: 1, lastUpdated: Date.now(), entries: [entry] }, null, 2)
+    );
+    fs.writeFileSync(
+      path.join(storageDir, `${entry.id}.json.gz`),
+      zlib.gzipSync(
+        JSON.stringify({
+          entry,
+          messages: [{ id: 'message-1', timestamp: 10, type: 'user', content: 'hello' }],
+        })
+      )
+    );
+
+    // Count how many writes to this entry's file are open at once. Measuring the
+    // overlap directly is what makes this deterministic: asserting on the merged
+    // result instead would only fail on the interleavings that happen to lose a
+    // field, which is exactly the once-per-CI-run flake being fixed.
+    const conversationPath = path.join(storageDir, `${entry.id}.json.gz`);
+    const realWriteFile = fs.promises.writeFile.bind(fs.promises);
+    let inFlight = 0;
+    let maxOverlap = 0;
+    const writeSpy = vi
+      .spyOn(fs.promises, 'writeFile')
+      .mockImplementation(async (file, data, options) => {
+        // The atomic save writes `<conversationPath>.<uuid>.tmp`, so match the prefix.
+        const targetsEntry = String(file).startsWith(conversationPath);
+        if (targetsEntry) {
+          inFlight += 1;
+          maxOverlap = Math.max(maxOverlap, inFlight);
+        }
+        try {
+          return await realWriteFile(file, data as never, options as never);
+        } finally {
+          if (targetsEntry) inFlight -= 1;
+        }
+      });
+
+    const { HistoryManager } = await import('./history-manager');
+    const manager = track(new HistoryManager());
+
+    try {
+      // Do not await startupTasks first — racing them is the point.
+      await expect(manager.archiveEntry(entry.id)).resolves.toBe(true);
+      await manager.startupTasks;
+    } finally {
+      writeSpy.mockRestore();
+    }
+
+    expect(maxOverlap).toBe(1);
+
+    const stored = JSON.parse(
+      zlib.gunzipSync(fs.readFileSync(conversationPath)).toString()
+    ) as ConversationData;
+
+    // Neither writer clobbered the other.
+    expect(stored.entry.archivedAt).toEqual(expect.any(Number));
+    expect(stored.entry.historyThreadId).toEqual(expect.any(String));
+    expect(stored.entry.historyThreadId).not.toBe('');
+    expect(stored.messages).toHaveLength(1);
+
+    // The atomic save must not leave its temp file behind, and must not leave
+    // anything that recoverOrphans would mistake for a conversation.
+    const leftovers = fs.readdirSync(storageDir).filter((file) => file.endsWith('.tmp'));
+    expect(leftovers).toEqual([]);
+  });
+
+  /**
+   * loadConversation self-heals a legacy entry's historyThreadId, and that write
+   * is a fifth writer to the same file. It used to persist the snapshot it had
+   * already read, so a save committing in between was reverted — silently
+   * dropping whatever that writer had just archived. It now re-reads inside the
+   * write queue, so it heals the field without carrying the stale copy along.
+   */
+  it('heals historyThreadId on read without reverting a write that landed first', async () => {
+    const storageDir = path.join(userDataDir, 'conversation-history');
+    fs.mkdirSync(storageDir, { recursive: true });
+
+    const entry = {
+      id: 'entry-heal',
+      displayName: 'Heal me',
+      createdAt: 10,
+      endedAt: 20,
+      workingDirectory: '/tmp/heal',
+      messageCount: 1,
+      firstUserMessage: 'hello',
+      lastUserMessage: 'hello',
+      status: 'completed' as const,
+      originalInstanceId: 'instance-heal',
+      parentId: null,
+      sessionId: 'session-heal',
+    };
+
+    // The index entry already has a canonical historyThreadId, so the startup
+    // backfill is a no-op and cannot heal the file first. Only the stored copy
+    // lacks one, which is exactly what makes loadConversation heal on read.
+    fs.writeFileSync(
+      path.join(storageDir, 'index.json'),
+      JSON.stringify(
+        {
+          version: 1,
+          lastUpdated: Date.now(),
+          entries: [{ ...entry, historyThreadId: 'thread-heal' }],
+        },
+        null,
+        2
+      )
+    );
+    const conversationPath = path.join(storageDir, `${entry.id}.json.gz`);
+    fs.writeFileSync(
+      conversationPath,
+      zlib.gzipSync(
+        JSON.stringify({
+          entry,
+          messages: [{ id: 'message-1', timestamp: 10, type: 'user', content: 'hello' }],
+        })
+      )
+    );
+
+    const { HistoryManager } = await import('./history-manager');
+    const manager = track(new HistoryManager());
+    await manager.startupTasks;
+
+    // Force the interleaving the fix is about: another writer commits AFTER
+    // loadConversation's read resolves but BEFORE its heal is written. Injected
+    // from the read itself so the ordering is deterministic rather than raced.
+    const realReadFile = fs.promises.readFile.bind(fs.promises);
+    let injected = false;
+    const readSpy = vi
+      .spyOn(fs.promises, 'readFile')
+      .mockImplementation(async (file, options) => {
+        const data = await realReadFile(file, options as never);
+        if (!injected && String(file) === conversationPath) {
+          injected = true;
+          const current = JSON.parse(
+            zlib.gunzipSync(fs.readFileSync(conversationPath)).toString()
+          ) as ConversationData;
+          fs.writeFileSync(
+            conversationPath,
+            zlib.gzipSync(
+              JSON.stringify({
+                entry: current.entry,
+                messages: [
+                  ...current.messages,
+                  { id: 'message-2', timestamp: 30, type: 'user', content: 'archived later' },
+                ],
+              })
+            )
+          );
+        }
+        return data;
+      });
+
+    let loaded: ConversationData | null;
+    try {
+      loaded = await manager.loadConversation(entry.id);
+    } finally {
+      readSpy.mockRestore();
+    }
+    expect(injected).toBe(true);
+    expect(loaded).not.toBeNull();
+
+    const stored = JSON.parse(
+      zlib.gunzipSync(fs.readFileSync(conversationPath)).toString()
+    ) as ConversationData;
+
+    // The later write survives the heal, and the heal still happened.
+    expect(stored.messages.map((message) => message.id)).toEqual(['message-1', 'message-2']);
+    expect(stored.entry.historyThreadId).toBe('thread-heal');
+    expect(loaded?.entry.historyThreadId).toBe('thread-heal');
+
+    // The caller must get what was healed, not the pre-heal snapshot. The
+    // restore coordinator builds its transcript straight from these messages,
+    // so returning the stale read would drop the newest one from a restored
+    // session while the file on disk looked perfectly correct.
+    expect(loaded?.messages.map((message) => message.id)).toEqual(['message-1', 'message-2']);
+  });
+
   it('carries automation provenance from instance metadata into the archived entry', async () => {
     const { HistoryManager } = await import('./history-manager');
     const manager = track(new HistoryManager());

@@ -60,6 +60,8 @@ describe('SidebarFooterComponent', () => {
     instanceCount: number;
     usage: FleetUsage;
     showCost?: boolean;
+    /** UX5's cost-hidden hint counts instances in an active turn. */
+    instances?: { id: string; status: string }[];
   }): Promise<string> {
     TestBed.resetTestingModule();
     await TestBed.configureTestingModule({
@@ -71,10 +73,19 @@ describe('SidebarFooterComponent', () => {
             instanceCount: () => opts.instanceCount,
             totalContextUsage: () => opts.usage,
             costByProvider: () => [],
-            instances: () => [],
+            instances: () => opts.instances ?? [],
           },
         },
-        { provide: SettingsStore, useValue: { showCost: () => opts.showCost ?? true } },
+        {
+          provide: SettingsStore,
+          useValue: {
+            showCost: () => opts.showCost ?? true,
+            // UX5's inline hint reads the whole settings object for
+            // `dismissedHints`; the footer now mounts one.
+            settings: () => ({ dismissedHints: [] }),
+            update: async () => undefined,
+          },
+        },
       ],
     }).compileComponents();
 
@@ -118,5 +129,44 @@ describe('SidebarFooterComponent', () => {
     const text = await render({ instanceCount: 0, usage: unreported() });
 
     expect(text.trim()).toBe('');
+  });
+  describe('UX5 — cost hidden while several sessions run', () => {
+    const busy = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `i${i}`, status: 'busy' }));
+
+    it('warns when several sessions are busy with cost hidden', async () => {
+      const text = await render({
+        instanceCount: 3, usage: unreported(), showCost: false, instances: busy(3),
+      });
+      expect(text).toContain('running with cost hidden');
+    });
+
+    it('stays quiet when cost is on show', async () => {
+      const text = await render({
+        instanceCount: 3, usage: unreported(), showCost: true, instances: busy(3),
+      });
+      expect(text).not.toContain('running with cost hidden');
+    });
+
+    /** One or two is an ordinary session someone is plainly watching. */
+    it('stays quiet below the threshold', async () => {
+      const text = await render({
+        instanceCount: 1, usage: unreported(), showCost: false, instances: busy(1),
+      });
+      expect(text).not.toContain('running with cost hidden');
+    });
+
+    it('ignores idle sessions when counting', async () => {
+      const text = await render({
+        instanceCount: 3,
+        usage: unreported(),
+        showCost: false,
+        instances: [
+          { id: 'a', status: 'busy' },
+          { id: 'b', status: 'idle' },
+          { id: 'c', status: 'idle' },
+        ],
+      });
+      expect(text).not.toContain('running with cost hidden');
+    });
   });
 });

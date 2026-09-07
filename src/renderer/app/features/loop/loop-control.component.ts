@@ -62,6 +62,13 @@ import { loopTimelineForRun, timelineRecoveryTarget } from './loop-control-timel
 import { LoopFreshEyesFindingsPanelComponent } from './loop-fresh-eyes-findings-panel.component';
 import { freshEyesFindingsDetail } from './loop-fresh-eyes-findings-panel.util';
 import { LoopBranchEpisodeCardComponent } from './loop-branch-episode-card.component';
+import { InlineHintComponent } from '../../shared/hint/inline-hint.component';
+import {
+  shouldHintProviderLimitResumeOff,
+  shouldHintToolLoopAutoInterruptOff,
+} from '../../../../shared/types/hint-policy';
+import { SettingsStore } from '../../core/state/settings.store';
+import { ToolLoopAlertStore } from '../../core/state/tool-loop-alert.store';
 
 /**
  * Shows the Loop Mode HUD for one chat:
@@ -81,7 +88,7 @@ import { LoopBranchEpisodeCardComponent } from './loop-branch-episode-card.compo
 @Component({
   selector: 'app-loop-control',
   standalone: true,
-  imports: [LoopBranchEpisodeCardComponent, LoopFreshEyesFindingsPanelComponent, LoopCausalTimelineComponent, AioTooltipDirective, SlicePipe, LoopInspectorProgressComponent, LoopIssueCardComponent, LoopIterationEvidenceComponent, LoopPastRunsPanelComponent, PromptModalComponent, RlmStorageMaintenanceComponent, VerificationRunHistoryComponent],
+  imports: [InlineHintComponent, LoopBranchEpisodeCardComponent, LoopFreshEyesFindingsPanelComponent, LoopCausalTimelineComponent, AioTooltipDirective, SlicePipe, LoopInspectorProgressComponent, LoopIssueCardComponent, LoopIterationEvidenceComponent, LoopPastRunsPanelComponent, PromptModalComponent, RlmStorageMaintenanceComponent, VerificationRunHistoryComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './loop-control.component.html',
   styleUrl: './loop-control.component.scss',
@@ -129,6 +136,21 @@ export class LoopControlComponent implements OnDestroy {
     const id = this.chatId();
     return id ? this.store.activeForChat(id)() : undefined;
   });
+
+  private readonly settingsForHints = inject(SettingsStore);
+  private readonly toolLoopAlerts = inject(ToolLoopAlertStore);
+
+  /** UX5 — predicates live in `hint-policy.ts` beside the copy they gate. */
+  readonly showProviderLimitHint = computed(() => shouldHintProviderLimitResumeOff(
+    this.active()?.status ?? '',
+    this.active()?.endedAt ?? null,
+    this.settingsForHints.settings().instanceProviderLimitResumeEnabled === true,
+  ));
+
+  readonly showToolLoopHint = computed(() => shouldHintToolLoopAutoInterruptOff(
+    this.toolLoopAlerts.hasCriticalAlert(this.chatId() ?? undefined),
+    this.settingsForHints.settings().toolLoopAutoInterrupt === true,
+  ));
 
   /** B5 — four stable steps plus what is blocking. Derivation lives next door. */
   causalTimeline = computed(() => loopTimelineForRun(this.active()));

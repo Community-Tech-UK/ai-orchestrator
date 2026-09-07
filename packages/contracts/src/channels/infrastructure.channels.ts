@@ -63,6 +63,8 @@ export const INFRASTRUCTURE_CHANNELS = {
   SECURITY_GET_PERMISSION_CONFIG: 'security:get-permission-config',
   SECURITY_SET_PERMISSION_PRESET: 'security:set-permission-preset',
   PERMISSION_GET_PENDING_BATCH: 'permission:get-pending-batch',
+  /** N9: one aggregate line about everything blocked on a human right now. */
+  PERMISSION_GET_APPROVAL_DIGEST: 'permission:get-approval-digest',
   PERMISSION_RECORD_BATCH_DECISION: 'permission:record-batch-decision',
   PERMISSION_RECORD_DECISION: 'permission:record-decision',
   PERMISSION_GET_LEARNED_PATTERNS: 'permission:get-learned-patterns',

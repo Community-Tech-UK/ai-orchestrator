@@ -131,6 +131,10 @@ export function createInfrastructureDomain(
     permissionGetPendingBatch: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.PERMISSION_GET_PENDING_BATCH);
     },
+    /** N9: the aggregate "what is blocked right now" line. */
+    permissionGetApprovalDigest: (): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.PERMISSION_GET_APPROVAL_DIGEST);
+    },
     permissionRecordBatchDecision: (
       params: { action: 'allow_all' | 'deny_all'; scope: 'once' | 'session' | 'always' }
     ): Promise<IpcResponse> => {

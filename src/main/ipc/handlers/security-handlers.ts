@@ -41,6 +41,8 @@ import { getPermissionManager } from '../../security/permission-manager';
 import { getToolPermissionChecker } from '../../security/tool-permission-checker';
 import { getRLMDatabase } from '../../persistence/rlm-database';
 import { validatedHandler } from '../validated-handler';
+import { DurableApprovalStore } from '../../orchestration/durable-approval-store';
+import { pendingApprovalDigest } from '../../orchestration/pending-approval-digest';
 
 export function registerSecurityHandlers(): void {
   // ============================================
@@ -255,6 +257,43 @@ export function registerSecurityHandlers(): void {
         };
       }
     )
+  );
+
+  /**
+   * N9 — one aggregate line about everything currently blocked on a human.
+   *
+   * Reuses the SAME pure digest the overnight reminder uses
+   * (`pending-approval-digest.ts`), over the same `pending_approvals` rows, so
+   * the banner and the desktop notification can never disagree about how many
+   * sessions are waiting or for how long. The renderer tracks a per-instance
+   * `pendingApprovalCount` but has no approval timestamps, so computing this
+   * there would have meant a second, weaker source of truth.
+   *
+   * `minAgeMs: 0` — unlike the reminder, a banner is not an interruption, so it
+   * should reflect what is true now rather than waiting five minutes to speak.
+   */
+  ipcMain.handle(
+    IPC_CHANNELS.PERMISSION_GET_APPROVAL_DIGEST,
+    async (): Promise<IpcResponse> => {
+      try {
+        const store = DurableApprovalStore.getInstance(getRLMDatabase().getRawDb());
+        const digest = pendingApprovalDigest({
+          pending: store.listPending(),
+          now: Date.now(),
+          minAgeMs: 0,
+        });
+        return { success: true, data: { digest } };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'PERMISSION_GET_APPROVAL_DIGEST_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    }
   );
 
   ipcMain.handle(

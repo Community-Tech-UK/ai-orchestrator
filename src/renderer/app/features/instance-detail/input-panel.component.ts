@@ -117,6 +117,9 @@ import {
   toLoopPickerProvider,
 } from './input-panel-formatters';
 import { fuzzyRank } from '../../shared/utils/fuzzy';
+import { InlineHintComponent } from '../../shared/hint/inline-hint.component';
+import { shouldHintQueuedWhileLooping } from '../../../../shared/types/hint-policy';
+import { LoopStore } from '../../core/state/loop.store';
 import {
   stepPromptRecall,
   type PromptRecallDirection,
@@ -127,7 +130,7 @@ const LOOP_START_ACK_TIMEOUT_MS = 30_000;
 @Component({
   selector: 'app-input-panel',
   standalone: true,
-  imports: [
+  imports: [InlineHintComponent, 
     AioTooltipDirective,
     AgentSelectorComponent,
     CompactModelPickerComponent,
@@ -507,6 +510,14 @@ export class InputPanelComponent implements OnDestroy {
    * messaging store, and threading it through the parent would give two sources
    * of truth for the same fact.
    */
+  private readonly loopStoreForHints = inject(LoopStore);
+
+  /** UX5 — predicate lives in `hint-policy.ts` beside the copy it gates. */
+  readonly showQueuedWhileLoopingHint = computed(() => shouldHintQueuedWhileLooping(
+    this.queuedMessages().length,
+    this.loopStoreForHints.runningChatIds().has(this.instanceId()),
+  ));
+
   readonly queueParked = computed(() => this.instanceStoreRef.isQueueParked(this.instanceId()));
 
   /** B7 — the Resume button on the parked-queue banner. */

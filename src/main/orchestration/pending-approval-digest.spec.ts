@@ -86,3 +86,32 @@ describe('pendingApprovalDigest (N9)', () => {
     expect(digest?.body).toContain('5 hours');
   });
 });
+
+describe('oldestInstanceId (N9 banner target)', () => {
+  it('names the instance holding the oldest approval, not just the oldest age', () => {
+    const digest = pendingApprovalDigest({
+      now: 10_000,
+      minAgeMs: 0,
+      pending: [
+        { approvalId: 'a', instanceId: 'newer', createdAt: 9_000, expiresAt: 99_000 },
+        { approvalId: 'b', instanceId: 'oldest', createdAt: 1_000, expiresAt: 99_000 },
+      ],
+    });
+    expect(digest?.oldestInstanceId).toBe('oldest');
+    expect(digest?.oldestAgeMs).toBe(9_000);
+  });
+
+  it('ignores an expired approval when picking the oldest', () => {
+    // An expired row is no longer waiting on a human; sending the operator to
+    // it would be the same confident-wrong-number problem the counts avoid.
+    const digest = pendingApprovalDigest({
+      now: 10_000,
+      minAgeMs: 0,
+      pending: [
+        { approvalId: 'a', instanceId: 'expired', createdAt: 1, expiresAt: 5_000 },
+        { approvalId: 'b', instanceId: 'live', createdAt: 8_000, expiresAt: 99_000 },
+      ],
+    });
+    expect(digest?.oldestInstanceId).toBe('live');
+  });
+});

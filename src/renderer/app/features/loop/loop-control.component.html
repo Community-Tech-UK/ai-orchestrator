@@ -64,6 +64,10 @@
       @if (statusPill(); as pill) {
         <span class="ls-pill" [attr.data-pill]="pill.kind" [appTooltip]="copy('loop.statusPill')">{{ pill.label }}</span>
       }
+      <!-- UX5: behaviour-gated, so it appears only for the configuration that
+           actually leaves this run stuck. -->
+      <app-inline-hint hintId="loop-provider-limit-resume-off" [condition]="showProviderLimitHint()" />
+      <app-inline-hint hintId="tool-loop-auto-interrupt-off" [condition]="showToolLoopHint()" />
       <!-- B5: the pill says WHAT; this says WHY and WHAT NEXT. -->
       <app-loop-causal-timeline
         [timeline]="causalTimeline()"

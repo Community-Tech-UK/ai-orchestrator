@@ -188,7 +188,11 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/core/config/settings-control-policy.ts': 776,
   'src/main/core/error-recovery.ts': 990,
   // Main process — history
-  'src/main/history/history-manager.ts': 1582,
+  // Raised from 1582 for the fix to the intermittent "written as 0 bytes" CI
+  // failure: atomic saveConversation write, the conversationWrites per-entry
+  // queue that stops the startup backfill overwriting a fresh archive, and the
+  // stale-temp sweep.
+  'src/main/history/history-manager.ts': 1735,
   'src/main/history/history-restore-coordinator.ts': 708,
   // Main process — indexing
   'src/main/indexing/benchmarks/benchmark-utils.ts': 820,

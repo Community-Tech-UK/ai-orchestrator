@@ -20,6 +20,7 @@ import { defaultLoopContextConfig } from '../../../../shared/types/loop.types';
 import { LoopPresetPickerComponent } from './loop-preset-picker.component';
 import type { LoopPresetId } from './loop-presets';
 import { createLoopPresetController } from './loop-config-panel-presets';
+import { InlineHintComponent } from '../../shared/hint/inline-hint.component';
 
 // Defaults that match defaultLoopConfig() in src/shared/types/loop.types.ts.
 // We must include all sub-fields whenever caps/completion/progressThresholds
@@ -104,7 +105,7 @@ type PlanPacketMode = 'off' | 'prompted';
 @Component({
   selector: 'app-loop-config-panel',
   standalone: true,
-  imports: [FormsModule, LoopPresetPickerComponent],
+  imports: [InlineHintComponent, FormsModule, LoopPresetPickerComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './loop-config-panel.component.html',
   styleUrl: './loop-config-panel.component.scss',

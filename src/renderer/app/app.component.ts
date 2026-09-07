@@ -15,6 +15,8 @@ import { PromptHistoryStore } from './core/state/prompt-history.store';
 import { ModelFavoritesService } from './features/models/model-favorites.service';
 import { AwayRecapBannerComponent } from './shared/away-recap/away-recap-banner.component';
 import { TerminateConfirmDialogComponent } from './shared/terminate-confirm/terminate-confirm-dialog.component';
+import { ApprovalDigestBannerComponent } from './shared/approval-digest/approval-digest-banner.component';
+import { GettingStartedBarComponent } from './shared/getting-started/getting-started-bar.component';
 import { ProviderQuotaChipComponent } from './shared/components/provider-quota-chip/provider-quota-chip.component';
 import { CliUpdatePillComponent } from './features/title-bar/cli-update-pill.component';
 import { TerminalDrawerComponent } from './features/terminal-drawer/terminal-drawer.component';
@@ -98,6 +100,8 @@ const WINDOW_CONTROLS_FALLBACK_INSET = 150;
   imports: [
     AwayRecapBannerComponent,
     TerminateConfirmDialogComponent,
+    ApprovalDigestBannerComponent,
+    GettingStartedBarComponent,
     RouterOutlet,
     ProviderQuotaChipComponent,
     CliUpdatePillComponent,

@@ -1,0 +1,53 @@
+.getting-started {
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.14));
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  font-size: 11px;
+  gap: 6px;
+  margin: 6px 12px;
+  padding: 8px 10px;
+}
+
+.getting-started__counter { font-weight: 600; opacity: 0.85; }
+
+.getting-started__steps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.getting-started__step {
+  align-items: baseline;
+  display: grid;
+  gap: 4px 8px;
+  grid-template-columns: auto 1fr auto;
+}
+
+/* The word carries the state; opacity only reinforces it. */
+.getting-started__state { opacity: 0.65; }
+.getting-started__step[data-done='true'] { opacity: 0.6; }
+
+.getting-started__label { font-weight: 600; }
+
+.getting-started__detail {
+  grid-column: 2 / -1;
+  line-height: 1.45;
+  opacity: 0.8;
+}
+
+.getting-started__go {
+  background: transparent;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.2));
+  border-radius: 4px;
+  color: inherit;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 8px;
+  white-space: nowrap;
+
+  &:hover { background: var(--glass-strong, rgba(255, 255, 255, 0.06)); }
+}

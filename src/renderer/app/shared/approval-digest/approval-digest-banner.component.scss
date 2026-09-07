@@ -1,0 +1,26 @@
+.approval-digest {
+  align-items: center;
+  background: rgba(247, 190, 124, 0.12);
+  border: 1px solid rgba(247, 190, 124, 0.4);
+  border-radius: 6px;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  margin: 6px 12px;
+  padding: 7px 10px;
+}
+
+.approval-digest__text { font-size: 12px; line-height: 1.45; }
+
+.approval-digest__go {
+  background: transparent;
+  border: 1px solid rgba(247, 190, 124, 0.55);
+  border-radius: 4px;
+  color: inherit;
+  cursor: pointer;
+  flex: none;
+  font-size: 11px;
+  padding: 3px 10px;
+
+  &:hover { background: rgba(247, 190, 124, 0.18); }
+}

@@ -86,6 +86,32 @@ export class HistoryManager {
 
   private archiveQueue = new KeyedSerialTaskQueue();
 
+  /**
+   * Serializes writes to a single conversation file.
+   *
+   * Six paths write `<entryId>.json.gz`: archiveInstance, archiveEntry,
+   * markNativeResumeFailed and setEntryAiTitle (the last three via
+   * updateConversation), loadConversation's historyThreadId self-heal, and the
+   * startup backfill — and nothing awaits startup before the IPC handlers are
+   * reachable. All but archiveInstance read the file first, so interleaved, the
+   * stale copy lands last and takes a freshly archived thread's messages with
+   * it; the `O_TRUNC` window in the same overlap is what produced the
+   * intermittent "written as 0 bytes" CI failure (run 34112463720).
+   *
+   * Two more writers are deliberately outside the queue. recoverOrphans only
+   * writes entry ids that are NOT yet in the index, and every queued writer only
+   * targets ids that are, so the two sets cannot overlap. The
+   * importNativeClaudeTranscripts repair paths are a pre-existing hazard this
+   * change neither closes nor widens.
+   *
+   * Keyed by entry id and held for exactly one file rewrite. Waiting on the whole
+   * `startupTasks` chain instead would be wrong: archiveInstance runs on the quit
+   * path under the 8s `terminate-instances` budget, which does not cancel its
+   * handler, so blocking it behind the unbounded `importNativeClaudeTranscripts`
+   * scan would trade this race for silently dropping a user's conversation.
+   */
+  private conversationWrites = new KeyedSerialTaskQueue();
+
   // Entries currently having an AI title generated, to dedupe concurrent backfills
   private aiTitleInFlight = new Set<string>();
 
@@ -278,8 +304,11 @@ export class HistoryManager {
         messages,
       };
 
-      // Save conversation to disk
-      await this.saveConversation(entry.id, conversationData);
+      // Save conversation to disk. Queued so the startup backfill cannot write
+      // its pre-archive copy of this file on top of the messages just archived.
+      await this.conversationWrites.run(entry.id, () =>
+        this.saveConversation(entry.id, conversationData)
+      );
 
       // Update index (synchronous — safe since JS is single-threaded)
       this.index.entries = [
@@ -361,8 +390,20 @@ export class HistoryManager {
       && this.requiresHistoryThreadIdBackfill(conversation.entry)
       && conversation.entry.historyThreadId?.trim() !== canonicalId
     ) {
+      // Route the self-heal through the queue rather than saving the snapshot
+      // read above: a writer committing in between would otherwise be reverted
+      // by this now-stale copy, losing whatever it had just archived. The read
+      // path itself stays lock-free — only the rare healing write takes a turn.
+      //
+      // Return what the heal actually wrote, not the earlier snapshot: the
+      // re-read inside the turn is the only view that includes a writer that
+      // landed between the two reads, and callers like the restore coordinator
+      // build a transcript straight from these messages.
+      const healed = await this.updateConversation(entryId, (stored) => {
+        stored.historyThreadId = canonicalId;
+      });
+      if (healed) return healed;
       conversation.entry.historyThreadId = canonicalId;
-      await this.saveConversation(entryId, conversation);
     }
     return conversation;
   }
@@ -476,13 +517,12 @@ export class HistoryManager {
       return true;
     }
 
-    entry.archivedAt = Date.now();
-    this.index.lastUpdated = Date.now();
-    const conversation = await this.loadConversation(entryId);
-    if (conversation) {
-      conversation.entry.archivedAt = entry.archivedAt;
-      await this.saveConversation(entryId, conversation);
-    }
+    const archivedAt = Date.now();
+    entry.archivedAt = archivedAt;
+    this.index.lastUpdated = archivedAt;
+    await this.updateConversation(entryId, (stored) => {
+      stored.archivedAt = archivedAt;
+    });
     await this.saveIndex();
 
     logger.info('Archived history entry', { entryId });
@@ -503,11 +543,9 @@ export class HistoryManager {
     entry.nativeResumeFailedAt = failedAt;
     this.index.lastUpdated = Date.now();
 
-    const conversation = await this.loadConversation(entryId);
-    if (conversation) {
-      conversation.entry.nativeResumeFailedAt = failedAt;
-      await this.saveConversation(entryId, conversation);
-    }
+    await this.updateConversation(entryId, (stored) => {
+      stored.nativeResumeFailedAt = failedAt;
+    });
 
     await this.saveIndex();
 
@@ -534,11 +572,9 @@ export class HistoryManager {
     entry.aiTitle = trimmed;
     this.index.lastUpdated = Date.now();
 
-    const conversation = await this.loadConversation(entryId);
-    if (conversation) {
-      conversation.entry.aiTitle = trimmed;
-      await this.saveConversation(entryId, conversation);
-    }
+    await this.updateConversation(entryId, (stored) => {
+      stored.aiTitle = trimmed;
+    });
 
     await this.saveIndex();
 
@@ -670,6 +706,19 @@ export class HistoryManager {
       }
     }
 
+    // Conversation temp files carry a random name (see saveConversation), so
+    // nothing else can find them: a crash between the write and the rename
+    // leaks one per attempt. Swept here, in the constructor, because at this
+    // point no save in this process has started and none can be in flight.
+    for (const stale of this.listStorageDirSafely()) {
+      if (!stale.endsWith('.tmp')) continue;
+      try {
+        fs.unlinkSync(path.join(this.storageDir, stale));
+      } catch {
+        /* intentionally ignored: per-file, so one failure cannot end the sweep */
+      }
+    }
+
     if (fs.existsSync(this.indexPath)) {
       try {
         const data = fs.readFileSync(this.indexPath, 'utf-8');
@@ -765,6 +814,36 @@ export class HistoryManager {
    * Recover orphaned .gz files that were saved but never indexed.
    * This happens when saveConversation succeeds but saveIndex fails.
    */
+  /**
+   * Run one entry's read-mutate-write cycle with no other writer interleaving.
+   * A no-op when the conversation file is missing; the index still carries the
+   * change, which is the same behaviour these callers had before.
+   *
+   * Reads with the raw loader, never `loadConversation`: that one self-heals by
+   * calling back into here, and `KeyedSerialTaskQueue` is not reentrant, so the
+   * nested turn would wait on its own predecessor forever.
+   */
+  private async updateConversation(
+    entryId: string,
+    mutate: (stored: ConversationHistoryEntry) => void
+  ): Promise<ConversationData | null> {
+    return this.conversationWrites.run(entryId, async () => {
+      const conversation = await this.loadPersistedConversationForCoverage(entryId);
+      if (!conversation) return null;
+      mutate(conversation.entry);
+      await this.saveConversation(entryId, conversation);
+      return conversation;
+    });
+  }
+
+  private listStorageDirSafely(): string[] {
+    try {
+      return fs.readdirSync(this.storageDir);
+    } catch {
+      return [];
+    }
+  }
+
   private async recoverOrphans(): Promise<void> {
     const files = await fs.promises.readdir(this.storageDir);
     const gzFiles = files.filter(f => f.endsWith('.json.gz'));
@@ -1357,16 +1436,37 @@ export class HistoryManager {
     }
   }
 
+  /**
+   * Persist a conversation, replacing the stored file atomically.
+   *
+   * Callers do save one entry concurrently (the startup historyThreadId
+   * backfill vs. archiveEntry), and `writeFile` opens with `O_TRUNC`: the
+   * second save emptied the file between the first save's write and its size
+   * check, so the first threw "written as 0 bytes" despite a fine payload (CI
+   * shard 1, run 34112463720), and readers could gunzip a half-written file.
+   * A per-write temp name means the size check verifies that writer's own
+   * bytes, and `rename` is atomic, so readers see one whole conversation.
+   */
   private async saveConversation(entryId: string, data: ConversationData): Promise<void> {
     const conversationPath = this.getConversationPath(entryId);
-    const jsonData = JSON.stringify(data);
-    const compressed = await gzip(jsonData);
-    await fs.promises.writeFile(conversationPath, compressed);
+    const compressed = await gzip(JSON.stringify(data));
+    // Must not end in `.json.gz`: recoverOrphans and createSafetyBackup scan
+    // storageDir for that suffix and would treat a temp file as an entry.
+    const tempPath = `${conversationPath}.${crypto.randomUUID()}.tmp`;
 
-    // Verify the file was written (catch 0-byte writes)
-    const stat = await fs.promises.stat(conversationPath);
-    if (stat.size === 0) {
-      throw new Error(`Conversation file written as 0 bytes for ${entryId}`);
+    try {
+      await fs.promises.writeFile(tempPath, compressed);
+      // Verify the payload landed before it replaces the good copy in place.
+      const stat = await fs.promises.stat(tempPath);
+      if (stat.size === 0) {
+        throw new Error(`Conversation file written as 0 bytes for ${entryId}`);
+      }
+      await fs.promises.rename(tempPath, conversationPath);
+    } catch (error) {
+      await fs.promises.unlink(tempPath).catch(() => {
+        /* temp file may not exist if the write never started */
+      });
+      throw error;
     }
   }
 
@@ -1518,16 +1618,20 @@ export class HistoryManager {
       const conversationPath = this.getConversationPath(entry.id);
       if (!fs.existsSync(conversationPath)) continue;
       try {
-        const compressed = await fs.promises.readFile(conversationPath);
-        const data = JSON.parse((await gunzip(compressed)).toString()) as ConversationData;
-        if (
-          isSameHistoryEntryForIdentityBackfill(entry, data.entry)
-          && this.requiresHistoryThreadIdBackfill(data.entry)
-          && data.entry.historyThreadId?.trim() !== entry.historyThreadId
-        ) {
-          data.entry.historyThreadId = entry.historyThreadId;
-          await this.saveConversation(entry.id, data);
-        }
+        // Read and write inside one turn: an archive landing between them would
+        // otherwise be overwritten by this pre-archive copy of the file.
+        await this.conversationWrites.run(entry.id, async () => {
+          const compressed = await fs.promises.readFile(conversationPath);
+          const data = JSON.parse((await gunzip(compressed)).toString()) as ConversationData;
+          if (
+            isSameHistoryEntryForIdentityBackfill(entry, data.entry)
+            && this.requiresHistoryThreadIdBackfill(data.entry)
+            && data.entry.historyThreadId?.trim() !== entry.historyThreadId
+          ) {
+            data.entry.historyThreadId = entry.historyThreadId;
+            await this.saveConversation(entry.id, data);
+          }
+        });
       } catch (error) {
         logger.warn('Could not persist legacy history identity', {
           entryId: entry.id,

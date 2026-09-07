@@ -661,7 +661,13 @@ describe('LocalAiIncidentService', () => {
     `).get<{ count: number }>()).toEqual({ count: 10_001 });
     expect(timers.pending()).toEqual([]);
     service.dispose();
-  });
+    // Seeding 10,001 incidents and draining 10,000 notifications is ~1.2s on an
+    // idle 18-core dev Mac, which leaves no room under vitest's 5s default: a
+    // 4-core CI runner executing two forks is several times slower and timed
+    // this out at ~6s (CI shard 4, run 34112463720) with nothing wrong. The cap
+    // under test is a count, not a duration, so a real regression still fails on
+    // the delivered-count assertions above rather than on the clock.
+  }, 30_000);
 
   it('retries a thrown notification on the same service at its exact durable deadline', () => {
     const db = openDb();

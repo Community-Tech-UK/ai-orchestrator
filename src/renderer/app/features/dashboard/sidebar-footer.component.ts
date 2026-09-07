@@ -7,6 +7,9 @@ import { ChangeDetectionStrategy, Component, computed, inject, output } from '@a
 import { DecimalPipe } from '@angular/common';
 import { InstanceStore } from '../../core/state/instance.store';
 import { SettingsStore } from '../../core/state/settings.store';
+import { InlineHintComponent } from '../../shared/hint/inline-hint.component';
+import { shouldHintCostHiddenWhileBusy } from '../../../../shared/types/hint-policy';
+import { isActiveTurnStatus } from '../../core/state/instance/instance-messaging-queue-utils';
 
 /** Display labels for the per-provider cost breakdown tooltip. */
 const PROVIDER_COST_LABELS: Record<string, string> = {
@@ -20,7 +23,7 @@ const PROVIDER_COST_LABELS: Record<string, string> = {
 @Component({
   selector: 'app-sidebar-footer',
   standalone: true,
-  imports: [DecimalPipe],
+  imports: [DecimalPipe, InlineHintComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (hasContent()) {
@@ -49,6 +52,8 @@ const PROVIDER_COST_LABELS: Record<string, string> = {
             }
           </div>
         }
+        <!-- UX5: appears in the space the cost total vacated. -->
+        <app-inline-hint hintId="cost-hidden-while-busy" [condition]="showCostHiddenHint()" />
         @if (store.instanceCount() > 0) {
           <button
             type="button"
@@ -70,6 +75,18 @@ export class SidebarFooterComponent {
 
   /** Global cost-visibility toggle (hidden for managed setups). */
   readonly showCost = computed(() => this.settings.showCost());
+
+  /**
+   * UX5 — spend accumulating out of sight.
+   *
+   * Mounted here because this footer is where the cost total WOULD be: the hint
+   * appears in the space its own subject vacated, rather than somewhere the
+   * reader has to connect it up themselves.
+   */
+  readonly showCostHiddenHint = computed(() => shouldHintCostHiddenWhileBusy(
+    this.store.instances().filter((i) => isActiveTurnStatus(i.status)).length,
+    this.showCost(),
+  ));
 
   readonly hasStats = computed(() =>
     this.store.instanceCount() > 0

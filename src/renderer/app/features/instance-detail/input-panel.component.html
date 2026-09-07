@@ -558,6 +558,10 @@
   </div>
 
   @if (queuedMessages().length > 0) {
+    <app-inline-hint
+      hintId="queued-while-looping"
+      [condition]="showQueuedWhileLoopingHint()"
+    />
     <app-composer-queue
       [messages]="queuedMessages()"
       [holdReasonLabel]="holdReasonLabel()"
