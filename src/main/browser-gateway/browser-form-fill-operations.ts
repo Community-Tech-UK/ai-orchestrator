@@ -14,6 +14,7 @@ import {
   type CredentialFieldKind,
 } from './browser-credential-vault';
 import type { CredentialAuthorizationService } from './browser-credential-authorization-store';
+import { buildCredentialAuthorizationDenial } from './browser-credential-authorization-denial';
 import type { BrowserEmailCodeReader } from './browser-email-code-reader';
 import {
   executeFillPlan as runFillPlan,
@@ -91,7 +92,9 @@ export interface FillOperationDeps {
     CredentialVault,
     'getSecretForFill' | 'createAgentCredential' | 'getGenericSecretForFill'
   >;
-  credentialAuthorizations?: Pick<CredentialAuthorizationService, 'check'>;
+  credentialAuthorizations?: Pick<CredentialAuthorizationService, 'check'> & {
+    list?: CredentialAuthorizationService['list'];
+  };
   /** Mailbox one-time-code reader; absent = email_code fills unavailable. */
   emailCodeReader?: Pick<BrowserEmailCodeReader, 'fetchCode'>;
   /** Count successful agent-owned account creation against a campaign lease. */
@@ -213,6 +216,7 @@ export async function fillCredentialOperation(
   const toolName = 'browser.fill_credential';
   const action = 'fill_credential';
   const context = contextOf(request);
+  let origin = '';
   const deny = (reason: string, summary: string): BrowserGatewayResult<null> =>
     deps.result({
       context,
@@ -225,6 +229,7 @@ export async function fillCredentialOperation(
       outcome: 'not_run',
       reason,
       summary,
+      ...(origin ? { origin } : {}),
       data: null,
     });
 
@@ -254,7 +259,6 @@ export async function fillCredentialOperation(
     );
   }
 
-  let origin: string;
   try {
     origin = await deps.refreshTargetOrigin(request.profileId, request.targetId);
   } catch {
@@ -289,10 +293,14 @@ export async function fillCredentialOperation(
   for (const purpose of purposes) {
     const decision = authorizations.check({ profileId: authProfileId, origin, purpose });
     if (!decision.authorized) {
-      return deny(
-        `credential_not_authorized:${decision.reason ?? 'unknown'}`,
-        `${toolName} is not authorized for ${origin} (${purpose})`,
-      );
+      const denial = buildCredentialAuthorizationDenial(authorizations.list?.bind(authorizations), {
+        toolName,
+        origin,
+        purpose,
+        reason: decision.reason ?? 'unknown',
+        scope: authProfileId,
+      });
+      return deny(denial.reason, denial.summary);
     }
     if (purpose === 'email_code') {
       authorizedSenderDomains = decision.allowedSenderDomains;
@@ -419,6 +427,7 @@ export async function createAgentCredentialOperation(
   const toolName = 'browser.create_agent_credential';
   const action = 'create_agent_credential';
   const context = contextOf(request);
+  let origin = '';
   const deny = (reason: string, summary: string): BrowserGatewayResult<null> =>
     deps.result({
       context,
@@ -431,6 +440,7 @@ export async function createAgentCredentialOperation(
       outcome: 'not_run',
       reason,
       summary,
+      ...(origin ? { origin } : {}),
       data: null,
     });
 
@@ -459,7 +469,7 @@ export async function createAgentCredentialOperation(
     return deny('origin_unknown', `${toolName} could not determine the live page origin`);
   }
 
-  let origin = liveOrigin;
+  origin = liveOrigin;
   if (request.loginUri) {
     const parsed = parseCredentialLoginUri(request.loginUri);
     if (!parsed) {
@@ -479,10 +489,14 @@ export async function createAgentCredentialOperation(
   const authProfileId = deps.resolveCredentialProfileScope?.(request.profileId) ?? request.profileId;
   const decision = authorizations.check({ profileId: authProfileId, origin, purpose: 'register' });
   if (!decision.authorized) {
-    return deny(
-      `credential_not_authorized:${decision.reason ?? 'unknown'}`,
-      `${toolName} is not authorized to register accounts on ${origin}`,
-    );
+    const denial = buildCredentialAuthorizationDenial(authorizations.list?.bind(authorizations), {
+      toolName,
+      origin,
+      purpose: 'register',
+      reason: decision.reason ?? 'unknown',
+      scope: authProfileId,
+    });
+    return deny(denial.reason, denial.summary);
   }
 
   try {

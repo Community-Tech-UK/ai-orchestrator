@@ -241,6 +241,52 @@ describe('AutomationStore thread wakeups', () => {
     expect(store.unreadCount()).toBe(0);
   });
 
+  it('markAllSeen zeros every unread badge and stamps terminal runs as seen', async () => {
+    ipc.list.mockResolvedValue({
+      success: true,
+      data: [
+        { id: 'automation-1', unreadRunCount: 2 },
+        { id: 'automation-2', unreadRunCount: 1 },
+      ],
+    });
+    ipc.listRuns.mockResolvedValue({
+      success: true,
+      data: [
+        { id: 'run-1', automationId: 'automation-1', status: 'succeeded', seenAt: null },
+        { id: 'run-2', automationId: 'automation-1', status: 'failed', seenAt: null },
+        { id: 'run-3', automationId: 'automation-2', status: 'running', seenAt: null },
+      ],
+    });
+    ipc.markSeen.mockResolvedValue({ success: true });
+    const store = TestBed.inject(AutomationStore);
+    await store.refresh();
+
+    expect(store.unreadCount()).toBe(3);
+
+    await store.markAllSeen();
+
+    expect(ipc.markSeen).toHaveBeenCalledWith({ all: true });
+    expect(store.unreadCount()).toBe(0);
+    expect(store.runs().find((run) => run.id === 'run-1')?.seenAt).toBeTruthy();
+    expect(store.runs().find((run) => run.id === 'run-2')?.seenAt).toBeTruthy();
+    expect(store.runs().find((run) => run.id === 'run-3')?.seenAt).toBeNull();
+  });
+
+  it('markAllSeen skips the round-trip when nothing is unread', async () => {
+    ipc.list.mockResolvedValue({
+      success: true,
+      data: [{ id: 'automation-1', unreadRunCount: 0 }],
+    });
+    ipc.listRuns.mockResolvedValue({ success: true, data: [] });
+    ipc.markSeen.mockResolvedValue({ success: true });
+    const store = TestBed.inject(AutomationStore);
+    await store.refresh();
+
+    await store.markAllSeen();
+
+    expect(ipc.markSeen).not.toHaveBeenCalled();
+  });
+
   it('runs automation preflight and stores the latest report', async () => {
     const report = { ...makePreflightReport(), warnings: ['permission warning'] };
     ipc.preflight.mockResolvedValue({ success: true, data: report });

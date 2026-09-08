@@ -162,3 +162,60 @@ describe('fillCredentialOperation secure extension revalidation', () => {
     },
   );
 });
+
+describe('fillCredentialOperation authorization denial', () => {
+  it('returns an actionable reason when the live origin is not on the standing grant', async () => {
+    const NODE_ID = 'bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be';
+    const liveOrigin = 'https://education.app.jaggaer.com';
+    const deps: FillOperationDeps = {
+      result: (<T>(input: unknown) => input as BrowserGatewayResult<T>) as FillOperationDeps['result'],
+      hasExistingTab: () => true,
+      sharedTabCredentialFillAllowed: () => true,
+      sharedTabSecureCredentialFillSupported: () => true,
+      resolveCredentialProfileScope: () => NODE_ID,
+      type: vi.fn(),
+      select: vi.fn(),
+      click: vi.fn(),
+      readControl: vi.fn(),
+      driverType: vi.fn(),
+      refreshTargetOrigin: vi.fn(async () => liveOrigin),
+      credentialVault: {
+        getSecretForFill: vi.fn(),
+        createAgentCredential: vi.fn(),
+        getGenericSecretForFill: vi.fn(),
+      } as unknown as FillOperationDeps['credentialVault'],
+      credentialAuthorizations: {
+        check: vi.fn(() => ({ authorized: false as const, reason: 'origin_not_authorized' as const })),
+        list: vi.fn(() => [
+          {
+            allowedOrigins: [
+              { scheme: 'https' as const, hostPattern: 'uktrade.app.jaggaer.com', includeSubdomains: false },
+            ],
+          },
+        ]),
+      } as unknown as FillOperationDeps['credentialAuthorizations'],
+    };
+
+    const result = await fillCredentialOperation(deps, {
+      instanceId: 'instance-1',
+      provider: 'codex',
+      profileId: `existing-tab:n.${NODE_ID}:7:42`,
+      targetId: `existing-tab:n.${NODE_ID}:7:42:target`,
+      vaultItemRef: 'opaque-vault-ref',
+      fields: [
+        { selector: '#user', kind: 'username' },
+        { selector: '#pass', kind: 'password' },
+      ],
+    });
+
+    expect(result.decision).toBe('denied');
+    expect(result.reason).toMatch(/^credential_not_authorized:origin_not_authorized:/);
+    expect(result.reason).toContain(liveOrigin);
+    expect(result.reason).toContain('https://uktrade.app.jaggaer.com');
+    expect(result.reason).toContain('browser.request_grant does not cover credential fill');
+    expect(result.reason).toContain(`$AIO_MCP browser-credentials authorize --node ${NODE_ID}`);
+    expect(result.reason).toContain(`--origin ${liveOrigin}`);
+    expect(deps.credentialVault?.getSecretForFill).not.toHaveBeenCalled();
+    expect(deps.driverType).not.toHaveBeenCalled();
+  });
+});

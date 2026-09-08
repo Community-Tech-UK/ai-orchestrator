@@ -11,6 +11,13 @@ import type {
 } from '../../../../shared/types/task-preflight.types';
 import { AutomationIpcService } from '../services/ipc/automation-ipc.service';
 
+const TERMINAL_AUTOMATION_RUN_STATUSES = new Set<string>([
+  'succeeded',
+  'failed',
+  'skipped',
+  'cancelled',
+]);
+
 interface AutomationChangedEvent {
   automation: Automation | null;
   automationId: string;
@@ -301,6 +308,31 @@ export class AutomationStore implements OnDestroy {
   }
 
   /**
+   * Clear every unread automation-run badge. Used by the workspace-rail
+   * context menu so the operator can dismiss the count without opening each run.
+   */
+  async markAllSeen(): Promise<void> {
+    if (this.unreadCount() === 0) {
+      return;
+    }
+    const response = await this.ipc.markSeen({ all: true });
+    if (!response.success) {
+      return;
+    }
+    const seenAt = Date.now();
+    this._automations.update((items) =>
+      items.map((item) => item.unreadRunCount ? { ...item, unreadRunCount: 0 } : item)
+    );
+    this._runs.update((items) =>
+      items.map((item) =>
+        item.seenAt || !TERMINAL_AUTOMATION_RUN_STATUSES.has(item.status)
+          ? item
+          : { ...item, seenAt }
+      )
+    );
+  }
+
+  /**
    * Mark a single automation run as seen — used when the user opens that run's
    * session directly from the rail (rather than the Automations page). Decrements
    * the owning automation's unread count by one so the sidebar badge reduces and
@@ -361,7 +393,7 @@ export class AutomationStore implements OnDestroy {
       return next;
     });
 
-    if (['succeeded', 'failed', 'skipped', 'cancelled'].includes(event.run.status) && !event.run.seenAt) {
+    if (TERMINAL_AUTOMATION_RUN_STATUSES.has(event.run.status) && !event.run.seenAt) {
       this._automations.update((items) =>
         items.map((item) => item.id === event.automationId
           ? { ...item, unreadRunCount: (item.unreadRunCount ?? 0) + 1 }

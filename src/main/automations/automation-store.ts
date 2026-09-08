@@ -585,7 +585,18 @@ export class AutomationStore {
     return row ? this.mapRun(row) : null;
   }
 
-  markSeen(params: { automationId?: string; runId?: string }, now = Date.now()): void {
+  markSeen(params: { automationId?: string; runId?: string; all?: true }, now = Date.now()): void {
+    if (params.all) {
+      // Only terminal runs contribute to the unread badge. Leave pending/running
+      // rows unseen so they can still notify when they finish.
+      this.db.prepare(`
+        UPDATE automation_runs
+        SET seen_at = ?, updated_at = ?
+        WHERE seen_at IS NULL
+          AND status IN ('succeeded', 'failed', 'skipped', 'cancelled')
+      `).run(now, now);
+      return;
+    }
     if (params.runId) {
       this.db.prepare(`UPDATE automation_runs SET seen_at = ?, updated_at = ? WHERE id = ?`)
         .run(now, now, params.runId);

@@ -111,8 +111,8 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/browser-gateway/browser-gateway-service.ts': 2419,
   // Declarative MCP tool-name + JSON-schema catalog; crossed 700 with the
   // reliability tools (assert_persisted, write_journal). Catalog growth, not
-  // logic growth.
-  'src/main/browser-gateway/browser-mcp-tools.ts': 727,
+  // logic growth. Raised 727 -> 762 for the fill_credential authorize-path hint.
+  'src/main/browser-gateway/browser-mcp-tools.ts': 762,
   // Declarative Zod request/response schema catalog for the browser domain;
   // crossed 700 with the snapshot/assert_persisted/write_journal schemas.
   'packages/contracts/src/schemas/browser.schemas.ts': 731,

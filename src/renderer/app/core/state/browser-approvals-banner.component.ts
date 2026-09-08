@@ -7,8 +7,8 @@
  * requests for other instances routinely expired unseen after 30 minutes and
  * the agent stalled on a decision nobody knew was wanted.
  *
- * Low-risk proposals can be narrowed to one action or the current session here.
- * Credential, payment, unknown, submit, and destructive scopes require review.
+ * Grantable requests can be allowed here with a duration dropdown (once,
+ * session, or always). Payment and identity-secret scopes still go to review.
  * Deny stays available for every pending request.
  */
 
@@ -17,26 +17,26 @@ import {
   Component,
   OnDestroy,
   OnInit,
+  effect,
   inject,
   signal,
 } from '@angular/core';
 import { Router } from '@angular/router';
 import type {
-  BrowserActionClass,
   BrowserApprovalRequest,
   BrowserGrantProposal,
 } from '@contracts/types/browser';
 import { BrowserGatewayIpcService } from '../services/ipc/browser-gateway-ipc.service';
 import { BrowserApprovalsStore } from './browser-approvals.store';
-const QUICK_APPROVAL_BLOCKED_CLASSES = new Set<BrowserActionClass>([
-  'credential',
-  'financial_identity',
-  'sensitive_identity',
-  'payment',
-  'submit',
-  'destructive',
-  'unknown',
-]);
+import {
+  type BannerGrantMode,
+  bannerCanQuickApprove,
+  bannerConfirmationPhrase,
+  bannerGrantModes,
+  bannerGrantRequiresConfirmation,
+  bannerModeLabel,
+  buildBannerGrant,
+} from './browser-approvals-banner.rules';
 
 @Component({
   selector: 'app-browser-approvals-banner',
@@ -72,18 +72,39 @@ const QUICK_APPROVAL_BLOCKED_CLASSES = new Set<BrowserActionClass>([
           </button>
           <div class="banner-actions">
             @if (canQuickApprove(approval)) {
+              @if (needsConfirmation(approval)) {
+                <label class="banner-confirm">
+                  <span>Type <strong>{{ confirmationPhrase(approval) }}</strong> to allow publishing or deleting</span>
+                  <input
+                    type="text"
+                    [value]="confirmation()"
+                    [disabled]="working() !== null"
+                    [placeholder]="confirmationPhrase(approval)"
+                    [attr.aria-label]="'Type ' + confirmationPhrase(approval) + ' to allow publishing or deleting'"
+                    (input)="onConfirmationInput($event)"
+                    (click)="$event.stopPropagation()"
+                  />
+                </label>
+              }
+              @if (modesFor(approval).length > 1) {
+                <select
+                  class="banner-scope"
+                  [value]="selectedMode()"
+                  [disabled]="working() !== null"
+                  aria-label="How long to allow this browser permission"
+                  (change)="onModeChange($event)"
+                >
+                  @for (mode of modesFor(approval); track mode) {
+                    <option [value]="mode">{{ modeLabel(mode) }}</option>
+                  }
+                </select>
+              }
               <button
                 type="button"
                 class="banner-btn primary"
                 [disabled]="working() !== null"
-                (click)="approve(approval, 'per_action')"
-              >{{ working() === approval.requestId ? 'Allowing…' : 'Allow once' }}</button>
-              <button
-                type="button"
-                class="banner-btn"
-                [disabled]="working() !== null"
-                (click)="approve(approval, 'session')"
-              >Allow for session</button>
+                (click)="approve(approval)"
+              >{{ working() === approval.requestId ? 'Approving…' : approveLabel(approval) }}</button>
             }
             <button
               type="button"
@@ -174,7 +195,44 @@ const QUICK_APPROVAL_BLOCKED_CLASSES = new Set<BrowserActionClass>([
     .banner-actions {
       flex: 0 0 auto;
       display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      align-items: center;
       gap: 0.5rem;
+    }
+
+    .banner-confirm {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.4rem;
+      max-width: 28rem;
+      color: var(--text-secondary, #cbd5e1);
+      font-size: 0.72rem;
+    }
+
+    .banner-confirm input {
+      height: 28px;
+      width: 12rem;
+      padding: 0 0.65rem;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 6px;
+      background-color: rgba(255, 255, 255, 0.06);
+      color: var(--text-primary, #e5e5e5);
+      font-size: 0.78rem;
+    }
+
+    .banner-scope {
+      height: 28px;
+      padding: 0 2rem 0 0.65rem;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 6px;
+      background-color: rgba(255, 255, 255, 0.06);
+      color: var(--text-primary, #e5e5e5);
+      cursor: pointer;
+      font-size: 0.78rem;
+      font-weight: 600;
+      background-position: right 8px center;
     }
 
     .banner-btn {
@@ -269,8 +327,24 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
   readonly pendingRequests = this.approvals.pendingRequests;
   readonly oldestPending = this.approvals.oldestPending;
   readonly isMinimized = this.approvals.isMinimized;
+  readonly selectedMode = signal<BannerGrantMode>('per_action');
+  readonly confirmation = signal('');
   readonly working = signal<string | null>(null);
   readonly errorMessage = signal<string | null>(null);
+  private readonly boundRequestId = signal('');
+
+  constructor() {
+    effect(() => {
+      const approval = this.oldestPending();
+      const requestId = approval?.requestId ?? '';
+      if (this.boundRequestId() === requestId) {
+        return;
+      }
+      this.boundRequestId.set(requestId);
+      this.selectedMode.set(approval ? (this.modesFor(approval)[0] ?? 'per_action') : 'per_action');
+      this.confirmation.set('');
+    });
+  }
 
   ngOnInit(): void {
     this.approvals.startPolling();
@@ -292,19 +366,56 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
   }
 
   canQuickApprove(approval: BrowserApprovalRequest): boolean {
-    return this.quickGrant(approval, 'session') !== null;
+    return bannerCanQuickApprove(approval);
   }
 
-  async approve(
-    approval: BrowserApprovalRequest,
-    mode: 'per_action' | 'session',
-  ): Promise<void> {
+  modesFor(approval: BrowserApprovalRequest): BannerGrantMode[] {
+    return bannerGrantModes(approval);
+  }
+
+  modeLabel(mode: BannerGrantMode): string {
+    return bannerModeLabel(mode);
+  }
+
+  approveLabel(approval: BrowserApprovalRequest): string {
+    return this.modesFor(approval).length > 1 ? 'Approve' : this.modeLabel(this.selectedMode());
+  }
+
+  onModeChange(event: Event): void {
+    this.selectedMode.set((event.target as HTMLSelectElement).value as BannerGrantMode);
+  }
+
+  confirmationPhrase(approval: BrowserApprovalRequest): string {
+    return bannerConfirmationPhrase(approval);
+  }
+
+  needsConfirmation(approval: BrowserApprovalRequest): boolean {
+    const grant = this.quickGrant(approval, this.selectedMode());
+    return grant !== null && bannerGrantRequiresConfirmation(grant);
+  }
+
+  onConfirmationInput(event: Event): void {
+    this.confirmation.set((event.target as HTMLInputElement).value);
+  }
+
+  async approve(approval: BrowserApprovalRequest): Promise<void> {
     if (this.working()) {
       return;
     }
+    const mode = this.selectedMode();
     const grant = this.quickGrant(approval, mode);
     if (!grant) {
       this.errorMessage.set('This request needs review before it can be allowed.');
+      return;
+    }
+    const phrase = this.confirmationPhrase(approval);
+    if (
+      bannerGrantRequiresConfirmation(grant) &&
+      this.confirmation().trim() !== phrase
+    ) {
+      this.errorMessage.set(
+        `Type ${phrase} to allow publishing or deleting without another prompt.`,
+      );
       return;
     }
     this.working.set(approval.requestId);
@@ -313,9 +424,7 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
       const response = await this.browserGateway.approveRequest({
         requestId: approval.requestId,
         grant,
-        reason: mode === 'per_action'
-          ? 'Allowed once from browser permission bar'
-          : 'Allowed for session from browser permission bar',
+        reason: this.approveReason(mode),
       });
       if (!response.success) {
         this.errorMessage.set(response.error?.message ?? 'Failed to approve browser request.');
@@ -377,24 +486,20 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
 
   private quickGrant(
     approval: BrowserApprovalRequest,
-    mode: 'per_action' | 'session',
+    mode: BannerGrantMode,
   ): BrowserGrantProposal | null {
-    const proposedClasses = approval.proposedGrant.allowedActionClasses;
-    if (
-      QUICK_APPROVAL_BLOCKED_CLASSES.has(approval.actionClass) ||
-      !proposedClasses.includes(approval.actionClass) ||
-      proposedClasses.some((actionClass) => QUICK_APPROVAL_BLOCKED_CLASSES.has(actionClass))
-    ) {
-      return null;
+    return buildBannerGrant(approval, mode);
+  }
+
+  private approveReason(mode: BannerGrantMode): string {
+    switch (mode) {
+      case 'per_action':
+        return 'Allowed once from browser permission bar';
+      case 'session':
+        return 'Allowed for session from browser permission bar';
+      case 'autonomous':
+        return 'Always allowed from browser permission bar';
     }
-    return {
-      ...approval.proposedGrant,
-      mode,
-      allowedActionClasses: mode === 'per_action'
-        ? [approval.actionClass]
-        : [...new Set(proposedClasses)],
-      autonomous: false,
-    };
   }
 
   private displayHost(value: string): string {

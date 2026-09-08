@@ -194,6 +194,10 @@ export class ResumePickerController implements OverlayController<ResumePickerIte
     this.query.set('');
   }
 
+  ensureCandidatesLoaded(): void {
+    void this.recoveryStore.refresh();
+  }
+
   run(item: OverlayItem<ResumePickerItem>): Promise<boolean> {
     return this.executeAction(item.value, item.value.availableActions[0]);
   }

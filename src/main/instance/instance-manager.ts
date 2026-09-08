@@ -1223,7 +1223,7 @@ export class InstanceManager extends EventEmitter {
     for (const instance of this.state.getAllInstances()) {
       if (!activeStatuses.has(instance.status)) continue;
       try {
-        this.lifecycle.interruptInstance(instance.id, 'pause');
+        this.interruptInstance(instance.id, 'pause');
       } catch (error) {
         logger.warn('Failed to interrupt active instance after pause', {
           instanceId: instance.id,
@@ -1589,16 +1589,16 @@ export class InstanceManager extends EventEmitter {
   }
 
   /**
-   * Queue-aware runtime (provider/model) change for the UI: applies
-   * immediately when the instance is waiting for input, else parks the
-   * desired runtime and auto-applies on the next settle. See
-   * {@link InstanceLifecycleManager.requestModelChange}.
+   * Applies provider/model changes now if settled, or queues them until settlement.
+   * See {@link InstanceLifecycleManager.requestModelChange}.
    */
   async requestModelChange(instanceId: string, request: RuntimeChangeRequest): Promise<Instance> {
     return this.lifecycle.requestModelChange(instanceId, request);
   }
 
   interruptInstance(instanceId: string, origin: InterruptOrigin = 'unknown'): boolean {
+    // Cancel pending automatic input even when an idle adapter rejects the interrupt.
+    this.emitObserversSafely('instance:interrupt-requested', { instanceId, origin });
     return this.lifecycle.interruptInstance(instanceId, origin);
   }
 
@@ -1617,7 +1617,7 @@ export class InstanceManager extends EventEmitter {
     }
 
     if (STEER_INTERRUPT_STATUSES.has(instance.status)) {
-      const interrupted = this.lifecycle.interruptInstance(instanceId, 'steer');
+      const interrupted = this.interruptInstance(instanceId, 'steer');
       if (!interrupted) {
         throw new Error(`Instance ${instanceId} did not accept steer interrupt`);
       }

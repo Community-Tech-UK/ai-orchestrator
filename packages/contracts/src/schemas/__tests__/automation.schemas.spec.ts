@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   AutomationCreatePayloadSchema,
+  AutomationMarkSeenPayloadSchema,
   AutomationUpdatePayloadSchema,
 } from '../automation.schemas';
 
@@ -254,5 +255,17 @@ describe('automation execution profile (live drop, LT-139, 2026-08-18)', () => {
         action: { ...baseAction, executionProfile: 'sandboxed' },
       }).success,
     ).toBe(false);
+  });
+});
+
+describe('AutomationMarkSeenPayloadSchema', () => {
+  it('accepts an explicit all-clear payload', () => {
+    expect(AutomationMarkSeenPayloadSchema.parse({ all: true })).toEqual({ all: true });
+  });
+
+  it('still requires a target when all is omitted', () => {
+    expect(AutomationMarkSeenPayloadSchema.safeParse({}).success).toBe(false);
+    expect(AutomationMarkSeenPayloadSchema.safeParse({ automationId: 'auto-1' }).success).toBe(true);
+    expect(AutomationMarkSeenPayloadSchema.safeParse({ runId: 'run-1' }).success).toBe(true);
   });
 });

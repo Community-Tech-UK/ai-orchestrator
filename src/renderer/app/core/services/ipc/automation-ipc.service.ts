@@ -69,7 +69,7 @@ export class AutomationIpcService {
     return this.api.automationListRuns(payload);
   }
 
-  async markSeen(payload: { automationId?: string; runId?: string }): Promise<IpcResponse> {
+  async markSeen(payload: { automationId?: string; runId?: string; all?: true }): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.automationMarkSeen(payload);
   }

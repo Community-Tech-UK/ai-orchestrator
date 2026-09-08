@@ -203,6 +203,10 @@ describe('browser-mcp-tools', () => {
     expect(fillCredentialProperties?.['vaultItemRef']?.description)
       .toContain('stable node-scoped');
     expect(fillCredentialProperties?.['vaultItemRef']?.description)
+      .toContain('browser-credentials authorize');
+    expect(fillCredentialProperties?.['vaultItemRef']?.description)
+      .toContain('browser.request_grant');
+    expect(fillCredentialProperties?.['vaultItemRef']?.description)
       .not.toContain('managed profiles only');
   });
 

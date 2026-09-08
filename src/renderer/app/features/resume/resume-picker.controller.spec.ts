@@ -72,6 +72,7 @@ describe('ResumePickerController', () => {
   const loadHistory = vi.fn();
   const usageRecord = vi.fn();
   const toast = { show: vi.fn() };
+  const refreshRecovery = vi.fn();
   const actions = {
     resumeLatest: vi.fn(),
     resumeById: vi.fn(),
@@ -122,6 +123,7 @@ describe('ResumePickerController', () => {
             loading: recoveryLoading.asReadonly(),
             recoveringKey: recoveringKey.asReadonly(),
             error: recoveryError.asReadonly(),
+            refresh: refreshRecovery,
           },
         },
         {
@@ -251,6 +253,14 @@ describe('ResumePickerController', () => {
     expect(loadHistory).not.toHaveBeenCalled();
     expect(refreshInstances).not.toHaveBeenCalled();
     expect(toast.show).not.toHaveBeenCalled();
+  });
+
+  it('loads recovery candidates without opening the startup banner', () => {
+    const controller = TestBed.inject(ResumePickerController);
+
+    controller.ensureCandidatesLoaded();
+
+    expect(refreshRecovery).toHaveBeenCalledOnce();
   });
 
   it('focuses recovery content when opened from the startup banner', () => {

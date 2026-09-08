@@ -459,6 +459,7 @@ describe('BrowserGatewayService credentials', () => {
 
     expect(result).toMatchObject({ decision: 'denied', outcome: 'not_run' });
     expect(result.reason).toContain('credential_not_authorized');
+    expect(result.reason).toContain('$AIO_MCP browser-credentials authorize --profile profile-1');
     // Never resolved the secret or typed anything.
     expect(vault.getSecretForFill).not.toHaveBeenCalled();
     expect(driver.type).not.toHaveBeenCalled();
@@ -739,7 +740,7 @@ describe('BrowserGatewayService credentials', () => {
     expect(result).toMatchObject({
       decision: 'denied',
       outcome: 'not_run',
-      reason: 'credential_not_authorized:purpose_not_authorized',
+      reason: expect.stringMatching(/^credential_not_authorized:purpose_not_authorized/),
     });
     expect(authorizations.check).toHaveBeenCalledWith({
       profileId: 'profile-1',
@@ -1629,6 +1630,8 @@ describe('BrowserGatewayService credentials', () => {
 
     expect(result).toMatchObject({ decision: 'denied', outcome: 'not_run' });
     expect(result.reason).toContain('credential_not_authorized');
+    expect(result.reason).toContain('browser.request_grant does not cover credential fill');
+    expect(result.reason).toContain('$AIO_MCP browser-credentials authorize --local');
     expect(authorizations.check).toHaveBeenCalledWith(
       expect.objectContaining({ profileId: 'local', origin: 'https://portal.example.gov.uk' }),
     );

@@ -34,13 +34,15 @@ vi.mock('../rlm/auxiliary-llm-service', () => ({
   })),
 }));
 
+const mockLog = vi.hoisted(() => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  debug: vi.fn(),
+  error: vi.fn(),
+}));
+
 vi.mock('../logging/logger', () => ({
-  getLogger: vi.fn(() => ({
-    info: vi.fn(),
-    warn: vi.fn(),
-    debug: vi.fn(),
-    error: vi.fn(),
-  })),
+  getLogger: vi.fn(() => mockLog),
 }));
 
 import { AutoTitleService } from './auto-title-service';
@@ -59,6 +61,10 @@ describe('AutoTitleService', () => {
       },
     });
     mockSendMessage.mockResolvedValue({ content: 'AI generated title' });
+    // `clearAllMocks` clears calls but not implementations, so a test that swaps
+    // in an adapter without `sendMessage` would otherwise leak into every test
+    // after it.
+    mockCreateAdapter.mockReturnValue({ sendMessage: mockSendMessage });
     AutoTitleService._resetForTesting();
   });
 
@@ -504,6 +510,165 @@ describe('AutoTitleService', () => {
     );
 
     expect(applyTitle).toHaveBeenCalledWith('instance-1', 'Session-limit retry bug', 'ai');
+  });
+
+  // ── LT-533: every escalation exit must be visible ─────────────────────────
+  // These paths were `logger.debug` or a bare `catch { return null; }`, and debug
+  // is not persisted — so an escalation that silently produced nothing looked
+  // exactly like one that never ran. That is what hid the failure in production.
+
+  it('logs a persisted warning when no fast-tier CLI is available (LT-533)', async () => {
+    mockIsCliAvailable.mockResolvedValue({ installed: false });
+    mockAuxGenerate.mockResolvedValue({
+      text: 'x'.repeat(400), // rejected by the length gate, so escalation runs
+      decision: {
+        slot: 'titleGeneration',
+        provider: 'ollama',
+        source: 'local',
+        reason: 'test local',
+        allowFrontierFallback: true,
+      },
+    });
+
+    await AutoTitleService.getInstance().maybeGenerateTitle(
+      'instance-1',
+      'Investigate the tab renaming bug thoroughly please.',
+      vi.fn(),
+      false,
+    );
+
+    expect(mockLog.warn).toHaveBeenCalledWith(
+      expect.stringContaining('no fast-tier CLI available'),
+      expect.objectContaining({ tried: expect.arrayContaining(['claude']) }),
+    );
+  });
+
+  it('logs the error and elapsed time when the CLI one-shot throws (LT-533)', async () => {
+    mockIsCliAvailable.mockImplementation(async (type: string) => ({
+      installed: type === 'claude',
+    }));
+    mockResolveCliType.mockResolvedValue('claude');
+    mockSendMessage.mockRejectedValue(new Error('spawn ENOENT'));
+    mockAuxGenerate.mockResolvedValue({
+      text: 'x'.repeat(400),
+      decision: {
+        slot: 'titleGeneration',
+        provider: 'ollama',
+        source: 'local',
+        reason: 'test local',
+        allowFrontierFallback: true,
+      },
+    });
+
+    await AutoTitleService.getInstance().maybeGenerateTitle(
+      'instance-1',
+      'Investigate the tab renaming bug thoroughly please.',
+      vi.fn(),
+      false,
+    );
+
+    expect(mockLog.warn).toHaveBeenCalledWith(
+      expect.stringContaining('AI title escalation failed'),
+      expect.objectContaining({
+        cliType: 'claude',
+        error: 'spawn ENOENT',
+        elapsedMs: expect.any(Number),
+      }),
+    );
+  });
+
+  it('logs when the CLI adapter cannot do a one-shot send (LT-533)', async () => {
+    mockIsCliAvailable.mockImplementation(async (type: string) => ({
+      installed: type === 'claude',
+    }));
+    mockResolveCliType.mockResolvedValue('claude');
+    // An adapter with no `sendMessage` at all — the shape the one-shot guard exists for.
+    mockCreateAdapter.mockReturnValue({} as unknown as { sendMessage: typeof mockSendMessage });
+    mockAuxGenerate.mockResolvedValue({
+      text: 'x'.repeat(400),
+      decision: {
+        slot: 'titleGeneration',
+        provider: 'ollama',
+        source: 'local',
+        reason: 'test local',
+        allowFrontierFallback: true,
+      },
+    });
+
+    await AutoTitleService.getInstance().maybeGenerateTitle(
+      'instance-1',
+      'Investigate the tab renaming bug thoroughly please.',
+      vi.fn(),
+      false,
+    );
+
+    expect(mockLog.warn).toHaveBeenCalledWith(
+      expect.stringContaining('cannot do a one-shot send'),
+      expect.objectContaining({ cliType: 'claude' }),
+    );
+  });
+
+  it('logs when the CLI one-shot returns unusable output (LT-533)', async () => {
+    mockIsCliAvailable.mockImplementation(async (type: string) => ({
+      installed: type === 'claude',
+    }));
+    mockResolveCliType.mockResolvedValue('claude');
+    // Over the 80-char narration bound, so finalizeGeneratedTitle rejects it.
+    mockSendMessage.mockResolvedValue({ content: 'y'.repeat(400) });
+    mockAuxGenerate.mockResolvedValue({
+      text: 'x'.repeat(400),
+      decision: {
+        slot: 'titleGeneration',
+        provider: 'ollama',
+        source: 'local',
+        reason: 'test local',
+        allowFrontierFallback: true,
+      },
+    });
+
+    await AutoTitleService.getInstance().maybeGenerateTitle(
+      'instance-1',
+      'Investigate the tab renaming bug thoroughly please.',
+      vi.fn(),
+      false,
+    );
+
+    expect(mockLog.warn).toHaveBeenCalledWith(
+      expect.stringContaining('escalation returned unusable output'),
+      expect.objectContaining({ cliType: 'claude', outputLength: 400 }),
+    );
+  });
+
+  it('logs the successful CLI escalation so the route is visible (LT-533)', async () => {
+    mockIsCliAvailable.mockImplementation(async (type: string) => ({
+      installed: type === 'claude',
+    }));
+    mockResolveCliType.mockResolvedValue('claude');
+    mockSendMessage.mockResolvedValue({ content: 'Upgrade Angular 22' });
+    mockAuxGenerate.mockResolvedValue({
+      text: 'x'.repeat(400),
+      decision: {
+        slot: 'titleGeneration',
+        provider: 'ollama',
+        source: 'local',
+        reason: 'test local',
+        allowFrontierFallback: true,
+      },
+    });
+
+    const applyTitle = vi.fn();
+    await AutoTitleService.getInstance().maybeGenerateTitle(
+      'instance-1',
+      'Upgrade angular to the latest version of angular 22.',
+      applyTitle,
+      false,
+    );
+
+    expect(applyTitle).toHaveBeenCalledWith('instance-1', 'Upgrade Angular 22', 'ai');
+    expect(mockLog.info).toHaveBeenCalledWith(
+      expect.stringContaining('generated via CLI escalation'),
+      expect.objectContaining({ cliType: 'claude' }),
+    );
   });
 
   it('discards an over-long auxiliary title (real 119-char numbered-list case)', async () => {

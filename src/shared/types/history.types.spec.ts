@@ -7,7 +7,11 @@ import {
   resolveEffectiveInstanceTitle,
   type ConversationHistoryEntry,
 } from './history.types';
-import { MAX_FALLBACK_TITLE_LENGTH } from './title-derivation';
+import {
+  MAX_FALLBACK_TITLE_LENGTH,
+  sanitizeGeneratedTitle,
+  truncateForRail,
+} from './title-derivation';
 
 function makeEntry(
   overrides: Partial<ConversationHistoryEntry> = {}
@@ -30,8 +34,19 @@ function makeEntry(
 }
 
 describe('history title helpers', () => {
-  it('prefers the first user message for a stable thread title', () => {
-    expect(getConversationHistoryTitle(makeEntry())).toBe('Investigate prod error');
+  it('prefers the stored title over re-deriving from the first message (LT-534b)', () => {
+    // The stored title is what the live rail showed: derived from the COMPLETE
+    // first message, with line structure and attachment names. `firstUserMessage`
+    // is a whitespace-collapsed 150-char preview, so re-deriving from it cannot
+    // agree with the live rail in general — which is what made a session appear
+    // to rename itself the moment it stopped being live.
+    expect(getConversationHistoryTitle(makeEntry())).toBe('Project Session');
+  });
+
+  it('re-derives from the first user message when no stored title exists', () => {
+    expect(
+      getConversationHistoryTitle(makeEntry({ displayName: '' }))
+    ).toBe('Investigate prod error');
   });
 
   it('prefers the cheap-AI title over the raw first message when present', () => {
@@ -56,7 +71,7 @@ describe('history title helpers', () => {
   it('front-loads the first message when no AI title exists', () => {
     expect(
       getConversationHistoryTitle(
-        makeEntry({ firstUserMessage: 'We need to harden UnstablePvP coin accounting' })
+        makeEntry({ displayName: '', firstUserMessage: 'We need to harden UnstablePvP coin accounting' })
       )
     ).toBe('Harden UnstablePvP coin accounting');
   });
@@ -65,6 +80,7 @@ describe('history title helpers', () => {
     expect(
       getConversationHistoryTitle(
         makeEntry({
+          displayName: '',
           firstUserMessage: '   ',
           lastUserMessage: 'Follow up with the deployment rollback',
         })
@@ -100,6 +116,7 @@ describe('history title helpers', () => {
     expect(
       getConversationHistoryTitle(
         makeEntry({
+          displayName: '',
           firstUserMessage: '  Plan   the   smoke   test  ',
         })
       )
@@ -110,6 +127,7 @@ describe('history title helpers', () => {
     expect(
       getConversationHistoryTitle(
         makeEntry({
+          displayName: '',
           aiTitle: '<think> Alright, I need to summarize this session.',
           firstUserMessage: 'Fix tab renaming titles',
         })
@@ -179,6 +197,67 @@ describe('history title helpers', () => {
     expect(resolveEffectiveInstanceTitle({ displayName }, entry)).toBe(
       getConversationHistoryTitle(entry)
     );
+  });
+
+  it('keeps the truncation marker on a re-derived title (LT-534)', () => {
+    // `truncateForRail` appends "..."; `sanitizeGeneratedTitle` strips trailing
+    // ".!?". Whether the marker survived used to depend on which ran last, so one
+    // long title rendered "…servers and..." live and "…servers and" in history.
+    //
+    // The load-bearing assertion here is `endsWith('...')`. The `live === hist`
+    // check is true by construction — both resolvers now route through the same
+    // `normalizeGeneratedHistoryTitlePart` — so it documents the shared path
+    // rather than proving the fix; only the marker assertion discriminates it.
+    // Exercised through the RE-DERIVATION path (no stored title), which is where
+    // the sanitize/truncate ordering can still diverge. With a stored title
+    // present the history resolver returns it verbatim, so this scenario would be
+    // structurally unreachable and the test would prove nothing.
+    const longMessage =
+      'Daily health check of the Dingley Assessment servers and public demos. '
+      + 'Work non-interactively and report back with anything that looks wrong.';
+    const entry = makeEntry({ displayName: '', firstUserMessage: longMessage });
+    const hist = getConversationHistoryTitle(entry);
+    // The live rail, given that same derived title as its instance displayName,
+    // must render it identically.
+    const live = resolveEffectiveInstanceTitle({ displayName: hist }, entry);
+    expect(live).toBe(hist);
+    expect(hist.endsWith('...')).toBe(true);
+  });
+
+  it('preserves an already-truncated title only when asked to (LT-534)', () => {
+    const truncated = truncateForRail('x'.repeat(20) + ' ' + 'y'.repeat(80));
+    expect(truncated.endsWith('...')).toBe(true);
+    expect(
+      sanitizeGeneratedTitle(truncated, { preserveTruncationMarker: true })
+    ).toBe(truncated);
+  });
+
+  it('does not dress up raw model output as truncated (LT-534)', () => {
+    // A model that ignores "no trailing punctuation" and answers with a genuine
+    // ellipsis must not be shown as though the rail had cut its title short.
+    expect(sanitizeGeneratedTitle('Continuing the analysis...')).toBe('Continuing the analysis');
+    expect(sanitizeGeneratedTitle('Fix the login bug.')).toBe('Fix the login bug');
+    expect(sanitizeGeneratedTitle('Why does this fail?!')).toBe('Why does this fail');
+  });
+
+  it('lets re-derivation beat a stored title that is pure filler (LT-534b valve)', () => {
+    // A restored session's name is a fixed point: restore computes it once, never
+    // re-runs auto-titling, and writes it back on re-archival. Without this valve
+    // a filler title would be locked in permanently and no future improvement to
+    // derivation could reach it.
+    expect(
+      getConversationHistoryTitle(
+        makeEntry({ displayName: 'Fix', firstUserMessage: 'Upgrade angular to version 22' })
+      )
+    ).toBe('Upgrade angular to version 22');
+  });
+
+  it('keeps a filler stored title when re-derivation is filler too (LT-534b valve)', () => {
+    // Real data: stored "work" vs first message "hi". Swapping one useless title
+    // for another is churn, and churn is the bug being fixed.
+    expect(
+      getConversationHistoryTitle(makeEntry({ displayName: 'work', firstUserMessage: 'hi' }))
+    ).toBe('work');
   });
 
   it('strips closed <think> reasoning from a persisted AI title', () => {
@@ -272,7 +351,7 @@ describe('resolveEffectiveInstanceTitle', () => {
     expect(
       resolveEffectiveInstanceTitle(
         { displayName: '   ', isRenamed: false },
-        makeEntry({ firstUserMessage: 'Investigate prod error' })
+        makeEntry({ displayName: '', firstUserMessage: 'Investigate prod error' })
       )
     ).toBe('Investigate prod error');
   });
@@ -293,7 +372,7 @@ describe('resolveEffectiveInstanceTitle', () => {
     expect(
       resolveEffectiveInstanceTitle(
         { displayName: '<think> Okay, I need to summarize this session.', isRenamed: false },
-        makeEntry({ firstUserMessage: 'Fix tab renaming titles' })
+        makeEntry({ displayName: '', firstUserMessage: 'Fix tab renaming titles' })
       )
     ).toBe('Fix tab renaming titles');
   });

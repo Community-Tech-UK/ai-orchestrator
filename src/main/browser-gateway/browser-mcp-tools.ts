@@ -317,7 +317,10 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
         'Opaque credential vault item reference (NOT a secret). The secret is '
         + 'resolved in the main process and typed directly into the page — it is '
         + 'never sent to or returned from the model. Requires a standing credential '
-        + 'authorization for the live origin. Managed profiles use their profile scope. '
+        + 'authorization for the live origin. A session grant from browser.request_grant '
+        + 'does not create that authorization; if fill is denied with credential_not_authorized, '
+        + 'run `$AIO_MCP browser-credentials authorize` for the live origin and the node or '
+        + 'profile scope, then retry. Managed profiles use their profile scope. '
         + 'For shared extension tabs, filling additionally requires operator opt-in, a stable node-scoped '
         + 'login authorization, a compatible secure extension runtime, and the exact '
         + 'vault-bound live origin.',

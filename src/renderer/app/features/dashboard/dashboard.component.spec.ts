@@ -38,6 +38,7 @@ describe('DashboardComponent resume picker routing', () => {
   const resumePickerController = {
     focusRecoveryContent: vi.fn(),
     resetTransientFocus: vi.fn(),
+    ensureCandidatesLoaded: vi.fn(),
   };
 
   beforeEach(() => {
@@ -175,6 +176,7 @@ describe('DashboardComponent resume picker routing', () => {
     const component = TestBed.runInInjectionContext(() => new DashboardComponent());
 
     component.ngOnInit();
+    expect(resumePickerController.ensureCandidatesLoaded).toHaveBeenCalledOnce();
     const openResume = registeredActions.find((action) => action.id === 'resume.openPicker');
     expect(openResume).toBeDefined();
 

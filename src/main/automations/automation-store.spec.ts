@@ -734,4 +734,51 @@ describe('AutomationStore', () => {
       expect(updated.workspaceId).toBe('/tmp/b');
     });
   });
-	});
+
+  describe('markSeen', () => {
+    it('clears unread terminal runs across automations without touching in-flight ones', async () => {
+      const first = await store.create({
+        name: 'First',
+        schedule: { type: 'cron', expression: '0 * * * *', timezone: 'UTC' },
+        missedRunPolicy: 'notify',
+        concurrencyPolicy: 'skip',
+        action: { prompt: 'Go', workingDirectory: '/tmp' },
+      }, 1_000, 100);
+      const second = await store.create({
+        name: 'Second',
+        schedule: { type: 'cron', expression: '0 * * * *', timezone: 'UTC' },
+        missedRunPolicy: 'notify',
+        concurrencyPolicy: 'skip',
+        action: { prompt: 'Go', workingDirectory: '/tmp' },
+      }, 1_000, 100);
+
+      const firstDecision = store.decideAndInsertRun(first, 'manual', 1_000, 1_000);
+      const secondDecision = store.decideAndInsertRun(second, 'manual', 1_000, 1_000);
+      expect(firstDecision.kind).toBe('started');
+      expect(secondDecision.kind).toBe('started');
+      if (firstDecision.kind !== 'started' || secondDecision.kind !== 'started') {
+        return;
+      }
+
+      store.terminalizeRun(firstDecision.run.id, 'succeeded', undefined, 'done', 1_500);
+      store.terminalizeRun(secondDecision.run.id, 'failed', 'boom', undefined, 1_500);
+
+      const inflightDecision = store.decideAndInsertRun(first, 'manual', 2_000, 2_000);
+      expect(inflightDecision.kind).toBe('started');
+      if (inflightDecision.kind !== 'started') {
+        return;
+      }
+
+      expect((await store.get(first.id))?.unreadRunCount).toBe(1);
+      expect((await store.get(second.id))?.unreadRunCount).toBe(1);
+
+      store.markSeen({ all: true }, 3_000);
+
+      expect((await store.get(first.id))?.unreadRunCount).toBe(0);
+      expect((await store.get(second.id))?.unreadRunCount).toBe(0);
+      expect(store.getRun(firstDecision.run.id)?.seenAt).toBe(3_000);
+      expect(store.getRun(secondDecision.run.id)?.seenAt).toBe(3_000);
+      expect(store.getRun(inflightDecision.run.id)?.seenAt).toBeNull();
+    });
+  });
+});

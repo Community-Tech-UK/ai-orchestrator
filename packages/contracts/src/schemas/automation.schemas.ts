@@ -207,8 +207,9 @@ export const AutomationListRunsPayloadSchema = z.object({
 export const AutomationMarkSeenPayloadSchema = z.object({
   automationId: AutomationIdSchema.optional(),
   runId: AutomationRunIdSchema.optional(),
-}).refine((value) => value.automationId || value.runId, {
-  message: 'automationId or runId is required',
+  all: z.literal(true).optional(),
+}).refine((value) => value.automationId || value.runId || value.all, {
+  message: 'automationId, runId, or all is required',
 });
 
 export const AutomationPreflightPayloadSchema = z.object({
@@ -297,4 +298,5 @@ export type AutomationGetPayload = z.infer<typeof AutomationGetPayloadSchema>;
 export type AutomationDeletePayload = z.infer<typeof AutomationDeletePayloadSchema>;
 export type AutomationRunNowPayload = z.infer<typeof AutomationRunNowPayloadSchema>;
 export type AutomationListRunsPayload = z.infer<typeof AutomationListRunsPayloadSchema>;
+export type AutomationMarkSeenPayload = z.infer<typeof AutomationMarkSeenPayloadSchema>;
 export type AutomationPreflightPayload = z.infer<typeof AutomationPreflightPayloadSchema>;

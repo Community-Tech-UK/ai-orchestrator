@@ -7,14 +7,15 @@
  * behind a "More…" affordance.
  */
 
-import { ChangeDetectionStrategy, Component, inject, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, output, signal } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import { AutomationStore } from '../../core/state/automation.store';
+import { ContextMenuComponent, type ContextMenuItem } from '../../shared/components/context-menu/context-menu.component';
 
 @Component({
   selector: 'app-workspace-rail',
   standalone: true,
-  imports: [RouterLink, RouterLinkActive],
+  imports: [RouterLink, RouterLinkActive, ContextMenuComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <nav class="workspace-rail" aria-label="Workspace navigation">
@@ -37,6 +38,9 @@ import { AutomationStore } from '../../core/state/automation.store';
           routerLinkActive="active"
           title="Scheduled and recurring agent runs"
           aria-label="Automations"
+          aria-haspopup="menu"
+          [attr.aria-expanded]="automationsMenuVisible() ? 'true' : 'false'"
+          (contextmenu)="onAutomationsContextMenu($event)"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="9" /><path d="M12 7v5l3.5 2" />
@@ -130,6 +134,13 @@ import { AutomationStore } from '../../core/state/automation.store';
         </button>
       </div>
     </nav>
+    <app-context-menu
+      [items]="automationsMenuItems()"
+      [x]="automationsMenuX()"
+      [y]="automationsMenuY()"
+      [visible]="automationsMenuVisible()"
+      (closed)="closeAutomationsMenu()"
+    />
   `,
   styleUrl: './workspace-rail.component.scss',
 })
@@ -147,4 +158,28 @@ export class WorkspaceRailComponent {
   readonly settingsClicked = output<void>();
 
   readonly unreadAutomations = this.automationStore.unreadCount;
+
+  protected readonly automationsMenuVisible = signal(false);
+  protected readonly automationsMenuX = signal(0);
+  protected readonly automationsMenuY = signal(0);
+  protected readonly automationsMenuItems = computed<ContextMenuItem[]>(() => [
+    {
+      id: 'clear-notifications',
+      label: 'Clear notifications',
+      disabled: this.unreadAutomations() === 0,
+      action: () => void this.automationStore.markAllSeen(),
+    },
+  ]);
+
+  protected onAutomationsContextMenu(event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.automationsMenuX.set(event.clientX);
+    this.automationsMenuY.set(event.clientY);
+    this.automationsMenuVisible.set(true);
+  }
+
+  protected closeAutomationsMenu(): void {
+    this.automationsMenuVisible.set(false);
+  }
 }

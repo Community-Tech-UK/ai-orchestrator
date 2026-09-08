@@ -40,8 +40,18 @@ const MIN_MESSAGE_LENGTH = 10;
 /** Maximum input length sent to the model (trim very long prompts) */
 const MAX_INPUT_LENGTH = 2000;
 
-/** Timeout for the AI title generation (ms) */
-const AI_TITLE_TIMEOUT = 15_000;
+/**
+ * Timeout for the CLI one-shot title generation (ms).
+ *
+ * Was 15s. Measured on an idle machine, the identical call
+ * (`claude --print --model haiku "<the real title prompt>"`) takes **6.95s** —
+ * under half the old budget, with no headroom for a cold CLI spawn while the app
+ * is busy. The `titleGeneration` slot's own `timeoutMs` is already 45000, so the
+ * CLI leg was budgeted at a third of the local leg for the slower operation.
+ * This is a background, fire-and-forget task with a deterministic fallback, so
+ * waiting longer costs nothing. See LT-533.
+ */
+const AI_TITLE_TIMEOUT = 60_000;
 
 /**
  * Longest model output still treated as a title rather than narration. A model
@@ -352,7 +362,12 @@ export class AutoTitleService {
     }
 
     if (!cliType) {
-      logger.debug('No CLI available for AI title generation');
+      // Persisted, not debug: every exit from here down used to be invisible, so
+      // an escalation that silently produced nothing was indistinguishable from
+      // one that never ran. That is the LT-533 fault.
+      logger.warn('AI title escalation abandoned — no fast-tier CLI available', {
+        tried: [...FAST_PROVIDER_PREFERENCE],
+      });
       return null;
     }
 
@@ -381,7 +396,10 @@ export class AutoTitleService {
     });
 
     if (!hasSendMessage(adapter)) {
-      logger.debug('CLI adapter does not support one-shot sendMessage');
+      logger.warn('AI title escalation abandoned — CLI adapter cannot do a one-shot send', {
+        cliType,
+        model,
+      });
       return null;
     }
 
@@ -412,13 +430,40 @@ export class AutoTitleService {
       return result;
     };
     let response: { content: string };
+    const startedAt = Date.now();
     try {
       response = await runAuthorizedFrontierFallback(fallbackDecision, send);
-    } catch {
+    } catch (error) {
+      // `workingDirectory` is logged because a packaged app's `process.cwd()` is
+      // not a sensible cwd for a spawned CLI and is a live suspect for this
+      // failure — recorded rather than changed on a hypothesis (LT-533).
+      logger.warn('AI title escalation failed', {
+        cliType,
+        model,
+        elapsedMs: Date.now() - startedAt,
+        timeoutMs: AI_TITLE_TIMEOUT,
+        workingDirectory: titleSpawnOptions.workingDirectory,
+        error: error instanceof Error ? error.message : String(error),
+      });
       return null;
     }
 
-    return finalizeGeneratedTitle(response.content, truncatedMessage, labels);
+    const cliTitle = finalizeGeneratedTitle(response.content, truncatedMessage, labels);
+    if (!cliTitle) {
+      logger.warn('AI title escalation returned unusable output', {
+        cliType,
+        model,
+        elapsedMs: Date.now() - startedAt,
+        outputLength: response.content?.length ?? 0,
+      });
+      return null;
+    }
+    logger.info('AI title generated via CLI escalation', {
+      cliType,
+      model,
+      elapsedMs: Date.now() - startedAt,
+    });
+    return cliTitle;
   }
 
   /**

@@ -17,6 +17,19 @@
 /** Maximum length of a rail-visible title before truncation. */
 export const MAX_FALLBACK_TITLE_LENGTH = 60;
 
+/**
+ * Marker {@link truncateForRail} appends when it shortens a title.
+ *
+ * `sanitizeGeneratedTitle` strips trailing `.!?`, which would otherwise eat this
+ * — and whether it did depended purely on which ran last. The live resolver
+ * sanitizes then truncates (marker survives); the history resolver derived a
+ * title that was already truncated and then sanitized it (marker stripped), so
+ * the same session read `"…servers and..."` live and `"…servers and"` once it
+ * left the live rail. Preserving the marker through sanitization makes the two
+ * orders equivalent. See LT-534.
+ */
+export const RAIL_TRUNCATION_SUFFIX = '...';
+
 const GENERATED_TITLE_THINKING_BLOCK_PATTERN =
   /<\s*(think|thinking|thought|antthinking|reasoning)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi;
 const GENERATED_TITLE_THINKING_TAG_PATTERN =
@@ -102,7 +115,10 @@ export function titleFromAttachments(labels: readonly string[]): string | null {
  * blocks are removed; unfinished thinking tags cause the generated title to be
  * rejected so callers can fall back to a deterministic first-message title.
  */
-export function sanitizeGeneratedTitle(rawTitle: string | null | undefined): string | null {
+export function sanitizeGeneratedTitle(
+  rawTitle: string | null | undefined,
+  options: { preserveTruncationMarker?: boolean } = {},
+): string | null {
   if (!rawTitle) return null;
 
   const withoutClosedThinking = rawTitle
@@ -116,12 +132,26 @@ export function sanitizeGeneratedTitle(rawTitle: string | null | undefined): str
     return null;
   }
 
-  const cleaned = withoutClosedThinking
+  const collapsed = withoutClosedThinking
     .replace(/\s+/g, ' ')
     .trim()
     .replace(/^["']|["']$/g, '')
-    .replace(/[.!?]+$/, '')
     .trim();
+
+  const stripped = collapsed.replace(/[.!?]+$/, '').trim();
+
+  // `preserveTruncationMarker` is opt-in, and only the resolvers set it.
+  //
+  // For an already-rail-truncated title the trailing `...` is structural — it
+  // says the title was cut short — and stripping it made the live and history
+  // resolvers disagree by one character depending on which of sanitize/truncate
+  // ran last (LT-534). For RAW model output the same characters are just
+  // punctuation the model was told not to emit, so the default still strips
+  // them: a model answering "Continuing the analysis..." must not be dressed up
+  // as a truncated title.
+  const preserve =
+    options.preserveTruncationMarker === true && collapsed.endsWith(RAIL_TRUNCATION_SUFFIX);
+  const cleaned = preserve && stripped ? `${stripped}${RAIL_TRUNCATION_SUFFIX}` : stripped;
 
   return cleaned || null;
 }
@@ -189,7 +219,7 @@ export function truncateForRail(title: string): string {
     return title.slice(0, sentenceEnd + 1);
   }
   // Truncate at word boundary
-  return title.slice(0, MAX_FALLBACK_TITLE_LENGTH).replace(/\s+\S*$/, '') + '...';
+  return title.slice(0, MAX_FALLBACK_TITLE_LENGTH).replace(/\s+\S*$/, '') + RAIL_TRUNCATION_SUFFIX;
 }
 
 /** Parsed form of an injected attachment preamble. */
@@ -258,4 +288,153 @@ export function deriveAttachmentTaskTitle(
   if (labels.length === 0) return null;
   return titleFromGenericAttachmentTask(stripGenericQualityTail(message), labels)
     ?? titleFromAttachments(labels);
+}
+
+export function normalizeHistoryTitlePart(value: string | null | undefined): string {
+  return (value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+
+/**
+ * Generic conversational lead-ins that carry no identifying information. They
+ * are stripped from the front of a title so the distinctive part of a task
+ * (project, feature, file, PR) lands within the first ~30 characters — the
+ * slice that survives truncation in the narrow workspace rail. Applied
+ * iteratively so stacked openers ("Please go ahead and implement this PR …")
+ * peel off one layer at a time.
+ */
+const TITLE_LEAD_IN_PATTERNS: readonly RegExp[] = [
+  /^[[(<"'\s]+/, // leading brackets / quotes / whitespace
+  /^(?:hey|hi|hello|yo)\b[\s,!:.-]*/i,
+  /^(?:please|pls|plz|kindly)\b[\s,]*/i,
+  /^(?:thanks?|thank you|cheers)\b[\s,!:.-]*/i,
+  /^(?:can|could|would|will)\s+you\s+(?:please\s+|kindly\s+)?/i,
+  /^(?:i'?d|we'?d|i would|we would)\s+like\s+(?:you\s+)?(?:to\s+)?/i,
+  /^(?:i|we)\s+(?:need|want|wanna)\s+(?:you\s+)?(?:to\s+)?/i,
+  /^(?:we|you)\s+(?:should|must|have to|need to|gotta|ought to)\s+/i,
+  /^let'?s\s+/i,
+  /^help\s+me\s+(?:to\s+|with\s+)?/i,
+  /^go\s+ahead\s+and\s+/i,
+  // "<verb> this/that/the PR/the following:" — the verb+pointer adds no signal,
+  // the words after it are what identify the thread.
+  /^(?:implement|review|fix|address|investigate|debug|handle|resolve|complete|finish|do|check|update|look\s+at|take\s+a\s+look\s+at|work\s+on)\s+(?:this|that|these|those|the\s+following|it)\b[\s:,.-]*(?:pr|mr|pull\s+request|merge\s+request|issue|ticket|task)?\b[\s:,.-]*/i,
+];
+
+/** Shorten a leading absolute/home path to its last two segments. */
+function shortenLeadingPath(text: string): string {
+  const match = /^(~?\/[^\s]+|[A-Za-z]:\\[^\s]+)/.exec(text);
+  if (!match) return text;
+  const token = match[1];
+  const segments = token.split(/[/\\]/).filter(Boolean);
+  if (segments.length <= 2) return text;
+  return (`…/${segments.slice(-2).join('/')}` + text.slice(token.length)).trim();
+}
+
+/** Replace a leading bare URL with a readable host + first path segment. */
+function shortenLeadingUrl(text: string): string {
+  const match = /^https?:\/\/(?:www\.)?([^/\s]+)(\/[^\s?#]*)?/i.exec(text);
+  if (!match) return text;
+  const host = match[1];
+  const firstSegment = (match[2] ?? '').split('/').filter(Boolean)[0];
+  const label = firstSegment ? `${host}/${firstSegment}` : host;
+  return (label + text.slice(match[0].length)).trim();
+}
+
+/**
+ * Produce a rail-friendly title from raw message text by stripping generic
+ * lead-ins and surfacing the distinctive token early. Deterministic and free —
+ * used as the fallback whenever no AI-generated title is available, and to tidy
+ * the instant (pre-AI) title. Never strips down to (near-)nothing: if cleaning
+ * would leave too little, the normalized original is returned unchanged.
+ */
+export function frontLoadTitle(value: string | null | undefined): string {
+  // A loop started with attachments prepends an injected "Attached files …"
+  // block whose header carries no per-task signal. When the text leads with it,
+  // the attached files are the real subject — title from their names instead of
+  // letting the boilerplate header become the title. Run on the raw value so the
+  // line-structured block is still intact (normalization collapses newlines).
+  const preamble = extractAttachmentPreamble(value);
+  if (preamble) {
+    const attachmentTitle = deriveAttachmentTaskTitle(preamble.remainder, preamble.paths);
+    if (attachmentTitle) return attachmentTitle;
+  }
+
+  const normalized = normalizeHistoryTitlePart(value);
+  if (!normalized) return '';
+
+  let result = normalized;
+  for (let pass = 0; pass < 6; pass++) {
+    let changed = false;
+    for (const pattern of TITLE_LEAD_IN_PATTERNS) {
+      const stripped = result.replace(pattern, '');
+      if (stripped !== result) {
+        result = stripped.trimStart();
+        changed = true;
+        break;
+      }
+    }
+    if (!changed) break;
+  }
+
+  result = shortenLeadingUrl(result);
+  result = shortenLeadingPath(result);
+  result = result.replace(/^[[(<"'\s:,.-]+/, '').trim();
+
+  // Guard against over-stripping (e.g. a message that was only filler).
+  if (result.length < 3) return normalized;
+
+  // Capitalize the first alphabetic character for a tidy rail title.
+  return result.replace(/^(\p{Ll})/u, (char) => char.toUpperCase());
+}
+
+/**
+ * Reduce a raw prompt to the exact string the rail should show for it:
+ * attachment-aware, first line only, front-loaded, and truncated to the rail
+ * budget.
+ *
+ * This is the single derivation shared by the live auto-title path
+ * (`AutoTitleService`) and the history resolver below. They used to derive
+ * independently — the live path took the first line and truncated, the history
+ * path front-loaded the whole message and never truncated — so a session's
+ * title visibly changed the moment it stopped being a live rail item. Any
+ * change to how a message becomes a title belongs here, in one place, or the
+ * two surfaces drift again.
+ *
+ * Returns `''` when the text carries nothing titleable, so callers can fall
+ * through to their next candidate.
+ */
+export function deriveRailTitle(
+  message: string | null | undefined,
+  attachmentNames: readonly string[] = [],
+): string {
+  // A loop started with attachments prepends an injected "Attached files …"
+  // block. The attached files are the subject, so title from their names rather
+  // than from the boilerplate header. Run before any line slicing — the block
+  // is line-structured and would not survive it.
+  const preamble = extractAttachmentPreamble(message);
+  let body = message ?? '';
+  if (preamble) {
+    const attachmentTitle = deriveAttachmentTaskTitle(
+      preamble.remainder,
+      [...attachmentNames, ...preamble.paths],
+    );
+    if (attachmentTitle) return attachmentTitle;
+    // No usable file names — title from the prose that followed the block.
+    body = preamble.remainder;
+  }
+
+  const labels = attachmentLabels(attachmentNames);
+  const trimmed = body.trim();
+  if (!trimmed) return titleFromAttachments(labels) ?? '';
+
+  const firstLine = trimmed.split(/\r?\n/)[0];
+  const title = truncateForRail(frontLoadTitle(firstLine));
+
+  // The text alone identifies nothing ("Please implement this") but a file is
+  // attached: the file is the subject.
+  if (labels.length > 0 && isLowSignalTitle(title)) {
+    return deriveAttachmentTaskTitle(firstLine, labels) ?? title;
+  }
+
+  return title || titleFromAttachments(labels) || '';
 }

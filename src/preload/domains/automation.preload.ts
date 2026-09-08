@@ -28,7 +28,7 @@ export function createAutomationDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_
     automationListRuns: (payload?: { automationId?: string; limit?: number }): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.AUTOMATION_LIST_RUNS, payload ?? {}),
 
-    automationMarkSeen: (payload: { automationId?: string; runId?: string }): Promise<IpcResponse> =>
+    automationMarkSeen: (payload: { automationId?: string; runId?: string; all?: true }): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.AUTOMATION_MARK_SEEN, payload),
 
     automationPreflight: (payload: unknown): Promise<IpcResponse> =>

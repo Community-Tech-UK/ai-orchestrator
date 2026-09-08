@@ -464,6 +464,49 @@ describe('InstanceManager context deadline', () => {
     vi.useRealTimers();
   });
 
+  it.each([false, true])('cancels pending automatic input before interrupt delegation (accepted: %s)', async (accepted) => {
+    const { InstanceLifecycleManager } = await import('../instance-lifecycle');
+    const instance = makeInstance({ status: accepted ? 'busy' : 'idle' });
+    mockStateInstances.set(instance.id, instance);
+    const manager = new InstanceManager(undefined, createContextPort());
+    const controller = new AbortController();
+    manager.on('instance:interrupt-requested', ({ instanceId, origin }) => {
+      expect(instanceId).toBe(instance.id);
+      expect(origin).toBe('renderer-ipc');
+      controller.abort();
+    });
+    const interrupt = vi.spyOn(InstanceLifecycleManager.prototype, 'interruptInstance')
+      .mockImplementation(() => {
+        expect(controller.signal.aborted).toBe(true);
+        return accepted;
+      });
+    try {
+      expect(manager.interruptInstance(instance.id, 'renderer-ipc')).toBe(accepted);
+      expect(interrupt).toHaveBeenCalledWith(instance.id, 'renderer-ipc');
+    } finally {
+      interrupt.mockRestore();
+    }
+  });
+
+  it('still cancels pending input and interrupts when an earlier observer throws', async () => {
+    const { InstanceLifecycleManager } = await import('../instance-lifecycle');
+    const instance = makeInstance();
+    mockStateInstances.set(instance.id, instance);
+    const manager = new InstanceManager(undefined, createContextPort());
+    const controller = new AbortController();
+    manager.on('instance:interrupt-requested', () => { throw new Error('observer failed'); });
+    manager.on('instance:interrupt-requested', () => controller.abort());
+    const interrupt = vi.spyOn(InstanceLifecycleManager.prototype, 'interruptInstance')
+      .mockReturnValue(false);
+    try {
+      expect(manager.interruptInstance(instance.id)).toBe(false);
+      expect(controller.signal.aborted).toBe(true);
+      expect(interrupt).toHaveBeenCalledWith(instance.id, 'unknown');
+    } finally {
+      interrupt.mockRestore();
+    }
+  });
+
   it('sendInput completes within the context deadline when context builders hang', async () => {
     const contextPort = createContextPort({
       buildRlmContext: vi.fn(() => new Promise<RlmContextInfo | null>(() => undefined)),

@@ -4,6 +4,7 @@ import type {
   BrowserGatewayFillSecretRequest,
 } from './browser-gateway-service-types';
 import type { FillOperationDeps } from './browser-form-fill-operations';
+import { buildCredentialAuthorizationDenial } from './browser-credential-authorization-denial';
 import { verifyFilledSecret, type GenericSecretKind } from './browser-credential-vault';
 
 /**
@@ -33,6 +34,7 @@ export async function fillSecretOperation(
   const action = 'fill_secret';
   const context = contextOf(request);
   const opActionClass = operationActionClass(request.fields.map((field) => field.secretType));
+  let origin = '';
   const deny = (reason: string, summary: string): BrowserGatewayResult<null> =>
     deps.result({
       context,
@@ -45,6 +47,7 @@ export async function fillSecretOperation(
       outcome: 'not_run',
       reason,
       summary,
+      ...(origin ? { origin } : {}),
       data: null,
     });
 
@@ -77,7 +80,6 @@ export async function fillSecretOperation(
     );
   }
 
-  let origin: string;
   try {
     origin = await deps.refreshTargetOrigin(request.profileId, request.targetId);
   } catch {
@@ -109,10 +111,15 @@ export async function fillSecretOperation(
       selector: field.selector,
     });
     if (!decision.authorized) {
-      return deny(
-        `secret_not_authorized:${decision.reason ?? 'unknown'}`,
-        `${toolName} is not authorized for ${origin} (${field.secretType})`,
-      );
+      const denial = buildCredentialAuthorizationDenial(authorizations.list?.bind(authorizations), {
+        toolName,
+        origin,
+        purpose: 'secret_fill',
+        reason: decision.reason ?? 'unknown',
+        scope: authProfileId,
+        detail: field.secretType,
+      });
+      return deny(denial.reason, denial.summary);
     }
   }
 
@@ -218,7 +225,7 @@ export async function fillSecretOperation(
         verified += 1;
       }
     }
-  } catch (error) {
+  } catch {
     return deps.result({
       context,
       profileId: request.profileId,

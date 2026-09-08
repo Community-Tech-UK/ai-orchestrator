@@ -51,7 +51,6 @@ import { SidebarFooterComponent } from './sidebar-footer.component';
 import { WorkspaceRailComponent } from './workspace-rail.component';
 import { BrowserPreviewNoticeComponent } from './browser-preview-notice.component';
 import { SessionProgressPanelComponent } from '../instance-detail/session-progress-panel.component';
-import { SessionRecoveryBannerComponent } from '../../shared/components/session-recovery-banner/session-recovery-banner.component';
 import { DEFAULT_KEYBINDING_ELIGIBILITY_STATE } from '../../../../shared/types/keybinding.types';
 import {
   resolveDashboardProjectContext,
@@ -84,7 +83,6 @@ import { TerminateConfirmStore } from '../../shared/terminate-confirm/terminate-
     SidebarFooterComponent,
     BrowserPreviewNoticeComponent,
     SessionProgressPanelComponent,
-    SessionRecoveryBannerComponent
   ],
   templateUrl: './dashboard.component.html',
   styleUrl: './dashboard.component.scss',
@@ -324,6 +322,8 @@ export class DashboardComponent implements OnInit, OnDestroy {
     // Initialize remote node store (seeds from IPC + subscribes to live updates)
     void this.remoteNodeStore.initialize();
     void this.scratchDirectory.init();
+
+    this.resumePickerController.ensureCandidatesLoaded();
 
     // Register keybinding handlers
     this.registerKeybindingHandlers();
