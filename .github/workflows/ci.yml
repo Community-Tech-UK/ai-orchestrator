@@ -111,6 +111,11 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
+    # Pin below the idle 4-core default (3). Several forks flooding the parent
+    # with onTaskUpdate RPCs has made shard 1/4 exit 1 after every test passed
+    # (birpc's 60s ACK; 2026-09-08 run 34226905153).
+    env:
+      AIO_TEST_MAX_FORKS: "2"
     strategy:
       fail-fast: false
       matrix:

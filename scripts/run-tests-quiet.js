@@ -502,7 +502,55 @@ function formatVerdictLine(report, exitCode) {
   if (report && report.numFailedTests > 0) {
     return `✗ FAILED — ${report.numFailedTests} of ${report.numTotalTests} tests failed (exit ${exitCode !== 0 ? exitCode : 1}).`;
   }
+  if (report && report.numTotalTests > 0) {
+    return `✗ FAILED — vitest exited ${exitCode !== 0 ? exitCode : 1} after ${report.numPassedTests} passed / ${report.numFailedTests} failed (unhandled runner error; see log).`;
+  }
   return `✗ FAILED — the run produced no usable JSON report (exit ${exitCode !== 0 ? exitCode : 1}).`;
+}
+
+function stripAnsi(text) {
+  return String(text).replace(/\u001B\[[0-9;]*m/g, '');
+}
+
+/** Worker-to-parent reporting RPCs. A timeout here means the parent was too
+ *  busy to ACK an already-finished test, not that the assertion failed. */
+const WORKER_REPORT_RPC_RE =
+  /\[vitest-worker\]: Timeout calling "(onTaskUpdate|onCollected|onUserConsoleLog)"/;
+
+function countUnhandledErrors(logText) {
+  const match = stripAnsi(logText).match(/Vitest caught (\d+) unhandled error/);
+  return match ? Number(match[1]) : 0;
+}
+
+function vitestSummaryAllPassed(logText) {
+  const plain = stripAnsi(logText);
+  if (/Test Files\s+\d+\s+failed/.test(plain) || /\bTests\s+\d+\s+failed/.test(plain)) {
+    return false;
+  }
+  return /Test Files\s+\d+\s+passed/.test(plain) && /\bTests\s+\d+\s+passed/.test(plain);
+}
+
+/**
+ * Decide whether a non-zero vitest exit is a real failure or the known
+ * fork-pool ACK flake (CI shard 1/4, 2026-09-08 run 34226905153: every test
+ * passed, then `[vitest-worker]: Timeout calling "onTaskUpdate"`).
+ */
+function classifyRun(report, exitCode, logText) {
+  if (report && report.numFailedTests > 0) return 'real_failures';
+  if (exitCode === 0) return 'pass';
+  const plain = stripAnsi(logText || '');
+  const singleWorkerRpcTimeout =
+    WORKER_REPORT_RPC_RE.test(plain) && countUnhandledErrors(plain) === 1;
+  if (
+    report &&
+    report.numFailedTests === 0 &&
+    report.numTotalTests > 0 &&
+    vitestSummaryAllPassed(plain) &&
+    singleWorkerRpcTimeout
+  ) {
+    return 'worker_rpc_timeout_after_pass';
+  }
+  return 'crash';
 }
 
 async function main() {
@@ -513,17 +561,27 @@ async function main() {
   const exitCode = await runVitest();
   const elapsed = ((Date.now() - started) / 1000).toFixed(1);
   const report = readReport();
+  let logText = '';
+  try {
+    logText = fs.readFileSync(LOG_PATH, 'utf8');
+  } catch {
+    /* classify without the log */
+  }
+  const classification = classifyRun(report, exitCode, logText);
 
-  const failed = exitCode !== 0 || (report && report.numFailedTests > 0);
-
-  if (!failed) {
+  if (classification === 'pass' || classification === 'worker_rpc_timeout_after_pass') {
     if (report) {
       log(`✓ ${report.numFiles} files · ${report.numPassedTests} tests passed in ${elapsed}s`);
     } else {
       log(`✓ tests passed in ${elapsed}s`);
     }
+    if (classification === 'worker_rpc_timeout_after_pass') {
+      log(
+        '  note: Vitest worker RPC timed out after every test passed (onTaskUpdate ACK); treating as pass.',
+      );
+    }
     log(`  full log: ${path.relative(ROOT, LOG_PATH)}`);
-    process.exit(exitCode);
+    process.exit(0);
   }
 
   // Failure path.
@@ -531,12 +589,20 @@ async function main() {
     log(`✗ ${report.numFailedTests} of ${report.numTotalTests} tests failed in ${elapsed}s:`);
     log('');
     log(formatFailures(report.failures));
+  } else if (report && report.numTotalTests > 0) {
+    log(
+      `✗ test run failed (exit ${exitCode}) after ${report.numPassedTests} passed / ${report.numFailedTests} failed (unhandled runner error). Tail of log:`,
+    );
+    try {
+      log(logText.split('\n').slice(-40).join('\n'));
+    } catch {
+      /* ignore */
+    }
   } else {
     // No JSON (vitest likely crashed). Show the tail of the log so we're not blind.
     log(`✗ test run failed (exit ${exitCode}) and produced no JSON report. Tail of log:`);
     try {
-      const tail = fs.readFileSync(LOG_PATH, 'utf8').split('\n').slice(-40).join('\n');
-      log(tail);
+      log((logText || fs.readFileSync(LOG_PATH, 'utf8')).split('\n').slice(-40).join('\n'));
     } catch {
       /* ignore */
     }

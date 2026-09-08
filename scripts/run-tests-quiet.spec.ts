@@ -53,15 +53,27 @@ describe('run-tests-quiet local-model endpoint routing', () => {
   });
 });
 
-/** Loads the verdict formatter without executing `main()`. */
-function loadFormatVerdictLine(): (
-  report: { numFailedTests: number; numTotalTests: number } | null,
+type QuietReport = {
+  numFailedTests: number;
+  numPassedTests?: number;
+  numTotalTests: number;
+};
+
+type ClassifyRun = (
+  report: QuietReport | null,
   exitCode: number,
-) => string {
+  logText: string,
+) => 'pass' | 'real_failures' | 'worker_rpc_timeout_after_pass' | 'crash';
+
+/** Loads exported helpers without executing `main()`. */
+function loadQuietRunnerExports(): {
+  formatVerdictLine: (report: QuietReport | null, exitCode: number) => string;
+  classifyRun: ClassifyRun;
+} {
   const scriptPath = join(__dirname, 'run-tests-quiet.js');
   const source = readFileSync(scriptPath, 'utf8').replace(
     /\nmain\(\)\.catch\([\s\S]*$/,
-    '\nmodule.exports = { formatVerdictLine };\n',
+    '\nmodule.exports = { formatVerdictLine, classifyRun };\n',
   );
   const module = { exports: {} as Record<string, unknown> };
   vm.runInNewContext(source, {
@@ -77,9 +89,22 @@ function loadFormatVerdictLine(): (
     require: createRequire(scriptPath),
     setTimeout,
   });
-  const fn = module.exports['formatVerdictLine'];
-  if (typeof fn !== 'function') throw new Error('formatVerdictLine was not loaded');
-  return fn as ReturnType<typeof loadFormatVerdictLine>;
+  const formatVerdictLine = module.exports['formatVerdictLine'];
+  const classifyRun = module.exports['classifyRun'];
+  if (typeof formatVerdictLine !== 'function' || typeof classifyRun !== 'function') {
+    throw new Error('run-tests-quiet helpers were not loaded');
+  }
+  return {
+    formatVerdictLine: formatVerdictLine as ReturnType<typeof loadQuietRunnerExports>['formatVerdictLine'],
+    classifyRun: classifyRun as ClassifyRun,
+  };
+}
+
+function loadFormatVerdictLine(): (
+  report: QuietReport | null,
+  exitCode: number,
+) => string {
+  return loadQuietRunnerExports().formatVerdictLine;
 }
 
 describe('run-tests-quiet failure verdict', () => {
@@ -104,5 +129,74 @@ describe('run-tests-quiet failure verdict', () => {
     const line = loadFormatVerdictLine()(null, 1);
     expect(line).toContain('FAILED');
     expect(line).toContain('no usable JSON report');
+  });
+
+  it('does not call a present zero-failure report "no usable JSON report"', () => {
+    const line = loadFormatVerdictLine()(
+      { numFailedTests: 0, numPassedTests: 5604, numTotalTests: 5605 },
+      1,
+    );
+    expect(line).toContain('FAILED');
+    expect(line).toContain('5604 passed');
+    expect(line).toContain('unhandled runner error');
+    expect(line).not.toContain('no usable JSON report');
+  });
+});
+
+describe('run-tests-quiet worker RPC timeout classification', () => {
+  const passedReport: QuietReport = {
+    numFailedTests: 0,
+    numPassedTests: 5604,
+    numTotalTests: 5605,
+  };
+  const flakeLog = [
+    'Vitest caught 1 unhandled error during the test run.',
+    'Error: [vitest-worker]: Timeout calling "onTaskUpdate"',
+    ' Test Files  508 passed (508)',
+    '      Tests  5604 passed | 1 skipped (5605)',
+    '     Errors  1 error',
+  ].join('\n');
+
+  it('treats an all-pass shard with a single onTaskUpdate ACK timeout as that flake', () => {
+    const { classifyRun } = loadQuietRunnerExports();
+    expect(classifyRun(passedReport, 1, flakeLog)).toBe('worker_rpc_timeout_after_pass');
+  });
+
+  it('classifies the same flake when the CI log still has ANSI color codes', () => {
+    const { classifyRun } = loadQuietRunnerExports();
+    const ansiLog = [
+      '\u001B[31m\u001B[1mVitest caught 1 unhandled error during the test run.',
+      '\u001B[31m\u001B[1mError\u001B[22m: [vitest-worker]: Timeout calling "onTaskUpdate"\u001B[39m',
+      '\u001B[2m Test Files \u001B[22m \u001B[1m\u001B[32m508 passed\u001B[39m\u001B[22m\u001B[90m (508)\u001B[39m',
+      '\u001B[2m      Tests \u001B[22m \u001B[1m\u001B[32m5604 passed\u001B[39m\u001B[22m\u001B[2m | \u001B[22m\u001B[33m1 skipped\u001B[39m\u001B[90m (5605)\u001B[39m',
+    ].join('\n');
+    expect(classifyRun(passedReport, 1, ansiLog)).toBe('worker_rpc_timeout_after_pass');
+  });
+
+  it('still classifies a real failed test when the same timeout is also in the log', () => {
+    const { classifyRun } = loadQuietRunnerExports();
+    expect(
+      classifyRun({ numFailedTests: 2, numPassedTests: 10, numTotalTests: 12 }, 1, flakeLog),
+    ).toBe('real_failures');
+  });
+
+  it('does not treat a missing report or extra unhandled errors as the flake', () => {
+    const { classifyRun } = loadQuietRunnerExports();
+    expect(classifyRun(null, 1, flakeLog)).toBe('crash');
+    expect(
+      classifyRun(
+        passedReport,
+        1,
+        flakeLog.replace('caught 1 unhandled error', 'caught 2 unhandled errors'),
+      ),
+    ).toBe('crash');
+  });
+
+  it('does not treat a timeout as the flake when the Vitest summary lists failures', () => {
+    const { classifyRun } = loadQuietRunnerExports();
+    const failedSummary = flakeLog
+      .replace('Test Files  508 passed (508)', 'Test Files  1 failed | 507 passed (508)')
+      .replace('Tests  5604 passed | 1 skipped (5605)', 'Tests  2 failed | 5602 passed (5604)');
+    expect(classifyRun(passedReport, 1, failedSummary)).toBe('crash');
   });
 });

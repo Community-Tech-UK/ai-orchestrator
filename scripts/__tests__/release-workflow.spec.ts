@@ -17,6 +17,7 @@ interface WorkflowStep {
 interface WorkflowJob {
   needs?: string | string[];
   permissions?: Record<string, string>;
+  env?: Record<string, string>;
   strategy?: { matrix?: { include?: Array<Record<string, string>> } };
   steps?: WorkflowStep[];
 }
@@ -157,6 +158,11 @@ describe("Harness release workflow", () => {
       "security",
       "test",
     ]);
+    // Shard 1/4 went red after every test passed when 3 forks flooded the
+    // parent with onTaskUpdate RPCs (run 34226905153). Keep the pin explicit.
+    expect(ciWorkflow.jobs["test"]?.env).toEqual({
+      AIO_TEST_MAX_FORKS: "2",
+    });
     expect(modelCatalogStep?.run).toContain("::warning");
     expect(modelCatalogStep?.["continue-on-error"]).toBeUndefined();
   });

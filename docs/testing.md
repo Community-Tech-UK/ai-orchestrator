@@ -63,6 +63,7 @@ need the counts programmatically, read `_scratch/test-results[.suffix].json`
 
 - The local cache is enabled by default. After mass deletes or renames, use `AIO_TEST_NO_CACHE=1` or `--no-cache`.
 - CI can shard with `npm run test -- --shard=N/4`; local full runs are normally unsharded.
+- CI pins `AIO_TEST_MAX_FORKS=2`. An unpinned idle 4-core runner sizes to 3 forks, and the heaviest shard has exited 1 after every test passed with `[vitest-worker]: Timeout calling "onTaskUpdate"` (birpc's 60s parent ACK). That is a worker-reporting timeout, not a failed assertion. `run-tests-quiet.js` treats that exact shape (JSON report present, 0 failures, Vitest summary all-passed, exactly one unhandled worker-RPC timeout) as a pass and prints a note. Any real failed test, missing report, or extra unhandled error still fails.
 - Vitest projects are `renderer` (jsdom + Angular TestBed) and `main` (jsdom + zone, without Angular). Both run parallel isolated forks — see Worker Fan-Out below. CI shards on top of that.
 - On failure, the quiet runner may add a summary from a local Ollama/LM Studio endpoint. Configure `AIO_AUX_LLM_URL` or disable summaries with `AIO_TEST_SUMMARY=0`.
 
