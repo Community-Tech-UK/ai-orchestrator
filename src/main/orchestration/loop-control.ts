@@ -463,13 +463,11 @@ export function summarizeLoopControlPrompt(runtime: LoopControlRuntime): string 
   return [
     '',
     'Loop Terminal Control:',
-    `- When the requested work is complete and verified by you, run: "${runtime.cliPath}" complete --summary "<what is done>"`,
-    `- If genuinely blocked and another iteration cannot help, run: "${runtime.cliPath}" block --summary "<exact blocker>"`,
-    `- If waiting for an external event would help, run: "${runtime.cliPath}" wakeup --summary "<why to resume>" --resume-in "<seconds>"`,
-    `- If the task should be marked failed, run: "${runtime.cliPath}" fail --summary "<failure reason>"`,
-    '- This command records your intent only. The coordinator still requires its configured verification and fresh-eyes gates before marking completion.',
-    '- If no verify command is configured, a complete intent pauses for operator review instead of auto-completing.',
-    '- The command reads the current iteration from the loop control file, so use it exactly as provided even in same-session loops.',
+    `- CLI: ${runtime.cliPath} (also $ORCHESTRATOR_LOOP_CLI, sibling of $ORCHESTRATOR_LOOP_CONTROL_FILE).`,
+    '- Verbs: complete, block, wakeup, fail. Each needs --summary; wakeup also --resume-in "<seconds>".',
+    '- Records intent only. Configured verification and fresh-eyes still gate completion.',
+    '- If no verify command is configured, a complete intent pauses for operator review.',
+    '- The CLI reads the current iteration from the control file.',
   ].join('\n');
 }
 

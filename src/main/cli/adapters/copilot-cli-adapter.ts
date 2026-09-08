@@ -77,10 +77,9 @@ import { resolveCopilotProfileHome } from './copilot/copilot-account-home-resolv
 import {
   DEFAULT_CONTEXT_WINDOW,
   COPILOT_MODEL_DISCOVERY_CACHE_TTL_MS,
-  toCopilotModelInfo,
-  ensureCopilotAutoModel,
+  completeCopilotDiscoveredModels,
   parseCopilotModelIdsFromHelpConfig,
-  COPILOT_DEFAULT_MODELS,
+  withCopilotModelListFallback,
 } from './copilot-cli-adapter.models';
 
 const logger = getLogger('CopilotCliAdapter');
@@ -1085,78 +1084,79 @@ export class CopilotCliAdapter extends BaseCliAdapter {
   }
 
   /**
-   * Lists available Copilot models. The CLI does not expose a stable
-   * machine-readable model listing, so we parse the installed binary's
-   * `help config` output and cache the result. This keeps the renderer and
-   * model validation aligned with the actual local Copilot CLI version.
+   * Lists available Copilot models. `help config` is a floor, not a ceiling:
+   * the result is unioned with the static catalog so ids the CLI serves but
+   * does not advertise (currently `auto` and `gpt-6-astra`) still appear.
+   * Catalog discovery should pass `{ fallbackToStatic: false }` so a parse
+   * failure does not publish the fallback list as live CLI provenance.
    */
-  async listAvailableModels(): Promise<CopilotModelInfo[]> {
+  async listAvailableModels(
+    options: { fallbackToStatic?: boolean } = {},
+  ): Promise<CopilotModelInfo[]> {
+    const fallbackToStatic = options.fallbackToStatic ?? true;
     const now = Date.now();
     const cache = copilotModelCacheFor(this.cliConfig.accountProfileId);
     if (cache.models && (now - cache.at) < COPILOT_MODEL_DISCOVERY_CACHE_TTL_MS) {
       return cache.models;
     }
 
-    if (cache.inFlight) {
-      return cache.inFlight;
+    if (!cache.inFlight) {
+      cache.inFlight = new Promise<CopilotModelInfo[]>((resolve, reject) => {
+        const proc = this.spawnProcess(['--no-auto-update', '--log-level', 'none', 'help', 'config']);
+        let output = '';
+        let errorOutput = '';
+
+        proc.stdout?.on('data', (data) => {
+          output += data.toString();
+        });
+        proc.stderr?.on('data', (data) => {
+          errorOutput += data.toString();
+        });
+
+        const timer = setTimeout(() => {
+          // Group kill reaps children of npm-wrapper CLIs; falls back to a plain
+          // kill when the child shares our process group (no group of its own).
+          if (!killProcessGroup(proc.pid, 'SIGTERM')) {
+            try {
+              proc.kill('SIGTERM');
+            } catch {
+              /* ignored */
+            }
+          }
+          reject(new Error('Timeout fetching Copilot model list'));
+        }, 5000);
+
+        proc.on('close', (code) => {
+          clearTimeout(timer);
+          const discoveredIds = parseCopilotModelIdsFromHelpConfig(output);
+          if (code === 0 && discoveredIds.length > 0) {
+            const models = completeCopilotDiscoveredModels(discoveredIds);
+            cache.models = models;
+            cache.at = Date.now();
+            resolve(models);
+            return;
+          }
+
+          reject(
+            new Error(
+              `Failed to parse Copilot model list (exit ${code}): ${errorOutput.trim() || 'no output'}`,
+            ),
+          );
+        });
+
+        proc.on('error', (err) => {
+          clearTimeout(timer);
+          reject(err);
+        });
+      }).finally(() => {
+        cache.inFlight = null;
+      });
     }
 
-    cache.inFlight = new Promise<CopilotModelInfo[]>((resolve, reject) => {
-      const proc = this.spawnProcess(['--no-auto-update', '--log-level', 'none', 'help', 'config']);
-      let output = '';
-      let errorOutput = '';
-
-      proc.stdout?.on('data', (data) => {
-        output += data.toString();
-      });
-      proc.stderr?.on('data', (data) => {
-        errorOutput += data.toString();
-      });
-
-      const timer = setTimeout(() => {
-        // Group kill reaps children of npm-wrapper CLIs; falls back to a plain
-        // kill when the child shares our process group (no group of its own).
-        if (!killProcessGroup(proc.pid, 'SIGTERM')) {
-          try {
-            proc.kill('SIGTERM');
-          } catch {
-            /* ignored */
-          }
-        }
-        reject(new Error('Timeout fetching Copilot model list'));
-      }, 5000);
-
-      proc.on('close', (code) => {
-        clearTimeout(timer);
-        const discoveredIds = parseCopilotModelIdsFromHelpConfig(output);
-        if (code === 0 && discoveredIds.length > 0) {
-          const models = ensureCopilotAutoModel(discoveredIds.map(toCopilotModelInfo));
-          cache.models = models;
-          cache.at = Date.now();
-          resolve(models);
-          return;
-        }
-
-        reject(
-          new Error(
-            `Failed to parse Copilot model list (exit ${code}): ${errorOutput.trim() || 'no output'}`
-          )
-        );
-      });
-
-      proc.on('error', (err) => {
-        clearTimeout(timer);
-        reject(err);
-      });
-    }).catch((error) => {
+    return withCopilotModelListFallback(cache.inFlight, fallbackToStatic, (error) => {
       logger.warn('Falling back to default Copilot model list', {
         error: error instanceof Error ? error.message : String(error),
       });
-      return COPILOT_DEFAULT_MODELS;
-    }).finally(() => {
-      cache.inFlight = null;
     });
-
-    return cache.inFlight;
   }
 }

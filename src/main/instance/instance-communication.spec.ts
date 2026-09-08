@@ -1746,6 +1746,49 @@ describe('InstanceCommunicationManager', () => {
     expect(onOutput).not.toHaveBeenCalled();
   });
 
+  it('does not rewind committed streaming assistant text when a later chunk shrinks', () => {
+    manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, currentAdapter) => {
+        adapters.set(id, currentAdapter);
+      },
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+    });
+
+    const streamId = 'cursor-acp-stream-1';
+    manager.addToOutputBuffer(instance, {
+      id: streamId,
+      timestamp: Date.now(),
+      type: 'assistant',
+      content: "I'll check those attached todo files and whether a single de-duplicated merge already exists.",
+      metadata: {
+        streaming: true,
+        accumulatedContent:
+          "I'll check those attached todo files and whether a single de-duplicated merge already exists.",
+      },
+    });
+    manager.addToOutputBuffer(instance, {
+      id: streamId,
+      timestamp: Date.now(),
+      type: 'assistant',
+      content: "I'll",
+      metadata: {
+        streaming: true,
+        accumulatedContent: "I'll",
+      },
+    });
+
+    expect(instance.outputBuffer.find((message) => message.id === streamId)?.content).toBe(
+      "I'll check those attached todo files and whether a single de-duplicated merge already exists.",
+    );
+  });
+
   it('drops stale output listeners from an older adapter generation', async () => {
     const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
     adapters.set(instance.id, adapter);
@@ -2077,19 +2120,27 @@ describe('InstanceCommunicationManager', () => {
  */
 describe('LT-034: context warning suppression for aggregate-only providers', () => {
   class OccupancyAdapter extends FakeAdapter {
-    constructor(private readonly reporting: 'current' | 'aggregate-only') {
+    constructor(
+      private readonly reporting: 'current' | 'aggregate-only',
+      private readonly runtime = {
+        supportsNativeCompaction: false,
+        selfManagedAutoCompaction: false,
+      },
+    ) {
       super('claude-cli');
     }
     getContextCapabilities() {
       return { occupancyReporting: this.reporting };
     }
     getRuntimeCapabilities() {
-      // Not self-managing compaction, so the warning is otherwise eligible.
-      return { supportsNativeCompaction: false, selfManagedAutoCompaction: false };
+      return this.runtime;
     }
   }
 
-  function runWithAdapter(reporting: 'current' | 'aggregate-only'): OutputMessage[] {
+  function runWithAdapter(
+    reporting: 'current' | 'aggregate-only',
+    runtime?: { supportsNativeCompaction: boolean; selfManagedAutoCompaction: boolean },
+  ): OutputMessage[] {
     const instance = createInstance('busy');
     const adapters = new Map<string, CliAdapter>();
     const manager = new InstanceCommunicationManager({
@@ -2106,7 +2157,7 @@ describe('LT-034: context warning suppression for aggregate-only providers', () 
       captureProviderRuntimeEvent: vi.fn(),
     });
 
-    const adapter = new OccupancyAdapter(reporting) as unknown as CliAdapter;
+    const adapter = new OccupancyAdapter(reporting, runtime) as unknown as CliAdapter;
     adapters.set(instance.id, adapter);
     const messages: OutputMessage[] = [];
     manager.on('output', (e: { message: OutputMessage }) => messages.push(e.message));
@@ -2130,6 +2181,22 @@ describe('LT-034: context warning suppression for aggregate-only providers', () 
       .filter((m) => m.metadata?.['contextWarning'] === true);
     expect(warnings).toHaveLength(1);
     expect(warnings[0].content).toContain('85%');
+  });
+
+  it('still injects the warning when native compaction exists but is not self-managed', () => {
+    const warnings = runWithAdapter('current', {
+      supportsNativeCompaction: true,
+      selfManagedAutoCompaction: false,
+    }).filter((m) => m.metadata?.['contextWarning'] === true);
+    expect(warnings).toHaveLength(1);
+  });
+
+  it('skips the warning only for adapters that auto-compact internally', () => {
+    const warnings = runWithAdapter('current', {
+      supportsNativeCompaction: false,
+      selfManagedAutoCompaction: true,
+    }).filter((m) => m.metadata?.['contextWarning'] === true);
+    expect(warnings).toHaveLength(0);
   });
 });
 

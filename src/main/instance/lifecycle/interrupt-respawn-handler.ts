@@ -150,6 +150,14 @@ export interface InterruptRespawnDeps {
   /** Forward an 'output' event onto the lifecycle EventEmitter. */
   emitOutput: (instanceId: string, message: OutputMessage) => void;
 
+  /**
+   * Idle the stuck-process watchdog when an interrupt settles in place.
+   * Instance status going idle is not enough — the detector tracks a separate
+   * generating/tool_executing clock and will otherwise false-alarm over the
+   * silence that follows Stop.
+   */
+  onToolStateChange?: (instanceId: string, state: 'generating' | 'tool_executing' | 'idle') => void;
+
   /** Optional marker bridge for transcript-visible recovery boundaries. */
   emitDisplayMarker?: (instance: Instance, message: OutputMessage) => void;
 
@@ -583,6 +591,7 @@ export class InterruptRespawnHandler {
     this.deps.clearInterrupted(instanceId);
     instance.interruptPhase = 'completed';
     instance.lastTurnOutcome = 'interrupted';
+    this.deps.onToolStateChange?.(instanceId, 'idle');
     // Clears the force-abort timer and resolves any sendInput() waiters.
     this.resolveRespawnPromise(instance);
   }
@@ -672,6 +681,7 @@ export class InterruptRespawnHandler {
     this.deps.transitionState(instance, 'idle');
     instance.lastActivity = Date.now();
     this.resolveRespawnPromise(instance);
+    this.deps.onToolStateChange?.(instanceId, 'idle');
 
     const message: OutputMessage = {
       id: generateId(),
@@ -940,6 +950,7 @@ export class InterruptRespawnHandler {
           }
         } else {
           this.deps.transitionState(instance, 'idle');
+          this.deps.onToolStateChange?.(instanceId, 'idle');
         }
         if (triggeredByInterrupt) {
           instance.interruptPhase = 'completed';
@@ -1265,6 +1276,7 @@ export class InterruptRespawnHandler {
           }
         } else {
           this.deps.transitionState(instance, 'idle');
+          this.deps.onToolStateChange?.(instanceId, 'idle');
         }
         instance.lastActivity = Date.now();
 

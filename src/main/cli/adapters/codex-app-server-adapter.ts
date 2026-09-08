@@ -38,6 +38,10 @@ import { buildMessageWithFiles, processAttachments } from '../file-handler';
 import { supportsCodexInlineImage } from './codex/attachments';
 import { startThreadWithRetry } from './codex/thread-start-retry';
 import { SERVICE_NAME } from './codex/app-server-types';
+import {
+  buildCodexAppServerContextCapabilities,
+  buildCodexExecContextCapabilities,
+} from './codex/codex-app-server-context-capabilities';
 import { recoverFromInputCap } from './codex/input-cap-recovery';
 import { CodexSessionScanner } from './codex/session-scanner';
 import {
@@ -217,6 +221,10 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
     return this.contextCostController.nativeCompactionKnownUnsupported();
   }
 
+  protected async steerActiveTurn(): Promise<boolean> {
+    return this.appServerRuntime.steerActiveTurn();
+  }
+
   protected clearPendingContextCost(): void {
     this.contextCostController.clearPending();
   }
@@ -228,6 +236,8 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
     switch (action) {
       case 'native-compaction':
         return { proof: await this.compactContext() ? 'observed' : 'none' };
+      case 'steer-turn':
+        return { proof: await this.steerActiveTurn() ? 'acknowledged' : 'none' };
       case 'controlled-interrupt':
       case 'controlled-recovery':
         return this.contextCostController.requestRecovery(action);
@@ -645,7 +655,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
       supportsResume: this.supportsNativeResume(),
       supportsForkSession: false,
       supportsNativeCompaction: this.useAppServer,
-      selfManagedAutoCompaction: this.useAppServer,
+      selfManagedAutoCompaction: false,
       supportsPermissionPrompts: this.useAppServer,
       supportsDeferPermission: false,
     };
@@ -663,27 +673,9 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
 
   override getContextCapabilities(): ProviderContextCapabilities {
     if (this.useAppServer) {
-      return {
-        toolResultControl: 'post-retention',
-        toolResultVisibility: 'full',
-        transcriptControl: 'native-compaction',
-        occupancyReporting: 'current',
-        cumulativeReporting: 'available',
-        interruptProof: 'observed',
-        compactionProof: 'observed',
-        sameThreadContinuation: true,
-      };
+      return buildCodexAppServerContextCapabilities(this.getAppServerClient()?.getOutputLimitState?.());
     }
-    return {
-      toolResultControl: 'post-retention',
-      toolResultVisibility: 'full',
-      transcriptControl: 'none',
-      occupancyReporting: 'aggregate-only',
-      cumulativeReporting: 'available',
-      interruptProof: 'none',
-      compactionProof: 'none',
-      sameThreadContinuation: false,
-    };
+    return buildCodexExecContextCapabilities();
   }
 
   override getLastContextUsage(): ContextUsageObservation {

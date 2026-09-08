@@ -6,6 +6,7 @@ import * as path from 'path';
 import {
   LOOP_PROMPT_BOARD_MARKER,
   renderReviewDrivenContinuationCard,
+  renderReviewDrivenReanchorPrompt,
   renderStagedContinuationCard,
   splitLoopPromptPrefix,
 } from './loop-continuation-prompt';
@@ -103,10 +104,10 @@ describe('T8 stable prefix / volatile tail', () => {
     expect(prefix).not.toContain('Loop budget remaining');
   });
 
-  // The continuation directive comes from static per-run config, so it belongs
-  // in the STABLE prefix. If a future edit moves it behind the marker (or moves
-  // something volatile in front of it) the cache contract silently breaks.
-  it('keeps a custom continuation directive in the stable prefix on both card shapes', () => {
+  // Short continuation directives are per-run config and stay in the prefix.
+  // T57: a long operator directive would bloat the cached prefix, so it sits
+  // on the board instead. The operator text is never dropped.
+  it('keeps a short custom continuation directive in the stable prefix on both card shapes', () => {
     const directive = 'Focus on the failing integration test before anything else.';
     const staged = varyingTails.map((sample) => stagedCard({ ...sample, iterationPrompt: directive }));
     const reviewDriven = varyingTails.map((sample) => reviewDrivenCard({ ...sample, iterationPrompt: directive }));
@@ -119,7 +120,65 @@ describe('T8 stable prefix / volatile tail', () => {
     }
   });
 
+  it('moves a long continuation directive behind the board marker without dropping it', () => {
+    const directive = 'Keep the original operator instruction. '.repeat(20).trim();
+    expect(directive.length).toBeGreaterThan(500);
+    const staged = stagedCard({ iterationSeq: 3, iterationPrompt: directive });
+    const reviewDriven = reviewDrivenCard({ iterationSeq: 3, iterationPrompt: directive });
+    for (const card of [staged, reviewDriven]) {
+      const { prefix, tail } = splitLoopPromptPrefix(card);
+      expect(prefix).not.toContain(directive);
+      expect(tail).toContain(directive);
+    }
+  });
+
   it('returns the whole prompt as the prefix when no board marker is present', () => {
     expect(splitLoopPromptPrefix('no board here')).toEqual({ prefix: 'no board here', tail: '' });
+  });
+});
+
+describe('T50 review-driven reanchor prefix / volatile tail', () => {
+  function reanchor(overrides: {
+    iterationSeq: number;
+    pendingInterventions?: string[];
+    priorObservations?: string[];
+    iterationPrompt?: string;
+  }): string {
+    return renderReviewDrivenReanchorPrompt({
+      blockedPath: `${tmpDir}/BLOCKED.md`,
+      config: configFor(),
+      includeSessionReplay: false,
+      iterationPrompt: overrides.iterationPrompt,
+      iterationSeq: overrides.iterationSeq,
+      notesPath: `${tmpDir}/NOTES.md`,
+      outstandingPath: `${tmpDir}/OUTSTANDING.md`,
+      pendingInterventions: overrides.pendingInterventions ?? [],
+      priorObservations: overrides.priorObservations,
+      stateDir: tmpDir,
+      tasksPath: `${tmpDir}/LOOP_TASKS.md`,
+    });
+  }
+
+  it('keeps the reanchor prefix byte-identical while the board changes', () => {
+    const prompts = [
+      reanchor({ iterationSeq: 0, pendingInterventions: [] }),
+      reanchor({ iterationSeq: 4, pendingInterventions: ['fix the failing spec'] }),
+      reanchor({ iterationSeq: 10, pendingInterventions: ['a', 'b'], priorObservations: ['stale hint'] }),
+    ];
+    const prefixes = prompts.map((prompt) => splitLoopPromptPrefix(prompt).prefix);
+    for (const prefix of prefixes) expect(prefix).toBe(prefixes[0]);
+    expect(prefixes[0]).toContain('Ship the stable-prefix continuation card');
+    expect(prefixes[0]).toContain('OUTSTANDING.md');
+    expect(prefixes[0]).not.toContain('physical-hardware testing');
+    expect(prefixes[0]).not.toContain('```');
+    expect(prefixes[0]).not.toContain('Iteration 0.');
+    expect(splitLoopPromptPrefix(prompts[0]!).tail).toContain('Iteration 0.');
+    expect(splitLoopPromptPrefix(prompts[1]!).tail).toContain('fix the failing spec');
+  });
+
+  it('does not skip the goal on a recycle-shaped reanchor', () => {
+    const prompt = reanchor({ iterationSeq: 8 });
+    expect(splitLoopPromptPrefix(prompt).prefix).toContain('Goal (persistent across iterations)');
+    expect(prompt).toContain('Ship the stable-prefix continuation card');
   });
 });

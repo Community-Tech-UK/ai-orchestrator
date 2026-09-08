@@ -103,7 +103,8 @@
             <button
               class="btn-action btn-icon"
               [class.active]="isFileExplorerOpen()"
-              [title]="isFileExplorerOpen() ? 'Hide file browser' : 'Show file browser'"
+              [appTooltip]="isFileExplorerOpen() ? 'Hide file browser' : 'Show file browser'"
+              [attr.aria-label]="isFileExplorerOpen() ? 'Hide file browser' : 'Show file browser'"
               (click)="toggleFileExplorer.emit()"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none"

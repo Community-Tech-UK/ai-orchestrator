@@ -13,6 +13,7 @@ import type {
 } from '../../../../../shared/types/instance.types';
 import { LIMITS } from '../../../../../shared/constants/limits';
 import { stabilizeThinkingBlocks } from '../../../../../shared/utils/thinking-extractor';
+import { nextMonotonicStreamingContent } from '../../../../../shared/utils/streaming-content';
 import { ImageAttachmentService, type ImageAttachmentSink } from '../../../features/instance-detail/image-attachment.service';
 
 function getAccumulatedStreamingContent(message: OutputMessage): string {
@@ -98,19 +99,9 @@ export class InstanceOutputStore implements ImageAttachmentSink {
             // For streaming messages, update existing or add new
             const existingIdx = outputBuffer.findIndex((m) => m.id === msg.id);
             if (existingIdx >= 0) {
-              // Update existing message with accumulated content.
-              // Guard: a streaming update must never wipe already-committed
-              // text to empty. Providers stream monotonically; an empty
-              // accumulated payload arriving over a non-empty bubble (e.g. a
-              // per-segment accumulator that reset mid-turn) would otherwise
-              // erase visible assistant text. Keep the committed text in that
-              // case while still letting metadata/thinking update.
               const accumulatedContent = getAccumulatedStreamingContent(msg);
               const previousContent = outputBuffer[existingIdx].content ?? '';
-              const nextContent =
-                accumulatedContent.trim().length === 0 && previousContent.trim().length > 0
-                  ? previousContent
-                  : accumulatedContent;
+              const nextContent = nextMonotonicStreamingContent(previousContent, accumulatedContent);
               outputBuffer[existingIdx] = {
                 ...outputBuffer[existingIdx],
                 content: nextContent,

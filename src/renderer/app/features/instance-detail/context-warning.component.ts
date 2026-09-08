@@ -9,10 +9,12 @@ import {
   computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
 @Component({
   selector: 'app-context-warning',
   standalone: true,
+  imports: [AioTooltipDirective],
   template: `
     @if (visible()) {
       <div class="context-warning" [class]="levelClass()">
@@ -36,7 +38,7 @@ import {
             <span class="compacting-label">Compacting...</span>
           }
           @if (level() === 'warning') {
-            <button class="dismiss-btn" (click)="onDismiss()" title="Dismiss">
+            <button class="dismiss-btn" (click)="onDismiss()" appTooltip="Dismiss" aria-label="Dismiss">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <line x1="18" y1="6" x2="6" y2="18"></line>
                 <line x1="6" y1="6" x2="18" y2="18"></line>

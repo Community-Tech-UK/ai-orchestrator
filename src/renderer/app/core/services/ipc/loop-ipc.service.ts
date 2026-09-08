@@ -136,7 +136,6 @@ export interface LoopStartConfigInput {
   workspaceCwd: string;
   planFile?: string;
   provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok';
-  reviewStyle?: 'single' | 'debate' | 'star-chamber';
   contextStrategy?: 'fresh-child' | 'hybrid' | 'same-session';
   /** WS6: per-iteration agentic turn cap (`null` = provider default). */
   maxTurnsPerIteration?: number | null;

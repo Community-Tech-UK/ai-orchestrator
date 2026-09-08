@@ -8,6 +8,7 @@
 import { Component, input, signal, inject, ChangeDetectionStrategy } from '@angular/core';
 import { ElectronIpcService } from '../../../core/services/ipc/electron-ipc.service';
 import { dataUrlToClipboardCompatibleDataUrl } from '../../../core/services/clipboard-image.util';
+import { AioTooltipDirective } from '../../tooltip/aio-tooltip.directive';
 
 export interface AttachmentDisplay {
   name: string;
@@ -19,6 +20,7 @@ export interface AttachmentDisplay {
 @Component({
   selector: 'app-message-attachments',
   standalone: true,
+  imports: [AioTooltipDirective],
   template: `
     <div class="attachments-container">
       @for (attachment of attachments(); track attachment.name) {
@@ -106,7 +108,7 @@ export interface AttachmentDisplay {
                   Copy
                 </button>
               }
-              <button class="preview-close" (click)="closePreview()" title="Close preview">×</button>
+              <button class="preview-close" (click)="closePreview()" appTooltip="Close preview" aria-label="Close preview">×</button>
             </div>
           </div>
           <div class="preview-body">

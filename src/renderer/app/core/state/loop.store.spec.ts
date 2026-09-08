@@ -1020,7 +1020,6 @@ function activeState(): LoopStatePayload {
     config: {
       ...validConfig(),
       provider: 'claude' as const,
-      reviewStyle: 'single' as const,
       contextStrategy: 'same-session' as const,
       caps: {
         maxIterations: 50,

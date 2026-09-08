@@ -152,6 +152,53 @@ describe('setupCompactionCoordinator', () => {
     expect(coordinator.isNativeCompactionProvenUnsupported('inst-cleanup')).toBe(false);
   });
 
+  it('treats Codex turnPhase idle as the only safe 75% compact boundary', async () => {
+    const compactContext = vi.fn(async () => true);
+    const executeContextAction = vi.fn(async (action: string) => (
+      action === 'steer-turn' ? { proof: 'acknowledged' as const } : { proof: 'none' as const }
+    ));
+    const adapter = {
+      compactContext,
+      executeContextAction,
+      getContextCapabilities: () => ({
+        toolResultControl: 'post-retention',
+        toolResultVisibility: 'full',
+        transcriptControl: 'native-compaction',
+        occupancyReporting: 'current',
+        cumulativeReporting: 'available',
+        interruptProof: 'observed',
+        compactionProof: 'observed',
+        sameThreadContinuation: true,
+      }),
+      getRuntimeSnapshot: vi.fn(() => ({ turnPhase: 'running' })),
+    };
+    const instance = { id: 'inst-boundary', contextEvidence: { mode: 'enforce' } };
+    const instanceManager = {
+      getAdapterRuntimeCapabilities: vi.fn(() => ({
+        supportsNativeCompaction: true,
+        selfManagedAutoCompaction: false,
+      })),
+      getAdapter: vi.fn(() => adapter),
+      getInstance: vi.fn(() => instance),
+      sendInput: vi.fn(),
+      emitOutputMessage: vi.fn(),
+    } as unknown as InstanceManager;
+
+    setupCompactionCoordinator(instanceManager, makeWindowManager());
+    const coordinator = CompactionCoordinator.getInstance();
+    const pressure = { used: 75, total: 100, percentage: 75, cumulativeTokens: 75 };
+
+    coordinator.onContextUpdate('inst-boundary', pressure);
+    await coordinator.drainPolicyDecisions('inst-boundary');
+    expect(executeContextAction).toHaveBeenCalledWith('steer-turn');
+    expect(compactContext).not.toHaveBeenCalled();
+
+    adapter.getRuntimeSnapshot.mockReturnValue({ turnPhase: 'idle' });
+    coordinator.onContextUpdate('inst-boundary', pressure);
+    await coordinator.drainPolicyDecisions('inst-boundary');
+    expect(compactContext).toHaveBeenCalledOnce();
+  });
+
   it('resets renderer context usage after successful native compaction when no provider context event follows', async () => {
     const compactContext = vi.fn(async () => true);
     const recordMarker = vi.fn(() => 'marker-1');

@@ -145,6 +145,8 @@ export class CompactionCoordinator extends EventEmitter {
     ((instanceId: string) => ProviderContextActionExecutor | null) | null = null;
   private recordPolicyEventCallback:
     ((event: ContextPolicyEvent) => void | Promise<void>) | null = null;
+  private getAtSafeProviderBoundaryForInstance:
+    ((instanceId: string) => boolean) | null = null;
 
   private static instance: CompactionCoordinator | null = null;
 
@@ -185,6 +187,7 @@ export class CompactionCoordinator extends EventEmitter {
     getContextEvidenceMode?: (instanceId: string) => ContextEvidenceMode;
     getProviderActionExecutor?: (instanceId: string) => ProviderContextActionExecutor | null;
     recordPolicyEvent?: (event: ContextPolicyEvent) => void | Promise<void>;
+    getAtSafeProviderBoundary?: (instanceId: string) => boolean;
   }): void {
     if (options.nativeCompact) this.nativeCompactStrategy = options.nativeCompact;
     if (options.restartCompact) this.restartCompactStrategy = options.restartCompact;
@@ -204,6 +207,9 @@ export class CompactionCoordinator extends EventEmitter {
       this.getProviderActionExecutorForInstance = options.getProviderActionExecutor;
     }
     if (options.recordPolicyEvent) this.recordPolicyEventCallback = options.recordPolicyEvent;
+    if (options.getAtSafeProviderBoundary) {
+      this.getAtSafeProviderBoundaryForInstance = options.getAtSafeProviderBoundary;
+    }
   }
 
   /**
@@ -256,6 +262,7 @@ export class CompactionCoordinator extends EventEmitter {
       autoCompactEnabled: this.autoCompactEnabled,
       executor: this.getProviderActionExecutorForInstance?.(instanceId) ?? null,
       circuitBreakerTripped: this.isCircuitBreakerTripped(instanceId),
+      atSafeProviderBoundary: this.getAtSafeProviderBoundaryForInstance?.(instanceId) === true,
       onActionFailure: () => this.recordCircuitBreakerFailure(instanceId),
       onActionSuccess: () => this.resetCircuitBreaker(instanceId),
     });

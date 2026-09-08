@@ -161,7 +161,8 @@
               class="btn-allow-sm"
               (click)="handleSingleDecision(permission, 'allow')"
               [disabled]="loading()"
-              title="Allow"
+              appTooltip="Allow"
+              aria-label="Allow"
             >
               &#10003;
             </button>
@@ -169,7 +170,8 @@
               class="btn-deny-sm"
               (click)="handleSingleDecision(permission, 'deny')"
               [disabled]="loading()"
-              title="Deny"
+              appTooltip="Deny"
+              aria-label="Deny"
             >
               &#10005;
             </button>

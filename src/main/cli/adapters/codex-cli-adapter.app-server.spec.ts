@@ -1137,13 +1137,13 @@ describe('CodexCliAdapter', () => {
       expect(adapter.getRuntimeCapabilities().selfManagedAutoCompaction).toBe(false);
     });
 
-    it('reports app-server mode as self-managed for automatic compaction', () => {
+    it('reports app-server native compaction without claiming Codex will auto-compact', () => {
       const adapter = new CodexCliAdapter();
       (adapter as unknown as { useAppServer: boolean }).useAppServer = true;
 
       expect(adapter.getRuntimeCapabilities()).toMatchObject({
         supportsNativeCompaction: true,
-        selfManagedAutoCompaction: true,
+        selfManagedAutoCompaction: false,
       });
     });
 

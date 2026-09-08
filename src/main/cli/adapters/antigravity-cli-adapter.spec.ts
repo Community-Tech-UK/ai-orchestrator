@@ -38,6 +38,15 @@ describe('AntigravityCliAdapter buildArgs model forwarding', () => {
     expect(args[args.length - 1]).toBe('do the thing');
   });
 
+  it('T48: wraps every print prompt with RTK while resume stays unavailable', () => {
+    const adapter = new AntigravityCliAdapter({ rtkEnabled: true });
+    expect(adapter.getRuntimeCapabilities().supportsResume).toBe(false);
+    const first = buildArgs(adapter, 'turn one');
+    const second = buildArgs(adapter, 'turn two');
+    expect(first[first.length - 1]).toContain('[RTK AWARENESS]');
+    expect(second[second.length - 1]).toContain('[RTK AWARENESS]');
+  });
+
   it('adds --dangerously-skip-permissions when yolo is enabled', () => {
     const adapter = new AntigravityCliAdapter({ yolo: true });
     expect(buildArgs(adapter)).toContain('--dangerously-skip-permissions');

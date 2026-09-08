@@ -30,7 +30,7 @@ const DEFAULT_LISTERS: Record<
 > = {
   cursor: () => new CursorCliAdapter().listAvailableModels({ fallbackToStatic: false }),
   copilot: async () => copilotModelInfosToDisplayInfo(
-    await new CopilotCliAdapter().listAvailableModels(),
+    await new CopilotCliAdapter().listAvailableModels({ fallbackToStatic: false }),
   ),
 };
 

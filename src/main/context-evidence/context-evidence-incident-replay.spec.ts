@@ -334,7 +334,7 @@ describe('governed context-evidence incident replay', () => {
     const policy = new ContextSafetyPolicy();
     const window = 100_000;
     // Providers with `occupancyReporting: 'current'` (codex app-server, resident
-    // Claude) get a known 92%-occupancy sample; the shared policy never
+    // Claude) get a known 93%-occupancy sample (hard interrupt is 80%); the shared policy never
     // synthesizes a percentage for `aggregate-only` reporters, so those instead
     // get an unknown-occupancy byte-budget sample. Each provider must only
     // receive an action its own capabilities permit.

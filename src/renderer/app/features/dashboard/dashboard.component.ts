@@ -1,7 +1,6 @@
 /**
  * Dashboard Component - Main application layout
  */
-
 import { NgTemplateOutlet } from '@angular/common';
 import {
   ChangeDetectionStrategy,
@@ -12,7 +11,7 @@ import {
   signal,
   computed,
   HostListener,
-  effect
+  effect,
 } from '@angular/core';
 import { Router } from '@angular/router';
 import { InstanceStore } from '../../core/state/instance.store';
@@ -58,6 +57,7 @@ import {
 } from './dashboard-project-context';
 import { runCancelOperationCascade } from './dashboard-cancel-operation';
 import { TerminateConfirmStore } from '../../shared/terminate-confirm/terminate-confirm.store';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
 @Component({
   selector: 'app-dashboard',
@@ -82,7 +82,7 @@ import { TerminateConfirmStore } from '../../shared/terminate-confirm/terminate-
     SidebarNavComponent,
     SidebarFooterComponent,
     BrowserPreviewNoticeComponent,
-    SessionProgressPanelComponent,
+    SessionProgressPanelComponent, AioTooltipDirective,
   ],
   templateUrl: './dashboard.component.html',
   styleUrl: './dashboard.component.scss',

@@ -62,6 +62,24 @@ export const LOOP_PHASE_LABELS: Readonly<Record<LoopInferredPhase, string>> = {
   reviewing: 'reviewing',
 };
 
+/**
+ * UX26 — the metric strip's stage/phase fragment.
+ *
+ * Review-driven loops have a stage-machine value they do not use. Show the
+ * inferred command-stream phase instead, and omit the fragment when neither
+ * applies. Gated mode keeps `stage`.
+ */
+export function metricStripStageOrPhase(input: {
+  completionMode: string | undefined;
+  stage: string | undefined;
+  inferredPhase: LoopInferredPhase | null | undefined;
+}): string | null {
+  if (input.completionMode === 'review-driven') {
+    return input.inferredPhase ? `phase ${input.inferredPhase}` : null;
+  }
+  return input.stage ? `stage ${input.stage}` : null;
+}
+
 /** `12.3k tok` when settled, `tokens pending` / `… settled + current pending` while a turn runs. */
 export function activeTokenUsage(totalTokens: number, unsettled: boolean): string {
   if (!unsettled) return humanTokens(totalTokens);

@@ -93,7 +93,8 @@ export type ContextOccupancy =
 export interface ContextPressureSample {
   occupancy: ContextOccupancy;
   cumulativeTokens?: number;
-  outputBytesSinceCompaction: number;
+  /** Measured command/tool output bytes since the last compaction; omit when unknown. */
+  outputBytesSinceCompaction?: number;
   providerRequestCount: number;
   newEvidenceCount: number;
   newValidatedFindingCount: number;
@@ -211,6 +212,7 @@ export type EnforcementActionKind =
   | 'rebuild-working-set'
   | 'native-compaction'
   | 'stop-broad-research'
+  | 'steer-turn'
   | 'controlled-interrupt'
   | 'controlled-recovery'
   | 'same-thread-continuation'
@@ -220,7 +222,9 @@ export type EnforcementActionKind =
 export type EnforcementTrigger =
   | 'oversized-result'
   | 'known-occupancy-60'
+  | 'known-occupancy-70'
   | 'known-occupancy-75'
+  | 'known-occupancy-80'
   | 'known-occupancy-85'
   | 'known-occupancy-92'
   | 'cumulative-2x'

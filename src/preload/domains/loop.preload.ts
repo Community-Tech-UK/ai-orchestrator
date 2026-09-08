@@ -10,7 +10,6 @@ export interface LoopConfigInput {
   workspaceCwd: string;
   planFile?: string;
   provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok';
-  reviewStyle?: 'single' | 'debate' | 'star-chamber';
   contextStrategy?: 'fresh-child' | 'hybrid' | 'same-session';
   caps?: Partial<{
     maxIterations: number | null;

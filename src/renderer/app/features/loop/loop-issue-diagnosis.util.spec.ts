@@ -216,16 +216,44 @@ describe('buildLoopIssueView', () => {
     expect(view!.actions.find((action) => action.kind === 'inspect')?.primary).toBe(true);
   });
 
-  it('does not claim a review-driven loop will pause on its own', () => {
+  it('does not claim a review-driven loop will pause on identical-hash stalls', () => {
+    const view = buildLoopIssueView({
+      verdict: 'CRITICAL',
+      signals: [{ id: 'A', verdict: 'CRITICAL', message: 'same work hash' }],
+      running: true,
+      paused: false,
+      reviewDriven: true,
+    });
+    expect(view!.implication).toContain('Identical-hash stalls do not pause this mode');
+    expect(view!.implication).not.toContain('will not pause');
+    expect(view!.implication).not.toContain('it will pause on its own');
+  });
+
+  it('says a review-driven eligible stall will pause after remaining unstick attempts', () => {
     const view = buildLoopIssueView({
       verdict: 'CRITICAL',
       signals: [{ id: 'G', verdict: 'CRITICAL', message: 'same tool, same args' }],
       running: true,
       paused: false,
       reviewDriven: true,
+      autoUnstickAttempts: 0,
+      autoUnstickMax: 2,
     });
-    expect(view!.implication).toContain('Review-driven mode will not pause');
-    expect(view!.implication).not.toContain('it will pause on its own');
+    expect(view!.implication).toContain('will pause after 2 more unstick attempts');
+    expect(view!.implication).not.toContain('will not pause');
+  });
+
+  it('counts remaining unstick attempts after the first has fired', () => {
+    const view = buildLoopIssueView({
+      verdict: 'CRITICAL',
+      signals: [{ id: 'G', verdict: 'CRITICAL', message: 'same tool, same args' }],
+      running: true,
+      paused: false,
+      reviewDriven: true,
+      autoUnstickAttempts: 1,
+      autoUnstickMax: 2,
+    });
+    expect(view!.implication).toContain('will pause after 1 more unstick attempt');
   });
 
   it('treats a running WARN as a watch, not a stop', () => {

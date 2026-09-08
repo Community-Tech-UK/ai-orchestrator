@@ -45,7 +45,7 @@ function input(overrides: Partial<ContextSafetyPolicyInput> = {}): ContextSafety
 describe('ContextSafetyPolicy', () => {
   it.each([
     [60, 'rebuild-working-set'],
-    [85, 'stop-broad-research'],
+    [70, 'steer-turn'],
   ] as const)('emits the %s%% threshold action once', (used, kind) => {
     const policy = new ContextSafetyPolicy();
     const first = policy.decide(input({
@@ -74,21 +74,74 @@ describe('ContextSafetyPolicy', () => {
     expect(decision.reasonCode).toBe('WORKING_SET_REBUILD_UNAVAILABLE');
   });
 
-  it('uses native compaction at 75% only with observed proof capability', () => {
+  it('uses native compaction at 75% only at a safe boundary with observed proof capability', () => {
     const policy = new ContextSafetyPolicy();
     const pressure = { ...input().sample, occupancy: { status: 'known' as const, used: 75, total: 100 } };
 
-    expect(policy.decide(input({ sample: pressure, capabilities: observed })).action.kind)
-      .toBe('native-compaction');
+    expect(policy.decide(input({
+      sample: pressure,
+      capabilities: observed,
+      atSafeProviderBoundary: true,
+    })).action.kind).toBe('native-compaction');
     expect(policy.decide(input({
       sample: pressure,
       capabilities: { ...observed, compactionProof: 'acknowledged-only' },
+      atSafeProviderBoundary: true,
     })).action.kind).toBe('pause');
   });
 
-  it('requires observed interrupt, observed compaction, and same-thread continuation at 92%', () => {
+  it('steers a live turn at 75% instead of compacting mid-turn', () => {
     const policy = new ContextSafetyPolicy();
-    const pressure = { ...input().sample, occupancy: { status: 'known' as const, used: 92, total: 100 } };
+    const decision = policy.decide(input({
+      sample: { ...input().sample, occupancy: { status: 'known', used: 75, total: 100 } },
+      capabilities: observed,
+      atSafeProviderBoundary: false,
+    }));
+
+    expect(decision.action).toMatchObject({ kind: 'steer-turn', trigger: 'known-occupancy-70' });
+    expect(decision.reasonCode).toBe('MID_TURN_STEER_REQUIRED');
+    expect(decision.nextState.emittedTriggers).not.toContain('known-occupancy-75');
+  });
+
+  it('does not compact at 75% when the boundary flag is missing', () => {
+    const policy = new ContextSafetyPolicy();
+    const decision = policy.decide(input({
+      sample: { ...input().sample, occupancy: { status: 'known', used: 75, total: 100 } },
+      capabilities: observed,
+    }));
+
+    expect(decision.action.kind).toBe('steer-turn');
+  });
+
+  it('defers 75% compact until a safe boundary after the mid-turn steer', () => {
+    const policy = new ContextSafetyPolicy();
+    const pressure = { ...input().sample, occupancy: { status: 'known' as const, used: 75, total: 100 } };
+    const steered = policy.decide(input({
+      sample: pressure,
+      capabilities: observed,
+      atSafeProviderBoundary: false,
+    }));
+    const deferred = policy.decide(input({
+      sample: pressure,
+      capabilities: observed,
+      atSafeProviderBoundary: false,
+      state: steered.nextState,
+    }));
+    const compact = policy.decide(input({
+      sample: pressure,
+      capabilities: observed,
+      atSafeProviderBoundary: true,
+      state: deferred.nextState,
+    }));
+
+    expect(deferred.action.kind).toBe('none');
+    expect(compact.action.kind).toBe('native-compaction');
+    expect(compact.action.trigger).toBe('known-occupancy-75');
+  });
+
+  it('requires observed interrupt, observed compaction, and same-thread continuation at 80%', () => {
+    const policy = new ContextSafetyPolicy();
+    const pressure = { ...input().sample, occupancy: { status: 'known' as const, used: 80, total: 100 } };
     const capable = policy.decide(input({ sample: pressure, capabilities: observed }));
     const incapable = policy.decide(input({
       sample: pressure,

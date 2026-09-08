@@ -17,6 +17,7 @@ import { createRequire } from 'node:module';
 
 const require_ = createRequire(import.meta.url);
 const {
+  audit,
   findMatchingClose,
   findTitledTags,
   hasAssociatedLabel,
@@ -25,8 +26,10 @@ const {
   hasTextualName,
   isInteractive,
   renderInterpolations,
+  shouldFailOnBlocking,
   tagNameOf,
 } = require_('./audit-native-titles.js') as {
+  audit: () => { blocking: Array<{ file: string; line: number }>; advisory: Array<{ file: string }> };
   findMatchingClose: (source: string, tagEndIndex: number, tagName: string) => number;
   findTitledTags: (source: string) => { tag: string; line: number; endIndex: number }[];
   hasAssociatedLabel: (source: string, tag: string, tagStartIndex: number) => boolean;
@@ -35,6 +38,7 @@ const {
   hasTextualName: (source: string, endIndex: number, tagName: string) => boolean;
   isInteractive: (tag: string) => boolean;
   renderInterpolations: (inner: string) => string;
+  shouldFailOnBlocking: (args: string[]) => boolean;
   tagNameOf: (tag: string) => string;
 };
 
@@ -232,5 +236,18 @@ describe('findTitledTags', () => {
   it('does not choke on a > inside an attribute value', () => {
     const html = '<button title="a > b" (click)="go()">x</button>';
     expect(findTitledTags(html)).toHaveLength(1);
+  });
+});
+
+describe('fail-on-blocking (T59 / UX25 / G45)', () => {
+  it('treats --fail-on-blocking as an alias of --strict', () => {
+    expect(shouldFailOnBlocking([])).toBe(false);
+    expect(shouldFailOnBlocking(['--json'])).toBe(false);
+    expect(shouldFailOnBlocking(['--strict'])).toBe(true);
+    expect(shouldFailOnBlocking(['--fail-on-blocking'])).toBe(true);
+  });
+
+  it('reports zero blocking nameless native titles in the renderer', () => {
+    expect(audit().blocking).toEqual([]);
   });
 });

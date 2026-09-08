@@ -2063,6 +2063,39 @@ describe('AcpCliAdapter', () => {
     proc.exit();
   });
 
+  it('sendInput settles idle after a client cancel instead of leaving the turn hanging', async () => {
+    const proc = createInitializedAgentHarness();
+
+    proc.onRequest('session/prompt', () => {
+      /* intentionally never settle server-side */
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      promptTimeoutMs: 60_000,
+    });
+    await adapter.spawn();
+
+    const statuses: string[] = [];
+    adapter.on('status', (status: string) => statuses.push(status));
+
+    const pending = adapter.sendInput('work');
+    await proc.waitForMessage((message) =>
+      'method' in message && message.method === 'session/prompt',
+    );
+
+    expect(adapter.interrupt()).toEqual({
+      status: 'accepted',
+      turnId: expect.any(String),
+    });
+
+    await expect(pending).resolves.toBeUndefined();
+    expect(statuses).toContain('idle');
+
+    proc.exit();
+  });
+
   it('rejects a duplicate send without emitting fatal events while the first turn stays active', async () => {
     const proc = createInitializedAgentHarness();
 

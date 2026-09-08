@@ -45,9 +45,10 @@
  * elements, which are the correct way to name a graphic.
  *
  * Usage:
- *   node scripts/audit-native-titles.js            # human summary
- *   node scripts/audit-native-titles.js --json     # machine-readable
- *   node scripts/audit-native-titles.js --strict   # exit 1 if any blocking
+ *   node scripts/audit-native-titles.js                 # human summary
+ *   node scripts/audit-native-titles.js --json          # machine-readable
+ *   node scripts/audit-native-titles.js --strict        # exit 1 if any blocking
+ *   node scripts/audit-native-titles.js --fail-on-blocking  # alias of --strict (G45)
  */
 
 const fs = require('node:fs');
@@ -268,8 +269,13 @@ module.exports = {
   hasTextualName,
   isInteractive,
   renderInterpolations,
+  shouldFailOnBlocking,
   tagNameOf,
 };
+
+function shouldFailOnBlocking(args) {
+  return args.includes('--strict') || args.includes('--fail-on-blocking');
+}
 
 if (require.main === module) {
   const result = audit();
@@ -293,5 +299,5 @@ if (require.main === module) {
     }
   }
 
-  if (args.includes('--strict') && result.blocking.length > 0) process.exit(1);
+  if (shouldFailOnBlocking(args) && result.blocking.length > 0) process.exit(1);
 }

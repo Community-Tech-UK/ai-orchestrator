@@ -13,6 +13,7 @@ import type {
   TurnCaptureState,
   UserInput,
 } from './app-server-types';
+import type { CodexOutputLimitState } from './codex-app-server-spawn-policy';
 import { CodexAppServerRuntimeError } from './app-server-runtime-errors';
 
 export type CodexAppServerConnectionPhase =
@@ -54,6 +55,7 @@ export interface CodexAppServerRuntimeClient {
   getExitError?(): Error | null;
   getPid?(): number | undefined;
   isRunning?(): boolean;
+  getOutputLimitState?(): CodexOutputLimitState;
 }
 
 export interface CaptureCodexTurnOptions {
@@ -147,6 +149,29 @@ export class CodexAppServerThreadRuntime {
   hasActiveTurn(): boolean { return this.activeTurn !== null; }
   isRunning(): boolean { return this.connectionPhase === 'ready' && (this.client?.isRunning?.() ?? true); }
   getPid(): number | null { return this.isRunning() ? this.client?.getPid?.() ?? null : null; }
+
+  /**
+   * Same-turn steer: stop broad research, synthesize, and archive.
+   * Returns false when no live turn exists to steer.
+   */
+  async steerActiveTurn(): Promise<boolean> {
+    const client = this.client;
+    const threadId = this.binding?.threadId;
+    const turnId = this.activeTurn?.turnId;
+    if (!client || !threadId || !turnId || this.turnPhase !== 'running') {
+      return false;
+    }
+    await client.request('turn/steer', {
+      threadId,
+      expectedTurnId: turnId,
+      input: [{
+        type: 'text',
+        text: 'Stop broad exploration. Synthesize what you already have, persist durable notes, and do not open new research threads.',
+        text_elements: [],
+      }],
+    });
+    return true;
+  }
 
   getSnapshot(): CodexAppServerRuntimeSnapshot {
     return {

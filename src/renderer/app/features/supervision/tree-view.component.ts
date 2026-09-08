@@ -27,6 +27,7 @@ import type {
   WorkerStatus,
 } from '../../../../shared/types/supervision.types';
 import { isWorkerNode, isSupervisorNode } from '../../../../shared/types/supervision.types';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
 interface NodeAction {
   nodeId: string;
@@ -38,7 +39,7 @@ type UnifiedNode = SupervisorNode | WorkerNode;
 @Component({
   selector: 'app-supervision-tree-view',
   standalone: true,
-  imports: [NgTemplateOutlet],
+  imports: [NgTemplateOutlet, AioTooltipDirective],
   template: `
     <div class="tree-container">
       <!-- Header -->
@@ -133,7 +134,8 @@ type UnifiedNode = SupervisorNode | WorkerNode;
             @if (node.status === 'failed' || node.status === 'stopped') {
               <button
                 class="action-btn"
-                title="Restart"
+                appTooltip="Restart"
+                aria-label="Restart"
                 (click)="onAction(node.id, 'restart')"
               >
                 ↻
@@ -142,7 +144,8 @@ type UnifiedNode = SupervisorNode | WorkerNode;
             @if (node.status === 'running') {
               <button
                 class="action-btn"
-                title="Stop"
+                appTooltip="Stop"
+                aria-label="Stop"
                 (click)="onAction(node.id, 'stop')"
               >
                 ⏹
@@ -151,7 +154,8 @@ type UnifiedNode = SupervisorNode | WorkerNode;
             @if (node.status === 'failed' && isWorker(node)) {
               <button
                 class="action-btn danger"
-                title="Escalate"
+                appTooltip="Escalate"
+                aria-label="Escalate"
                 (click)="onAction(node.id, 'escalate')"
               >
                 ⬆

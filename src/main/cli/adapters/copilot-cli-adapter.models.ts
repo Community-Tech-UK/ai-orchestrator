@@ -6,6 +6,7 @@
 
 import {
   COPILOT_MODELS,
+  PROVIDER_MODEL_LIST,
   type ModelDisplayInfo,
 } from '../../../shared/types/provider.types';
 import { COPILOT_AUTO_MODEL_ID, type CopilotModelInfo } from './copilot-cli-adapter.types';
@@ -81,13 +82,44 @@ export function normalizedCopilotVisionModel(modelId: string): boolean {
 /** Classify a Copilot model id into a tier for picker display. */
 export function classifyCopilotModelTier(modelId: string): 'fast' | 'balanced' | 'powerful' {
   const id = modelId.toLowerCase();
-  if (id.includes('mini') || id.includes('lite') || id.includes('haiku') || id.includes('flash')) {
+  if (
+    id.includes('mini')
+    || id.includes('lite')
+    || id.includes('haiku')
+    || id.includes('flash')
+    || id.includes('luna')
+  ) {
     return 'fast';
   }
-  if (id.includes('opus') || id === 'o3' || id === 'o1' || id.includes('-pro')) {
+  if (
+    id.includes('opus')
+    || id.includes('astra')
+    || id.includes('-sol')
+    || id.includes('fable')
+    || id.includes('grok')
+    || id === 'o3'
+    || id === 'o1'
+    || id.includes('-pro')
+  ) {
     return 'powerful';
   }
   return 'balanced';
+}
+
+/** Group a Copilot model under a family for the picker's Other versions submenu. */
+export function classifyCopilotModelFamily(modelId: string): string {
+  const id = modelId.toLowerCase();
+  if (id === COPILOT_AUTO_MODEL_ID) return 'Auto';
+  if (id.startsWith('claude') || id.includes('opus') || id.includes('sonnet') || id.includes('fable')) {
+    return 'Claude';
+  }
+  if (id.includes('codex')) return 'Codex';
+  if (id.startsWith('gpt')) return 'GPT';
+  if (id.startsWith('gemini')) return 'Gemini';
+  if (id.startsWith('grok')) return 'Grok';
+  if (id.startsWith('kimi')) return 'Kimi';
+  if (id.startsWith('mai') || id.startsWith('raptor')) return 'GitHub';
+  return 'Other';
 }
 
 export function copilotModelInfosToDisplayInfo(models: CopilotModelInfo[]): ModelDisplayInfo[] {
@@ -97,6 +129,7 @@ export function copilotModelInfosToDisplayInfo(models: CopilotModelInfo[]): Mode
       id: model.id,
       name: model.name,
       tier: classifyCopilotModelTier(model.id),
+      family: classifyCopilotModelFamily(model.id),
     }));
 }
 
@@ -145,28 +178,52 @@ export function parseCopilotModelIdsFromHelpConfig(output: string): string[] {
 }
 
 /**
- * Default Copilot models (used as fallback when CLI runtime model listing
- * isn't reachable). This list mirrors the current stable `copilot help config`
- * output, with an explicit `auto` entry added because Copilot CLI accepts
- * `--model auto` even though `help config` does not list it.
+ * Preserve CLI order, then append static-only ids (e.g. `gpt-6-astra`) that
+ * Copilot serves but `help config` omits. Dedupes by normalised id.
  */
-export const COPILOT_DEFAULT_MODELS: CopilotModelInfo[] = [
-  COPILOT_MODELS.GEMINI_3_1_PRO,
-  COPILOT_MODELS.CLAUDE_SONNET_46,
-  COPILOT_MODELS.CLAUDE_SONNET_45,
-  COPILOT_MODELS.CLAUDE_HAIKU_45,
-  COPILOT_MODELS.CLAUDE_OPUS_47,
-  COPILOT_MODELS.CLAUDE_SONNET_4,
-  COPILOT_MODELS.GPT55,
-  COPILOT_MODELS.GPT53_CODEX,
-  COPILOT_MODELS.GPT52_CODEX,
-  COPILOT_MODELS.GPT52,
-  COPILOT_MODELS.GPT55_MINI,
-  COPILOT_MODELS.GPT5_MINI,
-  COPILOT_MODELS.GPT41,
-  COPILOT_MODELS.GEMINI_3_PRO,
-  COPILOT_MODELS.GEMINI_3_FLASH,
-  COPILOT_MODELS.GEMINI_25_PRO,
-  COPILOT_MODELS.GEMINI_25_FLASH,
-  COPILOT_MODELS.AUTO,
-].map(toCopilotModelInfo);
+export function unionCopilotModelIds(
+  discoveredIds: readonly string[],
+  extraIds: readonly string[],
+): string[] {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  for (const raw of [...discoveredIds, ...extraIds]) {
+    const id = raw.trim().toLowerCase();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    merged.push(id);
+  }
+  return merged;
+}
+
+export function staticCopilotModelIds(): string[] {
+  return (PROVIDER_MODEL_LIST['copilot'] ?? []).map((model) => model.id);
+}
+
+/** Live help-config ids plus static omissions, with `auto` guaranteed present. */
+export function completeCopilotDiscoveredModels(discoveredIds: readonly string[]): CopilotModelInfo[] {
+  return ensureCopilotAutoModel(
+    unionCopilotModelIds(discoveredIds, staticCopilotModelIds()).map(toCopilotModelInfo),
+  );
+}
+
+export function withCopilotModelListFallback(
+  discovery: Promise<CopilotModelInfo[]>,
+  fallbackToStatic: boolean,
+  onFallback?: (error: unknown) => void,
+): Promise<CopilotModelInfo[]> {
+  return discovery.catch((error: unknown) => {
+    if (!fallbackToStatic) {
+      throw error;
+    }
+    onFallback?.(error);
+    return COPILOT_DEFAULT_MODELS;
+  });
+}
+
+/**
+ * Default Copilot models (used as fallback when CLI runtime model listing
+ * isn't reachable). Mirrors `PROVIDER_MODEL_LIST.copilot`, including `auto`
+ * and ids the CLI serves but does not list in `help config`.
+ */
+export const COPILOT_DEFAULT_MODELS: CopilotModelInfo[] = completeCopilotDiscoveredModels([]);

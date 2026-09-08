@@ -552,8 +552,8 @@ export class GeminiCliAdapter extends BaseCliAdapter {
 
     // Add the prompt as positional argument (required for non-interactive mode).
     // When RTK is enabled, prepend the awareness block so the model prefixes
-    // shell commands with `rtk`. Gemini has no programmatic PreToolUse hook;
-    // each call is a fresh process so awareness is injected every turn.
+    // shell commands with `rtk`. Gemini has no programmatic PreToolUse hook
+    // and `supportsResume` is false (T48), so awareness is injected every turn.
     if (message.content) {
       let promptText = this.cliConfig.rtkEnabled
         ? `${wrapRtkAwareness()}\n\n${message.content}`

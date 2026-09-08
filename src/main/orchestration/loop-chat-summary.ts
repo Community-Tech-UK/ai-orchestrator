@@ -40,7 +40,6 @@ export function buildLoopStartChatEvent(state: LoopState): ChatSystemEventInput 
       loopRunId: state.id,
       workspaceCwd: state.config.workspaceCwd,
       provider: state.config.provider,
-      reviewStyle: state.config.reviewStyle,
       iterationCap: state.config.caps.maxIterations,
       maxWallTimeMs: state.config.caps.maxWallTimeMs,
     },

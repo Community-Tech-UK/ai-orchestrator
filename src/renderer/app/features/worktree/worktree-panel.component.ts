@@ -23,6 +23,7 @@ import type {
   WorktreeSession,
   WorktreeStatus,
 } from '../../../../shared/types/worktree.types';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
 // Simple pipe for truncating paths
 @Pipe({
@@ -46,7 +47,7 @@ interface WorktreeAction {
 @Component({
   selector: 'app-worktree-panel',
   standalone: true,
-  imports: [TruncatePathPipe],
+  imports: [TruncatePathPipe, AioTooltipDirective],
   template: `
     <div class="worktree-container">
       <!-- Header -->
@@ -122,7 +123,8 @@ interface WorktreeAction {
                 @if (session.filesChanged && session.filesChanged.length > 0) {
                   <button
                     class="action-btn"
-                    title="View Changes"
+                    appTooltip="View Changes"
+                    aria-label="View Changes"
                     (click)="onAction(session.id, 'view'); $event.stopPropagation()"
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -134,7 +136,8 @@ interface WorktreeAction {
                 @if (session.status === 'active') {
                   <button
                     class="action-btn"
-                    title="Mark Complete"
+                    appTooltip="Mark Complete"
+                    aria-label="Mark Complete"
                     (click)="onAction(session.id, 'complete'); $event.stopPropagation()"
                   >
                     ✓
@@ -143,7 +146,8 @@ interface WorktreeAction {
                 @if (session.status === 'completed') {
                   <button
                     class="action-btn primary"
-                    title="Merge"
+                    appTooltip="Merge"
+                    aria-label="Merge"
                     (click)="onAction(session.id, 'merge'); $event.stopPropagation()"
                   >
                     ⎇
@@ -151,7 +155,8 @@ interface WorktreeAction {
                 }
                 <button
                   class="action-btn danger"
-                  title="Abandon"
+                  appTooltip="Abandon"
+                  aria-label="Abandon"
                   (click)="onAction(session.id, 'abandon'); $event.stopPropagation()"
                 >
                   ✕

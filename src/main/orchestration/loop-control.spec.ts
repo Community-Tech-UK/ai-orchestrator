@@ -12,6 +12,7 @@ import {
   LOOP_CONTROL_MAX_JSON_BYTES,
   prepareLoopControl,
   readLoopControlFileFromEnv,
+  summarizeLoopControlPrompt,
   writeLoopControlFile,
   type LoopControlRuntime,
 } from './loop-control';
@@ -30,6 +31,14 @@ afterEach(() => {
 });
 
 describe('loop-control CLI contract', () => {
+  it('names each terminal verb once without repeating the CLI path', () => {
+    const prompt = summarizeLoopControlPrompt(runtime);
+    expect(prompt).toContain('complete, block, wakeup, fail');
+    expect(prompt).toContain(runtime.cliPath);
+    expect(prompt).toContain('$ORCHESTRATOR_LOOP_CONTROL_FILE');
+    expect(prompt.split(runtime.cliPath)).toHaveLength(2);
+  });
+
   it('preserves a fresh control directory omitted from a concurrent caller active snapshot', async () => {
     const inFlightDir = path.join(workspace, '.aio-loop-control', 'loop-in-flight');
     fs.mkdirSync(path.join(inFlightDir, 'intents'), { recursive: true });

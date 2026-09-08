@@ -53,6 +53,12 @@ import {
   validateGeneratedRequest,
   validateGeneratedResponse,
 } from './app-server-client-protocol';
+import { archiveCodexCommandOutputNotification } from './codex-command-output-archive';
+import {
+  buildIsolatedAppServerArgs,
+  type CodexOutputLimitState,
+  shouldRetryIsolatedAppServerWithoutOutputLimit,
+} from './codex-app-server-spawn-policy';
 
 const logger = getLogger('CodexAppServerClient');
 
@@ -124,6 +130,7 @@ export abstract class AppServerClientBase {
   private readonly activeServerRequests = new Set<string>();
   private contextDiagnosticsCollector: CodexContextPressureCollector | null = null;
   protected exitError: Error | null = null;
+  protected outputLimitState: CodexOutputLimitState = 'unknown';
 
   /** Resolves when the connection/process exits. */
   readonly exitPromise: Promise<void>;
@@ -132,6 +139,10 @@ export abstract class AppServerClientBase {
   /** Returns the error that caused the connection to close, if any. */
   getExitError(): Error | null {
     return this.exitError;
+  }
+
+  getOutputLimitState(): CodexOutputLimitState {
+    return this.outputLimitState;
   }
 
   isRunning(): boolean { return !this.closed; }
@@ -160,7 +171,7 @@ export abstract class AppServerClientBase {
     timeoutMs?: number,
   ): Promise<AppServerResponseResult<M>> {
     if (this.closed) {
-      throw transportFailure(method, 'codex app-server client is closed.');
+      throw this.exitError ?? transportFailure(method, 'codex app-server client is closed.');
     }
     validateGeneratedRequest(method, params);
 
@@ -291,6 +302,7 @@ export abstract class AppServerClientBase {
         }
       }
       this.recordTransportContextDiagnostics(notification);
+      archiveCodexCommandOutputNotification(notification);
       this.notificationHub.dispatch(notification);
       return;
     }
@@ -406,9 +418,10 @@ class SpawnedAppServerClient extends AppServerClientBase {
     super(cwd, 'direct');
   }
 
-  async connect(options: CodexAppServerClientOptions = {}): Promise<void> {
+  async connect(options: CodexAppServerClientOptions = {}, applyOutputLimit = true): Promise<void> {
     const spawnOptions = buildCliSpawnOptions(options.env || getSafeEnvForTrustedProcess());
-    this.proc = spawn('codex', ['app-server'], {
+    // Isolated AIO spawn only: `-c tool_output_token_limit=6000`. Never ~/.codex/config.toml.
+    this.proc = spawn('codex', buildIsolatedAppServerArgs(applyOutputLimit), {
       cwd: this.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       // Unix: isolate into its own process group for clean tree kills
@@ -448,35 +461,34 @@ class SpawnedAppServerClient extends AppServerClientBase {
       this.handleExit(error);
     });
 
-    // Run initialize handshake
     await this.initialize(
       options.clientInfo || DEFAULT_CLIENT_INFO,
       options.capabilities || DEFAULT_CAPABILITIES
     );
+    this.outputLimitState = applyOutputLimit ? 'applied' : 'unsupported';
   }
 
   async close(): Promise<void> {
-    if (this.closed) return;
-    this.closed = true;
-
     this.rl?.close();
     this.rl = null;
 
     if (this.proc && !this.proc.killed) {
-      // Graceful: close stdin, give the process time to exit, then SIGTERM
       this.proc.stdin?.end();
-
+      const pid = this.proc.pid;
       const gracefulTimer = setTimeout(() => {
-        if (this.proc && !this.proc.killed) {
-          terminateProcessTree(this.proc.pid);
-        }
+        terminateProcessTree(pid);
       }, GRACEFUL_SHUTDOWN_MS);
       gracefulTimer.unref();
-
-      await this.exitPromise;
+      if (!this.closed) {
+        await this.exitPromise;
+      }
       clearTimeout(gracefulTimer);
+      if (this.proc && !this.proc.killed) {
+        terminateProcessTree(this.proc.pid);
+      }
     }
 
+    this.closed = true;
     this.proc = null;
   }
 
@@ -602,11 +614,30 @@ export async function connectToAppServer(
     }
   }
 
-  // Fall back to direct spawn
-  const client = new SpawnedAppServerClient(cwd);
-  await client.connect(options);
-  logger.debug('Connected to codex app-server via direct spawn');
-  return client;
+  // Fall back to direct spawn. Isolated processes own tool_output_token_limit=6000.
+  return connectIsolatedAppServer(cwd, options);
+}
+
+async function connectIsolatedAppServer(
+  cwd: string,
+  options: CodexAppServerClientOptions,
+): Promise<SpawnedAppServerClient> {
+  const limited = new SpawnedAppServerClient(cwd);
+  try {
+    await limited.connect(options, true);
+    return limited;
+  } catch (error) {
+    await limited.close().catch(() => undefined);
+    if (!shouldRetryIsolatedAppServerWithoutOutputLimit(error)) {
+      throw error;
+    }
+    logger.warn('Isolated Codex app-server rejected tool_output_token_limit; retrying without override', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    const fallback = new SpawnedAppServerClient(cwd);
+    await fallback.connect(options, false);
+    return fallback;
+  }
 }
 
 /**

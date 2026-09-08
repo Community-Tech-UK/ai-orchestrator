@@ -281,6 +281,17 @@ export interface TurnInterruptResponse {
   success?: boolean;
 }
 
+export interface TurnSteerParams {
+  threadId: string;
+  expectedTurnId: string;
+  input: UserInput[];
+  clientUserMessageId?: string | null;
+}
+
+export interface TurnSteerResponse {
+  turnId?: string;
+}
+
 export interface Turn {
   id: string;
   status: 'inProgress' | 'completed' | 'interrupted' | 'failed' | string;
@@ -449,6 +460,7 @@ export interface AppServerMethodMap {
   'review/start': { params: ReviewStartParams; result: ReviewStartResponse };
   'model/list': { params: ModelListParams; result: ModelListResponse };
   'turn/start': { params: TurnStartParams; result: TurnStartResponse };
+  'turn/steer': { params: TurnSteerParams; result: TurnSteerResponse };
   'turn/interrupt': { params: TurnInterruptParams; result: TurnInterruptResponse };
 }
 

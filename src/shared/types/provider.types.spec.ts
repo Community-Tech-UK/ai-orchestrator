@@ -177,11 +177,13 @@ describe('provider model lists', () => {
     expect(getDefaultReasoningEffort('gemini')).toBeNull();
   });
 
-  it('exposes Gemini models through the Copilot fallback model list', () => {
+  it('exposes current Copilot CLI models plus Astra in the fallback list', () => {
     const copilotModels = PROVIDER_MODEL_LIST['copilot'].map((model) => model.id);
 
     expect(copilotModels).toContain(COPILOT_MODELS.GEMINI_3_1_PRO);
-    expect(copilotModels).toContain(COPILOT_MODELS.GEMINI_25_PRO);
+    expect(copilotModels).toContain(COPILOT_MODELS.GPT6_ASTRA);
+    expect(copilotModels).toContain(COPILOT_MODELS.GPT56_SOL);
+    expect(copilotModels).toContain(COPILOT_MODELS.CLAUDE_SONNET_5);
   });
 
   it('uses Gemini 3.1 Pro as the default Copilot model', () => {

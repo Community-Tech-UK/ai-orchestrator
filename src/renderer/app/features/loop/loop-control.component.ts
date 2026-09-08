@@ -24,6 +24,7 @@ import {
   activeTokenUsage,
   currentIterationLabel,
   isUsageUnsettled,
+  metricStripStageOrPhase,
 } from './loop-usage-copy.util';
 import {
   activityKindLabel,
@@ -257,6 +258,8 @@ export class LoopControlComponent implements OnDestroy {
       ),
       reviewDriven: active.config.completion.mode === 'review-driven'
         || Boolean(active.config.completion.crossModelReview?.pingPong?.enabled),
+      autoUnstickAttempts: active.autoUnstick?.attempt ?? 0,
+      autoUnstickMax: active.autoUnstick?.max,
     });
   });
 
@@ -339,6 +342,13 @@ export class LoopControlComponent implements OnDestroy {
   protected readonly resumeTooltip = computed(() => resumeTooltipFor(this.pauseKind()));
   protected readonly metricStripTooltip = computed(() =>
     metricStripTooltipFor(Boolean(this.active()), this.active()?.inferredPhase));
+  protected readonly metricStageOrPhase = computed(() => metricStripStageOrPhase({
+    completionMode: this.active()?.config.completion.mode,
+    stage: this.runningIteration()?.stage ?? this.active()?.currentStage,
+    inferredPhase: this.active()?.status === 'running'
+      ? this.active()?.inferredPhase ?? null
+      : null,
+  }));
 
   runConfigSummary = computed(() => buildRunConfigSummary(this.active()));
 

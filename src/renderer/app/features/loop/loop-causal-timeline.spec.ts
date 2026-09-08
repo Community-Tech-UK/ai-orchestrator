@@ -106,6 +106,17 @@ describe('review-blocked', () => {
     expect(timeline.blockingStepId).toBe('review');
     expect(timeline.nextAutomaticAction).toContain('this is a request, not a failure');
   });
+
+  it('names a degraded replay-unsafe pause instead of calling the work done', () => {
+    const timeline = buildLoopCausalTimeline(state({
+      status: 'completed-needs-review',
+      endReason: 'Iteration 3 paused for review instead of an automatic replay: Automatic replay is unsafe',
+    }));
+    expect(timeline.steps.find((s) => s.state === 'blocked')?.detail)
+      .toContain('replay unsafe');
+    expect(timeline.nextAutomaticAction).toContain('Replay is unsafe');
+    expect(timeline.nextAutomaticAction).not.toContain('this is a request, not a failure');
+  });
 });
 
 describe('provider-limit', () => {

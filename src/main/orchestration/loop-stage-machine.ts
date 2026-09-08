@@ -28,6 +28,7 @@ import {
   clarifyingQuestionRule,
   renderLoopBoard,
   renderReviewDrivenContinuationCard,
+  renderReviewDrivenReanchorPrompt,
   renderStagedContinuationCard,
   sameSessionContextLine,
 } from './loop-continuation-prompt';
@@ -38,7 +39,6 @@ import {
   LOOP_TASKS_TEMPLATE,
 } from './loop-stage-files';
 import { renderPlanPacketInstructions } from './loop-plan-packet';
-import { CLEAN_REVIEW_SENTINEL } from './loop-terminal-sentinels';
 import type { LoopStartupSnapshot } from './loop-stage-machine.types';
 
 export {
@@ -658,88 +658,27 @@ Begin.`;
         tasksPath: tasksRel,
       });
     }
-    const preferredCleanStatement = (config.completion.noOutstandingPhrase ?? 'There are no outstanding issues').trim();
-    const required = Math.max(1, config.completion.requiredCleanReviewPasses ?? 2);
     const verifyCmd = config.completion.verifyCommand?.trim();
-
-    const interventions =
-      pendingInterventions.length > 0
-        ? `\n\n## Direction since last iteration (binding — operator hints and/or review findings to address)\n${pendingInterventions.map(renderPendingInput).join('\n')}\n`
-        : '';
-    const priorObservationsBlock = reanchorGoal && priorObservations.length > 0
-      ? `\n\n## Prior observations (not binding)\nHints from previous runs in this workspace — may be stale:\n${priorObservations.map((o, i) => `${i + 1}. ${o}`).join('\n')}\n`
-      : '';
-    const isFirstIteration = iterationSeq === 0;
-    const planStageContextBlock = planStageContext && isFirstIteration
-      ? `\n\n${planStageContext}\n`
-      : '';
-    const existingSessionContextBlock = existingSessionContext?.trim() && includeSessionReplay
-      ? `\n\n## Existing session context (read-only background)\n${existingSessionContext.trim()}\n`
-      : '';
-    const customContinuation = (iterationPrompt ?? '').trim();
-    const continuationBlock = customContinuation
-      && customContinuation !== config.initialPrompt.trim()
-      ? `\n\n## Continuation directive (later iterations)\n${customContinuation}\n`
-      : '';
-    const verifyBlock = verifyCmd
-      ? `\n- A verify command is configured: \`${verifyCmd}\`. Run it as part of your review; if it fails, that is an outstanding issue — fix it and do NOT emit the completion line this round.`
-      : '';
-    const contextModeLine = sameSessionContextLine(config.contextStrategy);
     const planPacketBlock = config.audit?.planPacketMode === 'prompted'
       ? `\n- \`${this.paths.roadmap}\` and phase files under \`${this.paths.phasesDir}\` — write or update the loop plan packet with Acceptance Criteria, Required Commands, and Evidence. Seed or update \`${tasksRel}\` from those criteria so final audit can verify coverage.`
       : '';
-
-    return `# Loop Mode (review-driven) — Iteration ${iterationSeq}
-
-${contextModeLine}
-
-There is no human in the loop. Make the decisions a senior engineer would defend; do not ask questions (the next iteration won't see them).
-
-## Your job this iteration
-1. **Advance the goal when work remains.** Do the next concrete chunk of real work toward the goal below. Use maintainable architecture; no shortcuts, stubs, or placeholder/constant-return logic standing in for the real thing. If a genuine fresh-eyes review finds nothing actionable, do not invent work or gold-plate the result; proceed to the clean declaration below without changing production code.
-2. **Re-review your own work with completely fresh eyes.** Pretend a stranger wrote everything and you are the reviewer. Hunt specifically for:
-   - things the goal asked for that are NOT actually implemented (orphan code, stubs, TODOs, "not implemented", fake/mock behaviour in production paths, docs that claim done with no real wiring);
-   - specs that say one thing while the code does another;
-   - half-done features, missing wiring/integration, missing error handling, regressions.
-3. **Fix everything you find** in this same iteration.${verifyBlock}
-
-## State files (under \`${sd}/\` — read/write at these exact paths)
-- \`${notesRel}\` — append a terse one-paragraph summary each iteration: what you changed, what's left.
-- \`${outstandingRel}\` — keep this current. It has two sections:
-    \`\`\`
-    ## Needs human
-    - <only items literally impossible for an autonomous agent: physical-hardware testing, subjective/aesthetic or stakeholder sign-off, access/credentials you do not have. Each with a one-line WHY.>
-      - Recommendation: <the single concrete decision or next step you would take on this item if it were your call>
-
-    ## Open questions
-    - <assumptions you made where the goal was ambiguous>
-      - Recommendation: <the answer you'd pick / what you'd do>
-    \`\`\`
-  Under EVERY item, add an indented \`- Recommendation:\` sub-bullet with your single best concrete decision/next step for it. The human sees this as a pre-filled, editable suggestion in their answer box (they still confirm it) — so make it specific and actionable, not "ask a human". The bar for "Needs human" is HIGH — do everything you possibly can yourself. Only genuinely human-required items go there. If a section has nothing, write \`- (none)\`.
-- \`${blockedRel}\` — only if you are truly, hard-blocked right now (missing credentials/access you cannot proceed without). Write what you need, then exit; the loop will pause for the operator.${planPacketBlock}${priorObservationsBlock}${planStageContextBlock}${interventions}${existingSessionContextBlock}
-${reanchorGoal ? `
-## Goal (persistent across iterations)
-${config.initialPrompt}` : ''}${continuationBlock}
-
-## How this loop stops
-The loop ends after **${required} consecutive** iterations where, after a genuine fresh-eyes pass, you (a) made **no** code changes and (b) found nothing left to fix that you can act on.
-
-When — and ONLY when — that is true this iteration (you changed no production code, and everything remaining is either done or sits under "## Needs human" in \`${outstandingRel}\`), end your message with this human-readable statement:
-
-${preferredCleanStatement}
-
-Then emit this structured sentinel on its own line within the final 12 lines of your output:
-
-${CLEAN_REVIEW_SENTINEL}
-
-Never quote or repeat that sentinel while discussing these instructions; emit it only when actually declaring a clean review. The human-readable sentence alone is not a completion signal. Do **not** write an equivalent clean statement in any other situation. If you changed code or found anything actionable, keep working. Claiming a clean review prematurely just delays the real finish, because the loop re-checks and will reset the moment it sees more changes.
-
-If the loop is about to stop but you KNOW real work still remains — e.g. your wording was misread as "done", or an item is genuinely unresolved — emit \`[[LOOP:MORE_WORK_REMAINING]]\` on its own line within the final 12 lines of your output. Never quote or repeat that token while discussing these instructions; emit it only when actually vetoing completion. The coordinator treats it as an authoritative "do not stop yet" and keeps the loop running. It can only ever keep the loop going; it can never cause a premature stop.
-
-## Safety
-This loop ${config.allowDestructiveOps ? 'DOES' : 'DOES NOT'} allow destructive operations (\`rm -rf\`, \`git push --force\`, schema drops). Honor that.
-
-Begin.`;
+    return renderReviewDrivenReanchorPrompt({
+      blockedPath: blockedRel,
+      config,
+      existingSessionContext,
+      includeSessionReplay,
+      iterationPrompt,
+      iterationSeq,
+      notesPath: notesRel,
+      outstandingPath: outstandingRel,
+      pendingInterventions,
+      planPacketBlock,
+      planStageContext,
+      priorObservations,
+      stateDir: sd,
+      tasksPath: tasksRel,
+      verifyCommand: verifyCmd,
+    });
   }
 
   /** Parse a STAGE.md value. Returns null if invalid. */

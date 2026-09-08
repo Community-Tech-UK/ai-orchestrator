@@ -83,6 +83,20 @@ describe('provider context-capability matrix', () => {
     expect(adapter.getContextCapabilities()).toEqual(expected.codexAppServer);
   });
 
+  it('declares pre-retention tool results after the isolated app-server output limit applies', () => {
+    const adapter = new CodexCliAdapter();
+    (adapter as unknown as { useAppServer: boolean }).useAppServer = true;
+    (adapter as unknown as { appServerClient: { getOutputLimitState: () => string } }).appServerClient = {
+      getOutputLimitState: () => 'applied',
+    };
+
+    expect(adapter.getContextCapabilities().toolResultControl).toBe('pre-retention');
+    expect(adapter.getContextCapabilities()).toMatchObject({
+      occupancyReporting: 'current',
+      transcriptControl: 'native-compaction',
+    });
+  });
+
   it('drops Codex app-server proof after terminate, runtime exit, or unavailable fallback', async () => {
     const terminated = new CodexCliAdapter();
     (terminated as unknown as { useAppServer: boolean }).useAppServer = true;

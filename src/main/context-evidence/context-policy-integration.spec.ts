@@ -64,6 +64,7 @@ describe('shared context policy integration', () => {
         'native-compaction': nativeCompaction,
       }),
       recordPolicyEvent: (event) => { events.push(event); },
+      getAtSafeProviderBoundary: () => true,
     });
 
     const pressure = { used: 75, total: 100, percentage: 75, cumulativeTokens: 75 };
@@ -76,5 +77,29 @@ describe('shared context policy integration', () => {
     expect(events.filter((event) => event.proofStage === 'requested')).toHaveLength(1);
     expect(events.filter((event) => event.proofStage === 'observed')).toHaveLength(1);
     expect(JSON.stringify(events)).not.toMatch(/content|message|threadId|prompt/i);
+  });
+
+  it('steers a live Codex turn at 75% instead of compacting', async () => {
+    CompactionCoordinator._resetForTesting();
+    const nativeCompaction = vi.fn(async () => ({ proof: 'observed' as const }));
+    const steer = vi.fn(async () => ({ proof: 'acknowledged' as const }));
+    const coordinator = CompactionCoordinator.getInstance();
+    coordinator.configure({
+      getContextCapabilities: () => codexObserved,
+      getContextEvidenceMode: () => 'enforce',
+      getProviderActionExecutor: () => new ProviderContextActionExecutor({
+        'native-compaction': nativeCompaction,
+        'steer-turn': steer,
+      }),
+      getAtSafeProviderBoundary: () => false,
+    });
+
+    coordinator.onContextUpdate('codex-live', {
+      used: 75, total: 100, percentage: 75, cumulativeTokens: 75,
+    });
+    await coordinator.drainPolicyDecisions('codex-live');
+
+    expect(steer).toHaveBeenCalledOnce();
+    expect(nativeCompaction).not.toHaveBeenCalled();
   });
 });

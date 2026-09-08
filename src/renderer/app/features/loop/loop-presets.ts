@@ -6,11 +6,12 @@
  * an intent — "investigate this, don't change anything" — expressed as the
  * field values that actually produce it.
  *
- * **A preset only sets controls the UI can reach.** `loopRecipe`, `reviewStyle`
- * and `contextStrategy` are deliberately absent: UX9 found none of them are
+ * **A preset only sets controls the UI can reach.** `loopRecipe` and
+ * `contextStrategy` are deliberately absent: UX9 found none of them are
  * reachable from the current panel, and a preset that "configures" a dead
- * control is claiming authority it does not have. That is the same
- * confident-wrong-claim failure this backlog keeps fixing elsewhere.
+ * control is claiming authority it does not have. `reviewStyle` was removed
+ * (T54) — nothing read it. That is the same confident-wrong-claim failure
+ * this backlog keeps fixing elsewhere.
  *
  * Dangerous combinations are already blocked by the panel's own validation
  * (`operatorReviewedCompletion` and `branchSelect` each require a cost cap).

@@ -487,6 +487,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       applyRecoveryRespawn: (instanceId, request, hooks) =>
         this.runtimeReconciler.applyRecoveryRespawn(instanceId, request, hooks),
       emitOutput: (instanceId, message) => { this.emit('output', { instanceId, message }); },
+      onToolStateChange: (id, state) => this.deps.onToolStateChange?.(id, state),
       emitDisplayMarker: (instance, message) => {
         this.deps.addToOutputBuffer(instance, message);
         this.emit('output', { instanceId: instance.id, message });

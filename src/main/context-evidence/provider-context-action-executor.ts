@@ -1,6 +1,7 @@
 export type ProviderContextExecutableAction =
   | 'rebuild-working-set'
   | 'native-compaction'
+  | 'steer-turn'
   | 'controlled-interrupt'
   | 'controlled-recovery'
   | 'same-thread-continuation';

@@ -85,7 +85,9 @@
       }
       <span class="ls-text" [appTooltip]="metricStripTooltip()" appTooltipVariant="dense">
         {{ runningIteration() ? ('iteration ' + iterationNumber(runningIteration()!.seq) + ' running') : (a.totalIterations + ' iterations run') }}/{{ iterationCapLabel(a.config.caps.maxIterations) }}
-        · stage {{ runningIteration()?.stage ?? a.currentStage }}
+        @if (metricStageOrPhase(); as sop) {
+          · {{ sop }}
+        }
         · current {{ currentIterationLabel() }}
         · total {{ duration(elapsed()) }}
         · {{ activeTokenUsage(a.totalTokens) }}

@@ -193,6 +193,54 @@ export const TOOLTIP_COPY = {
     meaning: 'Re-runs the verify command to catch a flaky result.',
     consequence: 'Doubles how long a completion check takes.',
   },
+  'loop.advancedToggle': {
+    label: 'Advanced',
+    meaning: 'Plan file, quick verify, audit, provider, context, stalls, isolation',
+  },
+  'loop.forgetRecent': {
+    label: 'Remove from recent',
+    meaning: 'Removes this prompt from the recent list.',
+  },
+  'loop.useDefaultPrompt': {
+    label: 'Default',
+    meaning: 'Fills the prompt with the canonical default directive.',
+  },
+  'loop.outstanding.filter': {
+    label: 'Open only / All',
+    meaning: 'Toggles whether resolved and dismissed items are shown.',
+  },
+  'loop.outstanding.resolveAll': {
+    label: 'Resolve all',
+    meaning: 'Marks every open item resolved.',
+  },
+  'loop.outstanding.save': {
+    label: 'Save answer',
+    meaning: 'Saves your answer. The item stays open until you resolve or dismiss it.',
+  },
+  'loop.outstanding.resolve': {
+    label: 'Resolve',
+    meaning: 'Saves the answer if any, then marks the item resolved.',
+  },
+  'loop.outstanding.answered': {
+    label: 'Answered',
+    meaning: 'Saves the answer if any, then marks the question answered.',
+  },
+  'loop.outstanding.dismiss': {
+    label: 'Dismiss',
+    meaning: 'Sets the item aside. It is not going to be done.',
+  },
+  'loop.outstanding.reopen': {
+    label: 'Reopen',
+    meaning: 'Puts the item back on the open list.',
+  },
+  'loop.outstanding.suggested': {
+    label: 'Suggested',
+    meaning: 'The loop drafted this. Edit if needed, then Save or Resolve to record it.',
+  },
+  'permissions.scope': {
+    label: 'Remember this decision',
+    meaning: 'How long this allow or deny is remembered: once, this session, or always.',
+  },
 } as const satisfies Record<string, TooltipCopyEntry>;
 
 export type TooltipCopyKey = keyof typeof TOOLTIP_COPY;

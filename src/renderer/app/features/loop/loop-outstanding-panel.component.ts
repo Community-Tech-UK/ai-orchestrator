@@ -10,6 +10,8 @@ import {
 } from '@angular/core';
 import type { LoopOutstandingItemPayload } from '@contracts/schemas/loop';
 import { LoopStore } from '../../core/state/loop.store';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import { loopStatusLabel, loopStatusTone, relativeTime, formatTimestamp } from './loop-formatters.util';
 
 /**
@@ -82,6 +84,7 @@ export function buildOutstandingQuery(
 @Component({
   selector: 'app-loop-outstanding-panel',
   standalone: true,
+  imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="outstanding">
@@ -94,28 +97,28 @@ export function buildOutstandingQuery(
           class="o-filter"
           (click)="toggleShowAll()"
           [attr.aria-pressed]="showAll()"
-          [title]="showAll() ? 'Show only open items' : 'Show resolved/dismissed too'"
+          [appTooltip]="copy('loop.outstanding.filter')"
         >{{ showAll() ? 'All' : 'Open only' }}</button>
         <button
           type="button"
           class="o-resolve-all"
           (click)="onResolveAll()"
           [disabled]="openCount() === 0 || resolvingAll()"
-          title="Mark every open item resolved"
+          [appTooltip]="copy('loop.outstanding.resolveAll')"
         >{{ resolvingAll() ? 'Resolving…' : 'Resolve all' }}</button>
         <button
           type="button"
           class="o-export"
           (click)="onExport()"
           [disabled]="!workspaceCwd() || exporting() || openCount() === 0"
-          [title]="exportTitle()"
+          [appTooltip]="exportTitle()"
         >{{ exportedPath() ? 'Exported ✓' : 'Export .md' }}</button>
         <button
           type="button"
           class="o-resume"
           (click)="onResume()"
           [disabled]="!canResume() || resuming()"
-          [title]="resumeTitle()"
+          [appTooltip]="resumeTitle()"
         >{{ resuming() ? 'Starting…' : 'Resume with answers (' + answeredCount() + ')' }}</button>
       </div>
       @if (resumeError()) {
@@ -143,7 +146,7 @@ export function buildOutstandingQuery(
                   </div>
                   @if (item.status === 'open') {
                     @if (isShowingRecommendation(item)) {
-                      <div class="o-suggested" title="The loop drafted this; edit if needed, then Save or Resolve to record it">Suggested — review, then Save or Resolve to use</div>
+                      <div class="o-suggested" [appTooltip]="copy('loop.outstanding.suggested')">Suggested — review, then Save or Resolve to use</div>
                     }
                     <textarea
                       class="o-answer-input"
@@ -158,11 +161,11 @@ export function buildOutstandingQuery(
                 </div>
                 <div class="o-actions">
                   @if (item.status === 'open') {
-                    <button type="button" class="o-act o-save" (click)="saveAnswer(item)" [disabled]="savingId() === item.id || !canSaveAnswer(item)" title="Save your answer (item stays open)">{{ savingId() === item.id ? 'Saving…' : 'Save answer' }}</button>
-                    <button type="button" class="o-act o-resolve" (click)="setStatus(item, 'resolved')" title="Save answer (if any) and mark resolved">Resolve</button>
-                    <button type="button" class="o-act o-dismiss" (click)="setStatus(item, 'dismissed')" title="Dismiss — not going to do this">Dismiss</button>
+                    <button type="button" class="o-act o-save" (click)="saveAnswer(item)" [disabled]="savingId() === item.id || !canSaveAnswer(item)" [appTooltip]="copy('loop.outstanding.save')">{{ savingId() === item.id ? 'Saving…' : 'Save answer' }}</button>
+                    <button type="button" class="o-act o-resolve" (click)="setStatus(item, 'resolved')" [appTooltip]="copy('loop.outstanding.resolve')">Resolve</button>
+                    <button type="button" class="o-act o-dismiss" (click)="setStatus(item, 'dismissed')" [appTooltip]="copy('loop.outstanding.dismiss')">Dismiss</button>
                   } @else {
-                    <button type="button" class="o-act" (click)="setStatus(item, 'open')" title="Re-open">Reopen</button>
+                    <button type="button" class="o-act" (click)="setStatus(item, 'open')" [appTooltip]="copy('loop.outstanding.reopen')">Reopen</button>
                   }
                 </div>
               </div>
@@ -185,7 +188,7 @@ export function buildOutstandingQuery(
                   </div>
                   @if (item.status === 'open') {
                     @if (isShowingRecommendation(item)) {
-                      <div class="o-suggested" title="The loop drafted this; edit if needed, then Save or Resolve to record it">Suggested — review, then Save or Resolve to use</div>
+                      <div class="o-suggested" [appTooltip]="copy('loop.outstanding.suggested')">Suggested — review, then Save or Resolve to use</div>
                     }
                     <textarea
                       class="o-answer-input"
@@ -200,11 +203,11 @@ export function buildOutstandingQuery(
                 </div>
                 <div class="o-actions">
                   @if (item.status === 'open') {
-                    <button type="button" class="o-act o-save" (click)="saveAnswer(item)" [disabled]="savingId() === item.id || !canSaveAnswer(item)" title="Save your answer (item stays open)">{{ savingId() === item.id ? 'Saving…' : 'Save answer' }}</button>
-                    <button type="button" class="o-act o-resolve" (click)="setStatus(item, 'resolved')" title="Save answer (if any) and mark answered">Answered</button>
-                    <button type="button" class="o-act o-dismiss" (click)="setStatus(item, 'dismissed')" title="Dismiss">Dismiss</button>
+                    <button type="button" class="o-act o-save" (click)="saveAnswer(item)" [disabled]="savingId() === item.id || !canSaveAnswer(item)" [appTooltip]="copy('loop.outstanding.save')">{{ savingId() === item.id ? 'Saving…' : 'Save answer' }}</button>
+                    <button type="button" class="o-act o-resolve" (click)="setStatus(item, 'resolved')" [appTooltip]="copy('loop.outstanding.answered')">Answered</button>
+                    <button type="button" class="o-act o-dismiss" (click)="setStatus(item, 'dismissed')" [appTooltip]="copy('loop.outstanding.dismiss')">Dismiss</button>
                   } @else {
-                    <button type="button" class="o-act" (click)="setStatus(item, 'open')" title="Re-open">Reopen</button>
+                    <button type="button" class="o-act" (click)="setStatus(item, 'open')" [appTooltip]="copy('loop.outstanding.reopen')">Reopen</button>
                   }
                 </div>
               </div>
@@ -321,6 +324,7 @@ export function buildOutstandingQuery(
   `],
 })
 export class LoopOutstandingPanelComponent {
+  protected readonly copy = copyFor;
   /** Session/chat to show outstanding items for. Null falls back to workspace scope. */
   chatId = input<string | null>(null);
   /** Workspace to export outstanding items for. Null disables export. */

@@ -13,7 +13,7 @@ import {
   type LoopState,
 } from '../../shared/types/loop.types';
 import {
-  clipHandoffInjectNote,
+  formatRecycleInjectNote,
   loadRehydrationNote,
   MAX_REHYDRATE_FILES,
   writeLoopHandoff,
@@ -399,9 +399,7 @@ export async function applyLoopContextSurvivalDecision(
       if (parts.length > 0) {
         options.state.pendingInterventions.push(
           createLoopPendingInput(
-            clipHandoffInjectNote(
-              `Restored working set (context was just reset to a fresh session):\n\n${parts.join('\n\n')}`,
-            ),
+            formatRecycleInjectNote(parts),
             { kind: 'queue', source: 'context-survival' },
           ),
         );

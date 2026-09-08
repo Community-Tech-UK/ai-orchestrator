@@ -4,6 +4,7 @@ import {
   activeTokenUsage,
   currentIterationLabel,
   isUsageUnsettled,
+  metricStripStageOrPhase,
 } from './loop-usage-copy.util';
 
 describe('isUsageUnsettled', () => {
@@ -42,6 +43,29 @@ describe('currentIterationLabel', () => {
 
   it('never lets a phase override the not-running case', () => {
     expect(currentIterationLabel(false, 0, false, 'editing')).toBe('idle');
+  });
+});
+
+describe('metricStripStageOrPhase (UX26)', () => {
+  it('omits stage on review-driven and shows inferred phase when set', () => {
+    expect(metricStripStageOrPhase({
+      completionMode: 'review-driven',
+      stage: 'IMPLEMENT',
+      inferredPhase: null,
+    })).toBeNull();
+    expect(metricStripStageOrPhase({
+      completionMode: 'review-driven',
+      stage: 'IMPLEMENT',
+      inferredPhase: 'verifying',
+    })).toBe('phase verifying');
+  });
+
+  it('keeps stage on gated mode', () => {
+    expect(metricStripStageOrPhase({
+      completionMode: 'gated',
+      stage: 'IMPLEMENT',
+      inferredPhase: 'editing',
+    })).toBe('stage IMPLEMENT');
   });
 });
 

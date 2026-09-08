@@ -13,6 +13,7 @@ export interface LoopTimelineRun {
   endedAt: number | null;
   totalIterations: number;
   totalCostCents: number;
+  endReason?: string | null;
 }
 
 export function loopTimelineForRun(run: LoopTimelineRun | undefined | null): LoopTimeline | null {
@@ -22,6 +23,7 @@ export function loopTimelineForRun(run: LoopTimelineRun | undefined | null): Loo
     endedAt: run.endedAt,
     iteration: run.totalIterations,
     spentCents: run.totalCostCents,
+    endReason: run.endReason,
   });
 }
 

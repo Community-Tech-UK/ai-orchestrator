@@ -154,7 +154,6 @@ describe('createThinClientCommandExecutor', () => {
       prepareLoopStartConfig: vi.fn(async (config) => ({
         ...config,
         provider: 'claude',
-        reviewStyle: 'single',
         contextStrategy: 'fresh-child',
         allowDestructiveOps: false,
         initialStage: 'IMPLEMENT',

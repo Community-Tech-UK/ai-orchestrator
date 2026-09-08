@@ -422,6 +422,7 @@ describe('defaultLoopContextSurvivalManager', () => {
       expect(injected.source).toBe('context-survival');
       expect(injected.message).toContain('Restored working set');
       expect(injected.message).toContain('HANDOFF.json');
+      expect(injected.message).toContain('do not recap HANDOFF.json');
       expect(injected.message).toContain('sha256:');
       expect(injected.message).not.toContain('do the thing');
     });

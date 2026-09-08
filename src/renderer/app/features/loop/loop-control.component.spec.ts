@@ -916,7 +916,6 @@ function activeState(): LoopStatePayload {
       iterationPrompt: 'continue',
       workspaceCwd: '/tmp/project',
       provider: 'claude',
-      reviewStyle: 'single',
       contextStrategy: 'same-session',
       caps: {
         maxIterations: 50,

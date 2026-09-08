@@ -46,6 +46,7 @@ const ENFORCEMENT_ACTIONS = new Set<EnforcementActionKind>([
   'rebuild-working-set',
   'native-compaction',
   'stop-broad-research',
+  'steer-turn',
   'controlled-interrupt',
   'controlled-recovery',
   'same-thread-continuation',

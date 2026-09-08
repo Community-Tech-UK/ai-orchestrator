@@ -1,7 +1,8 @@
 import { readFileSync, rmSync } from 'fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createGeminiAdapter } from '../adapter-factory';
-import type { GeminiCliAdapter } from '../gemini-cli-adapter';
+import { GeminiCliAdapter } from '../gemini-cli-adapter';
+import type { CliMessage } from '../base-cli-adapter';
 import { CHROME_DEVTOOLS_MCP_VERSION } from '../../../browser-gateway/chrome-devtools-mcp-config';
 
 const CHROME_DEVTOOLS_MCP_PACKAGE = `chrome-devtools-mcp@${CHROME_DEVTOOLS_MCP_VERSION}`;
@@ -68,5 +69,17 @@ describe('adapter factory — gemini chrome-devtools attach', () => {
       'browser-gateway',
       'chrome-devtools',
     ]);
+  });
+});
+
+describe('GeminiCliAdapter T48 RTK wrap', () => {
+  it('wraps every non-interactive prompt while resume stays unavailable', () => {
+    const adapter = new GeminiCliAdapter({ rtkEnabled: true });
+    expect(adapter.getRuntimeCapabilities().supportsResume).toBe(false);
+    const access = adapter as unknown as { buildArgs(message: CliMessage): string[] };
+    const first = access.buildArgs({ role: 'user', content: 'turn one' });
+    const second = access.buildArgs({ role: 'user', content: 'turn two' });
+    expect(first.some((arg) => arg.includes('[RTK AWARENESS]'))).toBe(true);
+    expect(second.some((arg) => arg.includes('[RTK AWARENESS]'))).toBe(true);
   });
 });

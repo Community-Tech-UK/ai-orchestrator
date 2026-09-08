@@ -38,18 +38,21 @@ import {
   SecretCardDrafts,
   submitSecretCardDraft,
 } from './user-action-request.secret-card';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 
 export type { UserActionRequest } from './user-action-request.types';
 
 @Component({
   selector: 'app-user-action-request',
   standalone: true,
-  imports: [],
+  imports: [AioTooltipDirective],
   templateUrl: './user-action-request.component.html',
   styleUrl: './user-action-request.component.scss',
-  changeDetection: ChangeDetectionStrategy.OnPush
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class UserActionRequestComponent implements OnInit, OnDestroy {
+  protected readonly copy = copyFor;
   private ipc = inject(IpcFacadeService);
   private instanceStore = inject(InstanceStore);
 

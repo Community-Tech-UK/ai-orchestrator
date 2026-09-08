@@ -27,8 +27,9 @@ export const LOOP_MODE_HELP: HelpEntry = {
         'Review-driven: consecutive clean self-reviews (and optional independent fresh-eyes). Ping-pong review is a different model reviewing each builder done-declaration until both agree.',
         'Gated: verify command, declared-done, optional plan rename. Recipe and stage prompts apply only here.',
         'Review ping-pong is not the tool-loop detector. A TOOL LOOP warning means the child is repeating the same tool calls.',
-        'Every tripped cap currently takes one extra wrap-up iteration so the child can write LOOP_TASKS.md and NOTES.md. The HUD labels that turn wrap-up.',
+        'An iteration or wall-time cap can take one extra wrap-up iteration so the child can write LOOP_TASKS.md and NOTES.md — only when wrap-up is on and the provider enforces the wrap-up tools-disable (today Claude). A token or cost cap stops immediately.',
         'Auto-unstick tries a change of approach twice on some CRITICAL progress signals, then the loop follows its terminal policy.',
+        'A failed attempt that already changed files (or whose workspace state cannot be proved) pauses for review instead of replaying — replay would be unsafe. That is not the loop being stuck.',
       ],
     },
     {

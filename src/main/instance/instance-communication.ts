@@ -87,6 +87,7 @@ import { getSessionContinuityManagerIfInitialized } from '../session/session-con
 import { getOrCreateTurnSupervisor } from '../session/session-turn-supervisor';
 import { getSessionAdmissionService } from '../session/session-admission-service';
 import { stabilizeThinkingBlocks } from '../../shared/utils/thinking-extractor';
+import { nextMonotonicStreamingContent } from '../../shared/utils/streaming-content';
 import {
   CIRCUIT_BREAKER_CONFIG,
   ACTIVE_CHILD_TURN_STATUSES,
@@ -2486,14 +2487,11 @@ export class InstanceCommunicationManager extends EventEmitter {
             newTail: accumulatedContent.slice(-120),
           });
         }
-        // Guard: a streaming update must never wipe already-committed text to
-        // empty. Providers stream monotonically; an empty accumulated payload
-        // landing over a non-empty bubble would erase visible assistant text.
-        // Keep the committed text in that case; metadata/thinking still update.
-        const nextContent =
-          accumulatedContent.trim().length === 0 && previousContent.trim().length > 0
-            ? previousContent
-            : accumulatedContent;
+        // Guard: a streaming update must never rewind already-committed text.
+        // Providers stream monotonically; empty or shorter accumulated payloads
+        // (Cursor ACP snapshot reset, per-segment restart) would erase visible
+        // assistant text. Keep the committed text; metadata/thinking still update.
+        const nextContent = nextMonotonicStreamingContent(previousContent, accumulatedContent);
         instance.outputBuffer[existingIndex] = {
           ...instance.outputBuffer[existingIndex],
           content: nextContent,
@@ -2599,32 +2597,14 @@ export class InstanceCommunicationManager extends EventEmitter {
     if (!isOccupancyPressureReading(usage)) return;
     // Skip if under threshold
     if (usage.percentage < 80) return;
-    // Skip adapters that handle context pressure themselves. Claude CLI
-    // (auto-compacts at the model's internal threshold) and Codex in
-    // app-server mode (emits `thread/compacted`) surface their own compaction
-    // events. Our proactive 80% warning is redundant noise for those and
-    // injects "delegate to children" guidance that's misleading when the
-    // adapter is about to auto-compact anyway.
-    //
-    // This used to add "non-compacting adapters (Cursor, Copilot, Gemini,
-    // Codex exec mode) still get the warning". That is no longer true and the
-    // claim is removed rather than left to mislead: all four declare
-    // `occupancyReporting: 'aggregate-only'`, so LT-034's guard above returns
-    // before this code is ever reached for them. In practice this branch now
-    // only sheds Claude CLI and Codex app-server — providers that report real
-    // occupancy AND manage their own compaction.
-    //
-    // Codex app-server's `supportsNativeCompaction` is also true (it has a
-    // callable `thread/compact/start` hook), so we honour either signal here
-    // — the gate is "does the adapter manage its own context pressure in
-    // some way?", not "does the orchestrator have a programmatic hook?".
+    // Skip adapters that truly auto-compact internally (Claude CLI).
+    // Codex app-server exposes a compact hook (`supportsNativeCompaction`)
+    // but does not compact soon enough on its own — AIO owns the 70% steer /
+    // 80% interrupt ladder (T62), so Codex still receives this warning.
     const adapter = this.deps.getAdapter(instanceId);
     if (adapter) {
       const capabilities = getAdapterRuntimeCapabilities(adapter);
-      if (
-        capabilities.selfManagedAutoCompaction === true
-        || capabilities.supportsNativeCompaction
-      ) {
+      if (capabilities.selfManagedAutoCompaction === true) {
         return;
       }
     }

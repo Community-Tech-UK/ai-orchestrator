@@ -12,6 +12,7 @@ import {
 } from '@angular/core';
 import { SlicePipe } from '@angular/common';
 import type { QueryType, ContextQuery } from '../../../../../shared/types/rlm.types';
+import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
 
 export interface SavedQueryTemplate {
   id: string;
@@ -24,7 +25,7 @@ export interface SavedQueryTemplate {
 @Component({
   selector: 'app-context-query-panel',
   standalone: true,
-  imports: [SlicePipe],
+  imports: [SlicePipe, AioTooltipDirective],
   template: `
     <div class="query-panel">
       <div class="query-header">
@@ -208,7 +209,8 @@ export interface SavedQueryTemplate {
                   <button
                     class="template-delete"
                     (click)="deleteTemplate.emit(template.id)"
-                    title="Delete template"
+                    appTooltip="Delete template"
+                    aria-label="Delete template"
                   >
                     ✕
                   </button>

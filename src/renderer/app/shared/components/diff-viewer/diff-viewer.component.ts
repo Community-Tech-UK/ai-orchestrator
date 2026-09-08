@@ -18,6 +18,7 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { DiffService, DiffLine } from '../../../core/services/diff.service';
+import { AioTooltipDirective } from '../../tooltip/aio-tooltip.directive';
 
 export type DiffViewMode = 'inline' | 'split';
 
@@ -30,6 +31,7 @@ export interface DiffAction {
 @Component({
   selector: 'app-diff-viewer',
   standalone: true,
+  imports: [AioTooltipDirective],
   template: `
     <div class="diff-viewer" [class.split-view]="viewMode() === 'split'">
       <!-- Header -->
@@ -102,7 +104,8 @@ export interface DiffAction {
                       @if (line.type === 'add' || line.type === 'remove') {
                         <button
                           class="action-btn accept"
-                          title="Accept change"
+                          appTooltip="Accept change"
+                          aria-label="Accept change"
                           (click)="emitAction(i, 'accept', line)"
                         >
                           <svg viewBox="0 0 20 20" fill="currentColor">
@@ -111,7 +114,8 @@ export interface DiffAction {
                         </button>
                         <button
                           class="action-btn reject"
-                          title="Reject change"
+                          appTooltip="Reject change"
+                          aria-label="Reject change"
                           (click)="emitAction(i, 'reject', line)"
                         >
                           <svg viewBox="0 0 20 20" fill="currentColor">

@@ -23,6 +23,8 @@ export const HANDOFF_INJECT_MAX_CHARS = 1_200;
 export const HANDOFF_INJECT_MAX_LINES = 24;
 export const HANDOFF_INJECT_MAX_LINE_CHARS = 160;
 export const HANDOFF_KEEP_TURNS = 4;
+export const RECYCLE_DIRECT_RESUME_LINE =
+  'Resume the work directly. Do not acknowledge this summary and do not recap HANDOFF.json.';
 
 export interface LoopHandoffLeaf {
   id: string;
@@ -71,6 +73,12 @@ export function clipHandoffInjectNote(text: string): string {
     clipped = `${clipped.slice(0, HANDOFF_INJECT_MAX_CHARS - 1)}…`;
   }
   return clipped;
+}
+
+export function formatRecycleInjectNote(parts: readonly string[]): string {
+  return clipHandoffInjectNote(
+    `${RECYCLE_DIRECT_RESUME_LINE}\n\nRestored working set (context was just reset to a fresh session):\n\n${parts.join('\n\n')}`,
+  );
 }
 
 function shortHash(content: string): string {

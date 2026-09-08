@@ -23,11 +23,12 @@ import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import { DiffLoader } from './diff-loader';
 import { SourceControlDiffViewComponent } from './source-control-diff-view.component';
 import { resolveRelativePath } from '../../../../shared/utils/cross-platform-path';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
 @Component({
   selector: 'app-source-control-diff-viewer',
   standalone: true,
-  imports: [SourceControlDiffViewComponent],
+  imports: [SourceControlDiffViewComponent, AioTooltipDirective],
   template: `
     <div
       class="diff-backdrop"
@@ -67,7 +68,8 @@ import { resolveRelativePath } from '../../../../shared/utils/cross-platform-pat
             type="button"
             class="diff-close"
             (click)="closeRequested.emit()"
-            title="Close (Esc)"
+            appTooltip="Close (Esc)"
+            aria-label="Close"
           >×</button>
         </header>
 

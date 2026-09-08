@@ -10,11 +10,12 @@ import { SessionShareIpcService } from '../../core/services/ipc/session-share-ip
 import type { ConversationHistoryEntry } from '../../../../shared/types/history.types';
 import type { OutputMessage } from '../../core/state/instance/instance.types';
 import type { SessionShareBundle } from '../../../../shared/types/session-share.types';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
 @Component({
   selector: 'app-history-item',
   standalone: true,
-  imports: [DatePipe, CommonModule],
+  imports: [DatePipe, CommonModule, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
@@ -41,7 +42,8 @@ import type { SessionShareBundle } from '../../../../shared/types/session-share.
               <button
                 class="btn-share"
                 (click)="onShare($event)"
-                title="Save redacted share bundle"
+                appTooltip="Save redacted share bundle"
+                aria-label="Save redacted share bundle"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <circle cx="18" cy="5" r="3"></circle>
@@ -54,7 +56,8 @@ import type { SessionShareBundle } from '../../../../shared/types/session-share.
               <button
                 class="btn-observer"
                 (click)="onOpenReplay($event)"
-                title="Open replay view"
+                appTooltip="Open replay view"
+                aria-label="Open replay view"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"></path>
@@ -64,7 +67,8 @@ import type { SessionShareBundle } from '../../../../shared/types/session-share.
               <button
                 class="btn-restore"
                 (click)="onRestore($event)"
-                title="Restore to new instance"
+                appTooltip="Restore to new instance"
+                aria-label="Restore to new instance"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <polyline points="23 4 23 10 17 10"></polyline>
@@ -75,7 +79,8 @@ import type { SessionShareBundle } from '../../../../shared/types/session-share.
               <button
                 class="btn-delete"
                 (click)="onDelete($event)"
-                title="Delete"
+                appTooltip="Delete"
+                aria-label="Delete"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <polyline points="3 6 5 6 21 6"></polyline>

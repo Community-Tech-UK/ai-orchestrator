@@ -252,6 +252,35 @@ describe('UserActionRequestComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('Edit input');
   });
 
+  it('names the permission-scope select and shows the always-write consequence inline (UX28)', async () => {
+    currentInstanceId.set('inst-a');
+    fixture.detectChanges();
+    await settle(fixture);
+
+    onInputRequired({
+      instanceId: 'inst-a',
+      requestId: 'req-permission-denial',
+      prompt: 'Allow Bash?',
+      timestamp: 1_900_000_000_000,
+      metadata: {
+        type: 'permission_denial',
+        toolName: 'Bash',
+      },
+    });
+    fixture.detectChanges();
+    await settle(fixture);
+
+    const select = fixture.nativeElement.querySelector('.scope-select') as HTMLSelectElement | null;
+    const label = fixture.nativeElement.querySelector('.scope-label') as HTMLLabelElement | null;
+    const writeHint = fixture.nativeElement.querySelector('.scope-write-hint') as HTMLElement | null;
+
+    expect(select).toBeTruthy();
+    expect(select?.getAttribute('title')).toBeNull();
+    expect(label?.textContent).toContain('Remember this decision');
+    expect(label?.htmlFor).toBe(select?.id);
+    expect(writeHint?.textContent).toContain('Always writes an allow rule to ~/.claude/settings.json');
+  });
+
   it('shows inline error and does NOT call respondToInputRequired on invalid JSON', async () => {
     currentInstanceId.set('inst-a');
     fixture.detectChanges();

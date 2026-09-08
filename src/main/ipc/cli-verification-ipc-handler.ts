@@ -344,7 +344,7 @@ export function registerCliVerificationHandlers(
       try {
         logger.info('Fetching Copilot models from CLI');
         const adapter = new CopilotCliAdapter();
-        const models = await adapter.listAvailableModels();
+        const models = await adapter.listAvailableModels({ fallbackToStatic: false });
         logger.info('Fetched Copilot models from CLI', { count: models.length });
         return { success: true, data: models };
       } catch (error) {
@@ -380,7 +380,7 @@ export function registerCliVerificationHandlers(
         if (provider === 'copilot') {
           try {
             const adapter = new CopilotCliAdapter();
-            const copilotModels = await adapter.listAvailableModels();
+            const copilotModels = await adapter.listAvailableModels({ fallbackToStatic: false });
             const models = copilotModelInfosToDisplayInfo(copilotModels);
             logger.info('Fetched Copilot models dynamically', { count: models.length });
             return { success: true, data: models };

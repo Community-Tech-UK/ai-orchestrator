@@ -11,6 +11,7 @@ import type {
   TerminalStatusPredicate,
 } from '../../../../shared/types/campaign.types';
 import { CampaignStore } from '../../core/state/campaign.store';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
 type Provider = 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor';
 type Stage = 'PLAN' | 'REVIEW' | 'IMPLEMENT';
@@ -99,7 +100,7 @@ function newCampaignId(): string {
 @Component({
   selector: 'app-campaign-page',
   standalone: true,
-  imports: [FormsModule, SlicePipe],
+  imports: [FormsModule, SlicePipe, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './campaign-page.component.html',
   styleUrl: './campaign-page.component.scss',

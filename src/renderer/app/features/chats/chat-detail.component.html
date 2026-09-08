@@ -69,7 +69,7 @@
             (keydown.enter)="applyCwd()"
             placeholder="Working directory"
           />
-          <button type="button" class="icon-button" title="Choose folder" (click)="browseCwd()">...</button>
+          <button type="button" class="icon-button" appTooltip="Choose folder" aria-label="Choose folder" (click)="browseCwd()">...</button>
           <button type="button" class="compact-button" [disabled]="!draftCwd().trim()" (click)="applyCwd()">
             Set
           </button>

@@ -2,7 +2,7 @@
   <header>
     <div class="header-titles">
       <h2>Loop Mode</h2>
-      <span class="subtitle">Iterate toward the goal — caps and review style apply.</span>
+      <span class="subtitle">Iterate toward the goal — caps apply.</span>
     </div>
     <button type="button" class="close" (click)="dismissed.emit()" aria-label="Close">×</button>
   </header>
@@ -32,14 +32,16 @@
               type="button"
               class="recall-chip"
               (click)="prompt.set(entry)"
-              [title]="entry"
+              [appTooltip]="entry"
+              appTooltipVariant="overflow"
+              [attr.aria-label]="entry"
             >{{ entry.length > 60 ? (entry.slice(0, 57) + '…') : entry }}</button>
             <button
               type="button"
               class="recall-chip-remove"
               (click)="onForgetPrompt(entry)"
               aria-label="Remove from recent"
-              title="Remove from recent"
+              [appTooltip]="copy('loop.forgetRecent')"
             >×</button>
           </span>
         }
@@ -48,7 +50,7 @@
           class="recall-chip default"
           [class.active]="prompt().trim() === defaultPrompt"
           (click)="prompt.set(defaultPrompt)"
-          title="Use canonical default prompt"
+          [appTooltip]="copy('loop.useDefaultPrompt')"
         >Default</button>
       </div>
     </div>
@@ -205,6 +207,7 @@
     class="advanced-toggle"
     (click)="showAdvanced.set(!showAdvanced())"
     [attr.aria-expanded]="showAdvanced()"
+    [appTooltip]="copy('loop.advancedToggle')"
   >
     <span class="caret">{{ showAdvanced() ? '▾' : '▸' }}</span>
     Advanced

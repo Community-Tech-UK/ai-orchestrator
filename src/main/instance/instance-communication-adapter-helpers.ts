@@ -39,8 +39,9 @@ export function isAggregateOnlyOccupancy(adapter: CliAdapter): boolean {
 }
 
 export function getAdapterRuntimeCapabilities(adapter: CliAdapter): AdapterRuntimeCapabilities {
-  if (adapter instanceof BaseCliAdapter) {
-    return adapter.getRuntimeCapabilities();
+  const read = (adapter as Partial<BaseCliAdapter>).getRuntimeCapabilities;
+  if (typeof read === 'function') {
+    return read.call(adapter);
   }
   return {
     supportsResume: false,

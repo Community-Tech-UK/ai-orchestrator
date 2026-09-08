@@ -155,6 +155,47 @@ describe('CodexAppServerThreadRuntime', () => {
     expect(runtime.getSnapshot()).toMatchObject({ turnPhase: 'idle', activeTurnId: null });
   });
 
+  it('steers a live turn over turn/steer and refuses when idle', async () => {
+    const runtime = new CodexAppServerThreadRuntime();
+    const client = new FakeClient();
+    runtime.attach(client, { threadId: 'thread-1', resumeCursor: cursor, resumeProof });
+
+    expect(await runtime.steerActiveTurn()).toBe(false);
+
+    let releaseTurnStart!: () => void;
+    const turnStartGate = new Promise<void>((resolve) => { releaseTurnStart = resolve; });
+    client.request.mockImplementation(async (method: string) => {
+      if (method === 'turn/start') {
+        await turnStartGate;
+        return { turn: { id: 'turn-1', status: 'inProgress' } };
+      }
+      if (method === 'turn/steer') return {};
+      throw new Error(`unexpected method ${method}`);
+    });
+
+    const capture = runtime.captureTurn(captureOptions());
+    client.emit('turn/started', { threadId: 'thread-1', turn: { id: 'turn-1' } });
+    expect(runtime.getSnapshot().turnPhase).toBe('running');
+
+    expect(await runtime.steerActiveTurn()).toBe(true);
+    expect(client.request).toHaveBeenCalledWith('turn/steer', {
+      threadId: 'thread-1',
+      expectedTurnId: 'turn-1',
+      input: [{
+        type: 'text',
+        text: 'Stop broad exploration. Synthesize what you already have, persist durable notes, and do not open new research threads.',
+        text_elements: [],
+      }],
+    });
+
+    releaseTurnStart();
+    client.emit('turn/completed', {
+      threadId: 'thread-1',
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+    await capture;
+  });
+
   it('releases only its scoped turn subscriber and preserves the connection observer', async () => {
     const runtime = new CodexAppServerThreadRuntime();
     const client = new FakeClient();

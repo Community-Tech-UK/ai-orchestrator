@@ -230,17 +230,24 @@
           }
           <div class="request-actions">
             @if (request.requestType === 'input_required' && supportsPermissionScope(request)) {
-              <select
-                class="scope-select"
-                [value]="getInputRequiredScope(request)"
-                (change)="onInputRequiredScopeChange(request.id, $event)"
-                [disabled]="isResponding()"
-                [title]="isPermissionDenial(request) ? 'Remember this decision (Always writes an allow rule to ~/.claude/settings.json)' : 'Remember this decision'"
-              >
-                @for (scope of scopesFor(request); track scope) {
-                  <option [value]="scope">{{ scopeLabel(scope) }}</option>
+              <div class="scope-field">
+                <label class="scope-label" [attr.for]="'permission-scope-' + request.id">Remember this decision</label>
+                <select
+                  class="scope-select"
+                  [id]="'permission-scope-' + request.id"
+                  [value]="getInputRequiredScope(request)"
+                  (change)="onInputRequiredScopeChange(request.id, $event)"
+                  [disabled]="isResponding()"
+                  [appTooltip]="copy('permissions.scope')"
+                >
+                  @for (scope of scopesFor(request); track scope) {
+                    <option [value]="scope">{{ scopeLabel(scope) }}</option>
+                  }
+                </select>
+                @if (isPermissionDenial(request)) {
+                  <span class="scope-write-hint">Always writes an allow rule to ~/.claude/settings.json</span>
                 }
-              </select>
+              </div>
             }
             <button
               class="btn-reject"

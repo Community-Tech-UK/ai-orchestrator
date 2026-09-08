@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { Router } from '@angular/router';
 import type { ContextEvidenceScope } from '@contracts/types/context-evidence';
 import type { ChatProvider } from '../../../../shared/types/chat.types';
@@ -41,6 +42,7 @@ import type { ChatOlderMessagesLoadResult } from '../../core/state/chat.store';
     LoopControlComponent,
     SessionArtifactsStripComponent,
     ContextEvidencePanelComponent,
+    AioTooltipDirective,
   ],
   templateUrl: './chat-detail.component.html',
   styleUrl: './chat-detail.component.scss',

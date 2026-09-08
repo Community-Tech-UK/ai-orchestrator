@@ -25,6 +25,7 @@ import type {
   HookAction,
   ConditionOperator,
 } from '../../../../shared/types/hook.types';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
 interface HookFormData {
   id: string;
@@ -40,6 +41,7 @@ interface HookFormData {
 @Component({
   selector: 'app-hooks-config',
   standalone: true,
+  imports: [AioTooltipDirective],
   template: `
     <div class="hooks-container">
       <!-- Header -->
@@ -104,13 +106,13 @@ interface HookFormData {
                   }
                 </div>
                 <div class="rule-actions">
-                  <button class="icon-btn" (click)="testRule(rule)" title="Test">
+                  <button class="icon-btn" (click)="testRule(rule)" appTooltip="Test" aria-label="Test">
                     ▶
                   </button>
-                  <button class="icon-btn" (click)="editRule(rule)" title="Edit">
+                  <button class="icon-btn" (click)="editRule(rule)" appTooltip="Edit" aria-label="Edit">
                     ✎
                   </button>
-                  <button class="icon-btn danger" (click)="deleteRule(rule)" title="Delete">
+                  <button class="icon-btn danger" (click)="deleteRule(rule)" appTooltip="Delete" aria-label="Delete">
                     ✕
                   </button>
                   <label class="toggle-switch">

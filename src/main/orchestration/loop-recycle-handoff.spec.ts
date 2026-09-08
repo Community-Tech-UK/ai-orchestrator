@@ -6,6 +6,7 @@ import { defaultLoopConfig, type LoopIteration, type LoopState } from '../../sha
 import {
   buildLoopHandoff,
   clipHandoffInjectNote,
+  formatRecycleInjectNote,
   HANDOFF_INJECT_MAX_CHARS,
   HANDOFF_INJECT_MAX_LINE_CHARS,
   HANDOFF_INJECT_MAX_LINES,
@@ -183,5 +184,16 @@ describe('loop-recycle-handoff', () => {
     expect(note.length).toBeLessThanOrEqual(MAX_REHYDRATE_TOTAL_BYTES + 200);
     expect(MAX_REHYDRATE_BYTES_PER_FILE).toBe(1_200);
     expect(MAX_REHYDRATE_TOTAL_BYTES).toBe(2_800);
+  });
+
+  it('T60: tells the child to resume without recapping HANDOFF.json', () => {
+    const note = formatRecycleInjectNote([
+      'Read `/tmp/HANDOFF.json` first (goal and open ledger ids).',
+    ]);
+    expect(note.startsWith('Resume the work directly.')).toBe(true);
+    expect(note).toContain('do not recap HANDOFF.json');
+    expect(note).toContain('Restored working set');
+    expect(note).toContain('HANDOFF.json');
+    expect(note.length).toBeLessThanOrEqual(HANDOFF_INJECT_MAX_CHARS);
   });
 });

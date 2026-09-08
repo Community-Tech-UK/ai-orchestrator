@@ -273,7 +273,6 @@ describe('Loop schemas — type/schema drift guards', () => {
         initialPrompt: 'do thing',
         workspaceCwd: '/tmp',
         provider: 'claude' as const,
-        reviewStyle: 'single' as const,
         contextStrategy: 'fresh-child' as const,
         caps: {
           maxIterations: 50,
@@ -488,7 +487,6 @@ describe('Loop schemas — type/schema drift guards', () => {
           initialPrompt: 'do thing',
           workspaceCwd: '/tmp',
           provider: 'claude' as const,
-          reviewStyle: 'single' as const,
           contextStrategy: 'fresh-child' as const,
           caps: {
             maxIterations: 50,
@@ -567,7 +565,6 @@ describe('Loop schemas — type/schema drift guards', () => {
           initialPrompt: 'do thing',
           workspaceCwd: '/tmp',
           provider: 'claude' as const,
-          reviewStyle: 'single' as const,
           contextStrategy: 'fresh-child' as const,
           caps: {
             maxIterations: 50,
@@ -761,7 +758,6 @@ describe('Loop schemas — type/schema drift guards', () => {
         initialPrompt: 'do thing',
         workspaceCwd: '/tmp',
         provider: 'claude' as const,
-        reviewStyle: 'single' as const,
         contextStrategy: 'fresh-child' as const,
         caps: {
           maxIterations: 50,
@@ -923,7 +919,6 @@ describe('Loop schemas — type/schema drift guards', () => {
       initialPrompt: 'run for a long time',
       workspaceCwd: '/repo',
       provider: 'claude',
-      reviewStyle: 'single',
       contextStrategy: 'fresh-child',
       caps: {
         maxIterations: null,
@@ -969,6 +964,12 @@ describe('Loop schemas — type/schema drift guards', () => {
 
     it('accepts a 50-hour maxWallTimeMs loop cap', () => {
       expect(LoopConfigSchema.safeParse(baseConfig).success).toBe(true);
+    });
+
+    it('strips a leftover reviewStyle field from persisted configs', () => {
+      const leftover = { ...baseConfig, reviewStyle: 'debate' };
+      const parsed = LoopConfigSchema.parse(leftover);
+      expect(parsed).not.toHaveProperty('reviewStyle');
     });
 
     it('accepts serializable next-objective planning config', () => {

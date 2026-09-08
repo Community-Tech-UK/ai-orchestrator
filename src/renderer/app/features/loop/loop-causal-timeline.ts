@@ -68,6 +68,8 @@ export interface LoopTimelineInput {
    * as a measurement is how a cost display stops being trusted.
    */
   spendIsProviderReported?: boolean;
+  /** Terminal reason. Used to distinguish a degraded replay-unsafe pause. */
+  endReason?: string | null;
 }
 
 export interface LoopTimeline {
@@ -118,6 +120,11 @@ function spendMeter(input: LoopTimelineInput): LoopSpendMeter {
 
 function isProviderLimitParked(input: LoopTimelineInput): boolean {
   return input.status === 'provider-limit' && (input.endedAt ?? null) === null;
+}
+
+function isDegradedAttemptReviewPause(endReason: string | null | undefined): boolean {
+  if (!endReason) return false;
+  return endReason.includes('paused for review') || /replay is unsafe/i.test(endReason);
 }
 
 /** The four steps, with the blocking one marked. */
@@ -218,8 +225,13 @@ export function buildLoopCausalTimeline(input: LoopTimelineInput): LoopTimeline 
     };
   } else if (input.status === 'completed-needs-review') {
     blocking = 'review';
-    detail = 'The work is done and accepted, but it is asking for a human glance.';
-    nextAutomaticAction = 'Nothing. It finished; this is a request, not a failure.';
+    if (isDegradedAttemptReviewPause(input.endReason)) {
+      detail = 'paused because the failed attempt already changed files — replay unsafe';
+      nextAutomaticAction = 'Nothing. Replay is unsafe; it is waiting on you.';
+    } else {
+      detail = 'The work is done and accepted, but it is asking for a human glance.';
+      nextAutomaticAction = 'Nothing. It finished; this is a request, not a failure.';
+    }
     recovery = {
       id: 'review-now',
       label: 'Take a look',

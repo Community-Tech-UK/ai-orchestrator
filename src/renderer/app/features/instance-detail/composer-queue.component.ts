@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 
 import { truncateQueuedMessage } from './input-panel-formatters';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
 export interface ComposerQueuedMessage {
   message: string;
@@ -14,6 +15,7 @@ export interface ComposerQueuedMessage {
 @Component({
   selector: 'app-composer-queue',
   standalone: true,
+  imports: [AioTooltipDirective],
   templateUrl: './composer-queue.component.html',
   styleUrl: './composer-queue.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

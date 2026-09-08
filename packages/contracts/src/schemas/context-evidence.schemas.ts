@@ -232,7 +232,7 @@ export const ContextOccupancySchema: z.ZodType<ContextOccupancy> = z.discriminat
 export const ContextPressureSampleSchema: z.ZodType<ContextPressureSample> = z.object({
   occupancy: ContextOccupancySchema,
   cumulativeTokens: NonNegativeIntegerSchema.optional(),
-  outputBytesSinceCompaction: NonNegativeIntegerSchema,
+  outputBytesSinceCompaction: NonNegativeIntegerSchema.optional(),
   providerRequestCount: NonNegativeIntegerSchema,
   newEvidenceCount: NonNegativeIntegerSchema,
   newValidatedFindingCount: NonNegativeIntegerSchema,
@@ -473,6 +473,7 @@ export const EnforcementActionKindSchema = z.enum([
   'rebuild-working-set',
   'native-compaction',
   'stop-broad-research',
+  'steer-turn',
   'controlled-interrupt',
   'controlled-recovery',
   'same-thread-continuation',
@@ -485,7 +486,9 @@ export const EnforcementActionSchema: z.ZodType<EnforcementAction> = z.object({
   trigger: z.enum([
     'oversized-result',
     'known-occupancy-60',
+    'known-occupancy-70',
     'known-occupancy-75',
+    'known-occupancy-80',
     'known-occupancy-85',
     'known-occupancy-92',
     'cumulative-2x',

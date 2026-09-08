@@ -21,6 +21,8 @@ import { LoopPresetPickerComponent } from './loop-preset-picker.component';
 import type { LoopPresetId } from './loop-presets';
 import { createLoopPresetController } from './loop-config-panel-presets';
 import { InlineHintComponent } from '../../shared/hint/inline-hint.component';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 
 // Defaults that match defaultLoopConfig() in src/shared/types/loop.types.ts.
 // We must include all sub-fields whenever caps/completion/progressThresholds
@@ -99,18 +101,19 @@ type PlanPacketMode = 'off' | 'prompted';
  * Renders directly above the message composer (slides up). Pre-fills the
  * prompt from the textarea content (or the user's last prompt, or the
  * canonical default), and surfaces the last 3 unique prompts as quick-pick
- * chips. Advanced fields (caps, verify, provider, review style) are tucked
+ * chips. Advanced fields (caps, verify, provider) are tucked
  * behind a "Show advanced" expander to keep the visible panel compact.
  */
 @Component({
   selector: 'app-loop-config-panel',
   standalone: true,
-  imports: [InlineHintComponent, FormsModule, LoopPresetPickerComponent],
+  imports: [InlineHintComponent, FormsModule, LoopPresetPickerComponent, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './loop-config-panel.component.html',
   styleUrl: './loop-config-panel.component.scss',
 })
 export class LoopConfigPanelComponent {
+  protected readonly copy = copyFor;
   workspaceCwd = input.required<string>();
   /** The composer's current textarea content. Shown as a "will be prepended"
    *  preview so the user knows their message is being combined with the loop
@@ -563,9 +566,6 @@ export class LoopConfigPanelComponent {
       workspaceCwd: this.workspaceCwd(),
       planFile,
       provider,
-      // Decision 7(a): dropdown gone, dead 'debate'-defaulted signal removed.
-      // 'single' is what actually runs.
-      reviewStyle: 'single',
       contextStrategy: this.contextStrategy() === 'hybrid' ? 'fresh-child' : this.contextStrategy(),
       initialStage: this.showGatedChrome() ? this.initialStage() : 'IMPLEMENT',
       maxTurnsPerIteration: this.maxTurns(),

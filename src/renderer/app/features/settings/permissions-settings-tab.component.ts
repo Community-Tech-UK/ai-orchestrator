@@ -5,6 +5,7 @@ import { TaskIpcService } from '../../core/services/ipc/task-ipc.service';
 import { TaskPreflightCardComponent } from '../../shared/components/task-preflight-card.component';
 import type { TaskPreflightReport } from '../../../../shared/types/task-preflight.types';
 import { SaveStateBannerComponent, type SaveState } from './ui/save-state-banner.component';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
 interface PermissionsApi {
   permissionGetPendingBatch?: () => Promise<{ success: boolean; data?: { requests?: unknown[] } }>;
@@ -80,7 +81,7 @@ interface PermissionAuditResponse {
 @Component({
   selector: 'app-permissions-settings-tab',
   standalone: true,
-  imports: [TaskPreflightCardComponent, SaveStateBannerComponent],
+  imports: [TaskPreflightCardComponent, SaveStateBannerComponent, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './permissions-settings-tab.component.html',
   styleUrl: './permissions-settings-tab.component.scss',

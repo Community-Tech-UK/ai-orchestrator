@@ -172,7 +172,7 @@
           @for (edge of edges(); track edge.from + edge.to) {
             <span class="cp-edge-chip">
               {{ labelFor(edge.from) }} -> {{ labelFor(edge.to) }}{{ edgeGateLabel(edge) }}
-              <button type="button" (click)="removeEdge(edge)" title="Remove edge">x</button>
+              <button type="button" (click)="removeEdge(edge)" appTooltip="Remove edge" aria-label="Remove edge">x</button>
             </span>
           }
         </div>
@@ -183,7 +183,7 @@
       @if (selectedNode(); as node) {
         <div class="inspector-head">
           <span>{{ node.label || node.id }}</span>
-          <button type="button" [disabled]="nodes().length <= 1" (click)="removeNode(node.id)" title="Remove node">x</button>
+          <button type="button" [disabled]="nodes().length <= 1" (click)="removeNode(node.id)" appTooltip="Remove node" aria-label="Remove node">x</button>
         </div>
         <label>
           Label

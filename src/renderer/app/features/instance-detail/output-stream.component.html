@@ -101,7 +101,8 @@
                   <div class="message-hover-actions">
                     <button class="action-btn" [class.copied]="isMessageCopied(item.response.id)"
                       (click)="copyMessageContent(item.response.content, item.response.id, item.response.attachments)"
-                      title="Copy to clipboard">
+                      appTooltip="Copy to clipboard"
+                      aria-label="Copy to clipboard">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
@@ -316,7 +317,10 @@
                       class="action-btn"
                       type="button"
                       [disabled]="isLoopOriginatedUserMessage(item.message)"
-                      [title]="isLoopOriginatedUserMessage(item.message)
+                      [appTooltip]="isLoopOriginatedUserMessage(item.message)
+                        ? 'Cannot edit a loop prompt — start a new loop to change it'
+                        : 'Edit and resend'"
+                      [attr.aria-label]="isLoopOriginatedUserMessage(item.message)
                         ? 'Cannot edit a loop prompt — start a new loop to change it'
                         : 'Edit and resend'"
                       (click)="inlineEdit.startEditingMessage(item.message)">
@@ -328,7 +332,8 @@
                   }
                   <button class="action-btn" [class.copied]="isMessageCopied(item.message.id)"
                     (click)="copyMessageContent(item.message.content, item.message.id, item.message.attachments)"
-                    title="Copy to clipboard">
+                    appTooltip="Copy to clipboard"
+                    aria-label="Copy to clipboard">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                       <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
@@ -343,7 +348,7 @@
 
     <!-- Scroll to top button -->
     @if (showScrollToTop()) {
-      <button class="scroll-to-top-btn" (click)="scrollToTop()" title="Scroll to top">
+      <button class="scroll-to-top-btn" (click)="scrollToTop()" appTooltip="Scroll to top" aria-label="Scroll to top">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="18 15 12 9 6 15"></polyline>
         </svg>
@@ -352,7 +357,7 @@
 
     <!-- Scroll to bottom button -->
     @if (showScrollToBottom()) {
-      <button class="scroll-to-bottom-btn" (click)="scrollToBottom()" title="Scroll to bottom">
+      <button class="scroll-to-bottom-btn" (click)="scrollToBottom()" appTooltip="Scroll to bottom" aria-label="Scroll to bottom">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="6 9 12 15 18 9"></polyline>
         </svg>

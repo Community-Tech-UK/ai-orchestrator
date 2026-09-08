@@ -76,7 +76,6 @@ export const LoopCompletionOutcomeSchema = z.enum([
 export const LoopVerdictSchema = z.enum(['OK', 'WARN', 'CRITICAL']);
 export const LoopVerifyFailureKindSchema = z.enum(['command', 'timeout', 'infra', 'environment']);
 export const LoopProviderSchema = z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']);
-export const LoopReviewStyleSchema = z.enum(['single', 'debate', 'star-chamber']);
 export const LoopContextStrategySchema = z.enum(['fresh-child', 'hybrid', 'same-session']);
 export const ProgressSignalIdSchema = z.enum(['A', 'B', 'C', 'D', 'D-prime', 'E', 'F', 'G', 'H', 'I', 'BLOCKED']);
 export const CompletionSignalIdSchema = z.enum([
@@ -335,7 +334,6 @@ export const LoopConfigSchema = z.object({
   planFile: z.string().optional(),
   workspaceCwd: z.string().min(1),
   provider: LoopProviderSchema,
-  reviewStyle: LoopReviewStyleSchema,
   contextStrategy: LoopContextStrategySchema,
   caps: LoopHardCapsSchema,
   progressThresholds: LoopProgressThresholdsSchema,
@@ -406,7 +404,6 @@ export const LoopConfigInputSchema = LoopConfigSchema.omit({ audit: true }).part
   progressThresholds: true,
   completion: true,
   contextStrategy: true,
-  reviewStyle: true,
   provider: true,
   allowDestructiveOps: true,
   initialStage: true,

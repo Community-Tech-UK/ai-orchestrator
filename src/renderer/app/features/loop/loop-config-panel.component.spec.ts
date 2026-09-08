@@ -90,6 +90,7 @@ describe('LoopConfigPanelComponent', () => {
 
     expect(config?.completion?.mode).toBe('review-driven');
     expect(config?.completion?.requiredCleanReviewPasses).toBe(2);
+    expect(config).not.toHaveProperty('reviewStyle');
   });
 
   it('defaults interactive loops to AIO-managed isolation and promotion', () => {
@@ -414,13 +415,31 @@ describe('LoopConfigPanelComponent', () => {
     expect(config?.caps?.maxCostCents).toBe(50000);
   });
 
+  it('labels Advanced with an inventory tooltip rather than a native title', () => {
+    expect(template).toContain("copy('loop.advancedToggle')");
+    expect(template).not.toContain('reviewStyle');
+    expect(template).not.toContain('review style');
+  });
+
+  it('migrates recall chips off native title (UX21)', () => {
+    expect(template).toContain("[appTooltip]=\"entry\"");
+    expect(template).toContain('appTooltipVariant="overflow"');
+    expect(template).toContain("copy('loop.forgetRecent')");
+    expect(template).toContain("copy('loop.useDefaultPrompt')");
+    expect(template).not.toContain('title="Remove from recent"');
+    expect(template).not.toContain('title="Use canonical default prompt"');
+    expect(template).not.toContain('[title]="entry"');
+  });
+
   it('keeps the verify command control visible without opening advanced settings', () => {
     fixture.detectChanges();
 
     const verifyInput = fixture.nativeElement.querySelector('#loop-cfg-verify') as HTMLInputElement | null;
+    const advanced = fixture.nativeElement.querySelector('.advanced-toggle') as HTMLButtonElement | null;
 
     expect(component.showAdvanced()).toBe(false);
     expect(verifyInput).not.toBeNull();
+    expect(advanced).not.toBeNull();
   });
 
   it('uses human iteration wording when the first message becomes the loop goal', () => {

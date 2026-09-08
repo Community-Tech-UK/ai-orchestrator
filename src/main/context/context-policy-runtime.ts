@@ -40,6 +40,8 @@ interface ContextPolicyObservation {
   autoCompactEnabled: boolean;
   executor: ProviderContextActionExecutor | null;
   circuitBreakerTripped: boolean;
+  atSafeProviderBoundary: boolean;
+  outputBytesSinceCompaction?: number;
   onActionFailure(): void;
   onActionSuccess(): void;
 }
@@ -148,14 +150,19 @@ export class ContextPolicyRuntime {
 
   private async evaluate(input: ContextPolicyObservation, providerRequestCount: number): Promise<void> {
     const state = this.getState(input.instanceId);
-    const sample = buildPressureSample(input.usage, state.epoch, providerRequestCount);
+    const sample = buildPressureSample(
+      input.usage,
+      state.epoch,
+      providerRequestCount,
+      input.outputBytesSinceCompaction,
+    );
     const decision = this.policy.decide({
       sample,
       capabilities: input.capabilities,
       state,
       now: Date.now(),
       effectiveWindowTokens: input.usage.total,
-      atSafeProviderBoundary: true,
+      atSafeProviderBoundary: input.atSafeProviderBoundary,
     });
     this.states.set(input.instanceId, decision.nextState);
     if (decision.action.kind === 'none' && decision.reasonCode === 'NO_ACTION') return;
@@ -238,6 +245,7 @@ function buildPressureSample(
   usage: ContextUsage,
   recoveryEpoch: number,
   providerRequestCount: number,
+  outputBytesSinceCompaction?: number,
 ): ContextPressureSample {
   return {
     occupancy: Number.isFinite(usage.used) && Number.isFinite(usage.total) && usage.total > 0
@@ -245,7 +253,8 @@ function buildPressureSample(
       : { status: 'unknown', reason: 'provider-occupancy-unavailable' },
     ...(typeof usage.cumulativeTokens === 'number' && Number.isFinite(usage.cumulativeTokens)
       ? { cumulativeTokens: usage.cumulativeTokens } : {}),
-    outputBytesSinceCompaction: 0,
+    ...(typeof outputBytesSinceCompaction === 'number' && Number.isFinite(outputBytesSinceCompaction)
+      ? { outputBytesSinceCompaction } : {}),
     providerRequestCount,
     newEvidenceCount: 0,
     newValidatedFindingCount: 0,
@@ -255,6 +264,7 @@ function buildPressureSample(
 
 function isExecutableProviderAction(action: string): action is ProviderContextExecutableAction {
   return action === 'rebuild-working-set' || action === 'native-compaction'
+    || action === 'steer-turn'
     || action === 'controlled-interrupt' || action === 'controlled-recovery'
     || action === 'same-thread-continuation';
 }

@@ -19,6 +19,7 @@ import { IpcFacadeService, FileEntry } from '../../core/services/ipc';
 import { ViewLayoutService } from '../../core/services/view-layout.service';
 import { RemoteFsIpcService } from '../../core/services/ipc/remote-fs-ipc.service';
 import type { RemoteFsEventNotification } from '../../../../shared/types/remote-fs.types';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
 interface TreeNode extends FileEntry {
   children?: TreeNode[];
@@ -30,6 +31,7 @@ interface TreeNode extends FileEntry {
 @Component({
   selector: 'app-file-explorer',
   standalone: true,
+  imports: [AioTooltipDirective],
   template: `
     <div class="file-explorer-wrapper" [class.collapsed]="isCollapsed()" [class.resizing]="isResizing()">
       <!-- Resize handle -->
@@ -60,7 +62,7 @@ interface TreeNode extends FileEntry {
             {{ rootName() || 'Select folder...' }}
           </button>
           @if (rootPath()) {
-            <button class="refresh-btn" (click)="refresh()" title="Refresh">↻</button>
+            <button class="refresh-btn" (click)="refresh()" appTooltip="Refresh" aria-label="Refresh">↻</button>
           }
         </div>
 

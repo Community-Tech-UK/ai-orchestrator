@@ -329,6 +329,7 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
     }
 
     // `--print <prompt>` must come last: the prompt is consumed as its value.
+    // T48: agy print mode has no resume, so RTK awareness is wrapped every turn.
     const baseContent = this.cliConfig.systemPrompt
       ? `${this.cliConfig.systemPrompt}\n\n${message.content}`
       : message.content;

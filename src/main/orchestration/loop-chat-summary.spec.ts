@@ -39,11 +39,11 @@ describe('buildLoopStartChatEvent', () => {
         loopRunId: 'loop-7',
         workspaceCwd: '/work/project',
         provider: 'claude',
-        reviewStyle: 'debate',
         iterationCap: DEFAULT_LOOP_MAX_ITERATIONS,
         maxWallTimeMs: DEFAULT_LOOP_MAX_WALL_TIME_MS,
       }),
     });
+    expect(event.metadata).not.toHaveProperty('reviewStyle');
   });
 
   it('uses a different nativeMessageId than the terminal summary so both can coexist in the same turn', () => {

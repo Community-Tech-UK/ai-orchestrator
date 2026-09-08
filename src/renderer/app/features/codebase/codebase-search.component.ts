@@ -16,12 +16,13 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import type { HybridSearchOptions } from '../../../../shared/types/codebase.types';
 
 @Component({
   selector: 'app-codebase-search',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, AioTooltipDirective],
   template: `
     <div class="search-container">
       <!-- Search Input -->
@@ -37,7 +38,7 @@ import type { HybridSearchOptions } from '../../../../shared/types/codebase.type
           [disabled]="disabled()"
         />
         @if (searchQuery()) {
-          <button class="clear-btn" (click)="clearSearch()" title="Clear search">
+          <button class="clear-btn" (click)="clearSearch()" appTooltip="Clear search" aria-label="Clear search">
             ✕
           </button>
         }

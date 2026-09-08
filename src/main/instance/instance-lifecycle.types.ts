@@ -116,6 +116,7 @@ export interface LifecycleDependencies {
   deleteDiffTracker?: (id: string) => void;
   startStuckTracking?: (instanceId: string) => void;
   stopStuckTracking?: (instanceId: string) => void;
+  onToolStateChange?: (instanceId: string, state: 'generating' | 'tool_executing' | 'idle') => void;
   /** State machine accessors for soft-validated lifecycle transitions. */
   getStateMachine?: (instanceId: string) => InstanceStateMachine | undefined;
   setStateMachine?: (instanceId: string, machine: InstanceStateMachine) => void;

@@ -386,14 +386,17 @@ describe('CompactionCoordinator shared safety policy', () => {
       }),
       getContextEvidenceMode: () => 'enforce',
       getProviderActionExecutor: () => new ProviderContextActionExecutor({
-        'native-compaction': async () => { actions.push('native-compaction'); return { proof: 'observed' }; },
+        'controlled-interrupt': async () => {
+          actions.push('controlled-interrupt');
+          return { proof: 'observed' };
+        },
       }),
     });
 
     coordinator.onContextUpdate('inst-policy', { used: 80, total: 100, percentage: 80 });
     await coordinator.drainPolicyDecisions('inst-policy');
 
-    expect(actions).toEqual(['native-compaction']);
+    expect(actions).toEqual(['controlled-interrupt']);
     expect(warnings).toContainEqual(expect.objectContaining({
       deprecated: true,
       legacyThreshold: 80,

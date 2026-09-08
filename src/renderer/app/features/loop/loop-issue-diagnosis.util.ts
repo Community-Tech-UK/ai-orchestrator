@@ -103,6 +103,12 @@ const FALLBACK_CATALOG: ProgressSignalCatalogEntry = {
   nextStep: 'Inspect the iteration evidence, then hint, resume, or stop.',
 };
 
+/** Mirrors `AUTO_UNSTICK_ELIGIBLE_SIGNALS` in loop-auto-unstick.ts. Signal A never parks. */
+const REVIEW_DRIVEN_PARK_SIGNALS: ReadonlySet<string> =
+  new Set(['G', 'B', 'E', 'I', 'D', 'D-prime', 'H']);
+
+const DEFAULT_UNSTICK_MAX = 2;
+
 const COMPLETION_SIGNAL_LABELS: Record<string, string> = {
   'completed-rename': 'Completed-file rename',
   'done-promise': 'Done promise',
@@ -251,6 +257,9 @@ function implicationFor(
   blocked: boolean,
   autoUnstickInFlight: boolean,
   reviewDriven: boolean,
+  signals: readonly LoopIssueSignalView[],
+  autoUnstickAttempts: number,
+  autoUnstickMax: number,
 ): string {
   if (blocked) {
     return 'The loop cannot continue on its own. It is waiting on you.';
@@ -263,7 +272,7 @@ function implicationFor(
   }
   if (running && severity === 'CRITICAL') {
     if (reviewDriven) {
-      return 'The loop is still running. Review-driven mode will not pause on this signal by itself. A hint now often unsticks it.';
+      return reviewDrivenRunningImplication(signals, autoUnstickAttempts, autoUnstickMax);
     }
     return 'The loop is still running. If this keeps happening it will pause on its own. A hint now often unsticks it.';
   }
@@ -271,6 +280,30 @@ function implicationFor(
     return 'The loop is still running. This is a watch, not a stop. Intervene only if you already know a better path.';
   }
   return 'This iteration did not look healthy. Check the evidence before deciding whether to continue.';
+}
+
+function reviewDrivenRunningImplication(
+  signals: readonly LoopIssueSignalView[],
+  autoUnstickAttempts: number,
+  autoUnstickMax: number,
+): string {
+  const criticalIds = signals
+    .filter((signal) => signal.verdict === 'CRITICAL')
+    .map((signal) => signal.id);
+  const eligible = criticalIds.some((id) => REVIEW_DRIVEN_PARK_SIGNALS.has(id));
+  const onlyIdenticalHash = criticalIds.length > 0 && criticalIds.every((id) => id === 'A');
+  if (onlyIdenticalHash) {
+    return 'The loop is still running. Identical-hash stalls do not pause this mode. A hint now often unsticks it.';
+  }
+  if (!eligible) {
+    return 'The loop is still running. This signal does not pause this mode. A hint now often unsticks it.';
+  }
+  const remaining = Math.max(0, autoUnstickMax - autoUnstickAttempts);
+  if (remaining > 0) {
+    const attempts = remaining === 1 ? '1 more unstick attempt' : `${remaining} more unstick attempts`;
+    return `The loop is still running. It will pause after ${attempts}. A hint now often unsticks it.`;
+  }
+  return 'The loop is still running. Unstick attempts are spent, so it will pause. A hint now often unsticks it.';
 }
 
 function actionsFor(
@@ -330,8 +363,12 @@ export function buildLoopIssueView(input: {
   blocked?: boolean;
   /** True when the coordinator already injected a change-of-approach nudge. */
   autoUnstickInFlight?: boolean;
-  /** Review-driven / ping-pong loops do not pause on progress CRITICAL. */
+  /** Review-driven / ping-pong loops park after auto-unstick, except signal A. */
   reviewDriven?: boolean;
+  /** Spent unstick attempts for this run (0 when none have fired yet). */
+  autoUnstickAttempts?: number;
+  /** Cap used by auto-unstick. Defaults to 2. */
+  autoUnstickMax?: number;
 }): LoopIssueView | null {
   const pauseSignal = input.pauseSignal ? signalViews([input.pauseSignal])[0] : null;
   const severity = [input.verdict, pauseSignal?.verdict ?? 'OK']
@@ -371,6 +408,9 @@ export function buildLoopIssueView(input: {
       blocked,
       autoUnstickInFlight,
       input.reviewDriven === true,
+      signals,
+      input.autoUnstickAttempts ?? 0,
+      input.autoUnstickMax ?? DEFAULT_UNSTICK_MAX,
     ),
     fixability,
     fixabilityLabel: fixabilityLabel(fixability),

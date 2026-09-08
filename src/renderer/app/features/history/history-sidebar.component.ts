@@ -18,13 +18,14 @@ import { InstanceStore } from '../../core/state/instance.store';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import { ViewLayoutService } from '../../core/services/view-layout.service';
 import { HistoryListComponent } from './history-list.component';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import type { ConversationHistoryEntry } from '../../../../shared/types/history.types';
 import type { OutputMessage } from '../../core/state/instance/instance.types';
 
 @Component({
   selector: 'app-history-sidebar',
   standalone: true,
-  imports: [FormsModule, HistoryListComponent],
+  imports: [FormsModule, HistoryListComponent, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
@@ -43,7 +44,7 @@ import type { OutputMessage } from '../../core/state/instance/instance.types';
           <button class="btn-import" (click)="loadBundle()" title="Load saved share bundle">
             Bundle
           </button>
-          <button class="btn-close" (click)="closeHistory.emit()" title="Close">
+          <button class="btn-close" (click)="closeHistory.emit()" appTooltip="Close" aria-label="Close">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <line x1="18" y1="6" x2="6" y2="18"></line>
               <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -66,7 +67,7 @@ import type { OutputMessage } from '../../core/state/instance/instance.types';
             (ngModelChange)="onSearchChange($event)"
           />
           @if (store.searchQuery()) {
-            <button class="btn-clear" (click)="store.clearSearch()" title="Clear search">
+            <button class="btn-clear" (click)="store.clearSearch()" appTooltip="Clear search" aria-label="Clear search">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <line x1="18" y1="6" x2="6" y2="18"></line>
                 <line x1="6" y1="6" x2="18" y2="18"></line>

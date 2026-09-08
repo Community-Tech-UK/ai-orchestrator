@@ -62,6 +62,7 @@ interface NativeCompactionAdapter {
       stage: 'requested' | 'acknowledged' | 'observed',
     ) => void) | null,
   ) => void;
+  getRuntimeSnapshot?: () => { turnPhase?: string };
 }
 
 type CompactionMarkerRecorder = (params: RecordCompactionMarkerParams) => string | null | undefined;
@@ -228,8 +229,13 @@ export function setupCompactionCoordinator(
         handlers['controlled-interrupt'] = () => execute('controlled-interrupt');
         handlers['controlled-recovery'] = () => execute('controlled-recovery');
         handlers['same-thread-continuation'] = () => execute('same-thread-continuation');
+        handlers['steer-turn'] = () => execute('steer-turn');
       }
       return new ProviderContextActionExecutor(handlers);
+    },
+    getAtSafeProviderBoundary: (instanceId: string) => {
+      const adapter = instanceManager.getAdapter(instanceId) as NativeCompactionAdapter | undefined;
+      return adapter?.getRuntimeSnapshot?.()?.turnPhase === 'idle';
     },
     recordPolicyEvent: async (event: ContextPolicyEvent) => {
       const instance = instanceManager.getInstance(event.instanceId);

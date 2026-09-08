@@ -141,7 +141,9 @@ const ALLOWLIST: Record<string, number> = {
   // Raised 2275 -> 2278 for concurrencyPriority overflow on ACP spawn acquire.
   // Re-tightened 2278 -> 2256: late agent_message_chunk coalescing extracted to
   // acp-assistant-stream.ts.
-  'src/main/cli/adapters/acp-cli-adapter.ts': 2326,
+  // Raised 2326 -> 2379: ACP client-cancel now emits idle and clears the
+  // stream-idle watchdog so Stop does not leave the stuck detector generating.
+  'src/main/cli/adapters/acp-cli-adapter.ts': 2379,
   // Sat at 699 — one line under the cap — so the automation-provider-exclusion
   // guard in resolveCliType could not be added without crossing it. Entered at
   // 706 rather than dropping the guard; the file is a refactor candidate.
@@ -205,7 +207,9 @@ const ALLOWLIST: Record<string, number> = {
   // concurrent same-cycle fixes already in this file.
   // Re-tightened 2696 -> 2653: completion cost + estimate telemetry extracted
   // to communication-completion-cost.ts.
-  'src/main/instance/instance-communication.ts': 2653,
+  // Raised 2653 -> 2699: monotonic streaming merge (keep committed text on
+  // Cursor ACP snapshot rewind) plus existing uncommitted work already in file.
+  'src/main/instance/instance-communication.ts': 2699,
   'src/main/instance/instance-context.ts': 1265,
   // Raised 3450 -> 3528 for the queue-aware YOLO toggle (park-while-busy +
   // auto-apply-on-idle); the bulk lives in lifecycle/yolo-mode-queue.ts.
@@ -220,7 +224,8 @@ const ALLOWLIST: Record<string, number> = {
   // wakeInstance (concurrent wakers coalesce) and the listener strip before
   // the hibernate terminate, which stopped a deliberate kill from throwing
   // hibernating -> error out of the adapter exit handler.
-  'src/main/instance/instance-lifecycle.ts': 3522,
+  // Raised 3522 -> 3537: wire interrupt-respawn stuck-detector idle callback.
+  'src/main/instance/instance-lifecycle.ts': 3537,
   // Raised 2632 -> 2655 for the sendInput post-wait liveness re-check (fail
   // fast instead of delivering input into a terminated instance).
   // Raised 2772 -> 2773 (one-line drift; re-tighten at the next manager split).
@@ -232,7 +237,9 @@ const ALLOWLIST: Record<string, number> = {
   // cleanup (fresh-eyes fix for the adjudicator-breaker leak).
   // Re-tightened 2950 -> 2669: send-path input-context assembly + preflight
   // helpers extracted to instance-input-contexts.ts.
-  'src/main/instance/instance-manager.ts': 2669,
+  // Raised 2669 -> 2720: interrupt-idle stuck-detector wiring plus existing
+  // uncommitted work already in this file.
+  'src/main/instance/instance-manager.ts': 2720,
   // Raised 1068 -> 1105 (2026-07-17 loop-issue fixes).
   'src/main/instance/instance-orchestration.ts': 1105,
   'src/main/instance/lifecycle/interrupt-respawn-handler.ts': 1421,

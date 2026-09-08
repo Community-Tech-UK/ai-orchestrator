@@ -16,6 +16,7 @@ import { getObservationIngestor, getObserverAgent, getReflectorAgent } from '../
 import { initializePathValidator } from '../security/path-validator';
 import { getLogger } from '../logging/logger';
 import { initTruncationCleanup } from '../util/tool-output-truncation';
+import { initCodexCommandOutputArchiveCleanup } from '../cli/adapters/codex/codex-command-output-archive';
 import { sweepStaleCodexTempHomes } from '../cli/adapters/codex/codex-home-manager';
 import { reconcilePrivateCodexRolloutPaths } from '../cli/adapters/codex/codex-private-rollout-reconcile';
 import { cleanupLeakedAioCodexThreads } from '../cli/adapters/codex/codex-state-cleanup';
@@ -241,6 +242,7 @@ export function createLateRuntimeInitializationSteps(
       fn: () => setupCompactionCoordinator(instanceManager, windowManager),
     },
     { name: 'Truncation cleanup', fn: () => { initTruncationCleanup(); } },
+    { name: 'Codex command-output archive cleanup', fn: () => { initCodexCommandOutputArchiveCleanup(); } },
     { name: 'Leaked AIO Codex thread cleanup', fn: () => { cleanupLeakedAioCodexThreads(); } },
     { name: 'Private Codex rollout-path reconcile', fn: () => { reconcilePrivateCodexRolloutPaths(); } },
     { name: 'Stale Codex temp home sweep', fn: () => { sweepStaleCodexTempHomes(); } },

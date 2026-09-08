@@ -110,6 +110,27 @@
   align-items: center;
 }
 
+.scope-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.scope-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.scope-write-hint {
+  flex-basis: 100%;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-secondary);
+}
+
 .scope-select {
   padding: 6px 30px 6px 8px; // room for the global chevron
   border-radius: var(--radius-md);

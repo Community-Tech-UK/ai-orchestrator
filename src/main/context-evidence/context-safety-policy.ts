@@ -11,14 +11,14 @@ const OCCUPANCY_TRIGGERS: {
   trigger: Extract<
     EnforcementTrigger,
     | 'known-occupancy-60'
+    | 'known-occupancy-70'
     | 'known-occupancy-75'
-    | 'known-occupancy-85'
-    | 'known-occupancy-92'
+    | 'known-occupancy-80'
   >;
 }[] = [
-  { ratio: 0.92, trigger: 'known-occupancy-92' },
-  { ratio: 0.85, trigger: 'known-occupancy-85' },
+  { ratio: 0.80, trigger: 'known-occupancy-80' },
   { ratio: 0.75, trigger: 'known-occupancy-75' },
+  { ratio: 0.70, trigger: 'known-occupancy-70' },
   { ratio: 0.6, trigger: 'known-occupancy-60' },
 ];
 
@@ -211,7 +211,7 @@ export class ContextSafetyPolicy {
     const nextState = this.withEmitted(input.state, crossedAndLower);
 
     switch (crossed.trigger) {
-      case 'known-occupancy-92':
+      case 'known-occupancy-80':
         if (canRunControlledContinuation(input.capabilities)) {
           return {
             ...this.decision(
@@ -236,16 +236,21 @@ export class ContextSafetyPolicy {
           nextState,
           occupancyPercent,
         );
-      case 'known-occupancy-85':
-        return this.decision(
-          input,
-          'stop-broad-research',
-          crossed.trigger,
-          'BROAD_RESEARCH_STOPPED',
-          nextState,
-          occupancyPercent,
-        );
       case 'known-occupancy-75':
+        if (!input.atSafeProviderBoundary) {
+          // Keep occupancy-75 unemitted so compact can still fire once idle.
+          if (input.state.emittedTriggers.includes('known-occupancy-70')) {
+            return this.decision(input, 'none', crossed.trigger, 'NO_ACTION', input.state);
+          }
+          return this.decision(
+            input,
+            'steer-turn',
+            'known-occupancy-70',
+            'MID_TURN_STEER_REQUIRED',
+            this.withEmitted(input.state, ['known-occupancy-60', 'known-occupancy-70']),
+            occupancyPercent,
+          );
+        }
         return canUseObservedNativeCompaction(input.capabilities)
           ? this.decision(
               input,
@@ -262,6 +267,15 @@ export class ContextSafetyPolicy {
               nextState,
               occupancyPercent,
             );
+      case 'known-occupancy-70':
+        return this.decision(
+          input,
+          'steer-turn',
+          crossed.trigger,
+          'TURN_STEER_REQUIRED',
+          nextState,
+          occupancyPercent,
+        );
       case 'known-occupancy-60':
         return input.capabilities.transcriptControl === 'rebuild'
           ? this.decision(
@@ -345,7 +359,8 @@ export class ContextSafetyPolicy {
   }
 
   private unknownBudgetReached(sample: ContextPressureSample): boolean {
-    return sample.outputBytesSinceCompaction >= this.unknownOutputByteBudget
+    return (typeof sample.outputBytesSinceCompaction === 'number'
+      && sample.outputBytesSinceCompaction >= this.unknownOutputByteBudget)
       || sample.providerRequestCount >= this.unknownRequestBudget;
   }
 
@@ -422,6 +437,8 @@ function proofForAction(kind: EnforcementAction['kind']): EnforcementAction['pro
     case 'controlled-recovery':
     case 'same-thread-continuation':
       return 'observed';
+    case 'steer-turn':
+      return 'acknowledged';
     default:
       return 'none';
   }

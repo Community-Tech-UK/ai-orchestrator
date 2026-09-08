@@ -35,7 +35,6 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
     iterationPrompt: undefined,
     workspaceCwd,
     provider: 'claude',
-    reviewStyle: 'debate',
     contextStrategy: 'same-session',
     maxTurnsPerIteration: LOOP_DEFAULT_MAX_TURNS_PER_ITERATION,
     failover: defaultLoopFailoverConfig(),

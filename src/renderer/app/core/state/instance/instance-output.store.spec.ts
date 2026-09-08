@@ -94,6 +94,35 @@ describe('InstanceOutputStore', () => {
     expect(bubble?.thinking?.[0]?.content).toBe('reasoning');
   });
 
+  it('does not let a shorter streaming snapshot rewind already-committed assistant text', () => {
+    store.queueOutput('inst-1', {
+      id: 'stream-rewind',
+      timestamp: 2,
+      type: 'assistant',
+      content: "I'll check those attached todo files and whether a single de-duplicated merge already exists.",
+      metadata: {
+        streaming: true,
+        accumulatedContent:
+          "I'll check those attached todo files and whether a single de-duplicated merge already exists.",
+      },
+    });
+    store.flushInstanceOutput('inst-1');
+
+    store.queueOutput('inst-1', {
+      id: 'stream-rewind',
+      timestamp: 3,
+      type: 'assistant',
+      content: "I'll",
+      metadata: { streaming: true, accumulatedContent: "I'll" },
+    });
+    store.flushInstanceOutput('inst-1');
+
+    const buffer = stateService.getInstance('inst-1')?.outputBuffer ?? [];
+    expect(buffer.find((m) => m.id === 'stream-rewind')?.content).toBe(
+      "I'll check those attached todo files and whether a single de-duplicated merge already exists.",
+    );
+  });
+
   it('renders accumulated streaming content in distinct bubbles across turns', () => {
     store.queueOutput('inst-1', {
       id: 'turn-1',

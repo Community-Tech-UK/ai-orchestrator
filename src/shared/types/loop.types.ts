@@ -74,12 +74,6 @@ export const DEFAULT_LOOP_MAX_TOKENS: number | null = null;
  */
 export const DEFAULT_LOOP_MAX_COST_CENTS: number | null = null;
 
-/** What "fresh eyes" looks like at REVIEW stage. */
-export type LoopReviewStyle =
-  | 'single'         // single agent at REVIEW
-  | 'debate'         // 3-agent in-process debate (Claude only)
-  | 'star-chamber';  // Claude + Codex (Gemini deliberately excluded)
-
 /** Where the iteration's LLM context comes from. */
 export type LoopContextStrategy = 'fresh-child' | 'hybrid' | 'same-session';
 
@@ -558,8 +552,6 @@ export interface LoopConfig {
   workspaceCwd: string;
   /** Per-iteration child provider. Default 'claude'. */
   provider: LoopProvider;
-  /** Review style at REVIEW stage. */
-  reviewStyle: LoopReviewStyle;
   /** Context strategy. */
   contextStrategy: LoopContextStrategy;
   /** Hard absolute caps. */

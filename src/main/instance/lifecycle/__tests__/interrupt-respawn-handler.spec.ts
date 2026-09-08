@@ -156,6 +156,7 @@ describe('InterruptRespawnHandler', () => {
   let clearInterrupted: ReturnType<typeof vi.fn>;
   let addToOutputBuffer: ReturnType<typeof vi.fn>;
   let emitOutput: ReturnType<typeof vi.fn>;
+  let onToolStateChange: ReturnType<typeof vi.fn>;
   let handler: InterruptRespawnHandler;
 
   beforeEach(() => {
@@ -168,6 +169,7 @@ describe('InterruptRespawnHandler', () => {
       target.outputBuffer.push(message);
     });
     emitOutput = vi.fn();
+    onToolStateChange = vi.fn();
 
     handler = new InterruptRespawnHandler(withRealRecoveryCore({
       getInstance: (id) => (id === instance.id ? instance : undefined),
@@ -199,6 +201,7 @@ describe('InterruptRespawnHandler', () => {
       // Wired to the REAL RuntimeReconciler core by withRealRecoveryCore().
       applyRecoveryRespawn: undefined as unknown as InterruptRespawnDeps['applyRecoveryRespawn'],
       emitOutput,
+      onToolStateChange,
     }));
   });
 
@@ -233,6 +236,7 @@ describe('InterruptRespawnHandler', () => {
       content: 'Interrupted — waiting for input',
     }));
     expect(queueUpdate.mock.calls.map((call) => call[1])).toEqual(['interrupting', 'cancelling', 'idle']);
+    expect(onToolStateChange).toHaveBeenCalledWith(instance.id, 'idle');
   });
 
   it('keeps an accepted interrupt recoverable when completion later reports rejected', async () => {

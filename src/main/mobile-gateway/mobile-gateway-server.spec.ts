@@ -1647,7 +1647,7 @@ describe('MobileGatewayServer', () => {
     expect(catalog['auto']).toBeUndefined();
     expect(catalog['claude']?.[0]?.id).toBeTruthy();
     expect(catalog['copilot']).toEqual([
-      { id: 'gpt-5.5', name: 'Live GPT 5.5', tier: 'fast', pinned: true, family: 'GPT' },
+      { id: 'gpt-5.5', name: 'Live GPT 5.5', tier: 'fast', family: 'GPT' },
     ]);
     expect(catalog['cursor']?.some((model) => model.id === 'auto')).toBe(true);
     expect(modelCatalog.getModelsByProvider).toHaveBeenCalledWith('copilot');

@@ -77,6 +77,7 @@ import { TranscriptFindBarComponent } from './transcript-find-bar.component';
 import { TranscriptFindController } from './transcript-find-controller';
 import { TranscriptJumpRailComponent } from './transcript-jump-rail.component';
 import { excerptText } from './transcript-jump-rail.markers';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { OutputStreamRenderWindow } from './output-stream-render-window';
 import { InlineEditController } from './output-stream-inline-edit-controller';
 import { TranscriptVirtualizerController } from './transcript-virtualizer-controller';
@@ -106,6 +107,7 @@ interface OlderMessagesProbeResult { hasMore: boolean; totalStored: number }
     ContextMenuComponent,
     TranscriptFindBarComponent,
     TranscriptJumpRailComponent,
+    AioTooltipDirective,
   ],
   templateUrl: './output-stream.component.html',
   styleUrl: './output-stream.component.scss',

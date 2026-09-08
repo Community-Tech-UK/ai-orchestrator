@@ -571,6 +571,8 @@ export class AcpCliAdapter extends BaseCliAdapter {
       // by the adapter and the renderer can park the follow-up message.
       const err = error instanceof Error ? error : new Error(String(error));
       if (isAcpPromptCancelledByClient(err)) {
+        this.clearStreamIdleWatchdog();
+        this.emit('status', 'idle');
         return;
       }
       // This is a scheduling collision, not a provider/runtime failure. Let
@@ -865,6 +867,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
   }
 
   override interrupt(): InterruptResult {
+    this.clearStreamIdleWatchdog();
     if (!this.sessionId || !this.currentPromptRequestId) {
       return { status: 'no-active-turn', reason: 'No ACP prompt is in flight' };
     }

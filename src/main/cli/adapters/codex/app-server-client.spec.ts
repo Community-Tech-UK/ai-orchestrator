@@ -5,6 +5,10 @@ import path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as appServerClientModule from './app-server-client';
 import { CodexContextPressureCollector, type CodexContextDiagnosticRecord } from './context-pressure-diagnostics';
+import {
+  setCodexCommandOutputArchiveDirForTesting,
+} from './codex-command-output-archive';
+import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 
 const { terminateProcessTree, checkAppServerAvailability, ProtocolError } = appServerClientModule;
 
@@ -416,6 +420,28 @@ describe('app-server notification diagnostics', () => {
 
     expect(records).toEqual([]);
     expect(handled).toEqual(['thread/compacted', 'thread/tokenUsage/updated']);
+  });
+});
+
+describe('app-server command-output archive', () => {
+  afterEach(() => {
+    setCodexCommandOutputArchiveDirForTesting(null);
+  });
+
+  it('write-through archives commandExecution output deltas from the transport', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'aio-codex-client-archive-'));
+    setCodexCommandOutputArchiveDirForTesting(dir);
+    const client = createClientDispatchHarness();
+
+    client.handleLine(JSON.stringify({
+      method: 'item/commandExecution/outputDelta',
+      params: { threadId: 'thread-secret', itemId: 'item-1', delta: 'hello from command' },
+    }));
+
+    const files = readdirSync(dir);
+    expect(files).toHaveLength(1);
+    expect(files[0]).not.toContain('thread-secret');
+    expect(readFileSync(path.join(dir, files[0]!), 'utf8')).toBe('hello from command');
   });
 });
 
