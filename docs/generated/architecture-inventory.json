@@ -5859,16 +5859,12 @@
       "lines": 4447
     },
     {
-      "path": "_archive/2026-09-03-enhancements-todo-merged-source.md",
-      "lines": 4356
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-28-wave6-doctor-diagnostics-updates-artifacts-plan_completed.md",
       "lines": 4321
     },
     {
       "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 3997
+      "lines": 3999
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-mempalace-knowledge-features_completed.md",
@@ -5979,16 +5975,16 @@
       "lines": 2339
     },
     {
+      "path": "src/main/history/history-manager.spec.ts",
+      "lines": 2171
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-09-resilient-codex-resume-and-agent-observability_completed.md",
       "lines": 2117
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-c-reliability-lifecycle.md",
       "lines": 2112
-    },
-    {
-      "path": "src/main/history/history-manager.spec.ts",
-      "lines": 2093
     },
     {
       "path": "docs/superpowers/plans/2026-04-13-codemem-phase1-index-and-lsp-facade_completed.md",
@@ -6075,12 +6071,12 @@
       "lines": 1784
     },
     {
-      "path": "src/main/desktop-gateway/desktop-gateway-service.spec.ts",
-      "lines": 1742
+      "path": "src/main/history/history-manager.ts",
+      "lines": 1779
     },
     {
-      "path": "src/main/history/history-manager.ts",
-      "lines": 1736
+      "path": "src/main/desktop-gateway/desktop-gateway-service.spec.ts",
+      "lines": 1742
     },
     {
       "path": "src/main/session/session-continuity.ts",
@@ -6211,16 +6207,16 @@
       "lines": 1362
     },
     {
+      "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
+      "lines": 1352
+    },
+    {
       "path": "src/renderer/app/core/state/source-control.store.spec.ts",
       "lines": 1351
     },
     {
       "path": "src/main/instance/lifecycle/interrupt-respawn-handler.ts",
       "lines": 1350
-    },
-    {
-      "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
-      "lines": 1349
     },
     {
       "path": "src/main/memory/unified-controller.ts",
@@ -6516,7 +6512,7 @@
     },
     {
       "path": "src/main/remote-node/__tests__/rpc-schemas.spec.ts",
-      "lines": 1059
+      "lines": 1061
     },
     {
       "path": "src/renderer/app/features/models/model-selection-panel.component.ts",
@@ -6703,16 +6699,16 @@
       "lines": 925
     },
     {
+      "path": "packages/contracts/src/schemas/loop.schemas.ts",
+      "lines": 922
+    },
+    {
       "path": "src/main/orchestration/loop-completion-detector.spec.ts",
       "lines": 922
     },
     {
       "path": "src/renderer/app/features/plugins/plugins-page.component.ts",
       "lines": 920
-    },
-    {
-      "path": "packages/contracts/src/schemas/loop.schemas.ts",
-      "lines": 917
     },
     {
       "path": "src/main/ipc/learning-ipc-handler.spec.ts",
@@ -6855,6 +6851,10 @@
       "lines": 845
     },
     {
+      "path": "src/main/browser-gateway/browser-health-service.spec.ts",
+      "lines": 844
+    },
+    {
       "path": "src/main/ipc/handlers/session-handlers.ts",
       "lines": 844
     },
@@ -6939,16 +6939,16 @@
       "lines": 816
     },
     {
+      "path": "src/shared/types/loop.types.ts",
+      "lines": 816
+    },
+    {
       "path": "docs/superpowers/specs/2026-05-06-claude-code-feature-harvest-design_completed.md",
       "lines": 814
     },
     {
-      "path": "src/shared/types/loop.types.ts",
-      "lines": 813
-    },
-    {
       "path": "src/main/core/config/settings-control-policy.ts",
-      "lines": 810
+      "lines": 811
     },
     {
       "path": "src/renderer/app/core/state/instance/instance.store.ts",
@@ -6979,15 +6979,15 @@
       "lines": 805
     },
     {
+      "path": "src/shared/types/settings.types.ts",
+      "lines": 805
+    },
+    {
       "path": "src/main/core/config/claude-md-loader.ts",
       "lines": 804
     },
     {
       "path": "src/renderer/app/features/remote-config/remote-config-page.component.ts",
-      "lines": 803
-    },
-    {
-      "path": "src/shared/types/settings.types.ts",
       "lines": 803
     },
     {
@@ -6997,6 +6997,10 @@
     {
       "path": "src/main/orchestration/loop-stage-machine.ts",
       "lines": 802
+    },
+    {
+      "path": "src/renderer/app/core/state/loop.store.ts",
+      "lines": 800
     },
     {
       "path": "src/shared/types/instance.types.ts",

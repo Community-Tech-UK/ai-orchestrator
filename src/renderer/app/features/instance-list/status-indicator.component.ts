@@ -50,7 +50,7 @@ const STATUS_LABELS: Record<InstanceStatus, string> = {
   degraded: 'Degraded',
   error: 'Error',
   failed: 'Failed',
-  terminated: 'Terminated',
+  terminated: 'Closed',
 };
 
 @Component({

@@ -5,7 +5,6 @@ import {
   getWorkerNodeRegistry,
   matchNodeByCapabilityTag,
 } from '../remote-node/worker-node-registry';
-import { resolveBrowserComputerTarget } from './browser-computer-target';
 import { getBrowserProfileStore } from './browser-profile-store';
 import { getBrowserTargetRegistry } from './browser-target-registry';
 
@@ -71,13 +70,13 @@ const defaultDeps: BrowserRemoteOffloadPolicyDeps = {
 
 /**
  * Enforce the remote-browser preference at the authenticated Browser Gateway
- * boundary. Prompt guidance is insufficient here: long-lived agent sessions
- * can retain an older prompt and explicitly request `computer: "local"`.
+ * boundary. Unscoped discovery is routed to a connected browser-capable
+ * worker. An explicit `computer: "local"` stays local — remapping it made
+ * remote-node failures look like a broken coordinator channel.
  *
- * Discovery requests are transparently routed to a connected browser-capable
- * worker. Calls that already carry a coordinator-local target/profile are
- * rejected because a target id is machine-specific and cannot safely be
- * rewritten to a different computer.
+ * Calls that already carry a coordinator-local target/profile are rejected
+ * because a target id is machine-specific and cannot safely be rewritten to a
+ * different computer.
  */
 export function routeBrowserGatewayRequest(
   method: string,
@@ -100,7 +99,7 @@ export function routeBrowserGatewayRequest(
   }
 
   if (DISCOVERY_METHODS.has(method)) {
-    return routeDiscoveryRequest(payload, preferredNode, connectedNodes, deps);
+    return routeDiscoveryRequest(payload, preferredNode);
   }
 
   if (method === 'browser.open_profile') {
@@ -121,8 +120,6 @@ export function routeBrowserGatewayRequest(
 function routeDiscoveryRequest(
   payload: Record<string, unknown>,
   preferredNode: WorkerNodeInfo,
-  connectedNodes: WorkerNodeInfo[],
-  deps: BrowserRemoteOffloadPolicyDeps,
 ): Record<string, unknown> {
   if (
     hasInvalidOptionalString(payload, 'nodeId')
@@ -136,17 +133,7 @@ function routeDiscoveryRequest(
   if (!nodeId && !computer) {
     return withRemoteComputer(payload, preferredNode);
   }
-  if (!computer) {
-    return payload;
-  }
-
-  const computerOnly = resolveBrowserComputerTarget(
-    { computer },
-    { connectedNodes, descriptors: deps.listTargets() },
-  );
-  return computerOnly.ok && computerOnly.target.localOnly
-    ? withRemoteComputer(payload, preferredNode)
-    : payload;
+  return payload;
 }
 
 function assertTargetIsRemote(

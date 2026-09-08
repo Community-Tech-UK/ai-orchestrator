@@ -392,8 +392,11 @@ export class InstanceListComponent implements OnDestroy {
   }
 
   /**
-   * Decision 16(b) — Terminate ends a session that cannot be resumed, and it was
-   * one click with only a hover tooltip as warning. The confirmation itself
+   * Decision 16(b) — closing a session stops the agent and loses whatever it has
+   * not written to disk, and it was one click with only a hover tooltip as
+   * warning. (The thread itself is archived to history and, on a provider with
+   * native resume, can be reopened — which is why the prompt no longer claims
+   * the session "cannot be resumed".) The confirmation itself
    * lives in `TerminateConfirmStore` so that every entry point shares it: it was
    * local state here, which left the Cmd+W `close-instance` action terminating
    * without any prompt at all.
@@ -566,7 +569,7 @@ export class InstanceListComponent implements OnDestroy {
 
     items.push({
       id: 'terminate-session',
-      label: 'Terminate session',
+      label: 'Close session',
       divider: true,
       danger: true,
       // Decision 16(b): route through the SAME confirmation as the row button.

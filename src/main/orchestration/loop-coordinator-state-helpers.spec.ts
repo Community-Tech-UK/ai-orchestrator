@@ -13,6 +13,7 @@ import {
   firstExistingBlockedFile,
   materializeLoopConfig,
   nonGitReviewWorkspaceWarning,
+  clearFreshEyesReuseCache,
   reconcileRestoredLoopState,
 } from './loop-coordinator-state-helpers';
 
@@ -234,6 +235,22 @@ describe('reconcileRestoredLoopState', () => {
     expect(state.status).toBe('paused');
     expect(state.endReason).toBe('app-restart');
     expect(notes.some((n) => n.includes('interrupted paused state'))).toBe(true);
+  });
+
+  it('clears the workspace anchor alongside the verdict', () => {
+    const state = makeRestoredState({
+      freshEyesCleanForWorkState: true,
+      freshEyesCleanWorkspaceDigest: 'anchor-from-before-the-restart',
+    });
+    reconcileRestoredLoopState(state);
+    // Leaving the anchor behind would let a later attempt match it and reuse a
+    // verdict issued before the app was closed.
+    expect(state.freshEyesCleanWorkspaceDigest).toBeUndefined();
+  });
+
+  it('reports whether anything was actually cached', () => {
+    expect(clearFreshEyesReuseCache(makeRestoredState())).toBe(false);
+    expect(clearFreshEyesReuseCache(makeRestoredState({ freshEyesCleanForWorkState: true }))).toBe(true);
   });
 
   it('clears the cached clean fresh-eyes verdict fail-closed (D6 #7)', () => {

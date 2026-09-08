@@ -101,6 +101,7 @@ const WorkerNodeCapabilitiesSchema = z.object({
     extensionVersion: z.string().min(1).max(128).optional(),
     extensionReloadedAt: z.number().int().nonnegative().optional(),
     lastExtensionContactAt: z.number().int().nonnegative().optional(),
+    forwardsRuntimeEvidence: z.boolean().optional(),
   }).optional(),
   hasAndroidMcp: z.boolean().optional().default(false),
   androidAutomation: z.object({

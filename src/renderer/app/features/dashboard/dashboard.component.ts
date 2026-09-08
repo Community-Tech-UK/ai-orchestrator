@@ -393,8 +393,8 @@ export class DashboardComponent implements OnInit, OnDestroy {
         run: () => {
           const instance = this.store.selectedInstance();
           // Decision 16(b): Cmd+W is the default binding for this action, and it
-          // used to end the session outright. Terminating is irreversible, so it
-          // asks first here exactly as the row's × button does.
+          // used to end the session outright. Closing kills the agent and loses
+          // unsaved work, so it asks first, exactly as the row's × button does.
           if (instance) this.terminateConfirm.request(instance.id);
         },
       }),

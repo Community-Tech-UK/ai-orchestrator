@@ -180,7 +180,6 @@ export class LoopConfigPanelComponent {
   verifyCommand = signal('');
   quickVerifyCommand = signal('');
   provider = signal<PickerProvider>('claude');
-  reviewStyle = signal<'single' | 'debate' | 'star-chamber'>('debate');
   contextStrategy = signal<'fresh-child' | 'hybrid' | 'same-session'>('same-session');
   initialStage = signal<'PLAN' | 'REVIEW' | 'IMPLEMENT'>('IMPLEMENT');
   /** Per-iteration wall-clock cap, exposed in minutes for UI sanity. */
@@ -564,6 +563,8 @@ export class LoopConfigPanelComponent {
       workspaceCwd: this.workspaceCwd(),
       planFile,
       provider,
+      // Decision 7(a): dropdown gone, dead 'debate'-defaulted signal removed.
+      // 'single' is what actually runs.
       reviewStyle: 'single',
       contextStrategy: this.contextStrategy() === 'hybrid' ? 'fresh-child' : this.contextStrategy(),
       initialStage: this.showGatedChrome() ? this.initialStage() : 'IMPLEMENT',

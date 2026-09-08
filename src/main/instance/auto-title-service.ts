@@ -11,7 +11,7 @@ import type { CliMessage, CliUsage } from '../cli/adapters/base-cli-adapter';
 import { isCliAvailable } from '../cli/cli-detection';
 import { isProviderNotice } from '../cli/provider-notice';
 import { resolveModelForTier } from '../../shared/types/provider.types';
-import { frontLoadTitle } from '../../shared/types/history.types';
+import { deriveRailTitle, frontLoadTitle } from '../../shared/types/history.types';
 import {
   attachmentLabels,
   deriveAttachmentTaskTitle,
@@ -42,6 +42,13 @@ const MAX_INPUT_LENGTH = 2000;
 
 /** Timeout for the AI title generation (ms) */
 const AI_TITLE_TIMEOUT = 15_000;
+
+/**
+ * Longest model output still treated as a title rather than narration. A model
+ * that answers at this length has ignored the instruction, and its output is
+ * discarded in favour of the deterministic first-message title.
+ */
+const MAX_GENERATED_TITLE_LENGTH = 80;
 const CLI_TITLE_SYSTEM_PROMPT =
   'You generate very short tab titles (3-6 words) that summarize a task. The title is shown in a narrow sidebar and is realistically only legible by its first ~25 characters, so LEAD WITH THE MOST DISTINCTIVE, IDENTIFYING WORD — the project, feature, file, repo, or subject. Never start with generic filler ("Please", "Implement", "Fix", "Review this PR", "Help", "I need", "We need to") or a URL; drop it and open with what makes this task unique. If the message text is generic filler with no specific subject, build the title around the attached file name instead. Reply with ONLY the title — no quotes, no trailing punctuation, no explanation.';
 const CLI_TITLE_USER_INSTRUCTION =
@@ -62,42 +69,53 @@ const FAST_PROVIDER_PREFERENCE = ['antigravity', 'claude', 'codex'] as const;
  * header that would otherwise become "Attached files (relative to workspace…".
  */
 function deriveInstantTitle(message: string, attachmentNames: readonly string[] = []): string | null {
+  // Text too short to say anything — the attachment name is the only subject we
+  // have. (`deriveRailTitle` would happily title from two words; here we would
+  // rather name the file.)
   const preamble = extractAttachmentPreamble(message);
-  if (preamble) {
-    const attachmentTitle = deriveAttachmentTaskTitle(
-      preamble.remainder,
-      [...attachmentNames, ...preamble.paths],
-    );
-    if (attachmentTitle) return attachmentTitle;
-    // No usable file names — fall through and title from the remainder prose.
-    message = preamble.remainder;
+  const prose = preamble ? preamble.remainder : message;
+  if (prose.trim().length < MIN_MESSAGE_LENGTH) {
+    const labels = attachmentLabels([...attachmentNames, ...(preamble?.paths ?? [])]);
+    const fromAttachments = titleFromAttachments(labels);
+    if (fromAttachments) return fromAttachments;
   }
 
-  const labels = attachmentLabels(attachmentNames);
-  const trimmed = message.trim();
+  return deriveRailTitle(message, attachmentNames) || null;
+}
 
-  // No meaningful text — fall back to the attachment name(s) if we have them.
-  if (trimmed.length < MIN_MESSAGE_LENGTH) {
-    return titleFromAttachments(labels);
+/**
+ * Turn raw model output into a title that is safe to put in the rail, or `null`
+ * when it is not usable.
+ *
+ * Both generation paths — the local auxiliary model and the CLI one-shot — run
+ * through this. They used to diverge: the CLI branch rejected over-long output
+ * and provider notices and front-loaded the result, while the auxiliary branch
+ * returned whatever the model said. That hole put a 119-character numbered list
+ * and a 193-character block of leaked chain-of-thought into real session titles.
+ */
+function finalizeGeneratedTitle(
+  raw: string | null | undefined,
+  sourceMessage: string,
+  labels: readonly string[],
+): string | null {
+  const title = sanitizeGeneratedTitle(raw);
+  // Too short to mean anything, or long enough to prove the model ignored the
+  // "3-6 words" instruction and is narrating instead of answering.
+  if (!title || title.length < 3 || title.length > MAX_GENERATED_TITLE_LENGTH) {
+    return null;
+  }
+  // A throttled or errored call can return a provider status notice
+  // ("You've hit your session limit · resets 6:30pm") instead of a title.
+  if (isProviderNotice(title)) {
+    logger.warn('Discarded AI title that looked like a provider limit/status notice', { title });
+    return null;
   }
 
-  // Take the first line, stripping generic lead-ins ("Please …", "review this
-  // PR", a bare URL) so the distinctive part shows up front even before the AI
-  // upgrade lands.
-  const firstLine = trimmed.split(/\r?\n/)[0];
-  const title = truncateForRail(frontLoadTitle(firstLine));
-
-  // The text alone identifies nothing ("Please implement this") but a file is
-  // attached: the file is the subject. Title from its (cleaned) name, led by
-  // the subject rather than the verb — "Please implement this" + a long-named
-  // plan becomes "Chrome devtools managed profile implementation", not
-  // "Implement 2026-06-02-chrome-devtools-…" (whose distinctive part is invisible
-  // once the rail truncates the leading verb away).
-  if (labels.length > 0 && isLowSignalTitle(title)) {
-    return deriveAttachmentTaskTitle(firstLine, labels) ?? title;
+  const frontLoadedTitle = truncateForRail(frontLoadTitle(title));
+  if (labels.length > 0 && isLowSignalTitle(frontLoadedTitle)) {
+    return deriveAttachmentTaskTitle(sourceMessage, labels) ?? frontLoadedTitle;
   }
-
-  return title || titleFromAttachments(labels);
+  return frontLoadedTitle;
 }
 
 function hasSendMessage(adapter: CliAdapter): adapter is CliAdapter & {
@@ -230,8 +248,13 @@ export class AutoTitleService {
         systemPrompt,
         userPrompt,
       );
-      const cleaned = sanitizeGeneratedTitle(generatedTitle);
-      if (decision.source === 'fallback' || !cleaned || cleaned.length < 3) {
+      if (decision.source === 'fallback') return null;
+      const cleaned = finalizeGeneratedTitle(generatedTitle, truncatedMessage, labels);
+      if (!cleaned) {
+        logger.debug('Auxiliary model returned unusable title output', {
+          model: decision.model,
+          outputLength: generatedTitle?.length ?? 0,
+        });
         return null;
       }
       logger.debug('Auto-title via local auxiliary model', {
@@ -286,14 +309,30 @@ export class AutoTitleService {
         auxSystemPrompt,
         auxUserPrompt
       );
-      const cleaned = sanitizeGeneratedTitle(auxTitle);
-      if (auxDecision.source !== 'fallback' && cleaned) {
-        if (cleaned.length >= 3) {
+      if (auxDecision.source !== 'fallback') {
+        const cleaned = finalizeGeneratedTitle(auxTitle, truncatedMessage, labels);
+        if (cleaned) {
           logger.debug('Auto-title via auxiliary model', { source: auxDecision.source, model: auxDecision.model });
           return cleaned;
         }
+        logger.debug('Auxiliary model returned unusable title output', {
+          model: auxDecision.model,
+          outputLength: auxTitle?.length ?? 0,
+        });
       }
-      if (!auxDecision.allowFrontierFallback) return null;
+      if (!auxDecision.allowFrontierFallback) {
+        // Nothing else may run: the local model failed (or was never reachable)
+        // and this slot is not allowed to escalate. The instant first-message
+        // title is what the session keeps. Logged because this used to be a
+        // silent `return null` that hid 4,500+ abandoned upgrades.
+        logger.info('AI title upgrade abandoned — local model unavailable and escalation not permitted', {
+          slot: 'titleGeneration',
+          auxSource: auxDecision.source,
+          fallbackReason: auxDecision.reason,
+          disposition: auxDecision.fallbackDisposition,
+        });
+        return null;
+      }
       fallbackDecision = auxDecision;
     } catch {
       return null;
@@ -379,23 +418,7 @@ export class AutoTitleService {
       return null;
     }
 
-    const title = sanitizeGeneratedTitle(response.content);
-    if (!title || title.length === 0 || title.length > 80) {
-      return null;
-    }
-    // A throttled or errored one-shot can return a provider status notice
-    // ("You've hit your session limit · resets 6:30pm") instead of a title.
-    // Discard it so the instant first-message title stands rather than stamping
-    // the limit message on the session.
-    if (isProviderNotice(title)) {
-      logger.warn('Discarded AI title that looked like a provider limit/status notice', { title });
-      return null;
-    }
-    const frontLoadedTitle = truncateForRail(frontLoadTitle(title));
-    if (labels.length > 0 && isLowSignalTitle(frontLoadedTitle)) {
-      return deriveAttachmentTaskTitle(truncatedMessage, labels) ?? frontLoadedTitle;
-    }
-    return frontLoadedTitle;
+    return finalizeGeneratedTitle(response.content, truncatedMessage, labels);
   }
 
   /**

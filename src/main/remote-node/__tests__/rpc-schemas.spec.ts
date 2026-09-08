@@ -193,6 +193,7 @@ describe('rpc-schemas', () => {
             extensionVersion: '0.2.1',
             extensionReloadedAt: 1_700_000_010_000,
             lastExtensionContactAt: 1_700_000_020_000,
+            forwardsRuntimeEvidence: true,
           },
           hasAndroidMcp: false,
           hasDocker: false,
@@ -210,6 +211,7 @@ describe('rpc-schemas', () => {
         extensionVersion: '0.2.1',
         extensionReloadedAt: 1_700_000_010_000,
         lastExtensionContactAt: 1_700_000_020_000,
+        forwardsRuntimeEvidence: true,
       });
     });
 

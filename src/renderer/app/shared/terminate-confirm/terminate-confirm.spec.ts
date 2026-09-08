@@ -143,7 +143,12 @@ describe('the confirmation itself', () => {
   it('renders a real modal, offers a way out, and says what is lost', () => {
     expect(DIALOG).toContain('aria-modal="true"');
     expect(DIALOG).toContain('Keep running');
-    expect(DIALOG).toContain('cannot be resumed');
+    expect(DIALOG).toContain('written to disk is lost');
+    // The prompt used to claim the session "cannot be resumed". Terminating
+    // archives the thread (instance-termination.ts archiveRootConversation) and
+    // the resume picker offers resumeById/forkNew on that entry, so the claim
+    // was false. Pin it out rather than let it drift back in.
+    expect(DIALOG).not.toContain('cannot be resumed');
   });
 
   /**

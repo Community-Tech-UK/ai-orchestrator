@@ -656,9 +656,14 @@ export const LoopStateSchema = z.object({
   lastVerifiedWorkHash: z.string().optional(),
   /** WS7 Phase A: provider switches performed this run. */
   failoverSwitches: z.number().int().min(0).optional(),
-  /** D6 (#7): cached clean fresh-eyes verdict, valid while no production file
-   *  changed since. Mirrors `LoopState.freshEyesCleanForWorkState`. */
+  /** D6 (#7): cached clean fresh-eyes verdict. Only reusable while
+   *  `freshEyesCleanWorkspaceDigest` still matches the tree.
+   *  Mirrors `LoopState.freshEyesCleanForWorkState`. */
   freshEyesCleanForWorkState: z.boolean().optional(),
+  /** D6 (#7): git anchor (HEAD + status + changed/untracked file content) the
+   *  cached verdict was issued against. Deliberately NOT the reviewer's diff,
+   *  which is truncated. Mirrors `LoopState.freshEyesCleanWorkspaceDigest`. */
+  freshEyesCleanWorkspaceDigest: z.string().optional(),
 
   /** B6: runtime context-window calibration learned from a provider overflow. */
   contextWindowCalibration: LoopContextWindowCalibrationSchema.optional(),

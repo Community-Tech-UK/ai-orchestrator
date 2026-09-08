@@ -157,6 +157,7 @@ export class WorkerExtensionRelay {
         ? {
             enabled: false,
             running: false,
+            forwardsRuntimeEvidence: true,
             ...(this.config.socketPath ? { socketPath: this.config.socketPath } : {}),
             ...(this.registrationSummary ?? {}),
           }
@@ -166,6 +167,7 @@ export class WorkerExtensionRelay {
       enabled: true,
       running: this.isRunning(),
       socketPath: this.getSocketPath(),
+      forwardsRuntimeEvidence: true,
       ...(this.registrationSummary ?? {}),
       ...(this.extensionVersion ? { extensionVersion: this.extensionVersion } : {}),
       ...(this.extensionReloadedAt !== undefined

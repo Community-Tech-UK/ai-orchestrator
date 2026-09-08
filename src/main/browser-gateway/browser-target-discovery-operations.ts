@@ -51,6 +51,7 @@ import {
   selectBrowserTargetForUrl,
   type BrowserTargetPreflightResult,
 } from './browser-target-preflight';
+import { describeInferredWorkerAgentSkew } from './browser-worker-agent-skew';
 
 /**
  * How recently an extension must have re-reported a tab for `find_or_open` to
@@ -152,6 +153,7 @@ export class BrowserTargetDiscoveryOperations {
         targets,
       ),
       this.describeLocalChannelDegradation(computerTarget.target),
+      this.describeWorkerAgentSkew(computerTarget.target),
     ].filter(Boolean).join('; ');
     return this.deps.result({
       context: request,
@@ -193,6 +195,21 @@ export class BrowserTargetDiscoveryOperations {
     }
     return `local extension channel is degraded (${channel.state}): ${channel.summary}`
       + `${channel.remediation ? ` ${channel.remediation}` : ''}`;
+  }
+
+  private describeWorkerAgentSkew(
+    target: BrowserComputerTargetResolution,
+  ): string {
+    if (target.localOnly) {
+      return '';
+    }
+    const nodes = target.nodeId
+      ? [this.deps.getWorkerNode(target.nodeId)]
+      : this.deps.getWorkerNodes();
+    return nodes
+      .map((node) => describeInferredWorkerAgentSkew(node))
+      .filter(Boolean)
+      .join('; ');
   }
 
   /**
@@ -282,6 +299,22 @@ export class BrowserTargetDiscoveryOperations {
         outcome: 'not_run',
         reason: computerTarget.reason,
         summary: `Browser target lookup denied: ${computerTarget.reason}`,
+        ...(url ? { url } : {}),
+        data: null,
+      });
+    }
+
+    const skewReason = this.describeWorkerAgentSkew(computerTarget.target);
+    if (skewReason) {
+      return this.deps.result({
+        context: request,
+        action: 'find_or_open',
+        toolName: 'browser.find_or_open',
+        actionClass: url ? 'navigate' : 'read',
+        decision: 'allowed',
+        outcome: 'failed',
+        reason: skewReason,
+        summary: `Browser target lookup failed: ${skewReason}`,
         ...(url ? { url } : {}),
         data: null,
       });

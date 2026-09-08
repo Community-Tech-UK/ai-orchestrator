@@ -2089,4 +2089,82 @@ describe('HistoryManager', () => {
     expect(byId['e-renamed']).toBeUndefined();
     expect(byId['e-short']).toBeUndefined();
   });
+
+  it('does not re-attempt an entry whose title generation came back empty', async () => {
+    const storageDir = path.join(userDataDir, 'conversation-history');
+    fs.mkdirSync(storageDir, { recursive: true });
+
+    const entries = [
+      {
+        id: 'e-fails',
+        displayName: 'd',
+        firstUserMessage: 'Please harden the coin accounting flow',
+        originalInstanceId: 'i1',
+        sessionId: 's1',
+        createdAt: 1,
+        endedAt: 2,
+        workingDirectory: '/tmp/b',
+        messageCount: 1,
+        status: 'completed',
+        parentId: null,
+        lastUserMessage: 'x',
+      },
+    ];
+    fs.writeFileSync(
+      path.join(storageDir, 'index.json'),
+      JSON.stringify({ version: 1, lastUpdated: Date.now(), entries }, null, 2)
+    );
+
+    const { HistoryManager } = await import('./history-manager');
+    const manager = track(new HistoryManager());
+
+    // No local model available: generation resolves to null rather than throwing.
+    const generate = vi.fn(async () => null);
+
+    await manager.backfillMissingAiTitles(manager.getEntries(), generate);
+    expect(generate).toHaveBeenCalledTimes(1);
+
+    // Listing history again must NOT ask a second time — this is the hot retry
+    // loop that produced 280 abandoned attempts in one hour.
+    await manager.backfillMissingAiTitles(manager.getEntries(), generate);
+    await manager.backfillMissingAiTitles(manager.getEntries(), generate);
+    expect(generate).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not re-attempt an entry whose title generation threw', async () => {
+    const storageDir = path.join(userDataDir, 'conversation-history');
+    fs.mkdirSync(storageDir, { recursive: true });
+
+    const entries = [
+      {
+        id: 'e-throws',
+        displayName: 'd',
+        firstUserMessage: 'Please harden the coin accounting flow',
+        originalInstanceId: 'i1',
+        sessionId: 's1',
+        createdAt: 1,
+        endedAt: 2,
+        workingDirectory: '/tmp/b',
+        messageCount: 1,
+        status: 'completed',
+        parentId: null,
+        lastUserMessage: 'x',
+      },
+    ];
+    fs.writeFileSync(
+      path.join(storageDir, 'index.json'),
+      JSON.stringify({ version: 1, lastUpdated: Date.now(), entries }, null, 2)
+    );
+
+    const { HistoryManager } = await import('./history-manager');
+    const manager = track(new HistoryManager());
+
+    const generate = vi.fn(async () => {
+      throw new Error('worker unreachable');
+    });
+
+    await manager.backfillMissingAiTitles(manager.getEntries(), generate);
+    await manager.backfillMissingAiTitles(manager.getEntries(), generate);
+    expect(generate).toHaveBeenCalledTimes(1);
+  });
 });

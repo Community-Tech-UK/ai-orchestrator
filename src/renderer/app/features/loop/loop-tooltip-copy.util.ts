@@ -20,8 +20,13 @@ export function resumeTooltipFor(pauseKind: string | null | undefined): string {
 
 /**
  * The metric strip is one dense line. Its tooltip is where the per-number
- * honesty lives: what is estimated, what is provider-reported, and the fact
- * that an iteration cap adds a wrap-up turn on top.
+ * honesty lives: what is estimated, what is provider-reported, and what a cap
+ * actually does when it trips.
+ *
+ * The wrap-up sentence there says a cap CAN add a turn, not that it does: it
+ * additionally requires `capWrapUpIteration` and a provider that enforces the
+ * wrap-up tools-disable (`loop-pre-iteration-guard.ts`), today only Claude.
+ * This was the fourth place the flat version of that claim appeared.
  */
 export function metricStripTooltipFor(
   hasActiveLoop: boolean,

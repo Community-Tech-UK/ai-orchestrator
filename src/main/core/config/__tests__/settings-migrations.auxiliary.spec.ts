@@ -37,8 +37,47 @@ function titleFallbackEnabled(store: { values: Record<string, unknown> }): boole
   return slots.titleGeneration?.allowFrontierFallback;
 }
 
+function titleBudget(store: { values: Record<string, unknown> }): number | undefined {
+  const slots = JSON.parse(store.values['auxiliaryLlmSlotsJson'] as string) as {
+    titleGeneration?: { maxOutputTokens?: number };
+  };
+  return slots.titleGeneration?.maxOutputTokens;
+}
+
 describe('auxiliary title fallback migration', () => {
-  it('disables a persisted paid title fallback once, then preserves a later user opt-in', () => {
+  it('re-enables a persisted disabled title fallback once, then preserves a later user opt-out', () => {
+    const store = createStore({
+      auxiliaryLlmSlotsJson: JSON.stringify({
+        titleGeneration: {
+          enabled: true,
+          provider: 'auto',
+          maxInputTokens: 12_000,
+          maxOutputTokens: 512,
+          temperature: 0.2,
+          timeoutMs: 45_000,
+          requireJson: false,
+          allowFrontierFallback: false,
+        },
+      }),
+      copilotAccountProfiles: [],
+      __migration_copilot_legacy_profile_20260825: true,
+    });
+
+    runSettingsMigrations(store);
+    expect(titleFallbackEnabled(store)).toBe(true);
+
+    const slots = JSON.parse(store.values['auxiliaryLlmSlotsJson'] as string) as Record<
+      string,
+      Record<string, unknown>
+    >;
+    slots['titleGeneration']!['allowFrontierFallback'] = false;
+    store.values['auxiliaryLlmSlotsJson'] = JSON.stringify(slots);
+
+    runSettingsMigrations(store);
+    expect(titleFallbackEnabled(store)).toBe(false);
+  });
+
+  it('raises a 512-token title budget to fit a reasoning model, once', () => {
     const store = createStore({
       auxiliaryLlmSlotsJson: JSON.stringify({
         titleGeneration: {
@@ -57,16 +96,17 @@ describe('auxiliary title fallback migration', () => {
     });
 
     runSettingsMigrations(store);
-    expect(titleFallbackEnabled(store)).toBe(false);
+    expect(titleBudget(store)).toBe(1536);
 
+    // A later deliberate reduction is the user's call and must survive.
     const slots = JSON.parse(store.values['auxiliaryLlmSlotsJson'] as string) as Record<
       string,
       Record<string, unknown>
     >;
-    slots['titleGeneration']!['allowFrontierFallback'] = true;
+    slots['titleGeneration']!['maxOutputTokens'] = 256;
     store.values['auxiliaryLlmSlotsJson'] = JSON.stringify(slots);
 
     runSettingsMigrations(store);
-    expect(titleFallbackEnabled(store)).toBe(true);
+    expect(titleBudget(store)).toBe(256);
   });
 });

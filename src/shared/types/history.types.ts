@@ -6,7 +6,15 @@ import type { BrowserToolsMode, InstanceProvider, OutputMessage } from './instan
 import type { CopilotRouteSource } from './copilot-account.types';
 import type { InstanceRuntimeSummary } from './local-model-runtime.types';
 import type { SessionRecallResult } from './session-recall.types';
-import { deriveAttachmentTaskTitle, extractAttachmentPreamble, sanitizeGeneratedTitle } from './title-derivation';
+import {
+  attachmentLabels,
+  deriveAttachmentTaskTitle,
+  extractAttachmentPreamble,
+  isLowSignalTitle,
+  sanitizeGeneratedTitle,
+  titleFromAttachments,
+  truncateForRail,
+} from './title-derivation';
 import type { ExecutionLocation } from './worker-node.types';
 
 /**
@@ -207,7 +215,11 @@ function normalizeHistoryTitlePart(value: string | null | undefined): string {
 }
 
 function normalizeGeneratedHistoryTitlePart(value: string | null | undefined): string {
-  return sanitizeGeneratedTitle(value) ?? '';
+  const cleaned = sanitizeGeneratedTitle(value);
+  // Generated titles are capped at the rail budget. A model that ignores the
+  // "3-6 words" instruction — or leaks its reasoning into the answer — must not
+  // be able to push a 190-character paragraph into a 60-character rail.
+  return cleaned ? truncateForRail(cleaned) : '';
 }
 
 /**
@@ -300,6 +312,58 @@ export function frontLoadTitle(value: string | null | undefined): string {
 
   // Capitalize the first alphabetic character for a tidy rail title.
   return result.replace(/^(\p{Ll})/u, (char) => char.toUpperCase());
+}
+
+/**
+ * Reduce a raw prompt to the exact string the rail should show for it:
+ * attachment-aware, first line only, front-loaded, and truncated to the rail
+ * budget.
+ *
+ * This is the single derivation shared by the live auto-title path
+ * (`AutoTitleService`) and the history resolver below. They used to derive
+ * independently — the live path took the first line and truncated, the history
+ * path front-loaded the whole message and never truncated — so a session's
+ * title visibly changed the moment it stopped being a live rail item. Any
+ * change to how a message becomes a title belongs here, in one place, or the
+ * two surfaces drift again.
+ *
+ * Returns `''` when the text carries nothing titleable, so callers can fall
+ * through to their next candidate.
+ */
+export function deriveRailTitle(
+  message: string | null | undefined,
+  attachmentNames: readonly string[] = [],
+): string {
+  // A loop started with attachments prepends an injected "Attached files …"
+  // block. The attached files are the subject, so title from their names rather
+  // than from the boilerplate header. Run before any line slicing — the block
+  // is line-structured and would not survive it.
+  const preamble = extractAttachmentPreamble(message);
+  let body = message ?? '';
+  if (preamble) {
+    const attachmentTitle = deriveAttachmentTaskTitle(
+      preamble.remainder,
+      [...attachmentNames, ...preamble.paths],
+    );
+    if (attachmentTitle) return attachmentTitle;
+    // No usable file names — title from the prose that followed the block.
+    body = preamble.remainder;
+  }
+
+  const labels = attachmentLabels(attachmentNames);
+  const trimmed = body.trim();
+  if (!trimmed) return titleFromAttachments(labels) ?? '';
+
+  const firstLine = trimmed.split(/\r?\n/)[0];
+  const title = truncateForRail(frontLoadTitle(firstLine));
+
+  // The text alone identifies nothing ("Please implement this") but a file is
+  // attached: the file is the subject.
+  if (labels.length > 0 && isLowSignalTitle(title)) {
+    return deriveAttachmentTaskTitle(firstLine, labels) ?? title;
+  }
+
+  return title || titleFromAttachments(labels) || '';
 }
 
 function inferHistoryProviderFromRestoreId(
@@ -400,11 +464,29 @@ export function getConversationHistoryTitle(
     if (renamed) return renamed;
   }
 
+  // Every non-rename candidate goes through the same display normalization the
+  // live resolver applies, so the two surfaces cannot differ by so much as a
+  // trailing full stop.
+  const stored = normalizeGeneratedHistoryTitlePart(entry.displayName);
+  const derivedFirst = normalizeGeneratedHistoryTitlePart(deriveRailTitle(entry.firstUserMessage));
+  const derivedLast = normalizeGeneratedHistoryTitlePart(deriveRailTitle(entry.lastUserMessage));
+
+  // The stored title was computed with strictly more context than we can
+  // recover here: the names of the files attached to the first message. When
+  // re-deriving from the prose alone collapses to pure filler ("Fix", "Implement
+  // this"), the stored title is the better one — "Pasted-image-9.png fix" must
+  // not degrade to "Fix" the moment the session stops being live. Only applies
+  // when there IS a first message to derive from; an absent one still falls
+  // through to the last message.
+  const storedBeatsDerivation =
+    Boolean(stored) && Boolean(derivedFirst) && isLowSignalTitle(derivedFirst);
+
   const candidates = [
     normalizeGeneratedHistoryTitlePart(entry.aiTitle),
-    frontLoadTitle(entry.firstUserMessage),
-    frontLoadTitle(entry.lastUserMessage),
-    normalizeGeneratedHistoryTitlePart(entry.displayName),
+    storedBeatsDerivation ? stored : '',
+    derivedFirst,
+    derivedLast,
+    stored,
   ].filter(Boolean);
 
   return candidates[0] || 'Untitled thread';
@@ -438,7 +520,9 @@ export function resolveEffectiveInstanceTitle(
       return instance.displayName;
     }
 
-    const generatedTitle = sanitizeGeneratedTitle(instance.displayName);
+    // Capped exactly as the history resolver caps its generated candidates, so
+    // a title cannot change length the moment a session stops being live.
+    const generatedTitle = normalizeGeneratedHistoryTitlePart(instance.displayName);
     if (generatedTitle) {
       return generatedTitle;
     }

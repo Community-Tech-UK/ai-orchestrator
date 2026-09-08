@@ -395,8 +395,19 @@ export function resolveCompletion(input: EvidenceInput): EvidenceResolution {
   // --- Determine the independent completion authority ---
   //
   // Tier-2 authority is EITHER a passing verify command OR a fresh-eyes
-  // cross-model review that actually produced a verdict (it ran AND the
-  // reviewer infrastructure did not error out). Without one of those, the
+  // cross-model review that produced a verdict (it ran AND the reviewer
+  // infrastructure did not error out).
+  //
+  // Since Decision 15(b) "it ran" also covers a REUSED verdict: the gate's
+  // instant ALLOW returns `ran: true, errored: false` without invoking a
+  // reviewer, when the git anchor says the tree is unchanged since the last
+  // clean review. In a no-verify loop that makes a reused verdict the sole
+  // completion authority. That is intended — the alternative is paying for a
+  // fresh multi-minute review of a tree that has not moved — and it is only
+  // sound because the anchor is unbounded and fails closed. See
+  // `loop-review-reuse-anchor.ts` for exactly what it does and does not see.
+  //
+  // Without one of those, the
   // agent's completion signal is self-declared only and we must NOT
   // auto-terminate — pausing for an operator is the safe terminal.
   //

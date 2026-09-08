@@ -26,10 +26,8 @@ import {
 } from '../../shared/types/auxiliary-llm.types';
 import { auxiliaryRemoteHooks } from './auxiliary-remote-hooks';
 import {
-  probeOllamaEndpoint,
   listOllamaModels,
   generateWithOllama,
-  probeOpenAiCompatibleEndpoint,
   listOpenAiCompatibleModels,
   generateWithOpenAiCompatible,
 } from './auxiliary-model-client';
@@ -38,11 +36,13 @@ import { getLogger } from '../logging/logger';
 import { retryAuxiliaryGeneration } from './auxiliary-generation-retry';
 import { AuxiliaryDailySpendCap } from './auxiliary-daily-spend-cap';
 import { resolveAuxiliaryEndpointApiKey } from './auxiliary-api-key-resolver';
-import { AuxiliaryModelFailureCache, computeNumCtx, localhostOllamaEndpoint, resolveSlotModel, pickModelForTier, workerEndpointHealthy, workerLoadedContexts, endpointAdvertisesModel, DEFAULT_SLOT_TIERS } from './auxiliary-llm-utils';
+import { AuxiliaryModelFailureCache, computeNumCtx, localhostOllamaEndpoint, resolveSlotModel, pickModelForTier, workerLoadedContexts, endpointAdvertisesModel, DEFAULT_SLOT_TIERS } from './auxiliary-llm-utils';
 import { sanitizeProviderText } from '../security/surrogate-sanitizer';
 import {
   buildAuthorizedAuxiliaryFallback,
   classifyAuxiliarySource,
+  describeAuxiliaryResolutionFailure,
+  recordAuxiliaryIneligibility,
   evaluateManagedAuxiliaryEndpoint,
   invalidateManagedAuxiliaryTarget,
   managedAuxiliaryModelsAvailable,
@@ -52,6 +52,11 @@ import {
   type LocalAiResolutionContext,
   type ResolvedAuxiliaryEndpoint,
 } from './auxiliary-local-ai-guard';
+import {
+  AuxiliaryEndpointHealthCache,
+  AuxiliaryResolutionWarningThrottle,
+  listAuxiliaryModelsForRouting,
+} from './auxiliary-routing-diagnostics';
 import {
   auxiliaryWorkerSourceKeys,
   collectAuxiliaryWorkerEndpointConfigs,
@@ -72,7 +77,6 @@ export {
 const AUXILIARY_MODEL_GENERATE_METHOD = 'auxiliaryModel.generate';
 const logger = getLogger('AuxiliaryLlmService');
 // ─── Constants ────────────────────────────────────────────────────────────────
-const HEALTH_CACHE_TTL_MS = 60_000;
 const PROBE_TIMEOUT_MS = 5_000;
 
 type AuxiliaryLlmConfigSubset = Pick<
@@ -87,11 +91,6 @@ type AuxiliaryLlmConfigSubset = Pick<
   | 'auxiliaryLlmQuickModel'
   | 'auxiliaryLlmQualityModel'
 >;
-
-interface HealthCacheEntry {
-  healthy: boolean;
-  checkedAt: number;
-}
 
 function parseDefaultSlots(): AuxiliaryLlmSlotConfigMap {
   try {
@@ -114,11 +113,13 @@ export class AuxiliaryLlmService extends EventEmitter {
   private qualityModel = '';
   private readonly dailySpendCap = new AuxiliaryDailySpendCap();
 
-  // endpointId → health cache entry
-  private healthCache = new Map<string, HealthCacheEntry>();
+  private readonly endpointHealth = new AuxiliaryEndpointHealthCache();
 
   // Auto-picked models that recently failed, so the next pick steps down.
   private readonly modelFailures = new AuxiliaryModelFailureCache();
+
+  // Keeps routing failures visible in the log without flooding it.
+  private readonly resolutionWarnings = new AuxiliaryResolutionWarningThrottle();
 
   private constructor() {
     super();
@@ -166,7 +167,7 @@ export class AuxiliaryLlmService extends EventEmitter {
     this.slots = { ...defaults, ...parsedSlots } as AuxiliaryLlmSlotConfigMap;
 
     // Invalidate health cache when config changes
-    this.healthCache.clear();
+    this.endpointHealth.clear();
     this.modelFailures.clear();
     logger.info('AuxiliaryLlmService configured', {
       enabled: this.enabled,
@@ -259,7 +260,9 @@ export class AuxiliaryLlmService extends EventEmitter {
     const localAiContext: LocalAiResolutionContext = {};
     const resolved = await this.resolveEndpointForSlot(slot, slotConfig, localAiContext);
     if (!resolved) {
-      return fallback('No healthy auxiliary endpoint/model available',
+      const detail = describeAuxiliaryResolutionFailure(localAiContext);
+      this.resolutionWarnings.warn(slot, detail);
+      return fallback(detail,
         slotConfig.allowFrontierFallback, truncated,
         localAiContext.intendedTargetId, slotConfig.maxOutputTokens);
     }
@@ -334,14 +337,26 @@ export class AuxiliaryLlmService extends EventEmitter {
       if (ep && managedTarget !== null) {
         // A managed target's fresh scheduler verdict is authoritative. Worker
         // heartbeat capability data is only a discovery hint and can lag it.
-        const healthy = managedTarget ? true : await this.isEndpointHealthy(ep);
+        const healthy = managedTarget ? true : await this.endpointHealth.isHealthy(ep);
         if (!healthy) {
+          recordAuxiliaryIneligibility(localAiContext, ep.id, 'endpoint-heartbeat-unhealthy');
           invalidateManagedAuxiliaryTarget(managedTarget);
           return null;
         }
-        const ids = (await this.listModels(ep, undefined, managedTarget !== undefined))
-          .map((m) => m.id);
-        if (!managedAuxiliaryModelsAvailable(managedTarget, ids)) return null;
+        // Same probe-failure rule as the auto-routing path below: an unknown
+        // inventory is reported distinctly from an empty one, but still
+        // invalidates the target.
+        const inventory = await listAuxiliaryModelsForRouting(ep, managedTarget !== undefined);
+        if (inventory.probeFailed) {
+          recordAuxiliaryIneligibility(localAiContext, ep.id, 'model-inventory-probe-failed');
+          invalidateManagedAuxiliaryTarget(managedTarget);
+          return null;
+        }
+        const ids = inventory.ids;
+        if (!managedAuxiliaryModelsAvailable(managedTarget, ids)) {
+          recordAuxiliaryIneligibility(localAiContext, ep.id, 'required-models-missing');
+          return null;
+        }
         if (endpointAdvertisesModel(ep.source, slotConfig.model, ids)) {
           return {
             endpoint: ep,
@@ -349,6 +364,9 @@ export class AuxiliaryLlmService extends EventEmitter {
             ...(managedTarget ? { intendedTargetId: managedTarget.targetId } : {}),
           };
         }
+        recordAuxiliaryIneligibility(
+          localAiContext, ep.id, `pinned-model-not-advertised-${slotConfig.model}`,
+        );
         invalidateManagedAuxiliaryTarget(managedTarget);
       }
     }
@@ -432,17 +450,34 @@ export class AuxiliaryLlmService extends EventEmitter {
     // Enrolled targets just passed the authoritative health engine. Do not
     // veto that result with the worker's shorter, independently timed
     // heartbeat probe; refresh the model inventory over RPC below instead.
-    const healthy = managedTarget ? true : await this.isEndpointHealthy(ep);
+    const healthy = managedTarget ? true : await this.endpointHealth.isHealthy(ep);
     if (!healthy) {
+      recordAuxiliaryIneligibility(localAiContext, ep.id, 'endpoint-heartbeat-unhealthy');
       invalidateManagedAuxiliaryTarget(managedTarget);
       return null;
     }
 
     // Effective tier: explicit tier, or name-based default for legacy configs.
     const tier = slotConfig.tier ?? DEFAULT_SLOT_TIERS[slot];
-    const ids = (await this.listModels(ep, undefined, managedTarget !== undefined))
-      .map((m) => m.id);
-    if (!managedAuxiliaryModelsAvailable(managedTarget, ids)) return null;
+    const inventory = await listAuxiliaryModelsForRouting(ep, managedTarget !== undefined);
+    if (inventory.probeFailed) {
+      // A failed probe means the inventory is UNKNOWN, not empty — worth saying
+      // so in the fallback reason, because "endpoint advertises no models" sends
+      // the next reader somewhere quite different from "the RPC timed out".
+      //
+      // The target is still invalidated, deliberately: a listing that throws is
+      // itself evidence the endpoint may be unwell, and re-verifying its health
+      // is the established contract here (see the `local-ai-auxiliary-integration`
+      // spec). Only the *reason* is new.
+      recordAuxiliaryIneligibility(localAiContext, ep.id, 'model-inventory-probe-failed');
+      invalidateManagedAuxiliaryTarget(managedTarget);
+      return null;
+    }
+    const ids = inventory.ids;
+    if (!managedAuxiliaryModelsAvailable(managedTarget, ids)) {
+      recordAuxiliaryIneligibility(localAiContext, ep.id, 'required-models-missing');
+      return null;
+    }
     const preferred = resolveSlotModel(slotConfig, tier, this.quickModel, this.qualityModel);
     // Use a pinned/tier model only if the endpoint advertises it (see helper for
     // the empty-list rule); otherwise auto-pick by tier from what's listed.
@@ -453,12 +488,16 @@ export class AuxiliaryLlmService extends EventEmitter {
         ...(managedTarget ? { intendedTargetId: managedTarget.targetId } : {}),
       };
     }
-    if (ids.length === 0) return null;
+    if (ids.length === 0) {
+      recordAuxiliaryIneligibility(localAiContext, ep.id, 'endpoint-advertises-no-models');
+      return null;
+    }
     // Prefer a model already loaded with adequate context (worker endpoints only).
     const loaded = ep.source === 'worker-node'
       ? workerLoadedContexts(auxiliaryRemoteHooks.connectedWorkerNodes(), ep.workerNodeId, ep.provider, ep.baseUrl)
       : undefined;
     const picked = pickModelForTier(this.modelFailures.usable(ep.id, ids), tier, loaded);
+    if (!picked) recordAuxiliaryIneligibility(localAiContext, ep.id, `no-model-for-tier-${tier}`);
     return picked
       ? {
           endpoint: ep,
@@ -470,41 +509,6 @@ export class AuxiliaryLlmService extends EventEmitter {
   }
 
   // ─── Private: health cache ──────────────────────────────────────────────────
-
-  private async isEndpointHealthy(
-    ep: AuxiliaryLlmEndpointConfig,
-    signal?: AbortSignal,
-  ): Promise<boolean> {
-    if (signal?.aborted) return false;
-    const cached = this.healthCache.get(ep.id);
-    if (cached && Date.now() - cached.checkedAt < HEALTH_CACHE_TTL_MS) {
-      return cached.healthy;
-    }
-
-    let healthy: boolean;
-    try {
-      if (ep.source === 'worker-node') {
-        // Healthy only when the node is connected AND its heartbeat reports the local model server up.
-        healthy = !!ep.workerNodeId && auxiliaryRemoteHooks.isNodeConnected(ep.workerNodeId)
-          && workerEndpointHealthy(auxiliaryRemoteHooks.connectedWorkerNodes(), ep.workerNodeId, ep.provider, ep.baseUrl);
-      } else if (ep.provider === 'ollama') {
-        healthy = signal
-          ? await probeOllamaEndpoint(ep.baseUrl, PROBE_TIMEOUT_MS, signal)
-          : await probeOllamaEndpoint(ep.baseUrl, PROBE_TIMEOUT_MS);
-      } else {
-        const apiKey = await resolveAuxiliaryEndpointApiKey(ep);
-        if (signal?.aborted) return false;
-        healthy = signal
-          ? await probeOpenAiCompatibleEndpoint(ep.baseUrl, apiKey, PROBE_TIMEOUT_MS, signal)
-          : await probeOpenAiCompatibleEndpoint(ep.baseUrl, apiKey, PROBE_TIMEOUT_MS);
-      }
-    } catch {
-      healthy = false;
-    }
-
-    if (!signal?.aborted) this.healthCache.set(ep.id, { healthy, checkedAt: Date.now() });
-    return healthy;
-  }
 
   // ─── Private: model listing ─────────────────────────────────────────────────
 
@@ -670,7 +674,7 @@ export class AuxiliaryLlmService extends EventEmitter {
     ep: AuxiliaryLlmEndpointConfig,
     signal: AbortSignal,
   ): Promise<AuxiliaryLlmCandidate | undefined> {
-    const healthy = await this.isEndpointHealthy(ep, signal);
+    const healthy = await this.endpointHealth.isHealthy(ep, signal);
     if (signal.aborted) return undefined;
     let models: AuxiliaryLlmModelInfo[] = [];
     let reason: string | undefined;

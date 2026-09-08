@@ -22,6 +22,11 @@ export class DiscoveryService {
   }
 
   publish(port: number, namespace: string, coordinatorId: string): void {
+    // Idempotent: the startup path publishes, and toggling the server in
+    // Settings publishes again. Without this the second call would overwrite
+    // `bonjour` and leak the previous instance, leaving a stale advertisement
+    // pointing at the old port for workers to discover.
+    this.unpublish();
     try {
       this.bonjour = new Bonjour();
       this.published = this.bonjour.publish({

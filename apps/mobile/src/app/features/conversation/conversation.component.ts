@@ -462,7 +462,7 @@ export class ConversationComponent {
 
   protected async terminate(): Promise<void> {
     this.menuOpen.set(false);
-    if (!confirm('Terminate this session?')) return;
+    if (!confirm('Close this session? The agent stops and unsaved work is lost.')) return;
     this.haptics.heavyTap();
     try {
       await this.gateway.terminate(this.instanceId());
@@ -471,7 +471,7 @@ export class ConversationComponent {
       // Was silent, so a rejected token made this look like a dead button. Match
       // the notice pattern the send/stop/cancel actions already use.
       this.haptics.error();
-      this.showNotice(`Terminate failed: ${errorText(err)}`, true);
+      this.showNotice(`Close failed: ${errorText(err)}`, true);
     }
   }
 

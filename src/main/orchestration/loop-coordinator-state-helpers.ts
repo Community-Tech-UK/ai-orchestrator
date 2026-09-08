@@ -151,6 +151,22 @@ export function cloneLoopStateForBroadcast(s: LoopState): LoopState {
 }
 
 /**
+ * Drop any cached clean fresh-eyes verdict and the tree it was anchored to.
+ *
+ * One function rather than three inline pairs, because the bug this guards
+ * against was exactly a missed invalidation site: `resumeLoop()` never cleared
+ * the cache, so a loop parked on a provider limit for hours kept a verdict
+ * covering a tree it had stopped watching. Returns whether anything was
+ * actually cached, so callers can report it.
+ */
+export function clearFreshEyesReuseCache(state: LoopState): boolean {
+  if (!state.freshEyesCleanForWorkState) return false;
+  state.freshEyesCleanForWorkState = false;
+  state.freshEyesCleanWorkspaceDigest = undefined;
+  return true;
+}
+
+/**
  * Crash-restore reconciliation applied to a checkpointed LoopState before it
  * re-enters the active map. Pure state mutation; returns human-readable notes
  * for the caller to log. Three rules:
@@ -185,8 +201,7 @@ export function reconcileRestoredLoopState(state: LoopState): string[] {
       `treating running checkpoint as interrupted paused state (inFlightSeq ${state.inFlightIteration?.seq ?? 'none'})`,
     );
   }
-  if (state.freshEyesCleanForWorkState) {
-    state.freshEyesCleanForWorkState = false;
+  if (clearFreshEyesReuseCache(state)) {
     notes.push('cleared cached clean fresh-eyes verdict (unobserved offline changes possible)');
   }
   return notes;

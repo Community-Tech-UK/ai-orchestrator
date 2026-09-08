@@ -1,6 +1,7 @@
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getThinClientWsServer } from '../event-bus/thin-client-ws-server';
 import { getLogger } from '../logging/logger';
+import { getNotificationService } from '../notifications/notification-service';
 import { getMobileGatewayServer } from '../mobile-gateway/mobile-gateway-server';
 import { setBrowserEscalationNotifyHook } from '../browser-gateway/browser-unattended-services';
 import { IPC_CHANNELS } from '../../shared/types/ipc.types';
@@ -12,6 +13,7 @@ import {
   RpcEventRouter,
   getRemoteNodeConfig,
   hydrateRemoteNodeConfig,
+  getDiscoveryService,
 } from '../remote-node';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { AppInitializationContext, AppInitializationStep } from './initialization-steps';
@@ -72,9 +74,38 @@ export function createWorkerNodeSubsystemStep(
         handleLateNodeReconnect(nodeId, instanceManager);
       });
       registry.on('node:disconnected', (node) => {
+        const nodeId = typeof node === 'string' ? node : node.id;
+        const nodeName = typeof node === 'string' ? node : node.name;
         windowManager.sendToRenderer('remote-node:event', {
           type: 'disconnected',
-          nodeId: typeof node === 'string' ? node : node.id,
+          nodeId,
+        });
+        // Nothing else tells the operator. On 2026-09-07 a node dropped at 09:31
+        // and was noticed nearly four hours later only because someone happened
+        // to ask. The name has to come off the event: deregisterNode() removes
+        // the node from the registry BEFORE it emits, so getNode() here is
+        // always undefined.
+        if (getSettingsManager().get('notifyOnNodeDisconnect') === false) return;
+        getNotificationService().notify({
+          kind: 'node-disconnected',
+          title: 'Worker node disconnected',
+          body: `${nodeName} is no longer connected`,
+          // Critical on purpose: it bypasses quiet hours and the per-kind
+          // cooldown. An overnight drop is precisely the case worth waking
+          // someone for — the incident this exists for ran from 09:31 to 13:28
+          // unnoticed, and a night-time one would simply run longer.
+          // Fingerprint dedupe is checked BEFORE the urgency branches
+          // (notification-service.ts:162), so ONE flapping node still collapses
+          // into a single alert rather than a stream.
+          //
+          // Accepted tradeoff: that dedupe is per {kind, nodeId}, while the
+          // cooldown critical skips is per kind. So N *different* nodes dropping
+          // together produce N alerts with no digest. That is deliberate — a
+          // simultaneous multi-node drop is a bigger event than a single one,
+          // not a smaller one, and silently collapsing it would hide the blast
+          // radius. Revisit if this ever runs against a large fleet.
+          urgency: 'critical',
+          fingerprintFields: { nodeId },
         });
       });
       registry.on('node:updated', (node) => {
@@ -86,6 +117,14 @@ export function createWorkerNodeSubsystemStep(
       });
 
       await connection.start(config.serverPort, config.serverHost);
+      // Advertise over mDNS here, not only from the Settings "start server" IPC
+      // handler. Workers keep a discovery browser running for their whole
+      // lifetime and fall back to a discovered address when their pinned
+      // coordinator URL stops answering — but only if something is advertising.
+      // Publishing solely from the IPC path meant a normally-started coordinator
+      // never advertised, so on 2026-09-07 a worker pinned to a dead Tailscale
+      // address retried it for four hours with a working LAN path available.
+      getDiscoveryService().publish(config.serverPort, config.namespace, config.namespace);
       logger.info('Worker node subsystem started', {
         port: config.serverPort,
         host: config.serverHost,

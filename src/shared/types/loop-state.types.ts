@@ -1,7 +1,6 @@
 import type { LoopOutstanding } from './loop-outstanding.types';
 import type { LoopInferredPhase, LoopNonConvergenceReason, LoopParkedLeaf } from './loop-health.types';
 import type { LoopPingPongState } from './loop-pingpong.types';
-import type { ReviewResult } from './cross-model-review.types';
 import type {
   LoopConfig,
   LoopFinalAuditResult,
@@ -27,105 +26,19 @@ export type LoopCompletionOutcome =
 
 export type LoopVerdict = 'OK' | 'WARN' | 'CRITICAL';
 
-/**
- * WS-A3: a durably persisted copy of material a fresh-eyes review attempt
- * actually saw (the diff, or the verify-output excerpt). Findings raised
- * against that attempt cite quotes that `review-artifact-anchor.ts` checks
- * against this record — the completion gate only trusts a severity-blocking
- * finding when its quote is verifiable here.
- *
- * Persisted as part of `LoopState.reviewArtifacts` (JSON-serialized wholesale
- * with the rest of the checkpoint — see `loop-checkpoint.ts` / `loop-store-
- * checkpoints.ts`), so no dedicated DB migration is needed. Bounded by
- * `MAX_TRACKED_REVIEW_ARTIFACTS` in `review-artifact-anchor.ts` and never
- * broadcast to the renderer (stripped in `cloneLoopStateForBroadcast`).
- */
-export interface LoopReviewArtifactEntry {
-  reviewAttemptId: string;
-  iterationSeq: number;
-  artifactType: 'diff' | 'output';
-  /** sha256 of the FULL content, computed before any storage bound is applied. */
-  artifactHash: string;
-  /** Bounded to `MAX_REVIEW_PAYLOAD_CHARS`-order size; may be a prefix of what was hashed. */
-  content: string;
-  createdAt: number;
-}
+import type {
+  LoopReviewAngleCacheEntry,
+  LoopReviewArtifactEntry,
+  LoopReviewCoverageReport,
+} from './loop-review-state.types';
 
-/**
- * WS-B9: outcome of one intended reviewer/angle within a single fresh-eyes
- * review attempt. `cached` and `parse_failed` are split out from the older
- * generic `used`/`skipped`/`failed` trio so a reused-from-cache angle and a
- * reviewer whose output couldn't be parsed are each independently visible —
- * see `review-coverage.ts`.
- */
-export type LoopReviewCoverageStatus = 'used' | 'cached' | 'skipped' | 'failed' | 'parse_failed';
-
-/**
- * WS-B9: coverage record for a single intended reviewer/angle within one
- * fresh-eyes review attempt. `required` angles that end up anything other
- * than `used`/`cached` force the gate's verdict to not-clean via the same
- * `errored` fail-closed path an unavailable reviewer already took (see
- * `runFreshEyesReviewGate` in `loop-coordinator-completion-gates.ts`). Today
- * every remote structured/tiered reviewer angle dispatched this attempt is
- * `required`; the single advisory local-model pass is not (mirrors
- * `FreshEyesFinding.advisory` — a local-only finding already cannot block
- * completion). See `review-coverage.ts` for the honest documentation of why
- * this is the de-facto default rather than a richer required/advisory config.
- */
-export interface LoopReviewAngleCoverageEntry {
-  /** `ReviewAngle.id` (`correctness`/`security`/`completeness`/`regressions`), or
-   *  `'local-advisory'` for the single local-model pass, which has no angle. */
-  angle: string;
-  reviewerProvider?: string;
-  model?: string;
-  status: LoopReviewCoverageStatus;
-  /** Why this status happened — cache hit reason, failure/parse-failure reason, skip reason. */
-  activationReason?: string;
-  /** Raw (pre-aggregation, pre-anchor) finding count this reviewer/angle produced. 0 when not `used`/`cached`. */
-  findingCount: number;
-  required: boolean;
-}
-
-/**
- * WS-B9: full coverage record for one fresh-eyes review attempt, persisted
- * alongside `LoopReviewArtifactEntry` on the same `reviewAttemptId` key and
- * the same eviction discipline (bounded, insertion-order trimmed — see
- * `review-coverage.ts` / `MAX_TRACKED_REVIEW_COVERAGE_REPORTS`). Never
- * broadcast to the renderer directly; a lightweight `coverage` array rides
- * the `loop:fresh-eyes-review-*` IPC events instead (mirrors how
- * `reviewArtifacts` itself is stripped but individual findings still carry
- * their evidence fields on those same events).
- */
-export interface LoopReviewCoverageReport {
-  reviewAttemptId: string;
-  createdAt: number;
-  angles: LoopReviewAngleCoverageEntry[];
-  /** Every `required` angle ended `used` or `cached`. See `computeRequiredCoverageMet`. */
-  requiredCoverageMet: boolean;
-}
-
-/**
- * WS-B9: a successful angle's cached reviewer verdict, keyed on
- * {schema version, prompt version, reviewer+model, angle, rules hash,
- * redacted artifact work hash} — see `buildAngleCacheKey` in
- * `review-coverage.ts`. Never stored for a failed/parse_failed angle.
- * `review` omits `rawResponse` (large, cache-irrelevant — the parsed
- * structured verdict is all a later attempt needs to reconstruct findings).
- * A cache HIT reuses `review` verbatim, but the consuming pipeline always
- * re-derives `anchorStatus` for each of its findings against the CURRENT
- * attempt's persisted diff artifact (see `review-artifact-anchor.ts`) — a
- * cache hit can never skip evidence re-verification, so a cached blocking
- * finding whose citation no longer anchors still demotes per WS-A3 semantics.
- */
-export interface LoopReviewAngleCacheEntry {
-  cacheKey: string;
-  angle: string;
-  reviewerProvider: string;
-  model?: string;
-  review: Omit<ReviewResult, 'rawResponse'>;
-  cachedAt: number;
-}
-
+export type {
+  LoopReviewAngleCacheEntry,
+  LoopReviewAngleCoverageEntry,
+  LoopReviewArtifactEntry,
+  LoopReviewCoverageReport,
+  LoopReviewCoverageStatus,
+} from './loop-review-state.types';
 export interface LoopFileChange {
   path: string;
   additions: number;
@@ -656,14 +569,32 @@ export interface LoopState {
   };
   freshEyesForcedByContradiction?: boolean;
   /**
-   * D6 (#7) part 3: true while the last fresh-eyes gate review ran CLEAN and
-   * no production file has changed since. Lets a completion attempt from a
-   * status/summary-only iteration reuse the verdict (instant ALLOW, gated on
-   * `completion.antiSelfGrading`) instead of re-running a multi-minute
-   * cross-model review. Set only by a real clean review; cleared by the
-   * coordinator on any later production-file change and by a blocked review.
+   * D6 (#7) part 3: the last fresh-eyes review ran CLEAN, so a later completion
+   * attempt with no git-reported change reuses that verdict (instant ALLOW)
+   * instead of paying for another cross-model review. Un-gated from
+   * `completion.antiSelfGrading` by Decision 15(b), 2026-09-07.
+   *
+   * The flag is NOT sufficient authority on its own — reuse also requires
+   * {@link freshEyesCleanWorkspaceDigest} to still match the tree, because the
+   * observed per-attempt delta under-reports writes that land between attempts
+   * (concurrent editor, paused or provider-limit-parked loop) and reports an
+   * empty delta when git observation fails outright.
    */
   freshEyesCleanForWorkState?: boolean;
+  /**
+   * Anchor for the cached clean verdict: the commit, the porcelain status, and
+   * the full content of every changed or untracked file at the moment it was
+   * issued. Reuse requires an exact match.
+   *
+   * Read from git directly rather than from the reviewer's payload, which is
+   * truncated to fit a prompt — anchoring to that let an edit past the cap go
+   * unnoticed. It covers what git reports for this repository; gitignored and
+   * skip-worktree paths and submodule/nested-repo contents are outside it (see
+   * `loop-review-reuse-anchor.ts` for the enumerated list). Undefined when
+   * there is no readable HEAD or status, which makes the verdict non-reusable
+   * rather than assumed-good.
+   */
+  freshEyesCleanWorkspaceDigest?: string;
   /**
    * L4: advisory intra-iteration phase inferred from the child's command
    * stream (`loop-phase-inference.ts`). HUD-only — no terminal decision reads

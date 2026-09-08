@@ -41,10 +41,13 @@ import { TerminateConfirmStore } from './terminate-confirm.store';
         (keydown.escape)="confirmStore.cancel()"
       >
         <div #dialog class="confirm-dialog" tabindex="-1">
-          <h3 id="terminate-confirm-title">Terminate {{ confirmStore.pendingName() }}?</h3>
+          <h3 id="terminate-confirm-title">Close {{ confirmStore.pendingName() }}?</h3>
           <p>
-            This ends the session. It cannot be resumed, and any work the agent
-            has not written to disk is lost.
+            This stops the agent and closes the session. Any work it has not
+            written to disk is lost.
+            @if (confirmStore.pendingIsArchived()) {
+              The conversation is kept in history.
+            }
           </p>
           <div class="confirm-actions">
             <button
@@ -56,7 +59,7 @@ import { TerminateConfirmStore } from './terminate-confirm.store';
               type="button"
               class="btn-confirm danger"
               (click)="confirmStore.confirm()"
-            >Terminate</button>
+            >Close session</button>
           </div>
         </div>
       </div>

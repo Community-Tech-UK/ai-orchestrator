@@ -18,7 +18,11 @@ await resolveComponentResources(() => Promise.resolve(''));
 
 const terminateInstance = vi.fn();
 
-function mount(): { fixture: ComponentFixture<TerminateConfirmDialogComponent>; store: TerminateConfirmStore } {
+const ROOT_SESSION = { id: 'i1', displayName: 'Refactor the parser' };
+
+function mount(
+  instances: Record<string, unknown>[] = [ROOT_SESSION],
+): { fixture: ComponentFixture<TerminateConfirmDialogComponent>; store: TerminateConfirmStore } {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     imports: [TerminateConfirmDialogComponent],
@@ -26,7 +30,7 @@ function mount(): { fixture: ComponentFixture<TerminateConfirmDialogComponent>; 
       {
         provide: InstanceStore,
         useValue: {
-          instances: () => [{ id: 'i1', displayName: 'Refactor the parser' }],
+          instances: () => instances,
           terminateInstance,
         },
       },
@@ -59,7 +63,36 @@ describe('TerminateConfirmDialogComponent (Decision 16b)', () => {
     store.request('i1');
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('h3').textContent)
-      .toContain('Terminate Refactor the parser?');
+      .toContain('Close Refactor the parser?');
+  });
+
+  /**
+   * The reassuring half of the prompt is a claim about what happens next, so it
+   * only appears where it is true. `archiveRootConversation()` returns early on
+   * `parentId`, so a child session is closed and never archived — and the same
+   * × button sits on every child row in the tree.
+   */
+  it('promises a history entry for a root session', () => {
+    const { fixture, store } = mount();
+    store.request('i1');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('p').textContent).toContain('kept in history');
+  });
+
+  it('makes no history promise for a child session, which is never archived', () => {
+    const { fixture, store } = mount([{ ...ROOT_SESSION, parentId: 'parent-1' }]);
+    store.request('i1');
+    fixture.detectChanges();
+    const body = fixture.nativeElement.querySelector('p').textContent;
+    expect(body).toContain('written to disk is lost');
+    expect(body).not.toContain('kept in history');
+  });
+
+  it('makes no history promise for an instance it cannot find', () => {
+    const { fixture, store } = mount();
+    store.request('gone');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('p').textContent).not.toContain('kept in history');
   });
 
   it('falls back to "this session" for an instance it cannot name', () => {

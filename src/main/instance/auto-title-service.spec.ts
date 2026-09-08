@@ -506,6 +506,93 @@ describe('AutoTitleService', () => {
     expect(applyTitle).toHaveBeenCalledWith('instance-1', 'Session-limit retry bug', 'ai');
   });
 
+  it('discards an over-long auxiliary title (real 119-char numbered-list case)', async () => {
+    mockIsCliAvailable.mockResolvedValue({ installed: false });
+    mockAuxGenerate.mockResolvedValue({
+      text:
+        '1. Node Proxy Server 2. Chrome DevTools Login 3. Screenshot Capture '
+        + '4. File Save to aio-transfers 5. Screenshot Analysis',
+      decision: {
+        slot: 'titleGeneration',
+        provider: 'ollama',
+        source: 'local',
+        reason: 'test local',
+        allowFrontierFallback: false,
+      },
+    });
+
+    const applyTitle = vi.fn();
+
+    await AutoTitleService.getInstance().maybeGenerateTitle(
+      'instance-1',
+      'Short screenshot task. Capture the pricing page and save it.',
+      applyTitle,
+      false,
+    );
+
+    expect(applyTitle).not.toHaveBeenCalledWith(expect.anything(), expect.anything(), 'ai');
+    expect(applyTitle).toHaveBeenCalledWith('instance-1', expect.any(String), 'instant');
+  });
+
+  it('discards an auxiliary title that narrates instead of answering (real 193-char case)', async () => {
+    mockIsCliAvailable.mockResolvedValue({ installed: false });
+    mockAuxGenerate.mockResolvedValue({
+      text:
+        'The tab title should summarize importing modules into a context worker '
+        + 'with an error. It needs to be concise (3-6 words) and start with the '
+        + 'most distinctive word. **Title:** Module Import Issue',
+      decision: {
+        slot: 'titleGeneration',
+        provider: 'ollama',
+        source: 'local',
+        reason: 'test local',
+        allowFrontierFallback: false,
+      },
+    });
+
+    const applyTitle = vi.fn();
+
+    await AutoTitleService.getInstance().maybeGenerateTitle(
+      'instance-1',
+      'Importing modules into a context worker throws at startup.',
+      applyTitle,
+      false,
+    );
+
+    expect(applyTitle).not.toHaveBeenCalledWith(expect.anything(), expect.anything(), 'ai');
+  });
+
+  it('front-loads and rail-truncates an auxiliary title, as the CLI branch does', async () => {
+    mockIsCliAvailable.mockResolvedValue({ installed: false });
+    mockAuxGenerate.mockResolvedValue({
+      text: 'Please fix the UnstablePvP coin accounting flow',
+      decision: {
+        slot: 'titleGeneration',
+        provider: 'ollama',
+        source: 'local',
+        reason: 'test local',
+        allowFrontierFallback: false,
+      },
+    });
+
+    const applyTitle = vi.fn();
+
+    await AutoTitleService.getInstance().maybeGenerateTitle(
+      'instance-1',
+      'The coin accounting flow is wrong somewhere in the ledger.',
+      applyTitle,
+      false,
+    );
+
+    // "Please " is a generic lead-in and must be stripped, exactly as it would
+    // be for a CLI-generated title.
+    expect(applyTitle).toHaveBeenCalledWith(
+      'instance-1',
+      'Fix the UnstablePvP coin accounting flow',
+      'ai',
+    );
+  });
+
   it('discards an auxiliary title that is only unfinished <think> reasoning', async () => {
     mockIsCliAvailable.mockResolvedValue({ installed: false });
     mockAuxGenerate.mockResolvedValue({

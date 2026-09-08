@@ -254,7 +254,7 @@ export class LoopStore {
       });
     });
 
-    this.ipc.onFreshEyesReviewPassed(({ loopRunId, signal, reviewersUsed, nonBlockingFindings, summary, demotedFindings, coverage }) => {
+    this.ipc.onFreshEyesReviewPassed(({ loopRunId, signal, reviewersUsed, nonBlockingFindings, summary, demotedFindings, coverage, instantAllow }) => {
       const state = this.activeByLoop(loopRunId);
       const demotedCount = demotedFindings?.length ?? 0;
       // WS-A3: a demoted finding means a severity-blocking issue was raised
@@ -268,9 +268,16 @@ export class LoopStore {
         seq: state?.totalIterations ?? 0,
         stage: state?.currentStage ?? '',
         kind: 'status',
-        message: `Fresh-eyes review passed for ${signal}${demotedSuffix}${coverageSuffix(coverage)}`,
+        // An instant ALLOW means NO reviewer ran — the previous clean verdict
+        // was reused because git reports the workspace unchanged. Decision
+        // 15(b) made that the default, so rendering it identically to a real
+        // review would routinely tell the operator a review happened when it
+        // did not.
+        message: instantAllow
+          ? `Fresh-eyes review skipped for ${signal} - reused the previous clean verdict, no git-reported change`
+          : `Fresh-eyes review passed for ${signal}${demotedSuffix}${coverageSuffix(coverage)}`,
         timestamp: Date.now(),
-        detail: { signal, reviewersUsed, nonBlockingFindings, summary, demotedFindings, coverage },
+        detail: { signal, reviewersUsed, nonBlockingFindings, summary, demotedFindings, coverage, instantAllow },
       });
     });
 

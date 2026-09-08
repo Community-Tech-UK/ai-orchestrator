@@ -204,6 +204,7 @@ export const SETTING_SURFACING = {
   rtkBundledOnly: 'tab',
   notifyOnAgentCompletion: 'tab',
   notifyOnLoopTerminal: 'tab',
+  notifyOnNodeDisconnect: 'tab',
   notificationSoundMode: 'tab',
   // Written by dismissing a hint, never edited directly.
   dismissedHints: 'internal',

@@ -578,6 +578,8 @@ export interface AppSettings extends DesktopComputerUseSettings {
   notifyOnAgentCompletion: boolean;
   /** N1: notify when a LOOP run reaches a terminal state, not just a chat turn. */
   notifyOnLoopTerminal: boolean;
+  /** Notify when a remote worker node disconnects unexpectedly. Default: true. */
+  notifyOnNodeDisconnect: boolean;
   /** N10: when notifications make a sound — always, only when unfocused, or never. */
   notificationSoundMode: 'always' | 'blurred' | 'never';
   /** UX5: hint ids the user has dismissed. Dismissed means gone for good. */

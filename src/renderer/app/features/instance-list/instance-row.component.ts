@@ -253,6 +253,15 @@ export class InstanceRowComponent {
   readonly expandTooltip = computed(() =>
     `${this.isExpanded() ? 'Collapse' : 'Expand'} child instances`);
 
+  /**
+   * Only a root session is archived on close (`archiveRootConversation()` bails
+   * on `parentId`), and this same row template renders every child in the tree,
+   * so the history half of the sentence has to be earned per row.
+   */
+  readonly closeTooltip = computed(() => this.instance().parentId
+    ? 'Close session — stops this child agent and removes it from the tree'
+    : 'Close session — stops the agent and moves this thread to history');
+
   readonly restartTooltip = computed(() => this.supportsResume()
     ? 'Restart and resume the conversation'
     : 'Restart with fresh context — the conversation so far is not carried over');

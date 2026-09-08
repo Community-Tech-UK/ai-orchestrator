@@ -1096,8 +1096,8 @@
     background: transparent; color: inherit;
   }
 
-  /* Not colour alone: the destructive action also says "Terminate" while the
-     safe one says "Keep running". */
+  /* Not colour alone: the destructive action also says "Close session" while
+     the safe one says "Keep running". */
   .btn-confirm.danger {
     border-color: rgba(247, 140, 124, 0.55);
     background: rgba(247, 140, 124, 0.14);

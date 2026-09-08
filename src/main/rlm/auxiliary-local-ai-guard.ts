@@ -9,6 +9,47 @@ import { getTokenCounter } from './token-counter';
 
 export interface LocalAiResolutionContext {
   intendedTargetId?: string;
+  /**
+   * Why each candidate endpoint was passed over, in the order they were tried.
+   *
+   * Endpoint resolution used to discard this entirely: every distinct failure —
+   * an ineligible health verdict, a model-inventory probe that timed out, a
+   * target with no candidate endpoints at all — collapsed into the single string
+   * "No healthy auxiliary endpoint/model available", which is not actionable and
+   * is not persisted anywhere. On 2026-09-07 that hid 94% of all auxiliary
+   * routing decisions falling back, with no way to tell which gate closed.
+   * Bounded so a long endpoint list cannot grow this without limit.
+   */
+  ineligibleReasons?: string[];
+}
+
+/** Cap on {@link LocalAiResolutionContext.ineligibleReasons}. */
+const MAX_INELIGIBLE_REASONS = 8;
+
+/** Record why a candidate endpoint could not be used. */
+export function recordAuxiliaryIneligibility(
+  context: LocalAiResolutionContext,
+  endpointId: string,
+  reason: string,
+): void {
+  context.ineligibleReasons ??= [];
+  if (context.ineligibleReasons.length >= MAX_INELIGIBLE_REASONS) return;
+  context.ineligibleReasons.push(`${endpointId}: ${reason}`);
+}
+
+/**
+ * Render the collected reasons into the fallback's `reason` string, so the
+ * decision that reaches cost attribution and the caller says what actually
+ * happened rather than only that something did.
+ */
+export function describeAuxiliaryResolutionFailure(
+  context: LocalAiResolutionContext,
+): string {
+  const reasons = context.ineligibleReasons ?? [];
+  if (reasons.length === 0) {
+    return 'No auxiliary endpoint was even a candidate (none configured, discovered, or enabled)';
+  }
+  return `No healthy auxiliary endpoint/model available — ${reasons.join('; ')}`;
 }
 
 export interface ManagedAuxiliaryTarget {
@@ -56,14 +97,16 @@ export async function evaluateManagedAuxiliaryEndpoint(
     targetId: target.id,
     slot,
   });
-  return verdict.eligible
-    ? {
-        targetId: target.id,
-        requiredModelIds: target.expectedModels
-          .filter((model) => model.required)
-          .map((model) => model.modelId),
-      }
-    : null;
+  if (!verdict.eligible) {
+    recordAuxiliaryIneligibility(context, endpoint.id, verdict.reason);
+    return null;
+  }
+  return {
+    targetId: target.id,
+    requiredModelIds: target.expectedModels
+      .filter((model) => model.required)
+      .map((model) => model.modelId),
+  };
 }
 
 export function invalidateManagedAuxiliaryTarget(

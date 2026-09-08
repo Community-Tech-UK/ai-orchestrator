@@ -80,8 +80,15 @@ export function renderDiffTruncationNote(
  * Untracked paths never forwarded to reviewers. `.aio-loop-control` notably
  * holds the loop-control secret token — including it in a diff shipped to an
  * external reviewer CLI would leak it. The rest are pure noise.
+ *
+ * Shared with `loop-review-reuse-anchor.ts`, which applies it to its own
+ * untracked list for the same reason and at the same point: the loop's
+ * per-iteration `ITERATION_LOG.md` would otherwise move the reuse anchor every
+ * turn and the reuse could never fire. Note both apply it to UNTRACKED paths
+ * only — a committed file under one of these prefixes is real content and is
+ * shown to the reviewer.
  */
-const IGNORED_UNTRACKED_PREFIXES = [
+export const IGNORED_UNTRACKED_PREFIXES = [
   '.aio-loop-control/',
   '.aio-loop-attachments/',
   '.aio-loop-state/',

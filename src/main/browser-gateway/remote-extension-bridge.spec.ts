@@ -3,6 +3,7 @@ import { RemoteBrowserExtensionBridge } from './remote-extension-bridge';
 import { BrowserExtensionContactState } from './browser-extension-contact-state';
 import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
 import { BrowserExtensionCommandStore } from './browser-extension-command-store';
+import { workerAgentTooOldReason } from './browser-worker-agent-skew';
 
 function makeBridge() {
   let now = 1_000;
@@ -34,7 +35,11 @@ function makeBridge() {
     record: vi.fn(),
   };
   const registry = {
-    getNode: vi.fn(() => ({ id: 'node-1', name: 'Windows PC' }) as unknown as WorkerNodeInfo),
+    getNode: vi.fn(() => ({
+      id: 'node-1',
+      name: 'Windows PC',
+      capabilities: {},
+    }) as unknown as WorkerNodeInfo),
   };
   const contactState = new BrowserExtensionContactState({ now: () => now });
   const bridge = new RemoteBrowserExtensionBridge({
@@ -351,6 +356,7 @@ describe('RemoteBrowserExtensionBridge', () => {
       deferHandoffConfirmation: true,
       allowBrowserCommands: false,
       allowSecureCredentialCommands: false,
+      denyBrowserCommandsReason: 'browser_extension_runtime_incompatible',
     });
   });
 
@@ -376,6 +382,109 @@ describe('RemoteBrowserExtensionBridge', () => {
         detail: { restoredAttachments: 2 },
       }),
     );
+  });
+
+  it('names an old worker that reports a live extension version but carries no evidence', async () => {
+    const { bridge, service, registry, logger, commandStore } = makeBridge();
+    registry.getNode.mockReturnValue({
+      id: 'node-1',
+      name: 'windows-pc',
+      capabilities: {
+        hasExtensionRelay: true,
+        extensionRelay: {
+          enabled: true,
+          running: true,
+          extensionVersion: '0.2.19',
+        },
+      },
+    } as unknown as WorkerNodeInfo);
+
+    await expect(bridge.attachTab('node-1', {
+      payload: {
+        tabId: 42,
+        windowId: 7,
+        url: 'https://example.test/page',
+        title: 'Example',
+      },
+    })).rejects.toThrow(workerAgentTooOldReason('windows-pc'));
+    expect(service.attachExistingTab).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Remote browser extension commands blocked',
+      expect.objectContaining({
+        nodeId: 'node-1',
+        reason: workerAgentTooOldReason('windows-pc'),
+      }),
+    );
+
+    await expect(bridge.attachTab('node-1', {
+      payload: {
+        tabId: 43,
+        windowId: 7,
+        url: 'https://example.test/other',
+        title: 'Other',
+      },
+    })).rejects.toThrow(workerAgentTooOldReason('windows-pc'));
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+
+    await bridge.pollCommand('node-1', { timeoutMs: 500 });
+    expect(commandStore.pollCommand).toHaveBeenCalledWith('node:node-1', {
+      timeoutMs: 500,
+      deferHandoffConfirmation: true,
+      allowBrowserCommands: false,
+      allowSecureCredentialCommands: false,
+      denyBrowserCommandsReason: workerAgentTooOldReason('windows-pc'),
+    });
+  });
+
+  it('keeps a new-worker payload with a too-old extension as runtime incompatible', async () => {
+    const { bridge, service, registry } = makeBridge();
+    registry.getNode.mockReturnValue({
+      id: 'node-1',
+      name: 'windows-pc',
+      capabilities: {
+        hasExtensionRelay: true,
+        extensionRelay: {
+          enabled: true,
+          running: true,
+          forwardsRuntimeEvidence: true,
+          extensionVersion: '0.2.2',
+        },
+      },
+    } as unknown as WorkerNodeInfo);
+
+    await expect(bridge.attachTab('node-1', {
+      extensionVersion: '0.2.2',
+      extensionStartedAt: 2_000,
+      payload: {
+        tabId: 42,
+        windowId: 7,
+        url: 'https://example.test/MODEL_VISIBLE_TEST_MARKER',
+        title: 'MODEL_VISIBLE_TEST_MARKER',
+      },
+    })).rejects.toThrow('browser_extension_runtime_incompatible');
+    expect(service.attachExistingTab).not.toHaveBeenCalled();
+  });
+
+  it('does not invent worker-skew warnings for a node with no relay', async () => {
+    const { bridge, logger } = makeBridge();
+
+    await expect(bridge.attachTab('node-1', {
+      payload: {
+        tabId: 42,
+        windowId: 7,
+        url: 'https://example.test/page',
+        title: 'Example',
+      },
+    })).rejects.toThrow('browser_extension_runtime_incompatible');
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Remote browser extension commands blocked',
+      expect.objectContaining({
+        nodeId: 'node-1',
+        reason: 'browser_extension_runtime_incompatible',
+      }),
+    );
+    expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('browser_worker_agent_too_old');
   });
 
   it('rate limits excessive requests per node', async () => {

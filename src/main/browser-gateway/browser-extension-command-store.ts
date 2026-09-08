@@ -1,4 +1,9 @@
 import { randomUUID } from 'node:crypto';
+import {
+  BROWSER_EXTENSION_RUNTIME_INCOMPATIBLE,
+  PRE_DELIVERY_INCAPABLE_MIN,
+  type BrowserPreDeliveryCapability,
+} from './browser-worker-agent-skew';
 
 export type BrowserExtensionCommandName =
   | 'open_tab'
@@ -100,6 +105,8 @@ export interface BrowserExtensionPollRequest {
   deferHandoffConfirmation?: boolean;
   /** False when this exact authenticated runtime is too old to enforce observation taint. */
   allowBrowserCommands?: boolean;
+  /** Distinct fail-closed reason when `allowBrowserCommands` is false. */
+  denyBrowserCommandsReason?: string;
   /** True only when this exact authenticated poll can enforce origin-bound credential writes. */
   allowSecureCredentialCommands?: boolean;
 }
@@ -132,9 +139,17 @@ interface PendingCommand {
 interface CommandPoller {
   deferHandoffConfirmation: boolean;
   allowBrowserCommands: boolean;
+  denyBrowserCommandsReason?: string;
   allowSecureCredentialCommands: boolean;
   resolve: (command: BrowserExtensionQueuedCommand | null) => void;
 }
+
+interface PreDeliveryOutcome {
+  delivered: boolean;
+  reason?: string;
+}
+
+const PRE_DELIVERY_WINDOW = 5;
 
 export class BrowserExtensionCommandStore {
   private static instance: BrowserExtensionCommandStore | null = null;
@@ -149,6 +164,10 @@ export class BrowserExtensionCommandStore {
   private readonly pollers = new Map<BrowserExtensionCommandQueueKey, CommandPoller[]>();
   /** One remote command per queue may wait for its poll response socket handoff. */
   private readonly handoffPending = new Map<BrowserExtensionCommandQueueKey, string>();
+  private readonly preDeliveryOutcomes = new Map<
+    BrowserExtensionCommandQueueKey,
+    PreDeliveryOutcome[]
+  >();
 
   static getInstance(): BrowserExtensionCommandStore {
     if (!this.instance) {
@@ -218,6 +237,9 @@ export class BrowserExtensionCommandStore {
       const poller: CommandPoller = {
         deferHandoffConfirmation: request.deferHandoffConfirmation ?? false,
         allowBrowserCommands: request.allowBrowserCommands ?? true,
+        ...(request.denyBrowserCommandsReason
+          ? { denyBrowserCommandsReason: request.denyBrowserCommandsReason }
+          : {}),
         allowSecureCredentialCommands: request.allowSecureCredentialCommands ?? false,
         resolve: (command) => {
           clearTimeout(timeout);
@@ -312,6 +334,20 @@ export class BrowserExtensionCommandStore {
     return true;
   }
 
+  describePreDeliveryCapability(
+    queueKey: BrowserExtensionCommandQueueKey,
+  ): BrowserPreDeliveryCapability {
+    const recent = this.preDeliveryOutcomes.get(queueKey) ?? [];
+    const rejections = recent.filter((outcome) => !outcome.delivered);
+    const allRejected = recent.length >= PRE_DELIVERY_INCAPABLE_MIN
+      && rejections.length === recent.length;
+    const lastReason = rejections.at(-1)?.reason;
+    return {
+      commandsDeliverable: !allRejected,
+      ...(allRejected && lastReason ? { reason: lastReason } : {}),
+    };
+  }
+
   /** Point-in-time channel load for health/pre-flight reporting. */
   describeQueue(queueKey: BrowserExtensionCommandQueueKey): BrowserExtensionQueueSnapshot {
     let inFlightCount = 0;
@@ -331,6 +367,7 @@ export class BrowserExtensionCommandStore {
   rejectQueue(queueKey: BrowserExtensionCommandQueueKey, reason: string): void {
     this.queues.delete(queueKey);
     this.handoffPending.delete(queueKey);
+    this.preDeliveryOutcomes.delete(queueKey);
     // A rejected queue usually means the node disconnected. The channel that
     // reconnects may be a different extension build, so receipt capability
     // must be re-proven rather than assumed.
@@ -370,7 +407,10 @@ export class BrowserExtensionCommandStore {
       const command = queue.shift()!;
       const poller = pollers.shift()!;
       if (!poller.allowBrowserCommands) {
-        this.rejectBeforeDelivery(command.id, 'browser_extension_runtime_incompatible');
+        this.rejectBeforeDelivery(
+          command.id,
+          poller.denyBrowserCommandsReason ?? BROWSER_EXTENSION_RUNTIME_INCOMPATIBLE,
+        );
         poller.resolve(null);
         continue;
       }
@@ -406,6 +446,7 @@ export class BrowserExtensionCommandStore {
       return;
     }
     pending.dequeuedAt = Date.now();
+    this.recordPreDeliveryOutcome(pending.queueKey, { delivered: true });
     clearTimeout(pending.timeout);
     // Defensive: today markDelivered always runs synchronously at handoff,
     // before the extension can possibly ack — but if that ordering ever
@@ -436,7 +477,20 @@ export class BrowserExtensionCommandStore {
     }
     this.pending.delete(commandId);
     clearTimeout(pending.timeout);
+    this.recordPreDeliveryOutcome(pending.queueKey, { delivered: false, reason });
     pending.reject(new Error(reason));
+  }
+
+  private recordPreDeliveryOutcome(
+    queueKey: BrowserExtensionCommandQueueKey,
+    outcome: PreDeliveryOutcome,
+  ): void {
+    const recent = this.preDeliveryOutcomes.get(queueKey) ?? [];
+    recent.push(outcome);
+    if (recent.length > PRE_DELIVERY_WINDOW) {
+      recent.shift();
+    }
+    this.preDeliveryOutcomes.set(queueKey, recent);
   }
 
   /**

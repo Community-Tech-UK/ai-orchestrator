@@ -43,6 +43,22 @@ export class TerminateConfirmStore {
     return this.instances.instances().find((i) => i.id === id)?.displayName ?? 'this session';
   });
 
+  /**
+   * Whether closing this session leaves a thread behind in history.
+   *
+   * Only a root session does. `archiveRootConversation()` in
+   * `instance-termination.ts` returns early when `parentId` is set, so a child
+   * (subagent) session is closed without ever being archived — and the child
+   * rows carry the same × button as their parent. An unknown id gets the
+   * cautious answer: the prompt may under-promise, never over-promise.
+   */
+  readonly pendingIsArchived = computed(() => {
+    const id = this.pending();
+    if (!id) return false;
+    const instance = this.instances.instances().find((i) => i.id === id);
+    return instance ? !instance.parentId : false;
+  });
+
   /** Ask before terminating. Every entry point goes through here. */
   request(instanceId: string): void {
     this.pending.set(instanceId);

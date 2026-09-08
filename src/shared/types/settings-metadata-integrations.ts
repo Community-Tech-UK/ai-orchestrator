@@ -144,6 +144,13 @@ export const INTEGRATION_SETTINGS_METADATA: SettingMetadata[] = [
     category: 'general',
   },
   {
+    key: 'notifyOnNodeDisconnect',
+    label: 'Notify when a worker node disconnects',
+    description: 'Show a desktop notification when a remote worker node drops off unexpectedly. A node can go quiet for hours otherwise — the coordinator keeps running and nothing on screen changes.',
+    type: 'boolean',
+    category: 'general',
+  },
+  {
     key: 'notificationSoundMode',
     label: 'Notification sound',
     description: 'When desktop notifications make a sound. "Only when away" keeps quiet while you are looking at the app but still sounds for an overnight run. Alerts that need a decision always sound.',

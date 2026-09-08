@@ -120,6 +120,11 @@ export const LoopFreshEyesReviewPassedEventSchema = LoopFreshEyesReviewCoreSchem
   // WS-B9: per-angle reviewer coverage for this attempt (used/cached/
   // skipped/failed/parse_failed) — same "unknown, main owns the shape" reason.
   coverage: z.array(z.unknown()).optional(),
+  // D6 (#7) part 3 / Decision 15(b): TRUE when no reviewer ran and the
+  // previous clean verdict was reused because git reports the workspace
+  // unchanged. Declared rather than left to `.passthrough()` because the
+  // renderer must not present a reuse as a review that happened.
+  instantAllow: z.boolean().optional(),
 }).passthrough();
 
 export const LoopFreshEyesReviewFailedEventSchema = LoopFreshEyesReviewCoreSchema.extend({

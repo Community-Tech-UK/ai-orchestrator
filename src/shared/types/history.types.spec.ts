@@ -7,6 +7,7 @@ import {
   resolveEffectiveInstanceTitle,
   type ConversationHistoryEntry,
 } from './history.types';
+import { MAX_FALLBACK_TITLE_LENGTH } from './title-derivation';
 
 function makeEntry(
   overrides: Partial<ConversationHistoryEntry> = {}
@@ -114,6 +115,70 @@ describe('history title helpers', () => {
         })
       )
     ).toBe('Fix tab renaming titles');
+  });
+
+  it('keeps the stored title when re-deriving would collapse to pure filler', () => {
+    // Real drift: the live title was built from the attachment name, which the
+    // history resolver cannot see. Re-deriving from the prose alone gave "Fix",
+    // so the session appeared to rename itself the moment it stopped being live.
+    expect(
+      getConversationHistoryTitle(
+        makeEntry({
+          displayName: 'Pasted-image-9.png fix',
+          firstUserMessage: 'Please fix this',
+          lastUserMessage: '',
+        })
+      )
+    ).toBe('Pasted-image-9.png fix');
+  });
+
+  it('titles from the first line only, matching the live instant title', () => {
+    // Real drift: the live path took the first line, the history path front-loaded
+    // the whole message, so a multi-line prompt rendered two different titles.
+    expect(
+      getConversationHistoryTitle(
+        makeEntry({
+          displayName: 'Read-only diagnostic.',
+          firstUserMessage:
+            'Read-only diagnostic.\nRun these and reply with ONLY the raw output in one code block, under 35 lines.',
+        })
+      )
+    ).toBe('Read-only diagnostic');
+  });
+
+  it('never renders a generated title longer than the rail budget', () => {
+    const title = getConversationHistoryTitle(
+      makeEntry({
+        aiTitle:
+          'The tab title should summarize importing modules into a context worker with an '
+          + 'error. It needs to be concise (3-6 words) and start with the most distinctive '
+          + 'word. **Title:** Module Import Issue',
+      })
+    );
+    expect(title.length).toBeLessThanOrEqual(MAX_FALLBACK_TITLE_LENGTH + 3);
+  });
+
+  it('never renders a first-message title longer than the rail budget', () => {
+    const title = getConversationHistoryTitle(
+      makeEntry({
+        displayName: '',
+        firstUserMessage:
+          'Clrsoftware.co.uk Anything here we can steal for our website, it seems like '
+          + "he's doing a very similar thing to what we want to build ourselves.",
+      })
+    );
+    expect(title.length).toBeLessThanOrEqual(MAX_FALLBACK_TITLE_LENGTH + 3);
+  });
+
+  it('agrees with the live resolver for the same generated title', () => {
+    const displayName = 'Read-only diagnostic.';
+    const entry = makeEntry({
+      displayName,
+      firstUserMessage: 'Read-only diagnostic.\nRun these and reply with ONLY the raw output.',
+    });
+    expect(resolveEffectiveInstanceTitle({ displayName }, entry)).toBe(
+      getConversationHistoryTitle(entry)
+    );
   });
 
   it('strips closed <think> reasoning from a persisted AI title', () => {

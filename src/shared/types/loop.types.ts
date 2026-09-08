@@ -297,7 +297,10 @@ export interface LoopCompletionConfig {
    * When this block is explicitly set with `{ enabled: true }` and the agent
    * declares done (sufficient signal + verify passed + belt-and-braces
    * passed), the coordinator invokes `CrossModelReviewService.runHeadlessReview`
-   * against a different CLI provider. Any finding whose severity is in
+   * against a different CLI provider — unless the previous verdict was clean
+   * and git reports no change since, in which case that verdict is reused
+   * (Decision 15(b); see `freshEyesCleanWorkspaceDigest` for exactly what that
+   * does and does not cover). Any finding whose severity is in
    * `blockingSeverities` cancels the stop, injects the finding as a user
    * intervention, and lets the loop continue iterating.
    *

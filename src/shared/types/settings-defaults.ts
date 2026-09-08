@@ -352,6 +352,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // Notifications
   notifyOnAgentCompletion: true,
   notifyOnLoopTerminal: true,
+  notifyOnNodeDisconnect: true,
   notificationSoundMode: 'blurred',
   dismissedHints: [],
   channelToolHeartbeat: false,
@@ -405,7 +406,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     compression: { enabled: true, provider: 'auto', tier: 'quality', maxInputTokens: 96000, maxOutputTokens: 4096, temperature: 0.2, timeoutMs: 60000, requireJson: false, allowFrontierFallback: true },
     memoryDistillation: { enabled: true, provider: 'auto', tier: 'quality', maxInputTokens: 64000, maxOutputTokens: 2048, temperature: 0.2, timeoutMs: 45000, requireJson: false, allowFrontierFallback: true },
     webExtract: { enabled: true, provider: 'auto', tier: 'quality', maxInputTokens: 64000, maxOutputTokens: 2048, temperature: 0.1, timeoutMs: 30000, requireJson: false, allowFrontierFallback: false },
-    titleGeneration: { enabled: true, provider: 'auto', tier: 'quick', maxInputTokens: 12000, maxOutputTokens: 512, temperature: 0.2, timeoutMs: 45000, requireJson: false, allowFrontierFallback: false },
+    titleGeneration: { enabled: true, provider: 'auto', tier: 'quick', maxInputTokens: 12000, maxOutputTokens: 1536, temperature: 0.2, timeoutMs: 45000, requireJson: false, allowFrontierFallback: true },
     routingClassification: { enabled: true, provider: 'auto', tier: 'quick', maxInputTokens: 16000, maxOutputTokens: 512, temperature: 0, timeoutMs: 45000, requireJson: true, allowFrontierFallback: false },
     approvalScoring: { enabled: true, provider: 'auto', tier: 'quick', maxInputTokens: 16000, maxOutputTokens: 512, temperature: 0, timeoutMs: 45000, requireJson: true, allowFrontierFallback: false },
     approvalAdjudication: { enabled: true, provider: 'auto', tier: 'quality', maxInputTokens: 24000, maxOutputTokens: 512, temperature: 0, timeoutMs: 60000, requireJson: true, allowFrontierFallback: false },

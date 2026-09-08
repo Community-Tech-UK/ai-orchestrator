@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
 import { CompletedFileWatcher } from './loop-completion-detector';
 import { defaultLoopConfig } from '../../shared/types/loop.types';
+import type { LoopState } from '../../shared/types/loop.types';
 import type { ProviderQuotaSnapshot, ProviderQuotaWindow } from '../../shared/types/provider-quota.types';
 import { ScriptedCliAdapter } from '../cli/adapters/scripted-cli-adapter';
 import { tokenPacedTurn } from '../cli/adapters/scripted-cli-adapter.test-helpers';
@@ -190,6 +191,48 @@ describe('LoopCoordinator usage-aware throttling', () => {
       // it was granted — but it must actually get that iteration.
       await waitForCondition(() => invokeCount > 0, 5000);
       expect(invokeCount).toBe(1);
+    } finally {
+      await coordinator.cancelLoop(state.id);
+    }
+  });
+
+  /**
+   * Fresh-eyes gate finding (HIGH): `resumeLoop()` never called
+   * `reconcileRestoredLoopState`, so only a checkpoint restore cleared the
+   * cached clean fresh-eyes verdict. A loop parked on a provider limit
+   * observes nothing for however long the limit lasts — hours — which is the
+   * same exposure as the app being closed. Before this, it kept its cached
+   * verdict across that window and a later "done" on a tree edited in the
+   * meantime could be accepted without a real review.
+   */
+  it('a resume clears the cached clean fresh-eyes verdict', async () => {
+    coordinator.setQuotaSnapshotProvider(() =>
+      snapshot([win({ used: 95, resetsAt: Date.now() + 120_000 })]),
+    );
+    coordinator.setProviderLimitResumeScheduler(() => () => { /* noop */ });
+    coordinator.on('loop:invoke-iteration', (payload: unknown) => {
+      const p = payload as { callback: (r: LoopChildResult) => void };
+      p.callback(iterationResult('work'));
+    });
+
+    const state = await startLoop('chat-resume-clears-fresh-eyes');
+    try {
+      await waitForCondition(() => coordinator.getLoop(state.id)?.status === 'provider-limit', 5000);
+      // Seed the LIVE state, not `getLoop()`'s broadcast clone — mutating the
+      // clone would leave the real flag unset and the test would pass without
+      // resume having cleared anything.
+      const live = (coordinator as unknown as {
+        lifecycle: { getState(id: string): LoopState | undefined };
+      }).lifecycle.getState(state.id);
+      expect(live).toBeDefined();
+      // A clean review had been cached before the loop parked.
+      live!.freshEyesCleanForWorkState = true;
+      live!.freshEyesCleanWorkspaceDigest = 'digest-from-before-the-park';
+
+      expect(coordinator.resumeLoop(state.id)).toBe(true);
+
+      expect(live!.freshEyesCleanForWorkState).toBe(false);
+      expect(live!.freshEyesCleanWorkspaceDigest).toBeUndefined();
     } finally {
       await coordinator.cancelLoop(state.id);
     }

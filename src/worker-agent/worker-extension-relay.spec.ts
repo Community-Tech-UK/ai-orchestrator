@@ -147,6 +147,7 @@ describe('WorkerExtensionRelay', () => {
     });
     expect(relay.getSummary()).toMatchObject({
       lastExtensionContactAt: 1_000,
+      forwardsRuntimeEvidence: true,
     });
 
     setNow(2_500);

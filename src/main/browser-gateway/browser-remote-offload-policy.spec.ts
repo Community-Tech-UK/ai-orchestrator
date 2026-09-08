@@ -8,7 +8,7 @@ import {
 import { validateBrowserRpcPayload } from './browser-rpc-server-support';
 
 describe('Browser Gateway remote offload policy', () => {
-  it('rewrites implicit and explicitly local discovery onto the connected Windows node', () => {
+  it('rewrites unscoped discovery onto the connected Windows node but keeps explicit local', () => {
     const windows = makeNode({ id: 'windows-node', name: 'windows-pc', platform: 'win32' });
     const deps = makeDeps({ nodes: [windows] });
 
@@ -22,9 +22,13 @@ describe('Browser Gateway remote offload policy', () => {
       deps,
     )).toEqual({
       url: 'https://example.test',
-      nodeId: 'windows-node',
-      computer: 'windows-pc',
+      computer: 'local',
     });
+    expect(routeBrowserGatewayRequest(
+      'browser.list_targets',
+      { computer: 'local', refresh: true },
+      deps,
+    )).toEqual({ computer: 'local', refresh: true });
     expect(routeBrowserGatewayRequest(
       'browser.list_targets',
       { computer: '   ' },

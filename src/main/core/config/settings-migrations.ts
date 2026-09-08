@@ -43,12 +43,14 @@ const AUX_SLOT_TIMEOUT_MIGRATION_KEY =
   '__migration_auxiliary_slot_timeouts_20260606';
 const AUX_FRONTIER_FALLBACK_MIGRATION_KEY =
   '__migration_auxiliary_frontier_fallback_20260606';
-const AUX_TITLE_FRONTIER_FALLBACK_DISABLED_MIGRATION_KEY =
-  '__migration_auxiliary_title_frontier_fallback_disabled_20260825';
+const AUX_TITLE_FRONTIER_FALLBACK_REENABLED_MIGRATION_KEY =
+  '__migration_auxiliary_title_frontier_fallback_reenabled_20260908';
 const AUX_SLOT_TIERS_MIGRATION_KEY =
   '__migration_auxiliary_slot_tiers_20260609';
 const AUX_TITLE_BUDGET_MIGRATION_KEY =
   '__migration_auxiliary_title_budget_20260609';
+const AUX_TITLE_BUDGET_REASONING_MIGRATION_KEY =
+  '__migration_auxiliary_title_budget_reasoning_20260908';
 const REVIEWER_MODEL_DEFAULTS_MIGRATION_KEY =
   '__migration_reviewer_model_defaults_20260712';
 const COPILOT_LEGACY_PROFILE_MIGRATION_KEY =
@@ -277,17 +279,23 @@ function migrateAuxiliaryFrontierFallbackDefault(store: SettingsMigrationStore):
 }
 
 /**
- * Disable paid fallback for title generation on existing installs.
+ * Re-enable escalation for title generation on existing installs.
  *
- * Titles are advisory and already have a deterministic fallback, so a transient
- * local-worker miss must not silently spend money. New installs inherit the
- * disabled default; this one-shot brings forward profiles that persisted the
- * earlier opt-in value. A user can explicitly re-enable it after migration.
+ * The 2026-08-25 migration disabled this so a transient local-worker miss could
+ * not silently spend money. In practice it made the failure terminal: with no
+ * reachable local model, `AutoTitleService` had no second path and every session
+ * kept its raw truncated first message as its name. Measured on 2026-09-07:
+ * 4,564 blocked attempts, and only ~20% of sessions ever received a real title.
+ *
+ * The escalation this restores is the fast/cheap tier one-shot (antigravity,
+ * then Claude Haiku, then Codex), still bounded by `auxiliaryLlmDailySpendCapUsd`
+ * and still attributed. Re-enabled on the user's explicit instruction, which is
+ * exactly the "user can explicitly re-enable it" exit the old migration named.
  */
-function migrateTitleGenerationFrontierFallbackDefault(
+function migrateTitleGenerationFrontierFallbackReenable(
   store: SettingsMigrationStore,
 ): void {
-  if (store.get(AUX_TITLE_FRONTIER_FALLBACK_DISABLED_MIGRATION_KEY) === true) {
+  if (store.get(AUX_TITLE_FRONTIER_FALLBACK_REENABLED_MIGRATION_KEY) === true) {
     return;
   }
 
@@ -299,9 +307,9 @@ function migrateTitleGenerationFrontierFallbackDefault(
         { allowFrontierFallback?: boolean } | undefined
       >;
       const titleGeneration = slots['titleGeneration'];
-      if (titleGeneration?.allowFrontierFallback === true) {
-        logger.info('Disabling persisted paid fallback for title generation');
-        titleGeneration.allowFrontierFallback = false;
+      if (titleGeneration?.allowFrontierFallback === false) {
+        logger.info('Re-enabling cheap-tier escalation for title generation (new default)');
+        titleGeneration.allowFrontierFallback = true;
         store.persistSetting('auxiliaryLlmSlotsJson', JSON.stringify(slots));
       }
     } catch {
@@ -309,7 +317,7 @@ function migrateTitleGenerationFrontierFallbackDefault(
     }
   }
 
-  store.persistRawSetting(AUX_TITLE_FRONTIER_FALLBACK_DISABLED_MIGRATION_KEY, true);
+  store.persistRawSetting(AUX_TITLE_FRONTIER_FALLBACK_REENABLED_MIGRATION_KEY, true);
 }
 
 function migrateAuxiliarySlotTiers(store: SettingsMigrationStore): void {
@@ -327,6 +335,32 @@ function migrateAuxiliarySlotTiers(store: SettingsMigrationStore): void {
   }
 
   store.persistRawSetting(AUX_SLOT_TIERS_MIGRATION_KEY, true);
+}
+
+/**
+ * Raise the title budget again, to fit a reasoning model's hidden reasoning.
+ *
+ * The 20260609 migration took this to 512 for exactly this reason and did not
+ * go far enough. Measured over the 35 title generations that reached the local
+ * model on 2026-09-07: median 463 output tokens, max 715, with 21 of 35 at 400+.
+ * At a 512 cap the model is routinely cut off mid-`<think>`, the sanitizer
+ * correctly rejects the unterminated tag, and the session keeps its raw title.
+ */
+function migrateTitleGenerationReasoningBudget(store: SettingsMigrationStore): void {
+  if (store.get(AUX_TITLE_BUDGET_REASONING_MIGRATION_KEY) === true) {
+    return;
+  }
+
+  const raw = store.get('auxiliaryLlmSlotsJson');
+  if (typeof raw === 'string') {
+    const updated = raiseSlotOutputBudget(raw, 'titleGeneration', 1536);
+    if (updated !== null) {
+      logger.info('Raising titleGeneration output budget to 1536 (512 truncated reasoning models mid-think)');
+      store.persistSetting('auxiliaryLlmSlotsJson', updated);
+    }
+  }
+
+  store.persistRawSetting(AUX_TITLE_BUDGET_REASONING_MIGRATION_KEY, true);
 }
 
 function migrateTitleGenerationBudget(store: SettingsMigrationStore): void {
@@ -503,9 +537,10 @@ export function runSettingsMigrations(store: SettingsMigrationStore): void {
   // `false` while it was inert; flip the two text slots back to the new `true`
   // default so they don't silently lose primary-LLM quality on upgrade.
   migrateAuxiliaryFrontierFallbackDefault(store);
-  // Titles have a deterministic fallback and should never incur an automatic
-  // paid call merely because a local worker was momentarily unavailable.
-  migrateTitleGenerationFrontierFallbackDefault(store);
+  // Titles had escalation disabled on 2026-08-25, which made a local-model miss
+  // terminal — sessions kept their raw first message as a name. Restore the
+  // cheap-tier one-shot; the daily spend cap still bounds it.
+  migrateTitleGenerationFrontierFallbackReenable(store);
   // Existing installs persisted slot configs before the quick/quality tier
   // feature; backfill each slot's `tier` so the model-tier selection and UI
   // reflect sensible defaults instead of "none".
@@ -514,6 +549,9 @@ export function runSettingsMigrations(store: SettingsMigrationStore): void {
   // local models, which spend it all thinking and emit an empty title. Raise
   // existing installs to 512 so titles actually generate.
   migrateTitleGenerationBudget(store);
+  // 512 still truncated reasoning models mid-`<think>`; see the function docs
+  // for the measured output-token distribution behind 1536.
+  migrateTitleGenerationReasoningBudget(store);
   // Slot additions should appear in existing installs without a one-shot key;
   // this key-based merge self-heals future slot additions without churn.
   migrateAuxiliaryMissingSlots(store);

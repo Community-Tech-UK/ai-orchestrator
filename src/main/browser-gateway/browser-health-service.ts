@@ -47,6 +47,12 @@ import {
   getBrowserExtensionTabStore,
   type BrowserExtensionTabStore,
 } from './browser-extension-tab-store';
+import {
+  BROWSER_WORKER_AGENT_TOO_OLD,
+  assessRemoteExtensionCommandCapability,
+  nodeHasExtensionRelay,
+  type BrowserPreDeliveryCapability,
+} from './browser-worker-agent-skew';
 
 export type BrowserGatewayHealthStatus = 'ready' | 'partial' | 'missing';
 
@@ -113,6 +119,8 @@ export interface BrowserGatewayHealthReport {
       enabled: boolean;
       running: boolean;
       silent: boolean;
+      commandsDeliverable: boolean;
+      commandsUndeliverableReason?: string;
       lastContactAt?: number;
       /** Milliseconds since the extension last contacted the coordinator. */
       contactAgeMs?: number;
@@ -165,7 +173,10 @@ export interface BrowserHealthServiceOptions {
   rawAutomationHealthService?: Pick<BrowserAutomationHealthService, 'diagnose'>;
   workerNodeRegistry?: Pick<WorkerNodeRegistry, 'getAllNodes'>;
   extensionContactState?: BrowserExtensionContactStateReader;
-  extensionCommandStore?: Pick<BrowserExtensionCommandStore, 'describeQueue'>;
+  extensionCommandStore?: Pick<
+    BrowserExtensionCommandStore,
+    'describeQueue' | 'describePreDeliveryCapability'
+  >;
   toolRevealStore?: Pick<BrowserToolRevealStore, 'listSurfaces'>;
   extensionTabStore?: Pick<BrowserExtensionTabStore, 'listTabs'>;
   reliabilityEvents?: Pick<BrowserReliabilityEvents, 'recent'>;
@@ -241,7 +252,10 @@ export class BrowserHealthService {
   private readonly rawAutomationHealthService: Pick<BrowserAutomationHealthService, 'diagnose'>;
   private readonly workerNodeRegistry: Pick<WorkerNodeRegistry, 'getAllNodes'>;
   private readonly extensionContactState: BrowserExtensionContactStateReader;
-  private readonly extensionCommandStore: Pick<BrowserExtensionCommandStore, 'describeQueue'>;
+  private readonly extensionCommandStore: Pick<
+    BrowserExtensionCommandStore,
+    'describeQueue' | 'describePreDeliveryCapability'
+  >;
   private readonly toolRevealStore: Pick<BrowserToolRevealStore, 'listSurfaces'>;
   private readonly extensionTabStore: Pick<BrowserExtensionTabStore, 'listTabs'>;
   private readonly reliabilityEvents: Pick<BrowserReliabilityEvents, 'recent'>;
@@ -363,20 +377,35 @@ export class BrowserHealthService {
       );
     }
     for (const node of remoteExtensions.nodes) {
-      if (!node.silent) {
+      if (node.silent) {
+        const ageSeconds = node.contactAgeMs !== undefined
+          ? `${Math.round(node.contactAgeMs / 1000)}s ago`
+          : 'never';
+        warnings.push(
+          `Browser extension on ${node.nodeName} is not polling (last contact: ${ageSeconds}); `
+          + 'commands to that node cannot be delivered until it reconnects.',
+        );
         continue;
       }
-      const ageSeconds = node.contactAgeMs !== undefined
-        ? `${Math.round(node.contactAgeMs / 1000)}s ago`
-        : 'never';
+      if (node.commandsDeliverable) {
+        continue;
+      }
       warnings.push(
-        `Browser extension on ${node.nodeName} is not polling (last contact: ${ageSeconds}); `
-        + 'commands to that node cannot be delivered until it reconnects.',
+        node.commandsUndeliverableReason?.startsWith(BROWSER_WORKER_AGENT_TOO_OLD)
+          ? node.commandsUndeliverableReason
+          : `Browser extension on ${node.nodeName} is polling but rejecting every command`
+            + `${node.commandsUndeliverableReason ? ` (${node.commandsUndeliverableReason})` : ''}; `
+            + `redeploy the worker agent to ${node.nodeName}.`,
       );
     }
 
+    const remoteCommandsDeliverable = remoteExtensions.nodes.every(
+      (node) => node.commandsDeliverable,
+    );
     return {
-      status: chromeRuntime.available && bridgeAvailable ? 'ready' : 'partial',
+      status: chromeRuntime.available && bridgeAvailable && remoteCommandsDeliverable
+        ? 'ready'
+        : 'partial',
       checkedAt: this.now(),
       chromeRuntime,
       localExtension,
@@ -465,12 +494,22 @@ export class BrowserHealthService {
           browserExtensionQueueKeyForNode(node.id),
         );
         void queueKey;
+        const capability = assessRemoteExtensionCommandCapability({
+          nodeName: node.name,
+          hasExtensionRelay: nodeHasExtensionRelay(node),
+          ...(relay ? { relay } : {}),
+          ...this.preDeliveryCapability(node.id),
+        });
         return {
           nodeId: node.id,
           nodeName: node.name,
           enabled,
           running,
           silent,
+          commandsDeliverable: capability.commandsDeliverable,
+          ...(capability.reason
+            ? { commandsUndeliverableReason: capability.reason }
+            : {}),
           lastContactAt,
           ...(lastContactAt !== undefined
             ? { contactAgeMs: Math.max(0, this.now() - lastContactAt) }
@@ -488,10 +527,21 @@ export class BrowserHealthService {
       });
     return {
       total: nodes.length,
-      ready: nodes.filter((node) => node.enabled && node.running && !node.silent).length,
+      ready: nodes.filter((node) =>
+        node.enabled && node.running && !node.silent && node.commandsDeliverable
+      ).length,
       silent: nodes.filter((node) => node.silent).length,
       nodes,
     };
+  }
+
+  private preDeliveryCapability(nodeId: string): {
+    preDelivery?: BrowserPreDeliveryCapability;
+  } {
+    const preDelivery = this.extensionCommandStore.describePreDeliveryCapability?.(
+      browserExtensionQueueKeyForNode(nodeId),
+    );
+    return preDelivery ? { preDelivery } : {};
   }
 
   private serviceWorkerRestartCount(nodeId: string, extensionStartedAt: number | undefined): number {

@@ -7,17 +7,23 @@
  *    turns: a cached clean verdict (`state.freshEyesCleanForWorkState`) is
  *    reused when the completion attempt's iteration touched no production
  *    files; any production change or blocked review invalidates the cache,
- *    and a contradiction-forced review always runs for real.
+ *    and a contradiction-forced review always runs for real. Per Decision
+ *    15(b) this rule no longer sits behind `antiSelfGrading`, so the cases
+ *    below pin both halves: the reuse fires with the flag off, and both
+ *    bypasses still hold with the flag off.
  */
 
 import { describe, expect, it, vi } from 'vitest';
 import * as os from 'node:os';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import {
   runFreshEyesReviewGate,
   trackRepeatedCompletionEvidence,
+  workspaceAnchorDigest,
 } from './loop-coordinator-completion-gates';
+import { collectWorkspaceDiff } from './loop-diff';
 import { classifyFreshEyesBlocking } from './fresh-eyes-blocking';
 import type { FreshEyesFinding, FreshEyesReviewer } from './loop-fresh-eyes-reviewer';
 import {
@@ -57,8 +63,30 @@ function makeIteration(over: Partial<LoopIteration> = {}): LoopIteration {
   };
 }
 
+/**
+ * A real git checkout with one commit.
+ *
+ * The instant-ALLOW anchor is a digest of an actual `git diff`, so a bare temp
+ * directory would make every reuse test pass for the wrong reason — a non-git
+ * workspace yields a null digest and deliberately never reuses. These tests
+ * have to be able to dirty the tree and watch the digest move.
+ */
+function makeGitWorkspace(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gates-spec-'));
+  const git = (...args: string[]) =>
+    spawnSync('git', args, { cwd: dir, encoding: 'utf8' });
+  git('init', '-q');
+  git('config', 'user.email', 'spec@example.invalid');
+  git('config', 'user.name', 'Gates Spec');
+  git('config', 'commit.gpgsign', 'false');
+  fs.writeFileSync(path.join(dir, 'README.md'), 'seed\n');
+  git('add', '-A');
+  git('commit', '-qm', 'seed');
+  return dir;
+}
+
 function makeState(over: Partial<LoopState> = {}): LoopState {
-  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'gates-spec-'));
+  const workspace = makeGitWorkspace();
   const cfg = defaultLoopConfig(workspace, 'do thing');
   cfg.completion.antiSelfGrading = true;
   cfg.completion.crossModelReview = {
@@ -67,7 +95,7 @@ function makeState(over: Partial<LoopState> = {}): LoopState {
     timeoutSeconds: 10,
     reviewDepth: 'structured',
   };
-  return {
+  return withCleanVerdictAnchor({
     id: 'loop-1',
     chatId: 'chat-1',
     config: cfg,
@@ -91,7 +119,28 @@ function makeState(over: Partial<LoopState> = {}): LoopState {
     completionAttempts: 0,
     loopTasksLedgerResolvedAtStart: false,
     ...over,
-  };
+  });
+}
+
+/**
+ * A test asking for `freshEyesCleanForWorkState: true` means "a clean verdict
+ * was issued against this tree", so anchor it to the tree as the production
+ * code does. Without this every reuse test would fail for the uninteresting
+ * reason that no digest was ever recorded, and the interesting cases — the
+ * tree moving underneath a cached verdict — could not be written at all.
+ * A test that sets its own digest keeps it.
+ */
+function withCleanVerdictAnchor(state: LoopState): LoopState {
+  if (state.freshEyesCleanForWorkState === true && state.freshEyesCleanWorkspaceDigest === undefined) {
+    state.freshEyesCleanWorkspaceDigest =
+      workspaceAnchorDigest(state.config.workspaceCwd) ?? undefined;
+  }
+  return state;
+}
+
+/** Dirty the workspace the way a concurrent writer would — unobserved by the loop. */
+function writeUnobservedFile(state: LoopState, rel: string, body: string): void {
+  fs.writeFileSync(path.join(state.config.workspaceCwd, rel), body);
 }
 
 const cleanReview: FreshEyesReviewer = async () => ({
@@ -126,7 +175,7 @@ function gateArgs(state: LoopState, iteration: LoopIteration, reviewer: FreshEye
   };
 }
 
-describe('runFreshEyesReviewGate — D6 instant ALLOW (anti-self-grading)', () => {
+describe('runFreshEyesReviewGate — D6 instant ALLOW for non-edit turns', () => {
   it('reuses a cached clean verdict for a non-edit iteration without invoking the reviewer', async () => {
     const state = makeState({ freshEyesCleanForWorkState: true });
     const reviewer = vi.fn(cleanReview);
@@ -155,17 +204,143 @@ describe('runFreshEyesReviewGate — D6 instant ALLOW (anti-self-grading)', () =
     expect(result.ran).toBe(true);
   });
 
-  // L2: the instant ALLOW stays behind the `antiSelfGrading` opt-in. Skipping a
-  // real cross-model review by default is a trust-boundary change the plan does
-  // not authorise, so the shipped default must still run the reviewer.
-  it('runs the reviewer when antiSelfGrading is off even with a cached verdict', async () => {
+  // Decision 15(b): this rule alone was un-gated from `antiSelfGrading`. It
+  // used to be opt-in, which meant it never fired on the shipped default and
+  // every repeat "done" claim on an unchanged tree paid for another review.
+  // `makeState` turns the flag ON for the demotion tests further down, so this
+  // is the one that proves the reuse does not depend on it.
+  it('reuses the cached verdict at the shipped default, with antiSelfGrading off', async () => {
     const state = makeState({ freshEyesCleanForWorkState: true });
+    state.config.completion.antiSelfGrading = false;
+    const reviewer = vi.fn(cleanReview);
+    const args = gateArgs(state, makeIteration({ filesChanged: [] }), reviewer);
+
+    const result = await runFreshEyesReviewGate(args);
+
+    expect(reviewer).not.toHaveBeenCalled();
+    expect(result).toEqual({ blocked: false, ran: true, errored: false });
+    expect(args.emit).toHaveBeenCalledWith(
+      'loop:fresh-eyes-review-passed',
+      expect.objectContaining({ instantAllow: true }),
+    );
+  });
+
+  // The un-gating is only safe because the cache still invalidates. With the
+  // flag off, a production edit must STILL force a real review — otherwise
+  // Decision 15(b) would have turned the reuse into a blanket review skip.
+  it('still runs the reviewer for a production edit with antiSelfGrading off', async () => {
+    const state = makeState({ freshEyesCleanForWorkState: true });
+    state.config.completion.antiSelfGrading = false;
+    const reviewer = vi.fn(cleanReview);
+    const iteration = makeIteration({
+      filesChanged: [{ path: 'src/app.ts', additions: 1, deletions: 0, contentHash: 'h' }],
+    });
+
+    await runFreshEyesReviewGate(gateArgs(state, iteration, reviewer));
+
+    expect(reviewer).toHaveBeenCalledOnce();
+  });
+
+  // Same for the other bypass: a contradiction between the agent's claim and
+  // verify must not be answerable from cache, flag or no flag.
+  it('still runs a contradiction-forced review with antiSelfGrading off', async () => {
+    const state = makeState({
+      freshEyesCleanForWorkState: true,
+      freshEyesForcedByContradiction: true,
+    });
     state.config.completion.antiSelfGrading = false;
     const reviewer = vi.fn(cleanReview);
 
     await runFreshEyesReviewGate(gateArgs(state, makeIteration({ filesChanged: [] }), reviewer));
 
     expect(reviewer).toHaveBeenCalledOnce();
+  });
+
+  // The first fresh-eyes gate finding (HIGH). `iteration.filesChanged` is the
+  // delta the coordinator OBSERVED for this attempt, and the observer
+  // re-baselines per attempt — so a write that lands between two attempts (a
+  // concurrent agent, James's editor, a background job) is absorbed into the
+  // next baseline and never appears in any iteration's `filesChanged`. Keyed
+  // on observation alone, that turns an edit turn into a free pass.
+  it('runs the reviewer when the tree moved unobserved between attempts', async () => {
+    const state = makeState({ freshEyesCleanForWorkState: true });
+    const reviewer = vi.fn(cleanReview);
+    // Nothing in `filesChanged`: by construction the loop never saw this.
+    writeUnobservedFile(state, 'src-app.ts', 'export const x = 1;\n');
+
+    await runFreshEyesReviewGate(gateArgs(state, makeIteration({ filesChanged: [] }), reviewer));
+
+    expect(reviewer).toHaveBeenCalledOnce();
+  });
+
+  // Same finding, second route: a failed git comparison returns `changes: []`
+  // with degraded coverage, which is indistinguishable from "nothing changed"
+  // if you only look at the array. Reverting the tree to the reviewed state
+  // must be what earns the reuse — not an empty array.
+  it('reuses only when the tree matches, not merely when nothing was observed', async () => {
+    const state = makeState({ freshEyesCleanForWorkState: true });
+    const iteration = makeIteration({ filesChanged: [] });
+
+    writeUnobservedFile(state, 'drifted.ts', 'export const y = 2;\n');
+    const afterDrift = vi.fn(cleanReview);
+    await runFreshEyesReviewGate(gateArgs(state, iteration, afterDrift));
+    expect(afterDrift, 'drift must force a real review').toHaveBeenCalledOnce();
+
+    // That review re-anchored the verdict to the drifted tree, so an attempt
+    // against the SAME tree now reuses.
+    const unchanged = vi.fn(cleanReview);
+    await runFreshEyesReviewGate(gateArgs(state, iteration, unchanged));
+    expect(unchanged, 'an unchanged tree reuses').not.toHaveBeenCalled();
+  });
+
+  // A workspace that cannot produce a diff cannot anchor a verdict. An empty
+  // diff from a non-git tree is the absence of evidence, not evidence of
+  // absence, so the rule must fail closed rather than reuse.
+  //
+  // Scope, stated precisely because two attempts to word this were wrong.
+  // This pins the BEHAVIOUR (a non-git workspace never reuses), not the
+  // `workspaceDigest !== null` clause specifically — deleting that clause
+  // leaves this green, because the stored digest is `undefined` and
+  // `undefined === null` is already false, so the equality check blocks reuse
+  // on its own. The clause is kept as belt-and-braces against a persisted
+  // null, not because it is the only thing standing here.
+  it('never reuses in a workspace that cannot produce a diff', async () => {
+    const state = makeState({ freshEyesCleanForWorkState: true });
+    const nonGit = fs.mkdtempSync(path.join(os.tmpdir(), 'gates-nogit-'));
+    state.config.workspaceCwd = nonGit;
+    state.config.executionCwd = nonGit;
+    state.freshEyesCleanWorkspaceDigest = workspaceAnchorDigest(nonGit) ?? undefined;
+    expect(state.freshEyesCleanWorkspaceDigest, 'precondition: nothing anchorable').toBeUndefined();
+    const reviewer = vi.fn(cleanReview);
+
+    await runFreshEyesReviewGate(gateArgs(state, makeIteration({ filesChanged: [] }), reviewer));
+
+    expect(reviewer).toHaveBeenCalledOnce();
+  });
+
+  // Pass 2 of the fresh-eyes gate. `collectWorkspaceDiff` diffs against HEAD,
+  // so committing the work returns every one of its git calls to empty — a
+  // digest over the diff ALONE is unchanged across a commit that added real
+  // production code. With the commit ratchet on, or an agent that commits its
+  // own work, that reinstated the exact hole the digest was added to close.
+  it('runs the reviewer when the work was committed rather than left dirty', async () => {
+    const state = makeState({ freshEyesCleanForWorkState: true });
+    const cwd = state.config.workspaceCwd;
+    const git = (...args: string[]) => spawnSync('git', args, { cwd, encoding: 'utf8' });
+
+    // Precondition: the cached verdict was issued against this clean tree.
+    expect(collectWorkspaceDiff(cwd).diff, 'precondition: tree is clean').toBe('');
+
+    writeUnobservedFile(state, 'committed.ts', 'export const shipped = 1;\n');
+    git('add', '-A');
+    git('commit', '-qm', 'agent committed its own work');
+    // The tree is clean again, so the diff half of the digest is unchanged.
+    expect(collectWorkspaceDiff(cwd).diff, 'the diff really did return to empty').toBe('');
+
+    const reviewer = vi.fn(cleanReview);
+    await runFreshEyesReviewGate(gateArgs(state, makeIteration({ filesChanged: [] }), reviewer));
+
+    expect(reviewer, 'HEAD moved, so the verdict must not be reused').toHaveBeenCalledOnce();
   });
 
   it('runs the reviewer when no clean verdict is cached', async () => {

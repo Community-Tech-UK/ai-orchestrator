@@ -80,6 +80,12 @@ export interface WorkerNodeExtensionRelaySummary {
   extensionVersion?: string;
   extensionReloadedAt?: number;
   lastExtensionContactAt?: number;
+  /**
+   * Present on workers that hoist extension runtime evidence onto
+   * `browser.ext.*` RPC params. Absence on a node with `hasExtensionRelay`
+   * means the worker predates that contract (commit e29b41ba).
+   */
+  forwardsRuntimeEvidence?: boolean;
 }
 
 export interface AndroidDeviceInfo {

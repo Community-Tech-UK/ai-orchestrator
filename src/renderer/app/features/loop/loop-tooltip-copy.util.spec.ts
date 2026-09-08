@@ -32,7 +32,7 @@ describe('metricStripTooltipFor (UX3)', () => {
   });
 
   // T45 honesty: the cap is not the whole story.
-  it('says an iteration cap adds a wrap-up turn', () => {
+  it('says an iteration cap can add a wrap-up turn', () => {
     expect(metricStripTooltipFor(true, null)).toContain('wrap-up turn');
   });
 

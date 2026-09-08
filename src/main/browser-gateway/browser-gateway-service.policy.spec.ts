@@ -14,6 +14,7 @@ import {
 } from './browser-gateway-service.test-helpers';
 import { getWorkerNodeRegistry, WorkerNodeRegistry } from '../remote-node/worker-node-registry';
 import type { BrowserDownloadFileResult, BrowserProfile, BrowserTarget } from '@contracts/types/browser';
+import { workerAgentTooOldReason } from './browser-worker-agent-skew';
 
 /**
  * `makeService()`'s default driver mocks (browser-gateway-service.test-helpers.ts)
@@ -506,6 +507,109 @@ describe('BrowserGatewayService policy', () => {
     expect(result.data).toHaveLength(1);
     expect(result.data?.[0]).toMatchObject({ id: localTarget.id });
     expect(result.data?.[0]).not.toHaveProperty('nodeId');
+    expect(result.reason ?? '').not.toContain('inventory refresh FAILED');
+    expect(result.reason ?? '').not.toContain('node-1');
+  });
+
+  it('does not report remote refresh failures on a local-scoped listing', async () => {
+    const remoteNode = makeRelayNode();
+    remoteNode.capabilities.extensionRelay = {
+      enabled: true,
+      running: true,
+      extensionVersion: '0.2.19',
+    };
+    getWorkerNodeRegistry().registerNode(remoteNode);
+    const localTarget = makeTarget({
+      id: 'existing-tab:7:42:target',
+      profileId: 'existing-tab:7:42',
+      pageId: '42',
+      driverTargetId: 'chrome-tab:7:42',
+      mode: 'existing-tab',
+      driver: 'extension',
+      status: 'selected',
+      title: 'Local tab',
+      url: 'https://app.emergent.sh/home',
+      origin: 'https://app.emergent.sh',
+    });
+    const sendCommand = vi.fn(async (request: { queueKey?: string }) => {
+      if (request.queueKey !== 'local') {
+        throw new Error('inventory refresh FAILED for node node-1');
+      }
+      throw new Error('browser_extension_command_not_delivered');
+    });
+    const { service } = makeService({
+      targets: [localTarget],
+      extensionCommandStore: { sendCommand },
+    });
+
+    const result = await service.listTargets({ refresh: true, computer: 'local' });
+
+    expect(sendCommand).toHaveBeenCalledTimes(1);
+    expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({
+      queueKey: 'local',
+    }));
+    expect(result.data?.[0]).not.toHaveProperty('nodeId');
+    expect(result.reason ?? '').not.toContain('node-1');
+    expect(result.reason ?? '').not.toContain(workerAgentTooOldReason('Windows PC'));
+  });
+
+  it('names a too-old worker in the list_targets degraded summary', async () => {
+    const remoteNode = makeRelayNode();
+    remoteNode.capabilities.extensionRelay = {
+      enabled: true,
+      running: true,
+      extensionVersion: '0.2.19',
+    };
+    getWorkerNodeRegistry().registerNode(remoteNode);
+    const remoteTarget = makeTarget({
+      id: 'existing-tab:n.node-1:8:99:target',
+      profileId: 'existing-tab:n.node-1:8:99',
+      pageId: '99',
+      driverTargetId: 'chrome-tab:8:99',
+      mode: 'existing-tab',
+      driver: 'extension',
+      status: 'selected',
+      nodeId: 'node-1',
+      nodeName: 'Windows PC',
+      title: 'Windows tab',
+      url: 'https://app.emergent.sh/home',
+      origin: 'https://app.emergent.sh',
+    });
+    const { service } = makeService({
+      targets: [remoteTarget],
+    });
+
+    const result = await service.listTargets({ computer: 'Windows PC' });
+
+    expect(result.reason).toBe(workerAgentTooOldReason('Windows PC'));
+  });
+
+  it('fails find_or_open with the worker-too-old reason instead of a runtime error', async () => {
+    const remoteNode = makeRelayNode();
+    remoteNode.capabilities.extensionRelay = {
+      enabled: true,
+      running: true,
+      extensionVersion: '0.2.19',
+    };
+    getWorkerNodeRegistry().registerNode(remoteNode);
+    const sendCommand = vi.fn();
+    const { service } = makeService({
+      extensionCommandStore: { sendCommand },
+    });
+
+    const result = await service.findOrOpen({
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      computer: 'Windows PC',
+      url: 'https://example.com',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'failed',
+      reason: workerAgentTooOldReason('Windows PC'),
+    });
+    expect(sendCommand).not.toHaveBeenCalled();
   });
 
   it('marks targets stale and says so when an explicit inventory refresh fails', async () => {

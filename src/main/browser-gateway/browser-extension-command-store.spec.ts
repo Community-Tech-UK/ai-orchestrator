@@ -555,6 +555,32 @@ describe('BrowserExtensionCommandStore', () => {
     expect(error.message).toBe('browser_extension_runtime_incompatible');
     expect(error.message).not.toContain('MODEL_VISIBLE_TEST_MARKER');
     expect(store.describeQueue('local')).toMatchObject({ queuedCount: 0, inFlightCount: 0 });
+    expect(store.describePreDeliveryCapability('local')).toEqual({
+      commandsDeliverable: true,
+    });
+  });
+
+  it('rejects queued commands with the caller-supplied deny reason and marks the queue incapable', async () => {
+    const store = new BrowserExtensionCommandStore();
+    const pending = [
+      store.sendCommand({ command: 'snapshot', timeoutMs: 1_000 }),
+      store.sendCommand({ command: 'snapshot', timeoutMs: 1_000 }),
+      store.sendCommand({ command: 'snapshot', timeoutMs: 1_000 }),
+    ];
+
+    for (const _ of pending) {
+      await expect(store.pollCommand({
+        timeoutMs: 1,
+        allowBrowserCommands: false,
+        denyBrowserCommandsReason: 'browser_worker_agent_too_old: redeploy the worker agent to windows-pc',
+      })).resolves.toBeNull();
+    }
+
+    await expect(pending[0]).rejects.toThrow('browser_worker_agent_too_old');
+    expect(store.describePreDeliveryCapability('local')).toEqual({
+      commandsDeliverable: false,
+      reason: 'browser_worker_agent_too_old: redeploy the worker agent to windows-pc',
+    });
   });
 
   it('rejects a queued secret write without returning it to an incompatible poller', async () => {

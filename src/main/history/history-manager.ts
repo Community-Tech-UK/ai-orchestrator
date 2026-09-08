@@ -51,6 +51,9 @@ const logger = getLogger('HistoryManager');
 const HISTORY_INDEX_VERSION = 1;
 const MAX_PREVIEW_LENGTH = 150;
 const MAX_HISTORY_ENTRIES = 2000; // Keep last 2000 conversations (raised from 1000 to fit native Claude transcript imports)
+/** How long to leave an entry alone after its AI title generation came back empty. */
+const AI_TITLE_FAILURE_COOLDOWN_MS = 60 * 60_000;
+const MAX_TRACKED_AI_TITLE_FAILURES = 500;
 const RESTORE_FALLBACK_NOTICE_MESSAGE = /^Previous .+ CLI session could not be restored natively\./;
 const HISTORY_BACKED_SOURCES = new Set<HistorySearchSource>([
   'history-transcript',
@@ -114,6 +117,18 @@ export class HistoryManager {
 
   // Entries currently having an AI title generated, to dedupe concurrent backfills
   private aiTitleInFlight = new Set<string>();
+
+  /**
+   * Entries whose AI title generation returned nothing, with the time it failed.
+   *
+   * Without this, `backfillMissingAiTitles` re-attempts the same entries on
+   * every history-list refresh forever. When the local model is unreachable that
+   * is a hot loop against a dead route: 280 abandoned attempts in a single hour
+   * on 2026-09-07, each one costing a routing decision and a ledger row. Entries
+   * are retried once the cooldown lapses, so a model coming back online still
+   * gets picked up.
+   */
+  private aiTitleFailures = new Map<string, number>();
 
   private historyThreadIdBackfillPending = false;
 
@@ -582,6 +597,25 @@ export class HistoryManager {
     return true;
   }
 
+  private aiTitleRecentlyFailed(entryId: string, now: number): boolean {
+    const failedAt = this.aiTitleFailures.get(entryId);
+    if (failedAt === undefined) return false;
+    if (now - failedAt < AI_TITLE_FAILURE_COOLDOWN_MS) return true;
+    this.aiTitleFailures.delete(entryId);
+    return false;
+  }
+
+  private recordAiTitleFailure(entryId: string): void {
+    // Bounded: a large history with a dead local model would otherwise grow this
+    // map by one entry per thread. Oldest-first eviction keeps recent failures,
+    // which are the ones worth suppressing.
+    if (this.aiTitleFailures.size >= MAX_TRACKED_AI_TITLE_FAILURES) {
+      const oldest = this.aiTitleFailures.keys().next();
+      if (!oldest.done) this.aiTitleFailures.delete(oldest.value);
+    }
+    this.aiTitleFailures.set(entryId, Date.now());
+  }
+
   /**
    * Best-effort backfill of local-AI titles for the given (already-listed)
    * entries that lack one — used so older threads pick up an AI-chosen rail
@@ -601,12 +635,14 @@ export class HistoryManager {
     const maxPerCall = options.maxPerCall ?? 10;
     const concurrency = Math.max(1, options.concurrency ?? 2);
 
+    const now = Date.now();
     const pending = entries
       .filter(
         (entry) =>
           !entry.isRenamed &&
           !entry.aiTitle &&
           !this.aiTitleInFlight.has(entry.id) &&
+          !this.aiTitleRecentlyFailed(entry.id, now) &&
           (entry.firstUserMessage ?? '').trim().length >= 10
       )
       .slice(0, maxPerCall);
@@ -629,9 +665,16 @@ export class HistoryManager {
         try {
           const title = await generate(entry.firstUserMessage);
           if (title) {
+            this.aiTitleFailures.delete(entry.id);
             await this.setEntryAiTitle(entry.id, title);
+          } else {
+            // No title and no throw: generation is unavailable (no local model,
+            // escalation not permitted, or output rejected). Back off rather
+            // than asking again on the next list refresh.
+            this.recordAiTitleFailure(entry.id);
           }
         } catch (error) {
+          this.recordAiTitleFailure(entry.id);
           logger.warn('AI title backfill failed for entry', {
             entryId: entry.id,
             error: error instanceof Error ? error.message : String(error),

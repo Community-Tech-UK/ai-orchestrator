@@ -214,6 +214,7 @@ import {
   preflightBlockedSignal,
   rememberLoopTerminalIntent,
   readBlockedFileIfPresent as readBlockedFileIfPresentHelper,
+  clearFreshEyesReuseCache,
   reconcileRestoredLoopState,
   resourceGovernorPauseSignal,
   syntheticChildResultFromTerminalIntent as syntheticChildResultFromTerminalIntentHelper,
@@ -1409,6 +1410,10 @@ export class LoopCoordinator extends EventEmitter {
     state.status = 'running';
     // A3 (#29): no longer waiting on input once the operator resumes.
     state.pausedForInput = false;
+    // D6 (#7) part 3: a paused or parked loop observes nothing for what can be
+    // hours — the same exposure as a checkpoint restore, which already clears
+    // this. The digest is the real guard; this keeps the documented list true.
+    clearFreshEyesReuseCache(state);
     if (!this.lifecycle.releasePause(loopRunId) && this.restoredLoops.delete(loopRunId)) {
       this.startRestoredLoopRunner(state);
     }
@@ -2364,11 +2369,8 @@ export class LoopCoordinator extends EventEmitter {
 
       // D6 (#7) part 3: any production-file change invalidates the cached
       // clean fresh-eyes verdict (edit-invalidates-proof for reviews).
-      if (
-        state.freshEyesCleanForWorkState
-        && iteration.filesChanged.some((f) => isReviewDrivenProductionChange(f.path))
-      ) {
-        state.freshEyesCleanForWorkState = false;
+      if (iteration.filesChanged.some((f) => isReviewDrivenProductionChange(f.path))) {
+        clearFreshEyesReuseCache(state);
       }
 
       // -- update state aggregates pre-detection --

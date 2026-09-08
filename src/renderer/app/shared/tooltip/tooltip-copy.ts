@@ -18,9 +18,10 @@
  *    Two things this rule does NOT mean, both learned the hard way:
  *
  *    - It does not mean "remove the hover". During UX3 it was read that way and
- *      the Terminate button lost its `title` for an `aria-label` alone, leaving
- *      sighted mouse users a bare `×` on an unconfirmed session-ending action
- *      while every sibling icon kept a hint. An `aria-label` is not "inline" —
+ *      the session-ending button (then "Terminate", now "Close session") lost
+ *      its `title` for an `aria-label` alone, leaving sighted mouse users a
+ *      bare `×` on an unconfirmed session-ending action while every sibling
+ *      icon kept a hint. An `aria-label` is not "inline" —
  *      it is invisible to everyone not using a screen reader. Deleting a
  *      disclosure is never how you comply with a disclosure rule.
  *    - It is not satisfied by adding the hover back either. When this rule was
@@ -118,7 +119,7 @@ export const TOOLTIP_COPY = {
   'loop.iterations': {
     label: 'Iterations',
     meaning: 'Iterations run so far, against the cap for this run.',
-    consequence: 'An iteration or wall-time cap adds one wrap-up turn on top.',
+    consequence: 'An iteration or wall-time cap can add one wrap-up turn on top; a token or cost cap stops immediately.',
   },
   'loop.tokens': {
     label: 'Tokens',

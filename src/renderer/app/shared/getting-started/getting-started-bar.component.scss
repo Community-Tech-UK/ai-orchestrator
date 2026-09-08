@@ -20,26 +20,37 @@
   padding: 0;
 }
 
+/**
+ * Every cell is placed explicitly. With only `detail` carrying a
+ * `grid-column`, the rest were auto-placed, and auto-placement interacts with
+ * explicitly-positioned items in ways that are easy to get wrong by eye — the
+ * label could end up on a different row from its own state word. Naming the
+ * areas removes the question rather than relying on placement order.
+ */
 .getting-started__step {
   align-items: baseline;
   display: grid;
   gap: 4px 8px;
+  grid-template-areas:
+    'state label action'
+    '.     detail detail';
   grid-template-columns: auto 1fr auto;
 }
 
 /* The word carries the state; opacity only reinforces it. */
-.getting-started__state { opacity: 0.65; }
+.getting-started__state { grid-area: state; opacity: 0.65; }
 .getting-started__step[data-done='true'] { opacity: 0.6; }
 
-.getting-started__label { font-weight: 600; }
+.getting-started__label { grid-area: label; font-weight: 600; }
 
 .getting-started__detail {
-  grid-column: 2 / -1;
+  grid-area: detail;
   line-height: 1.45;
   opacity: 0.8;
 }
 
 .getting-started__go {
+  grid-area: action;
   background: transparent;
   border: 1px solid var(--border-color, rgba(255, 255, 255, 0.2));
   border-radius: 4px;

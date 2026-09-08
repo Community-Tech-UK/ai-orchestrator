@@ -33,6 +33,10 @@ import {
   isSecureBrowserExtensionRuntimeEvidence,
   supportsSecureBrowserExtensionCredentialFill,
 } from './browser-extension-credential-compatibility';
+import {
+  classifyBrowserExtensionIncompatibility,
+  nodeHasExtensionRelay,
+} from './browser-worker-agent-skew';
 
 type BrowserExtAttachTabParams = z.infer<typeof BrowserExtAttachTabParamsSchema>;
 type BrowserExtPollCommandParams = z.infer<typeof BrowserExtPollCommandParamsSchema>;
@@ -97,6 +101,7 @@ export class RemoteBrowserExtensionBridge {
   private readonly rateLimitWindowMs: number;
   private readonly rateBuckets = new Map<string, RateBucket>();
   private readonly contactTransitions = new Map<string, ContactTransitionState>();
+  private readonly lastIncompatibilityReason = new Map<string, string>();
 
   constructor(options: RemoteBrowserExtensionBridgeOptions = {}) {
     this.service = options.service ?? getBrowserGatewayService();
@@ -132,7 +137,7 @@ export class RemoteBrowserExtensionBridge {
       throw new Error(`unknown_remote_browser_node:${nodeId}`);
     }
     if (!this.recordExtensionContact(nodeId, params)) {
-      throw new Error('browser_extension_runtime_incompatible');
+      throw new Error(this.denyBrowserCommandsReason(nodeId, params));
     }
 
     const {
@@ -163,6 +168,9 @@ export class RemoteBrowserExtensionBridge {
         deferHandoffConfirmation: true,
         allowBrowserCommands,
         allowSecureCredentialCommands: allowBrowserCommands,
+        ...(!allowBrowserCommands
+          ? { denyBrowserCommandsReason: this.denyBrowserCommandsReason(nodeId, params) }
+          : {}),
       },
     );
   }
@@ -188,7 +196,7 @@ export class RemoteBrowserExtensionBridge {
         queueKey: browserExtensionQueueKeyForNode(nodeId),
         commandId: params.commandId,
         ok: false,
-        error: 'browser_extension_runtime_incompatible',
+        error: this.denyBrowserCommandsReason(nodeId, params),
       });
       return { ok: true };
     }
@@ -231,6 +239,7 @@ export class RemoteBrowserExtensionBridge {
   expireNode(nodeId: string): void {
     this.rateBuckets.delete(nodeId);
     this.contactTransitions.delete(nodeId);
+    this.lastIncompatibilityReason.delete(nodeId);
     this.contactState.forgetNode(nodeId, { preserveRuntimeWatermark: true });
     // forgetNode wiped the disconnect record — re-record it so post-reconnect
     // writes trigger the persistence sentinel's pre-write session check.
@@ -284,6 +293,7 @@ export class RemoteBrowserExtensionBridge {
     this.contactState.markExtensionRuntime(nodeId, runtime);
     const allowBrowserCommands = isSecureBrowserExtensionRuntimeEvidence(runtime)
       && supportsSecureBrowserExtensionCredentialFill(this.contactState, nodeId);
+    this.recordIncompatibilityTransition(nodeId, runtime, allowBrowserCommands);
     if (!allowBrowserCommands) {
       this.tabStore.suspendNode(nodeId);
     } else {
@@ -305,6 +315,41 @@ export class RemoteBrowserExtensionBridge {
     }
     this.contactTransitions.set(nodeId, 'active');
     return allowBrowserCommands;
+  }
+
+  private denyBrowserCommandsReason(
+    nodeId: string,
+    runtime: { extensionVersion?: string; extensionStartedAt?: number },
+  ): string {
+    const node = this.registry.getNode(nodeId);
+    return classifyBrowserExtensionIncompatibility({
+      runtime,
+      nodeName: node?.name || nodeId,
+      hasExtensionRelay: nodeHasExtensionRelay(node),
+      ...(node?.capabilities.extensionRelay
+        ? { relay: node.capabilities.extensionRelay }
+        : {}),
+    }).reason;
+  }
+
+  private recordIncompatibilityTransition(
+    nodeId: string,
+    runtime: { extensionVersion?: string; extensionStartedAt?: number },
+    allowBrowserCommands: boolean,
+  ): void {
+    if (allowBrowserCommands) {
+      if (this.lastIncompatibilityReason.has(nodeId)) {
+        this.lastIncompatibilityReason.delete(nodeId);
+        this.logger.info('Remote browser extension commands unblocked', { nodeId });
+      }
+      return;
+    }
+    const reason = this.denyBrowserCommandsReason(nodeId, runtime);
+    if (this.lastIncompatibilityReason.get(nodeId) === reason) {
+      return;
+    }
+    this.lastIncompatibilityReason.set(nodeId, reason);
+    this.logger.warn('Remote browser extension commands blocked', { nodeId, reason });
   }
 
   private observeExtensionContact(

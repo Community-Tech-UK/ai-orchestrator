@@ -398,6 +398,82 @@ describe('Local AI Guard auxiliary integration', () => {
     });
   });
 
+  // ── Fallback-reason propagation ────────────────────────────────────────────
+  // These cover the multi-hop wiring behind the routing observability fix:
+  // `evaluateManagedAuxiliaryEndpoint`/`tryEndpointForSlot` record WHY a
+  // candidate was passed over into the shared `LocalAiResolutionContext`,
+  // `describeAuxiliaryResolutionFailure` renders it, and
+  // `AuxiliaryLlmService.generate` puts it on the fallback decision (from where
+  // it reaches cost attribution and the throttled warning). Before this, every
+  // one of these distinct failures produced the same unactionable string, which
+  // is how 94% of auxiliary decisions falling back went unnoticed for weeks.
+  // A refactor that stops threading the context would silently restore that.
+
+  it('reports a required model that is missing, not a generic failure', async () => {
+    const setup = harness('notify-and-allow');
+    modelClient.list.mockResolvedValue([{
+      id: 'different-model',
+      name: 'different-model',
+      provider: 'openai-compatible',
+      endpointId: 'ep-local',
+    }]);
+    const service = await configuredService();
+
+    const result = await service.generate('compression', 'system', 'user prompt');
+
+    expect(result.decision.source).toBe('fallback');
+    expect(result.decision.reason).toContain('required-models-missing');
+    expect(result.decision.reason).toContain('ep-local');
+    expect(setup.target).toBeDefined();
+  });
+
+  it('reports a failed inventory probe distinctly from an empty inventory', async () => {
+    harness('notify-and-allow');
+    modelClient.list.mockRejectedValue(new Error('model endpoint failed'));
+    const service = await configuredService();
+
+    const result = await service.generate('compression', 'system', 'user prompt');
+
+    expect(result.decision.source).toBe('fallback');
+    expect(result.decision.reason).toContain('model-inventory-probe-failed');
+    // The two must not be conflated: an RPC that timed out and an endpoint that
+    // genuinely advertises nothing point at completely different faults.
+    expect(result.decision.reason).not.toContain('endpoint-advertises-no-models');
+  });
+
+  it("reports the health engine's own verdict when the target is not eligible", async () => {
+    const setup = harness('notify-and-allow');
+    const service = await configuredService();
+
+    // Drive the target unavailable with a first, failing call. Note the route
+    // here is the target lease's error path (`runWithLocalAiTargetLease` catches
+    // the unstubbed `generate` returning undefined), NOT the endpoint probe —
+    // a pinned managed target skips the probe entirely
+    // (`healthy = managedTarget ? true : …` in `resolveEndpointForSlot`).
+    await service.generate('compression', 'system', 'user prompt');
+    expect(setup.invalidateTarget).toHaveBeenCalledWith(setup.target!.id);
+
+    // Second call must now surface the guard's own ineligibility reason.
+    const result = await service.generate('compression', 'system', 'user prompt');
+
+    expect(result.decision.source).toBe('fallback');
+    expect(result.decision.reason).toContain('health-unavailable');
+  });
+
+  it('distinguishes "no candidate endpoint at all" from a candidate that was rejected', async () => {
+    harness('notify-and-allow', false);
+    AuxiliaryLlmService._resetForTesting();
+    const service = AuxiliaryLlmService.getInstance();
+    // No endpoints configured at all, so nothing is ever tried and there is no
+    // per-endpoint reason to report.
+    service.configure({ ...serviceSettings(), auxiliaryLlmEndpointsJson: '[]' });
+
+    const result = await service.generate('compression', 'system', 'user prompt');
+
+    expect(result.decision.source).toBe('fallback');
+    expect(result.decision.reason).toContain('No auxiliary endpoint was even a candidate');
+  });
+
   it('keeps an unmanaged endpoint compatible without inventing a target identity', async () => {
     const setup = harness('notify-and-allow', false);
     modelClient.generate.mockResolvedValue('unmanaged result');

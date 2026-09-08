@@ -54,7 +54,17 @@ const WORKER_ENTRY = resolve(SPEC_DIR, '../context-worker-main.ts');
 // `loop.schemas.ts` so the loop activity-kind enum can live beside the other
 // split loop schema leaves. Diff-verified as that one new leaf; it does not
 // import Electron.
-const CLOSURE_SIZE_CEILING = 144;
+// 2026-09-08: 144 after `auxiliary-routing-diagnostics.ts` was extracted from
+// `auxiliary-llm-service.ts`, which was at 696/700 lines and could not absorb
+// the auxiliary routing observability fix. Diff-verified by walking the closure
+// from `context-worker-main.ts` against a pristine `git archive HEAD` copy:
+// HEAD 143, working tree 144, with `auxiliary-routing-diagnostics.ts` as the
+// ONLY addition and no removals. It adds no new dependency edges — every module
+// it imports (logger, auxiliary-api-key-resolver, auxiliary-discovery,
+// auxiliary-model-client, auxiliary-remote-hooks, auxiliary-llm-utils) was
+// already in the closure via `auxiliary-llm-service.ts` — and the closure still
+// contains zero Electron value-importers.
+const CLOSURE_SIZE_CEILING = 145;
 
 function resolveImport(spec: string, fromFile: string): string | null {
   if (!spec.startsWith('.')) return null; // bare module (electron, node:*, npm)

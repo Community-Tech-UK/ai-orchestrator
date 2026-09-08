@@ -11,7 +11,9 @@ import {
   defaultCrossModelReviewConfig,
 } from '../../shared/types/loop.types';
 import type { LoopCompletionDetector, VerifyOutcome } from './loop-completion-detector';
-import { LOOP_STATE_DIR_NAME } from './loop-artifact-paths';
+import { isReviewDrivenProductionChange, workspaceAnchorDigest } from './loop-review-reuse-anchor';
+
+export { isReviewDrivenProductionChange, workspaceAnchorDigest } from './loop-review-reuse-anchor';
 import { loopExecutionCwd } from './loop-cwd';
 import { collectWorkspaceDiff } from './loop-diff';
 import { redactForEgress } from '../security/content-egress-gate';
@@ -229,16 +231,6 @@ export async function evaluateReviewDrivenCompletion(args: {
   return null;
 }
 
-export function isReviewDrivenProductionChange(filePath: string): boolean {
-  const normalized = filePath.replace(/\\/g, '/').replace(/^\.\/+/, '');
-  if (normalized.includes(`${LOOP_STATE_DIR_NAME}/`)) return false;
-  if (normalized === LOOP_STATE_DIR_NAME) return false;
-  if (normalized.startsWith('server/')) return false;
-  if (/\.(db|db-shm|db-wal|sqlite|sqlite3|mv\.db)$/i.test(normalized)) return false;
-  if (/\/logs?\//i.test(normalized) || /(^|\/)latest\.log$/i.test(normalized)) return false;
-  return true;
-}
-
 /**
  * claude2_todo #1c: record a completion attempt's *evidence hash* into a
  * bounded ring buffer on state. Identical evidence (same trigger signal, same
@@ -319,28 +311,61 @@ export async function runFreshEyesReviewGate(args: {
     logger.info('Running forced fresh-eyes review after verify contradiction', { loopRunId: state.id });
   }
 
+  // When isolation is active the agent edits the worktree, not the repo root —
+  // use the execution cwd so the reviewer sees the actual changes. Collected
+  // BEFORE the instant-ALLOW check because that check is anchored to it, and
+  // reused by the real review path below so a completion attempt never pays
+  // for two `git diff` passes.
+  const diffCwd = loopExecutionCwd(state.config);
+  const workspaceDiff = collectWorkspaceDiff(diffCwd);
+  // Deliberately NOT derived from `workspaceDiff`: that is the reviewer's
+  // payload and is truncated to fit a prompt, so past its bounds an edit can
+  // leave it byte-identical. The anchor reads its own unbounded git inputs.
+  const workspaceDigest = workspaceAnchorDigest(diffCwd);
+
   // D6 (#7) part 3: instant ALLOW for non-edit turns. A clean cross-model
-  // verdict is cached on state (`freshEyesCleanForWorkState`) and stays valid
-  // while no production file changes land; a completion attempt from a
-  // status/summary-only iteration reuses it instead of paying another
-  // multi-minute cross-model review. This never fabricates authority: the
-  // flag is ONLY set by a real clean review below, and the coordinator
-  // invalidates it on any later iteration that touches production files
-  // (edit-invalidates-proof, symmetric with the stale-verify rung). A
-  // contradiction-forced review always runs for real. Opt-in via
-  // `completion.antiSelfGrading`.
+  // verdict is cached on state and reused by a later completion attempt that
+  // did not change the tree, instead of paying for another multi-minute
+  // review. A contradiction-forced review always runs for real.
   //
-  // L2 note: the plan's "ALLOW a reviewer immediately when the last turn made
-  // no edits" lands here, and the mechanism is already built — but it stays
-  // behind `antiSelfGrading` (default off) deliberately. Un-gating it would
-  // change, for every existing loop, when a real cross-model review is skipped,
-  // and the plan names anti-self-grading load-bearing without listing this as
-  // one of its decisions. Turning it on by default is James's call, not the
-  // implementer's; see the open question recorded in the plan.
+  // **Decision 15(b), 2026-09-07: this rule alone is un-gated.** It ran behind
+  // `completion.antiSelfGrading` (default off), so it never fired and every
+  // repeat "done" claim on an unchanged tree bought another review. Caveat
+  // demotion, the verdict-discipline block and the stale-verify rung stay
+  // behind the flag.
+  //
+  // **The reuse is anchored to the workspace, not to what we observed.** The
+  // first version tested only `iteration.filesChanged`, which is the delta the
+  // coordinator *saw* for this attempt — and a fresh-eyes gate pass found two
+  // ways that under-reports. `createAttemptDeltaObserver` re-baselines per
+  // attempt, so a write landing between two attempts (a concurrent agent, an
+  // editor, a background job, an operator pause or provider-limit park lasting
+  // hours) is absorbed into the next baseline and never appears; and a failed
+  // git comparison returns `changes: []` with degraded coverage, which is
+  // indistinguishable from "nothing happened". Either one turns an edit turn
+  // into a free pass, and the un-gating is what made that reachable by default.
+  //
+  // So the flag alone is not sufficient authority. `freshEyesCleanWorkspaceDigest`
+  // records the commit, `git diff HEAD --raw` (which carries every tracked
+  // add/modify/delete/rename and the file modes), and the content of every
+  // changed or untracked file at the moment the verdict was issued; reuse
+  // requires an exact match. Porcelain status is deliberately NOT part of it —
+  // see the anchor module for why. That covers what the observed delta misses — an
+  // unobserved editor write, a between-attempt write, a degraded observation,
+  // and work the agent committed. It sees what git reports for THIS repo and
+  // no more: gitignored and skip-worktree paths, and the contents of a
+  // submodule or nested repository, are outside it. See the anchor module for
+  // the enumerated list — do not shorten this to "any change".
+  // A workspace with no readable HEAD or status is unanchorable rather than
+  // unchanged, yields a null digest, and never reuses.
   if (
-    state.config.completion.antiSelfGrading === true
-    && !forcedByContradiction
+    !forcedByContradiction
     && state.freshEyesCleanForWorkState === true
+    // `!== null` is redundant against the equality below (a stored `undefined`
+    // never equals `null`) and is kept only to guard a persisted null. The
+    // equality is what actually fails a non-git workspace closed.
+    && workspaceDigest !== null
+    && state.freshEyesCleanWorkspaceDigest === workspaceDigest
     && !iteration.filesChanged.some((f) => isReviewDrivenProductionChange(f.path))
   ) {
     logger.info('Fresh-eyes gate: instant ALLOW — clean verdict cached, no production changes since', {
@@ -360,10 +385,6 @@ export async function runFreshEyesReviewGate(args: {
 
   emit('loop:fresh-eyes-review-started', { loopRunId: state.id, signal: signalId });
 
-  // When isolation is active the agent edits the worktree, not the repo root —
-  // use the execution cwd so the reviewer sees the actual changes.
-  const diffCwd = loopExecutionCwd(state.config);
-  const workspaceDiff = collectWorkspaceDiff(diffCwd);
   // WS3: the diff is reviewer egress — gate it here so EVERY reviewer
   // implementation (not just the default cross-model service, which gates
   // again idempotently) receives a redacted copy.
@@ -529,9 +550,12 @@ export async function runFreshEyesReviewGate(args: {
     }
 
     state.unresolvedReviewThreads = [];
-    // D6 (#7) part 3: cache the clean verdict for the current work state. The
-    // coordinator clears this on any later production-file change.
+    // D6 (#7) part 3: cache the clean verdict, anchored to the tree it was
+    // issued against. A null digest (workspace cannot produce a diff) stores
+    // nothing, so the reuse above can never match and this attempt's verdict
+    // is simply not reusable — fail closed rather than guess.
     state.freshEyesCleanForWorkState = true;
+    state.freshEyesCleanWorkspaceDigest = workspaceDigest ?? undefined;
     emit('loop:fresh-eyes-review-passed', {
       loopRunId: state.id,
       signal: signalId,
@@ -574,6 +598,7 @@ export async function runFreshEyesReviewGate(args: {
   state.unresolvedReviewThreads = currThreads;
   // D6 (#7) part 3: a blocked review invalidates any cached clean verdict.
   state.freshEyesCleanForWorkState = false;
+  state.freshEyesCleanWorkspaceDigest = undefined;
 
   const persistenceNote =
     threadDiff.persisted.length > 0

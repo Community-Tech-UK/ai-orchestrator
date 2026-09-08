@@ -5,6 +5,7 @@ import {
   BrowserHealthService,
   setBrowserGatewayMcpBridgeAvailabilityProvider,
 } from './browser-health-service';
+import { workerAgentTooOldReason } from './browser-worker-agent-skew';
 
 describe('BrowserHealthService', () => {
   it('does not treat raw Chrome DevTools MCP readiness as managed Browser Gateway readiness', async () => {
@@ -314,6 +315,7 @@ describe('BrowserHealthService', () => {
         enabled: true,
         running: true,
         silent: false,
+        commandsDeliverable: true,
         lastContactAt: 5_500,
         contactAgeMs: 500,
         queue: {
@@ -700,5 +702,142 @@ describe('BrowserHealthService', () => {
     ]);
     expect(report.warnings.some((warning) => warning.includes('instance-2'))).toBe(true);
     expect(report.warnings.some((warning) => warning.includes('instance-1'))).toBe(false);
+  });
+
+  it('treats a live-but-incapable worker as not ready and names the remediation', async () => {
+    const nodes: WorkerNodeInfo[] = [{
+      id: 'node-1',
+      name: 'windows-pc',
+      address: '',
+      status: 'connected',
+      activeInstances: 0,
+      capabilities: {
+        platform: 'win32',
+        arch: 'x64',
+        cpuCores: 8,
+        totalMemoryMB: 16_384,
+        availableMemoryMB: 8_192,
+        supportedClis: ['claude'],
+        hasBrowserRuntime: true,
+        hasBrowserMcp: false,
+        hasExtensionRelay: true,
+        extensionRelay: {
+          enabled: true,
+          running: true,
+          extensionVersion: '0.2.19',
+          lastExtensionContactAt: 9_500,
+        },
+        hasAndroidMcp: false,
+        hasDocker: false,
+        maxConcurrentInstances: 4,
+        workingDirectories: [],
+        browsableRoots: [],
+        discoveredProjects: [],
+      },
+    }];
+    const service = new BrowserHealthService({
+      profileStore: { listProfiles: () => [] },
+      rawAutomationHealthService: {
+        diagnose: async () => ({
+          status: 'missing',
+          checkedAt: 1,
+          runtimeAvailable: false,
+          nodeAvailable: true,
+          inAppConfigured: false,
+          inAppConnected: false,
+          inAppToolCount: 0,
+          configDetected: false,
+          configSources: [],
+          browserToolNames: [],
+          warnings: [],
+          suggestions: [],
+          surface: 'legacy_raw_browser_automation',
+        }),
+      },
+      workerNodeRegistry: { getAllNodes: () => nodes },
+      mcpBridgeAvailable: () => true,
+      chromeRuntimeDetector: async () => ({ available: true, command: 'chrome' }),
+      now: () => 10_000,
+    });
+
+    const report = await service.diagnose();
+
+    expect(report.status).toBe('partial');
+    expect(report.remoteExtensions).toMatchObject({
+      total: 1,
+      ready: 0,
+      silent: 0,
+      nodes: [{
+        nodeId: 'node-1',
+        nodeName: 'windows-pc',
+        enabled: true,
+        running: true,
+        silent: false,
+        commandsDeliverable: false,
+        commandsUndeliverableReason: workerAgentTooOldReason('windows-pc'),
+      }],
+    });
+    expect(report.warnings).toContain(workerAgentTooOldReason('windows-pc'));
+  });
+
+  it('does not warn about worker skew for a node with no extension relay', async () => {
+    const nodes: WorkerNodeInfo[] = [{
+      id: 'node-2',
+      name: 'build-box',
+      address: '',
+      status: 'connected',
+      activeInstances: 0,
+      capabilities: {
+        platform: 'linux',
+        arch: 'x64',
+        cpuCores: 8,
+        totalMemoryMB: 16_384,
+        availableMemoryMB: 8_192,
+        supportedClis: ['claude'],
+        hasBrowserRuntime: false,
+        hasBrowserMcp: false,
+        hasAndroidMcp: false,
+        hasDocker: false,
+        maxConcurrentInstances: 4,
+        workingDirectories: [],
+        browsableRoots: [],
+        discoveredProjects: [],
+      },
+    }];
+    const service = new BrowserHealthService({
+      profileStore: { listProfiles: () => [] },
+      rawAutomationHealthService: {
+        diagnose: async () => ({
+          status: 'missing',
+          checkedAt: 1,
+          runtimeAvailable: false,
+          nodeAvailable: true,
+          inAppConfigured: false,
+          inAppConnected: false,
+          inAppToolCount: 0,
+          configDetected: false,
+          configSources: [],
+          browserToolNames: [],
+          warnings: [],
+          suggestions: [],
+          surface: 'legacy_raw_browser_automation',
+        }),
+      },
+      workerNodeRegistry: { getAllNodes: () => nodes },
+      mcpBridgeAvailable: () => true,
+      chromeRuntimeDetector: async () => ({ available: true, command: 'chrome' }),
+      now: () => 10_000,
+    });
+
+    const report = await service.diagnose();
+
+    expect(report.status).toBe('ready');
+    expect(report.remoteExtensions).toEqual({
+      total: 0,
+      ready: 0,
+      silent: 0,
+      nodes: [],
+    });
+    expect(report.warnings.some((warning) => warning.includes('worker agent'))).toBe(false);
   });
 });

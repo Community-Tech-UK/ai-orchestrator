@@ -171,8 +171,8 @@
         </button>
         <button
           class="action-btn terminate"
-          appTooltip="Terminate instance — ends this session, which cannot be resumed"
-          aria-label="Terminate instance — ends this session, which cannot be resumed"
+          [appTooltip]="closeTooltip()"
+          [attr.aria-label]="closeTooltip()"
           (click)="onTerminate($event)"
         >
           ×

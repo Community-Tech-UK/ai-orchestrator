@@ -93,8 +93,11 @@ describe('icon-only controls keep a hover hint (UX3)', () => {
       'utf8',
     );
     expect(source).toContain('<button');
-    // The exact control the rollout regressed.
-    expect(source).toMatch(/class="action-btn terminate"[\s\S]{0,200}?appTooltip=/);
+    // The exact control the rollout regressed. Either binding form counts: the
+    // close button's hint became per-row (a child session is not archived, so it
+    // must not be told it will be), which is `[appTooltip]=` rather than a
+    // literal attribute — still a tooltip host, still the canary this needs.
+    expect(source).toMatch(/class="action-btn terminate"[\s\S]{0,200}?\[?appTooltip\]?=/);
   });
 });
 

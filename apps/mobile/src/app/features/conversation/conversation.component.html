@@ -33,7 +33,7 @@
       <button (click)="interrupt(true)" [disabled]="!online()">
         {{ stopping() ? 'Force-cancel (stop again)' : 'Stop (interrupt)' }}
       </button>
-      <button class="danger" (click)="terminate()" [disabled]="!online()">Terminate</button>
+      <button class="danger" (click)="terminate()" [disabled]="!online()">Close</button>
     </div>
   }
 

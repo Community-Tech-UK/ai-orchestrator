@@ -25,7 +25,7 @@ describe('ConversationComponent connection surfaces', () => {
     // Rename and Terminate used to `catch { /* ignore */ }`, so a rejected token
     // made them look like dead buttons while their siblings showed a notice.
     expect(ts).toContain('Rename failed: ${errorText(err)}');
-    expect(ts).toContain('Terminate failed: ${errorText(err)}');
+    expect(ts).toContain('Close failed: ${errorText(err)}');
     expect(ts).not.toContain('/* ignore */');
     expect(html).toContain('(click)="rename()" [disabled]="!online()"');
   });

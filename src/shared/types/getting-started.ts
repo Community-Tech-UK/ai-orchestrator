@@ -72,11 +72,12 @@ function buildSteps(input: GettingStartedInput): GettingStartedStep[] {
       id: 'provider-available',
       label: 'Connect a CLI',
       // Names only CLIs the probe actually looks for, and says "ready" rather
-      // than "on your PATH": for Claude Code and Codex the probe also runs an
-      // `authenticated` check (`provider-doctor.ts`), and any failing probe
-      // downgrades the provider to `degraded`. Promising that PATH is the whole
-      // requirement would leave a signed-out user stuck on a step whose own
-      // text said they had met it.
+      // than "on your PATH". Of the five probed providers, THREE — Claude Code,
+      // Codex and Copilot — also get an `authenticated` probe
+      // (`provider-doctor.ts` `appliesTo`), and any failing probe downgrades the
+      // provider to `degraded`; only Antigravity and Cursor need nothing but the
+      // binary. Promising that PATH is the whole requirement would leave a
+      // signed-out user stuck on a step whose own text said they had met it.
       detail: 'AI Orchestrator drives coding CLIs like Claude Code and Codex — it needs at least one installed and ready to use (signed in, where that applies).',
       done: input.providerAnyStatus === 'ready',
     },

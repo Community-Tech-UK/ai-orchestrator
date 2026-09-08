@@ -91,7 +91,7 @@ describe('InstanceRowComponent — tooltip disclosure', () => {
 
   // Gate 6: this button's `title` was replaced with an `aria-label` alone,
   // leaving a bare glyph with no hover hint on a session-ending action.
-  it('gives Terminate both a hover disclosure and an accessible name', () => {
+  it('gives Close session both a hover disclosure and an accessible name', () => {
     const terminate = query('.action-btn.terminate');
     expect(terminate.getAttribute('aria-label')).toBeTruthy();
 
