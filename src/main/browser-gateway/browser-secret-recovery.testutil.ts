@@ -63,7 +63,7 @@ export function recoveryHarness(stored: unknown = { version: 2, origins: [PROTEC
     runtime: {
       ...POPUP_SENDER,
       getURL: (file: string) => 'chrome-extension://test-only-extension/' + file,
-      getManifest: () => ({ version: '0.2.20' }),
+      getManifest: () => ({ version: '0.2.21' }),
       onInstalled: event(), onStartup: event(), onMessage: event(),
       connectNative: vi.fn(() => ({
         onMessage: event(), onDisconnect: event(), disconnect: vi.fn(),

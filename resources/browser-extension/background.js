@@ -1331,10 +1331,13 @@ async function runBrowserCommand(command, bridge) {
   // carry a vault value. Preclassify every non-public credential write before
   // dispatch so a synchronous page-driven tab close cannot clear storage and
   // make the first write's result look untainted.
-  let secretTaintOrigin = isSecretObservationProtectionEnabled()
-    && command?.command === 'type'
+  const sensitiveOriginBoundType = command?.command === 'type'
     && typeof command?.payload?.credentialOrigin === 'string'
-    && command?.payload?.credentialProtection !== 'public'
+    && command?.payload?.credentialProtection !== 'public';
+  // Persist taint only when the operator setting is on. Always sanitize the
+  // write result so valueAfter (the vault secret) never leaves the extension,
+  // even when observation lock is off.
+  let secretTaintOrigin = isSecretObservationProtectionEnabled() && sensitiveOriginBoundType
     ? command.payload.credentialOrigin
     : null;
   try {
@@ -1355,7 +1358,7 @@ async function runBrowserCommand(command, bridge) {
     // including selector and UID click/type/select results. Preserve the fact
     // that a resolved command completed, but discard its entire page-controlled
     // payload at the one native-channel boundary shared by every command.
-    const safeResult = typeof secretTaintOrigin === 'string'
+    const safeResult = typeof secretTaintOrigin === 'string' || sensitiveOriginBoundType
       ? {
           completed: true,
           observationBlocked: 'browser_secret_observation_blocked_for_tainted_origin',

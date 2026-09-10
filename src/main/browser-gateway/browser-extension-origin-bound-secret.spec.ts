@@ -693,6 +693,60 @@ return runBrowserCommand;`,
     expect(JSON.stringify(postNativeMessage.mock.calls)).not.toContain(SECRET);
   });
 
+  it('still returns the write sentinel when observation protection is off', async () => {
+    const postNativeMessage = vi.fn();
+    const build = new Function(
+      'assertGatewayEnabled',
+      'runCommandWithWatchdog',
+      'isTabPayload',
+      'broadcastNativeMessage',
+      'postNativeMessage',
+      'clearPollInFlight',
+      'persistBridgeStatus',
+      'scheduleNextPoll',
+      'targetSecretTaintOrigin',
+      `const secretObservationGuardErrors = new WeakSet();
+${SECRET_OBSERVATION_PROTECTION_STUBS.replace('= true;', '= false;')}
+${extractFunctionSource(background, 'browserCommandErrorMessage')}
+${extractFunctionSource(background, 'runBrowserCommand')}
+return runBrowserCommand;`,
+    );
+    const runBrowserCommand = build(
+      () => undefined,
+      async () => ({ tagName: SECRET, valueAfter: SECRET, valueApplied: true }),
+      () => false,
+      () => undefined,
+      postNativeMessage,
+      () => undefined,
+      () => undefined,
+      () => undefined,
+      async () => null,
+    );
+
+    await runBrowserCommand({
+      id: 'unprotected-sensitive-write',
+      command: 'type',
+      target: { tabId: 42 },
+      payload: {
+        selector: '#password',
+        value: SECRET,
+        credentialOrigin: AUTHORIZED_ORIGIN,
+        credentialProtection: 'password',
+      },
+    }, {});
+
+    expect(postNativeMessage).toHaveBeenCalledWith({}, {
+      type: 'command_result',
+      commandId: 'unprotected-sensitive-write',
+      ok: true,
+      result: {
+        completed: true,
+        observationBlocked: 'browser_secret_observation_blocked_for_tainted_origin',
+      },
+    });
+    expect(JSON.stringify(postNativeMessage.mock.calls)).not.toContain(SECRET);
+  });
+
   it('routes the internal credential payload through the origin-bound writer', async () => {
     const runOriginBoundType = vi.fn(async () => ({ valueApplied: true }));
     const runInTargetTab = vi.fn();
