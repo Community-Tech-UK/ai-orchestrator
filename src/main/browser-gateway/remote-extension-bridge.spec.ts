@@ -335,7 +335,7 @@ describe('RemoteBrowserExtensionBridge', () => {
     );
   });
 
-  it('keeps a runtime tombstone across node expiry so delayed polls cannot restore trust', async () => {
+  it('restores a reconnectable tombstone when the same generation polls complete evidence', async () => {
     const { bridge, commandStore, contactState } = makeBridge();
     await bridge.pollCommand('node-1', {
       timeoutMs: 500,
@@ -344,19 +344,86 @@ describe('RemoteBrowserExtensionBridge', () => {
     });
 
     bridge.expireNode('node-1');
+    expect(contactState.getExtensionRuntime('node-1')).toEqual({ extensionStartedAt: 2_000 });
+
     await bridge.pollCommand('node-1', {
       timeoutMs: 500,
       extensionVersion: '0.2.18',
       extensionStartedAt: 2_000,
     });
 
+    expect(contactState.getExtensionRuntime('node-1')).toEqual({
+      extensionVersion: '0.2.18',
+      extensionStartedAt: 2_000,
+    });
+    expect(commandStore.pollCommand).toHaveBeenLastCalledWith('node:node-1', {
+      timeoutMs: 500,
+      deferHandoffConfirmation: true,
+      allowBrowserCommands: true,
+      allowSecureCredentialCommands: true,
+    });
+  });
+
+  it('does not let a native-host EOF permanently block the sibling poller', async () => {
+    const { bridge, commandStore, contactState } = makeBridge();
+    await bridge.pollCommand('node-1', {
+      timeoutMs: 500,
+      extensionVersion: '0.2.20',
+      extensionStartedAt: 2_000,
+    });
+
+    bridge.extensionDisconnected('node-1', { reason: 'native_host_stdin_eof' });
     expect(contactState.getExtensionRuntime('node-1')).toEqual({ extensionStartedAt: 2_000 });
+
+    await bridge.pollCommand('node-1', {
+      timeoutMs: 500,
+      extensionVersion: '0.2.20',
+      extensionStartedAt: 2_000,
+    });
+
+    expect(contactState.getExtensionRuntime('node-1')).toEqual({
+      extensionVersion: '0.2.20',
+      extensionStartedAt: 2_000,
+    });
+    expect(commandStore.pollCommand).toHaveBeenLastCalledWith('node:node-1', {
+      timeoutMs: 500,
+      deferHandoffConfirmation: true,
+      allowBrowserCommands: true,
+      allowSecureCredentialCommands: true,
+    });
+  });
+
+  it('does not let an unstamped sibling poll tombstone a proven generation', async () => {
+    const { bridge, commandStore, contactState } = makeBridge();
+    await bridge.pollCommand('node-1', {
+      timeoutMs: 500,
+      extensionVersion: '0.2.20',
+      extensionStartedAt: 2_000,
+    });
+
+    await bridge.pollCommand('node-1', { timeoutMs: 500 });
+    expect(contactState.getExtensionRuntime('node-1')).toEqual({
+      extensionVersion: '0.2.20',
+      extensionStartedAt: 2_000,
+    });
     expect(commandStore.pollCommand).toHaveBeenLastCalledWith('node:node-1', {
       timeoutMs: 500,
       deferHandoffConfirmation: true,
       allowBrowserCommands: false,
       allowSecureCredentialCommands: false,
       denyBrowserCommandsReason: 'browser_extension_runtime_incompatible',
+    });
+
+    await bridge.pollCommand('node-1', {
+      timeoutMs: 500,
+      extensionVersion: '0.2.20',
+      extensionStartedAt: 2_000,
+    });
+    expect(commandStore.pollCommand).toHaveBeenLastCalledWith('node:node-1', {
+      timeoutMs: 500,
+      deferHandoffConfirmation: true,
+      allowBrowserCommands: true,
+      allowSecureCredentialCommands: true,
     });
   });
 

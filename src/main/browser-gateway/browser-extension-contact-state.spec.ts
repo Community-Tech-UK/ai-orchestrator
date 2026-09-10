@@ -50,7 +50,7 @@ describe('BrowserExtensionContactState gap telemetry', () => {
     expect(state.getContactGapStats('node-1')).toEqual({ gapCount: 0, longestGapMs: 0 });
   });
 
-  it('replaces runtime evidence atomically and clears a missing version on reload', () => {
+  it('replaces runtime evidence atomically and ignores incomplete polls on a proven generation', () => {
     const state = new BrowserExtensionContactState();
     state.markExtensionRuntime('node-1', {
       extensionVersion: '0.2.17',
@@ -65,7 +65,7 @@ describe('BrowserExtensionContactState gap telemetry', () => {
 
     expect(state.getExtensionRuntime('node-1')).toEqual({ extensionStartedAt: 2_000 });
     state.markExtensionRuntime('node-1', {});
-    expect(state.getExtensionRuntime('node-1')).toBeUndefined();
+    expect(state.getExtensionRuntime('node-1')).toEqual({ extensionStartedAt: 2_000 });
   });
 
   it('does not let a delayed older generation overwrite newer runtime evidence', () => {
@@ -86,7 +86,7 @@ describe('BrowserExtensionContactState gap telemetry', () => {
     });
   });
 
-  it('fails closed for inconsistent or incomplete evidence from the same generation', () => {
+  it('keeps a proven generation when a sibling poll omits version', () => {
     const state = new BrowserExtensionContactState();
     state.markExtensionRuntime('node-1', {
       extensionVersion: '0.2.17',
@@ -94,6 +94,23 @@ describe('BrowserExtensionContactState gap telemetry', () => {
     });
 
     state.markExtensionRuntime('node-1', { extensionStartedAt: 2_000 });
+    expect(state.getExtensionRuntime('node-1')).toEqual({
+      extensionVersion: '0.2.17',
+      extensionStartedAt: 2_000,
+    });
+  });
+
+  it('fails closed for contradictory versions on the same generation', () => {
+    const state = new BrowserExtensionContactState();
+    state.markExtensionRuntime('node-1', {
+      extensionVersion: '0.2.17',
+      extensionStartedAt: 2_000,
+    });
+
+    state.markExtensionRuntime('node-1', {
+      extensionVersion: '0.2.18',
+      extensionStartedAt: 2_000,
+    });
     expect(state.getExtensionRuntime('node-1')).toEqual({ extensionStartedAt: 2_000 });
 
     state.markExtensionRuntime('node-1', {
@@ -103,7 +120,7 @@ describe('BrowserExtensionContactState gap telemetry', () => {
     expect(state.getExtensionRuntime('node-1')).toEqual({ extensionStartedAt: 2_000 });
   });
 
-  it('tombstones a disconnected generation and ignores its delayed replay', () => {
+  it('restores a disconnected generation from a later complete sibling poll', () => {
     const state = new BrowserExtensionContactState();
     state.markExtensionRuntime('node-1', {
       extensionVersion: '0.2.17',
@@ -113,11 +130,17 @@ describe('BrowserExtensionContactState gap telemetry', () => {
     state.markExtensionDisconnect('node-1', 'native_port_closed');
     expect(state.getExtensionRuntime('node-1')).toEqual({ extensionStartedAt: 2_000 });
 
+    state.markExtensionRuntime('node-1', { extensionStartedAt: 2_000 });
+    expect(state.getExtensionRuntime('node-1')).toEqual({ extensionStartedAt: 2_000 });
+
     state.markExtensionRuntime('node-1', {
       extensionVersion: '0.2.17',
       extensionStartedAt: 2_000,
     });
-    expect(state.getExtensionRuntime('node-1')).toEqual({ extensionStartedAt: 2_000 });
+    expect(state.getExtensionRuntime('node-1')).toEqual({
+      extensionVersion: '0.2.17',
+      extensionStartedAt: 2_000,
+    });
 
     state.markExtensionRuntime('node-1', {
       extensionVersion: '0.2.18',
@@ -129,7 +152,7 @@ describe('BrowserExtensionContactState gap telemetry', () => {
     });
   });
 
-  it.each([-1, 1.5])('clears malformed generation evidence at %s', (extensionStartedAt) => {
+  it.each([-1, 1.5])('ignores malformed generation evidence at %s', (extensionStartedAt) => {
     const state = new BrowserExtensionContactState();
     state.markExtensionRuntime('node-1', {
       extensionVersion: '0.2.17',
@@ -141,6 +164,9 @@ describe('BrowserExtensionContactState gap telemetry', () => {
       extensionStartedAt,
     });
 
-    expect(state.getExtensionRuntime('node-1')).toBeUndefined();
+    expect(state.getExtensionRuntime('node-1')).toEqual({
+      extensionVersion: '0.2.17',
+      extensionStartedAt: 1_000,
+    });
   });
 });

@@ -531,6 +531,35 @@ describe('BrowserExtensionCommandStore', () => {
     await expect(store.pollCommand({ timeoutMs: 1 })).resolves.toBeNull();
   });
 
+  it('prefers a compatible sibling poller over an incompatible one on the same queue', async () => {
+    const store = new BrowserExtensionCommandStore();
+    const incompatible = store.pollCommand('node:node-1', {
+      timeoutMs: 20,
+      allowBrowserCommands: false,
+      denyBrowserCommandsReason: 'browser_extension_runtime_incompatible',
+    });
+    const compatible = store.pollCommand('node:node-1', {
+      timeoutMs: 20,
+      allowBrowserCommands: true,
+    });
+    const pending = store.sendCommand({
+      queueKey: 'node:node-1',
+      command: 'snapshot',
+      timeoutMs: 1_000,
+    });
+
+    const command = await compatible;
+    expect(command).toMatchObject({ command: 'snapshot' });
+    store.resolveCommand({
+      queueKey: 'node:node-1',
+      commandId: command!.id,
+      ok: true,
+      result: { ok: true },
+    });
+    await expect(pending).resolves.toEqual({ ok: true });
+    await expect(incompatible).resolves.toBeNull();
+  });
+
   it('rejects every queued command before an incompatible runtime can observe page data', async () => {
     const store = new BrowserExtensionCommandStore();
     const pending = store.sendCommand({

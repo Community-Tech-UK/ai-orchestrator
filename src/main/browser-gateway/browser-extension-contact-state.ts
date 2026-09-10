@@ -86,6 +86,12 @@ export class BrowserExtensionContactState implements BrowserExtensionContactStat
   private readonly runtimeByNode = new Map<string, BrowserExtensionRuntimeRecord>();
   private readonly runtimeGenerationWatermarkByNode = new Map<string, number>();
   private readonly blockedRuntimeGenerationByNode = new Map<string, number>();
+  /**
+   * Generations tombstoned by a port/node drop, not by contradictory
+   * version evidence. A later complete poll from the same SW (the other
+   * native-host bridge, or the same host after reconnect) may restore.
+   */
+  private readonly reconnectableRuntimeGenerationByNode = new Map<string, number>();
 
   constructor(options: BrowserExtensionContactStateOptions = {}) {
     this.now = options.now ?? Date.now;
@@ -128,10 +134,12 @@ export class BrowserExtensionContactState implements BrowserExtensionContactStat
    * The native host told us the extension channel closed (Chrome quit, port
    * torn down, service worker replaced). Deliberately does NOT touch
    * lastContactAt — freshness semantics stay the same; this is honesty for
-   * health, error messages, and outage telemetry.
+   * health, error messages, and outage telemetry. The runtime tombstone is
+   * reconnectable: one of two native-host bridges EOFing must not permanently
+   * block the still-alive sibling that shares this SW generation.
    */
   markExtensionDisconnect(nodeId: string, reason: string, at = this.now()): void {
-    this.invalidateExtensionRuntime(nodeId, true);
+    this.invalidateExtensionRuntime(nodeId, true, { reconnectable: true });
     this.lastDisconnectByNode.set(nodeId, { at, reason });
   }
 
@@ -142,9 +150,9 @@ export class BrowserExtensionContactState implements BrowserExtensionContactStat
   /**
    * Record build evidence from one authenticated native message without
    * allowing delayed messages from an older service-worker generation to
-   * restore stale trust. Missing or inconsistent evidence for the current
-   * generation fails closed and cannot be repaired until a newer generation
-   * is observed.
+   * restore stale trust. Incomplete evidence cannot establish trust and
+   * must not tombstone a generation another host already proved. A true
+   * version conflict on the same startedAt still fails closed.
    */
   markExtensionRuntime(nodeId: string, runtime: BrowserExtensionRuntimeRecord): void {
     const incoming: BrowserExtensionRuntimeRecord = {
@@ -158,7 +166,6 @@ export class BrowserExtensionContactState implements BrowserExtensionContactStat
 
     const incomingStartedAt = incoming.extensionStartedAt;
     if (incomingStartedAt === undefined) {
-      this.invalidateExtensionRuntime(nodeId, false);
       return;
     }
 
@@ -170,6 +177,14 @@ export class BrowserExtensionContactState implements BrowserExtensionContactStat
       watermark === incomingStartedAt
       && this.blockedRuntimeGenerationByNode.get(nodeId) === incomingStartedAt
     ) {
+      if (
+        incoming.extensionVersion
+        && this.reconnectableRuntimeGenerationByNode.get(nodeId) === incomingStartedAt
+      ) {
+        this.blockedRuntimeGenerationByNode.delete(nodeId);
+        this.reconnectableRuntimeGenerationByNode.delete(nodeId);
+        this.runtimeByNode.set(nodeId, incoming);
+      }
       return;
     }
 
@@ -177,28 +192,33 @@ export class BrowserExtensionContactState implements BrowserExtensionContactStat
     const currentStartedAt = current?.extensionStartedAt;
     const currentVersion = current?.extensionVersion;
     if (currentStartedAt === incomingStartedAt) {
-      if (
-        currentVersion !== undefined
-        && incoming.extensionVersion !== undefined
-        && currentVersion === incoming.extensionVersion
-      ) {
+      if (!incoming.extensionVersion || currentVersion === incoming.extensionVersion) {
         return;
       }
-      this.runtimeByNode.set(nodeId, { extensionStartedAt: incomingStartedAt });
-      this.blockedRuntimeGenerationByNode.set(nodeId, incomingStartedAt);
-      return;
+      if (currentVersion !== undefined && currentVersion !== incoming.extensionVersion) {
+        this.runtimeByNode.set(nodeId, { extensionStartedAt: incomingStartedAt });
+        this.blockedRuntimeGenerationByNode.set(nodeId, incomingStartedAt);
+        this.reconnectableRuntimeGenerationByNode.delete(nodeId);
+        return;
+      }
     }
 
     this.runtimeGenerationWatermarkByNode.set(nodeId, incomingStartedAt);
     if (incoming.extensionVersion === undefined) {
       this.blockedRuntimeGenerationByNode.set(nodeId, incomingStartedAt);
+      this.reconnectableRuntimeGenerationByNode.delete(nodeId);
     } else {
       this.blockedRuntimeGenerationByNode.delete(nodeId);
+      this.reconnectableRuntimeGenerationByNode.delete(nodeId);
     }
     this.runtimeByNode.set(nodeId, incoming);
   }
 
-  private invalidateExtensionRuntime(nodeId: string, exposeTombstone: boolean): void {
+  private invalidateExtensionRuntime(
+    nodeId: string,
+    exposeTombstone: boolean,
+    options: { reconnectable?: boolean } = {},
+  ): void {
     const currentStartedAt = this.runtimeByNode.get(nodeId)?.extensionStartedAt
       ?? this.runtimeGenerationWatermarkByNode.get(nodeId);
     if (currentStartedAt === undefined) {
@@ -207,6 +227,11 @@ export class BrowserExtensionContactState implements BrowserExtensionContactStat
     }
     this.runtimeGenerationWatermarkByNode.set(nodeId, currentStartedAt);
     this.blockedRuntimeGenerationByNode.set(nodeId, currentStartedAt);
+    if (options.reconnectable) {
+      this.reconnectableRuntimeGenerationByNode.set(nodeId, currentStartedAt);
+    } else {
+      this.reconnectableRuntimeGenerationByNode.delete(nodeId);
+    }
     if (exposeTombstone) {
       this.runtimeByNode.set(nodeId, { extensionStartedAt: currentStartedAt });
     } else {
@@ -223,11 +248,12 @@ export class BrowserExtensionContactState implements BrowserExtensionContactStat
     this.gapStatsByNode.delete(nodeId);
     this.lastDisconnectByNode.delete(nodeId);
     if (options.preserveRuntimeWatermark) {
-      this.invalidateExtensionRuntime(nodeId, true);
+      this.invalidateExtensionRuntime(nodeId, true, { reconnectable: true });
     } else {
       this.runtimeByNode.delete(nodeId);
       this.runtimeGenerationWatermarkByNode.delete(nodeId);
       this.blockedRuntimeGenerationByNode.delete(nodeId);
+      this.reconnectableRuntimeGenerationByNode.delete(nodeId);
     }
   }
 

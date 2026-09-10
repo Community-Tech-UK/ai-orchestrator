@@ -704,7 +704,7 @@ describe('BrowserGatewayRpcServer', () => {
     );
   });
 
-  it('does not trust a delayed poll from a disconnected local extension generation', async () => {
+  it('restores a reconnectable local tombstone when the same generation polls complete evidence', async () => {
     const extensionCommandStore = {
       pollCommand: vi.fn().mockResolvedValue(null),
       resolveCommand: vi.fn(),
@@ -719,16 +719,16 @@ describe('BrowserGatewayRpcServer', () => {
       extensionContactState: contactState,
       registerCleanup: vi.fn(),
     } as unknown as ConstructorParameters<typeof BrowserGatewayRpcServer>[0]);
-    const poll = () => server.handleRequest({
+    const poll = (payload: Record<string, unknown> = {
+      timeoutMs: 25,
+      extensionVersion: '0.2.18',
+      extensionStartedAt: 2_000,
+    }) => server.handleRequest({
       jsonrpc: '2.0',
       method: 'browser.extension_poll_command',
       params: {
         extensionToken: 'native-token',
-        payload: {
-          timeoutMs: 25,
-          extensionVersion: '0.2.18',
-          extensionStartedAt: 2_000,
-        },
+        payload,
       },
     });
 
@@ -741,12 +741,25 @@ describe('BrowserGatewayRpcServer', () => {
         payload: { reason: 'native_host_stdin_eof' },
       },
     });
-    await poll();
+    expect(contactState.getExtensionRuntime('local')).toEqual({ extensionStartedAt: 2_000 });
 
+    await poll({ timeoutMs: 25, extensionStartedAt: 2_000 });
+    expect(contactState.getExtensionRuntime('local')).toEqual({ extensionStartedAt: 2_000 });
     expect(extensionCommandStore.pollCommand).toHaveBeenLastCalledWith({
       timeoutMs: 25,
       allowBrowserCommands: false,
       allowSecureCredentialCommands: false,
+    });
+
+    await poll();
+    expect(contactState.getExtensionRuntime('local')).toEqual({
+      extensionVersion: '0.2.18',
+      extensionStartedAt: 2_000,
+    });
+    expect(extensionCommandStore.pollCommand).toHaveBeenLastCalledWith({
+      timeoutMs: 25,
+      allowBrowserCommands: true,
+      allowSecureCredentialCommands: true,
     });
   });
 

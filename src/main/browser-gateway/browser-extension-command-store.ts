@@ -419,30 +419,41 @@ export class BrowserExtensionCommandStore {
     const queue = this.queueFor(queueKey);
     const pollers = this.pollersFor(queueKey);
     while (queue.length > 0 && pollers.length > 0) {
-      const command = queue.shift()!;
+      const command = queue[0]!;
+      const capableIndex = pollers.findIndex((poller) => this.pollerCanDeliver(poller, command));
+      if (capableIndex >= 0) {
+        const poller = pollers.splice(capableIndex, 1)[0]!;
+        queue.shift();
+        this.markDelivered(command.id);
+        if (poller.deferHandoffConfirmation) {
+          this.handoffPending.set(queueKey, command.id);
+        }
+        poller.resolve(command);
+        if (this.handoffPending.has(queueKey)) {
+          return;
+        }
+        continue;
+      }
       const poller = pollers.shift()!;
-      if (!poller.allowBrowserCommands) {
-        this.rejectBeforeDelivery(
-          command.id,
-          poller.denyBrowserCommandsReason ?? BROWSER_EXTENSION_RUNTIME_INCOMPATIBLE,
-        );
-        poller.resolve(null);
-        continue;
-      }
-      if (isOriginBoundCredentialCommand(command) && !poller.allowSecureCredentialCommands) {
-        this.rejectBeforeDelivery(command.id, 'shared_tab_secure_credential_fill_unavailable');
-        poller.resolve(null);
-        continue;
-      }
-      this.markDelivered(command.id);
-      if (poller.deferHandoffConfirmation) {
-        this.handoffPending.set(queueKey, command.id);
-      }
-      poller.resolve(command);
-      if (this.handoffPending.has(queueKey)) {
-        return;
-      }
+      queue.shift();
+      this.rejectBeforeDelivery(
+        command.id,
+        !poller.allowBrowserCommands
+          ? poller.denyBrowserCommandsReason ?? BROWSER_EXTENSION_RUNTIME_INCOMPATIBLE
+          : 'shared_tab_secure_credential_fill_unavailable',
+      );
+      poller.resolve(null);
     }
+  }
+
+  private pollerCanDeliver(
+    poller: CommandPoller,
+    command: BrowserExtensionQueuedCommand,
+  ): boolean {
+    if (!poller.allowBrowserCommands) {
+      return false;
+    }
+    return !isOriginBoundCredentialCommand(command) || poller.allowSecureCredentialCommands;
   }
 
   /**
