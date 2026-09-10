@@ -13,7 +13,7 @@ function popupHarness(reviewToken: string | null, protectionEnabled = true) {
         ? { ok: true, protectionEnabled: true, origins: [PROTECTED_ORIGIN], tabCount: 1, reviewToken }
         : { ok: true, protectionEnabled: false, origins: [], tabCount: 0, reviewToken: null };
     }
-    return { ok: true, extensionVersion: '0.2.20', gatewayEnabled: !reviewToken, bridges: [], sharedTabs: [] };
+    return { ok: true, extensionVersion: '0.2.21', gatewayEnabled: !reviewToken, bridges: [], sharedTabs: [] };
   });
   runInNewContext(readFileSync('resources/browser-extension/popup.js', 'utf8'), {
     chrome: { runtime: { getManifest: () => ({}), sendMessage, reload: vi.fn() } },
