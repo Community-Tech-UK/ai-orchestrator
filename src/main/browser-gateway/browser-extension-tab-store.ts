@@ -2,6 +2,7 @@ import type {
   BrowserAllowedOrigin,
   BrowserAttachExistingTabRequest,
   BrowserTarget,
+  BrowserTargetInspectionState,
 } from '@contracts/types/browser';
 import {
   BrowserTargetRegistry,
@@ -12,6 +13,7 @@ import {
   getBrowserReliabilityEvents,
   type BrowserReliabilityEvents,
 } from './browser-reliability-events';
+import { deriveBrowserTargetInspectionState } from './browser-target-inspection';
 
 /**
  * How long a node's attachments survive a channel drop (reliability
@@ -54,6 +56,10 @@ export interface BrowserExistingTabAttachment {
   // permission for this origin), distinct from a page with legitimately no
   // visible text. See LT-218.
   textUnavailableReason?: string;
+  inspectionState?: BrowserTargetInspectionState;
+  tabIndex?: number;
+  pinned?: boolean;
+  active?: boolean;
   screenshotBase64?: string;
   allowedOrigins: BrowserAllowedOrigin[];
   extensionOrigin?: string;
@@ -134,6 +140,10 @@ export class BrowserExtensionTabStore {
       origin: parsed.origin,
       text: input.text?.slice(0, 120_000),
       textUnavailableReason: input.textUnavailableReason,
+      inspectionState: deriveBrowserTargetInspectionState(input),
+      tabIndex: input.tabIndex,
+      pinned: input.pinned,
+      active: input.active,
       screenshotBase64: this.normalizeScreenshot(input.screenshotBase64),
       allowedOrigins,
       extensionOrigin: input.extensionOrigin,
@@ -327,6 +337,15 @@ export class BrowserExtensionTabStore {
       status: 'selected',
       lastSeenAt: attachment.updatedAt,
       lastConfirmedAt: attachment.updatedAt,
+      targetId: attachment.targetId,
+      ...(attachment.inspectionState ? { inspectionState: attachment.inspectionState } : {}),
+      ...(attachment.textUnavailableReason
+        ? { textUnavailableReason: attachment.textUnavailableReason }
+        : {}),
+      windowId: attachment.windowId,
+      ...(attachment.tabIndex !== undefined ? { tabIndex: attachment.tabIndex } : {}),
+      ...(attachment.pinned !== undefined ? { pinned: attachment.pinned } : {}),
+      ...(attachment.active !== undefined ? { active: attachment.active } : {}),
       ...(attachment.reboundFromTargetId
         ? { reboundFromTargetId: attachment.reboundFromTargetId }
         : {}),

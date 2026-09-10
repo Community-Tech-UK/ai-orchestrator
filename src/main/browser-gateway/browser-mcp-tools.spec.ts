@@ -6,6 +6,8 @@ const ALLOWED_TOOLS = [
   'browser.list_targets',
   'browser.preflight_target',
   'browser.find_or_open',
+  'browser.close_tab',
+  'browser.close_matching',
   'browser.select_target',
   'browser.navigate',
   'browser.click',
@@ -86,6 +88,8 @@ describe('browser-mcp-tools', () => {
     const tools = createBrowserMcpTools({ call: vi.fn() });
     const listTargets = tools.find((tool) => tool.name === 'browser.list_targets');
     const findOrOpen = tools.find((tool) => tool.name === 'browser.find_or_open');
+    const closeTab = tools.find((tool) => tool.name === 'browser.close_tab');
+    const closeMatching = tools.find((tool) => tool.name === 'browser.close_matching');
     const navigate = tools.find((tool) => tool.name === 'browser.navigate');
     const click = tools.find((tool) => tool.name === 'browser.click');
     const queryElements = tools.find((tool) => tool.name === 'browser.query_elements');
@@ -111,6 +115,28 @@ describe('browser-mcp-tools', () => {
         url: { type: 'string' },
         titleHint: { type: 'string' },
         computer: { type: 'string' },
+      },
+      additionalProperties: false,
+    });
+    expect(closeTab?.inputSchema).toMatchObject({
+      type: 'object',
+      required: ['profileId', 'targetId'],
+      properties: {
+        profileId: { type: 'string' },
+        targetId: { type: 'string' },
+        allowCloseLastInWindow: { type: 'boolean' },
+      },
+      additionalProperties: false,
+    });
+    expect(closeMatching?.inputSchema).toMatchObject({
+      type: 'object',
+      properties: {
+        urlContains: { type: 'string' },
+        titleContains: { type: 'string' },
+        status: { type: 'string', enum: ['closed'] },
+        includeInspectionUnavailable: { type: 'boolean' },
+        includeSecretTainted: { type: 'boolean' },
+        dryRun: { type: 'boolean' },
       },
       additionalProperties: false,
     });

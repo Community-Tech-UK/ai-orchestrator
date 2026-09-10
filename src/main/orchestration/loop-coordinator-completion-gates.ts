@@ -156,8 +156,8 @@ export async function evaluateReviewDrivenCompletion(args: {
   if (reviewVerdict.clean && noProductionChanges && cfg.verifyCommand?.trim()) {
     const runVerifyOfKind = args.runRecordedVerify
       ?? ((kind: 'verify' | 'quick-verify') => (kind === 'quick-verify'
-        ? completionDetector.runQuickVerify(state.config)
-        : completionDetector.runVerify(state.config)));
+        ? completionDetector.runQuickVerify(state.config, state.id)
+        : completionDetector.runVerify(state.config, state.id)));
     const { final: v, verifyLabel } = await runLoopVerify({
       runQuickVerify: () => runVerifyOfKind('quick-verify'),
       runVerify: () => runVerifyOfKind('verify'),

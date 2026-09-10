@@ -33,6 +33,10 @@ export type BrowserTargetStatus =
   | 'busy'
   | 'closed'
   | 'error';
+export type BrowserTargetInspectionState =
+  | 'readable'
+  | 'secret_tainted'
+  | 'inspection_unavailable';
 export type BrowserGatewayDecision = 'allowed' | 'denied' | 'requires_user';
 export type BrowserGatewayOutcome = 'not_run' | 'succeeded' | 'failed';
 export type BrowserGrantMode = 'per_action' | 'session' | 'autonomous';
@@ -104,6 +108,17 @@ export interface BrowserTarget {
   lastSeenAt: number;
   lastConfirmedAt?: number;
   stale?: boolean;
+  /**
+   * Agent-facing alias of `id`. Close tools accept this field; listing used to
+   * expose only `id`, which made opaque tabs look untargetable.
+   */
+  targetId?: string;
+  inspectionState?: BrowserTargetInspectionState;
+  textUnavailableReason?: string;
+  windowId?: number;
+  tabIndex?: number;
+  pinned?: boolean;
+  active?: boolean;
   /**
    * Reliability hardening: set when this target is the same logical tab as a
    * previously attached target that died in a node drop — callers holding the
@@ -248,6 +263,10 @@ export interface BrowserAttachExistingTabRequest {
   // permission for this origin), as distinct from a page that legitimately
   // has no visible text. Absent on a normal read. See LT-218.
   textUnavailableReason?: string;
+  inspectionState?: BrowserTargetInspectionState;
+  tabIndex?: number;
+  pinned?: boolean;
+  active?: boolean;
   screenshotBase64?: string;
   capturedAt?: number;
   allowedOrigins?: BrowserAllowedOrigin[];
@@ -291,6 +310,26 @@ export interface BrowserFindOrOpenRequest {
 export interface BrowserTargetRequest {
   profileId: string;
   targetId: string;
+}
+
+export interface BrowserCloseTabRequest extends BrowserTargetRequest {
+  allowCloseLastInWindow?: boolean;
+  requestId?: string;
+}
+
+export interface BrowserCloseMatchingRequest {
+  profileId?: string;
+  nodeId?: string;
+  computer?: string;
+  urlContains?: string;
+  titleContains?: string;
+  status?: 'closed';
+  includeInspectionUnavailable?: boolean;
+  includeSecretTainted?: boolean;
+  allowCloseLastInWindow?: boolean;
+  maxCount?: number;
+  dryRun?: boolean;
+  requestId?: string;
 }
 
 export interface BrowserNavigateRequest extends BrowserTargetRequest {

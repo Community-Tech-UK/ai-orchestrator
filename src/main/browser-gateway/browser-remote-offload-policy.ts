@@ -24,11 +24,13 @@ const DISCOVERY_METHODS = new Set([
   'browser.list_targets',
   'browser.preflight_target',
   'browser.find_or_open',
+  'browser.close_matching',
 ]);
 
 const TARGET_SCOPED_METHODS = new Set([
   'browser.select_target',
   'browser.navigate',
+  'browser.close_tab',
   'browser.click',
   'browser.type',
   'browser.fill_form',

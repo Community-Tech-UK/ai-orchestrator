@@ -282,6 +282,10 @@ export class BrowserGatewayRpcServer {
         return this.requireMethod('preflightTarget')(withContext);
       case 'browser.find_or_open':
         return this.requireMethod('findOrOpen')(withContext);
+      case 'browser.close_tab':
+        return this.requireMethod('closeTab')(withContext);
+      case 'browser.close_matching':
+        return this.requireMethod('closeMatching')(withContext);
       case 'browser.open_profile':
         return this.requireMethod('openProfile')(withContext);
       case 'browser.close_profile':

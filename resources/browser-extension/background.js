@@ -32,6 +32,7 @@ const POLL_TIMEOUT_REASON = 'browser_extension_poll_timeout';
 const GATEWAY_ENABLED_STORAGE_KEY = 'browserGatewayEnabled';
 const SAFE_MODE_ERROR = 'browser_safe_mode_enabled';
 const SECRET_TAINT_STORAGE_KEY = 'browserGatewaySecretTaints';
+const SECRET_OBSERVATION_PROTECTION_STORAGE_KEY = 'browserSecretObservationProtectionEnabled';
 const SECRET_OBSERVATION_COMMANDS = new Set([
   'snapshot',
   'accessibility_snapshot',
@@ -77,6 +78,10 @@ const secretTaintedTabs = new Map();
 const secretTaintedOrigins = new Set();
 let secretTaintsLoaded = false;
 let secretTaintLoadPromise = null;
+// Missing storage key = ON (current taint behaviour). Coordinator payload
+// applies the operator setting; agents cannot set this themselves.
+let secretObservationProtectionEnabled = true;
+let secretObservationProtectionLoaded = false;
 const secretObservationGuardErrors = new WeakSet();
 let activeBrowserCommandCount = 0;
 let secretRecoveryInProgress = false;
@@ -277,6 +282,7 @@ function setBridgeState(bridge, state) {
 
 async function initializeGateway() {
   await loadGatewayEnabled();
+  await loadSecretObservationProtection();
   if (!gatewayEnabled) {
     stopAllBridges();
     persistBridgeStatus();
@@ -976,6 +982,55 @@ async function loadSecretTaints() {
   await secretTaintLoadPromise;
 }
 
+async function loadSecretObservationProtection() {
+  if (secretObservationProtectionLoaded) {
+    return secretObservationProtectionEnabled;
+  }
+  try {
+    const values = await chrome.storage.local.get(SECRET_OBSERVATION_PROTECTION_STORAGE_KEY);
+    secretObservationProtectionEnabled = values?.[SECRET_OBSERVATION_PROTECTION_STORAGE_KEY] !== false;
+  } catch {
+    secretObservationProtectionEnabled = true;
+  }
+  secretObservationProtectionLoaded = true;
+  return secretObservationProtectionEnabled;
+}
+
+function isSecretObservationProtectionEnabled() {
+  return secretObservationProtectionEnabled !== false;
+}
+
+async function applySecretObservationProtectionEnabled(enabled) {
+  await loadSecretObservationProtection();
+  const next = enabled !== false;
+  return runWithSecretObservationBoundary(async () => {
+    await loadSecretTaints();
+    secretObservationProtectionEnabled = next;
+    secretRecoveryRequest = null;
+    if (!next) {
+      // Persist first. A storage failure must leave in-memory taint intact.
+      await chrome.storage.local.set({
+        [SECRET_OBSERVATION_PROTECTION_STORAGE_KEY]: false,
+        [SECRET_TAINT_STORAGE_KEY]: { version: 2, origins: [], tabs: {} },
+      });
+      secretTaintedTabs.clear();
+      secretTaintedOrigins.clear();
+      return;
+    }
+    await chrome.storage.local.set({
+      [SECRET_OBSERVATION_PROTECTION_STORAGE_KEY]: true,
+    });
+  });
+}
+
+async function applySecretObservationProtectionFromCommand(command) {
+  const raw = command?.payload?.secretObservationProtectionEnabled;
+  if (typeof raw !== 'boolean') {
+    return;
+  }
+  await applySecretObservationProtectionEnabled(raw);
+}
+
 async function persistSecretTaints() {
   await chrome.storage.local.set({
     [SECRET_TAINT_STORAGE_KEY]: {
@@ -999,6 +1054,10 @@ function markSecretTaint(tabId, origin) {
 }
 
 async function markSecretTaintLocked(tabId, origin) {
+  await loadSecretObservationProtection();
+  if (!isSecretObservationProtectionEnabled()) {
+    return;
+  }
   await loadSecretTaints();
   secretRecoveryRequest = null;
   secretTaintedOrigins.add(origin);
@@ -1056,6 +1115,17 @@ async function handleSecretProtectionMessage(message, sender) {
       tabs: [...secretTaintedTabs.entries()].sort(),
     });
     if (message.type === 'get_secret_protection') {
+      await loadSecretObservationProtection();
+      if (!isSecretObservationProtectionEnabled()) {
+        secretRecoveryRequest = null;
+        return {
+          ok: true,
+          protectionEnabled: false,
+          origins: [],
+          tabCount: 0,
+          reviewToken: null,
+        };
+      }
       const canReview = !gatewayEnabled && activeBrowserCommandCount === 0
         && !secretRecoveryInProgress;
       secretRecoveryRequest = canReview ? {
@@ -1063,6 +1133,7 @@ async function handleSecretProtectionMessage(message, sender) {
       } : null;
       return {
         ok: true,
+        protectionEnabled: true,
         origins: [...secretTaintedOrigins].sort(),
         tabCount: secretTaintedTabs.size,
         reviewToken: secretRecoveryRequest?.token ?? null,
@@ -1137,6 +1208,10 @@ async function taintedFrameOriginForTabId(tabId) {
 }
 
 async function secretTaintOriginForTab(tab) {
+  await loadSecretObservationProtection();
+  if (!isSecretObservationProtectionEnabled()) {
+    return null;
+  }
   await loadSecretTaints();
   const tabKey = String(tab?.id);
   const existing = secretTaintedTabs.get(tabKey);
@@ -1167,6 +1242,10 @@ async function secretTaintOriginForTab(tab) {
 }
 
 async function secretTaintOriginForTabId(tabId) {
+  await loadSecretObservationProtection();
+  if (!isSecretObservationProtectionEnabled()) {
+    return null;
+  }
   await loadSecretTaints();
   const existing = secretTaintedTabs.get(String(tabId));
   if (typeof existing === 'string') {
@@ -1176,6 +1255,8 @@ async function secretTaintOriginForTabId(tabId) {
 }
 
 async function assertSecretObservationAllowed(command) {
+  await loadSecretObservationProtection();
+  if (!isSecretObservationProtectionEnabled()) return;
   if (!SECRET_OBSERVATION_COMMANDS.has(command?.command)) return;
   const tabId = requireTargetTabId(command);
   let origin;
@@ -1245,11 +1326,13 @@ function browserCommandErrorMessage(command, error, targetSecretTainted = false)
 }
 
 async function runBrowserCommand(command, bridge) {
+  await applySecretObservationProtectionFromCommand(command);
   // The internal origin-bound writer is itself proof that this command may
   // carry a vault value. Preclassify every non-public credential write before
   // dispatch so a synchronous page-driven tab close cannot clear storage and
   // make the first write's result look untainted.
-  let secretTaintOrigin = command?.command === 'type'
+  let secretTaintOrigin = isSecretObservationProtectionEnabled()
+    && command?.command === 'type'
     && typeof command?.payload?.credentialOrigin === 'string'
     && command?.payload?.credentialProtection !== 'public'
     ? command.payload.credentialOrigin
@@ -1521,6 +1604,7 @@ async function findActiveWebTabForSharing() {
 
 async function executeBrowserCommand(command) {
   assertGatewayEnabled();
+  await applySecretObservationProtectionFromCommand(command);
   await assertSecretObservationAllowed(command);
   switch (command.command) {
     case 'report_inventory':
@@ -1689,6 +1773,40 @@ async function executeBrowserCommand(command) {
       return runInTargetTab(command, 'read_control', [
         requirePayloadString(command, 'selector'),
       ]);
+    case 'close_tab': {
+      const tabId = requireTargetTabId(command);
+      let tab;
+      try {
+        tab = await chrome.tabs.get(tabId);
+      } catch {
+        return { closed: true, alreadyClosed: true, tabId };
+      }
+      if (!tab) {
+        return { closed: true, alreadyClosed: true, tabId };
+      }
+      if (tab.url && !/^https?:/i.test(tab.url)) {
+        throw new Error('Chrome tab is not an http(s) page.');
+      }
+      const windowTabs = await chrome.tabs.query({ windowId: tab.windowId }).catch(() => []);
+      if (windowTabs.length <= 1 && command.payload?.allowCloseLastInWindow !== true) {
+        throw new Error('browser_close_last_tab_in_window_refused');
+      }
+      try {
+        await chrome.tabs.remove(tabId);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (/no tab|not found/i.test(message)) {
+          return { closed: true, alreadyClosed: true, tabId, windowId: tab.windowId };
+        }
+        throw error;
+      }
+      return {
+        closed: true,
+        tabId,
+        windowId: tab.windowId,
+        remainingInWindow: Math.max(0, windowTabs.length - 1),
+      };
+    }
     default:
       throw new Error(`Unsupported browser command: ${command.command}`);
   }
@@ -3236,6 +3354,9 @@ async function buildTabPayloadLocked(tab, options = {}) {
     }
   }
   const safeUrl = secretTainted ? (secretTaintedOrigin ? secretTaintedOrigin + '/' : 'https://redacted.invalid/') : tab.url;
+  const inspectionState = inspectionUnavailable
+    ? 'inspection_unavailable'
+    : secretTainted ? 'secret_tainted' : 'readable';
 
   return {
     tabId: tab.id,
@@ -3247,6 +3368,10 @@ async function buildTabPayloadLocked(tab, options = {}) {
     title: inspectionUnavailable ? 'Tab inspection unavailable'
       : secretTainted ? 'Secret-filled tab' : page.title || tab.title || tab.url,
     text: page.text || '',
+    inspectionState,
+    ...(typeof tab.index === 'number' ? { tabIndex: tab.index } : {}),
+    pinned: tab.pinned === true,
+    active: tab.active === true,
     // Only present when the page text genuinely could not be read (e.g. the
     // extension has no host permission for this origin). Omitted entirely on
     // a normal read, including a legitimately empty page, so existing callers

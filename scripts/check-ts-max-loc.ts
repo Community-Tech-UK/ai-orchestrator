@@ -108,14 +108,19 @@ const ALLOWLIST: Record<string, number> = {
   // Raised 2475 -> 2530 for the reliability hardening wiring (persistence
   // sentinel + write journal + assert_persisted/write_journal delegates; the
   // implementations live in browser-reliability-operations.ts).
-  'src/main/browser-gateway/browser-gateway-service.ts': 2419,
+  // Raised 2419 -> 2461 for thin closeTab/closeMatching wrappers.
+  'src/main/browser-gateway/browser-gateway-service.ts': 2461,
+  // Raised 700 -> 704 for close_tab / close_matching RPC dispatch cases.
+  'src/main/browser-gateway/browser-gateway-rpc-server.ts': 704,
   // Declarative MCP tool-name + JSON-schema catalog; crossed 700 with the
   // reliability tools (assert_persisted, write_journal). Catalog growth, not
   // logic growth. Raised 727 -> 762 for the fill_credential authorize-path hint.
-  'src/main/browser-gateway/browser-mcp-tools.ts': 762,
+  // Raised 762 -> 825 for browser.close_tab / close_matching schemas.
+  'src/main/browser-gateway/browser-mcp-tools.ts': 825,
   // Declarative Zod request/response schema catalog for the browser domain;
   // crossed 700 with the snapshot/assert_persisted/write_journal schemas.
-  'packages/contracts/src/schemas/browser.schemas.ts': 731,
+  // Raised 731 -> 796 for close + inspection-state request schemas.
+  'packages/contracts/src/schemas/browser.schemas.ts': 796,
   // Main process — desktop gateway
   // Crossed 700 during the in-flight desktop computer-use gateway work
   // (2026-07-12). Allowlisted at its then-current size so the gate stays
@@ -348,7 +353,10 @@ const ALLOWLIST: Record<string, number> = {
   // into pauseWithBlockedSignal, which paid back most of the growth. The file
   // had already crept to 3921 (ceiling + full slack) before this change —
   // re-tighten at the next coordinator extraction.
-  'src/main/orchestration/loop-coordinator.ts': 3948,
+  // Raised 3948 -> 3954 for LT-350 (cancelLoop now force-kills an in-flight
+  // preflight/quick-verify subprocess via completionDetector.abortVerify,
+  // since it has no CLI adapter for the existing cleanup hook to reach).
+  'src/main/orchestration/loop-coordinator.ts': 3954,
   // Re-tightened after extracting loop-completed-plan-helpers.ts.
   'src/main/orchestration/loop-completion-detector.ts': 806,
   'src/main/orchestration/loop-store.ts': 790,

@@ -268,6 +268,9 @@ export function classifyBrowserAction(
     };
   }
 
+  if (input.toolName === 'browser.close_tab' || input.toolName === 'browser.close_matching') {
+    return { actionClass: 'destructive', hardStop: false, reason: 'close_browser_tab' };
+  }
   if (input.toolName === 'browser.upload_file') {
     return { actionClass: 'file-upload', hardStop: false };
   }

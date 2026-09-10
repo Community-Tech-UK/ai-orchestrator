@@ -24,6 +24,7 @@ export interface TestCommand {
 }
 interface RecoveryStatus {
   ok: boolean;
+  protectionEnabled?: boolean;
   origins?: string[];
   tabCount?: number;
   reviewToken?: string | null;
@@ -40,12 +41,15 @@ interface Runtime {
   runCommandWithWatchdog: (command: TestCommand) => Promise<unknown>;
   browserCommandErrorMessage: (command: TestCommand, error: unknown, tainted: boolean) => string;
   handleSecretProtectionMessage: (message: Record<string, unknown>, sender: unknown) => Promise<RecoveryStatus>;
+  applySecretObservationProtectionEnabled: (enabled: boolean) => Promise<void>;
+  applySecretObservationProtectionFromCommand: (command: TestCommand) => Promise<void>;
   setGatewayEnabled: (enabled: boolean) => Promise<unknown>;
   loadSecretTaints: () => Promise<void>;
   secretTaintedTabs: Map<string, string>;
   secretTaintedOrigins: Set<string>;
   activeCount: () => number;
   enabled: () => boolean;
+  protectionEnabled: () => boolean;
 }
 
 export function recoveryHarness(stored: unknown = { version: 2, origins: [PROTECTED_ORIGIN], tabs: {} }, gatewayLoad?: Promise<boolean>) {
@@ -59,7 +63,7 @@ export function recoveryHarness(stored: unknown = { version: 2, origins: [PROTEC
     runtime: {
       ...POPUP_SENDER,
       getURL: (file: string) => 'chrome-extension://test-only-extension/' + file,
-      getManifest: () => ({ version: '0.2.19' }),
+      getManifest: () => ({ version: '0.2.20' }),
       onInstalled: event(), onStartup: event(), onMessage: event(),
       connectNative: vi.fn(() => ({
         onMessage: event(), onDisconnect: event(), disconnect: vi.fn(),
@@ -102,9 +106,10 @@ export function recoveryHarness(stored: unknown = { version: 2, origins: [PROTEC
   const runtime = runInContext(source + `
     ;({ assertSecretObservationAllowed, secretTaintOriginForTab, buildTabPayload,
       markSecretTaint, clearSecretTaint, targetSecretTaintOrigin, runBrowserCommand, runCommandWithWatchdog, browserCommandErrorMessage,
-      handleSecretProtectionMessage, setGatewayEnabled, loadSecretTaints,
+      handleSecretProtectionMessage, applySecretObservationProtectionEnabled, applySecretObservationProtectionFromCommand, setGatewayEnabled, loadSecretTaints,
       secretTaintedTabs, secretTaintedOrigins,
-      activeCount: () => activeBrowserCommandCount, enabled: () => gatewayEnabled });`, context) as Runtime;
+      activeCount: () => activeBrowserCommandCount, enabled: () => gatewayEnabled,
+      protectionEnabled: () => secretObservationProtectionEnabled });`, context) as Runtime;
   const send = (message: Record<string, unknown>, sender: unknown = POPUP_SENDER) => new Promise<RecoveryStatus>((resolve) => {
     const listener = chrome.runtime.onMessage.addListener.mock.calls[0][0];
     listener(message, sender, resolve);

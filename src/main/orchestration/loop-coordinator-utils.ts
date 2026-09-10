@@ -5,7 +5,7 @@ import { completedPlanFileCandidates } from './loop-completion-detector';
 export interface VerifyOutcomeLike {
   status: 'passed' | 'skipped' | 'failed';
   output: string;
-  failureKind?: 'command' | 'timeout' | 'infra' | 'environment';
+  failureKind?: 'command' | 'timeout' | 'infra' | 'environment' | 'cancelled';
 }
 
 export function applyVerifyOutcomeToIteration(iteration: LoopIteration, outcome: VerifyOutcomeLike): void {
@@ -36,6 +36,11 @@ export function verifyFailureIntervention(
     return `Your completion was rejected because the ${friendlyLabel} command timed out before producing a reliable result. ` +
       'Treat this as verifier infrastructure unless the output clearly identifies a real hung test. ' +
       'Fix the timeout/hang cause or report it as blocked, then re-declare completion:\n\n' +
+      excerpted;
+  }
+  if (failureKind === 'cancelled') {
+    return `Your completion was rejected because the ${friendlyLabel} command was cancelled before it finished. ` +
+      'This is not evidence that the code/tests are wrong. Re-declare completion once the loop resumes:\n\n' +
       excerpted;
   }
   return `Your completion was rejected because the ${friendlyLabel} command failed. ` +

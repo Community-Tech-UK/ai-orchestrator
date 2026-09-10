@@ -119,7 +119,7 @@ export function createDeferredBrowserMcpTools(
     name: BROWSER_TOOL_SEARCH_NAME,
     description:
       `Search the ${deferredCount} deferred Browser Gateway tools (forms, typing/select, `
-      + 'credential/secret fill, uploads/downloads, grants/approvals, campaigns, '
+      + 'tab close, credential/secret fill, uploads/downloads, grants/approvals, campaigns, '
       + 'accessibility snapshots, element queries, waits, session checks, checkpoints, '
       + 'audit log, escalations) and load their schemas. Matched tools become callable '
       + 'immediately and are added to the visible tool list. Use this before assuming a '

@@ -112,6 +112,7 @@ import {
   getBrowserExtensionCommandStore,
   type BrowserExtensionCommandName,
 } from './browser-extension-command-store';
+import { stampSecretObservationProtection } from './browser-secret-observation-protection';
 import {
   getBrowserExtensionContactState,
   type BrowserExtensionContactStateReader,
@@ -176,6 +177,8 @@ import type {
   BrowserGatewayFillCredentialRequest,
   BrowserGatewayFillSecretRequest,
   BrowserGatewayFindOrOpenRequest,
+  BrowserGatewayCloseMatchingRequest,
+  BrowserGatewayCloseTabRequest,
   BrowserGatewayListTargetsRequest,
   BrowserGatewayPreflightTargetRequest,
   BrowserGatewayMutatingActionRequest,
@@ -209,6 +212,7 @@ import {
 import { getWorkerNodeRegistry } from '../remote-node/worker-node-registry';
 import { stageBrowserUploadOnNode } from './browser-remote-upload-staging';
 import { BrowserTargetDiscoveryOperations } from './browser-target-discovery-operations';
+import { BrowserCloseTabOperations } from './browser-close-tab-operations';
 import type { BrowserTargetPreflightResult } from './browser-target-preflight';
 
 export type {
@@ -259,6 +263,7 @@ export class BrowserGatewayService {
     | 'setChecked'
     | 'uploadFile'
     | 'downloadFile'
+    | 'closeTarget'
   >;
   private readonly extensionTabStore: Pick<
     BrowserExtensionTabStore,
@@ -285,6 +290,7 @@ export class BrowserGatewayService {
   private readonly reliabilityEvents: NonNullable<BrowserGatewayServiceOptions['reliabilityEvents']>;
   private readonly existingTabOperations: BrowserExistingTabOperations;
   private readonly targetDiscoveryOperations: BrowserTargetDiscoveryOperations;
+  private readonly closeTabOperations: BrowserCloseTabOperations;
   private readonly approvalOperations: BrowserGatewayApprovalOperations;
   private readonly grantRequestOperations: BrowserGrantRequestOperations;
   private readonly manualHandoffOperations: BrowserManualHandoffOperations;
@@ -347,6 +353,17 @@ export class BrowserGatewayService {
       extensionContactState: this.extensionContactState,
       getWorkerNodes: () => getWorkerNodeRegistry().getAllNodes(),
       getWorkerNode: (nodeId) => getWorkerNodeRegistry().getNode(nodeId),
+      result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
+    });
+    this.closeTabOperations = new BrowserCloseTabOperations({
+      targetRegistry: this.targetRegistry,
+      driver: this.driver,
+      extensionTabStore: this.extensionTabStore,
+      existingTabOperations: this.existingTabOperations,
+      grantStore: this.grantStore,
+      approvalStore: this.approvalStore,
+      autoApproveApproval: (approval) => this.autoApproveApproval(approval),
+      getWorkerNodes: () => getWorkerNodeRegistry().getAllNodes(),
       result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
     });
     this.manualHandoffOperations = new BrowserManualHandoffOperations({
@@ -676,6 +693,18 @@ export class BrowserGatewayService {
     request: BrowserGatewayFindOrOpenRequest,
   ): Promise<BrowserGatewayResult<ReturnType<typeof toAgentSafeTarget> | null>> {
     return this.targetDiscoveryOperations.findOrOpen(request);
+  }
+
+  async closeTab(
+    request: BrowserGatewayCloseTabRequest,
+  ): Promise<BrowserGatewayResult<import('./browser-close-tab-operations').BrowserCloseTabResult | null>> {
+    return this.closeTabOperations.closeTab(request);
+  }
+
+  async closeMatching(
+    request: BrowserGatewayCloseMatchingRequest,
+  ): Promise<BrowserGatewayResult<import('./browser-close-tab-operations').BrowserCloseMatchingResult | null>> {
+    return this.closeTabOperations.closeMatching(request);
   }
 
 
@@ -1284,7 +1313,13 @@ export class BrowserGatewayService {
       getTab: (profileId, targetId) => this.extensionTabStore.getTab(profileId, targetId),
       persistenceSentinel: this.persistenceSentinel,
       writeJournal: this.writeJournal,
-      sendExtensionCommand: (request) => this.extensionCommandStore.sendCommand(request),
+      sendExtensionCommand: (request) => {
+        const payload = stampSecretObservationProtection(request.payload);
+        return this.extensionCommandStore.sendCommand({
+          ...request,
+          ...(payload ? { payload } : {}),
+        });
+      },
       readControlForTarget: (profileId, targetId, selector) =>
         this.readControlForTarget(profileId, targetId, selector),
     };

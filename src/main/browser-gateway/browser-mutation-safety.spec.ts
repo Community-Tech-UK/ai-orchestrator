@@ -20,6 +20,8 @@ describe('browser-mutation-safety', () => {
       'evaluate',
       'open_tab',
       'find_or_open',
+      'close_tab',
+      'close_matching',
     ]) {
       expect(isMutatingBrowserCommand(command)).toBe(true);
     }

@@ -8,6 +8,8 @@ const TOOL_NAMES = [
   'browser.list_targets',
   'browser.preflight_target',
   'browser.find_or_open',
+  'browser.close_tab',
+  'browser.close_matching',
   'browser.select_target',
   'browser.navigate',
   'browser.click',
@@ -211,6 +213,57 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
     },
     nodeId: nodeIdProp,
     computer: computerProp,
+  }),
+  'browser.close_tab': objectSchema({
+    profileId: profileIdProp,
+    targetId: targetIdProp,
+    allowCloseLastInWindow: {
+      ...booleanProp,
+      description:
+        'When true, allow closing the last shared Chrome tab in its window. '
+        + 'Default false, because that can quit the operator\'s Chrome window.',
+    },
+    requestId: requestIdProp,
+  }, ['profileId', 'targetId']),
+  'browser.close_matching': objectSchema({
+    profileId: profileIdProp,
+    nodeId: nodeIdProp,
+    computer: computerProp,
+    urlContains: {
+      ...stringProp,
+      description: 'Case-insensitive substring match against the listed tab URL.',
+    },
+    titleContains: {
+      ...stringProp,
+      description: 'Case-insensitive substring match against the listed tab title.',
+    },
+    status: {
+      type: 'string',
+      enum: ['closed'],
+      description: 'Sweep registry rows already marked closed. Does not call Chrome.',
+    },
+    includeInspectionUnavailable: {
+      ...booleanProp,
+      description:
+        'Include tabs whose listing is redacted as inspection-unavailable. Default false.',
+    },
+    includeSecretTainted: {
+      ...booleanProp,
+      description: 'Include secret-filled tabs. Default false.',
+    },
+    allowCloseLastInWindow: {
+      ...booleanProp,
+      description: 'Allow closing the last shared Chrome tab in its window. Default false.',
+    },
+    maxCount: {
+      ...numberProp,
+      description: 'Max tabs to close in one call (default 10, max 25).',
+    },
+    dryRun: {
+      ...booleanProp,
+      description: 'When true, return the matches without closing them.',
+    },
+    requestId: requestIdProp,
   }),
   'browser.select_target': targetSchema,
   'browser.navigate': objectSchema({
@@ -746,12 +799,22 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
   }, ['profileId', 'origin', 'loginUrl', 'loggedInMarkers']),
 };
 
+function toolDescription(name: BrowserMcpToolName): string {
+  if (name === 'browser.close_tab') {
+    return `${UNTRUSTED_WARNING} Close one Browser Gateway tab. Destructive: requires an approved destructive grant. Use profileId and targetId from list_targets (targetId is also exposed as id).`;
+  }
+  if (name === 'browser.close_matching') {
+    return `${UNTRUSTED_WARNING} Close matching tabs by URL/title substring or already-closed status. Destructive. Requires at least one filter. Opaque/secret-tainted tabs are skipped unless explicitly included.`;
+  }
+  return `${UNTRUSTED_WARNING} Calls the managed Browser Gateway tool ${name}.`;
+}
+
 export function createBrowserMcpTools(
   client: BrowserGatewayRpcClientLike,
 ): McpServerToolDefinition[] {
   return TOOL_NAMES.map((name) => ({
     name,
-    description: `${UNTRUSTED_WARNING} Calls the managed Browser Gateway tool ${name}.`,
+    description: toolDescription(name),
     inputSchema: TOOL_SCHEMAS[name],
     handler: async (args) => client.call(name, args),
     // browser.screenshot returns base64 image bytes in `data`; emit it as an

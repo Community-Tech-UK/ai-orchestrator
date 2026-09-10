@@ -95,8 +95,8 @@ export class LoopVerificationRunLedger {
   ): Promise<VerifyOutcome> {
     const startedAt = Date.now();
     const outcome = kind === 'quick-verify'
-      ? await detector.runQuickVerify(state.config)
-      : await detector.runVerify(state.config);
+      ? await detector.runQuickVerify(state.config, state.id)
+      : await detector.runVerify(state.config, state.id);
     const command = kind === 'quick-verify'
       ? state.config.completion.quickVerifyCommand?.trim()
       : state.config.completion.verifyCommand.trim();

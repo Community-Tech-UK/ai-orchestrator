@@ -87,8 +87,9 @@ the three Local AI Guard fallback-policy and budget keys, the WS-B1
 per-project PR-creation opt-in map (`allowPrCreation`), the licence-scoping
 automation-provider block-list (`providersExcludedFromAutomation`), the two GitHub
 Copilot account-routing keys (`copilotAccountProfiles`, `copilotAccountRoutingRules`),
-and the two Workspace Secret Card keys (`workspaceSecretsEnabled`,
-`workspaceSecretsAllowAgentRequests`).
+the two Workspace Secret Card keys (`workspaceSecretsEnabled`,
+`workspaceSecretsAllowAgentRequests`), and the post-fill observation lock
+(`browserSecretObservationProtectionEnabled`).
 `PRIVILEGED_CLI_OPERATOR_ONLY_KEYS` in
 `src/main/core/config/settings-control-policy.ts` is the authoritative list.
 

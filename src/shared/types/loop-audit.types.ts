@@ -71,7 +71,7 @@ export interface LoopPreflightResult {
      * Undefined for `passed` / `skipped` commands, and for results persisted
      * before this field existed.
      */
-    failureKind?: 'command' | 'timeout' | 'infra' | 'environment';
+    failureKind?: 'command' | 'timeout' | 'infra' | 'environment' | 'cancelled';
   }>;
 }
 

@@ -1514,6 +1514,9 @@ export class LoopCoordinator extends EventEmitter {
     this.lifecycle.releasePause(loopRunId);
     // Force-terminate now so the UI escapes a hung in-flight iteration.
     this.terminate(state, 'cancelled', 'user cancelled');
+    // LT-350: preflight verify has no adapter for awaitTerminalCleanup below
+    // to reach, so force-kill it directly to avoid an orphaned verify child.
+    await this.completionDetector.abortVerify(loopRunId);
     // FU-8: wait for the adapter-cleanup hook (if registered) to actually
     // tear down any CLI children before returning. Callers — IPC handlers,
     // graceful-shutdown logic, tests — get a real "fully shut down" signal,

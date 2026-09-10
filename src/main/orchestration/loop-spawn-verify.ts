@@ -24,6 +24,21 @@ export interface SpawnVerifyHelpers {
   classifyFailure: (output: string, isolated: boolean) => VerifyFailureKind;
 }
 
+/**
+ * LT-350: handle an external caller (loop cancellation) needs to force-kill a
+ * verify child that has no CLI adapter or instance to hang cleanup off of.
+ * `kill()` is idempotent and resolves once the process tree has been reaped
+ * (or immediately if the verify has already settled on its own).
+ */
+export interface SpawnVerifyRegistration {
+  kill: () => Promise<void>;
+}
+
+export interface SpawnVerifyOptions {
+  /** Invoked synchronously right after the child is spawned. */
+  onSpawn?: (registration: SpawnVerifyRegistration) => void;
+}
+
 export function spawnVerifyCommand(
   cmd: string,
   executionCwd: string,
@@ -31,6 +46,7 @@ export function spawnVerifyCommand(
   label: 'verify' | 'quick-verify',
   isolated: boolean,
   helpers: SpawnVerifyHelpers,
+  options?: SpawnVerifyOptions,
 ): Promise<VerifyOutcome> {
   const started = Date.now();
   return new Promise<VerifyOutcome>((resolve) => {
@@ -51,6 +67,7 @@ export function spawnVerifyCommand(
     let stderr = '';
     let settled = false;
     let timedOut = false;
+    let cancelledExternally = false;
     const finish = (outcome: VerifyOutcome): void => {
       if (settled) return;
       settled = true;
@@ -70,30 +87,47 @@ export function spawnVerifyCommand(
     child.stdout?.on('data', (b) => cap(b, 'stdout'));
     child.stderr?.on('data', (b) => cap(b, 'stderr'));
 
+    const reapAndFinish = async (reason: 'timeout' | 'cancelled'): Promise<void> => {
+      const pid = child.pid;
+      killProcessTree(pid);
+      try {
+        child.kill('SIGKILL');
+      } catch {
+        // already gone
+      }
+      await waitOnPid({ pid, timeoutMs: VERIFY_REAP_TIMEOUT_MS });
+      finish({
+        status: 'failed',
+        output: `${stdout}\n${stderr}\n(${label} ${
+          reason === 'timeout' ? `timed out after ${timeoutMs}ms` : 'was cancelled'
+        })`,
+        durationMs: Date.now() - started,
+        exitCode: null,
+        failureKind: reason,
+        ...(typeof pid === 'number' ? { pid } : {}),
+      });
+    };
+
     const to = setTimeout(() => {
       timedOut = true;
-      void (async () => {
-        const pid = child.pid;
-        killProcessTree(pid);
-        try {
-          child.kill('SIGKILL');
-        } catch {
-          // already gone
-        }
-        await waitOnPid({ pid, timeoutMs: VERIFY_REAP_TIMEOUT_MS });
-        finish({
-          status: 'failed',
-          output: `${stdout}\n${stderr}\n(${label} timed out after ${timeoutMs}ms)`,
-          durationMs: Date.now() - started,
-          exitCode: null,
-          failureKind: 'timeout',
-          ...(typeof pid === 'number' ? { pid } : {}),
-        });
-      })();
+      void reapAndFinish('timeout');
     }, timeoutMs);
 
+    let killPromise: Promise<void> | null = null;
+    options?.onSpawn?.({
+      kill: () => {
+        if (settled) return Promise.resolve();
+        if (!killPromise) {
+          cancelledExternally = true;
+          clearTimeout(to);
+          killPromise = reapAndFinish('cancelled');
+        }
+        return killPromise;
+      },
+    });
+
     child.on('close', (code) => {
-      if (timedOut || settled) return;
+      if (timedOut || cancelledExternally || settled) return;
       const output = `${stdout}${stderr ? `\n--- stderr ---\n${stderr}` : ''}`;
       if (code === 0) {
         finish({ status: 'passed', output, durationMs: Date.now() - started });

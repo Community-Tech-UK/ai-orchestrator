@@ -144,7 +144,13 @@ const TRANSITION_MAP: Readonly<Record<InstanceStatus, readonly InstanceStatus[]>
   processing:         ['idle', 'ready', 'busy', 'waiting_for_input', 'error', 'thinking_deeply', 'interrupting', 'cancelling', 'cancelled', 'initializing'],
   thinking_deeply:    ['idle', 'ready', 'busy', 'waiting_for_input', 'error', 'processing', 'interrupting', 'cancelling', 'cancelled', 'initializing'],
   waiting_for_input:  ['busy', 'idle', 'ready', 'error', 'interrupting', 'cancelled', 'initializing'],
-  waiting_for_permission: ['busy', 'idle', 'ready', 'waiting_for_input', 'error', 'interrupting', 'cancelling', 'cancelled', 'initializing'],
+  // LT-137: DeferredPermissionHandler.resumeAfterDeferredPermission always
+  // respawns from here (the Claude CLI process has already exited by the
+  // time a deferred-tool-use decision arrives), so 'respawning' must be a
+  // legal target — its previous absence made every deferred-permission
+  // approve/deny throw an IllegalTransitionError and silently drop the
+  // decision instead of resuming the session.
+  waiting_for_permission: ['busy', 'idle', 'ready', 'waiting_for_input', 'error', 'interrupting', 'cancelling', 'cancelled', 'respawning', 'initializing'],
   interrupting:       ['cancelling', 'interrupt-escalating', 'respawning', 'idle', 'ready', 'cancelled', 'error'],
   cancelling:         ['idle', 'ready', 'cancelled', 'interrupt-escalating', 'error'],
   'interrupt-escalating': ['cancelled', 'respawning', 'error', 'terminated'],

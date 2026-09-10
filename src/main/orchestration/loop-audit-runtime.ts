@@ -144,7 +144,7 @@ export async function runLoopPreflight(
   const verifyCommand = config.completion.verifyCommand.trim();
   if (quickCommand) {
     const startedAt = Date.now();
-    const quick = await completionDetector.runQuickVerify(config);
+    const quick = await completionDetector.runQuickVerify(config, state.id);
     reportPreflightVerification(onVerificationExecution, 'quick-verify', quickCommand, quick, startedAt);
     commands.push({
       label: 'quick-verify',
@@ -189,7 +189,7 @@ export async function runLoopPreflight(
   }
   if (verifyCommand) {
     const startedAt = Date.now();
-    const verify = await completionDetector.runVerify(config);
+    const verify = await completionDetector.runVerify(config, state.id);
     reportPreflightVerification(onVerificationExecution, 'verify', verifyCommand, verify, startedAt);
     commands.push({
       label: 'verify',

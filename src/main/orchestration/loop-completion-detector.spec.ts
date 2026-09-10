@@ -812,6 +812,51 @@ describe('LoopCompletionDetector.runVerify', () => {
   });
 });
 
+describe('LT-350: LoopCompletionDetector.abortVerify', () => {
+  it('force-kills an in-flight verify subprocess tracked for the given loopRunId', async () => {
+    const det = new LoopCompletionDetector();
+    const cfg = defaultLoopConfig(tmpDir, 'x');
+    const node = process.execPath.replace(/"/g, '\\"');
+    // Long enough that the timeout branch cannot possibly fire first.
+    cfg.completion.verifyCommand = `"${node}" -e "setTimeout(() => {}, 60000)"`;
+    cfg.completion.verifyTimeoutMs = 60_000;
+    const verifyPromise = det.runVerify(cfg, 'loop-1');
+    // Give the child a moment to actually spawn before killing it.
+    await new Promise((r) => setTimeout(r, 100));
+    await det.abortVerify('loop-1');
+    const outcome = await verifyPromise;
+    expect(outcome.status).toBe('failed');
+    if (outcome.status !== 'failed') throw new Error('expected failed verify outcome');
+    expect(outcome.failureKind).toBe('cancelled');
+  }, 10_000);
+
+  it('is a no-op when nothing is in flight for that loopRunId', async () => {
+    const det = new LoopCompletionDetector();
+    await expect(det.abortVerify('no-such-loop')).resolves.toBeUndefined();
+  });
+
+  it('does not kill a verify tracked under a different loopRunId', async () => {
+    const det = new LoopCompletionDetector();
+    const cfg = defaultLoopConfig(tmpDir, 'x');
+    cfg.completion.verifyCommand = passingVerifyCommand();
+    cfg.completion.verifyTimeoutMs = 5000;
+    const verifyPromise = det.runVerify(cfg, 'loop-a');
+    await det.abortVerify('loop-b');
+    const outcome = await verifyPromise;
+    // Untouched by the unrelated abort — runs to its natural, passing exit.
+    expect(outcome.status).toBe('passed');
+  });
+
+  it('does not register or track anything when loopRunId is omitted (back-compat)', async () => {
+    const det = new LoopCompletionDetector();
+    const cfg = defaultLoopConfig(tmpDir, 'x');
+    cfg.completion.verifyCommand = passingVerifyCommand();
+    cfg.completion.verifyTimeoutMs = 5000;
+    const outcome = await det.runVerify(cfg);
+    expect(outcome.status).toBe('passed');
+  });
+});
+
 describe('classifyCommandVerifyFailure', () => {
   it('labels missing-module output as environment only when isolation is on', () => {
     const output = "Error: Cannot find module '@angular/core'";

@@ -16,6 +16,8 @@ import {
   BrowserCreateProfileRequestSchema,
   BrowserDownloadFileRequestSchema,
   BrowserFindOrOpenRequestSchema,
+  BrowserCloseTabRequestSchema,
+  BrowserCloseMatchingRequestSchema,
   BrowserFillFormRequestSchema,
   BrowserListAuditLogRequestSchema,
   BrowserListGrantsRequestSchema,
@@ -84,6 +86,10 @@ function schemaForBrowserRpcMethod(method: string): ZodType | null {
       return BrowserCreateProfileRequestSchema;
     case 'browser.find_or_open':
       return BrowserFindOrOpenRequestSchema;
+    case 'browser.close_tab':
+      return BrowserCloseTabRequestSchema;
+    case 'browser.close_matching':
+      return BrowserCloseMatchingRequestSchema;
     case 'browser.navigate':
       return BrowserNavigateRequestSchema;
     case 'browser.click':

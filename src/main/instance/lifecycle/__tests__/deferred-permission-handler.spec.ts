@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Instance } from '../../../../shared/types/instance.types';
 import { DeferredPermissionHandler } from '../deferred-permission-handler';
+import { InstanceStateMachine } from '../../instance-state-machine';
 
 function makeInstance(overrides: Partial<Instance> = {}): Instance {
   return {
@@ -164,5 +165,92 @@ describe('DeferredPermissionHandler', () => {
     await expect(
       handler.resumeAfterDeferredPermission(instance.id, false),
     ).rejects.toThrow(`No deferred tool use pending for instance ${instance.id}`);
+  });
+
+  // LT-137: every other test in this file mocks `ops.transitionState` as a
+  // bare `vi.fn()` that unconditionally applies the new status, so none of
+  // them exercise the real `InstanceStateMachine` this handler is wired to
+  // in production (instance-lifecycle.ts passes its own `transitionState`,
+  // which delegates straight to the state machine). That let a real bug slip
+  // through undetected: 'waiting_for_permission' never had 'respawning' in
+  // its allowed-transitions list, so every live deferred-permission
+  // approve/deny threw IllegalTransitionError and dropped the decision
+  // in `resumeAfterDeferredPermission`'s "terminate old adapter" step,
+  // independent of any interrupt race. This test wires the real state
+  // machine (as instance-lifecycle.ts does) instead of a stub.
+  it('LT-137: resumes from waiting_for_permission using the real state machine (regression)', async () => {
+    const instance = makeInstance();
+    const stateMachines = new Map<string, InstanceStateMachine>();
+    const realTransitionState = (target: Instance, status: Instance['status']): void => {
+      const previous = target.status;
+      if (previous === status) return;
+      let sm = stateMachines.get(target.id);
+      if (!sm) {
+        sm = new InstanceStateMachine(previous);
+        stateMachines.set(target.id, sm);
+      }
+      sm.transition(status); // throws IllegalTransitionError if disallowed
+      target.status = sm.current;
+    };
+    // Seed the machine's cached current state to 'waiting_for_permission',
+    // mirroring the adapter's `emit('status', 'waiting_for_permission')`
+    // having already applied via the same transitionState path.
+    stateMachines.set(instance.id, new InstanceStateMachine('waiting_for_permission'));
+
+    const oldAdapter = {
+      getName: vi.fn().mockReturnValue('claude-cli'),
+      getRuntimeCapabilities: vi.fn().mockReturnValue({
+        supportsResume: true,
+        supportsForkSession: false,
+        supportsNativeCompaction: false,
+        supportsPermissionPrompts: true,
+        supportsDeferPermission: true,
+      }),
+      terminate: vi.fn().mockResolvedValue(undefined),
+      getDeferredToolUse: vi.fn().mockReturnValue({
+        toolName: 'bash',
+        toolInput: { command: 'pwd' },
+        toolUseId: 'tool-1',
+        sessionId: 'session-resume-1',
+        deferredAt: 10,
+      }),
+    } as const;
+    const newAdapter = {
+      config: {},
+      spawn: vi.fn().mockResolvedValue(4321),
+    } as const;
+
+    const handler = new DeferredPermissionHandler(
+      {
+        getInstance: vi.fn().mockReturnValue(instance),
+        getAdapter: vi.fn().mockReturnValue(oldAdapter),
+        setAdapter: vi.fn(),
+        deleteAdapter: vi.fn().mockReturnValue(true),
+        deleteDiffTracker: vi.fn(),
+        setDiffTracker: vi.fn(),
+        setupAdapterEvents: vi.fn(),
+        queueUpdate: vi.fn(),
+      },
+      {
+        transitionState: realTransitionState,
+        resolveCliTypeForInstance: vi.fn().mockResolvedValue('claude-cli'),
+        getMcpConfig: vi.fn().mockReturnValue(['mcp.json']),
+        getPermissionHookPath: vi.fn().mockReturnValue('/hook.js'),
+        waitForResumeHealth: vi.fn().mockResolvedValue(true),
+        createCliAdapter: vi.fn().mockReturnValue(newAdapter),
+        acquireSessionMutex: vi.fn().mockResolvedValue(() => undefined),
+      },
+      {
+        writeDecision: vi.fn(),
+        getDecisionDir: vi.fn().mockReturnValue('/tmp/decisions'),
+        createDiffTracker: vi.fn().mockReturnValue({ kind: 'tracker' }),
+      },
+    );
+
+    await expect(
+      handler.resumeAfterDeferredPermission(instance.id, true),
+    ).resolves.toBeUndefined();
+
+    expect(instance.status).toBe('idle');
   });
 });

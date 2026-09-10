@@ -7,6 +7,7 @@ import {
 
 export type BrowserExtensionCommandName =
   | 'open_tab'
+  | 'close_tab'
   | 'navigate'
   | 'click'
   | 'type'
@@ -346,6 +347,20 @@ export class BrowserExtensionCommandStore {
       commandsDeliverable: !allRejected,
       ...(allRejected && lastReason ? { reason: lastReason } : {}),
     };
+  }
+
+  listActiveQueueKeys(): BrowserExtensionCommandQueueKey[] {
+    const keys = new Set<BrowserExtensionCommandQueueKey>();
+    for (const key of this.queues.keys()) {
+      keys.add(key);
+    }
+    for (const key of this.pollers.keys()) {
+      keys.add(key);
+    }
+    for (const pending of this.pending.values()) {
+      keys.add(pending.queueKey);
+    }
+    return [...keys];
   }
 
   /** Point-in-time channel load for health/pre-flight reporting. */

@@ -31,6 +31,8 @@ const MUTATING_BROWSER_COMMANDS: ReadonlySet<string> = new Set([
   'download_file',
   // Arbitrary JS — may perform any mutation, so it is never safe to blind-retry.
   'evaluate',
+  'close_tab',
+  'close_matching',
 ]);
 
 // Defense-in-depth for builder-style command names from third-party designer MCP

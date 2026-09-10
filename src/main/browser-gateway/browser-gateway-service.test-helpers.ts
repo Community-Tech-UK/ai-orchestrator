@@ -150,6 +150,7 @@ export function makeService(overrides: {
     readControl: vi.fn(async () => ({ value: undefined, selectedLabel: undefined, checked: undefined })),
     setChecked: vi.fn(async () => undefined),
     uploadFile: vi.fn(async () => undefined),
+    closeTarget: vi.fn(async () => undefined),
     downloadFile: vi.fn(async () => ({
       id: 'download-1',
       url: 'http://localhost:4567/download',

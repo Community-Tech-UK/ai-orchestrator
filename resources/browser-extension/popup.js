@@ -10,10 +10,16 @@ const gatewayEnabledToggle = document.getElementById('gateway-enabled');
 const gatewayEnabledState = document.getElementById('gateway-enabled-state');
 
 const secretProtectionPanel = document.getElementById('secret-protection');
+const secretProtectionDisclosure = document.getElementById('secret-protection-disclosure');
 const protectedOrigins = document.getElementById('protected-origins');
 const secretRecoveryHelp = document.getElementById('secret-recovery-help');
+const secretRecoveryConfirmLabel = document.getElementById('secret-recovery-confirm-label');
 const secretRecoveryConfirm = document.getElementById('secret-recovery-confirm');
 const resetSecretProtectionButton = document.getElementById('reset-secret-protection');
+const secretProtectionResetNote = document.getElementById('secret-protection-reset-note');
+const SECRET_PROTECTION_DISCLOSURE_ON = 'Agents cannot read protected tabs. Protection covers these sites and tabs that may have received their secrets, even after navigation.';
+const SECRET_PROTECTION_DISCLOSURE_OFF = 'Secret observation protection is turned off in Harness Settings. Credential fills do not lock this browser profile. Agents can snapshot, click, and download after a fill. Vault binding and origin authorisation are unchanged.';
+const SECRET_PROTECTION_HELP_OFF = 'Turn this back on in Harness Settings → Advanced if you want fills to lock the tab again.';
 let secretReviewToken = null;
 
 secretRecoveryConfirm.addEventListener('change', (event) => {
@@ -51,6 +57,20 @@ async function refreshSecretProtection() {
     secretProtectionPanel.hidden = true;
     return;
   }
+  if (response.protectionEnabled === false) {
+    secretProtectionPanel.hidden = false;
+    secretProtectionDisclosure.textContent = SECRET_PROTECTION_DISCLOSURE_OFF;
+    protectedOrigins.textContent = '';
+    secretRecoveryConfirmLabel.hidden = true;
+    resetSecretProtectionButton.hidden = true;
+    secretProtectionResetNote.hidden = true;
+    secretRecoveryHelp.textContent = SECRET_PROTECTION_HELP_OFF;
+    return;
+  }
+  secretProtectionDisclosure.textContent = SECRET_PROTECTION_DISCLOSURE_ON;
+  secretRecoveryConfirmLabel.hidden = false;
+  resetSecretProtectionButton.hidden = false;
+  secretProtectionResetNote.hidden = false;
   const origins = Array.isArray(response.origins) ? response.origins : [];
   secretProtectionPanel.hidden = origins.length === 0 && !response.tabCount;
   protectedOrigins.textContent = origins.join(', ') + ' (' + (response.tabCount ?? 0) + ' tracked tabs)';

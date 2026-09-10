@@ -84,6 +84,7 @@ interface BrowserExtensionChromeHarness {
     get: ReturnType<typeof vi.fn>;
     group: ReturnType<typeof vi.fn>;
     query: ReturnType<typeof vi.fn>;
+    remove: ReturnType<typeof vi.fn>;
     ungroup: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
   };
@@ -135,6 +136,7 @@ describe('browser extension assets', () => {
     '0.2.17': '4a7787047e99',
     '0.2.18': '77c922098b1c',
     '0.2.19': '532f9c8bca96',
+    '0.2.20': '62c869613df1',
   };
 
   it('ships each background bundle under its own manifest version', () => {
@@ -174,6 +176,8 @@ describe('browser extension assets', () => {
     expect(background).toContain("type: 'command_result'");
     expect(background).toContain('executeBrowserCommand');
     expect(background).toContain("case 'read_control'");
+    expect(background).toContain("case 'close_tab'");
+    expect(background).toContain('chrome.tabs.remove');
     expect(background).toContain('fileCount: files.length');
     expect(background).toContain("'DOM.setFileInputFiles'");
     expect(background).toContain('findActiveWebTabForSharing');
@@ -932,9 +936,59 @@ describe('browser extension assets', () => {
       url: 'https://example.test/',
       title: 'Secret-filled tab',
       text: '',
+      inspectionState: 'secret_tainted',
       textUnavailableReason: 'browser_secret_observation_blocked_for_tainted_origin',
     }));
     expect(JSON.stringify(inventory)).not.toContain(marker);
+  });
+
+  it('closes a Chrome tab and refuses the last tab in a window', async () => {
+    const harness = loadBackgroundHarnessForTest({
+      additionalTabs: [{ tabId: 43, groupId: -1 }],
+    });
+    await flushPromises();
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    relayPort.postMessage.mockClear();
+
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: {
+        id: 'close-tab-1',
+        command: 'close_tab',
+        target: { tabId: 42 },
+        payload: { allowCloseLastInWindow: false },
+      },
+    });
+    await flushPromises();
+
+    expect(harness.chrome.tabs.remove).toHaveBeenCalledWith(42);
+    expect(harness.tabState(42)).toBeUndefined();
+    expect(relayPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'command_result',
+      commandId: 'close-tab-1',
+      ok: true,
+      result: expect.objectContaining({ closed: true, tabId: 42 }),
+    }));
+
+    relayPort.postMessage.mockClear();
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: {
+        id: 'close-last-tab',
+        command: 'close_tab',
+        target: { tabId: 43 },
+        payload: { allowCloseLastInWindow: false },
+      },
+    });
+    await flushPromises();
+
+    expect(relayPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'command_result',
+      commandId: 'close-last-tab',
+      ok: false,
+      error: expect.stringContaining('browser_close_last_tab_in_window_refused'),
+    }));
+    expect(harness.tabState(43)).toBeDefined();
   });
 
   it('supports an explicit report_inventory command for live target refreshes', async () => {
@@ -1644,7 +1698,20 @@ function loadBackgroundHarnessForTest(options: {
         }),
         onRemoved: createChromeEvent(),
         onUpdated: createChromeEvent(),
-        query: vi.fn(async () => [...tabsById.values()]),
+        query: vi.fn(async (query?: { windowId?: number }) => (
+          [...tabsById.values()].filter((tab) => (
+            query?.windowId === undefined || tab.windowId === query.windowId
+          ))
+        )),
+        remove: vi.fn(async (tabId: number | number[]) => {
+          const ids = Array.isArray(tabId) ? tabId : [tabId];
+          for (const id of ids) {
+            if (!tabsById.has(id)) {
+              throw new Error(`No tab with id: ${id}`);
+            }
+            tabsById.delete(id);
+          }
+        }),
         ungroup: vi.fn(async (input: number | number[]) => {
           const tabIds = Array.isArray(input) ? input : [input];
           for (const tabId of tabIds) {
@@ -1807,18 +1874,24 @@ function emitAlarm(harness: BrowserExtensionBackgroundHarness, name: string): vo
 function makeWebTab(tabId: number): {
   id: number;
   windowId: number;
+  index: number;
   url: string;
   title: string;
   groupId: number;
   status: string;
+  pinned: boolean;
+  active: boolean;
 } {
   return {
     id: tabId,
     windowId: 7,
+    index: tabId === 42 ? 0 : 1,
     url: `https://example.test/${tabId}`,
     title: `Example ${tabId}`,
     groupId: -1,
     status: 'complete',
+    pinned: false,
+    active: tabId === 42,
   };
 }
 

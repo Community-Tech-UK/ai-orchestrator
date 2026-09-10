@@ -81,6 +81,16 @@ export function extractTabPayload(result: unknown): BrowserAttachExistingTabRequ
     ...(typeof value['textUnavailableReason'] === 'string'
       ? { textUnavailableReason: value['textUnavailableReason'] }
       : {}),
+    ...(value['inspectionState'] === 'readable'
+      || value['inspectionState'] === 'secret_tainted'
+      || value['inspectionState'] === 'inspection_unavailable'
+      ? { inspectionState: value['inspectionState'] }
+      : {}),
+    ...(typeof value['tabIndex'] === 'number' && Number.isInteger(value['tabIndex'])
+      ? { tabIndex: value['tabIndex'] }
+      : {}),
+    ...(typeof value['pinned'] === 'boolean' ? { pinned: value['pinned'] } : {}),
+    ...(typeof value['active'] === 'boolean' ? { active: value['active'] } : {}),
     ...(typeof value['screenshotBase64'] === 'string'
       ? { screenshotBase64: value['screenshotBase64'] }
       : {}),
@@ -105,6 +115,15 @@ export function safeTargetFromExistingTab(
     driver: 'extension',
     status: 'selected',
     lastSeenAt: attachment.updatedAt,
+    targetId: attachment.targetId,
+    ...(attachment.inspectionState ? { inspectionState: attachment.inspectionState } : {}),
+    ...(attachment.textUnavailableReason
+      ? { textUnavailableReason: attachment.textUnavailableReason }
+      : {}),
+    windowId: attachment.windowId,
+    ...(attachment.tabIndex !== undefined ? { tabIndex: attachment.tabIndex } : {}),
+    ...(attachment.pinned !== undefined ? { pinned: attachment.pinned } : {}),
+    ...(attachment.active !== undefined ? { active: attachment.active } : {}),
   } satisfies BrowserTarget);
 }
 

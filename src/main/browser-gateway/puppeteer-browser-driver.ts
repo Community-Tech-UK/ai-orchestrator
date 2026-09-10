@@ -203,6 +203,18 @@ export class PuppeteerBrowserDriver {
     return this.refreshPageTarget(profileId, targetId, page);
   }
 
+  async closeTarget(profileId: string, targetId: string): Promise<void> {
+    const page = this.pagesByTargetId.get(targetId) as (Page & { close?: () => Promise<void> }) | undefined;
+    if (page && targetId.startsWith(`${profileId}:`)) {
+      await page.close?.().catch(() => undefined);
+      this.pagesByTargetId.delete(targetId);
+      this.consoleByTargetId.delete(targetId);
+      this.networkByTargetId.delete(targetId);
+      this.instrumentedTargetIds.delete(targetId);
+    }
+    this.targetRegistry.markClosed(targetId);
+  }
+
   async navigate(profileId: string, targetId: string, url: string): Promise<void> {
     const page = this.getPage(profileId, targetId);
     await page.goto(url, {

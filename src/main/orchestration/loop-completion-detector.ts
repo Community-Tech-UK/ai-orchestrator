@@ -33,7 +33,7 @@ import {
 } from './loop-anti-self-grading';
 import { parseTaskLedger } from './loop-task-ledger';
 import { loopExecutionCwd } from './loop-cwd';
-import { spawnVerifyCommand } from './loop-spawn-verify';
+import { spawnVerifyCommand, type SpawnVerifyRegistration } from './loop-spawn-verify';
 import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
 import { readUtf8FileHead } from './bounded-file-read';
 import { isInsideOrEqual } from '../util/path-helpers';
@@ -354,7 +354,7 @@ export interface CompletionObservationInput {
   verificationRuns?: readonly ObservedVerificationCommand[];
 }
 
-export type VerifyFailureKind = 'command' | 'timeout' | 'infra' | 'environment';
+export type VerifyFailureKind = 'command' | 'timeout' | 'infra' | 'environment' | 'cancelled';
 
 export type VerifyOutcome =
   | { status: 'passed'; output: string; durationMs: number }
@@ -416,6 +416,41 @@ export function parseAgentMoreWorkRemaining(output: string): boolean {
 }
 
 export class LoopCompletionDetector {
+  /**
+   * LT-350: verify/quick-verify children currently in flight, keyed by
+   * loopRunId. A preflight verify has no CLI adapter or instance for
+   * `cancelLoop`'s existing adapter-cleanup hook to reach, so it is tracked
+   * here instead and force-killed via `abortVerify()`.
+   */
+  private readonly activeVerifyChildren = new Map<string, Set<SpawnVerifyRegistration>>();
+
+  /**
+   * Force-kill any verify/quick-verify subprocess currently in flight for
+   * this loop run and wait for it to be reaped. No-op when nothing is
+   * in flight.
+   */
+  async abortVerify(loopRunId: string): Promise<void> {
+    const registrations = this.activeVerifyChildren.get(loopRunId);
+    if (!registrations || registrations.size === 0) return;
+    await Promise.all([...registrations].map((r) => r.kill()));
+  }
+
+  private addVerifyChild(loopRunId: string, registration: SpawnVerifyRegistration): void {
+    let set = this.activeVerifyChildren.get(loopRunId);
+    if (!set) {
+      set = new Set();
+      this.activeVerifyChildren.set(loopRunId, set);
+    }
+    set.add(registration);
+  }
+
+  private removeVerifyChild(loopRunId: string, registration: SpawnVerifyRegistration): void {
+    const set = this.activeVerifyChildren.get(loopRunId);
+    if (!set) return;
+    set.delete(registration);
+    if (set.size === 0) this.activeVerifyChildren.delete(loopRunId);
+  }
+
   /**
    * Inspect the just-completed iteration + workspace and return any
    * completion signals that fired. Pure (modulo file-existence checks).
@@ -669,8 +704,13 @@ export class LoopCompletionDetector {
   /**
    * Run the configured verify command. Returns passed/failed with output.
    * Times out per `config.completion.verifyTimeoutMs`.
+   *
+   * `loopRunId`, when provided, registers the spawned child so
+   * `abortVerify(loopRunId)` (LT-350: `cancelLoop`) can force-kill it — a
+   * preflight verify has no CLI adapter/instance the ordinary cancel path can
+   * reach.
    */
-  async runVerify(config: LoopConfig): Promise<VerifyOutcome> {
+  async runVerify(config: LoopConfig, loopRunId?: string): Promise<VerifyOutcome> {
     const cmd = (config.completion.verifyCommand || '').trim();
     if (!cmd) {
       // No command => the loop has NOT verified anything. Returning 'passed'
@@ -685,6 +725,7 @@ export class LoopCompletionDetector {
       config.completion.verifyTimeoutMs,
       'verify',
       config.isolateLoopWorkspaces === true,
+      loopRunId,
     );
   }
 
@@ -698,9 +739,9 @@ export class LoopCompletionDetector {
    *
    * A failed quick-verify lets the coordinator reject completion without
    * spending the (typically minutes-long) full verify on a known-failing
-   * change.
+   * change. See `runVerify` for `loopRunId`.
    */
-  async runQuickVerify(config: LoopConfig): Promise<VerifyOutcome> {
+  async runQuickVerify(config: LoopConfig, loopRunId?: string): Promise<VerifyOutcome> {
     const cmd = (config.completion.quickVerifyCommand || '').trim();
     if (!cmd) {
       return { status: 'skipped', output: '(no quick verify command configured)', durationMs: 0 };
@@ -712,6 +753,7 @@ export class LoopCompletionDetector {
       timeout,
       'quick-verify',
       config.isolateLoopWorkspaces === true,
+      loopRunId,
     );
   }
 
@@ -721,10 +763,25 @@ export class LoopCompletionDetector {
     timeoutMs: number,
     label: 'verify' | 'quick-verify',
     isolated: boolean,
+    loopRunId?: string,
   ): Promise<VerifyOutcome> {
+    if (loopRunId === undefined) {
+      return spawnVerifyCommand(cmd, executionCwd, timeoutMs, label, isolated, {
+        buildInvocation: buildVerifyInvocation,
+        classifyFailure: classifyCommandVerifyFailure,
+      });
+    }
+    let registration: SpawnVerifyRegistration | undefined;
     return spawnVerifyCommand(cmd, executionCwd, timeoutMs, label, isolated, {
       buildInvocation: buildVerifyInvocation,
       classifyFailure: classifyCommandVerifyFailure,
+    }, {
+      onSpawn: (r) => {
+        registration = r;
+        this.addVerifyChild(loopRunId, r);
+      },
+    }).finally(() => {
+      if (registration) this.removeVerifyChild(loopRunId, registration);
     });
   }
 

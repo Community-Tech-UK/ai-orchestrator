@@ -65,6 +65,14 @@ export const BrowserTargetStatusSchema = z.enum([
   'closed',
   'error',
 ]);
+export const BrowserTargetInspectionStateSchema = z.enum([
+  'readable',
+  'secret_tainted',
+  'inspection_unavailable',
+]);
+export type BrowserTargetInspectionState = z.infer<
+  typeof BrowserTargetInspectionStateSchema
+>;
 export const BrowserGatewayDecisionSchema = z.enum([
   'allowed',
   'denied',
@@ -158,6 +166,13 @@ export const BrowserTargetSchema = z
     lastSeenAt: z.number().int().nonnegative(),
     lastConfirmedAt: z.number().int().nonnegative().optional(),
     stale: z.boolean().optional(),
+    targetId: idSchema.optional(),
+    inspectionState: BrowserTargetInspectionStateSchema.optional(),
+    textUnavailableReason: z.string().min(1).max(200).optional(),
+    windowId: z.number().int().optional(),
+    tabIndex: z.number().int().nonnegative().optional(),
+    pinned: z.boolean().optional(),
+    active: z.boolean().optional(),
   })
   .strict();
 export type BrowserTarget = z.infer<typeof BrowserTargetSchema>;
@@ -352,6 +367,10 @@ export const BrowserAttachExistingTabRequestSchema = z
     title: z.string().min(1).max(500).optional(),
     text: z.string().max(120_000).optional(),
     textUnavailableReason: z.string().min(1).max(200).optional(),
+    inspectionState: BrowserTargetInspectionStateSchema.optional(),
+    tabIndex: z.number().int().nonnegative().optional(),
+    pinned: z.boolean().optional(),
+    active: z.boolean().optional(),
     screenshotBase64: z.string().max(2_000_000).optional(),
     capturedAt: z.number().int().nonnegative().optional(),
     allowedOrigins: z.array(BrowserAllowedOriginSchema).optional(),
@@ -444,6 +463,36 @@ export const BrowserTargetRequestSchema = z
   })
   .strict();
 export type BrowserTargetRequest = z.infer<typeof BrowserTargetRequestSchema>;
+
+export const BrowserCloseTabRequestSchema = BrowserTargetRequestSchema.extend({
+  allowCloseLastInWindow: z.boolean().optional(),
+  requestId: idSchema.optional(),
+}).strict();
+export type BrowserCloseTabRequest = z.infer<typeof BrowserCloseTabRequestSchema>;
+
+export const BrowserCloseMatchingRequestSchema = z
+  .object({
+    profileId: idSchema.optional(),
+    nodeId: idSchema.optional(),
+    computer: z.string().min(1).max(120).optional(),
+    urlContains: z.string().min(1).max(500).optional(),
+    titleContains: z.string().min(1).max(500).optional(),
+    status: z.literal('closed').optional(),
+    includeInspectionUnavailable: z.boolean().optional(),
+    includeSecretTainted: z.boolean().optional(),
+    allowCloseLastInWindow: z.boolean().optional(),
+    maxCount: z.number().int().min(1).max(25).optional(),
+    dryRun: z.boolean().optional(),
+    requestId: idSchema.optional(),
+  })
+  .strict()
+  .refine(
+    (value) => Boolean(value.urlContains || value.titleContains || value.status === 'closed'),
+    { message: 'close_matching requires urlContains, titleContains, or status=closed' },
+  );
+export type BrowserCloseMatchingRequest = z.infer<
+  typeof BrowserCloseMatchingRequestSchema
+>;
 
 export const BrowserNavigateRequestSchema = BrowserTargetRequestSchema.extend({
   url: urlSchema,

@@ -39,6 +39,29 @@ describe('browser-safe-dto', () => {
     });
 
     expect(safe).not.toHaveProperty('driverTargetId');
+    expect(safe.targetId).toBe('target-1');
+    expect(safe.inspectionState).toBe('readable');
+  });
+
+  it('exposes targetId and inspection state for redacted inventory rows', () => {
+    const safe = toAgentSafeTarget({
+      id: 'existing-tab:7:42:target',
+      profileId: 'existing-tab:7:42',
+      mode: 'existing-tab',
+      driver: 'extension',
+      status: 'selected',
+      lastSeenAt: 1,
+      title: 'Tab inspection unavailable',
+      url: 'https://redacted.invalid/',
+      origin: 'https://redacted.invalid',
+      windowId: 7,
+      tabIndex: 3,
+    });
+
+    expect(safe.targetId).toBe('existing-tab:7:42:target');
+    expect(safe.inspectionState).toBe('inspection_unavailable');
+    expect(safe.windowId).toBe(7);
+    expect(safe.tabIndex).toBe(3);
   });
 
   it('redacts debug endpoints, profile paths, and sensitive values from audits', () => {

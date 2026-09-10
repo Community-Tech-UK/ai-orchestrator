@@ -17,6 +17,8 @@ import {
   BrowserListAuditLogRequestSchema,
   BrowserListTargetsRequestSchema,
   BrowserNavigateRequestSchema,
+  BrowserCloseTabRequestSchema,
+  BrowserCloseMatchingRequestSchema,
   BrowserProfileSchema,
   BrowserRequestUserLoginRequestSchema,
   BrowserScreenshotRequestSchema,
@@ -471,6 +473,27 @@ describe('browser.schemas', () => {
       BrowserManualStepRequestSchema.safeParse({
         profileId: 'profile-1',
         kind: 'unsupported',
+      }).success,
+    ).toBe(false);
+  });
+
+  it('validates close-tab and close-matching payloads', () => {
+    expect(
+      BrowserCloseTabRequestSchema.safeParse({
+        profileId: 'existing-tab:7:42',
+        targetId: 'existing-tab:7:42:target',
+      }).success,
+    ).toBe(true);
+    expect(
+      BrowserCloseMatchingRequestSchema.safeParse({
+        computer: 'windows-pc',
+        urlContains: 'example.test',
+      }).success,
+    ).toBe(true);
+    expect(BrowserCloseMatchingRequestSchema.safeParse({}).success).toBe(false);
+    expect(
+      BrowserCloseMatchingRequestSchema.safeParse({
+        includeInspectionUnavailable: true,
       }).success,
     ).toBe(false);
   });

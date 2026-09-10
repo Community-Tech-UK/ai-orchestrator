@@ -123,6 +123,13 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
     category: 'advanced',
   },
   {
+    key: 'browserSecretObservationProtectionEnabled',
+    label: 'Lock shared tabs after a credential fill',
+    description: 'When on (default), filling a password or secret on a shared Chrome tab locks that site so agents cannot snapshot, click, or download until you reset secret protection in the Harness extension popup with Browser Gateway off. Turn this off for procurement work that must read and download from the same origin immediately after sign-in. Off clears protection flags only; it does not delete cookies, passwords, or site data, and it does not change vault binding or origin authorisation. Operator-only; agents cannot change this.',
+    type: 'boolean',
+    category: 'advanced',
+  },
+  {
     key: 'orchestrationRoutingPolicyJson',
     label: 'Model tier per orchestration gate',
     description: 'Which model tier each background gate (loop, verify, review, debate, synthesis) runs on. Edited by the routing table on the Orchestration tab; this entry exists so the value is linted and classified rather than invisible.',

@@ -300,6 +300,16 @@ export interface AppSettings extends DesktopComputerUseSettings {
    */
   browserAllowSharedTabCredentialFill: boolean;
   /**
+   * When true (default), a vault password/secret fill on a shared Chrome tab
+   * taints that origin and tab so agents cannot snapshot, click, or download
+   * until the operator resets protection in the extension popup. When false,
+   * fills do not taint and existing taint flags for that browser profile are
+   * cleared (flags only). Operator-only: agents cannot change this via MCP
+   * or the privileged settings CLI. Does not weaken vault binding or origin
+   * authorisation.
+   */
+  browserSecretObservationProtectionEnabled: boolean;
+  /**
    * Master switch for the workspace secret card. When false, agents cannot
    * request a secret and stored references fail closed. Operator-only.
    */

@@ -9,6 +9,14 @@ import { extractFunctionSource } from './browser-extension-function-source.testu
 const background = readFileSync('resources/browser-extension/background.js', 'utf8');
 const SECRET = 'TEST_ONLY_ORIGIN_BOUND_SECRET';
 const AUTHORIZED_ORIGIN = 'https://www.instagram.com';
+const SECRET_OBSERVATION_PROTECTION_STUBS = `
+let secretObservationProtectionEnabled = true;
+let secretObservationProtectionLoaded = true;
+async function loadSecretObservationProtection() { return secretObservationProtectionEnabled; }
+function isSecretObservationProtectionEnabled() { return secretObservationProtectionEnabled !== false; }
+async function applySecretObservationProtectionFromCommand() {}
+async function applySecretObservationProtectionEnabled() {}
+`;
 
 interface ScriptInjection {
   target: { tabId: number; allFrames?: boolean; frameIds?: number[] };
@@ -118,6 +126,7 @@ describe('extension origin-bound secret typing', () => {
       'requireTargetTabId',
       'secretTaintOriginForTabId',
       `const secretObservationGuardErrors = new WeakSet();
+${SECRET_OBSERVATION_PROTECTION_STUBS}
 ${extractFunctionSource(background, 'loadSecretTaints')}
 ${extractFunctionSource(background, 'assertSecretObservationAllowed')}
 return assertSecretObservationAllowed;`,
@@ -151,7 +160,8 @@ return assertSecretObservationAllowed;`,
     const build = new Function(
       'assertGatewayEnabled',
       'assertSecretObservationAllowed',
-      `${extractFunctionSource(background, 'executeBrowserCommand')}
+      `${SECRET_OBSERVATION_PROTECTION_STUBS}
+${extractFunctionSource(background, 'executeBrowserCommand')}
 return executeBrowserCommand;`,
     );
     const executeBrowserCommand = build(
@@ -234,6 +244,7 @@ return buildTabPayload;`,
       'captureTabScreenshot',
       'runWithSecretObservationBoundary',
       `let secretRecoveryRequest = null;
+${SECRET_OBSERVATION_PROTECTION_STUBS}
 ${extractFunctionSource(background, 'persistSecretTaints')}
 ${extractFunctionSource(background, 'clearSecretTaint')}
 ${extractFunctionSource(background, 'browserTabOrigin')}
@@ -338,6 +349,7 @@ return { clearSecretTaint, buildTabPayload };`,
       'loadSecretTaints',
       'runWithSecretObservationBoundary',
       `let secretRecoveryRequest = null;
+${SECRET_OBSERVATION_PROTECTION_STUBS}
 ${extractFunctionSource(background, 'persistSecretTaints')}
 ${extractFunctionSource(background, 'browserTabOrigin')}
 ${extractFunctionSource(background, 'credentialFrameOriginProbe')}
@@ -390,6 +402,7 @@ return markSecretTaint;`,
       'POLL_TIMEOUT_MS',
       'targetSecretTaintOrigin',
       `const secretObservationGuardErrors = new WeakSet();
+${SECRET_OBSERVATION_PROTECTION_STUBS}
 ${extractFunctionSource(background, 'browserCommandErrorMessage')}
 ${extractFunctionSource(background, 'runBrowserCommand')}
 return runBrowserCommand;`,
@@ -491,6 +504,7 @@ return runBrowserCommand;`,
       'scheduleNextPoll',
       'targetSecretTaintOrigin',
       `const secretObservationGuardErrors = new WeakSet();
+${SECRET_OBSERVATION_PROTECTION_STUBS}
 ${extractFunctionSource(background, 'browserCommandErrorMessage')}
 ${extractFunctionSource(background, 'runBrowserCommand')}
 return runBrowserCommand;`,
@@ -539,6 +553,7 @@ return runBrowserCommand;`,
       'scheduleNextPoll',
       'targetSecretTaintOrigin',
       `const secretObservationGuardErrors = new WeakSet();
+${SECRET_OBSERVATION_PROTECTION_STUBS}
 ${extractFunctionSource(background, 'browserCommandErrorMessage')}
 ${extractFunctionSource(background, 'runBrowserCommand')}
 return runBrowserCommand;`,
@@ -585,6 +600,7 @@ return runBrowserCommand;`,
       'scheduleNextPoll',
       'targetSecretTaintOrigin',
       `const secretObservationGuardErrors = new WeakSet();
+${SECRET_OBSERVATION_PROTECTION_STUBS}
 ${extractFunctionSource(background, 'browserCommandErrorMessage')}
 ${extractFunctionSource(background, 'runBrowserCommand')}
 return runBrowserCommand;`,
@@ -636,6 +652,7 @@ return runBrowserCommand;`,
       'scheduleNextPoll',
       'targetSecretTaintOrigin',
       `const secretObservationGuardErrors = new WeakSet();
+${SECRET_OBSERVATION_PROTECTION_STUBS}
 ${extractFunctionSource(background, 'browserCommandErrorMessage')}
 ${extractFunctionSource(background, 'runBrowserCommand')}
 return runBrowserCommand;`,
@@ -689,7 +706,8 @@ return runBrowserCommand;`,
       'runOriginBoundType',
       'runInTargetTab',
       'typeByUid',
-      `${extractFunctionSource(background, 'executeBrowserCommand')}; return executeBrowserCommand;`,
+      `${SECRET_OBSERVATION_PROTECTION_STUBS}
+${extractFunctionSource(background, 'executeBrowserCommand')}; return executeBrowserCommand;`,
     );
     const executeBrowserCommand = build(
       () => undefined,

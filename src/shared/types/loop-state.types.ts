@@ -64,7 +64,7 @@ export interface LoopToolCallRecord {
   declaredTimeoutMs?: number;
 }
 
-export type LoopVerifyFailureKind = 'command' | 'timeout' | 'infra' | 'environment';
+export type LoopVerifyFailureKind = 'command' | 'timeout' | 'infra' | 'environment' | 'cancelled';
 
 /**
  * Drain timing for a queued loop message (Pi Task 18 taxonomy):

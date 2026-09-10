@@ -160,6 +160,8 @@ sections below. The historical reproduction remains unchanged.
 | LT-530 | P1 | **FIXED + INCIDENT-REPLAYED + REGRESSION-TESTED 2026-08-31; rebuilt UI re-check pending.** Claude's structured `authentication_failed` stream event arrived inside an `assistant` envelope. Both AIO Claude parsing paths rendered it as assistant prose, while a separate now-healthy auth probe could veto repair after another process refreshed the shared OAuth credentials. The adapters now emit an authoritative typed auth error; communication preserves the complete failed turn; repair restarts and replays it even when the later shared probe is healthy. CLI version detection no longer pretends a successful `--version` means authenticated | Session `470f3695-ba5b-497a-95a6-9ad8c5bf7b2f` and native Claude transcript | `src/main/cli/adapters/claude-cli-adapter.spec.ts`, `src/main/cli/spawn-worker/cli-adapter-worker-proxy.spec.ts`, `src/main/instance/instance-communication.spec.ts` |
 | LT-531 | P2 | **FIXED IN CODE + MUTATION-CHECKED 2026-09-03; residual closed as LT-532.** A `record` (non-gating) loop preflight ran the workspace's full verify before iteration 0 under the complete `verifyTimeoutMs`. Where that command is the workspace's own `verify` script — auto-adopted by `resolveLoopVerification` when the user supplies none — the preflight burned the entire 600s budget, delayed the first agent turn by ten minutes, and recorded only `timed out`: no baseline at all, for a status no consumer reads. Non-gating budget now capped at 180s, and a passing quick-verify ends the preflight instead of also paying for the slow command. `block` mode is unchanged, because there the preflight is a real gate. Residual (no cheap command still paid 180s) is LT-532 | Loop `loop-1788392553418-c66131dc` `PRE_FLIGHT.md`: `Mode: record`, `Duration: 599971ms`, `(verify timed out after 600000ms)`, output tail still inside `check:dead` (step 6 of the 14-step chain) | `src/main/orchestration/loop-audit-runtime.spec.ts` |
 | LT-532 | P2 | **FIXED IN CODE 2026-09-03; rebuilt-app check pending.** LT-531's residual: a `record` preflight with no quick-verify still ran the auto-inferred full `verify`, hit the 180s cap, delayed iteration 1 by three minutes, and painted a red `Preflight timed out` chip even though the run continued. Reproduced on `loop-1788423509509-eab2bd46` (`Mode: record`, `Duration: 179999ms`, `npm --prefix "ai-orchestrator" run verify`). Record mode now skips the slow command when no cheap baseline ran; the strip labels a record-mode timeout as `Preflight baseline unknown` (muted) and a not-yet-run final audit as `Final audit pending` | Loop `loop-1788423509509-eab2bd46` `PRE_FLIGHT.md`; operator screenshot of the running strip | `src/main/orchestration/loop-audit-runtime.spec.ts`, `src/renderer/app/features/loop/loop-audit-chips.util.spec.ts`, `src/renderer/app/features/loop/loop-control.component.spec.ts` |
+| LT-533 | P2 | **NOT FIXED.** Title-generation escalation to the fast CLI tier never fires, and all three of its exits are invisible. With `titleGeneration.allowFrontierFallback` restored to `true` on 2026-09-08, a local model that returns unusable output is supposed to fall through to the antigravity/Claude-Haiku/Codex one-shot. Observed on the one real opportunity (09:20:31): the local model succeeded (450 output tokens), `finalizeGeneratedTitle` correctly rejected its output, the code fell through — and no CLI attribution record and no AI title were produced. Across all of September there is not one CLI-provider `aux:titleGeneration` record (4224 `local-fallback`, 395 `ollama`) while `claude` and `codex` are both on PATH. Which exit was taken cannot be determined: `!cliType` and `!hasSendMessage` are `logger.debug` and the send failure is a bare `catch { return null; }`, and debug is not persisted. **Required fix:** log the escalation outcome at info/warn with the reason (no CLI resolved / adapter cannot one-shot / send threw + error), then re-run to find out why it produces nothing. **Acceptance:** a title generation whose local output is rejected either produces a CLI-attributed title or logs a specific, greppable reason it could not. | [Session title livetest LT-C](2026-09-08-session-title-generation-repair_livetest.md) | LT-C in that livetest |
+| LT-534 | P3 | **NOT FIXED.** The live and history title resolvers apply sanitize/truncate in opposite orders, so a long generated title still renders one character differently either side of a session going non-live. `resolveEffectiveInstanceTitle` sanitizes then truncates, keeping the `...` that `truncateForRail` appends; `getConversationHistoryTitle` truncates inside `deriveRailTitle` then sanitizes, and `sanitizeGeneratedTitle`'s `.replace(/[.!?]+$/, '')` strips that `...` off. Live `"Daily health check of the Dingley Assessment servers and..."` vs history `"...servers and"`. Introduced by the 2026-09-08 title-stability work, which cut deterministic drift from 222/2000 entries to 47 and rail-overflow from 188 to 0 but left this. A second, structural residue in the same 47 is out of scope for a one-line fix: `truncatePreview` (`history-manager.ts:1739`) collapses newlines before storing `firstUserMessage`, so a history entry has no line structure and `deriveRailTitle`'s first-line-only rule cannot be reproduced from it. **Required fix:** apply one shared normalize-then-truncate order in both resolvers. **Acceptance:** genuine deterministic drift (entries with no `aiTitle`) falls below the current 47 with no over-limit renders. | [Session title livetest LT-E](2026-09-08-session-title-generation-repair_livetest.md) | LT-E in that livetest |
 
 ## LT-001: Existing-Tab Browser Grant Scope Mismatch
 
@@ -8788,6 +8790,78 @@ this command running. Capping the budget bounds that orphan to 180s but does not
   only, and `PRE_FLIGHT.md` records the slow one as skipped with its reason.
 - A `block` preflight still runs quick-verify and the full verify at the configured budget.
 - The preflight artifact never reports a clean baseline it did not actually establish.
+
+## LT-533: title escalation to the CLI never fires and every exit is silent
+
+**Observed behaviour.** `titleGeneration.allowFrontierFallback` was restored to
+`true` on 2026-09-08 so that a local model failure is no longer terminal. On the
+first real opportunity after the app restart (09:20:31) the local model
+*succeeded* — 450 output tokens, inside the raised 1536 budget — but its output
+was unusable and `finalizeGeneratedTitle` rejected it. Control then reached the
+CLI one-shot block in `AutoTitleService.generateTitle`. No cost-attribution
+record was written and no AI title was applied; the session kept its instant
+first-message title.
+
+Across the whole of September, `aux:titleGeneration` attribution contains only
+`local-fallback` (4224) and `ollama` (395) — not a single record naming
+`antigravity`, `claude` or `codex`, although `claude` and `codex` are both on
+PATH.
+
+**Root cause.** Not established, and deliberately not guessed. Three exits can
+produce this and none is observable:
+- no provider resolved: `logger.debug('No CLI available for AI title generation')`
+- adapter cannot one-shot: `logger.debug('CLI adapter does not support one-shot sendMessage')`
+- the call threw: `catch { return null; }` with no logging at all
+
+Debug is not persisted (`grep -c '"level":"debug"' app.log` = 0), so the log
+cannot distinguish them.
+
+**Required behaviour.** The escalation must report its outcome at a persisted
+level with a specific reason. This is the same silent-failure class the
+2026-09-08 change set out to remove; the B3 abandonment logging added there covers
+only the `!allowFrontierFallback` branch, which is now the branch that never runs.
+
+**Acceptance.** A title generation whose local output is rejected either produces
+a CLI-attributed title, or writes a greppable reason naming which exit it took
+and, for a thrown call, the error.
+
+---
+
+## LT-534: the two title resolvers truncate and sanitize in opposite orders
+
+**Observed behaviour.** A long generated title renders with a trailing `...` on
+the live rail and without it in history:
+
+```
+live : "Daily health check of the Dingley Assessment servers and..."
+hist : "Daily health check of the Dingley Assessment servers and"
+```
+
+**Root cause.** `resolveEffectiveInstanceTitle` calls
+`normalizeGeneratedHistoryTitlePart(displayName)`, which sanitizes and then
+truncates — so `truncateForRail`'s appended `...` survives.
+`getConversationHistoryTitle` calls
+`normalizeGeneratedHistoryTitlePart(deriveRailTitle(...))`, and `deriveRailTitle`
+has already truncated, so the subsequent `sanitizeGeneratedTitle` strips that
+same `...` via `.replace(/[.!?]+$/, '')`.
+
+Introduced by the 2026-09-08 title-stability work, which reduced deterministic
+drift from 222 of 2000 entries to 47 and rail-overflow renders from 188 to 0.
+
+**Required behaviour.** One shared normalize-then-truncate order used by both
+resolvers, so neither can differ from the other by punctuation.
+
+**Also recorded, out of scope for that fix.** Part of the residual 47 is
+structural: `truncatePreview` (`history-manager.ts:1739`) applies
+`text.replace(/\s+/g, ' ')` before storing `firstUserMessage`, so a history entry
+retains no line structure and `deriveRailTitle`'s first-line-only rule cannot be
+reproduced from it for any multi-line prompt. Closing that means changing what is
+archived.
+
+**Acceptance.** Deterministic drift (entries with no `aiTitle`) measured over the
+live history index falls below 47, with rail-overflow renders still at 0.
+
+---
 
 ## LT-532: a record-mode preflight with no cheap command still burned the capped budget and looked like a failure
 

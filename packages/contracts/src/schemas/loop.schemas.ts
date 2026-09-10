@@ -74,7 +74,7 @@ export const LoopCompletionOutcomeSchema = z.enum([
   'review-blocked',
 ]);
 export const LoopVerdictSchema = z.enum(['OK', 'WARN', 'CRITICAL']);
-export const LoopVerifyFailureKindSchema = z.enum(['command', 'timeout', 'infra', 'environment']);
+export const LoopVerifyFailureKindSchema = z.enum(['command', 'timeout', 'infra', 'environment', 'cancelled']);
 export const LoopProviderSchema = z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']);
 export const LoopContextStrategySchema = z.enum(['fresh-child', 'hybrid', 'same-session']);
 export const ProgressSignalIdSchema = z.enum(['A', 'B', 'C', 'D', 'D-prime', 'E', 'F', 'G', 'H', 'I', 'BLOCKED']);

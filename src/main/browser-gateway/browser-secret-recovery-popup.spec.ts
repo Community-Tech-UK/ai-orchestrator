@@ -5,11 +5,15 @@ import { JSDOM } from 'jsdom';
 import { describe, expect, it, vi } from 'vitest';
 import { PROTECTED_ORIGIN, settle } from './browser-secret-recovery.testutil';
 
-function popupHarness(reviewToken: string | null) {
+function popupHarness(reviewToken: string | null, protectionEnabled = true) {
   const dom = new JSDOM(readFileSync('resources/browser-extension/popup.html', 'utf8'));
   const sendMessage = vi.fn(async (message: { type: string }) => {
-    if (message.type === 'get_secret_protection') return { ok: true, origins: [PROTECTED_ORIGIN], tabCount: 1, reviewToken };
-    return { ok: true, extensionVersion: '0.2.19', gatewayEnabled: !reviewToken, bridges: [], sharedTabs: [] };
+    if (message.type === 'get_secret_protection') {
+      return protectionEnabled
+        ? { ok: true, protectionEnabled: true, origins: [PROTECTED_ORIGIN], tabCount: 1, reviewToken }
+        : { ok: true, protectionEnabled: false, origins: [], tabCount: 0, reviewToken: null };
+    }
+    return { ok: true, extensionVersion: '0.2.20', gatewayEnabled: !reviewToken, bridges: [], sharedTabs: [] };
   });
   runInNewContext(readFileSync('resources/browser-extension/popup.js', 'utf8'), {
     chrome: { runtime: { getManifest: () => ({}), sendMessage, reload: vi.fn() } },
@@ -43,5 +47,19 @@ describe('secret recovery popup', () => {
     button.dispatchEvent(new h.dom.window.Event('click'));
     await settle();
     expect(h.sendMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'reset_secret_protection' }));
+  });
+
+  it('shows that Harness Settings disabled protection instead of listing a locked origin', async () => {
+    const h = popupHarness(null, false);
+    await settle();
+    expect(h.document.getElementById('secret-protection')?.hidden).toBe(false);
+    expect(h.document.getElementById('secret-protection-disclosure')?.textContent)
+      .toContain('turned off in Harness Settings');
+    expect(h.document.getElementById('protected-origins')?.textContent).toBe('');
+    expect(h.document.getElementById('secret-recovery-confirm-label')?.hidden).toBe(true);
+    expect(h.document.getElementById('reset-secret-protection')?.hidden).toBe(true);
+    expect(h.document.getElementById('secret-protection-reset-note')?.hidden).toBe(true);
+    expect(h.document.getElementById('secret-protection')?.textContent)
+      .not.toContain('Agents cannot read protected tabs');
   });
 });

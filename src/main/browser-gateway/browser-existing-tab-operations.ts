@@ -13,6 +13,7 @@ import {
   BROWSER_EXTENSION_CHANNEL_RECOVERY_WAIT_MS,
   browserExtensionQueueKeyForNode,
 } from './browser-extension-command-store';
+import { stampSecretObservationProtection } from './browser-secret-observation-protection';
 import type {
   BrowserExtensionTabAttachOptions,
   BrowserExtensionTabStore,
@@ -302,6 +303,7 @@ export class BrowserExistingTabOperations {
     const undeliveredWaitMs = timeoutMs >= 5_000
       ? Math.max(callerTimeoutMs, BROWSER_EXTENSION_CHANNEL_RECOVERY_WAIT_MS)
       : callerTimeoutMs;
+    const stampedPayload = stampSecretObservationProtection(payload);
     return this.deps.extensionCommandStore.sendCommand({
       ...(attachment.nodeId ? { queueKey: browserExtensionQueueKeyForNode(attachment.nodeId) } : {}),
       command,
@@ -311,7 +313,7 @@ export class BrowserExistingTabOperations {
         tabId: attachment.tabId,
         windowId: attachment.windowId,
       },
-      ...(payload ? { payload } : {}),
+      ...(stampedPayload ? { payload: stampedPayload } : {}),
       timeoutMs: callerTimeoutMs,
       executionTimeoutMs: timeoutMs,
       undeliveredWaitMs,

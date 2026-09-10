@@ -4,6 +4,7 @@ import type {
   BrowserTarget,
 } from '@contracts/types/browser';
 import { redactBrowserText } from './browser-redaction';
+import { deriveBrowserTargetInspectionState } from './browser-target-inspection';
 
 const REDACTED = '[REDACTED]';
 const UNSAFE_KEYS = new Set([
@@ -18,7 +19,9 @@ export type AgentSafeProfile = Omit<
   'debugPort' | 'debugEndpoint' | 'processId'
 >;
 
-export type AgentSafeTarget = Omit<BrowserTarget, 'driverTargetId'>;
+export type AgentSafeTarget = Omit<BrowserTarget, 'driverTargetId'> & {
+  targetId: string;
+};
 
 export function redactAgentString(value: string): string {
   return redactBrowserText(value)
@@ -40,7 +43,11 @@ export function toAgentSafeProfile(profile: BrowserProfile): AgentSafeProfile {
 export function toAgentSafeTarget(target: BrowserTarget): AgentSafeTarget {
   const { driverTargetId, ...safe } = target;
   void driverTargetId;
-  return safe;
+  return {
+    ...safe,
+    targetId: target.targetId ?? target.id,
+    inspectionState: deriveBrowserTargetInspectionState(target),
+  };
 }
 
 export function toAgentSafeAudit(entry: BrowserAuditEntry): BrowserAuditEntry {

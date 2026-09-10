@@ -22,6 +22,8 @@ import {
   maybeAutoUnlockBrowserCredentialVault,
   watchVaultAutoUnlockSetting,
 } from './browser-unattended-services';
+import { watchSecretObservationProtectionSetting } from './browser-secret-observation-protection';
+import { getBrowserExtensionCommandStore } from './browser-extension-command-store';
 import {
   initializeBrowserCampaignRuntime,
   stopBrowserCampaignRuntime,
@@ -167,6 +169,7 @@ export async function initializeBrowserGatewayRuntime(
   // The watcher also unlocks immediately if the flag/path is set post-startup.
   void maybeAutoUnlockBrowserCredentialVault();
   watchVaultAutoUnlockSetting();
+  watchSecretObservationProtectionSetting(getBrowserExtensionCommandStore());
   // Campaign runtime: budget enforcement for mutations under campaign leases,
   // the ~60min lease renewer, and lease revocation on any campaign stop.
   try {

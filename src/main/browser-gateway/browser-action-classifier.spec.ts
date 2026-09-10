@@ -8,6 +8,13 @@ import {
 } from './browser-action-classifier';
 
 describe('browser-action-classifier', () => {
+  it('classifies close tools as destructive', () => {
+    expect(classifyBrowserAction({ toolName: 'browser.close_tab' }).actionClass)
+      .toBe('destructive');
+    expect(classifyBrowserAction({ toolName: 'browser.close_matching' }).actionClass)
+      .toBe('destructive');
+  });
+
   it('escalates submit and destructive cues from inspected element context', () => {
     expect(
       classifyBrowserAction({

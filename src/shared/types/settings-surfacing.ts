@@ -111,6 +111,7 @@ export const SETTING_SURFACING = {
   sessionFailoverOfferAfterMinutes: 'tab',
   instructionTrustGate: 'tab',
   browserAllowSharedTabCredentialFill: 'tab',
+  browserSecretObservationProtectionEnabled: 'tab',
   workspaceSecretsEnabled: 'tab',
   workspaceSecretsAllowAgentRequests: 'tab',
   codebaseAutoIndexEnabled: 'tab',

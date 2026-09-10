@@ -84,6 +84,28 @@ export interface BrowserGatewayFindOrOpenRequest extends BrowserGatewayContext {
   computer?: string;
 }
 
+export interface BrowserGatewayCloseTabRequest extends BrowserGatewayContext {
+  profileId: string;
+  targetId: string;
+  allowCloseLastInWindow?: boolean;
+  requestId?: string;
+}
+
+export interface BrowserGatewayCloseMatchingRequest extends BrowserGatewayContext {
+  profileId?: string;
+  nodeId?: string;
+  computer?: string;
+  urlContains?: string;
+  titleContains?: string;
+  status?: 'closed';
+  includeInspectionUnavailable?: boolean;
+  includeSecretTainted?: boolean;
+  allowCloseLastInWindow?: boolean;
+  maxCount?: number;
+  dryRun?: boolean;
+  requestId?: string;
+}
+
 export interface BrowserGatewayAttachExistingTabRequest
   extends BrowserGatewayContext,
     BrowserAttachExistingTabRequest {
@@ -204,6 +226,7 @@ export interface BrowserGatewayServiceOptions {
     | 'setChecked'
     | 'uploadFile'
     | 'downloadFile'
+    | 'closeTarget'
   >;
   extensionTabStore?: Pick<
     BrowserExtensionTabStore,

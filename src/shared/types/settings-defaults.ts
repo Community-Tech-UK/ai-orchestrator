@@ -223,6 +223,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // WS12: warn-mode measurement release first; enforce is the end-state.
   instructionTrustGate: 'warn',
   browserAllowSharedTabCredentialFill: false,
+  browserSecretObservationProtectionEnabled: true,
   workspaceSecretsEnabled: true,
   workspaceSecretsAllowAgentRequests: true,
 
