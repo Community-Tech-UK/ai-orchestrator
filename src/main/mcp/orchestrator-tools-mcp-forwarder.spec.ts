@@ -13,6 +13,7 @@ describe('createOrchestratorToolsForwarderTools', () => {
       'git_batch_pull',
       'list_remote_nodes',
       'run_on_node',
+      'exec_on_node',
       'read_node_output',
       'terminate_node_instance',
       'list_node_files',
@@ -474,14 +475,28 @@ describe('createOrchestratorToolsForwarderTools', () => {
     expect(result).toEqual({ instanceId: 'inst-1', nodeId: 'node-1' });
   });
 
+  it('forwards exec_on_node argv without rewriting it', async () => {
+    const call = vi.fn(async () => ({ exitCode: 7, stdout: '', stderr: 'failed' }));
+    const tool = createOrchestratorToolsForwarderTools(stubClient(call)).find(
+      (candidate) => candidate.name === 'exec_on_node',
+    )!;
+    const payload = {
+      node: 'windows-pc', executable: 'fixture.exe',
+      args: ['one two', '$literal'], scriptSha256: 'b'.repeat(64), timeoutMs: 1_000,
+    };
+
+    await expect(tool.handler(payload)).resolves.toMatchObject({ exitCode: 7 });
+    expect(call).toHaveBeenCalledWith('orchestrator_tools.exec_on_node', payload);
+    expect(tool.description).toMatch(/shared Chrome.*coordinator/i);
+  });
+
   it('describes machine-targeted requests as remote-node work', () => {
     const runTool = createOrchestratorToolsForwarderTools(stubClient(async () => null)).find(
       (t) => t.name === 'run_on_node',
     );
 
-    expect(runTool?.description).toMatch(/Noah's laptop/i);
-    expect(runTool?.description).toMatch(/before local filesystem/i);
     expect(runTool?.description).toMatch(/list_remote_nodes/i);
+    expect(runTool?.description).not.toMatch(/Noah's laptop/i);
   });
 
   it('forwards terminate_node_instance invocations with the canonical method name', async () => {

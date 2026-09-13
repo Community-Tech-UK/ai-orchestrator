@@ -76,12 +76,21 @@ import {
   BrowserCdpSendParamsSchema,
   BrowserCdpCloseParamsSchema,
   BrowserStopManagedParamsSchema,
+  BrowserExtensionRecoverParamsSchema,
+  BrowserExtensionRecoverResultSchema,
+  NodeExecParamsSchema,
+  NodeExecResultSchema,
+  type BrowserExtensionRecoverResult,
+  type NodeExecParams,
+  type NodeExecResult,
 } from '../main/remote-node/rpc-schemas';
 import type { WorkerTerminalHandler } from './worker-terminal-handler';
 import type { RpcMessage } from './worker-rpc-types';
 import { validateScope } from './worker-rpc-types';
 import { WorkerLocalAiHealth } from './worker-local-ai-health';
 import { parseBoundedServiceRpcResponse } from '../main/remote-node/worker-node-connection-helpers';
+import { NodeExecInvalidParamsError, WorkerNodeExecutor } from './worker-node-executor';
+import { configuredNodeExecRoots } from './worker-node-exec-policy';
 
 type AudioTranscribeParams = z.infer<typeof AudioTranscribeParamsSchema>;
 
@@ -105,6 +114,8 @@ interface WorkerRpcDispatcherDeps {
   }>;
   getCdpTunnel: () => WorkerCdpTunnel;
   stopManagedBrowser: () => Promise<void>;
+  executeNodeCommand?: (params: NodeExecParams) => Promise<NodeExecResult>;
+  recoverExtensionRelay?: () => Promise<BrowserExtensionRecoverResult>;
   sendResult: (id: string | number, result: unknown) => void;
   /** WS15 — durable-stream replay/ack (absent only in stripped-down tests). */
   replayDurableEvents?: (cursors: Array<{ instanceId: string; afterSeq: number }>) =>
@@ -116,9 +127,12 @@ interface WorkerRpcDispatcherDeps {
 
 export class WorkerRpcDispatcher {
   private readonly localAiHealth: Pick<WorkerLocalAiHealth, 'check' | 'diagnose' | 'repair'>;
+  private readonly executeNodeCommand: (params: NodeExecParams) => Promise<NodeExecResult>;
 
   constructor(private readonly deps: WorkerRpcDispatcherDeps) {
     this.localAiHealth = deps.localAiHealth ?? new WorkerLocalAiHealth();
+    const nodeExecutor = new WorkerNodeExecutor(() => configuredNodeExecRoots(deps.config));
+    this.executeNodeCommand = deps.executeNodeCommand ?? ((params) => nodeExecutor.execute(params));
   }
 
   handleRpcNotification(msg: RpcMessage): void {
@@ -221,6 +235,12 @@ export class WorkerRpcDispatcher {
         case COORDINATOR_TO_NODE.NODE_PING:
           result = { pong: Date.now() };
           break;
+        case COORDINATOR_TO_NODE.NODE_EXEC: {
+          if (!this.hasServiceScope(msg)) return;
+          const validated = NodeExecParamsSchema.parse(params);
+          result = NodeExecResultSchema.parse(await this.executeNodeCommand(validated));
+          break;
+        }
         case COORDINATOR_TO_NODE.TERMINAL_CREATE:
           result = this.deps.getTerminalHandler().create({
             sessionId: params['sessionId'] as string,
@@ -325,11 +345,7 @@ export class WorkerRpcDispatcher {
           );
           break;
         case COORDINATOR_TO_NODE.PROVIDER_DIAGNOSE: {
-          const err = validateScope(msg, 'service');
-          if (err) {
-            this.deps.sendError(msg.id!, RPC_ERROR_CODES.UNAUTHORIZED, err);
-            return;
-          }
+          if (!this.hasServiceScope(msg)) return;
           const provider = params['provider'];
           if (!isDiagnosableProvider(provider)) {
             this.deps.sendError(
@@ -406,11 +422,7 @@ export class WorkerRpcDispatcher {
         case COORDINATOR_TO_NODE.CONFIG_UPDATE: {
           // Privileged: turning on browser or Android automation enables an
           // ungoverned automation surface, so require service-level scope.
-          const err = validateScope(msg, 'service');
-          if (err) {
-            this.deps.sendError(msg.id!, RPC_ERROR_CODES.UNAUTHORIZED, err);
-            return;
-          }
+          if (!this.hasServiceScope(msg)) return;
           const validated = ConfigUpdateParamsSchema.parse(params);
           const summary = await this.deps.applyConfigUpdate({
             browserAutomation: validated.browserAutomation,
@@ -455,14 +467,19 @@ export class WorkerRpcDispatcher {
           break;
         }
         case COORDINATOR_TO_NODE.BROWSER_STOP_MANAGED: {
-          const err = validateScope(msg, 'service');
-          if (err) {
-            this.deps.sendError(msg.id!, RPC_ERROR_CODES.UNAUTHORIZED, err);
-            return;
-          }
+          if (!this.hasServiceScope(msg)) return;
           BrowserStopManagedParamsSchema.parse(params);
           await this.deps.stopManagedBrowser();
           result = { ok: true };
+          break;
+        }
+        case COORDINATOR_TO_NODE.BROWSER_EXTENSION_RECOVER: {
+          if (!this.hasServiceScope(msg)) return;
+          BrowserExtensionRecoverParamsSchema.parse(params);
+          if (!this.deps.recoverExtensionRelay) {
+            throw new Error('Browser extension relay recovery is unavailable on this worker');
+          }
+          result = BrowserExtensionRecoverResultSchema.parse(await this.deps.recoverExtensionRelay());
           break;
         }
         case COORDINATOR_TO_NODE.AUXILIARY_MODEL_LIST: {
@@ -646,6 +663,9 @@ export class WorkerRpcDispatcher {
     if (err instanceof ZodError) {
       return RPC_ERROR_CODES.INVALID_PARAMS;
     }
+    if (err instanceof NodeExecInvalidParamsError) {
+      return RPC_ERROR_CODES.INVALID_PARAMS;
+    }
     const message = err instanceof Error ? err.message : String(err);
     if (message.includes('Instance not found')) {
       return RPC_ERROR_CODES.INSTANCE_NOT_FOUND;
@@ -654,6 +674,13 @@ export class WorkerRpcDispatcher {
       return RPC_ERROR_CODES.SPAWN_FAILED;
     }
     return RPC_ERROR_CODES.INTERNAL_ERROR;
+  }
+
+  private hasServiceScope(msg: RpcMessage): boolean {
+    const error = validateScope(msg, 'service');
+    if (!error) return true;
+    this.deps.sendError(msg.id!, RPC_ERROR_CODES.UNAUTHORIZED, error);
+    return false;
   }
 
   private requireLocalModelSessionManager(): LocalModelSessionManager {

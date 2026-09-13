@@ -20,6 +20,13 @@ import {
 } from '../../shared/validation/local-ai-guard.schemas';
 import { AUXILIARY_WORKER_ENDPOINT_MAX_DESCRIPTORS } from '../../shared/types/auxiliary-llm.types';
 import { LOCAL_AI_TARGET_NUMERIC_LIMITS } from '../../shared/types/local-ai-guard.types';
+import {
+  BrowserExtensionRecoverParamsSchema,
+  NodeExecParamsSchema,
+  WorkerNodeExtensionRelaySummarySchema,
+} from './node-control-rpc-schemas';
+
+export * from './node-control-rpc-schemas';
 
 export { FsReadFileParamsSchema, FsWriteFileParamsSchema };
 
@@ -90,19 +97,7 @@ const WorkerNodeCapabilitiesSchema = z.object({
     running: z.boolean().optional().default(false),
   }).optional(),
   hasExtensionRelay: z.boolean().optional().default(false),
-  extensionRelay: z.object({
-    enabled: z.boolean(),
-    running: z.boolean(),
-    socketPath: z.string().optional(),
-    registration: z.enum(['ok', 'repaired', 'contested', 'error']).optional(),
-    lastRegistrationCheckAt: z.number().int().nonnegative().optional(),
-    manifestPath: z.string().optional(),
-    registrationError: z.string().optional(),
-    extensionVersion: z.string().min(1).max(128).optional(),
-    extensionReloadedAt: z.number().int().nonnegative().optional(),
-    lastExtensionContactAt: z.number().int().nonnegative().optional(),
-    forwardsRuntimeEvidence: z.boolean().optional(),
-  }).optional(),
+  extensionRelay: WorkerNodeExtensionRelaySummarySchema.optional(),
   hasAndroidMcp: z.boolean().optional().default(false),
   androidAutomation: z.object({
     enabled: z.boolean(),
@@ -691,6 +686,7 @@ export const COORDINATOR_TO_NODE_PARAM_SCHEMAS: Record<string, z.ZodType> = {
   'terminal.resize': TerminalResizeParamsSchema,
   'terminal.kill': TerminalKillParamsSchema,
   'provider.diagnose': ProviderDiagnoseParamsSchema,
+  'node.exec': NodeExecParamsSchema,
   'fs.readFile': FsReadFileParamsSchema,
   'fs.writeFile': FsWriteFileParamsSchema,
   'config.update': ConfigUpdateParamsSchema,
@@ -698,6 +694,7 @@ export const COORDINATOR_TO_NODE_PARAM_SCHEMAS: Record<string, z.ZodType> = {
   'browser.cdp.send': BrowserCdpSendParamsSchema,
   'browser.cdp.close': BrowserCdpCloseParamsSchema,
   'browser.stopManaged': BrowserStopManagedParamsSchema,
+  'browser.extension.recover': BrowserExtensionRecoverParamsSchema,
   'auxiliaryModel.list': AuxiliaryModelListParamsSchema,
   'auxiliaryModel.generate': AuxiliaryModelGenerateParamsSchema,
   'audio.transcribe': AudioTranscribeParamsSchema,

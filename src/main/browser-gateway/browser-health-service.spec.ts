@@ -840,4 +840,66 @@ describe('BrowserHealthService', () => {
     });
     expect(report.warnings.some((warning) => warning.includes('worker agent'))).toBe(false);
   });
+
+  it('reports renderer health per target and aggregates without tainting unrelated targets', async () => {
+    const service = new BrowserHealthService({
+      profileStore: { listProfiles: () => [] },
+      targetRegistry: {
+        listTargets: () => [{
+          id: 'managed-wedged',
+          profileId: 'managed-profile',
+          driverTargetId: 'managed-wedged',
+          mode: 'session',
+          title: 'Managed',
+          url: 'https://managed.example.test/',
+          origin: 'https://managed.example.test',
+          driver: 'cdp',
+          status: 'available',
+          lastSeenAt: 1,
+        }],
+      },
+      listWedgedTargets: () => ['managed-wedged'],
+      extensionTabStore: {
+        listTabs: () => [{
+          profileId: 'existing-profile',
+          targetId: 'existing-healthy',
+          tabId: 42,
+          windowId: 7,
+          title: 'Shared',
+          url: 'https://portal.example.test/',
+          origin: 'https://portal.example.test',
+          text: '12:03 Greenwich Mean Time',
+          allowedOrigins: [],
+          attachedAt: 1,
+          updatedAt: 1,
+        }],
+      },
+      rawAutomationHealthService: {
+        diagnose: async () => ({
+          status: 'missing', checkedAt: 1, runtimeAvailable: false,
+          nodeAvailable: true, inAppConfigured: false, inAppConnected: false,
+          inAppToolCount: 0, configDetected: false, configSources: [],
+          browserToolNames: [], warnings: [], suggestions: [],
+          surface: 'legacy_raw_browser_automation',
+        }),
+      },
+      workerNodeRegistry: { getAllNodes: () => [] },
+      mcpBridgeAvailable: () => true,
+      chromeRuntimeDetector: async () => ({ available: true, command: 'chrome' }),
+      now: () => Date.parse('2026-01-15T12:03:00.000Z'),
+    });
+
+    const report = await service.diagnose();
+
+    expect(report.renderer).toBe('wedged');
+    expect(report.targetRenderers).toEqual([
+      expect.objectContaining({
+        targetId: 'managed-wedged', mode: 'managed', renderer: 'wedged',
+        suggestedAction: 'browser.reload',
+      }),
+      expect.objectContaining({
+        targetId: 'existing-healthy', mode: 'existing-tab', renderer: 'healthy',
+      }),
+    ]);
+  });
 });

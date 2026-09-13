@@ -18,6 +18,7 @@ const POLL_FORWARD_TIMEOUT_BUFFER_MS = 10_000;
 // coordinator-side command has timed out well before then).
 const COMMAND_RESULT_RETRY_BASE_MS = 3_000;
 const COMMAND_RESULT_MAX_RETRIES = 4;
+const RELAY_STOP_TIMEOUT_MS = 1_000;
 
 export interface WorkerExtensionRelayOptions {
   config: WorkerExtensionRelayConfig;
@@ -45,6 +46,7 @@ type WorkerExtensionRelayRegistrationSummary = Pick<
 
 export class WorkerExtensionRelay {
   private server: net.Server | null = null;
+  private readonly clientSockets = new Set<net.Socket>();
   private stopped = false;
   private readonly retryTimers = new Set<ReturnType<typeof setTimeout>>();
   private config: WorkerExtensionRelayConfig;
@@ -125,10 +127,29 @@ export class WorkerExtensionRelay {
     const server = this.server;
     this.server = null;
     if (!server) {
+      this.destroyClientSockets();
       return;
     }
-    await new Promise<void>((resolve) => {
-      server.close(() => resolve());
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const finish = (error?: Error) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      };
+      const timeout = setTimeout(
+        () => finish(new Error('extension_relay_stop_timeout')),
+        RELAY_STOP_TIMEOUT_MS,
+      );
+      server.close((error) => finish(error));
+      this.destroyClientSockets();
     });
     if (process.platform !== 'win32') {
       try {
@@ -143,6 +164,17 @@ export class WorkerExtensionRelay {
   async reconfigure(config: WorkerExtensionRelayConfig): Promise<void> {
     await this.stop();
     this.config = config;
+    await this.start();
+  }
+
+  /**
+   * Unconditionally recycle the relay under its current configuration. This is
+   * deliberately separate from config update semantics: recovery must tear
+   * down accepted client sockets and create a fresh listener even when every
+   * configured value is unchanged.
+   */
+  async restart(): Promise<void> {
+    await this.stop();
     await this.start();
   }
 
@@ -414,6 +446,8 @@ export class WorkerExtensionRelay {
 
   private handleSocket(socket: net.Socket): void {
     let buffer = '';
+    this.clientSockets.add(socket);
+    socket.once('close', () => this.clientSockets.delete(socket));
     // The extension client can vanish at any moment (browser shutdown, pipe
     // teardown). Without an error listener, a write EPIPE/ECONNRESET on this
     // socket becomes an unhandled 'error' event and crashes the whole worker.
@@ -437,6 +471,12 @@ export class WorkerExtensionRelay {
       buffer = buffer.slice(newline + 1);
       void this.handleSocketLine(socket, line);
     });
+  }
+
+  private destroyClientSockets(): void {
+    for (const socket of this.clientSockets) {
+      socket.destroy();
+    }
   }
 
   private async handleSocketLine(socket: net.Socket, line: string): Promise<void> {

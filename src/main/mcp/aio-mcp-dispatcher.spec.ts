@@ -12,7 +12,7 @@ const dispatcherMocks = vi.hoisted(() => ({
   runLocalAiCli: vi.fn(async () => undefined),
 }));
 
-vi.mock('./orchestrator-tools-mcp-forwarder', () => ({
+vi.mock('./orchestrator-tools-mcp-forwarder-runtime', () => ({
   runOrchestratorToolsForwarder: dispatcherMocks.runOrchestratorToolsForwarder,
 }));
 vi.mock('../codemem/codemem-mcp-forwarder', () => ({

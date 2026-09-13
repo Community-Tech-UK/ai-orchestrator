@@ -17,6 +17,7 @@ import type {
   BrowserElementCandidate,
   BrowserEvaluateRequest,
   BrowserEvaluateResult,
+  BrowserMutationNoEffectEvidence, BrowserReloadResult, BrowserRecoverExtensionResult,
   BrowserAssertPersistedRequest,
   BrowserFillFormRequest,
   BrowserGatewayResult,
@@ -47,35 +48,17 @@ import {
   type BrowserReliabilityOperationDeps,
 } from './browser-reliability-operations';
 import { getBrowserEscalationService } from './browser-unattended-services';
-import {
-  BrowserApprovalStore,
-  getBrowserApprovalStore,
-} from './browser-approval-store';
-import {
-  BrowserGrantStore,
-  getBrowserGrantStore,
-} from './browser-grant-store';
-import {
-  BrowserProfileStore,
-  getBrowserProfileStore,
-} from './browser-profile-store';
-import {
-  BrowserProfileRegistry,
-  getBrowserProfileRegistry,
-} from './browser-profile-registry';
-import {
-  BrowserTargetRegistry,
-  getBrowserTargetRegistry,
-} from './browser-target-registry';
+import { BrowserApprovalStore, getBrowserApprovalStore } from './browser-approval-store';
+import { BrowserGrantStore, getBrowserGrantStore } from './browser-grant-store';
+import { BrowserProfileStore, getBrowserProfileStore } from './browser-profile-store';
+import { BrowserProfileRegistry, getBrowserProfileRegistry } from './browser-profile-registry';
+import { BrowserTargetRegistry, getBrowserTargetRegistry } from './browser-target-registry';
 import {
   PuppeteerBrowserDriver,
   getPuppeteerBrowserDriver,
   type BrowserSnapshot,
 } from './puppeteer-browser-driver';
-import {
-  BrowserHealthService,
-  getBrowserHealthService,
-} from './browser-health-service';
+import { BrowserHealthService, getBrowserHealthService } from './browser-health-service';
 import { isOriginAllowed } from './browser-origin-policy';
 import {
   toAgentSafeAudit,
@@ -86,18 +69,12 @@ import {
 import {
   boundBrowserText,
   redactBrowserNetworkRequests,
-  redactBrowserText,
   redactElementContext,
 } from './browser-redaction';
-import {
-  normalizeAccessibilityNodes,
-  normalizeEvaluateResult,
-} from './browser-gateway-normalizers';
+import { normalizeAccessibilityNodes, normalizeEvaluateResult } from './browser-gateway-normalizers';
 import { readBrowserTargetData } from './browser-gateway-read-target-data';
 import { BrowserManualHandoffOperations } from './browser-manual-handoff-operations';
-import {
-  classifyBrowserFillForm,
-} from './browser-action-classifier';
+import { classifyBrowserFillForm } from './browser-action-classifier';
 import {
   validateBrowserUploadPath,
   type BrowserUploadPolicyResult,
@@ -129,10 +106,7 @@ import {
   isRemoteExtensionContactFresh,
   remoteExtensionContactSummary,
 } from './browser-extension-node-contact';
-import {
-  BrowserGatewayActionGuard,
-  type BrowserGatewayPreparedMutation,
-} from './browser-gateway-action-guard';
+import { BrowserGatewayActionGuard, type BrowserGatewayPreparedMutation } from './browser-gateway-action-guard';
 import { providerFromContext } from './browser-provider';
 import { autoApproveBrowserApproval } from './browser-auto-approve';
 import { HEAVY_DOM_COMMAND_TIMEOUT_MS } from './browser-mutation-safety';
@@ -140,16 +114,12 @@ import {
   defaultManualStepPrompt,
   extractTabPayload,
   manualStepActionClass,
-  primaryActionClass,
   proposedUploadRoots,
   safeTargetFromExistingTab,
   tryParseWebUrl,
 } from './browser-gateway-service-helpers';
 import { existingTabGrantNodeId } from './browser-grant-scope';
-import {
-  BrowserGatewayResultRecorder,
-  type BrowserGatewayResultInput,
-} from './browser-gateway-result';
+import { BrowserGatewayResultRecorder, type BrowserGatewayResultInput } from './browser-gateway-result';
 import {
   BrowserExistingTabOperations,
   normalizeDownloadFileResult,
@@ -183,6 +153,7 @@ import type {
   BrowserGatewayPreflightTargetRequest,
   BrowserGatewayMutatingActionRequest,
   BrowserGatewayNavigateRequest,
+  BrowserGatewayReloadRequest, BrowserGatewayRecoverExtensionRequest,
   BrowserGatewayScreenshotRequest,
   BrowserGatewayServiceOptions,
   BrowserGatewaySnapshotRequest,
@@ -214,7 +185,10 @@ import { stageBrowserUploadOnNode } from './browser-remote-upload-staging';
 import { BrowserTargetDiscoveryOperations } from './browser-target-discovery-operations';
 import { BrowserCloseTabOperations } from './browser-close-tab-operations';
 import type { BrowserTargetPreflightResult } from './browser-target-preflight';
-
+import { withBrowserSnapshotLiveness } from './browser-target-liveness';
+import { BrowserReloadOperation } from './browser-reload-operation';
+import { BrowserMutationEffectVerifier } from './browser-mutation-effect-verifier';
+import { BrowserExtensionRecoveryOperation } from './browser-extension-recovery-operation';
 export type {
   BrowserGatewayAttachExistingTabRequest,
   BrowserGatewayAuditLogRequest,
@@ -224,13 +198,14 @@ export type {
   BrowserGatewayListTargetsRequest,
   BrowserGatewayMutatingActionRequest,
   BrowserGatewayNavigateRequest,
+  BrowserGatewayReloadRequest,
+  BrowserGatewayRecoverExtensionRequest,
   BrowserGatewayScreenshotRequest,
   BrowserGatewayServiceOptions,
   BrowserGatewaySnapshotRequest,
   BrowserGatewayTargetRequest,
   BrowserGatewayUpdateProfileRequest,
 } from './browser-gateway-service-types';
-
 export class BrowserGatewayService {
   private static instance: BrowserGatewayService | null = null;
   private readonly profileStore: Pick<
@@ -255,6 +230,7 @@ export class BrowserGatewayService {
     | 'waitFor'
     | 'queryElements'
     | 'inspectElement'
+    | 'fingerprintElementText'
     | 'click'
     | 'type'
     | 'fillForm'
@@ -264,6 +240,7 @@ export class BrowserGatewayService {
     | 'uploadFile'
     | 'downloadFile'
     | 'closeTarget'
+    | 'listWedgedTargets'
   >;
   private readonly extensionTabStore: Pick<
     BrowserExtensionTabStore,
@@ -294,7 +271,9 @@ export class BrowserGatewayService {
   private readonly approvalOperations: BrowserGatewayApprovalOperations;
   private readonly grantRequestOperations: BrowserGrantRequestOperations;
   private readonly manualHandoffOperations: BrowserManualHandoffOperations;
-
+  private readonly reloadOperation: BrowserReloadOperation;
+  private readonly extensionRecoveryOperation: BrowserExtensionRecoveryOperation;
+  private readonly mutationEffectVerifier: BrowserMutationEffectVerifier;
   constructor(options: BrowserGatewayServiceOptions = {}) {
     this.profileStore = options.profileStore ?? getBrowserProfileStore();
     this.profileRegistry = options.profileRegistry ?? getBrowserProfileRegistry();
@@ -403,6 +382,22 @@ export class BrowserGatewayService {
       // Campaign budget enforcement: count every mutation executed under a
       // campaign lease; a tripped budget pauses the campaign + revokes leases.
       onGrantedMutation: (info) => getBrowserCampaignRuntime()?.recordGrantedMutation(info),
+    });
+    this.reloadOperation = new BrowserReloadOperation({
+      extensionTabStore: this.extensionTabStore, existingTabOperations: this.existingTabOperations,
+      actionGuard: this.actionGuard,
+      result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
+    });
+    this.extensionRecoveryOperation = new BrowserExtensionRecoveryOperation({ workerNodeRegistry: options.workerNodeRegistry,
+      extensionContactState: this.extensionContactState, sendServiceRpc: options.sendServiceRpc,
+      delay: options.extensionRecoveryDelay, now: options.extensionRecoveryNow,
+      pollTimeoutMs: options.extensionRecoveryPollTimeoutMs, pollIntervalMs: options.extensionRecoveryPollIntervalMs,
+      result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params), });
+    this.mutationEffectVerifier = new BrowserMutationEffectVerifier({
+      driver: this.driver, existingTabOperations: this.existingTabOperations,
+      delay: options.mutationEffectDelay
+        ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
+      result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
     });
   }
 
@@ -877,15 +872,21 @@ export class BrowserGatewayService {
     }
   }
 
-  async snapshot(
-    request: BrowserGatewaySnapshotRequest,
-  ): Promise<
+  async reload(request: BrowserGatewayReloadRequest):
+  Promise<BrowserGatewayResult<BrowserReloadResult | null>> {
+    return this.reloadOperation.run(request);
+  }
+
+  async recoverExtension(request: BrowserGatewayRecoverExtensionRequest): Promise<BrowserGatewayResult<BrowserRecoverExtensionResult | null>> {
+    return this.extensionRecoveryOperation.run(request); }
+
+  async snapshot(request: BrowserGatewaySnapshotRequest): Promise<
     BrowserGatewayResult<(BrowserSnapshot & { text: string; textUnavailableReason?: string }) | null>
   > {
     const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
     if (existingTab) {
       return this.applySnapshotExtraction(
-        await this.existingTabOperations.snapshot(request, existingTab),
+        withBrowserSnapshotLiveness(await this.existingTabOperations.snapshot(request, existingTab), false),
         request.extractionHint,
       );
     }
@@ -909,7 +910,7 @@ export class BrowserGatewayService {
         summary: error
           ? `Snapshot denied because the live browser target could not be refreshed: ${error}`
           : 'Snapshot denied because the profile, target, or URL was not found',
-        data: null,
+        data: error !== undefined ? this.snapshotFailureData(request.targetId) : null,
       });
     }
 
@@ -934,7 +935,7 @@ export class BrowserGatewayService {
     try {
       const snapshot = await this.driver.snapshot(profile.id, target.id);
       return this.applySnapshotExtraction(
-        this.result({
+        withBrowserSnapshotLiveness(this.result({
           context: request,
           profileId: profile.id,
           targetId: target.id,
@@ -950,7 +951,7 @@ export class BrowserGatewayService {
             ...snapshot,
             text: boundBrowserText(snapshot.text),
           },
-        }),
+        }), this.driver.listWedgedTargets().includes(target.id)),
         request.extractionHint,
       );
     } catch (error) {
@@ -968,9 +969,16 @@ export class BrowserGatewayService {
         summary: `Snapshot failed: ${message}`,
         origin: originDecision.origin,
         url: currentUrl,
-        data: null,
+        data: this.snapshotFailureData(target.id, originDecision.origin),
       });
     }
+  }
+
+  private snapshotFailureData(targetId: string, origin = 'https://redacted.invalid') {
+    return this.driver.listWedgedTargets().includes(targetId) ? {
+      title: 'Snapshot unavailable', url: `${origin}/`, text: '',
+      renderer: 'wedged' as const, suggestedAction: 'browser.reload' as const,
+    } : null;
   }
 
   /**
@@ -1406,7 +1414,7 @@ export class BrowserGatewayService {
 
   async evaluate(
     request: BrowserGatewayContext & BrowserEvaluateRequest,
-  ): Promise<BrowserGatewayResult<BrowserEvaluateResult | null>> {
+  ): Promise<BrowserGatewayResult<BrowserEvaluateResult | BrowserMutationNoEffectEvidence | null>> {
     // Arbitrary JS execution is the most powerful browser capability, so it is
     // always gated behind an explicit grant (hardStop). YOLO/autonomous
     // auto-approve predicates may still satisfy the gate, consistent with the
@@ -1439,11 +1447,19 @@ export class BrowserGatewayService {
     }
     try {
       const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
+      const effectExpectation = this.mutationEffectVerifier.expectationFor(request);
+      const effectBefore = effectExpectation
+        ? await this.mutationEffectVerifier.capture(
+          request, existingTab ?? undefined, effectExpectation,
+          prepared.grant.allowedOrigins, this.mutationEffectVerifier.deadline(),
+        )
+        : null;
+      let journalSeq: number | undefined;
       const raw = existingTab
         ? await this.existingTabOperations.sendCommand(existingTab, 'evaluate', {
           expression: request.expression,
           awaitPromise: request.awaitPromise !== false,
-        }, HEAVY_DOM_COMMAND_TIMEOUT_MS)
+        }, HEAVY_DOM_COMMAND_TIMEOUT_MS, (seq) => { journalSeq = seq; })
         : await this.driver.evaluate(
           request.profileId,
           request.targetId,
@@ -1451,6 +1467,19 @@ export class BrowserGatewayService {
           request.awaitPromise !== false,
         );
       const data = normalizeEvaluateResult(raw);
+      const noEffect = await this.mutationEffectVerifier.failureIfMissing(
+        request, existingTab ?? undefined, effectExpectation, effectBefore,
+        'evaluate', 'browser.evaluate', prepared,
+      );
+      if (noEffect) {
+        if (existingTab) {
+          this.existingTabOperations.recordFinalMutationFailure(
+            existingTab, journalSeq, noEffect.reason ?? 'browser_click_no_effect',
+          );
+        }
+        this.actionGuard.recordMutationSucceeded(prepared);
+        return noEffect;
+      }
       this.actionGuard.recordMutationSucceeded(prepared);
       return this.result({
         context: request,
@@ -1529,7 +1558,7 @@ export class BrowserGatewayService {
 
   async click(
     request: BrowserGatewayContext & BrowserClickRequest,
-  ): Promise<BrowserGatewayResult<null>> {
+  ): Promise<BrowserGatewayResult<BrowserMutationNoEffectEvidence | null>> {
     const uidGuard = this.guardUidTargeting(request, 'click', 'browser.click');
     if (uidGuard) {
       return uidGuard;
@@ -1551,14 +1580,35 @@ export class BrowserGatewayService {
 
     try {
       const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
+      const effectExpectation = this.mutationEffectVerifier.expectationFor(request);
+      const effectBefore = effectExpectation
+        ? await this.mutationEffectVerifier.capture(
+          request, existingTab ?? undefined, effectExpectation,
+          prepared.grant.allowedOrigins, this.mutationEffectVerifier.deadline(),
+        )
+        : null;
+      let journalSeq: number | undefined;
       if (existingTab) {
         await this.existingTabOperations.sendCommand(existingTab, 'click', {
           ...browserActionTargetPayload(request), ...(request.verify ? { verify: request.verify } : {}),
-        });
+        }, undefined, (seq) => { journalSeq = seq; });
       } else {
         await this.driver.click(request.profileId, request.targetId, request.selector!);
       }
       await this.verifyMutationReadback(request, request.verify, request.selector, existingTab ?? undefined);
+      const noEffect = await this.mutationEffectVerifier.failureIfMissing(
+        request, existingTab ?? undefined, effectExpectation, effectBefore,
+        'click', 'browser.click', prepared,
+      );
+      if (noEffect) {
+        if (existingTab) {
+          this.existingTabOperations.recordFinalMutationFailure(
+            existingTab, journalSeq, noEffect.reason ?? 'browser_click_no_effect',
+          );
+        }
+        this.actionGuard.recordMutationSucceeded(prepared);
+        return noEffect;
+      }
       return this.actionGuard.mutationSucceeded(request, 'click', 'browser.click', prepared);
     } catch (error) {
       return this.actionGuard.mutationFailed(request, 'click', 'browser.click', prepared, error);

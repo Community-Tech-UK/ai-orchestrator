@@ -18,7 +18,7 @@
  * without breaking any of the integrations.
  */
 
-import { runOrchestratorToolsForwarder } from './orchestrator-tools-mcp-forwarder';
+import { runOrchestratorToolsForwarder } from './orchestrator-tools-mcp-forwarder-runtime';
 import { runCodememForwarder } from '../codemem/codemem-mcp-forwarder';
 import { runBrowserMcpForwarder } from '../browser-gateway/browser-mcp-stdio-server';
 import { runDesktopMcpForwarder } from '../desktop-gateway/desktop-mcp-stdio-server';

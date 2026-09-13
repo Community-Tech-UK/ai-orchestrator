@@ -12,6 +12,8 @@ const TOOL_NAMES = [
   'browser.close_matching',
   'browser.select_target',
   'browser.navigate',
+  'browser.reload',
+  'browser.recover_extension',
   'browser.click',
   'browser.type',
   'browser.fill_form',
@@ -274,6 +276,17 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
       description: 'Destination URL. The Browser Gateway enforces profile origin policy.',
     },
   }, ['profileId', 'targetId', 'url']),
+  'browser.reload': targetSchema,
+  'browser.recover_extension': objectSchema({
+    nodeId: {
+      ...nodeIdProp,
+      description: 'Remote worker node id whose silent extension relay should be recovered.',
+    },
+    computer: {
+      ...computerProp,
+      description: 'Remote computer name or alias whose silent extension relay should be recovered.',
+    },
+  }),
   'browser.click': objectSchema({
     profileId: profileIdProp,
     targetId: targetIdProp,
@@ -281,6 +294,20 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
     uid: uidProp,
     actionHint: stringProp,
     verify: verifyExpectationSchema,
+    expectUrlChange: {
+      ...booleanProp,
+      description: 'Opt in to post-dispatch verification that the target URL changed.',
+    },
+    expectChange: objectSchema({
+      selector: {
+        ...selectorProp,
+        description: 'Element whose visible text must change after the click.',
+      },
+      urlContains: {
+        ...stringProp,
+        description: 'URL substring that must become newly present after the click.',
+      },
+    }),
     requestId: requestIdProp,
   }, ['profileId', 'targetId']),
   'browser.type': objectSchema({
@@ -633,6 +660,20 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
     },
     awaitPromise: booleanProp,
     actionHint: stringProp,
+    expectUrlChange: {
+      ...booleanProp,
+      description: 'Opt in to post-dispatch verification that the target URL changed.',
+    },
+    expectChange: objectSchema({
+      selector: {
+        ...selectorProp,
+        description: 'Element whose visible text must change after evaluation.',
+      },
+      urlContains: {
+        ...stringProp,
+        description: 'URL substring that must become newly present after evaluation.',
+      },
+    }),
     requestId: requestIdProp,
   }, ['profileId', 'targetId', 'expression']),
   'browser.screenshot': objectSchema({
@@ -800,6 +841,13 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
 };
 
 function toolDescription(name: BrowserMcpToolName): string {
+  if (name === 'browser.reload') {
+    return `${UNTRUSTED_WARNING} Reload the selected shared existing Chrome tab in place. Requires a navigate-class grant and accepts no URL.`;
+  }
+  if (name === 'browser.recover_extension') {
+    return 'Recover a selected remote Browser Gateway extension relay only when health confirms '
+      + 'a silent native_host_stdin_eof incident. Calls the worker service directly and never opens Chrome, tabs, terminals, or coding CLIs.';
+  }
   if (name === 'browser.close_tab') {
     return `${UNTRUSTED_WARNING} Close one Browser Gateway tab. Destructive: requires an approved destructive grant. Use profileId and targetId from list_targets (targetId is also exposed as id).`;
   }

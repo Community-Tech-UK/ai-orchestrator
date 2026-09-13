@@ -1,4 +1,6 @@
 import { existsSync } from 'node:fs';
+import { ORCHESTRATOR_TOOL_DEFERRAL_ENV } from './orchestrator-mcp-deferral';
+import { ORCHESTRATOR_TOOL_STABLE_ENV } from './orchestrator-mcp-stable-tools';
 
 /**
  * MCP config writer for the orchestrator-tools stdio forwarder.
@@ -20,7 +22,30 @@ export interface OrchestratorToolsMcpConfigOptions {
   aioMcpCliPath: string;
   socketPath: string;
   instanceId: string;
+  provider?: string;
+  /**
+   * Request a compact surface: Codex uses fixed search/describe/execute wrappers;
+   * dynamic clients reveal tools on demand. Cursor stays eager until proven.
+   */
+  toolDeferral?: boolean;
   exists?: (candidatePath: string) => boolean;
+}
+
+export type OrchestratorToolMode = 'eager' | 'deferred' | 'stable';
+
+/** Same provider policy as browser-gateway: Codex=stable, Cursor=eager. */
+export function supportsDeferredOrchestratorTools(provider?: string): boolean {
+  const normalized = provider?.trim().toLowerCase();
+  return normalized !== 'codex' && normalized !== 'cursor';
+}
+
+export function resolveOrchestratorToolMode(
+  provider?: string,
+  toolDeferral = false,
+): OrchestratorToolMode {
+  if (!toolDeferral) return 'eager';
+  if (provider?.trim().toLowerCase() === 'codex') return 'stable';
+  return supportsDeferredOrchestratorTools(provider) ? 'deferred' : 'eager';
 }
 
 interface OrchestratorToolsBridgeSpec {
@@ -37,12 +62,16 @@ export function resolveOrchestratorToolsBridgeSpec(
     return null;
   }
 
+  const toolMode = resolveOrchestratorToolMode(options.provider, options.toolDeferral);
   return {
     command: options.aioMcpCliPath,
     args: ['orchestrator-tools'],
     env: {
       AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET: options.socketPath,
       AI_ORCHESTRATOR_INSTANCE_ID: options.instanceId,
+      ...(toolMode === 'stable'
+        ? { [ORCHESTRATOR_TOOL_STABLE_ENV]: '1' }
+        : toolMode === 'deferred' ? { [ORCHESTRATOR_TOOL_DEFERRAL_ENV]: '1' } : {}),
     },
   };
 }

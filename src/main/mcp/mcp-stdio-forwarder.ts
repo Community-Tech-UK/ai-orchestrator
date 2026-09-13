@@ -73,13 +73,19 @@ export async function dispatchStdioMcpRequest(
 
 export async function runStdioMcpForwarder(args: {
   loggerName: string;
-  tools: McpServerToolDefinition[];
+  tools: McpServerToolDefinition[] | ((server: McpServer) => McpServerToolDefinition[]);
 }): Promise<void> {
   const logger = getLogger(args.loggerName);
   getLogManager().updateConfig({ enableConsole: false });
 
   const server = McpServer.getInstance();
-  server.registerTools(args.tools);
+  const tools = typeof args.tools === 'function' ? args.tools(server) : args.tools;
+  server.registerTools(tools);
+  server.on('tools-list-changed', () => {
+    stdout.write(
+      `${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' })}\n`,
+    );
+  });
   server.start();
 
   const shutdown = (): void => {

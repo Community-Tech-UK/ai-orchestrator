@@ -13,6 +13,7 @@ import { CacheAnalyticsService, getCacheAnalyticsService } from './cache-analyti
 /** Settings keys that change the injected MCP/tool surface of new sessions. */
 const MCP_AFFECTING_SETTINGS: ReadonlySet<keyof AppSettings> = new Set<keyof AppSettings>([
   'browserMcpToolDeferral',
+  'orchestratorMcpToolDeferral',
   'codememEnabled',
   'computerUseEnabled',
   'chromeDevtoolsAttachEnabled',

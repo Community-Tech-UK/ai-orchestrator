@@ -379,6 +379,33 @@ describe('OrchestratorToolsRpcServer.handleRequest', () => {
     expect(result).toMatchObject({ instanceId: 'inst-1' });
   });
 
+  it('dispatches exec_on_node with validated exact argv', async () => {
+    const handler = vi.fn(async (args: unknown) => ({ exitCode: 0, echoed: args }));
+    const { server } = makeServer({
+      toolFactory: () => [{
+        name: 'exec_on_node', description: 'test tool',
+        inputSchema: { type: 'object' }, handler,
+      }],
+    });
+
+    const result = await server.handleRequest({
+      jsonrpc: '2.0', id: 11, method: 'orchestrator_tools.exec_on_node',
+      params: {
+        instanceId: KNOWN_INSTANCE,
+        payload: {
+          node: 'windows-pc', executable: 'tool.exe', args: ['one two'],
+          scriptSha256: 'b'.repeat(64),
+        },
+      },
+    });
+
+    expect(handler).toHaveBeenCalledWith({
+      node: 'windows-pc', executable: 'tool.exe', args: ['one two'],
+      scriptSha256: 'b'.repeat(64), timeoutMs: 30_000,
+    });
+    expect(result).toMatchObject({ exitCode: 0 });
+  });
+
   it('dispatches release tool methods to the matching tool with validated payload', async () => {
     const releaseHandler = vi.fn(async (args: unknown) => ({ release: { committed: true }, echoed: args }));
     const authorizeReleaseMutation = vi.fn(async () => true);
@@ -1274,7 +1301,7 @@ describe('OrchestratorToolsRpcServer spawn-eligibility scoping (#18a/#19)', () =
   });
 
   function threeToolServer(resolveSpawnEligibility?: (id: string) => boolean) {
-    const tools: McpServerToolDefinition[] = ['git_batch_pull', 'list_remote_nodes', 'run_on_node', 'read_node_output'].map(
+    const tools: McpServerToolDefinition[] = ['git_batch_pull', 'list_remote_nodes', 'run_on_node', 'exec_on_node', 'read_node_output'].map(
       (name) => ({
         name,
         description: `test ${name}`,
@@ -1301,6 +1328,17 @@ describe('OrchestratorToolsRpcServer spawn-eligibility scoping (#18a/#19)', () =
         params: { instanceId: KNOWN_INSTANCE, payload: { prompt: 'do a thing' } },
       }),
     ).rejects.toThrow(/run_on_node tool unavailable/);
+  });
+
+  it('strips exec_on_node from the leaf toolset', async () => {
+    const server = threeToolServer(() => false);
+    await expect(server.handleRequest({
+      jsonrpc: '2.0', id: 6, method: 'orchestrator_tools.exec_on_node',
+      params: {
+        instanceId: KNOWN_INSTANCE,
+        payload: { node: 'windows-pc', executable: 'tool.exe', args: [] },
+      },
+    })).rejects.toThrow(/exec_on_node tool unavailable/);
   });
 
   it('still exposes the non-spawn tools to an ineligible instance', async () => {

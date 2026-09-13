@@ -10,6 +10,8 @@ const ALLOWED_TOOLS = [
   'browser.close_matching',
   'browser.select_target',
   'browser.navigate',
+  'browser.reload',
+  'browser.recover_extension',
   'browser.click',
   'browser.type',
   'browser.fill_form',
@@ -91,6 +93,8 @@ describe('browser-mcp-tools', () => {
     const closeTab = tools.find((tool) => tool.name === 'browser.close_tab');
     const closeMatching = tools.find((tool) => tool.name === 'browser.close_matching');
     const navigate = tools.find((tool) => tool.name === 'browser.navigate');
+    const reload = tools.find((tool) => tool.name === 'browser.reload');
+    const recoverExtension = tools.find((tool) => tool.name === 'browser.recover_extension');
     const click = tools.find((tool) => tool.name === 'browser.click');
     const queryElements = tools.find((tool) => tool.name === 'browser.query_elements');
     const requestUserLogin = tools.find((tool) => tool.name === 'browser.request_user_login');
@@ -150,6 +154,27 @@ describe('browser-mcp-tools', () => {
       },
       additionalProperties: false,
     });
+    expect(reload?.inputSchema).toEqual({
+      type: 'object',
+      properties: {
+        profileId: expect.objectContaining({ type: 'string' }),
+        targetId: expect.objectContaining({ type: 'string' }),
+      },
+      required: ['profileId', 'targetId'],
+      additionalProperties: false,
+    });
+    expect((reload?.inputSchema['properties'] as Record<string, unknown>)).not.toHaveProperty('url');
+    expect(recoverExtension?.inputSchema).toEqual({
+      type: 'object',
+      properties: {
+        nodeId: expect.objectContaining({ type: 'string' }),
+        computer: expect.objectContaining({ type: 'string' }),
+      },
+      required: [],
+      additionalProperties: false,
+    });
+    expect(recoverExtension?.description).toContain('native_host_stdin_eof');
+    expect(recoverExtension?.description).toContain('never opens Chrome');
     // selector is optional now that a uid handle (from accessibility_snapshot)
     // can target elements inside closed shadow roots that no selector can reach.
     expect(click?.inputSchema).toMatchObject({
@@ -160,6 +185,8 @@ describe('browser-mcp-tools', () => {
         targetId: { type: 'string' },
         selector: { type: 'string' },
         uid: { type: 'string' },
+        expectUrlChange: { type: 'boolean' },
+        expectChange: { type: 'object' },
       },
       additionalProperties: false,
     });

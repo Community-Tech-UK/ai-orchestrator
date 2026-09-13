@@ -1,34 +1,17 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Browser, ConsoleMessage, HTTPRequest, Page } from 'puppeteer-core';
-import type {
-  BrowserAccessibilityNode,
-  BrowserElementContext,
-  BrowserElementCandidate,
-  BrowserEvaluateResult,
-  BrowserDownloadFileResult,
-  BrowserProfile,
-  BrowserProfileMode,
-  BrowserTarget,
-} from '@contracts/types/browser';
+import type { BrowserAccessibilityNode, BrowserElementContext, BrowserElementCandidate,
+  BrowserEvaluateResult, BrowserDownloadFileResult, BrowserProfile, BrowserProfileMode,
+  BrowserTarget } from '@contracts/types/browser';
 import { BrowserProcessLauncher } from './browser-process-launcher';
 import { RoutingBrowserLauncher } from './routing-browser-launcher';
-import {
-  normalizeAxTreeNodes,
-  normalizeElementCandidates,
-} from './puppeteer-browser-normalizers';
+import { normalizeAxTreeNodes, normalizeElementCandidates } from './puppeteer-browser-normalizers';
 import { BrowserTargetRegistry, getBrowserTargetRegistry } from './browser-target-registry';
-import {
-  redactBrowserText,
-  redactBrowserUrl,
-  redactElementContext,
-  redactHeaders,
-} from './browser-redaction';
+import { redactBrowserText, redactBrowserUrl, redactElementContext,
+  redactHeaders } from './browser-redaction';
 import { waitForCdpDownload, type BrowserCdpSession } from './browser-download-watcher';
-import {
-  evaluatePageBridge,
-  isPageBridgeSnapshot,
-} from './browser-page-bridge';
+import { evaluatePageBridge, isPageBridgeSnapshot } from './browser-page-bridge';
 import { applyBrowserSelect } from './browser-select-driver';
 import { applyBrowserTypedValue } from './browser-type-driver';
 import { readControlState, applySetChecked } from './browser-control-driver';
@@ -37,6 +20,7 @@ import { BrowserAntiThrottle, type AntiThrottlePage } from './browser-anti-throt
 import { BrowserWedgeRecovery } from './browser-wedge-recovery';
 import { uploadFileAndVerify } from './browser-file-upload-driver';
 import { collectAccessibilityTreeNodes } from './puppeteer-accessibility-tree';
+import { fingerprintBrowserElementText } from './browser-element-text-fingerprint';
 
 export interface BrowserSnapshot {
   title: string;
@@ -426,6 +410,15 @@ export class PuppeteerBrowserDriver {
       };
     });
     return redactElementContext(context);
+  }
+
+  /** Internal comparison token; raw text never crosses the page boundary. */
+  fingerprintElementText(
+    profileId: string,
+    targetId: string,
+    selector: string,
+  ): Promise<string | undefined> {
+    return fingerprintBrowserElementText(this.getPage(profileId, targetId), selector);
   }
 
   async click(profileId: string, targetId: string, selector: string): Promise<void> {

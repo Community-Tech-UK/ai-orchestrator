@@ -50,29 +50,28 @@ export function resolveExecutionLocation(config: InstanceCreateConfig): Executio
   }
 
   if (config.forceNodeId) {
+    let registry: ReturnType<typeof import('../../remote-node').getWorkerNodeRegistry>;
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { getWorkerNodeRegistry } = require('../../remote-node');
-      const registry = getWorkerNodeRegistry();
-      const node = registry.getNode(config.forceNodeId);
-      if (node?.status === 'connected' || node?.status === 'degraded') {
-        logger.info('Resolved execution location', {
-          type: 'remote',
-          reason: 'forceNodeId',
-          nodeId: config.forceNodeId,
-          nodeStatus: node.status,
-        });
-        return { type: 'remote', nodeId: config.forceNodeId };
-      }
-      logger.warn('Forced nodeId not reachable — falling through to local', {
-        nodeId: config.forceNodeId,
-        nodeStatus: node?.status ?? 'not-found',
-      });
+      registry = getWorkerNodeRegistry();
     } catch (err) {
-      logger.warn('Remote node module unavailable', {
-        error: err instanceof Error ? err.message : String(err),
-      });
+      const detail = err instanceof Error ? err.message : String(err);
+      throw new Error(`Forced worker node "${config.forceNodeId}" is unavailable: ${detail}`);
     }
+    const node = registry.getNode(config.forceNodeId);
+    if (node?.status === 'connected' || node?.status === 'degraded') {
+      logger.info('Resolved execution location', {
+        type: 'remote',
+        reason: 'forceNodeId',
+        nodeId: config.forceNodeId,
+        nodeStatus: node.status,
+      });
+      return { type: 'remote', nodeId: config.forceNodeId };
+    }
+    throw new Error(
+      `Forced worker node "${config.forceNodeId}" is unavailable (${node?.status ?? 'not found'})`,
+    );
   }
 
   if (config.nodePlacement) {

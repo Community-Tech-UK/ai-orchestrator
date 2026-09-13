@@ -22,6 +22,11 @@ const ICON_WHITE = [255, 255, 255, 255];
 const ICON_SIZES = [16, 32];
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
+// Chrome does not expose the native host's upstream `native_host_stdin_eof`
+// reason back across the now-closed port. It does expose the corresponding
+// current-port process exit locally. Bound that known recovery signal to a
+// short retry while retaining exponential backoff for other failure classes.
+const NATIVE_HOST_EXIT_RECONNECT_MAX_MS = 5000;
 const MAX_OUTBOX = 50;
 const MAX_INVENTORY_TABS = 40;
 const MAX_SHARED_TABS = 12;
@@ -383,21 +388,21 @@ function startBridge(bridge) {
   persistBridgeStatus();
 }
 
-function reconnectDelayMs(bridge) {
+function reconnectDelayMs(bridge, maxDelayMs = RECONNECT_MAX_MS * 1.2) {
   const base = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** bridge.reconnectAttempts);
   // ±20% jitter so many extensions/tabs don't reconnect in lockstep.
   const jitter = base * 0.2 * (Math.random() * 2 - 1);
-  return Math.max(RECONNECT_BASE_MS, Math.round(base + jitter));
+  return Math.min(maxDelayMs, Math.max(RECONNECT_BASE_MS, Math.round(base + jitter)));
 }
 
-function scheduleReconnect(bridge) {
+function scheduleReconnect(bridge, options = {}) {
   if (!gatewayEnabled) {
     return;
   }
   if (bridge.reconnectTimer) {
     return;
   }
-  const wait = reconnectDelayMs(bridge);
+  const wait = reconnectDelayMs(bridge, options.maxDelayMs);
   bridge.reconnectAttempts += 1;
   setBridgeState(bridge, 'reconnecting');
   persistBridgeStatus();
@@ -551,7 +556,12 @@ function connectNativePort(bridge, options = {}) {
         persistBridgeStatus();
         return;
       }
-      scheduleReconnect(bridge);
+      scheduleReconnect(
+        bridge,
+        isNativeHostExitError(message)
+          ? { maxDelayMs: NATIVE_HOST_EXIT_RECONNECT_MAX_MS }
+          : {},
+      );
     });
     flushOutbox(bridge);
     return port;
@@ -580,6 +590,11 @@ function markBridgeAbsent(bridge, message) {
 function isNativeHostAbsentError(message) {
   return typeof message === 'string'
     && /native messaging host.*not found|specified native messaging host not found|host not found|not installed/i.test(message);
+}
+
+function isNativeHostExitError(message) {
+  return typeof message === 'string'
+    && /native host (?:has )?exited/i.test(message);
 }
 
 function postNativeMessage(bridge, message, options = {}) {
@@ -1304,6 +1319,21 @@ function browserCommandErrorMessage(command, error, targetSecretTainted = false)
   if (secretObservationGuardErrors.has(error)) {
     return error.message;
   }
+  if (command?.command === 'reload') {
+    const message = error instanceof Error ? error.message : String(error);
+    if (
+      message === 'browser_reload_expected_origin_invalid'
+      || message === 'browser_reload_origin_changed_before_dispatch'
+      || message === 'browser_reload_origin_changed_after_dispatch'
+      || message === SAFE_MODE_ERROR
+    ) {
+      return message;
+    }
+    // Reload may already have reached Chrome before a later browser/page
+    // diagnostic failed. Do not serialize a page-controlled error or invite a
+    // blind retry of an action that may already have completed.
+    return 'browser_reload_failed_or_may_have_applied';
+  }
   if (
     command?.command === 'type'
     && typeof command?.payload?.credentialOrigin === 'string'
@@ -1326,7 +1356,13 @@ function browserCommandErrorMessage(command, error, targetSecretTainted = false)
 }
 
 async function runBrowserCommand(command, bridge) {
-  await applySecretObservationProtectionFromCommand(command);
+  const reloadCommand = command?.command === 'reload';
+  // Reload has a dedicated post-dispatch protection path. Awaiting the shared
+  // observation boundary here would let an older wedged inventory prevent the
+  // browser-process recovery action from ever starting.
+  if (!reloadCommand) {
+    await applySecretObservationProtectionFromCommand(command);
+  }
   // The internal origin-bound writer is itself proof that this command may
   // carry a vault value. Preclassify every non-public credential write before
   // dispatch so a synchronous page-driven tab close cannot clear storage and
@@ -1345,11 +1381,11 @@ async function runBrowserCommand(command, bridge) {
     // Snapshot taint BEFORE dispatch as well as afterward. A later mutation can
     // close the tab, which fires onRemoved and legitimately clears persisted
     // state; that must not declassify the still-in-flight command result.
-    if (secretTaintOrigin === null) {
+    if (secretTaintOrigin === null && !reloadCommand) {
       secretTaintOrigin = await targetSecretTaintOrigin(command);
     }
     const result = await runCommandWithWatchdog(command);
-    if (secretTaintOrigin === null) {
+    if (secretTaintOrigin === null && !reloadCommand) {
       // The origin-bound credential command arms taint during execution, so an
       // initially clean tab needs one post-dispatch check too.
       secretTaintOrigin = await targetSecretTaintOrigin(command);
@@ -1358,7 +1394,8 @@ async function runBrowserCommand(command, bridge) {
     // including selector and UID click/type/select results. Preserve the fact
     // that a resolved command completed, but discard its entire page-controlled
     // payload at the one native-channel boundary shared by every command.
-    const safeResult = typeof secretTaintOrigin === 'string' || sensitiveOriginBoundType
+    const safeResult = !reloadCommand
+      && (typeof secretTaintOrigin === 'string' || sensitiveOriginBoundType)
       ? {
           completed: true,
           observationBlocked: 'browser_secret_observation_blocked_for_tainted_origin',
@@ -1374,7 +1411,7 @@ async function runBrowserCommand(command, bridge) {
       result: safeResult,
     });
   } catch (error) {
-    if (secretTaintOrigin === null) {
+    if (secretTaintOrigin === null && !reloadCommand) {
       secretTaintOrigin = await targetSecretTaintOrigin(command);
     }
     postNativeMessage(bridge, {
@@ -1605,8 +1642,110 @@ async function findActiveWebTabForSharing() {
     ?? null;
 }
 
+function protectedReloadTabPayload(tab, expectedOrigin, secretTainted = false) {
+  return {
+    tabId: tab.id,
+    windowId: tab.windowId,
+    // The live URL and title are page-controlled. When the observation
+    // boundary is unavailable, expose only the origin the caller supplied and
+    // the browser process verified immediately before dispatch.
+    url: expectedOrigin + '/',
+    title: secretTainted ? 'Secret-filled tab' : 'Tab inspection unavailable',
+    text: '',
+    inspectionState: secretTainted ? 'secret_tainted' : 'inspection_unavailable',
+    ...(typeof tab.index === 'number' ? { tabIndex: tab.index } : {}),
+    pinned: tab.pinned === true,
+    active: tab.active === true,
+    textUnavailableReason: secretTainted
+      ? 'browser_secret_observation_blocked_for_tainted_origin'
+      : 'browser_secret_inspection_unavailable',
+    capturedAt: Date.now(),
+  };
+}
+
+async function finalizeReloadTabPayload(tabId, expectedOrigin, payload) {
+  // This is the last asynchronous dependency before the caller emits the
+  // result. It stays entirely in the browser process, so it cannot queue behind
+  // a wedged renderer or the secret-observation boundary.
+  const finalTab = await chrome.tabs.get(tabId);
+  const finalOrigin = browserTabOrigin(finalTab);
+  if (finalOrigin && finalOrigin !== expectedOrigin) {
+    throw new Error('browser_reload_origin_changed_after_dispatch');
+  }
+  if (!finalOrigin) {
+    return protectedReloadTabPayload(finalTab, expectedOrigin);
+  }
+  if (payload?.inspectionState === 'readable' && payload.url !== finalTab.url) {
+    // The text was captured for a different document URL. Its origin cannot be
+    // bound to the final browser-process observation, even when both URLs have
+    // the same origin, so discard all page-controlled evidence.
+    return protectedReloadTabPayload(finalTab, expectedOrigin);
+  }
+  return payload;
+}
+
+async function executeReloadCommand(command) {
+  const tabId = requireTargetTabId(command);
+  const expectedOrigin = normalizeCredentialOrigin(
+    requirePayloadString(command, 'expectedOrigin'),
+  );
+  if (!expectedOrigin) {
+    throw new Error('browser_reload_expected_origin_invalid');
+  }
+  // Keep every pre-dispatch dependency in the browser process. A wedged
+  // renderer or an older inventory holding the observation boundary must not
+  // prevent the recovery reload from replacing that renderer.
+  const liveTab = await chrome.tabs.get(tabId);
+  if (browserTabOrigin(liveTab) !== expectedOrigin) {
+    throw new Error('browser_reload_origin_changed_before_dispatch');
+  }
+  await chrome.tabs.reload(tabId);
+  await waitForTabComplete(tabId);
+  const refreshedTab = await chrome.tabs.get(tabId);
+  const unavailablePayload = protectedReloadTabPayload(refreshedTab, expectedOrigin);
+  const refreshedOrigin = browserTabOrigin(refreshedTab);
+  if (refreshedOrigin && refreshedOrigin !== expectedOrigin) {
+    throw new Error('browser_reload_origin_changed_after_dispatch');
+  }
+  if (!refreshedOrigin) {
+    // Chrome occasionally withholds a just-reloaded tab URL. That is not
+    // evidence that it stayed on the authorized origin, so return no page
+    // observation and use only the origin verified before dispatch.
+    return finalizeReloadTabPayload(tabId, expectedOrigin, unavailablePayload);
+  }
+
+  // Everything below can depend on the renderer or the serialized secret
+  // observation boundary. Bound it as one unit so a stalled later step cannot
+  // strand the command after the recovery side effect has already completed.
+  const observeReload = (async () => {
+    await applySecretObservationProtectionFromCommand(command);
+    const secretTaintOrigin = await targetSecretTaintOrigin(command);
+    if (typeof secretTaintOrigin === 'string') {
+      return protectedReloadTabPayload(
+        refreshedTab,
+        expectedOrigin,
+        secretTaintOrigin.length > 0,
+      );
+    }
+    // A full reload replaced the MAIN-world diagnostic buffer. Re-establish it
+    // only after dispatch, inside the same complete observation deadline.
+    await installConsoleNetworkCapture(tabId);
+    return buildTabPayload(refreshedTab, {
+      includeText: true,
+      includeScreenshot: true,
+    });
+  })();
+  const payload = await withCdpDeadline(
+    observeReload, 'reload_post_observation', CDP_CONTROL_TIMEOUT_MS,
+  ).catch(() => unavailablePayload);
+  return finalizeReloadTabPayload(tabId, expectedOrigin, payload);
+}
+
 async function executeBrowserCommand(command) {
   assertGatewayEnabled();
+  if (command.command === 'reload') {
+    return executeReloadCommand(command);
+  }
   await applySecretObservationProtectionFromCommand(command);
   await assertSecretObservationAllowed(command);
   switch (command.command) {
@@ -1730,7 +1869,12 @@ async function executeBrowserCommand(command) {
       const controlToken = await startControlledTab(tabId);
       try {
         const tab = await chrome.tabs.get(tabId);
-        return buildTabPayload(tab, { includeText: true });
+        return buildTabPayload(tab, {
+          includeText: true,
+          ...(typeof command.payload?.selector === 'string'
+            ? { selector: command.payload.selector }
+            : {}),
+        });
       } finally {
         await stopControlledTab(tabId, controlToken);
       }
@@ -3320,6 +3464,7 @@ async function buildTabPayloadLocked(tab, options = {}) {
   let secretTainted = true;
   let secretTaintedOrigin = '';
   let inspectionUnavailable = false;
+  let captureIdentityUnavailable = false;
   try {
     const storedOrigin = await secretTaintOriginForTab(tab);
     secretTainted = typeof storedOrigin === 'string';
@@ -3334,16 +3479,22 @@ async function buildTabPayloadLocked(tab, options = {}) {
     // assertGatewayEnabled() throwing if the gateway was disabled mid-flight).
     // It still needs its own reason so a caller cannot tell those apart from a
     // genuinely empty page either.
-    ? await capturePageText(tab.id).catch(() => ({
+    ? await capturePageText(tab.id, options.selector).catch(() => ({
       title: tab.title,
       text: '',
+      selectorText: undefined,
+      selectorFingerprint: undefined,
       textUnavailableReason: 'page_text_read_failed',
     }))
-    : { title: tab.title, text: '', textUnavailableReason: null };
+    : {
+      title: tab.title, text: '', selectorText: undefined,
+      selectorFingerprint: undefined, textUnavailableReason: null,
+    };
   let screenshotBase64 = options.includeScreenshot && !secretTainted
     ? await captureTabScreenshot(tab.id, { fullPage: false }).catch(() => undefined)
     : undefined;
-  if (!secretTainted) {
+  let observedTab = tab;
+  if (!secretTainted && !inspectionUnavailable) {
     // Close the in-flight inventory race: this payload may have started before
     // markSecretTaint tagged sibling tabs, then captured page text while the
     // secret-bearing input handler was running. Recheck after every page read
@@ -3352,11 +3503,51 @@ async function buildTabPayloadLocked(tab, options = {}) {
     if (typeof postCaptureOrigin === 'string') {
       secretTainted = true;
       secretTaintedOrigin = postCaptureOrigin;
-      page = { title: tab.title, text: '', textUnavailableReason: null };
+      page = {
+        title: tab.title, text: '', selectorText: undefined,
+        selectorFingerprint: undefined, textUnavailableReason: null,
+      };
       screenshotBase64 = undefined;
     }
   }
-  const safeUrl = secretTainted ? (secretTaintedOrigin ? secretTaintedOrigin + '/' : 'https://redacted.invalid/') : tab.url;
+  if (!secretTainted && (options.includeText || options.includeScreenshot)) {
+    // The tab passed into this function is a detached browser-process
+    // snapshot. Page capture (and the taint recheck above) can navigate before
+    // returning, so bind every captured byte/fingerprint to this final
+    // browser-process identity read. Any URL drift is ambiguous even within
+    // the same origin: the captured DOM may belong to either document.
+    try {
+      const postCaptureTab = await chrome.tabs.get(tab.id);
+      if (!isWebTab(postCaptureTab)
+        || postCaptureTab.id !== tab.id
+        || postCaptureTab.windowId !== tab.windowId
+        || postCaptureTab.url !== tab.url
+        || new URL(postCaptureTab.url).origin !== new URL(tab.url).origin) {
+        inspectionUnavailable = true;
+        captureIdentityUnavailable = true;
+      } else {
+        observedTab = postCaptureTab;
+      }
+    } catch {
+      inspectionUnavailable = true;
+      captureIdentityUnavailable = true;
+    }
+    if (inspectionUnavailable) {
+      page = {
+        title: tab.title, text: '', selectorText: undefined,
+        selectorFingerprint: undefined, textUnavailableReason: null,
+      };
+      screenshotBase64 = undefined;
+    }
+  }
+  const verifiedOrigin = new URL(tab.url).origin;
+  const safeUrl = inspectionUnavailable
+    ? (captureIdentityUnavailable && verifiedOrigin
+      ? verifiedOrigin + '/'
+      : 'https://redacted.invalid/')
+    : secretTainted
+      ? (secretTaintedOrigin ? secretTaintedOrigin + '/' : 'https://redacted.invalid/')
+      : observedTab.url;
   const inspectionState = inspectionUnavailable
     ? 'inspection_unavailable'
     : secretTainted ? 'secret_tainted' : 'readable';
@@ -3371,6 +3562,10 @@ async function buildTabPayloadLocked(tab, options = {}) {
     title: inspectionUnavailable ? 'Tab inspection unavailable'
       : secretTainted ? 'Secret-filled tab' : page.title || tab.title || tab.url,
     text: page.text || '',
+    ...(typeof page.selectorText === 'string' ? { selectorText: page.selectorText } : {}),
+    ...(typeof page.selectorFingerprint === 'string'
+      ? { selectorFingerprint: page.selectorFingerprint }
+      : {}),
     inspectionState,
     ...(typeof tab.index === 'number' ? { tabIndex: tab.index } : {}),
     pinned: tab.pinned === true,
@@ -3379,10 +3574,10 @@ async function buildTabPayloadLocked(tab, options = {}) {
     // extension has no host permission for this origin). Omitted entirely on
     // a normal read, including a legitimately empty page, so existing callers
     // that only look at `text` are unaffected.
-    ...(secretTainted
-      ? { textUnavailableReason: inspectionUnavailable
-          ? 'browser_secret_inspection_unavailable'
-          : 'browser_secret_observation_blocked_for_tainted_origin' }
+    ...(inspectionUnavailable
+      ? { textUnavailableReason: 'browser_secret_inspection_unavailable' }
+      : secretTainted
+        ? { textUnavailableReason: 'browser_secret_observation_blocked_for_tainted_origin' }
       : page.textUnavailableReason
         ? { textUnavailableReason: page.textUnavailableReason }
         : {}),
@@ -3404,7 +3599,7 @@ function classifyPageTextError(error) {
   return 'page_text_read_failed';
 }
 
-async function capturePageText(tabId) {
+async function capturePageText(tabId, selector) {
   assertGatewayEnabled();
   // Inject into every frame so iframe content (e.g. portals embedded in an
   // <iframe>) is included instead of only the top frame's header/footer.
@@ -3420,7 +3615,7 @@ async function capturePageText(tabId) {
   const results = await chrome.scripting.executeScript({
     target: { tabId, allFrames: true },
     func: pageBridgeScript,
-    args: ['snapshot', []],
+    args: ['snapshot', typeof selector === 'string' ? [selector] : []],
   }).catch((error) => {
     executionError = error;
     return null;
@@ -3433,10 +3628,16 @@ async function capturePageText(tabId) {
     // otherwise-readable page should not turn into a hard failure here, and
     // this call has no per-frame visibility into partial injection failures
     // to distinguish that case from a fully-rejected call anyway.
-    return { title: '', text: '', textUnavailableReason: classifyPageTextError(executionError) };
+    return {
+      title: '', text: '', selectorText: undefined,
+      selectorFingerprint: undefined,
+      textUnavailableReason: classifyPageTextError(executionError),
+    };
   }
 
   let title = '';
+  let selectorText;
+  let selectorFingerprint;
   const texts = [];
   for (const entry of results ?? []) {
     const value = entry?.result;
@@ -3450,8 +3651,20 @@ async function capturePageText(tabId) {
     if (typeof value.text === 'string' && value.text) {
       texts.push(value.text);
     }
+    if (selectorText === undefined && typeof value.selectorText === 'string') {
+      selectorText = value.selectorText;
+      if (typeof value.selectorFingerprint === 'string' && /^[a-f0-9]{64}$/.test(value.selectorFingerprint)) {
+        selectorFingerprint = value.selectorFingerprint;
+      }
+    }
   }
-  return { title, text: texts.join('\n').slice(0, 120000), textUnavailableReason: null };
+  return {
+    title,
+    text: texts.join('\n').slice(0, 120000),
+    selectorText,
+    selectorFingerprint,
+    textUnavailableReason: null,
+  };
 }
 
 const SCREENSHOT_DEFAULT_MAX_WIDTH = 1280;
@@ -3571,6 +3784,14 @@ async function waitForTabComplete(tabId, timeoutMs = 15000) {
       resolve();
     }
     chrome.tabs.onUpdated.addListener(listener);
+    // Close the Chrome status race: the completion event can fire after the
+    // first get() but before the listener is installed. Re-read once the
+    // listener exists so that fast reloads cannot wait for the timeout.
+    void chrome.tabs.get(tabId).then((latest) => {
+      if (latest?.status === 'complete') {
+        done();
+      }
+    }).catch(() => undefined);
   });
 }
 
@@ -4840,6 +5061,24 @@ function pageBridgeScript(action, args, expectedCredentialOrigin, credentialProt
     return (element.innerText || element.textContent || '').trim().slice(0, 1000);
   }
 
+  function textFingerprint(value) {
+    const words = [
+      value.length >>> 0, Math.floor(value.length / 0x1_0000_0000) >>> 0,
+      0x811c9dc5, 0x9e3779b9, 0x85ebca6b, 0xc2b2ae35,
+    ];
+    for (let index = 0; index < value.length; index += 1) {
+      const code = value.charCodeAt(index);
+      words[2] = Math.imul(words[2] ^ code, 0x01000193) >>> 0;
+      words[3] = Math.imul(words[3] ^ (code + index), 0x85ebca6b) >>> 0;
+      words[4] = Math.imul(words[4] ^ (code + (index >>> 16)), 0xc2b2ae35) >>> 0;
+      words[5] = Math.imul(
+        words[5] ^ (code + Math.imul(index + 1, 0x9e3779b1)), 0x27d4eb2d,
+      ) >>> 0;
+    }
+    words.push((words[2] ^ words[4]) >>> 0, (words[3] ^ words[5]) >>> 0);
+    return words.map((word) => word.toString(16).padStart(8, '0')).join('');
+  }
+
   function candidateText(element) {
     return [
       elementText(element),
@@ -4953,9 +5192,20 @@ function pageBridgeScript(action, args, expectedCredentialOrigin, credentialProt
   }
 
   if (action === 'snapshot') {
+    const [selector] = args;
+    const selected = typeof selector === 'string' ? findElementSafe(selector) : null;
+    const fullSelectorText = selected?.element
+      ? (typeof selected.element.innerText === 'string'
+        ? selected.element.innerText
+        : selected.element.textContent || '').trim()
+      : undefined;
     return {
       title: document.title,
       text: collectVisibleText().slice(0, 120000),
+      ...(fullSelectorText !== undefined ? {
+        selectorText: fullSelectorText.slice(0, 1000),
+        selectorFingerprint: textFingerprint(fullSelectorText),
+      } : {}),
     };
   }
 

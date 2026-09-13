@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NODE_TO_COORDINATOR } from '../main/remote-node/worker-node-rpc';
 import { WorkerExtensionRelay } from './worker-extension-relay';
+import { recoverWorkerExtensionRelay } from './worker-extension-relay-recovery';
 
 function makeRelay() {
   const sendRequest = vi.fn(async () => ({ ok: true }));
@@ -607,6 +608,75 @@ describe('WorkerExtensionRelay', () => {
       '[WorkerExtensionRelay] Relay stopped',
       { socketPath },
     );
+  });
+
+  it('uses the dedicated relay restart before registration and heartbeat publication', async () => {
+    const events: string[] = [];
+    const summary = { enabled: true, running: true, lastExtensionContactAt: 100 };
+    const restart = vi.fn(async () => { events.push('restart'); });
+    const reconfigure = vi.fn(async () => { events.push('reconfigure'); });
+
+    const result = await recoverWorkerExtensionRelay({
+      config: {
+        enabled: true,
+        socketPath: '/tmp/aio-extension-relay.sock',
+        extensionToken: 'extension-token',
+      },
+      relay: {
+        getSummary: vi.fn(() => summary),
+        restart,
+        reconfigure,
+      } as never,
+      forceRegistrationCheck: () => { events.push('registration'); },
+      sendHeartbeat: async () => { events.push('heartbeat'); },
+    });
+
+    expect(result).toEqual({ before: summary, after: summary });
+    expect(events).toEqual(['restart', 'registration', 'heartbeat']);
+    expect(restart).toHaveBeenCalledOnce();
+    expect(reconfigure).not.toHaveBeenCalled();
+  });
+
+  it('recovers without waiting for an accepted idle relay socket to disconnect', async () => {
+    if (process.platform === 'win32') {
+      return;
+    }
+    const socketPath = tempSocketPath();
+    const config = { enabled: true, socketPath, extensionToken: 'extension-token' };
+    const relay = new WorkerExtensionRelay({ config, sendRequest: vi.fn() });
+    await relay.start();
+    const client = net.createConnection(socketPath);
+    client.on('error', () => undefined);
+    await new Promise<void>((resolve) => client.once('connect', resolve));
+    const clientClosed = new Promise<void>((resolve) => client.once('close', () => resolve()));
+    const forceRegistrationCheck = vi.fn();
+    const sendHeartbeat = vi.fn(async () => undefined);
+    let recovered = false;
+    const recovery = recoverWorkerExtensionRelay({
+      config,
+      relay,
+      forceRegistrationCheck,
+      sendHeartbeat,
+    }).then((result) => {
+      recovered = true;
+      return result;
+    });
+
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      expect(recovered).toBe(true);
+      const result = await recovery;
+      await clientClosed;
+      expect(result.before).toMatchObject({ enabled: true, running: true });
+      expect(result.after).toMatchObject({ enabled: true, running: true });
+      expect(client.destroyed).toBe(true);
+      expect(forceRegistrationCheck).toHaveBeenCalledOnce();
+      expect(sendHeartbeat).toHaveBeenCalledOnce();
+    } finally {
+      client.destroy();
+      await recovery.catch(() => undefined);
+      await relay.stop();
+    }
   });
 
   it('survives a client that disconnects before the response is written', async () => {

@@ -25,11 +25,13 @@ const DISCOVERY_METHODS = new Set([
   'browser.preflight_target',
   'browser.find_or_open',
   'browser.close_matching',
+  'browser.recover_extension',
 ]);
 
 const TARGET_SCOPED_METHODS = new Set([
   'browser.select_target',
   'browser.navigate',
+  'browser.reload',
   'browser.close_tab',
   'browser.click',
   'browser.type',

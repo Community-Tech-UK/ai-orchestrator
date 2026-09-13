@@ -367,6 +367,7 @@ export const SETTINGS_TOOL_POLICY = {
   // future session's schema tax (or shrink another session's surface) via a
   // tool call — the operator decides.
   browserMcpToolDeferral: readOnly(),
+  orchestratorMcpToolDeferral: readOnly(),
   // Spec item 5: changes what context reaches providers on swap/restore.
   sessionHandoffStateEnabled: open(z.boolean()),
   // WS16: provenance gate for instruction-tier memory (readOnly — safety default).

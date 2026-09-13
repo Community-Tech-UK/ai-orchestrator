@@ -74,4 +74,11 @@ describe('resolveExecutionLocation', () => {
       },
     })).toThrow('this-device local-model runtime targets cannot include nodeId');
   });
+
+  it('fails closed instead of falling back locally when a forced node is unavailable', () => {
+    expect(() => resolveExecutionLocation({
+      workingDirectory: '/tmp/project',
+      forceNodeId: 'disconnected-node',
+    })).toThrow(/forced worker node "disconnected-node" is unavailable/i);
+  });
 });

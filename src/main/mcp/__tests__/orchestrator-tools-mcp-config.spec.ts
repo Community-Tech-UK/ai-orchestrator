@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildOrchestratorToolsMcpConfig,
+  resolveOrchestratorToolMode,
   resolveOrchestratorToolsBridgeSpec,
 } from '../orchestrator-tools-mcp-config';
+import { ORCHESTRATOR_TOOL_DEFERRAL_ENV } from '../orchestrator-mcp-deferral';
+import { ORCHESTRATOR_TOOL_STABLE_ENV } from '../orchestrator-mcp-stable-tools';
 
 const AIO_MCP = '/Applications/Harness.app/Contents/Resources/aio-mcp-cli/aio-mcp';
 const SOCKET = '/Users/u/Library/Application Support/harness/ot-abc123.sock';
@@ -69,6 +72,48 @@ describe('orchestrator tools MCP config helpers', () => {
         },
       },
     });
+  });
+
+  it('resolves Codex to stable, Cursor to eager, and other clients to deferred', () => {
+    expect(resolveOrchestratorToolMode('claude', true)).toBe('deferred');
+    expect(resolveOrchestratorToolMode('codex', true)).toBe('stable');
+    expect(resolveOrchestratorToolMode('cursor', true)).toBe('eager');
+    expect(resolveOrchestratorToolMode('claude', false)).toBe('eager');
+  });
+
+  it('sets deferral env for Claude and stable env for Codex when requested', () => {
+    const claude = resolveOrchestratorToolsBridgeSpec({
+      aioMcpCliPath: AIO_MCP,
+      socketPath: SOCKET,
+      instanceId: 'inst-1',
+      provider: 'claude',
+      toolDeferral: true,
+      exists: () => true,
+    });
+    expect(claude?.env[ORCHESTRATOR_TOOL_DEFERRAL_ENV]).toBe('1');
+    expect(claude?.env[ORCHESTRATOR_TOOL_STABLE_ENV]).toBeUndefined();
+
+    const codex = resolveOrchestratorToolsBridgeSpec({
+      aioMcpCliPath: AIO_MCP,
+      socketPath: SOCKET,
+      instanceId: 'inst-1',
+      provider: 'codex',
+      toolDeferral: true,
+      exists: () => true,
+    });
+    expect(codex?.env[ORCHESTRATOR_TOOL_STABLE_ENV]).toBe('1');
+    expect(codex?.env[ORCHESTRATOR_TOOL_DEFERRAL_ENV]).toBeUndefined();
+
+    const cursor = resolveOrchestratorToolsBridgeSpec({
+      aioMcpCliPath: AIO_MCP,
+      socketPath: SOCKET,
+      instanceId: 'inst-1',
+      provider: 'cursor',
+      toolDeferral: true,
+      exists: () => true,
+    });
+    expect(cursor?.env[ORCHESTRATOR_TOOL_DEFERRAL_ENV]).toBeUndefined();
+    expect(cursor?.env[ORCHESTRATOR_TOOL_STABLE_ENV]).toBeUndefined();
   });
 
   it('returns null when the SEA binary is missing — caller logs and degrades gracefully', () => {

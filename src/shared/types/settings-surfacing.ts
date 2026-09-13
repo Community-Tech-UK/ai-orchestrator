@@ -102,6 +102,7 @@ export const SETTING_SURFACING = {
   browserVaultAutoUnlock: 'tab',
   browserAuxExtractionEnabled: 'internal',
   browserMcpToolDeferral: 'tab',
+  orchestratorMcpToolDeferral: 'tab',
   sessionHandoffStateEnabled: 'tab',
   claudeFallbackModel: 'tab',
   claudeSubprocessEnvScrub: 'tab',

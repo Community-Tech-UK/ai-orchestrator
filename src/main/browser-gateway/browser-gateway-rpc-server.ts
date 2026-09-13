@@ -294,6 +294,10 @@ export class BrowserGatewayRpcServer {
         return this.requireMethod('selectTarget')(withContext);
       case 'browser.navigate':
         return this.requireMethod('navigate')(withContext);
+      case 'browser.reload':
+        return this.requireMethod('reload')(withContext);
+      case 'browser.recover_extension':
+        return this.requireMethod('recoverExtension')(withContext);
       case 'browser.click':
         return this.requireMethod('click')(withContext);
       case 'browser.type':

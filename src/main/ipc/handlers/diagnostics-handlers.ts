@@ -12,6 +12,7 @@ import { getSettingsManager } from '../../core/config/settings-manager';
 import { getContextManifestHistory } from '../../context/context-manifest-store';
 import { getLogger } from '../../logging/logger';
 import { resolveBrowserGatewayToolMode } from '../../browser-gateway/browser-mcp-config';
+import { resolveOrchestratorToolMode } from '../../mcp/orchestrator-tools-mcp-config';
 import { getInstanceBrowserToolsMode, resolveBrowserToolsMode } from '../../instance/lifecycle/browser-tool-scoping';
 import type { InstanceManager } from '../../instance/instance-manager';
 import type { WindowManager } from '../../window-manager';
@@ -165,7 +166,9 @@ export function registerDiagnosticsHandlers(deps: DiagnosticsHandlerDependencies
             browserGateway: browserInjected
               ? resolveBrowserGatewayToolMode(instance.provider, requestedBrowserMode === 'deferred')
               : 'off',
-            orchestratorTools: isOrchestratorRuntimeInjectionProvider(instance.provider),
+            orchestratorTools: isOrchestratorRuntimeInjectionProvider(instance.provider)
+              ? resolveOrchestratorToolMode(instance.provider, settings.orchestratorMcpToolDeferral)
+              : 'off',
             codemem: !isRemote && settings.codememEnabled,
             computerUse:
               !isRemote

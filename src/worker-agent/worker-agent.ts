@@ -46,6 +46,9 @@ import { WorkerCdpTunnel } from './worker-cdp-tunnel';
 import { wireCdpTunnelEvents, wireInstanceEvents } from './worker-event-wiring';
 import { WorkerAndroidManager } from './android/worker-android-manager';
 import { WorkerExtensionRelay } from './worker-extension-relay';
+import { WorkerNodeExecutor } from './worker-node-executor';
+import { configuredNodeExecRoots } from './worker-node-exec-policy';
+import { recoverWorkerExtensionRelay } from './worker-extension-relay-recovery';
 import {
   ExtensionRelayNativeRegistration,
   prepareLegacyExtensionRelayNativeHostRuntime,
@@ -99,6 +102,7 @@ export class WorkerAgent extends EventEmitter {
   private readonly cdpTunnel: WorkerCdpTunnel;
   private readonly extensionRelay: WorkerExtensionRelay;
   private readonly extensionRelayRegistration: ExtensionRelayNativeRegistration;
+  private readonly nodeExecutor: WorkerNodeExecutor;
   private lastExtensionRelayRegistrationCheckAt: number | null = null;
   private readonly legacyNativeHostWarnedFailures = new Set<string>();
   private activeCoordinatorUrl: string | null = null;
@@ -127,6 +131,7 @@ export class WorkerAgent extends EventEmitter {
       userDataPath: path.dirname(this.configPath),
       hostCommand: this.currentWorkerNativeHostCommand(),
     });
+    this.nodeExecutor = new WorkerNodeExecutor(() => configuredNodeExecRoots(config));
     // Copilot account state (per-profile sign-in) belongs beside this node's own
     // config, not in a temp directory a reboot clears — which would silently
     // sign every routed account out on this node. Set before any spawn so the
@@ -158,6 +163,13 @@ export class WorkerAgent extends EventEmitter {
       applyConfigUpdate: (update) => this.applyConfigUpdate(update),
       getCdpTunnel: () => this.cdpTunnel,
       stopManagedBrowser: () => this.browserManager.shutdown(),
+      executeNodeCommand: (params) => this.nodeExecutor.execute(params),
+      recoverExtensionRelay: () => recoverWorkerExtensionRelay({
+        config: this.config.extensionRelay,
+        relay: this.extensionRelay,
+        forceRegistrationCheck: () => this.checkExtensionRelayRegistration({ force: true }),
+        sendHeartbeat: () => this.sendHeartbeat(),
+      }),
       sendResult: (id, result) => this.notifier.sendResult(id, result),
       sendError: (id, code, message) => this.notifier.sendError(id, code, message),
       replayDurableEvents: (cursors) => this.notifier.replayDurableEvents(cursors),

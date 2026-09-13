@@ -58,9 +58,17 @@ import {
 import { materializeWorkspaceMcpConnectors } from '../../mcp/workspace-mcp-connector-materialize';
 import {
   buildOrchestratorToolsMcpConfig,
+  resolveOrchestratorToolMode,
+  type OrchestratorToolMode,
   type OrchestratorToolsMcpConfigOptions,
 } from '../../mcp/orchestrator-tools-mcp-config';
 import { getOrchestratorToolsRpcSocketPath } from '../../mcp/orchestrator-tools-rpc-server';
+import { createOrchestratorToolsForwarderTools } from '../../mcp/orchestrator-tools-mcp-forwarder';
+import {
+  createDeferredOrchestratorTools,
+  measureOrchestratorToolSchemaBytes,
+} from '../../mcp/orchestrator-mcp-deferral';
+import { createStableOrchestratorTools } from '../../mcp/orchestrator-mcp-stable-tools';
 import { resolveAioMcpCliPath } from '../../util/aio-mcp-cli-path';
 import {
   getInstanceBrowserToolsMode,
@@ -94,6 +102,12 @@ export interface SpawnConfigBuilderDeps {
 export class SpawnConfigBuilder {
   private rtkHookEligibility: boolean | null = null;
   private browserToolSchemaMeasurements = new Map<BrowserGatewayToolMode, {
+    visibleToolCount: number;
+    visibleSchemaBytes: number;
+    fullToolCount: number;
+    fullSchemaBytes: number;
+  }>();
+  private orchestratorToolSchemaMeasurements = new Map<OrchestratorToolMode, {
     visibleToolCount: number;
     visibleSchemaBytes: number;
     fullToolCount: number;
@@ -293,7 +307,7 @@ export class SpawnConfigBuilder {
         ORCHESTRATOR_INJECTION_PROVIDERS.includes(provider)
         ? getOrchestratorInjectionReader().buildBundle(provider)
         : { configPaths: [], inlineConfigs: [] };
-      const orchestratorToolsOptions = this.getOrchestratorToolsMcpOptions(instanceId);
+      const orchestratorToolsOptions = this.getOrchestratorToolsMcpOptions(instanceId, provider);
       const builtInToolsConfig = orchestratorToolsOptions
         ? buildOrchestratorToolsMcpConfig(orchestratorToolsOptions)
         : null;
@@ -336,13 +350,25 @@ export class SpawnConfigBuilder {
    */
   private getOrchestratorToolsMcpOptions(
     instanceId?: string,
+    provider?: string,
   ): OrchestratorToolsMcpConfigOptions | null {
     if (!instanceId) return null;
     const aioMcpCliPath = resolveAioMcpCliPath();
     if (!aioMcpCliPath) return null;
     const socketPath = getOrchestratorToolsRpcSocketPath();
     if (!socketPath) return null;
-    return { aioMcpCliPath, socketPath, instanceId };
+    const toolMode = resolveOrchestratorToolMode(
+      provider,
+      this.settings.getAll().orchestratorMcpToolDeferral,
+    );
+    this.logOrchestratorToolSchemaBytes(instanceId, toolMode);
+    return {
+      aioMcpCliPath,
+      socketPath,
+      instanceId,
+      ...(provider ? { provider } : {}),
+      ...(toolMode !== 'eager' ? { toolDeferral: true } : {}),
+    };
   }
 
   getBrowserGatewayMcpOptions(
@@ -433,6 +459,53 @@ export class SpawnConfigBuilder {
         fullSchemaBytes: measureToolSchemaBytes(fullTools),
       };
       this.browserToolSchemaMeasurements.set(toolMode, measurement);
+    }
+    return measurement;
+  }
+
+  private logOrchestratorToolSchemaBytes(instanceId: string, toolMode: OrchestratorToolMode): void {
+    try {
+      const measurement = this.getOrchestratorToolSchemaMeasurement(toolMode);
+      if (toolMode === 'eager') {
+        logger.info('Orchestrator tool schemas injected eagerly', {
+          instanceId,
+          toolCount: measurement.fullToolCount,
+          schemaBytes: measurement.fullSchemaBytes,
+        });
+        return;
+      }
+      logger.info('Orchestrator tool schemas deferred', { instanceId, toolMode, ...measurement });
+    } catch (error) {
+      logger.warn('Failed to measure orchestrator tool schema bytes', {
+        instanceId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private getOrchestratorToolSchemaMeasurement(toolMode: OrchestratorToolMode): {
+    visibleToolCount: number;
+    visibleSchemaBytes: number;
+    fullToolCount: number;
+    fullSchemaBytes: number;
+  } {
+    let measurement = this.orchestratorToolSchemaMeasurements.get(toolMode);
+    if (!measurement) {
+      const noopClient = { call: async () => ({}) };
+      const fullTools = createOrchestratorToolsForwarderTools(noopClient);
+      const listed = toolMode === 'eager'
+        ? fullTools
+        : toolMode === 'stable'
+          ? createStableOrchestratorTools(fullTools)
+          : createDeferredOrchestratorTools(fullTools, { onReveal: () => undefined });
+      const visibleTools = listed.filter((tool) => !tool.hidden);
+      measurement = {
+        visibleToolCount: visibleTools.length,
+        visibleSchemaBytes: measureOrchestratorToolSchemaBytes(visibleTools),
+        fullToolCount: fullTools.length,
+        fullSchemaBytes: measureOrchestratorToolSchemaBytes(fullTools),
+      };
+      this.orchestratorToolSchemaMeasurements.set(toolMode, measurement);
     }
     return measurement;
   }

@@ -23,6 +23,7 @@ const MUTATING_BROWSER_COMMANDS: ReadonlySet<string> = new Set([
   'open_tab',
   'find_or_open',
   'navigate',
+  'reload',
   'click',
   'type',
   'fill_form',

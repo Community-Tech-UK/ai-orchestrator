@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as path from 'node:path';
+import { runInNewContext } from 'node:vm';
 import type { Browser } from 'puppeteer-core';
 import type { BrowserProfile } from '@contracts/types/browser';
 import { BrowserTargetRegistry } from './browser-target-registry';
@@ -335,6 +336,110 @@ describe('PuppeteerBrowserDriver', () => {
       },
     });
     expect(page.$eval).toHaveBeenCalledWith('button', expect.any(Function));
+  });
+
+  it('fingerprints managed selector text before truncation and redaction', async () => {
+    let rawText = `${'x'.repeat(2_000)} token=alpha`;
+    const page = {
+      url: () => 'http://localhost:4567',
+      title: async () => 'Local',
+      $eval: vi.fn(async (
+        _selector: string,
+        evaluate: (element: { textContent: string }) => unknown,
+      ) => evaluate({ textContent: rawText })),
+    };
+    const browser = { pages: async () => [page] };
+    const driver = new PuppeteerBrowserDriver({
+      launcher: {
+        launchProfile: vi.fn().mockResolvedValue({}),
+        getBrowser: () => browser as unknown as Browser,
+        closeProfile: vi.fn(),
+      },
+      targetRegistry: new BrowserTargetRegistry(),
+    });
+    const [target] = await driver.openProfile(makeProfile());
+
+    const beforePreview = await driver.inspectElement('profile-1', target.id, '#status');
+    const beforeFingerprint = await driver.fingerprintElementText('profile-1', target.id, '#status');
+    rawText = `${'x'.repeat(2_000)} token=beta`;
+    const afterPreview = await driver.inspectElement('profile-1', target.id, '#status');
+    const afterFingerprint = await driver.fingerprintElementText('profile-1', target.id, '#status');
+
+    expect(afterPreview.visibleText).toBe(beforePreview.visibleText);
+    expect(beforeFingerprint).toMatch(/^[a-f0-9]{64}$/);
+    expect(afterFingerprint).toMatch(/^[a-f0-9]{64}$/);
+    expect(afterFingerprint).not.toBe(beforeFingerprint);
+    expect(`${beforeFingerprint}${afterFingerprint}`).not.toContain('alpha');
+    expect(`${beforeFingerprint}${afterFingerprint}`).not.toContain('beta');
+  });
+
+  it('fingerprints full managed selector text without SubtleCrypto', async () => {
+    let rawText = `${'x'.repeat(2_000)} token=alpha`;
+    const page = {
+      url: () => 'http://insecure.example.test',
+      title: async () => 'Insecure',
+      $eval: vi.fn(async (
+        _selector: string,
+        evaluate: (element: { textContent: string }) => unknown,
+      ) => runInNewContext(
+        `(${evaluate.toString()})({ textContent: ${JSON.stringify(rawText)} })`,
+        { crypto: {}, TextEncoder: globalThis.TextEncoder },
+      )),
+    };
+    const driver = new PuppeteerBrowserDriver({
+      launcher: {
+        launchProfile: vi.fn().mockResolvedValue({}),
+        getBrowser: () => ({ pages: async () => [page] }) as unknown as Browser,
+        closeProfile: vi.fn(),
+      },
+      targetRegistry: new BrowserTargetRegistry(),
+    });
+    const [target] = await driver.openProfile(makeProfile());
+
+    const before = await driver.fingerprintElementText('profile-1', target.id, '#status');
+    rawText = `${'x'.repeat(2_000)} token=beta`;
+    const after = await driver.fingerprintElementText('profile-1', target.id, '#status');
+
+    expect(before).toMatch(/^[a-f0-9]{64}$/);
+    expect(after).toMatch(/^[a-f0-9]{64}$/);
+    expect(after).not.toBe(before);
+    expect(`${before}${after}`).not.toContain('alpha');
+    expect(`${before}${after}`).not.toContain('beta');
+  });
+
+  it.each([
+    { beforeSubtle: true, afterSubtle: false, direction: 'secure to insecure' },
+    { beforeSubtle: false, afterSubtle: true, direction: 'insecure to secure' },
+  ])('keeps a stable managed-text fingerprint across $direction contexts', async ({
+    beforeSubtle, afterSubtle,
+  }) => {
+    let subtleAvailable = beforeSubtle;
+    const page = {
+      url: () => 'http://example.test',
+      title: async () => 'Page',
+      $eval: vi.fn(async (
+        _selector: string,
+        evaluate: (element: { textContent: string }) => unknown,
+      ) => runInNewContext(
+        `(${evaluate.toString()})({ textContent: 'unchanged' })`,
+        { crypto: subtleAvailable ? globalThis.crypto : {}, TextEncoder: globalThis.TextEncoder },
+      )),
+    };
+    const driver = new PuppeteerBrowserDriver({
+      launcher: {
+        launchProfile: vi.fn().mockResolvedValue({}),
+        getBrowser: () => ({ pages: async () => [page] }) as unknown as Browser,
+        closeProfile: vi.fn(),
+      },
+      targetRegistry: new BrowserTargetRegistry(),
+    });
+    const [target] = await driver.openProfile(makeProfile());
+
+    const before = await driver.fingerprintElementText('profile-1', target.id, '#status');
+    subtleAvailable = afterSubtle;
+    const after = await driver.fingerprintElementText('profile-1', target.id, '#status');
+
+    expect(after).toBe(before);
   });
 
   it('runs mutating actions and refreshes target metadata', async () => {

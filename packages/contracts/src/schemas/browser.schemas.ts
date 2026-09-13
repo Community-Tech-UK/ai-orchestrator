@@ -441,6 +441,16 @@ export type BrowserFindOrOpenRequest = z.infer<
   typeof BrowserFindOrOpenRequestSchema
 >;
 
+export const BrowserRecoverExtensionRequestSchema = z
+  .object({
+    nodeId: idSchema.optional(),
+    computer: z.string().min(1).max(120).optional(),
+  })
+  .strict();
+export type BrowserRecoverExtensionRequest = z.infer<
+  typeof BrowserRecoverExtensionRequestSchema
+>;
+
 /**
  * Read-only preflight: choose the best existing logged-in tab for a URL and
  * explain why the alternatives were rejected.
@@ -498,6 +508,9 @@ export const BrowserNavigateRequestSchema = BrowserTargetRequestSchema.extend({
   url: urlSchema,
 }).strict();
 export type BrowserNavigateRequest = z.infer<typeof BrowserNavigateRequestSchema>;
+
+export const BrowserReloadRequestSchema = BrowserTargetRequestSchema;
+export type BrowserReloadRequest = z.infer<typeof BrowserReloadRequestSchema>;
 
 export const BrowserSnapshotRequestSchema = BrowserTargetRequestSchema.extend({
   // WS11.2 aux extraction goal. Optional and additive: older gateways strip
@@ -563,10 +576,22 @@ export type BrowserAccessibilitySnapshotRequest = z.infer<
 
 export type BrowserAccessibilityNode = z.infer<typeof BrowserAccessibilityNodeSchema>;
 
+export const BrowserMutationEffectExpectationSchema = z
+  .object({
+    selector: z.string().min(1).max(2000).optional(),
+    urlContains: z.string().min(1).max(2000).optional(),
+  })
+  .strict()
+  .refine((value) => Boolean(value.selector || value.urlContains), {
+    message: 'expectChange requires selector or urlContains',
+  });
+
 export const BrowserEvaluateRequestSchema = BrowserTargetRequestSchema.extend({
   expression: z.string().min(1).max(20_000),
   awaitPromise: z.boolean().optional(),
   actionHint: z.string().min(1).max(500).optional(),
+  expectUrlChange: z.boolean().optional(),
+  expectChange: BrowserMutationEffectExpectationSchema.optional(),
   requestId: idSchema.optional(),
 }).strict();
 export type BrowserEvaluateRequest = z.infer<typeof BrowserEvaluateRequestSchema>;
@@ -582,6 +607,8 @@ export const BrowserClickRequestSchema = BrowserTargetRequestSchema.extend({
   uid: elementUidSchema.optional(),
   actionHint: z.string().min(1).max(500).optional(),
   verify: BrowserControlVerifyExpectationSchema.optional(),
+  expectUrlChange: z.boolean().optional(),
+  expectChange: BrowserMutationEffectExpectationSchema.optional(),
   requestId: idSchema.optional(),
 }).strict().superRefine(requireSelectorOrUid);
 export type BrowserClickRequest = z.infer<typeof BrowserClickRequestSchema>;

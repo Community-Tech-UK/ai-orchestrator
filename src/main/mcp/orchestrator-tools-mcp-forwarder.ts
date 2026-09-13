@@ -13,18 +13,16 @@
  */
 
 import type { McpServerToolDefinition } from './mcp-server-tools';
-import { runStdioMcpForwarder } from './mcp-stdio-forwarder';
-import {
-  OrchestratorToolsRpcClient,
-  type OrchestratorToolsRpcClientLike,
-} from './orchestrator-tools-rpc-client';
+import type { OrchestratorToolsRpcClientLike } from './orchestrator-tools-rpc-client';
 import { RELEASE_TOOL_SPECS, type ReleaseToolName } from './orchestrator-release-tools';
 import { createFileTransferForwarderTools } from './orchestrator-file-transfer-forwarder-tools';
 import { createOrchestratorEvidenceToolDefinitions } from './orchestrator-evidence-tools';
 import { CALENDAR_TOOL_SPECS } from './orchestrator-calendar-tools';
-
-const REMOTE_NODE_DISCOVERY_HINT =
-  'Harness can use connected remote worker nodes, including Windows PCs, laptops, desktops, named machines, remote machines, other machines, and another computer, through list_remote_nodes, run_on_node, read_node_output, and terminate_node_instance. If the user names a machine or asks for work on another computer, for example "Noah\'s laptop", check list_remote_nodes before local filesystem or shell work. For browser or Android/mobile testing, inspect node capabilities and pass requiresBrowser or requiresAndroid to run_on_node so the worker receives the right testing tools. requiresBrowser means a dedicated worker-managed Chrome profile through chrome-devtools; it cannot access Browser Gateway, extension-shared tabs, or an existing logged-in Chrome tab. Keep Browser Gateway work on the coordinator and target the named computer from browser tools. Terminate finished run_on_node instances when you are done with them — idle agents hold a capacity slot on the node until terminated.';
+import { createNodeExecForwarderTool } from './orchestrator-node-exec-forwarder-tool';
+import {
+  LIST_REMOTE_NODES_DESCRIPTION,
+  RUN_ON_NODE_DESCRIPTION,
+} from './orchestrator-tool-copy';
 
 const RELEASE_TOOL_NAMES = Object.keys(RELEASE_TOOL_SPECS) as ReleaseToolName[];
 
@@ -85,8 +83,7 @@ export function createOrchestratorToolsForwarderTools(
     },
     {
       name: 'list_remote_nodes',
-      description:
-        `${REMOTE_NODE_DISCOVERY_HINT} Lists currently registered remote worker nodes with status, platform, supported CLIs, browser/GPU/Docker capabilities, active capacity, working directories, heartbeat, and latency. Read-only; does not spawn work.`,
+      description: LIST_REMOTE_NODES_DESCRIPTION,
       inputSchema: {
         type: 'object',
         properties: {},
@@ -102,8 +99,7 @@ export function createOrchestratorToolsForwarderTools(
     },
     {
       name: 'run_on_node',
-      description:
-        `${REMOTE_NODE_DISCOVERY_HINT} Run a task on a connected remote worker node, such as a Windows PC, other machine, remote machine, or another computer, by spawning an AI agent there with the given prompt. The agent runs project-lessly using the node's default working directory unless one is provided. Returns after the worker provider has started successfully; subsequent output streams asynchronously and can be inspected from the app or read with read_node_output.`,
+      description: RUN_ON_NODE_DESCRIPTION,
       inputSchema: {
         type: 'object',
         properties: {
@@ -157,6 +153,7 @@ export function createOrchestratorToolsForwarderTools(
         return client.call('orchestrator_tools.run_on_node', args as Record<string, unknown>);
       },
     },
+    createNodeExecForwarderTool(client),
     {
       name: 'read_node_output',
       description:
@@ -679,15 +676,6 @@ export function createOrchestratorToolsForwarderTools(
       },
     }),
   ];
-}
-
-export async function runOrchestratorToolsForwarder(
-  client: OrchestratorToolsRpcClientLike = new OrchestratorToolsRpcClient(),
-): Promise<void> {
-  await runStdioMcpForwarder({
-    loggerName: 'OrchestratorToolsMcpForwarder',
-    tools: createOrchestratorToolsForwarderTools(client),
-  });
 }
 
 function stripInjected(input: object): Record<string, unknown> {

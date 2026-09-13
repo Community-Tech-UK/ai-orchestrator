@@ -242,6 +242,8 @@ export interface AppSettings extends DesktopComputerUseSettings {
    * upfront. Applies at the next session spawn.
    */
   browserMcpToolDeferral: boolean;
+  /** Defer orchestrator-tools schemas like browserMcpToolDeferral. Default on. */
+  orchestratorMcpToolDeferral: boolean;
   /**
    * Runtime-reconciler spec item 5: maintain a per-instance rolling handoff
    * document as turns complete and prefer it over the swap-time replay

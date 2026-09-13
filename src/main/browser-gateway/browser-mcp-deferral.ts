@@ -36,6 +36,8 @@ export const BROWSER_CORE_TOOL_NAMES: readonly string[] = [
   'browser.list_targets',
   'browser.find_or_open',
   'browser.navigate',
+  'browser.reload',
+  'browser.recover_extension',
   'browser.snapshot',
   'browser.screenshot',
   'browser.click',

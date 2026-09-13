@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
+import type { Page } from 'puppeteer-core';
 // jsdom ships no type declarations and @types/jsdom is not installed. A
 // sibling spec (doc-review/artifact-choice-runtime.spec.ts) already declares
 // a `declare module 'jsdom'` ambient module for this package; adding a
@@ -8,18 +9,21 @@ import { runInNewContext } from 'node:vm';
 // @ts-expect-error No type declarations available for 'jsdom' in this repo.
 import { JSDOM } from 'jsdom';
 import { describe, expect, it, vi } from 'vitest';
+import { fingerprintBrowserElementText } from './browser-element-text-fingerprint';
+import { makeGrant, makeService } from './browser-gateway-service.test-helpers';
 
 interface BrowserExtensionBackgroundHarness {
   advanceTimeBy: (ms: number) => void;
-  bridges: Array<{
+  bridges: {
     hostName: string;
     nativePort: NativePortHarness | null;
-    pollInFlight: boolean;
-    lastError: string | null;
-    state: string;
-  }>;
+      pollInFlight: boolean;
+      lastError: string | null;
+      reconnectAttempts: number;
+      state: string;
+  }[];
   deriveToolbarBadgeState: (
-    snapshots: Array<{ state: string; lastPollAckAt: number | null; unhealthySince: number | null }>,
+    snapshots: { state: string; lastPollAckAt: number | null; unhealthySince: number | null }[],
     now: number,
   ) => { text: string; color: string | null };
   captureAccessibilitySnapshot: (
@@ -35,9 +39,15 @@ interface BrowserExtensionBackgroundHarness {
   }) => Promise<void>;
   markSecretTaint: (tabId: number, origin: string) => Promise<void>;
   reportTabInventory: () => Promise<void>;
+  runPageBridgeSnapshot: (
+    html: string,
+    selector: string,
+    options?: { innerText?: string; subtleCrypto?: boolean },
+  ) => Promise<Record<string, unknown>>;
   selfHealIfWedged: () => Promise<void>;
   startControlledTab: (tabId: number) => Promise<unknown>;
   stopControlledTab: (tabId: number, token?: unknown) => Promise<void>;
+  waitForTabComplete: (tabId: number, timeoutMs?: number) => Promise<void>;
   tabState: (tabId: number) => ReturnType<typeof makeWebTab> | undefined;
   sendMessage: (message: unknown) => Promise<unknown>;
   tabDebuggerChains: Map<number, Promise<void>>;
@@ -85,6 +95,7 @@ interface BrowserExtensionChromeHarness {
     group: ReturnType<typeof vi.fn>;
     query: ReturnType<typeof vi.fn>;
     remove: ReturnType<typeof vi.fn>;
+    reload: ReturnType<typeof vi.fn>;
     ungroup: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
   };
@@ -138,6 +149,18 @@ describe('browser extension assets', () => {
     '0.2.19': '532f9c8bca96',
     '0.2.20': '62c869613df1',
     '0.2.21': 'afdaa972c264',
+    '0.2.22': 'c55cc8093446',
+    '0.2.23': 'a7e3e5dc9bef',
+    '0.2.24': '1fa9cbdcd668',
+    '0.2.25': 'b8c1a6416365',
+    '0.2.26': '0d2e27419c5a',
+    '0.2.27': '3f3bf5aa94c0',
+    '0.2.28': '07da8051e91d',
+    '0.2.29': '4de2ab44efec',
+    '0.2.30': '7204a6ca8969',
+    '0.2.31': '2c02d9f41579',
+    '0.2.32': '41673e46a456',
+    '0.2.33': '9204adfa79c2',
   };
 
   it('ships each background bundle under its own manifest version', () => {
@@ -929,7 +952,7 @@ describe('browser extension assets', () => {
     const inventory = relayPort.postMessage.mock.calls
       .map((args: unknown[]) => args[0] as {
         type?: string;
-        tabs?: Array<Record<string, unknown>>;
+        tabs?: Record<string, unknown>[];
       })
       .find((message) => message.type === 'tab_inventory');
     expect(inventory?.tabs).toContainEqual(expect.objectContaining({
@@ -1016,6 +1039,713 @@ describe('browser extension assets', () => {
       commandId: 'inventory-command-1',
       ok: true,
     }));
+  });
+
+  it('reloads an existing tab in place, closes the status race, and reinstalls diagnostics', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    relayPort.postMessage.mockClear();
+    harness.chrome.scripting.executeScript.mockClear();
+
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: {
+        id: 'reload-tab-1',
+        command: 'reload',
+        target: { tabId: 42 },
+        payload: { expectedOrigin: 'https://example.test' },
+      },
+    });
+    await flushPromises();
+
+    expect(harness.chrome.tabs.reload).toHaveBeenCalledOnce();
+    expect(harness.chrome.tabs.reload).toHaveBeenCalledWith(42);
+    expect(harness.chrome.scripting.executeScript).not.toHaveBeenCalledWith(expect.objectContaining({
+      func: expect.objectContaining({ name: 'installControlGlowScript' }),
+    }));
+    expect(harness.chrome.scripting.executeScript).toHaveBeenCalledWith(expect.objectContaining({
+      func: expect.objectContaining({ name: 'installCaptureScript' }),
+    }));
+    expect(relayPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'command_result',
+      commandId: 'reload-tab-1',
+      ok: true,
+      result: expect.objectContaining({ tabId: 42, url: 'https://example.test/42' }),
+    }));
+  });
+
+  it('dispatches reload before a wedged renderer injection and still completes', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    relayPort.postMessage.mockClear();
+    harness.chrome.tabs.reload.mockClear();
+    const rendererPending = new Promise<never>(() => undefined);
+    harness.chrome.scripting.executeScript.mockImplementation(async () => {
+      if (harness.chrome.tabs.reload.mock.calls.length === 0) {
+        return rendererPending;
+      }
+      return [{ result: { title: 'Reloaded', text: 'Ready' } }];
+    });
+
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: {
+        id: 'reload-wedged-renderer',
+        command: 'reload',
+        target: { tabId: 42 },
+        payload: { expectedOrigin: 'https://example.test' },
+      },
+    });
+    await flushPromises();
+
+    expect(harness.chrome.tabs.reload).toHaveBeenCalledWith(42);
+    expect(relayPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'command_result', commandId: 'reload-wedged-renderer', ok: true,
+    }));
+  });
+
+  it('dispatches reload while an inventory owns the secret-observation boundary', async () => {
+    const marker = 'TEST_ONLY_OCCUPIED_BOUNDARY_MARKER';
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    relayPort.postMessage.mockClear();
+    harness.chrome.tabs.reload.mockClear();
+    harness.tabState(42)!.url = `https://example.test/private?value=${marker}`;
+    harness.tabState(42)!.title = marker;
+    harness.chrome.scripting.executeScript.mockImplementation(
+      () => new Promise<never>(() => undefined),
+    );
+
+    void harness.reportTabInventory();
+    await flushPromises();
+    expect(harness.chrome.scripting.executeScript).toHaveBeenCalledWith(expect.objectContaining({
+      func: expect.objectContaining({ name: 'pageBridgeScript' }),
+      args: ['snapshot', []],
+    }));
+    const timerCallCountBeforeReload = harness.timers.setTimeout.mock.calls.length;
+
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: {
+        id: 'reload-occupied-secret-boundary',
+        command: 'reload',
+        target: { tabId: 42 },
+        payload: {
+          expectedOrigin: 'https://example.test',
+          secretObservationProtectionEnabled: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    expect(harness.chrome.tabs.reload).toHaveBeenCalledWith(42);
+    const postReloadDeadline = harness.timers.setTimeout.mock.calls
+      .slice(timerCallCountBeforeReload)
+      .find((call: unknown[]) => call[1] === 5_000);
+    expect(postReloadDeadline).toBeDefined();
+    (postReloadDeadline?.[0] as (() => void))();
+    await flushPromises();
+
+    const commandResult = relayPort.postMessage.mock.calls
+      .map((call: unknown[]) => call[0] as Record<string, unknown>)
+      .find((message) => message['type'] === 'command_result'
+        && message['commandId'] === 'reload-occupied-secret-boundary');
+    expect(commandResult).toEqual(expect.objectContaining({
+      type: 'command_result',
+      commandId: 'reload-occupied-secret-boundary',
+      ok: true,
+      result: expect.objectContaining({
+        tabId: 42,
+        url: 'https://example.test/',
+        title: 'Tab inspection unavailable',
+        text: '',
+        inspectionState: 'inspection_unavailable',
+        textUnavailableReason: 'browser_secret_inspection_unavailable',
+      }),
+    }));
+    expect(JSON.stringify(commandResult)).not.toContain(marker);
+  });
+
+  it('settles reload safely when post-reload page observation and its boundary stay pending', async () => {
+    const marker = 'TEST_ONLY_POST_RELOAD_OBSERVATION_MARKER';
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    relayPort.postMessage.mockClear();
+    harness.chrome.tabs.reload.mockClear();
+    harness.tabState(42)!.url = `https://example.test/private?value=${marker}`;
+    harness.tabState(42)!.title = marker;
+    harness.chrome.scripting.executeScript.mockImplementation(
+      async (params: { func?: { name?: string } }) => {
+        if (params.func?.name === 'pageBridgeScript') {
+          return new Promise<never>(() => undefined);
+        }
+        return [{ result: undefined }];
+      },
+    );
+    const timerCallCountBeforeReload = harness.timers.setTimeout.mock.calls.length;
+
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: {
+        id: 'reload-pending-post-observation',
+        command: 'reload',
+        target: { tabId: 42 },
+        payload: {
+          expectedOrigin: 'https://example.test',
+          secretObservationProtectionEnabled: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    expect(harness.chrome.tabs.reload).toHaveBeenCalledWith(42);
+    expect(harness.chrome.scripting.executeScript).toHaveBeenCalledWith(expect.objectContaining({
+      func: expect.objectContaining({ name: 'pageBridgeScript' }),
+      args: ['snapshot', []],
+    }));
+    const postReloadDeadline = harness.timers.setTimeout.mock.calls
+      .slice(timerCallCountBeforeReload)
+      .find((call: unknown[]) => call[1] === 5_000);
+    const commandWatchdog = harness.timers.setTimeout.mock.calls
+      .slice(timerCallCountBeforeReload)
+      .find((call: unknown[]) => call[1] === 30_000);
+    expect(postReloadDeadline).toBeDefined();
+    expect(commandWatchdog).toBeDefined();
+    (postReloadDeadline?.[0] as (() => void))();
+    await flushPromises();
+
+    const commandResults = () => relayPort.postMessage.mock.calls
+      .map((call: unknown[]) => call[0] as Record<string, unknown>)
+      .filter((message) => message['type'] === 'command_result'
+        && message['commandId'] === 'reload-pending-post-observation');
+    expect(commandResults()).toEqual([expect.objectContaining({
+      type: 'command_result',
+      commandId: 'reload-pending-post-observation',
+      ok: true,
+      result: expect.objectContaining({
+        tabId: 42,
+        url: 'https://example.test/',
+        title: 'Tab inspection unavailable',
+        text: '',
+        inspectionState: 'inspection_unavailable',
+        textUnavailableReason: 'browser_secret_inspection_unavailable',
+      }),
+    })]);
+    expect(JSON.stringify(commandResults())).not.toContain(marker);
+
+    (commandWatchdog?.[0] as (() => void))();
+    await flushPromises();
+    expect(commandResults()).toHaveLength(1);
+  });
+
+  it('does not re-enter a pending observation boundary from the reload watchdog failure path', async () => {
+    const marker = 'TEST_ONLY_RELOAD_WATCHDOG_MARKER';
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    relayPort.postMessage.mockClear();
+    harness.chrome.tabs.reload.mockClear();
+    harness.tabState(42)!.url = `https://example.test/private?value=${marker}`;
+    harness.tabState(42)!.title = marker;
+    harness.chrome.scripting.executeScript.mockImplementation(
+      async (params: { func?: { name?: string } }) => {
+        if (params.func?.name === 'pageBridgeScript') {
+          return new Promise<never>(() => undefined);
+        }
+        return [{ result: undefined }];
+      },
+    );
+    const timerCallCountBeforeReload = harness.timers.setTimeout.mock.calls.length;
+
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: {
+        id: 'reload-watchdog-pending-observation',
+        command: 'reload',
+        target: { tabId: 42 },
+        payload: {
+          expectedOrigin: 'https://example.test',
+          secretObservationProtectionEnabled: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    expect(harness.chrome.tabs.reload).toHaveBeenCalledWith(42);
+    const commandWatchdog = harness.timers.setTimeout.mock.calls
+      .slice(timerCallCountBeforeReload)
+      .find((call: unknown[]) => call[1] === 30_000);
+    expect(commandWatchdog).toBeDefined();
+    (commandWatchdog?.[0] as (() => void))();
+    await flushPromises();
+
+    const commandResults = relayPort.postMessage.mock.calls
+      .map((call: unknown[]) => call[0] as Record<string, unknown>)
+      .filter((message) => message['type'] === 'command_result'
+        && message['commandId'] === 'reload-watchdog-pending-observation');
+    expect(commandResults).toEqual([expect.objectContaining({
+      type: 'command_result',
+      commandId: 'reload-watchdog-pending-observation',
+      ok: false,
+      error: 'browser_reload_failed_or_may_have_applied',
+    })]);
+    expect(JSON.stringify(commandResults)).not.toContain(marker);
+  });
+
+  it('fails closed when reload redirects before the unavailable-observation fallback', async () => {
+    const marker = 'TEST_ONLY_RELOAD_REDIRECT_TIMEOUT_MARKER';
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    relayPort.postMessage.mockClear();
+    harness.chrome.tabs.reload.mockImplementation(async (tabId: number) => {
+      const tab = harness.tabState(tabId)!;
+      tab.url = `https://disallowed.example.test/after?value=${marker}`;
+      tab.title = marker;
+      tab.status = 'complete';
+    });
+    harness.chrome.scripting.executeScript.mockImplementation(
+      () => new Promise<never>(() => undefined),
+    );
+    const timerCallCountBeforeReload = harness.timers.setTimeout.mock.calls.length;
+
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: {
+        id: 'reload-redirect-before-unavailable-fallback',
+        command: 'reload',
+        target: { tabId: 42 },
+        payload: {
+          expectedOrigin: 'https://example.test',
+          secretObservationProtectionEnabled: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    const postReloadDeadline = harness.timers.setTimeout.mock.calls
+      .slice(timerCallCountBeforeReload)
+      .find((call: unknown[]) => call[1] === 5_000);
+    if (postReloadDeadline) {
+      (postReloadDeadline[0] as (() => void))();
+      await flushPromises();
+    }
+
+    const commandResult = relayPort.postMessage.mock.calls
+      .map((call: unknown[]) => call[0] as Record<string, unknown>)
+      .find((message) => message['type'] === 'command_result'
+        && message['commandId'] === 'reload-redirect-before-unavailable-fallback');
+    expect(commandResult).toEqual(expect.objectContaining({
+      type: 'command_result',
+      commandId: 'reload-redirect-before-unavailable-fallback',
+      ok: false,
+      error: 'browser_reload_origin_changed_after_dispatch',
+    }));
+    expect(JSON.stringify(commandResult)).not.toContain(marker);
+  });
+
+  it('fails closed when a secret-tainted reload redirects before protected reporting', async () => {
+    const marker = 'TEST_ONLY_RELOAD_REDIRECT_TAINT_MARKER';
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    await harness.markSecretTaint(42, 'https://example.test');
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    relayPort.postMessage.mockClear();
+    harness.chrome.tabs.reload.mockImplementation(async (tabId: number) => {
+      const tab = harness.tabState(tabId)!;
+      tab.url = `https://disallowed.example.test/after?value=${marker}`;
+      tab.title = marker;
+      tab.status = 'complete';
+    });
+
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: {
+        id: 'reload-redirect-before-taint-report',
+        command: 'reload',
+        target: { tabId: 42 },
+        payload: {
+          expectedOrigin: 'https://example.test',
+          secretObservationProtectionEnabled: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    const commandResult = relayPort.postMessage.mock.calls
+      .map((call: unknown[]) => call[0] as Record<string, unknown>)
+      .find((message) => message['type'] === 'command_result'
+        && message['commandId'] === 'reload-redirect-before-taint-report');
+    expect(commandResult).toEqual(expect.objectContaining({
+      type: 'command_result',
+      commandId: 'reload-redirect-before-taint-report',
+      ok: false,
+      error: 'browser_reload_origin_changed_after_dispatch',
+    }));
+    expect(JSON.stringify(commandResult)).not.toContain(marker);
+  });
+
+  it('uses the expected origin only when Chrome cannot report a post-reload URL', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    relayPort.postMessage.mockClear();
+    harness.chrome.tabs.reload.mockImplementation(async (tabId: number) => {
+      const tab = harness.tabState(tabId)!;
+      tab.url = '';
+      tab.title = 'TEST_ONLY_UNAVAILABLE_POST_URL_TITLE';
+      tab.status = 'complete';
+    });
+
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: {
+        id: 'reload-missing-post-url',
+        command: 'reload',
+        target: { tabId: 42 },
+        payload: { expectedOrigin: 'https://example.test' },
+      },
+    });
+    await flushPromises();
+
+    expect(relayPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'command_result',
+      commandId: 'reload-missing-post-url',
+      ok: true,
+      result: expect.objectContaining({
+        url: 'https://example.test/',
+        title: 'Tab inspection unavailable',
+        inspectionState: 'inspection_unavailable',
+        textUnavailableReason: 'browser_secret_inspection_unavailable',
+      }),
+    }));
+    expect(JSON.stringify(relayPort.postMessage.mock.calls))
+      .not.toContain('TEST_ONLY_UNAVAILABLE_POST_URL_TITLE');
+  });
+
+  it('rechecks the live origin after a pending post-reload observation times out', async () => {
+    const marker = 'TEST_ONLY_RELOAD_TIMEOUT_TOCTOU_MARKER';
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    relayPort.postMessage.mockClear();
+    harness.chrome.scripting.executeScript.mockImplementation(
+      () => new Promise<never>(() => undefined),
+    );
+    const timerCallCountBeforeReload = harness.timers.setTimeout.mock.calls.length;
+
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: {
+        id: 'reload-timeout-origin-toctou',
+        command: 'reload',
+        target: { tabId: 42 },
+        payload: {
+          expectedOrigin: 'https://example.test',
+          secretObservationProtectionEnabled: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    const postReloadDeadline = harness.timers.setTimeout.mock.calls
+      .slice(timerCallCountBeforeReload)
+      .find((call: unknown[]) => call[1] === 5_000);
+    expect(postReloadDeadline).toBeDefined();
+    harness.tabState(42)!.url = `https://disallowed.example.test/late?value=${marker}`;
+    harness.tabState(42)!.title = marker;
+    (postReloadDeadline?.[0] as (() => void))();
+    await flushPromises();
+
+    const commandResults = relayPort.postMessage.mock.calls
+      .map((call: unknown[]) => call[0] as Record<string, unknown>)
+      .filter((message) => message['type'] === 'command_result'
+        && message['commandId'] === 'reload-timeout-origin-toctou');
+    expect(commandResults).toEqual([expect.objectContaining({
+      type: 'command_result',
+      commandId: 'reload-timeout-origin-toctou',
+      ok: false,
+      error: 'browser_reload_origin_changed_after_dispatch',
+    })]);
+    expect(JSON.stringify(commandResults)).not.toContain(marker);
+  });
+
+  it('rechecks the live origin after readable post-reload diagnostics settle', async () => {
+    const marker = 'TEST_ONLY_RELOAD_READABLE_TOCTOU_MARKER';
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    relayPort.postMessage.mockClear();
+    harness.chrome.scripting.executeScript.mockImplementation(
+      async (params: { func?: { name?: string } }) => {
+        if (params.func?.name === 'installCaptureScript') {
+          harness.tabState(42)!.url = `https://disallowed.example.test/late?value=${marker}`;
+          harness.tabState(42)!.title = marker;
+          return [{ result: undefined }];
+        }
+        if (params.func?.name === 'pageBridgeScript') {
+          return [{ result: { title: marker, text: marker } }];
+        }
+        return [{ result: undefined }];
+      },
+    );
+
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: {
+        id: 'reload-readable-origin-toctou',
+        command: 'reload',
+        target: { tabId: 42 },
+        payload: {
+          expectedOrigin: 'https://example.test',
+          secretObservationProtectionEnabled: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    const commandResults = relayPort.postMessage.mock.calls
+      .map((call: unknown[]) => call[0] as Record<string, unknown>)
+      .filter((message) => message['type'] === 'command_result'
+        && message['commandId'] === 'reload-readable-origin-toctou');
+    expect(commandResults).toEqual([expect.objectContaining({
+      type: 'command_result',
+      commandId: 'reload-readable-origin-toctou',
+      ok: false,
+      error: 'browser_reload_origin_changed_after_dispatch',
+    })]);
+    expect(JSON.stringify(commandResults)).not.toContain(marker);
+  });
+
+  it('rechecks the live tab origin immediately before reload and refuses a mismatch', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    relayPort.postMessage.mockClear();
+    harness.chrome.tabs.reload.mockClear();
+    harness.tabState(42)!.url = 'https://evil.example.test/private';
+
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: {
+        id: 'reload-origin-mismatch',
+        command: 'reload',
+        target: { tabId: 42 },
+        payload: { expectedOrigin: 'https://example.test' },
+      },
+    });
+    await flushPromises();
+
+    expect(harness.chrome.tabs.reload).not.toHaveBeenCalled();
+    expect(relayPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'command_result',
+      commandId: 'reload-origin-mismatch',
+      ok: false,
+      error: 'browser_reload_origin_changed_before_dispatch',
+    }));
+  });
+
+  it('forwards a snapshot selector through the real extension command path', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    relayPort.postMessage.mockClear();
+    harness.chrome.scripting.executeScript.mockClear();
+
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: {
+        id: 'snapshot-selector',
+        command: 'snapshot',
+        target: { tabId: 42 },
+        payload: { selector: '#status' },
+      },
+    });
+    await flushPromises();
+
+    expect(harness.chrome.scripting.executeScript).toHaveBeenCalledWith(expect.objectContaining({
+      func: expect.objectContaining({ name: 'pageBridgeScript' }),
+      args: ['snapshot', ['#status']],
+    }));
+    expect(relayPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'command_result', commandId: 'snapshot-selector', ok: true,
+    }));
+  });
+
+  it('discards copied-tab snapshot evidence when the browser-process origin changes during capture', async () => {
+    const marker = 'TEST_ONLY_SNAPSHOT_REDIRECT_MARKER';
+    const result = await captureSnapshotAcrossRedirect(marker);
+
+    expect(result).toMatchObject({
+      tabId: 42,
+      url: 'https://example.test/',
+      title: 'Tab inspection unavailable',
+      text: '',
+      inspectionState: 'inspection_unavailable',
+      textUnavailableReason: 'browser_secret_inspection_unavailable',
+    });
+    expect(result).not.toHaveProperty('selectorText');
+    expect(result).not.toHaveProperty('selectorFingerprint');
+    expect(JSON.stringify(result)).not.toContain(marker);
+    expect(JSON.stringify(result)).not.toContain('evil.example.test');
+  });
+
+  it('cannot turn copied-tab redirect evidence into a production no-effect result', async () => {
+    const marker = 'TEST_ONLY_SNAPSHOT_NO_EFFECT_MARKER';
+    const redirectedSnapshot = await captureSnapshotAcrossRedirect(marker);
+    vi.useFakeTimers();
+    vi.setSystemTime(1_100_000);
+    try {
+      const existingTab = {
+        profileId: 'existing-tab:7:42',
+        targetId: 'existing-tab:7:42:target',
+        tabId: 42,
+        windowId: 7,
+        title: 'Before',
+        url: 'https://example.test/page',
+        origin: 'https://example.test',
+        text: 'Before',
+        allowedOrigins: [{
+          scheme: 'https' as const,
+          hostPattern: 'example.test',
+          includeSubdomains: false,
+        }],
+      };
+      const sendCommand = vi.fn(async (request: { command: string }) => (
+        request.command === 'click' ? { clicked: true } : redirectedSnapshot
+      ));
+      const { service } = makeService({
+        existingTab,
+        grants: [makeGrant({
+          profileId: existingTab.profileId,
+          allowedOrigins: existingTab.allowedOrigins,
+        })],
+        extensionCommandStore: { sendCommand },
+        mutationEffectDelay: async (ms) => { vi.setSystemTime(Date.now() + ms); },
+      });
+
+      const result = await service.click({
+        instanceId: 'instance-1',
+        provider: 'copilot',
+        profileId: existingTab.profileId,
+        targetId: existingTab.targetId,
+        selector: '#save',
+        expectChange: { selector: '#status' },
+      });
+
+      expect(result).toMatchObject({
+        decision: 'allowed',
+        outcome: 'failed',
+        reason: 'browser_effect_observation_unverified',
+        data: null,
+      });
+      expect(JSON.stringify(result)).not.toContain(marker);
+      expect(JSON.stringify(result)).not.toContain('evil.example.test');
+      expect(sendCommand.mock.calls.filter(([request]) => request.command === 'click')).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('fingerprints the full selector text while returning only its bounded preview', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    const prefix = 'x'.repeat(1_000);
+
+    const before = await harness.runPageBridgeSnapshot(
+      `<div id="status">${prefix}edit</div>`,
+      '#status',
+    );
+    const after = await harness.runPageBridgeSnapshot(
+      `<div id="status">${prefix}done</div>`,
+      '#status',
+    );
+
+    expect(before['selectorText']).toBe(prefix);
+    expect(after['selectorText']).toBe(prefix);
+    expect(before['selectorFingerprint']).toMatch(/^[a-f0-9]{64}$/);
+    expect(after['selectorFingerprint']).toMatch(/^[a-f0-9]{64}$/);
+    expect(after['selectorFingerprint']).not.toBe(before['selectorFingerprint']);
+    expect(before['selectorText']).not.toContain('edit');
+    expect(after['selectorText']).not.toContain('done');
+  });
+
+  it('fingerprints full selector text when the page has no SubtleCrypto', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    const prefix = 'x'.repeat(1_000);
+
+    const before = await harness.runPageBridgeSnapshot(
+      `<div id="status">${prefix} token=alpha</div>`, '#status', { subtleCrypto: false },
+    );
+    const after = await harness.runPageBridgeSnapshot(
+      `<div id="status">${prefix} token=beta</div>`, '#status', { subtleCrypto: false },
+    );
+
+    expect(before['selectorText']).toBe(prefix);
+    expect(after['selectorText']).toBe(prefix);
+    expect(before['selectorFingerprint']).toMatch(/^[a-f0-9]{64}$/);
+    expect(after['selectorFingerprint']).toMatch(/^[a-f0-9]{64}$/);
+    expect(after['selectorFingerprint']).not.toBe(before['selectorFingerprint']);
+    expect(JSON.stringify({ before, after })).not.toContain('alpha');
+    expect(JSON.stringify({ before, after })).not.toContain('beta');
+  });
+
+  it.each([
+    { beforeSubtle: true, afterSubtle: false, direction: 'secure to insecure' },
+    { beforeSubtle: false, afterSubtle: true, direction: 'insecure to secure' },
+  ])('keeps the same extension fingerprint across $direction contexts', async ({
+    beforeSubtle, afterSubtle,
+  }) => {
+    const harness = loadBackgroundHarnessForTest();
+    const html = '<div id="status">unchanged</div>';
+
+    const before = await harness.runPageBridgeSnapshot(
+      html, '#status', { subtleCrypto: beforeSubtle },
+    );
+    const after = await harness.runPageBridgeSnapshot(
+      html, '#status', { subtleCrypto: afterSubtle },
+    );
+
+    expect(after['selectorFingerprint']).toBe(before['selectorFingerprint']);
+  });
+
+  it('uses the same visible-text fingerprint for managed and extension paths', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    const extension = await harness.runPageBridgeSnapshot(
+      '<div id="status">Visible<span>Hidden child</span></div>',
+      '#status',
+      { innerText: 'Visible' },
+    );
+    const managedPage = {
+      $eval: async (
+        _selector: string,
+        evaluate: (element: { innerText: string; textContent: string }) => unknown,
+      ) => evaluate({
+        innerText: 'Visible', textContent: 'VisibleHidden child',
+      }),
+    };
+    const managed = await fingerprintBrowserElementText(
+      managedPage as unknown as Pick<Page, '$eval'>, '#status',
+    );
+
+    expect(extension['selectorFingerprint']).toBe(managed);
+  });
+
+  it('closes the Chrome complete-event race with a post-listener status read', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    const tab = harness.tabState(42)!;
+    harness.chrome.tabs.get.mockClear();
+    harness.chrome.tabs.get
+      .mockResolvedValueOnce({ ...tab, status: 'loading' })
+      .mockResolvedValueOnce({ ...tab, status: 'complete' });
+
+    await expect(harness.waitForTabComplete(42, 15_000)).resolves.toBeUndefined();
+
+    expect(harness.chrome.tabs.get).toHaveBeenCalledTimes(2);
   });
 
   // LT-218: browser.snapshot used to swallow a chrome.scripting.executeScript
@@ -1324,6 +2054,34 @@ describe('browser extension assets', () => {
     }));
   });
 
+  it('caps a current native-host-exit reconnect without touching tabs or reloading Chrome', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    const relayBridge = harness.bridges.find((candidate) => candidate.hostName === RELAY_HOST_NAME)!;
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    relayBridge.reconnectAttempts = 12;
+    harness.timers.setTimeout.mockClear();
+    harness.chrome.runtime.reload.mockClear();
+    harness.chrome.tabs.query.mockClear();
+    harness.chrome.tabs.reload.mockClear();
+    harness.chrome.tabs.update.mockClear();
+    harness.chrome.tabs.remove.mockClear();
+
+    relayPort.emitDisconnect('Native host has exited.');
+
+    const reconnectDelays = harness.timers.setTimeout.mock.calls
+      .map(([, delayMs]) => delayMs)
+      .filter((delayMs): delayMs is number => typeof delayMs === 'number');
+    expect(reconnectDelays).toHaveLength(1);
+    expect(reconnectDelays[0]).toBeGreaterThanOrEqual(1_000);
+    expect(reconnectDelays[0]).toBeLessThanOrEqual(5_000);
+    expect(harness.chrome.runtime.reload).not.toHaveBeenCalled();
+    expect(harness.chrome.tabs.query).not.toHaveBeenCalled();
+    expect(harness.chrome.tabs.reload).not.toHaveBeenCalled();
+    expect(harness.chrome.tabs.update).not.toHaveBeenCalled();
+    expect(harness.chrome.tabs.remove).not.toHaveBeenCalled();
+  });
+
   it('persists per-bridge status snapshots for the popup', async () => {
     const harness = loadBackgroundHarnessForTest();
     await flushPromises();
@@ -1568,8 +2326,55 @@ describe('browser extension assets', () => {
   });
 });
 
+async function captureSnapshotAcrossRedirect(marker: string): Promise<Record<string, unknown>> {
+  const harness = loadBackgroundHarnessForTest();
+  await flushPromises();
+  const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+  relayPort.postMessage.mockClear();
+  harness.chrome.tabs.get.mockImplementation(async (tabId: number) => {
+    const tab = harness.tabState(tabId);
+    return tab ? { ...tab } : undefined;
+  });
+  harness.chrome.scripting.executeScript.mockImplementation(async (
+    params: { func?: { name?: string }; args?: unknown[] },
+  ) => {
+    if (params.func?.name === 'pageBridgeScript' && params.args?.[0] === 'snapshot') {
+      const tab = harness.tabState(42)!;
+      tab.url = `https://evil.example.test/private?marker=${marker}`;
+      tab.title = marker;
+      return [{ result: {
+        title: marker,
+        text: marker,
+        selectorText: marker,
+        selectorFingerprint: 'a'.repeat(64),
+      } }];
+    }
+    return [{ result: undefined }];
+  });
+
+  relayPort.emitMessage({
+    type: 'browser_command',
+    command: {
+      id: 'snapshot-redirect-during-capture',
+      command: 'snapshot',
+      target: { tabId: 42 },
+      payload: { selector: '#status' },
+    },
+  });
+  await flushPromises();
+
+  const commandResult = relayPort.postMessage.mock.calls
+    .map((call: unknown[]) => call[0] as Record<string, unknown>)
+    .find((message) => message['type'] === 'command_result'
+      && message['commandId'] === 'snapshot-redirect-during-capture');
+  if (commandResult?.['ok'] !== true || !commandResult['result']) {
+    throw new Error('snapshot redirect harness did not produce a successful command result');
+  }
+  return commandResult['result'] as Record<string, unknown>;
+}
+
 function loadBackgroundHarnessForTest(options: {
-  additionalTabs?: Array<{ tabId: number; groupId: number }>;
+  additionalTabs?: { tabId: number; groupId: number }[];
   deletedGroupIds?: Set<number>;
   failConnectHosts?: Set<string>;
   initialGatewayEnabled?: boolean;
@@ -1713,6 +2518,12 @@ function loadBackgroundHarnessForTest(options: {
             tabsById.delete(id);
           }
         }),
+        reload: vi.fn(async (tabId: number) => {
+          const tab = tabsById.get(tabId);
+          if (tab) {
+            tab.status = 'complete';
+          }
+        }),
         ungroup: vi.fn(async (input: number | number[]) => {
           const tabIds = Array.isArray(input) ? input : [input];
           for (const tabId of tabIds) {
@@ -1737,10 +2548,12 @@ function loadBackgroundHarnessForTest(options: {
         update: vi.fn(async () => undefined),
       },
     },
-    __backgroundHarness: undefined as BrowserExtensionBackgroundHarness | undefined,
+    __backgroundHarness: undefined as (BrowserExtensionBackgroundHarness & {
+      pageBridgeScript: (...args: unknown[]) => Record<string, unknown>;
+    }) | undefined,
   };
   runInNewContext(
-    `${background}\n;globalThis.__backgroundHarness = { bridges, captureAccessibilitySnapshot, captureTabScreenshot, deriveToolbarBadgeState, forceReleaseCommandResources, markSecretTaint, reportTabInventory, selfHealIfWedged, startControlledTab, stopControlledTab, tabDebuggerChains };`,
+    `${background}\n;globalThis.__backgroundHarness = { bridges, captureAccessibilitySnapshot, captureTabScreenshot, deriveToolbarBadgeState, forceReleaseCommandResources, markSecretTaint, pageBridgeScript, reportTabInventory, selfHealIfWedged, startControlledTab, stopControlledTab, tabDebuggerChains, waitForTabComplete };`,
     context,
     { filename: 'resources/browser-extension/background.js' },
   );
@@ -1752,6 +2565,27 @@ function loadBackgroundHarnessForTest(options: {
     chrome: context.chrome,
     failConnectHosts,
     ports,
+    runPageBridgeSnapshot: async (
+      html: string,
+      selector: string,
+      snapshotOptions?: { innerText?: string; subtleCrypto?: boolean },
+    ) => {
+      const dom = new JSDOM(html, { url: 'https://example.test/' });
+      if (snapshotOptions?.innerText !== undefined) {
+        Object.defineProperty(dom.window.document.querySelector(selector), 'innerText', {
+          configurable: true,
+          value: snapshotOptions.innerText,
+        });
+      }
+      Object.assign(context, {
+        crypto: snapshotOptions?.subtleCrypto === false ? {} : globalThis.crypto,
+        document: dom.window.document,
+        location: dom.window.location,
+        TextEncoder: globalThis.TextEncoder,
+        window: dom.window,
+      });
+      return context.__backgroundHarness!.pageBridgeScript('snapshot', [selector]);
+    },
     tabState: (tabId: number) => tabsById.get(tabId),
     sendMessage: (message: unknown) => new Promise((resolve) => {
       let responded = false;
@@ -1778,7 +2612,7 @@ function createChromeEvent<TArgs extends unknown[] = unknown[]>(): {
   removeListener: ReturnType<typeof vi.fn>;
   emit: (...args: TArgs) => void;
 } {
-  const listeners: Array<(...args: TArgs) => void> = [];
+  const listeners: ((...args: TArgs) => void)[] = [];
   return {
     addListener: vi.fn((listener: (...args: TArgs) => void) => {
       listeners.push(listener);

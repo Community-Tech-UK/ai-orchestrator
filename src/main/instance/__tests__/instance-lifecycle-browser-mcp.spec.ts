@@ -53,6 +53,11 @@ const mcpInjectionMocks = vi.hoisted(() => ({
 const orchestratorToolsMocks = vi.hoisted(() => ({
   buildOrchestratorToolsMcpConfig: vi.fn(() => '{"mcpServers":{"orchestrator":{}}}'),
   getOrchestratorToolsRpcSocketPath: vi.fn<() => string | null>(() => '/tmp/harness/ot-test.sock'),
+  resolveOrchestratorToolMode: (provider?: string, toolDeferral = false) => {
+    if (!toolDeferral) return 'eager';
+    if (provider?.trim().toLowerCase() === 'codex') return 'stable';
+    return provider?.trim().toLowerCase() === 'cursor' ? 'eager' : 'deferred';
+  },
 }));
 
 const codememMocks = vi.hoisted(() => ({
@@ -97,6 +102,20 @@ vi.mock('../../mcp/mcp-multi-provider-singletons', () => ({
 
 vi.mock('../../mcp/orchestrator-tools-mcp-config', () => ({
   buildOrchestratorToolsMcpConfig: orchestratorToolsMocks.buildOrchestratorToolsMcpConfig,
+  resolveOrchestratorToolMode: orchestratorToolsMocks.resolveOrchestratorToolMode,
+}));
+
+vi.mock('../../mcp/orchestrator-tools-mcp-forwarder', () => ({
+  createOrchestratorToolsForwarderTools: () => [{ name: 'list_remote_nodes', inputSchema: {} }],
+}));
+
+vi.mock('../../mcp/orchestrator-mcp-deferral', () => ({
+  createDeferredOrchestratorTools: (tools: unknown[]) => tools,
+  measureOrchestratorToolSchemaBytes: (tools: unknown[]) => tools.length * 100,
+}));
+
+vi.mock('../../mcp/orchestrator-mcp-stable-tools', () => ({
+  createStableOrchestratorTools: (tools: unknown[]) => tools,
 }));
 
 vi.mock('../../mcp/orchestrator-tools-rpc-server', () => ({
@@ -164,7 +183,7 @@ describe('SpawnConfigBuilder — Browser Gateway MCP config', () => {
     expect(options).toHaveProperty('toolDeferral', true);
     expect(loggerMocks.info).toHaveBeenCalledWith(
       'Browser gateway tool schemas deferred',
-      expect.objectContaining({ instanceId: 'instance-codex', toolMode: 'stable', visibleToolCount: 9 }),
+      expect.objectContaining({ instanceId: 'instance-codex', toolMode: 'stable', visibleToolCount: 11 }),
     );
   });
 
@@ -365,6 +384,34 @@ describe('SpawnConfigBuilder — MCP configs route through the aio-mcp SEA + RPC
       aioMcpCliPath: FAKE_AIO_MCP_PATH,
       socketPath: FAKE_ORCHESTRATOR_TOOLS_SOCKET,
       instanceId: 'instance-tools',
+      provider: 'claude',
+    });
+  });
+
+  it('requests orchestrator tool deferral for Claude when the setting is on', () => {
+    const builder = makeBuilder({ orchestratorMcpToolDeferral: true });
+
+    builder.getMcpConfig({ type: 'local' }, 'instance-tools', 'claude');
+
+    expect(orchestratorToolsMocks.buildOrchestratorToolsMcpConfig).toHaveBeenCalledWith({
+      aioMcpCliPath: FAKE_AIO_MCP_PATH,
+      socketPath: FAKE_ORCHESTRATOR_TOOLS_SOCKET,
+      instanceId: 'instance-tools',
+      provider: 'claude',
+      toolDeferral: true,
+    });
+  });
+
+  it('keeps Cursor orchestrator tools eager even when deferral is requested', () => {
+    const builder = makeBuilder({ orchestratorMcpToolDeferral: true });
+
+    builder.getMcpConfig({ type: 'local' }, 'instance-tools', 'cursor');
+
+    expect(orchestratorToolsMocks.buildOrchestratorToolsMcpConfig).toHaveBeenCalledWith({
+      aioMcpCliPath: FAKE_AIO_MCP_PATH,
+      socketPath: FAKE_ORCHESTRATOR_TOOLS_SOCKET,
+      instanceId: 'instance-tools',
+      provider: 'cursor',
     });
   });
 
@@ -446,6 +493,7 @@ function makeBuilder(
     chromeDevtoolsAttachEnabled?: boolean;
     chromeDevtoolsAttachProfileId?: string;
     browserMcpToolDeferral?: boolean;
+    orchestratorMcpToolDeferral?: boolean;
   } = {},
 ): SpawnConfigBuilder {
   const settings = {
@@ -455,6 +503,7 @@ function makeBuilder(
       chromeDevtoolsAttachEnabled: overrides.chromeDevtoolsAttachEnabled ?? false,
       chromeDevtoolsAttachProfileId: overrides.chromeDevtoolsAttachProfileId ?? '',
       browserMcpToolDeferral: overrides.browserMcpToolDeferral ?? false,
+      orchestratorMcpToolDeferral: overrides.orchestratorMcpToolDeferral ?? false,
     }),
     get: () => undefined,
   } as unknown as SettingsManager;

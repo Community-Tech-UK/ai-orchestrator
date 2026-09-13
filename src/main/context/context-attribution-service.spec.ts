@@ -36,6 +36,8 @@ function makeDeps(overrides: Partial<ContextAttributionDeps> = {}): ContextAttri
     createDeferredBrowserTools: () => [TOOL],
     createStableBrowserTools: () => [TOOL],
     createOrchestratorTools: () => [TOOL],
+    createDeferredOrchestratorTools: () => [TOOL],
+    createStableOrchestratorTools: () => [TOOL],
     createCodememTools: () => [TOOL],
     createComputerUseTools: () => [TOOL],
     ...overrides,
@@ -89,6 +91,27 @@ describe('computeContextAttribution', () => {
     expect(deferredBucket.detail!.map((d) => d.label)).toContain('browser-gateway (deferred)');
     // Deferred surface (1 stub tool) is cheaper than eager (2 stub tools).
     expect(deferredBucket.tokens).toBeLessThan(eagerBucket.tokens);
+  });
+
+  it('measures the visible orchestrator surface, not the eager catalogue', async () => {
+    const deps = makeDeps({
+      createOrchestratorTools: () => [TOOL, TOOL],
+      createDeferredOrchestratorTools: () => [TOOL],
+    });
+    const deferredInput = makeInput();
+    deferredInput.mcpProfile = {
+      ...deferredInput.mcpProfile,
+      browserGateway: 'off',
+      orchestratorTools: 'deferred',
+    };
+    const report = await computeContextAttribution(deferredInput, deps);
+    expect(bucket(report, 'mcpToolSchemas')!.detail!.map((d) => d.label))
+      .toEqual(['orchestrator-tools (deferred)']);
+    expect(bucket(report, 'mcpToolSchemas')!.tokens).toBe(estimateTokens(JSON.stringify({
+      name: TOOL.name,
+      description: TOOL.description,
+      inputSchema: TOOL.inputSchema,
+    }), { contentKind: 'json' }));
   });
 
   it('attributes the fixed stable surface separately from dynamic deferral', async () => {

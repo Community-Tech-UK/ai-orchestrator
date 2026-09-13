@@ -1,14 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { isVisibleOutputMessage } from '../../shared/types/tool-outcome';
 import { getSettingsManager } from '../core/config/settings-manager';
-import { resolveCliType } from '../cli/adapters/adapter-factory';
 import { DEFAULT_SETTINGS } from '../../shared/types/settings.types';
 import {
   assertNodeSatisfiesPlacement,
-  assertNodeSupportsCli,
   assertRunOnNodeUsesWorkerBrowserSurface,
   buildRunOnNodePlacement,
   effectiveSpawnDepth,
+  assertNodeExecArgvPolicy,
+  resolveRunOnNodeProvider,
 } from './run-on-node-support';
 import { initializeOrchestratorToolsRpcServer } from '../mcp/orchestrator-tools-rpc-server';
 import { buildReadNodeOutputResult } from '../mcp/orchestrator-tools';
@@ -23,7 +23,11 @@ import {
   getWorkerNodeRegistry,
 } from '../remote-node';
 import { COORDINATOR_TO_NODE } from '../remote-node/worker-node-rpc';
-import { ConfigUpdateParamsSchema } from '../remote-node/rpc-schemas';
+import {
+  ConfigUpdateParamsSchema,
+  NodeExecParamsSchema,
+  NodeExecResultSchema,
+} from '../remote-node/rpc-schemas';
 import { resolveWorkerNodeTarget } from '../remote-node/worker-node-registry';
 import { sendServiceRpc } from '../remote-node/service-rpc-client';
 import { createRemoteNodeFileTransferImplementations } from '../remote-node/remote-node-file-transfer-mcp-service';
@@ -56,6 +60,9 @@ import { createDefaultLocalAiPublicOperations } from '../local-ai-guard/default-
 import { createDefaultCopilotAccountCliOperations } from '../mcp/copilot-account-cli-operations';
 
 const logger = getLogger('AppInitialization');
+// Worker Copilot diagnosis can spend 3s on identity, 5s on version, and 30s
+// on its auth probe, plus process-termination grace between stages.
+const PROVIDER_DIAGNOSTIC_RPC_TIMEOUT_MS = 45_000;
 
 function parseNonEmptyStringArray(json: string, fallback: readonly string[]): string[] {
   try {
@@ -420,14 +427,17 @@ export function createOrchestratorToolsStep(
             );
           }
           assertNodeSatisfiesPlacement(node, nodePlacement);
-          // Validate the CLI before spawning. When the caller omits provider,
-          // createInstance resolves the app default AGAINST THE COORDINATOR'S
-          // local CLI detection — a CLI the node may not have. Resolve the same
-          // default here so the mismatch is rejected with the node's actual
-          // CLI list instead of producing a silently dead instance.
-          const effectiveProvider = args.provider
-            ?? await resolveCliType(undefined, guardSettings.defaultCli);
-          assertNodeSupportsCli(node, effectiveProvider, args.provider !== undefined);
+          const effectiveProvider = await resolveRunOnNodeProvider(
+            node,
+            args.provider,
+            guardSettings.defaultCli,
+            (provider) => sendServiceRpc(
+              node.id,
+              COORDINATOR_TO_NODE.PROVIDER_DIAGNOSE,
+              { provider },
+              PROVIDER_DIAGNOSTIC_RPC_TIMEOUT_MS,
+            ),
+          );
           const allowedDirs = node.capabilities?.workingDirectories ?? [];
           const workingDirectory = args.workingDirectory || allowedDirs[0] || process.cwd();
           const instance = await instanceManager.createInstance({
@@ -436,7 +446,7 @@ export function createOrchestratorToolsStep(
             initialPrompt: args.prompt,
             yoloMode: true,
             forceNodeId: node.id,
-            provider: args.provider,
+            provider: effectiveProvider,
             modelOverride: args.model,
             ...(nodePlacement ? { nodePlacement } : {}),
             // Record spawn lineage for the recursion guard so a child that
@@ -606,6 +616,35 @@ export function createOrchestratorToolsStep(
             updatedBlocks: Object.keys(params),
             result,
           };
+        },
+        execOnNode: async (args) => {
+          const server = getWorkerNodeConnectionServer();
+          const connectedIds = new Set(server.getConnectedNodeIds());
+          const connectedNodes = getWorkerNodeRegistry().getAllNodes().filter(
+            (node) => connectedIds.has(node.id)
+              && (node.status === 'connected' || node.status === 'degraded'),
+          );
+          const resolved = resolveWorkerNodeTarget(args.node, connectedNodes);
+          if ('error' in resolved) throw new Error(resolved.error);
+          const node = connectedNodes.find((candidate) => candidate.id === resolved.nodeId);
+          if (!node || !server.isNodeConnected(node.id)) {
+            throw new Error(`Node not connected: ${args.node}`);
+          }
+          assertNodeExecArgvPolicy(args.executable, args.args);
+          const params = NodeExecParamsSchema.parse({
+            executable: args.executable,
+            args: args.args,
+            ...(args.cwd === undefined ? {} : { cwd: args.cwd }),
+            ...(args.scriptSha256 === undefined ? {} : { scriptSha256: args.scriptSha256 }),
+            ...(args.timeoutMs === undefined ? {} : { timeoutMs: args.timeoutMs }),
+          });
+          const result = NodeExecResultSchema.parse(await sendServiceRpc(
+            node.id,
+            COORDINATOR_TO_NODE.NODE_EXEC,
+            params,
+            params.timeoutMs + 5_000,
+          ));
+          return { nodeId: node.id, nodeName: node.name, ...result };
         },
         // Automation MCP tools (create/list/delete/update/postpone) — logic
         // lives in ../automations/automation-tool-impl.ts (integration-tested).

@@ -220,6 +220,13 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
     category: 'advanced',
   },
   {
+    key: 'orchestratorMcpToolDeferral',
+    label: 'Load Harness tools on demand',
+    description: 'Give new agent sessions a small core set of Harness orchestrator tools plus a search tool that loads the rest on demand, instead of injecting all ~45 tool schemas upfront. Codex uses a fixed search/describe/execute wrapper. Cursor still receives the full list. Applies at the next session spawn.',
+    type: 'boolean',
+    category: 'advanced',
+  },
+  {
     key: 'codememEnabled',
     label: 'Enable code memory',
     description: 'Let agents look up symbols and structure from a lightweight index of your code ("codemem"). Turning this off disables all the code-memory options below.',

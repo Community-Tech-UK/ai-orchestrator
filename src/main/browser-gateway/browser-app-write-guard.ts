@@ -23,6 +23,7 @@ export interface AppWriteGuardDeps {
   writeJournal?: Pick<BrowserWriteJournal, 'recordIntent' | 'recordOutcome'>;
   getLastChannelDisconnectAt?: (nodeId: string | undefined) => number | undefined;
   reliabilityEvents?: Pick<BrowserReliabilityEvents, 'record'>;
+  onJournaled?: (seq: number) => void;
 }
 
 /**
@@ -65,6 +66,9 @@ export async function guardAppStateMutation(
 
   const scan = await deps.sentinel.scan(attachment, deps.rawSendCommand);
   recordWriteOutcome(deps, attachment, journalSeq, 'succeeded', { scan });
+  if (journalSeq !== null) {
+    deps.onJournaled?.(journalSeq);
+  }
   if (scan.state === 'save_failed' || scan.state === 'session_stale') {
     recordWriteRejection(deps, attachment, scan);
     throw persistenceFailureError(scan.state, 'post_write', scan.matchedPattern);

@@ -9,6 +9,7 @@ export type BrowserExtensionCommandName =
   | 'open_tab'
   | 'close_tab'
   | 'navigate'
+  | 'reload'
   | 'click'
   | 'type'
   | 'fill_form'
@@ -234,7 +235,6 @@ export class BrowserExtensionCommandStore {
     const request = typeof queueKeyOrRequest === 'string' ? maybeRequest : queueKeyOrRequest;
     const timeoutMs = Math.max(0, Math.min(request.timeoutMs ?? 1_000, 25_000));
     return new Promise<BrowserExtensionQueuedCommand | null>((resolve) => {
-      let timeout: NodeJS.Timeout;
       const poller: CommandPoller = {
         deferHandoffConfirmation: request.deferHandoffConfirmation ?? false,
         allowBrowserCommands: request.allowBrowserCommands ?? true,
@@ -247,7 +247,7 @@ export class BrowserExtensionCommandStore {
           resolve(command);
         },
       };
-      timeout = setTimeout(() => {
+      const timeout = setTimeout(() => {
         const pollers = this.pollersFor(queueKey);
         const index = pollers.indexOf(poller);
         if (index >= 0) {

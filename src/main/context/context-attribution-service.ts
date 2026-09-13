@@ -14,7 +14,12 @@
  * Nothing here changes what is sent to any provider.
  */
 
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import path from 'node:path';
 import { COMPUTER_USE_MCP_SERVER_NAME } from '../desktop-gateway/desktop-mcp-config';
+import { nativeOwnedInstructionPaths } from '../core/config/native-instruction-ownership';
+import type { InstructionSourceKind } from '../../shared/types/instruction-source.types';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import type {
   ContextAttributionBucket,
@@ -30,10 +35,13 @@ const logger = getLogger('ContextAttribution');
 const DETAIL_LIMIT = 6;
 
 /** Which MCP tool groups are injected for this instance (handler-derived). */
+export type OrchestratorAttributionMode = boolean | 'eager' | 'deferred' | 'stable' | 'off';
+
 export interface McpInjectionProfile {
   /** 'off' when no browser gateway is injected (e.g. remote instance). */
   browserGateway: 'eager' | 'deferred' | 'stable' | 'off';
-  orchestratorTools: boolean;
+  /** `true` means eager (legacy); `false` means off. */
+  orchestratorTools: OrchestratorAttributionMode;
   codemem: boolean;
   computerUse: boolean;
 }
@@ -42,12 +50,19 @@ export interface ContextAttributionInput {
   instance: Pick<
     Instance,
     'id' | 'workingDirectory' | 'outputBuffer' | 'contextUsage'
-  >;
+  > & {
+    provider?: Instance['provider'];
+  };
   mcpProfile: McpInjectionProfile;
 }
 
 interface InstructionStackLike {
-  sources: { path: string; loaded: boolean; applied: boolean }[];
+  sources: {
+    path: string;
+    kind?: InstructionSourceKind;
+    loaded: boolean;
+    applied: boolean;
+  }[];
 }
 
 export interface ContextAttributionDeps {
@@ -57,6 +72,8 @@ export interface ContextAttributionDeps {
   createDeferredBrowserTools(): McpServerToolDefinition[];
   createStableBrowserTools(): McpServerToolDefinition[];
   createOrchestratorTools(): McpServerToolDefinition[];
+  createDeferredOrchestratorTools(): McpServerToolDefinition[];
+  createStableOrchestratorTools(): McpServerToolDefinition[];
   createCodememTools(): McpServerToolDefinition[];
   createComputerUseTools(): McpServerToolDefinition[];
 }
@@ -71,6 +88,8 @@ function defaultDeps(): ContextAttributionDeps {
   const stable = require('../browser-gateway/browser-mcp-stable-tools') as typeof import('../browser-gateway/browser-mcp-stable-tools');
   const deferral = require('../browser-gateway/browser-mcp-deferral') as typeof import('../browser-gateway/browser-mcp-deferral');
   const orchestrator = require('../mcp/orchestrator-tools-mcp-forwarder') as typeof import('../mcp/orchestrator-tools-mcp-forwarder');
+  const orchDeferral = require('../mcp/orchestrator-mcp-deferral') as typeof import('../mcp/orchestrator-mcp-deferral');
+  const orchStable = require('../mcp/orchestrator-mcp-stable-tools') as typeof import('../mcp/orchestrator-mcp-stable-tools');
   const codemem = require('../codemem/codemem-mcp-forwarder') as typeof import('../codemem/codemem-mcp-forwarder');
   const desktop = require('../desktop-gateway/desktop-mcp-tools') as typeof import('../desktop-gateway/desktop-mcp-tools');
   /* eslint-enable @typescript-eslint/no-require-imports */
@@ -85,9 +104,28 @@ function defaultDeps(): ContextAttributionDeps {
         .createDeferredBrowserMcpTools(noopClient, { onReveal: () => undefined })
         .filter((tool) => !tool.hidden),
     createOrchestratorTools: () => orchestrator.createOrchestratorToolsForwarderTools(noopClient),
+    createDeferredOrchestratorTools: () =>
+      orchDeferral
+        .createDeferredOrchestratorTools(
+          orchestrator.createOrchestratorToolsForwarderTools(noopClient),
+          { onReveal: () => undefined },
+        )
+        .filter((tool) => !tool.hidden),
+    createStableOrchestratorTools: () =>
+      orchStable.createStableOrchestratorTools(
+        orchestrator.createOrchestratorToolsForwarderTools(noopClient),
+      ),
     createCodememTools: () => codemem.createCodememForwarderTools(noopClient),
     createComputerUseTools: () => desktop.createDesktopMcpTools(noopClient),
   };
+}
+
+function resolveOrchestratorAttributionMode(
+  value: OrchestratorAttributionMode,
+): 'eager' | 'deferred' | 'stable' | 'off' {
+  if (value === true) return 'eager';
+  if (value === false || value === 'off') return 'off';
+  return value;
 }
 
 /** Tokens a tool table costs the client, per the estimator's JSON ratio. */
@@ -149,8 +187,26 @@ export async function computeContextAttribution(
     const stack = await deps.resolveInstructionStack({
       workingDirectory: instance.workingDirectory,
     });
+    const owned = nativeOwnedInstructionPaths({
+      provider: instance.provider,
+      sources: stack.sources.map((source) => ({
+        path: source.path,
+        kind: source.kind ?? 'custom',
+        loaded: source.loaded,
+        applied: source.applied,
+      })),
+      readFile: (filePath) => {
+        try {
+          return readFileSync(filePath, 'utf8');
+        } catch {
+          return null;
+        }
+      },
+      homeDir: homedir(),
+    });
     for (const source of stack.sources) {
       if (!source.loaded || !source.applied) continue;
+      if (owned.has(path.normalize(path.resolve(source.path)))) continue;
       try {
         const content = await deps.readFile(source.path);
         const tokens = estimateTokens(content);
@@ -191,7 +247,13 @@ export async function computeContextAttribution(
   if (mcpProfile.browserGateway === 'stable') {
     addServer('browser-gateway (stable)', deps.createStableBrowserTools);
   }
-  if (mcpProfile.orchestratorTools) addServer('orchestrator-tools', deps.createOrchestratorTools);
+  const orchestratorMode = resolveOrchestratorAttributionMode(mcpProfile.orchestratorTools);
+  if (orchestratorMode === 'eager') addServer('orchestrator-tools', deps.createOrchestratorTools);
+  else if (orchestratorMode === 'deferred') {
+    addServer('orchestrator-tools (deferred)', deps.createDeferredOrchestratorTools);
+  } else if (orchestratorMode === 'stable') {
+    addServer('orchestrator-tools (stable)', deps.createStableOrchestratorTools);
+  }
   if (mcpProfile.codemem) addServer('codemem', deps.createCodememTools);
   // LT-040: must match the registered server name, or this attribution row is
   // labelled with a name no provider config actually uses.

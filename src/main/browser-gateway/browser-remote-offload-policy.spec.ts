@@ -50,6 +50,21 @@ describe('Browser Gateway remote offload policy', () => {
     }, deps)).toEqual({ nodeId: 'linux-node', computer: 'linux-browser' });
   });
 
+  it('routes extension recovery to the selected remote computer without selecting local implicitly', () => {
+    const windows = makeNode({ id: 'windows-node', name: 'windows-pc', platform: 'win32' });
+    const deps = makeDeps({ nodes: [windows] });
+
+    expect(routeBrowserGatewayRequest('browser.recover_extension', {}, deps)).toEqual({
+      nodeId: 'windows-node',
+      computer: 'windows-pc',
+    });
+    expect(routeBrowserGatewayRequest(
+      'browser.recover_extension',
+      { computer: 'local' },
+      deps,
+    )).toEqual({ computer: 'local' });
+  });
+
   it('blocks control of a cached coordinator-local target', () => {
     const windows = makeNode({ id: 'windows-node', name: 'windows-pc', platform: 'win32' });
     const localTarget = makeTarget({ id: 'local-target', profileId: 'local-profile' });

@@ -3,6 +3,8 @@ import type {
   BrowserCreateProfileRequest,
   BrowserListAuditLogRequest,
   BrowserScreenshotRequest,
+  BrowserReloadRequest,
+  BrowserRecoverExtensionRequest,
   BrowserUpdateProfileRequest,
 } from '@contracts/types/browser';
 import type { BrowserAuditStore } from './browser-audit-store';
@@ -26,6 +28,7 @@ import type { BrowserRemoteUploadStagingResult } from './browser-remote-upload-s
 import type { BrowserReliabilityEvents } from './browser-reliability-events';
 import type { BrowserTargetPersistenceSentinel } from './browser-target-persistence-sentinel';
 import type { BrowserWriteJournal } from './browser-write-journal';
+import type { WorkerNodeRegistry } from '../remote-node/worker-node-registry';
 
 export interface BrowserGatewayContext {
   instanceId?: string;
@@ -37,6 +40,14 @@ export interface BrowserGatewayNavigateRequest extends BrowserGatewayContext {
   targetId: string;
   url: string;
 }
+
+export interface BrowserGatewayReloadRequest
+  extends BrowserGatewayContext,
+    BrowserReloadRequest {}
+
+export interface BrowserGatewayRecoverExtensionRequest
+  extends BrowserGatewayContext,
+    BrowserRecoverExtensionRequest {}
 
 export interface BrowserGatewayTargetRequest extends BrowserGatewayContext {
   profileId: string;
@@ -218,6 +229,7 @@ export interface BrowserGatewayServiceOptions {
     | 'waitFor'
     | 'queryElements'
     | 'inspectElement'
+    | 'fingerprintElementText'
     | 'click'
     | 'type'
     | 'fillForm'
@@ -227,6 +239,7 @@ export interface BrowserGatewayServiceOptions {
     | 'uploadFile'
     | 'downloadFile'
     | 'closeTarget'
+    | 'listWedgedTargets'
   >;
   extensionTabStore?: Pick<
     BrowserExtensionTabStore,
@@ -257,6 +270,17 @@ export interface BrowserGatewayServiceOptions {
   grantStore?: Pick<BrowserGrantStore, 'listGrants' | 'consumeGrant' | 'createGrant' | 'revokeGrant'>;
   approvalStore?: Pick<BrowserApprovalStore, 'createRequest' | 'getRequest' | 'listRequests' | 'resolveRequest'>;
   healthService?: Pick<BrowserHealthService, 'diagnose'>;
+  workerNodeRegistry?: Pick<WorkerNodeRegistry, 'getHealthyNodes'>;
+  sendServiceRpc?: (
+    nodeId: string,
+    method: string,
+    params?: unknown,
+    timeoutMs?: number,
+  ) => Promise<unknown>;
+  extensionRecoveryDelay?: (ms: number) => Promise<void>;
+  extensionRecoveryNow?: () => number;
+  extensionRecoveryPollTimeoutMs?: number;
+  extensionRecoveryPollIntervalMs?: number;
   /**
    * Agent credential vault (Bitwarden-backed). Optional: when absent,
    * browser.fill_credential is unavailable. Secrets resolved here never enter
@@ -299,4 +323,6 @@ export interface BrowserGatewayServiceOptions {
     nodeId: string,
     localPath: string,
   ) => Promise<BrowserRemoteUploadStagingResult>;
+  /** Test seam for the bounded post-mutation effect poll. */
+  mutationEffectDelay?: (ms: number) => Promise<void>;
 }

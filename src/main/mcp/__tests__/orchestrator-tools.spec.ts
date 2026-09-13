@@ -368,17 +368,18 @@ describe('orchestrator MCP tools', () => {
     await expect(createTools('enforce').handler({})).rejects.toThrow('EVIDENCE_CAPTURE_REQUIRED');
   });
 
-  it('describes remote worker tools with Windows PC and inspect-first language', () => {
+  it('keeps the long remote-node discovery paragraph on list_remote_nodes only', () => {
     const db = createDb();
     const tools = createOrchestratorToolDefinitions({ db, instanceId: null });
+    const listNodes = tools.find((t) => t.name === 'list_remote_nodes');
     const runOnNode = tools.find((t) => t.name === 'run_on_node');
 
-    expect(runOnNode?.description).toMatch(/Windows PC/i);
-    expect(runOnNode?.description).toMatch(/laptop|desktop/i);
-    expect(runOnNode?.description).toMatch(/Noah's laptop/i);
-    expect(runOnNode?.description).toMatch(/remote machine|other machine/i);
+    expect(listNodes?.description).toMatch(/Windows PC/i);
+    expect(listNodes?.description).toMatch(/Noah's laptop/i);
+    expect(listNodes?.description).toMatch(/before local filesystem/i);
     expect(runOnNode?.description).toMatch(/list_remote_nodes/i);
-    expect(runOnNode?.description).toMatch(/before local filesystem/i);
+    expect(runOnNode?.description).not.toMatch(/Noah's laptop/i);
+    expect(runOnNode?.description).not.toMatch(listNodes!.description!);
   });
 
   it('run_on_node forwards parsed args to the injected spawnRemoteInstance', async () => {
@@ -475,6 +476,51 @@ describe('orchestrator MCP tools', () => {
     const runOnNode = tools.find((t) => t.name === 'run_on_node');
 
     await expect(runOnNode!.handler({ prompt: 'do a thing' })).rejects.toThrow(/unavailable/);
+  });
+
+  it('exec_on_node validates and forwards an exact executable/argv request', async () => {
+    const db = createDb();
+    const calls: unknown[] = [];
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: null,
+      execOnNode: async (args) => {
+        calls.push(args);
+        return {
+          nodeId: 'node-1', nodeName: 'windows-pc', exitCode: 3,
+          stdout: 'out', stderr: 'err', stdoutTruncated: false,
+          stderrTruncated: true, durationMs: 25,
+        };
+      },
+    });
+    const execOnNode = tools.find((tool) => tool.name === 'exec_on_node');
+
+    const result = await execOnNode!.handler({
+      node: 'windows-pc', executable: 'fixture.exe', args: ['a b', '$literal'],
+      scriptSha256: 'b'.repeat(64),
+    });
+
+    expect(calls).toEqual([{
+      node: 'windows-pc', executable: 'fixture.exe',
+      args: ['a b', '$literal'], scriptSha256: 'b'.repeat(64), timeoutMs: 30_000,
+    }]);
+    expect(result).toMatchObject({ exitCode: 3, stderrTruncated: true });
+    expect(execOnNode?.description).toMatch(/shared Chrome.*coordinator/i);
+  });
+
+  it('exec_on_node rejects a shell-command field and out-of-bounds timeout at its schema boundary', async () => {
+    const db = createDb();
+    const execOnNode = createOrchestratorToolDefinitions({
+      db, instanceId: null, execOnNode: vi.fn(),
+    }).find((tool) => tool.name === 'exec_on_node')!;
+
+    await expect(execOnNode.handler({
+      node: 'windows-pc', executable: 'echo', args: [], timeoutMs: 120_001,
+      command: 'echo hello',
+    })).rejects.toThrow();
+    await expect(execOnNode.handler({
+      node: 'windows-pc', executable: 'echo', args: Array(9).fill('x'.repeat(4_096)),
+    })).rejects.toThrow(/argv exceeds/i);
   });
 
   it('download_from_node allows the implementation to choose a default local destination', async () => {

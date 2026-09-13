@@ -27,7 +27,17 @@ import {
   providerResultAfterCapture,
 } from './orchestrator-evidence-capture-result';
 import { resolveOrchestratorToolSourceContext } from './orchestrator-tool-source-context';
+import {
+  LIST_REMOTE_NODES_DESCRIPTION,
+  RUN_ON_NODE_DESCRIPTION,
+} from './orchestrator-tool-copy';
 import { createCalendarToolDefinitions, type CalendarToolDependencies } from './orchestrator-calendar-tools';
+import {
+  createNodeExecToolDefinitions,
+  type NodeExecToolContext,
+} from './orchestrator-node-exec-tools';
+
+export * from './orchestrator-node-exec-tools';
 
 const ProviderModelIdSchema = z.string().min(1).max(512);
 
@@ -108,8 +118,12 @@ export interface ListRemoteNodesResult {
 
 export type ListRemoteNodesFn = () => Promise<ListRemoteNodesResult>;
 
-export const REMOTE_NODE_DISCOVERY_HINT =
-  'Harness can use connected remote worker nodes, including Windows PCs, laptops, desktops, named machines, remote machines, other machines, and another computer, through list_remote_nodes, run_on_node, read_node_output, and terminate_node_instance. If the user names a machine or asks for work on another computer, for example "Noah\'s laptop", check list_remote_nodes before local filesystem or shell work. For browser or Android/mobile testing, inspect node capabilities and pass requiresBrowser or requiresAndroid to run_on_node so the worker receives the right testing tools. requiresBrowser means a dedicated worker-managed Chrome profile through chrome-devtools; it cannot access Browser Gateway, extension-shared tabs, or an existing logged-in Chrome tab. Keep Browser Gateway work on the coordinator and target the named computer from browser tools. Terminate finished run_on_node instances when you are done with them — idle agents hold a capacity slot on the node until terminated.';
+export {
+  EXEC_ON_NODE_DESCRIPTION,
+  LIST_REMOTE_NODES_DESCRIPTION,
+  REMOTE_NODE_DISCOVERY_HINT,
+  RUN_ON_NODE_DESCRIPTION,
+} from './orchestrator-tool-copy';
 
 export const RunOnNodeArgsSchema = z.object({
   /**
@@ -345,7 +359,7 @@ export function buildReadNodeOutputResult(opts: {
   };
 }
 
-export interface OrchestratorToolRuntimeContext extends FileTransferToolContext {
+export interface OrchestratorToolRuntimeContext extends FileTransferToolContext, NodeExecToolContext {
   db: SqliteDriver;
   instanceId?: string | null;
   ledger?: ConversationLedgerService | null;
@@ -547,8 +561,7 @@ export function createOrchestratorToolDefinitions(
     },
     {
       name: 'list_remote_nodes',
-      description:
-        `${REMOTE_NODE_DISCOVERY_HINT} Lists currently registered remote worker nodes with status, platform, supported CLIs, browser/GPU/Docker capabilities, active capacity, working directories, heartbeat, and latency. Read-only; does not spawn work.`,
+      description: LIST_REMOTE_NODES_DESCRIPTION,
       inputSchema: {
         type: 'object',
         properties: {},
@@ -567,8 +580,7 @@ export function createOrchestratorToolDefinitions(
     },
     {
       name: 'run_on_node',
-      description:
-        `${REMOTE_NODE_DISCOVERY_HINT} Run a task on a connected remote worker node, such as a Windows PC, other machine, remote machine, or another computer, by spawning an AI agent there with the given prompt. The agent runs project-lessly using the node's default working directory unless one is provided. Returns after the worker provider has started successfully; subsequent output streams asynchronously and can be inspected from the app or read with read_node_output.`,
+      description: RUN_ON_NODE_DESCRIPTION,
       inputSchema: {
         type: 'object',
         properties: {
@@ -715,6 +727,7 @@ export function createOrchestratorToolDefinitions(
         return context.terminateNodeInstances(parsed);
       },
     },
+    ...createNodeExecToolDefinitions(context),
     ...createFileTransferToolDefinitions(context),
     ...createSettingsToolDefinitions(context),
     ...createAutomationToolDefinitions(context),

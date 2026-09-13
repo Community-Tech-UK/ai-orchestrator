@@ -2,6 +2,8 @@
  * Instance Lifecycle Manager - Create, terminate, restart, and mode management
  */
 
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { EventEmitter } from 'events';
 import {
   resolveCliType,
@@ -39,6 +41,7 @@ import type {
 import { createPromptHistoryEntryId } from '../../shared/types/prompt-history.types';
 import { getLogger } from '../logging/logger';
 import { capResolvedInstructionStack } from '../core/config/instruction-cap';
+import { omitNativeOwnedInstructionStack } from '../core/config/native-instruction-ownership';
 import { resolveInstructionStack } from '../core/config/instruction-resolver';
 import { getHibernationManager } from '../process/hibernation-manager';
 import { getSessionContinuityManager } from '../session/session-continuity';
@@ -796,6 +799,9 @@ export class InstanceLifecycleManager extends EventEmitter {
   }
 
   private async resolveCliTypeForInstance(instance: Instance): Promise<CliType> {
+    if (instance.executionLocation.type === 'remote' && instance.provider !== 'auto') {
+      return instance.provider as CliType;
+    }
     const settingsAll = this.settings.getAll();
     return resolveCliType(instance.provider, settingsAll.defaultCli);
   }
@@ -1185,10 +1191,22 @@ export class InstanceLifecycleManager extends EventEmitter {
    * 3) <workDir>/.orchestrator/INSTRUCTIONS.md
    * 4) <workDir>/.claude/CLAUDE.md (legacy)
    */
-  private async loadPromptHierarchy(workDir: string): Promise<string[]> {
-    const resolution = await resolveInstructionStack({
+  private async loadPromptHierarchy(workDir: string, provider?: string): Promise<string[]> {
+    const resolved = await resolveInstructionStack({
       workingDirectory: workDir,
     });
+    const resolution = omitNativeOwnedInstructionStack(
+      resolved,
+      provider,
+      (filePath) => {
+        try {
+          return readFileSync(filePath, 'utf8');
+        } catch {
+          return null;
+        }
+      },
+      homedir(),
+    );
 
     for (const source of resolution.sources) {
       logger.debug('Resolved instruction source for instance prompt', {
@@ -1463,7 +1481,7 @@ export class InstanceLifecycleManager extends EventEmitter {
 
         // Load instruction hierarchy (skip for child instances to reduce token overhead)
         const instructionPrompts = instance.depth === 0
-          ? await this.loadPromptHierarchy(instance.workingDirectory)
+          ? await this.loadPromptHierarchy(instance.workingDirectory, config.provider)
           : [];
 
         if (signal.aborted) return;
@@ -1493,14 +1511,19 @@ export class InstanceLifecycleManager extends EventEmitter {
         const localModelTarget = config.modelRuntimeTarget?.kind === 'local-model'
           ? config.modelRuntimeTarget
           : null;
+        const executionLocation = resolveExecutionLocation(config);
+        const preserveForcedRemoteProvider = executionLocation.type === 'remote'
+          && config.forceNodeId !== undefined
+          && config.provider !== undefined
+          && config.provider !== 'auto';
         logger.debug('Resolving provider', {
           requested: config.provider,
-          default: settingsAll.defaultCli
+          default: settingsAll.defaultCli,
+          preserveForcedRemoteProvider,
         });
-        const resolvedCliType = await resolveCliType(
-          config.provider,
-          settingsAll.defaultCli
-        );
+        const resolvedCliType = preserveForcedRemoteProvider
+          ? config.provider as CliType
+          : await resolveCliType(config.provider, settingsAll.defaultCli);
 
         if (signal.aborted) return;
 
@@ -1512,7 +1535,6 @@ export class InstanceLifecycleManager extends EventEmitter {
           displayName: getCliDisplayName(resolvedCliType)
         });
 
-        const executionLocation = resolveExecutionLocation(config);
         const settingsModel = settingsAll.defaultModel;
         const modelSelection = await this.modelSelectionResolver.resolve({
           provider: resolvedCliType, executionTarget: executionLocation.type,

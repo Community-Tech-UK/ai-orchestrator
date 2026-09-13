@@ -25,6 +25,8 @@ import {
   BrowserPreflightTargetRequestSchema,
   BrowserManualStepRequestSchema,
   BrowserNavigateRequestSchema,
+  BrowserReloadRequestSchema,
+  BrowserRecoverExtensionRequestSchema,
   BrowserProfileRequestSchema,
   BrowserQueryElementsRequestSchema,
   BrowserRequestGrantRequestSchema,
@@ -78,6 +80,8 @@ const STRICT_NO_STRIP_METHODS: ReadonlySet<string> = new Set([
   'browser.pause_for_manual_step',
   'browser.checkpoint_save',
   'browser.checkpoint_resume',
+  'browser.reload',
+  'browser.recover_extension',
 ]);
 
 function schemaForBrowserRpcMethod(method: string): ZodType | null {
@@ -92,6 +96,10 @@ function schemaForBrowserRpcMethod(method: string): ZodType | null {
       return BrowserCloseMatchingRequestSchema;
     case 'browser.navigate':
       return BrowserNavigateRequestSchema;
+    case 'browser.reload':
+      return BrowserReloadRequestSchema;
+    case 'browser.recover_extension':
+      return BrowserRecoverExtensionRequestSchema;
     case 'browser.click':
       return BrowserClickRequestSchema;
     case 'browser.type':

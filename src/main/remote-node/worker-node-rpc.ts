@@ -51,6 +51,7 @@ export const COORDINATOR_TO_NODE = {
   TERMINAL_RESIZE: 'terminal.resize',
   TERMINAL_KILL: 'terminal.kill',
   NODE_PING: 'node.ping',
+  NODE_EXEC: 'node.exec',
   // WS15 stream durability: replay request after reconnect + cursor acks.
   STREAM_RESUME: 'node.streamResume',
   STREAM_ACK: 'node.streamAck',
@@ -83,6 +84,7 @@ export const COORDINATOR_TO_NODE = {
   // guided headful login can open it). Config stays enabled; Chrome relaunches
   // lazily on the next browser-enabled spawn.
   BROWSER_STOP_MANAGED: 'browser.stopManaged',
+  BROWSER_EXTENSION_RECOVER: 'browser.extension.recover',
   AUXILIARY_MODEL_LIST: 'auxiliaryModel.list',
   AUXILIARY_MODEL_GENERATE: 'auxiliaryModel.generate',
   AUDIO_TRANSCRIBE: 'audio.transcribe',

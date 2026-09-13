@@ -41,6 +41,17 @@ describe('MCPToolSearchService browser routing hints', () => {
     expect(hint).toContain('stay on the coordinator');
   });
 
+  it('discovers exec_on_node as exact-argv remote work with shared-Chrome limits', () => {
+    const service = new MCPToolSearchService();
+    register(service, 'orchestrator', [tool('exec_on_node', 'orchestrator')]);
+
+    const hint = service.getServerSummaries()[0]?.searchHint ?? '';
+
+    expect(hint).toContain('one executable with exact argv');
+    expect(hint).toContain('shared Chrome session');
+    expect(hint).toContain('stay on the coordinator');
+  });
+
   it('keeps Browser Gateway shared-tab work on the coordinator', () => {
     const service = new MCPToolSearchService();
     register(service, 'browser-gateway', [tool('browser.list_targets', 'browser-gateway')]);

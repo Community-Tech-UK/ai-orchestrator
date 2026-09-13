@@ -195,6 +195,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   browserAuxExtractionEnabled: false,
   // Decision 6 (fable plan review, 2026-07-13): deferred by default.
   browserMcpToolDeferral: true,
+  orchestratorMcpToolDeferral: true,
   // Spec item 5: flipped ON 2026-08-18 on the evidence check 5 actually asks for —
   // a quality comparison across two real 32-turn Claude sessions (ON and OFF),
   // judged on the delivered continuity documents rather than on the model's

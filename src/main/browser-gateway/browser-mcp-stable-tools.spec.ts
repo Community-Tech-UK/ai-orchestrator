@@ -115,7 +115,7 @@ describe('stable browser MCP discovery and authenticated RPC execution', () => {
     expect(result).toMatchObject({ content: [ { type: 'image', mimeType: 'image/png' }, { type: 'text' } ] });
     await expect(invoke(() => server, BROWSER_TOOL_EXECUTE_NAME, { name: 'browser.screenshot', arguments: {} }))
       .rejects.toThrow('directly registered core');
-    expect(stable).toHaveLength(9);
+    expect(stable).toHaveLength(11);
     expect(measureToolSchemaBytes(stable)).toBeLessThan(measureToolSchemaBytes(createBrowserMcpTools(client)) / 2);
   });
 });

@@ -307,6 +307,39 @@ export interface BrowserFindOrOpenRequest {
   computer?: string;
 }
 
+export interface BrowserRecoverExtensionRequest {
+  nodeId?: string;
+  computer?: string;
+}
+
+export interface BrowserExtensionRecoveryChannelSummary {
+  enabled: boolean;
+  running: boolean;
+  silent: boolean;
+  lastContactAt?: number;
+  lastDisconnect?: {
+    at: number;
+    reason: string;
+  };
+}
+
+export type BrowserExtensionRecoveryFailureReason =
+  | 'browser_extension_recovery_remote_node_required'
+  | 'browser_extension_recovery_node_unavailable'
+  | 'browser_extension_recovery_incident_not_confirmed'
+  | 'browser_extension_recovery_contact_baseline_missing'
+  | 'browser_extension_recovery_failed'
+  | 'browser_extension_recovery_timeout';
+
+export interface BrowserRecoverExtensionResult {
+  nodeId: string;
+  nodeName: string;
+  recoveryStatus: 'recovered' | 'timed_out' | 'failed';
+  elapsedMs: number;
+  before: BrowserExtensionRecoveryChannelSummary;
+  after: BrowserExtensionRecoveryChannelSummary;
+}
+
 export interface BrowserTargetRequest {
   profileId: string;
   targetId: string;
@@ -334,6 +367,17 @@ export interface BrowserCloseMatchingRequest {
 
 export interface BrowserNavigateRequest extends BrowserTargetRequest {
   url: string;
+}
+
+export type BrowserReloadRequest = BrowserTargetRequest;
+
+export interface BrowserReloadResult {
+  url: string;
+  title: string;
+  text: string;
+  inspectionState: BrowserTargetInspectionState;
+  textUnavailableReason?: string;
+  clockText?: string;
 }
 
 export interface BrowserScreenshotRequest extends BrowserTargetRequest {
@@ -409,6 +453,26 @@ export interface BrowserControlVerifyExpectation {
   checked?: boolean;
 }
 
+export interface BrowserMutationEffectExpectation {
+  /** CSS selector whose visible text must differ from the pre-dispatch value. */
+  selector?: string;
+  /** URL substring that must be newly present after dispatch. */
+  urlContains?: string;
+}
+
+export interface BrowserMutationEffectState {
+  url: string;
+  title: string;
+  text: string;
+  selectorText?: string;
+}
+
+export interface BrowserMutationNoEffectEvidence {
+  before: BrowserMutationEffectState;
+  after: BrowserMutationEffectState;
+  suggestedAction: 'browser.reload';
+}
+
 export interface BrowserClickRequest extends BrowserTargetRequest {
   /** CSS selector. Optional when `uid` is provided. */
   selector?: string;
@@ -416,6 +480,8 @@ export interface BrowserClickRequest extends BrowserTargetRequest {
   uid?: string;
   actionHint?: string;
   verify?: BrowserControlVerifyExpectation;
+  expectUrlChange?: boolean;
+  expectChange?: BrowserMutationEffectExpectation;
   requestId?: string;
 }
 
@@ -487,6 +553,8 @@ export interface BrowserEvaluateRequest extends BrowserTargetRequest {
   expression: string;
   awaitPromise?: boolean;
   actionHint?: string;
+  expectUrlChange?: boolean;
+  expectChange?: BrowserMutationEffectExpectation;
   requestId?: string;
 }
 

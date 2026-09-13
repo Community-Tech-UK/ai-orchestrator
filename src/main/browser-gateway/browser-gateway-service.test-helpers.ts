@@ -3,6 +3,7 @@ import type {
   BrowserAccessibilityNode,
   BrowserAuditEntry,
   BrowserApprovalRequest,
+  BrowserElementContext,
   BrowserEvaluateResult,
   BrowserPermissionGrant,
   BrowserProfile,
@@ -65,6 +66,9 @@ export function makeService(overrides: {
   navigate?: () => Promise<void>;
   screenshot?: () => Promise<string>;
   snapshot?: () => Promise<{ title: string; url: string; text: string }>;
+  inspectElement?: () => Promise<BrowserElementContext>;
+  fingerprintElementText?: () => Promise<string | undefined>;
+  listWedgedTargets?: () => string[];
   accessibilitySnapshot?: (
     profileId: string,
     targetId: string,
@@ -90,6 +94,8 @@ export function makeService(overrides: {
     url: string;
     origin: string;
     text?: string;
+    textUnavailableReason?: string;
+    inspectionState?: 'readable' | 'secret_tainted' | 'inspection_unavailable';
     screenshotBase64?: string;
     allowedOrigins: BrowserProfile['allowedOrigins'];
     updatedAt?: number;
@@ -105,6 +111,14 @@ export function makeService(overrides: {
   allowSharedTabCredentialFill?: BrowserGatewayServiceOptions['allowSharedTabCredentialFill'];
   resolvePreferredDebugPort?: (profileId: string) => number | undefined;
   stageUploadFileOnNode?: BrowserGatewayServiceOptions['stageUploadFileOnNode'];
+  mutationEffectDelay?: BrowserGatewayServiceOptions['mutationEffectDelay'];
+  healthService?: BrowserGatewayServiceOptions['healthService'];
+  workerNodeRegistry?: BrowserGatewayServiceOptions['workerNodeRegistry'];
+  sendServiceRpc?: BrowserGatewayServiceOptions['sendServiceRpc'];
+  extensionRecoveryDelay?: BrowserGatewayServiceOptions['extensionRecoveryDelay'];
+  extensionRecoveryNow?: BrowserGatewayServiceOptions['extensionRecoveryNow'];
+  extensionRecoveryPollTimeoutMs?: BrowserGatewayServiceOptions['extensionRecoveryPollTimeoutMs'];
+  extensionRecoveryPollIntervalMs?: BrowserGatewayServiceOptions['extensionRecoveryPollIntervalMs'];
   useSingleton?: boolean;
 } = {}) {
   const audits: BrowserAuditEntry[] = [];
@@ -139,10 +153,11 @@ export function makeService(overrides: {
     accessibilitySnapshot: vi.fn(overrides.accessibilitySnapshot ?? (async () => [])),
     evaluate: vi.fn(overrides.evaluate ?? (async () => ({ type: 'string', json: '"ok"' }))),
     queryElements: vi.fn(async () => []),
-    inspectElement: vi.fn(async () => ({
+    inspectElement: vi.fn(overrides.inspectElement ?? (async () => ({
       role: 'button',
       accessibleName: 'Continue',
-    })),
+    }))),
+    fingerprintElementText: vi.fn(overrides.fingerprintElementText ?? (async () => undefined)),
     click: vi.fn(async () => undefined),
     type: vi.fn(async () => undefined),
     fillForm: vi.fn(async () => undefined),
@@ -151,6 +166,7 @@ export function makeService(overrides: {
     setChecked: vi.fn(async () => undefined),
     uploadFile: vi.fn(async () => undefined),
     closeTarget: vi.fn(async () => undefined),
+    listWedgedTargets: vi.fn(overrides.listWedgedTargets ?? (() => [])),
     downloadFile: vi.fn(async () => ({
       id: 'download-1',
       url: 'http://localhost:4567/download',
@@ -263,6 +279,8 @@ export function makeService(overrides: {
         },
       ],
       text: input.text,
+      textUnavailableReason: input.textUnavailableReason,
+      inspectionState: input.inspectionState,
       screenshotBase64: input.screenshotBase64,
       attachedAt: Date.now(),
       updatedAt: Date.now(),
@@ -341,7 +359,14 @@ export function makeService(overrides: {
     autoApproveRequests: overrides.autoApproveRequests,
     resolvePreferredDebugPort: overrides.resolvePreferredDebugPort,
     stageUploadFileOnNode: overrides.stageUploadFileOnNode,
-    healthService: {
+    mutationEffectDelay: overrides.mutationEffectDelay ?? (async () => undefined),
+    workerNodeRegistry: overrides.workerNodeRegistry,
+    sendServiceRpc: overrides.sendServiceRpc,
+    extensionRecoveryDelay: overrides.extensionRecoveryDelay,
+    extensionRecoveryNow: overrides.extensionRecoveryNow,
+    extensionRecoveryPollTimeoutMs: overrides.extensionRecoveryPollTimeoutMs,
+    extensionRecoveryPollIntervalMs: overrides.extensionRecoveryPollIntervalMs,
+    healthService: overrides.healthService ?? {
       diagnose: async (): Promise<BrowserGatewayHealthReport> => ({
         status: 'ready',
         checkedAt: 1,
@@ -366,6 +391,8 @@ export function makeService(overrides: {
           locked: 0,
           errors: 0,
         },
+        renderer: 'unknown',
+        targetRenderers: [],
         mcpBridge: {
           available: true,
         },

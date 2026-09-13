@@ -53,6 +53,16 @@ import {
   nodeHasExtensionRelay,
   type BrowserPreDeliveryCapability,
 } from './browser-worker-agent-skew';
+import {
+  BrowserTargetRegistry,
+  getBrowserTargetRegistry,
+} from './browser-target-registry';
+import { getPuppeteerBrowserDriver } from './puppeteer-browser-driver';
+import {
+  aggregateBrowserRendererState,
+  classifyBrowserTargetLiveness,
+  type BrowserRendererState,
+} from './browser-target-liveness';
 
 export type BrowserGatewayHealthStatus = 'ready' | 'partial' | 'missing';
 
@@ -106,6 +116,16 @@ export interface BrowserGatewayHealthReport {
     locked: number;
     errors: number;
   };
+  renderer: BrowserRendererState;
+  targetRenderers: {
+    profileId: string;
+    targetId: string;
+    mode: 'managed' | 'existing-tab';
+    renderer: BrowserRendererState;
+    clockText?: string;
+    clockAgeSeconds?: number;
+    suggestedAction?: 'browser.reload';
+  }[];
   mcpBridge: {
     available: boolean;
   };
@@ -113,7 +133,7 @@ export interface BrowserGatewayHealthReport {
     total: number;
     ready: number;
     silent: number;
-    nodes: Array<{
+    nodes: {
       nodeId: string;
       nodeName: string;
       enabled: boolean;
@@ -134,7 +154,7 @@ export interface BrowserGatewayHealthReport {
       serviceWorkerRestarts: number;
       registration?: 'ok' | 'repaired' | 'contested' | 'error';
       lastRegistrationCheckAt?: number;
-    }>;
+    }[];
   };
   providerCapabilities: BrowserGatewayProviderCapabilities;
   providerCapabilityDetails: BrowserGatewayProviderCapabilityDetails;
@@ -150,7 +170,7 @@ export interface BrowserGatewayHealthReport {
    * `schemaMatch` false or a non-empty `missing` list means the bridge binary
    * is skewed against this build — rebuild before starting a long flow.
    */
-  mcpSessions?: Array<{
+  mcpSessions?: {
     instanceId: string;
     protocolVersion: number;
     reportedAt: number;
@@ -162,7 +182,7 @@ export interface BrowserGatewayHealthReport {
       expectedCount: number;
       missing: string[];
     };
-  }>;
+  }[];
   /** Recent disconnect/skew/rejected-write telemetry (newest last). */
   recentReliabilityEvents?: BrowserReliabilityEvent[];
   warnings: string[];
@@ -179,6 +199,8 @@ export interface BrowserHealthServiceOptions {
   >;
   toolRevealStore?: Pick<BrowserToolRevealStore, 'listSurfaces'>;
   extensionTabStore?: Pick<BrowserExtensionTabStore, 'listTabs'>;
+  targetRegistry?: Pick<BrowserTargetRegistry, 'listTargets'>;
+  listWedgedTargets?: () => string[];
   reliabilityEvents?: Pick<BrowserReliabilityEvents, 'recent'>;
   /** Overrides the whole local-extension probe (filesystem-backed by default). */
   localExtensionHealth?: () => BrowserLocalExtensionHealth;
@@ -258,6 +280,8 @@ export class BrowserHealthService {
   >;
   private readonly toolRevealStore: Pick<BrowserToolRevealStore, 'listSurfaces'>;
   private readonly extensionTabStore: Pick<BrowserExtensionTabStore, 'listTabs'>;
+  private readonly targetRegistry: Pick<BrowserTargetRegistry, 'listTargets'>;
+  private readonly listWedgedTargets: () => string[];
   private readonly reliabilityEvents: Pick<BrowserReliabilityEvents, 'recent'>;
   private readonly localExtensionHealth: () => BrowserLocalExtensionHealth;
   private readonly expectedToolSurface: () => { names: string[]; surfaceHash: string };
@@ -276,6 +300,9 @@ export class BrowserHealthService {
     this.extensionCommandStore = options.extensionCommandStore ?? getBrowserExtensionCommandStore();
     this.toolRevealStore = options.toolRevealStore ?? getBrowserToolRevealStore();
     this.extensionTabStore = options.extensionTabStore ?? getBrowserExtensionTabStore();
+    this.targetRegistry = options.targetRegistry ?? getBrowserTargetRegistry();
+    this.listWedgedTargets = options.listWedgedTargets
+      ?? (() => getPuppeteerBrowserDriver().listWedgedTargets());
     this.reliabilityEvents = options.reliabilityEvents ?? getBrowserReliabilityEvents();
     this.localExtensionHealth = options.localExtensionHealth
       ?? (() => getBrowserLocalExtensionHealth({
@@ -316,6 +343,8 @@ export class BrowserHealthService {
     const bridgeAvailable = this.mcpBridgeAvailable();
     const localExtension = this.localExtensionHealth();
     const remoteExtensions = this.getRemoteExtensionHealth();
+    const targetRenderers = this.getTargetRendererHealth();
+    const renderer = aggregateBrowserRendererState(targetRenderers);
     const expectedSurface = this.expectedToolSurface();
     const mcpSessions = this.toolRevealStore.listSurfaces().map(({ instanceId, surface }) => {
       const reportedNames = new Set(surface.names);
@@ -415,6 +444,8 @@ export class BrowserHealthService {
         locked,
         errors,
       },
+      renderer,
+      targetRenderers,
       mcpBridge: {
         available: bridgeAvailable,
       },
@@ -463,6 +494,30 @@ export class BrowserHealthService {
       recentReliabilityEvents: this.reliabilityEvents.recent(30),
       warnings,
     };
+  }
+
+  private getTargetRendererHealth(): BrowserGatewayHealthReport['targetRenderers'] {
+    const now = new Date(this.now());
+    const wedgedTargets = new Set(this.listWedgedTargets());
+    const managed = this.targetRegistry.listTargets()
+      .filter((target): target is typeof target & { profileId: string } =>
+        target.mode !== 'existing-tab' && typeof target.profileId === 'string')
+      .map((target) => ({
+        profileId: target.profileId,
+        targetId: target.id,
+        mode: 'managed' as const,
+        ...classifyBrowserTargetLiveness({
+          now,
+          managedRendererWedged: wedgedTargets.has(target.id),
+        }),
+      }));
+    const existing = this.extensionTabStore.listTabs().map((target) => ({
+      profileId: target.profileId,
+      targetId: target.targetId,
+      mode: 'existing-tab' as const,
+      ...classifyBrowserTargetLiveness({ text: target.text, now }),
+    }));
+    return [...managed, ...existing];
   }
 
   private isRunning(profile: BrowserProfile): boolean {
@@ -560,7 +615,7 @@ export class BrowserHealthService {
   }
 }
 
-function latestTimestamp(...values: Array<number | undefined>): number | undefined {
+function latestTimestamp(...values: (number | undefined)[]): number | undefined {
   const timestamps = values.filter((value): value is number => typeof value === 'number');
   return timestamps.length > 0 ? Math.max(...timestamps) : undefined;
 }

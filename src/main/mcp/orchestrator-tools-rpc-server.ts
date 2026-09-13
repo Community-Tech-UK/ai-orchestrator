@@ -18,6 +18,7 @@ import {
   createOrchestratorToolDefinitions,
   CreateAutomationArgsSchema,
   DeleteAutomationArgsSchema,
+  ExecOnNodeArgsSchema,
   GitBatchPullArgsSchema,
   ListAutomationsArgsSchema,
   ListRemoteNodesArgsSchema,
@@ -28,6 +29,7 @@ import {
   UpdateAutomationArgsSchema,
   type CreateAutomationFn,
   type DeleteAutomationFn,
+  type ExecOnNodeFn,
   type FileTransferToolContext,
   type ListAutomationsFn,
   type ListRemoteNodesFn,
@@ -85,8 +87,8 @@ const logger = getLogger('OrchestratorToolsRpcServer');
 
 /** Per-surface tool scoping for spawn-depth defense-in-depth. */
 const ORCHESTRATOR_TOOLSETS = createToolsetRegistry([
-  { name: 'orchestrator-tools-full', tools: ['git_batch_pull', 'list_remote_nodes', 'run_on_node', 'read_node_output', ...FILE_TRANSFER_TOOL_NAMES, 'list_settings', 'get_setting', 'set_setting', 'reset_setting', 'update_node_config', 'create_automation', 'list_automations', 'delete_automation', 'update_automation', 'postpone_automation', 'request_doc_review', 'get_doc_review_result', ...CALENDAR_TOOL_NAMES, 'evidence_list', 'evidence_search', 'evidence_read', 'evidence_compare', 'evidence_verify'] },
-  { name: 'orchestrator-tools-leaf', includes: ['orchestrator-tools-full'], tools: ['!run_on_node'] },
+  { name: 'orchestrator-tools-full', tools: ['git_batch_pull', 'list_remote_nodes', 'run_on_node', 'exec_on_node', 'read_node_output', ...FILE_TRANSFER_TOOL_NAMES, 'list_settings', 'get_setting', 'set_setting', 'reset_setting', 'update_node_config', 'create_automation', 'list_automations', 'delete_automation', 'update_automation', 'postpone_automation', 'request_doc_review', 'get_doc_review_result', ...CALENDAR_TOOL_NAMES, 'evidence_list', 'evidence_search', 'evidence_read', 'evidence_compare', 'evidence_verify'] },
+  { name: 'orchestrator-tools-leaf', includes: ['orchestrator-tools-full'], tools: ['!run_on_node', '!exec_on_node'] },
 ]);
 
 const DEFAULT_MAX_PAYLOAD_BYTES = 256 * 1024;
@@ -134,6 +136,8 @@ export interface OrchestratorToolsRpcServerOptions extends FileTransferToolConte
   listRemoteNodes?: ListRemoteNodesFn | null;
   /** Backs `run_on_node`; injected to avoid importing instance/remote-node singletons. */
   spawnRemoteInstance?: SpawnRemoteInstanceFn | null;
+  /** Backs `exec_on_node`; service-scoped worker node.exec only. */
+  execOnNode?: ExecOnNodeFn | null;
   readInstanceOutput?: ReadInstanceOutputFn | null;
   /** Backs `terminate_node_instance`. */
   terminateNodeInstances?: TerminateNodeInstancesFn | null;
@@ -187,6 +191,7 @@ export class OrchestratorToolsRpcServer {
   private readonly listRemoteNodes: ListRemoteNodesFn | null;
   private readonly fileTransferTools: FileTransferToolContext;
   private readonly spawnRemoteInstance: SpawnRemoteInstanceFn | null;
+  private readonly execOnNode: ExecOnNodeFn | null;
   private readonly readInstanceOutput: ReadInstanceOutputFn | null;
   private readonly terminateNodeInstances: TerminateNodeInstancesFn | null;
   private readonly settingsManager: SettingsManagerForTools | null;
@@ -241,6 +246,7 @@ export class OrchestratorToolsRpcServer {
       collectBrowserDownload: options.collectBrowserDownload ?? null,
     };
     this.spawnRemoteInstance = options.spawnRemoteInstance ?? null;
+    this.execOnNode = options.execOnNode ?? null;
     this.readInstanceOutput = options.readInstanceOutput ?? null;
     this.terminateNodeInstances = options.terminateNodeInstances ?? null;
     this.settingsManager = options.settingsManager ?? null;
@@ -361,6 +367,13 @@ export class OrchestratorToolsRpcServer {
         if (!tool) {
           throw new Error('run_on_node tool unavailable');
         }
+        return tool.handler(validated);
+      }
+      case 'orchestrator_tools.exec_on_node': {
+        const validated = ExecOnNodeArgsSchema.parse(params.payload);
+        const tools = this.getToolsForInstance(params.instanceId);
+        const tool = tools.find((t) => t.name === 'exec_on_node');
+        if (!tool) throw new Error('exec_on_node tool unavailable');
         return tool.handler(validated);
       }
       case 'orchestrator_tools.read_node_output': {
@@ -666,6 +679,7 @@ export class OrchestratorToolsRpcServer {
         listRemoteNodes: this.listRemoteNodes,
         ...this.fileTransferTools,
         spawnRemoteInstance: this.spawnRemoteInstance,
+        execOnNode: this.execOnNode,
         readInstanceOutput: this.readInstanceOutput,
         terminateNodeInstances: this.terminateNodeInstances,
         settingsManager: this.settingsManager,
@@ -693,6 +707,7 @@ export class OrchestratorToolsRpcServer {
       listRemoteNodes: this.listRemoteNodes,
       ...this.fileTransferTools,
       spawnRemoteInstance: this.spawnRemoteInstance,
+      execOnNode: this.execOnNode,
       readInstanceOutput: this.readInstanceOutput,
       terminateNodeInstances: this.terminateNodeInstances,
       settingsManager: this.settingsManager,
@@ -711,7 +726,7 @@ export class OrchestratorToolsRpcServer {
   }
 
   /**
-   * Strip spawn-capable tools (`run_on_node`) from instances that have reached
+   * Strip recursive node tools from instances that have reached
    * the spawn-depth limit (#18a/#19). No-op when no eligibility resolver is
    * wired or the instance is still allowed to spawn.
    */
@@ -723,7 +738,7 @@ export class OrchestratorToolsRpcServer {
       return tools;
     }
     // Strip exactly the tools that the leaf toolset removes from the full set
-    // (i.e. run_on_node) — never drop unrelated/future tools.
+    // (run_on_node and exec_on_node) — never drop unrelated/future tools.
     const leaf = new Set(ORCHESTRATOR_TOOLSETS.resolve('orchestrator-tools-leaf'));
     const stripped = new Set(
       ORCHESTRATOR_TOOLSETS.resolve('orchestrator-tools-full').filter((t) => !leaf.has(t)),

@@ -1,31 +1,18 @@
-import type {
-  BrowserApprovalRequest,
-  BrowserGatewayResult,
-  BrowserPermissionGrant,
-  BrowserDownloadFileResult,
-} from '@contracts/types/browser';
+import type { BrowserApprovalRequest, BrowserGatewayResult, BrowserPermissionGrant,
+  BrowserDownloadFileResult } from '@contracts/types/browser';
 import type { BrowserExistingTabAttachment } from './browser-extension-tab-store';
-import type {
-  BrowserExtensionCommandName,
-  BrowserExtensionCommandStore,
-} from './browser-extension-command-store';
-import {
-  BROWSER_EXTENSION_CHANNEL_RECOVERY_WAIT_MS,
-  browserExtensionQueueKeyForNode,
-} from './browser-extension-command-store';
+import type { BrowserExtensionCommandName,
+  BrowserExtensionCommandStore } from './browser-extension-command-store';
+import { BROWSER_EXTENSION_CHANNEL_RECOVERY_WAIT_MS,
+  browserExtensionQueueKeyForNode } from './browser-extension-command-store';
 import { stampSecretObservationProtection } from './browser-secret-observation-protection';
-import type {
-  BrowserExtensionTabAttachOptions,
-  BrowserExtensionTabStore,
-} from './browser-extension-tab-store';
+import type { BrowserExtensionTabAttachOptions,
+  BrowserExtensionTabStore } from './browser-extension-tab-store';
 import type { BrowserGrantStore } from './browser-grant-store';
 import type { BrowserApprovalStore } from './browser-approval-store';
 import type { BrowserGatewayResultInput } from './browser-gateway-result';
-import type {
-  BrowserGatewayNavigateRequest,
-  BrowserGatewayScreenshotRequest,
-  BrowserGatewayTargetRequest,
-} from './browser-gateway-service-types';
+import type { BrowserGatewayNavigateRequest, BrowserGatewayScreenshotRequest,
+  BrowserGatewayTargetRequest } from './browser-gateway-service-types';
 import type { BrowserSnapshot } from './puppeteer-browser-driver';
 import { isOriginAllowed } from './browser-origin-policy';
 import { isMutatingBrowserCommand } from './browser-mutation-safety';
@@ -38,10 +25,7 @@ import {
   readTimeoutError,
   receiptMissingError,
 } from './browser-extension-command-failures';
-import {
-  allowedOriginFromUrl,
-  extractTabPayload,
-} from './browser-gateway-service-helpers';
+import { allowedOriginFromUrl, extractTabPayload } from './browser-gateway-service-helpers';
 import { providerFromContext } from './browser-provider';
 import { findMatchingBrowserGrant } from './browser-grant-policy';
 import { boundBrowserText } from './browser-redaction';
@@ -244,6 +228,7 @@ export class BrowserExistingTabOperations {
     command: BrowserExtensionCommandName,
     payload?: Record<string, unknown>,
     timeoutMs = 30_000,
+    onJournaled?: (seq: number) => void,
   ): Promise<unknown> {
     const sentinel = this.deps.persistenceSentinel;
     if (!sentinel || !isAppStateMutatingCommand(command)) {
@@ -263,12 +248,28 @@ export class BrowserExistingTabOperations {
         ...(this.deps.reliabilityEvents
           ? { reliabilityEvents: this.deps.reliabilityEvents }
           : {}),
+        ...(onJournaled ? { onJournaled } : {}),
       },
       attachment,
       command,
       payload,
       () => this.dispatchCommand(attachment, command, payload, timeoutMs),
     );
+  }
+
+  recordFinalMutationFailure(
+    attachment: BrowserExistingTabAttachment,
+    seq: number | undefined,
+    reason: string,
+  ): void {
+    if (seq === undefined) return;
+    void this.deps.writeJournal?.recordOutcome({
+      profileId: attachment.profileId,
+      targetId: attachment.targetId,
+      seq,
+      outcome: 'failed',
+      reason,
+    }).catch(() => undefined);
   }
 
   private readonly rawSendCommand = (

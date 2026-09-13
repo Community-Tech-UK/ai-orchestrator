@@ -662,6 +662,28 @@ describe('createInstance spawn transaction rollback', () => {
     }));
   });
 
+  it('preserves an explicit provider for forced remote placement without local re-resolution', async () => {
+    const harness = makeHarness();
+    const adapter = makeFakeAdapter();
+    mocks.createAdapter.mockReturnValue(adapter);
+    mocks.resolveExecutionLocation.mockReturnValue({ type: 'remote', nodeId: 'node-win' });
+    mocks.resolveCliType.mockResolvedValue('claude');
+
+    const instance = await harness.manager.createInstance({
+      workingDirectory: '/tmp/project',
+      provider: 'cursor',
+      forceNodeId: 'node-win',
+    });
+    await instance.readyPromise;
+
+    expect(mocks.resolveCliType).not.toHaveBeenCalled();
+    expect(instance.provider).toBe('cursor');
+    expect(mocks.createAdapter).toHaveBeenCalledWith(expect.objectContaining({
+      cliType: 'cursor',
+      executionLocation: { type: 'remote', nodeId: 'node-win' },
+    }));
+  });
+
   it('keeps recovery creation private until explicit publication', async () => {
     const harness = makeHarness();
     const adapter = makeFakeAdapter();

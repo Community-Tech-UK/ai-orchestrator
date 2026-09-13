@@ -1114,6 +1114,86 @@ describe('WorkerAgent', () => {
     });
   });
 
+  it('owns extension-relay recovery and emits a fresh heartbeat without touching Chrome or a CLI', async () => {
+    const config: WorkerConfig = {
+      ...mockConfig,
+      extensionRelay: {
+        enabled: true,
+        socketPath: '/tmp/aio-extension-relay-recovery.sock',
+        extensionToken: 'placeholder-extension-token',
+        legacyNameRegistration: false,
+      },
+    };
+    agent = new WorkerAgent(config);
+    (agent as unknown as {
+      ws: { readyState: number; bufferedAmount: number; send: typeof wsSend; close: ReturnType<typeof vi.fn> };
+    }).ws = {
+      readyState: 1,
+      bufferedAmount: 0,
+      send: wsSend,
+      close: vi.fn(),
+    };
+    const relay = (agent as unknown as {
+      extensionRelay: {
+        restart: () => Promise<void>;
+        getSummary: () => unknown;
+      };
+    }).extensionRelay;
+    let summary = {
+      enabled: true,
+      running: true,
+      lastExtensionContactAt: 100,
+    };
+    const getSummary = vi.spyOn(relay, 'getSummary').mockImplementation(() => summary);
+    const restart = vi.spyOn(relay, 'restart').mockImplementation(async () => {
+      summary = {
+        enabled: true,
+        running: true,
+        lastExtensionContactAt: 100,
+      };
+    });
+    const browserManager = (agent as unknown as {
+      browserManager: {
+        reconfigure: (...args: unknown[]) => Promise<void>;
+        shutdown: () => Promise<void>;
+      };
+    }).browserManager;
+    const browserReconfigure = vi.spyOn(browserManager, 'reconfigure');
+    const browserShutdown = vi.spyOn(browserManager, 'shutdown');
+    extensionRegistrationMockState.checkAndRepair.mockClear();
+    vi.mocked(reportCapabilities).mockClear();
+
+    await (agent as unknown as {
+      handleRpcRequest: (msg: unknown) => Promise<void>;
+    }).handleRpcRequest({
+      jsonrpc: '2.0',
+      id: 52,
+      method: 'browser.extension.recover',
+      scope: 'service',
+      params: {},
+    });
+
+    expect(restart).toHaveBeenCalledOnce();
+    expect(extensionRegistrationMockState.checkAndRepair).toHaveBeenCalledWith(config.extensionRelay);
+    expect(vi.mocked(reportCapabilities)).toHaveBeenCalledTimes(1);
+    expect(browserReconfigure).not.toHaveBeenCalled();
+    expect(browserShutdown).not.toHaveBeenCalled();
+    expect(mockInstanceManager.spawn).not.toHaveBeenCalled();
+    const payloads = wsSend.mock.calls.map(([raw]) => JSON.parse(raw as string));
+    expect(payloads).toContainEqual(expect.objectContaining({
+      id: 52,
+      result: {
+        before: expect.objectContaining({ lastExtensionContactAt: 100 }),
+        after: expect.objectContaining({ lastExtensionContactAt: 100 }),
+      },
+    }));
+    expect(payloads).toContainEqual(expect.objectContaining({
+      method: 'node.heartbeat',
+      params: expect.objectContaining({ nodeId: config.nodeId }),
+    }));
+    getSummary.mockRestore();
+  });
+
   it('rejects Local AI health RPC without service scope before probing a local endpoint', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
