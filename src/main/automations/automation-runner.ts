@@ -38,6 +38,7 @@ import type {
   ThreadWakeupRunnerFactory,
 } from './automation-runner-types';
 import { renderWebhookPromptTemplate } from './webhook-prompt-template';
+import { classifyFinalOutputProviderLimit } from './automation-run-provider-limit';
 import {
   readAutomationModelDefaults,
   resolveAutomationSpawnTarget,
@@ -497,14 +498,18 @@ export class AutomationRunner {
 
   private completeTrackedInstance(
     instanceId: string,
-    status: Exclude<AutomationRunStatus, 'pending' | 'running'>,
-    error?: string,
+    reportedStatus: Exclude<AutomationRunStatus, 'pending' | 'running'>,
+    reportedError?: string,
     options?: { retryable?: boolean },
   ): void {
     const tracking = this.trackingByInstance.get(instanceId);
     if (!tracking) {
       return;
     }
+    // A CLI that stops on a provider limit exits cleanly with the notice as its final message.
+    const providerLimitError = reportedStatus === 'succeeded' ? classifyFinalOutputProviderLimit(tracking.lastAssistantOutput) : null;
+    const status = providerLimitError ? 'failed' : reportedStatus;
+    const error = providerLimitError ?? reportedError;
 
     this.trackingByInstance.delete(instanceId);
     this.instanceByRun.delete(tracking.runId);

@@ -14,6 +14,7 @@ import type {
 } from '../../shared/types/automation.types';
 import { emitPluginHook } from '../plugins/hook-emitter';
 import { computeRetryDelayMs } from './automation-retry';
+import { isProviderLimitRunError } from './automation-run-provider-limit';
 import { deliverRunSummaryToChannel } from './automation-runner-helpers';
 import type { RetrySchedulerCallback } from './automation-runner-types';
 
@@ -58,7 +59,9 @@ export function handleTerminalRun(
   run: AutomationRun,
   options?: { retryable?: boolean },
 ): void {
-  const retryable = options?.retryable ?? true;
+  // A provider-limit failure is never auto-retried: a retry would hit the same limit, and
+  // could duplicate an opt-in park-resume. The next scheduled fire is the recovery.
+  const retryable = (options?.retryable ?? true) && !isProviderLimitRunError(run.error);
   host.events.emitRunChanged({ automationId: run.automationId, run });
   host.events.emitRunTerminal({
     automationId: run.automationId,
