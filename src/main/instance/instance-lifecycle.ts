@@ -2085,7 +2085,12 @@ export class InstanceLifecycleManager extends EventEmitter {
         await initializeInstanceEvidenceOwnership(instance, this.settings.getAll());
 
         if (sessionState) {
-          restoreWokenOutputBuffer(instance, sessionState.conversationHistory, Date.now());
+          restoreWokenOutputBuffer(
+            instance,
+            sessionState.conversationHistory,
+            Date.now(),
+            this.settings.getAll().outputBufferSize,
+          );
         }
 
         if (signal.aborted) return;

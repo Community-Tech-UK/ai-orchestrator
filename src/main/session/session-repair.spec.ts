@@ -66,6 +66,91 @@ describe('validateTranscript', () => {
     expect(result.entries).toHaveLength(2);
   });
 
+  it('pairs a call with a result that arrives after interleaved assistant text', () => {
+    // Copilot/ACP: the call, a narration chunk, then the result for that call.
+    const history = [
+      entry({ role: 'user', content: 'check the branch' }),
+      entry({ role: 'assistant', content: '', toolUse: { kind: 'call', toolName: 'bash', callId: 'c1', input: {} } }),
+      entry({ role: 'assistant', content: 'Checking the branch now.' }),
+      entry({ role: 'tool', content: 'main', toolUse: { kind: 'result', toolName: 'bash', resultForCallId: 'c1', input: null } }),
+    ];
+
+    const result = validateTranscript(history);
+
+    expect(result.status).toBe('ok');
+    expect(result.entries).toEqual(history);
+  });
+
+  it('pairs parallel id-less calls with results later in the same turn', () => {
+    const history = [
+      entry({ role: 'user', content: 'read both files', timestamp: 1 }),
+      entry({ role: 'assistant', content: '', toolUse: { toolName: 'read', input: { path: 'a' } }, timestamp: 2 }),
+      entry({ role: 'assistant', content: '', toolUse: { toolName: 'read', input: { path: 'b' } }, timestamp: 3 }),
+      entry({ role: 'tool', content: 'a body', timestamp: 4 }),
+      entry({ role: 'tool', content: 'b body', timestamp: 5 }),
+    ];
+
+    const result = validateTranscript(history);
+
+    expect(result.status).toBe('ok');
+    expect(result.entries).toHaveLength(5);
+  });
+
+  it('inserts a synthetic result for a call whose id never received one', () => {
+    const history = [
+      entry({ role: 'user', content: 'go', timestamp: 1 }),
+      entry({ id: 'call-a', role: 'assistant', content: '', toolUse: { kind: 'call', toolName: 'bash', callId: 'a', input: {} }, timestamp: 2 }),
+      entry({ id: 'call-b', role: 'assistant', content: '', toolUse: { kind: 'call', toolName: 'bash', callId: 'b', input: {} }, timestamp: 3 }),
+      entry({ role: 'tool', content: 'done', toolUse: { kind: 'result', toolName: 'bash', resultForCallId: 'a', input: null }, timestamp: 4 }),
+    ];
+
+    const result = validateTranscript(history);
+
+    expect(result.status).toBe('repaired');
+    expect(result.entries.map((e) => e.id)).toEqual([
+      history[0].id, 'call-a', 'call-b', 'repair-tool-result-call-b', history[3].id,
+    ]);
+    expect(result.entries[3].toolUse).toMatchObject({ kind: 'result', resultForCallId: 'b' });
+  });
+
+  it('is idempotent: a repaired transcript validates clean on the next resume', () => {
+    const history = [
+      entry({ role: 'user', content: 'go', timestamp: 1 }),
+      entry({ role: 'assistant', content: '', toolUse: { kind: 'call', toolName: 'bash', callId: 'a', input: {} }, timestamp: 2 }),
+    ];
+
+    const first = validateTranscript(history);
+    const second = validateTranscript(first.entries);
+
+    expect(first.status).toBe('repaired');
+    expect(second.status).toBe('ok');
+    expect(second.entries).toEqual(first.entries);
+  });
+
+  it('removes stale synthetic results persisted for calls that did receive a result', () => {
+    // What earlier resumes wrote: a fabricated "interrupted" row wedged between
+    // a call and narration, with the real result further down the turn.
+    const history = [
+      entry({ role: 'user', content: 'go', timestamp: 1 }),
+      entry({ id: 'call-1', role: 'assistant', content: '', toolUse: { toolName: 'view', input: {} }, timestamp: 2 }),
+      entry({
+        id: 'repair-1789237164601-1', role: 'tool', timestamp: 3,
+        content: '[Tool execution interrupted — session recovered]',
+        toolUse: { toolName: 'view', input: {}, output: '[interrupted]' },
+      }),
+      entry({ role: 'assistant', content: 'Viewing the file', timestamp: 4 }),
+      entry({ role: 'tool', content: 'file body', timestamp: 5 }),
+    ];
+
+    const result = validateTranscript(history);
+
+    expect(result.status).toBe('repaired');
+    expect(result.entries.map((e) => e.content)).toEqual(['go', '', 'Viewing the file', 'file body']);
+    expect(result.repairs).toEqual(
+      expect.arrayContaining([expect.stringContaining('stale synthetic')])
+    );
+  });
+
   it('removes empty entries with no tool_use', () => {
     const history = [
       entry({ role: 'user', content: 'hello' }),

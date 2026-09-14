@@ -76,6 +76,7 @@ interface TestableSessionContinuityManager {
   readyPromise: Promise<void>;
   waitForRecoveryDiscoveryReady(): Promise<void>;
   startTracking(instance: Instance): Promise<void>;
+  stopTracking(instanceId: string, archive?: boolean): Promise<void>;
   readPayload<T>(filePath: string): Promise<T | null>;
   deserializePayload<T>(raw: string, filePath?: string): T | null;
   getResumableSessions(): Promise<SessionState[]>;
@@ -1487,6 +1488,40 @@ describe('SessionContinuityManager logging', () => {
         timestamp: 2,
       }),
     ]);
+  });
+
+  it('persists a transcript repair made while resuming', async () => {
+    // Without marking the state dirty, the repaired history lived only in
+    // memory: a fabricated "interrupted" row stayed on disk and was repaired
+    // again on every later resume.
+    const stateDir = path.join(mockState.userDataDir, 'session-continuity', 'states');
+    await fs.promises.mkdir(stateDir, { recursive: true });
+    const state = makeState('stale-synthetic');
+    state.conversationHistory = [
+      { id: 'ask', role: 'user', content: 'check it', timestamp: 1 },
+      { id: 'call', role: 'assistant', content: '', timestamp: 2, toolUse: { toolName: 'view', input: {} } },
+      {
+        id: 'repair-1789237164601-1', role: 'tool', timestamp: 3,
+        content: '[Tool execution interrupted — session recovered]',
+        toolUse: { toolName: 'view', input: {}, output: '[interrupted]' },
+      },
+      { id: 'narration', role: 'assistant', content: 'Viewing it', timestamp: 4 },
+      { id: 'result', role: 'tool', content: 'body', timestamp: 5 },
+    ];
+    const stateFile = path.join(stateDir, 'stale-synthetic.json');
+    await fs.promises.writeFile(stateFile, createEnvelope(state));
+
+    const manager = createManager();
+    await manager.readyPromise;
+    await manager.resumeSession('stale-synthetic');
+    // Saves only when the state is dirty.
+    await manager.stopTracking('stale-synthetic', true);
+
+    const persisted = JSON.parse(
+      (JSON.parse(await fs.promises.readFile(stateFile, 'utf8')) as { data: string }).data,
+    ) as SessionState;
+    expect(persisted.conversationHistory.map((entry) => entry.id))
+      .toEqual(['ask', 'call', 'narration', 'result']);
   });
 
   it('drops tool conversation entries entirely when redaction is enabled', async () => {

@@ -1,9 +1,16 @@
 import type { ConversationData, ConversationHistoryEntry } from '../../shared/types/history.types';
 import { inferConversationHistoryProvider } from '../../shared/types/history.types';
+import type { OutputMessage } from '../../shared/types/instance.types';
 import type {
   HistoryRecoveryCoverage,
   RecoveryHistoryIdentity,
 } from '../session/session-recovery-candidate-service';
+
+// Exhaustive over the union: an unlisted type would mark every archive holding
+// it as unverified, so history could never cover a session again (LT-196).
+const OUTPUT_MESSAGE_TYPES = {
+  assistant: true, user: true, system: true, tool_use: true, tool_result: true, tool_outcome: true, error: true,
+} satisfies Record<OutputMessage['type'], true>;
 
 export async function resolveHistoryRecoveryCoverage(
   entries: readonly ConversationHistoryEntry[],
@@ -80,7 +87,7 @@ function isVerifiedConversation(
       && typeof message.id === 'string'
       && typeof message.content === 'string'
       && Number.isFinite(message.timestamp)
-      && ['assistant', 'user', 'system', 'tool_use', 'tool_result', 'error'].includes(message.type)
+      && Object.hasOwn(OUTPUT_MESSAGE_TYPES, message.type)
     ))
     && entryMatchesIdentity(conversation.entry, identity)
   );

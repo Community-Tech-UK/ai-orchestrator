@@ -105,7 +105,10 @@ import {
 } from './acp-prompt-timeout-policy';
 import { classifyMissingUsage, classifyTurnEndingFailure, describeTruncatedAcpTurn, turnEndingFailureMetadata } from './acp-transport-failure';
 import { buildRetryRecoveredMessage, buildRetryStateMessage } from './acp-retry-state';
-import { buildAcpMinableInput, buildAcpToolCallArguments, buildAcpToolOutcomeFallback, renderAcpRawOutput } from './acp-tool-call-material';
+import {
+  buildAcpMinableInput, buildAcpToolCallArguments, buildAcpToolOutcomeFallback, buildAcpToolResultMessage,
+  isAcpTerminalToolStatus, renderAcpRawOutput,
+} from './acp-tool-call-material';
 import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
 const logger = getLogger('AcpCliAdapter');
 
@@ -203,6 +206,10 @@ interface AcpObservedToolCall {
   kind: AcpToolKind;
   status: AcpToolCallStatus;
   rawInput?: Record<string, unknown>;
+  /** Latest output snapshot of an unsettled call, emitted once it settles. */
+  pendingOutput?: string;
+  /** Position of this call's output in the turn's `toolActivityChunks`. */
+  outputChunkIndex?: number;
 }
 
 type AcpPendingPromptTurn = AcpAssistantTurnState;
@@ -673,6 +680,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
       this.resolveRetryNotice(turn);
       this.emitFinalAssistantFlushes(turn);
+      this.flushUnsettledToolResults();
       if (endingFailure) {
         const truncated = describeTruncatedAcpTurn({
           adapter: this.getName(),
@@ -692,6 +700,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
     } catch (error) {
       const failure = toError(error, 'ACP prompt turn failed.');
       this.emitFinalAssistantFlushes(turn);
+      this.flushUnsettledToolResults();
       const partialText = turn.chunks.join('');
       const partialToolActivity = turn.toolActivityChunks.join('\n');
       // The prompt alone is not "partial material". `estimateAcpCliUsage()`
@@ -1483,52 +1492,69 @@ export class AcpCliAdapter extends BaseCliAdapter {
       });
     }
 
+    // Cursor never populates `content`; its results arrive in `rawOutput` only (see acp-tool-call-material.ts).
+    const renderedOutput = this.extractToolOutputText(update.content) || renderAcpRawOutput(update.rawOutput);
+    // LT-100 estimate material too (see handleToolCallCreated above). A newer
+    // snapshot replaces the call's earlier one, or the estimate would count the
+    // same output once per update.
+    let outputChunkIndex = observed?.outputChunkIndex;
+    const chunks = this.currentPrompt?.toolActivityChunks;
+    if (renderedOutput && chunks) {
+      if (outputChunkIndex !== undefined && outputChunkIndex < chunks.length) chunks[outputChunkIndex] = renderedOutput;
+      else outputChunkIndex = chunks.push(renderedOutput) - 1;
+    }
+    // Each update carries a whole snapshot, so only the latest is kept and it is
+    // emitted once (see buildAcpToolResultMessage). A settling update without
+    // content keeps the last snapshot seen.
+    const output = renderedOutput || observed?.pendingOutput || '';
+    const terminal = isAcpTerminalToolStatus(status);
     this.toolCalls.set(toolCallId, {
       id: toolCallId,
       title,
       kind,
       status,
       rawInput: update.rawInput ?? observed?.rawInput,
+      ...(!terminal && output ? { pendingOutput: output } : {}),
+      ...(outputChunkIndex !== undefined ? { outputChunkIndex } : {}),
     });
+    if (!terminal) return;
 
-    // Cursor never populates `content`; its results arrive in `rawOutput` only (see acp-tool-call-material.ts).
-    const renderedOutput = this.extractToolOutputText(update.content) || renderAcpRawOutput(update.rawOutput);
-    if (renderedOutput) {
-      // LT-100 estimate material too (see handleToolCallCreated above).
-      this.currentPrompt?.toolActivityChunks.push(renderedOutput);
-      this.emit('output', {
-        id: generateId(),
-        timestamp: Date.now(),
-        type: 'tool_result',
-        content: renderedOutput,
-        metadata: {
-          sessionUpdate: update.sessionUpdate,
-          toolCallId,
-          title,
-          status,
-          transport: 'acp',
-          // LT-196: outcome rides this already-correlated message; `cancelled`
-          // is neither outcome, so it is left unset and read as null.
-          ...(status === 'completed' || status === 'failed' ? { is_error: status === 'failed' } : {}),
-        },
-      } satisfies OutputMessage);
-    }
-
-    if (status === 'completed' || status === 'failed' || status === 'cancelled') {
-      const toolCall: CliToolCall = {
-        id: toolCallId,
-        name: title,
-        arguments: buildAcpToolCallArguments(kind, update.rawInput ?? observed?.rawInput),
-        // No `result` key when nothing was captured: downstream hashing fails open on absent, not on ''.
-        ...(renderedOutput ? { result: renderedOutput } : {}),
-      };
-      this.emit('tool_result', toolCall);
-      // LT-196: covers a terminal call that rendered no output (see helper).
-      const fallback = buildAcpToolOutcomeFallback(
-        { toolCallId, status, title, hasRenderedOutput: Boolean(renderedOutput) },
+    if (output) {
+      this.emit('output', buildAcpToolResultMessage(
+        { toolCallId, title, status, sessionUpdate: update.sessionUpdate, output },
         generateId(), Date.now(),
-      );
-      if (fallback) this.emit('output', fallback);
+      ));
+    }
+    const toolCall: CliToolCall = {
+      id: toolCallId,
+      name: title,
+      arguments: buildAcpToolCallArguments(kind, update.rawInput ?? observed?.rawInput),
+      // No `result` key when nothing was captured: downstream hashing fails open on absent, not on ''.
+      ...(output ? { result: output } : {}),
+    };
+    this.emit('tool_result', toolCall);
+    // LT-196: covers a terminal call that rendered no output (see helper).
+    const fallback = buildAcpToolOutcomeFallback(
+      { toolCallId, status, title, hasRenderedOutput: Boolean(output) },
+      generateId(), Date.now(),
+    );
+    if (fallback) this.emit('output', fallback);
+  }
+
+  /**
+   * Surface the last output of calls the turn ended before they settled. Runs
+   * as the turn ends, before idle or the failure is reported; not on
+   * `terminate()`, whose callers detach listeners first.
+   */
+  private flushUnsettledToolResults(): void {
+    for (const call of this.toolCalls.values()) {
+      const output = call.pendingOutput;
+      if (!output) continue;
+      call.pendingOutput = undefined;
+      this.emit('output', buildAcpToolResultMessage(
+        { toolCallId: call.id, title: call.title, status: call.status, sessionUpdate: 'tool_call_update', output },
+        generateId(), Date.now(),
+      ));
     }
   }
 

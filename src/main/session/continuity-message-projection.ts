@@ -56,6 +56,14 @@ function metadataTokenUsage(
   return Object.keys(usage).length > 0 ? usage : undefined;
 }
 
+/**
+ * Metadata keys naming a tool call's id. `toolCallId` is the ACP adapter's key
+ * (Copilot, Cursor); without it their calls and results never correlated, and
+ * transcript repair fabricated an "interrupted" result for every call.
+ */
+const TOOL_CALL_ID_KEYS = ['id', 'toolUseId', 'tool_use_id', 'toolCallId'] as const;
+const TOOL_RESULT_FOR_KEYS = ['tool_use_id', 'toolUseId', 'toolCallId', 'id'] as const;
+
 /** Project a visible runtime message into the typed continuity representation. */
 export function outputMessageToContinuityEntry(
   message: OutputMessage,
@@ -76,10 +84,10 @@ export function outputMessageToContinuityEntry(
   const tokenUsage = metadataTokenUsage(message.metadata);
   const isCompacted = compactionFlag(message.metadata);
   const toolCallId = message.type === 'tool_use'
-    ? metadataString(message.metadata, ['id', 'toolUseId', 'tool_use_id'])
+    ? metadataString(message.metadata, TOOL_CALL_ID_KEYS)
     : undefined;
   const toolResultFor = message.type === 'tool_result'
-    ? metadataString(message.metadata, ['tool_use_id', 'toolUseId', 'id'])
+    ? metadataString(message.metadata, TOOL_RESULT_FOR_KEYS)
     : undefined;
   const explicitToolName = message.type === 'tool_use' || message.type === 'tool_result'
     ? metadataString(message.metadata, ['toolName', 'name'])
@@ -140,7 +148,7 @@ export function outputMessagesToContinuityEntries(
   const toolNamesByCallId = new Map<string, string>();
   for (const message of messages) {
     if (message.type !== 'tool_use') continue;
-    const callId = metadataString(message.metadata, ['id', 'toolUseId', 'tool_use_id']);
+    const callId = metadataString(message.metadata, TOOL_CALL_ID_KEYS);
     const toolName = metadataString(message.metadata, ['toolName', 'name']);
     if (callId && toolName) toolNamesByCallId.set(callId, toolName);
   }

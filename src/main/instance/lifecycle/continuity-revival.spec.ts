@@ -218,6 +218,42 @@ describe('reviveContinuitySession prompt retention', () => {
   });
 });
 
+describe('reviveContinuitySession doc-review buffer fidelity', () => {
+  it('revives tool traffic as typed tool messages rather than assistant/system text', async () => {
+    const { deps, createInstance } = makeDeps(0);
+    deps.resumeSession.mockResolvedValueOnce({
+      sessionId: 'sess-1',
+      workingDirectory: '/repo',
+      displayName: 'Revived',
+      conversationHistory: [
+        { id: 'ask', role: 'user', content: 'Review it.', timestamp: 1 },
+        {
+          id: 'call', role: 'assistant', content: '', timestamp: 2,
+          toolUse: { kind: 'call', toolName: 'view', callId: 'c1', input: { path: 'a.ts' } },
+        },
+        {
+          id: 'result', role: 'tool', content: 'body', timestamp: 3,
+          toolUse: { kind: 'result', toolName: 'view', resultForCallId: 'c1', input: null, output: 'body' },
+        },
+      ],
+    } as unknown as SessionState);
+
+    await reviveContinuitySession(deps, {
+      sourceInstanceId: 'src-1',
+      initialPrompt: 'continue',
+      reason: 'doc-review-submission',
+    });
+
+    const buffer = createInstance.mock.calls[0][0].initialOutputBuffer ?? [];
+    expect(buffer.map((m) => [m.id, m.type])).toEqual([
+      ['continuity-ask', 'user'],
+      ['continuity-call', 'tool_use'],
+      ['continuity-result', 'tool_result'],
+    ]);
+    expect(buffer[1].metadata).toMatchObject({ id: 'c1', toolName: 'view' });
+  });
+});
+
 describe('reviveContinuitySession crash recovery', () => {
   it('validates and starts a new native-resume instance with the lossless reconciled buffer', async () => {
     const resolved = resolvedCandidate();

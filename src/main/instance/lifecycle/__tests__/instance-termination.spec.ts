@@ -7,6 +7,11 @@ import {
   getInstanceProviderLimitHandler,
 } from '../../instance-provider-limit-handler';
 import { InstanceTerminationCoordinator, type InstanceTerminationDeps } from '../instance-termination';
+import {
+  _resetToolOutcomeStoreForTesting,
+  getToolOutcomes,
+  recordToolOutcome,
+} from '../../../learning/tool-outcome-store';
 
 function makeAdapter(): CliAdapter {
   const adapter = new EventEmitter() as EventEmitter & Partial<CliAdapter>;
@@ -349,5 +354,27 @@ describe('InstanceTerminationCoordinator', () => {
     await coordinator.terminateInstance(instance.id);
 
     expect(order).toEqual(['drain', 'archive', 'mine', 'delete']);
+  });
+
+  it('LT-196: clears tool outcomes only after archiving, including when archiving is skipped', async () => {
+    _resetToolOutcomeStoreForTesting();
+    const outcome = makeMessage('o1', 'tool_outcome', '');
+    const root = makeInstance({ id: 'root' });
+    const child = makeInstance({ id: 'child', parentId: 'root' });
+    instances.set(root.id, root);
+    instances.set(child.id, child);
+    recordToolOutcome(root.id, outcome);
+    recordToolOutcome(child.id, outcome);
+    let seenAtArchive: readonly OutputMessage[] = [];
+    deps.archiveInstance = vi.fn(async (inst: Instance) => { seenAtArchive = getToolOutcomes(inst.id); });
+    const coordinator = new InstanceTerminationCoordinator(deps);
+
+    await coordinator.terminateInstance(root.id);
+    await coordinator.terminateInstance(child.id);
+
+    expect(seenAtArchive).toEqual([outcome]);
+    expect(getToolOutcomes(root.id)).toEqual([]);
+    // A child is never archived; its records must still not outlive it.
+    expect(getToolOutcomes(child.id)).toEqual([]);
   });
 });

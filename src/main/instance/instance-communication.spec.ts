@@ -90,6 +90,7 @@ vi.mock('../browser-gateway/browser-approval-store', () => ({
 }));
 
 import { InstanceCommunicationManager } from './instance-communication';
+import { _resetToolOutcomeStoreForTesting, getToolOutcomes } from '../learning/tool-outcome-store';
 import { InstanceStateMachine } from './instance-state-machine';
 import { TokenBudgetTracker } from '../context/token-budget-tracker';
 import { AcpCliAdapter } from '../cli/adapters/acp-cli-adapter';
@@ -296,6 +297,43 @@ describe('InstanceCommunicationManager', () => {
         }),
       },
     }));
+  });
+
+  it('LT-196: holds a tool_outcome in the side store, never in outputBuffer or the event stream', async () => {
+    _resetToolOutcomeStoreForTesting();
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    const output = vi.fn();
+    manager.on('output', output);
+    const outcome = createMessage('tool_outcome', 'grep: unknown option', {
+      metadata: { tool_use_id: 'tu-1', is_error: true },
+    });
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('output', outcome);
+    await flushOutputHandlers();
+
+    expect(getToolOutcomes(instance.id)).toEqual([outcome]);
+    expect(instance.outputBuffer.some((m) => m.type === 'tool_outcome')).toBe(false);
+    expect(output).not.toHaveBeenCalled();
+    expect(emitProviderRuntimeEvent).not.toHaveBeenCalled();
+    expect(captureProviderRuntimeEvent).not.toHaveBeenCalled();
+  });
+
+  it('LT-196: does not record a child instance tool_outcome, since children are never archived', async () => {
+    _resetToolOutcomeStoreForTesting();
+    instance.parentId = 'parent-1';
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('output', createMessage('tool_outcome', '', {
+      metadata: { tool_use_id: 'tu-1', is_error: false },
+    }));
+    await flushOutputHandlers();
+
+    expect(getToolOutcomes(instance.id)).toEqual([]);
+    expect(instance.outputBuffer.some((m) => m.type === 'tool_outcome')).toBe(false);
   });
 
   it('captures a CLI user-message echo without republishing the duplicate transcript event', async () => {

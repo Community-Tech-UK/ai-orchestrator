@@ -375,6 +375,23 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
     // variable is what stops an ambient GH_HOST retargeting the child.
     env['COPILOT_GH_HOST'] = route.host;
   }
+  // The `copilot` binary has no `--effort`/`--reasoning-effort` CLI flag; it
+  // reads reasoning effort from the `COPILOT_MODEL_EFFORT` env var (docs:
+  // low/medium/high/xhigh). Models that don't support effort silently ignore
+  // it, so it's safe to always forward a recognized value. Our broader
+  // `ReasoningEffort` union carries levels Copilot doesn't know
+  // (none/minimal/max/ultra/workflow); map those down instead of forwarding
+  // an unsupported string.
+  const requestedEffort = options.reasoningEffort?.trim();
+  if (requestedEffort) {
+    const mappedEffort =
+      requestedEffort === 'minimal' ? 'low'
+        : requestedEffort === 'max' || requestedEffort === 'ultra' ? 'xhigh'
+          : requestedEffort;
+    if (mappedEffort === 'low' || mappedEffort === 'medium' || mappedEffort === 'high' || mappedEffort === 'xhigh') {
+      env['COPILOT_MODEL_EFFORT'] = mappedEffort;
+    }
+  }
   extendEnvWithRtk(env, options.rtk);
   const browserGatewayMcpServers = options.browserGatewayMcp
     ? buildBrowserGatewayAcpMcpServers(

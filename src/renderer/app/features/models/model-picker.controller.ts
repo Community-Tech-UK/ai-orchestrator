@@ -275,6 +275,20 @@ export class ModelPickerController {
       ]);
     }
 
+    if (provider === 'copilot') {
+      // The `copilot` binary reads effort from `COPILOT_MODEL_EFFORT`
+      // (low/medium/high/xhigh) and silently ignores it for models that
+      // don't support reasoning effort, so we can offer the fixed set
+      // without per-model discovery.
+      return markDefault([
+        { id: 'default', label: 'Provider', description: 'Let the provider decide' },
+        { id: 'low', label: 'Low', description: 'Faster, lighter reasoning' },
+        { id: 'medium', label: 'Medium', description: 'Balanced reasoning' },
+        { id: 'high', label: 'High', description: 'Deeper reasoning' },
+        { id: 'xhigh', label: 'Extra', description: 'Deepest reasoning (model-dependent)' },
+      ]);
+    }
+
     return [];
   }
 

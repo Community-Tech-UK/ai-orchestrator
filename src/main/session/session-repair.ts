@@ -50,6 +50,47 @@ export interface ContinuityTmpCleanupOptions {
   readPayload?: (handle: fs.promises.FileHandle) => Promise<unknown>;
 }
 
+const INTERRUPTED_TOOL_RESULT = '[Tool execution interrupted — session recovered]';
+const SYNTHETIC_ID_PREFIX = 'repair-';
+
+function isToolCall(entry: ConversationEntry): boolean {
+  return entry.role === 'assistant' && entry.toolUse != null && entry.toolUse.kind !== 'result';
+}
+
+/** A result this function fabricated on an earlier resume, persisted since. */
+function isSyntheticToolResult(entry: ConversationEntry): boolean {
+  return entry.role === 'tool'
+    && entry.id.startsWith(SYNTHETIC_ID_PREFIX)
+    && entry.content === INTERRUPTED_TOOL_RESULT;
+}
+
+/**
+ * Whether the call at `index` received a result anywhere after it.
+ *
+ * Providers do not put the result immediately after its call: parallel calls
+ * are emitted before their results, and ACP interleaves narration. A result
+ * naming a call id answers only that call. An id-less result answers any call
+ * earlier in the same turn — this can miss a genuine orphan in a parallel
+ * batch, which is harmless, whereas the old "next entry must be a result" rule
+ * fabricated an interruption for nearly every Copilot call.
+ */
+function hasToolResult(entries: readonly ConversationEntry[], index: number): boolean {
+  const callId = entries[index].toolUse?.callId;
+  let sameTurn = true;
+  for (let j = index + 1; j < entries.length; j++) {
+    const candidate = entries[j];
+    if (candidate.role === 'user') {
+      if (!callId) return false;
+      sameTurn = false;
+      continue;
+    }
+    if (candidate.role !== 'tool') continue;
+    const resultFor = candidate.toolUse?.resultForCallId;
+    if (resultFor ? resultFor === callId : sameTurn) return true;
+  }
+  return false;
+}
+
 export function validateTranscript(
   history: ConversationEntry[]
 ): TranscriptRepairResult {
@@ -58,30 +99,57 @@ export function validateTranscript(
   }
 
   const repairs: string[] = [];
-  const entries = [...history];
 
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i];
-    if (entry.toolUse && entry.role === 'assistant') {
-      const next = entries[i + 1];
-      if (!next || next.role !== 'tool') {
-        const synthetic: ConversationEntry = {
-          id: `repair-${Date.now()}-${i}`,
-          role: 'tool',
-          content: '[Tool execution interrupted — session recovered]',
-          timestamp: entry.timestamp + 1,
-          toolUse: {
-            toolName: entry.toolUse.toolName,
-            input: entry.toolUse.input,
-            output: '[interrupted]',
-          },
-        };
-        entries.splice(i + 1, 0, synthetic);
-        repairs.push(
-          `Inserted synthetic tool_result for orphaned ${entry.toolUse.toolName} at index ${i}`
-        );
-      }
+  // Earlier resumes persisted synthetic results, each directly after its call.
+  // Strip them all, then re-decide: one whose call is still unanswered is kept
+  // as-is, so a transcript validates identically on every later resume.
+  const priorSyntheticByCallId = new Map<string, ConversationEntry>();
+  const source: ConversationEntry[] = [];
+  for (const entry of history) {
+    if (isSyntheticToolResult(entry)) {
+      const previous = source[source.length - 1];
+      if (previous && isToolCall(previous)) priorSyntheticByCallId.set(previous.id, entry);
+      continue;
     }
+    source.push(entry);
+  }
+  const priorSyntheticCount = history.length - source.length;
+
+  const entries: ConversationEntry[] = [];
+  let keptSynthetic = 0;
+  for (let i = 0; i < source.length; i++) {
+    const entry = source[i];
+    entries.push(entry);
+    if (!isToolCall(entry) || hasToolResult(source, i)) continue;
+
+    const prior = priorSyntheticByCallId.get(entry.id);
+    if (prior) {
+      entries.push(prior);
+      keptSynthetic++;
+      continue;
+    }
+    const toolUse = entry.toolUse!;
+    entries.push({
+      id: `${SYNTHETIC_ID_PREFIX}tool-result-${entry.id}`,
+      role: 'tool',
+      content: INTERRUPTED_TOOL_RESULT,
+      timestamp: entry.timestamp + 1,
+      toolUse: {
+        kind: 'result',
+        toolName: toolUse.toolName,
+        input: toolUse.input,
+        ...(toolUse.callId ? { resultForCallId: toolUse.callId } : {}),
+        output: '[interrupted]',
+      },
+    });
+    repairs.push(
+      `Inserted synthetic tool_result for orphaned ${toolUse.toolName} at index ${i}`
+    );
+  }
+
+  const staleSynthetic = priorSyntheticCount - keptSynthetic;
+  if (staleSynthetic > 0) {
+    repairs.push(`Removed ${staleSynthetic} stale synthetic tool results`);
   }
 
   const beforeCount = entries.length;

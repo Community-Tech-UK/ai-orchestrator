@@ -127,6 +127,44 @@ describe('adapter factory — copilot', () => {
     expect(args).toContain('--stdio');
   });
 
+  it('sets COPILOT_MODEL_EFFORT from a recognized reasoningEffort', () => {
+    const adapter = createCliAdapter('copilot', {
+      copilotAccountRoute: legacyRoute(),
+      workingDirectory: '/tmp',
+      reasoningEffort: 'high',
+    });
+    const env = configOf(adapter).env ?? {};
+    expect(env['COPILOT_MODEL_EFFORT']).toBe('high');
+  });
+
+  it('maps out-of-range reasoningEffort values onto Copilot-supported levels', () => {
+    const minimalAdapter = createCliAdapter('copilot', {
+      copilotAccountRoute: legacyRoute(),
+      workingDirectory: '/tmp',
+      reasoningEffort: 'minimal',
+    });
+    expect((configOf(minimalAdapter).env ?? {})['COPILOT_MODEL_EFFORT']).toBe('low');
+
+    const maxAdapter = createCliAdapter('copilot', {
+      copilotAccountRoute: legacyRoute(),
+      workingDirectory: '/tmp',
+      reasoningEffort: 'max',
+    });
+    expect((configOf(maxAdapter).env ?? {})['COPILOT_MODEL_EFFORT']).toBe('xhigh');
+  });
+
+  it('does not set COPILOT_MODEL_EFFORT for unsupported reasoningEffort values or when unset', () => {
+    const noneAdapter = createCliAdapter('copilot', {
+      copilotAccountRoute: legacyRoute(),
+      workingDirectory: '/tmp',
+      reasoningEffort: 'none',
+    });
+    expect((configOf(noneAdapter).env ?? {})['COPILOT_MODEL_EFFORT']).toBeUndefined();
+
+    const unsetAdapter = createCliAdapter('copilot', { copilotAccountRoute: legacyRoute(), workingDirectory: '/tmp' });
+    expect((configOf(unsetAdapter).env ?? {})['COPILOT_MODEL_EFFORT']).toBeUndefined();
+  });
+
   it('disables Copilot ask_user in ACP mode so prompt turns stay autonomous', () => {
     const adapter = createCliAdapter('copilot', { workingDirectory: '/tmp', copilotAccountRoute: legacyRoute() });
     const args = configOf(adapter).args ?? [];

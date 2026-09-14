@@ -1119,9 +1119,10 @@ export class InstanceCommunicationManager extends EventEmitter {
       // LT-196: never enters the visible transcript. Held in a side store and
       // merged in only at archive assembly, keeping it out of `outputBuffer`,
       // disk storage, every buffer consumer and the event bus. See
-      // `tool-outcome-store.ts`.
+      // `tool-outcome-store.ts`. Children are never archived, so never mined;
+      // recording theirs would only churn the store's instance cap.
       if (message.type === 'tool_outcome') {
-        recordToolOutcome(instanceId, message);
+        if (!this.deps.getInstance(instanceId)?.parentId) recordToolOutcome(instanceId, message);
         return;
       }
       // Persist provenance before instance metadata is added below. The visible

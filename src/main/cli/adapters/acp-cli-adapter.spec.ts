@@ -488,6 +488,108 @@ describe('AcpCliAdapter', () => {
     proc.exit();
   });
 
+  it('emits one tool_result per call from ACP content snapshots, not one per update', async () => {
+    // Copilot re-sends the whole output on every `tool_call_update` (ACP
+    // replaces `content`), so emitting per update stored each call's result two
+    // or three times — frames shaped like a recorded Copilot shell call.
+    const proc = createInitializedAgentHarness();
+    const text = (value: string) => [{ type: 'content', content: { type: 'text', text: value } }];
+
+    proc.onRequest('session/prompt', (message) => {
+      const update = (payload: Record<string, unknown>) =>
+        proc.notify('session/update', { sessionId: 'sess-acp-1', update: payload });
+      update({ sessionUpdate: 'tool_call', toolCallId: 'snap', title: 'Check debounce', kind: 'execute', status: 'pending' });
+      update({ sessionUpdate: 'tool_call_update', toolCallId: 'snap', status: 'in_progress', content: text('1:export const A = 300;\n') });
+      update({ sessionUpdate: 'tool_call_update', toolCallId: 'snap', status: 'in_progress', content: text('1:export const A = 300;\n') });
+      update({
+        sessionUpdate: 'tool_call_update', toolCallId: 'snap', status: 'completed',
+        content: text('1:export const A = 300;\n<exit code 0>'),
+      });
+      // A terminal update without content keeps the last snapshot.
+      update({ sessionUpdate: 'tool_call', toolCallId: 'quiet-end', title: 'Read file', kind: 'read', status: 'pending' });
+      update({ sessionUpdate: 'tool_call_update', toolCallId: 'quiet-end', status: 'in_progress', content: text('file body') });
+      update({ sessionUpdate: 'tool_call_update', toolCallId: 'quiet-end', status: 'completed' });
+      // A call the turn ends before finishing still surfaces what it produced.
+      update({ sessionUpdate: 'tool_call', toolCallId: 'unfinished', title: 'Run build', kind: 'execute', status: 'pending' });
+      update({ sessionUpdate: 'tool_call_update', toolCallId: 'unfinished', status: 'in_progress', content: text('building…') });
+      proc.respond(message.id, { stopReason: 'end_turn' });
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, { command: process.execPath, workingDirectory: '/tmp' });
+    await adapter.spawn();
+    const outputs: { type: string; content: string; metadata?: Record<string, unknown> }[] = [];
+    adapter.on('output', (m: { type: string; content: string; metadata?: Record<string, unknown> }) => outputs.push(m));
+    const toolResultHandler = vi.fn();
+    adapter.on('tool_result', toolResultHandler);
+
+    await adapter.sendMessage({ role: 'user', content: 'go' });
+
+    const resultsFor = (id: string) =>
+      outputs.filter((o) => o.type === 'tool_result' && o.metadata?.['toolCallId'] === id);
+    expect(resultsFor('snap').map((o) => o.content)).toEqual(['1:export const A = 300;\n<exit code 0>']);
+    expect(resultsFor('snap')[0].metadata).toMatchObject({ status: 'completed', is_error: false });
+    expect(resultsFor('quiet-end').map((o) => o.content)).toEqual(['file body']);
+    expect(toolResultHandler).toHaveBeenCalledWith(expect.objectContaining({ id: 'quiet-end', result: 'file body' }));
+    // Output was rendered, so no invisible fallback outcome record is needed.
+    expect(outputs.some((o) => o.type === 'tool_outcome' && o.metadata?.['tool_use_id'] === 'quiet-end')).toBe(false);
+    expect(resultsFor('unfinished').map((o) => o.content)).toEqual(['building…']);
+    expect(resultsFor('unfinished')[0].metadata).not.toHaveProperty('is_error');
+
+    proc.exit();
+  });
+
+  it('surfaces an unsettled call once, before a failed turn rejects', async () => {
+    const proc = createInitializedAgentHarness();
+    proc.onRequest('session/prompt', (message) => {
+      const update = (payload: Record<string, unknown>) =>
+        proc.notify('session/update', { sessionId: 'sess-acp-1', update: payload });
+      update({ sessionUpdate: 'tool_call', toolCallId: 'cut-off', title: 'Run tests', kind: 'execute', status: 'pending' });
+      update({
+        sessionUpdate: 'tool_call_update', toolCallId: 'cut-off', status: 'in_progress',
+        content: [{ type: 'content', content: { type: 'text', text: '12 passing' } }],
+      });
+      proc.respondError(message.id, -32003, 'Prompt timed out');
+    });
+    const adapter = new TestAcpCliAdapter(proc, { command: process.execPath, workingDirectory: '/tmp' });
+    await adapter.spawn();
+    const events: string[] = [];
+    adapter.on('output', (m: { type: string; content: string }) => {
+      if (m.type === 'tool_result') events.push(`result:${m.content}`);
+    });
+    adapter.on('status', (status: string) => { if (status === 'idle') events.push('idle'); });
+
+    await expect(adapter.sendMessage({ role: 'user', content: 'go' })).rejects.toThrow();
+
+    expect(events.filter((e) => e.startsWith('result:'))).toEqual(['result:12 passing']);
+    proc.exit();
+  });
+
+  it('counts each call output once in the estimated usage, however many snapshots arrive', async () => {
+    const runTurn = async (snapshots: number) => {
+      const proc = createInitializedAgentHarness();
+      proc.onRequest('session/prompt', (message) => {
+        const update = (payload: Record<string, unknown>) =>
+          proc.notify('session/update', { sessionId: 'sess-acp-1', update: payload });
+        const body = [{ type: 'content', content: { type: 'text', text: 'x'.repeat(4_000) } }];
+        update({ sessionUpdate: 'tool_call', toolCallId: 'c', title: 'Read', kind: 'read', status: 'pending' });
+        for (let i = 0; i < snapshots; i++) {
+          update({ sessionUpdate: 'tool_call_update', toolCallId: 'c', status: 'in_progress', content: body });
+        }
+        update({ sessionUpdate: 'tool_call_update', toolCallId: 'c', status: 'completed', content: body });
+        proc.respond(message.id, { stopReason: 'end_turn' });
+      });
+      const adapter = new TestAcpCliAdapter(proc, { command: process.execPath, workingDirectory: '/tmp' });
+      await adapter.spawn();
+      const response = await adapter.sendMessage({ role: 'user', content: 'go' });
+      proc.exit();
+      return response.usage?.outputTokens;
+    };
+
+    const single = await runTurn(0);
+    expect(single).toBeGreaterThan(0);
+    expect(await runTurn(3)).toBe(single);
+  });
+
   it('renders Cursor rawOutput results and drops empty rawInput from tool arguments', async () => {
     // Frames recorded from a live `cursor-agent acp` session (2026-09-05):
     // grep / Read File arrive with `rawInput: {}`, and every result comes

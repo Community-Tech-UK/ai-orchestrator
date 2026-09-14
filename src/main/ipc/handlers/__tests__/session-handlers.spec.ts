@@ -1384,4 +1384,21 @@ describe('session-handlers', () => {
       expect(mockLoadConversation).toHaveBeenCalledTimes(2);
     });
   });
+
+  it('LT-196: HISTORY_LOAD never sends archived tool_outcome records to the renderer', async () => {
+    mockLoadConversation.mockResolvedValue({
+      entry: { id: 'entry-1' },
+      messages: [
+        { id: 'u1', type: 'user', content: 'Run grep', timestamp: 1 },
+        { id: 'o1', type: 'tool_outcome', content: 'grep: unknown option', timestamp: 2, metadata: { is_error: true } },
+        { id: 'a1', type: 'assistant', content: 'Fixed', timestamp: 3 },
+      ],
+    });
+
+    const result = await invoke(IPC_CHANNELS.HISTORY_LOAD, { entryId: 'entry-1' });
+
+    expect(result.success).toBe(true);
+    const messages = result.data?.['messages'] as MockOutputMessage[];
+    expect(messages.map((m) => m.id)).toEqual(['u1', 'a1']);
+  });
 });

@@ -134,6 +134,14 @@ describe('getMessagesForRestoreTranscript', () => {
   it('handles empty input', () => {
     expect(getMessagesForRestoreTranscript([])).toHaveLength(0);
   });
+
+  it('excludes LT-196 tool_outcome records, which never belong in a live buffer', () => {
+    const msgs = [
+      makeMsg({ id: '1' }),
+      makeMsg({ id: '2', type: 'tool_outcome', content: 'grep: unknown option', metadata: { tool_use_id: 't', is_error: true } }),
+    ];
+    expect(getMessagesForRestoreTranscript(msgs).map((m) => m.id)).toEqual(['1']);
+  });
 });
 
 // ── getNativeResumeSessionId ──────────────────────────────────────────────────

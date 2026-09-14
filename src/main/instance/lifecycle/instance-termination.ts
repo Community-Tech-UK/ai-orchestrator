@@ -12,6 +12,7 @@ import type { ConversationEndStatus } from '../../../shared/types/history.types'
 import type { Instance, InstanceStatus, InstanceWaitReason } from '../../../shared/types/instance.types';
 import { emitPluginHook } from '../../plugins/hook-emitter';
 import { normalizeProjectMemoryKey } from '../../memory/project-memory-key';
+import { clearToolOutcomes } from '../../learning/tool-outcome-store';
 import { deleteTurnSupervisor } from '../../session/session-turn-supervisor';
 import { getInstanceProviderLimitHandler } from '../instance-provider-limit-handler';
 import { getInstanceAuthRepairHandler } from '../instance-auth-repair-handler';
@@ -135,6 +136,7 @@ export class InstanceTerminationCoordinator {
 
     if (!instance) {
       this.deps.deleteStateMachine?.(instanceId);
+      clearToolOutcomes(instanceId);
       return;
     }
 
@@ -162,6 +164,9 @@ export class InstanceTerminationCoordinator {
     this.deps.deleteStateMachine?.(instanceId);
     deleteTurnSupervisor(instanceId);
     deleteCircuitBreaker(instanceId);
+    // LT-196: archiving (above) has already folded these in when it ran at all;
+    // a skipped or covered archive must not leave them behind either.
+    clearToolOutcomes(instanceId);
   }
 
   mineTranscript(instanceId: string, instance: Instance, source: 'terminate' | 'hibernate'): void {

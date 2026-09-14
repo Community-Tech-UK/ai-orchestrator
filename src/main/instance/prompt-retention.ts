@@ -179,21 +179,19 @@ export interface RetainableHistoryEntry {
 }
 
 /**
- * The prompts a "keep only the newest N" history truncation would discard.
+ * The prompts among history entries a rebuild chose not to restore.
  *
  * Wake and continuity-revival both rebuild a buffer from persisted history and
- * keep only its tail, which drops the opening prompt exactly as a live trim
- * does. Ids are derived from the source entry rather than generated per call,
- * so repeated wake cycles re-merge the same prompt instead of accumulating a
- * fresh copy each time.
+ * keep only a bounded window of it, which drops the opening prompt exactly as a
+ * live trim does. Ids are derived from the source entry rather than generated
+ * per call, so repeated wake cycles re-merge the same prompt instead of
+ * accumulating a fresh copy each time.
  */
-export function promptsDiscardedByTruncation(
-  history: readonly RetainableHistoryEntry[],
-  keep: number,
+export function promptsFromDiscardedEntries(
+  discarded: readonly RetainableHistoryEntry[],
   idPrefix: string,
 ): OutputMessage[] {
-  return history
-    .slice(0, Math.max(0, history.length - keep))
+  return discarded
     .filter((entry) => entry.role === 'user')
     .map((entry, idx) => ({
       id: `${idPrefix}${entry.id || idx}`,

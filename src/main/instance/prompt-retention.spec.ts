@@ -4,7 +4,7 @@ import {
   PINNED_PROMPT_LIMIT,
   findOriginalRequest,
   mergeRetainedPrompts,
-  promptsDiscardedByTruncation,
+  promptsFromDiscardedEntries,
   retainedPromptsForFork,
   retainedPromptsMissingFrom,
 } from './prompt-retention';
@@ -196,41 +196,36 @@ describe('retainedPromptsForFork', () => {
   });
 });
 
-describe('promptsDiscardedByTruncation', () => {
+describe('promptsFromDiscardedEntries', () => {
   const entry = (id: string, role: string, timestamp: number) =>
     ({ id, role, content: `${id} content`, timestamp });
 
-  it('returns the prompts a keep-newest-N truncation would drop', () => {
-    const history = [
-      entry('msg-0', 'user', 1),
-      entry('msg-1', 'assistant', 2),
-      entry('msg-2', 'user', 3),
-      entry('msg-3', 'assistant', 4),
-    ];
+  it('returns the prompts among the discarded entries as user messages', () => {
+    const discarded = [entry('msg-0', 'user', 1), entry('msg-1', 'assistant', 2)];
 
-    const dropped = promptsDiscardedByTruncation(history, 2, 'restored-prompt-');
+    const prompts = promptsFromDiscardedEntries(discarded, 'restored-prompt-');
 
-    expect(dropped.map((m) => m.id)).toEqual(['restored-prompt-msg-0']);
-    expect(dropped[0].type).toBe('user');
-    expect(dropped[0].content).toBe('msg-0 content');
+    expect(prompts.map((m) => m.id)).toEqual(['restored-prompt-msg-0']);
+    expect(prompts[0].type).toBe('user');
+    expect(prompts[0].content).toBe('msg-0 content');
   });
 
-  it('returns nothing when the history fits inside the kept window', () => {
-    expect(promptsDiscardedByTruncation([entry('msg-0', 'user', 1)], 50, 'p-')).toEqual([]);
+  it('returns nothing when nothing was discarded', () => {
+    expect(promptsFromDiscardedEntries([], 'p-')).toEqual([]);
   });
 
   it('derives stable ids so repeated wakes do not accumulate duplicates', () => {
-    const history = [entry('msg-0', 'user', 1), entry('msg-1', 'assistant', 2)];
+    const discarded = [entry('msg-0', 'user', 1)];
 
-    const first = promptsDiscardedByTruncation(history, 1, 'restored-prompt-');
-    const second = promptsDiscardedByTruncation(history, 1, 'restored-prompt-');
+    const first = promptsFromDiscardedEntries(discarded, 'restored-prompt-');
+    const second = promptsFromDiscardedEntries(discarded, 'restored-prompt-');
 
     expect(mergeRetainedPrompts(first, second)).toHaveLength(1);
   });
 
   it('ignores non-user roles', () => {
-    const history = [entry('msg-0', 'tool', 1), entry('msg-1', 'assistant', 2), entry('msg-2', 'user', 3)];
+    const discarded = [entry('msg-0', 'tool', 1), entry('msg-1', 'assistant', 2), entry('msg-2', 'user', 3)];
 
-    expect(promptsDiscardedByTruncation(history, 0, 'p-').map((m) => m.id)).toEqual(['p-msg-2']);
+    expect(promptsFromDiscardedEntries(discarded, 'p-').map((m) => m.id)).toEqual(['p-msg-2']);
   });
 });

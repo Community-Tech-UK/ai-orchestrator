@@ -901,6 +901,12 @@ export class SessionContinuityManager extends EventEmitter {
       const repairResult = validateTranscript(state.conversationHistory);
       if (repairResult.status === 'repaired') {
         state.conversationHistory = repairResult.entries;
+        // Persist the repair, or it is redone on every resume. A snapshot's
+        // state is not the tracked record, so only the tracked one is saved.
+        if (this.sessionStates.get(state.instanceId) === state) {
+          this.stateRecoveryMetadata.delete(state.instanceId);
+          this.dirty.add(state.instanceId);
+        }
         logger.info('Transcript repaired during resume', {
           identifier,
           repairs: repairResult.repairs,

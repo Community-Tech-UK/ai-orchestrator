@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ConversationHistoryEntry, ConversationData } from '../../shared/types/history.types';
 import type { OutputMessage } from '../../shared/types/instance.types';
+import { buildToolOutcomeMessage } from '../../shared/types/tool-outcome';
 import type { GovernedProposal } from '../memory/governed-proposal-store';
 import type {
   LearningScanCheckpoint,
@@ -180,6 +181,35 @@ describe('LearningScanService.runScan', () => {
     expect(proposals.captureRuleProposal).toHaveBeenCalledWith(
       expect.objectContaining({ baseCommand: 'npm', errorClass: 'UnknownFlag', occurrences: 1 }),
     );
+  });
+
+  it('LT-196: mines a Claude-shaped transcript whose outcomes are tool_outcome records, and reports 0 with no failure', async () => {
+    const outcome = (toolUseId: string, isError: boolean, text: string): OutputMessage =>
+      buildToolOutcomeMessage({ toolUseId, isError, resultText: text }, `o${seq++}`, Date.now());
+    const failing = makeEntry('e-fail', 1000);
+    const clean = makeEntry('e-clean', 2000);
+    const conversations = new Map<string, ConversationData>([
+      [failing.id, { entry: failing, messages: [
+        toolUse('npm test --flag-x', 'c1'), outcome('c1', true, "unrecognized option '--flag-x'"),
+        toolUse('npm test --flag-y', 'c2'), outcome('c2', false, ''),
+      ] }],
+      [clean.id, { entry: clean, messages: [
+        toolUse('npm test', 'c3'), outcome('c3', false, ''),
+        toolUse('npm run build', 'c4'), outcome('c4', false, ''),
+      ] }],
+    ]);
+    const service = new LearningScanService(
+      makeHistoryFake([failing, clean], conversations), makeProposalsFake(), makeCheckpointsFake(),
+    );
+
+    const mined = await service.runScan({ sessionLimit: 1 });
+    expect(mined.patternsFound).toBe(1);
+    expect(mined.error).toBeNull();
+
+    const quiet = await service.runScan({ sessionLimit: 1 });
+    expect(quiet.sessionsScanned).toBe(1);
+    expect(quiet.patternsFound).toBe(0);
+    expect(quiet.error).toBeNull();
   });
 
   it('is checkpointed: a second run only scans sessions ended after the persisted checkpoint', async () => {

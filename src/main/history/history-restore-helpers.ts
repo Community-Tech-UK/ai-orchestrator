@@ -1,5 +1,6 @@
 import type { ConversationHistoryEntry } from '../../shared/types/history.types';
 import type { InstanceProvider, OutputMessage } from '../../shared/types/instance.types';
+import { isToolOutcomeMessage } from '../../shared/types/tool-outcome';
 import { isSessionNotFoundText } from '../cli/adapters/resume-error-classifier';
 import { isLegacyRedactedToolOutput } from '../session/redacted-tool-output';
 const RESTORE_FALLBACK_NOTICE_MESSAGE = /^Previous .+ CLI session could not be restored natively\./;
@@ -42,10 +43,17 @@ export function isRestoreInfrastructureMessage(message: OutputMessage): boolean 
   return message.type === 'error' && isSessionNotFoundText(message.content);
 }
 
+/**
+ * The archived messages a restored instance may show and replay. Excludes the
+ * LT-196 `tool_outcome` record: it is held out of `outputBuffer` by design (see
+ * `tool-outcome-store.ts`), so restore re-seeds the side store instead of
+ * seeding the buffer with it.
+ */
 export function getMessagesForRestoreTranscript(messages: OutputMessage[]): OutputMessage[] {
   return (messages || []).filter(
     (message) =>
-      !isRestoreInfrastructureMessage(message)
+      !isToolOutcomeMessage(message)
+      && !isRestoreInfrastructureMessage(message)
       && !isLegacyRedactedToolOutput(message.content),
   );
 }

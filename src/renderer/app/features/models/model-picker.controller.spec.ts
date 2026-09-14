@@ -91,6 +91,14 @@ describe('ModelPickerController', () => {
     expect(controller.reasoningOptions()).toEqual([]);
   });
 
+  it('offers a fixed low/medium/high/xhigh effort set for Copilot', () => {
+    const controller = TestBed.inject(ModelPickerController);
+    const options = controller.reasoningOptionsForProvider('copilot');
+    expect(options.map((o) => o.id)).toEqual(['default', 'low', 'medium', 'high', 'xhigh']);
+    // Copilot has no app-level default effort, so no row is badged.
+    expect(options.some((o) => o.isDefault)).toBe(false);
+  });
+
   describe('disabledReasonFor', () => {
     it('disables provider switch when chat has messages and provider already set', () => {
       const controller = TestBed.inject(ModelPickerController);

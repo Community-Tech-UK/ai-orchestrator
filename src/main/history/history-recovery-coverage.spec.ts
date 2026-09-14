@@ -204,4 +204,21 @@ describe('resolveHistoryRecoveryCoverage', () => {
       messageCount: 2,
     });
   });
+
+  it('LT-196: an archive holding a tool_outcome record still counts as verified coverage', async () => {
+    const indexed = entry({ id: 'entry-with-outcome', endedAt: 300 });
+    const data = conversation(indexed, [100, 200]);
+    data.messages.push({
+      id: 'outcome-1', type: 'tool_outcome', content: '', timestamp: 250,
+      metadata: { tool_use_id: 'tu-1', is_error: false },
+    });
+
+    const coverage = await resolveHistoryRecoveryCoverage(
+      [indexed],
+      [{ recoveryKey: 'history:claude:thread-placeholder', provider: 'claude', historyThreadId: 'thread-placeholder' }],
+      async () => data,
+    );
+
+    expect(coverage.get('history:claude:thread-placeholder')?.historyEntryId).toBe('entry-with-outcome');
+  });
 });

@@ -7,8 +7,11 @@ import {
   outputMessagesToContinuityEntries,
 } from '../../session/continuity-message-projection';
 import type { ConversationEntry, ResumeCursor, SessionState } from '../../session/session-continuity.types';
-import { promptsDiscardedByTruncation } from '../prompt-retention';
+import { promptsFromDiscardedEntries } from '../prompt-retention';
+import { isToolOutcomeMessage, isVisibleOutputMessage } from '../../../shared/types/tool-outcome';
+import { recordToolOutcome } from '../../learning/tool-outcome-store';
 import { computeResumeConfigFingerprint } from './session-recovery';
+import { restoreHistoryMessages, selectRestoredEntries } from './wake-buffer-restore';
 
 /** Messages a document-review revival restores into its visible buffer. */
 const REVIVED_MESSAGES = 100;
@@ -16,9 +19,11 @@ const RECOVERY_CURSOR_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
 const FAILED_START_STATUSES = new Set([
   'failed', 'error', 'terminated', 'cancelled', 'superseded', 'hibernated',
 ]);
-const OUTPUT_MESSAGE_TYPES = new Set([
-  'assistant', 'user', 'system', 'tool_use', 'tool_result', 'error',
-]);
+// Exhaustive over the union, so a new message type fails to compile here rather
+// than silently making every archive that holds one unrecoverable (LT-196).
+const OUTPUT_MESSAGE_TYPES = new Set<string>(Object.keys({
+  assistant: true, user: true, system: true, tool_use: true, tool_result: true, tool_outcome: true, error: true,
+} satisfies Record<OutputMessage['type'], true>));
 const CONVERSATION_ROLES = new Set(['user', 'assistant', 'system', 'tool']);
 
 export type ContinuityReviveRequest =
@@ -189,8 +194,12 @@ function cloneOutputMessages(messages: readonly OutputMessage[]): OutputMessage[
 function buildRecoveryBuffer(resolved: ResolvedRecoveryCandidate): {
   initialOutputBuffer: OutputMessage[];
   recoveredMessageCount: number;
+  toolOutcomes: OutputMessage[];
 } {
-  const archivedOutput = resolved.historyConversation?.messages ?? [];
+  // LT-196: `tool_outcome` records never belong in a live buffer; they go back
+  // to the side store once the replacement exists (see tool-outcome-store.ts).
+  const archivedMessages = resolved.historyConversation?.messages ?? [];
+  const archivedOutput = archivedMessages.filter(isVisibleOutputMessage);
   const archivedEntries = outputMessagesToContinuityEntries(archivedOutput);
   const reconciled = reconcileRecoveryTranscript(
     archivedEntries,
@@ -202,6 +211,7 @@ function buildRecoveryBuffer(resolved: ResolvedRecoveryCandidate): {
   return {
     initialOutputBuffer: [...cloneOutputMessages(archivedOutput), ...recoveredSuffix],
     recoveredMessageCount: reconciled.recoveredCount,
+    toolOutcomes: archivedMessages.filter(isToolOutcomeMessage),
   };
 }
 
@@ -256,7 +266,7 @@ async function reviveCrashRecovery(
   } catch {
     throw recoveryValidationError();
   }
-  const { initialOutputBuffer, recoveredMessageCount } = recoveryBuffer;
+  const { initialOutputBuffer, recoveredMessageCount, toolOutcomes } = recoveryBuffer;
   const cursor = state.resumeCursor;
   const nativeCursor = isValidNativeCursor(resolved, cursor, deps.now?.() ?? Date.now())
     ? cursor
@@ -289,6 +299,7 @@ async function reviveCrashRecovery(
     if (!replacement.id?.trim() || replacement.id === request.sourceInstanceId) {
       throw new Error('Replacement runtime identity was not new');
     }
+    for (const outcome of toolOutcomes) recordToolOutcome(replacement.id, outcome);
     const readyPromise = replacement.readyPromise;
     if (readyPromise) await readyPromise;
     if (FAILED_START_STATUSES.has(replacement.status)) {
@@ -334,20 +345,11 @@ async function reviveDocReview(
   });
   if (!state) throw new Error(`No archived continuity state exists for ${request.sourceInstanceId}`);
 
-  const history = state.conversationHistory;
-  const initialOutputBuffer: OutputMessage[] = history.slice(-REVIVED_MESSAGES).map((entry) => ({
-    id: `continuity-${entry.id}`,
-    timestamp: entry.timestamp,
-    type: entry.role === 'user' ? 'user' : entry.role === 'assistant' ? 'assistant' : 'system',
-    content: entry.content,
-  }));
-  // Revival keeps only the newest messages, so carry the prompts it drops or
+  const { kept, dropped } = selectRestoredEntries(state.conversationHistory, REVIVED_MESSAGES);
+  const initialOutputBuffer = restoreHistoryMessages(kept, (entry) => `continuity-${entry.id}`);
+  // Revival keeps only part of the history, so carry the prompts it drops or
   // the revived thread cannot state what it was originally asked to do.
-  const initialRetainedPrompts = promptsDiscardedByTruncation(
-    history,
-    REVIVED_MESSAGES,
-    'continuity-prompt-',
-  );
+  const initialRetainedPrompts = promptsFromDiscardedEntries(dropped, 'continuity-prompt-');
   const nativeSessionId = !state.nativeResumeFailedAt ? state.sessionId?.trim() : undefined;
   const instance = await deps.createInstance({
     workingDirectory: state.workingDirectory,
@@ -385,7 +387,7 @@ export async function reviveContinuitySession(
     : reviveDocReview(deps, request);
 }
 /**
- * Revival rebuilds a new instance from durable session state and keeps only the
- * newest slice for document review, so retained prompts protect the original
+ * Revival rebuilds a new instance from durable session state and keeps only a
+ * bounded window for document review, so retained prompts protect the original
  * request. Crash recovery instead reconciles the full archived prefix.
  */

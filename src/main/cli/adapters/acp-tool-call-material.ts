@@ -83,6 +83,44 @@ export function buildAcpToolOutcomeFallback(
   );
 }
 
+/** A status after which an ACP tool call sends no further updates. */
+export function isAcpTerminalToolStatus(status: string): boolean {
+  return status === 'completed' || status === 'failed' || status === 'cancelled';
+}
+
+/**
+ * The single visible `tool_result` for an ACP tool call.
+ *
+ * ACP `tool_call_update` REPLACES a call's content, so Copilot re-sends the
+ * whole output on every progress update. Emitting one message per update
+ * stored each result two or three times over in the buffer, the persisted
+ * transcript and the History archive. The adapter holds the latest snapshot
+ * and emits it once, when the call settles or its turn ends.
+ */
+export function buildAcpToolResultMessage(
+  params: { toolCallId: string; title: string; status: string; sessionUpdate: string; output: string },
+  id: string,
+  timestamp: number,
+): OutputMessage {
+  const { toolCallId, title, status, sessionUpdate, output } = params;
+  return {
+    id,
+    timestamp,
+    type: 'tool_result',
+    content: output,
+    metadata: {
+      sessionUpdate,
+      toolCallId,
+      title,
+      status,
+      transport: 'acp',
+      // LT-196: outcome rides this already-correlated message; `cancelled`
+      // and an unsettled call are neither outcome, so it is left unset.
+      ...(status === 'completed' || status === 'failed' ? { is_error: status === 'failed' } : {}),
+    },
+  };
+}
+
 /**
  * Render an ACP `rawOutput` object as tool_result text. Returns '' when there
  * is nothing to render, so callers can fall through to "no result".

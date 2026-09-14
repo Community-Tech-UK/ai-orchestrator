@@ -1924,6 +1924,41 @@ describe('InstanceManager', () => {
       expect(instance.lastActivity).toBeGreaterThanOrEqual(beforeWake);
     });
 
+    it('restores the saved transcript within outputBufferSize, keeping replies and tool types', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Wake Restore Window',
+      });
+      await instance.readyPromise;
+      await manager.hibernateInstance(instance.id);
+      mockSettingsGetAll.mockReturnValue({ ...mockSettingsData, outputBufferSize: 100 });
+      const burst = Array.from({ length: 150 }, (_, i) => ({
+        id: `tool-${i}`,
+        role: i % 2 === 0 ? 'assistant' : 'tool',
+        content: i % 2 === 0 ? '' : `output ${i}`,
+        timestamp: 10 + i,
+        toolUse: { kind: i % 2 === 0 ? 'call' : 'result', toolName: 'view', input: null },
+      }));
+      mockSessionContinuity.resumeSession.mockResolvedValueOnce({
+        instanceId: instance.id,
+        displayName: 'Wake Restore Window',
+        workingDirectory: TEST_WORKING_DIR,
+        conversationHistory: [
+          { id: 'ask', role: 'user', content: 'Review the branch.', timestamp: 1 },
+          { id: 'reply', role: 'assistant', content: 'Here is my review.', timestamp: 2 },
+          ...burst,
+        ],
+      });
+
+      await manager.wakeInstance(instance.id);
+
+      expect(instance.outputBuffer).toHaveLength(100);
+      expect(instance.outputBuffer.slice(0, 2).map((m) => m.content))
+        .toEqual(['Review the branch.', 'Here is my review.']);
+      expect(instance.outputBuffer.slice(2).every((m) => m.type === 'tool_use' || m.type === 'tool_result'))
+        .toBe(true);
+    });
+
     it('is a no-op for an instance that is already awake', async () => {
       const instance = await manager.createInstance({
         workingDirectory: TEST_WORKING_DIR,

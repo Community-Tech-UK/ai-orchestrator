@@ -13,6 +13,7 @@ import type { ConversationEndStatus } from '../../../shared/types/history.types'
 import type { CliType } from '../../cli/cli-detection';
 import { getProviderModelContextWindow } from '../../../shared/types/provider.types';
 import { generateId } from '../../../shared/utils/id-generator';
+import { getToolOutcomes } from '../../learning/tool-outcome-store';
 import { buildReplayContinuityMessage as buildSharedReplayContinuityMessage } from '../../session/replay-continuity';
 import { retainedPromptsMissingFrom } from '../prompt-retention';
 import {
@@ -257,7 +258,10 @@ export class RestartPolicyHelpers {
     const archivedInstance: Instance = {
       ...instance,
       id: `${instance.id}-restart-archive-${Date.now()}`,
-      outputBuffer: [...messages],
+      // LT-196: archive assembly looks outcomes up by instance id, and this
+      // synthetic id has none, so carry the live instance's in explicitly. This
+      // buffer is never live, so they cannot leak from it.
+      outputBuffer: [...messages, ...getToolOutcomes(instance.id)],
       childrenIds: [...instance.childrenIds],
       subscribedTo: [...instance.subscribedTo],
       communicationTokens: new Map(instance.communicationTokens),

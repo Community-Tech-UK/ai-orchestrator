@@ -4,8 +4,10 @@ import {
   type HistoryRestoreMode,
 } from '../../shared/types/history.types';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
+import { isToolOutcomeMessage } from '../../shared/types/tool-outcome';
 import { generateId } from '../../shared/utils/id-generator';
 import type { InstanceManager } from '../instance/instance-manager';
+import { recordToolOutcome } from '../learning/tool-outcome-store';
 import { planSessionRecovery } from '../instance/lifecycle/session-recovery';
 import { getLogger } from '../logging/logger';
 import { getOutputStorageManager } from '../memory/output-storage';
@@ -183,6 +185,21 @@ function buildDisprovenResumeNotice(
   };
 }
 
+/**
+ * LT-196: the restore transcript drops `tool_outcome` records, which never
+ * belong in `outputBuffer`. Re-archiving the thread overwrites this entry, so
+ * hand them to the restored instance's side store or the miner loses them.
+ */
+function reseedToolOutcomes(
+  result: HistoryRestoreCoordinatorResult,
+  archivedMessages: readonly OutputMessage[],
+): HistoryRestoreCoordinatorResult {
+  for (const message of archivedMessages) {
+    if (isToolOutcomeMessage(message)) recordToolOutcome(result.instanceId, message);
+  }
+  return result;
+}
+
 export class HistoryRestoreError extends Error {
   constructor(
     readonly code: string,
@@ -329,7 +346,7 @@ export class HistoryRestoreCoordinator {
         if (attempt.markResumeFailed) {
           await this.recordNativeResumeFailure(entryId);
         }
-        return attempt.result;
+        return reseedToolOutcomes(attempt.result, data.messages);
       }
 
       if (attempt.kind === 'session-dead') {
@@ -347,7 +364,7 @@ export class HistoryRestoreCoordinator {
       }
     }
 
-    return this.restoreFallback({
+    return reseedToolOutcomes(await this.restoreFallback({
       instanceManager,
       entryId,
       workingDir,
@@ -368,7 +385,7 @@ export class HistoryRestoreCoordinator {
       nativeResumeSessionId,
       originalSessionId: data.entry.sessionId,
       storedMessages: data.messages,
-    });
+    }), data.messages);
   }
 
   /**

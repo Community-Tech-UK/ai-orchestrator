@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Instance, OutputMessage } from '../../../../shared/types/instance.types';
 import { RestartPolicyHelpers } from '../restart-policy-helpers';
+import {
+  _resetToolOutcomeStoreForTesting,
+  getToolOutcomes,
+  recordToolOutcome,
+} from '../../../learning/tool-outcome-store';
 
 function makeInstance(overrides: Partial<Instance> = {}): Instance {
   return {
@@ -134,5 +139,23 @@ describe('RestartPolicyHelpers', () => {
     archiveInstance.mockClear();
     await helpers.archiveRestartSnapshot(makeInstance({ parentId: 'parent-1' }), messages);
     expect(archiveInstance).not.toHaveBeenCalled();
+  });
+
+  it('LT-196: carries the live instance tool outcomes into the synthetic-id snapshot', async () => {
+    _resetToolOutcomeStoreForTesting();
+    const outcome: OutputMessage = { id: 'outcome-1', type: 'tool_outcome', content: '', timestamp: 5 };
+    recordToolOutcome('instance-1', outcome);
+    const archiveInstance = vi.fn();
+    const helpers = new RestartPolicyHelpers(
+      { loadMessages: vi.fn(), archiveInstance, resetBudgetTracker: vi.fn(), clearFirstMessageTracking: vi.fn() },
+      { getActiveMessages: vi.fn().mockReturnValue([]) },
+    );
+    const messages: OutputMessage[] = [{ id: 'msg-1', type: 'assistant', content: 'done', timestamp: 10 }];
+
+    await helpers.archiveRestartSnapshot(makeInstance({ outputBuffer: messages }), messages);
+
+    expect(archiveInstance.mock.calls[0][0].outputBuffer).toEqual([...messages, outcome]);
+    // The live instance keeps them for its own final archive.
+    expect(getToolOutcomes('instance-1')).toEqual([outcome]);
   });
 });

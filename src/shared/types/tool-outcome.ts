@@ -16,9 +16,15 @@
  * message at the point where it already knows the real outcome. ACP does not:
  * it sets `is_error` on its own visible `tool_result` instead, and only falls
  * back to this record when a terminal call rendered no output at all (see
- * `buildAcpToolOutcomeFallback`). It rides the existing `HistoryManager` archive pipeline unchanged
- * and is suppressed centrally in the renderer, so it never becomes a chat
- * bubble. Codex already sets `is_error` correctly and is left alone.
+ * `buildAcpToolOutcomeFallback`). Codex already sets `is_error` correctly and
+ * is left alone.
+ *
+ * The record never enters a live `outputBuffer`: the instance output handler
+ * diverts it to `src/main/learning/tool-outcome-store.ts`, and archive assembly
+ * folds it into the transcript. Paths that copy an archive back into a live
+ * instance (history restore, crash recovery) filter it out and re-seed the
+ * store; `HISTORY_LOAD` strips it before the renderer. The per-consumer filters
+ * built on `isVisibleOutputMessage` remain as defence in depth.
  */
 
 import type { OutputMessage } from './instance.types';
