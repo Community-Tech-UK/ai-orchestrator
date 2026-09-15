@@ -119,6 +119,11 @@ export interface ProviderQuotaSnapshot {
   /** May be empty if the probe ran but found no useful windows. */
   windows: ProviderQuotaWindow[];
   /**
+   * Account-pool profile this snapshot describes. Absent for the legacy
+   * profile, whose snapshot is the provider-level one.
+   */
+  accountProfileId?: string;
+  /**
    * Plan tier when the probe can determine it: 'pro' | 'max' | 'team' |
    * 'enterprise' | 'api' | 'free'. Free-form so probes can return
    * provider-specific labels (e.g. 'copilot-pro+').
@@ -129,6 +134,13 @@ export interface ProviderQuotaSnapshot {
 /** Aggregate state held in the renderer store and main-process service. */
 export interface ProviderQuotaState {
   snapshots: Record<ProviderId, ProviderQuotaSnapshot | null>;
+  /** Snapshots for non-legacy account-pool profiles (Claude/Codex), one per profile. */
+  accountSnapshots?: ProviderQuotaSnapshot[];
+}
+
+/** Snapshot key: the provider for the legacy profile, else `provider:profileId`. */
+export function providerQuotaKey(provider: ProviderId, accountProfileId?: string | null): string {
+  return accountProfileId && accountProfileId !== 'legacy' ? `${provider}:${accountProfileId}` : provider;
 }
 
 /**

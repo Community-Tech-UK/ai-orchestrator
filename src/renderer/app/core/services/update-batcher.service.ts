@@ -9,6 +9,7 @@ import type { ReasoningEffort } from '../../../../shared/types/provider.types';
 import type { InstanceWaitReason, DesiredRuntime, ContextUsage } from '../../../../shared/types/instance.types';
 import type { InstanceRuntimeSummary } from '../../../../shared/types/local-model-runtime.types';
 import type { ComputerUseAutonomyLevel } from '../../../../shared/types/desktop-gateway-settings.types';
+import type { AccountRouteSource } from '../../../../shared/types/provider-account.types';
 
 export interface StateUpdate {
   instanceId: string;
@@ -68,6 +69,9 @@ export interface StateUpdate {
   desiredRuntime?: DesiredRuntime | null;
   /** null clears the live-session override; undefined preserves it. */
   computerUseMode?: ComputerUseAutonomyLevel | null;
+  /** Claude/Codex account-pool profile and how it was chosen; undefined preserves. */
+  accountProfileId?: string;
+  accountRoutingSource?: AccountRouteSource;
 }
 
 type FlushCallback = (updates: StateUpdate[]) => void;

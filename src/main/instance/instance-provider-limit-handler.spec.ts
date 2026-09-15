@@ -230,6 +230,7 @@ describe('InstanceProviderLimitHandler.maybeParkKnown', () => {
     expect(ledger.getActive).toHaveBeenCalledWith({
       provider: 'claude',
       model: 'claude-sonnet-4-5',
+      accountProfileId: null,
       now: expect.any(Number),
     });
     expect(ledger.record).not.toHaveBeenCalled();
@@ -415,7 +416,7 @@ describe('InstanceProviderLimitHandler known-limit gate override', () => {
     h.handler.maybePark({ instanceId: 'i1', provider: CLAUDE, model: 'claude-sonnet-4-5', resetAtHint: Date.now() + 60_000, reason: 'x', resumePrompt: 'resend me' });
 
     expect(h.handler.resumeNow('i1')).toBe(true);
-    expect(ledger.clearActive).toHaveBeenCalledWith({ provider: 'claude', model: 'claude-sonnet-4-5' });
+    expect(ledger.clearActive).toHaveBeenCalledWith({ provider: 'claude', model: 'claude-sonnet-4-5', accountProfileId: null });
     // The gate must be gone before the turn is re-dispatched.
     expect(calls).toEqual(['record', 'clearActive', 'resend']);
     expect(resends).toEqual([{ instanceId: 'i1', prompt: 'resend me' }]);
@@ -426,7 +427,7 @@ describe('InstanceProviderLimitHandler known-limit gate override', () => {
     h.handler.maybePark({ instanceId: 'i1', provider: CLAUDE, model: 'claude-sonnet-4-5', resetAtHint: Date.now() + 60_000, reason: 'x', resumePrompt: 'nope' });
 
     expect(h.handler.cancel('i1')).toBe(true);
-    expect(ledger.clearActive).toHaveBeenCalledWith({ provider: 'claude', model: 'claude-sonnet-4-5' });
+    expect(ledger.clearActive).toHaveBeenCalledWith({ provider: 'claude', model: 'claude-sonnet-4-5', accountProfileId: null });
     expect(resends).toHaveLength(0);
   });
 
@@ -435,7 +436,7 @@ describe('InstanceProviderLimitHandler known-limit gate override', () => {
     h.resumableIds.add('i-live');
 
     expect(h.handler.resumeFromAutomation('i-live', 'original turn')).toBe('resent');
-    expect(ledger.clearActive).toHaveBeenCalledWith({ provider: 'claude', model: 'claude-sonnet-4-5' });
+    expect(ledger.clearActive).toHaveBeenCalledWith({ provider: 'claude', model: 'claude-sonnet-4-5', accountProfileId: null });
     expect(resends).toEqual([{ instanceId: 'i-live', prompt: 'original turn' }]);
   });
 
@@ -484,7 +485,7 @@ describe('InstanceProviderLimitHandler early-resume quota probe', () => {
     const h = parkWithProbe(probe);
 
     await vi.advanceTimersByTimeAsync(EARLY_RESUME_PROBE_MS + 5);
-    expect(probe).toHaveBeenCalledWith('claude');
+    expect(probe).toHaveBeenCalledWith('claude', null);
     expect(h.resends).toEqual([{ instanceId: 'i1', prompt: 'resend me' }]);
     expect(h.handler.isParked('i1')).toBe(false);
     expect(h.waitReasons.get('i1')).toBeNull();

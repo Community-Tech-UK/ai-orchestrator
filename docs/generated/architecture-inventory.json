@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "generatedBy": "scripts/generate-architecture-inventory.js",
   "ipc": {
-    "channelCount": 1150,
+    "channelCount": 1163,
     "channels": [
       {
         "name": "INSTANCE_CREATE",
@@ -5753,11 +5753,76 @@
         "name": "COPILOT_ACCOUNT_DIAGNOSTICS",
         "value": "copilot-account:diagnostics",
         "line": 1520
+      },
+      {
+        "name": "PROVIDER_ACCOUNT_LIST",
+        "value": "provider-account:list",
+        "line": 1523
+      },
+      {
+        "name": "PROVIDER_ACCOUNT_CREATE",
+        "value": "provider-account:create",
+        "line": 1525
+      },
+      {
+        "name": "PROVIDER_ACCOUNT_UPDATE",
+        "value": "provider-account:update",
+        "line": 1527
+      },
+      {
+        "name": "PROVIDER_ACCOUNT_SET_PRIORITY_ORDER",
+        "value": "provider-account:set-priority-order",
+        "line": 1529
+      },
+      {
+        "name": "PROVIDER_ACCOUNT_REMOVE",
+        "value": "provider-account:remove",
+        "line": 1531
+      },
+      {
+        "name": "PROVIDER_ACCOUNT_VERIFY",
+        "value": "provider-account:verify",
+        "line": 1533
+      },
+      {
+        "name": "PROVIDER_ACCOUNT_LAUNCH_LOGIN",
+        "value": "provider-account:launch-login",
+        "line": 1535
+      },
+      {
+        "name": "PROVIDER_ACCOUNT_POOL_READ",
+        "value": "provider-account:pool-read",
+        "line": 1537
+      },
+      {
+        "name": "PROVIDER_ACCOUNT_POOL_UPDATE",
+        "value": "provider-account:pool-update",
+        "line": 1539
+      },
+      {
+        "name": "PROVIDER_ACCOUNT_ACKNOWLEDGE_OWNERSHIP",
+        "value": "provider-account:acknowledge-ownership",
+        "line": 1541
+      },
+      {
+        "name": "PROVIDER_ACCOUNT_DOCTOR",
+        "value": "provider-account:doctor",
+        "line": 1543
+      },
+      {
+        "name": "PROVIDER_ACCOUNT_RESOLVE_PREVIEW",
+        "value": "provider-account:resolve-preview",
+        "line": 1545
+      },
+      {
+        "name": "PROVIDER_ACCOUNT_SWITCH_SESSION",
+        "value": "provider-account:switch-session",
+        "line": 1547
       }
     ]
   },
   "preload": {
-    "domainCount": 38,
+    "domainCount": 39,
     "domains": [
       "automation.preload.ts",
       "auxiliary-llm.preload.ts",
@@ -5787,6 +5852,7 @@
       "pause.preload.ts",
       "permission-registry.preload.ts",
       "prompt-history.preload.ts",
+      "provider-account.preload.ts",
       "provider.preload.ts",
       "rlm-storage-maintenance.preload.ts",
       "rtk.preload.ts",
@@ -5864,7 +5930,7 @@
     },
     {
       "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 4002
+      "lines": 4005
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-mempalace-knowledge-features_completed.md",
@@ -5876,7 +5942,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3565
+      "lines": 3575
     },
     {
       "path": "docs/superpowers/plans/2026-06-08-50-hour-loop-resilience_completed.md",
@@ -5887,16 +5953,16 @@
       "lines": 3523
     },
     {
+      "path": "src/main/instance/instance-communication.spec.ts",
+      "lines": 3477
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-05-bash-validation-pipeline_completed.md",
       "lines": 3440
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave3-workflow-resume-history-recovery-plan_completed.md",
       "lines": 3408
-    },
-    {
-      "path": "src/main/instance/instance-communication.spec.ts",
-      "lines": 3394
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
@@ -5923,6 +5989,10 @@
       "lines": 2771
     },
     {
+      "path": "src/main/instance/instance-manager.ts",
+      "lines": 2756
+    },
+    {
       "path": "docs/superpowers/plans/2026-03-20-cross-model-review_completed.md",
       "lines": 2734
     },
@@ -5931,16 +6001,16 @@
       "lines": 2734
     },
     {
-      "path": "src/main/instance/instance-manager.ts",
-      "lines": 2721
+      "path": "src/main/instance/instance-communication.ts",
+      "lines": 2719
+    },
+    {
+      "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
+      "lines": 2705
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave5-orchestration-hud-verification-verdicts-plan_completed.md",
       "lines": 2695
-    },
-    {
-      "path": "src/main/instance/instance-communication.ts",
-      "lines": 2683
     },
     {
       "path": "src/main/channels/channel-message-router.ts",
@@ -5949,10 +6019,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-03-remote-nodes-phase3-4-6-7.COMPLETED.md",
       "lines": 2659
-    },
-    {
-      "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
-      "lines": 2655
     },
     {
       "path": "docs/superpowers/plans/2026-04-07-remote-folder-browsing.md",
@@ -5996,7 +6062,11 @@
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.lifecycle.spec.ts",
-      "lines": 2108
+      "lines": 2109
+    },
+    {
+      "path": "src/main/cli/adapters/claude-cli-adapter.ts",
+      "lines": 2104
     },
     {
       "path": "docs/superpowers/plans/2026-04-13-codemem-phase1-index-and-lsp-facade_completed.md",
@@ -6005,10 +6075,6 @@
     {
       "path": "docs/codex_todo_completed.md",
       "lines": 2086
-    },
-    {
-      "path": "src/main/cli/adapters/claude-cli-adapter.ts",
-      "lines": 2082
     },
     {
       "path": "docs/fable_todo_2_completed.md",
@@ -6044,19 +6110,19 @@
     },
     {
       "path": "src/main/orchestration/default-invokers.loop.spec.ts",
-      "lines": 1941
+      "lines": 1953
     },
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
-      "lines": 1905
+      "lines": 1907
+    },
+    {
+      "path": "src/main/session/session-continuity.spec.ts",
+      "lines": 1897
     },
     {
       "path": "docs/superpowers/specs/2026-04-26-automations-design_completed.md",
       "lines": 1867
-    },
-    {
-      "path": "src/main/session/session-continuity.spec.ts",
-      "lines": 1861
     },
     {
       "path": "docs/superpowers/plans/2026-04-01-claude-code-hardening.md",
@@ -6064,19 +6130,19 @@
     },
     {
       "path": "packages/contracts/src/types/transport.types.ts",
-      "lines": 1804
+      "lines": 1809
     },
     {
       "path": "docs/superpowers/plans/2026-03-21-discord-channels_completed.md",
       "lines": 1803
     },
     {
-      "path": "src/main/rlm/__tests__/auxiliary-llm-service.spec.ts",
-      "lines": 1784
+      "path": "src/main/history/history-manager.ts",
+      "lines": 1786
     },
     {
-      "path": "src/main/history/history-manager.ts",
-      "lines": 1779
+      "path": "src/main/rlm/__tests__/auxiliary-llm-service.spec.ts",
+      "lines": 1784
     },
     {
       "path": "src/main/desktop-gateway/desktop-gateway-service.spec.ts",
@@ -6084,11 +6150,11 @@
     },
     {
       "path": "src/main/session/session-continuity.ts",
-      "lines": 1720
+      "lines": 1738
     },
     {
       "path": "src/main/orchestration/default-invokers.ts",
-      "lines": 1682
+      "lines": 1690
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.credentials.spec.ts",
@@ -6109,6 +6175,10 @@
     {
       "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
       "lines": 1589
+    },
+    {
+      "path": "src/main/instance/__tests__/instance-manager.send-input.spec.ts",
+      "lines": 1588
     },
     {
       "path": "docs/superpowers/plans/2026-05-02-full-voice-conversation_completed.md",
@@ -6133,10 +6203,6 @@
     {
       "path": "src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts",
       "lines": 1537
-    },
-    {
-      "path": "src/main/instance/__tests__/instance-manager.send-input.spec.ts",
-      "lines": 1535
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.change-model.spec.ts",
@@ -6288,7 +6354,7 @@
     },
     {
       "path": "src/main/ipc/handlers/instance-handlers.ts",
-      "lines": 1289
+      "lines": 1290
     },
     {
       "path": "src/main/instance/__tests__/context-worker-client.spec.ts",
@@ -6579,6 +6645,10 @@
       "lines": 1014
     },
     {
+      "path": "src/main/cli/adapters/claude-cli-adapter.spec.ts",
+      "lines": 1005
+    },
+    {
       "path": "src/renderer/app/features/logs/logs-page.component.ts",
       "lines": 1004
     },
@@ -6605,6 +6675,10 @@
     {
       "path": "src/main/repo-jobs/repo-job-service.ts",
       "lines": 989
+    },
+    {
+      "path": "src/main/instance/auto-title-service.spec.ts",
+      "lines": 986
     },
     {
       "path": "src/main/local-ai-guard/local-ai-guard.integration.spec.ts",
@@ -6667,10 +6741,6 @@
       "lines": 958
     },
     {
-      "path": "src/main/cli/adapters/claude-cli-adapter.spec.ts",
-      "lines": 958
-    },
-    {
       "path": "docs/superpowers/plans/2026-07-11-harness-mobile-codex-redesign_completed.md",
       "lines": 953
     },
@@ -6699,16 +6769,20 @@
       "lines": 937
     },
     {
-      "path": "docs/superpowers/plans/2026-06-05-auxiliary-local-model-routing_completed.md",
-      "lines": 935
+      "path": "src/main/instance/__tests__/instance-manager-context-deadline.spec.ts",
+      "lines": 936
     },
     {
-      "path": "src/main/instance/__tests__/instance-manager-context-deadline.spec.ts",
+      "path": "docs/superpowers/plans/2026-06-05-auxiliary-local-model-routing_completed.md",
       "lines": 935
     },
     {
       "path": "src/preload/domains/orchestration.preload.ts",
       "lines": 935
+    },
+    {
+      "path": "src/main/browser-gateway/browser-credential-vault.spec.ts",
+      "lines": 934
     },
     {
       "path": "src/renderer/app/features/memory/memory-browser.component.ts",
@@ -6727,16 +6801,16 @@
       "lines": 919
     },
     {
+      "path": "src/renderer/app/core/services/new-session-draft.service.ts",
+      "lines": 913
+    },
+    {
       "path": "src/main/ipc/learning-ipc-handler.spec.ts",
       "lines": 911
     },
     {
       "path": "src/main/browser-gateway/browser-health-service.spec.ts",
       "lines": 906
-    },
-    {
-      "path": "src/renderer/app/core/services/new-session-draft.service.ts",
-      "lines": 901
     },
     {
       "path": "src/main/automations/automation-store.ts",
@@ -6787,10 +6861,6 @@
       "lines": 880
     },
     {
-      "path": "src/main/instance/auto-title-service.spec.ts",
-      "lines": 877
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-02-error-recovery-resilience.COMPLETED.md",
       "lines": 876
     },
@@ -6815,6 +6885,10 @@
       "lines": 866
     },
     {
+      "path": "src/renderer/app/core/state/instance/instance-list.store.ts",
+      "lines": 865
+    },
+    {
       "path": "docs/superpowers/plans/2026-03-11-f4-f5-transcript-performance.md",
       "lines": 864
     },
@@ -6831,7 +6905,7 @@
       "lines": 862
     },
     {
-      "path": "src/renderer/app/core/state/instance/instance-list.store.ts",
+      "path": "src/main/app/instance-event-forwarding.spec.ts",
       "lines": 862
     },
     {
@@ -6939,6 +7013,14 @@
       "lines": 831
     },
     {
+      "path": "src/shared/types/instance.types.ts",
+      "lines": 830
+    },
+    {
+      "path": "src/main/core/config/settings-control-policy.ts",
+      "lines": 827
+    },
+    {
       "path": "docs/superpowers/plans/2026-07-04-back-navigation-hotfix-plan_completed.md",
       "lines": 826
     },
@@ -6951,15 +7033,15 @@
       "lines": 824
     },
     {
+      "path": "src/shared/types/settings.types.ts",
+      "lines": 822
+    },
+    {
       "path": "src/main/indexing/benchmarks/benchmark-utils.ts",
       "lines": 820
     },
     {
       "path": "src/main/memory/critique-agent.ts",
-      "lines": 817
-    },
-    {
-      "path": "src/shared/types/settings.types.ts",
       "lines": 817
     },
     {
@@ -6975,12 +7057,8 @@
       "lines": 814
     },
     {
-      "path": "src/main/core/config/settings-control-policy.ts",
-      "lines": 814
-    },
-    {
       "path": "src/renderer/app/core/state/instance/instance.store.ts",
-      "lines": 810
+      "lines": 814
     },
     {
       "path": "docs/plans/completed/interrupt-resume-recovery-plan_completed.md",
@@ -6988,6 +7066,10 @@
     },
     {
       "path": "docs/superpowers/specs/2026-07-08-desktop-computer-use-gateway-design_completed.md",
+      "lines": 809
+    },
+    {
+      "path": "src/main/cli/adapters/adapter-factory.ts",
       "lines": 809
     },
     {
@@ -7020,10 +7102,6 @@
     },
     {
       "path": "src/renderer/app/core/state/loop.store.ts",
-      "lines": 800
-    },
-    {
-      "path": "src/shared/types/instance.types.ts",
       "lines": 800
     }
   ]

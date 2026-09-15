@@ -43,6 +43,13 @@ vi.mock('../../session/session-continuity', () => ({
 vi.mock('./create-validation-helpers', () => ({
   getKnownModelsForCli: vi.fn().mockResolvedValue(['sonnet', 'opus']),
 }));
+const accountPool = vi.hoisted(() => ({ continuation: 'shared-store' as 'shared-store' | 'replay' }));
+vi.mock('../../providers/account-pool/provider-account-store', () => ({
+  getProviderAccountStore: () => ({
+    getPoolPolicy: () => ({ continuation: accountPool.continuation }),
+    getProfile: (_provider: string, id: string) => ({ id, label: id === 'legacy' ? 'Existing Claude account' : `Max ${id}` }),
+  }),
+}));
 vi.mock('../../../shared/utils/id-generator', () => ({
   generateId: vi.fn(() => 'minted-fork-id'),
 }));
@@ -480,5 +487,66 @@ describe('RuntimeReconciler — adapter loans (LT-020)', () => {
     // instance on a failing provider — the case `error` is an allowed status for.
     const result = await reconciler.applyRuntimeChange('inst-1', yoloOnly(true));
     expect(result.yoloMode).toBe(true);
+  });
+});
+
+describe('RuntimeReconciler.applyRuntimeChange — account-pool handoff', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSessionMutex.acquire.mockResolvedValue(() => {});
+    _resetAdapterLoansForTesting();
+    accountPool.continuation = 'shared-store';
+  });
+
+  function handoff(kind: 'explicit' | 'failover' | 'preemptive', confirmed = false): DesiredRuntime {
+    return {
+      provider: 'claude',
+      accountProfileId: 'b',
+      accountHandoffKind: kind,
+      ...(confirmed ? { accountHandoffConfirmed: true } : {}),
+    } as unknown as DesiredRuntime;
+  }
+
+  it('requires confirmation only for an explicit switch', async () => {
+    const explicit = makeHarness(makeInstance(), [makeAdapter()]);
+    await expect(explicit.reconciler.applyRuntimeChange('inst-1', handoff('explicit'))).rejects.toThrow(/confirmation/);
+    expect(explicit.instance.accountProfileId).toBeUndefined();
+
+    const failover = makeHarness(makeInstance(), [makeAdapter()]);
+    await failover.reconciler.applyRuntimeChange('inst-1', handoff('failover'));
+    expect(failover.instance).toMatchObject({ accountProfileId: 'b', accountRoutingSource: 'failover', accountSwitches: 1 });
+  });
+
+  it('natively resumes a Claude conversation across accounts under a shared store', async () => {
+    const { reconciler, createCalls } = makeHarness(makeInstance(), [makeAdapter()]);
+    await reconciler.applyRuntimeChange('inst-1', handoff('failover'));
+    expect(createCalls[0].options['resume']).toBe(true);
+    expect(createCalls[0].options['sessionId']).toBe(LIVE_SESSION_ID);
+  });
+
+  it('replays under the replay continuation policy', async () => {
+    accountPool.continuation = 'replay';
+    const { reconciler, createCalls } = makeHarness(makeInstance(), [makeAdapter()]);
+    await reconciler.applyRuntimeChange('inst-1', handoff('preemptive'));
+    expect(createCalls[0].options['resume']).toBe(false);
+  });
+
+  it('emits the "Account switched" transcript note with labels and reason', async () => {
+    const { reconciler, deps } = makeHarness(makeInstance(), [makeAdapter()]);
+    await reconciler.applyRuntimeChange('inst-1', {
+      ...handoff('failover'),
+      accountHandoffReason: 'usage limit; resets 18:30',
+    } as DesiredRuntime);
+    const notices = deps.emitSystemNotice.mock.calls.map((call) => String(call[1]));
+    expect(notices.some((text) => text.includes('Account switched: Existing Claude account → Max b (usage limit; resets 18:30)'))).toBe(true);
+  });
+
+  it('rolls the account back when the handoff spawn fails', async () => {
+    const failing = makeAdapter();
+    (failing as unknown as { spawn: ReturnType<typeof vi.fn> }).spawn = vi.fn().mockRejectedValue(new Error('boom'));
+    const { reconciler, instance } = makeHarness(makeInstance({ accountProfileId: 'legacy', accountSwitches: 2 }), [failing]);
+    accountPool.continuation = 'replay';
+    await expect(reconciler.applyRuntimeChange('inst-1', handoff('failover'))).rejects.toThrow('boom');
+    expect(instance).toMatchObject({ accountProfileId: 'legacy', accountSwitches: 2 });
   });
 });

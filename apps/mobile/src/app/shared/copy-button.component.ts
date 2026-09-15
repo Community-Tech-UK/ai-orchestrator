@@ -45,7 +45,8 @@ import { HapticsService } from '../core/haptics.service';
       :host { display: inline-flex; }
       .copy-btn {
         display: inline-flex; align-items: center; gap: 4px;
-        background: none; border: none; padding: 4px 6px; margin: 0;
+        min-width: 44px; min-height: 44px;
+        background: none; border: none; padding: 8px; margin: 0;
         color: var(--text-secondary); font-size: 12px; line-height: 1;
         border-radius: 8px;
       }

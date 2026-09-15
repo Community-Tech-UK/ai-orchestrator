@@ -45,6 +45,8 @@ export interface CreateInstanceWithMessageOptions {
   hardened?: boolean;
   /** Explicit GitHub Copilot account for this session (validated safe slug). */
   copilotAccountProfileId?: string;
+  /** Explicit Claude/Codex account-pool profile (safe slug). */
+  accountProfileId?: string;
   /** The user confirmed an override that leaves a protected Copilot scope. */
   copilotConfirmProtectedOverride?: boolean;
 
@@ -185,6 +187,7 @@ export class InstanceListStore {
         forceNodeId: config.forceNodeId,
         ...(config.browserToolsMode ? { browserToolsMode: config.browserToolsMode } : {}),
         ...(config.hardened ? { hardened: true } : {}),
+        ...(config.accountProfileId ? { accountProfileId: config.accountProfileId } : {}),
         ...(config.copilotAccountProfileId
           ? { copilotAccountProfileId: config.copilotAccountProfileId }
           : {}),

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MobileMessageDto } from '../core/models';
-import { buildDisplayItems, isLoopTranscriptMessage, toolLabel } from './transcript-items';
+import { buildDisplayItems, isLoopTranscriptMessage, toolLabel, toolDetails } from './transcript-items';
 
 function msg(overrides: Partial<MobileMessageDto>): MobileMessageDto {
   return {
@@ -21,6 +21,16 @@ describe('toolLabel', () => {
   it('falls back to content, then a generic label', () => {
     expect(toolLabel(msg({ content: 'ls -la' }))).toBe('ls -la');
     expect(toolLabel(msg({}))).toBe('tool');
+  });
+});
+
+describe('toolDetails', () => {
+  it('retains full command input and result text without turning metadata into HTML', () => {
+    const command = 'preview-command\n'.repeat(40);
+    const details = toolDetails(msg({ content: '<result>\nfull output', metadata: { tool_name: 'Bash', tool_input: { command }, is_error: true } }));
+    expect(details).toContain('<result>\nfull output');
+    expect(details).toContain(JSON.stringify({ command }, null, 2));
+    expect(details).toContain('Error');
   });
 });
 

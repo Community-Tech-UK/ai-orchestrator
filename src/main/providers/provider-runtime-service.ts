@@ -14,6 +14,8 @@ import type {
 } from '../cli/adapters/base-cli-adapter';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { CliAdapterWorkerProxy } from '../cli/spawn-worker/cli-adapter-worker-proxy';
+import { rememberAdapterAccountRoute } from './account-pool/adapter-account-routes';
+import { attachAccountTelemetryBridge } from './account-pool/account-telemetry-bridge';
 import {
   getCliSpawnWorkerGateway,
   type CliSpawnGatewayPort,
@@ -77,6 +79,11 @@ export class ProviderRuntimeService implements ProviderRuntimeContract {
       const adapter = this.shouldUseSpawnWorker(input)
         ? this.createSpawnWorkerProxy(input)
         : this.createAdapterFn(input);
+      rememberAdapterAccountRoute(adapter, input.options.accountRoute);
+      if (input.options.accountRoute && typeof (adapter as { on?: unknown }).on === 'function') {
+        // Live sessions on a pool route feed their account's quota snapshot (spec §10).
+        attachAccountTelemetryBridge(adapter as unknown as Parameters<typeof attachAccountTelemetryBridge>[0], input.options.accountRoute);
+      }
       this.registry.recordAvailable({
         provider: input.cliType,
         runtime: runtimeDescriptorForSpawn(

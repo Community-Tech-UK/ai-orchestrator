@@ -14,6 +14,7 @@ import type { SessionSnapshot, SessionState } from './session-continuity.types';
 import type { ContinuityRecoveryMetadata } from './session-recovery-candidate-service';
 import { readContinuityPayloadHandleReadOnly } from './continuity-recovery-metadata';
 import { cleanupOrphanedTmpFiles, type TmpCleanupResult } from './orphaned-tmp-cleanup';
+import { mergeDuplicateToolEntries } from './continuity-tool-entry-merger';
 
 export { cleanupOrphanedTmpFiles };
 export type {
@@ -100,12 +101,19 @@ export function validateTranscript(
 
   const repairs: string[] = [];
 
+  // Earlier builds saved each tool call twice: once from the raw adapter event
+  // and once from the visible message. Collapse those first.
+  const deduplicated = mergeDuplicateToolEntries(history);
+  if (deduplicated.merged > 0) {
+    repairs.push(`Merged ${deduplicated.merged} duplicate tool entries`);
+  }
+
   // Earlier resumes persisted synthetic results, each directly after its call.
   // Strip them all, then re-decide: one whose call is still unanswered is kept
   // as-is, so a transcript validates identically on every later resume.
   const priorSyntheticByCallId = new Map<string, ConversationEntry>();
   const source: ConversationEntry[] = [];
-  for (const entry of history) {
+  for (const entry of deduplicated.entries) {
     if (isSyntheticToolResult(entry)) {
       const previous = source[source.length - 1];
       if (previous && isToolCall(previous)) priorSyntheticByCallId.set(previous.id, entry);
@@ -113,7 +121,7 @@ export function validateTranscript(
     }
     source.push(entry);
   }
-  const priorSyntheticCount = history.length - source.length;
+  const priorSyntheticCount = deduplicated.entries.length - source.length;
 
   const entries: ConversationEntry[] = [];
   let keptSynthetic = 0;

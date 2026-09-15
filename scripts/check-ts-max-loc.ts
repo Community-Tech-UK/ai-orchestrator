@@ -541,7 +541,8 @@ const ALLOWLIST: Record<string, number> = {
   // Crossed 700 from the WS-B3 `approvalAdjudicationEnabled` field alongside a
   // concurrent, unrelated primitive-type extraction into settings-primitives.types.ts
   // already in progress in this working tree; re-tighten once that split lands.
-  'src/shared/types/settings.types.ts': 767,
+  // Raised 767 -> 771 for the two provider-account-pool settings keys (2026-09-13).
+  'src/shared/types/settings.types.ts': 771,
   // Worker agent
   // Raised 989 -> 990 (one-line drift; re-tighten at the next worker split).
   'src/worker-agent/worker-agent.ts': 990,

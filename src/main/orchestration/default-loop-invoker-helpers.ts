@@ -2,7 +2,7 @@ import { createHash } from 'crypto';
 import type { LoopErrorRecord, LoopProvider } from '../../shared/types/loop.types';
 import { resolveCliType } from '../cli/adapters/adapter-factory';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
-import { attachCopilotRoute } from '../instance/lifecycle/copilot-route-preflight';
+import { attachProviderRoutes } from '../instance/lifecycle/provider-route-preflight';
 import { resolveAutomationDefaultModel } from './automation-model-defaults';
 
 export function enableAdapterResume(adapter: unknown): void {
@@ -46,7 +46,7 @@ export async function createPersistentLoopAdapter(opts: {
   const model = opts.model ?? resolveAutomationDefaultModel(cliType);
   // Copilot account routing: a persistent loop session is an automatic
   // surface, and the loop's workspace is what decides the account.
-  const spawnOptions = await attachCopilotRoute(
+  const spawnOptions = await attachProviderRoutes(
     cliType,
     {
       workingDirectory: opts.workingDirectory,

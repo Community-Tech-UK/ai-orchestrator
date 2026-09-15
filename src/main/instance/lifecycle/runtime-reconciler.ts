@@ -56,6 +56,7 @@ import { assertAdapterNotOnLoan, beginRuntimeChange, type RuntimeChangeClaim } f
 import { announceRuntimeChangeSet, runtimeChangeNoticesFor } from './runtime-change-notices';
 import type { UnifiedSpawnOptions } from '../../cli/adapters/adapter-factory';
 import type { DesiredRuntime, Instance } from '../../../shared/types/instance.types';
+import { accountChangeNotice, applyAccountHandoff, restoreAccount, snapshotAccount } from './runtime-reconciler-account-handoff';
 import type {
   RecoveryRespawnHooks,
   RecoveryRespawnOutcome,
@@ -102,6 +103,7 @@ export class RuntimeReconciler {
       const oldFastMode = instance.fastMode;
       const oldReasoningEffort = instance.reasoningEffort;
       const oldCopilotProfileId = instance.copilotAccountProfileId;
+      const oldAccount = snapshotAccount(instance);
       const localModelTarget = desired.modelRuntimeTarget?.kind === 'local-model'
         ? desired.modelRuntimeTarget
         : null;
@@ -228,6 +230,8 @@ export class RuntimeReconciler {
         instance.copilotRoutingRuleId = undefined;
       }
 
+      // Claude/Codex account-pool handoff: failover/pre-emptive need no confirmation.
+      const accountContinuation = diff.accountProfileChanged ? applyAccountHandoff(instance, desired) : undefined;
       const cliType = await this.deps.resolveCliTypeForInstance(instance);
       const continuity = isYoloOnlyChange
         ? (hasConversation && oldAdapterCapabilities.supportsResume
@@ -239,6 +243,7 @@ export class RuntimeReconciler {
             hasConversation,
             cliType,
             isLocalModelTarget: !!localModelTarget,
+            accountContinuation,
           });
       const shouldResume = continuity !== 'replay';
       const shouldForkSession = continuity === 'native-resume-fork';
@@ -470,6 +475,7 @@ export class RuntimeReconciler {
                   },
                 }
               : {}),
+            ...(diff.accountProfileChanged ? { accountChange: accountChangeNotice(instance, desired, oldAccount.accountProfileId) } : {}),
           }),
           divergence: isProviderSwap
             ? this.deps.describeLoopProviderDivergence?.(instanceId, instance.provider)
@@ -493,6 +499,7 @@ export class RuntimeReconciler {
           // resume under, not the one it never reached.
           instance.copilotAccountProfileId = oldCopilotProfileId;
         }
+        if (diff.accountProfileChanged) restoreAccount(instance, oldAccount);
         this.deps.transitionState(instance, 'error');
         logger.error('Failed to apply runtime change', error instanceof Error ? error : undefined, { instanceId, newModel, targetProvider });
         throw error;

@@ -82,12 +82,13 @@ interface TestableSessionContinuityManager {
   getResumableSessions(): Promise<SessionState[]>;
   resumeSession(instanceId: string): Promise<SessionState | null>;
   importSession(data: { state: SessionState; snapshots?: unknown[] }, newInstanceId?: string): Promise<string>;
-  addConversationEntry(instanceId: string, entry: SessionState['conversationHistory'][number]): Promise<void>;
+  addConversationEntry(instanceId: string, entry: SessionState['conversationHistory'][number]): Promise<boolean>;
   patchConversationEntry(
     instanceId: string,
     entryId: string,
     patch: Partial<Omit<SessionState['conversationHistory'][number], 'id'>>,
-  ): Promise<void>;
+    fallback?: SessionState['conversationHistory'][number],
+  ): Promise<boolean>;
   createSnapshot(instanceId: string, name?: string, description?: string, trigger?: string): Promise<SessionSnapshot | null>;
   exportSession(instanceId: string): Promise<{ state: SessionState; snapshots: SessionSnapshot[] } | null>;
   listSnapshots(instanceId?: string): SessionSnapshot[];
@@ -1488,6 +1489,41 @@ describe('SessionContinuityManager logging', () => {
         timestamp: 2,
       }),
     ]);
+  });
+
+  it('adds a patch fallback only when the missing entry is not older than the retained history', async () => {
+    const manager = createManager({ maxConversationEntries: 2 });
+    await manager.readyPromise;
+    const state = makeState('patch-fallback');
+    state.conversationHistory = [];
+    await manager.importSession({ state });
+    await manager.addConversationEntry('patch-fallback', { id: 'a', role: 'user', content: 'one', timestamp: 10 });
+    await manager.addConversationEntry('patch-fallback', { id: 'b', role: 'assistant', content: 'two', timestamp: 20 });
+
+    // A merge target that was never stored is re-added in its place in time...
+    const fresh = { id: 'call', role: 'assistant' as const, content: 'run', timestamp: 30 };
+    await expect(manager.patchConversationEntry('patch-fallback', 'call', { content: 'run' }, fresh)).resolves.toBe(true);
+    // ...but one that history already trimmed away stays gone.
+    const trimmed = { id: 'old', role: 'assistant' as const, content: 'old', timestamp: 5 };
+    await expect(manager.patchConversationEntry('patch-fallback', 'old', { content: 'old' }, trimmed)).resolves.toBe(false);
+
+    const exported = await manager.exportSession('patch-fallback');
+    expect(exported?.state.conversationHistory.map((entry) => entry.id)).toEqual(['b', 'call']);
+  });
+
+  it('reports a patch fallback that redaction dropped as not stored', async () => {
+    const manager = createManager({ redactToolOutputs: true });
+    await manager.readyPromise;
+    const state = makeState('redacted-fallback');
+    state.conversationHistory = [];
+    await manager.importSession({ state });
+    const result = { id: 'result', role: 'tool' as const, content: 'secret output', timestamp: 1 };
+
+    await expect(manager.patchConversationEntry('redacted-fallback', 'result', { content: 'x' }, result))
+      .resolves.toBe(false);
+    await expect(manager.addConversationEntry('redacted-fallback', result)).resolves.toBe(false);
+    await expect(manager.addConversationEntry('redacted-fallback', { id: 'ask', role: 'user', content: 'hi', timestamp: 2 }))
+      .resolves.toBe(true);
   });
 
   it('persists a transcript repair made while resuming', async () => {

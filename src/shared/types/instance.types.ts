@@ -12,6 +12,7 @@ import type {
   ContextInheritanceConfig,
 } from './supervision.types';
 import type { CopilotRouteSource } from './copilot-account.types';
+import type { AccountHandoffKind, AccountRouteSource } from './provider-account.types';
 import type { ExecutionLocation, NodePlacementPrefs } from './worker-node.types';
 import type { InstanceRuntimeSummary, ModelRuntimeTarget } from './local-model-runtime.types';
 import { createDefaultContextInheritance } from './supervision.types';
@@ -323,6 +324,22 @@ export interface DesiredRuntime {
   copilotAccountProfileId?: string;
   /** Explicit confirmation that context may cross to the new account. */
   copilotAccountHandoffConfirmed?: boolean;
+  /**
+   * Move this conversation to another Claude/Codex account profile of the same
+   * provider (provider account pools). Like the Copilot handoff this ends the
+   * provider session and continues under a fresh one on the new account.
+   */
+  accountProfileId?: string;
+  /**
+   * Why the account changes. `failover` and `preemptive` are pool decisions the
+   * user already acknowledged ownership for, so they need no confirmation;
+   * `explicit` requires `accountHandoffConfirmed`.
+   */
+  accountHandoffKind?: AccountHandoffKind;
+  /** Explicit confirmation for an `explicit` account handoff. */
+  accountHandoffConfirmed?: boolean;
+  /** Short transcript reason, e.g. "usage limit; resets 18:30". Never an identity. */
+  accountHandoffReason?: string;
 }
 
 /**
@@ -501,6 +518,16 @@ export interface Instance {
   /** The routing rule that decided it, when a rule did. */
   copilotRoutingRuleId?: string;
   /**
+   * The Claude/Codex account profile (provider account pools) this session
+   * runs on. First-class for the same reason as `copilotAccountProfileId`:
+   * `instanceToState()` does not copy `metadata`.
+   */
+  accountProfileId?: string;
+  /** How that profile was chosen. */
+  accountRoutingSource?: AccountRouteSource;
+  /** Account switches performed on this session (failover/pre-emptive/explicit). */
+  accountSwitches?: number;
+  /**
    * WS7 Phase B — ordered fallback providers this session may fail over to when
    * its recovery ladder exhausts on a provider-fault category. Empty/undefined
    * = failover off. Seeded from the global `sessionFailoverProviders` at create.
@@ -655,6 +682,8 @@ export interface InstanceCreateConfig {
   copilotAccountProfileId?: string;
   /** Set when the user confirmed an override that leaves a protected scope. */
   copilotConfirmProtectedOverride?: boolean;
+  /** Explicit Claude/Codex account profile for this session (provider account pools). */
+  accountProfileId?: string;
   /** WS7 Phase B — ordered fallback providers; undefined = seed from global `sessionFailoverProviders`. */
   failoverProviders?: string[];
 
@@ -769,6 +798,7 @@ export function createInstance(config: InstanceCreateConfig): Instance {
     errorCount: 0,
     restartCount: 0,
     copilotAccountProfileId: config.copilotAccountProfileId,
+    accountProfileId: config.accountProfileId,
     metadata: config.metadata,
   };
 }

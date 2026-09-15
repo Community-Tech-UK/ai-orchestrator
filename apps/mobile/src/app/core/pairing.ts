@@ -1,5 +1,43 @@
 /** Pairing lifecycle: exchanging a one-time QR token for a device token, and giving it back. */
-import type { PairedHost } from './models';
+import type { PairedHost, PairingPayload } from './models';
+
+/** Only locally authored messages may be shown in the pairing UI. */
+export class PairingError extends Error {}
+
+export type PairingValidation =
+  | { payload: PairingPayload; error: null }
+  | { payload: null; error: string };
+
+/** Validate the entire payload atomically; never merge a partial replacement code. */
+export function validatePairingPayload(value: unknown): PairingValidation {
+  const invalid = (error: string): PairingValidation => ({ payload: null, error });
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return invalid('Use the complete connection code from Settings, Mobile.');
+  }
+  const data = value as Record<string, unknown>;
+  if (data['v'] !== 1) return invalid('This code format is not supported. Generate a new code in Settings, Mobile.');
+  const host = typeof data['host'] === 'string' ? data['host'].trim() : '';
+  // Accept a hostname/IP, not a URL with credentials, a path, or another port.
+  if (!host || !/^(?:[a-z0-9.-]+|\[[a-f0-9:]+\])$/i.test(host)) {
+    return invalid('Enter the host IP or name only, without a URL or port.');
+  }
+  try { new URL(`http://${host}`); } catch { return invalid('Enter a valid host IP or name.'); }
+  const port = data['port'];
+  if (typeof port !== 'number' || !Number.isInteger(port) || port < 1 || port > 65535) {
+    return invalid('Enter a whole-number port between 1 and 65535.');
+  }
+  const pairingToken = typeof data['pairingToken'] === 'string' ? data['pairingToken'].trim() : '';
+  if (!pairingToken) return invalid('The pairing token is missing. Generate a new code in Settings, Mobile.');
+  if (data['secure'] !== undefined && typeof data['secure'] !== 'boolean') {
+    return invalid('The connection security setting is invalid. Generate a new connection code.');
+  }
+  return { payload: { v: 1, host, port, pairingToken, secure: data['secure'] === true }, error: null };
+}
+
+export function parsePairingCode(code: string): PairingValidation {
+  try { return validatePairingPayload(JSON.parse(code.trim())); }
+  catch { return { payload: null, error: 'Use the complete connection code from Settings, Mobile.' }; }
+}
 
 /** Pairing must reach the host over Tailscale; bound it so the UI can't hang forever. */
 const PAIR_TIMEOUT_MS = 10000;
@@ -46,7 +84,7 @@ export async function pairWithHost(
     // AbortError (timeout) or a network failure both mean we never reached the
     // gateway — almost always Tailscale not being connected on the phone. Unlike
     // a rejected device token, blaming the network really is right here.
-    throw new Error(
+    throw new PairingError(
       `Couldn't reach ${host}:${port}. Check that Tailscale is connected on this phone ` +
         `(same tailnet as the Mac) and the gateway is running, then try again.`,
     );
@@ -54,8 +92,10 @@ export async function pairWithHost(
     clearTimeout(timeout);
   }
   if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(body.error || `Pairing failed (HTTP ${res.status})`);
+    // Server messages can contain submitted input; never echo them to the screen.
+    throw new PairingError(res.status === 401 || res.status === 403
+      ? 'This pairing code has expired or was already used. Generate a new code in Settings, Mobile.'
+      : 'The host could not pair this phone. Check that the gateway is running and try again.');
   }
   return (await res.json()) as PairResult;
 }

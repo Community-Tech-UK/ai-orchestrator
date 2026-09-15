@@ -36,6 +36,33 @@ describe('isProviderNotice', () => {
     }
   });
 
+  it('flags the exact Codex usage-limit wording (U+2019 apostrophe) and Claude templates', () => {
+    const notices = [
+      'You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 3:45 PM.',
+      'You’ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 3:45 PM.',
+      'You’ve hit your usage limit. Try again at 3:45 PM.',
+      'You’ve hit your usage limit. Try again later.',
+      "You've hit your session limit · resets 3:45pm",
+      "You've hit your weekly limit · resets Mon 12:00am",
+      'You’re out of credits. Ask your workspace owner for more.',
+      'You’ve hit your spend cap for this workspace.',
+      'Your credits limit is used up, try again at 9 PM',
+    ];
+    for (const text of notices) {
+      expect(isProviderNotice(text), text).toBe(true);
+    }
+  });
+
+  it('does not treat generic retry wording as a limit notice', () => {
+    const legit = [
+      'Error: connection reset, try again later',
+      'Service unavailable. Try again at 3:45 PM.',
+    ];
+    for (const text of legit) {
+      expect(isProviderNotice(text), text).toBe(false);
+    }
+  });
+
   it('treats empty/nullish input as not a notice', () => {
     expect(isProviderNotice('')).toBe(false);
     expect(isProviderNotice('   ')).toBe(false);

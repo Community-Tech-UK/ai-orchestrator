@@ -77,6 +77,8 @@ describe('browser credential settings: 2026-08-29 privileged-CLI widening', () =
       'providersExcludedFromAutomation',
       'copilotAccountProfiles',
       'copilotAccountRoutingRules',
+      'providerAccountProfiles',
+      'providerAccountPools',
       'computerUseEnabled',
       'computerUseAutonomyLevel',
       'computerUseAllowedAppsJson',

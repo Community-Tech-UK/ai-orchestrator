@@ -29,12 +29,17 @@ import { removeInstanceHardened } from './lifecycle/hardened-mode-scoping';
 import { removeInstanceContainedExecution } from './lifecycle/contained-execution-scoping';
 import { getHandoffStateService } from '../session/handoff-state-service';
 import { getNotificationService } from '../notifications/notification-service';
+import {
+  createAccountFailoverCoordinator,
+  currentAccountProfileId,
+} from '../providers/account-pool/account-failover-wiring';
 import { buildParkFailoverOfferNotification } from './instance-failover';
 import { applySubagentPermissions } from '../orchestration/derive-subagent-permission';
 import type { RoutingDecision } from '../routing';
 import type { SpawnChildCommand } from '../orchestration/orchestration-protocol';
 import { getWorkerNodeRegistry, resolveWorkerNodeTarget } from '../remote-node/worker-node-registry';
 import type {
+  DesiredRuntime,
   Instance,
   InstanceCreateConfig,
   InstanceStatus,
@@ -428,9 +433,9 @@ export class InstanceManager extends EventEmitter {
           }),
         );
       },
-      getQuotaSnapshot: (provider) => {
+      getQuotaSnapshot: (provider, accountProfileId) => {
         try {
-          return getProviderQuotaService().getSnapshot(provider);
+          return getProviderQuotaService().getSnapshot(provider, accountProfileId);
         } catch {
           return null;
         }
@@ -443,14 +448,23 @@ export class InstanceManager extends EventEmitter {
           });
         });
       },
-      probeQuotaSnapshot: async (provider) => {
+      probeQuotaSnapshot: async (provider, accountProfileId) => {
         try {
-          return await getProviderQuotaService().refresh(provider);
+          return await getProviderQuotaService().refresh(provider, accountProfileId);
         } catch {
           return null;
         }
       },
       providerLimitLedger: getProviderLimitLedgerPort(),
+      accountFailover: createAccountFailoverCoordinator({
+        getInstance: (id) => this.state.getInstance(id),
+        applyRuntimeChange: (id, desired) => this.applyAccountHandoff(id, desired),
+        resendInput: (id, prompt) => {
+          void this.sendInput(id, prompt, undefined, { automatedInput: true }).catch((err) =>
+            logger.warn('Account failover re-send failed', { instanceId: id, error: err instanceof Error ? err.message : String(err) }));
+        },
+      }),
+      emitSystemMessage: (id, content, metadata) => this.emitSystemMessage(id, content, metadata),
       // WS7 Phase B offered switch: notify when a long park has fallbacks available.
       onParked: ({ instanceId, provider, resumeAt }) => {
         const offer = buildParkFailoverOfferNotification({
@@ -463,7 +477,7 @@ export class InstanceManager extends EventEmitter {
       getWorkspaceCwd: (id) => this.state.getInstance(id)?.workingDirectory,
       getProviderModel: (id) => {
         const inst = this.state.getInstance(id);
-        return inst ? { provider: inst.provider, model: inst.currentModel ?? null } : null;
+        return inst ? { provider: inst.provider, model: inst.currentModel ?? null, accountProfileId: currentAccountProfileId(inst) } : null;
       },
       isResumable: (id) => { const inst = this.state.getInstance(id); return !!inst && inst.status !== 'terminated' && inst.status !== 'failed'; },
     });
@@ -1589,6 +1603,11 @@ export class InstanceManager extends EventEmitter {
     return this.lifecycle.changeModel(instanceId, newModel, reasoningEffort, modelRuntimeTarget, targetProvider);
   }
 
+  /** Account-pool handoff applied immediately (see InstanceLifecycleManager.applyAccountHandoff). */
+  async applyAccountHandoff(instanceId: string, desired: DesiredRuntime): Promise<Instance> {
+    return this.lifecycle.applyAccountHandoff(instanceId, desired);
+  }
+
   /**
    * Applies provider/model changes now if settled, or queues them until settlement.
    * See {@link InstanceLifecycleManager.requestModelChange}.
@@ -2078,6 +2097,22 @@ export class InstanceManager extends EventEmitter {
         const prefix = contextBlock ? `${contextBlock}\n\n` : '';
         contextBlock = `${prefix}${orchestrationPrompt}\n\n---`;
       }
+    } else if (!instance.isRenamed && !instance.aiTitle) {
+      // This instance's first message never got its AI title upgrade (no fast
+      // CLI, timeout, local model unreachable, …) and is still showing the
+      // deterministic instant title. This is genuine new user activity — a
+      // message the user is actively sending now — so it is exactly the kind
+      // of moment `retryTitleUpgradeIfPending` is meant for: one more real
+      // chance, titled from the ORIGINAL first message, not this one. A no-op
+      // when nothing is pending, and never fires on hibernate/wake or session
+      // restore because neither of those calls `sendInput`.
+      getAutoTitleService().retryTitleUpgradeIfPending(instanceId, (id, title) => {
+        if (instance.isRenamed) return;
+        instance.displayName = title;
+        instance.aiTitle = title;
+        this.state.queueUpdate(id, instance.status, instance.contextUsage, undefined, title);
+        getSessionContinuityManager().updateState(id, { displayName: title });
+      }).catch(() => { /* non-critical */ });
     }
 
     // Re-surface relevant orchestration guidance after the full first-turn prompt

@@ -326,6 +326,12 @@ export interface MobileAttachmentDto {
   data: string;
 }
 
+/** Draft recovered by cancelling a queued input before its delivery starts. */
+export interface MobileCancelledInputDto {
+  message: string;
+  attachments?: MobileAttachmentDto[];
+}
+
 /** Request body for POST /api/instances/:id/respond (answer a permission prompt). */
 export interface MobileRespondRequest {
   requestId: string;

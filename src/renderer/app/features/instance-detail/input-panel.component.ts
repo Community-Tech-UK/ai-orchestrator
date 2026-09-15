@@ -20,6 +20,7 @@ import {
 import { DOCUMENT } from '@angular/common';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { CopilotAccountChipComponent } from '../../shared/components/copilot-account-chip.component';
+import { ProviderAccountChipComponent } from '../../shared/components/provider-account-chip.component';
 import { CommandStore } from '../../core/state/command.store';
 import type { ExtendedCommand } from '../../core/state/command.store';
 import { ActionDispatchService } from '../../core/services/action-dispatch.service';
@@ -144,6 +145,7 @@ const LOOP_START_ACK_TIMEOUT_MS = 30_000;
     LoopConfigPanelComponent,
     ImageLightboxComponent,
     CopilotAccountChipComponent,
+    ProviderAccountChipComponent,
   ],
   templateUrl: './input-panel.component.html',
   styleUrl: './input-panel.component.scss',
@@ -156,7 +158,7 @@ export class InputPanelComponent implements OnDestroy {
   private suggestionService = inject(PromptSuggestionService);
   private perf = inject(PerfInstrumentationService);
   private providerState = inject(ProviderStateService);
-  private newSessionDraft = inject(NewSessionDraftService);
+  protected newSessionDraft = inject(NewSessionDraftService);
   private settingsStore = inject(SettingsStore);
   private actionDispatch = inject(ActionDispatchService);
   private keybindingService = inject(KeybindingService);

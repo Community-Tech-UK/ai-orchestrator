@@ -466,17 +466,18 @@ export class LoopCoordinator extends EventEmitter {
     setConvergenceNote: (loopRunId, reason) => this.completionContext.setConvergenceNote(loopRunId, reason),
     terminate: (state, status, reason) => this.terminate(state, status, reason),
     resumeLoop: (loopRunId) => this.resumeLoop(loopRunId),
+    requestContextReset: (loopRunId) => this.completionContext.requestContextReset(loopRunId),
   });
 
   private scheduledWakeups = new Map<string, ScheduledWakeup>();
 
   /** Override the quota snapshot source (production wiring / tests). */
-  setQuotaSnapshotProvider(fn: (provider: ProviderId) => ProviderQuotaSnapshot | null): void {
+  setQuotaSnapshotProvider(fn: (provider: ProviderId, accountProfileId?: string | null) => ProviderQuotaSnapshot | null): void {
     this.providerLimitHandler.setQuotaSnapshotProvider(fn);
   }
 
   /** Override active quota refresh used after provider-limit notices. */
-  setQuotaSnapshotRefresher(fn: ((provider: ProviderId) => Promise<ProviderQuotaSnapshot | null>) | null): void {
+  setQuotaSnapshotRefresher(fn: ((provider: ProviderId, accountProfileId?: string | null) => Promise<ProviderQuotaSnapshot | null>) | null): void {
     this.providerLimitHandler.setQuotaSnapshotRefresher(fn);
   }
 
@@ -1797,7 +1798,7 @@ export class LoopCoordinator extends EventEmitter {
           });
           if (outcome === 'terminated') return;
           if (outcome === 'parked') continue; // next pass blocks in waitWhilePaused
-          // 'skipped' (stale/soft) → fall through and spawn this iteration.
+          // 'skipped' (stale/soft) or 'switched-account' (fresh session on the new account) → spawn this iteration.
         } else {
           this.completionContext.clearDownshiftModel(state.id);
         }
@@ -2113,6 +2114,8 @@ export class LoopCoordinator extends EventEmitter {
             return;
           }
           if (route === 'terminated') return;
+          // Retry on the new account now: a brand-new session, outside the degraded-retry budget.
+          if (route === 'switched-account') { this.completionContext.consumeContextReset(state.id); forceContextReset = true; continue; }
           if (route !== 'none') break;
         }
 
@@ -2236,7 +2239,7 @@ export class LoopCoordinator extends EventEmitter {
       // counting the turn: don't accumulate stats, don't run progress/completion
       // detection — park (auto-resume when we know the reset) or terminate with
       // a distinct `provider-limit` reason.
-      if (isProviderNotice(childResult.output)) {
+      if (isProviderNotice(childResult.output) || childResult.providerQuotaExhausted === true) {
         const derived = await this.providerLimitHandler.deriveProviderLimitResumeAfterRefresh(state);
         const outcome = this.providerLimitHandler.handleProviderLimit(state, {
           reason: `provider usage/limit notice in iteration output: "${excerpt(childResult.output).slice(0, 160)}"`,
@@ -2252,7 +2255,7 @@ export class LoopCoordinator extends EventEmitter {
           outcome,
           resumeAt: derived.resumeAt,
         });
-        if (outcome === 'parked') continue;
+        if (outcome === 'parked' || outcome === 'switched-account') continue;
         return;
       }
 

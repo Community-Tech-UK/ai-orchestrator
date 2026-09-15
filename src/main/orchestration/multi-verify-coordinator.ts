@@ -35,7 +35,7 @@ import { isProviderNotice } from '../cli/provider-notice';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { createAbortController, createChildAbortController } from '../util/abort-controller-tree';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
-import { attachCopilotRoute } from '../instance/lifecycle/copilot-route-preflight';
+import { attachProviderRoutes } from '../instance/lifecycle/provider-route-preflight';
 import { AGENT_OUTPUT_STRUCTURE, runDebateRounds, verificationDataBlock } from './multi-verify-debate';
 
 const logger = getLogger('MultiVerifyCoordinator');
@@ -1025,7 +1025,7 @@ Provide your synthesized response:`;
     // Copilot account routing: verification synthesis is an automatic surface.
     const adapter = getProviderRuntimeService().createAdapter({
       cliType,
-      options: await attachCopilotRoute(cliType, spawnOptions, 'verification'),
+      options: await attachProviderRoutes(cliType, spawnOptions, 'verification'),
     });
     try {
       const sendMessage = (adapter as any).sendMessage?.bind(adapter) as ((m: CliMessage) => Promise<CliResponse>) | undefined;

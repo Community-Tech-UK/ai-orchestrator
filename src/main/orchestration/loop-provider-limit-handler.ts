@@ -4,7 +4,11 @@ import type {
   ProviderQuotaSnapshot,
 } from '../../shared/types/provider-quota.types';
 import type { ProviderLimitLedger } from '../core/system/provider-limit-ledger';
-import { EARLY_RESUME_PROBE_MS } from '../instance/instance-provider-limit-handler';
+import { ASSUMED_ACCOUNT_LIMIT_MS, EARLY_RESUME_PROBE_MS } from '../instance/instance-provider-limit-handler';
+import {
+  getLoopAccountFailover,
+  type LoopAccountFailover,
+} from '../providers/account-pool/loop-account-failover';
 import { getLogger } from '../logging/logger';
 import {
   evaluateQuotaThrottle,
@@ -18,9 +22,12 @@ import type {
 
 const logger = getLogger('LoopProviderLimitHandler');
 
+export type LoopProviderLimitOutcome = 'parked' | 'terminated' | 'skipped' | 'switched-account';
+
 export class LoopProviderLimitHandler {
-  private quotaSnapshotProvider: (provider: ProviderId) => ProviderQuotaSnapshot | null = () => null;
-  private quotaSnapshotRefresher: ((provider: ProviderId) => Promise<ProviderQuotaSnapshot | null>) | null = null;
+  private quotaSnapshotProvider: (provider: ProviderId, accountProfileId?: string | null) => ProviderQuotaSnapshot | null = () => null;
+  private quotaSnapshotRefresher: ((provider: ProviderId, accountProfileId?: string | null) => Promise<ProviderQuotaSnapshot | null>) | null = null;
+  private loopAccountFailover: Pick<LoopAccountFailover, 'currentProfileId' | 'trySwitch'> | null = null;
   private allowOverageProvider: () => boolean = () => false;
   private providerLimitLedger: Pick<ProviderLimitLedger, 'record' | 'getActive' | 'clearActive'> | null = null;
   private resumeCancellers = new Map<string, () => void>();
@@ -37,14 +44,34 @@ export class LoopProviderLimitHandler {
     setConvergenceNote: (loopRunId: string, reason: string) => void;
     terminate: (state: LoopState, status: LoopState['status'], reason?: string) => void;
     resumeLoop: (loopRunId: string) => boolean;
+    /** The next attempt runs in a brand-new session on the new account and needs the full prompt bootstrap. */
+    requestContextReset?: (loopRunId: string) => void;
   }) {}
 
-  setQuotaSnapshotProvider(fn: (provider: ProviderId) => ProviderQuotaSnapshot | null): void {
+  setQuotaSnapshotProvider(fn: (provider: ProviderId, accountProfileId?: string | null) => ProviderQuotaSnapshot | null): void {
     this.quotaSnapshotProvider = fn;
   }
 
-  setQuotaSnapshotRefresher(fn: ((provider: ProviderId) => Promise<ProviderQuotaSnapshot | null>) | null): void {
+  setQuotaSnapshotRefresher(fn: ((provider: ProviderId, accountProfileId?: string | null) => Promise<ProviderQuotaSnapshot | null>) | null): void {
     this.quotaSnapshotRefresher = fn;
+  }
+
+  /** Account-pool failover for loops (D9). Defaults to the shared instance. */
+  setLoopAccountFailover(failover: Pick<LoopAccountFailover, 'currentProfileId' | 'trySwitch'> | null): void {
+    this.loopAccountFailover = failover;
+  }
+
+  private accounts(): Pick<LoopAccountFailover, 'currentProfileId' | 'trySwitch'> {
+    return this.loopAccountFailover ?? getLoopAccountFailover();
+  }
+
+  /** The account-pool profile the loop's last iteration ran on; null outside a pool. */
+  private loopProfileId(state: LoopState): string | null {
+    try {
+      return this.accounts().currentProfileId(state.id, this.quotaIdForLoopProvider(state));
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -78,11 +105,11 @@ export class LoopProviderLimitHandler {
    * possibly stale — ledger row. If the provider is in fact still limited,
    * the next failed iteration re-records a fresh gate.
    */
-  clearKnownLimitGate(provider: ProviderId, model: string | null): void {
+  clearKnownLimitGate(provider: ProviderId, model: string | null, accountProfileId: string | null = null): void {
     const ledger = this.providerLimitLedger;
     if (!ledger) return;
     try {
-      const cleared = ledger.clearActive({ provider, model });
+      const cleared = ledger.clearActive({ provider, model, accountProfileId });
       if (cleared > 0) {
         logger.info('Cleared active provider-limit gate for loop resume (user/probe override)', {
           provider,
@@ -132,7 +159,13 @@ export class LoopProviderLimitHandler {
    * credit, which is why the ledger clear is provider-wide.
    */
   applyManualResumeOverride(provider: ProviderId, loopRunId: string): void {
-    this.clearKnownLimitGate(provider, null);
+    let profileId: string | null = null;
+    try {
+      profileId = this.accounts().currentProfileId(loopRunId, provider);
+    } catch {
+      profileId = null;
+    }
+    this.clearKnownLimitGate(provider, null, profileId);
     this.throttleOverrides.add(loopRunId);
   }
 
@@ -145,7 +178,7 @@ export class LoopProviderLimitHandler {
     }
     let snapshot: ProviderQuotaSnapshot | null = null;
     try {
-      snapshot = this.quotaSnapshotProvider(this.quotaIdForLoopProvider(state));
+      snapshot = this.quotaSnapshotProvider(this.quotaIdForLoopProvider(state), this.loopProfileId(state));
     } catch (err) {
       logger.debug('Quota snapshot provider threw; skipping throttle', {
         loopRunId: state.id,
@@ -168,10 +201,11 @@ export class LoopProviderLimitHandler {
   maybeParkKnownProviderLimit(
     state: LoopState,
     model: string | null = null,
-  ): 'parked' | 'terminated' | 'skipped' {
+  ): LoopProviderLimitOutcome {
     const knownLimit = this.providerLimitLedger?.getActive({
       provider: this.quotaIdForLoopProvider(state),
       model,
+      accountProfileId: this.loopProfileId(state),
       now: Date.now(),
     });
     if (!knownLimit) return 'skipped';
@@ -191,7 +225,7 @@ export class LoopProviderLimitHandler {
     const provider = this.quotaIdForLoopProvider(state);
     if (this.quotaSnapshotRefresher) {
       try {
-        const refreshed = await this.quotaSnapshotRefresher(provider);
+        const refreshed = await this.quotaSnapshotRefresher(provider, this.loopProfileId(state));
         const derived = this.deriveResumeFromSnapshot(refreshed);
         if (derived.resumeAt !== null) return derived;
       } catch (err) {
@@ -207,7 +241,7 @@ export class LoopProviderLimitHandler {
 
   private readQuotaSnapshot(state: LoopState): ProviderQuotaSnapshot | null {
     try {
-      return this.quotaSnapshotProvider(this.quotaIdForLoopProvider(state));
+      return this.quotaSnapshotProvider(this.quotaIdForLoopProvider(state), this.loopProfileId(state));
     } catch {
       return null;
     }
@@ -243,8 +277,13 @@ export class LoopProviderLimitHandler {
       mustStop?: boolean;
       /** False when parking from an existing durable gate rather than a new signal. */
       recordLimit?: boolean;
+      /**
+       * Account pools: move the loop to another account instead of parking.
+       * False for burst throttles (a server `retry-after`), which must not rotate.
+       */
+      accountFailover?: boolean;
     },
-  ): 'parked' | 'terminated' | 'skipped' {
+  ): LoopProviderLimitOutcome {
     const now = Date.now();
     const reset = opts.resumeAt;
 
@@ -254,6 +293,10 @@ export class LoopProviderLimitHandler {
     }
 
     const willResume = typeof reset === 'number' && reset > now;
+    const accountProfileId = this.loopProfileId(state);
+    if (accountProfileId !== null && opts.accountFailover !== false && this.switchLoopAccount(state, opts, accountProfileId, now)) {
+      return 'switched-account';
+    }
     if (willResume && opts.recordLimit !== false) {
       try {
         this.providerLimitLedger?.record({
@@ -261,6 +304,7 @@ export class LoopProviderLimitHandler {
           // The loop config does not retain the router's resolved model.
           // Persist account scope instead of guessing a model-specific gate.
           model: null,
+          accountProfileId,
           detectedAt: now,
           resumeAt: reset as number,
           source: `loop-${opts.source}`,
@@ -311,6 +355,65 @@ export class LoopProviderLimitHandler {
 
     this.deps.terminate(state, 'provider-limit', opts.reason);
     return 'terminated';
+  }
+
+  /**
+   * Bench the loop's exhausted account and let the next iteration re-route to
+   * another account of the pool. False leaves the park path untouched.
+   */
+  private switchLoopAccount(
+    state: LoopState,
+    opts: { reason: string; resumeAt: number | null; source: 'quota' | 'notice'; recordLimit?: boolean },
+    accountProfileId: string,
+    now: number,
+  ): boolean {
+    const provider = this.quotaIdForLoopProvider(state);
+    if (opts.recordLimit !== false) {
+      try {
+        this.providerLimitLedger?.record({
+          provider,
+          model: null,
+          accountProfileId,
+          detectedAt: now,
+          resumeAt: typeof opts.resumeAt === 'number' && opts.resumeAt > now ? opts.resumeAt : now + ASSUMED_ACCOUNT_LIMIT_MS,
+          source: `loop-${opts.source}`,
+          instanceId: state.id,
+        });
+      } catch (err) {
+        logger.warn('Failed to record loop account limit before switching', {
+          loopRunId: state.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    let switched = false;
+    try {
+      switched = this.accounts().trySwitch({
+        loopRunId: state.id,
+        provider,
+        model: null,
+        iteration: state.totalIterations,
+        reason: opts.reason,
+      });
+    } catch (err) {
+      logger.warn('Loop account failover failed; parking instead', {
+        loopRunId: state.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    if (!switched) return false;
+    this.deps.requestContextReset?.(state.id);
+    this.deps.emit('loop:activity', {
+      loopRunId: state.id,
+      seq: state.totalIterations,
+      stage: state.currentStage,
+      timestamp: now,
+      kind: 'status',
+      message: 'Account usage limit reached — continuing on another account in the pool',
+      detail: { reason: opts.reason, fromAccountProfileId: accountProfileId },
+    });
+    logger.info('Loop switched account on provider limit', { loopRunId: state.id, provider, fromAccountProfileId: accountProfileId });
+    return true;
   }
 
   scheduleWakeupResume(state: LoopState, opts: { resumeAt: number; reason: string }): void {
@@ -409,12 +512,13 @@ export class LoopProviderLimitHandler {
 
     const loopRunId = state.id;
     const provider = this.quotaIdForLoopProvider(state);
+    const accountProfileId = this.loopProfileId(state);
     let inFlight = false;
     const timer = setInterval(() => {
       if (!this.resumeCancellers.has(loopRunId) || inFlight) return;
       if (resumeAt - Date.now() < 60_000) return; // scheduled resume is about to fire anyway
       inFlight = true;
-      void refresher(provider)
+      void refresher(provider, accountProfileId)
         .then((snapshot) => {
           if (!this.resumeCancellers.has(loopRunId) || !this.snapshotAllowsResume(snapshot)) return;
           logger.info('Loop provider limit lifted early per fresh quota probe; resuming now', {
@@ -424,7 +528,7 @@ export class LoopProviderLimitHandler {
           });
           // Drop the durable gate first, or the next iteration's ledger
           // preflight instantly re-parks the freshly resumed loop.
-          this.clearKnownLimitGate(provider, null);
+          this.clearKnownLimitGate(provider, null, accountProfileId);
           this.clearResumeTimer(loopRunId);
           this.deps.resumeLoop(loopRunId);
         })

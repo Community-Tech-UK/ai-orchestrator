@@ -21,6 +21,8 @@ export interface NewSessionDraftState {
    * rules resolve to a moment later.
    */
   copilotAccountProfileId: string | null;
+  /** Explicit Claude/Codex account-pool choice; null = let the pool decide at create. */
+  accountProfileId: string | null;
   launchMode: InstanceLaunchMode | null;
   agentId: string;
   pendingFolders: string[];
@@ -44,6 +46,7 @@ export interface PersistedNewSessionDraft {
   yoloMode?: boolean | null;
   hardened?: boolean | null;
   copilotAccountProfileId?: string | null;
+  accountProfileId?: string | null;
   launchMode?: InstanceLaunchMode | null;
   agentId?: string;
   pendingFolders: string[];

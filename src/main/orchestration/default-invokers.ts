@@ -17,9 +17,10 @@ import { getDebateCoordinator } from './debate-coordinator';
 import { getWorkflowManager } from '../workflows/workflow-manager';
 import { resolveCliType, type CliAdapter, type UnifiedSpawnOptions } from '../cli/adapters/adapter-factory';
 import {
-  attachCopilotRoute,
   copilotOriginForRoutingIntent,
 } from '../instance/lifecycle/copilot-route-preflight';
+import { attachProviderRoutes } from '../instance/lifecycle/provider-route-preflight';
+import { getLoopAccountFailover } from '../providers/account-pool/loop-account-failover';
 import type { CopilotInvocationOrigin } from '../../shared/types/copilot-account.types';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 import { readCodexAuthMode } from '../providers/codex-auth-mode';
@@ -197,6 +198,8 @@ async function invokeCliTextResponse(params: {
   usage?: LoopChildUsage;
   degradedReason?: DegradedReason;
   finishReason?: string;
+  /** The adapter attached a structured plan-limit signal (e.g. Claude's 429 `result`). */
+  providerQuotaExhausted?: boolean;
 }> {
   const instance = params.instanceId
     ? params.instanceManager.getInstance(params.instanceId)
@@ -294,7 +297,7 @@ async function invokeCliTextResponse(params: {
   // all five; a reused adapter already carries the route it spawned with.
   const routedSpawnOptions = params.reusedAdapter
     ? spawnOptions
-    : await attachCopilotRoute(
+    : await attachProviderRoutes(
         cliType,
         spawnOptions,
         params.copilotOrigin ?? copilotOriginForRoutingIntent(params.routingIntent),
@@ -442,6 +445,7 @@ async function invokeCliTextResponse(params: {
     },
     ...(response.degradedReason ? { degradedReason: response.degradedReason } : {}),
     ...(finishReason ? { finishReason } : {}),
+    ...((response.metadata?.['quota'] as { exhausted?: unknown } | undefined)?.exhausted === true ? { providerQuotaExhausted: true } : {}),
   };
 }
 
@@ -999,6 +1003,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     loopContextTokens.delete(loopRunId); // LF-1: drop cumulative-token tracking.
     loopContextIterations.delete(loopRunId);
     loopOccupancyUnavailableNotified.delete(loopRunId); // WS4: reset the bounded diagnostic.
+    getLoopAccountFailover().clear(loopRunId);
     if (adapters.size === 0) return Promise.resolve();
     const promise = Promise.allSettled(
       [...adapters].map(async (adapter) => {
@@ -1108,20 +1113,20 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
   // its pre-iteration pre-flight can park before spilling into paid overage.
   // Guarded for test stubs (plain EventEmitter coordinators).
   const setQuotaSnapshotProvider = (coordinator as {
-    setQuotaSnapshotProvider?: (fn: (provider: ProviderId) => unknown) => void;
+    setQuotaSnapshotProvider?: (fn: (provider: ProviderId, accountProfileId?: string | null) => unknown) => void;
   }).setQuotaSnapshotProvider;
   if (typeof setQuotaSnapshotProvider === 'function') {
-    setQuotaSnapshotProvider.call(coordinator, (provider) =>
-      getProviderQuotaService().getSnapshot(provider),
+    setQuotaSnapshotProvider.call(coordinator, (provider, accountProfileId) =>
+      getProviderQuotaService().getSnapshot(provider, accountProfileId),
     );
   }
 
   const setQuotaSnapshotRefresher = (coordinator as {
-    setQuotaSnapshotRefresher?: (fn: (provider: ProviderId) => Promise<ProviderQuotaSnapshot | null>) => void;
+    setQuotaSnapshotRefresher?: (fn: (provider: ProviderId, accountProfileId?: string | null) => Promise<ProviderQuotaSnapshot | null>) => void;
   }).setQuotaSnapshotRefresher;
   if (typeof setQuotaSnapshotRefresher === 'function') {
-    setQuotaSnapshotRefresher.call(coordinator, (provider) =>
-      getProviderQuotaService().refresh(provider),
+    setQuotaSnapshotRefresher.call(coordinator, (provider, accountProfileId) =>
+      getProviderQuotaService().refresh(provider, accountProfileId),
     );
   }
 
@@ -1296,6 +1301,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     // Also used by degraded-iteration retries. Tracked so B5a rehydration can
     // fire via `childResult.contextCompacted` after the iteration seals.
     let oneShotContextReset = false;
+    if (sameSession) getLoopAccountFailover().registerRecycler(p.loopRunId, () => recyclePersistentLoopAdapter(p.loopRunId));
     if (sameSession && p.forceContextReset && persistentLoopAdapters.has(p.loopRunId)) {
       await recyclePersistentLoopAdapter(p.loopRunId);
       oneShotContextReset = true;
@@ -1421,6 +1427,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
             }
           : (adapter) => {
               activeAdapterRef = adapter;
+              getLoopAccountFailover().noteIterationAdapter(p.loopRunId, adapter); // account pools (D9)
               const stopTracking = trackActiveAdapter(p.loopRunId, adapter);
               const stopEventCapture = observeLoopProviderRuntimeEvents({
                 adapter,
@@ -1515,6 +1522,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         unresolvedToolCalls: captureSnapshot.unresolvedToolCalls,
         exitedCleanly: toolRwLockConflicts.length === 0,
         ...(result.degradedReason ? { degradedReason: result.degradedReason } : {}),
+        ...(result.providerQuotaExhausted ? { providerQuotaExhausted: true } : {}),
         // When the chat's live adapter is borrowed, the iteration's assistant
         // stream already flowed into the instance transcript as a normal turn,
         // so the iteration→ledger write must skip it to avoid a duplicate. The

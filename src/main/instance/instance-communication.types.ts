@@ -84,15 +84,16 @@ export interface CommunicationDependencies {
    * took ownership of the stopped turn (the caller should leave the instance
    * idle instead of marking it errored), `'already-parked'` when a turn
    * arrived while the instance was already parked (e.g. from a path that
-   * bypasses the renderer's quota-park gate), or `'skipped'` to fall through
-   * to normal handling.
+   * bypasses the renderer's quota-park gate), `'switching-account'` when an
+   * account pool is moving the conversation to another account (the turn is
+   * re-sent after the switch), or `'skipped'` to fall through to normal handling.
    */
   onProviderLimitTurn?: (params: {
     instanceId: string;
     resetAtHint: number | null;
     reason: string;
     resumePrompt: string | null;
-  }) => 'parked' | 'already-parked' | 'skipped';
+  }) => 'parked' | 'already-parked' | 'skipped' | 'switching-account';
   /**
    * Invoked when a turn fails with provider-credential phrasing (an expired
    * OAuth session, a rejected API key). Fire-and-forget: the error still
@@ -117,11 +118,13 @@ export interface CommunicationDependencies {
     provider: Instance['provider'];
     model: string | null;
     prompt: string;
-  }) => 'parked' | 'already-parked' | 'skipped';
+  }) => 'parked' | 'already-parked' | 'skipped' | 'switching-account';
   /** Clears an expired provider-limit gate after a verified non-limit completion. */
   clearProviderLimitAfterSuccessfulTurn?: (params: {
     provider: ProviderId;
     model: string | null;
+    /** Account-pool profile the turn ran on; null/undefined is the legacy profile. */
+    accountProfileId?: string | null;
     now: number;
   }) => void;
   createSnapshot?: (instanceId: string, name: string, description: string | undefined, trigger: 'checkpoint' | 'auto') => void;

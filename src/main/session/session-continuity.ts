@@ -752,13 +752,14 @@ export class SessionContinuityManager extends EventEmitter {
   }
 
   /**
-   * Add a conversation entry
+   * Add a conversation entry. Returns whether it was stored — false when
+   * content persistence is off, the instance is untracked, or redaction drops it.
    */
-  async addConversationEntry(instanceId: string, entry: ConversationEntry): Promise<void> {
+  async addConversationEntry(instanceId: string, entry: ConversationEntry): Promise<boolean> {
     await this.readyPromise;
-    if (!this.config.persistSessionContent) return;
+    if (!this.config.persistSessionContent) return false;
     const trackedState = this.sessionStates.get(instanceId);
-    if (!trackedState) return;
+    if (!trackedState) return false;
     const state = await this.hydrateTrackedState(instanceId, trackedState);
 
     // This runs for every user/assistant/tool_use/tool_result message, so it
@@ -770,7 +771,7 @@ export class SessionContinuityManager extends EventEmitter {
       entry,
       this.config.redactToolOutputs,
     );
-    if (!normalizedEntry) return;
+    if (!normalizedEntry) return false;
     const history = state.conversationHistory;
     const duplicateIndex = normalizedEntry.id
       ? findLastIndexById(history, normalizedEntry.id)
@@ -802,23 +803,36 @@ export class SessionContinuityManager extends EventEmitter {
     this.stateRecoveryMetadata.delete(instanceId);
 
     this.dirty.add(instanceId);
+    return true;
   }
 
+  /**
+   * Patch a stored entry. When it is missing and `fallback` is given, the
+   * fallback is added instead — unless it is older than the oldest retained
+   * entry, in which case history already trimmed it and it stays gone.
+   * Returns whether an entry was patched or added.
+   */
   async patchConversationEntry(
     instanceId: string,
     entryId: string,
     patch: Partial<Omit<ConversationEntry, 'id'>>,
-  ): Promise<void> {
+    fallback?: ConversationEntry,
+  ): Promise<boolean> {
     await this.readyPromise;
-    if (!this.config.persistSessionContent) return;
+    if (!this.config.persistSessionContent) return false;
     const trackedState = this.sessionStates.get(instanceId);
-    if (!trackedState) return;
+    if (!trackedState) return false;
     const state = await this.hydrateTrackedState(instanceId, trackedState);
     const entry = state.conversationHistory.find((candidate) => candidate.id === entryId);
-    if (!entry) return;
+    if (!entry) {
+      const oldest = state.conversationHistory[0];
+      if (!fallback || (oldest && fallback.timestamp < oldest.timestamp)) return false;
+      return this.addConversationEntry(instanceId, fallback);
+    }
     Object.assign(entry, structuredClone(patch));
     this.stateRecoveryMetadata.delete(instanceId);
     this.dirty.add(instanceId);
+    return true;
   }
 
   /**
@@ -1223,7 +1237,11 @@ export class SessionContinuityManager extends EventEmitter {
       // resume under a different GitHub account.
       copilotAccountProfileId: instance.copilotAccountProfileId,
       copilotRoutingSource: instance.copilotRoutingSource,
-      copilotRoutingRuleId: instance.copilotRoutingRuleId
+      copilotRoutingRuleId: instance.copilotRoutingRuleId,
+      // Provider account pools: copied explicitly for the same reason.
+      accountProfileId: instance.accountProfileId,
+      accountRoutingSource: instance.accountRoutingSource,
+      accountSwitches: instance.accountSwitches,
     };
 
     return state;

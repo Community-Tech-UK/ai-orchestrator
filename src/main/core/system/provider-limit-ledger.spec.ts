@@ -116,4 +116,61 @@ describe('ProviderLimitLedger', () => {
     expect(ledger.clearAfterSuccessfulTurn({ provider: 'claude', model: 'claude-opus-4-6', now: resumeAt })).toBe(2);
     expect(ledger.list({ provider: 'claude' }).map((event) => event.instanceId)).toEqual(['other-model']);
   });
+
+  describe('account profile dimension', () => {
+    const now = 1_700_000_000_000;
+    const base = { provider: 'claude' as const, model: null, detectedAt: now, resumeAt: now + 60_000, source: 'test', instanceId: null };
+
+    it('isolates limits per profile and treats omitted/legacy/null as the same legacy profile', () => {
+      ledger.record({ ...base, accountProfileId: 'max-a' });
+      expect(ledger.getActive({ provider: 'claude', model: null, accountProfileId: 'max-a', now })).toMatchObject({ accountProfileId: 'max-a' });
+      expect(ledger.getActive({ provider: 'claude', model: null, accountProfileId: 'max-b', now })).toBeNull();
+      expect(ledger.getActive({ provider: 'claude', model: null, now })).toBeNull();
+
+      ledger.record({ ...base, accountProfileId: 'legacy' });
+      expect(ledger.getActive({ provider: 'claude', model: null, now })).toMatchObject({ accountProfileId: null });
+      expect(ledger.getActive({ provider: 'claude', model: null, accountProfileId: null, now })).not.toBeNull();
+    });
+
+    it('reports parked profiles and full-pool parking', () => {
+      ledger.record({ ...base, accountProfileId: 'max-a' });
+      ledger.record({ ...base });
+      expect(ledger.getParkedProfileIds({ provider: 'claude', model: 'claude-opus', now }).sort()).toEqual(['legacy', 'max-a']);
+      expect(ledger.isProviderFullyParked({ provider: 'claude', model: null, eligibleProfileIds: ['legacy', 'max-a'], now })).toBe(true);
+      expect(ledger.isProviderFullyParked({ provider: 'claude', model: null, eligibleProfileIds: ['legacy', 'max-a', 'max-b'], now })).toBe(false);
+      expect(ledger.isProviderFullyParked({ provider: 'claude', model: null, eligibleProfileIds: [], now })).toBe(true);
+    });
+
+    it('returns the soonest reset across profiles', () => {
+      ledger.record({ ...base, accountProfileId: 'max-a', resumeAt: now + 90_000 });
+      ledger.record({ ...base, accountProfileId: 'max-b', resumeAt: now + 30_000 });
+      expect(ledger.getSoonestResumeAt({ provider: 'claude', model: null, profileIds: ['max-a', 'max-b', 'max-c'], now })).toBe(now + 30_000);
+    });
+
+    it('clears only the named profile', () => {
+      ledger.record({ ...base, accountProfileId: 'max-a' });
+      ledger.record({ ...base });
+      expect(ledger.clearActive({ provider: 'claude', model: null, accountProfileId: 'max-a', now })).toBe(1);
+      expect(ledger.getActive({ provider: 'claude', model: null, now })).not.toBeNull();
+    });
+
+    it('upgrades a pre-pools table in place, keeping old rows readable as legacy', () => {
+      const legacyDb = new Database(':memory:') as unknown as SqliteDriver;
+      try {
+        legacyDb.exec(`
+          CREATE TABLE provider_limit_events (
+            id TEXT PRIMARY KEY, provider TEXT NOT NULL, model TEXT NOT NULL DEFAULT '',
+            detected_at INTEGER NOT NULL, resume_at INTEGER NOT NULL, source TEXT NOT NULL, instance_id TEXT
+          );
+          INSERT INTO provider_limit_events VALUES ('old', 'codex', '', ${now}, ${now + 60_000}, 'adapter-error', NULL);
+        `);
+        createProviderLimitLedgerSchema(legacyDb);
+        const upgraded = new ProviderLimitLedger(legacyDb);
+        expect(upgraded.getActive({ provider: 'codex', model: null, now })).toMatchObject({ id: 'old', accountProfileId: null });
+        expect(upgraded.getActive({ provider: 'codex', model: null, accountProfileId: 'pro-b', now })).toBeNull();
+      } finally {
+        legacyDb.close();
+      }
+    });
+  });
 });

@@ -4,7 +4,7 @@ import { getSettingsManager } from '../core/config/settings-manager';
 import { registerCleanup } from '../util/cleanup-registry';
 import { getCircuitBreakerRegistry } from '../core/circuit-breaker';
 import { resolveCliType } from '../cli/adapters/adapter-factory';
-import { attachCopilotRoute } from '../instance/lifecycle/copilot-route-preflight';
+import { attachProviderRoutes } from '../instance/lifecycle/provider-route-preflight';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 import { getPauseCoordinator } from '../pause/pause-coordinator';
 import type { InstanceManager } from '../instance/instance-manager';
@@ -576,7 +576,7 @@ export class CrossModelReviewService extends EventEmitter {
         for (const [modelIndex, reviewerModel] of reviewerModels.entries()) {
           // Copilot account routing: a review is an automatic surface, so a
           // manual-only profile must not be reachable from here.
-          const reviewerSpawnOptions = await attachCopilotRoute(
+          const reviewerSpawnOptions = await attachProviderRoutes(
             resolvedCli,
             {
               workingDirectory: request.workingDirectory,

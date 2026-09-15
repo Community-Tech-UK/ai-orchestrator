@@ -90,6 +90,28 @@ const DOCUMENT_TITLE_EXTENSIONS = new Set<string>([
 const IMPLEMENTATION_SUBJECT_SUFFIX_PATTERN =
   /\b(?:implementation|implement|plan|spec|design|brief|proposal|notes?)\b$/i;
 
+/**
+ * A bare UUID/GUID (session ID, instance ID, request ID, …) with nothing else
+ * on the line. Users routinely paste one ahead of their real message — e.g.
+ * copying a session ID from a title bar or bug report — and unlike a URL or
+ * path it carries zero identifying signal: every ID looks like every other
+ * ID's random hex, so a title built from it cannot be "easily differentiated
+ * within the first ~40 characters", it just produces more indistinguishable
+ * hex. Matched on a whole trimmed line (optionally trailed by punctuation)
+ * so ordinary prose that merely contains a UUID mid-sentence is untouched.
+ */
+const BARE_UUID_LINE_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}[\s:,.-]*$/i;
+
+/** Same UUID, but as a stripped-off lead-in when more text follows on the line. */
+const LEADING_BARE_UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}[\s:,.-]+(?=\S)/i;
+
+/** True when a line is nothing but a bare UUID (plus optional trailing punctuation). */
+export function isBareIdentifierLine(line: string): boolean {
+  return BARE_UUID_LINE_PATTERN.test(line.trim());
+}
+
 /** Reduce an attachment name to a clean basename for use in a title. */
 export function attachmentLabel(name: string): string {
   return (name.split(/[/\\]/).pop() ?? name).trim();
@@ -305,6 +327,7 @@ export function normalizeHistoryTitlePart(value: string | null | undefined): str
  */
 const TITLE_LEAD_IN_PATTERNS: readonly RegExp[] = [
   /^[[(<"'\s]+/, // leading brackets / quotes / whitespace
+  LEADING_BARE_UUID_PATTERN, // pasted session/instance ID ahead of the real text
   /^(?:hey|hi|hello|yo)\b[\s,!:.-]*/i,
   /^(?:please|pls|plz|kindly)\b[\s,]*/i,
   /^(?:thanks?|thank you|cheers)\b[\s,!:.-]*/i,
@@ -427,7 +450,14 @@ export function deriveRailTitle(
   const trimmed = body.trim();
   if (!trimmed) return titleFromAttachments(labels) ?? '';
 
-  const firstLine = trimmed.split(/\r?\n/)[0];
+  // Skip a leading line that is nothing but a pasted session/instance ID (a
+  // common way for a bug report to start — copying an ID from a title bar or
+  // screenshot onto its own line before the real question). It contains no
+  // identifying signal of its own, so — unlike ordinary first lines — titling
+  // from it would make the session indistinguishable from any other, and the
+  // real subject is one line down.
+  const lines = trimmed.split(/\r?\n/);
+  const firstLine = lines.find((line) => line.trim() && !isBareIdentifierLine(line)) ?? lines[0];
   const title = truncateForRail(frontLoadTitle(firstLine));
 
   // The text alone identifies nothing ("Please implement this") but a file is

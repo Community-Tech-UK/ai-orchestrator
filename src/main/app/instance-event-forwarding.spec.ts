@@ -29,7 +29,7 @@ const {
     stopTracking: vi.fn(),
     updateState: vi.fn(),
     addConversationEntry: vi.fn(),
-    patchConversationEntry: vi.fn(),
+    patchConversationEntry: vi.fn(async () => true),
   },
   mockRecordProviderThreadCompactionMarker: vi.fn(),
   mockCrossModelReview: {
@@ -497,6 +497,139 @@ describe('setupInstanceEventForwarding', () => {
       'assistant-token-owner',
       expect.objectContaining({ tokens: 18 }),
     );
+  });
+
+  it('persists one entry per ACP tool call and result though both the raw event and the message arrive', async () => {
+    // Live-observed in a woken grok session: the ACP adapter emits the raw
+    // `tool_use`/`tool_result` events AND the visible output messages, and
+    // continuity stored both, so the wake restored every tool card twice.
+    const mgr = buildManager({
+      'inst-1': { id: 'inst-1', provider: 'grok', displayName: 'Fixture', workingDirectory: '/repo' },
+    });
+    setupInstanceEventForwarding({
+      instanceManager: mgr,
+      windowManager: mockWindowManager,
+      isStatelessExecProvider: () => false,
+      getNodeLatencyForInstance: () => undefined,
+    });
+    const rawCall = mapAdapterRuntimeEvent('tool_use', [{
+      id: 'acp-call-1', name: 'run_terminal_command', arguments: { kind: 'execute', rawInput: { command: 'ls' } },
+    }]);
+    const rawResult = mapAdapterRuntimeEvent('tool_result', [{
+      id: 'acp-call-1', name: 'run_terminal_command', arguments: {}, result: 'a.ts',
+    }]);
+    const complete = mapAdapterRuntimeEvent('complete', [{ usage: { inputTokens: 3, outputTokens: 4, totalTokens: 7 } }]);
+    expect(rawCall && rawResult && complete).toBeTruthy();
+
+    mgr.emit('provider:normalized-event', { ...makeEnvelope('output', 'inst-1', 1), eventId: 'raw-call', event: rawCall!.event });
+    mgr.emit('provider:normalized-event', {
+      ...makeEnvelope('output', 'inst-1', 2),
+      event: {
+        kind: 'output', messageId: 'message-call', timestamp: 100, messageType: 'tool_use', content: 'run_terminal_command',
+        metadata: { toolCallId: 'acp-call-1', name: 'execute', title: 'run_terminal_command', transport: 'acp' },
+      },
+    });
+    mgr.emit('provider:normalized-event', {
+      ...makeEnvelope('output', 'inst-1', 3),
+      event: {
+        kind: 'output', messageId: 'message-result', timestamp: 101, messageType: 'tool_result', content: 'a.ts',
+        metadata: { toolCallId: 'acp-call-1', status: 'failed', is_error: true, transport: 'acp' },
+      },
+    });
+    mgr.emit('provider:normalized-event', { ...makeEnvelope('output', 'inst-1', 4), eventId: 'raw-result', event: rawResult!.event });
+    mgr.emit('provider:normalized-event', { ...makeEnvelope('output', 'inst-1', 5), eventId: 'done', event: complete!.event });
+
+    await vi.waitFor(() => expect(mockContinuity.patchConversationEntry).toHaveBeenCalledTimes(2));
+    expect(mockContinuity.addConversationEntry.mock.calls.map(([, entry]) => entry.id))
+      .toEqual(['tool-call:acp-call-1', 'message-result']);
+    expect(mockContinuity.patchConversationEntry).toHaveBeenNthCalledWith(1, 'inst-1', 'tool-call:acp-call-1',
+      expect.objectContaining({ content: 'run_terminal_command' }),
+      expect.objectContaining({ id: 'tool-call:acp-call-1' }));
+    // The raw result adds nothing and must not overwrite the visible is_error.
+    expect(mockContinuity.addConversationEntry.mock.calls[1][1].toolUse).toMatchObject({ isError: true });
+    // Token usage lands on the surviving call entry.
+    expect(mockContinuity.patchConversationEntry).toHaveBeenNthCalledWith(2, 'inst-1', 'tool-call:acp-call-1',
+      expect.objectContaining({ tokens: 7 }));
+  });
+
+  it('hands continuity the whole merged tool entry to re-add if its first copy never arrived', async () => {
+    // The continuity queue drops tasks when full; the later merge must not
+    // silently patch an entry that was never stored.
+    const mgr = buildManager({
+      'inst-1': { id: 'inst-1', provider: 'grok', displayName: 'Fixture', workingDirectory: '/repo' },
+    });
+    setupInstanceEventForwarding({
+      instanceManager: mgr,
+      windowManager: mockWindowManager,
+      isStatelessExecProvider: () => false,
+      getNodeLatencyForInstance: () => undefined,
+    });
+    const rawCall = mapAdapterRuntimeEvent('tool_use', [{ id: 'acp-call-2', name: 'read_file', arguments: {} }]);
+
+    mgr.emit('provider:normalized-event', { ...makeEnvelope('output', 'inst-1', 1), event: rawCall!.event });
+    mgr.emit('provider:normalized-event', {
+      ...makeEnvelope('output', 'inst-1', 2),
+      event: {
+        kind: 'output', messageId: 'message-call-2', timestamp: 100, messageType: 'tool_use', content: 'read_file',
+        metadata: { toolCallId: 'acp-call-2', name: 'read' },
+      },
+    });
+
+    await vi.waitFor(() => expect(mockContinuity.patchConversationEntry).toHaveBeenCalledTimes(1));
+    expect(mockContinuity.patchConversationEntry).toHaveBeenCalledWith(
+      'inst-1',
+      'tool-call:acp-call-2',
+      expect.objectContaining({ content: 'read_file' }),
+      expect.objectContaining({ id: 'tool-call:acp-call-2', content: 'read_file' }),
+    );
+  });
+
+  it('never merges tool entries across adapter generations', async () => {
+    const mgr = buildManager({
+      'inst-1': { id: 'inst-1', provider: 'grok', displayName: 'Fixture', workingDirectory: '/repo' },
+    });
+    setupInstanceEventForwarding({
+      instanceManager: mgr,
+      windowManager: mockWindowManager,
+      isStatelessExecProvider: () => false,
+      getNodeLatencyForInstance: () => undefined,
+    });
+    const rawCall = mapAdapterRuntimeEvent('tool_use', [{ id: 'call-0', name: 'read_file', arguments: {} }]);
+
+    mgr.emit('provider:normalized-event', { ...makeEnvelope('output', 'inst-1', 1), adapterGeneration: 1, event: rawCall!.event });
+    mgr.emit('provider:normalized-event', {
+      ...makeEnvelope('output', 'inst-1', 2),
+      adapterGeneration: 2,
+      event: {
+        kind: 'output', messageId: 'respawned-call', timestamp: 100, messageType: 'tool_use', content: 'list_dir',
+        metadata: { toolCallId: 'call-0', name: 'list' },
+      },
+    });
+
+    await vi.waitFor(() => expect(mockContinuity.addConversationEntry).toHaveBeenCalledTimes(2));
+    expect(mockContinuity.patchConversationEntry).not.toHaveBeenCalled();
+  });
+
+  it('stores a respawned adapter\'s raw call under a new id rather than over the earlier call', async () => {
+    // Continuity replaces entries by id, so two raw calls sharing `tool-call:<callId>`
+    // would collapse into one slot and lose the first call.
+    const mgr = buildManager({
+      'inst-1': { id: 'inst-1', provider: 'grok', displayName: 'Fixture', workingDirectory: '/repo' },
+    });
+    setupInstanceEventForwarding({
+      instanceManager: mgr,
+      windowManager: mockWindowManager,
+      isStatelessExecProvider: () => false,
+      getNodeLatencyForInstance: () => undefined,
+    });
+    const rawCall = mapAdapterRuntimeEvent('tool_use', [{ id: 'call-0', name: 'read_file', arguments: {} }]);
+
+    mgr.emit('provider:normalized-event', { ...makeEnvelope('output', 'inst-1', 1), adapterGeneration: 1, event: rawCall!.event });
+    mgr.emit('provider:normalized-event', { ...makeEnvelope('output', 'inst-1', 2), adapterGeneration: 2, event: rawCall!.event });
+
+    await vi.waitFor(() => expect(mockContinuity.addConversationEntry).toHaveBeenCalledTimes(2));
+    const ids = mockContinuity.addConversationEntry.mock.calls.map(([, entry]) => entry.id);
+    expect(new Set(ids).size).toBe(2);
   });
 
   it('correlates the actual Claude output tool-result shape with its tool call', async () => {

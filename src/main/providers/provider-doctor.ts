@@ -14,6 +14,10 @@ import {
   buildCopilotAccountDoctorReport,
   summarizeCopilotAccountReport,
 } from './copilot/copilot-account-doctor';
+import {
+  buildProviderAccountDoctorReport,
+  summarizeProviderAccountReport,
+} from './account-pool/provider-account-doctor';
 import { checkClaudeCliAuthentication } from './claude-cli-auth';
 import { checkCodexCliAuthentication } from './codex-cli-auth';
 import { checkGeminiCliAuthentication } from './gemini-cli-auth';
@@ -346,6 +350,33 @@ export class ProviderDoctor {
             status: 'skip' as const,
             message: 'No auth probe for this provider',
             latencyMs: 0,
+          };
+        },
+      },
+      {
+        name: 'account_pool',
+        description: 'Check Claude/Codex account-pool profiles (sign-in, identity, pool policy)',
+        critical: false,
+        appliesTo: ['claude-cli', 'codex-cli'],
+        run: async (provider) => {
+          const start = Date.now();
+          let report: Awaited<ReturnType<typeof buildProviderAccountDoctorReport>>;
+          try {
+            report = await buildProviderAccountDoctorReport(provider === 'claude-cli' ? 'claude' : 'codex');
+          } catch {
+            return { name: 'account_pool', status: 'skip' as const, message: 'Account pools are not available in this context.', latencyMs: Date.now() - start };
+          }
+          if (!report.poolActive) {
+            return { name: 'account_pool', status: 'skip' as const, message: summarizeProviderAccountReport(report), latencyMs: Date.now() - start };
+          }
+          const status = report.usableProfileIds.length === 0 ? ('fail' as const) : ('pass' as const);
+          return {
+            name: 'account_pool',
+            status,
+            message: summarizeProviderAccountReport(report),
+            latencyMs: Date.now() - start,
+            metadata: report as unknown as Record<string, unknown>,
+            ...(status === 'fail' ? { errorKind: 'auth_missing' as const } : {}),
           };
         },
       },

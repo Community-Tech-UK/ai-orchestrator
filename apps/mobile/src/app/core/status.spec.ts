@@ -10,7 +10,7 @@ import {
 } from './status';
 
 describe('desktop-aligned active session status', () => {
-  it('includes current live states and excludes terminal, error, and hibernated states', () => {
+  it('includes current live and hibernated states and excludes terminal and error states', () => {
     const activeStatuses = [
       'initializing',
       'ready',
@@ -25,13 +25,13 @@ describe('desktop-aligned active session status', () => {
       'interrupt-escalating',
       'respawning',
       'hibernating',
+      'hibernated',
       'waking',
       'degraded',
     ];
     const inactiveStatuses = [
       'cancelled',
       'superseded',
-      'hibernated',
       'error',
       'failed',
       'terminated',

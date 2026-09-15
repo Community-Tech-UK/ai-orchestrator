@@ -13,7 +13,9 @@ import { toCodexMessagePhase } from './codex/app-server-types';
 import {
   extractCodexAppServerError,
   formatCodexAppServerError,
+  isCodexUsageLimitErrorInfo,
 } from './codex/app-server-errors';
+import { createCodexUsageLimitError } from './codex/app-server-runtime-errors';
 import { tokenCount } from './codex/token-usage-breakdown';
 import {
   handleItemCompleted,
@@ -220,7 +222,9 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
           });
           break;
         }
-        state.error = new Error(fullMessage);
+        state.error = isCodexUsageLimitErrorInfo(errorDetails.codexErrorInfo)
+          ? createCodexUsageLimitError(fullMessage)
+          : new Error(fullMessage);
         logger.warn('Error notification from app-server', {
           additionalDetails: errorDetails.additionalDetails,
           codexErrorInfo: errorDetails.codexErrorInfo,

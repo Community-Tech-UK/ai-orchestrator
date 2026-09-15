@@ -7,6 +7,8 @@
 
 import type { CliType } from '../../cli/cli-detection';
 import type { DesiredRuntime, Instance } from '../../../shared/types/instance.types';
+import type { AccountContinuationMode } from '../../../shared/types/provider-account.types';
+import { LEGACY_ACCOUNT_PROFILE_ID } from '../../../shared/types/provider-account.types';
 import type {
   ContinuityPlan,
   RuntimeAdapterCapabilities,
@@ -44,6 +46,10 @@ export function computeRuntimeDiff(instance: Instance, desired: DesiredRuntime):
   const copilotAccountChanged =
     desired.copilotAccountProfileId !== undefined
     && desired.copilotAccountProfileId !== instance.copilotAccountProfileId;
+  // An unstamped Claude/Codex session ran on the legacy profile.
+  const accountProfileChanged =
+    desired.accountProfileId !== undefined
+    && desired.accountProfileId !== (instance.accountProfileId ?? LEGACY_ACCOUNT_PROFILE_ID);
 
   return {
     providerChanged,
@@ -52,13 +58,15 @@ export function computeRuntimeDiff(instance: Instance, desired: DesiredRuntime):
     runtimeTargetChanged,
     yoloModeChanged,
     copilotAccountChanged,
+    accountProfileChanged,
     hasChanges:
       providerChanged
       || modelChanged
       || reasoningChanged
       || runtimeTargetChanged
       || yoloModeChanged
-      || copilotAccountChanged,
+      || copilotAccountChanged
+      || accountProfileChanged,
   };
 }
 
@@ -75,7 +83,27 @@ export function planContinuity(params: {
   hasConversation: boolean;
   cliType: CliType;
   isLocalModelTarget: boolean;
+  /** Pool continuation policy; consulted only for an account-only handoff. */
+  accountContinuation?: AccountContinuationMode;
 }): ContinuityPlan {
+  const { diff } = params;
+  const accountOnlyChange =
+    diff.accountProfileChanged
+    && !diff.providerChanged
+    && !diff.modelChanged
+    && !diff.reasoningChanged
+    && !diff.runtimeTargetChanged
+    && !diff.copilotAccountChanged;
+  if (accountOnlyChange) {
+    // Account pools (spec D3): with a shared session store the new account's
+    // CLI can read the same session, so the conversation natively resumes
+    // (Claude included — the model is not changing). Otherwise replay.
+    const shared = (params.accountContinuation ?? 'shared-store') === 'shared-store';
+    if (!shared || !params.hasConversation || !params.capabilities.supportsResume || params.isLocalModelTarget) {
+      return 'replay';
+    }
+    return params.capabilities.supportsForkSession ? 'native-resume-fork' : 'native-resume';
+  }
   const canNativeResume =
     params.hasConversation
     && params.capabilities.supportsResume

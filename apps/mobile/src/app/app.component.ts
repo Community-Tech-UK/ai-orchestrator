@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, computed, inject } from '@angular/core';
 import { Router, RouterOutlet } from '@angular/router';
 import { HostStore } from './core/host-store';
 import { GatewayClient } from './core/gateway-client.service';
@@ -6,12 +6,9 @@ import { LiveActivityService } from './core/live-activity.service';
 import { PushService } from './core/push.service';
 import { ResumeService } from './core/resume.service';
 import { AppLockService } from './core/app-lock.service';
-import {
-  ApprovalSheetComponent,
-  type ApprovalDecision,
-} from './features/approval/approval-sheet.component';
+import { ApprovalSheetComponent } from './features/approval/approval-sheet.component';
+import { ApprovalPresentationStore, type ApprovalView } from './core/approval-presentation.store';
 import { LockScreenComponent } from './features/lock/lock-screen.component';
-import type { MobilePromptDto } from './core/models';
 
 @Component({
   standalone: true,
@@ -20,13 +17,20 @@ import type { MobilePromptDto } from './core/models';
   imports: [RouterOutlet, ApprovalSheetComponent, LockScreenComponent],
   template: `
     <router-outlet />
-    @if (activePrompt(); as p) {
+    @if (approvals.view(); as view) {
       <app-approval-sheet
-        [prompt]="p"
-        [error]="decideErrorFor(p)"
-        (decision)="decide(p, $event)"
-        (open)="openSession(p)"
-        (dismiss)="dismiss(p)"
+        [prompt]="view.prompt"
+        [error]="approvals.error()"
+        [pending]="approvals.pending()"
+        [draft]="approvals.draft()"
+        [requests]="approvals.requests()"
+        [context]="approvalContext()"
+        (decision)="approvals.decide($event, view)"
+        (scopeChange)="approvals.setScope($event, view)"
+        (answerChange)="approvals.updateAnswer($event.index, $event.value, view)"
+        (requestSelected)="approvals.open($event, view)"
+        (open)="openSession(view)"
+        (dismiss)="approvals.dismiss(view)"
       />
     }
     @if (appLock.locked()) {
@@ -42,26 +46,16 @@ export class AppComponent implements OnInit {
   private readonly liveActivity = inject(LiveActivityService);
   private readonly resume = inject(ResumeService);
   protected readonly appLock = inject(AppLockService);
-
-  private readonly suppressed = signal<Set<string>>(new Set());
-
-  /** The most recent pending prompt the user hasn't dismissed. */
-  protected readonly activePrompt = computed<MobilePromptDto | null>(() => {
-    const suppressed = this.suppressed();
-    const open = this.gateway.prompts().filter((p) => !suppressed.has(p.id));
-    return open.length ? open[open.length - 1] : null;
+  protected readonly approvals = inject(ApprovalPresentationStore);
+  protected readonly approvalContext = computed(() => {
+    const prompt = this.approvals.activePrompt();
+    const instance = this.gateway.snapshot()?.instances.find((item) => item.id === prompt?.instanceId);
+    return {
+      host: this.hostStore.activeHost()?.name || 'Unknown host',
+      project: instance?.projectName || instance?.workingDirectory || 'No workspace',
+      session: instance?.displayName || 'Session unavailable',
+    };
   });
-
-  /**
-   * Why the last approval decision failed, shown on the sheet itself. Keyed by
-   * prompt so an error can never attach itself to a different prompt.
-   */
-  private readonly decideError = signal<{ promptId: string; message: string } | null>(null);
-
-  protected decideErrorFor(prompt: MobilePromptDto): string | null {
-    const failure = this.decideError();
-    return failure?.promptId === prompt.id ? failure.message : null;
-  }
 
   async ngOnInit(): Promise<void> {
     void this.gateway; // keep the eager injection (its auto-reconnect effect is live)
@@ -73,34 +67,12 @@ export class AppComponent implements OnInit {
     void this.resume.restore();
   }
 
-  protected async decide(prompt: MobilePromptDto, decision: ApprovalDecision): Promise<void> {
-    this.decideError.set(null);
-    try {
-      await this.gateway.respond(prompt.instanceId, {
-        requestId: prompt.requestId,
-        decisionAction: decision.action,
-        decisionScope: decision.scope,
-        response: decision.response,
-      });
-    } catch (err) {
-      // The prompt stays, and now says why. Silently swallowing this left a
-      // rejected token looking like a dead button, with the connection pill
-      // hidden behind the sheet.
-      this.decideError.set({
-        promptId: prompt.id,
-        message: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
-
-  protected openSession(prompt: MobilePromptDto): void {
-    this.dismiss(prompt);
+  protected openSession(view: ApprovalView): void {
+    if (!this.approvals.isCurrentView(view)) return;
+    const prompt = view.prompt;
+    this.approvals.dismiss(view);
     const instance = this.gateway.snapshot()?.instances.find((i) => i.id === prompt.instanceId);
     const projectKey = instance?.workingDirectory || '__no_workspace__';
     void this.router.navigate(['/projects', projectKey, 'sessions', prompt.instanceId]);
-  }
-
-  protected dismiss(prompt: MobilePromptDto): void {
-    this.suppressed.set(new Set(this.suppressed()).add(prompt.id));
   }
 }

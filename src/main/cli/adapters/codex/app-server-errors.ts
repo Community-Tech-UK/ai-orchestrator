@@ -77,6 +77,30 @@ export function extractCodexAppServerError(
   };
 }
 
+const USAGE_LIMIT_ERROR_INFO = new Set(['usagelimitexceeded', 'usage_limit_exceeded']);
+
+/**
+ * True when the app-server's structured `codexErrorInfo` says the account hit
+ * its usage limit. Codex collapses UsageLimitReached, QuotaExceeded and
+ * UsageNotIncluded into this one code, so it is a reliable limit signal that
+ * does not depend on the (localised, U+2019) message text.
+ */
+export function isCodexUsageLimitErrorInfo(codexErrorInfo: string | undefined): boolean {
+  if (!codexErrorInfo) return false;
+  const trimmed = codexErrorInfo.trim();
+  if (trimmed.startsWith('{')) {
+    // Data-carrying variants serialise as `{"variant": {...}}`.
+    try {
+      const parsed: unknown = JSON.parse(trimmed);
+      return isRecord(parsed)
+        && Object.keys(parsed).some((key) => USAGE_LIMIT_ERROR_INFO.has(key.toLowerCase()));
+    } catch {
+      return false;
+    }
+  }
+  return USAGE_LIMIT_ERROR_INFO.has(trimmed.replace(/^"|"$/g, '').toLowerCase());
+}
+
 export function formatCodexAppServerError(details: CodexAppServerErrorDetails): string {
   const parts = [details.message];
   if (details.additionalDetails && details.additionalDetails !== details.message) {

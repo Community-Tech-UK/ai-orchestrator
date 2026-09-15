@@ -241,6 +241,7 @@ const acceptedInterruptResult = () => ({
 const mockAdapterInterrupt = vi.fn(acceptedInterruptResult);
 const mockAdapterTerminate = vi.fn().mockResolvedValue(undefined);
 const mockAutoTitleMaybeGenerate = vi.fn().mockResolvedValue(undefined);
+const mockAutoTitleRetryIfPending = vi.fn().mockResolvedValue(undefined);
 const mockAutoTitleClearInstance = vi.fn();
 let mockAdapterName = 'claude-cli';
 
@@ -299,6 +300,7 @@ vi.mock('../../cli/hooks/hook-path-resolver', () => ({
 vi.mock('../auto-title-service', () => ({
   getAutoTitleService: vi.fn(() => ({
     maybeGenerateTitle: mockAutoTitleMaybeGenerate,
+    retryTitleUpgradeIfPending: mockAutoTitleRetryIfPending,
     clearInstance: mockAutoTitleClearInstance,
   })),
 }));
@@ -929,6 +931,8 @@ describe('InstanceManager', () => {
     mockIndexedBuildFastPathResult.mockReset();
     mockIndexedBuildFastPathResult.mockResolvedValue(null);
     mockAutoTitleMaybeGenerate.mockResolvedValue(undefined);
+    mockAutoTitleRetryIfPending.mockReset();
+    mockAutoTitleRetryIfPending.mockResolvedValue(undefined);
     mockAutoTitleClearInstance.mockReset();
     mockContextWorkerBuildProjectMemoryBrief.mockReset();
     mockContextWorkerBuildProjectMemoryBrief.mockResolvedValue(null);
@@ -1426,6 +1430,55 @@ describe('InstanceManager', () => {
 
       expect(mockAutoTitleMaybeGenerate).not.toHaveBeenCalled();
       expect(instance.displayName).toBe('Original Restored Name');
+    });
+
+    it('offers the AI-title retry on a genuine follow-up message when Phase 2 never landed', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        initialPrompt: undefined,
+      });
+      await instance.readyPromise;
+
+      await manager.sendInput(instance.id, 'First message');
+      expect(mockAutoTitleMaybeGenerate).toHaveBeenCalledTimes(1);
+      mockAutoTitleRetryIfPending.mockClear();
+
+      // Second, genuinely new message — not renamed, and the mocked Phase 2
+      // never called back to set `aiTitle`, so this is exactly the case the
+      // retry exists for.
+      await manager.sendInput(instance.id, 'Second message');
+      expect(mockAutoTitleRetryIfPending).toHaveBeenCalledWith(instance.id, expect.any(Function));
+    });
+
+    it('does not offer the AI-title retry once an AI title already landed (never replaces one AI title with another)', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        initialPrompt: undefined,
+      });
+      await instance.readyPromise;
+
+      await manager.sendInput(instance.id, 'First message');
+      // Simulate Phase 2 having already succeeded for the first message.
+      instance.aiTitle = 'Some AI Title';
+      mockAutoTitleRetryIfPending.mockClear();
+
+      await manager.sendInput(instance.id, 'Second message');
+      expect(mockAutoTitleRetryIfPending).not.toHaveBeenCalled();
+    });
+
+    it('does not offer the AI-title retry once the user has manually renamed the session', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        initialPrompt: undefined,
+      });
+      await instance.readyPromise;
+
+      await manager.sendInput(instance.id, 'First message');
+      instance.isRenamed = true;
+      mockAutoTitleRetryIfPending.mockClear();
+
+      await manager.sendInput(instance.id, 'Second message');
+      expect(mockAutoTitleRetryIfPending).not.toHaveBeenCalled();
     });
 
     it('emits provider:normalized-event for the user message', async () => {

@@ -170,6 +170,10 @@ export class WorkerNodeRegistry extends EventEmitter {
     ) {
       score += 40;
     }
+    const accountPref = prefs.prefersAccountProfile;
+    if (accountPref && caps.accountProfileIds?.[accountPref.provider]?.includes(accountPref.profileId)) {
+      score += 40;
+    }
 
     // Available memory ratio (+30)
     if (caps.totalMemoryMB > 0) {

@@ -14,6 +14,7 @@ import type {
   OrchestrationRoutingPolicyValue,
 } from './settings.types';
 import { DEFAULT_DESKTOP_COMPUTER_USE_SETTINGS } from './desktop-gateway-settings.types';
+import { defaultProviderAccountPools } from './provider-account.types';
 import type { RemoteReviewerProvider } from './reviewer-provider.types';
 import { CLAUDE_MODELS, COPILOT_MODELS, GOOGLE_MODELS, GROK_MODELS, OPENAI_MODELS } from './provider.types';
 
@@ -270,6 +271,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // copilot-cli-home directory to a default profile without moving any files.
   copilotAccountProfiles: [],
   copilotAccountRoutingRules: [],
+
+  // Provider account pools. Empty until the legacy migration creates the
+  // `legacy` Claude and Codex profiles bound to ~/.claude and ~/.codex.
+  providerAccountProfiles: [],
+  providerAccountPools: defaultProviderAccountPools(),
 
   // Conversational ping-pong review
   pingPongReviewerProvider: 'auto',

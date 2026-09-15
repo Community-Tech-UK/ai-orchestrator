@@ -31,6 +31,7 @@ import { getAgentRegistry } from '../agents/agent-registry';
 import { getPermissionManager } from '../security/permission-manager';
 import { generateId } from '../../shared/utils/id-generator';
 import type {
+  DesiredRuntime,
   Instance,
   InstanceCreateConfig,
   InstanceStatus,
@@ -79,6 +80,7 @@ import {
   isCopilotRoutingError,
   stampCopilotRouteOnInstance,
 } from './lifecycle/copilot-route-preflight';
+import { attachAccountRoute, persistedAccountProfileId, restoreAccountStamp, stampAccountRouteOnInstance } from './lifecycle/account-route-preflight';
 import {
   buildInstanceRecord,
 } from './lifecycle/instance-create-builder';
@@ -108,12 +110,11 @@ import {
 import { attemptInstanceFailover } from './instance-failover';
 import { classifyLoopError } from '../core/loop-error-classification';
 import { getFailoverManager } from '../providers/failover-manager';
-import { getProviderLimitLedgerPort } from '../core/system/provider-limit-ledger';
+import { isProviderParkedForFailover } from '../providers/account-pool/provider-parked-veto';
 import { getNotificationService } from '../notifications/notification-service';
 import { getInstanceProviderLimitHandler } from './instance-provider-limit-handler';
 import { getInstanceAuthRepairHandler } from './instance-auth-repair-handler';
 import { detectAvailableClis } from '../cli/cli-detection';
-import type { ProviderId } from '../../shared/types/provider-quota.types';
 import { DesiredRuntimeQueue } from './lifecycle/desired-runtime-queue';
 import { isAdapterOnLoan, onAdapterLoanReleased, warnIfLoanLooksWedged } from './lifecycle/adapter-loan-registry';
 import { describeLoopProviderDivergence } from './lifecycle/loop-provider-divergence';
@@ -667,11 +668,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       classify: (err) => classifyLoopError(err, { provider: instance.provider, model: instance.currentModel }),
       maxSwitches: this.settings.getAll().sessionFailoverMaxSwitches,
       selectTarget: (request) => getFailoverManager().selectLoopFailoverTarget(request),
-      isProviderParked: (provider) => Boolean(getProviderLimitLedgerPort().getActive({
-        provider: provider as ProviderId,
-        model: null,
-        now: Date.now(),
-      })),
+      isProviderParked: (provider) => isProviderParkedForFailover(provider),
       installedProviders: installed,
       swapProvider: (instanceId, targetProvider) => this.failoverSwapProvider(instanceId, targetProvider),
       notify: (input) => {
@@ -728,7 +725,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       correlationId: instanceId,
       veto: (provider) => {
         if (!installed.has(provider)) return 'cli_not_installed';
-        if (getProviderLimitLedgerPort().getActive({ provider: provider as ProviderId, model: null, now: Date.now() })) {
+        if (isProviderParkedForFailover(provider)) {
           return 'provider_limit_parked';
         }
         return null;
@@ -838,12 +835,19 @@ export class InstanceLifecycleManager extends EventEmitter {
       executionNodeId: executionLocation?.type === 'remote' ? executionLocation.nodeId : undefined,
       instanceId: options.instanceId,
     });
+    // Claude/Codex account pools: a respawn keeps the account the session runs on.
+    const accountRoutedOptions = await attachAccountRoute(cliType, routedOptions, 'interactive', {
+      persistedProfileId: persistedAccountProfileId(instance, durableOptions.resume),
+      executionNodeId: executionLocation?.type === 'remote' ? executionLocation.nodeId : undefined,
+      instanceId: options.instanceId,
+    });
     // Stamp BEFORE the adapter exists, so a spawn that dies mid-construction
     // still leaves the session pinned to the account it resolved to.
     if (instance) {
       stampCopilotRouteOnInstance(instance, routedOptions);
+      stampAccountRouteOnInstance(instance, accountRoutedOptions);
     }
-    return getProviderRuntimeService().createAdapter({ cliType, options: routedOptions, executionLocation });
+    return getProviderRuntimeService().createAdapter({ cliType, options: accountRoutedOptions, executionLocation });
   }
 
   private addAdapterRollback(transaction: SpawnTransaction, instanceId: string, adapter: CliAdapter): void {
@@ -2081,6 +2085,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           instance.copilotRoutingSource = sessionState.copilotRoutingSource;
           instance.copilotRoutingRuleId = sessionState.copilotRoutingRuleId;
         }
+        if (sessionState) restoreAccountStamp(instance, sessionState); // wake keeps its account-pool profile
 
         await initializeInstanceEvidenceOwnership(instance, this.settings.getAll());
 
@@ -3334,6 +3339,11 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
       ...(modelRuntimeTarget ? { modelRuntimeTarget } : {}),
     });
+  }
+
+  /** Account-pool failover/pre-emptive handoff applied now, bypassing the desired-runtime queue. */
+  async applyAccountHandoff(instanceId: string, desired: DesiredRuntime): Promise<Instance> {
+    return this.runtimeReconciler.applyRuntimeChange(instanceId, desired);
   }
 
   /** Lazily built so it can close over the lifecycle's private helpers. */

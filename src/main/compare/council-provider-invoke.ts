@@ -13,7 +13,7 @@ import { isCliAvailable, type CliType } from '../cli/cli-detection';
 import { isProviderNotice } from '../cli/provider-notice';
 import { resolveModelForTier } from '../../shared/types/provider.types';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
-import { attachCopilotRoute } from '../instance/lifecycle/copilot-route-preflight';
+import { attachProviderRoutes } from '../instance/lifecycle/provider-route-preflight';
 
 /** Wall-clock cap for a single provider's one-shot response. */
 export const PROVIDER_INVOKE_TIMEOUT = 60_000;
@@ -102,7 +102,7 @@ export async function invokeProviderOneShot(
     // the user's behalf.
     adapter = deps.createAdapter(
       cliType,
-      await attachCopilotRoute(
+      await attachProviderRoutes(
         cliType,
         {
           workingDirectory: options.workingDirectory ?? process.cwd(),

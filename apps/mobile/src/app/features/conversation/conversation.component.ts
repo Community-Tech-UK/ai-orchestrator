@@ -9,6 +9,8 @@ import {
   input,
   signal,
   viewChild,
+  afterRenderEffect,
+  untracked,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
@@ -18,7 +20,11 @@ import {
   emptyTranscriptText,
 } from '../../core/connection-status';
 import { DraftStore } from '../../core/draft-store';
+import { ConversationDraftRecoveryService, joinDraftText } from '../../core/conversation-draft-recovery.service';
 import { GatewayClient } from '../../core/gateway-client.service';
+import { HostStore } from '../../core/host-store';
+import { ApprovalPresentationStore } from '../../core/approval-presentation.store';
+import { MobileBrowseStateStore } from '../../core/mobile-browse-state.store';
 import { HapticsService } from '../../core/haptics.service';
 import { ImageAttachmentService } from '../../core/image-attachment.service';
 import { VoiceInputService } from '../../core/voice-input.service';
@@ -38,12 +44,14 @@ import { CodeCopyDirective } from '../../shared/code-copy.directive';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
 import { MobileHeaderComponent } from '../../shared/mobile-header.component';
 import { MobileIconComponent } from '../../shared/mobile-icon.component';
+import { MobileSheetComponent } from '../../shared/mobile-sheet.component';
 import { ModelSheetComponent } from '../../shared/model-sheet.component';
 import { renderMobileMarkdown } from '../../shared/mobile-markdown';
 import {
   buildDisplayItems,
   isLoopTranscriptMessage,
   toolLabel,
+  toolDetails,
   type DisplayItem,
 } from '../../shared/transcript-items';
 
@@ -71,6 +79,7 @@ function errorText(err: unknown): string {
     CodeCopyDirective,
     MobileHeaderComponent,
     MobileIconComponent,
+    MobileSheetComponent,
   ],
   templateUrl: './conversation.component.html',
   styleUrls: ['./conversation.component.scss'],
@@ -79,14 +88,23 @@ export class ConversationComponent {
   private readonly gateway = inject(GatewayClient);
   private readonly images = inject(ImageAttachmentService);
   private readonly drafts = inject(DraftStore);
+  private readonly recovery = inject(ConversationDraftRecoveryService);
   private readonly haptics = inject(HapticsService);
   private readonly voice = inject(VoiceInputService);
   private readonly router = inject(Router);
+  private readonly hosts = inject(HostStore);
+  private readonly browse = inject(MobileBrowseStateStore);
+  protected readonly approvals = inject(ApprovalPresentationStore);
+  private readonly origin = this.router.getCurrentNavigation()?.extras.state ?? window.history.state;
+  protected readonly returnRoute = computed(() => this.browse.returnRoute(this.origin));
+  protected readonly hostName = computed(() => this.hosts.activeHost()?.name ?? 'Host');
+  protected readonly requests = computed(() => this.approvals.requests().filter((p) => p.instanceId === this.instanceId()));
 
   readonly projectKey = input<string>('');
   readonly instanceId = input<string>('');
 
   protected readonly draft = signal('');
+  protected readonly legacyDraftAvailable = signal(false);
   protected readonly attachments = signal<MobileAttachmentDto[]>([]);
   protected readonly attachBusy = signal(false);
   protected readonly canAttach = this.images.available;
@@ -99,6 +117,9 @@ export class ConversationComponent {
   protected readonly noticeIsError = signal(false);
   protected readonly menuOpen = signal(false);
   protected readonly modelSheetOpen = signal(false);
+  protected readonly detailsOpen = signal(false);
+  protected readonly queuePending = signal<string | null>(null);
+  protected pendingModel: string | undefined;
   protected readonly modelsLoading = signal(false);
   protected readonly changingModel = signal(false);
   protected readonly modelsError = signal<string | null>(null);
@@ -106,10 +127,18 @@ export class ConversationComponent {
   protected readonly online = this.gateway.online;
   /** Distinguishes an expired pairing from an ordinary network drop. */
   protected readonly connectionHeadline = computed(() => connectionHeadline(this.gateway.state()));
-  protected readonly emptyTranscript = computed(() => emptyTranscriptText(this.gateway.state()));
+  protected readonly transcriptState = computed(() => this.gateway.messageStateFor(this.instanceId()));
+  protected readonly emptyTranscript = computed(() => {
+    const state = this.transcriptState();
+    if (state.status === 'loading') return 'Loading conversation…';
+    if (state.status === 'error') return 'The conversation could not be loaded.';
+    if (state.status === 'idle' && this.online()) return 'Waiting to load this conversation…';
+    return emptyTranscriptText(this.gateway.state());
+  });
   protected readonly renderMarkdown = renderMobileMarkdown;
   protected readonly isLoopTranscriptMessage = isLoopTranscriptMessage;
   protected readonly toolLabel = toolLabel;
+  protected readonly toolDetails = toolDetails;
 
   /** Scroll-position flags driving the floating up/down buttons + auto-follow. */
   protected readonly atTop = signal(true);
@@ -122,29 +151,30 @@ export class ConversationComponent {
   private touching = false;
   private prevMessageCount = 0;
   /** Session the current draft belongs to; '' suspends draft persistence. */
-  private draftKeyId = '';
+  private readonly draftKeyId = signal('');
+  private loadingDraftKey = '';
+  private readonly contextKey = computed(() => JSON.stringify(['instance', this.hosts.activeHost()?.id ?? '', this.instanceId()]));
+  private draftGeneration = 0;
+  private detachDraft: (() => void) | undefined;
+  private destroyed = false;
   private noticeTimer: ReturnType<typeof setTimeout> | undefined;
 
   private readonly scrollEl = viewChild<ElementRef<HTMLDivElement>>('scrollEl');
+  private readonly draftEl = viewChild<ElementRef<HTMLTextAreaElement>>('draftEl');
 
   protected readonly instance = computed(() =>
-    this.gateway.snapshot()?.instances.find((i) => i.id === this.instanceId()),
+    this.gateway.dataHostId() === this.hosts.activeHost()?.id
+      ? this.gateway.snapshot()?.instances.find((i) => i.id === this.instanceId()) : undefined,
   );
   protected readonly activityColor = computed(() => displayStatusColor(this.instance()));
   protected readonly activityLabel = computed(() => displayStatusLabel(this.instance()));
   protected readonly headerSubtitle = computed(() => {
-    const detail = [
-      this.activityLabel(),
-      this.instance()?.contextPercentage === undefined
-        ? ''
-        : `context ${this.instance()?.contextPercentage}%`,
-      this.instance()?.model ?? '',
-      this.online() ? '' : connectionLabel(this.gateway.state()),
-    ].filter(Boolean);
+    const detail = [this.activityLabel(), this.online() ? '' : connectionLabel(this.gateway.state())].filter(Boolean);
     return detail.join(' · ');
   });
   protected readonly working = computed(() => isWorkingOrLooping(this.instance()));
-  protected readonly messages = computed(() => this.gateway.messagesFor(this.instanceId()));
+  protected readonly messages = computed(() => this.gateway.dataHostId() === this.hosts.activeHost()?.id
+    ? this.gateway.messagesFor(this.instanceId()) : []);
   /** Messages the host is holding until this session can accept input again. */
   protected readonly queued = computed(() => this.instance()?.queuedMessages ?? []);
   /** An interrupt is already settling — a second one would cancel the session. */
@@ -173,7 +203,7 @@ export class ConversationComponent {
   }
 
   protected toolGroupLabel(item: Extract<DisplayItem, { kind: 'tools' }>): string {
-    return `Show ${item.items.length} tool ${item.items.length === 1 ? 'call' : 'calls'}`;
+    return `Show ${item.items.length} activity ${item.items.length === 1 ? 'entry' : 'entries'}`;
   }
 
   constructor() {
@@ -184,9 +214,13 @@ export class ConversationComponent {
       this.gateway.setActiveView(this.instanceId() || null);
     });
     inject(DestroyRef).onDestroy(() => {
+      this.persistDraftOnExit();
+      this.detachDraft?.();
+      this.destroyed = true;
+      this.draftGeneration++;
       this.gateway.clearActiveView(this.instanceId());
       clearTimeout(this.noticeTimer);
-      if (this.voice.listening()) void this.voice.stop();
+      void this.voice.stop();
     });
 
     // Mirror live dictation into the draft while the recognizer is running.
@@ -200,30 +234,75 @@ export class ConversationComponent {
     // evicting the app). Persistence is suspended while swapping sessions so
     // the old text can't leak into the new session's draft key.
     effect(() => {
-      const id = this.instanceId();
-      if (!id || id === this.draftKeyId) return;
-      const hadPrevious = this.draftKeyId !== '';
-      this.draftKeyId = '';
-      const pending = this.drafts.load(`instance:${id}`);
-      if (hadPrevious) this.draft.set('');
-      void pending.then((text) => {
-        this.draftKeyId = id;
-        if (text && !this.draft().trim()) this.draft.set(text);
+      const key = this.contextKey();
+      untracked(() => {
+        const generation = ++this.draftGeneration;
+        this.detachDraft?.();
+        void this.voice.stop();
+        this.persistDraftOnExit();
+        this.loadingDraftKey = key;
+        this.draftKeyId.set('');
+        this.draft.set('');
+        this.attachments.set(this.drafts.attachments(key));
+        this.modelCatalog.set(null);
+        this.modelSheetOpen.set(false);
+        this.menuOpen.set(false);
+        this.detailsOpen.set(false);
+        this.pendingModel = undefined;
+        this.modelsError.set(null);
+        this.attachBusy.set(false);
+        this.legacyDraftAvailable.set(false);
+        this.modelsLoading.set(false);
+        this.changingModel.set(false);
+        this.sending.set(false);
+        this.interrupting.set(false);
+        this.queuePending.set(null);
+        this.clearNotice();
+        this.expandedTools.set(new Set());
+        this.stickToBottom = true;
+        this.prevMessageCount = 0;
+        const ready = this.drafts.load(key).then((text) => {
+          if (this.destroyed || generation !== this.draftGeneration) return;
+          if (text) this.draft.update((draft) => joinDraftText(draft, text));
+          this.loadingDraftKey = '';
+          this.draftKeyId.set(key);
+        });
+        this.detachDraft = this.recovery.attach(key, async (text, attachments) => {
+          await ready;
+          if (this.destroyed || generation !== this.draftGeneration || key !== this.contextKey()) return false;
+          this.draft.update((draft) => joinDraftText(draft, text));
+          this.attachments.update((current) => [...current, ...attachments]);
+          this.persistDraft();
+          return true;
+        });
+        void this.drafts.load(`instance:${this.instanceId()}`).then((text) => {
+          if (!this.destroyed && generation === this.draftGeneration) this.legacyDraftAvailable.set(!!text);
+        });
       });
     });
     // Persist every draft change (debounced in the store). Sending clears the
     // draft signal, which clears the stored draft through this same path.
     effect(() => {
-      const text = this.draft();
-      if (this.draftKeyId) this.drafts.save(`instance:${this.draftKeyId}`, text);
+      this.persistDraft();
     });
 
     // Load (and resync on reconnect) the transcript for the open instance.
     effect(() => {
       const id = this.instanceId();
-      if (id && this.gateway.online()) {
+      if (id && this.gateway.online() && this.gateway.dataHostId() === this.hosts.activeHost()?.id) {
         void this.gateway.loadMessages(id);
       }
+    });
+    afterRenderEffect(() => {
+      this.draft();
+      const element = this.draftEl()?.nativeElement;
+      if (!element) return;
+      // NgModel applies recovered text in a microtask after this render.
+      queueMicrotask(() => {
+        if (this.destroyed || !element.isConnected) return;
+        element.style.height = 'auto';
+        element.style.height = `${Math.min(element.scrollHeight, Math.max(72, window.innerHeight * 0.22))}px`;
+      });
     });
     // Auto-scroll to the newest message — but only while the user is parked at
     // the bottom. If they've scrolled up to read history, leave them there and
@@ -297,7 +376,7 @@ export class ConversationComponent {
 
   protected onEnter(event: Event): void {
     const keyboard = event as KeyboardEvent;
-    if (!keyboard.shiftKey) {
+    if (!keyboard.isComposing && keyboard.keyCode !== 229 && (keyboard.metaKey || keyboard.ctrlKey)) {
       event.preventDefault();
       void this.send(event);
     }
@@ -310,46 +389,54 @@ export class ConversationComponent {
 
   protected async pickImages(): Promise<void> {
     if (this.attachBusy()) return;
+    const key = this.contextKey();
+    const current = this.operationScope();
     this.attachBusy.set(true);
     try {
       const picked = await this.images.pickImages();
       if (picked.length) {
-        this.attachments.update((current) => [...current, ...picked]);
+        await this.restoreDraft(key, '', picked);
       }
-    } catch {
-      /* user cancelled or the pick failed — nothing to add */
+    } catch (error) {
+      if (current()) this.showNotice(errorText(error), true);
     } finally {
-      this.attachBusy.set(false);
+      if (current()) this.attachBusy.set(false);
     }
   }
 
   protected async pasteImageFromClipboard(): Promise<void> {
     if (this.attachBusy()) return;
+    const key = this.contextKey();
+    const current = this.operationScope();
     this.attachBusy.set(true);
     try {
       const pasted = await this.images.pasteImageFromClipboard();
       if (pasted) {
-        this.attachments.update((current) => [...current, pasted]);
+        await this.restoreDraft(key, '', [pasted]);
+      } else if (current()) {
+        this.showNotice('No image was found. Copy an image first or use Add photo.', true);
       }
-    } catch {
-      /* paste denied or unsupported — nothing to add */
+    } catch (error) {
+      if (current()) this.showNotice(errorText(error), true);
     } finally {
-      this.attachBusy.set(false);
+      if (current()) this.attachBusy.set(false);
     }
   }
 
   protected async onPaste(event: ClipboardEvent): Promise<void> {
     if (this.attachBusy()) return;
+    const key = this.contextKey();
+    const current = this.operationScope();
     this.attachBusy.set(true);
     try {
       const pasted = await this.images.attachmentsFromPasteEvent(event);
       if (pasted.length) {
-        this.attachments.update((current) => [...current, ...pasted]);
+        await this.restoreDraft(key, '', pasted);
       }
-    } catch {
-      /* browser paste data can vary by platform */
+    } catch (error) {
+      if (current()) this.showNotice(errorText(error), true);
     } finally {
-      this.attachBusy.set(false);
+      if (current()) this.attachBusy.set(false);
     }
   }
 
@@ -358,49 +445,63 @@ export class ConversationComponent {
   }
 
   protected async toggleDictation(): Promise<void> {
+    const current = this.operationScope();
     if (this.voice.listening()) {
-      await this.voice.stop();
-      this.draft.set(this.voice.text());
+      const text = this.voice.text();
+      const stopped = this.voice.stop();
+      this.draft.set(text);
+      await stopped;
+      if (!current()) return;
       this.haptics.tap();
       return;
     }
     this.haptics.tap();
     const started = await this.voice.start(this.draft());
-    if (!started) this.haptics.error();
+    if (!current()) return;
+    if (!started) {
+      this.haptics.error();
+      this.showNotice('Dictation could not start. Allow microphone and speech access in device Settings, or type your message.', true);
+    }
   }
 
   protected async send(event: Event): Promise<void> {
     event.preventDefault();
-    if (this.voice.listening()) {
-      await this.voice.stop();
-      this.draft.set(this.voice.text());
-    }
-    const text = this.draft().trim();
-    const attachments = this.attachments();
-    if ((!text && attachments.length === 0) || this.sending() || !this.online()) return;
-    this.haptics.tap();
+    if (!this.canSend() || this.sending() || !this.online()) return;
+    const key = this.contextKey();
+    const id = this.instanceId();
+    const current = this.operationScope();
     this.sending.set(true);
-    this.draft.set('');
-    this.attachments.set([]);
-    this.clearNotice();
+    let text = '';
+    let attachments: MobileAttachmentDto[] = [];
     try {
+      text = (this.voice.listening() ? this.voice.text() : this.draft()).trim();
+      attachments = this.attachments();
+      const stopped = this.voice.listening() ? this.voice.stop() : null;
+      this.haptics.tap();
+      this.draft.set('');
+      this.attachments.set([]);
+      this.persistDraft();
+      this.clearNotice();
+      if (stopped) await stopped;
+      if (!current()) { await this.restoreDraft(key, text, attachments); return; }
       const result = await this.gateway.sendInput(
-        this.instanceId(),
+        id,
         text,
         attachments.length ? attachments : undefined,
       );
-      if (result.queued) {
-        this.showNotice('Queued — it will send when this session is free.');
+      if (current() && result.queued) {
+        this.showNotice('Queued. It will send when this session is free.');
       }
     } catch (err) {
       // Restore the draft + attachments so the user doesn't lose them, and say
       // why: a silent restore reads as the message having been sent twice.
-      this.haptics.error();
-      this.draft.set(text);
-      this.attachments.set(attachments);
-      this.showNotice(`Not sent: ${errorText(err)}`, true);
+      await this.restoreDraft(key, text, attachments);
+      if (current()) {
+        this.haptics.error();
+        this.showNotice(`Send not confirmed: ${errorText(err)}`, true);
+      }
     } finally {
-      this.sending.set(false);
+      if (current()) this.sending.set(false);
     }
   }
 
@@ -418,9 +519,11 @@ export class ConversationComponent {
     }
     this.haptics.heavyTap();
     this.interrupting.set(true);
+    const current = this.operationScope();
     this.clearNotice();
     try {
       const { accepted } = await this.gateway.interrupt(this.instanceId());
+      if (!current()) return;
       if (accepted) {
         this.showNotice('Stopping…');
       } else {
@@ -428,23 +531,29 @@ export class ConversationComponent {
         this.showNotice('Nothing to stop — this session is not running a turn.', true);
       }
     } catch (err) {
+      if (!current()) return;
       this.haptics.error();
       this.showNotice(`Stop failed: ${errorText(err)}`, true);
     } finally {
-      this.interrupting.set(false);
+      if (current()) this.interrupting.set(false);
     }
   }
 
-  /** Cancel a queued message and put its text back in the composer. */
-  protected async cancelQueued(item: MobileQueuedMessageDto): Promise<void> {
+  /** Return queued content without replacing an already active draft. */
+  protected async cancelQueued(item: MobileQueuedMessageDto, remove = false): Promise<void> {
+    if (this.queuePending()) return;
+    const key = this.contextKey();
+    const current = this.operationScope();
+    this.queuePending.set(item.id);
     this.haptics.tap();
     try {
       const restored = await this.gateway.cancelQueued(this.instanceId(), item.id);
-      const text = restored || item.message;
-      // Never lose the text: append when the composer is already in use.
-      this.draft.update((current) => (current.trim() ? `${current.trimEnd()}\n${text}` : text));
+      if (!remove) await this.restoreDraft(key, restored.message, restored.attachments ?? []);
+      if (current()) this.showNotice(remove ? 'Queued message removed.' : 'Queued message added to your draft.');
     } catch (err) {
-      this.showNotice(`Could not cancel: ${errorText(err)}`, true);
+      if (current()) this.showNotice(`Could not change the queue: ${errorText(err)}`, true);
+    } finally {
+      if (current()) this.queuePending.set(null);
     }
   }
 
@@ -452,10 +561,10 @@ export class ConversationComponent {
     this.notice.set(text);
     this.noticeIsError.set(isError);
     clearTimeout(this.noticeTimer);
-    this.noticeTimer = setTimeout(() => this.notice.set(null), NOTICE_TIMEOUT_MS);
+    if (!isError) this.noticeTimer = setTimeout(() => this.notice.set(null), NOTICE_TIMEOUT_MS);
   }
 
-  private clearNotice(): void {
+  protected clearNotice(): void {
     clearTimeout(this.noticeTimer);
     this.notice.set(null);
   }
@@ -464,10 +573,12 @@ export class ConversationComponent {
     this.menuOpen.set(false);
     if (!confirm('Close this session? The agent stops and unsaved work is lost.')) return;
     this.haptics.heavyTap();
+    const current = this.operationScope();
     try {
       await this.gateway.terminate(this.instanceId());
-      this.back();
+      if (current()) this.back();
     } catch (err) {
+      if (!current()) return;
       // Was silent, so a rejected token made this look like a dead button. Match
       // the notice pattern the send/stop/cancel actions already use.
       this.haptics.error();
@@ -479,9 +590,11 @@ export class ConversationComponent {
     this.menuOpen.set(false);
     const name = prompt('Rename session', this.instance()?.displayName ?? '');
     if (name && name.trim()) {
+      const current = this.operationScope();
       try {
         await this.gateway.rename(this.instanceId(), name.trim());
       } catch (err) {
+        if (!current()) return;
         this.haptics.error();
         this.showNotice(`Rename failed: ${errorText(err)}`, true);
       }
@@ -495,29 +608,83 @@ export class ConversationComponent {
     if (this.modelCatalog() || this.modelsLoading()) return;
     this.modelsLoading.set(true);
     this.modelsError.set(null);
+    const current = this.operationScope();
     try {
-      this.modelCatalog.set(await this.gateway.models());
+      const catalog = await this.gateway.models();
+      if (current()) this.modelCatalog.set(catalog);
     } catch (err) {
-      this.modelsError.set(err instanceof Error ? err.message : String(err));
+      if (current()) this.modelsError.set(errorText(err));
     } finally {
-      this.modelsLoading.set(false);
+      if (current()) this.modelsLoading.set(false);
     }
   }
 
   protected async chooseModel(model: string | undefined): Promise<void> {
-    this.modelSheetOpen.set(false);
     if (!model || this.changingModel()) return;
+    const current = this.operationScope();
+    this.pendingModel = model;
+    this.modelsError.set(null);
     this.changingModel.set(true);
     try {
       await this.gateway.changeModel(this.instanceId(), model);
+      if (current()) {
+        this.pendingModel = undefined;
+        this.haptics.success();
+        this.modelSheetOpen.set(false);
+      }
     } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
+      if (current()) this.modelsError.set(`Model change not confirmed: ${errorText(err)}`);
     } finally {
-      this.changingModel.set(false);
+      if (current()) this.changingModel.set(false);
     }
   }
 
+  protected retryModel(): void {
+    if (this.pendingModel) void this.chooseModel(this.pendingModel);
+    else void this.openModelSheet();
+  }
+
+  protected retryTranscript(): void { void this.gateway.loadMessages(this.instanceId()); }
+  protected reconnect(): void { this.gateway.reconnect(); }
+  protected changeHost(): void { void this.router.navigate(['/hosts']); }
+  protected pairAgain(): void { void this.router.navigate(['/add-host']); }
+  protected readonly pairingExpired = computed(() => this.gateway.state() === 'unauthorized');
+
+  private operationScope(): () => boolean {
+    const key = this.contextKey();
+    const generation = this.draftGeneration;
+    return () => !this.destroyed && key === this.contextKey() && generation === this.draftGeneration;
+  }
+
+  private persistDraft(): void {
+    const key = this.draftKeyId();
+    const text = this.draft();
+    const attachments = this.attachments();
+    if (!key) return;
+    this.drafts.save(key, text);
+    this.drafts.saveAttachments(key, attachments);
+  }
+
+  private persistDraftOnExit(): void {
+    if (!this.loadingDraftKey) { this.persistDraft(); return; }
+    const key = this.loadingDraftKey;
+    this.loadingDraftKey = '';
+    this.drafts.saveAttachments(key, this.attachments());
+    // Preserve early edits after storage loads, including in a replacement composer.
+    void this.recovery.recover(key, this.draft(), []);
+  }
+
+  private async restoreDraft(key: string, text: string, attachments: MobileAttachmentDto[]): Promise<void> {
+    await this.recovery.recover(key, text, attachments);
+  }
+
+  protected async recoverLegacyDraft(): Promise<void> {
+    const current = this.operationScope();
+    await this.recovery.recoverLegacy(this.contextKey(), `instance:${this.instanceId()}`);
+    if (current()) this.legacyDraftAvailable.set(false);
+  }
+
   protected back(): void {
-    void this.router.navigate(['/projects', this.projectKey(), 'sessions']);
+    void this.router.navigate([this.returnRoute()]);
   }
 }

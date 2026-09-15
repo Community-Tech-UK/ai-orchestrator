@@ -1,6 +1,7 @@
 import type { InstanceCreateConfig } from '../../../shared/types/instance.types';
 import { decodeLocalModelSelector } from '../../../shared/utils/local-model-selector';
 import type { ExecutionLocation } from '../../../shared/types/worker-node.types';
+import { isPooledProvider } from '../../../shared/types/provider-account.types';
 import { getLogger } from '../../logging/logger';
 
 const logger = getLogger('InstanceLifecycle');
@@ -79,7 +80,13 @@ export function resolveExecutionLocation(config: InstanceCreateConfig): Executio
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { getWorkerNodeRegistry } = require('../../remote-node');
       const registry = getWorkerNodeRegistry();
-      const node = registry.selectNode(config.nodePlacement);
+      // An explicitly chosen Claude/Codex account prefers a node that has that
+      // profile. Never the other way round: placement does not change the account.
+      const node = registry.selectNode(
+        config.accountProfileId && isPooledProvider(config.provider)
+          ? { ...config.nodePlacement, prefersAccountProfile: { provider: config.provider, profileId: config.accountProfileId } }
+          : config.nodePlacement,
+      );
       if (node) {
         logger.info('Resolved execution location', {
           type: 'remote',

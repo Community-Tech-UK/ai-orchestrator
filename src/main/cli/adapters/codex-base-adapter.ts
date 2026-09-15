@@ -22,7 +22,7 @@ const logger = getLogger('CodexBaseAdapter');
 /** Shared process configuration and isolated CODEX_HOME lifecycle. */
 export abstract class CodexBaseAdapter extends BaseCliAdapter {
   protected readonly cliConfig: CodexCliConfig;
-  private readonly codexHome = new CodexHomeManager();
+  private readonly codexHome: CodexHomeManager;
   /** Which config.toml treatment the current prepared CODEX_HOME has, if any. */
   protected preparedHomeKind: 'mcp-toml' | 'app-server' | 'exec' | null = null;
   protected cumulativeTokensUsed = 0;
@@ -62,9 +62,11 @@ export abstract class CodexBaseAdapter extends BaseCliAdapter {
       timeout: config.timeout || 300000,
       sessionPersistence: !config.ephemeral,
       env: config.env,
+      ...(config.envRemove && config.envRemove.length > 0 ? { envRemove: config.envRemove } : {}),
     };
     super(adapterConfig);
     this.cliConfig = config;
+    this.codexHome = new CodexHomeManager(config.authSourceDir ? { authSourceDir: config.authSourceDir } : {});
     this.sessionId = config.sessionId || `codex-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   }
 
@@ -108,7 +110,7 @@ export abstract class CodexBaseAdapter extends BaseCliAdapter {
     try {
       return await discoverCodexModels({
         cwd: this.cliConfig.workingDir || process.cwd(),
-        env: { ...getSafeEnvForTrustedProcess(), ...this.config.env },
+        env: this.buildChildEnv(),
       });
     } catch (error) {
       if (options.fallbackToStatic === false) throw error;
@@ -120,6 +122,23 @@ export abstract class CodexBaseAdapter extends BaseCliAdapter {
   }
 
   protected abstract resolveContextWindow(): number;
+
+  /** Ambient safe env + adapter env, minus the account-pool strip list. */
+  protected buildChildEnv(): Record<string, string> {
+    const env: Record<string, string> = {};
+    for (const [key, value] of Object.entries({ ...getSafeEnvForTrustedProcess(), ...this.config.env })) {
+      if (typeof value === 'string') env[key] = value;
+    }
+    for (const key of this.config.envRemove ?? []) {
+      delete env[key];
+    }
+    return env;
+  }
+
+  /** `-c` overrides as argv, e.g. the file credential-store pin for a profile route. */
+  protected configOverrideArgs(): string[] {
+    return (this.cliConfig.configOverrides ?? []).flatMap((override) => ['-c', override]);
+  }
 
   /** Codex thread resumption is independent of approval policy. */
   protected supportsNativeResume(): boolean {

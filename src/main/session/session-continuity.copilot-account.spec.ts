@@ -132,6 +132,13 @@ describe('instanceToState — Copilot account continuity', () => {
     expect(state.copilotAccountProfileId).toBeUndefined();
   });
 
+  it('copies the Claude/Codex account-pool profile, source and switch count', () => {
+    const state = createManager().instanceToState(
+      makeInstance({ provider: 'claude', accountProfileId: 'max-b', accountRoutingSource: 'failover', accountSwitches: 2 }),
+    );
+    expect(state).toMatchObject({ accountProfileId: 'max-b', accountRoutingSource: 'failover', accountSwitches: 2 });
+  });
+
   it('leaves the profile undefined for a non-Copilot session', () => {
     const state = createManager().instanceToState(makeInstance());
     expect(state.copilotAccountProfileId).toBeUndefined();

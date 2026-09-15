@@ -311,6 +311,13 @@ describe('frontLoadTitle', () => {
     expect(frontLoadTitle(undefined)).toBe('');
   });
 
+  it('strips a pasted session ID lead-in when the real text follows on the same line', () => {
+    // Before the fix this returned the bare UUID as the title, which is
+    // useless in the rail: every session ID looks like every other one.
+    expect(frontLoadTitle('1ed2be54-1026-428c-a407-9a52c835759b Where has all your text gone'))
+      .toBe('Where has all your text gone');
+  });
+
   it('titles a loop-with-attachments prompt from its files, not the injected header', () => {
     const prompt = [
       'Attached files (relative to workspace; use your file-read tools):',

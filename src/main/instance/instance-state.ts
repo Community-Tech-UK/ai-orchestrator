@@ -411,6 +411,10 @@ export class InstanceStateManager extends EventEmitter {
         extras?.desiredRuntime !== undefined
           ? extras.desiredRuntime
           : existing?.desiredRuntime,
+      // Account pools: always the live stamp, so a failover or a spawn-time
+      // stamp reaches the renderer on the next status update.
+      accountProfileId: runtimeInstance?.accountProfileId ?? existing?.accountProfileId,
+      accountRoutingSource: runtimeInstance?.accountRoutingSource ?? existing?.accountRoutingSource,
     });
   }
 

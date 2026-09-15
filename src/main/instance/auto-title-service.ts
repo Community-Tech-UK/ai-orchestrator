@@ -4,6 +4,10 @@
  * Phase 1 (instant): applies a truncated first-message title immediately.
  * Phase 2 (async): upgrades to an AI-generated summary using the existing
  * CLI adapter infrastructure (no separate API key required).
+ * Phase 2 retry (opportunistic, once): if Phase 2 never lands (no fast CLI,
+ * timeout, local model unreachable), one more attempt is queued and consumed
+ * the next time the instance sees genuine new user activity — never on
+ * hibernate/wake or session restore. See `retryTitleUpgradeIfPending`.
  */
 
 import { resolveCliType, type CliAdapter } from '../cli/adapters/adapter-factory';
@@ -23,7 +27,7 @@ import {
 } from '../../shared/types/title-derivation';
 import { getLogger } from '../logging/logger';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
-import { attachCopilotRoute } from './lifecycle/copilot-route-preflight';
+import { attachProviderRoutes } from './lifecycle/provider-route-preflight';
 import { getAuxiliaryLlmService } from '../rlm/auxiliary-llm-service';
 import type { AuxiliaryLlmDecision } from '../../shared/types/auxiliary-llm.types';
 import {
@@ -59,8 +63,24 @@ const AI_TITLE_TIMEOUT = 60_000;
  * discarded in favour of the deterministic first-message title.
  */
 const MAX_GENERATED_TITLE_LENGTH = 80;
+
+/**
+ * Shared clause telling the model a pasted session/instance ID, hash, or UUID
+ * is not the subject. Without this, "lead with the most distinctive word" is
+ * bad advice when the message opens with a copy-pasted ID (a common way bug
+ * reports start, e.g. from a title-bar screenshot) — a UUID reads as maximally
+ * "distinctive" character-wise to a model while carrying zero identifying
+ * signal, since every session's ID is equally random hex. The deterministic
+ * fallback (`deriveRailTitle`/`isBareIdentifierLine`) already skips such
+ * lines, but this keeps the AI-generated title from reintroducing the same
+ * failure when it runs on the raw, unfiltered message text.
+ */
+const IGNORE_BARE_IDS_CLAUSE =
+  'Ignore any bare session ID, instance ID, hash, or UUID in the message when choosing the ' +
+  'distinctive word — those are random and identify nothing; use the real subject instead.';
+
 const CLI_TITLE_SYSTEM_PROMPT =
-  'You generate very short tab titles (3-6 words) that summarize a task. The title is shown in a narrow sidebar and is realistically only legible by its first ~25 characters, so LEAD WITH THE MOST DISTINCTIVE, IDENTIFYING WORD — the project, feature, file, repo, or subject. Never start with generic filler ("Please", "Implement", "Fix", "Review this PR", "Help", "I need", "We need to") or a URL; drop it and open with what makes this task unique. If the message text is generic filler with no specific subject, build the title around the attached file name instead. Reply with ONLY the title — no quotes, no trailing punctuation, no explanation.';
+  `You generate very short tab titles (3-6 words) that summarize a task. The title is shown in a narrow sidebar and is realistically only legible by its first ~25 characters, so LEAD WITH THE MOST DISTINCTIVE, IDENTIFYING WORD — the project, feature, file, repo, or subject. Never start with generic filler ("Please", "Implement", "Fix", "Review this PR", "Help", "I need", "We need to") or a URL; drop it and open with what makes this task unique. ${IGNORE_BARE_IDS_CLAUSE} If the message text is generic filler with no specific subject, build the title around the attached file name instead. Reply with ONLY the title — no quotes, no trailing punctuation, no explanation.`;
 const CLI_TITLE_USER_INSTRUCTION =
   "Summarize this task in 3-6 words for a sidebar tab title. Put the most distinctive, identifying word first so it's recognizable from just the first ~25 characters. If the message text is generic filler with no specific subject, use the attached file name as the subject:";
 
@@ -150,6 +170,18 @@ export class AutoTitleService {
   /** Instance IDs that have already been auto-titled (or are in-flight) */
   private processed = new Set<string>();
 
+  /**
+   * Instances whose Phase 2 (AI) upgrade never produced a title — no fast CLI
+   * available, timeout, local model unreachable, etc. — keyed by the exact
+   * first-message text/attachments Phase 1 already titled from. Consumed by
+   * {@link retryTitleUpgradeIfPending}, which callers should invoke on the
+   * instance's *next genuine user-driven activity* (e.g. its second sent
+   * message), never from a hibernate/wake or session-restore path: a session
+   * that never got its one AI upgrade should get exactly one more real chance,
+   * not a new attempt every time it is reloaded from disk.
+   */
+  private pendingRetries = new Map<string, { message: string; attachmentNames: readonly string[] }>();
+
   // eslint-disable-next-line @typescript-eslint/no-empty-function
   private constructor() {}
 
@@ -163,6 +195,7 @@ export class AutoTitleService {
   static _resetForTesting(): void {
     if (this.instance) {
       this.instance.processed.clear();
+      this.instance.pendingRetries.clear();
     }
     (this.instance as AutoTitleService | undefined) = undefined;
   }
@@ -207,15 +240,60 @@ export class AutoTitleService {
     }
 
     // Phase 2: Upgrade with an AI-generated title via the fastest available CLI
-    // (Haiku tier). Non-critical — on any failure the instant title remains.
+    // (Haiku tier). Non-critical — on any failure the instant title remains,
+    // and a single opportunistic retry is queued (see `pendingRetries`).
     try {
       const title = await this.generateTitle(message, attachmentNames);
       if (title) {
         applyTitle(instanceId, title, 'ai');
         logger.info('Auto-titled instance (AI)', { instanceId, title });
+      } else {
+        this.pendingRetries.set(instanceId, { message, attachmentNames });
       }
     } catch (error) {
       logger.warn('AI title upgrade failed, keeping instant title', {
+        instanceId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      this.pendingRetries.set(instanceId, { message, attachmentNames });
+    }
+  }
+
+  /**
+   * Give an instance whose Phase 2 (AI) upgrade never landed exactly one more
+   * chance, using the ORIGINAL first message/attachments — not whatever the
+   * caller is currently sending — so the title still describes what the
+   * session was opened to do. A no-op when there is nothing pending, so it is
+   * safe to call unconditionally on every follow-up message.
+   *
+   * Callers MUST only invoke this from genuine new user-driven activity (a
+   * message the user actually sent), never from hibernate/wake or
+   * session-restore paths — those are not new activity, and re-running the AI
+   * title there would silently change a title the user has already seen and
+   * accepted, independent of whether they wrote it or the AI did.
+   *
+   * Deliberately single-shot regardless of outcome: the pending entry is
+   * removed before the attempt runs, so a second failure does not requeue
+   * itself and spam a fast-tier CLI on every subsequent message.
+   */
+  async retryTitleUpgradeIfPending(
+    instanceId: string,
+    applyTitle: (instanceId: string, title: string, source: 'ai') => void,
+  ): Promise<void> {
+    const pending = this.pendingRetries.get(instanceId);
+    if (!pending) return;
+    this.pendingRetries.delete(instanceId);
+
+    try {
+      const title = await this.generateTitle(pending.message, pending.attachmentNames);
+      if (title) {
+        applyTitle(instanceId, title, 'ai');
+        logger.info('Auto-titled instance (AI retry)', { instanceId, title });
+      } else {
+        logger.info('AI title retry produced no usable title, keeping existing title', { instanceId });
+      }
+    } catch (error) {
+      logger.warn('AI title retry failed, keeping existing title', {
         instanceId,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -247,7 +325,8 @@ export class AutoTitleService {
       : trimmed;
     const systemPrompt =
       'You generate very short tab titles (3-6 words) that summarize a task. '
-      + 'Lead with the most distinctive word. Reply with ONLY the title — no quotes, no trailing punctuation.';
+      + `Lead with the most distinctive word. ${IGNORE_BARE_IDS_CLAUSE} `
+      + 'Reply with ONLY the title — no quotes, no trailing punctuation.';
     const userPrompt = labels.length > 0
       ? `${truncatedMessage}\n\nAttached: ${labels.join(', ')}`
       : truncatedMessage;
@@ -308,7 +387,8 @@ export class AutoTitleService {
     // Try auxiliary LLM (local/cheap model) first — much cheaper than a full CLI spawn
     const auxSystemPrompt =
       'You generate very short tab titles (3-6 words) that summarize a task. ' +
-      'Lead with the most distinctive word. Reply with ONLY the title — no quotes, no trailing punctuation.';
+      `Lead with the most distinctive word. ${IGNORE_BARE_IDS_CLAUSE} ` +
+      'Reply with ONLY the title — no quotes, no trailing punctuation.';
     const auxUserPrompt = labels.length > 0
       ? `${truncatedMessage}\n\nAttached: ${labels.join(', ')}`
       : truncatedMessage;
@@ -375,7 +455,7 @@ export class AutoTitleService {
 
     // Copilot account routing: title generation runs unattended, so it uses
     // the `internal` origin and is blocked for a manual-only profile.
-    const titleSpawnOptions = await attachCopilotRoute(
+    const titleSpawnOptions = await attachProviderRoutes(
       cliType,
       {
         workingDirectory: process.cwd(),
@@ -471,6 +551,7 @@ export class AutoTitleService {
    */
   clearInstance(instanceId: string): void {
     this.processed.delete(instanceId);
+    this.pendingRetries.delete(instanceId);
   }
 }
 

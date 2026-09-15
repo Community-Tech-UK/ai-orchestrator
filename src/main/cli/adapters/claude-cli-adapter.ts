@@ -183,6 +183,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       timeout: options.timeout ?? 300000,
       sessionPersistence: true,
       env: Object.keys(env).length > 0 ? env : undefined,
+      ...(options.envRemove && options.envRemove.length > 0 ? { envRemove: options.envRemove } : {}),
     };
     super(config);
 
@@ -838,6 +839,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     let resultUsage: CliUsage | null = null;
     let legacySystemTotal: number | undefined;
     let costUsd: number | undefined;
+    let planLimitNotice: string | undefined;
 
     // Parse all NDJSON lines
     const lines = raw.split('\n').filter((line) => line.trim());
@@ -915,6 +917,9 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         if (msg.type === 'result' && typeof msg.total_cost_usd === 'number') {
           costUsd = msg.total_cost_usd;
         }
+        if (msg.type === 'result' && msg.is_error === true && msg.api_error_status === 429) {
+          planLimitNotice = typeof msg.result === 'string' ? msg.result.trim() : '';
+        }
 
         // Legacy schema (older Claude CLI). Kept for backward compatibility.
         if (
@@ -949,7 +954,23 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       role: 'assistant',
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
       usage,
-      raw
+      raw,
+      ...(planLimitNotice !== undefined ? { metadata: { quota: this.planLimitQuota(planLimitNotice) } } : {}),
+    };
+  }
+
+  /**
+   * Structured quota diagnostics for a `result` that ended on a plan 429. The
+   * reset comes from the preceding `rate_limit_event` (epoch seconds), never
+   * from the localised reset text.
+   */
+  private planLimitQuota(notice: string): { exhausted: true; resetAt?: number; message?: string } {
+    const resetsAt = this.lastRateLimitInfo?.resetsAt;
+    const resetAt = typeof resetsAt === 'number' && resetsAt * 1000 > Date.now() ? resetsAt * 1000 : undefined;
+    return {
+      exhausted: true,
+      ...(resetAt !== undefined ? { resetAt } : {}),
+      ...(notice ? { message: notice.slice(0, 300) } : {}),
     };
   }
 
@@ -1852,6 +1873,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         // session shows *why* instead of going silent.
         const info = (raw as { rate_limit_info?: CliRateLimitInfo }).rate_limit_info ?? null;
         this.lastRateLimitInfo = info;
+        if (info) this.emit('rate-limit-telemetry', info); // account-pool quota bridge
         const status = info?.status;
         const throttled = Boolean(status && status !== 'allowed');
         const resetsAtMs = typeof info?.resetsAt === 'number' ? info.resetsAt * 1000 : undefined;

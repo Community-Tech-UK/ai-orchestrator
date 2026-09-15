@@ -25,6 +25,7 @@ import {
   COPILOT_LEGACY_PROFILE_ID,
   normalizeCopilotHost,
 } from '../../../shared/types/copilot-account.types';
+import { migrateProviderAccountLegacyProfiles } from './settings-migrations-provider-accounts';
 // Static, not `require`: the legacy profile must resolve to the SAME directory
 // the adapter uses, and a second copy of that derivation here would drift.
 // adapter-spawn-helpers has no path back to the settings manager, so this
@@ -560,6 +561,11 @@ export function runSettingsMigrations(store: SettingsMigrationStore): void {
   // Bind the pre-existing Copilot state directory to an account profile so
   // routing has something to resolve to, without moving any files.
   migrateCopilotLegacyProfile(store);
+  // Bind the pre-existing ~/.claude and ~/.codex sign-ins to `legacy` account
+  // profiles so account pools have something to resolve to.
+  if (migrateProviderAccountLegacyProfiles(store)) {
+    logger.info('Created the legacy Claude and Codex account profiles');
+  }
   migrateLegacyCustomModelOverride({
     // The generic deps read/write concrete AppSettings keys; this store surface
     // is deliberately untyped (it also reads raw migration markers), so bridge

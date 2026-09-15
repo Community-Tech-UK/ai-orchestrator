@@ -20,6 +20,7 @@ import {
 } from './claude-cli-adapter';
 import { createClaudeAdapter } from './adapter-factory';
 import { isProviderAuthenticationError } from './provider-authentication-error';
+import { detectCompletionProviderLimit } from '../../instance/instance-provider-limit-detection';
 
 describe('ClaudeCliAdapter provider stream errors', () => {
   function makeHarness() {
@@ -824,6 +825,52 @@ describe('ClaudeCliAdapter rate_limit_event handling', () => {
     // A repeat of the same throttled status must not spam another notice.
     processCliMessage({ type: 'rate_limit_event', timestamp: 3, rate_limit_info: { status: 'rejected' } });
     expect(outputs).toHaveLength(1);
+  });
+
+  it('turns a plan 429 result (subtype success, is_error) into a structured limit signal with the reset time', () => {
+    const { adapter, processCliMessage } = makeAdapter();
+    const completions: Array<{ content: string; metadata?: Record<string, unknown> }> = [];
+    adapter.on('complete', (response: { content: string; metadata?: Record<string, unknown> }) => completions.push(response));
+    const resetsAtSeconds = Math.floor(Date.now() / 1000) + 3600;
+    const result = {
+      type: 'result',
+      subtype: 'success',
+      is_error: true,
+      api_error_status: 429,
+      terminal_reason: 'api_error',
+      result: 'Request rejected',
+      session_id: 'sess-limit',
+    };
+
+    processCliMessage({
+      type: 'rate_limit_event',
+      timestamp: 1,
+      rate_limit_info: { status: 'rejected', rateLimitType: 'five_hour', resetsAt: resetsAtSeconds },
+    });
+    (adapter as unknown as { residentTurnRawOutput: string }).residentTurnRawOutput = `${JSON.stringify(result)}\n`;
+    processCliMessage(result);
+
+    expect(completions).toHaveLength(1);
+    expect(completions[0]?.metadata?.['quota']).toEqual({
+      exhausted: true,
+      resetAt: resetsAtSeconds * 1000,
+      message: 'Request rejected',
+    });
+    const signal = detectCompletionProviderLimit(completions[0]!);
+    expect(signal?.resetAtHint).toBe(resetsAtSeconds * 1000);
+  });
+
+  it('does not treat an ordinary success result as a limit', () => {
+    const { adapter, processCliMessage } = makeAdapter();
+    const completions: Array<{ content: string; metadata?: Record<string, unknown> }> = [];
+    adapter.on('complete', (response: { content: string; metadata?: Record<string, unknown> }) => completions.push(response));
+    const result = { type: 'result', subtype: 'success', is_error: false, result: 'done', session_id: 'sess-ok' };
+
+    (adapter as unknown as { residentTurnRawOutput: string }).residentTurnRawOutput = `${JSON.stringify(result)}\n`;
+    processCliMessage(result);
+
+    expect(completions[0]?.metadata?.['quota']).toBeUndefined();
+    expect(detectCompletionProviderLimit(completions[0]!)).toBeNull();
   });
 });
 

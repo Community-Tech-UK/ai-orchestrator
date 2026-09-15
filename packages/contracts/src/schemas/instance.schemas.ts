@@ -9,6 +9,7 @@ import {
   RequiredModelIdSchema,
 } from './common.schemas';
 import { CopilotProfileIdSchema } from './copilot-account.schemas';
+import { ProviderAccountProfileIdSchema } from './provider-account.schemas';
 
 const ReasoningEffortSchema = z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'workflow']);
 export const InstanceLaunchModeSchema = z.enum(['orchestrated', 'interactive']);
@@ -194,6 +195,8 @@ export const InstanceCreatePayloadSchema = z.object({
   copilotAccountProfileId: CopilotProfileIdSchema.optional(),
   /** The user confirmed an override that leaves a protected Copilot scope. */
   copilotConfirmProtectedOverride: z.boolean().optional(),
+  /** Explicit Claude/Codex account-pool profile for this session. A safe slug, never a path. */
+  accountProfileId: ProviderAccountProfileIdSchema.optional(),
 });
 
 export type ValidatedInstanceCreatePayload = z.infer<typeof InstanceCreatePayloadSchema>;
@@ -223,6 +226,8 @@ export const InstanceCreateWithMessagePayloadSchema = z.object({
   copilotAccountProfileId: CopilotProfileIdSchema.optional(),
   /** The user confirmed an override that leaves a protected Copilot scope. */
   copilotConfirmProtectedOverride: z.boolean().optional(),
+  /** Explicit Claude/Codex account-pool profile for this session. A safe slug, never a path. */
+  accountProfileId: ProviderAccountProfileIdSchema.optional(),
   /**
    * Stable per-submission key. A retry carrying the same key must return the
    * original instance rather than spawning a second session — see

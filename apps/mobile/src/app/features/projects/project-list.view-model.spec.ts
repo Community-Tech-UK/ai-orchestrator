@@ -12,6 +12,9 @@ import {
   mergeProjects,
   newSessionNavigation,
   projectComposeAriaLabel,
+  projectSummary,
+  projectParentLabel,
+  projectSessionPreview,
   reconcileProjectGroupUpdate,
   releasePendingProjectGroups,
   sessionTargetRoute,
@@ -118,6 +121,13 @@ describe('project list view model', () => {
         },
         {
           ...live[0],
+          id: 'hibernated-4',
+          displayName: 'Hibernated session',
+          status: 'hibernated',
+          lastActivity: 12,
+        },
+        {
+          ...live[0],
           id: 'failed-3',
           displayName: 'Failed terminal session',
           status: 'failed',
@@ -133,7 +143,7 @@ describe('project list view model', () => {
     const active = filterProjectGroups(groups, '', 'active');
 
     expect(active.map((group) => group.project.name)).toEqual(['aio']);
-    expect(active[0].sessions.map((row) => row.id)).toEqual(['live-1', 'idle-2']);
+    expect(active[0].sessions.map((row) => row.id)).toEqual(['live-1', 'idle-2', 'hibernated-4']);
   });
 
   it('applies text search without restoring rows removed by the active filter', () => {
@@ -217,5 +227,51 @@ describe('project list view model', () => {
       'history-2',
     ]);
     expect(projectComposeAriaLabel(groups[0].project)).toBe('New session in aio');
+  });
+});
+
+describe('project attention and large-group previews', () => {
+  it('finds failed and approval work separately from the unchanged Active filter', () => {
+    const groups = buildProjectGroups([], [
+      live[0],
+      { ...live[0], id: 'failed', status: 'failed' },
+      { ...live[0], id: 'approval', pendingApprovalCount: 1, status: 'waiting_for_permission' },
+      { ...live[0], id: 'hibernated', status: 'hibernated' },
+    ], [], []);
+    expect(filterProjectGroups(groups, '', 'attention')[0].sessions.map((row) => row.id)).toEqual(['failed', 'approval']);
+    expect(filterProjectGroups(groups, '', 'active')[0].sessions.map((row) => row.id)).toEqual(['live-1', 'approval', 'hibernated']);
+    expect(projectSummary(groups[0])).toBe('1 running · 1 needs you · 1 failed');
+  });
+
+  it('limits disclosure previews while searching every row and disambiguating duplicate folders', () => {
+    const rows = Array.from({ length: 12 }, (_, i) => ({ ...live[0], id: `row-${i}`, displayName: `Session ${i}`, lastActivity: i }));
+    const groups = buildProjectGroups([], [...rows, { ...live[0], id: 'other', workingDirectory: '/different/aio' }], [], []);
+    const group = groups.find((value) => value.project.key === '/work/aio')!;
+    expect(projectSessionPreview(group, '', false)).toHaveLength(5);
+    expect(projectSessionPreview(group, '', true)).toHaveLength(12);
+    const found = filterProjectGroups(groups, 'Session 0')[0];
+    expect(projectSessionPreview(found, 'Session 0', false).map((row) => row.id)).toEqual(['row-0']);
+    expect(projectParentLabel(group, groups)).toBe('work');
+  });
+
+  it('uses enough parent path to distinguish deeply nested duplicate folder names', () => {
+    const groups = buildProjectGroups([], [
+      { ...live[0], workingDirectory: '/one/shared/work/aio' },
+      { ...live[0], id: 'other', workingDirectory: '/two/shared/work/aio' },
+    ], [], []);
+    expect(projectParentLabel(groups[0], groups)).toBe('one/shared/work');
+    expect(projectParentLabel(groups[1], groups)).toBe('two/shared/work');
+  });
+
+  it('handles a 30-project and 200-session browse fixture without losing results', () => {
+    const rows = Array.from({ length: 200 }, (_, i) => ({ ...live[0], id: `row-${i}`, displayName: `Fixture session ${i}`, workingDirectory: `/work/project-${i % 30}`, projectName: `project-${i % 30}`, lastActivity: i }));
+    const started = performance.now();
+    const groups = buildProjectGroups([], rows, [], []);
+    const found = filterProjectGroups(groups, 'Fixture session 199');
+    const duration = performance.now() - started;
+    expect(groups).toHaveLength(30);
+    expect(groups.flatMap((group) => group.sessions)).toHaveLength(200);
+    expect(found[0].sessions[0].id).toBe('row-199');
+    console.warn(`30-project/200-session view model: ${duration.toFixed(2)}ms`);
   });
 });

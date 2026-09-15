@@ -25,6 +25,7 @@ import { buildWorkerArgs } from './cli-adapter-worker-args';
 import { formatClaudeWorkerInput } from './cli-adapter-worker-input';
 import { parseWorkerOutput } from './cli-adapter-worker-output';
 import { parseClaudeStreamError } from '../adapters/claude-stream-error';
+import { resolveClaudeAccountSpawnEnv } from '../adapters/account-pool/account-adapter-guards';
 
 interface CliAdapterWorkerProxyOptions {
   cliType: Extract<CliType, 'claude' | 'gemini'>;
@@ -50,12 +51,22 @@ export class CliAdapterWorkerProxy extends EventEmitter {
   private lastKnownContextWindow: number;
   private deferredToolUse: DeferredToolUse | null = null;
   private geminiRtkAwarenessSent = false;
+  /** Child env for every worker spawn: caller env plus the account-pool overlay. */
+  private readonly childEnv: Record<string, string>;
+  private readonly childEnvRemove: string[];
 
   constructor(opts: CliAdapterWorkerProxyOptions) {
     super();
     this.cliType = opts.cliType;
     this.instanceId = opts.instanceId;
     this.options = opts.options;
+    // Same account-pool enforcement as createClaudeAdapter: the offload path
+    // never reaches the factory, so it must not become a way around the route.
+    const accountEnv = opts.cliType === 'claude'
+      ? resolveClaudeAccountSpawnEnv(opts.options)
+      : { env: {}, envRemove: [] };
+    this.childEnv = { ...(opts.options.env ?? {}), ...accountEnv.env };
+    this.childEnvRemove = [...accountEnv.envRemove];
     this.gateway = opts.gateway ?? getCliSpawnWorkerGateway();
     this.sessionId = opts.options.sessionId ?? `${opts.cliType}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     this.spawnMode = opts.cliType === 'gemini' ? 'subprocess-exec' : 'subprocess-stream';
@@ -128,7 +139,8 @@ export class CliAdapterWorkerProxy extends EventEmitter {
         command: this.command(),
         args: ['--version'],
         cwd: this.options.workingDirectory ?? process.cwd(),
-        env: this.options.env ?? {},
+        env: this.childEnv,
+        ...(this.childEnvRemove.length > 0 ? { envRemove: this.childEnvRemove } : {}),
         closeStdin: true,
         streamIdleTimeoutMs: 5000,
       });
@@ -356,7 +368,8 @@ export class CliAdapterWorkerProxy extends EventEmitter {
       command: this.command(),
       args,
       cwd: this.options.workingDirectory ?? process.cwd(),
-      env: this.options.env ?? {},
+      env: this.childEnv,
+      ...(this.childEnvRemove.length > 0 ? { envRemove: this.childEnvRemove } : {}),
       streamIdleTimeoutMs: this.options.timeout,
       closeStdin: opts.closeStdin,
     });

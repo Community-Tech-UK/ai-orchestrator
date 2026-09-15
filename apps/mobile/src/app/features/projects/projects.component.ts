@@ -1,4 +1,6 @@
 import {
+  afterRenderEffect,
+  untracked,
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
@@ -16,6 +18,9 @@ import {
 } from '../../core/connection-status';
 import { GatewayClient } from '../../core/gateway-client.service';
 import { HostStore } from '../../core/host-store';
+import { MobileBrowseStateStore } from '../../core/mobile-browse-state.store';
+import { newSessionPresetState } from '../new-session/new-session.navigation';
+import { ApprovalPresentationStore } from '../../core/approval-presentation.store';
 import type { MobileRecentDirDto } from '../../core/models';
 import { MobileHeaderComponent } from '../../shared/mobile-header.component';
 import { MobileIconComponent } from '../../shared/mobile-icon.component';
@@ -30,6 +35,9 @@ import {
   initialExpandedProjectKeys,
   newSessionNavigation,
   projectComposeAriaLabel,
+  projectSummary,
+  projectParentLabel,
+  projectSessionPreview,
   reconcileProjectGroupUpdate,
   releasePendingProjectGroups,
   sessionTargetRoute,
@@ -46,6 +54,7 @@ export function projectsEmptyStateTitle(
   query: string,
   mode: OrganizeMode = 'project',
 ): string {
+  if (stateFilter === 'attention') return 'Nothing needs attention';
   if (stateFilter === 'active') return 'No active sessions';
   if (query.trim()) return 'No matching sessions';
   return mode === 'project' ? 'No projects yet' : 'No sessions yet';
@@ -55,6 +64,13 @@ export function projectsEmptyStateTitle(
   standalone: true,
   selector: 'app-projects',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: {
+    '(window:scroll)': 'captureScroll()',
+    '(window:wheel)': 'cancelScrollRestore()',
+    '(window:touchmove)': 'cancelScrollRestore()',
+    '(window:pointerdown)': 'cancelScrollRestore()',
+    '(window:keydown)': 'onScrollKey($event)',
+  },
   imports: [
     MobileHeaderComponent,
     MobileIconComponent,
@@ -121,10 +137,10 @@ export function projectsEmptyStateTitle(
               <span>{{ promptCount() }} awaiting approval</span>
             </button>
           }
-          <button type="button" (click)="togglePause()" [disabled]="!online()">
+          <button type="button" (click)="togglePause()" [disabled]="!online() || pausePending()">
             <span class="projects-menu__icon"></span>
             <app-mobile-icon [name]="paused() ? 'play' : 'pause'" />
-            <span>{{ paused() ? 'Resume agents' : 'Pause agents' }}</span>
+            <span>{{ pausePending() ? 'Updating…' : paused() ? 'Resume agents' : 'Pause agents' }}</span>
           </button>
           <button type="button" (click)="openHistory()">
             <span class="projects-menu__icon"></span>
@@ -160,10 +176,40 @@ export function projectsEmptyStateTitle(
           >
             Active
           </button>
+          <button type="button" class="projects-state-filter__button"
+            [class.projects-state-filter__button--active]="stateFilter() === 'attention'"
+            [attr.aria-pressed]="stateFilter() === 'attention'" (click)="setStateFilter('attention')">
+            Needs attention
+          </button>
         </div>
       </div>
 
-      @if (!online() && renderedGroups().length === 0) {
+      @if (promptCount() > 0) {
+        <button type="button" class="projects-needs-you" (click)="openFirstPrompt()">
+          <app-mobile-icon name="warning" />
+          <span>Needs you · {{ promptCount() }} {{ promptCount() === 1 ? 'request' : 'requests' }}</span>
+          <app-mobile-icon class="needs-you-caret" name="chevron-down" />
+        </button>
+      }
+      @if (pausePending()) { <p class="projects-feedback" role="status">Waiting for the host to {{ paused() ? 'resume' : 'pause' }} agents…</p> }
+      @if (pauseError()) {
+        <div class="projects-feedback" role="alert">{{ pauseError() }}
+          <button type="button" (click)="togglePause()" [disabled]="!online() || pausePending()">Retry</button>
+        </div>
+      }
+      @if (directoryError()) {
+        <div class="projects-feedback" role="status">Recent folders could not be loaded.
+          <button type="button" (click)="loadDirectories()" [disabled]="directoryLoading() || !online()">Retry</button>
+        </div>
+      }
+      @if (historyState().status === 'error') {
+        <div class="projects-feedback" role="status">Past sessions could not be refreshed.
+          <button type="button" (click)="retryHistory()" [disabled]="!online()">Retry</button>
+        </div>
+      }
+      @if (online() && renderedGroups().length === 0 && (directoryLoading() || historyState().status === 'loading')) {
+        <p class="projects-feedback" role="status">Loading projects and sessions…</p>
+      } @else if (!online() && renderedGroups().length === 0) {
         <div class="mobile-empty-state projects-empty">
           <app-mobile-icon name="host" />
           <h2>Connection unavailable</h2>
@@ -192,7 +238,11 @@ export function projectsEmptyStateTitle(
                     [attr.aria-expanded]="isExpanded(group.project.key)"
                   >
                     <app-mobile-icon name="folder" />
-                    <span class="project-name">{{ group.project.name }}</span>
+                    <span class="project-identity">
+                      <span class="project-name">{{ group.project.name }}</span>
+                      @if (projectParentLabel(group, renderedGroups()); as parent) { <span class="project-summary">{{ parent }}</span> }
+                      @if (projectSummary(group); as summary) { <span class="project-summary">{{ summary }}</span> }
+                    </span>
                     <span class="project-caret" [class.project-caret--open]="isExpanded(group.project.key)">
                       <app-mobile-icon name="chevron-down" />
                     </span>
@@ -211,13 +261,18 @@ export function projectsEmptyStateTitle(
 
                 @if (isExpanded(group.project.key) || searchQuery().trim()) {
                   <div class="project-sessions">
-                    @for (session of group.sessions; track session.id) {
+                    @for (session of previewSessions(group); track session.id) {
                       <app-mobile-session-row
                         [row]="session"
+                        [nested]="true"
+                        [showSubtitle]="distinctProviders(group)"
                         (activate)="openSession(group.project.key, session)"
                       />
                     } @empty {
                       <p class="project-empty">No sessions yet</p>
+                    }
+                    @if (previewSessions(group).length < group.sessions.length) {
+                      <button class="project-show-all" type="button" (click)="showAll(group.project.key); releaseRowPress()">Show all {{ group.sessions.length }} sessions</button>
                     }
                   </div>
                 }
@@ -239,7 +294,7 @@ export function projectsEmptyStateTitle(
             }
           </div>
         } @else {
-          <div class="chronological-list">
+          <div class="chronological-list" (pointerdown)="beginRowPress()" (pointerup)="scheduleRowPressRelease()" (pointercancel)="releaseRowPress()">
             @for (session of chronologicalRows(); track session.id) {
               <app-mobile-session-row [row]="session" (activate)="openChronologicalSession(session)" />
             } @empty {
@@ -285,23 +340,37 @@ export class ProjectsComponent implements OnInit {
   private readonly gateway = inject(GatewayClient);
   private readonly hostStore = inject(HostStore);
   private readonly router = inject(Router);
+  private readonly browse = inject(MobileBrowseStateStore);
+  private readonly approvals = inject(ApprovalPresentationStore);
+  private currentHostId = this.hostStore.activeHost()?.id ?? null;
+  private readonly saved = this.browse.read('/projects', this.currentHostId);
+  private scrollTop = this.saved.scrollTop;
+  private readonly restoreScrollPending = signal(true);
 
   protected readonly state = this.gateway.state;
+  protected readonly historyState = this.gateway.historyState;
   protected readonly online = this.gateway.online;
-  protected readonly mode = signal<OrganizeMode>('project');
-  protected readonly stateFilter = signal<SessionStateFilter>('all');
+  protected readonly mode = signal<OrganizeMode>(this.saved.mode);
+  protected readonly stateFilter = signal<SessionStateFilter>(this.saved.filter);
   protected readonly menuOpen = signal(false);
-  protected readonly searchQuery = signal('');
+  protected readonly searchQuery = signal(this.saved.query);
   protected readonly recentDirs = signal<MobileRecentDirDto[]>([]);
-  protected readonly expandedProjectKeys = signal<Set<string>>(new Set());
+  protected readonly expandedProjectKeys = signal<Set<string>>(new Set(this.saved.expandedKeys ?? []));
   protected readonly renderedGroups = signal<ProjectListGroup[]>([]);
   protected readonly rowPressActive = signal(false);
   private readonly pendingGroups = signal<ProjectListGroup[] | null>(null);
-  private initialDisclosureApplied = false;
+  protected readonly showAllKeys = signal(new Set(this.saved.showAllKeys));
+  protected readonly pausePending = signal(false);
+  protected readonly pauseError = signal<string | null>(null);
+  protected readonly directoryLoading = signal(false);
+  protected readonly directoryError = signal(false);
+  private requestGeneration = 0;
+  private pauseGeneration = 0;
+  private initialDisclosureApplied = this.saved.expandedKeys !== null;
   private rowPressReleaseTimer: ReturnType<typeof setTimeout> | null = null;
 
   private readonly sourceGroups = computed(() =>
-    buildProjectGroups(
+    this.gateway.dataHostId() !== (this.hostStore.activeHost()?.id ?? null) ? [] : buildProjectGroups(
       this.gateway.snapshot()?.projects ?? [],
       this.gateway.snapshot()?.instances ?? [],
       this.gateway.historySessions(),
@@ -314,7 +383,8 @@ export class ProjectsComponent implements OnInit {
   protected readonly chronologicalRows = computed(() =>
     flattenChronologicalSessions(this.visibleGroups()),
   );
-  protected readonly promptCount = computed(() => this.gateway.prompts().length);
+  private heldPromptCount = 0;
+  protected readonly promptCount = computed(() => this.rowPressActive() ? this.heldPromptCount : this.approvals.requests().length);
   protected readonly paused = computed(() => this.gateway.pause().isPaused);
   protected readonly hostName = computed(
     () => this.gateway.snapshot()?.hostName ?? this.hostStore.activeHost()?.name ?? 'Host',
@@ -328,11 +398,58 @@ export class ProjectsComponent implements OnInit {
     this.online() ? 'var(--accent-online)' : 'var(--text-secondary)',
   );
   protected readonly projectComposeAriaLabel = projectComposeAriaLabel;
+  protected readonly projectSummary = projectSummary;
+  protected readonly projectParentLabel = projectParentLabel;
   protected readonly projectsEmptyStateTitle = projectsEmptyStateTitle;
 
   constructor() {
     inject(DestroyRef).onDestroy(() => {
+      this.saveBrowse();
+      this.requestGeneration++;
+      this.pauseGeneration++;
       if (this.rowPressReleaseTimer) clearTimeout(this.rowPressReleaseTimer);
+    });
+
+    effect(() => {
+      const hostId = this.hostStore.activeHost()?.id ?? null;
+      if (hostId === this.currentHostId) return;
+      untracked(() => {
+        this.saveBrowse();
+        this.currentHostId = hostId;
+        const saved = this.browse.read('/projects', hostId);
+        this.searchQuery.set(saved.query);
+        this.stateFilter.set(saved.filter);
+        this.mode.set(saved.mode);
+        this.expandedProjectKeys.set(new Set(saved.expandedKeys ?? []));
+        this.showAllKeys.set(new Set(saved.showAllKeys));
+        this.initialDisclosureApplied = saved.expandedKeys !== null;
+        this.scrollTop = saved.scrollTop;
+        this.restoreScrollPending.set(true);
+        this.recentDirs.set([]);
+        this.renderedGroups.set([]);
+        this.pendingGroups.set(null);
+        this.rowPressActive.set(false);
+        this.menuOpen.set(false);
+        this.pauseGeneration++;
+        this.pausePending.set(false);
+        this.pauseError.set(null);
+        void this.loadDirectories();
+      });
+    });
+
+    afterRenderEffect(() => {
+      if (!this.restoreScrollPending()) return;
+      // Recheck geometry after asynchronous rows have actually rendered.
+      this.renderedGroups();
+      const loadsPending = this.directoryLoading()
+        || this.historyState().status === 'loading'
+        || this.state() === 'connecting'
+        || (this.online() && !this.gateway.snapshot());
+      const scroller = document.scrollingElement ?? document.documentElement;
+      const maxScroll = Math.max(0, scroller.scrollHeight - window.innerHeight);
+      if (this.scrollTop > maxScroll + 1 && loadsPending) return;
+      this.restoreScrollPending.set(false);
+      window.scrollTo({ top: this.scrollTop, behavior: 'instant' });
     });
 
     effect(() => {
@@ -353,12 +470,61 @@ export class ProjectsComponent implements OnInit {
   }
 
   async ngOnInit(): Promise<void> {
+    await this.loadDirectories();
+  }
+
+  protected async loadDirectories(): Promise<void> {
+    const generation = ++this.requestGeneration;
+    const hostId = this.currentHostId;
+    this.directoryLoading.set(true);
+    this.directoryError.set(false);
     try {
-      this.recentDirs.set(await this.gateway.recentDirs());
+      const directories = await this.gateway.recentDirs();
+      if (generation === this.requestGeneration && hostId === this.hostStore.activeHost()?.id) this.recentDirs.set(directories);
     } catch {
-      /* Live and persisted projects still render without recent directories. */
+      if (generation === this.requestGeneration) this.directoryError.set(true);
+    } finally {
+      if (generation === this.requestGeneration) this.directoryLoading.set(false);
     }
   }
+
+  protected captureScroll(): void {
+    if (!this.restoreScrollPending()) this.scrollTop = window.scrollY;
+  }
+
+  protected cancelScrollRestore(): void {
+    if (!this.restoreScrollPending()) return;
+    this.restoreScrollPending.set(false);
+    this.scrollTop = window.scrollY;
+  }
+
+  protected onScrollKey(event: KeyboardEvent): void {
+    if (!['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) return;
+    if (event.target instanceof HTMLElement && event.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    this.cancelScrollRestore();
+  }
+
+  private saveBrowse(): void {
+    this.browse.save('/projects', {
+      query: this.searchQuery(), filter: this.stateFilter(), mode: this.mode(),
+      expandedKeys: this.initialDisclosureApplied ? [...this.expandedProjectKeys()] : null,
+      showAllKeys: [...this.showAllKeys()], scrollTop: this.scrollTop,
+    }, this.currentHostId);
+  }
+
+  protected distinctProviders(group: ProjectListGroup): boolean {
+    return new Set(group.sessions.map((session) => session.subtitle)).size > 1;
+  }
+
+  protected previewSessions(group: ProjectListGroup) {
+    return projectSessionPreview(group, this.searchQuery(), this.showAllKeys().has(group.project.key));
+  }
+
+  protected showAll(key: string): void {
+    this.showAllKeys.update((keys) => new Set(keys).add(key));
+  }
+
+  protected retryHistory(): void { void this.gateway.loadHistory(); }
 
   protected isExpanded(key: string): boolean {
     return this.expandedProjectKeys().has(key);
@@ -373,6 +539,7 @@ export class ProjectsComponent implements OnInit {
       clearTimeout(this.rowPressReleaseTimer);
       this.rowPressReleaseTimer = null;
     }
+    this.heldPromptCount = this.approvals.requests().length;
     this.rowPressActive.set(true);
   }
 
@@ -410,11 +577,18 @@ export class ProjectsComponent implements OnInit {
   }
 
   protected async togglePause(): Promise<void> {
-    this.menuOpen.set(false);
+    if (this.pausePending() || !this.online()) return;
+    const generation = ++this.pauseGeneration;
+    const target = !this.paused();
+    this.pausePending.set(true);
+    this.pauseError.set(null);
     try {
-      await this.gateway.setPause(!this.paused());
+      await this.gateway.setPause(target);
+      if (generation === this.pauseGeneration) this.menuOpen.set(false);
     } catch {
-      /* The connection indicator remains the recovery path. */
+      if (generation === this.pauseGeneration) this.pauseError.set(`Could not ${target ? 'pause' : 'resume'} agents. Check the host connection and try again.`);
+    } finally {
+      if (generation === this.pauseGeneration) this.pausePending.set(false);
     }
   }
 
@@ -430,18 +604,13 @@ export class ProjectsComponent implements OnInit {
 
   protected openFirstPrompt(): void {
     this.menuOpen.set(false);
-    const prompt = this.gateway.prompts()[0];
-    const instance = this.gateway
-      .snapshot()
-      ?.instances.find((candidate) => candidate.id === prompt?.instanceId);
-    if (!prompt || !instance) return;
-    const key = instance.workingDirectory || '__no_workspace__';
-    void this.router.navigate(['/projects', key, 'sessions', instance.id]);
+    this.approvals.open();
   }
 
   protected openSession(projectKey: string, session: MobileSessionRowView): void {
     this.releaseRowPress();
-    void this.router.navigate(sessionTargetRoute(projectKey, session));
+    this.saveBrowse();
+    void this.router.navigate(sessionTargetRoute(projectKey, session), { state: this.browse.navigationState('/projects') });
   }
 
   protected openChronologicalSession(session: MobileSessionRowView): void {
@@ -462,10 +631,14 @@ export class ProjectsComponent implements OnInit {
   }
 
   private navigateToNewSession(target: NavigationTarget): void {
+    const state = {
+      ...this.browse.navigationState('/projects'),
+      ...newSessionPresetState(this.currentHostId, target.queryParams?.dir),
+    };
     if (target.queryParams) {
-      void this.router.navigate(target.commands, { queryParams: target.queryParams });
+      void this.router.navigate(target.commands, { queryParams: target.queryParams, state });
       return;
     }
-    void this.router.navigate(target.commands);
+    void this.router.navigate(target.commands, { state });
   }
 }

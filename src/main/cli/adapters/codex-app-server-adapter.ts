@@ -33,7 +33,6 @@ import type {
   AppServerNotification,
   UserInput,
 } from './codex/app-server-types';
-import { getSafeEnvForTrustedProcess } from '../../security/env-filter';
 import { buildMessageWithFiles, processAttachments } from '../file-handler';
 import { supportsCodexInlineImage } from './codex/attachments';
 import { startThreadWithRetry } from './codex/thread-start-retry';
@@ -149,6 +148,8 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
     client.setContextDiagnosticsCollector?.(this.contextDiagnostics);
     // Resume can publish historical totals before its RPC response arrives.
     const unsubscribeUsage = client.subscribeNotifications?.((notification) => this.seedIdleUsage(notification));
+    // Account-pool quota bridge: sparse rate-limit updates arrive outside turn routing.
+    client.subscribeNotifications?.((n) => { if (n.method === 'account/rateLimits/updated') this.emit('account-rate-limits', n.params['rateLimits']); });
     const result = await initializeCodexAppServer({
       client,
       config: this.cliConfig,
@@ -440,8 +441,9 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
     const { connectToAppServer } = await import('./codex/app-server-client');
     return connectToAppServer(cwd, this.config.env?.['CODEX_HOME']
       ? {
-          env: { ...getSafeEnvForTrustedProcess(), ...this.config.env },
+          env: this.buildChildEnv(),
           disableBroker: true,
+          ...(this.cliConfig.configOverrides?.length ? { configOverrides: this.cliConfig.configOverrides } : {}),
         }
       : {});
   }

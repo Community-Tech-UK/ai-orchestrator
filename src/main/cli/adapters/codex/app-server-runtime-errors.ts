@@ -25,6 +25,12 @@ export interface CodexAppServerRuntimeErrorOptions {
   cause?: unknown;
   method?: string;
   rpcCode?: number;
+  /**
+   * Structured quota signal (`codexErrorInfo: usageLimitExceeded`). Read by
+   * `extractProviderErrorDiagnostics()` so limit detection does not depend on
+   * matching the message text.
+   */
+  quota?: { exhausted: true; message: string; resetAt?: number };
 }
 
 /** Typed failure crossing the Codex transport/runtime boundary. */
@@ -33,6 +39,7 @@ export class CodexAppServerRuntimeError extends Error {
   readonly recoverability: CodexAppServerRecoverability;
   readonly method?: string;
   readonly rpcCode?: number;
+  readonly quota?: CodexAppServerRuntimeErrorOptions['quota'];
   override readonly cause?: unknown;
 
   constructor(options: CodexAppServerRuntimeErrorOptions) {
@@ -43,7 +50,18 @@ export class CodexAppServerRuntimeError extends Error {
     this.cause = options.cause;
     this.method = options.method;
     this.rpcCode = options.rpcCode;
+    if (options.quota) this.quota = options.quota;
   }
+}
+
+/** Typed usage-limit failure carrying the structured quota diagnostics. */
+export function createCodexUsageLimitError(message: string, resetAt?: number): CodexAppServerRuntimeError {
+  return new CodexAppServerRuntimeError({
+    kind: 'provider-limit',
+    recoverability: 'user-action',
+    message,
+    quota: { exhausted: true, message, ...(resetAt !== undefined ? { resetAt } : {}) },
+  });
 }
 
 /**

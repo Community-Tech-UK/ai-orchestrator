@@ -762,8 +762,43 @@ export class InstanceCommunicationManager extends EventEmitter {
           fillPercentage: budgetCheck.fillPercentage,
         });
         // Background compaction is already coordinated by
-        // CompactionCoordinator.onContextUpdate at 80/95% thresholds.
-        // No message to the user; no early return.
+        // CompactionCoordinator.onContextUpdate at 80/95% thresholds — but
+        // only for adapters that can actually DO something about it. An
+        // adapter with `compactionProof: 'none'` has no native compaction
+        // AND no local transcript to build a restart-summary from
+        // (`transcriptControl: 'none'`), so nothing ever runs and this
+        // instance's usage can climb far past 100% completely silently
+        // (observed: a copilot-acp session at 829% of its reported budget).
+        // Worse, `sameThreadContinuation: false` means the provider's own
+        // backend is not guaranteed to keep serving the same thread once
+        // its real limit is hit — it can silently start a fresh one, which
+        // reads to the user as "the session lost all context" with zero
+        // warning. Surface that risk instead of staying silent.
+        const capabilities = adapter instanceof BaseCliAdapter
+          ? adapter.getContextCapabilities()
+          : undefined;
+        if (capabilities?.compactionProof === 'none' && !capabilities.sameThreadContinuation) {
+          const adapterName = adapter instanceof BaseCliAdapter ? adapter.getName() : 'This provider';
+          logger.warn('[BUDGET_GATE] high context with no compaction mechanism and no continuation guarantee', {
+            instanceId,
+            turnTokens,
+            contextTotal,
+            fillPercentage: budgetCheck.fillPercentage,
+          });
+          const warning: OutputMessage = {
+            id: generateId(),
+            type: 'system',
+            content:
+              `${adapterName} context usage is critically high (${Math.round(budgetCheck.fillPercentage)}% ` +
+              'of budget) and this provider cannot compact or guarantee it will keep the same session ' +
+              'thread. It may silently lose earlier context on this turn. Consider starting a fresh ' +
+              'session for further work.',
+            timestamp: Date.now(),
+          };
+          instance.outputBuffer.push(warning);
+          this.emit('output', { instanceId, message: warning });
+        }
+        // No early return — the CLI still gets the turn either way.
       }
     }
 
@@ -1790,6 +1825,7 @@ export class InstanceCommunicationManager extends EventEmitter {
           this.deps.clearProviderLimitAfterSuccessfulTurn?.({
             provider: completedInstance.provider,
             model: completedInstance.currentModel ?? null,
+            accountProfileId: completedInstance.accountProfileId ?? null,
             now: Date.now(),
           });
         }

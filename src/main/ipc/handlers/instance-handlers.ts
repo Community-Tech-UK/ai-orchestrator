@@ -114,6 +114,7 @@ export function registerInstanceHandlers(deps: {
           // account chip. A validated safe slug, never a path.
           copilotAccountProfileId: validatedPayload.copilotAccountProfileId,
           copilotConfirmProtectedOverride: validatedPayload.copilotConfirmProtectedOverride,
+          accountProfileId: validatedPayload.accountProfileId,
         });
 
         return {

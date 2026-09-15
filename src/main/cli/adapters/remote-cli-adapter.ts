@@ -204,6 +204,18 @@ export class RemoteCliAdapter extends EventEmitter {
                 },
               }
             : {}),
+          // Claude/Codex account pools (D10): same rule, a profile ID and the
+          // identity expected. The worker derives its own profile home.
+          ...(this.spawnOptions.accountRoute
+            ? {
+                accountRoute: {
+                  provider: this.spawnOptions.accountRoute.provider,
+                  profileId: this.spawnOptions.accountRoute.profileId,
+                  expectedIdentity: this.spawnOptions.accountRoute.expectedIdentity ?? null,
+                  source: this.spawnOptions.accountRoute.source,
+                },
+              }
+            : {}),
         },
       );
 

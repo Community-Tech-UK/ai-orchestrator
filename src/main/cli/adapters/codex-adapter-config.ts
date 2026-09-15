@@ -7,6 +7,15 @@ type CodexSandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access';
 export interface CodexCliConfig {
   additionalWritableDirs?: string[];
   approvalMode?: CodexApprovalMode;
+  /**
+   * Account-pool profile home whose `auth.json` the per-instance temp
+   * `CODEX_HOME` links instead of `~/.codex/auth.json`.
+   */
+  authSourceDir?: string;
+  /** `-c key=value` overrides added to every app-server and exec invocation. */
+  configOverrides?: readonly string[];
+  /** Variables removed from the child env after the ambient merge. */
+  envRemove?: readonly string[];
   browserGatewayInstanceId?: string;
   contextCostGovernorEnabled?: boolean;
   env?: Record<string, string>;

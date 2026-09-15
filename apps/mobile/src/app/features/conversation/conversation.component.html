@@ -10,7 +10,7 @@
       class="mobile-icon-button"
       type="button"
       (click)="back()"
-      aria-label="Back to sessions"
+      [attr.aria-label]="returnRoute() === '/history' ? 'Back to history' : 'Back to projects'"
     >
       <app-mobile-icon name="chevron-left" />
     </button>
@@ -27,7 +27,9 @@
   </app-mobile-header>
 
   @if (menuOpen()) {
-    <div class="popover">
+    <app-mobile-sheet label="Session actions" (dismiss)="menuOpen.set(false)">
+    <div class="session-actions">
+      <button type="button" (click)="menuOpen.set(false); detailsOpen.set(true)">Session details</button>
       <button (click)="rename()" [disabled]="!online()">Rename</button>
       <button (click)="openModelSheet()" [disabled]="!online() || !instance()">Change model…</button>
       <button (click)="interrupt(true)" [disabled]="!online()">
@@ -35,18 +37,40 @@
       </button>
       <button class="danger" (click)="terminate()" [disabled]="!online()">Close</button>
     </div>
+    </app-mobile-sheet>
+  }
+
+  @if (requests().length) {
+    <button class="request-entry" type="button" (click)="approvals.open(requests()[0].id)">
+      <app-mobile-icon name="warning" /> Needs you · {{ requests().length }}
+    </button>
+  }
+  @if (!online()) {
+    <div class="mobile-load-state" role="status">
+      {{ connectionHeadline() }}. @if (messages().length) { Showing cached messages. }
+      @if (pairingExpired()) { <button type="button" (click)="pairAgain()">Pair again</button> }
+      @else { <button type="button" (click)="reconnect()">Reconnect</button> }
+      <button type="button" (click)="changeHost()">Change host</button>
+    </div>
   }
 
   <div class="scroll-wrap">
     <div
       #scrollEl
-      class="transcript"
+      class="transcript mobile-transcript"
       appCodeCopy
       (scroll)="onScroll()"
       (touchstart)="onTouchStart()"
       (touchend)="onTouchEnd()"
       (touchcancel)="onTouchEnd()"
     >
+      @if (transcriptState().status === 'error') {
+        <div class="mobile-load-state error" role="alert">
+          {{ transcriptState().error }}
+          <button type="button" (click)="retryTranscript()">Retry</button>
+        </div>
+      }
+      @if (transcriptState().status === 'loading' && messages().length) { <p class="muted" role="status">Updating conversation…</p> }
       @for (item of displayItems(); track trackItem(item)) {
         @if (item.kind === 'stamp') {
           <div class="stamp">{{ item.label }}</div>
@@ -65,22 +89,25 @@
                 name="chevron-down"
               />
               <app-mobile-icon name="tool" />
-              {{ item.items.length }} tool {{ item.items.length === 1 ? 'call' : 'calls' }}
+              {{ item.items.length }} activity {{ item.items.length === 1 ? 'entry' : 'entries' }}
             </button>
             @if (expandedTools().has(item.id)) {
               @for (t of item.items; track t.id) {
-                <div class="tool-line">{{ toolLabel(t) }}</div>
+                <details class="tool-entry">
+                  <summary>{{ toolLabel(t) }}</summary>
+                  <pre>{{ toolDetails(t) }}</pre>
+                  <app-copy-button [text]="toolDetails(t)" />
+                </details>
               }
             }
           </div>
         } @else {
           <div
-            class="msg"
-            [class]="'t-' + item.message.type"
+            [class]="'message ' + item.message.type"
             [class.loop-output]="isLoopTranscriptMessage(item.message)"
           >
             <div
-              class="bubble markdown-body"
+              class="content markdown-body"
               [class.loop-output]="isLoopTranscriptMessage(item.message)"
               [innerHTML]="renderMarkdown(item.message.content)"
             ></div>
@@ -98,6 +125,7 @@
       @if (working()) {
         <div class="typing" role="status" aria-label="Agent is working">
           <span></span><span></span><span></span>
+          <span class="sr-only">Agent is working</span>
         </div>
       }
     </div>
@@ -127,14 +155,24 @@
   </div>
 
   @if (queued().length > 0) {
-    <app-composer-queue [messages]="queued()" (cancelMessage)="cancelQueued($event)" />
+    <app-composer-queue [messages]="queued()" [pendingId]="queuePending()"
+      (cancelMessage)="cancelQueued($event)" (removeMessage)="cancelQueued($event, true)" />
   }
 
   @if (notice(); as text) {
-    <p class="composer-notice" [class.error]="noticeIsError()" role="status">{{ text }}</p>
+    <div class="composer-notice" [class.error]="noticeIsError()" [attr.role]="noticeIsError() ? 'alert' : 'status'">
+      <span>{{ text }}</span>
+      <button type="button" (click)="clearNotice()" aria-label="Dismiss message">Dismiss</button>
+    </div>
   }
 
   <form class="composer" (submit)="send($event)">
+    @if (legacyDraftAvailable()) {
+      <div class="mobile-load-state">
+        An older draft for this session has no saved host. Recover it here only if it belongs on {{ hostName() }}.
+        <button type="button" (click)="recoverLegacyDraft()">Recover older draft</button>
+      </div>
+    }
     @if (attachments().length > 0) {
       <div class="attach-strip" aria-label="Pending attachments">
         @for (attachment of attachments(); track attachment) {
@@ -153,14 +191,18 @@
       </div>
     }
     <textarea
+      #draftEl
       rows="1"
       [ngModel]="draft()"
       (ngModelChange)="draft.set($event)"
       [ngModelOptions]="{ standalone: true }"
       placeholder="Message…"
+      aria-label="Message to the agent"
+      aria-describedby="composer-shortcut"
       (keydown.enter)="onEnter($event)"
       (paste)="onPaste($event)"
     ></textarea>
+    <p class="composer-shortcut" id="composer-shortcut">Return adds a line. ⌘/Ctrl + Return sends.</p>
     <div class="composer-toolbar">
       <div class="composer-toolbar__leading">
         @if (canAttach) {
@@ -184,7 +226,7 @@
           </button>
         }
       </div>
-      <span class="composer-status">{{ online() ? activityLabel() : connectionHeadline() }}</span>
+      <span class="composer-status" role="status">{{ sending() ? 'Sending…' : interrupting() || stopping() ? 'Stopping…' : online() ? activityLabel() : connectionHeadline() }}</span>
       @if (canDictate) {
         <button
           type="button"
@@ -224,10 +266,26 @@
       [models]="modelsForProvider()"
       [selected]="$safeNavigationMigration(instance()?.model)"
       [includeDefault]="false"
-      [loading]="modelsLoading() || changingModel()"
+      [loading]="modelsLoading()"
+      [saving]="changingModel()"
       [error]="modelsError()"
       (choose)="chooseModel($event)"
-      (dismiss)="modelSheetOpen.set(false)"
+      (retry)="retryModel()"
+      [retryLabel]="pendingModel ? 'Retry model change' : 'Retry loading models'"
+      (dismiss)="!changingModel() && modelSheetOpen.set(false)"
     />
+  }
+  @if (detailsOpen()) {
+    <app-mobile-sheet label="Session details" (dismiss)="detailsOpen.set(false)">
+      <dl class="session-details">
+        <dt>Session</dt><dd>{{ instance()?.displayName || 'Session unavailable' }}</dd>
+        <dt>Host</dt><dd>{{ hostName() }} · {{ connectionHeadline() }}</dd>
+        <dt>Project</dt><dd>{{ instance()?.projectName || 'No workspace' }}</dd>
+        <dt>Folder</dt><dd>{{ instance()?.workingDirectory || 'No workspace' }}</dd>
+        <dt>Provider and model</dt><dd>{{ instance()?.provider || 'Unknown' }} · {{ instance()?.model || 'Default' }}</dd>
+        <dt>Context used</dt><dd>{{ instance()?.contextPercentage === undefined ? 'Not reported' : instance()?.contextPercentage + '%' }}</dd>
+        <dt>Status</dt><dd>{{ activityLabel() }}</dd>
+      </dl>
+    </app-mobile-sheet>
   }
 </section>

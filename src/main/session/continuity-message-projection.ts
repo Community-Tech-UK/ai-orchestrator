@@ -165,8 +165,12 @@ export function providerRuntimeEnvelopeToContinuityEntry(
   if (event.kind === 'tool_use') {
     const callId = event.toolUseId?.trim();
     if (callId && event.toolName) toolNamesByCallId?.set(callId, event.toolName);
+    // Continuity replaces entries by id, so the id carries the adapter
+    // generation: a respawned adapter that reuses a call id must not overwrite
+    // the previous run's call.
+    const generation = envelope.adapterGeneration === undefined ? '' : `g${envelope.adapterGeneration}:`;
     return {
-      id: `tool-call:${callId || envelope.eventId}`,
+      id: `tool-call:${generation}${callId || envelope.eventId}`,
       role: 'assistant',
       content: '',
       timestamp: envelope.timestamp,

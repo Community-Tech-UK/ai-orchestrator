@@ -1,14 +1,11 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal } from '@angular/core';
-import { HapticsService } from '../../core/haptics.service';
+import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
+import type { ApprovalDecision, ApprovalDraft, ApprovalScope } from '../../core/approval-presentation.store';
+import { MobileSheetComponent } from '../../shared/mobile-sheet.component';
+import { availableChangeSections } from './approval-change';
 import type { MobilePromptDto } from '../../core/models';
 import { diffLines, type DiffRow } from '../../shared/line-diff';
 
-export type ApprovalScope = 'once' | 'session' | 'always';
-export interface ApprovalDecision {
-  action: 'allow' | 'deny';
-  scope: ApprovalScope;
-  response?: string;
-}
+export type { ApprovalDecision, ApprovalScope } from '../../core/approval-presentation.store';
 
 interface FileDiffView {
   filePath: string;
@@ -28,13 +25,27 @@ interface FileDiffView {
   standalone: true,
   selector: 'app-approval-sheet',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [MobileSheetComponent],
   template: `
-    <button type="button" class="scrim" aria-label="Dismiss" (click)="dismiss.emit()"></button>
-    <div class="sheet" role="dialog" aria-modal="true" aria-label="Action required">
-      <div class="grabber" aria-hidden="true"></div>
+    <app-mobile-sheet label="Needs you" closeLabel="Later" (dismiss)="dismiss.emit()">
+      <dl class="context">
+        <div><dt>Host</dt><dd>{{ context().host }}</dd></div>
+        <div><dt>Project</dt><dd>{{ context().project }}</dd></div>
+        <div><dt>Session</dt><dd>{{ context().session }}</dd></div>
+      </dl>
+      <button type="button" class="secondary-link" (click)="open.emit()">Open session</button>
+      @if (requests().length > 1) {
+        <label class="request-picker">Needs you · {{ requests().length }}
+          <select [value]="prompt().id" (change)="selectRequest($event)">
+            @for (request of requests(); track request.id) {
+              <option [value]="request.id">{{ request.title }}</option>
+            }
+          </select>
+        </label>
+      }
 
       @if (prompt().kind === 'permission') {
-        <h2 class="title">{{ prompt().toolName ? prompt().toolName + ' needs approval' : 'Approve action?' }}</h2>
+        <h3 class="title">{{ prompt().toolName ? prompt().toolName + ' needs approval' : 'Approve action?' }}</h3>
         @if (fileDiff(); as d) {
           <div class="diff-head">
             <span class="diff-path">{{ d.filePath }}</span>
@@ -48,7 +59,7 @@ interface FileDiffView {
               <div class="diff-row" [class]="'d-' + row.kind">{{ rowPrefix(row) }}{{ row.text }}</div>
             }
             @if (d.truncated) {
-              <div class="diff-row d-skip">⋯ diff truncated — open the session for the full change</div>
+              <div class="diff-row d-skip">Preview shortened. Expand “Full available change” below to inspect all supplied content.</div>
             }
           </div>
         } @else if (commandText()) {
@@ -57,41 +68,48 @@ interface FileDiffView {
           <p class="msg">{{ prompt().message }}</p>
         }
 
+        @if (fullChange().length) {
+          <details class="full-change">
+            <summary>Full available change</summary>
+            @for (section of fullChange(); track $index) {
+              <h4>{{ section.label }}</h4>
+              <pre class="full-content" tabindex="0" [attr.aria-label]="section.label">{{ section.content }}</pre>
+            }
+          </details>
+        }
         <div class="scope">
           @for (scopeOption of scopes; track scopeOption) {
             <button
               class="seg"
               type="button"
-              [class.active]="scope() === scopeOption"
+              [class.active]="draft().scope === scopeOption"
               [attr.data-scope]="scopeOption"
-              [attr.aria-pressed]="scope() === scopeOption"
-              (click)="scope.set(scopeOption)"
-            >{{ scopeOption }}</button>
+              [attr.aria-pressed]="draft().scope === scopeOption"
+              [disabled]="pending()"
+              (click)="scopeChange.emit(scopeOption)"
+            >{{ scopeLabels[scopeOption] }}</button>
           }
         </div>
 
+        <p class="scope-help">{{ scopeExplanations[draft().scope] }}</p>
         <div class="actions">
-          <button class="deny" (click)="decide('deny')">Deny</button>
-          <button class="allow" (click)="decide('allow')">Allow</button>
+          <button type="button" class="deny" [disabled]="pending()" (click)="decide('deny')">Deny</button>
+          <button type="button" class="allow" [disabled]="pending()" (click)="decide('allow')">Allow</button>
         </div>
       } @else {
-        <h2 class="title">{{ prompt().title }}</h2>
+        <h3 class="title">{{ prompt().title }}</h3>
         <p class="msg">{{ prompt().message }}</p>
-        <button type="button" class="secondary-link" (click)="open.emit()">Open session</button>
 
         @if (prompt().requestType === 'select_option' && prompt().options?.length) {
           <div class="option-list">
             @for (option of prompt().options; track option.id) {
-              <button type="button" class="option-button" (click)="submitOption(option.id)">
+              <button type="button" class="option-button" [disabled]="pending()" (click)="submitOption(option.id)">
                 <span class="option-label">{{ option.label }}</span>
                 @if (option.description) {
                   <span class="option-description">{{ option.description }}</span>
                 }
               </button>
             }
-          </div>
-          <div class="actions">
-            <button class="deny" (click)="dismiss.emit()">Later</button>
           </div>
         } @else if (prompt().requestType === 'ask_questions' && prompt().questions?.length) {
           <div class="question-list">
@@ -101,6 +119,7 @@ interface FileDiffView {
                 <textarea
                   class="question-input"
                   rows="3"
+                  [disabled]="pending()"
                   [value]="answerFor($index)"
                   (input)="updateAnswer($index, $event)"
                 ></textarea>
@@ -108,9 +127,8 @@ interface FileDiffView {
             }
           </div>
           <div class="actions">
-            <button class="deny" (click)="dismiss.emit()">Later</button>
-            <button class="allow" [disabled]="!canSubmitAnswers()" (click)="submitAnswers()">
-              Send answers
+            <button class="allow" [disabled]="pending() || !canSubmitAnswers()" (click)="submitAnswers()">
+              {{ pending() ? 'Sending…' : error() ? 'Retry answers' : 'Send answers' }}
             </button>
           </div>
         } @else {
@@ -122,8 +140,8 @@ interface FileDiffView {
             </ul>
           }
           <div class="actions">
-            <button class="deny" (click)="decide('deny')">Deny</button>
-            <button class="allow" (click)="decide('allow')">Allow</button>
+            <button type="button" class="deny" [disabled]="pending()" (click)="decide('deny')">Deny</button>
+            <button type="button" class="allow" [disabled]="pending()" (click)="decide('allow')">Allow</button>
           </div>
         }
       }
@@ -133,27 +151,29 @@ interface FileDiffView {
         four branches, so the commonest prompt kind (permission) silently dropped
         it and a rejected decision looked like a dead button.
       -->
+      @if (pending()) {
+        <p class="sending" role="status">Sending decision…</p>
+      }
       @if (error()) {
         <p class="sheet-error" role="alert">{{ error() }}</p>
       }
-    </div>
+    </app-mobile-sheet>
   `,
   styles: [
     `
-      :host { position: fixed; inset: 0; z-index: 60; display: block; }
-      .scrim { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.62); border: none; padding: 0; cursor: default; }
-      .sheet {
-        position: absolute; left: 0; right: 0; bottom: 0; max-height: min(86dvh, 760px);
-        overflow-y: auto; overscroll-behavior: contain;
-        border: 1px solid var(--separator); border-bottom: 0;
-        background: var(--surface-raised, #1c1c1e);
-        border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
-        padding: 8px var(--mobile-gutter) calc(20px + env(safe-area-inset-bottom));
-        box-shadow: 0 -12px 36px rgba(0, 0, 0, 0.55);
-        animation: slideUp var(--motion-enter) cubic-bezier(0.22, 1, 0.36, 1);
-      }
-      @keyframes slideUp { from { transform: translateY(18px); opacity: 0; } }
-      .grabber { width: 36px; height: 5px; border-radius: 3px; background: rgba(255,255,255,0.25); margin: 6px auto 14px; }
+      :host { display: block; }
+      .context { margin: 0 0 8px; display: grid; gap: 4px; }
+      .context div { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 8px; }
+      .context dt { color: var(--text-secondary); font-size: 13px; }
+      .context dd { margin: 0; font-size: 14px; overflow-wrap: anywhere; }
+      .request-picker { display: grid; gap: 6px; margin: 0 0 16px; font-size: 13px; }
+      .request-picker select { width: 100%; min-height: 44px; background: var(--surface-2); color: var(--text); border: 1px solid var(--separator); border-radius: 12px; padding: 8px; font: inherit; }
+      .full-change { margin-bottom: 16px; }
+      .full-change summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; text-decoration: underline; }
+      .full-change h4 { margin: 8px 0; overflow-wrap: anywhere; }
+      .full-content { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 50dvh; overflow: auto; background: var(--bg); border-radius: 12px; padding: 12px; font: 12px/1.5 var(--font-family-mono); }
+      .scope-help, .sending { font-size: 13px; color: var(--text-secondary); margin: 0 0 16px; }
+      button:disabled { opacity: 0.5; }
       .title { font-size: 20px; font-weight: 700; margin: 0 0 12px; }
       .cmd {
         background: var(--bg, #000); color: var(--text, #fff); border-radius: var(--radius-md); padding: 12px;
@@ -184,11 +204,11 @@ interface FileDiffView {
       .d-add { background: rgba(52, 199, 89, 0.16); color: #7ee2a0; }
       .d-del { background: rgba(255, 69, 58, 0.16); color: #ff9d96; }
       .d-ctx { color: var(--text-secondary, #8e8e93); }
-      .d-skip { color: var(--text-secondary, #8e8e93); font-style: italic; padding: 2px 12px; }
+      .d-skip { white-space: normal; min-width: 0; color: var(--text-secondary, #8e8e93); font-style: italic; padding: 2px 12px; }
       .msg { color: var(--text-secondary, #8e8e93); margin: 0 0 16px; }
       .secondary-link {
         border: none; background: transparent; color: var(--accent-online, #34c759);
-        padding: 0; margin: 0 0 16px; font-size: 14px; font-weight: 600; text-align: left;
+        min-height: 44px; padding: 8px 0; margin: 0 0 8px; font-size: 14px; font-weight: 600; text-align: left;
       }
       .options { margin: 0 0 16px; padding-left: 18px; color: var(--text); }
       .option-list, .question-list { display: grid; gap: 12px; margin-bottom: 16px; }
@@ -222,8 +242,6 @@ interface FileDiffView {
   ],
 })
 export class ApprovalSheetComponent {
-  private readonly haptics = inject(HapticsService);
-
   readonly prompt = input.required<MobilePromptDto>();
   /**
    * Why the last decision didn't go through. The sheet covers most of the screen,
@@ -231,13 +249,25 @@ export class ApprovalSheetComponent {
    * explanation and the connection pill hidden behind the scrim.
    */
   readonly error = input<string | null>(null);
+  readonly pending = input(false);
+  readonly draft = input<ApprovalDraft>({ scope: 'once', answers: {} });
+  readonly requests = input<MobilePromptDto[]>([]);
+  readonly context = input({ host: 'Unknown host', project: 'No workspace', session: 'Session unavailable' });
+  readonly scopeChange = output<ApprovalScope>();
+  readonly answerChange = output<{ index: number; value: string }>();
+  readonly requestSelected = output<string>();
   readonly decision = output<ApprovalDecision>();
   readonly dismiss = output<void>();
   readonly open = output<void>();
 
   protected readonly scopes: ApprovalScope[] = ['once', 'session', 'always'];
-  protected readonly scope = signal<ApprovalScope>('once');
-  protected readonly answers = signal<Record<number, string>>({});
+  protected readonly scopeLabels = { once: 'Once', session: 'This session', always: 'Always' };
+  protected readonly scopeExplanations = {
+    once: 'Use this decision for this request without adding a saved rule.',
+    session: 'Reuse this decision for matching actions in this session.',
+    always: 'Save this decision for matching actions on this host, including future sessions.',
+  };
+  protected readonly fullChange = computed(() => availableChangeSections(this.prompt()));
 
   /**
    * Real diff for file-editing tools so approvals aren't blind: Edit renders
@@ -305,44 +335,38 @@ export class ApprovalSheetComponent {
   });
 
   protected readonly canSubmitAnswers = computed(() =>
-    Object.values(this.answers()).some((answer) => answer.trim().length > 0),
+    Object.values(this.draft().answers).some((answer) => answer.trim().length > 0),
   );
 
-  constructor() {
-    effect(() => {
-      void this.prompt().id;
-      this.scope.set('once');
-      this.answers.set({});
-      // A new prompt sliding up is the "needs you" moment — buzz once.
-      this.haptics.warning();
-    });
-  }
-
   protected decide(action: 'allow' | 'deny'): void {
-    if (action === 'allow') this.haptics.success();
-    else this.haptics.warning();
-    this.decision.emit({ action, scope: this.scope() });
+    if (this.pending()) return;
+    this.decision.emit({ action, scope: this.draft().scope });
   }
 
   protected submitOption(optionId: string): void {
-    this.haptics.tap();
+    if (this.pending()) return;
     this.decision.emit({ action: 'allow', scope: 'once', response: optionId });
   }
 
   protected updateAnswer(index: number, event: Event): void {
     const value = (event.target as HTMLTextAreaElement).value;
-    this.answers.update((current) => ({ ...current, [index]: value }));
+    if (!this.pending()) this.answerChange.emit({ index, value });
   }
 
   protected submitAnswers(): void {
+    if (this.pending() || !this.canSubmitAnswers()) return;
     const questions = this.prompt().questions ?? [];
     const response = JSON.stringify(
-      Object.fromEntries(questions.map((question, index) => [question, this.answers()[index] ?? ''])),
+      Object.fromEntries(questions.map((question, index) => [question, this.draft().answers[index] ?? ''])),
     );
     this.decision.emit({ action: 'allow', scope: 'once', response });
   }
 
+  protected selectRequest(event: Event): void {
+    this.requestSelected.emit((event.target as HTMLSelectElement).value);
+  }
+
   protected answerFor(index: number): string {
-    return this.answers()[index] ?? '';
+    return this.draft().answers[index] ?? '';
   }
 }

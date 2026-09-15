@@ -31,6 +31,7 @@ import type {
   ProviderQuotaWindow,
   QuotaSource,
 } from '../../../shared/types/provider-quota.types';
+import { providerQuotaKey } from '../../../shared/types/provider-quota.types';
 
 const logger = getLogger('ProviderQuotaService');
 
@@ -59,6 +60,8 @@ export const DEFAULT_QUOTA_PACING_CONFIG: Readonly<QuotaPacingConfig> = Object.f
  */
 export interface ProviderQuotaProbe {
   readonly provider: ProviderId;
+  /** Account-pool profile the probe reads. Absent for the legacy/provider-level probe. */
+  readonly accountProfileId?: string;
   probe(opts: { signal: AbortSignal }): Promise<ProviderQuotaSnapshot | null>;
 }
 
@@ -73,8 +76,11 @@ export type CliInstalledCheck = (provider: ProviderId) => Promise<boolean>;
 
 export class ProviderQuotaService extends EventEmitter {
   private snapshots = new Map<ProviderId, ProviderQuotaSnapshot | null>();
-  private probes = new Map<ProviderId, ProviderQuotaProbe>();
-  private timers = new Map<ProviderId, NodeJS.Timeout>();
+  /** Non-legacy account-pool profile snapshots, keyed `provider:profileId`. */
+  private accountSnapshots = new Map<string, ProviderQuotaSnapshot>();
+  /** Keyed by {@link providerQuotaKey}. */
+  private probes = new Map<string, ProviderQuotaProbe>();
+  private timers = new Map<string, NodeJS.Timeout>();
   /** Low-frequency whole-fleet poll so windows stay fresh even when idle. */
   private idleTimer: NodeJS.Timeout | null = null;
   /** Keys: `<provider>:<windowId>:<threshold>`. Once added, suppresses re-emission. */
@@ -105,7 +111,17 @@ export class ProviderQuotaService extends EventEmitter {
   }
 
   registerProbe(probe: ProviderQuotaProbe): void {
-    this.probes.set(probe.provider, probe);
+    this.probes.set(providerQuotaKey(probe.provider, probe.accountProfileId), probe);
+  }
+
+  /** Drop every non-legacy account probe (and its polling) for a provider, before re-registering. */
+  unregisterAccountProbes(provider: ProviderId): void {
+    for (const [key, probe] of [...this.probes]) {
+      if (probe.provider === provider && probe.accountProfileId && probe.accountProfileId !== 'legacy') {
+        this.probes.delete(key);
+        this.stopPolling(provider, probe.accountProfileId);
+      }
+    }
   }
 
   /** Install (or clear, with null) the CLI-installed gate used by refresh(). */
@@ -133,8 +149,9 @@ export class ProviderQuotaService extends EventEmitter {
     this.pacingAlertedKeys.clear();
   }
 
-  getSnapshot(provider: ProviderId): ProviderQuotaSnapshot | null {
-    return this.snapshots.get(provider) ?? null;
+  getSnapshot(provider: ProviderId, accountProfileId?: string | null): ProviderQuotaSnapshot | null {
+    const key = providerQuotaKey(provider, accountProfileId);
+    return key === provider ? this.snapshots.get(provider) ?? null : this.accountSnapshots.get(key) ?? null;
   }
 
   getAll(): ProviderQuotaState {
@@ -148,7 +165,9 @@ export class ProviderQuotaService extends EventEmitter {
       grok: null,
     };
     for (const p of PROVIDERS) out[p] = this.snapshots.get(p) ?? null;
-    return { snapshots: out };
+    return this.accountSnapshots.size > 0
+      ? { snapshots: out, accountSnapshots: [...this.accountSnapshots.values()] }
+      : { snapshots: out };
   }
 
   /**
@@ -160,24 +179,26 @@ export class ProviderQuotaService extends EventEmitter {
     provider: ProviderId,
     snapshot: Omit<ProviderQuotaSnapshot, 'takenAt' | 'source'>,
     source: QuotaSource = 'header',
+    accountProfileId?: string | null,
   ): void {
     const full: ProviderQuotaSnapshot = {
       ...snapshot,
       takenAt: Date.now(),
       source,
     };
-    this.storeSnapshot(provider, full);
+    this.storeSnapshot(provider, full, accountProfileId);
   }
 
   /** Active path: invoke the registered probe. */
-  async refresh(provider: ProviderId): Promise<ProviderQuotaSnapshot | null> {
+  async refresh(provider: ProviderId, accountProfileId?: string | null): Promise<ProviderQuotaSnapshot | null> {
     if (this.isPaused || getPauseCoordinator().isPaused()) {
       return null;
     }
 
-    const probe = this.probes.get(provider);
+    const probeKey = providerQuotaKey(provider, accountProfileId);
+    const probe = this.probes.get(probeKey);
     if (!probe) {
-      logger.debug(`No probe registered for ${provider}`);
+      logger.debug(`No probe registered for ${probeKey}`);
       return null;
     }
 
@@ -205,7 +226,7 @@ export class ProviderQuotaService extends EventEmitter {
           cliNotInstalled: true,
           windows: [],
         };
-        this.storeSnapshot(provider, notInstalled);
+        this.storeSnapshot(provider, notInstalled, accountProfileId);
         return notInstalled;
       }
     }
@@ -231,7 +252,7 @@ export class ProviderQuotaService extends EventEmitter {
       );
       if (result == null) return null;
       const full: ProviderQuotaSnapshot = { ...result, takenAt: Date.now() };
-      this.storeSnapshot(provider, full);
+      this.storeSnapshot(provider, full, accountProfileId);
       return full;
     } catch (err) {
       if (ac.signal.aborted && (this.isPaused || getPauseCoordinator().isPaused())) {
@@ -246,8 +267,8 @@ export class ProviderQuotaService extends EventEmitter {
         error: err instanceof Error ? err.message : String(err),
         windows: [],
       };
-      this.storeSnapshot(provider, errSnap);
-      logger.warn(`Quota probe for ${provider} failed: ${errSnap.error}`);
+      this.storeSnapshot(provider, errSnap, accountProfileId);
+      logger.warn(`Quota probe for ${probeKey} failed: ${errSnap.error}`);
       return errSnap;
     } finally {
       this.activeAborters.delete(ac);
@@ -255,8 +276,8 @@ export class ProviderQuotaService extends EventEmitter {
   }
 
   async refreshAll(): Promise<ProviderQuotaSnapshot[]> {
-    const targets = PROVIDERS.filter((p) => this.probes.has(p));
-    const results = await Promise.all(targets.map((p) => this.refresh(p)));
+    const targets = [...this.probes.values()];
+    const results = await Promise.all(targets.map((probe) => this.refresh(probe.provider, probe.accountProfileId)));
     return results.filter((r): r is ProviderQuotaSnapshot => r !== null);
   }
 
@@ -264,24 +285,25 @@ export class ProviderQuotaService extends EventEmitter {
    * Schedule periodic refresh. `intervalMs <= 0` disables polling for this
    * provider. Calling again replaces the existing timer.
    */
-  startPolling(provider: ProviderId, intervalMs: number): void {
-    this.stopPolling(provider);
+  startPolling(provider: ProviderId, intervalMs: number, accountProfileId?: string | null): void {
+    this.stopPolling(provider, accountProfileId);
     if (intervalMs <= 0) return;
     // Fire one immediate refresh so the chip populates without waiting a tick.
-    void this.refresh(provider);
+    void this.refresh(provider, accountProfileId);
     const t = setInterval(() => {
-      void this.refresh(provider);
+      void this.refresh(provider, accountProfileId);
     }, intervalMs);
     // Don't keep the event loop alive purely for quota polling.
     if (typeof t.unref === 'function') t.unref();
-    this.timers.set(provider, t);
+    this.timers.set(providerQuotaKey(provider, accountProfileId), t);
   }
 
-  stopPolling(provider: ProviderId): void {
-    const t = this.timers.get(provider);
+  stopPolling(provider: ProviderId, accountProfileId?: string | null): void {
+    const key = providerQuotaKey(provider, accountProfileId);
+    const t = this.timers.get(key);
     if (t) {
       clearInterval(t);
-      this.timers.delete(provider);
+      this.timers.delete(key);
     }
   }
 
@@ -330,6 +352,7 @@ export class ProviderQuotaService extends EventEmitter {
     for (const aborter of this.activeAborters) aborter.abort();
     this.activeAborters.clear();
     for (const p of PROVIDERS) this.snapshots.set(p, null);
+    this.accountSnapshots.clear();
     const pauseCoordinator = getPauseCoordinator();
     pauseCoordinator.removeListener('pause', this.handlePause);
     pauseCoordinator.removeListener('resume', this.handleResume);
@@ -338,26 +361,32 @@ export class ProviderQuotaService extends EventEmitter {
 
   // ─── internals ───────────────────────────────────────────────────────────
 
-  private storeSnapshot(provider: ProviderId, snapshot: ProviderQuotaSnapshot): void {
-    this.snapshots.set(provider, snapshot);
-    this.detectWindowResets(provider, snapshot);
+  private storeSnapshot(provider: ProviderId, snapshot: ProviderQuotaSnapshot, accountProfileId?: string | null): void {
+    const key = providerQuotaKey(provider, accountProfileId);
+    if (key === provider) {
+      this.snapshots.set(provider, snapshot);
+    } else {
+      snapshot = { ...snapshot, accountProfileId: accountProfileId! };
+      this.accountSnapshots.set(key, snapshot);
+    }
+    this.detectWindowResets(key, snapshot);
     this.emit('quota-updated', snapshot);
     if (snapshot.ok) {
-      this.checkThresholds(provider, snapshot);
-      this.checkPacing(provider, snapshot);
+      this.checkThresholds(provider, snapshot, key);
+      this.checkPacing(provider, snapshot, key);
     }
   }
 
   private detectWindowResets(
-    provider: ProviderId,
+    quotaKey: string,
     snapshot: ProviderQuotaSnapshot,
   ): void {
     for (const w of snapshot.windows) {
-      const memoKey = `${provider}:${w.id}`;
+      const memoKey = `${quotaKey}:${w.id}`;
       const prev = this.lastUsed.get(memoKey);
       if (prev !== undefined && w.used < prev) {
-        // Window reset — clear all alert keys for this (provider, window).
-        const prefix = `${provider}:${w.id}:`;
+        // Window reset — clear all alert keys for this (provider/profile, window).
+        const prefix = `${quotaKey}:${w.id}:`;
         for (const k of [...this.alertedKeys]) {
           if (k.startsWith(prefix)) this.alertedKeys.delete(k);
         }
@@ -372,13 +401,14 @@ export class ProviderQuotaService extends EventEmitter {
   private checkThresholds(
     provider: ProviderId,
     snapshot: ProviderQuotaSnapshot,
+    quotaKey: string = provider,
   ): void {
     for (const w of snapshot.windows) {
       if (w.limit <= 0) continue;
       const pct = (w.used / w.limit) * 100;
 
       if (pct >= EXHAUSTED_THRESHOLD) {
-        const key = `${provider}:${w.id}:${EXHAUSTED_THRESHOLD}`;
+        const key = `${quotaKey}:${w.id}:${EXHAUSTED_THRESHOLD}`;
         if (!this.alertedKeys.has(key)) {
           this.alertedKeys.add(key);
           this.emit('quota-exhausted', this.makeAlert(provider, w, EXHAUSTED_THRESHOLD));
@@ -390,7 +420,7 @@ export class ProviderQuotaService extends EventEmitter {
 
       for (const t of WARNING_THRESHOLDS) {
         if (pct < t) continue;
-        const key = `${provider}:${w.id}:${t}`;
+        const key = `${quotaKey}:${w.id}:${t}`;
         if (this.alertedKeys.has(key)) continue;
         this.alertedKeys.add(key);
         this.emit('quota-warning', this.makeAlert(provider, w, t));
@@ -398,7 +428,7 @@ export class ProviderQuotaService extends EventEmitter {
     }
   }
 
-  private checkPacing(provider: ProviderId, snapshot: ProviderQuotaSnapshot): void {
+  private checkPacing(provider: ProviderId, snapshot: ProviderQuotaSnapshot, quotaKey: string = provider): void {
     if (!this.pacingConfig.enabled) return;
 
     for (const window of snapshot.windows) {
@@ -417,7 +447,7 @@ export class ProviderQuotaService extends EventEmitter {
         continue;
       }
 
-      const key = `${provider}:${window.id}:pacing`;
+      const key = `${quotaKey}:${window.id}:pacing`;
       if (this.pacingAlertedKeys.has(key)) continue;
       this.pacingAlertedKeys.add(key);
       this.emit('quota-pacing-warning', this.makePacingAlert(provider, window, {
@@ -457,7 +487,7 @@ export class ProviderQuotaService extends EventEmitter {
  * labels. Calendar and unknown windows are deliberately excluded: without a
  * trustworthy start instant, their elapsed percentage would be fabricated.
  */
-function knownWindowDurationMs(window: ProviderQuotaWindow): number | null {
+export function knownWindowDurationMs(window: ProviderQuotaWindow): number | null {
   const identity = `${window.id} ${window.label}`.toLowerCase();
   if (/(?:^|[.\s_-])5(?:h|[-\s]?hour)(?:$|[.\s_-])/.test(identity)) return FIVE_HOUR_MS;
   if (/(?:^|[.\s_-])weekly?(?:$|[.\s_-])/.test(identity)) return WEEK_MS;

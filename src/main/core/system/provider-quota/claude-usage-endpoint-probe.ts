@@ -69,6 +69,8 @@ export interface ClaudeUsageEndpointProbeOptions {
   fetchUsage?: UsageFetch;
   /** Request timeout in ms. Defaults to 10s. */
   timeoutMs?: number;
+  /** Account-pool profile this probe reads (decision D6). Absent for the legacy probe. */
+  accountProfileId?: string;
 }
 
 /** Shape of one time-based bucket in the `oauth/usage` payload. */
@@ -121,6 +123,7 @@ const TIME_BUCKETS: readonly {
 
 export class ClaudeUsageEndpointProbe implements ProviderQuotaProbe {
   readonly provider = 'claude' as const;
+  readonly accountProfileId?: string;
 
   private readonly credentialsReader: Pick<ClaudeCredentialsReader, 'read'>;
   private readonly fetchUsage: UsageFetch;
@@ -130,6 +133,7 @@ export class ClaudeUsageEndpointProbe implements ProviderQuotaProbe {
     this.credentialsReader = opts.credentialsReader ?? new ClaudeCredentialsReader();
     this.fetchUsage = opts.fetchUsage ?? defaultFetchUsage;
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    if (opts.accountProfileId) this.accountProfileId = opts.accountProfileId;
   }
 
   async probe({ signal }: { signal: AbortSignal }): Promise<ProviderQuotaSnapshot | null> {

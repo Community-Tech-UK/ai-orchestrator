@@ -430,3 +430,29 @@ export const COPILOT_ACCOUNTS_TAB_HELP: HelpEntry = {
     },
   ],
 };
+
+export const PROVIDER_ACCOUNTS_TAB_HELP: HelpEntry = {
+  sections: [
+    {
+      kind: 'callout',
+      variant: 'info',
+      heading: 'What this does',
+      body: 'Lets you use more than one Claude or ChatGPT subscription. Sessions start on the first available account in your order, and when one reaches its usage limit the conversation can continue on the next one instead of waiting.',
+    },
+    {
+      kind: 'steps',
+      heading: 'Key actions',
+      items: [
+        'Add an account: a terminal opens running the official sign-in for that account only, then Harness checks it signed in.',
+        'Put your preferred account first. Harness stays on it until it hits a limit.',
+        'Confirm the accounts are your own before enabling a second one, then choose what happens at a limit.',
+      ],
+    },
+    {
+      kind: 'callout',
+      variant: 'info',
+      heading: 'Harness never holds your token',
+      body: 'Each account signs in with the Claude or Codex CLI into its own folder. Removing an account here does not sign it out or cancel the subscription.',
+    },
+  ],
+};

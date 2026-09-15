@@ -19,6 +19,7 @@ const RESET_MS = 1500;
   host: {
     '(click)': 'onActivate($event)',
     '(keydown.enter)': 'onActivate($event)',
+    '(keydown.space)': 'onActivate($event)',
   },
 })
 export class CodeCopyDirective {

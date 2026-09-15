@@ -198,7 +198,11 @@ describe('Copilot spawn-path bypass detection', () => {
   it('routes or explicitly classifies every production adapter-creating call site', () => {
     for (const file of ROUTED_CALL_SITES) {
       const source = readFileSync(join(REPO_ROOT, file), 'utf8');
-      expect(source, `${file} must call attachCopilotRoute`).toContain('attachCopilotRoute');
+      // `attachProviderRoutes` runs attachCopilotRoute first (provider-route-preflight.ts).
+      expect(
+        source.includes('attachCopilotRoute') || source.includes('attachProviderRoutes'),
+        `${file} must call attachCopilotRoute or attachProviderRoutes`,
+      ).toBe(true);
     }
     // Every exemption names a real file and a real reason.
     for (const [file, reason] of Object.entries(CLASSIFIED_EXEMPTIONS)) {

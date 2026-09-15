@@ -18,8 +18,9 @@
   --surface-2: #2c2c2e;
   --surface-raised: var(--primitive-grey-900);
   --text: #ffffff;
-  --text-secondary: #8e8e93;
-  --text-tertiary: #636366;
+  /* Both remain readable on the darkest and raised composer/control surfaces. */
+  --text-secondary: #99999e;
+  --text-tertiary: #949499;
   --separator: rgba(255, 255, 255, 0.1);
   --separator-strong: rgba(255, 255, 255, 0.18);
   --accent-online: #34c759;
@@ -212,6 +213,43 @@ code {
   border: 0;
 }
 
+/* Live and past transcripts share their visual language. Screen-specific
+   scrolling and composer layout remain in the owning feature. */
+.mobile-transcript {
+  min-width: 0;
+  .message {
+    display: flex;
+    min-width: 0;
+    flex: none;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-1);
+    .content { max-width: 100%; font-size: 1rem; line-height: var(--line-height-normal); overflow-wrap: anywhere; }
+    &.user { align-items: flex-end; }
+    &.user .content {
+      max-width: 88%; border-radius: 18px; background: var(--surface-2);
+      color: var(--text); padding: var(--space-2) var(--space-3);
+    }
+    &.system { align-items: center; color: var(--text-secondary); text-align: center; }
+    &.system .content, .role { font-size: var(--font-size-sm); }
+    &.error { color: var(--accent-error); }
+    &.loop-output, &.loop-output .content { width: 100%; }
+  }
+  .tool-entry {
+    min-width: 0; color: var(--text-secondary); font-size: var(--font-size-sm);
+    summary { min-height: 44px; align-content: center; cursor: pointer; overflow-wrap: anywhere; }
+    pre { max-width: 100%; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
+      font-family: var(--font-family-mono); background: var(--surface); padding: var(--space-3); border-radius: var(--radius-sm); }
+  }
+}
+
+.mobile-load-state {
+  color: var(--text-secondary); font-size: var(--font-size-sm); padding: var(--space-2) var(--mobile-gutter);
+  &.error { color: var(--accent-error); }
+  button { min-width: 44px; min-height: 44px; border: 0; border-radius: var(--radius-sm);
+    background: var(--surface-2); color: var(--text); padding: var(--space-2) var(--space-3); font: inherit; }
+}
+
 .markdown-body {
   white-space: normal;
   overflow-wrap: anywhere;
@@ -326,9 +364,14 @@ code {
 }
 
 .markdown-body .md-code-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
   color: var(--text-secondary);
   font-size: 12px;
-  padding: 3px 8px;
+  padding: 8px;
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.08);
   user-select: none;

@@ -85,6 +85,8 @@ export interface DegradedIterationChildResult {
   toolCalls: unknown[];
   /** A3: adapter-layer degraded classification, when the feature flag was on. */
   degradedReason?: DegradedReason;
+  /** Structured plan-limit rejection; never a degraded turn. */
+  providerQuotaExhausted?: boolean;
 }
 
 export function getBlockOverrideInterventionText(): string {
@@ -195,6 +197,10 @@ export function classifyDegradedIteration(
   if (!childResult) {
     return invocationError ? 'invocation-error' : null;
   }
+  // A structured plan-limit rejection (e.g. Claude's 429 `result`, often with no
+  // assistant text) is not a degraded turn: retrying on the same account only
+  // fails again. The provider-limit handling after the retry loop owns it.
+  if (childResult.providerQuotaExhausted === true) return null;
   // A3: adapter-layer degraded classification takes priority over the void check
   // so the retry loop knows the root cause. Only fires when the feature flag was
   // on during the iteration; all DegradedReason values warrant a fresh-session retry.

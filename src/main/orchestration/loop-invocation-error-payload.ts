@@ -64,6 +64,7 @@ function extractLoopInvocationErrorMetadata(error: unknown): Omit<LoopChildInvoc
     headers?: unknown;
     body?: unknown;
     partialUsage?: unknown;
+    quota?: { exhausted?: unknown } | null;
     response?: {
       status?: unknown;
       statusCode?: unknown;
@@ -78,6 +79,7 @@ function extractLoopInvocationErrorMetadata(error: unknown): Omit<LoopChildInvoc
   const headers = sanitizeLoopErrorHeaders(shaped?.headers ?? shaped?.response?.headers);
   const body = sanitizeLoopErrorBody(shaped?.body ?? shaped?.response?.body ?? shaped?.response?.data);
   const partialUsage = sanitizePartialUsage(shaped?.partialUsage);
+  const quotaExhausted = shaped?.quota?.exhausted === true;
   return {
     ...(status !== undefined ? { status } : {}),
     ...(statusCode !== undefined ? { statusCode } : {}),
@@ -85,6 +87,7 @@ function extractLoopInvocationErrorMetadata(error: unknown): Omit<LoopChildInvoc
     ...(headers ? { headers } : {}),
     ...(body !== undefined ? { body } : {}),
     ...(partialUsage ? { partialUsage } : {}),
+    ...(quotaExhausted ? { quota: { exhausted: true as const } } : {}),
   };
 }
 

@@ -76,6 +76,14 @@ export interface RawCliPayload {
   heartbeat?: boolean;
   /** Present on result messages — indicates why the turn ended. */
   stop_reason?: string;
+  /**
+   * Present on result messages that ended on an API error. A plan usage limit
+   * arrives as `subtype: 'success'` with `is_error: true` and status 429, so
+   * branch on this field, never on `subtype`.
+   */
+  api_error_status?: number;
+  /** Result text; on a plan limit this is the "You've hit your … limit" notice. */
+  result?: string;
   /** Present when stop_reason is 'tool_deferred' — the deferred tool details. */
   deferred_tool_use?: {
     id: string;
@@ -114,6 +122,8 @@ export interface ClaudeCliSpawnOptions {
   maxTurns?: number;
   timeout?: number;
   env?: Record<string, string>;
+  /** Variables removed from the child env after the ambient merge (account pools). */
+  envRemove?: readonly string[];
   yoloMode?: boolean;
   resume?: boolean;
   forkSession?: boolean; // When resuming, create a new session ID instead of reusing

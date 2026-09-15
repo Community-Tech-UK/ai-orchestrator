@@ -31,6 +31,8 @@ export interface SpawnInstanceRequest {
   command: string;
   args: string[];
   env: Record<string, string>;
+  /** Variables removed after the ambient-env merge (account-pool auth strip list). */
+  envRemove?: string[];
   cwd: string;
   streamIdleTimeoutMs?: number;
   closeStdin?: boolean;

@@ -6,6 +6,7 @@ export type SettingsTab =
   | 'orchestration'
   | 'connections'
   | 'copilot-accounts'
+  | 'provider-accounts'
   | 'network'
   | 'voice'
   | 'memory'
@@ -207,6 +208,13 @@ export const NAV_ITEMS: SettingsNavItem[] = [
     summary: 'Decide which GitHub account Copilot uses for which repositories.',
     group: 'Network & Remote',
     keywords: 'copilot github account enterprise personal routing repository owner seat licence login',
+  },
+  {
+    id: 'provider-accounts',
+    label: 'Claude & Codex Accounts',
+    summary: 'Use several Claude or ChatGPT subscriptions and move to the next when one hits its limit.',
+    group: 'Network & Remote',
+    keywords: 'claude codex chatgpt account accounts pool subscription max pro limit failover switch login',
   },
   {
     id: 'voice',

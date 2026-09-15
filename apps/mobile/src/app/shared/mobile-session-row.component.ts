@@ -13,7 +13,7 @@ export interface MobileSessionRowView {
 }
 
 export function mobileSessionRowAriaLabel(row: MobileSessionRowView): string {
-  return `Open ${row.title}, ${row.statusLabel}`;
+  return `Open ${row.title}, ${row.statusLabel}${row.unread ? ', unread completion' : ''}`;
 }
 
 @Component({
@@ -26,17 +26,19 @@ export function mobileSessionRowAriaLabel(row: MobileSessionRowView): string {
       type="button"
       class="session-row"
       [class]="'session-row session-row--' + row().tone"
+      [class.session-row--nested]="nested()"
       [attr.aria-label]="ariaLabel()"
       (click)="activate.emit(row().id)"
     >
       <span class="session-row__copy">
-        <span class="session-row__title">
-          {{ row().title }}
+        <span class="session-row__heading">
+          <span class="session-row__title">{{ row().title }}</span>
           @if (row().unread) {
-            <span class="session-row__unread" aria-label="Unread completion"></span>
+            <span class="session-row__unread" aria-hidden="true"></span>
           }
         </span>
-        @if (row().subtitle) {
+        <span class="session-row__subtitle">{{ row().statusLabel }} · {{ activity() }}</span>
+        @if (showSubtitle() && row().subtitle) {
           <span class="session-row__subtitle">{{ row().subtitle }}</span>
         }
       </span>
@@ -77,10 +79,12 @@ export function mobileSessionRowAriaLabel(row: MobileSessionRowView): string {
         border-radius: var(--radius-md, 12px);
         background: transparent;
         color: var(--text);
-        padding: var(--space-2, 8px) 0 var(--space-2, 8px) var(--space-9, 36px);
+        padding: var(--space-2, 8px) 0;
         text-align: start;
         touch-action: manipulation;
       }
+
+      .session-row--nested { padding-inline-start: var(--space-9, 36px); }
 
       .session-row:active {
         background: rgba(255, 255, 255, 0.055);
@@ -95,16 +99,18 @@ export function mobileSessionRowAriaLabel(row: MobileSessionRowView): string {
       }
 
       .session-row__title {
-        display: flex;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
         min-width: 0;
-        align-items: center;
-        gap: var(--space-2, 8px);
+        flex: 1;
         overflow: hidden;
         font-size: var(--font-size-base, 17px);
         line-height: 1.3;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        overflow-wrap: anywhere;
       }
+
+      .session-row__heading { display: flex; align-items: flex-start; gap: var(--space-2, 8px); }
 
       .session-row__subtitle,
       .session-row__label {
@@ -134,6 +140,8 @@ export function mobileSessionRowAriaLabel(row: MobileSessionRowView): string {
       }
 
       .session-row__unread {
+        display: inline-block;
+        margin-top: 7px;
         width: 7px;
         height: 7px;
         flex: none;
@@ -166,6 +174,18 @@ export function mobileSessionRowAriaLabel(row: MobileSessionRowView): string {
 })
 export class MobileSessionRowComponent {
   readonly row = input.required<MobileSessionRowView>();
+  readonly nested = input(false);
+  readonly showSubtitle = input(true);
   readonly activate = output<string>();
+  protected readonly activity = computed(() => relativeSessionActivity(this.row().lastActivity));
   protected readonly ariaLabel = computed(() => mobileSessionRowAriaLabel(this.row()));
+}
+
+export function relativeSessionActivity(timestamp: number, now = Date.now()): string {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return 'No activity recorded';
+  const minutes = Math.max(0, Math.floor((now - timestamp) / 60_000));
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  return hours < 24 ? `${hours}h ago` : `${Math.floor(hours / 24)}d ago`;
 }

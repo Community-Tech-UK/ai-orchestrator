@@ -19,7 +19,10 @@
 
 /** Patterns matching the distinctive shape of provider rate/usage-limit notices. */
 export const PROVIDER_NOTICE_PATTERNS: readonly RegExp[] = [
-  /you(?:'?ve|\s+have)\s+hit\s+your\s+\w+\s+limit/i, // "You've / You have hit your session limit"
+  // "You've / You’ve (U+2019, Codex) / You have hit your session limit"
+  /you(?:['’]?ve|\s+have)\s+hit\s+your\s+\w+\s+limit/i,
+  /\bout\s+of\s+credits\b/i,                         // Codex workspace: "You're out of credits"
+  /\bhit\s+your\s+spend\s+cap\b/i,                   // Codex workspace spend cap
   /\b(?:usage|session|rate|message)\s+limit\s+reached\b/i,
   /\b\d+\s*-?\s*hour\s+limit\s+reached\b/i,          // "5-hour limit reached"
   /\blimit\s*[·•∙‧]\s*resets?\b/i,                   // "limit · resets"
@@ -36,5 +39,11 @@ export const PROVIDER_NOTICE_PATTERNS: readonly RegExp[] = [
  */
 export function isProviderNotice(text: string | null | undefined): boolean {
   if (!text) return false;
-  return PROVIDER_NOTICE_PATTERNS.some((re) => re.test(text));
+  if (PROVIDER_NOTICE_PATTERNS.some((re) => re.test(text))) return true;
+  // "try again at 3:45 PM" / "try again later" is generic retry wording that
+  // transport errors also use, so it only counts beside a limit/credits mention.
+  return TRY_AGAIN_PATTERN.test(text) && LIMIT_CONTEXT_PATTERN.test(text);
 }
+
+const TRY_AGAIN_PATTERN = /\btry\s+again\s+(?:at\s+\d{1,2}(?::\d{2})?\s*[ap]\.?m\.?|later)(?=\W|$)/i;
+const LIMIT_CONTEXT_PATTERN = /\b(?:limit|credits)\b/i;

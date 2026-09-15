@@ -75,15 +75,19 @@ export function detectCompletionProviderLimit(
   response: { content?: string; metadata?: unknown },
   telemetry?: CliRateLimitInfo | null,
 ): ProviderLimitTurnSignal | null {
-  if (!isProviderNotice(response.content)) return null;
   const diagnostics = extractProviderErrorDiagnostics(response.metadata);
+  // Claude's plan 429 (`result.is_error` + `api_error_status: 429`) is a
+  // structured signal: the adapter attaches `metadata.quota`, so the turn is a
+  // limit stop even when the assistant content carries no notice text.
+  const structuredLimit = diagnostics.quota?.exhausted === true;
+  if (!structuredLimit && !isProviderNotice(response.content)) return null;
   return {
     resetAtHint:
       diagnostics.rateLimit?.resetAt
       ?? diagnostics.quota?.resetAt
       ?? parseResetHintFromText(response.content ?? '', Date.now())
       ?? telemetryResetAtMs(telemetry),
-    reason: `provider limit notice on completed turn: ${(response.content ?? '').slice(0, 160)}`,
+    reason: `provider limit notice on completed turn: ${(response.content || diagnostics.quota?.message || '').slice(0, 160)}`,
   };
 }
 

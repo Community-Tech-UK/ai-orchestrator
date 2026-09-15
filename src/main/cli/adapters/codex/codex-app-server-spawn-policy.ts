@@ -19,11 +19,15 @@ const FATAL_SPAWN_CODES = new Set(['ENOENT', 'EACCES', 'EPERM', 'ENOTDIR']);
 /**
  * argv for an AIO-owned isolated app-server (not the shared broker).
  */
-export function buildIsolatedAppServerArgs(applyOutputLimit: boolean): string[] {
+export function buildIsolatedAppServerArgs(
+  applyOutputLimit: boolean,
+  configOverrides: readonly string[] = [],
+): string[] {
+  const overrides = configOverrides.flatMap((override) => ['-c', override]);
   if (!applyOutputLimit) {
-    return ['app-server'];
+    return [...overrides, 'app-server'];
   }
-  return ['-c', CODEX_TOOL_OUTPUT_TOKEN_LIMIT_OVERRIDE, 'app-server'];
+  return [...overrides, '-c', CODEX_TOOL_OUTPUT_TOKEN_LIMIT_OVERRIDE, 'app-server'];
 }
 
 /** Retry without the override only when the CLI may have rejected `-c`. */

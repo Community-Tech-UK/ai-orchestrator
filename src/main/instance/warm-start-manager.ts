@@ -13,6 +13,7 @@ import { getLogger } from '../logging/logger';
 import { crossPlatformPathsEqual } from '../../shared/utils/cross-platform-path';
 import { directoryExists } from '../cli/adapters/base-cli-adapter-utils';
 import { getProviderConcurrencyLimiter } from '../cli/provider-concurrency-limiter';
+import { isAccountPoolActive } from '../providers/account-pool/provider-account-store';
 
 const logger = getLogger('WarmStartManager');
 
@@ -74,6 +75,14 @@ export class WarmStartManager {
       logger.debug('preWarm skipped — Copilot spawns are pinned to a resolved account', {
         provider,
       });
+      return;
+    }
+
+    // A Claude/Codex account pool pins each child to one resolved account at
+    // spawn time, exactly like Copilot; the preflight chain refuses to consume
+    // such a warm adapter, so do not burn a process on one.
+    if (isAccountPoolActive(provider)) {
+      logger.debug('preWarm skipped — provider has an account pool', { provider });
       return;
     }
 

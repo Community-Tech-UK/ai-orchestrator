@@ -2,6 +2,9 @@ import { ChangeDetectionStrategy, Component, computed, inject, input, signal } f
 import { Router } from '@angular/router';
 import { connectionHeadline } from '../../core/connection-status';
 import { GatewayClient } from '../../core/gateway-client.service';
+import { HostStore } from '../../core/host-store';
+import { newSessionPresetState } from '../new-session/new-session.navigation';
+import { MobileBrowseStateStore } from '../../core/mobile-browse-state.store';
 import { isWorking, statusLabel } from '../../core/status';
 import { MobileHeaderComponent } from '../../shared/mobile-header.component';
 import { MobileIconComponent } from '../../shared/mobile-icon.component';
@@ -125,7 +128,9 @@ function sessionTone(row: SessionChipInput): MobileSessionRowView['tone'] {
 })
 export class SessionsComponent {
   private readonly gateway = inject(GatewayClient);
+  private readonly hosts = inject(HostStore);
   private readonly router = inject(Router);
+  private readonly browse = inject(MobileBrowseStateStore);
 
   readonly projectKey = input('');
 
@@ -216,14 +221,26 @@ export class SessionsComponent {
 
   protected open(session: SessionRow): void {
     if (session.live) {
-      void this.router.navigate(['/projects', this.projectKey(), 'sessions', session.id]);
+      void this.router.navigate(['/projects', this.projectKey(), 'sessions', session.id], { state: this.browse.navigationState('/projects') });
     } else {
-      void this.router.navigate(['/history', session.id]);
+      void this.router.navigate(['/history', session.id], { state: this.browse.navigationState('/projects') });
     }
   }
 
   protected newSession(): void {
-    void this.router.navigate(['/new-session'], { queryParams: { dir: this.projectKey() } });
+    const hostId = this.hosts.activeHost()?.id;
+    const requested = this.projectKey();
+    // A restored Sessions URL may belong to another host. Establish the
+    // directory from current-host data before minting a new preset.
+    const known = this.gateway.dataHostId() === hostId && (
+      this.gateway.snapshot()?.projects.some((project) => project.path === requested)
+      || this.gateway.historySessions().some((session) => session.workingDirectory === requested)
+    );
+    const directory = known ? requested : '';
+    void this.router.navigate(['/new-session'], {
+      queryParams: directory && directory !== '__no_workspace__' ? { dir: directory } : undefined,
+      state: { ...this.browse.navigationState('/projects'), ...newSessionPresetState(hostId, directory) },
+    });
   }
 
   protected back(): void {

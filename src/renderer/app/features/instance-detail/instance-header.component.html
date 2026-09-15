@@ -152,6 +152,14 @@
               {{ copilotAccount.label }}
             </span>
           }
+          <!-- Claude/Codex account-pool badge with an explicit switch. Renders nothing without a pool. -->
+          <app-provider-account-chip
+            mode="session"
+            [provider]="instance().provider"
+            [instanceId]="instance().id"
+            [accountProfileId]="instance().accountProfileId"
+            [accountRoutingSource]="instance().accountRoutingSource"
+          />
           @if (isRemote()) {
             <span
               class="node-badge"

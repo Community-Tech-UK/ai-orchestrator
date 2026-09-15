@@ -58,6 +58,77 @@ describe('LoopCoordinator usage-aware throttling', () => {
     }
   });
 
+  it.each([
+    ['a limit notice in the output', "You've hit your session limit · resets 6:30pm", {}],
+    ["Claude's structured 429 signal with clean output", '', { providerQuotaExhausted: true }],
+  ])('account pool: %s moves the loop to another account and the next attempt starts a fresh session', async (_label, limitedOutput, limitedOverrides) => {
+    const calls: Array<{ forceContextReset: boolean }> = [];
+    coordinator.setQuotaSnapshotProvider(() => null);
+    const handler = (coordinator as unknown as { providerLimitHandler: { setLoopAccountFailover(f: unknown): void } }).providerLimitHandler;
+    const trySwitch = vi.fn(() => true);
+    handler.setLoopAccountFailover({ currentProfileId: () => 'max-a', trySwitch });
+    coordinator.on('loop:invoke-iteration', (payload: unknown) => {
+      const p = payload as { forceContextReset: boolean; callback: (r: LoopChildResult) => void };
+      calls.push({ forceContextReset: p.forceContextReset });
+      p.callback(calls.length === 1 ? iterationResult(limitedOutput, limitedOverrides) : iterationResult('real work on the new account'));
+    });
+
+    const state = await startLoop('chat-account-switch');
+    try {
+      await waitForCondition(() => calls.length >= 2, 5000);
+      expect(trySwitch).toHaveBeenCalledTimes(1);
+      expect(coordinator.getLoop(state.id)?.status).not.toBe('provider-limit');
+      // The new account runs a brand-new CLI session, so it must get the full bootstrap prompt.
+      expect(calls[1].forceContextReset).toBe(true);
+    } finally {
+      await coordinator.cancelLoop(state.id);
+    }
+  });
+
+  it.each([
+    ['usage-limit wording', { error: "You've hit your usage limit. Try again later.", status: 429, headers: { 'retry-after': '60' } }],
+    ['only the structured quota flag', { error: 'turn failed', status: 429, headers: { 'retry-after': '60' }, quota: { exhausted: true } }],
+  ])('account pool: a thrown plan limit (%s) switches accounts and retries even with no degraded-retry budget', async (_label, thrown) => {
+    const calls: Array<{ forceContextReset: boolean }> = [];
+    coordinator.setQuotaSnapshotProvider(() => null);
+    const handler = (coordinator as unknown as { providerLimitHandler: { setLoopAccountFailover(f: unknown): void } }).providerLimitHandler;
+    const trySwitch = vi.fn(() => true);
+    handler.setLoopAccountFailover({ currentProfileId: () => 'max-a', trySwitch });
+    coordinator.on('loop:invoke-iteration', (payload: unknown) => {
+      const p = payload as { forceContextReset: boolean; callback: (r: LoopChildResult | typeof thrown) => void };
+      calls.push({ forceContextReset: p.forceContextReset });
+      if (calls.length === 1) {
+        p.callback(thrown);
+        return;
+      }
+      p.callback(iterationResult('real work on the new account'));
+    });
+
+    const state = await coordinator.startLoop('chat-account-switch-thrown', {
+      initialPrompt: 'keep going',
+      workspaceCwd: workspace,
+      caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 3 },
+      blockSanityProbe: { enabled: false },
+      degradedIterationRetry: { enabled: true, maxRetries: 0 },
+      completion: {
+        ...defaultLoopConfig(workspace, 'x').completion,
+        verifyCommand: 'false',
+        runVerifyTwice: false,
+        requireCompletedFileRename: false,
+        crossModelReview: { enabled: false, blockingSeverities: ['critical'], timeoutSeconds: 10, reviewDepth: 'structured' },
+      },
+    });
+    try {
+      await waitForCondition(() => calls.length >= 2 || coordinator.getLoop(state.id)?.status === 'error', 5000);
+      expect(coordinator.getLoop(state.id)?.status).not.toBe('error');
+      expect(trySwitch).toHaveBeenCalledTimes(1);
+      expect(calls).toHaveLength(2);
+      expect(calls[1].forceContextReset).toBe(true);
+    } finally {
+      await coordinator.cancelLoop(state.id);
+    }
+  });
+
   it('reactive backstop: parks (auto-resume) when the quota snapshot has a future reset', async () => {
     const resetsAt = Date.now() + 60_000;
     let invokeCount = 0;
@@ -116,7 +187,7 @@ describe('LoopCoordinator usage-aware throttling', () => {
     const state = await startLoop('chat-notice-refresh-park');
     try {
       await waitForCondition(() => coordinator.getLoop(state.id)?.status === 'provider-limit', 5000);
-      expect(refresh).toHaveBeenCalledWith('claude');
+      expect(refresh).toHaveBeenCalledWith('claude', null);
       expect(coordinator.getLoop(state.id)).toMatchObject({
         status: 'provider-limit',
         endedAt: null,
@@ -271,6 +342,7 @@ describe('LoopCoordinator usage-aware throttling', () => {
       expect(ledger.getActive).toHaveBeenCalledWith({
         provider: 'claude',
         model: null,
+        accountProfileId: null,
         now: expect.any(Number),
       });
       expect(scheduler).toHaveBeenCalledWith(expect.objectContaining({

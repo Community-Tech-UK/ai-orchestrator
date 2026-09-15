@@ -37,6 +37,7 @@ import { resolveEffectiveInstanceTitle } from '../../../../shared/types/history.
 import type { InstanceRuntimeSummary } from '../../../../shared/types/local-model-runtime.types';
 import { SessionComputerUseControlComponent } from './session-computer-use-control.component';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { ProviderAccountChipComponent } from '../../shared/components/provider-account-chip.component';
 
 interface EditorMenuItem {
   type: string;
@@ -46,7 +47,7 @@ interface EditorMenuItem {
 @Component({
   selector: 'app-instance-header',
   standalone: true,
-  imports: [StatusIndicatorComponent, RecentDirectoriesDropdownComponent, ContextBarComponent, CrossModelReviewIndicatorComponent, CompactModelPickerComponent, SessionSkillsBadgeComponent, SessionComputerUseControlComponent, AioTooltipDirective],
+  imports: [StatusIndicatorComponent, RecentDirectoriesDropdownComponent, ContextBarComponent, CrossModelReviewIndicatorComponent, CompactModelPickerComponent, SessionSkillsBadgeComponent, SessionComputerUseControlComponent, AioTooltipDirective, ProviderAccountChipComponent],
   templateUrl: './instance-header.component.html',
   styleUrl: './instance-header.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush

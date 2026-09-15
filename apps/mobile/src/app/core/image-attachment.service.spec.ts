@@ -71,6 +71,23 @@ describe('ImageAttachmentService', () => {
     expect(downscale).not.toHaveBeenCalled();
   });
 
+  it('reports denied clipboard access with a recovery action', async () => {
+    vi.mocked(Clipboard.read).mockRejectedValue(new Error('permission denied'));
+    await expect(new ImageAttachmentService().pasteImageFromClipboard()).rejects.toThrow(/allow.*paste|photo picker/i);
+  });
+
+  it('reports image decode failures instead of silently dropping a selection', async () => {
+    vi.mocked(Camera.pickImages).mockResolvedValue({ photos: [{ webPath: 'data:image/png;base64,UE5H' }] });
+    const service = new ImageAttachmentService();
+    vi.spyOn(service as TestableImageAttachmentService, 'downscaleToJpegDataUrl').mockRejectedValue(new Error('decode failed'));
+    await expect(service.pickImages()).rejects.toThrow(/image.*read|another photo/i);
+  });
+
+  it('treats picker cancellation as an unchanged selection', async () => {
+    vi.mocked(Camera.pickImages).mockRejectedValue(new Error('User cancelled photos app'));
+    await expect(new ImageAttachmentService().pickImages()).resolves.toEqual([]);
+  });
+
   it('converts image files from a paste event and prevents the browser text paste', async () => {
     const service = new ImageAttachmentService();
     vi.spyOn(service as TestableImageAttachmentService, 'downscaleToJpegDataUrl')

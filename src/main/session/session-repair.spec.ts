@@ -151,6 +151,24 @@ describe('validateTranscript', () => {
     );
   });
 
+  it('collapses a tool call saved from both the raw event and the visible message', () => {
+    const history = [
+      entry({ id: 'ask', role: 'user', content: 'go', timestamp: 1 }),
+      entry({ id: 'tool-call:c1', role: 'assistant', content: '', timestamp: 2, toolUse: { kind: 'call', toolName: 'view', callId: 'c1', input: {} } }),
+      entry({ id: 'msg-call', role: 'assistant', content: 'Viewing a.ts', timestamp: 3, toolUse: { kind: 'call', toolName: 'read', callId: 'c1', input: null } }),
+      entry({ id: 'msg-result', role: 'tool', content: 'body', timestamp: 4, toolUse: { kind: 'result', toolName: 'read', resultForCallId: 'c1', input: null, output: 'body' } }),
+      entry({ id: 'tool-result:c1:e1', role: 'tool', content: 'body', timestamp: 5, toolUse: { kind: 'result', toolName: 'view', resultForCallId: 'c1', input: null, output: 'body' } }),
+    ];
+
+    const result = validateTranscript(history);
+
+    expect(result.status).toBe('repaired');
+    expect(result.entries.map((e) => e.id)).toEqual(['ask', 'tool-call:c1', 'msg-result']);
+    expect(result.entries[1].content).toBe('Viewing a.ts');
+    expect(result.repairs).toEqual(expect.arrayContaining([expect.stringContaining('duplicate tool')]));
+    expect(validateTranscript(result.entries).status).toBe('ok');
+  });
+
   it('removes empty entries with no tool_use', () => {
     const history = [
       entry({ role: 'user', content: 'hello' }),

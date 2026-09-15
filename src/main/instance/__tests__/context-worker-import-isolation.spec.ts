@@ -64,7 +64,14 @@ const WORKER_ENTRY = resolve(SPEC_DIR, '../context-worker-main.ts');
 // auxiliary-model-client, auxiliary-remote-hooks, auxiliary-llm-utils) was
 // already in the closure via `auxiliary-llm-service.ts` — and the closure still
 // contains zero Electron value-importers.
-const CLOSURE_SIZE_CEILING = 145;
+// 2026-09-15: 146 after Claude/Codex account pools. `settings-defaults.ts`
+// value-imports `defaultProviderAccountPools()` from
+// `shared/types/provider-account.types.ts`, which value-imports
+// `isAutomaticCopilotOrigin` from `shared/types/copilot-account.types.ts`.
+// Diff-verified against a `git archive HEAD` copy: HEAD 144, working tree 146,
+// those two shared type leaves the only additions, no removals. Neither imports
+// Electron, and `copilot-account.types.ts` has no imports at all.
+const CLOSURE_SIZE_CEILING = 147;
 
 function resolveImport(spec: string, fromFile: string): string | null {
   if (!spec.startsWith('.')) return null; // bare module (electron, node:*, npm)

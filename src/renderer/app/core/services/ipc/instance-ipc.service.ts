@@ -39,6 +39,8 @@ export interface CreateInstanceConfig {
   copilotAccountProfileId?: string;
   /** The user confirmed an override that leaves a protected Copilot scope. */
   copilotConfirmProtectedOverride?: boolean;
+  /** Explicit Claude/Codex account-pool profile for this session (safe slug). */
+  accountProfileId?: string;
 
 }
 
@@ -63,6 +65,8 @@ export interface CreateInstanceWithMessageConfig {
   copilotAccountProfileId?: string;
   /** The user confirmed an override that leaves a protected Copilot scope. */
   copilotConfirmProtectedOverride?: boolean;
+  /** Explicit Claude/Codex account-pool profile for this session (safe slug). */
+  accountProfileId?: string;
 
   /** Stable per-submission key; a retry with the same key is deduplicated. */
   idempotencyKey?: string;

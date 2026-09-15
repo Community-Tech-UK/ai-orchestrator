@@ -23,6 +23,7 @@ import { UsageMonitorSource } from './usage-monitor-source';
 import { getCopilotAccountRoutingService } from '../../../providers/copilot/copilot-account-routing-service';
 import { resolveCopilotProfileHome } from '../../../cli/adapters/copilot/copilot-account-home-resolver';
 import { COPILOT_LEGACY_PROFILE_ID } from '../../../../shared/types/copilot-account.types';
+import { registerAccountQuotaProbes } from '../../../providers/account-pool/account-quota-probes';
 
 export { ClaudeUsageEndpointProbe, parseUsagePayload } from './claude-usage-endpoint-probe';
 export type {
@@ -210,4 +211,6 @@ export function registerDefaultQuotaProbes(): void {
   ));
   service.registerProbe(new CompositeQuotaProbe(new CursorUsageSummaryProbe(), usageMonitor));
   service.registerProbe(new CompositeQuotaProbe(new GrokBillingProbe(), usageMonitor));
+  // Claude/Codex account pools: one probe per non-legacy profile (D6/D7).
+  registerAccountQuotaProbes();
 }

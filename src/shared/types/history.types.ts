@@ -4,6 +4,7 @@
 
 import type { BrowserToolsMode, InstanceProvider, OutputMessage } from './instance.types';
 import type { CopilotRouteSource } from './copilot-account.types';
+import type { AccountRouteSource } from './provider-account.types';
 import type { InstanceRuntimeSummary } from './local-model-runtime.types';
 import type { SessionRecallResult } from './session-recall.types';
 import {
@@ -160,6 +161,14 @@ export interface ConversationHistoryEntry {
 
   /** How that profile was chosen, for display in history. */
   copilotRoutingSource?: CopilotRouteSource;
+
+  /**
+   * Claude/Codex account-pool profile the conversation last ran on. A native
+   * resume restores on it (the provider session lives in that account's
+   * store); a replay restore routes normally.
+   */
+  accountProfileId?: string;
+  accountRoutingSource?: AccountRouteSource;
 
   /** Where the instance ran (local or remote node) */
   executionLocation?: ExecutionLocation;

@@ -4,6 +4,7 @@
   "private": true,
   "description": "harness phone control app (Angular + Capacitor): connect to instances over Tailscale, read transcripts, send prompts, approve/deny, and get push alerts.",
   "scripts": {
+    "test:quiet": "node scripts/run-tests-quiet.cjs",
     "start": "ng serve",
     "build": "ng build",
     "lint": "npx eslint \"src/**/*.{ts,html}\"",

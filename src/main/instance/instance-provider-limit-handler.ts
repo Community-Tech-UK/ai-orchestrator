@@ -2,13 +2,18 @@ import type { InstanceProvider, InstanceWaitReason } from '../../shared/types/in
 import type { ProviderId, ProviderQuotaSnapshot } from '../../shared/types/provider-quota.types';
 import type { ProviderLimitLedger } from '../core/system/provider-limit-ledger';
 import { getLogger } from '../logging/logger';
+import type {
+  AccountFailoverCoordinator,
+  AccountFailoverParams,
+} from '../providers/account-pool/account-failover-coordinator';
+import { accountFailoverNote, type AccountFailoverNote } from './account-failover-notes';
+import { isPooledProvider } from '../../shared/types/provider-account.types';
 import {
   scheduleInstanceProviderLimitResume,
   type InstanceProviderLimitResumeRequest,
 } from './instance-provider-limit-resume-scheduler';
 
 const logger = getLogger('InstanceProviderLimitHandler');
-
 /**
  * Suppress a duplicate resume of the same instance within this window. The
  * durable automation and the in-process timer both fire ~5s after the reset;
@@ -25,6 +30,14 @@ const RESUME_DEDUPE_MS = 60_000;
  */
 export const EARLY_RESUME_PROBE_MS = 3 * 60_000;
 
+/**
+ * Account pools: a limit with no reset time from any source still benches the
+ * exhausted profile so failover skips it, clamped to an hour (research §3.2).
+ */
+export const ASSUMED_ACCOUNT_LIMIT_MS = 60 * 60_000;
+
+export type ProviderLimitTurnOutcome = 'parked' | 'already-parked' | 'skipped' | 'switching-account';
+
 export interface InstanceProviderLimitHandlerDeps {
   /** Feature gate — regular-session auto-resume is opt-in (default OFF). */
   isEnabled: () => boolean;
@@ -33,7 +46,7 @@ export interface InstanceProviderLimitHandlerDeps {
   /** Re-send the throttled user turn to the instance. */
   resendInput: (instanceId: string, prompt: string) => void;
   /** Live provider quota snapshot, used to derive the reset time. */
-  getQuotaSnapshot: (provider: ProviderId) => ProviderQuotaSnapshot | null;
+  getQuotaSnapshot: (provider: ProviderId, accountProfileId?: string | null) => ProviderQuotaSnapshot | null;
   /**
    * Fire-and-forget quota snapshot refresh, invoked when a park attempt finds
    * no reset hint from ANY source (structured error, text parse, telemetry,
@@ -47,16 +60,28 @@ export interface InstanceProviderLimitHandlerDeps {
    * Resolves the fresh snapshot, or null on failure. Wired to
    * ProviderQuotaService.refresh().
    */
-  probeQuotaSnapshot?: (provider: ProviderId) => Promise<ProviderQuotaSnapshot | null>;
+  probeQuotaSnapshot?: (provider: ProviderId, accountProfileId?: string | null) => Promise<ProviderQuotaSnapshot | null>;
   /** Durable cross-instance provider-limit cache. Injectable for focused tests. */
   providerLimitLedger?: Pick<ProviderLimitLedger, 'record' | 'getActive' | 'clearActive'>;
+  /**
+   * Account-pool failover (spec §8.2). Consulted after the ledger row is recorded for
+   * the exhausted profile and before `park()`: a switch leaves no park state.
+   */
+  accountFailover?: Pick<AccountFailoverCoordinator, 'plan' | 'perform' | 'offer' | 'shouldSwitchPreemptively' | 'release'>;
+  /** Transcript note when an attempted account switch could not happen. */
+  emitSystemMessage?: (instanceId: string, content: string, metadata: Record<string, unknown>) => void;
   /** Working directory for the instance (needed by the durable automation). */
   getWorkspaceCwd: (instanceId: string) => string | undefined;
   /**
    * Provider + resolved model for the instance, used to scope the ledger
    * user-override clear on resume/cancel. Null when the instance is gone.
    */
-  getProviderModel?: (instanceId: string) => { provider: InstanceProvider; model: string | null } | null;
+  getProviderModel?: (instanceId: string) => {
+    provider: InstanceProvider;
+    model: string | null;
+    /** Account-pool profile (legacy included) for Claude/Codex; null otherwise. */
+    accountProfileId?: string | null;
+  } | null;
   /**
    * Whether the instance is currently live and can accept a re-sent turn. Used
    * post-restart: when false, the durable automation falls through to its own
@@ -90,6 +115,11 @@ export interface MaybeParkParams {
   reason: string;
   /** The user turn to re-send on resume; null when unknown. */
   resumePrompt: string | null;
+  /**
+   * Account-pool profile the turn ran on (`legacy` for an unstamped
+   * Claude/Codex session); null/undefined for providers without pools.
+   */
+  accountProfileId?: string | null;
 }
 
 export type MaybeParkKnownParams = Omit<MaybeParkParams, 'resetAtHint'>;
@@ -116,6 +146,8 @@ export class InstanceProviderLimitHandler {
   private deps: InstanceProviderLimitHandlerDeps | null = null;
   private readonly parked = new Map<string, ParkEntry>();
   private readonly lastResumeAt = new Map<string, number>();
+  /** Instances whose next send must not attempt another pre-emptive switch. */
+  private readonly skipPreemptiveOnce = new Set<string>();
 
   configure(deps: InstanceProviderLimitHandlerDeps): void {
     this.deps = deps;
@@ -131,7 +163,7 @@ export class InstanceProviderLimitHandler {
    * quota-park gate) can acknowledge it without duplicating the park message
    * or touching status.
    */
-  maybePark(params: MaybeParkParams): 'parked' | 'already-parked' | 'skipped' {
+  maybePark(params: MaybeParkParams): ProviderLimitTurnOutcome {
     const deps = this.deps;
     if (!deps) return 'skipped';
     if (this.parked.has(params.instanceId)) return 'already-parked';
@@ -140,29 +172,56 @@ export class InstanceProviderLimitHandler {
     if (!providerId) return 'skipped';
 
     const now = Date.now();
+    const accountProfileId = params.accountProfileId ?? null;
     const resetAtHint = typeof params.resetAtHint === 'number' && params.resetAtHint > now
       ? params.resetAtHint
       : null;
     const knownLimit = deps.providerLimitLedger?.getActive({
       provider: providerId,
       model: params.model ?? null,
+      accountProfileId,
       now,
     }) ?? null;
     const snapshotResumeAt = this.deriveResumeFromSnapshot(
-      deps.getQuotaSnapshot(providerId),
+      deps.getQuotaSnapshot(providerId, accountProfileId),
     );
     const detectedResumeAt = resetAtHint ?? snapshotResumeAt;
     const resumeAt = detectedResumeAt ?? knownLimit?.resumeAt ?? null;
+
+    const failoverParams = this.failoverParams(params, accountProfileId, resumeAt);
+    const failoverPlan = failoverParams ? deps.accountFailover?.plan(failoverParams) : undefined;
+    const pooled = failoverPlan !== undefined && !(failoverPlan.kind === 'none' && failoverPlan.reason === 'no-pool');
 
     if (detectedResumeAt !== null) {
       deps.providerLimitLedger?.record({
         provider: providerId,
         model: params.model ?? null,
+        accountProfileId,
         detectedAt: now,
         resumeAt: detectedResumeAt,
         source: resetAtHint !== null ? 'provider-limit-signal' : 'quota-snapshot',
         instanceId: params.instanceId,
       });
+    } else if (pooled && knownLimit === null) {
+      deps.providerLimitLedger?.record({
+        provider: providerId,
+        model: params.model ?? null,
+        accountProfileId,
+        detectedAt: now,
+        resumeAt: now + ASSUMED_ACCOUNT_LIMIT_MS,
+        source: 'provider-limit-assumed',
+        instanceId: params.instanceId,
+      });
+    }
+
+    if (failoverParams && failoverPlan?.kind === 'switch') {
+      this.startAccountFailover(failoverParams, params, providerId, resumeAt);
+      return 'switching-account';
+    }
+    if (failoverParams && failoverPlan?.kind === 'offer') {
+      const parked = resumeAt === null ? 'skipped' : this.park(params, providerId, resumeAt);
+      deps.accountFailover?.offer(failoverParams, failoverPlan.toProfileId);
+      return parked;
     }
 
     if (resumeAt === null) {
@@ -181,28 +240,121 @@ export class InstanceProviderLimitHandler {
    * Unlike {@link maybePark}, a miss is intentionally silent: preflight runs
    * for every send, so it must not start a quota probe or write another row.
    */
-  maybeParkKnown(params: MaybeParkKnownParams): 'parked' | 'already-parked' | 'skipped' {
+  maybeParkKnown(params: MaybeParkKnownParams): ProviderLimitTurnOutcome {
     const deps = this.deps;
     if (!deps) return 'skipped';
     if (this.parked.has(params.instanceId)) return 'already-parked';
 
     const providerId = toProviderId(params.provider);
     if (!providerId) return 'skipped';
+    const accountProfileId = params.accountProfileId ?? null;
     const knownLimit = deps.providerLimitLedger?.getActive({
       provider: providerId,
       model: params.model ?? null,
+      accountProfileId,
       now: Date.now(),
     }) ?? null;
-    if (!knownLimit) return 'skipped';
+    if (!knownLimit) return this.maybeSwitchPreemptively(params, providerId, accountProfileId);
 
-    return this.park(params, providerId, knownLimit.resumeAt);
+    // This session's account is known-limited but another account of the pool
+    // may not be: switch before sending instead of holding the turn.
+    const failoverParams = this.failoverParams(params, accountProfileId, knownLimit.resumeAt);
+    const plan = failoverParams ? deps.accountFailover?.plan(failoverParams) : undefined;
+    if (failoverParams && plan?.kind === 'switch') {
+      this.startAccountFailover(failoverParams, params, providerId, knownLimit.resumeAt);
+      return 'switching-account';
+    }
+    const parked = this.park(params, providerId, knownLimit.resumeAt);
+    if (failoverParams && plan?.kind === 'offer') deps.accountFailover?.offer(failoverParams, plan.toProfileId);
+    return parked;
+  }
+
+  /** Spec §8.4: move a live session at a turn boundary before its account runs out. */
+  private maybeSwitchPreemptively(
+    params: MaybeParkKnownParams,
+    providerId: ProviderId,
+    accountProfileId: string | null,
+  ): ProviderLimitTurnOutcome {
+    if (this.skipPreemptiveOnce.delete(params.instanceId)) return 'skipped';
+    const failoverParams = this.failoverParams(params, accountProfileId, null);
+    const coordinator = this.deps?.accountFailover;
+    if (!failoverParams || !coordinator) return 'skipped';
+    const preemptive = { ...failoverParams, handoffKind: 'preemptive' as const, reason: 'approaching usage limit' };
+    if (!coordinator.shouldSwitchPreemptively(preemptive)) return 'skipped';
+    // Unlike a rejection there is nothing to park on if the switch cannot run:
+    // the turn is simply sent on the current account afterwards.
+    const sendOnCurrentAccount = (): void => {
+      if (!params.resumePrompt) return;
+      this.skipPreemptiveOnce.add(params.instanceId);
+      this.deps?.resendInput(params.instanceId, params.resumePrompt);
+    };
+    void coordinator.perform(preemptive).then((outcome) => {
+      if (outcome.outcome === 'not-switched' || outcome.outcome === 'offered') sendOnCurrentAccount();
+      if (outcome.outcome === 'already-moved') this.emitFailoverNote(params.instanceId, accountFailoverNote(outcome, false));
+    }).catch(sendOnCurrentAccount);
+    logger.info('Switching a live session to another account before it reaches its limit', {
+      instanceId: params.instanceId,
+      provider: providerId,
+      fromAccountProfileId: accountProfileId,
+    });
+    return 'switching-account';
+  }
+
+  private failoverParams(
+    params: MaybeParkKnownParams,
+    accountProfileId: string | null,
+    resumeAt: number | null,
+  ): AccountFailoverParams | null {
+    if (!accountProfileId || !isPooledProvider(params.provider)) return null;
+    return {
+      instanceId: params.instanceId,
+      provider: params.provider,
+      model: params.model ?? null,
+      exhaustedProfileId: accountProfileId,
+      resumeAt,
+      resumePrompt: params.resumePrompt,
+      reason: params.reason,
+    };
+  }
+
+  /**
+   * Run the async switch. When it cannot happen, fall back to exactly what the
+   * funnel would have done without pools: park until the reset when possible,
+   * and otherwise tell the user in the transcript.
+   */
+  private startAccountFailover(
+    failoverParams: AccountFailoverParams,
+    params: MaybeParkKnownParams,
+    providerId: ProviderId,
+    resumeAt: number | null,
+  ): void {
+    const coordinator = this.deps?.accountFailover;
+    if (!coordinator) return;
+    void coordinator.perform(failoverParams)
+      .then((outcome) => {
+        // `offered` can arrive here when the pool switched to asking while this waited for the lock.
+        const waits = outcome.outcome === 'not-switched' || outcome.outcome === 'offered';
+        const parked = waits && resumeAt !== null && !this.parked.has(params.instanceId)
+          && this.park(params, providerId, resumeAt) === 'parked';
+        this.emitFailoverNote(params.instanceId, accountFailoverNote(outcome, parked));
+      })
+      .catch((error: unknown) => {
+        logger.warn('Account failover failed unexpectedly', {
+          instanceId: params.instanceId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+  }
+
+  private emitFailoverNote(instanceId: string, note: AccountFailoverNote | null): void {
+    if (note) this.deps?.emitSystemMessage?.(instanceId, note.content, note.metadata);
   }
 
   private park(
     params: MaybeParkKnownParams,
     providerId: ProviderId,
     resumeAt: number,
-  ): 'parked' | 'already-parked' | 'skipped' {
+  ): ProviderLimitTurnOutcome {
     const deps = this.deps;
     if (!deps || !deps.isEnabled()) return 'skipped';
 
@@ -239,7 +391,7 @@ export class InstanceProviderLimitHandler {
     this.parked.set(params.instanceId, {
       cancel,
       resumePrompt: params.resumePrompt,
-      stopEarlyResumeProbe: this.startEarlyResumeProbe(params.instanceId, providerId, resumeAt),
+      stopEarlyResumeProbe: this.startEarlyResumeProbe(params.instanceId, providerId, resumeAt, params.accountProfileId ?? null),
     });
     logger.info('Parked regular session on provider limit; will auto-resume at window reset', {
       instanceId: params.instanceId,
@@ -377,6 +529,8 @@ export class InstanceProviderLimitHandler {
     const entry = this.parked.get(instanceId);
     this.parked.delete(instanceId);
     this.lastResumeAt.delete(instanceId);
+    this.skipPreemptiveOnce.delete(instanceId);
+    this.deps?.accountFailover?.release(instanceId);
     if (!entry) return;
     entry.stopEarlyResumeProbe();
     if (!opts?.preserveDurableResume) {
@@ -407,7 +561,11 @@ export class InstanceProviderLimitHandler {
     const providerId = toProviderId(info.provider);
     if (!providerId) return;
 
-    const cleared = ledger.clearActive({ provider: providerId, model: info.model });
+    const cleared = ledger.clearActive({
+      provider: providerId,
+      model: info.model,
+      accountProfileId: info.accountProfileId ?? null,
+    });
     if (cleared > 0) {
       logger.info('Cleared active provider-limit gate (user override)', {
         instanceId,
@@ -434,6 +592,7 @@ export class InstanceProviderLimitHandler {
     instanceId: string,
     providerId: ProviderId,
     resumeAt: number,
+    accountProfileId: string | null,
   ): () => void {
     const probe = this.deps?.probeQuotaSnapshot;
     if (!probe) return () => {};
@@ -443,7 +602,7 @@ export class InstanceProviderLimitHandler {
       if (!this.parked.has(instanceId) || inFlight) return;
       if (resumeAt - Date.now() < 60_000) return; // scheduled resume is about to fire anyway
       inFlight = true;
-      void probe(providerId)
+      void probe(providerId, accountProfileId)
         .then((snapshot) => {
           if (!this.parked.has(instanceId) || !snapshotShowsLimitLifted(snapshot)) return;
           logger.info('Provider limit lifted early per fresh quota probe; resuming parked session now', {
@@ -496,6 +655,7 @@ export class InstanceProviderLimitHandler {
     }
     this.parked.clear();
     this.lastResumeAt.clear();
+    this.skipPreemptiveOnce.clear();
     this.deps = null;
   }
 }

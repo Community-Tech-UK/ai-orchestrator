@@ -55,6 +55,44 @@ describe('CodexHomeManager', () => {
     }
   });
 
+  it('links auth.json from the account profile home instead of ~/.codex', () => {
+    const home = join(tmpdir(), `codex-home-profile-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    tempRoots.push(home);
+    const codexDir = join(home, '.codex');
+    const profileHome = join(home, 'profile');
+    mkdirSync(codexDir, { recursive: true });
+    mkdirSync(profileHome, { recursive: true });
+    writeFileSync(join(codexDir, 'auth.json'), '{"auth_mode":"legacy-account"}', 'utf-8');
+    writeFileSync(join(codexDir, 'config.toml'), 'model = "gpt-5.3-codex"\n', 'utf-8');
+    writeFileSync(join(profileHome, 'auth.json'), '{"auth_mode":"profile-account"}', 'utf-8');
+    process.env['HOME'] = home;
+
+    for (const prepare of ['prepareSessionIsolatedHome', 'prepareMcpFreeHome'] as const) {
+      const manager = new CodexHomeManager({ authSourceDir: profileHome });
+      const generated = manager[prepare]();
+      expect(generated).toBeTruthy();
+      expect(readFileSync(join(generated!, 'auth.json'), 'utf-8')).toContain('profile-account');
+      expect(existsSync(join(generated!, 'config.toml'))).toBe(true);
+      manager.cleanup();
+    }
+  });
+
+  it('leaves no auth.json rather than falling back to ~/.codex when the profile is not signed in', () => {
+    const home = join(tmpdir(), `codex-home-profile-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    tempRoots.push(home);
+    const codexDir = join(home, '.codex');
+    const profileHome = join(home, 'profile');
+    mkdirSync(codexDir, { recursive: true });
+    mkdirSync(profileHome, { recursive: true });
+    writeFileSync(join(codexDir, 'auth.json'), '{"auth_mode":"legacy-account"}', 'utf-8');
+    process.env['HOME'] = home;
+
+    const manager = new CodexHomeManager({ authSourceDir: profileHome });
+    const generated = manager.prepareSessionIsolatedHome();
+    expect(existsSync(join(generated!, 'auth.json'))).toBe(false);
+    manager.cleanup();
+  });
+
   it('creates a temporary CODEX_HOME with only the injected Browser Gateway MCP config', () => {
     const home = join(tmpdir(), `codex-home-manager-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     tempRoots.push(home);

@@ -12,6 +12,8 @@ import { toOutputMessageFromProviderOutputEvent } from '../main/providers/provid
 import type { WorkerBrowserManager } from './worker-browser-manager';
 import type { WorkerAndroidManager, WorkerAndroidAttach } from './android/worker-android-manager';
 import type { NodePlacementPrefs } from '../shared/types/worker-node.types';
+import type { ResolvedAccountRoute } from '../shared/types/provider-account.types';
+import { materializeWorkerAccountRoute, type WorkerAccountRouteParams } from './worker-account-route';
 
 const ACTIVITY_WATCHDOG_INTERVAL_MS = 5_000;
 type MobileMcpSpawnAttach = Omit<WorkerAndroidAttach, 'mobileMcpVersion'> & { version?: string };
@@ -44,6 +46,8 @@ export interface SpawnParams {
     host?: string;
     source?: string;
   };
+  /** Claude Code / Codex account pool routing (D10). Safe metadata only, like `copilotAccountRoute`. */
+  accountRoute?: WorkerAccountRouteParams;
 }
 
 type WorkerManagedAdapter = EventEmitter & {
@@ -329,6 +333,12 @@ export class LocalInstanceManager extends EventEmitter {
       if (params.cliType === 'copilot' && params.copilotAccountRoute) {
         await this.assertCopilotBinding(params.copilotAccountRoute);
       }
+      // Same rule for Claude/Codex account pools: verify this node's sign-in for
+      // the profile, then run under a route re-materialised for this node.
+      const accountRoute: ResolvedAccountRoute | null = params.accountRoute
+        ? await materializeWorkerAccountRoute(params.cliType, params.accountRoute)
+        : null;
+      this.assertSpawnNotShuttingDown(params.instanceId);
       const adapter: WorkerManagedAdapter = createCliAdapter(params.cliType, {
         sessionId: params.instanceId,
         workingDirectory: params.workingDirectory,
@@ -356,6 +366,7 @@ export class LocalInstanceManager extends EventEmitter {
               },
             }
           : {}),
+        ...(accountRoute ? { accountRoute } : {}),
         ...(chromeDevtoolsMcp ? { chromeDevtoolsMcp } : {}),
         ...(mobileMcp ? { mobileMcp } : {}),
       });

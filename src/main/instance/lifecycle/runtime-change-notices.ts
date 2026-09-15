@@ -26,7 +26,8 @@ export type RuntimeChangeNoticeKind =
   | 'yolo-mode-changed'
   | 'provider-changed'
   | 'model-changed'
-  | 'copilot-account-changed';
+  | 'copilot-account-changed'
+  | 'account-changed';
 
 const PROVIDER_DEFAULT = 'provider default';
 
@@ -97,6 +98,22 @@ export function copilotAccountChangeNoticeText(params: {
   );
 }
 
+/**
+ * Transcript note for a Claude/Codex account-pool handoff (spec §8.2 step 5):
+ * `Account switched: <from> → <to> (<reason>)`. Labels only, never an identity.
+ */
+export function accountChangeNoticeText(params: {
+  oldProfileLabel: string | undefined;
+  newProfileLabel: string | undefined;
+  reason: string;
+}): string {
+  return (
+    `[System: Account switched: ${params.oldProfileLabel ?? 'previous account'} → `
+    + `${params.newProfileLabel ?? 'another account'} (${params.reason}). `
+    + 'The same conversation continues on the new account.]'
+  );
+}
+
 /** One notice to deliver and render. */
 export interface RuntimeChangeNotice {
   text: string;
@@ -126,17 +143,28 @@ export function runtimeChangeNoticesFor(params: {
     oldProfileLabel: string | undefined;
     newProfileLabel: string | undefined;
   };
+  /** Set on a Claude/Codex account-pool handoff. */
+  accountChange?: {
+    oldProfileLabel: string | undefined;
+    newProfileLabel: string | undefined;
+    reason: string;
+  };
 }): RuntimeChangeNotice[] {
   const yolo: RuntimeChangeNotice = {
     text: yoloNoticeText(params.nextYoloMode),
     kind: 'yolo-mode-changed',
   };
-  const accountNotices: RuntimeChangeNotice[] = params.copilotAccountChange
-    ? [{
-        text: copilotAccountChangeNoticeText(params.copilotAccountChange),
-        kind: 'copilot-account-changed',
-      }]
-    : [];
+  const accountNotices: RuntimeChangeNotice[] = [
+    ...(params.copilotAccountChange
+      ? [{
+          text: copilotAccountChangeNoticeText(params.copilotAccountChange),
+          kind: 'copilot-account-changed' as const,
+        }]
+      : []),
+    ...(params.accountChange
+      ? [{ text: accountChangeNoticeText(params.accountChange), kind: 'account-changed' as const }]
+      : []),
+  ];
   // An account handoff that changes nothing else still has to be announced —
   // otherwise the only visible signal that a conversation crossed GitHub seats
   // would be absent from the transcript entirely.

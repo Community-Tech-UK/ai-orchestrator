@@ -1,6 +1,7 @@
 import type { Instance } from '../../shared/types/instance.types';
 import type { CommunicationDependencies } from './instance-communication.types';
 import { getInstanceProviderLimitHandler } from './instance-provider-limit-handler';
+import { currentAccountProfileId } from '../providers/account-pool/account-failover-coordinator';
 
 /** Builds the regular-session provider-limit callbacks for InstanceManager. */
 export function createProviderLimitCommunicationCallbacks(
@@ -17,15 +18,19 @@ export function createProviderLimitCommunicationCallbacks(
         resetAtHint: params.resetAtHint,
         reason: params.reason,
         resumePrompt: params.resumePrompt,
+        accountProfileId: currentAccountProfileId(instance),
       });
     },
-    checkKnownProviderLimitBeforeSend: (params) =>
-      getInstanceProviderLimitHandler().maybeParkKnown({
+    checkKnownProviderLimitBeforeSend: (params) => {
+      const instance = getInstance(params.instanceId);
+      return getInstanceProviderLimitHandler().maybeParkKnown({
         instanceId: params.instanceId,
         provider: params.provider,
         model: params.model,
         reason: 'Known active provider limit; holding the turn until the provider reset time',
         resumePrompt: params.prompt,
-      }),
+        accountProfileId: instance ? currentAccountProfileId(instance) : null,
+      });
+    },
   };
 }

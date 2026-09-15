@@ -123,6 +123,12 @@ const WorkerNodeCapabilitiesSchema = z.object({
     mobileMcpVersion: z.string().optional(),
   }).optional(),
   hasDocker: z.boolean(),
+  // A placement hint only: a malformed advertisement is dropped rather than
+  // rejecting the whole heartbeat (and with it the node's liveness update).
+  accountProfileIds: z.object({
+    claude: z.array(z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/)).max(16).optional(),
+    codex: z.array(z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/)).max(16).optional(),
+  }).optional().catch(undefined),
   maxConcurrentInstances: z.number().int().positive(),
   workingDirectories: z.array(z.string()),
   browsableRoots: z.array(z.string()).default([]),
@@ -248,6 +254,17 @@ export const InstanceSpawnParamsSchema = z.object({
     profileId: z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/),
     expectedLogin: z.string().max(64).nullable().optional(),
     host: z.string().max(253).optional(),
+    source: z.string().max(32).optional(),
+  }).optional(),
+  /**
+   * Claude Code / Codex account pool routing (decision D10). Same contract as
+   * `copilotAccountRoute`: safe metadata only, the worker verifies its own
+   * binding for the profile before spawning.
+   */
+  accountRoute: z.object({
+    provider: z.enum(['claude', 'codex']),
+    profileId: z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/),
+    expectedIdentity: z.string().max(320).nullable().optional(),
     source: z.string().max(32).optional(),
   }).optional(),
 });

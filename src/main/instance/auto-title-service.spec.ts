@@ -145,6 +145,96 @@ describe('AutoTitleService', () => {
     expect(mockCreateAdapter).not.toHaveBeenCalled();
   });
 
+  describe('retryTitleUpgradeIfPending', () => {
+    it('is a no-op when nothing is pending (Phase 2 never ran for this instance)', async () => {
+      const applyTitle = vi.fn();
+      await AutoTitleService.getInstance().retryTitleUpgradeIfPending('instance-never-titled', applyTitle);
+      expect(applyTitle).not.toHaveBeenCalled();
+      expect(mockCreateAdapter).not.toHaveBeenCalled();
+    });
+
+    it('is a no-op once Phase 2 already produced an AI title — never replaces one AI title with another', async () => {
+      mockIsCliAvailable.mockResolvedValue({ installed: true });
+      mockResolveCliType.mockResolvedValue('claude');
+
+      await AutoTitleService.getInstance().maybeGenerateTitle(
+        'instance-1',
+        'Investigate the broken deployment and summarize the fix.',
+        vi.fn(),
+        false,
+      );
+      expect(mockSendMessage).toHaveBeenCalledTimes(1);
+
+      const retryApplyTitle = vi.fn();
+      await AutoTitleService.getInstance().retryTitleUpgradeIfPending('instance-1', retryApplyTitle);
+
+      // No pending entry was queued because Phase 2 already succeeded — no
+      // second CLI call, no second title.
+      expect(mockSendMessage).toHaveBeenCalledTimes(1);
+      expect(retryApplyTitle).not.toHaveBeenCalled();
+    });
+
+    it('gives one more chance, titled from the ORIGINAL first message, when a fast CLI becomes available later', async () => {
+      // First attempt: no CLI available — Phase 2 is abandoned and queues a retry.
+      mockIsCliAvailable.mockResolvedValue({ installed: false });
+      const firstApplyTitle = vi.fn();
+      await AutoTitleService.getInstance().maybeGenerateTitle(
+        'instance-1',
+        'Investigate the broken deployment and summarize the fix.',
+        firstApplyTitle,
+        false,
+      );
+      expect(firstApplyTitle).toHaveBeenCalledWith(
+        'instance-1',
+        'Investigate the broken deployment and summarize the fix.',
+        'instant',
+      );
+      expect(mockCreateAdapter).not.toHaveBeenCalled();
+
+      // A fast CLI is now available (e.g. the user finished installing it, or
+      // the earlier probe was a transient blip). The user sends a genuinely
+      // new second message — this is the retry trigger point.
+      mockIsCliAvailable.mockResolvedValue({ installed: true });
+      mockResolveCliType.mockResolvedValue('claude');
+      mockSendMessage.mockResolvedValue({ content: 'Broken deployment fix' });
+
+      const retryApplyTitle = vi.fn();
+      await AutoTitleService.getInstance().retryTitleUpgradeIfPending('instance-1', retryApplyTitle);
+
+      expect(retryApplyTitle).toHaveBeenCalledWith('instance-1', 'Broken deployment fix', 'ai');
+      // The retry summarized the ORIGINAL first message, not anything from the
+      // second (current) message — retryTitleUpgradeIfPending takes no message
+      // argument, so this is enforced by the API shape itself.
+      expect(mockSendMessage).toHaveBeenCalledWith(expect.objectContaining({
+        content: expect.stringContaining('Investigate the broken deployment and summarize the fix.'),
+      }));
+    });
+
+    it('only retries once — a second failure does not requeue itself', async () => {
+      mockIsCliAvailable.mockResolvedValue({ installed: false });
+      await AutoTitleService.getInstance().maybeGenerateTitle(
+        'instance-1',
+        'Investigate the broken deployment and summarize the fix.',
+        vi.fn(),
+        false,
+      );
+
+      // Retry attempt also fails (still no CLI).
+      const firstRetryApplyTitle = vi.fn();
+      await AutoTitleService.getInstance().retryTitleUpgradeIfPending('instance-1', firstRetryApplyTitle);
+      expect(firstRetryApplyTitle).not.toHaveBeenCalled();
+
+      // CLI becomes available afterwards, but the single retry was already
+      // consumed — a third opportunity must not appear from nowhere.
+      mockIsCliAvailable.mockResolvedValue({ installed: true });
+      mockResolveCliType.mockResolvedValue('claude');
+      const secondRetryApplyTitle = vi.fn();
+      await AutoTitleService.getInstance().retryTitleUpgradeIfPending('instance-1', secondRetryApplyTitle);
+      expect(secondRetryApplyTitle).not.toHaveBeenCalled();
+      expect(mockCreateAdapter).not.toHaveBeenCalled();
+    });
+  });
+
   it('fails locally without probing a paid CLI when auxiliary acquisition or authorization throws', async () => {
     mockAuxGenerate.mockRejectedValue(new Error('authorization unavailable'));
 
@@ -400,6 +490,25 @@ describe('AutoTitleService', () => {
     );
 
     expect(applyTitle).toHaveBeenCalledWith('instance-1', 'loopfixex.md', 'instant');
+  });
+
+  it('skips a pasted session ID on its own line and titles from the real message', async () => {
+    mockIsCliAvailable.mockResolvedValue({ installed: false });
+
+    const applyTitle = vi.fn();
+
+    await AutoTitleService.getInstance().maybeGenerateTitle(
+      'instance-1',
+      '1ed2be54-1026-428c-a407-9a52c835759b\nWhere has all your text gone, I just see my messages to you',
+      applyTitle,
+      false,
+    );
+
+    expect(applyTitle).toHaveBeenCalledWith(
+      'instance-1',
+      'Where has all your text gone, I just see my messages to you',
+      'instant',
+    );
   });
 
   it('does not force the filename into an already-distinctive title', async () => {

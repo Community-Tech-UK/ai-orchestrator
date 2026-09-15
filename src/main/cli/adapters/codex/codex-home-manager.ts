@@ -48,8 +48,20 @@ export function getAioCodexSessionsDir(): string {
  * redirected to the persistent AIO store, and optionally with MCP server
  * config removed (exec-mode startup should not load user MCP tools).
  */
+export interface CodexHomeManagerOptions {
+  /**
+   * Account-pool profile home. When set, the prepared home links
+   * `<authSourceDir>/auth.json` instead of `~/.codex/auth.json`, so the Codex
+   * child signs in as that profile. Config, MCP OAuth (`.credentials.json`) and
+   * everything else still come from `~/.codex`.
+   */
+  authSourceDir?: string;
+}
+
 export class CodexHomeManager {
   private codexHomeDir?: string;
+
+  constructor(private readonly options: CodexHomeManagerOptions = {}) {}
 
   /**
    * Session-isolated home with user MCP servers stripped from config.toml.
@@ -82,6 +94,7 @@ export class CodexHomeManager {
       if (existsSync(codexDir)) {
         this.symlinkCodexHomeEntries(codexDir, tempDir, { includeConfig: !stripConfig });
       }
+      this.linkProfileAuth(tempDir);
       if (stripConfig) {
         writeFileSync(join(tempDir, 'config.toml'), stripMcpServers(configContent), 'utf-8');
       }
@@ -111,6 +124,7 @@ export class CodexHomeManager {
       if (existsSync(codexDir)) {
         this.symlinkCodexHomeEntries(codexDir, tempDir);
       }
+      this.linkProfileAuth(tempDir);
 
       const configPath = join(codexDir, 'config.toml');
       const baseConfig = existsSync(configPath)
@@ -161,6 +175,8 @@ export class CodexHomeManager {
     ];
     for (const entry of readdirSync(codexDir)) {
       if (entry === 'config.toml' && !opts.includeConfig) continue;
+      // A profile-routed home takes its sign-in from the profile (linkProfileAuth).
+      if (entry === 'auth.json' && this.options.authSourceDir) continue;
       // Session history is redirected to the AIO store (linkSessionStore),
       // never shared with the user's ~/.codex.
       if (isolatedArtifacts.includes(entry)) continue;
@@ -188,6 +204,33 @@ export class CodexHomeManager {
         } else {
           logger.debug('Could not symlink codex entry (dir, not copied)', { entry });
         }
+      }
+    }
+  }
+
+  /**
+   * Links the account-pool profile's `auth.json` into the prepared home. A
+   * missing profile sign-in leaves no `auth.json` at all rather than falling
+   * back to `~/.codex`: running as the wrong account is worse than a clear
+   * "not signed in" from Codex.
+   */
+  private linkProfileAuth(tempDir: string): void {
+    const authSourceDir = this.options.authSourceDir;
+    if (!authSourceDir) return;
+    const source = join(authSourceDir, 'auth.json');
+    if (!existsSync(source)) {
+      logger.warn('Codex account profile has no sign-in; the session will start unauthenticated');
+      return;
+    }
+    const target = join(tempDir, 'auth.json');
+    try {
+      symlinkSync(source, target, 'file');
+    } catch {
+      // Same Windows EPERM fallback as symlinkCodexHomeEntries.
+      try {
+        copyFileSync(source, target);
+      } catch {
+        logger.warn('Could not link the Codex account profile sign-in into the session home');
       }
     }
   }

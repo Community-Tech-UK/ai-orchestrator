@@ -30,7 +30,13 @@ export class ImageAttachmentService {
     if (!this.available) {
       return [];
     }
-    const result = await Camera.pickImages({ quality: 90, limit: MAX_PICK });
+    let result: Awaited<ReturnType<typeof Camera.pickImages>>;
+    try {
+      result = await Camera.pickImages({ quality: 90, limit: MAX_PICK });
+    } catch (error) {
+      if (/cancel/i.test(error instanceof Error ? error.message : String(error))) return [];
+      throw new Error('Photos could not be opened. Allow photo access in device Settings, then try again.');
+    }
     const out: MobileAttachmentDto[] = [];
     for (let i = 0; i < result.photos.length; i++) {
       const dto = await this.toAttachment(result.photos[i].webPath, i);
@@ -52,7 +58,7 @@ export class ImageAttachmentService {
       }
       return await this.dataUrlToAttachment(result.value, `clipboard-${Date.now()}.jpg`);
     } catch {
-      return null;
+      throw new Error('The image could not be pasted. Allow paste access when asked, or use the photo picker.');
     }
   }
 
@@ -74,13 +80,13 @@ export class ImageAttachmentService {
 
   private async toAttachment(webPath: string | undefined, index: number): Promise<MobileAttachmentDto | null> {
     if (!webPath) {
-      return null;
+      throw new Error('This image could not be read. Try another photo.');
     }
     try {
       const blob = await (await fetch(webPath)).blob();
       return await this.blobToAttachment(blob, `photo-${Date.now()}-${index + 1}.jpg`);
     } catch {
-      return null;
+      throw new Error('This image could not be read. Try another photo.');
     }
   }
 
@@ -89,7 +95,7 @@ export class ImageAttachmentService {
       const blob = await (await fetch(dataUrl)).blob();
       return await this.blobToAttachment(blob, name);
     } catch {
-      return null;
+      throw new Error('This image could not be read. Try another photo.');
     }
   }
 
@@ -104,7 +110,7 @@ export class ImageAttachmentService {
         data,
       };
     } catch {
-      return null;
+      throw new Error('This image could not be read. Try another photo.');
     }
   }
 

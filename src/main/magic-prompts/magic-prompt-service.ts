@@ -18,7 +18,7 @@ import { isProviderNotice } from '../cli/provider-notice';
 import { resolveModelForTier } from '../../shared/types/provider.types';
 import { getLogger } from '../logging/logger';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
-import { attachCopilotRoute } from '../instance/lifecycle/copilot-route-preflight';
+import { attachProviderRoutes } from '../instance/lifecycle/provider-route-preflight';
 import {
   filterProvidersForAutomation,
   isProviderExcludedFromAutomation,
@@ -139,7 +139,7 @@ export class MagicPromptService {
     // behalf, so they carry the `internal` automatic origin.
     const adapter = this.deps.createAdapter(
       cliType,
-      await attachCopilotRoute(
+      await attachProviderRoutes(
         cliType,
         {
           workingDirectory: input.workingDirectory ?? process.cwd(),

@@ -108,6 +108,8 @@ export function buildInstanceRecord(
     ...(config.copilotAccountProfileId
       ? { copilotAccountProfileId: config.copilotAccountProfileId }
       : {}),
+    // Account-pool seed; `stampAccountRouteOnInstance` records the resolved value.
+    ...(config.accountProfileId ? { accountProfileId: config.accountProfileId } : {}),
     // WS7 Phase B: per-instance override wins; else seed from the global list.
     ...((config.failoverProviders ?? options.defaultFailoverProviders)?.length
       ? { failoverProviders: config.failoverProviders ?? options.defaultFailoverProviders }

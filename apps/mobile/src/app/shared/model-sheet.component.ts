@@ -18,22 +18,22 @@ interface ModelGroup {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [MobileIconComponent, MobileSheetComponent],
   template: `
-    <app-mobile-sheet label="Model picker" (dismiss)="dismiss.emit()">
+    <app-mobile-sheet [returnFocusTo]="returnFocusTo()" label="Model and reasoning" closeLabel="Done" [dismissible]="!saving()" (dismiss)="dismiss.emit()">
       <header class="model-heading">
         <div>
           <span class="model-eyebrow">{{ provider() || 'Session' }}</span>
-          <h2>Choose model</h2>
+          <p class="model-current">Current model: <strong>{{ selectedLabel() }}</strong></p>
           @if (error()) {
             <p class="model-error" role="alert">{{ error() }}</p>
+            <button class="model-fold" type="button" (click)="retry.emit()" [disabled]="saving()">{{ retryLabel() }}</button>
           }
         </div>
-        <button class="model-close" type="button" (click)="dismiss.emit()" aria-label="Close model picker">
-          <app-mobile-icon name="close" />
-        </button>
       </header>
 
+      @if (saving()) { <p class="model-state" role="status">Changing model…</p> }
+
       @if (includeDefault()) {
-        <button class="model-row" type="button" [class.model-row--selected]="selected() === undefined" (click)="choose.emit(undefined)">
+        <button class="model-row" type="button" [class.model-row--selected]="selected() === undefined" [attr.aria-pressed]="selected() === undefined" [disabled]="saving()" (click)="choose.emit(undefined)">
           <span>
             <strong>Default</strong>
             <small>Use the provider's default model</small>
@@ -49,6 +49,8 @@ interface ModelGroup {
             class="model-row"
             type="button"
             [class.model-row--selected]="reasoningSelected(option)"
+            [attr.aria-pressed]="reasoningSelected(option)"
+            [disabled]="saving()"
             (click)="chooseReasoning.emit(option.id === 'default' ? undefined : option.id)"
           >
             <span>
@@ -66,7 +68,7 @@ interface ModelGroup {
         @if (pinned().length > 0) {
           <span class="model-section">Latest</span>
           @for (model of pinned(); track model.id) {
-            <button class="model-row" type="button" [class.model-row--selected]="selected() === model.id" (click)="choose.emit(model.id)">
+            <button class="model-row" type="button" [class.model-row--selected]="selected() === model.id" [attr.aria-pressed]="selected() === model.id" [disabled]="saving()" (click)="choose.emit(model.id)">
               <span><strong>{{ model.name }}</strong><small>{{ model.id }}</small></span>
               @if (selected() === model.id) { <app-mobile-icon name="check" /> }
             </button>
@@ -77,17 +79,17 @@ interface ModelGroup {
           <button
             class="model-fold"
             type="button"
-            (click)="otherOpen.set(!otherOpen())"
-            [attr.aria-expanded]="otherOpen()"
+            (click)="otherOpen.set(!otherExpanded())"
+            [attr.aria-expanded]="otherExpanded()"
           >
             <span>Other versions</span>
-            <app-mobile-icon [class.model-fold__icon--open]="otherOpen()" name="chevron-down" />
+            <app-mobile-icon [class.model-fold__icon--open]="otherExpanded()" name="chevron-down" />
           </button>
-          @if (otherOpen()) {
+          @if (otherExpanded()) {
             @for (group of otherGroups(); track group.family) {
               <span class="model-section model-section--family">{{ group.family }}</span>
               @for (model of group.models; track model.id) {
-                <button class="model-row" type="button" [class.model-row--selected]="selected() === model.id" (click)="choose.emit(model.id)">
+                <button class="model-row" type="button" [class.model-row--selected]="selected() === model.id" [attr.aria-pressed]="selected() === model.id" [disabled]="saving()" (click)="choose.emit(model.id)">
                   <span><strong>{{ model.name }}</strong><small>{{ model.id }}</small></span>
                   @if (selected() === model.id) { <app-mobile-icon name="check" /> }
                 </button>
@@ -104,7 +106,8 @@ interface ModelGroup {
       .model-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-4); }
       .model-heading h2 { margin: var(--space-1) 0 0; font-size: var(--font-size-xl); text-transform: none; }
       .model-eyebrow, .model-section { color: var(--text-secondary); font-size: var(--font-size-xs); font-weight: 650; letter-spacing: 0.05em; text-transform: uppercase; }
-      .model-close { display: grid; width: var(--control-size); height: var(--control-size); flex: none; place-items: center; border: 0; border-radius: var(--radius-pill); background: var(--surface-2); color: var(--text-secondary); font-size: 1.15rem; }
+      .model-current { color: var(--text-secondary); font-size: var(--font-size-sm); overflow-wrap: anywhere; }
+      button:focus-visible { outline: 2px solid var(--accent-action); outline-offset: 2px; }
       .model-error { margin: var(--space-2) 0 0; color: var(--accent-error); font-size: var(--font-size-sm); }
       .model-section { display: block; margin: var(--space-5) var(--space-3) var(--space-2); }
       .model-section--family { margin-top: var(--space-4); text-transform: none; }
@@ -124,6 +127,7 @@ interface ModelGroup {
   ],
 })
 export class ModelSheetComponent {
+  readonly returnFocusTo = input<HTMLElement | null>(null);
   readonly provider = input('');
   readonly models = input<MobileModelDto[]>([]);
   readonly selected = input<string | undefined>(undefined);
@@ -131,13 +135,22 @@ export class ModelSheetComponent {
   readonly selectedReasoning = input<MobileReasoningEffort | undefined>(undefined);
   readonly includeDefault = input(true);
   readonly loading = input(false);
+  readonly saving = input(false);
+  readonly retryLabel = input('Retry loading models');
   readonly error = input<string | null>(null);
 
   readonly choose = output<string | undefined>();
   readonly chooseReasoning = output<MobileReasoningEffort | undefined>();
   readonly dismiss = output<void>();
+  readonly retry = output<void>();
 
-  protected readonly otherOpen = signal(false);
+  protected readonly otherOpen = signal<boolean | null>(null);
+  protected readonly selectedLabel = computed(() =>
+    this.models().find((model) => model.id === this.selected())?.name ?? this.selected() ?? 'Default',
+  );
+  protected readonly otherExpanded = computed(() => this.otherOpen()
+    ?? this.otherGroups().some((group) => group.models.some((model) => model.id === this.selected())));
+
 
   protected reasoningSelected(option: MobileReasoningOption): boolean {
     return option.id === 'default'

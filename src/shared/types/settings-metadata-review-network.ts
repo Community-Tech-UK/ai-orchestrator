@@ -93,6 +93,25 @@ export const REVIEW_NETWORK_SETTINGS_METADATA: SettingMetadata[] = [
     hidden: true,
   },
   {
+    // Managed from the Accounts settings section, which seeds the profile home
+    // and runs the terminal sign-in. Hidden so a raw JSON edit cannot create a
+    // profile that was never signed in.
+    key: 'providerAccountProfiles',
+    label: 'Claude and Codex account profiles',
+    description: 'Which Claude and ChatGPT subscriptions AI Orchestrator may use, each with its own isolated sign-in. Managed from the Accounts section. Set only from there — not changeable by agents.',
+    type: 'json',
+    category: 'review',
+    hidden: true,
+  },
+  {
+    key: 'providerAccountPools',
+    label: 'Account pool policy',
+    description: 'How AI Orchestrator moves a session to another of your accounts when one hits its usage limit. Managed from the Accounts section. Set only from there — not changeable by agents.',
+    type: 'json',
+    category: 'review',
+    hidden: true,
+  },
+  {
     key: 'crossModelReviewLocalEnabled',
     label: 'Enable local reviewer',
     description: 'Run an additional review with the selected local model when one is available.',

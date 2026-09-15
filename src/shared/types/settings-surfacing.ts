@@ -148,6 +148,8 @@ export const SETTING_SURFACING = {
   providersExcludedFromAutomation: 'tab',
   copilotAccountProfiles: 'bespoke',
   copilotAccountRoutingRules: 'bespoke',
+  providerAccountProfiles: 'bespoke',
+  providerAccountPools: 'bespoke',
   pingPongReviewerProvider: 'tab',
   pingPongMaxRounds: 'tab',
   voiceSttRoutingMode: 'bespoke', // voice tab

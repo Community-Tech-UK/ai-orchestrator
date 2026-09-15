@@ -88,3 +88,11 @@ describe('buildLoopInvocationErrorPayload partial usage', () => {
     expect(payload.model).toBe('grok-4.6');
   });
 });
+
+describe('buildLoopInvocationErrorPayload quota signal', () => {
+  it('carries only the structured plan-limit flag across the error boundary', () => {
+    const payload = build(Object.assign(new Error('turn failed'), { quota: { exhausted: true, message: 'raw adapter detail' } }));
+    expect(payload.quota).toEqual({ exhausted: true });
+    expect(build(Object.assign(new Error('turn failed'), { quota: { exhausted: false } })).quota).toBeUndefined();
+  });
+});

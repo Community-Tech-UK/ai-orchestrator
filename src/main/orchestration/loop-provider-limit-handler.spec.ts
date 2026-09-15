@@ -80,10 +80,10 @@ describe('LoopProviderLimitHandler early-resume quota probe', () => {
     parkOnLimit(makeLoopState());
 
     await vi.advanceTimersByTimeAsync(EARLY_RESUME_PROBE_MS + 5);
-    expect(refresher).toHaveBeenCalledWith('claude');
+    expect(refresher).toHaveBeenCalledWith('claude', null);
     // Gate must be dropped provider-wide before the resume, or the next
     // iteration's ledger preflight instantly re-parks the loop.
-    expect(ledger.clearActive).toHaveBeenCalledWith({ provider: 'claude', model: null });
+    expect(ledger.clearActive).toHaveBeenCalledWith({ provider: 'claude', model: null, accountProfileId: null });
     expect(deps.resumeLoop).toHaveBeenCalledWith('loop-1');
   });
 
@@ -213,7 +213,7 @@ describe('LoopProviderLimitHandler.clearKnownLimitGate', () => {
     const ledger = { record: vi.fn(), getActive: vi.fn(() => null), clearActive: vi.fn(() => 2) };
     handler.setProviderLimitLedger(ledger);
     handler.clearKnownLimitGate('claude', 'claude-sonnet-4-5');
-    expect(ledger.clearActive).toHaveBeenCalledWith({ provider: 'claude', model: 'claude-sonnet-4-5' });
+    expect(ledger.clearActive).toHaveBeenCalledWith({ provider: 'claude', model: 'claude-sonnet-4-5', accountProfileId: null });
   });
 });
 
@@ -318,5 +318,56 @@ describe('LoopProviderLimitHandler allowOverage wiring', () => {
     handler.setAllowOverage(() => { throw new Error('settings unavailable'); });
 
     expect(handler.evaluateLoopQuotaThrottle(makeLoopState()).action).toBe('overage-guard');
+  });
+});
+
+describe('LoopProviderLimitHandler account-pool failover', () => {
+  function stateFor(id: string) {
+    return { id, chatId: 'chat', status: 'running', totalIterations: 2, currentStage: 'IMPLEMENT', config: { provider: 'claude', workspaceCwd: '/w' } } as never;
+  }
+
+  it('benches the loop account and continues instead of parking when the pool can switch', () => {
+    const emit = vi.fn();
+    const requestContextReset = vi.fn();
+    const handler = new LoopProviderLimitHandler({
+      emit,
+      cloneStateForBroadcast: (state) => state,
+      setConvergenceNote: vi.fn(),
+      terminate: vi.fn(),
+      resumeLoop: vi.fn(),
+      requestContextReset,
+    });
+    const ledger = { record: vi.fn(), getActive: vi.fn(), clearActive: vi.fn() };
+    handler.setProviderLimitLedger(ledger as never);
+    const trySwitch = vi.fn(() => true);
+    handler.setLoopAccountFailover({ currentProfileId: () => 'max-a', trySwitch });
+    const state = stateFor('loop-a');
+    const outcome = handler.handleProviderLimit(state, {
+      reason: 'limit notice', resumeAt: null, source: 'notice', action: 'notice', mustStop: true,
+    });
+    expect(outcome).toBe('switched-account');
+    expect(ledger.record).toHaveBeenCalledWith(expect.objectContaining({ accountProfileId: 'max-a', source: 'loop-notice' }));
+    expect(trySwitch).toHaveBeenCalledWith(expect.objectContaining({ loopRunId: 'loop-a', provider: 'claude', iteration: 2 }));
+    expect((state as { status: string }).status).toBe('running');
+    expect(requestContextReset).toHaveBeenCalledWith('loop-a');
+  });
+
+  it('parks as before when failover is disallowed for the signal or no switch is possible', () => {
+    const handler = new LoopProviderLimitHandler({
+      emit: vi.fn(),
+      cloneStateForBroadcast: (state) => state,
+      setConvergenceNote: vi.fn(),
+      terminate: vi.fn(),
+      resumeLoop: vi.fn(),
+    });
+    const trySwitch = vi.fn(() => false);
+    handler.setLoopAccountFailover({ currentProfileId: () => 'max-a', trySwitch });
+    const resumeAt = Date.now() + 60_000;
+    expect(handler.handleProviderLimit(stateFor('loop-b'), { reason: 'x', resumeAt, source: 'quota', action: 'throttle', mustStop: true })).toBe('parked');
+    trySwitch.mockClear();
+    handler.clearResumeTimer('loop-b');
+    expect(handler.handleProviderLimit(stateFor('loop-c'), { reason: 'x', resumeAt, source: 'quota', action: 'throttle', mustStop: true, accountFailover: false })).toBe('parked');
+    expect(trySwitch).not.toHaveBeenCalled();
+    handler.clearResumeTimer('loop-c');
   });
 });

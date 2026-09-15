@@ -672,6 +672,8 @@ function createNewSessionDraftMock() {
     hardened: signal<boolean | null>(null),
     launchMode: signal(null),
     agentId: signal('build'),
+    accountProfileId: signal<string | null>(null),
+    setAccountProfileId: vi.fn(),
     setProvider: vi.fn(),
     setModel: vi.fn(),
     setModelRuntimeTarget: vi.fn(),

@@ -48,6 +48,7 @@ const ACTIVE_SESSION_STATUSES = new Set<string>([
   'interrupt-escalating',
   'respawning',
   'hibernating',
+  'hibernated',
   'waking',
   'degraded',
 ]);
@@ -57,7 +58,11 @@ interface SessionStatusView {
   isLooping?: boolean;
 }
 
-/** Matches the desktop project rail's broad live/current "Active" filter. */
+/**
+ * Broad live/current "Active" filter. Based on the desktop project rail's set,
+ * but deliberately also includes `hibernated`: a hibernated session is still a
+ * resumable live session, and the phone should list it under Active.
+ */
 export function isActiveSessionStatus(status: string): boolean {
   return ACTIVE_SESSION_STATUSES.has(status);
 }

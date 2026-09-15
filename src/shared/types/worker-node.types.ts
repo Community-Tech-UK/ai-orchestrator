@@ -1,5 +1,6 @@
 import type { CanonicalCliType } from './settings.types';
 import type { DiscoveredProject } from './remote-fs.types';
+import type { PooledProvider } from './provider-account.types';
 
 export type NodePlatform = 'darwin' | 'win32' | 'linux';
 
@@ -153,6 +154,12 @@ export interface WorkerNodeCapabilities {
    * which account a workspace resolves to.
    */
   copilotAccountProfileIds?: string[];
+  /**
+   * Claude Code / Codex account profiles with a home on this node (decision
+   * D10). A placement hint only: the worker's spawn-time binding check decides
+   * whether the profile is actually signed in there.
+   */
+  accountProfileIds?: Partial<Record<PooledProvider, string[]>>;
   hasBrowserRuntime: boolean;
   hasBrowserMcp: boolean;
   /** Present when the node reports browser-automation config (newer workers). */
@@ -299,6 +306,8 @@ export interface NodePlacementPrefs {
    * and explains the required sign-in (spec §13).
    */
   prefersCopilotAccountProfileId?: string;
+  /** Prefer a node that has this Claude/Codex account profile. A preference, like the Copilot one. */
+  prefersAccountProfile?: { provider: PooledProvider; profileId: string };
 }
 
 export interface NodeIdentity {

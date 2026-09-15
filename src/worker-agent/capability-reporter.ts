@@ -19,6 +19,8 @@ import { LOCAL_AI_TARGET_NUMERIC_LIMITS } from '../shared/types/local-ai-guard.t
 const STREAM_EPOCH = Date.now();
 import type { CanonicalCliType } from '../shared/types/settings.types';
 import { ProjectDiscovery } from '../main/remote-node/project-discovery';
+import { getAccountProfilesRoot } from '../main/cli/adapters/account-pool/provider-account-home-resolver';
+import { listWorkerAccountProfileIds } from './worker-account-route';
 import {
   OLLAMA_LOCAL_BASE_URL,
   LMSTUDIO_LOCAL_BASE_URL,
@@ -64,6 +66,7 @@ export async function reportCapabilities(
   const localSttEndpoints = await detectLocalSttEndpoints();
 
   const hasBrowserRuntime = resolveChromeExecutablePath() !== null;
+  const accountProfileIds = listWorkerAccountProfileIds(getAccountProfilesRoot);
 
   return {
     workerAgent: {
@@ -89,6 +92,7 @@ export async function reportCapabilities(
     hasAndroidMcp: (androidAutomation?.enabled ?? false) && Boolean(androidAutomation?.adbVersion),
     ...(androidAutomation ? { androidAutomation } : {}),
     hasDocker: detectDocker(),
+    ...(Object.keys(accountProfileIds).length > 0 ? { accountProfileIds } : {}),
     maxConcurrentInstances,
     // WS15: this worker buffers durable events and supports seq/ack/replay.
     streamDurability: 1,

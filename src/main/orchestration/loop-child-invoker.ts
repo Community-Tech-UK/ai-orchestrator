@@ -217,5 +217,6 @@ function toInvocationError(result: LoopChildInvocationError): Error {
   if (result.partialUsage !== undefined) error.partialUsage = result.partialUsage;
   // WS5: carry the failed attempt's workspace-effect evidence to the retry seam.
   if (result.attemptEvidence !== undefined) error.attemptEvidence = result.attemptEvidence;
+  if (result.quota !== undefined) error.quota = result.quota;
   return error;
 }

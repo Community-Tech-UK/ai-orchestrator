@@ -28,6 +28,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ProviderQuotaStore } from '../../../core/state/provider-quota.store';
+import { ProviderAccountIpcService } from '../../../core/services/ipc/provider-account-ipc.service';
 import type {
   ProviderId,
   ProviderQuotaSnapshot,
@@ -144,6 +145,23 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
               } @else if (!provider.needsReauth) {
                 <span class="window-row muted">{{ provider.status }}</span>
               }
+              @for (account of provider.accounts; track account.id) {
+                <span class="account-rows" [attr.data-testid]="'quota-account-' + provider.provider + '-' + account.id">
+                  <span class="window-label account-label">Account: {{ account.label }}</span>
+                  @for (window of account.windows; track window.id) {
+                    <span class="window-row">
+                      <span class="window-label">{{ window.label }}</span>
+                      <span class="window-value">{{ formatWindowValue(window) }}</span>
+                      <span class="bar"><span class="bar-fill" [style.width.%]="windowPercent(window)"></span></span>
+                      @if (window.resetsAt) {
+                        <span class="window-reset">resets {{ formatReset(window.resetsAt) }}</span>
+                      }
+                    </span>
+                  } @empty {
+                    <span class="window-row muted">{{ account.status }}</span>
+                  }
+                </span>
+              }
             </span>
           }
         </span>
@@ -172,6 +190,8 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
     .provider-value { opacity: 0.82; font-variant-numeric: tabular-nums; }
     .pacing-badge { width: 11px; height: 11px; color: #f6c453; flex-shrink: 0; }
     .text { text-transform: none; }
+    .account-rows { display: contents; }
+    .account-label { font-weight: 600; opacity: 0.9; }
     .aux { opacity: 0.75; font-weight: 500; }
     .popover {
       position: absolute; right: 0; top: calc(100% + 8px); z-index: 20;
@@ -216,6 +236,9 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
 
   /** Live tick used solely to re-render the "resets in" hint each minute. */
   private readonly nowMs = signal(Date.now());
+  private readonly accountIpc = inject(ProviderAccountIpcService);
+  /** `provider:profileId` → account label, loaded when the popover opens. */
+  private readonly accountLabels = signal<Record<string, string>>({});
   private nowTimer: ReturnType<typeof setInterval> | null = null;
   readonly popoverOpen = signal(false);
 
@@ -333,6 +356,7 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
 
   readonly detailEntries = computed(() => {
     const snaps = this.store.snapshots();
+    const accountSnaps = this.store.accountSnapshots();
     return PROVIDER_ORDER
       .map((provider) => {
         const snap = snaps[provider];
@@ -350,6 +374,15 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
           // fall back to a per-provider hint when it isn't present.
           reauthHint: needsReauth ? (snap.error ?? PROVIDER_REAUTH_HINTS[provider]) : null,
           windows: snap.ok ? snap.windows.filter((window) => window.limit > 0) : [],
+          // Account-pool rows under the provider (one per non-legacy account).
+          accounts: accountSnaps
+            .filter((entry) => entry.provider === provider && entry.accountProfileId)
+            .map((entry) => ({
+              id: entry.accountProfileId as string,
+              label: this.accountLabels()[`${provider}:${entry.accountProfileId}`] ?? (entry.accountProfileId as string),
+              status: entry.ok ? `Updated ${formatUpdatedAge(entry.takenAt, this.nowMs())}` : (entry.error ?? 'Unavailable'),
+              windows: entry.ok ? entry.windows.filter((window) => window.limit > 0) : [],
+            })),
         };
       })
       .filter((entry): entry is {
@@ -360,6 +393,7 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
         needsReauth: boolean;
         reauthHint: string | null;
         windows: ProviderQuotaWindow[];
+        accounts: { id: string; label: string; status: string; windows: ProviderQuotaWindow[] }[];
       } => entry !== null);
   });
 
@@ -378,6 +412,16 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
 
   togglePopover(): void {
     this.popoverOpen.update((open) => !open);
+    if (this.popoverOpen() && this.store.accountSnapshots().length > 0) void this.loadAccountLabels();
+  }
+
+  private async loadAccountLabels(): Promise<void> {
+    try {
+      const { profiles } = await this.accountIpc.list();
+      this.accountLabels.set(Object.fromEntries(profiles.map((profile) => [`${profile.provider}:${profile.id}`, profile.label])));
+    } catch {
+      // Labels are cosmetic; the account id still identifies the row.
+    }
   }
 
   @HostListener('document:click', ['$event'])

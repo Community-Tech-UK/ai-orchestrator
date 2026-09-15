@@ -402,6 +402,18 @@ describe('Loop Mode invoker plumbing', () => {
     });
   });
 
+  it('flags a structured plan-limit signal on a cleanly completed loop turn', async () => {
+    registerDefaultLoopInvoker({} as never);
+    hoisted.sendMessage.mockResolvedValue({ content: '', usage: { totalTokens: 0 }, metadata: { quota: { exhausted: true } } });
+    expect(await emitIteration({})).toMatchObject({ providerQuotaExhausted: true });
+  });
+
+  it('does not flag an ordinary loop turn as plan-limited', async () => {
+    registerDefaultLoopInvoker({} as never);
+    hoisted.sendMessage.mockResolvedValue({ content: 'ok', usage: { totalTokens: 1 } });
+    expect(await emitIteration({})).not.toHaveProperty('providerQuotaExhausted');
+  });
+
   it('surfaces structured provider error metadata on loop invocation failures', async () => {
     registerDefaultLoopInvoker({} as never);
     const providerError = Object.assign(new Error('Too many requests'), {

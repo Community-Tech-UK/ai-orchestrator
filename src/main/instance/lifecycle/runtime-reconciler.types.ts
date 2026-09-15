@@ -31,6 +31,8 @@ export interface RuntimeDiff {
   yoloModeChanged: boolean;
   /** An explicit GitHub Copilot account handoff (never an automatic resume). */
   copilotAccountChanged: boolean;
+  /** A Claude/Codex account-pool handoff (explicit, failover or pre-emptive). */
+  accountProfileChanged: boolean;
   hasChanges: boolean;
 }
 

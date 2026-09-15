@@ -61,6 +61,21 @@ export function toolLabel(message: MobileMessageDto): string {
   return tool || message.content || 'tool';
 }
 
+/** Full available activity details, rendered as text (never executable HTML). */
+export function toolDetails(message: MobileMessageDto): string {
+  const metadata = message.metadata ?? {};
+  const sections: string[] = [];
+  if (metadata['is_error'] === true || metadata['isError'] === true) sections.push('Error');
+  if (message.content) sections.push(message.content);
+  const input = metadata['tool_input'] ?? metadata['toolInput'] ?? metadata['input'];
+  if (input !== undefined) sections.push(`Input\n${typeof input === 'string' ? input : JSON.stringify(input, null, 2)}`);
+  const result = metadata['result'] ?? metadata['output'] ?? metadata['error'];
+  if (result !== undefined && result !== message.content) {
+    sections.push(`Result\n${typeof result === 'string' ? result : JSON.stringify(result, null, 2)}`);
+  }
+  return sections.join('\n\n') || toolLabel(message);
+}
+
 export function isLoopTranscriptMessage(message: MobileMessageDto): boolean {
   const kind = message.metadata?.['kind'];
   return typeof kind === 'string' && LOOP_TRANSCRIPT_KINDS.has(kind);

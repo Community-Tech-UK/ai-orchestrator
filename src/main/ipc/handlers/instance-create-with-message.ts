@@ -29,6 +29,7 @@ export interface CreateWithMessageInput {
   hardened?: boolean;
   copilotAccountProfileId?: string;
   copilotConfirmProtectedOverride?: boolean;
+  accountProfileId?: string;
 }
 
 /**
@@ -78,6 +79,7 @@ export async function createInstanceWithMessage(
     hardened: validated.hardened,
     copilotAccountProfileId: validated.copilotAccountProfileId,
     copilotConfirmProtectedOverride: validated.copilotConfirmProtectedOverride,
+    accountProfileId: validated.accountProfileId,
   });
 
   return { success: true, data: serializeInstance(instance) };

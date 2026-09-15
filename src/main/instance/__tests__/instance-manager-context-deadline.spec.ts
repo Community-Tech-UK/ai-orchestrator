@@ -349,6 +349,7 @@ vi.mock('../stale-runtime-reconciler', () => ({
 vi.mock('../auto-title-service', () => ({
   getAutoTitleService: vi.fn(() => ({
     maybeGenerateTitle: vi.fn().mockResolvedValue(undefined),
+    retryTitleUpgradeIfPending: vi.fn().mockResolvedValue(undefined),
     clearInstance: vi.fn(),
   })),
 }));

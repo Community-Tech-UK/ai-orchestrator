@@ -16,6 +16,10 @@ import {
   CopilotAccountProfilesSchema,
   CopilotAccountRoutingRulesSchema,
 } from '@contracts/schemas/copilot-account';
+import {
+  ProviderAccountPoolsSchema,
+  ProviderAccountProfilesSchema,
+} from '@contracts/schemas/provider-account';
 
 export type SettingsToolPolicyTier = 'open' | 'read-only' | 'secret';
 
@@ -87,6 +91,12 @@ const PRIVILEGED_CLI_OPERATOR_ONLY_KEYS = new Set<keyof AppSettings>([
   // surfaces.
   'copilotAccountProfiles',
   'copilotAccountRoutingRules',
+  // Provider account pools (2026-09-13). Decide WHICH Claude/ChatGPT
+  // subscription a conversation runs on and whether it may move between them.
+  // An agent that could add a profile, reorder the pool or acknowledge
+  // ownership could spend accounts the user never approved.
+  'providerAccountProfiles',
+  'providerAccountPools',
   'computerUseEnabled',
   'computerUseAllowedAppsJson',
   'computerUseDeniedAppsJson',
@@ -444,6 +454,9 @@ export const SETTINGS_TOOL_POLICY = {
   // fallback, which refuses non-primitive closed-tier keys outright.
   copilotAccountProfiles: readOnly(false, CopilotAccountProfilesSchema),
   copilotAccountRoutingRules: readOnly(false, CopilotAccountRoutingRulesSchema),
+  // Provider account pools: same reasoning as the Copilot keys above.
+  providerAccountProfiles: readOnly(false, ProviderAccountProfilesSchema),
+  providerAccountPools: readOnly(false, ProviderAccountPoolsSchema),
   pingPongReviewerProvider: open(
     z.enum(['auto', ...REMOTE_REVIEWER_PROVIDER_IDS]),
   ),

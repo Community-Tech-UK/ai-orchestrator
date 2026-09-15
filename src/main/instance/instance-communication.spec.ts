@@ -517,7 +517,7 @@ describe('InstanceCommunicationManager', () => {
     } satisfies CliResponse);
 
     expect(clearProviderLimitAfterSuccessfulTurn).toHaveBeenCalledWith({
-      provider: 'claude', model: 'claude-sonnet-4-5', now: expect.any(Number),
+      provider: 'claude', model: 'claude-sonnet-4-5', accountProfileId: null, now: expect.any(Number),
     });
   });
 
@@ -2791,6 +2791,46 @@ describe('budget gate', () => {
     expect(adapter.sendInput).toHaveBeenCalledTimes(1);
   });
 
+  it('warns visibly when a no-compaction/no-continuation-guarantee adapter (e.g. copilot-acp) hits budget', async () => {
+    instance = createInstance();
+    instance.contextUsage = { used: 1_657_507, total: 200_000, percentage: 0 };
+    adapters = new Map();
+    queueUpdate = vi.fn();
+    createSnapshot = vi.fn();
+    const acpAdapter = new AcpCliAdapter({
+      adapterName: 'copilot-acp',
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      contextCapabilityProfile: 'copilot-acp',
+    });
+    vi.spyOn(acpAdapter, 'sendInput').mockResolvedValue(undefined);
+    adapters.set(instance.id, acpAdapter as unknown as CliAdapter);
+
+    const tracker = new TokenBudgetTracker({ totalBudget: 200_000 });
+    comm = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, a) => { adapters.set(id, a); },
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+      getBudgetTracker: () => tracker,
+      getContextUsage: () => instance.contextUsage,
+      createSnapshot,
+    });
+
+    await comm.sendInput(instance.id, 'please continue until everything is fully implemented');
+
+    const budgetMessages = instance.outputBuffer.filter(
+      m => m.type === 'system' && /critically high|cannot compact|same session thread/i.test(m.content)
+    );
+    expect(budgetMessages.length).toBe(1);
+    expect(acpAdapter.sendInput).toHaveBeenCalledTimes(1);
+  });
+
   it('hard-blocks auto-continuations silently when context is 90%+ full', async () => {
     build({ used: 180_000, total: 200_000 });
 
@@ -2991,6 +3031,29 @@ describe('provider-limit park on thrown sendInput errors', () => {
     expect(adapter.sendInput).not.toHaveBeenCalled();
   });
 
+  it('does not dispatch a turn while the preflight moves the session to another account', async () => {
+    const adapter = new FakeAdapter('claude-cli');
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+    const checkKnownProviderLimitBeforeSend = vi.fn().mockReturnValue('switching-account');
+    const manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, nextAdapter) => adapters.set(id, nextAdapter),
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+      checkKnownProviderLimitBeforeSend,
+    });
+
+    await expect(manager.sendInput(instance.id, 'continue the task')).resolves.toBeUndefined();
+
+    // The account switch re-sends this turn itself; dispatching it here as well would send it twice.
+    expect(adapter.sendInput).not.toHaveBeenCalled();
+  });
+
   it('preserves queued continuity context when the provider-limit preflight parks a turn', async () => {
     const adapter = new FakeAdapter('claude-cli');
     adapters.set(instance.id, adapter as unknown as CliAdapter);
@@ -3018,6 +3081,26 @@ describe('provider-limit park on thrown sendInput errors', () => {
       'Prior context that must survive the park.\n\ncontinue the task',
       undefined,
     );
+  });
+
+  it('tells the user the conversation is moving accounts when a thrown limit starts a switch', async () => {
+    const adapter = new FakeAdapter('codex-cli');
+    adapter.sendInput.mockRejectedValue(new Error(LIVE_INCIDENT_MESSAGE));
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+    instance.status = 'busy';
+
+    const transitionState = vi.fn((inst: Instance, status) => { inst.status = status; });
+    const onProviderLimitTurn = vi.fn().mockReturnValue('switching-account');
+    const manager = createManager(onProviderLimitTurn, transitionState);
+
+    await expect(manager.sendInput(instance.id, 'keep going')).resolves.toBeUndefined();
+
+    expect(adapter.sendInput).toHaveBeenCalledTimes(1);
+    expect(instance.status).toBe('idle');
+    const notes = instance.outputBuffer.filter((m) => m.type === 'system' && m.metadata?.['accountFailover'] === true);
+    expect(notes).toHaveLength(1);
+    expect(notes[0].content).toMatch(/Moving the conversation to another account/);
+    expect(instance.outputBuffer.some((m) => m.metadata?.['providerLimitParked'] === true)).toBe(false);
   });
 
   it('acknowledges an already-parked send quietly: no duplicate park message, no status change', async () => {

@@ -12,7 +12,7 @@ import {
 } from '../../core/status';
 import type { MobileSessionRowView } from '../../shared/mobile-session-row.component';
 
-export type SessionStateFilter = 'all' | 'active';
+export type SessionStateFilter = 'all' | 'active' | 'attention';
 
 export interface ProjectSessionRow extends MobileSessionRowView {
   active: boolean;
@@ -133,8 +133,10 @@ export function filterProjectGroups(
   for (const group of groups) {
     const stateSessions = stateFilter === 'active'
       ? group.sessions.filter((session) => session.active)
-      : group.sessions;
-    if (stateFilter === 'active' && stateSessions.length === 0) continue;
+      : stateFilter === 'attention'
+        ? group.sessions.filter((session) => session.tone === 'attention' || session.tone === 'error')
+        : group.sessions;
+    if (stateFilter !== 'all' && stateSessions.length === 0) continue;
     if (!normalized) {
       matches.push(
         stateSessions === group.sessions ? group : { ...group, sessions: stateSessions },
@@ -236,7 +238,7 @@ function ensureProject(
 }
 
 function liveSessionRow(instance: MobileInstanceDto): ProjectSessionRow {
-  const status = displayStatusLabel(instance);
+  const status = instance.pendingApprovalCount > 0 ? 'Awaiting approval' : displayStatusLabel(instance);
   return {
     id: instance.id,
     title: instance.displayName,
@@ -294,4 +296,29 @@ function projectRank(project: MobileProjectDto): number {
   if (project.busyCount > 0 || project.pendingApprovalCount > 0) return 2;
   if (project.sessionCount > 0) return 1;
   return 0;
+}
+
+export const PROJECT_SESSION_PREVIEW = 5;
+
+export function projectSessionPreview(group: ProjectListGroup, query: string, showAll: boolean): ProjectSessionRow[] {
+  return query.trim() || showAll ? group.sessions : group.sessions.slice(0, PROJECT_SESSION_PREVIEW);
+}
+
+export function projectSummary(group: ProjectListGroup): string {
+  const running = group.project.busyCount;
+  const attention = group.sessions.filter((row) => row.tone === 'attention').length;
+  const failed = group.sessions.filter((row) => row.tone === 'error').length;
+  return [running ? `${running} running` : '', attention ? `${attention} needs you` : '', failed ? `${failed} failed` : ''].filter(Boolean).join(' · ');
+}
+
+export function projectParentLabel(group: ProjectListGroup, groups: ProjectListGroup[]): string {
+  const siblings = groups.filter((item) => item.project.name === group.project.name);
+  if (siblings.length < 2) return '';
+  const parentParts = (item: ProjectListGroup) => item.project.path.split(/[\\/]/).filter(Boolean).slice(0, -1);
+  const parts = parentParts(group);
+  for (let count = 1; count <= parts.length; count++) {
+    const label = parts.slice(-count).join('/');
+    if (siblings.every((item) => item.project.key === group.project.key || parentParts(item).slice(-count).join('/') !== label)) return label;
+  }
+  return parts.join('/') || group.project.path;
 }

@@ -89,4 +89,23 @@ export const RLM_MIGRATIONS_061_065: Migration[] = [
       DROP TABLE IF EXISTS workspace_mcp_connectors;
     `,
   },
+  {
+    // Provider account pools: a usage limit belongs to the Claude/Codex account
+    // profile that hit it, not to the whole provider. Existing rows default to
+    // '' which means the legacy profile, so they keep gating exactly as before.
+    // Spec: docs/superpowers/specs/2026-09-13-provider-account-pools_spec_planned.md §6.5.
+    name: '063_provider_limit_events_account_profile',
+    up: `
+      ALTER TABLE provider_limit_events ADD COLUMN account_profile_id TEXT NOT NULL DEFAULT '';
+      DROP INDEX IF EXISTS idx_provider_limit_events_active;
+      CREATE INDEX IF NOT EXISTS idx_provider_limit_events_active
+        ON provider_limit_events(provider, account_profile_id, model, resume_at DESC, detected_at DESC);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_provider_limit_events_active;
+      ALTER TABLE provider_limit_events DROP COLUMN account_profile_id;
+      CREATE INDEX IF NOT EXISTS idx_provider_limit_events_active
+        ON provider_limit_events(provider, model, resume_at DESC, detected_at DESC);
+    `,
+  },
 ];

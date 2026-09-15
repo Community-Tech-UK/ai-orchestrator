@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   ACP_RAW_OUTPUT_MAX_CHARS,
   buildAcpToolCallArguments,
+  buildAcpToolResultMessage,
+  isAcpTerminalToolStatus,
   renderAcpRawOutput,
 } from './acp-tool-call-material';
 
@@ -40,5 +42,33 @@ describe('renderAcpRawOutput', () => {
     const rendered = renderAcpRawOutput({ content: 'x'.repeat(ACP_RAW_OUTPUT_MAX_CHARS + 10) });
     expect(rendered.startsWith('x'.repeat(ACP_RAW_OUTPUT_MAX_CHARS))).toBe(true);
     expect(rendered.endsWith('[truncated 10 chars]')).toBe(true);
+  });
+});
+
+describe('isAcpTerminalToolStatus', () => {
+  it('treats only completed, failed and cancelled as settled', () => {
+    expect(['completed', 'failed', 'cancelled'].map(isAcpTerminalToolStatus)).toEqual([true, true, true]);
+    expect(['pending', 'in_progress', ''].map(isAcpTerminalToolStatus)).toEqual([false, false, false]);
+  });
+});
+
+describe('buildAcpToolResultMessage', () => {
+  const base = { toolCallId: 'c1', title: 'Run tests', sessionUpdate: 'tool_call_update', output: '12 passing' };
+
+  it('builds a correlated tool_result carrying is_error only for a success or failure', () => {
+    expect(buildAcpToolResultMessage({ ...base, status: 'failed' }, 'm1', 5)).toEqual({
+      id: 'm1',
+      timestamp: 5,
+      type: 'tool_result',
+      content: '12 passing',
+      metadata: {
+        sessionUpdate: 'tool_call_update', toolCallId: 'c1', title: 'Run tests',
+        status: 'failed', transport: 'acp', is_error: true,
+      },
+    });
+    expect(buildAcpToolResultMessage({ ...base, status: 'completed' }, 'm2', 6).metadata)
+      .toMatchObject({ is_error: false });
+    expect(buildAcpToolResultMessage({ ...base, status: 'cancelled' }, 'm3', 7).metadata).not.toHaveProperty('is_error');
+    expect(buildAcpToolResultMessage({ ...base, status: 'in_progress' }, 'm4', 8).metadata).not.toHaveProperty('is_error');
   });
 });

@@ -288,6 +288,8 @@ export class HistoryRestoreCoordinator {
     // with. Restoring it under the current default would send this
     // conversation's context through a different identity.
     const restoreCopilotProfileId = data.entry.copilotAccountProfileId;
+    // Account pools: only the native-resume attempt pins the profile.
+    const restoreAccountProfileId = data.entry.accountProfileId;
     const nativeResumeSessionId = opts.forkAs || opts.forceFallback
       ? undefined
       : getNativeResumeSessionId(data.entry);
@@ -337,6 +339,7 @@ export class HistoryRestoreCoordinator {
         restoreBrowserToolsMode,
         restoreHardened,
         restoreCopilotProfileId,
+        restoreAccountProfileId,
         restoreNodeId,
       });
       if (attempt.kind === 'restored') {
@@ -419,6 +422,7 @@ export class HistoryRestoreCoordinator {
     restoreBrowserToolsMode?: Instance['browserToolsMode'];
     restoreHardened?: boolean;
     restoreCopilotProfileId?: string;
+    restoreAccountProfileId?: string;
     restoreNodeId?: string;
   }): Promise<NativeResumeAttempt> {
     let resumeInstanceId: string | undefined;
@@ -440,6 +444,7 @@ export class HistoryRestoreCoordinator {
         browserToolsMode: params.restoreBrowserToolsMode,
         hardened: params.restoreHardened,
       copilotAccountProfileId: params.restoreCopilotProfileId,
+        accountProfileId: params.restoreAccountProfileId,
         forceNodeId: params.restoreNodeId,
       });
       resumeInstanceId = instance.id;

@@ -86,6 +86,8 @@ export interface LoopChildResult {
   contextCompacted?: { previousUtilization: number; newUtilization: number; reason: string };
   /** A3: adapter-layer degraded classification, when the feature flag was on. */
   degradedReason?: DegradedReason;
+  /** The provider rejected the turn at a plan limit via a structured signal, even with clean output. */
+  providerQuotaExhausted?: boolean;
   /**
    * True when this iteration ran in the chat's borrowed live adapter, so its
    * assistant stream already landed in the chat/instance transcript "as a
@@ -120,6 +122,8 @@ export interface LoopChildInvocationError {
   partialUsage?: LoopChildUsage;
   /** WS5: workspace-effect evidence for the failed attempt (side-effect-aware retry). */
   attemptEvidence?: LoopInvocationAttemptEvidence;
+  /** Structured plan-limit signal from the adapter (account pools), independent of message wording. */
+  quota?: { exhausted: true };
 }
 
 export type LoopChildInvocationCallbackResult = LoopChildResult | LoopChildInvocationError;

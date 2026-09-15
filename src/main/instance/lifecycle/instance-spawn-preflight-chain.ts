@@ -12,6 +12,8 @@ import { requiresFreshConfiguredModelSpawn } from './create-validation-helpers';
 import { resolveSpawnReasoningEffort } from './reasoning-effort-resolution';
 import { resolveExecutionLocation } from './execution-location-resolver';
 import { attachCopilotRoute } from './copilot-route-preflight';
+import { attachAccountRoute } from './account-route-preflight';
+import { isAccountPoolActive } from '../../providers/account-pool/provider-account-store';
 
 export interface InstanceSpawnPreflightDeps {
   consumeWarmAdapter: (provider: CliType, workingDirectory: string) => CliAdapter | null;
@@ -63,6 +65,9 @@ export class InstanceSpawnPreflightChain {
     // would send this workspace's prompts through the wrong GitHub identity.
     // Cheap and unconditional: any Copilot create spawns fresh and routes.
     const copilotRouteRequired = provider === 'copilot';
+    // Same reasoning for a Claude/Codex account pool: a warm process is pinned
+    // to whatever account the warm spawn used.
+    const accountRouteRequired = isAccountPoolActive(provider);
     // Warm adapters are spawned without yolo permissions. Those permissions
     // are launch-scoped, so reusing one for a yolo create would leave the
     // instance metadata saying yolo=true while the CLI still requests approval.
@@ -77,6 +82,7 @@ export class InstanceSpawnPreflightChain {
       || warmEffortMismatch
       || warmYoloMismatch
       || copilotRouteRequired
+      || accountRouteRequired
       || instance.bareMode === true,
     );
 
@@ -110,12 +116,26 @@ export class InstanceSpawnPreflightChain {
       },
     );
 
+    const accountRoutedSpawnOptions = await attachAccountRoute(
+      provider,
+      routedSpawnOptions,
+      config.metadata?.['automationId'] ? 'automation' : 'interactive',
+      {
+        explicitProfileId: config.resume ? undefined : config.accountProfileId,
+        // A resume/restore keeps the account the session ran on; an unstamped
+        // resume predates pools and ran on the legacy profile.
+        persistedProfileId: config.resume ? (config.accountProfileId ?? 'legacy') : undefined,
+        executionNodeId:
+          executionLocation.type === 'remote' ? executionLocation.nodeId : undefined,
+      },
+    );
+
     if (executionLocation.type === 'remote') {
       return {
         kind: 'fresh',
         executionLocation,
         spawnOptions: {
-          ...routedSpawnOptions,
+          ...accountRoutedSpawnOptions,
           mcpConfig: [],
           browserGatewayMcp: undefined,
         },
@@ -123,6 +143,6 @@ export class InstanceSpawnPreflightChain {
     }
 
     await this.deps.warmCodememWorkspace(instance.workingDirectory);
-    return { kind: 'fresh', executionLocation, spawnOptions: routedSpawnOptions };
+    return { kind: 'fresh', executionLocation, spawnOptions: accountRoutedSpawnOptions };
   }
 }

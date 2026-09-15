@@ -17,6 +17,7 @@ import type {
   SessionDiffStats,
 } from '@shared/types/instance.types';
 import type { RepoJobStatus, RepoJobType } from '@shared/types/repo-job.types';
+import type { AccountRouteSource } from '@shared/types/provider-account.types';
 import type { ExecutionLocation } from '@shared/types/worker-node.types';
 import type { ActivityState } from '@shared/types/activity.types';
 import type { ReasoningEffort } from '@shared/types/provider.types';
@@ -131,6 +132,10 @@ export interface InstanceStateUpdatePayload {
    * pending affordance (applied or cancelled); undefined preserves.
    */
   desiredRuntime?: DesiredRuntime | null;
+  /** Claude/Codex account-pool profile the session runs on; undefined preserves. */
+  accountProfileId?: string;
+  /** How that account was chosen (default, failover, …). */
+  accountRoutingSource?: AccountRouteSource;
 }
 
 export interface InstanceOutputPayload {

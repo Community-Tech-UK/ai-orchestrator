@@ -444,6 +444,7 @@ export type AppServerNotificationMethod =
   | 'item/reasoning/summaryPartAdded'
   | 'item/reasoning/textDelta'
   | 'serverRequest/resolved'
+  | 'account/rateLimits/updated'
   | 'error';
 
 // ─── Method Map (for typed request/response) ────────────────────────────────
@@ -462,6 +463,10 @@ export interface AppServerMethodMap {
   'turn/start': { params: TurnStartParams; result: TurnStartResponse };
   'turn/steer': { params: TurnSteerParams; result: TurnSteerResponse };
   'turn/interrupt': { params: TurnInterruptParams; result: TurnInterruptResponse };
+  /** Identity for the signed-in account. Parsed with `parseCodexAccountRead`. */
+  'account/read': { params: { refreshToken?: boolean }; result: unknown };
+  /** Current rate-limit windows. Parsed with `parseCodexAccountRateLimitsRead`. */
+  'account/rateLimits/read': { params: Record<string, never> | undefined; result: unknown };
 }
 
 export type AppServerMethod = keyof AppServerMethodMap;
@@ -585,6 +590,8 @@ export interface CodexAppServerClientOptions {
   capabilities?: InitializeCapabilities;
   brokerEndpoint?: string;
   disableBroker?: boolean;
+  /** `-c key=value` overrides for an isolated spawn (never sent to a broker). */
+  configOverrides?: readonly string[];
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────

@@ -48,6 +48,8 @@ export class ProviderQuotaStore {
   // ─── selectors ───────────────────────────────────────────────────────────
 
   readonly snapshots = computed(() => this._state().snapshots);
+  /** Claude/Codex account-pool profile snapshots (non-legacy accounts), newest per account. */
+  readonly accountSnapshots = computed(() => this._state().accountSnapshots ?? []);
   readonly initialized = this._initialized.asReadonly();
   readonly loading = this._loading.asReadonly();
   readonly error = this._error.asReadonly();
@@ -217,7 +219,21 @@ export class ProviderQuotaStore {
   }
 
   private applySnapshot(snap: ProviderQuotaSnapshot): void {
+    // An account-pool snapshot describes one account, never the provider-level
+    // (legacy) entry it would otherwise overwrite.
+    if (snap.accountProfileId) {
+      this._state.update((s) => ({
+        ...s,
+        accountSnapshots: [
+          ...(s.accountSnapshots ?? []).filter((entry) =>
+            !(entry.provider === snap.provider && entry.accountProfileId === snap.accountProfileId)),
+          snap,
+        ],
+      }));
+      return;
+    }
     this._state.update((s) => ({
+      ...s,
       snapshots: { ...s.snapshots, [snap.provider]: snap },
     }));
   }

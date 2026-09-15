@@ -1,8 +1,11 @@
-import { Injectable, computed, effect, inject, signal } from '@angular/core';
+import { IDLE_LOAD, LOADING, LOADED, failedLoad, friendlyRequestError, withRequestDeadline, type MobileLoadState } from './gateway-request-state';
+import { findOptimisticUserEchoIndex, LOCAL_MESSAGE_ID_PREFIX } from './mobile-optimistic-echo';
+import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 import { authFailureMessage } from './connection-status';
 import { HostStore } from './host-store';
 import type {
   MobileAttachmentDto,
+  MobileCancelledInputDto,
   MobileClientEvent,
   MobileCreateInstanceRequest,
   MobileHistorySessionDto,
@@ -33,16 +36,8 @@ const UNAUTHORIZED_RETRY_MS = 30000;
 /** Bound the post-failure auth probe so a black-holed host can't stall reconnects. */
 const AUTH_PROBE_TIMEOUT_MS = 5000;
 const EMPTY_PAUSE: MobilePauseDto = { isPaused: false, reasons: [], pausedAt: null, lastChange: 0 };
-const LOCAL_MESSAGE_ID_PREFIX = 'local-';
-const LOCAL_ECHO_REPLACE_WINDOW_MS = 2 * 60_000;
 
-/**
- * Maintains a live WebSocket to the active host and exposes the latest snapshot,
- * per-instance transcripts, pending prompts and pause state as signals. Reconnects
- * automatically (the WS link rides the Tailscale tunnel, which can drop as the phone
- * changes networks) and uses the per-instance `seq` to detect gaps and resync.
- * Zoneless-friendly: socket callbacks write signals, which drive change detection.
- */
+/** Host-scoped socket/REST state; sequence gaps resync transcripts after reconnect. */
 @Injectable({ providedIn: 'root' })
 export class GatewayClient {
   private readonly hostStore = inject(HostStore);
@@ -54,6 +49,12 @@ export class GatewayClient {
   private readonly _pause = signal<MobilePauseDto>(EMPTY_PAUSE);
   private readonly _history = signal<MobileHistorySessionDto[]>([]);
   private readonly _models = signal<MobileModelCatalog | null>(null);
+  private readonly _dataHostId = signal<string | null>(null);
+  private readonly _messageStates = signal<Record<string, MobileLoadState>>({});
+  private readonly _historyState = signal<MobileLoadState>(IDLE_LOAD);
+  private readonly _modelState = signal<MobileLoadState>(IDLE_LOAD);
+  private readonly messageLoads = new Map<string, number>();
+  private historyLoad = 0;
 
   readonly snapshot = this._snapshot.asReadonly();
   readonly state = this._state.asReadonly();
@@ -64,22 +65,18 @@ export class GatewayClient {
   /** Persisted sessions (chats + archived instance sessions), newest first. */
   readonly historySessions = this._history.asReadonly();
   readonly modelCatalog = this._models.asReadonly();
+  /** Identifies the host owning every currently exposed cached value. */
+  readonly dataHostId = this._dataHostId.asReadonly();
+  readonly historyState = this._historyState.asReadonly();
+  readonly modelState = this._modelState.asReadonly();
 
   private ws: WebSocket | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private currentHostId: string | null = null;
   private readonly lastSeq = new Map<string, number>();
-  /**
-   * The conversation the UI currently has open, reported up the WS so the gateway
-   * suppresses the unread-completion dot for it. Retained so it can be re-sent
-   * after a reconnect (the socket drops as the phone roams networks).
-   */
+  /** Reassert the visible conversation after reconnect to suppress its unread dot. */
   private activeView: string | null = null;
-  /**
-   * Bumped on every teardown so an in-flight auth probe from a previous
-   * connection can tell it has been superseded. The host id alone is not enough:
-   * switching away from a host and back lands on the same id.
-   */
+  /** Generation also detects switching away and back to the same host. */
   private connectGeneration = 0;
 
   constructor() {
@@ -95,6 +92,20 @@ export class GatewayClient {
   /** The transcript for one instance (history + live), or []. */
   messagesFor(instanceId: string): MobileMessageDto[] {
     return this._transcripts()[instanceId] ?? [];
+  }
+
+  messageStateFor(instanceId: string): MobileLoadState {
+    return this._messageStates()[instanceId] ?? IDLE_LOAD;
+  }
+
+  /** A deliberate retry keeps cached content visible while the socket reconnects. */
+  reconnect(): void {
+    const host = this.hostStore.activeHost();
+    if (!host) return;
+    if (host.id !== this.currentHostId) { this.connect(host); return; }
+    this.teardown();
+    this.openSocket(host);
+    void this.loadHistory();
   }
 
   /** Pending prompts for one instance. */
@@ -143,6 +154,13 @@ export class GatewayClient {
     this._models.set(null);
     this.lastSeq.clear();
     this._history.set([]);
+    this._messageStates.set({});
+    this._historyState.set(IDLE_LOAD);
+    this._modelState.set(IDLE_LOAD);
+    this.messageLoads.clear();
+    this.historyLoad += 1;
+    this.activeView = null;
+    this._dataHostId.set(host?.id ?? null);
     if (!host) {
       this._state.set('disconnected');
       return;
@@ -151,12 +169,18 @@ export class GatewayClient {
     void this.loadHistory();
   }
 
-  /** Fetch the persisted session list (best-effort; leaves the cache on failure). */
+  /** Fetch persisted sessions; retain cached content and expose failures. */
   async loadHistory(): Promise<void> {
+    const scope = this.requestScope();
+    const load = ++this.historyLoad;
+    this._historyState.set(LOADING);
     try {
-      this._history.set(await this.history());
-    } catch {
-      /* history is best-effort; the live snapshot still renders */
+      const sessions = await this.history();
+      if (!scope() || this.historyLoad !== load) return;
+      this._history.set(sessions);
+      this._historyState.set(LOADED);
+    } catch (error) {
+      if (scope() && this.historyLoad === load) this._historyState.set(failedLoad(error));
     }
   }
 
@@ -224,7 +248,8 @@ export class GatewayClient {
         this.upsertPrompt(event.data);
         break;
       case 'permission-cleared':
-        this._prompts.set(this._prompts().filter((p) => p.requestId !== event.data.requestId));
+        this._prompts.update((prompts) => prompts.filter((p) => p.requestId !== event.data.requestId ||
+          (event.data.instanceId !== undefined && p.instanceId !== event.data.instanceId)));
         break;
       case 'pause-state':
         this._pause.set(event.data);
@@ -359,10 +384,6 @@ export class GatewayClient {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // REST — every command goes to the active host with its bearer token.
-  // ---------------------------------------------------------------------------
-
   private base(): { url: string; headers: Record<string, string>; hostId: string } | null {
     const host = this.hostStore.activeHost();
     if (!host) return null;
@@ -376,60 +397,75 @@ export class GatewayClient {
     };
   }
 
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  private async request<T>(method: string, path: string, body?: unknown, allowStaleResult = false): Promise<T> {
     const base = this.base();
     if (!base) throw new Error('No active host');
-    const res = await fetch(`${base.url}${path}`, {
-      method,
-      headers: base.headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const err = (await res.json().catch(() => ({}))) as { error?: string };
-      if (res.status === 401) {
-        // The token is dead for every endpoint, not just this one, so converge the
-        // whole app on the state that names the real fix and replace the gateway's
-        // bare "Unauthorized" — which screens rendered verbatim — with something
-        // the user can act on. Only speak for the active host: a slow response
-        // from a host the user has since switched away from must not label a
-        // healthy connection as expired.
-        if (this.hostStore.activeHost()?.id === base.hostId) {
-          this._state.set('unauthorized');
-        }
-        throw new Error(authFailureMessage());
+    const current = this.requestScope();
+    return withRequestDeadline(async (signal) => {
+      let res: Response;
+      try {
+        res = await fetch(`${base.url}${path}`, {
+          method, headers: base.headers, signal,
+          body: body === undefined ? undefined : JSON.stringify(body),
+        });
+      } catch {
+        throw new Error('The connection to this host was interrupted. Check the connection before trying again.');
       }
-      throw new Error(err.error || `HTTP ${res.status}`);
-    }
-    return (await res.json().catch(() => ({}))) as T;
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        if (res.status === 401) {
+          if (current() && !signal.aborted) this._state.set('unauthorized');
+          throw new Error(authFailureMessage());
+        }
+        throw new Error(friendlyRequestError(err.error, res.status));
+      }
+      const value = await res.json() as T;
+      if (!current() && !allowStaleResult) throw new Error('The active host changed. Return to the original host to check the result.');
+      return value;
+    });
+  }
+
+  private requestScope(): () => boolean {
+    const id = this.hostStore.activeHost()?.id;
+    const generation = this.connectGeneration;
+    return () => this.hostStore.activeHost()?.id === id && this.connectGeneration === generation;
   }
 
   /** Fetch and store the authoritative transcript for an instance. */
   async loadMessages(instanceId: string): Promise<void> {
+    const current = this.requestScope();
+    const load = (this.messageLoads.get(instanceId) ?? 0) + 1;
+    this.messageLoads.set(instanceId, load);
+    const initial = new Map(untracked(() => this.messagesFor(instanceId)).map((message) => [message.id, message]));
+    this._messageStates.update((states) => ({ ...states, [instanceId]: LOADING }));
     try {
       const messages = await this.request<MobileMessageDto[]>(
         'GET',
         `/api/instances/${encodeURIComponent(instanceId)}/messages`,
       );
-      this._transcripts.set({ ...this._transcripts(), [instanceId]: messages });
-    } catch {
-      /* leave any existing transcript in place */
+      if (!current() || this.messageLoads.get(instanceId) !== load) return;
+      // A snapshot must not erase output received while its HTTP request waited.
+      const merged = new Map(messages.map((message) => [message.id, message]));
+      for (const message of this.messagesFor(instanceId)) {
+        if (initial.get(message.id) !== message) merged.set(message.id, message);
+      }
+      this._transcripts.update((transcripts) => ({ ...transcripts, [instanceId]: [...merged.values()] }));
+      this._messageStates.update((states) => ({ ...states, [instanceId]: LOADED }));
+    } catch (error) {
+      if (current() && this.messageLoads.get(instanceId) === load) {
+        this._messageStates.update((states) => ({ ...states, [instanceId]: failedLoad(error) }));
+      }
     }
   }
 
-  /**
-   * Send a message. When the session is mid-turn the host parks it instead
-   * (`queued`), and it goes out on the next ready edge.
-   *
-   * The optimistic echo is removed again unless the message really was sent:
-   * leaving it behind after a rejected send is what made a failed message look
-   * like it had been sent *and* left a copy in the composer.
-   */
+  /** Retract optimistic input on rejection/queueing; reconcile confirmed delivery. */
   async sendInput(
     instanceId: string,
     message: string,
     attachments?: MobileAttachmentDto[],
   ): Promise<{ queued: boolean }> {
-    const echoId = `${LOCAL_MESSAGE_ID_PREFIX}${Date.now()}`;
+    const current = this.requestScope();
+    const echoId = `${LOCAL_MESSAGE_ID_PREFIX}${crypto.randomUUID()}`;
     this.appendMessage(instanceId, {
       id: echoId,
       timestamp: Date.now(),
@@ -443,11 +479,15 @@ export class GatewayClient {
         'POST',
         `/api/instances/${encodeURIComponent(instanceId)}/input`,
         { message, attachments },
+        true,
       );
     } catch (err) {
-      this.removeMessage(instanceId, echoId);
+      if (current()) this.removeMessage(instanceId, echoId);
       throw err;
     }
+    // The sending screen owns its original draft even after navigation. Return
+    // the acknowledgement without loading or removing data on the new host.
+    if (!current()) return { queued: result?.queued === true };
     if (result?.queued) {
       // The queue strip owns it now — it isn't in the transcript yet, and the
       // host emits the real user bubble when it delivers.
@@ -459,18 +499,29 @@ export class GatewayClient {
     return { queued: false };
   }
 
-  /** Cancel a parked message. Returns its text so the UI can restore the draft. */
-  async cancelQueued(instanceId: string, queueId: string): Promise<string> {
-    const result = await this.request<{ message?: string }>(
+  /** Recover a parked draft, including attachments; delivery conflicts reject. */
+  async cancelQueued(instanceId: string, queueId: string): Promise<MobileCancelledInputDto> {
+    const current = this.requestScope();
+    const result = await this.request<MobileCancelledInputDto>(
       'DELETE',
       `/api/instances/${encodeURIComponent(instanceId)}/queue/${encodeURIComponent(queueId)}`,
+      undefined,
+      true,
     );
-    return result?.message ?? '';
+    if (current()) this._snapshot.update((snapshot) => snapshot ? {
+      ...snapshot,
+      instances: snapshot.instances.map((instance) => instance.id === instanceId ? {
+        ...instance,
+        queuedMessages: instance.queuedMessages?.filter((item) => item.id !== queueId),
+      } : instance),
+    } : snapshot);
+    return { message: result.message, ...(result.attachments ? { attachments: result.attachments } : {}) };
   }
 
   async respond(instanceId: string, body: MobileRespondRequest): Promise<void> {
+    const current = this.requestScope();
     await this.request('POST', `/api/instances/${encodeURIComponent(instanceId)}/respond`, body);
-    this._prompts.set(this._prompts().filter((p) => p.requestId !== body.requestId));
+    if (current()) this._prompts.update((prompts) => prompts.filter((p) => p.requestId !== body.requestId || p.instanceId !== instanceId));
   }
 
   /**
@@ -509,7 +560,9 @@ export class GatewayClient {
       }
       throw new Error(err.error || `HTTP ${res.status}`);
     }
-    this._prompts.set(this._prompts().filter((p) => p.requestId !== body.requestId));
+    if (target.id === this.hostStore.activeHost()?.id && target.id === this._dataHostId()) {
+      this._prompts.update((prompts) => prompts.filter((p) => p.requestId !== body.requestId || p.instanceId !== instanceId));
+    }
   }
 
   /**
@@ -541,18 +594,26 @@ export class GatewayClient {
     if (cached) {
       return cached;
     }
-    const catalog = await this.request<MobileModelCatalog>('GET', '/api/models');
-    this._models.set(catalog);
-    return catalog;
+    const current = this.requestScope();
+    this._modelState.set(LOADING);
+    try {
+      const catalog = await this.request<MobileModelCatalog>('GET', '/api/models');
+      if (current()) { this._models.set(catalog); this._modelState.set(LOADED); }
+      return catalog;
+    } catch (error) {
+      if (current()) this._modelState.set(failedLoad(error));
+      throw error;
+    }
   }
 
   async changeModel(instanceId: string, model: string): Promise<MobileInstanceDto> {
+    const current = this.requestScope();
     const updated = await this.request<MobileInstanceDto>(
       'POST',
       `/api/instances/${encodeURIComponent(instanceId)}/model`,
       { model },
     );
-    this._snapshot.update((snapshot) =>
+    if (current()) this._snapshot.update((snapshot) =>
       snapshot
         ? {
             ...snapshot,
@@ -603,8 +664,9 @@ export class GatewayClient {
   }
 
   async setPause(paused: boolean): Promise<void> {
+    const current = this.requestScope();
     const state = await this.request<MobilePauseDto>('POST', '/api/pause', { paused });
-    this._pause.set(state);
+    if (current()) this._pause.set(state);
   }
 
   async registerApnsToken(deviceId: string, apnsToken: string): Promise<void> {
@@ -625,39 +687,4 @@ export class GatewayClient {
     });
   }
 
-}
-
-function findOptimisticUserEchoIndex(
-  messages: MobileMessageDto[],
-  incoming: MobileMessageDto,
-): number {
-  if (incoming.id.startsWith(LOCAL_MESSAGE_ID_PREFIX) || incoming.type !== 'user') {
-    return -1;
-  }
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (isOptimisticEchoOf(messages[index], incoming)) {
-      return index;
-    }
-  }
-  return -1;
-}
-
-function isOptimisticEchoOf(local: MobileMessageDto, incoming: MobileMessageDto): boolean {
-  if (!local.id.startsWith(LOCAL_MESSAGE_ID_PREFIX) || local.type !== 'user') {
-    return false;
-  }
-  if (local.content !== incoming.content) {
-    return false;
-  }
-  if (Boolean(local.hasAttachments) !== Boolean(incoming.hasAttachments)) {
-    return false;
-  }
-  return timestampsAreClose(local.timestamp, incoming.timestamp);
-}
-
-function timestampsAreClose(localTimestamp: number, incomingTimestamp: number): boolean {
-  if (!Number.isFinite(localTimestamp) || !Number.isFinite(incomingTimestamp)) {
-    return true;
-  }
-  return Math.abs(localTimestamp - incomingTimestamp) <= LOCAL_ECHO_REPLACE_WINDOW_MS;
 }

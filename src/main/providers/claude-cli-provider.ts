@@ -22,6 +22,8 @@ import { computeTokenCost } from '../../shared/data/model-pricing';
 import type { ContextUsage } from '../../shared/types/instance.types';
 import { isCliAvailable } from '../cli/cli-detection';
 import { checkClaudeCliAuthentication } from './claude-cli-auth';
+import { attachAccountRoute } from '../instance/lifecycle/account-route-preflight';
+import { resolveClaudeAccountSpawnEnv } from '../cli/adapters/account-pool/account-adapter-guards';
 import type { ProviderAdapterDescriptor } from '@sdk/provider-adapter-registry';
 import type { ProviderAdapterCapabilities } from '@sdk/provider-adapter';
 import type { ProviderName } from '@contracts/types/provider-runtime-events';
@@ -117,6 +119,14 @@ export class ClaudeCliProvider extends BaseProvider {
       this.config.defaultModel || CLAUDE_MODELS.OPUS_1M,
     ) || this.config.defaultModel || CLAUDE_MODELS.OPUS_1M;
 
+    // This provider constructs its adapter directly rather than through the
+    // factory, so it must resolve and apply the account-pool route itself —
+    // otherwise it would be a spawn path around the pool.
+    const accountEnv = resolveClaudeAccountSpawnEnv(await attachAccountRoute(
+      'claude',
+      { workingDirectory: options.workingDirectory, model, resume: options.resume },
+      'verification',
+    ));
     this.adapter = new ClaudeCliAdapter({
       workingDirectory: options.workingDirectory,
       sessionId: options.sessionId,
@@ -125,6 +135,8 @@ export class ClaudeCliProvider extends BaseProvider {
       maxTokens: options.maxTokens,
       systemPrompt: options.systemPrompt,
       yoloMode: options.yoloMode,
+      ...(Object.keys(accountEnv.env).length > 0 ? { env: accountEnv.env } : {}),
+      ...(accountEnv.envRemove.length > 0 ? { envRemove: accountEnv.envRemove } : {}),
     });
 
     this.bindAdapterRuntimeEvents(this.adapter, {

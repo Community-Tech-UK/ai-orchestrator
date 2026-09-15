@@ -62,7 +62,7 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
 
   protected override buildArgs(message: CliMessage): string[] {
     const useResume = this.shouldUseResumeCommand();
-    const args: string[] = useResume ? ['exec', 'resume'] : ['exec'];
+    const args: string[] = [...this.configOverrideArgs(), ...(useResume ? ['exec', 'resume'] : ['exec'])];
 
     if (this.cliConfig.model && !this.execModelArgSuppressed) {
       args.push('--model', this.cliConfig.model);

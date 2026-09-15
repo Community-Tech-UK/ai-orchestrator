@@ -7,6 +7,8 @@
 
 import { BaseProvider } from './provider-interface';
 import { CodexCliAdapter, CodexCliConfig } from '../cli/adapters/codex-cli-adapter';
+import { attachAccountRoute } from '../instance/lifecycle/account-route-preflight';
+import { resolveCodexAccountSpawnConfig } from '../cli/adapters/account-pool/account-adapter-guards';
 import type {
   ProviderType,
   ProviderCapabilities,
@@ -117,6 +119,15 @@ export class CodexCliProvider extends BaseProvider {
       systemPrompt: options.systemPrompt,
       timeout: DEFAULT_CODEX_TURN_TIMEOUT_MS,
     };
+    // Direct construction bypasses the factory, so apply the account-pool route here.
+    const account = resolveCodexAccountSpawnConfig(await attachAccountRoute(
+      'codex',
+      { workingDirectory: options.workingDirectory, model: codexConfig.model, resume: options.resume },
+      'verification',
+    ));
+    if (account.authSourceDir) codexConfig.authSourceDir = account.authSourceDir;
+    if (account.envRemove.length > 0) codexConfig.envRemove = account.envRemove;
+    if (account.configOverrides.length > 0) codexConfig.configOverrides = account.configOverrides;
 
     this.adapter = new CodexCliAdapter(codexConfig);
 

@@ -19,7 +19,7 @@
 
 import type { ServerResponse } from 'http';
 import type { FileAttachment, Instance } from '../../shared/types/instance.types';
-import type { MobileQueuedMessageDto } from '../../shared/types/mobile-gateway.types';
+import type { MobileCancelledInputDto, MobileQueuedMessageDto } from '../../shared/types/mobile-gateway.types';
 import { sendJsonResponse } from './mobile-gateway-http-utils';
 
 /** Per-instance cap. Attachments sit in memory until delivered, so this is bounded. */
@@ -72,6 +72,12 @@ export interface QueuedInput {
   enqueuedAt: number;
   attempts: number;
   error?: string;
+}
+
+class QueueDeliveryInProgressError extends Error {
+  constructor() {
+    super('Delivery has already started. This message cannot be returned to your draft or removed. Check the conversation before sending it again.');
+  }
 }
 
 /** The slice of an instance the queue reasons about. */
@@ -135,6 +141,8 @@ export class MobileInputQueue {
   private readonly queues = new Map<string, QueuedInput[]>();
   /** Instances with a drain running, so concurrent ready edges don't double-send. */
   private readonly draining = new Set<string>();
+  /** Exact items whose provider delivery has started and cannot be cancelled. */
+  private readonly delivering = new Set<QueuedInput>();
   /** Pending follow-up drains, keyed by instance, so they can be cancelled. */
   private readonly followUps = new Map<string, ReturnType<typeof setTimeout>>();
   private idCounter = 0;
@@ -196,12 +204,13 @@ export class MobileInputQueue {
     }));
   }
 
-  /** Remove one parked message. Returns it so the caller can hand the text back. */
+  /** Remove one parked message, preserving its draft; reject an in-flight delivery. */
   cancel(instanceId: string, queueId: string): QueuedInput | null {
     const queue = this.queues.get(instanceId);
     if (!queue) return null;
     const index = queue.findIndex((item) => item.id === queueId);
     if (index < 0) return null;
+    if (this.delivering.has(queue[index])) throw new QueueDeliveryInProgressError();
     const [removed] = queue.splice(index, 1);
     if (queue.length === 0) this.queues.delete(instanceId);
     this.deps.onChange(instanceId);
@@ -273,6 +282,9 @@ export class MobileInputQueue {
     if (!isReadyForQueuedInput(instance, this.deps.isPaused(instanceId))) return;
 
     head.attempts += 1;
+    // Claim synchronously before invoking delivery: cancellation may run while
+    // the provider promise is outstanding, including during synchronous callbacks.
+    this.delivering.add(head);
     try {
       await this.deps.deliver(instanceId, head.message, head.attachments);
     } catch (err) {
@@ -289,6 +301,8 @@ export class MobileInputQueue {
         this.deps.onChange(instanceId);
       }
       return;
+    } finally {
+      this.delivering.delete(head);
     }
 
     // Re-read: the queue may have been cancelled/cleared while we awaited.
@@ -349,11 +363,22 @@ export function handleMobileQueueRoutes(
   if (segments.length !== 5 || method !== 'DELETE') return false;
   const instanceId = decodeURIComponent(segments[2]);
   const queueId = decodeURIComponent(segments[4]);
-  const removed = queue.cancel(instanceId, queueId);
+  let removed: QueuedInput | null;
+  try {
+    removed = queue.cancel(instanceId, queueId);
+  } catch (error) {
+    if (!(error instanceof QueueDeliveryInProgressError)) throw error;
+    sendJsonResponse(res, 409, { error: error.message });
+    return true;
+  }
   if (!removed) {
     sendJsonResponse(res, 404, { error: 'Queued message not found' });
     return true;
   }
-  sendJsonResponse(res, 200, { ok: true, message: removed.message });
+  const recovered: MobileCancelledInputDto = {
+    message: removed.message,
+    ...(removed.attachments?.length ? { attachments: removed.attachments } : {}),
+  };
+  sendJsonResponse(res, 200, { ok: true, ...recovered });
   return true;
 }

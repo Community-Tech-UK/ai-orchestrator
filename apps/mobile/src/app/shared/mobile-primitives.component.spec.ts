@@ -27,23 +27,8 @@ describe('mobile visual primitives', () => {
     expect(mobileSessionRowAriaLabel(row)).toBe('Open Polish mobile UX, working');
   });
 
-  it('announces the selected approval scope', () => {
-    const source = readFileSync(
-      resolve('src/app/features/approval/approval-sheet.component.ts'),
-      'utf8',
-    );
-    expect(source).toContain('[attr.data-scope]="scopeOption"');
-    expect(source).toContain('[attr.aria-pressed]="scope() === scopeOption"');
-  });
-
-  it('uses the shared sheet and vector controls for model selection', () => {
-    const source = readFileSync(resolve('src/app/shared/model-sheet.component.ts'), 'utf8');
-    expect(source).toContain('<app-mobile-sheet label="Model picker"');
-    expect(source).toContain('<app-mobile-icon name="check" />');
-    expect(source).toContain('<app-mobile-icon name="close" />');
-    expect(source).toContain('Reasoning');
-    expect(source).toContain('chooseReasoning.emit');
-  });
+  // Approval scope and model selection are covered by their rendered component
+  // behavior suites, including pressed state and retained answers.
 
   it('uses a vector lock mark and labelled shared unlock action', () => {
     const source = readFileSync(

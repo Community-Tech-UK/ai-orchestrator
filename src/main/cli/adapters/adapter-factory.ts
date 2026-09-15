@@ -59,6 +59,11 @@ import {
   requireCopilotAccountRoute,
 } from './copilot/copilot-adapter-guards';
 import {
+  requireAccountRoute,
+  resolveClaudeAccountSpawnEnv,
+  resolveCodexAccountSpawnConfig,
+} from './account-pool/account-adapter-guards';
+import {
   buildInlineMcpServersCodexConfigToml,
   buildStaticMcpServersCodexConfigToml,
 } from './static-mcp-codex-config';
@@ -187,6 +192,7 @@ export function createClaudeAdapter(options: UnifiedSpawnOptions): ClaudeCliAdap
     throw new Error(INTERACTIVE_RUNTIME_UNAVAILABLE);
   }
 
+  const accountEnv = resolveClaudeAccountSpawnEnv(options);
   const claudeOptions: ClaudeCliSpawnOptions = {
     sessionId: options.sessionId,
     workingDirectory: options.workingDirectory,
@@ -212,7 +218,8 @@ export function createClaudeAdapter(options: UnifiedSpawnOptions): ClaudeCliAdap
     excludeDynamicSystemPromptSections: options.excludeDynamicSystemPromptSections ?? true,
     chrome: options.chrome,
     permissionHookPath: options.permissionHookPath,
-    env: options.env,
+    env: Object.keys(accountEnv.env).length > 0 ? { ...options.env, ...accountEnv.env } : options.env,
+    ...(accountEnv.envRemove.length > 0 ? { envRemove: accountEnv.envRemove } : {}),
     rtk: options.rtk,
   };
   return new ClaudeCliAdapter(claudeOptions);
@@ -222,6 +229,7 @@ export function createClaudeAdapter(options: UnifiedSpawnOptions): ClaudeCliAdap
  * Creates a Codex CLI adapter
  */
 export function createCodexAdapter(options: UnifiedSpawnOptions): CodexCliAdapter {
+  const account = resolveCodexAccountSpawnConfig(options);
   const codexTomlBlocks = [
     options.browserGatewayMcp
       ? buildBrowserGatewayCodexConfigToml(
@@ -264,6 +272,9 @@ export function createCodexAdapter(options: UnifiedSpawnOptions): CodexCliAdapte
     ...(options.browserGatewayMcp?.instanceId ? { browserGatewayInstanceId: options.browserGatewayMcp.instanceId } : {}),
     ...(Object.keys(codexEnv).length > 0 ? { env: codexEnv } : {}),
     ...(mcpServersConfigToml ? { mcpServersConfigToml } : {}),
+    ...(account.authSourceDir ? { authSourceDir: account.authSourceDir } : {}),
+    ...(account.envRemove.length > 0 ? { envRemove: account.envRemove } : {}),
+    ...(account.configOverrides.length > 0 ? { configOverrides: account.configOverrides } : {}),
   };
   return new CodexCliAdapter(codexConfig);
 }
@@ -710,6 +721,9 @@ export function createCliAdapter(
   if (executionLocation?.type === 'remote') {
     if (cliType === 'copilot') {
       requireCopilotAccountRoute(effectiveOptions, 'remote');
+    }
+    if (cliType === 'claude' || cliType === 'codex') {
+      requireAccountRoute(effectiveOptions, cliType, 'remote');
     }
     const connection = getWorkerNodeConnectionServer();
     return new RemoteCliAdapter(connection, executionLocation.nodeId, cliType, effectiveOptions);

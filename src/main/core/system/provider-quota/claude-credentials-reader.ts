@@ -30,6 +30,7 @@ import { readFile as fsReadFile } from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import { getLogger } from '../../../logging/logger';
+import { claudeKeychainServiceName } from '../../../cli/adapters/account-pool/provider-account-home-resolver';
 
 const logger = getLogger('ClaudeCredentialsReader');
 
@@ -77,6 +78,13 @@ export interface ClaudeCredentialsReaderOptions {
   readFile?: CredentialsFileReader;
   /** Clock override (tests). Defaults to `Date.now`. */
   now?: () => number;
+  /**
+   * Account-pool profile config dir (`CLAUDE_CONFIG_DIR`). When set, the
+   * Keychain item is the one Claude Code keys on this exact string and the
+   * file is `<configDir>/.credentials.json` (decision D6). Same read-only
+   * discipline: never refreshed, an expired token skips the cycle.
+   */
+  configDir?: string;
 }
 
 interface StoredCredentialsJson {
@@ -93,8 +101,10 @@ export class ClaudeCredentialsReader {
   private readonly securityExec: SecurityExec;
   private readonly readFile: CredentialsFileReader;
   private readonly now: () => number;
+  private readonly configDir: string | undefined;
 
   constructor(opts: ClaudeCredentialsReaderOptions = {}) {
+    this.configDir = opts.configDir;
     this.platform = opts.platform ?? process.platform;
     this.homeDir = opts.homeDir ?? os.homedir();
     this.securityExec = opts.securityExec ?? defaultSecurityExec;
@@ -129,7 +139,7 @@ export class ClaudeCredentialsReader {
   private async readFromKeychain(): Promise<string | null> {
     try {
       const { stdout, exitCode } = await this.securityExec(
-        ['find-generic-password', '-s', KEYCHAIN_SERVICE, '-w'],
+        ['find-generic-password', '-s', this.configDir === undefined ? KEYCHAIN_SERVICE : claudeKeychainServiceName(this.configDir), '-w'],
         { timeoutMs: DEFAULT_TIMEOUT_MS },
       );
       if (exitCode !== 0) return null;
@@ -155,6 +165,7 @@ export class ClaudeCredentialsReader {
 
   private credentialsFilePath(): string {
     const pathApi = this.platform === 'win32' ? path.win32 : path.posix;
+    if (this.configDir !== undefined) return pathApi.join(this.configDir, '.credentials.json');
     return pathApi.join(this.homeDir, '.claude', '.credentials.json');
   }
 

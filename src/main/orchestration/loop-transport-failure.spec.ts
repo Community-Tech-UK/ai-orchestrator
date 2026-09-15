@@ -94,6 +94,13 @@ describe('isTransportFailureOnlyIteration', () => {
   });
 });
 
+describe('classifyDegradedIteration — structured plan limit', () => {
+  it('never treats an empty plan-limited turn as a void iteration to retry on the same account', () => {
+    expect(classifyDegradedIteration(iterationResult(''), null)).toBe('void-iteration');
+    expect(classifyDegradedIteration(iterationResult('', { providerQuotaExhausted: true }), null)).toBeNull();
+  });
+});
+
 describe('classifyDegradedIteration — transport failure', () => {
   it('classifies a work-free transport-error turn as degraded', () => {
     expect(classifyDegradedIteration(iterationResult(CURSOR_TRANSPORT_FAILURE), null))

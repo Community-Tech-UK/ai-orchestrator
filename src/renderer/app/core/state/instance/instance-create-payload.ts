@@ -37,6 +37,8 @@ export function buildCreateWithMessagePayload(
     ...(options.copilotConfirmProtectedOverride
       ? { copilotConfirmProtectedOverride: true }
       : {}),
+    // Account-pool profile the composer's picker resolved to, sent as an explicit choice.
+    ...(options.accountProfileId ? { accountProfileId: options.accountProfileId } : {}),
     forceNodeId: options.forceNodeId,
     ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
   };

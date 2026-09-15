@@ -21,10 +21,9 @@
 import type { LoopFailoverConfig } from '../../shared/types/loop.types';
 import type { LoopProvider } from '../../shared/types/loop.types';
 import type { LoopStage, LoopState } from '../../shared/types/loop.types';
-import type { ProviderId } from '../../shared/types/provider-quota.types';
 import { detectAvailableClis } from '../cli/cli-detection';
 import { classifyLoopError } from '../core/loop-error-classification';
-import { getProviderLimitLedgerPort } from '../core/system/provider-limit-ledger';
+import { isProviderParkedForFailover } from '../providers/account-pool/provider-parked-veto';
 import { getNotificationService } from '../notifications/notification-service';
 import { getFailoverManager } from '../providers/failover-manager';
 import { getLogger } from '../logging/logger';
@@ -202,11 +201,7 @@ export async function runCoordinatorLoopFailover(args: {
       model: args.downshiftModel ?? undefined,
     }),
     selectTarget: (request) => getFailoverManager().selectLoopFailoverTarget(request),
-    isProviderParked: (provider) => Boolean(getProviderLimitLedgerPort().getActive({
-      provider: provider as ProviderId,
-      model: null,
-      now: Date.now(),
-    })),
+    isProviderParked: (provider) => isProviderParkedForFailover(provider),
     installedProviders: installed,
     notify: (input) => {
       try {

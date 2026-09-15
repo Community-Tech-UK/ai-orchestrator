@@ -141,6 +141,14 @@
             (blocked)="onCopilotRouteBlocked($event)"
             (accountResolved)="onCopilotAccountResolved($event)"
           />
+          <!-- Which Claude/Codex account this session will use. Renders nothing without a pool. -->
+          <app-provider-account-chip
+            [provider]="draftPickerSelection().provider"
+            [model]="draftPickerSelection().model"
+            [executionNodeId]="draftSelectedNodeId()"
+            [chosenProfileId]="newSessionDraft.accountProfileId()"
+            (accountChosen)="newSessionDraft.setAccountProfileId($event)"
+          />
           @if (showLaunchModeSelector()) {
             <div class="launch-mode-segments" role="group" aria-label="Claude launch mode">
               <button

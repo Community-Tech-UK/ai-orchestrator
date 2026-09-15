@@ -6,6 +6,7 @@ import type {
   CopilotAccountRoutingRule,
 } from './copilot-account.types';
 import type { DesktopComputerUseSettings } from './desktop-gateway-settings.types';
+import type { ProviderAccountPools, ProviderAccountProfile } from './provider-account.types';
 import type { LocalAiFallbackPolicy } from './local-ai-guard.types';
 import type { ModelUsageEntry } from './model-usage.types';
 import type { WorkerModeSettings } from './pair-both.types';
@@ -489,6 +490,10 @@ export interface AppSettings extends DesktopComputerUseSettings {
    * blocks Copilot rather than falling back to the default account.
    */
   copilotAccountRoutingRules: CopilotAccountRoutingRule[];
+
+  // Provider account pools (2026-09-13 spec). Operator-only; no tokens or paths.
+  providerAccountProfiles: ProviderAccountProfile[];
+  providerAccountPools: ProviderAccountPools;
 
   // Conversational ping-pong review (bigchange_pingpong_review)
   /**

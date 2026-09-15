@@ -26,6 +26,7 @@ import { createMockProcess } from './codex-cli-adapter.test-helpers';
 import { getLogger } from '../../logging/logger';
 import type { CliAdapter } from './adapter-factory';
 import { isStatelessExecAdapter } from '../../instance/instance-communication-adapter-helpers';
+import { detectErrorProviderLimit } from '../../instance/instance-provider-limit-detection';
 import { createLoopInvocationCapture } from '../../orchestration/loop-invoker-capture';
 import { attachInvocationActivity } from '../../orchestration/loop-invocation-activity';
 
@@ -859,6 +860,55 @@ describe('CodexCliAdapter', () => {
       expect(completions).toHaveLength(2);
       expect(completions[0].usage?.totalTokens).toBe(120);
       expect(completions[1].usage).toBeUndefined();
+    });
+  });
+
+  describe('structured usage-limit signal', () => {
+    const unrecognisableMessage = 'Request could not be completed (code 7).';
+
+    it.each([
+      ['error notification', [
+        { method: 'turn/started', params: { threadId: 'thread-1', turn: { id: 'turn-1' } } },
+        {
+          method: 'error',
+          params: {
+            threadId: 'thread-1',
+            turnId: 'turn-1',
+            willRetry: false,
+            error: { message: unrecognisableMessage, codexErrorInfo: 'usageLimitExceeded' },
+          },
+        },
+        { method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'failed' } } },
+      ]],
+      ['turn/completed error (snake case)', [
+        { method: 'turn/started', params: { threadId: 'thread-1', turn: { id: 'turn-1' } } },
+        {
+          method: 'turn/completed',
+          params: {
+            threadId: 'thread-1',
+            turn: {
+              id: 'turn-1',
+              status: 'failed',
+              error: { message: unrecognisableMessage, codex_error_info: 'usage_limit_exceeded' },
+            },
+          },
+        },
+      ]],
+    ])('attaches quota diagnostics from %s so limit detection needs no text match', async (_label, notifications) => {
+      const adapter = new CodexCliAdapter();
+      const client = createSyntheticTurnClient(notifications as SyntheticNotification[]);
+      (adapter as unknown as { appServerClient: typeof client }).appServerClient = client;
+      (adapter as unknown as { appServerThreadId: string }).appServerThreadId = 'thread-1';
+
+      const error = await (adapter as unknown as {
+        appServerSendMessageInner(message: string): Promise<void>;
+      }).appServerSendMessageInner('hit the limit').then(() => null, (caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(Error);
+      expect((error as { quota?: unknown }).quota).toMatchObject({ exhausted: true });
+      const message = (error as Error).message;
+      expect(message).toContain('[codex_error_info:');
+      expect(detectErrorProviderLimit(error, message)).not.toBeNull();
     });
   });
 

@@ -164,6 +164,9 @@ export interface CliRateLimitInfo {
   overageStatus?: string;
   overageDisabledReason?: string;
   isUsingOverage?: boolean;
+  /** Window utilisation reported with the event (fraction 0..1 or percent). */
+  utilization?: number;
+  surpassedThreshold?: number;
 }
 
 export interface CliRateLimitEventMessage extends CliStreamMessageBase {

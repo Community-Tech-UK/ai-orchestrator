@@ -1,0 +1,263 @@
+<section class="new-session-screen">
+  <app-mobile-header title="New session">
+    <button
+      mobileHeaderLeading
+      class="mobile-icon-button"
+      type="button"
+      (click)="cancel()"
+      [disabled]="busy()"
+      aria-label="Back to projects"
+    >
+      <app-mobile-icon name="chevron-left" />
+    </button>
+    <span mobileHeaderTrailing aria-hidden="true"></span>
+  </app-mobile-header>
+
+  <div class="session-spacer" aria-hidden="true"></div>
+
+  <div class="session-context" aria-label="Session context">
+    <button class="context-row mobile-pressable" type="button" (click)="openHosts()" [disabled]="busy()">
+      <app-mobile-icon name="host" />
+      <span class="context-row__copy">
+        <span>{{ hostName() }}</span>
+        <small>{{ hostAvailability() }}</small>
+      </span>
+      <app-mobile-icon class="context-row__chevron" name="chevron-down" />
+    </button>
+
+    <button
+      class="context-row mobile-pressable"
+      type="button"
+      (click)="openDirectorySheet($event)"
+      [disabled]="busy()"
+      aria-haspopup="dialog"
+    >
+      <app-mobile-icon name="folder" />
+      <span class="context-row__copy">
+        <span>{{ selectedDirLabel() }}</span>
+        <small>{{ selectedDir() || 'Choose where this session should run' }}</small>
+      </span>
+      <app-mobile-icon class="context-row__chevron" name="chevron-down" />
+    </button>
+
+  </div>
+
+  <form class="new-session-composer" [attr.aria-busy]="busy()" (submit)="create($event)">
+    @if (attachments().length > 0) {
+      <div class="composer-attachments" aria-label="Attachments">
+        @for (attachment of attachments(); track attachment) {
+          <figure class="composer-attachment">
+            <img [src]="attachment.data" [alt]="attachment.name" />
+            <button
+              type="button"
+              (click)="removeAttachment(attachment)"
+              [attr.aria-label]="'Remove ' + attachment.name"
+            >
+              <app-mobile-icon name="close" />
+            </button>
+          </figure>
+        }
+      </div>
+    }
+
+    <textarea
+      #composer
+      rows="2"
+      [ngModel]="firstPrompt()"
+      (ngModelChange)="firstPrompt.set($event)"
+      [disabled]="busy()"
+      name="prompt"
+      placeholder="Ask Harness"
+      aria-label="First message"
+      (paste)="onPaste($event)"
+    ></textarea>
+
+    @if (legacyDraft()) {
+      <div class="composer-hint" role="status">
+        An older draft is available. Its host was not recorded.
+        <button class="sheet-secondary" type="button" (click)="recoverLegacyDraft()" [disabled]="busy()">Recover older draft</button>
+      </div>
+    }
+    @if (inputError()) {
+      <p class="composer-error" role="alert">{{ inputError() }}</p>
+    }
+    @if (busy()) {
+      <p class="composer-hint" role="status">Starting session…</p>
+    }
+    @if (error()) {
+      <p class="composer-error" role="alert">{{ error() }}</p>
+    } @else if (!online()) {
+      <p class="composer-hint">{{ composerBlocked() }}</p>
+    }
+
+    <div class="composer-toolbar">
+      <div class="composer-toolbar__leading">
+        @if (canAttach) {
+          <button
+            class="composer-tool"
+            type="button"
+            (click)="attachmentSheetOpen.set(true)"
+            [disabled]="attachBusy() || busy()"
+            aria-label="Add attachment"
+          >
+            <app-mobile-icon name="plus" />
+          </button>
+        }
+      </div>
+
+      <button
+        class="composer-plan mobile-pressable"
+        type="button"
+        (click)="openSettings($event)"
+        [disabled]="busy()"
+        aria-label="Session settings"
+        aria-haspopup="dialog"
+      >
+        <strong>{{ providerDisplay() }}</strong><span>{{ compactPlanSummary() }}</span>
+      </button>
+
+      @if (canDictate) {
+        <button
+          class="composer-tool"
+          type="button"
+          [class.composer-tool--listening]="listening()"
+          (click)="toggleDictation()"
+          [disabled]="busy() || voiceBusy()"
+          [attr.aria-label]="listening() ? 'Stop dictation' : 'Dictate message'"
+        >
+          <app-mobile-icon name="microphone" />
+        </button>
+      }
+
+      <button
+        class="composer-submit"
+        type="submit"
+        [disabled]="!canCreate()"
+        [attr.aria-label]="busy() ? 'Starting session' : 'Start session'"
+      >
+        <span>{{ busy() ? 'Starting…' : 'Start' }}</span>
+      </button>
+    </div>
+  </form>
+
+  @if (directorySheetOpen()) {
+    <app-mobile-sheet label="Working directory" [returnFocusTo]="directoryReturnFocus()" (dismiss)="directorySheetOpen.set(false)">
+      <header class="sheet-heading">
+        <span class="sheet-eyebrow">Run on {{ hostName() }}</span>
+        <p>Choose a recent folder from the selected host.</p>
+      </header>
+
+      @if (loadingDirs()) {
+        <p class="sheet-state">Loading recent directories…</p>
+      } @else if (dirsError()) {
+        <div class="sheet-state">
+          <p>{{ dirsError() }}</p>
+          <button class="sheet-secondary" type="button" (click)="loadDirectories()">Retry</button>
+        </div>
+      }
+        <div class="sheet-list">
+          @if (selectedDir() && !directoryIsRecent()) {
+            <button class="sheet-row" type="button" (click)="chooseDirectory(selectedDir())" aria-pressed="true">
+              <app-mobile-icon name="folder" />
+              <span><strong>{{ selectedDirLabel() }}</strong><small>{{ selectedDir() }}</small></span>
+              <app-mobile-icon name="check" />
+            </button>
+          }
+          @for (directory of dirs(); track directory.path) {
+            <button class="sheet-row" type="button" (click)="chooseDirectory(directory.path)" [attr.aria-pressed]="selectedDir() === directory.path">
+              <app-mobile-icon name="folder" />
+              <span><strong>{{ directory.displayName }}</strong><small>{{ directory.path }}</small></span>
+              @if (selectedDir() === directory.path) { <app-mobile-icon name="check" /> }
+            </button>
+          } @empty {
+            @if (!selectedDir() && !loadingDirs() && !dirsError()) {
+              <p class="sheet-state">No recent directories. Open a folder on the host, then try again.</p>
+            }
+          }
+        </div>
+    </app-mobile-sheet>
+  }
+
+  @if (settingsSheetOpen()) {
+    <app-mobile-sheet label="Session settings" [returnFocusTo]="settingsReturnFocus()" (dismiss)="settingsSheetOpen.set(false)">
+      <header class="sheet-heading sheet-heading--with-action">
+        <div class="sheet-heading__copy">
+          <span class="sheet-eyebrow">Harness resolves the final setup</span>
+          <p>Auto uses the host's preferred provider, model, and reasoning level.</p>
+        </div>
+        <button
+          class="sheet-confirm mobile-icon-button"
+          type="button"
+          (click)="completeSettings()"
+          aria-label="Continue with selected provider"
+        >
+          Continue
+        </button>
+      </header>
+
+      <span class="sheet-section-label">Provider</span>
+      <div class="sheet-list">
+        @for (item of providers; track item) {
+          <button class="sheet-row" type="button" (click)="selectProvider(item)" [attr.aria-pressed]="provider() === item">
+            <app-mobile-icon name="provider" />
+            <span><strong>{{ displayProvider(item) }}</strong><small>{{ item === 'auto' ? 'Use host settings' : 'Run with ' + displayProvider(item) }}</small></span>
+            @if (provider() === item) { <app-mobile-icon name="check" /> }
+          </button>
+        }
+      </div>
+
+      <span class="sheet-section-label">Resolved session</span>
+      <div class="sheet-summary">
+        @if (planLoading()) {
+          <p>Resolving session settings…</p>
+        } @else if (planError()) {
+          <p>{{ planError() }}</p>
+          <button class="sheet-secondary" type="button" (click)="retryPlan()">Retry</button>
+        } @else if (plan(); as resolvedPlan) {
+          <strong>{{ resolvedPlan.providerLabel }}</strong>
+          <span>{{ planSummary() }}</span>
+        }
+      </div>
+
+      @if (provider() !== 'auto') {
+        <button class="sheet-row sheet-row--model" type="button" (click)="openModelSheet()">
+          <app-mobile-icon name="settings" />
+          <span><strong>Model</strong><small>{{ selectedModelLabel() }}</small></span>
+          <app-mobile-icon name="chevron-down" />
+        </button>
+      }
+    </app-mobile-sheet>
+  }
+
+  @if (attachmentSheetOpen()) {
+    <app-mobile-sheet label="Add attachment" (dismiss)="attachmentSheetOpen.set(false)">
+      <div class="sheet-list">
+        <button class="sheet-row" type="button" (click)="pickImages()" [disabled]="attachBusy()">
+          <app-mobile-icon name="attachment" />
+          <span><strong>Photo Library</strong><small>Select up to five images</small></span>
+        </button>
+        <button class="sheet-row" type="button" (click)="pasteImageFromClipboard()" [disabled]="attachBusy()">
+          <app-mobile-icon name="clipboard" />
+          <span><strong>Paste image</strong><small>Use an image from the clipboard</small></span>
+        </button>
+      </div>
+    </app-mobile-sheet>
+  }
+
+  @if (modelSheetOpen()) {
+    <app-model-sheet
+      [returnFocusTo]="settingsReturnFocus()"
+      [provider]="provider()"
+      [models]="modelsForProvider()"
+      [selected]="model()"
+      [reasoningOptions]="reasoningOptions()"
+      [selectedReasoning]="reasoningEffort()"
+      [loading]="modelsLoading()"
+      [error]="modelsError()"
+      (choose)="chooseModel($event)"
+      (chooseReasoning)="chooseReasoningEffort($event)"
+      (retry)="openModelSheet()"
+      (dismiss)="modelSheetOpen.set(false)"
+    />
+  }
+</section>

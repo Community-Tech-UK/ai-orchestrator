@@ -22,6 +22,7 @@ import {
   providerRuntimeEnvelopeToContinuityEntry,
 } from '../session/continuity-message-projection';
 import type { ConversationEntry } from '../session/session-continuity.types';
+import { ContinuityToolEntryMerger } from '../session/continuity-tool-entry-merger';
 import {
   getAppStore,
   setGlobalState,
@@ -62,6 +63,8 @@ type ContinuityTask =
       instanceId: string;
       entryId: string;
       patch: Partial<Omit<ConversationEntry, 'id'>>;
+      /** Added instead when the entry to patch was never stored (e.g. its add was dropped). */
+      fallback?: ConversationEntry;
     };
 
 const ACTIVE_STATUSES = new Set(['running', 'busy', 'waiting', 'waiting_for_input']);
@@ -76,6 +79,7 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
   const previousStatus = new Map<string, string>();
   const lastTokenOwnerEntryId = new Map<string, string>();
   const toolNamesByCallIdByInstance = new Map<string, Map<string, string>>();
+  const toolEntryMerger = new ContinuityToolEntryMerger();
 
   // Continuity updates run off the hot event path. State updates coalesce per
   // instance (bounded queue, drop when full); entry ordering is preserved.
@@ -93,7 +97,11 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
         } else if (task.kind === 'entry') {
           await continuity.addConversationEntry(task.instanceId, task.entry);
         } else {
-          await continuity.patchConversationEntry(task.instanceId, task.entryId, task.patch);
+          if (task.fallback) {
+            await continuity.patchConversationEntry(task.instanceId, task.entryId, task.patch, task.fallback);
+          } else {
+            await continuity.patchConversationEntry(task.instanceId, task.entryId, task.patch);
+          }
         }
       } catch (err) {
         logger.warn('Continuity queue task failed', {
@@ -144,6 +152,7 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
     previousStatus.delete(instanceId as string);
     lastTokenOwnerEntryId.delete(instanceId as string);
     toolNamesByCallIdByInstance.delete(instanceId as string);
+    toolEntryMerger.forget(instanceId as string);
     observer.publishInstanceState({
       type: 'removed',
       instanceId,
@@ -276,11 +285,23 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
       || continuityEntry.role === 'system'
       || continuityEntry.role === 'tool'
     )) {
-      continuityQueue.enqueue({
-        kind: 'entry', instanceId: envelope.instanceId, entry: continuityEntry,
-      });
+      // The raw tool event and the visible tool message describe the same call.
+      // Scoped by adapter generation: a respawned adapter may reuse call ids.
+      const decision = toolEntryMerger.merge(
+        `${envelope.instanceId}:${enrichedEnvelope.adapterGeneration ?? 0}`,
+        continuityEntry,
+        message !== null,
+      );
+      if (decision.kind === 'add') {
+        continuityQueue.enqueue({ kind: 'entry', instanceId: envelope.instanceId, entry: decision.entry });
+      } else if (decision.kind === 'patch') {
+        continuityQueue.enqueue({
+          kind: 'patch', instanceId: envelope.instanceId, entryId: decision.entryId,
+          patch: decision.patch, fallback: decision.entry,
+        });
+      }
       if (continuityEntry.role === 'assistant') {
-        lastTokenOwnerEntryId.set(envelope.instanceId, continuityEntry.id);
+        lastTokenOwnerEntryId.set(envelope.instanceId, decision.entryId);
       }
     }
 

@@ -90,3 +90,19 @@ describe('workspace secrets migration 061', () => {
     expect(auditColumns).not.toContain('value_enc');
   });
 });
+
+describe('provider limit account profile migration 063', () => {
+  afterEach(() => {
+    for (const db of dbs.splice(0)) db.close();
+  });
+
+  it('adds a legacy-defaulted profile column and the profile-first index', () => {
+    const db = openMigratedDb();
+    runMigrations(db);
+    const columns = db.prepare('PRAGMA table_info(provider_limit_events)').all<{ name: string; dflt_value: string | null }>();
+    expect(columns.find((column) => column.name === 'account_profile_id')?.dflt_value).toBe("''");
+    const index = db.prepare(`SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_provider_limit_events_active'`)
+      .get<{ sql: string }>();
+    expect(index?.sql).toContain('account_profile_id');
+  });
+});

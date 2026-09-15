@@ -63,6 +63,43 @@ export const COPILOT_STRIPPED_AUTH_ENV_VARS = [
   'GITHUB_TOKEN_VARNAME',
 ] as const;
 
+/**
+ * Ambient authentication variables removed from profile-routed Claude children
+ * (provider account pools, spec invariant 5).
+ *
+ * Claude Code's documented precedence puts cloud-provider switches,
+ * `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY` (always used under `-p`) and
+ * `CLAUDE_CODE_OAUTH_TOKEN` ahead of the subscription OAuth that a profile's
+ * config dir selects, so any of them inherited from the Harness process would
+ * silently turn a profile into a different account or API billing.
+ * `CLAUDE_SECURESTORAGE_CONFIG_DIR` decouples the Keychain item from the config
+ * dir. `CLAUDE_CONFIG_DIR` itself is on the list so an ambient value cannot
+ * leak into a legacy spawn either; a derived route sets it explicitly.
+ */
+export const CLAUDE_STRIPPED_AUTH_ENV_VARS = [
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
+  'CLAUDE_CODE_OAUTH_TOKEN',
+  'ANTHROPIC_PROFILE',
+  'CLAUDE_CODE_USE_BEDROCK',
+  'CLAUDE_CODE_USE_VERTEX',
+  'CLAUDE_CODE_USE_FOUNDRY',
+  'CLAUDE_SECURESTORAGE_CONFIG_DIR',
+  'CLAUDE_CONFIG_DIR',
+] as const;
+
+/**
+ * Ambient authentication variables removed from profile-routed Codex children.
+ * An API key or access token outranks the ChatGPT sign-in in the profile's
+ * `auth.json`, and `CODEX_SQLITE_HOME` would move state out of the home.
+ */
+export const CODEX_STRIPPED_AUTH_ENV_VARS = [
+  'CODEX_API_KEY',
+  'OPENAI_API_KEY',
+  'CODEX_ACCESS_TOKEN',
+  'CODEX_SQLITE_HOME',
+] as const;
+
 const BROWSER_GATEWAY_SYSTEM_PROMPT = [
   '[Browser Gateway]',
   'When the user asks you to use a website, browser tab, authenticated session, web form, or page state, use the browser.* tools directly.',
@@ -217,7 +254,8 @@ export function getElectronUserDataPath(): string | undefined {
 }
 
 /**
- * Root directory that Copilot state lives under.
+ * Root directory that provider CLI state (Copilot homes, Claude and Codex
+ * account-profile homes) lives under.
  *
  * Order matters:
  *   1. `AI_ORCHESTRATOR_STATE_ROOT` — set by the WORKER AGENT, which runs
@@ -230,12 +268,17 @@ export function getElectronUserDataPath(): string | undefined {
  * Unset on the controller, so controller behaviour is byte-identical to before
  * this variable existed.
  */
-export function getCopilotStateRoot(parent: NodeJS.ProcessEnv = process.env): string {
+export function getProviderStateRoot(parent: NodeJS.ProcessEnv = process.env): string {
   const workerRoot = parent[COPILOT_STATE_ROOT_ENV]?.trim();
   if (workerRoot) {
     return workerRoot;
   }
   return getElectronUserDataPath() ?? join(tmpdir(), 'ai-orchestrator');
+}
+
+/** Copilot's state root. Same resolution as {@link getProviderStateRoot}. */
+export function getCopilotStateRoot(parent: NodeJS.ProcessEnv = process.env): string {
+  return getProviderStateRoot(parent);
 }
 
 export function getCopilotOrchestratorHome(parent: NodeJS.ProcessEnv = process.env): string {

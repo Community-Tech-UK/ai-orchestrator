@@ -111,6 +111,10 @@ function spawnInstance(msg: Extract<SpawnWorkerInboundMsg, { type: 'spawn' }>): 
   const safeEnv = getSafeEnvForTrustedProcess();
   delete safeEnv['CLAUDECODE'];
   const mergedEnv = { ...safeEnv, ...msg.env };
+  // Applied after the merge, mirroring BaseCliAdapter.spawnProcess.
+  for (const key of msg.envRemove ?? []) {
+    delete mergedEnv[key];
+  }
   const spawnOptions = buildCliSpawnOptions(mergedEnv);
 
   // Mirror BaseCliAdapter.resolveSpawnTarget: on Windows, resolve the `<cli>.cmd`

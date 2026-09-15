@@ -20,6 +20,7 @@ export const aliases = {
   '@contracts/schemas/file-operations': resolve(configDir, './packages/contracts/src/schemas/file-operations.schemas'),
   '@contracts/schemas/security': resolve(configDir, './packages/contracts/src/schemas/security.schemas'),
   '@contracts/schemas/copilot-account': resolve(configDir, './packages/contracts/src/schemas/copilot-account.schemas'),
+  '@contracts/schemas/provider-account': resolve(configDir, './packages/contracts/src/schemas/provider-account.schemas'),
   '@contracts/schemas/observability': resolve(configDir, './packages/contracts/src/schemas/observability.schemas'),
   '@contracts/schemas/workspace-tools': resolve(configDir, './packages/contracts/src/schemas/workspace-tools.schemas'),
   '@contracts/schemas/knowledge': resolve(configDir, './packages/contracts/src/schemas/knowledge.schemas'),

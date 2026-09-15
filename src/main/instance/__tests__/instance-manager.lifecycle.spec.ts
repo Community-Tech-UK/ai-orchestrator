@@ -308,6 +308,7 @@ vi.mock('../../cli/hooks/hook-path-resolver', () => ({
 vi.mock('../auto-title-service', () => ({
   getAutoTitleService: vi.fn(() => ({
     maybeGenerateTitle: mockAutoTitleMaybeGenerate,
+    retryTitleUpgradeIfPending: vi.fn().mockResolvedValue(undefined),
     clearInstance: mockAutoTitleClearInstance,
   })),
 }));

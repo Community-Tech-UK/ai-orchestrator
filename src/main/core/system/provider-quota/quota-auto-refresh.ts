@@ -20,6 +20,7 @@
 
 import type { EventEmitter } from 'events';
 import type { ProviderId } from '../../../../shared/types/provider-quota.types';
+import { providerQuotaKey } from '../../../../shared/types/provider-quota.types';
 import type { ProviderType } from '../../../../shared/types/provider.types';
 import { getProviderQuotaService } from '../provider-quota-service';
 import { getLogger } from '../../../logging/logger';
@@ -68,7 +69,12 @@ export interface QuotaAutoRefreshOptions {
    * Override for the singleton service. Tests inject a fake; production
    * code should leave undefined.
    */
-  service?: { refresh(provider: ProviderId): Promise<unknown> };
+  service?: { refresh(provider: ProviderId, accountProfileId?: string | null): Promise<unknown> };
+  /**
+   * Account-pool profile the adapter runs on. Refreshes and their debounce are
+   * per (provider, profile, event class), so accounts never coalesce together.
+   */
+  accountProfileId?: string | null;
 }
 
 /** Last-fire timestamps shared across all attachments for one provider. */
@@ -91,12 +97,12 @@ export function attachQuotaAutoRefresh(
   const service = options.service ?? getProviderQuotaService();
 
   const fire = (eventClass: 'spawned' | 'complete') => {
-    const key = `${providerId}:${eventClass}`;
+    const key = `${providerQuotaKey(providerId, options.accountProfileId)}:${eventClass}`;
     const last = lastFireByKey.get(key) ?? 0;
     const now = Date.now();
     if (now - last < debounceMs) return;
     lastFireByKey.set(key, now);
-    service.refresh(providerId).catch((err) => {
+    service.refresh(providerId, options.accountProfileId ?? null).catch((err) => {
       logger.debug(`Quota refresh after ${eventClass} failed for ${providerId}: ${(err as Error).message}`);
     });
   };

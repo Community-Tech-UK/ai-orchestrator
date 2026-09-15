@@ -52,6 +52,8 @@ export class NewSessionDraftService {
   readonly copilotAccountProfileId = computed(
     () => this.activeDraft().copilotAccountProfileId,
   );
+  /** Explicit Claude/Codex account choice for this draft (null = pool default). */
+  readonly accountProfileId = computed(() => this.activeDraft().accountProfileId);
   readonly launchMode = computed(() => this.activeDraft().launchMode);
   readonly agentId = computed(() => this.activeDraft().agentId);
   readonly nodeId = computed(() => this.activeDraft().nodeId);
@@ -121,6 +123,7 @@ export class NewSessionDraftService {
           yoloMode: currentDraft.yoloMode,
           hardened: currentDraft.hardened,
       copilotAccountProfileId: currentDraft.copilotAccountProfileId ?? null,
+          accountProfileId: currentDraft.accountProfileId ?? null,
           launchMode: currentDraft.launchMode,
           agentId: currentDraft.agentId,
           pendingFolders: [...currentDraft.pendingFolders],
@@ -137,6 +140,7 @@ export class NewSessionDraftService {
           yoloMode: null,
           hardened: null,
           copilotAccountProfileId: null,
+          accountProfileId: null,
           launchMode: null,
           agentId: getDefaultAgent().id,
           pendingFolders: [],
@@ -219,6 +223,8 @@ export class NewSessionDraftService {
         modelRuntimeTarget: nextRuntimeTarget,
         reasoningEffort: nextReasoning,
         launchMode: nextLaunchMode,
+        // Account profile IDs are per provider (both have `legacy`), so a choice never carries across.
+        accountProfileId: sameProvider ? draft.accountProfileId : null,
         updatedAt: Date.now(),
       };
     });
@@ -338,6 +344,10 @@ export class NewSessionDraftService {
       copilotAccountProfileId,
       updatedAt: Date.now(),
     }));
+  }
+
+  setAccountProfileId(accountProfileId: string | null): void {
+    this.updateActiveDraft((draft) => ({ ...draft, accountProfileId, updatedAt: Date.now() }));
   }
 
   setLaunchMode(launchMode: InstanceLaunchMode | null): void {
@@ -592,6 +602,7 @@ export class NewSessionDraftService {
       hardened: typeof draft?.hardened === 'boolean' ? draft.hardened : null,
       copilotAccountProfileId:
         typeof draft?.copilotAccountProfileId === 'string' ? draft.copilotAccountProfileId : null,
+      accountProfileId: typeof draft?.accountProfileId === 'string' ? draft.accountProfileId : null,
       launchMode: this.resolveDraftLaunchMode(provider, draft?.launchMode),
       agentId: isKnownAgent ? persistedAgentId : getDefaultAgent().id,
       pendingFolders: Array.isArray(draft?.pendingFolders)
@@ -683,6 +694,7 @@ export class NewSessionDraftService {
       yoloMode: null,
       hardened: null,
       copilotAccountProfileId: null,
+      accountProfileId: null,
       launchMode: null,
       agentId: getDefaultAgent().id,
       pendingFolders: [],

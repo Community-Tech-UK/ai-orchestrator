@@ -362,6 +362,17 @@ describe('NewSessionDraftService', () => {
     expect(service.reasoningEffort()).toBeNull();
   });
 
+  it('keeps an explicit account choice for the same provider and drops it on a provider change', () => {
+    const service = createService();
+    service.setProvider('claude');
+    service.setAccountProfileId('legacy');
+    service.setProvider('claude');
+    expect(service.accountProfileId()).toBe('legacy');
+
+    service.setProvider('codex');
+    expect(service.accountProfileId()).toBeNull();
+  });
+
   it('defaults reasoningEffort to High when switching to Claude', () => {
     const service = createService();
     service.setProvider('gemini');

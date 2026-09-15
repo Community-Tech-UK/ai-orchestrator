@@ -22,7 +22,7 @@ export interface TryParkOnProviderLimitDeps {
     resetAtHint: number | null;
     reason: string;
     resumePrompt: string | null;
-  }) => 'parked' | 'already-parked' | 'skipped';
+  }) => 'parked' | 'already-parked' | 'skipped' | 'switching-account';
   getResumePrompt: (instanceId: string) => string | null;
   addToOutputBuffer: (instance: Instance, message: OutputMessage) => void;
   emitOutput: (instanceId: string, message: OutputMessage) => void;
@@ -56,6 +56,23 @@ export function tryParkOnProviderLimit(
     resumePrompt: deps.getResumePrompt(instanceId),
   });
   if (outcome === 'skipped') return false;
+
+  if (outcome === 'switching-account') {
+    const switchMessage: OutputMessage = {
+      id: generateId(),
+      timestamp: Date.now(),
+      type: 'system',
+      content: 'This account hit its usage limit. Moving the conversation to another account in the pool; your message will be sent again once it switches.',
+      metadata: { accountFailover: true },
+    };
+    deps.addToOutputBuffer(instance, switchMessage);
+    deps.emitOutput(instanceId, switchMessage);
+    if (instance.status !== 'respawning' && instance.status !== 'interrupting' && instance.status !== 'cancelling') {
+      deps.transitionInstanceStatus(instance, 'idle');
+      deps.queueUpdate(instanceId, 'idle', instance.contextUsage);
+    }
+    return true;
+  }
 
   if (outcome === 'parked') {
     const parkMessage: OutputMessage = {
@@ -107,5 +124,5 @@ export function shouldSkipKnownProviderLimitDispatch(
   params: NonNullable<Parameters<NonNullable<CommunicationDependencies['checkKnownProviderLimitBeforeSend']>>[0]>,
 ): boolean {
   const outcome = check?.(params);
-  return outcome === 'parked' || outcome === 'already-parked';
+  return outcome === 'parked' || outcome === 'already-parked' || outcome === 'switching-account';
 }

@@ -7,6 +7,7 @@ import type { ActivityState } from '../../../../../shared/types/activity.types';
 import type { HistoryRestoreMode } from '../../../../../shared/types/history.types';
 import type { ReasoningEffort } from '../../../../../shared/types/provider.types';
 import type { CopilotRouteSource } from '../../../../../shared/types/copilot-account.types';
+import type { AccountRouteSource } from '../../../../../shared/types/provider-account.types';
 import type {
   InstanceRuntimeSummary,
   ModelRuntimeTarget,
@@ -119,6 +120,12 @@ export interface Instance {
   copilotAccountProfileId?: string;
   /** How that account was chosen, for the badge tooltip. */
   copilotRoutingSource?: CopilotRouteSource;
+  /** Claude/Codex account-pool profile this session runs on (mirrored from main). */
+  accountProfileId?: string;
+  /** How that account was chosen (default, failover, …), for the badge. */
+  accountRoutingSource?: AccountRouteSource;
+  /** Account switches performed on this session. */
+  accountSwitches?: number;
   status: InstanceStatus;
   contextUsage: ContextUsage;
   lastActivity: number;
@@ -246,6 +253,8 @@ export interface CreateInstanceConfig {
   copilotAccountProfileId?: string;
   /** The user confirmed an override that leaves a protected Copilot scope. */
   copilotConfirmProtectedOverride?: boolean;
+  /** Explicit Claude/Codex account-pool profile for this session (safe slug). */
+  accountProfileId?: string;
 }
 
 // ============================================

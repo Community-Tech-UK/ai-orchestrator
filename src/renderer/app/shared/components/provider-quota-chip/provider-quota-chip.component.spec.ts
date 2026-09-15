@@ -15,6 +15,14 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { signal, computed } from '@angular/core';
 import { ProviderQuotaChipComponent } from './provider-quota-chip.component';
 import { ProviderQuotaStore } from '../../../core/state/provider-quota.store';
+import { ProviderAccountIpcService } from '../../../core/services/ipc/provider-account-ipc.service';
+
+const accountIpc = {
+  list: vi.fn(async () => ({
+    profiles: [{ id: 'max-b', provider: 'claude', label: 'Max B' }],
+    pools: {},
+  })),
+};
 import type {
   ProviderId,
   ProviderQuotaPacingAlert,
@@ -31,6 +39,11 @@ class FakeProviderQuotaStore {
     claude: null, codex: null, gemini: null, antigravity: null, copilot: null, cursor: null, grok: null,
   });
   private pacing = signal<ProviderQuotaPacingAlert | null>(null);
+  private accounts = signal<ProviderQuotaSnapshot[]>([]);
+  readonly accountSnapshots = computed(() => this.accounts());
+  setAccountSnapshots(value: ProviderQuotaSnapshot[]): void {
+    this.accounts.set(value);
+  }
 
   readonly mostConstrainedWindow = computed(() => this.worst());
   readonly snapshots = computed(() => this.snaps());
@@ -86,7 +99,10 @@ describe('ProviderQuotaChipComponent', () => {
     store = new FakeProviderQuotaStore();
     await TestBed.configureTestingModule({
       imports: [ProviderQuotaChipComponent],
-      providers: [{ provide: ProviderQuotaStore, useValue: store }],
+      providers: [
+        { provide: ProviderQuotaStore, useValue: store },
+        { provide: ProviderAccountIpcService, useValue: accountIpc },
+      ],
     }).compileComponents();
 
     fixture = TestBed.createComponent(ProviderQuotaChipComponent);
@@ -504,6 +520,25 @@ describe('ProviderQuotaChipComponent', () => {
       fixture.detectChanges();
 
       expect(host.querySelector('[data-testid="quota-popover"]')).toBeFalsy();
+    });
+  });
+
+  describe('account-pool rows', () => {
+    it('lists each account under its provider without replacing the provider snapshot', async () => {
+      store.setSnapshot('claude', makeSnapshot('claude', 'max', true, [makeWindow(10, 100)]));
+      store.setAccountSnapshots([
+        { ...makeSnapshot('claude', 'max', true, [{ ...makeWindow(95, 100), id: 'claude.5h', label: '5-hour session' }]), accountProfileId: 'max-b' },
+      ]);
+      fixture.detectChanges();
+      const host = fixture.nativeElement as HTMLElement;
+      (host.querySelector('button[data-testid="quota-toggle"]') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      fixture.detectChanges();
+      const row = host.querySelector('[data-testid="quota-account-claude-max-b"]');
+      expect(row?.textContent).toContain('Account: Max B');
+      expect(row?.textContent).toContain('95');
+      expect(host.querySelector('[data-testid="quota-provider-claude"]')?.textContent).toContain('10');
     });
   });
 });

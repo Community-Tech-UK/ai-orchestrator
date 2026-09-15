@@ -64,4 +64,18 @@ describe('readCodexAuthMode', () => {
     writeAuth({ auth_mode: 'apikey' });
     expect(readCodexAuthMode(1_000 + 61_000)).toBe('api-key');
   });
+
+  it('reads and caches an explicit profile home independently of CODEX_HOME', () => {
+    const profileHome = mkdtempSync(join(tmpdir(), 'codex-auth-profile-'));
+    try {
+      writeAuth({ auth_mode: 'apikey' });
+      writeFileSync(join(profileHome, 'auth.json'), JSON.stringify({ auth_mode: 'chatgpt' }), 'utf-8');
+      expect(readCodexAuthMode(1_000)).toBe('api-key');
+      expect(readCodexAuthMode(1_000, profileHome)).toBe('chatgpt');
+      // A cached reading for one home never answers for another.
+      expect(readCodexAuthMode(2_000)).toBe('api-key');
+    } finally {
+      rmSync(profileHome, { recursive: true, force: true });
+    }
+  });
 });

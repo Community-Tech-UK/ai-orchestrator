@@ -23,12 +23,16 @@ import {
 import {
   extractCodexAppServerError,
   formatCodexAppServerError,
+  isCodexUsageLimitErrorInfo,
 } from './codex/app-server-errors';
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
 import { hasPendingBrowserApproval } from './codex/browser-approval-watchdog';
 import { wrapCodexSystemInstructions } from './codex/codex-prompt-blocks';
 import { createCodexTurnCaptureState } from './codex/app-server-thread-runtime';
-import { CodexAppServerRuntimeError } from './codex/app-server-runtime-errors';
+import { CodexAppServerRuntimeError, createCodexUsageLimitError } from './codex/app-server-runtime-errors';
+import { codexLimitResetAt, parseCodexAccountRateLimitsRead } from './codex/account-rate-limits';
+
+const USAGE_LIMIT_RATE_LIMITS_TIMEOUT_MS = 3_000;
 
 /** Executes app-server turns using the notification-routing layer. */
 export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificationAdapter {
@@ -117,13 +121,17 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     // Codex reports these as turn/completed with status: "failed".
     const turnStatus = turnState.finalTurn?.status;
     if (turnStatus === 'failed' || turnState.error) {
-      const finalTurnError = turnState.finalTurn?.error !== undefined && turnState.finalTurn.error !== null
-        ? formatCodexAppServerError(extractCodexAppServerError({ error: turnState.finalTurn.error }))
+      const finalTurnDetails = turnState.finalTurn?.error !== undefined && turnState.finalTurn.error !== null
+        ? extractCodexAppServerError({ error: turnState.finalTurn.error })
         : undefined;
+      const finalTurnError = finalTurnDetails ? formatCodexAppServerError(finalTurnDetails) : undefined;
       const capturedError = turnState.error instanceof Error
         ? turnState.error.message
         : (typeof turnState.error === 'string' ? turnState.error : undefined);
       const errorMsg = finalTurnError ?? capturedError ?? 'Codex turn failed';
+      const usageLimit = isCodexUsageLimitErrorInfo(finalTurnDetails?.codexErrorInfo)
+        || (turnState.error instanceof CodexAppServerRuntimeError && turnState.error.quota !== undefined);
+      if (usageLimit) throw createCodexUsageLimitError(errorMsg, await this.readUsageLimitResetAt());
       throw new Error(errorMsg);
     }
 
@@ -273,6 +281,25 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
       onHeartbeat: () => this.emit('heartbeat'),
       onAbandonedTurn: () => this.contextDiagnostics?.completeTurn('unknown'),
     });
+  }
+
+  /**
+   * On `usageLimitExceeded`, ask the live app-server for its windows so the
+   * limit carries an authoritative reset time (soonest exhausted window, else
+   * primary). Time-boxed; any failure falls back to parsing the message text.
+   */
+  private async readUsageLimitResetAt(): Promise<number | undefined> {
+    const client = this.getAppServerClient();
+    if (!client) return undefined;
+    try {
+      const response = await client.request('account/rateLimits/read', undefined, USAGE_LIMIT_RATE_LIMITS_TIMEOUT_MS);
+      const read = parseCodexAccountRateLimitsRead(response);
+      if (read.rateLimits) this.emit('account-rate-limits', read.rateLimits);
+      const resetAt = codexLimitResetAt(read.rateLimits);
+      return resetAt !== null && resetAt > Date.now() ? resetAt : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   private toTurnInterruptCompletion(state: TurnCaptureState): TurnInterruptCompletion {

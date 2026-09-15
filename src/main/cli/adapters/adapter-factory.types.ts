@@ -6,6 +6,7 @@
  * adapter-factory.ts for backward compatibility with existing import sites.
  */
 
+import type { ResolvedAccountRoute } from '../../../shared/types/provider-account.types';
 import type { ClaudeCliAdapter } from './claude-cli-adapter';
 import type { CodexCliAdapter } from './codex-cli-adapter';
 import type { GeminiCliAdapter } from './gemini-cli-adapter';
@@ -160,6 +161,14 @@ export interface UnifiedSpawnOptions {
    * is what populates it, ahead of every spawn path.
    */
   copilotAccountRoute?: ResolvedCopilotAccountRoute;
+  /**
+   * The Claude or Codex account profile this spawn resolved to (provider
+   * account pools). Same contract as `copilotAccountRoute`: safe metadata
+   * only, populated by `attachAccountRoute()` ahead of every spawn path; the
+   * synchronous factory only enforces its presence once a pool has more than
+   * the legacy profile, and derives the profile home itself.
+   */
+  accountRoute?: ResolvedAccountRoute;
   /** Direct Ollama server endpoint for REST-only ollama spawns (scaffolding
    *  local-first: localhost or a connected worker node's address). Defaults
    *  to localhost:11434 when omitted. */

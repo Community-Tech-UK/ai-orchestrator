@@ -94,10 +94,11 @@ describe('GatewayClient queue + interrupt', () => {
     vi.unstubAllGlobals();
   });
 
-  it('cancels a queued message and returns its text for the composer', async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({ ok: true, message: 'never mind' }));
+  it('cancels a queued message and returns its text and attachments for the composer', async () => {
+    const attachments = [{ name: 'photo.png', type: 'image/png', size: 4, data: 'data:image/png;base64,AAAA' }];
+    fetchMock.mockResolvedValueOnce(jsonResponse({ ok: true, message: 'never mind', attachments }));
 
-    await expect(client.cancelQueued('a', 'q1')).resolves.toBe('never mind');
+    await expect(client.cancelQueued('a', 'q1')).resolves.toEqual({ message: 'never mind', attachments });
 
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('http://100.64.0.1:8899/api/instances/a/queue/q1');

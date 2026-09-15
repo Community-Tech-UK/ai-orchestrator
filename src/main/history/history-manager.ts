@@ -278,6 +278,13 @@ export class HistoryManager {
         copilotRoutingSource:
           instance.copilotRoutingSource
           ?? previousEntries.find((e) => e.copilotRoutingSource)?.copilotRoutingSource,
+        // Account-pool profile: the latest the conversation ran on.
+        accountProfileId:
+          instance.accountProfileId
+          ?? previousEntries.find((e) => e.accountProfileId)?.accountProfileId,
+        accountRoutingSource:
+          instance.accountRoutingSource
+          ?? previousEntries.find((e) => e.accountRoutingSource)?.accountRoutingSource,
         executionLocation,
         snippets,
         // Net line-change summary for the completed session, shown as the

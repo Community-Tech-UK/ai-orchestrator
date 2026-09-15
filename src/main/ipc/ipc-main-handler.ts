@@ -59,6 +59,7 @@ import {
   registerSecurityHandlers,
   registerSecretCardHandlers,
   registerCopilotAccountHandlers,
+  registerProviderAccountHandlers,
   registerDebugHandlers,
   registerCostHandlers,
   registerQuotaHandlers,
@@ -267,6 +268,14 @@ export class IpcMainHandler {
           .getAllInstances()
           .map((instance) => instance.copilotAccountProfileId)
           .filter((profileId): profileId is string => Boolean(profileId)),
+    });
+
+    // Claude/Codex account pools. Instance access is injected for the in-use
+    // guard and the explicit session switch.
+    registerProviderAccountHandlers({
+      ensureTrustedSender: this.ensureTrustedSender.bind(this),
+      getInstances: () => this.instanceManager.getAllInstances(),
+      requestRuntimeChange: (instanceId, request) => this.instanceManager.requestModelChange(instanceId, request),
     });
 
     // Settings, config, and remote config handlers

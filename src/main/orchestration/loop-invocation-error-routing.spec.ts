@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { defaultLoopConfig, type LoopState } from '../../shared/types/loop.types';
 import { _resetRecoveryRecipesForTesting, type RecoveryAttemptRecord } from '../core/loop-recovery-recipes';
 import { routeClassifiedLoopInvocationFailure } from './loop-invocation-error-routing';
@@ -139,6 +139,31 @@ describe('routeClassifiedLoopInvocationFailure — recovery recipe wiring (C3)',
     expect(route).toBe('parked');
     // rate_limit has no catalogued recipe today.
     expect(attempts[0]!.outcome).toBe('no-recipe');
+  });
+
+  it('reports a switched account for a plan limit carrying only structured quota diagnostics', () => {
+    const state = makeLoopState({ config: { ...defaultLoopConfig('/tmp/project', 'ship it'), provider: 'codex' } });
+    const handler = makeProviderLimitHandler();
+    const trySwitch = vi.fn(() => true);
+    handler.setLoopAccountFailover({ currentProfileId: () => 'pro-a', trySwitch });
+    // Wording that no provider-notice pattern recognises: only `quota` says it is a plan limit.
+    const error = Object.assign(new Error('turn failed'), { status: 429, headers: { 'retry-after': '5' }, quota: { exhausted: true } });
+    const { params } = baseParams(state, error, { seq: 1, providerLimitHandler: handler });
+    expect(routeClassifiedLoopInvocationFailure(params)).toBe('switched-account');
+    expect(trySwitch).toHaveBeenCalledTimes(1);
+    handler.clearResumeTimer(state.id);
+  });
+
+  it('never rotates accounts for a burst throttle with no plan-limit signal, even with an active pool', () => {
+    const state = makeLoopState({ config: { ...defaultLoopConfig('/tmp/project', 'ship it'), provider: 'claude' } });
+    const handler = makeProviderLimitHandler();
+    const trySwitch = vi.fn(() => true);
+    handler.setLoopAccountFailover({ currentProfileId: () => 'max-a', trySwitch });
+    const error = Object.assign(new Error('rate limit exceeded'), { status: 429, headers: { 'retry-after': '5' } });
+    const { params } = baseParams(state, error, { seq: 1, providerLimitHandler: handler });
+    expect(routeClassifiedLoopInvocationFailure(params)).toBe('parked');
+    expect(trySwitch).not.toHaveBeenCalled();
+    handler.clearResumeTimer(state.id);
   });
 
   it('preserves the existing context_overflow single-retry-then-do-not-retry gate (recipe only annotates it)', () => {

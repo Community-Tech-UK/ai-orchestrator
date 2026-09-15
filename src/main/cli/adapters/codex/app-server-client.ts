@@ -421,7 +421,7 @@ class SpawnedAppServerClient extends AppServerClientBase {
   async connect(options: CodexAppServerClientOptions = {}, applyOutputLimit = true): Promise<void> {
     const spawnOptions = buildCliSpawnOptions(options.env || getSafeEnvForTrustedProcess());
     // Isolated AIO spawn only: `-c tool_output_token_limit=6000`. Never ~/.codex/config.toml.
-    this.proc = spawn('codex', buildIsolatedAppServerArgs(applyOutputLimit), {
+    this.proc = spawn('codex', buildIsolatedAppServerArgs(applyOutputLimit, options.configOverrides), {
       cwd: this.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       // Unix: isolate into its own process group for clean tree kills

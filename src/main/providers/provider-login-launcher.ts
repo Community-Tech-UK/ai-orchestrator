@@ -18,6 +18,15 @@ import {
 } from '../cli/adapters/copilot/copilot-account-home-resolver';
 import { COPILOT_LEGACY_PROFILE_ID } from '../../shared/types/copilot-account.types';
 import { emitCopilotAccountEvent } from './copilot/copilot-account-events';
+import {
+  assertSafeAccountProfileId,
+  resolveAccountProfileHome,
+} from '../cli/adapters/account-pool/provider-account-home-resolver';
+import type { PooledProvider } from '../../shared/types/provider-account.types';
+import { getProviderAccountStore } from './account-pool/provider-account-store';
+import { seedClaudeProfileHome } from './account-pool/claude-profile-seed';
+import { codexProfileHasAuth, seedCodexProfileHome } from './account-pool/codex-profile-seed';
+import { emitProviderAccountEvent } from './account-pool/provider-account-events';
 
 const logger = getLogger('ProviderLoginLauncher');
 
@@ -95,7 +104,7 @@ export function quotePathForTerminal(value: string, platform: NodeJS.Platform): 
     || (platform === 'win32' && WIN32_UNSAFE_PATH_CHARS.test(value))
   ) {
     throw new Error(
-      'Refusing to build a sign-in command: the Copilot profile directory contains a character that cannot be safely quoted.',
+      'Refusing to build a sign-in command: the profile directory contains a character that cannot be safely quoted.',
     );
   }
   // Post-validation the value has no quote of either kind, so a single pair of
@@ -147,6 +156,94 @@ export function buildCopilotProfileLoginCommand(
     command,
     hint: 'Complete the GitHub sign-in in your browser. Harness never sees the token.',
   };
+}
+
+export interface AccountProfileLoginRequest {
+  provider: PooledProvider;
+  /** Validated safe slug. Never a path. */
+  profileId: string;
+}
+
+function assertEmbeddablePath(home: string, platform: NodeJS.Platform): string {
+  // Validation gate and quoter in one: refuses anything the terminal wrappers
+  // cannot carry safely (spec §13).
+  return quotePathForTerminal(home, platform);
+}
+
+/**
+ * `CLAUDE_CONFIG_DIR=<derived home> claude auth login` for one Claude account
+ * profile, after seeding the home. The legacy profile signs in to `~/.claude`
+ * with the plain command.
+ */
+export function buildClaudeProfileLoginCommand(
+  profileId: string,
+  platform: NodeJS.Platform = process.platform,
+  continuation: 'shared-store' | 'replay' = 'shared-store',
+): ProviderLoginCommand {
+  assertSafeAccountProfileId(profileId);
+  const resolved = resolveAccountProfileHome({ provider: 'claude', profileId });
+  if (resolved.kind === 'legacy') {
+    return { provider: 'claude', command: 'claude auth login' };
+  }
+  const quoted = assertEmbeddablePath(resolved.home, platform);
+  seedClaudeProfileHome(resolved.home, { continuation });
+  const command = platform === 'win32'
+    ? `set "CLAUDE_CONFIG_DIR=${resolved.home}" && claude auth login`
+    : `CLAUDE_CONFIG_DIR=${quoted} claude auth login`;
+  return {
+    provider: 'claude',
+    command,
+    hint: 'Sign in with the Claude account this profile is for. Harness never sees the token.',
+  };
+}
+
+/**
+ * `CODEX_HOME=<derived home> codex login --device-auth` for one Codex account
+ * profile. Refused when the home already holds a sign-in: `codex login` revokes
+ * whatever tokens are already there (spec invariant 11). `--device-auth` keeps
+ * two logins from fighting over the loopback callback port.
+ */
+export function buildCodexProfileLoginCommand(
+  profileId: string,
+  platform: NodeJS.Platform = process.platform,
+): ProviderLoginCommand {
+  assertSafeAccountProfileId(profileId);
+  const resolved = resolveAccountProfileHome({ provider: 'codex', profileId });
+  if (resolved.kind === 'legacy') {
+    return { provider: 'codex', command: 'codex login' };
+  }
+  if (codexProfileHasAuth(resolved.home)) {
+    throw new Error(
+      'This Codex account is already signed in. Signing in again would revoke its current sign-in; '
+      + 'to use a different ChatGPT account, remove this account and add it again.',
+    );
+  }
+  const quoted = assertEmbeddablePath(resolved.home, platform);
+  seedCodexProfileHome(resolved.home);
+  const command = platform === 'win32'
+    ? `set "CODEX_HOME=${resolved.home}" && codex login --device-auth`
+    : `CODEX_HOME=${quoted} codex login --device-auth`;
+  return {
+    provider: 'codex',
+    command,
+    hint: 'Enter the device code shown in the terminal at chatgpt.com, signed in as the account this profile is for.',
+  };
+}
+
+export function buildAccountProfileLoginCommand(
+  request: AccountProfileLoginRequest,
+  platform: NodeJS.Platform = process.platform,
+): ProviderLoginCommand {
+  if (request.provider === 'claude') {
+    let continuation: 'shared-store' | 'replay' = 'shared-store';
+    try {
+      continuation = getProviderAccountStore().getPoolPolicy('claude').continuation;
+    } catch {
+      continuation = 'shared-store';
+    }
+    return buildClaudeProfileLoginCommand(request.profileId, platform, continuation);
+  }
+  return buildCodexProfileLoginCommand(request.profileId, platform);
 }
 
 export function getProviderLoginCommand(provider: string): ProviderLoginCommand | null {
@@ -230,20 +327,23 @@ export interface ProviderLoginLaunchResult {
 export async function launchProviderLogin(
   provider: string,
   copilotProfile?: CopilotProfileLoginRequest,
+  accountProfile?: AccountProfileLoginRequest,
 ): Promise<ProviderLoginLaunchResult> {
-  // A Copilot profile sign-in is built here rather than looked up, because it
-  // has to carry that profile's derived COPILOT_HOME. Everything caller-supplied
-  // (the profile ID, the host) is validated before it becomes a command.
+  // A Copilot or Claude/Codex account-profile sign-in is built here rather than
+  // looked up, because it has to carry that profile's derived home. Everything
+  // caller-supplied (the profile ID, the host) is validated before it becomes a command.
   const login = copilotProfile
     ? buildCopilotProfileLoginCommand(copilotProfile)
-    : getProviderLoginCommand(provider);
+    : accountProfile
+      ? buildAccountProfileLoginCommand(accountProfile)
+      : getProviderLoginCommand(provider);
   if (!login) {
     throw new Error(`No known sign-in command for provider "${provider}".`);
   }
   // The Copilot profile command legitimately carries quotes and `=` from the
   // audited quoting helper, so it is exempt from the fixed-table character
   // allowlist — its own inputs were validated above.
-  if (!copilotProfile && !SAFE_COMMAND.test(login.command)) {
+  if (!copilotProfile && !accountProfile && !SAFE_COMMAND.test(login.command)) {
     // Unreachable with the table above; guards future edits from smuggling
     // shell metacharacters into the AppleScript/cmd wrappers.
     throw new Error(`Refusing to run an unsafe login command for "${provider}".`);
@@ -260,7 +360,15 @@ export async function launchProviderLogin(
         provider: login.provider,
         terminal: candidate.terminal,
         ...(copilotProfile ? { profileId: copilotProfile.profileId } : {}),
+        ...(accountProfile ? { profileId: accountProfile.profileId } : {}),
       });
+      if (accountProfile) {
+        emitProviderAccountEvent({
+          event: 'account_login_launched',
+          provider: accountProfile.provider,
+          profileId: accountProfile.profileId,
+        });
+      }
       if (copilotProfile) {
         emitCopilotAccountEvent({
           event: 'copilot_account_login_launched',

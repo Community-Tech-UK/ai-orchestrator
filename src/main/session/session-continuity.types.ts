@@ -1,3 +1,4 @@
+import type { AccountRouteSource } from '../../shared/types/provider-account.types';
 import type { InstanceProvider, ThinkingContent } from '../../shared/types/instance.types';
 import type { CopilotRouteSource } from '../../shared/types/copilot-account.types';
 
@@ -107,6 +108,14 @@ export interface SessionState {
   copilotRoutingSource?: CopilotRouteSource;
   /** The routing rule that decided it, when a rule did. */
   copilotRoutingRuleId?: string;
+  /**
+   * The Claude/Codex account-pool profile this session runs on. First-class
+   * for the same reason as `copilotAccountProfileId`. Absent on records written
+   * before pools; those resume on the legacy profile.
+   */
+  accountProfileId?: string;
+  accountRoutingSource?: AccountRouteSource;
+  accountSwitches?: number;
 }
 
 export interface ConversationEntry {

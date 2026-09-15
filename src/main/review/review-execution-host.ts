@@ -2,7 +2,7 @@ import { resolveCliType } from '../cli/adapters/adapter-factory';
 import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
 import type { ReviewResult } from '../../shared/types/cross-model-review.types';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
-import { attachCopilotRoute } from '../instance/lifecycle/copilot-route-preflight';
+import { attachProviderRoutes } from '../instance/lifecycle/provider-route-preflight';
 import type { CliType as SettingsCliType } from '../../shared/types/settings.types';
 import { getProviderQuotaService } from '../core/system/provider-quota-service';
 import { resolveAntigravityReviewModelPlan } from '../orchestration/antigravity-review-model-routing';
@@ -166,7 +166,7 @@ export class ProviderReviewExecutionHost implements ReviewExecutionHost {
           )[0]
         : configuredModel;
     // Copilot account routing: reviews are an automatic surface.
-    const reviewerSpawnOptions = await attachCopilotRoute(
+    const reviewerSpawnOptions = await attachProviderRoutes(
       resolvedCli,
       {
         workingDirectory: cwd,

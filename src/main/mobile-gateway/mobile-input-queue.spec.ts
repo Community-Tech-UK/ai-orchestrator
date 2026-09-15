@@ -4,11 +4,13 @@ import {
   MAX_DELIVERY_ATTEMPTS,
   MAX_QUEUED_PER_INSTANCE,
   MobileInputQueue,
+  handleMobileQueueRoutes,
   isReadyForQueuedInput,
   shouldQueueInput,
   type MobileInputQueueDeps,
 } from './mobile-input-queue';
 import type { Instance } from '../../shared/types/instance.types';
+import type { ServerResponse } from 'http';
 
 type QueueInstance = Pick<Instance, 'status' | 'waitReason'>;
 
@@ -285,5 +287,56 @@ describe('MobileInputQueue', () => {
     h.queue.clear('i1');
     expect(h.queue.size('i1')).toBe(0);
     expect(h.changes).toBeGreaterThan(before);
+  });
+
+  function cancelRoute(queueId: string) {
+    const writeHead = vi.fn();
+    const end = vi.fn();
+    const response = { writeHead, end } as unknown as ServerResponse;
+    expect(handleMobileQueueRoutes(h.queue, response, ['api', 'instances', 'i1', 'queue', queueId], 'DELETE')).toBe(true);
+    return { status: writeHead.mock.calls[0][0], body: JSON.parse(end.mock.calls[0][0]) };
+  }
+
+  it('returns text and attachments once, with no later delivery after cancellation', async () => {
+    const attachments = [{ name: 'photo.png', type: 'image/png', size: 4, data: 'data:image/png;base64,AAAA' }];
+    const item = h.queue.enqueue('i1', 'recover this', attachments)!;
+    expect(cancelRoute(item.id)).toEqual({ status: 200, body: { ok: true, message: 'recover this', attachments } });
+    expect(cancelRoute(item.id).status).toBe(404);
+    h.setStatus('idle');
+    await h.queue.drain('i1');
+    expect(h.deliver).not.toHaveBeenCalled();
+  });
+
+  it('refuses to return an in-flight message while allowing a waiting item to be removed', async () => {
+    const first = h.queue.enqueue('i1', 'already delivering')!;
+    const second = h.queue.enqueue('i1', 'still waiting')!;
+    h.setStatus('idle');
+    let release!: () => void;
+    h.deliver.mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve; }));
+    const drain = h.queue.drain('i1');
+    try {
+      const conflict = cancelRoute(first.id);
+      expect(conflict.status).toBe(409);
+      expect(conflict.body.error).toMatch(/delivery.*started/i);
+      expect(conflict.body).not.toHaveProperty('message');
+      expect(conflict.body).not.toHaveProperty('attachments');
+      expect(cancelRoute(second.id).status).toBe(200);
+    } finally {
+      release();
+      await drain;
+    }
+    expect(cancelRoute(first.id).status).toBe(404);
+    await h.queue.drain('i1');
+    expect(h.deliver).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases the delivery guard after failure so the draft can be recovered', async () => {
+    const item = h.queue.enqueue('i1', 'recover after failure')!;
+    h.setStatus('idle');
+    h.deliver.mockRejectedValueOnce(new Error('send rejected'));
+    await h.queue.drain('i1');
+    expect(cancelRoute(item.id).status).toBe(200);
+    await h.queue.drain('i1');
+    expect(h.deliver).toHaveBeenCalledTimes(1);
   });
 });
