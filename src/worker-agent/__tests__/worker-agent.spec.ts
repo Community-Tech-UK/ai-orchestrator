@@ -330,6 +330,7 @@ describe('WorkerAgent', () => {
   });
 
   it('sets an explicit large CDP payload ceiling on coordinator WebSocket clients', async () => {
+    agent = new WorkerAgent(mockConfig);
     const connect = agent.connect();
     const socket = await waitForSocket();
     socket.emit('open');
@@ -956,6 +957,7 @@ describe('WorkerAgent', () => {
   });
 
   it('closes CDP tunnel sessions when an established coordinator socket closes', async () => {
+    agent = new WorkerAgent(mockConfig);
     const closeAll = vi.spyOn((agent as unknown as {
       cdpTunnel: { closeAll: () => void };
     }).cdpTunnel, 'closeAll');
@@ -968,6 +970,117 @@ describe('WorkerAgent', () => {
     socket.emit('close');
 
     expect(closeAll).toHaveBeenCalledTimes(1);
+  });
+
+  describe('stale coordinator sockets', () => {
+    interface AgentInternals {
+      ws: unknown;
+      registrationAccepted: boolean;
+      reconnectTimer?: ReturnType<typeof setTimeout>;
+      tryConnect: (url: string, token: string) => Promise<boolean>;
+    }
+    const internals = () => agent as unknown as AgentInternals;
+
+    function acceptRegistration(socket: (typeof wsMockState.instances)[number]): void {
+      const registration = socket.send.mock.calls
+        .map((call) => JSON.parse(call[0] as string) as { id?: string; method?: string })
+        .reverse()
+        .find((message) => message.method === 'node.register');
+      socket.emit('message', JSON.stringify({
+        jsonrpc: '2.0',
+        id: registration?.id,
+        result: { nodeId: 'test-node-1', token: 'accepted-node-token' },
+      }));
+    }
+
+    async function connectFirstSocket(): Promise<(typeof wsMockState.instances)[number]> {
+      agent = new WorkerAgent({ ...mockConfig });
+      const connect = agent.connect();
+      const socket = await waitForSocket();
+      socket.emit('open');
+      await connect;
+      acceptRegistration(socket);
+      return socket;
+    }
+
+    it('does not open a second socket when discovery fires during the initial connect', async () => {
+      agent = new WorkerAgent({ ...mockConfig });
+      const connect = agent.connect();
+      const firstSocket = await waitForSocket();
+
+      // mDNS reports the coordinator before the first socket has opened.
+      discoveryMockState.onUp?.({ host: 'localhost', port: 4878, namespace: 'default', version: '1.0' });
+
+      firstSocket.emit('open');
+      await connect;
+      acceptRegistration(firstSocket);
+
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(wsMockState.instances).toHaveLength(1);
+      expect(internals().ws).toBe(firstSocket);
+    });
+
+    it('ignores the 1001 close of a replaced socket and keeps the active registration', async () => {
+      const firstSocket = await connectFirstSocket();
+
+      // A second socket opens while the first is still open (the loop trigger).
+      const second = internals().tryConnect('ws://localhost:4878', 'test-token');
+      const secondSocket = await waitForSocket(1);
+      secondSocket.emit('open');
+      await second;
+      expect(firstSocket.close).toHaveBeenCalledWith(1000, expect.any(String));
+      acceptRegistration(secondSocket);
+
+      // The coordinator's replace close for the first socket arrives late.
+      firstSocket.emit('close', 1001, Buffer.from('Replaced by new connection'));
+
+      expect(internals().ws).toBe(secondSocket);
+      expect(internals().registrationAccepted).toBe(true);
+      expect(internals().reconnectTimer).toBeUndefined();
+
+      secondSocket.send.mockClear();
+      const pending = agent.sendRequest('browser.ext.pollCommand', { timeoutMs: 250 });
+      expect(secondSocket.send).toHaveBeenCalledTimes(1);
+      const outbound = JSON.parse(secondSocket.send.mock.calls[0][0] as string) as { id: string };
+      secondSocket.emit('message', JSON.stringify({ jsonrpc: '2.0', id: outbound.id, result: { ok: true } }));
+      await expect(pending).resolves.toEqual({ ok: true });
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(wsMockState.instances).toHaveLength(2);
+    });
+
+    it('ignores a late registration response delivered on a superseded socket', async () => {
+      agent = new WorkerAgent({ ...mockConfig });
+      const connect = agent.connect();
+      const firstSocket = await waitForSocket();
+      firstSocket.emit('open');
+      await connect;
+      const staleRegistration = JSON.parse(firstSocket.send.mock.calls[0][0] as string) as { id: string };
+
+      const second = internals().tryConnect('ws://localhost:4878', 'test-token');
+      const secondSocket = await waitForSocket(1);
+      secondSocket.emit('open');
+      await second;
+      const activeRegistration = JSON.parse(secondSocket.send.mock.calls[0][0] as string) as { id: string };
+
+      firstSocket.emit('message', JSON.stringify({
+        jsonrpc: '2.0',
+        id: activeRegistration.id,
+        error: { code: -32001, message: 'stale' },
+      }));
+      firstSocket.emit('message', JSON.stringify({
+        jsonrpc: '2.0',
+        id: staleRegistration.id,
+        result: { nodeId: 'test-node-1', token: 'stale-token' },
+      }));
+
+      expect(internals().registrationAccepted).toBe(false);
+      expect(secondSocket.close).not.toHaveBeenCalled();
+
+      acceptRegistration(secondSocket);
+      expect(internals().registrationAccepted).toBe(true);
+    });
   });
 
   it('closes a CDP session instead of sending when the coordinator socket is backpressured', () => {

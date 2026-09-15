@@ -5,6 +5,7 @@ import {
   CAPTCHA_CHALLENGE_REASON,
   TWO_FACTOR_CHALLENGE_REASON,
   CREDENTIAL_CHALLENGE_REASON,
+  withPageChallengeEvidence,
 } from './browser-action-classifier';
 
 describe('browser-action-classifier', () => {
@@ -324,6 +325,60 @@ describe('browser-action-classifier', () => {
       expect(link({
         accessibleName: 'Password help',
       })).toMatchObject({ actionClass: 'credential', hardStop: true });
+    });
+  });
+
+  describe('CAPTCHA evidence (2026-09-15 §3.4)', () => {
+    it('never treats agent-authored hint text as a CAPTCHA', () => {
+      for (const hint of [
+        'Enable the reCAPTCHA Enterprise API in the Comtech project',
+        'Submit the TEST - IGNORE contact enquiry (reCAPTCHA observe check)',
+        'Solve the captcha',
+      ]) {
+        expect(classifyBrowserAction({
+          toolName: 'browser.click',
+          actionHint: hint,
+          elementContext: { visibleText: hint, nearbyText: hint },
+          elementContextSource: 'agent_hint',
+        }).reason).not.toBe(CAPTCHA_CHALLENGE_REASON);
+      }
+    });
+
+    it('ignores the invisible v3 disclosure beside an ordinary inspected submit button', () => {
+      expect(classifyBrowserAction({
+        toolName: 'browser.click',
+        elementContext: {
+          role: 'button',
+          visibleText: 'Send enquiry',
+          nearbyText: 'This site is protected by reCAPTCHA and the Google Privacy Policy',
+          attributes: { class: 'g-recaptcha', 'data-sitekey': 'site-key-placeholder' },
+        },
+      })).toMatchObject({ actionClass: 'submit', hardStop: false });
+    });
+
+    it('stops on inspected challenge widgets and response-token fields', () => {
+      for (const elementContext of [
+        { role: 'iframe', attributes: { src: 'https://www.google.com/recaptcha/api2/anchor?k=x&size=normal' } },
+        { inputName: 'g-recaptcha-response' },
+        { attributes: { src: 'https://challenges.cloudflare.com/cdn-cgi/challenge-platform/turnstile' } },
+        { label: 'Enter the CAPTCHA text' },
+      ]) {
+        expect(classifyBrowserAction({ toolName: 'browser.type', elementContext }))
+          .toMatchObject({ actionClass: 'credential', hardStop: true, reason: CAPTCHA_CHALLENGE_REASON });
+      }
+      expect(classifyBrowserAction({
+        toolName: 'browser.click',
+        elementContext: { attributes: { src: 'https://www.google.com/recaptcha/api2/anchor?k=x&size=invisible' } },
+      }).reason).not.toBe(CAPTCHA_CHALLENGE_REASON);
+    });
+
+    it('applies page challenge evidence without weakening never-grantable stops', () => {
+      const input = { actionClass: 'input', hardStop: false } as const;
+      expect(withPageChallengeEvidence(input, { detected: true }))
+        .toEqual({ actionClass: 'credential', hardStop: true, reason: CAPTCHA_CHALLENGE_REASON });
+      expect(withPageChallengeEvidence(input, { detected: false, unavailable: 'timeout' })).toBe(input);
+      const payment = { actionClass: 'payment', hardStop: true, reason: 'payment_field_never_automated' } as const;
+      expect(withPageChallengeEvidence(payment, { detected: true })).toBe(payment);
     });
   });
 });

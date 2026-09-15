@@ -4,6 +4,7 @@ import {
   ShutdownPriority,
 } from './graceful-shutdown';
 import { createHarnessShutdownOperations } from './harness-shutdown-operations';
+import { TERMINATE_INSTANCES_BUDGET_MS } from './shutdown-timeouts';
 
 function dependencies(order: string[]) {
   const step = (name: string) => vi.fn(async () => { order.push(name); });
@@ -42,6 +43,15 @@ describe('createHarnessShutdownOperations', () => {
       priority: ShutdownPriority.TERMINATE_INSTANCES,
       status: 'completed',
     });
+  });
+
+  it('budgets terminate-instances for slow history archive instead of an 8s cutoff', async () => {
+    const execute = vi.spyOn(GracefulShutdownManager.getInstance(), 'execute');
+    await createHarnessShutdownOperations(dependencies([])).cleanup();
+
+    const phases = execute.mock.calls[0]?.[0] as Array<{ name: string; budgetMs?: number }>;
+    expect(phases.find((phase) => phase.name === 'terminate-instances')?.budgetMs)
+      .toBe(TERMINATE_INSTANCES_BUDGET_MS);
   });
 
   it('still signals active processes when synchronous continuity persistence throws', () => {

@@ -23,6 +23,7 @@ import {
   OnDestroy,
   OnInit,
   computed,
+  effect,
   inject,
   signal,
 } from '@angular/core';
@@ -131,7 +132,21 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
                   [attr.data-testid]="'quota-reauth-' + provider.provider"
                 >⚠ Reauth needed — {{ provider.reauthHint }}</span>
               }
-              @if (provider.windows.length > 0) {
+              @if (provider.accounts.length > 0 && provider.windows.length > 0) {
+                <span class="account-rows" [attr.data-testid]="'quota-account-' + provider.provider + '-legacy'">
+                  <span class="window-label account-label">Account: Existing sign-in</span>
+                  @for (window of provider.windows; track window.id) {
+                    <span class="window-row">
+                      <span class="window-label">{{ window.label }}</span>
+                      <span class="window-value">{{ formatWindowValue(window) }}</span>
+                      <span class="bar"><span class="bar-fill" [style.width.%]="windowPercent(window)"></span></span>
+                      @if (window.resetsAt) {
+                        <span class="window-reset">resets {{ formatReset(window.resetsAt) }}</span>
+                      }
+                    </span>
+                  }
+                </span>
+              } @else if (provider.windows.length > 0) {
                 @for (window of provider.windows; track window.id) {
                   <span class="window-row">
                     <span class="window-label">{{ window.label }}</span>
@@ -176,15 +191,16 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
       padding: 5px 10px 5px 8px; border-radius: 999px; border: 0;
       font: inherit; font-size: 0.6875rem; font-weight: 600; letter-spacing: 0;
       white-space: nowrap; cursor: pointer;
+      max-width: min(46vw, 560px);
       -webkit-app-region: no-drag;
       transition: all var(--transition-normal, 0.2s);
     }
+    .strip { display: inline-flex; align-items: center; gap: 8px; min-width: 0; overflow-x: auto; }
     .chip.open { box-shadow: 0 0 0 1px currentColor; }
     .chip.empty { font-weight: 500; opacity: 0.85; }
     .dot {
       width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
     }
-    .strip { display: inline-flex; align-items: center; gap: 8px; }
     .provider-entry { display: inline-flex; align-items: baseline; gap: 3px; }
     .provider-code { font-weight: 700; }
     .provider-value { opacity: 0.82; font-variant-numeric: tabular-nums; }
@@ -195,7 +211,8 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
     .aux { opacity: 0.75; font-weight: 500; }
     .popover {
       position: absolute; right: 0; top: calc(100% + 8px); z-index: 20;
-      display: grid; gap: 10px; width: min(340px, 90vw);
+      display: grid; gap: 10px; width: min(380px, 90vw); max-height: min(70vh, 560px);
+      overflow-y: auto;
       padding: 12px; border: 1px solid var(--border-color, rgba(255,255,255,0.16));
       border-radius: 8px; background: var(--surface-elevated, #202124);
       color: var(--text-primary, #f5f5f5); box-shadow: 0 12px 32px rgba(0,0,0,0.28);
@@ -242,6 +259,17 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
   private nowTimer: ReturnType<typeof setInterval> | null = null;
   readonly popoverOpen = signal(false);
 
+  constructor() {
+    effect(() => {
+      const ids = this.store.accountSnapshots()
+        .map((entry) => `${entry.provider}:${entry.accountProfileId ?? ''}`)
+        .sort()
+        .join(',');
+      if (!ids) return;
+      void this.loadAccountLabels();
+    });
+  }
+
   readonly variant = computed<QuotaChipVariant>(() => {
     if (this.store.mostConstrainedWindow()) return 'window';
     if (this.firstOkSnapshot()) return 'plan';
@@ -267,11 +295,13 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
   /** Provider with the most recent early pacing warning, if it remains visible. */
   readonly pacingProvider = computed<ProviderId | null>(() => {
     const warning = this.store.lastPacingWarning();
-    const snapshot = warning ? this.store.snapshots()[warning.provider] : null;
-    const currentWindow = snapshot?.windows.find((window) => window.id === warning?.window.id);
+    if (!warning) return null;
+    const family = this.familySnapshots(warning.provider);
+    const currentWindow = family
+      .flatMap((snap) => snap.windows)
+      .find((window) => window.id === warning.window.id);
     if (
-      !warning
-      || !currentWindow
+      !currentWindow
       || currentWindow.limit <= 0
       || (currentWindow.used / currentWindow.limit) * 100 < warning.utilizationThresholdPercent
     ) {
@@ -309,7 +339,12 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
       const amount = w.window.unit === 'percent'
         ? `${formatQuotaAmount(w.window.used)}% used`
         : `${formatQuotaAmount(w.window.used)} of ${formatQuotaAmount(w.window.limit)} ${w.window.unit}`;
-      return `${PROVIDER_LABELS[w.provider]} ${w.window.label}: ${amount}`;
+      const account = w.accountProfileId
+        ? this.accountLabels()[`${w.provider}:${w.accountProfileId}`] ?? w.accountProfileId
+        : null;
+      const extra = this.store.accountSnapshots().filter((entry) => entry.provider === w.provider).length;
+      const pool = extra > 0 ? ` · ${extra + 1} accounts` : '';
+      return `${PROVIDER_LABELS[w.provider]}${account ? ` (${account})` : ''}${pool}: ${w.window.label}: ${amount}`;
     }
     const ok = this.firstOkSnapshot();
     if (ok) return `${PROVIDER_LABELS[ok.provider]} signed in (plan: ${ok.plan ?? 'unknown'})`;
@@ -323,29 +358,43 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
       const snap = snaps[provider];
       // A missing CLI means "this provider doesn't exist here" — hide it
       // rather than rendering an error/plan row.
-      if (!snap || snap.cliNotInstalled) continue;
+      if (snap?.cliNotInstalled) continue;
+      const family = this.familySnapshots(provider);
+      if (family.length === 0) continue;
       const code = PROVIDER_CODES[provider];
-      const window = snap.ok ? this.summaryWindow(snap) : null;
+      const needsReauth = family.some((entry) => entry.needsReauth);
+      let window: ProviderQuotaWindow | null = null;
+      let percent = -1;
+      for (const candidate of family) {
+        if (!candidate.ok) continue;
+        const summary = this.summaryWindow(candidate);
+        if (!summary) continue;
+        const candidatePercent = this.windowPercent(summary);
+        if (candidatePercent > percent) {
+          window = summary;
+          percent = candidatePercent;
+        }
+      }
       if (window) {
-        const percent = this.windowPercent(window);
         entries.push({
           provider,
           code,
           // Append a warning glyph when last-known numbers are shown but the
           // login that produced them has expired.
-          value: `${Math.round(percent)}%${snap.needsReauth ? ' ⚠' : ''}`,
+          value: `${Math.round(percent)}%${needsReauth ? ' ⚠' : ''}`,
           percent,
-          fg: snap.needsReauth ? BAND_COLORS.red.fg : stripEntryColor(percent),
+          fg: needsReauth ? BAND_COLORS.red.fg : stripEntryColor(percent),
         });
-      } else if (snap.needsReauth) {
+      } else if (needsReauth) {
         // No usable windows and the user must sign in again — make it visible
         // in the collapsed chip rather than hiding the provider entirely.
         entries.push({ provider, code, value: 'reauth', percent: 0, fg: BAND_COLORS.red.fg });
-      } else if (snap.ok) {
+      } else if (family.some((entry) => entry.ok)) {
+        const plan = family.find((entry) => entry.ok && entry.plan)?.plan ?? 'ok';
         entries.push({
           provider,
           code,
-          value: snap.plan ?? 'ok',
+          value: plan,
           percent: 0,
           fg: STRIP_NEUTRAL_FG,
         });
@@ -449,6 +498,12 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
     const ms = resetsAt - this.nowMs();
     if (ms <= 0) return 'now';
     return `in ${formatDuration(ms)}`;
+  }
+
+  private familySnapshots(provider: ProviderId): ProviderQuotaSnapshot[] {
+    const providerSnap = this.store.snapshots()[provider];
+    const accounts = this.store.accountSnapshots().filter((entry) => entry.provider === provider);
+    return providerSnap ? [providerSnap, ...accounts] : accounts;
   }
 
   /** First provider with `ok: true` snapshot, in stable order. */

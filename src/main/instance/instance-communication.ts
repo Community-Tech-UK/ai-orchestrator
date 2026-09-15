@@ -2648,11 +2648,13 @@ export class InstanceCommunicationManager extends EventEmitter {
 
     this.contextWarningIssued.add(instanceId);
 
+    // At most two decimals; whole numbers stay whole (85%, not 85.00%).
+    const percentage = Number(usage.percentage.toFixed(2));
     const warningMessage: OutputMessage = {
       id: generateId(),
       timestamp: Date.now(),
       type: 'system',
-      content: `Context usage at ${usage.percentage}% (${usage.used} / ${usage.total} tokens). Sending delegation guidance.`,
+      content: `Context usage at ${percentage}% (${usage.used} / ${usage.total} tokens). Sending delegation guidance.`,
       metadata: { contextWarning: true }
     };
     this.addToOutputBuffer(instance, warningMessage);
@@ -2660,7 +2662,7 @@ export class InstanceCommunicationManager extends EventEmitter {
 
     const guidance = [
       '[SYSTEM: Context Usage Warning]',
-      `Your context is at ${usage.percentage}% capacity (${usage.used} / ${usage.total} tokens).`,
+      `Your context is at ${percentage}% capacity (${usage.used} / ${usage.total} tokens).`,
       'To avoid hitting the limit:',
       '1. Do NOT read large files directly — spawn child instances for file reading.',
       '2. Use get_child_summary instead of get_child_output for results.',

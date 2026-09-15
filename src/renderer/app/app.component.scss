@@ -43,6 +43,8 @@
   align-items: center;
   gap: 6px;
   padding: 4px 6px;
+  max-width: calc(100vw - 120px);
+  overflow-x: auto;
   background: var(--bg-elevated);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-full);

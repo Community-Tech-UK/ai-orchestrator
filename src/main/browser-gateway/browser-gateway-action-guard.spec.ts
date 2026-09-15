@@ -44,6 +44,7 @@ function makeGuard(opts: {
   withEscalations?: boolean;
   grants?: BrowserPermissionGrant[];
   approvals?: BrowserApprovalRequest[];
+  probe?: BrowserGatewayActionGuardOptions['probePageChallenge'];
 } = {}) {
   const withEscalations = opts.withEscalations ?? true;
   const grants = opts.grants ?? [];
@@ -89,6 +90,7 @@ function makeGuard(opts: {
     autoApproveRequests: () => false,
     result: result as unknown as BrowserGatewayActionGuardOptions['result'],
     ...(withEscalations ? { escalations: { raise } } : {}),
+    ...(opts.probe ? { probePageChallenge: opts.probe } : {}),
   };
 
   return { guard: new BrowserGatewayActionGuard(options), raise, createRequest, consumeGrant, result };
@@ -476,5 +478,63 @@ describe('BrowserGatewayActionGuard existing-tab grant scope (LT-001 regression)
     // REQUEST's profileId ('existing-tab:t1') derives node scope 'local',
     // which must never match a grant scoped to a different remote node.
     expect(recheck).not.toBeNull();
+  });
+});
+
+describe('BrowserGatewayActionGuard CAPTCHA evidence (2026-09-15 §3.4)', () => {
+  const INPUT_GRANT: BrowserPermissionGrant = {
+    ...CAMPAIGN_SUBMIT_GRANT,
+    id: 'input-grant',
+    mode: 'session',
+    autonomous: false,
+    allowedActionClasses: ['input'],
+  };
+
+  it('does not park a shared-tab click whose agent hint merely mentions reCAPTCHA', async () => {
+    const probe = vi.fn(async () => ({ detected: false }));
+    const { guard, raise } = makeGuard({ grants: [INPUT_GRANT], probe });
+
+    const prep = await guard.prepareMutatingAction(
+      CONTEXT, 'click', 'browser.click', '#enable', 'Enable the reCAPTCHA Enterprise API in the Comtech project',
+    );
+
+    expect(raise).not.toHaveBeenCalled();
+    expect(prep).toMatchObject({ grant: { id: 'input-grant' }, actionClass: 'input' });
+    expect(probe).toHaveBeenCalledWith({ profileId: 'p1', targetId: 't1' });
+  });
+
+  it('parks a click when the page probe finds a live challenge, even with a grant', async () => {
+    const { guard, raise } = makeGuard({ grants: [INPUT_GRANT], probe: async () => ({ detected: true }) });
+
+    const result = resultOf(await guard.prepareMutatingAction(CONTEXT, 'click', 'browser.click', '#submit', 'Send'));
+
+    expect(raise).toHaveBeenCalledWith(expect.objectContaining({ kind: 'captcha' }));
+    expect(result.reason).toContain('captcha_parked');
+  });
+
+  it('runs the same page check for browser.evaluate despite its fixed classification override', async () => {
+    const { guard, raise, createRequest } = makeGuard({ probe: async () => ({ detected: true }) });
+    await guard.prepareMutatingAction(CONTEXT, 'evaluate', 'browser.evaluate', ':root', 'evaluate: document.forms[0].submit()', {
+      actionClass: 'unknown', hardStop: true, reason: 'browser_evaluate_requires_user',
+    });
+    expect(raise).toHaveBeenCalledWith(expect.objectContaining({ kind: 'captcha' }));
+    expect(createRequest).not.toHaveBeenCalled();
+
+    const clean = makeGuard({ probe: async () => ({ detected: false }) });
+    await clean.guard.prepareMutatingAction(CONTEXT, 'evaluate', 'browser.evaluate', ':root', 'evaluate: 1', {
+      actionClass: 'unknown', hardStop: true, reason: 'browser_evaluate_requires_user',
+    });
+    expect(clean.raise).not.toHaveBeenCalled();
+    expect(clean.createRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not probe for field input tools', async () => {
+    const probe = vi.fn(async () => ({ detected: true }));
+    const { guard, raise } = makeGuard({ grants: [INPUT_GRANT], probe });
+
+    await guard.prepareMutatingAction(CONTEXT, 'type', 'browser.type', '#name', 'Type the contact name');
+
+    expect(probe).not.toHaveBeenCalled();
+    expect(raise).not.toHaveBeenCalled();
   });
 });

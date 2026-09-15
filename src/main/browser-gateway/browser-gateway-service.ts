@@ -75,6 +75,7 @@ import { normalizeAccessibilityNodes, normalizeEvaluateResult } from './browser-
 import { readBrowserTargetData } from './browser-gateway-read-target-data';
 import { BrowserManualHandoffOperations } from './browser-manual-handoff-operations';
 import { classifyBrowserFillForm } from './browser-action-classifier';
+import { createBrowserPageChallengeProbe } from './browser-page-challenge-probe';
 import {
   validateBrowserUploadPath,
   type BrowserUploadPolicyResult,
@@ -370,12 +371,12 @@ export class BrowserGatewayService {
       result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
     });
     this.actionGuard = new BrowserGatewayActionGuard({
-      profileStore: this.profileStore,
-      targetRegistry: this.targetRegistry,
-      driver: this.driver,
-      extensionTabStore: this.extensionTabStore,
-      grantStore: this.grantStore,
-      approvalStore: this.approvalStore,
+      profileStore: this.profileStore, targetRegistry: this.targetRegistry,
+      probePageChallenge: options.pageChallengeProbe === undefined ? createBrowserPageChallengeProbe({
+        extensionTabStore: this.extensionTabStore, driver: this.driver, existingTabOperations: this.existingTabOperations,
+        extensionContactState: this.extensionContactState }) : options.pageChallengeProbe ?? undefined,
+      driver: this.driver, extensionTabStore: this.extensionTabStore,
+      grantStore: this.grantStore, approvalStore: this.approvalStore,
       autoApproveRequests: (request) => Boolean(this.autoApproveRequests?.(request)),
       escalations: { raise: (input) => getBrowserEscalationService().raise(input) },
       result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
@@ -385,18 +386,17 @@ export class BrowserGatewayService {
     });
     this.reloadOperation = new BrowserReloadOperation({
       extensionTabStore: this.extensionTabStore, existingTabOperations: this.existingTabOperations,
-      actionGuard: this.actionGuard,
-      result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
+      actionGuard: this.actionGuard, result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
     });
     this.extensionRecoveryOperation = new BrowserExtensionRecoveryOperation({ workerNodeRegistry: options.workerNodeRegistry,
       extensionContactState: this.extensionContactState, sendServiceRpc: options.sendServiceRpc,
       delay: options.extensionRecoveryDelay, now: options.extensionRecoveryNow,
+      resetNodeConnection: options.extensionRecoveryResetNodeConnection,
       pollTimeoutMs: options.extensionRecoveryPollTimeoutMs, pollIntervalMs: options.extensionRecoveryPollIntervalMs,
       result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params), });
     this.mutationEffectVerifier = new BrowserMutationEffectVerifier({
       driver: this.driver, existingTabOperations: this.existingTabOperations,
-      delay: options.mutationEffectDelay
-        ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
+      delay: options.mutationEffectDelay ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
       result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
     });
   }

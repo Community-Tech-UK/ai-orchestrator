@@ -14,6 +14,7 @@ describe('createOrchestratorToolsForwarderTools', () => {
       'list_remote_nodes',
       'run_on_node',
       'exec_on_node',
+      'reset_node_connection',
       'read_node_output',
       'terminate_node_instance',
       'list_node_files',
@@ -516,6 +517,19 @@ describe('createOrchestratorToolsForwarderTools', () => {
       node: 'noahlaptop',
     });
     expect(result).toEqual({ terminated: [{ instanceId: 'inst-1' }], skipped: [] });
+  });
+
+  it('forwards reset_node_connection invocations with the canonical method name', async () => {
+    const call = vi.fn(async () => ({ nodeId: 'node-1', nodeName: 'windows-pc', reset: true }));
+    const tool = createOrchestratorToolsForwarderTools(stubClient(call)).find(
+      (t) => t.name === 'reset_node_connection',
+    );
+
+    const result = await tool!.handler({ node: 'windows-pc' });
+
+    expect(call).toHaveBeenCalledWith('orchestrator_tools.reset_node_connection', { node: 'windows-pc' });
+    expect(result).toEqual({ nodeId: 'node-1', nodeName: 'windows-pc', reset: true });
+    await expect(tool!.handler([] as unknown as Record<string, unknown>)).rejects.toThrow('must be an object');
   });
 
   it('forwards download_from_node invocations with the canonical method name', async () => {

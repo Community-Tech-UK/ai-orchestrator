@@ -282,6 +282,18 @@ export class ProviderQuotaService extends EventEmitter {
   }
 
   /**
+   * Refresh the provider-level probe and every pool-account probe for that
+   * provider. The title-bar chip's per-provider Refresh uses this so a second
+   * Claude/Codex account is not left stale.
+   */
+  async refreshProviderFamily(provider: ProviderId): Promise<ProviderQuotaSnapshot | null> {
+    const probes = [...this.probes.values()].filter((probe) => probe.provider === provider);
+    if (probes.length === 0) return this.refresh(provider);
+    const results = await Promise.all(probes.map((probe) => this.refresh(probe.provider, probe.accountProfileId)));
+    return results.find((snap) => snap && !snap.accountProfileId) ?? results.find((snap) => snap) ?? null;
+  }
+
+  /**
    * Schedule periodic refresh. `intervalMs <= 0` disables polling for this
    * provider. Calling again replaces the existing timer.
    */

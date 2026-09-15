@@ -54,6 +54,12 @@ export class ConnectionFlapDetector {
     return { stormStarted, countInWindow, active: this.active.has(nodeId) };
   }
 
+  /** Read-only view of a node's window at `now` (no event recorded). */
+  describe(nodeId: string, now: number): { countInWindow: number; active: boolean } {
+    const countInWindow = (this.events.get(nodeId) ?? []).filter((t) => now - t < this.windowMs).length;
+    return { countInWindow, active: countInWindow > 0 && this.active.has(nodeId) };
+  }
+
   /** Forget a node (e.g. on clean deregistration/server stop). */
   reset(nodeId: string): void {
     this.events.delete(nodeId);

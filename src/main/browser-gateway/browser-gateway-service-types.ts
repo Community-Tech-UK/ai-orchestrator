@@ -1,3 +1,4 @@
+import type { BrowserPageChallengeProbe } from './browser-page-challenge-probe';
 import type {
   BrowserAttachExistingTabRequest,
   BrowserCreateProfileRequest,
@@ -281,6 +282,13 @@ export interface BrowserGatewayServiceOptions {
   extensionRecoveryNow?: () => number;
   extensionRecoveryPollTimeoutMs?: number;
   extensionRecoveryPollIntervalMs?: number;
+  /**
+   * Live CAPTCHA evidence before click/evaluate. `null` disables it (test fakes
+   * that count dispatched commands); undefined uses the read-only page probe.
+   */
+  pageChallengeProbe?: BrowserPageChallengeProbe | null;
+  /** Non-revoking worker connection reset used for relay_not_forwarding recovery. */
+  extensionRecoveryResetNodeConnection?: (nodeId: string) => boolean;
   /**
    * Agent credential vault (Bitwarden-backed). Optional: when absent,
    * browser.fill_credential is unavailable. Secrets resolved here never enter

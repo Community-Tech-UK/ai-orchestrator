@@ -1,7 +1,6 @@
 import type { BrowserTarget } from '@contracts/types/browser';
 import {
   BROWSER_EXTENSION_CONTACT_FRESH_MS,
-  describeBrowserExtensionContact,
   isBrowserExtensionContactFresh,
   type BrowserExtensionContactStateReader,
 } from './browser-extension-contact-state';
@@ -19,6 +18,80 @@ export interface RemoteExtensionContactDeps {
   now?: () => number;
 }
 
+/**
+ * Channel state from the two contact clocks, which must never be merged for
+ * delivery decisions:
+ * - `coordinatorPollAt`: a poll RPC actually reached this coordinator
+ *   (BrowserExtensionContactState). Commands are delivered only this way.
+ * - `relayContactAt`: the worker relay saw the extension on its pipe
+ *   (`capabilities.extensionRelay.lastExtensionContactAt`). The relay stamps
+ *   this BEFORE forwarding, so it stays fresh while forwarding fails — the
+ *   2026-09-15 stale-socket loop showed "last contacted 15s ago" for an hour
+ *   while every command was not_delivered.
+ */
+export type RemoteExtensionChannelState = 'fresh' | 'relay_not_forwarding' | 'silent';
+
+export interface RemoteExtensionContactClocks {
+  state: RemoteExtensionChannelState;
+  /** Most recent of both clocks; kept for existing `lastContactAt` fields. */
+  lastContactAt?: number;
+  coordinatorPollAt?: number;
+  coordinatorPollAgeMs?: number;
+  relayContactAt?: number;
+  relayContactAgeMs?: number;
+}
+
+export function classifyRemoteExtensionContact(input: {
+  coordinatorPollAt?: number;
+  relayContactAt?: number;
+  /** Node registration time; bounds the "no poll recorded yet" grace. */
+  nodeConnectedAt?: number;
+  now: number;
+  freshMs?: number;
+}): RemoteExtensionContactClocks {
+  const freshMs = input.freshMs ?? BROWSER_EXTENSION_CONTACT_FRESH_MS;
+  const { coordinatorPollAt, relayContactAt, nodeConnectedAt, now } = input;
+  let state: RemoteExtensionChannelState;
+  if (isBrowserExtensionContactFresh(coordinatorPollAt, now, freshMs)) {
+    state = 'fresh';
+  } else if (!isBrowserExtensionContactFresh(relayContactAt, now, freshMs)) {
+    state = 'silent';
+  } else if (coordinatorPollAt !== undefined) {
+    state = 'relay_not_forwarding';
+  } else {
+    // No poll seen by this coordinator yet (fresh start or re-registration):
+    // allow one freshness window from registration before blaming the worker.
+    state = nodeConnectedAt !== undefined && now - nodeConnectedAt > freshMs
+      ? 'relay_not_forwarding'
+      : 'fresh';
+  }
+  const lastContactAt = latestTimestamp(coordinatorPollAt, relayContactAt);
+  return {
+    state,
+    ...(lastContactAt !== undefined ? { lastContactAt } : {}),
+    ...(coordinatorPollAt !== undefined
+      ? { coordinatorPollAt, coordinatorPollAgeMs: Math.max(0, now - coordinatorPollAt) }
+      : {}),
+    ...(relayContactAt !== undefined
+      ? { relayContactAt, relayContactAgeMs: Math.max(0, now - relayContactAt) }
+      : {}),
+  };
+}
+
+export function readRemoteExtensionContactClocks(
+  nodeId: string,
+  deps: RemoteExtensionContactDeps,
+): RemoteExtensionContactClocks {
+  const node = (deps.workerNodeRegistry ?? getWorkerNodeRegistry()).getNode(nodeId);
+  return classifyRemoteExtensionContact({
+    coordinatorPollAt: deps.extensionContactState.getLastExtensionContactAt(nodeId),
+    relayContactAt: node?.capabilities.extensionRelay?.lastExtensionContactAt,
+    nodeConnectedAt: node?.connectedAt,
+    now: now(deps),
+  });
+}
+
+/** Delivery freshness: true only when polls are (or may soon be) reaching the coordinator. */
 export function isRemoteExtensionContactFresh(
   nodeId: string,
   deps: RemoteExtensionContactDeps,
@@ -26,11 +99,7 @@ export function isRemoteExtensionContactFresh(
   if (deps.extensionContactState.isExtensionContactFresh(nodeId)) {
     return true;
   }
-  return isBrowserExtensionContactFresh(
-    remoteExtensionRelayLastContactAt(nodeId, deps),
-    now(deps),
-    BROWSER_EXTENSION_CONTACT_FRESH_MS,
-  );
+  return readRemoteExtensionContactClocks(nodeId, deps).state === 'fresh';
 }
 
 export function withRemoteExtensionStaleFlag(
@@ -79,22 +148,28 @@ export function remoteExtensionUnreachableFindOrOpenInput(params: {
 
 /**
  * Human-readable channel state for error messages, e.g.
- * `extension last contacted 42s ago` / `no extension contact recorded`.
- * Merges host-observed contact with the worker relay's own summary, since
- * either side may have seen the extension more recently.
+ * `extension last contacted 42s ago` / `no extension contact recorded`, or —
+ * when the worker relay sees polls the coordinator never receives —
+ * `extension polled the relay 15s ago; the coordinator has not received a poll for 67m`.
  */
 export function remoteExtensionContactSummary(
   nodeId: string,
   deps: RemoteExtensionContactDeps,
 ): string {
-  const lastContactAt = latestTimestamp(
-    deps.extensionContactState.getLastExtensionContactAt(nodeId),
-    remoteExtensionRelayLastContactAt(nodeId, deps),
-  );
+  const clocks = readRemoteExtensionContactClocks(nodeId, deps);
+  const { lastContactAt } = clocks;
   const disconnect = deps.extensionContactState.getLastDisconnect?.(nodeId);
   const disconnectSuffix = disconnect && (lastContactAt === undefined || disconnect.at >= lastContactAt)
     ? `; channel disconnected ${Math.max(0, Math.round((now(deps) - disconnect.at) / 1000))}s ago (${disconnect.reason})`
     : '';
+  if (clocks.state === 'relay_not_forwarding') {
+    const coordinator = clocks.coordinatorPollAgeMs !== undefined
+      ? `has not received a poll for ${formatAge(clocks.coordinatorPollAgeMs)}`
+      : 'has not received a poll since the node registered';
+    return `extension polled the relay ${formatAge(clocks.relayContactAgeMs ?? 0)} ago; the coordinator ${coordinator}`
+      + ' (worker is not forwarding polls; browser.recover_extension resets the node connection)'
+      + disconnectSuffix;
+  }
   if (lastContactAt === undefined) {
     return `no extension contact recorded${disconnectSuffix}`;
   }
@@ -102,33 +177,24 @@ export function remoteExtensionContactSummary(
   return `extension last contacted ${ageSeconds}s ago${disconnectSuffix}`;
 }
 
+function formatAge(ms: number): string {
+  const seconds = Math.max(0, Math.round(ms / 1000));
+  if (seconds < 120) return `${seconds}s`;
+  const minutes = Math.round(seconds / 60);
+  return minutes < 120 ? `${minutes}m` : `${Math.round(minutes / 60)}h`;
+}
+
 function remoteExtensionContactDescription(
   nodeId: string,
   deps: RemoteExtensionContactDeps,
 ): string {
-  const lastContactAt = latestTimestamp(
-    deps.extensionContactState.getLastExtensionContactAt(nodeId),
-    remoteExtensionRelayLastContactAt(nodeId, deps),
-  );
-  const contact = describeBrowserExtensionContact(
-    nodeId,
-    lastContactAt,
-    now(deps),
-    BROWSER_EXTENSION_CONTACT_FRESH_MS,
-  );
-  return contact.lastContactAt === undefined
+  const clocks = readRemoteExtensionContactClocks(nodeId, deps);
+  if (clocks.state === 'relay_not_forwarding') {
+    return remoteExtensionContactSummary(nodeId, deps);
+  }
+  return clocks.lastContactAt === undefined
     ? 'no extension contact recorded'
-    : `lastExtensionContactAt=${contact.lastContactAt}`;
-}
-
-function remoteExtensionRelayLastContactAt(
-  nodeId: string,
-  deps: RemoteExtensionContactDeps,
-): number | undefined {
-  return (deps.workerNodeRegistry ?? getWorkerNodeRegistry())
-    .getNode(nodeId)
-    ?.capabilities.extensionRelay
-    ?.lastExtensionContactAt;
+    : `lastExtensionContactAt=${clocks.lastContactAt}`;
 }
 
 function now(deps: RemoteExtensionContactDeps): number {

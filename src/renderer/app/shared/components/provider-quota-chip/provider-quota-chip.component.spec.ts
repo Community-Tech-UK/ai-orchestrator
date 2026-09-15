@@ -531,6 +531,8 @@ describe('ProviderQuotaChipComponent', () => {
       ]);
       fixture.detectChanges();
       const host = fixture.nativeElement as HTMLElement;
+      expect(host.querySelector('[data-testid="quota-strip"]')?.textContent).toContain('CC95%');
+      expect(host.querySelector('[data-testid="quota-strip"]')?.textContent).not.toContain('CC10%');
       (host.querySelector('button[data-testid="quota-toggle"]') as HTMLButtonElement).click();
       fixture.detectChanges();
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -538,6 +540,7 @@ describe('ProviderQuotaChipComponent', () => {
       const row = host.querySelector('[data-testid="quota-account-claude-max-b"]');
       expect(row?.textContent).toContain('Account: Max B');
       expect(row?.textContent).toContain('95');
+      expect(host.querySelector('[data-testid="quota-account-claude-legacy"]')?.textContent).toContain('Existing sign-in');
       expect(host.querySelector('[data-testid="quota-provider-claude"]')?.textContent).toContain('10');
     });
   });

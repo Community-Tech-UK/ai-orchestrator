@@ -145,6 +145,14 @@ export const ProviderAccountCreatePayloadSchema = z
 
 export const ProviderAccountRefPayloadSchema = z.object(profileRefShape).strict();
 
+/** Default copies the sign-in command; `openTerminal` also opens a Harness terminal. */
+export const ProviderAccountLaunchLoginPayloadSchema = z
+  .object({
+    ...profileRefShape,
+    openTerminal: z.boolean().optional(),
+  })
+  .strict();
+
 export const ProviderAccountUpdatePayloadSchema = z
   .object({
     ...profileRefShape,

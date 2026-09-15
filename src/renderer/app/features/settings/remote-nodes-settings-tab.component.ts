@@ -411,6 +411,12 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
     }
   }
 
+  async resetConnection(entry: NodeHealthEntry): Promise<void> {
+    this.error.set(null);
+    const reset = await this.ipc.resetConnection(entry.id).catch((err: Error) => void this.error.set(err.message));
+    if (reset === false) this.error.set(`${entry.name} is not connected, so there is no connection to reset.`);
+  }
+
   async revokeNode(nodeId: string): Promise<void> {
     if (!confirm(`Revoke node "${nodeId}"? It will no longer be able to connect.`)) {
       return;

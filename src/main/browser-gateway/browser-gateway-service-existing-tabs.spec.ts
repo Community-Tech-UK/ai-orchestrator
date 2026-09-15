@@ -106,6 +106,74 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
     }));
   });
 
+  it('probes the shared tab for a live CAPTCHA before clicking and parks instead of dispatching', async () => {
+    const sendCommand = vi.fn(async (command: { command: string; payload?: { selector?: string } }) => {
+      if (command.command !== 'read_control') return { clicked: true };
+      // A visible reCAPTCHA checkbox whose response token is still empty.
+      return command.payload?.selector?.includes('g-recaptcha-response') ? { value: '' } : {};
+    });
+    const existingTab = { ...appStoreConnectTab, title: 'Contact us' };
+    const { service } = makeService({
+      existingTab,
+      extensionCommandStore: { sendCommand },
+      pageChallengeProbe: 'default',
+      grants: [
+        makeGrant({
+          profileId: existingTab.profileId,
+          targetId: existingTab.targetId,
+          allowedOrigins: existingTab.allowedOrigins,
+          allowedActionClasses: ['input'],
+        }),
+      ],
+    });
+
+    const result = await service.click({
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      profileId: existingTab.profileId,
+      targetId: existingTab.targetId,
+      selector: '#send',
+      actionHint: 'Send the enquiry',
+    });
+
+    expect(result).toMatchObject({ decision: 'requires_user', outcome: 'not_run', reason: expect.stringContaining('captcha') });
+    expect(sendCommand.mock.calls.map(([command]) => command.command)).toEqual(['read_control', 'read_control']);
+  });
+
+  it('clicks when the agent hint mentions reCAPTCHA but the page has no live challenge', async () => {
+    const sendCommand = vi.fn(async (command: { command: string; payload?: { selector?: string } }) => {
+      if (command.command === 'read_control') {
+        throw new Error(`No element matches selector: ${command.payload?.selector ?? ''}`);
+      }
+      return { clicked: true };
+    });
+    const { service } = makeService({
+      existingTab: appStoreConnectTab,
+      extensionCommandStore: { sendCommand },
+      pageChallengeProbe: 'default',
+      grants: [
+        makeGrant({
+          profileId: appStoreConnectTab.profileId,
+          targetId: appStoreConnectTab.targetId,
+          allowedOrigins: appStoreConnectTab.allowedOrigins,
+          allowedActionClasses: ['input'],
+        }),
+      ],
+    });
+
+    const result = await service.click({
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      profileId: appStoreConnectTab.profileId,
+      targetId: appStoreConnectTab.targetId,
+      selector: '#enable',
+      actionHint: 'Enable the reCAPTCHA Enterprise API in the Comtech project',
+    });
+
+    expect(result).toMatchObject({ decision: 'allowed', outcome: 'succeeded' });
+    expect(sendCommand.mock.calls.map(([command]) => command.command)).toEqual(['read_control', 'click']);
+  });
+
   it('creates node-scoped grants when approving existing-tab actions on remote nodes', async () => {
     const sendCommand = vi.fn(async () => ({ clicked: true }));
     const existingTab = {

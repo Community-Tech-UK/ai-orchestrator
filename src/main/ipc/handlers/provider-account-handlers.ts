@@ -13,12 +13,13 @@
  * ===========================================================================
  */
 
-import { ipcMain, type IpcMainInvokeEvent } from 'electron';
+import { clipboard, ipcMain, type IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS } from '@contracts/channels';
 import {
   ProviderAccountAcknowledgePayloadSchema,
   ProviderAccountCreatePayloadSchema,
   ProviderAccountDoctorPayloadSchema,
+  ProviderAccountLaunchLoginPayloadSchema,
   ProviderAccountPoolUpdatePayloadSchema,
   ProviderAccountProviderPayloadSchema,
   ProviderAccountRefPayloadSchema,
@@ -45,7 +46,7 @@ import { buildProviderAccountDoctorReport } from '../../providers/account-pool/p
 import { getProviderAccountBindingService } from '../../providers/account-pool/provider-account-binding-service';
 import { getProviderAccountRoutingService } from '../../providers/account-pool/provider-account-routing-service';
 import { getProviderAccountStore, type ProviderAccountStore } from '../../providers/account-pool/provider-account-store';
-import { launchProviderLogin } from '../../providers/provider-login-launcher';
+import { copyAccountProfileLoginCommand, launchProviderLogin } from '../../providers/provider-login-launcher';
 import { validatedHandler, type IpcResponse } from '../validated-handler';
 
 const logger = getLogger('ProviderAccountHandlers');
@@ -264,16 +265,26 @@ export function registerProviderAccountHandlers(deps: RegisterProviderAccountHan
 
   handle(
     IPC_CHANNELS.PROVIDER_ACCOUNT_LAUNCH_LOGIN,
-    ProviderAccountRefPayloadSchema,
+    ProviderAccountLaunchLoginPayloadSchema,
     async (payload) => {
       requireProfile(payload.provider, payload.profileId);
-      const result = await launchProviderLogin(payload.provider, undefined, {
-        provider: payload.provider,
-        profileId: payload.profileId,
-      });
+      const accountProfile = { provider: payload.provider, profileId: payload.profileId };
+      // The command embeds the derived home; only copied / hint / terminal name cross IPC.
+      const copied = copyAccountProfileLoginCommand(accountProfile, (text) => clipboard.writeText(text));
       bindings.invalidate(payload.provider, payload.profileId);
-      // The command embeds the derived home; only the terminal name and hint cross IPC.
-      return { success: true, data: { terminal: result.terminal, ...(result.hint ? { hint: result.hint } : {}) } };
+      if (!payload.openTerminal) {
+        return { success: true, data: { copied: true, openedTerminal: false, ...(copied.hint ? { hint: copied.hint } : {}) } };
+      }
+      const result = await launchProviderLogin(payload.provider, undefined, accountProfile);
+      return {
+        success: true,
+        data: {
+          copied: true,
+          openedTerminal: true,
+          terminal: result.terminal,
+          ...(result.hint ?? copied.hint ? { hint: result.hint ?? copied.hint } : {}),
+        },
+      };
     },
     'PROVIDER_ACCOUNT_LAUNCH_LOGIN_FAILED',
   );

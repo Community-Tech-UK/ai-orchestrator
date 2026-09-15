@@ -47,9 +47,17 @@ export function createProviderAccountDomain(
     verifyProviderAccount: (provider: PooledProvider, profileId: string): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.PROVIDER_ACCOUNT_VERIFY, withAuth({ provider, profileId })),
 
-    /** Opens a terminal signing in to the account's own home. Harness never sees the token. */
-    launchProviderAccountLogin: (provider: PooledProvider, profileId: string): Promise<IpcResponse> =>
-      ipcRenderer.invoke(ch.PROVIDER_ACCOUNT_LAUNCH_LOGIN, withAuth({ provider, profileId })),
+    /** Copies the sign-in command (home stays in main). Optional `openTerminal` also opens a Harness terminal. */
+    launchProviderAccountLogin: (
+      provider: PooledProvider,
+      profileId: string,
+      options?: { openTerminal?: boolean },
+    ): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.PROVIDER_ACCOUNT_LAUNCH_LOGIN, withAuth({
+        provider,
+        profileId,
+        ...(options?.openTerminal ? { openTerminal: true } : {}),
+      })),
 
     readProviderAccountPools: (): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.PROVIDER_ACCOUNT_POOL_READ, withAuth({})),

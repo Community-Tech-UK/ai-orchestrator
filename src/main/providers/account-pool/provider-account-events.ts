@@ -25,6 +25,7 @@ export type ProviderAccountEventName =
   | 'account_route_blocked'
   | 'account_binding_checked'
   | 'account_login_launched'
+  | 'account_login_command_copied'
   | 'account_failover_performed'
   | 'account_failover_offered'
   | 'account_pool_exhausted';

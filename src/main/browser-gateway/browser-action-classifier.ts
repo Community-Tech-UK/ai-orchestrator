@@ -7,6 +7,13 @@ export interface BrowserActionClassificationInput {
   toolName: string;
   actionHint?: string;
   elementContext?: BrowserElementContext;
+  /**
+   * `agent_hint` when `elementContext` was synthesized from the caller's own
+   * actionHint (shared extension tabs cannot be inspected). Agent-authored text
+   * is never CAPTCHA evidence: "Enable the reCAPTCHA Enterprise API" parked a
+   * plain click on 2026-09-15.
+   */
+  elementContextSource?: 'inspected' | 'agent_hint';
 }
 
 export interface BrowserFieldClassificationInput {
@@ -42,7 +49,27 @@ export const LEGAL_DECLARATION_REASON = 'legal_declaration_requires_human_or_pre
 export const FINANCIAL_IDENTITY_REASON = 'financial_identity_requires_secure_broker';
 export const SENSITIVE_IDENTITY_REASON = 'sensitive_identity_requires_secure_broker';
 
-const CAPTCHA_WORDS = ['captcha'];
+/**
+ * CAPTCHA element evidence. Widget markers are matched against the inspected
+ * element's attributes (class/id/src/data-*), and the word "captcha" only as a
+ * whole word in the element's OWN label/name — never nearbyText, where the
+ * invisible v3 disclosure ("protected by reCAPTCHA") sits beside every submit.
+ */
+const CAPTCHA_WIDGET_MARKERS = [
+  // Challenge iframes (the checkbox / interactive widget itself).
+  '/recaptcha/api2/anchor',
+  '/recaptcha/enterprise/anchor',
+  'hcaptcha.com',
+  'challenges.cloudflare.com',
+  // Response-token fields: writing one is a challenge bypass, not form input.
+  'g-recaptcha-response',
+  'h-captcha-response',
+  'cf-turnstile-response',
+  // Not `class="g-recaptcha"`: on a <button> that is the invisible v2/v3
+  // binding of an ordinary submit, not a challenge.
+];
+const INVISIBLE_CAPTCHA_MARKERS = ['grecaptcha-badge', 'size=invisible'];
+const CAPTCHA_OWN_LABEL = /\bcaptcha\b/;
 const TWO_FACTOR_WORDS = [
   'two-factor',
   'two factor',
@@ -223,7 +250,7 @@ export function classifyBrowserAction(
   // distinct reasons so the action guard can park them to the batch escalation
   // queue rather than block on a per-action approval. A real password/token
   // field keeps the generic reason and the per-action approval path.
-  if (hasAny(contextText, CAPTCHA_WORDS)) {
+  if (input.elementContextSource !== 'agent_hint' && hasCaptchaElementEvidence(input.elementContext)) {
     return { actionClass: 'credential', hardStop: true, reason: CAPTCHA_CHALLENGE_REASON };
   }
   if (hasAny(contextText, TWO_FACTOR_WORDS)) {
@@ -291,6 +318,35 @@ export function classifyBrowserAction(
     hardStop: false,
     reason: 'unclassified_browser_action',
   };
+}
+
+/** Page evidence from the challenge probe (see browser-page-challenge-probe.ts). */
+export interface BrowserPageChallengeEvidence {
+  /** A visible, unsolved reCAPTCHA / hCaptcha / Turnstile widget is on the page. */
+  detected: boolean;
+  /** Set when the probe could not run; the action is then classified without page evidence. */
+  unavailable?: string;
+}
+
+/**
+ * Apply page-level challenge evidence on top of an element classification.
+ * Payment and identity hard stops stay stronger: they are never grantable.
+ */
+export function withPageChallengeEvidence(
+  classification: BrowserActionClassification,
+  evidence: BrowserPageChallengeEvidence | undefined,
+): BrowserActionClassification {
+  if (!evidence?.detected) {
+    return classification;
+  }
+  if (
+    classification.actionClass === 'payment'
+    || classification.actionClass === 'financial_identity'
+    || classification.actionClass === 'sensitive_identity'
+  ) {
+    return classification;
+  }
+  return { actionClass: 'credential', hardStop: true, reason: CAPTCHA_CHALLENGE_REASON };
 }
 
 export function classifyBrowserFillForm(
@@ -396,6 +452,27 @@ function navigationDestination(context: BrowserElementContext): string | null {
     return null;
   }
   return href;
+}
+
+function hasCaptchaElementEvidence(context?: BrowserElementContext): boolean {
+  if (!context) {
+    return false;
+  }
+  const attributeText = [
+    ...Object.entries(context.attributes ?? {}).map(([name, value]) => `${name}=${value ?? ''}`),
+    context.inputName ? `name=${context.inputName}` : '',
+  ].join(' ').toLowerCase();
+  if (hasAny(attributeText, INVISIBLE_CAPTCHA_MARKERS)) {
+    return false;
+  }
+  if (hasAny(attributeText, CAPTCHA_WIDGET_MARKERS)) {
+    return true;
+  }
+  const ownText = [context.label, context.accessibleName, context.placeholder, context.inputName, context.visibleText]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return CAPTCHA_OWN_LABEL.test(ownText);
 }
 
 function classFromText(text: string): BrowserActionClass | null {

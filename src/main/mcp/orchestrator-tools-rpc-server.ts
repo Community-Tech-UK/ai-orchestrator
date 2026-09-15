@@ -41,6 +41,7 @@ import {
   type UpdateAutomationFn,
 } from './orchestrator-tools';
 import type { GetDocReviewResultFn, RequestDocReviewFn } from './doc-review-tools';
+import { ResetNodeConnectionArgsSchema, type NodeConnectionToolContext, type ResetNodeConnectionFn } from './orchestrator-node-connection-tools';
 import {
   SettingsPrivilegedGetPayloadSchema,
   SettingsPrivilegedListPayloadSchema,
@@ -122,7 +123,7 @@ export interface CalendarMutationAuthorizationRequest {
   payload: Record<string, unknown>;
 }
 
-export interface OrchestratorToolsRpcServerOptions extends FileTransferToolContext {
+export interface OrchestratorToolsRpcServerOptions extends FileTransferToolContext, NodeConnectionToolContext {
   operatorDbPath?: string;
   userDataPath?: string;
   isKnownLocalInstance?: (instanceId: string) => boolean;
@@ -194,6 +195,7 @@ export class OrchestratorToolsRpcServer {
   private readonly execOnNode: ExecOnNodeFn | null;
   private readonly readInstanceOutput: ReadInstanceOutputFn | null;
   private readonly terminateNodeInstances: TerminateNodeInstancesFn | null;
+  private readonly resetNodeConnection: ResetNodeConnectionFn | null;
   private readonly settingsManager: SettingsManagerForTools | null;
   private readonly broadcastSettingsChange: SettingsChangeBroadcaster | null;
   private readonly updateNodeConfig: UpdateNodeConfigFn | null;
@@ -249,6 +251,7 @@ export class OrchestratorToolsRpcServer {
     this.execOnNode = options.execOnNode ?? null;
     this.readInstanceOutput = options.readInstanceOutput ?? null;
     this.terminateNodeInstances = options.terminateNodeInstances ?? null;
+    this.resetNodeConnection = options.resetNodeConnection ?? null;
     this.settingsManager = options.settingsManager ?? null;
     this.broadcastSettingsChange = options.broadcastSettingsChange ?? null;
     this.updateNodeConfig = options.updateNodeConfig ?? null;
@@ -392,6 +395,12 @@ export class OrchestratorToolsRpcServer {
         if (!tool) {
           throw new Error('terminate_node_instance tool unavailable');
         }
+        return tool.handler(validated);
+      }
+      case 'orchestrator_tools.reset_node_connection': {
+        const validated = ResetNodeConnectionArgsSchema.parse(params.payload);
+        const tool = this.getToolsForInstance(params.instanceId).find((t) => t.name === 'reset_node_connection');
+        if (!tool) throw new Error('reset_node_connection tool unavailable');
         return tool.handler(validated);
       }
       case 'orchestrator_tools.settings.privileged_list': {
@@ -682,6 +691,7 @@ export class OrchestratorToolsRpcServer {
         execOnNode: this.execOnNode,
         readInstanceOutput: this.readInstanceOutput,
         terminateNodeInstances: this.terminateNodeInstances,
+        resetNodeConnection: this.resetNodeConnection,
         settingsManager: this.settingsManager,
         broadcastSettingsChange: this.broadcastSettingsChange,
         updateNodeConfig: this.updateNodeConfig,
@@ -710,6 +720,7 @@ export class OrchestratorToolsRpcServer {
       execOnNode: this.execOnNode,
       readInstanceOutput: this.readInstanceOutput,
       terminateNodeInstances: this.terminateNodeInstances,
+      resetNodeConnection: this.resetNodeConnection,
       settingsManager: this.settingsManager,
       broadcastSettingsChange: this.broadcastSettingsChange,
       updateNodeConfig: this.updateNodeConfig,

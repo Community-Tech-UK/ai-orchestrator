@@ -613,6 +613,16 @@
                 >
                   Copy diagnostics
                 </button>
+                @if (entry.status !== 'disconnected') {
+                  <button
+                    class="btn btn-secondary small"
+                    type="button"
+                    title="Close this computer's live connection without revoking it. It reconnects by itself."
+                    (click)="resetConnection(entry)"
+                  >
+                    Reset connection
+                  </button>
+                }
                 <button
                   class="btn btn-danger small"
                   type="button"

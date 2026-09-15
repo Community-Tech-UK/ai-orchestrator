@@ -13,6 +13,10 @@ export const RemoteNodeRevokePayloadSchema = z.object({
   nodeId: z.string().uuid(),
 });
 
+export const RemoteNodeResetConnectionPayloadSchema = z.object({
+  nodeId: z.string().uuid(),
+}).strict();
+
 export const RemoteNodeRevokePairingPayloadSchema = z.object({
   token: z.string().min(1).max(256),
 });
@@ -231,6 +235,7 @@ export const PairBothWorkerRunModePayloadSchema = z.object({
 export type ValidatedSetTokenPayload = z.infer<typeof RemoteNodeSetTokenPayloadSchema>;
 export type ValidatedIssuePairingPayload = z.infer<typeof RemoteNodeIssuePairingPayloadSchema>;
 export type ValidatedRevokePayload = z.infer<typeof RemoteNodeRevokePayloadSchema>;
+export type ValidatedResetConnectionPayload = z.infer<typeof RemoteNodeResetConnectionPayloadSchema>;
 export type ValidatedRevokePairingPayload = z.infer<typeof RemoteNodeRevokePairingPayloadSchema>;
 export type ValidatedGetPayload = z.infer<typeof RemoteNodeGetPayloadSchema>;
 export type ValidatedStartServerPayload = z.infer<typeof RemoteNodeStartServerPayloadSchema>;

@@ -128,6 +128,9 @@ export function createCommunicationDomain(
     remoteNodeRevokeNode: (nodeId: string): Promise<unknown> =>
       ipcRenderer.invoke(ch.REMOTE_NODE_REVOKE, { nodeId }),
 
+    remoteNodeResetConnection: (nodeId: string): Promise<unknown> =>
+      ipcRenderer.invoke(ch.REMOTE_NODE_RESET_CONNECTION, { nodeId }),
+
     remoteNodeGetServerStatus: (): Promise<unknown> =>
       ipcRenderer.invoke(ch.REMOTE_NODE_GET_SERVER_STATUS),
 

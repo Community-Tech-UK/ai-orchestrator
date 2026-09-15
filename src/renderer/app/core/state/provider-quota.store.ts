@@ -57,25 +57,37 @@ export class ProviderQuotaStore {
   readonly lastPacingWarning = this._lastPacingWarning.asReadonly();
   readonly lastExhausted = this._lastExhausted.asReadonly();
 
-  /** Most-constrained window across all providers. Drives the global chip. */
+  /** Most-constrained window across providers and pool accounts. Drives chip colour. */
   readonly mostConstrainedWindow = computed<{
     provider: ProviderId;
     window: ProviderQuotaWindow;
+    accountProfileId?: string;
   } | null>(() => {
-    const snaps = this._state().snapshots;
-    let worst: { provider: ProviderId; window: ProviderQuotaWindow; ratio: number } | null = null;
-    for (const provider of Object.keys(snaps) as ProviderId[]) {
-      const snap = snaps[provider];
-      if (!snap || !snap.ok) continue;
-      for (const w of snap.windows) {
-        if (w.limit <= 0) continue;
-        const ratio = w.used / w.limit;
+    const state = this._state();
+    let worst: { provider: ProviderId; window: ProviderQuotaWindow; ratio: number; accountProfileId?: string } | null = null;
+    const consider = (snap: ProviderQuotaSnapshot | null | undefined): void => {
+      if (!snap || !snap.ok) return;
+      for (const window of snap.windows) {
+        if (window.limit <= 0) continue;
+        const ratio = window.used / window.limit;
         if (!worst || ratio > worst.ratio) {
-          worst = { provider, window: w, ratio };
+          worst = {
+            provider: snap.provider,
+            window,
+            ratio,
+            ...(snap.accountProfileId ? { accountProfileId: snap.accountProfileId } : {}),
+          };
         }
       }
-    }
-    return worst ? { provider: worst.provider, window: worst.window } : null;
+    };
+    for (const snap of Object.values(state.snapshots)) consider(snap);
+    for (const snap of state.accountSnapshots ?? []) consider(snap);
+    if (!worst) return null;
+    return {
+      provider: worst.provider,
+      window: worst.window,
+      ...(worst.accountProfileId ? { accountProfileId: worst.accountProfileId } : {}),
+    };
   });
 
   /** Returns the snapshot signal for a single provider (memoised by call site). */

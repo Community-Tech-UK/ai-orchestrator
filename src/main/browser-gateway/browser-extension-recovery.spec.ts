@@ -218,6 +218,108 @@ describe('Browser Gateway extension relay recovery', () => {
     expect(sendServiceRpc).toHaveBeenCalledOnce();
   });
 
+  describe('relay_not_forwarding (2026-09-15 stale-socket loop)', () => {
+    const MINUTE = 60_000;
+    function forwardingNode(relayContactAt: number) {
+      const node = makeRelayNode('node-1', 'windows-pc');
+      return {
+        ...node,
+        capabilities: {
+          ...node.capabilities,
+          extensionRelay: { ...node.capabilities.extensionRelay!, lastExtensionContactAt: relayContactAt },
+        },
+      };
+    }
+
+    it('resets the worker connection instead of bouncing a healthy relay, and proves a coordinator poll', async () => {
+      let now = 100 * MINUTE;
+      let coordinatorPollAt = now - 67 * MINUTE;
+      const resetNodeConnection = vi.fn(() => true);
+      const sendServiceRpc = vi.fn();
+      const contactState = {
+        getLastExtensionContactAt: vi.fn(() => coordinatorPollAt),
+        isExtensionContactFresh: vi.fn(() => false),
+        describeExtensionContact: vi.fn(() => ({ nodeId: 'node-1', silent: true })),
+        getContactGapStats: vi.fn(() => ({ gapCount: 0, longestGapMs: 0 })),
+        getLastDisconnect: vi.fn(() => undefined),
+      };
+      const { service } = makeService({
+        extensionContactState: contactState,
+        workerNodeRegistry: { getHealthyNodes: () => [forwardingNode(now - 15_000)] },
+        sendServiceRpc,
+        extensionRecoveryResetNodeConnection: resetNodeConnection,
+        extensionRecoveryNow: () => now,
+        extensionRecoveryDelay: async (ms) => {
+          now += ms;
+          if (now >= 100 * MINUTE + 20_000) coordinatorPollAt = 100 * MINUTE + 20_000;
+        },
+        extensionRecoveryPollIntervalMs: 1_000,
+      });
+
+      const result = await service.recoverExtension({ computer: 'windows-pc' });
+
+      expect(resetNodeConnection).toHaveBeenCalledWith('node-1');
+      expect(sendServiceRpc).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        decision: 'allowed',
+        outcome: 'succeeded',
+        data: {
+          recoveryStatus: 'recovered',
+          recoveryAction: 'connection_reset',
+          elapsedMs: 20_000,
+          before: { channelState: 'relay_not_forwarding', silent: false, coordinatorPollAt: 33 * MINUTE },
+          after: { channelState: 'fresh', coordinatorPollAt: 100 * MINUTE + 20_000 },
+        },
+      });
+    });
+
+    it('times out when only the relay clock advances after the reset', async () => {
+      let now = 100 * MINUTE;
+      const { service } = makeService({
+        extensionContactState: {
+          getLastExtensionContactAt: () => 33 * MINUTE,
+          isExtensionContactFresh: () => false,
+          describeExtensionContact: () => ({ nodeId: 'node-1', silent: true }),
+          getContactGapStats: () => ({ gapCount: 0, longestGapMs: 0 }),
+        },
+        // The relay keeps reporting fresh contact: exactly the misleading signal.
+        workerNodeRegistry: { getHealthyNodes: () => [forwardingNode(now - 1_000)] },
+        extensionRecoveryResetNodeConnection: () => true,
+        extensionRecoveryNow: () => now,
+        extensionRecoveryDelay: async (ms) => { now += ms; },
+        extensionRecoveryPollTimeoutMs: 3_000,
+        extensionRecoveryPollIntervalMs: 1_000,
+      });
+
+      await expect(service.recoverExtension({ nodeId: 'node-1' })).resolves.toMatchObject({
+        outcome: 'failed',
+        reason: 'browser_extension_recovery_timeout',
+        data: { recoveryStatus: 'timed_out', recoveryAction: 'connection_reset', after: { channelState: 'relay_not_forwarding' } },
+      });
+    });
+
+    it('fails honestly when the node has no open socket to reset', async () => {
+      const now = 100 * MINUTE;
+      const { service } = makeService({
+        extensionContactState: {
+          getLastExtensionContactAt: () => 33 * MINUTE,
+          isExtensionContactFresh: () => false,
+          describeExtensionContact: () => ({ nodeId: 'node-1', silent: true }),
+          getContactGapStats: () => ({ gapCount: 0, longestGapMs: 0 }),
+        },
+        workerNodeRegistry: { getHealthyNodes: () => [forwardingNode(now - 1_000)] },
+        extensionRecoveryResetNodeConnection: () => false,
+        extensionRecoveryNow: () => now,
+      });
+
+      await expect(service.recoverExtension({ nodeId: 'node-1' })).resolves.toMatchObject({
+        outcome: 'failed',
+        reason: 'browser_extension_recovery_failed',
+        data: { recoveryStatus: 'failed', recoveryAction: 'connection_reset' },
+      });
+    });
+  });
+
   it('keeps public payload validation strict and routes the exact Browser RPC method', async () => {
     expect(validateBrowserRpcPayload('browser.recover_extension', {
       computer: 'windows-pc',

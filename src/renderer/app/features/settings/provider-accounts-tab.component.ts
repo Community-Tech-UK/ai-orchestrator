@@ -52,7 +52,8 @@ const SIGN_IN_POLL_LIMIT = 60;
           <p class="section-desc">
             Add the Claude and ChatGPT subscriptions you pay for. Sessions use the first
             available account in the order below, and when one hits its usage limit the
-            conversation can carry on under the next one. Only you can change these; agents cannot.
+            conversation can carry on under the next one. Adding an account copies a sign-in
+            command to paste in your own terminal. Only you can change these; agents cannot.
           </p>
         </div>
         <button type="button" class="btn btn-secondary" (click)="refresh()" [disabled]="busy()">
@@ -141,7 +142,8 @@ const SIGN_IN_POLL_LIMIT = 60;
                     />
                     Enabled
                   </label>
-                  <button type="button" class="btn" (click)="signIn(account)" [disabled]="busy()">Sign in</button>
+                  <button type="button" class="btn" (click)="signIn(account)" [disabled]="busy()">Copy sign-in command</button>
+                  <button type="button" class="btn btn-secondary" (click)="signIn(account, true)" [disabled]="busy()">Open a terminal</button>
                   <button type="button" class="btn btn-secondary" (click)="verify(account)" [disabled]="busy()">Verify</button>
                   <button type="button" class="btn btn-secondary" (click)="move(account, -1)" [disabled]="busy() || first"
                     [attr.aria-label]="'Move ' + account.label + ' up'">↑</button>
@@ -171,7 +173,7 @@ const SIGN_IN_POLL_LIMIT = 60;
               (click)="addAccount(provider.id)"
               [disabled]="busy() || !(newLabels()[provider.id] ?? '').trim()"
             >
-              Add account and sign in
+              Add account
             </button>
           </div>
 
@@ -386,8 +388,8 @@ export class ProviderAccountsTabComponent implements OnInit {
     });
   }
 
-  async signIn(account: ProviderAccountView): Promise<void> {
-    await this.run(() => this.launchSignIn(account));
+  async signIn(account: ProviderAccountView, openTerminal = false): Promise<void> {
+    await this.run(() => this.launchSignIn(account, openTerminal));
   }
 
   async verify(account: ProviderAccountView): Promise<void> {
@@ -448,11 +450,17 @@ export class ProviderAccountsTabComponent implements OnInit {
     await this.mutate(() => this.ipc.updatePool({ provider, ...patch }));
   }
 
-  private async launchSignIn(account: ProviderAccountView): Promise<void> {
-    const response = await this.ipc.launchLogin(account.provider, account.id);
-    if (!response.success) throw new Error(response.error?.message ?? 'The sign-in terminal could not be opened.');
+  private async launchSignIn(account: ProviderAccountView, openTerminal = false): Promise<void> {
+    const response = await this.ipc.launchLogin(account.provider, account.id, openTerminal ? { openTerminal: true } : undefined);
+    if (!response.success) {
+      throw new Error(response.error?.message ?? (openTerminal
+        ? 'The sign-in terminal could not be opened.'
+        : 'The sign-in command could not be copied.'));
+    }
     const hint = (response.data as { hint?: string } | undefined)?.hint;
-    this.noticeSignal.set(`Finish signing in to "${account.label}" in the terminal window.${hint ? ` ${hint}` : ''}`);
+    this.noticeSignal.set(openTerminal
+      ? `Opened a terminal for "${account.label}". You can also paste the copied command in your own terminal.${hint ? ` ${hint}` : ''}`
+      : `Sign-in command copied for "${account.label}". Paste it in your own terminal, finish login, then this page will update.${hint ? ` ${hint}` : ''}`);
     this.pollUntilSignedIn(account);
   }
 

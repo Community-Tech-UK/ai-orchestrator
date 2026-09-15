@@ -2178,6 +2178,7 @@ describe('LT-034: context warning suppression for aggregate-only providers', () 
   function runWithAdapter(
     reporting: 'current' | 'aggregate-only',
     runtime?: { supportsNativeCompaction: boolean; selfManagedAutoCompaction: boolean },
+    percentage = 85,
   ): OutputMessage[] {
     const instance = createInstance('busy');
     const adapters = new Map<string, CliAdapter>();
@@ -2203,7 +2204,7 @@ describe('LT-034: context warning suppression for aggregate-only providers', () 
 
     // 170k of 200k: well past the 80 % threshold on either reading.
     (adapter as unknown as EventEmitter).emit('context', {
-      used: 170_000, total: 200_000, percentage: 85, cumulativeTokens: 170_000,
+      used: 170_000, total: 200_000, percentage, cumulativeTokens: 170_000,
     });
     return messages;
   }
@@ -2219,6 +2220,13 @@ describe('LT-034: context warning suppression for aggregate-only providers', () 
       .filter((m) => m.metadata?.['contextWarning'] === true);
     expect(warnings).toHaveLength(1);
     expect(warnings[0].content).toContain('85%');
+  });
+
+  it('rounds a fractional percentage to two decimals in the warning', () => {
+    const warnings = runWithAdapter('current', undefined, 80.48258513931889)
+      .filter((m) => m.metadata?.['contextWarning'] === true);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].content).toContain('Context usage at 80.48% ');
   });
 
   it('still injects the warning when native compaction exists but is not self-managed', () => {

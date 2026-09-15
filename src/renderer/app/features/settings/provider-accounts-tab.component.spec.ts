@@ -133,13 +133,21 @@ describe('ProviderAccountsTabComponent', () => {
     fixture.destroy();
   });
 
-  it('adds an account and immediately opens its sign-in terminal', async () => {
+  it('adds an account and copies its sign-in command instead of opening a terminal', async () => {
     const fixture = await render();
     fixture.componentInstance.setNewLabel('claude', 'Max C');
     await fixture.componentInstance.addAccount('claude');
     expect(ipc.create).toHaveBeenCalledWith({ provider: 'claude', label: 'Max C' });
-    expect(ipc.launchLogin).toHaveBeenCalledWith('claude', 'max-c-1a2b');
-    expect(fixture.componentInstance.notice()).toContain('Max C');
+    expect(ipc.launchLogin).toHaveBeenCalledWith('claude', 'max-c-1a2b', undefined);
+    expect(fixture.componentInstance.notice()).toContain('Paste it in your own terminal');
+    fixture.destroy();
+  });
+
+  it('opens a Harness terminal only from the explicit button', async () => {
+    const fixture = await render();
+    await fixture.componentInstance.signIn(account({ id: 'max-b-1a2b', label: 'Max B', isLegacy: false }), true);
+    expect(ipc.launchLogin).toHaveBeenCalledWith('claude', 'max-b-1a2b', { openTerminal: true });
+    expect(fixture.componentInstance.notice()).toContain('Opened a terminal');
     fixture.destroy();
   });
 

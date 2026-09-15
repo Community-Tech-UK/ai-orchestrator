@@ -246,6 +246,25 @@ export function buildAccountProfileLoginCommand(
   return buildCodexProfileLoginCommand(request.profileId, platform);
 }
 
+/**
+ * Seeds the profile home and copies the sign-in command. The command embeds the
+ * derived home, so it must never cross IPC; the caller supplies the clipboard
+ * write (main's `clipboard.writeText`).
+ */
+export function copyAccountProfileLoginCommand(
+  request: AccountProfileLoginRequest,
+  writeText: (text: string) => void,
+): { hint?: string } {
+  const login = buildAccountProfileLoginCommand(request);
+  writeText(login.command);
+  emitProviderAccountEvent({
+    event: 'account_login_command_copied',
+    provider: request.provider,
+    profileId: request.profileId,
+  });
+  return login.hint ? { hint: login.hint } : {};
+}
+
 export function getProviderLoginCommand(provider: string): ProviderLoginCommand | null {
   const key = PROVIDER_ALIASES[provider] ?? provider;
   return LOGIN_COMMANDS[key] ?? null;

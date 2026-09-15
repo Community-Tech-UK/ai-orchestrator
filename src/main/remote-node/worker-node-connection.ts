@@ -18,7 +18,12 @@ import { getWorkerNodeRegistry } from './worker-node-registry';
 import { getRemoteAuthService } from '../auth/remote-auth';
 import { WORKER_NODE_WS_MAX_PAYLOAD_BYTES } from './rpc-schemas';
 import { getRemoteWorkerRepairTracker } from './remote-worker-repair-tracker';
-import { ConnectionFlapDetector } from './connection-flap-detector';
+import {
+  CONNECTION_RESET_CLOSE_CODE,
+  FLAP_RESET_REASON,
+  WorkerConnectionFlapMonitor,
+  type WorkerConnectionFlapState,
+} from './worker-connection-flap-monitor';
 import {
   WORK_DISPATCH_METHODS,
   isWorkerNodeWorkDispatchMethod,
@@ -26,6 +31,7 @@ import {
   summarizeRpcParams,
   withConnectionAddress,
   describeWorkerCloseForensics,
+  describeWorkRpcOutcome,
 } from './worker-node-connection-helpers';
 import { bindWorkerNodeRosterUpdates } from './worker-node-roster-updates';
 import { ConnectionDisconnectLifecycle } from './connection-disconnect-lifecycle';
@@ -36,10 +42,6 @@ export { isWorkerNodeWorkDispatchMethod };
 const logger = getLogger('WorkerNodeConnection');
 
 const RPC_TIMEOUT_MS = 30_000;
-
-/** Sliding window + threshold for flap-storm detection (replaces per node). */
-const FLAP_WINDOW_MS = 60_000;
-const FLAP_THRESHOLD = 10;
 
 interface PendingRpc {
   resolve: (value: unknown) => void;
@@ -74,7 +76,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       this.emit('node:ws-disconnected', nodeId);
     },
   });
-  private readonly flapDetector = new ConnectionFlapDetector(FLAP_WINDOW_MS, FLAP_THRESHOLD);
+  private readonly flapMonitor = new WorkerConnectionFlapMonitor();
   private requestCounter = 0;
   private stopRosterUpdates: (() => void) | null = null;
 
@@ -169,7 +171,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
 
     // Cancel any in-flight disconnect grace/parked timers and clear flap state.
     this.disconnectLifecycle.clearAll();
-    this.flapDetector.clear();
+    this.flapMonitor.clear();
 
     // Close all WebSocket connections
     for (const ws of this.nodeToSocket.values()) {
@@ -374,6 +376,22 @@ export class WorkerNodeConnectionServer extends EventEmitter {
     return [...this.nodeToSocket.keys()].filter((nodeId) => this.isNodeConnected(nodeId));
   }
 
+  /**
+   * Close the node's active socket WITHOUT revoking its session; the worker
+   * reconnects on its own backoff. Returns false when no open socket exists.
+   */
+  resetNodeConnection(nodeId: string, reason = 'Connection reset'): boolean {
+    const ws = this.nodeToSocket.get(nodeId);
+    if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+    logger.warn('Resetting worker node connection', { nodeId, reason });
+    ws.close(CONNECTION_RESET_CLOSE_CODE, reason);
+    return true;
+  }
+
+  describeFlapState(nodeId: string): WorkerConnectionFlapState {
+    return this.flapMonitor.describe(nodeId, Date.now());
+  }
+
   disconnectNode(nodeId: string, reason = 'Node revoked'): void {
     const ws = this.nodeToSocket.get(nodeId);
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -459,27 +477,13 @@ export class WorkerNodeConnectionServer extends EventEmitter {
     });
   }
 
-  /**
-   * Record a socket-replace/reconnect event for flap-storm detection. Emits a
-   * single WARN (and a `node:flap-storm` event for the UI) on the rising edge of
-   * a storm — never one line per cycle.
-   */
-  private recordFlap(nodeId: string, nodeName: string): void {
-    const result = this.flapDetector.record(nodeId, Date.now());
-    if (result.stormStarted) {
-      logger.warn('Worker node connection flap storm detected', {
-        node: nodeName,
-        nodeId,
-        replacesInWindow: result.countInWindow,
-        windowMs: FLAP_WINDOW_MS,
-      });
-      this.emit('node:flap-storm', {
-        nodeId,
-        nodeName,
-        replacesInWindow: result.countInWindow,
-        windowMs: FLAP_WINDOW_MS,
-      });
+  /** Record a replace/grace re-register; emits `node:flap-storm` once per storm. */
+  private recordFlap(nodeId: string, nodeName: string, replacedLiveSocket: boolean, streamEpoch?: unknown): boolean {
+    const result = this.flapMonitor.record({ nodeId, nodeName, now: Date.now(), replacedLiveSocket, streamEpoch });
+    if (result.storm) {
+      this.emit('node:flap-storm', result.storm);
     }
+    return result.resetConnection;
   }
 
   private handleRegistration(
@@ -562,16 +566,18 @@ export class WorkerNodeConnectionServer extends EventEmitter {
 
     // Replace any existing socket for this nodeId
     const existing = this.nodeToSocket.get(newNodeId);
+    let resetAfterRegistration = false;
     if (existing && existing !== ws) {
       logger.warn('Replacing existing socket for nodeId', { node: name, nodeId: newNodeId });
       this.socketToNode.delete(existing);
       existing.close(1001, 'Replaced by new connection');
-      this.recordFlap(newNodeId, name);
+      const capabilities = params?.['capabilities'] as Record<string, unknown> | undefined;
+      resetAfterRegistration = this.recordFlap(newNodeId, name, true, capabilities?.['streamEpoch']);
     } else if (withinGrace) {
       // A re-register after the previous socket already closed is still a flap
       // cycle even though there was no live socket to replace — count it so a
       // fast register/close/register storm is detected.
-      this.recordFlap(newNodeId, name);
+      this.recordFlap(newNodeId, name, false);
     }
 
     this.nodeToSocket.set(newNodeId, ws);
@@ -595,6 +601,12 @@ export class WorkerNodeConnectionServer extends EventEmitter {
         recoveryToken: auth.session.recoveryToken,
       },
     });
+    if (resetAfterRegistration) {
+      // Slow flap storm: close the NEW socket once, after its registration
+      // response. A worker stuck in the stale-close loop then reconnects with
+      // no live socket to replace, so no replace close can wipe it again.
+      this.resetNodeConnection(newNodeId, FLAP_RESET_REASON);
+    }
   }
 
   private handleMessage(nodeId: string, ws: WebSocket, msg: unknown): void {
@@ -662,26 +674,10 @@ export class WorkerNodeConnectionServer extends EventEmitter {
     this.pending.delete(response.id);
 
     if (pending.isWork) {
-      const latencyMs = Date.now() - pending.startedAt;
       const nodeName = getWorkerNodeRegistry().getNode(pending.nodeId)?.name ?? pending.nodeId;
-      if (response.error) {
-        logger.warn('Remote node: work failed', {
-          node: nodeName,
-          nodeId: pending.nodeId,
-          method: pending.method,
-          requestId: response.id,
-          latencyMs,
-          error: `${response.error.code}: ${response.error.message}`,
-        });
-      } else {
-        logger.info('Remote node: work completed', {
-          node: nodeName,
-          nodeId: pending.nodeId,
-          method: pending.method,
-          requestId: response.id,
-          latencyMs,
-        });
-      }
+      const fields = describeWorkRpcOutcome(pending, response, nodeName, Date.now());
+      if (response.error) logger.warn('Remote node: work failed', fields);
+      else logger.info('Remote node: work completed', fields);
     }
 
     if (response.error) {

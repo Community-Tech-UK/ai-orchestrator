@@ -316,7 +316,16 @@ export interface BrowserExtensionRecoveryChannelSummary {
   enabled: boolean;
   running: boolean;
   silent: boolean;
+  /**
+   * `relay_not_forwarding`: the worker relay sees extension polls but none
+   * reach the coordinator (a stuck worker connection, not a dead extension).
+   */
+  channelState?: 'fresh' | 'relay_not_forwarding' | 'silent';
   lastContactAt?: number;
+  /** Last poll RPC that actually reached the coordinator. */
+  coordinatorPollAt?: number;
+  /** Last extension contact the worker relay reported. */
+  relayContactAt?: number;
   lastDisconnect?: {
     at: number;
     reason: string;
@@ -335,6 +344,8 @@ export interface BrowserRecoverExtensionResult {
   nodeId: string;
   nodeName: string;
   recoveryStatus: 'recovered' | 'timed_out' | 'failed';
+  /** `connection_reset` for relay_not_forwarding; `extension_relay` for a native-host EOF. */
+  recoveryAction?: 'extension_relay' | 'connection_reset';
   elapsedMs: number;
   before: BrowserExtensionRecoveryChannelSummary;
   after: BrowserExtensionRecoveryChannelSummary;

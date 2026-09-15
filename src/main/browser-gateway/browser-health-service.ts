@@ -15,13 +15,17 @@ import {
   type WorkerNodeRegistry,
 } from '../remote-node/worker-node-registry';
 import {
-  BROWSER_EXTENSION_CONTACT_FRESH_MS,
-  describeBrowserExtensionContact,
   getBrowserExtensionContactState,
   type BrowserExtensionContactGapStats,
   type BrowserExtensionContactStateReader,
   type BrowserExtensionDisconnectRecord,
 } from './browser-extension-contact-state';
+import {
+  classifyRemoteExtensionContact,
+  type RemoteExtensionChannelState,
+} from './browser-extension-node-contact';
+import { getWorkerNodeConnectionServer } from '../remote-node/worker-node-connection';
+import type { WorkerConnectionFlapState } from '../remote-node/worker-connection-flap-monitor';
 import {
   browserExtensionQueueKeyForNode,
   getBrowserExtensionCommandStore,
@@ -141,9 +145,21 @@ export interface BrowserGatewayHealthReport {
       silent: boolean;
       commandsDeliverable: boolean;
       commandsUndeliverableReason?: string;
+      /**
+       * `relay_not_forwarding`: the worker relay sees extension polls but none
+       * reach the coordinator, so commands cannot be delivered.
+       */
+      channelState: RemoteExtensionChannelState;
+      /** Most recent of the two contact clocks below. */
       lastContactAt?: number;
-      /** Milliseconds since the extension last contacted the coordinator. */
+      /** Milliseconds since the most recent of either contact clock. */
       contactAgeMs?: number;
+      /** Since a poll RPC actually reached this coordinator (delivery freshness). */
+      coordinatorPollAgeMs?: number;
+      /** Since the worker relay last saw the extension on its pipe. */
+      relayContactAgeMs?: number;
+      /** Worker connection churn: storm flag and live-socket replaces in the window. */
+      connectionFlap?: WorkerConnectionFlapState;
       /** Command channel load: queued (undelivered), in-flight, waiting pollers. */
       queue: Omit<BrowserExtensionQueueSnapshot, 'queueKey'>;
       /** Outage telemetry — gaps >30s since the node registered. */
@@ -193,6 +209,7 @@ export interface BrowserHealthServiceOptions {
   rawAutomationHealthService?: Pick<BrowserAutomationHealthService, 'diagnose'>;
   workerNodeRegistry?: Pick<WorkerNodeRegistry, 'getAllNodes'>;
   extensionContactState?: BrowserExtensionContactStateReader;
+  connectionFlapState?: (nodeId: string) => WorkerConnectionFlapState | undefined;
   extensionCommandStore?: Pick<
     BrowserExtensionCommandStore,
     'describeQueue' | 'describePreDeliveryCapability'
@@ -274,6 +291,7 @@ export class BrowserHealthService {
   private readonly rawAutomationHealthService: Pick<BrowserAutomationHealthService, 'diagnose'>;
   private readonly workerNodeRegistry: Pick<WorkerNodeRegistry, 'getAllNodes'>;
   private readonly extensionContactState: BrowserExtensionContactStateReader;
+  private readonly connectionFlapState: (nodeId: string) => WorkerConnectionFlapState | undefined;
   private readonly extensionCommandStore: Pick<
     BrowserExtensionCommandStore,
     'describeQueue' | 'describePreDeliveryCapability'
@@ -297,6 +315,8 @@ export class BrowserHealthService {
       options.rawAutomationHealthService ?? getBrowserAutomationHealthService();
     this.workerNodeRegistry = options.workerNodeRegistry ?? getWorkerNodeRegistry();
     this.extensionContactState = options.extensionContactState ?? getBrowserExtensionContactState();
+    this.connectionFlapState = options.connectionFlapState
+      ?? ((nodeId) => getWorkerNodeConnectionServer().describeFlapState(nodeId));
     this.extensionCommandStore = options.extensionCommandStore ?? getBrowserExtensionCommandStore();
     this.toolRevealStore = options.toolRevealStore ?? getBrowserToolRevealStore();
     this.extensionTabStore = options.extensionTabStore ?? getBrowserExtensionTabStore();
@@ -406,6 +426,15 @@ export class BrowserHealthService {
       );
     }
     for (const node of remoteExtensions.nodes) {
+      if (node.channelState === 'relay_not_forwarding') {
+        warnings.push(
+          `Browser extension on ${node.nodeName} is polling the worker relay but no poll has reached the `
+          + `coordinator${node.coordinatorPollAgeMs !== undefined ? ` for ${Math.round(node.coordinatorPollAgeMs / 1000)}s` : ''}`
+          + `${node.connectionFlap?.stormActive ? ` (connection flap storm: ${node.connectionFlap.replacesInWindow} socket replaces)` : ''}; `
+          + 'commands cannot be delivered. Run browser.recover_extension to reset the worker connection.',
+        );
+        continue;
+      }
       if (node.silent) {
         const ageSeconds = node.contactAgeMs !== undefined
           ? `${Math.round(node.contactAgeMs / 1000)}s ago`
@@ -532,18 +561,17 @@ export class BrowserHealthService {
       )
       .map((node) => {
         const relay = node.capabilities.extensionRelay;
-        const stateLastContactAt = this.extensionContactState.getLastExtensionContactAt(node.id);
-        const relayLastContactAt = relay?.lastExtensionContactAt;
-        const lastContactAt = latestTimestamp(stateLastContactAt, relayLastContactAt);
         const enabled = relay?.enabled ?? Boolean(node.capabilities.hasExtensionRelay);
         const running = relay?.running ?? Boolean(node.capabilities.hasExtensionRelay);
-        const contact = describeBrowserExtensionContact(
-          node.id,
-          lastContactAt,
-          this.now(),
-          BROWSER_EXTENSION_CONTACT_FRESH_MS,
-        );
-        const silent = enabled && running ? contact.silent : false;
+        const clocks = classifyRemoteExtensionContact({
+          coordinatorPollAt: this.extensionContactState.getLastExtensionContactAt(node.id),
+          relayContactAt: relay?.lastExtensionContactAt,
+          nodeConnectedAt: node.connectedAt,
+          now: this.now(),
+        });
+        const channelState = enabled && running ? clocks.state : 'fresh';
+        const { lastContactAt } = clocks;
+        const connectionFlap = this.connectionFlapState(node.id);
         const lastDisconnect = this.extensionContactState.getLastDisconnect?.(node.id);
         const { queueKey, ...queue } = this.extensionCommandStore.describeQueue(
           browserExtensionQueueKeyForNode(node.id),
@@ -555,20 +583,27 @@ export class BrowserHealthService {
           ...(relay ? { relay } : {}),
           ...this.preDeliveryCapability(node.id),
         });
+        const relayNotForwarding = channelState === 'relay_not_forwarding';
         return {
           nodeId: node.id,
           nodeName: node.name,
           enabled,
           running,
-          silent,
-          commandsDeliverable: capability.commandsDeliverable,
+          silent: channelState === 'silent',
+          channelState,
+          commandsDeliverable: capability.commandsDeliverable && !relayNotForwarding,
           ...(capability.reason
             ? { commandsUndeliverableReason: capability.reason }
-            : {}),
+            : relayNotForwarding
+              ? { commandsUndeliverableReason: 'relay_not_forwarding' }
+              : {}),
           lastContactAt,
           ...(lastContactAt !== undefined
             ? { contactAgeMs: Math.max(0, this.now() - lastContactAt) }
             : {}),
+          ...(clocks.coordinatorPollAgeMs !== undefined ? { coordinatorPollAgeMs: clocks.coordinatorPollAgeMs } : {}),
+          ...(clocks.relayContactAgeMs !== undefined ? { relayContactAgeMs: clocks.relayContactAgeMs } : {}),
+          ...(connectionFlap ? { connectionFlap } : {}),
           queue,
           contactGaps: this.extensionContactState.getContactGapStats(node.id),
           ...(lastDisconnect ? { lastDisconnect } : {}),
@@ -613,11 +648,6 @@ export class BrowserHealthService {
     this.extensionStartedAtByNode.set(nodeId, extensionStartedAt);
     return this.serviceWorkerRestartsByNode.get(nodeId) ?? 0;
   }
-}
-
-function latestTimestamp(...values: (number | undefined)[]): number | undefined {
-  const timestamps = values.filter((value): value is number => typeof value === 'number');
-  return timestamps.length > 0 ? Math.max(...timestamps) : undefined;
 }
 
 export function getBrowserHealthService(): BrowserHealthService {

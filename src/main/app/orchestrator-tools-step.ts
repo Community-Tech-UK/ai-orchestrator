@@ -30,6 +30,7 @@ import {
 } from '../remote-node/rpc-schemas';
 import { resolveWorkerNodeTarget } from '../remote-node/worker-node-registry';
 import { sendServiceRpc } from '../remote-node/service-rpc-client';
+import { resetWorkerNodeConnection, resolveConnectedWorkerNode } from '../remote-node/worker-node-connection-control';
 import { createRemoteNodeFileTransferImplementations } from '../remote-node/remote-node-file-transfer-mcp-service';
 import { evaluateSpawn } from '../orchestration/subagent-spawn-guard';
 import { getPermissionRegistry } from '../orchestration/permission-registry';
@@ -60,6 +61,7 @@ import { createDefaultLocalAiPublicOperations } from '../local-ai-guard/default-
 import { createDefaultCopilotAccountCliOperations } from '../mcp/copilot-account-cli-operations';
 
 const logger = getLogger('AppInitialization');
+const nodeControl = () => ({ server: getWorkerNodeConnectionServer(), registry: getWorkerNodeRegistry() });
 // Worker Copilot diagnosis can spend 3s on identity, 5s on version, and 30s
 // on its auth probe, plus process-termination grace between stages.
 const PROVIDER_DIAGNOSTIC_RPC_TIMEOUT_MS = 45_000;
@@ -618,18 +620,7 @@ export function createOrchestratorToolsStep(
           };
         },
         execOnNode: async (args) => {
-          const server = getWorkerNodeConnectionServer();
-          const connectedIds = new Set(server.getConnectedNodeIds());
-          const connectedNodes = getWorkerNodeRegistry().getAllNodes().filter(
-            (node) => connectedIds.has(node.id)
-              && (node.status === 'connected' || node.status === 'degraded'),
-          );
-          const resolved = resolveWorkerNodeTarget(args.node, connectedNodes);
-          if ('error' in resolved) throw new Error(resolved.error);
-          const node = connectedNodes.find((candidate) => candidate.id === resolved.nodeId);
-          if (!node || !server.isNodeConnected(node.id)) {
-            throw new Error(`Node not connected: ${args.node}`);
-          }
+          const node = resolveConnectedWorkerNode(nodeControl(), args.node);
           assertNodeExecArgvPolicy(args.executable, args.args);
           const params = NodeExecParamsSchema.parse({
             executable: args.executable,
@@ -646,6 +637,8 @@ export function createOrchestratorToolsStep(
           ));
           return { nodeId: node.id, nodeName: node.name, ...result };
         },
+        resetNodeConnection: async (args) =>
+          resetWorkerNodeConnection(nodeControl(), args.node, 'Agent reset_node_connection'),
         // Automation MCP tools (create/list/delete/update/postpone) — logic
         // lives in ../automations/automation-tool-impl.ts (integration-tested).
         createAutomation: automationTools.createAutomation,

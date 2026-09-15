@@ -115,7 +115,7 @@ export function registerQuotaHandlers(deps: {
           payload,
           'QUOTA_REFRESH',
         );
-        const snapshot = await quotaService.refresh(validated.provider);
+        const snapshot = await quotaService.refreshProviderFamily(validated.provider);
         return { success: true, data: snapshot };
       } catch (error) {
         return {

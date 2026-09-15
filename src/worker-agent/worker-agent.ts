@@ -1,6 +1,5 @@
 import { WebSocket } from 'ws';
 import { EventEmitter } from 'events';
-import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { reportCapabilities } from './capability-reporter';
@@ -26,7 +25,6 @@ import type {
   WorkerNodeAndroidAutomationSummary,
   WorkerNodeCapabilities,
   WorkerNodeExtensionRelaySummary,
-  WorkerNodeFileTransferRoot,
   WorkerNodeFileTransferSummary,
 } from '../shared/types/worker-node.types';
 import type { FsEventNotification } from '../shared/types/remote-fs.types';
@@ -47,6 +45,7 @@ import { wireCdpTunnelEvents, wireInstanceEvents } from './worker-event-wiring';
 import { WorkerAndroidManager } from './android/worker-android-manager';
 import { WorkerExtensionRelay } from './worker-extension-relay';
 import { WorkerNodeExecutor } from './worker-node-executor';
+import { buildWorkerFileTransferSummary } from './worker-file-transfer-summary';
 import { configuredNodeExecRoots } from './worker-node-exec-policy';
 import { recoverWorkerExtensionRelay } from './worker-extension-relay-recovery';
 import {
@@ -67,7 +66,6 @@ const DEFAULT_CONFIG_PATH = path.join(os.homedir(), '.orchestrator', 'worker-nod
 const CONNECT_TIMEOUT_MS = 8_000;
 const REDISCOVERY_TIMEOUT_MS = 4_000;
 const EXTENSION_RELAY_REGISTRATION_CHECK_INTERVAL_MS = 60_000;
-const BROWSER_DOWNLOADS_TRANSFER_ROOT_ID = 'browserDownloads';
 
 interface PendingCoordinatorRequest { resolve: (value: unknown) => void; reject: (error: Error) => void; timeout: ReturnType<typeof setTimeout>; method: string }
 
@@ -193,6 +191,10 @@ export class WorkerAgent extends EventEmitter {
 
   async connect(): Promise<void> {
     if (this.connecting) return; // Prevent concurrent connect() calls
+    // A live socket already exists (e.g. a reconnect timer armed by discovery
+    // while the first connect was in flight). Opening another would make the
+    // coordinator replace the live one — the 2026-09-15 stale-close loop.
+    if (this.hasLiveSocket()) return;
     this.connecting = true;
     this.isShuttingDown = false;
 
@@ -296,7 +298,14 @@ export class WorkerAgent extends EventEmitter {
       ws.on('open', () => {
         opened = true;
         clearTimeout(timer);
+        const previous = this.ws;
+        // Detach the previous socket BEFORE closing it so its close handler
+        // sees `ws !== this.ws` and leaves this new connection alone.
         this.ws = ws;
+        if (previous && previous !== ws) {
+          this.resetCoordinatorSession('coordinator_disconnected');
+          this.retireSupersededSocket(previous);
+        }
         this.registrationAccepted = false;
         this.activeCoordinatorUrl = url;
         console.log(`Connected to coordinator at ${url}`);
@@ -306,7 +315,7 @@ export class WorkerAgent extends EventEmitter {
       });
 
       ws.on('message', (data: Buffer | string) => {
-        this.handleMessage(data.toString());
+        this.handleMessage(data.toString(), ws);
       });
 
       ws.on('close', (code?: number, reason?: Buffer) => {
@@ -315,16 +324,17 @@ export class WorkerAgent extends EventEmitter {
           resolve(false);
           return;
         }
-        console.warn('[WorkerAgent] Coordinator socket closed', {
-          url,
-          code,
-          reason: reason?.toString?.() || undefined,
-        });
-        this.stopHeartbeat();
+        const closeDetails = { url, code, reason: reason?.toString?.() || undefined };
+        // Handlers are per socket. The coordinator closes a socket it replaced
+        // (1001) after the replacement is already this.ws; tearing down here
+        // would wipe the healthy connection and schedule yet another socket.
+        if (ws !== this.ws) {
+          console.log('[WorkerAgent] Stale coordinator socket closed; ignoring', closeDetails);
+          return;
+        }
+        console.warn('[WorkerAgent] Coordinator socket closed', closeDetails);
         this.ws = null;
-        this.registrationAccepted = false;
-        this.rejectPendingRequests('coordinator_disconnected');
-        this.cdpTunnel.closeAll();
+        this.resetCoordinatorSession('coordinator_disconnected');
         if (!this.isShuttingDown) {
           this.scheduleReconnect();
         }
@@ -337,6 +347,13 @@ export class WorkerAgent extends EventEmitter {
           );
           clearTimeout(timer);
           resolve(false);
+          return;
+        }
+        if (ws !== this.ws) {
+          console.log(
+            `[WorkerAgent] Stale coordinator socket error; ignoring: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          this.forceCloseSocket(ws);
           return;
         }
         // Post-open socket error. Under network saturation this fires when the
@@ -471,6 +488,29 @@ export class WorkerAgent extends EventEmitter {
     }, this.config.heartbeatIntervalMs);
   }
 
+  private hasLiveSocket(): boolean {
+    if (!this.ws) return false;
+    return this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING;
+  }
+
+  /** Drop per-connection state. Callers decide what happens to `this.ws`. */
+  private resetCoordinatorSession(reason: string): void {
+    this.stopHeartbeat();
+    this.registrationAccepted = false;
+    this.rejectPendingRequests(reason);
+    this.cdpTunnel.closeAll();
+  }
+
+  /** Close a socket that a newer connection replaced; its close event is ignored. */
+  private retireSupersededSocket(previous: WebSocket): void {
+    console.warn('[WorkerAgent] Closing superseded coordinator socket');
+    try {
+      previous.close(1000, 'Superseded by worker');
+    } catch {
+      this.forceCloseSocket(previous);
+    }
+  }
+
   /**
    * Terminate a coordinator socket without letting a throw escape. Used by the
    * post-open error handler and by the process-level fatal-error handler. The
@@ -588,16 +628,7 @@ export class WorkerAgent extends EventEmitter {
   }
 
   private fileTransferSummary(): WorkerNodeFileTransferSummary | undefined {
-    const config = this.config.fileTransfer;
-    if (!config) {
-      return undefined;
-    }
-    const roots = config.enabled ? this.fileTransferRootsForSummary(config.roots ?? []) : [];
-    return {
-      enabled: config.enabled,
-      maxFileBytes: config.maxFileBytes ?? 50 * 1024 * 1024,
-      roots,
-    };
+    return buildWorkerFileTransferSummary(this.config.fileTransfer, this.browserManager.getSummary());
   }
 
   private fileTransferRoots(): WorkerNodeFileTransferSummary['roots'] {
@@ -620,43 +651,6 @@ export class WorkerAgent extends EventEmitter {
     // Drop the memoized sync handler so it picks up the new roots too;
     // a stale allowlist here is exactly the LT-010 failure mode.
     this.syncHandler = null;
-  }
-
-  private fileTransferRootsForSummary(
-    configuredRoots: WorkerNodeFileTransferRoot[],
-  ): WorkerNodeFileTransferRoot[] {
-    const browserDownloads = this.browserDownloadsTransferRoot();
-    if (!browserDownloads) {
-      return [...configuredRoots];
-    }
-    const roots = configuredRoots.filter(
-      (root) => root.id.toLowerCase() !== BROWSER_DOWNLOADS_TRANSFER_ROOT_ID.toLowerCase(),
-    );
-    return [browserDownloads, ...roots];
-  }
-
-  private browserDownloadsTransferRoot(): WorkerNodeFileTransferRoot | null {
-    const browserSummary = this.browserManager.getSummary();
-    if (!browserSummary.enabled) {
-      return null;
-    }
-    const downloadsPath = path.join(browserSummary.profileDir, 'Downloads');
-    try {
-      fs.mkdirSync(downloadsPath, { recursive: true });
-    } catch (error) {
-      console.warn('[WorkerAgent] Could not prepare browser downloads transfer root', {
-        downloadsPath,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return null;
-    }
-    return {
-      id: BROWSER_DOWNLOADS_TRANSFER_ROOT_ID,
-      label: 'Browser Downloads',
-      path: downloadsPath,
-      read: true,
-      write: false,
-    };
   }
 
   private stopHeartbeat(): void {
@@ -715,8 +709,10 @@ export class WorkerAgent extends EventEmitter {
           );
         }
 
-        // Coordinator re-appeared or changed IP — reconnect if we're disconnected
-        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        // Coordinator re-appeared or changed IP — reconnect if we're disconnected.
+        // An in-flight connect() either opens a socket or schedules its own
+        // retry; arming a second timer here would open a duplicate socket.
+        if (!this.connecting && !this.hasLiveSocket()) {
           console.log(
             `Coordinator re-discovered at ${coordinator.host}:${coordinator.port}, reconnecting...`
           );
@@ -742,7 +738,8 @@ export class WorkerAgent extends EventEmitter {
 
   // -- Message handling -------------------------------------------------------
 
-  private handleMessage(raw: string): void {
+  /** `source` is the socket the frame arrived on; omitted only by unit tests. */
+  private handleMessage(raw: string, source?: WebSocket): void {
     let msg: RpcMessage;
     try {
       msg = JSON.parse(raw) as RpcMessage;
@@ -753,6 +750,12 @@ export class WorkerAgent extends EventEmitter {
 
     // Response to one of our requests
     if (msg.result !== undefined || msg.error !== undefined) {
+      const isRegistrationResponse = msg.id !== undefined && msg.id === this.pendingRegistrationId;
+      if (isRegistrationResponse && source !== undefined && source !== this.ws) {
+        // A superseded socket must not accept or reject the active socket's registration.
+        console.log('[WorkerAgent] Ignoring registration response from a superseded socket');
+        return;
+      }
       if (msg.id !== undefined && msg.id === this.pendingRegistrationId && msg.error) {
         this.handleRegistrationError(msg.error);
         return;

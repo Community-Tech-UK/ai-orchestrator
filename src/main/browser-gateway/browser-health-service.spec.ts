@@ -6,6 +6,7 @@ import {
   setBrowserGatewayMcpBridgeAvailabilityProvider,
 } from './browser-health-service';
 import { workerAgentTooOldReason } from './browser-worker-agent-skew';
+import { makeRelayNode } from './browser-gateway-service.test-helpers';
 
 describe('BrowserHealthService', () => {
   it('does not treat raw Chrome DevTools MCP readiness as managed Browser Gateway readiness', async () => {
@@ -298,6 +299,7 @@ describe('BrowserHealthService', () => {
         }),
       },
       workerNodeRegistry: { getAllNodes: () => nodes },
+      connectionFlapState: () => ({ stormActive: false, replacesInWindow: 0, windowMs: 300_000 }),
       mcpBridgeAvailable: () => true,
       chromeRuntimeDetector: async () => ({ available: true, command: 'chrome' }),
       now: () => 6_000,
@@ -315,9 +317,12 @@ describe('BrowserHealthService', () => {
         enabled: true,
         running: true,
         silent: false,
+        channelState: 'fresh',
         commandsDeliverable: true,
         lastContactAt: 5_500,
         contactAgeMs: 500,
+        relayContactAgeMs: 500,
+        connectionFlap: { stormActive: false, replacesInWindow: 0, windowMs: 300_000 },
         queue: {
           queuedCount: 0,
           inFlightCount: 0,
@@ -554,6 +559,81 @@ describe('BrowserHealthService', () => {
         registration: 'contested',
         lastRegistrationCheckAt: 99_000,
       }],
+    });
+  });
+
+  describe('relay_not_forwarding (worker relay sees polls the coordinator never gets)', () => {
+    const MINUTE = 60_000;
+    function relayNode(relayContactAt: number, connectedAt?: number): WorkerNodeInfo {
+      const node = makeRelayNode('node-1', 'windows-pc');
+      return {
+        ...node,
+        ...(connectedAt !== undefined ? { connectedAt } : {}),
+        capabilities: {
+          ...node.capabilities,
+          extensionRelay: { ...node.capabilities.extensionRelay!, lastExtensionContactAt: relayContactAt },
+        },
+      };
+    }
+    function contactState(coordinatorPollAt: number | undefined) {
+      return {
+        getLastExtensionContactAt: () => coordinatorPollAt,
+        isExtensionContactFresh: () => false,
+        describeExtensionContact: (nodeId: string) => ({ nodeId, silent: true }),
+        getContactGapStats: () => ({ gapCount: 0, longestGapMs: 0 }),
+      };
+    }
+    function healthService(node: WorkerNodeInfo, coordinatorPollAt: number | undefined, now: number) {
+      return new BrowserHealthService({
+        profileStore: { listProfiles: () => [] },
+        rawAutomationHealthService: { diagnose: async () => ({ status: 'missing' }) as never },
+        workerNodeRegistry: { getAllNodes: () => [node] },
+        extensionContactState: contactState(coordinatorPollAt),
+        connectionFlapState: () => ({ stormActive: true, replacesInWindow: 11, windowMs: 300_000 }),
+        mcpBridgeAvailable: () => true,
+        chromeRuntimeDetector: async () => ({ available: true, command: 'chrome' }),
+        now: () => now,
+      });
+    }
+
+    it('reports both clocks, the flap storm, and undeliverable commands for the 2026-09-15 incident', async () => {
+      const now = 100 * MINUTE;
+      const report = await healthService(relayNode(now - 15_000), now - 67 * MINUTE, now).diagnose();
+
+      expect(report.status).toBe('partial');
+      expect(report.remoteExtensions).toMatchObject({ ready: 0, silent: 0 });
+      expect(report.remoteExtensions.nodes[0]).toMatchObject({
+        channelState: 'relay_not_forwarding',
+        silent: false,
+        commandsDeliverable: false,
+        commandsUndeliverableReason: 'relay_not_forwarding',
+        coordinatorPollAgeMs: 67 * MINUTE,
+        relayContactAgeMs: 15_000,
+        contactAgeMs: 15_000,
+        connectionFlap: { stormActive: true, replacesInWindow: 11 },
+      });
+      expect(report.warnings).toContainEqual(expect.stringContaining(
+        'polling the worker relay but no poll has reached the coordinator for 4020s (connection flap storm: 11 socket replaces)',
+      ));
+      expect(report.warnings).toContainEqual(expect.stringContaining('browser.recover_extension'));
+    });
+
+    it('gives a node with no coordinator poll yet one freshness window from registration', async () => {
+      const now = 100 * MINUTE;
+      const justRegistered = await healthService(relayNode(now - 5_000, now - 10_000), undefined, now).diagnose();
+      expect(justRegistered.remoteExtensions.nodes[0]).toMatchObject({ channelState: 'fresh', commandsDeliverable: true });
+
+      const longRegistered = await healthService(relayNode(now - 5_000, now - 5 * MINUTE), undefined, now).diagnose();
+      expect(longRegistered.remoteExtensions.nodes[0]).toMatchObject({
+        channelState: 'relay_not_forwarding',
+        commandsDeliverable: false,
+      });
+    });
+
+    it('stays silent (not relay_not_forwarding) when neither clock is fresh', async () => {
+      const now = 100 * MINUTE;
+      const report = await healthService(relayNode(now - 5 * MINUTE), now - 6 * MINUTE, now).diagnose();
+      expect(report.remoteExtensions.nodes[0]).toMatchObject({ channelState: 'silent', silent: true });
     });
   });
 

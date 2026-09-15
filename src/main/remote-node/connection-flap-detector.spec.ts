@@ -71,6 +71,15 @@ describe('ConnectionFlapDetector', () => {
     expect(detector.record('node-2', now).active).toBe(false);
   });
 
+  it('describe reports the window without recording an event', () => {
+    const detector = new ConnectionFlapDetector(WINDOW, THRESHOLD);
+    for (let i = 0; i < THRESHOLD; i++) detector.record('node-1', i * 100);
+    expect(detector.describe('node-1', 1_000)).toEqual({ countInWindow: THRESHOLD, active: true });
+    expect(detector.describe('node-1', 1_000)).toEqual({ countInWindow: THRESHOLD, active: true });
+    expect(detector.describe('node-1', WINDOW * 2)).toEqual({ countInWindow: 0, active: false });
+    expect(detector.describe('unknown', 0)).toEqual({ countInWindow: 0, active: false });
+  });
+
   it('reset forgets a node so it can storm again immediately', () => {
     const detector = new ConnectionFlapDetector(WINDOW, THRESHOLD);
     let now = 0;

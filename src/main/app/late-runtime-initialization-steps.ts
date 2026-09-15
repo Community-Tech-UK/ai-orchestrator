@@ -391,12 +391,12 @@ export function createLateRuntimeInitializationSteps(
     },
     {
       name: 'Session continuity wiring',
-      fn: () => {
+      fn: async () => {
         const continuity = getSessionContinuityManager();
         continuity.setInstanceManager(instanceManager);
         // C5/§3.6: Initialize last-stop snapshot alongside session continuity.
         // Stored in the same continuity directory for co-location.
-        initializeSessionRecoveryRuntime(continuity, instanceManager);
+        await initializeSessionRecoveryRuntime(continuity, instanceManager);
         // C6: give the (previously empty) termination-gate framework real,
         // advisory gates so dropped in-flight work is surfaced on teardown.
         registerBuiltinTerminationGates(continuity);

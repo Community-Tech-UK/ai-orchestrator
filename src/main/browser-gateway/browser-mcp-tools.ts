@@ -845,8 +845,10 @@ function toolDescription(name: BrowserMcpToolName): string {
     return `${UNTRUSTED_WARNING} Reload the selected shared existing Chrome tab in place. Requires a navigate-class grant and accepts no URL.`;
   }
   if (name === 'browser.recover_extension') {
-    return 'Recover a selected remote Browser Gateway extension relay only when health confirms '
-      + 'a silent native_host_stdin_eof incident. Calls the worker service directly and never opens Chrome, tabs, terminals, or coding CLIs.';
+    return 'Recover a selected remote Browser Gateway extension channel only when health confirms an incident: '
+      + 'a silent native_host_stdin_eof restarts the worker relay; relay_not_forwarding (the relay sees polls the '
+      + 'coordinator never receives) resets the worker connection without revoking it. '
+      + 'Calls the worker service directly and never opens Chrome, tabs, terminals, or coding CLIs.';
   }
   if (name === 'browser.close_tab') {
     return `${UNTRUSTED_WARNING} Close one Browser Gateway tab. Destructive: requires an approved destructive grant. Use profileId and targetId from list_targets (targetId is also exposed as id).`;

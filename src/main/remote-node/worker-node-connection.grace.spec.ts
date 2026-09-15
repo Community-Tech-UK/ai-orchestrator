@@ -369,4 +369,85 @@ describe('WorkerNodeConnectionServer disconnect grace window', () => {
       expect(settled).toHaveLength(1);
     });
   });
+
+  /**
+   * 2026-09-15 windows-pc: a worker replaced its live socket every 16–32s for
+   * over an hour, below the fast (10/min) storm threshold. The coordinator must
+   * end that loop alone by closing the new socket once after registration.
+   */
+  describe('slow flap storm reset', () => {
+    class AsyncCloseSocket extends FakeSocket {
+      readonly closes: Array<{ code: number; reason: string }> = [];
+      override close(code = 1000, reason = ''): void {
+        this.closes.push({ code, reason });
+        this.readyState = 3;
+        setTimeout(() => this.emit('close', code, Buffer.from(reason)), 0);
+      }
+    }
+
+    function registerWithEpoch(ws: FakeSocket, streamEpoch: number, id: string): void {
+      (server as unknown as { handleConnection(ws: FakeSocket): void }).handleConnection(ws);
+      ws.emit('message', Buffer.from(JSON.stringify({
+        jsonrpc: '2.0',
+        id,
+        method: 'node.register',
+        params: { nodeId: 'node-1', name: 'windows-pc', token: 'tok-1', capabilities: { streamEpoch } },
+      })));
+    }
+
+    async function replaceCycles(count: number, epoch = 42): Promise<AsyncCloseSocket[]> {
+      const sockets: AsyncCloseSocket[] = [];
+      for (let i = 0; i < count; i++) {
+        const ws = new AsyncCloseSocket();
+        sockets.push(ws);
+        registerWithEpoch(ws, epoch, `reg-${i}`);
+        await vi.advanceTimersByTimeAsync(20_000);
+      }
+      return sockets;
+    }
+
+    it('closes the new active socket with 4010 exactly once, after its registration response', async () => {
+      const storms: unknown[] = [];
+      server.on('node:flap-storm', (info) => storms.push(info));
+
+      // Socket 0 registers cleanly; sockets 1..4 each replace a live socket.
+      const sockets = await replaceCycles(5);
+
+      const resetSocket = sockets[4]!;
+      expect(resetSocket.closes).toEqual([{ code: 4010, reason: 'Flap reset' }]);
+      expect(resetSocket.sent).toContainEqual(expect.objectContaining({ id: 'reg-4', result: expect.any(Object) }));
+      for (const ws of sockets.slice(0, 4)) {
+        expect(ws.closes).toEqual([{ code: 1001, reason: 'Replaced by new connection' }]);
+      }
+      expect(storms).toEqual([
+        { nodeId: 'node-1', nodeName: 'windows-pc', replacesInWindow: 4, windowMs: 300_000 },
+      ]);
+      expect(server.describeFlapState('node-1')).toMatchObject({ stormActive: true, replacesInWindow: 4 });
+
+      // The worker's next connect replaces nothing, so it stays connected.
+      const recovered = new AsyncCloseSocket();
+      registerWithEpoch(recovered, 42, 'reg-recovered');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(recovered.closes).toEqual([]);
+      expect(server.isNodeConnected('node-1')).toBe(true);
+    });
+
+    it('rate-limits further automatic resets while the storm persists', async () => {
+      const sockets = await replaceCycles(20);
+      const resets = sockets.filter((ws) => ws.closes.some((close) => close.code === 4010));
+      // A reset drops the active socket, so the following register is a grace
+      // re-register rather than a replace; the storm continues with later replaces.
+      expect(resets).toHaveLength(1);
+    });
+
+    it('resetNodeConnection closes the active socket without revoking and reports absence', async () => {
+      const ws = new AsyncCloseSocket();
+      registerWithEpoch(ws, 1, 'reg-manual');
+      expect((server as unknown as WorkerNodeConnectionServer).resetNodeConnection('node-1', 'Operator reset')).toBe(true);
+      expect(ws.closes).toEqual([{ code: 4010, reason: 'Operator reset' }]);
+      expect((server as unknown as WorkerNodeConnectionServer).resetNodeConnection('node-1')).toBe(false);
+      expect((server as unknown as WorkerNodeConnectionServer).resetNodeConnection('missing')).toBe(false);
+      await vi.advanceTimersByTimeAsync(DISCONNECT_GRACE_MS);
+    });
+  });
 });

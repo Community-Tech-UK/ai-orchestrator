@@ -51,6 +51,7 @@ class FakeProbe implements ProviderQuotaProbe {
   constructor(
     public readonly provider: ProviderId,
     private result: ProviderQuotaSnapshot | null,
+    public readonly accountProfileId?: string,
   ) {}
   async probe(): Promise<ProviderQuotaSnapshot | null> {
     this.calls += 1;
@@ -272,6 +273,24 @@ describe('ProviderQuotaService', () => {
       expect(out).toHaveLength(2);
       expect(claudeProbe.calls).toBe(1);
       expect(codexProbe.calls).toBe(1);
+    });
+  });
+
+  describe('refreshProviderFamily()', () => {
+    it('refreshes the provider probe and every pool-account probe for that provider only', async () => {
+      const legacy = new FakeProbe('claude', makeSnapshot('claude', 10, 100));
+      const maxB = new FakeProbe('claude', makeSnapshot('claude', 95, 100), 'max-b');
+      const codex = new FakeProbe('codex', makeSnapshot('codex', 4, 100));
+      svc.registerProbe(legacy);
+      svc.registerProbe(maxB);
+      svc.registerProbe(codex);
+
+      const out = await svc.refreshProviderFamily('claude');
+      expect(legacy.calls).toBe(1);
+      expect(maxB.calls).toBe(1);
+      expect(codex.calls).toBe(0);
+      expect(out?.ok).toBe(true);
+      expect(svc.getSnapshot('claude', 'max-b')?.windows[0]?.used).toBe(95);
     });
   });
 

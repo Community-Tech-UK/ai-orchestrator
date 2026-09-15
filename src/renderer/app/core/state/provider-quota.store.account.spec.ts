@@ -38,4 +38,26 @@ describe('ProviderQuotaStore account snapshots', () => {
     expect(store.snapshots().claude?.plan).toBe('legacy');
     expect(store.accountSnapshots().map((entry) => entry.plan)).toEqual(['max-b-newer']);
   });
+
+  it('treats a hotter pool account as the most constrained window', async () => {
+    const store = TestBed.inject(ProviderQuotaStore);
+    await store.initialize();
+    const window = (used: number) => ({
+      kind: 'rolling-window' as const,
+      id: 'claude.weekly',
+      label: 'Weekly',
+      unit: 'percent' as const,
+      used,
+      limit: 100,
+      remaining: 100 - used,
+      resetsAt: null,
+    });
+    pushed?.(snapshot({ plan: 'legacy', windows: [window(10)] }));
+    pushed?.(snapshot({ plan: 'max-b', accountProfileId: 'max-b', windows: [window(95)] }));
+    expect(store.mostConstrainedWindow()).toMatchObject({
+      provider: 'claude',
+      accountProfileId: 'max-b',
+      window: expect.objectContaining({ used: 95 }),
+    });
+  });
 });

@@ -36,6 +36,7 @@ import {
   createNodeExecToolDefinitions,
   type NodeExecToolContext,
 } from './orchestrator-node-exec-tools';
+import { createNodeConnectionToolDefinitions, type NodeConnectionToolContext } from './orchestrator-node-connection-tools';
 
 export * from './orchestrator-node-exec-tools';
 
@@ -359,7 +360,8 @@ export function buildReadNodeOutputResult(opts: {
   };
 }
 
-export interface OrchestratorToolRuntimeContext extends FileTransferToolContext, NodeExecToolContext {
+export interface OrchestratorToolRuntimeContext
+  extends FileTransferToolContext, NodeExecToolContext, NodeConnectionToolContext {
   db: SqliteDriver;
   instanceId?: string | null;
   ledger?: ConversationLedgerService | null;
@@ -728,6 +730,7 @@ export function createOrchestratorToolDefinitions(
       },
     },
     ...createNodeExecToolDefinitions(context),
+    ...createNodeConnectionToolDefinitions(context),
     ...createFileTransferToolDefinitions(context),
     ...createSettingsToolDefinitions(context),
     ...createAutomationToolDefinitions(context),

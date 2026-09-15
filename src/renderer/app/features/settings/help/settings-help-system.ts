@@ -443,7 +443,7 @@ export const PROVIDER_ACCOUNTS_TAB_HELP: HelpEntry = {
       kind: 'steps',
       heading: 'Key actions',
       items: [
-        'Add an account: a terminal opens running the official sign-in for that account only, then Harness checks it signed in.',
+        'Add an account: Harness copies the official sign-in command. Paste it in your own terminal, then this page updates when that account is signed in.',
         'Put your preferred account first. Harness stays on it until it hits a limit.',
         'Confirm the accounts are your own before enabling a second one, then choose what happens at a limit.',
       ],

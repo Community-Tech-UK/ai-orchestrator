@@ -1,5 +1,5 @@
 import type { NodePlatform } from '../../shared/types/worker-node.types';
-import type { RpcRequest } from './worker-node-rpc';
+import type { RpcRequest, RpcResponse } from './worker-node-rpc';
 import { COORDINATOR_TO_NODE } from './worker-node-rpc';
 import type { z } from 'zod/v4';
 
@@ -213,5 +213,22 @@ export function describeWorkerCloseForensics(
           oldestInFlightMs: oldest === null ? null : now - oldest,
         }
       : {}),
+  };
+}
+
+/** Log fields for a completed WORK RPC (success or failure). */
+export function describeWorkRpcOutcome(
+  pending: { nodeId: string; method: string; startedAt: number },
+  response: RpcResponse,
+  nodeName: string,
+  now: number,
+): Record<string, unknown> {
+  return {
+    node: nodeName,
+    nodeId: pending.nodeId,
+    method: pending.method,
+    requestId: response.id,
+    latencyMs: now - pending.startedAt,
+    ...(response.error ? { error: `${response.error.code}: ${response.error.message}` } : {}),
   };
 }

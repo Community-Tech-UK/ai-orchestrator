@@ -8,6 +8,12 @@ const stateRoot = { current: '' };
 vi.mock('../logging/logger', () => ({
   getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
+vi.mock('./account-pool/provider-account-events', () => ({
+  emitProviderAccountEvent: vi.fn(),
+}));
+vi.mock('./account-pool/provider-account-store', () => ({
+  getProviderAccountStore: () => ({ getPoolPolicy: () => ({ continuation: 'replay' }) }),
+}));
 vi.mock('../cli/adapters/adapter-spawn-helpers', async () => {
   const actual = await vi.importActual<typeof import('../cli/adapters/adapter-spawn-helpers')>('../cli/adapters/adapter-spawn-helpers');
   return { ...actual, getProviderStateRoot: () => stateRoot.current };
@@ -16,6 +22,7 @@ vi.mock('../cli/adapters/adapter-spawn-helpers', async () => {
 import {
   buildClaudeProfileLoginCommand,
   buildCodexProfileLoginCommand,
+  copyAccountProfileLoginCommand,
 } from './provider-login-launcher';
 
 // Pure builders only: nothing here opens a terminal.
@@ -53,6 +60,14 @@ describe('account-profile login commands', () => {
     buildCodexProfileLoginCommand('pro-b', 'linux');
     writeFileSync(join(stateRoot.current, 'codex-cli-profiles', 'pro-b', 'auth.json'), '{}');
     expect(() => buildCodexProfileLoginCommand('pro-b', 'linux')).toThrow(/remove this account and add it again/);
+  });
+
+  it('copies the derived Claude command without opening a terminal', () => {
+    const written: string[] = [];
+    const result = copyAccountProfileLoginCommand({ provider: 'claude', profileId: 'max-b' }, (text) => written.push(text));
+    const home = realpathSync(join(stateRoot.current, 'claude-cli-profiles', 'max-b'));
+    expect(written).toEqual([`CLAUDE_CONFIG_DIR='${home}' claude auth login`]);
+    expect(result.hint).toMatch(/never sees the token/i);
   });
 
   it('rejects unsafe profile ids before any path is built', () => {

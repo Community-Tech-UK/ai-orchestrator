@@ -12,6 +12,7 @@ import type { BrowserGrantStore } from './browser-grant-store';
 import type { BrowserProfileStore } from './browser-profile-store';
 import type { PuppeteerBrowserDriver } from './puppeteer-browser-driver';
 import type { BrowserTargetRegistry } from './browser-target-registry';
+import type { BrowserPageChallengeProbe } from './browser-page-challenge-probe';
 
 export interface BrowserGatewayPreparedMutation {
   grant: BrowserPermissionGrant;
@@ -34,6 +35,8 @@ export interface BrowserGatewayActionGuardOptions {
   approvalStore: Pick<BrowserApprovalStore, 'createRequest' | 'getRequest' | 'listRequests' | 'resolveRequest'>;
   autoApproveRequests?: BrowserAutoApprovePredicate;
   escalations?: Pick<BrowserEscalationService, 'raise'>;
+  /** Live CAPTCHA evidence for page-acting tools (click/evaluate). */
+  probePageChallenge?: BrowserPageChallengeProbe;
   result: <T>(params: BrowserGatewayResultInput<T>) => BrowserGatewayResult<T>;
   onGrantedMutation?: (info: {
     grant: BrowserPermissionGrant;

@@ -4,6 +4,7 @@ import {
   ShutdownPriority,
   type ShutdownReport,
 } from './graceful-shutdown';
+import { TERMINATE_INSTANCES_BUDGET_MS } from './shutdown-timeouts';
 
 const logger = getLogger('HarnessShutdownOperations');
 
@@ -52,7 +53,7 @@ export function createHarnessShutdownOperations(
       {
         name: 'terminate-instances',
         priority: ShutdownPriority.TERMINATE_INSTANCES,
-        budgetMs: 8000,
+        budgetMs: TERMINATE_INSTANCES_BUDGET_MS,
         handler: dependencies.terminateInstances,
       },
       {

@@ -46,6 +46,7 @@ import {
   createHarnessShutdownOperations,
   type HarnessShutdownOperations,
 } from './process/harness-shutdown-operations';
+import { CLEANUP_TIMEOUT_MS } from './process/shutdown-timeouts';
 
 // Register built-in provider adapters once at startup so the instance
 // manager (and future consumers) can look them up by ProviderName.
@@ -359,7 +360,6 @@ app.on('window-all-closed', () => {
 // Clean up before quit — must await async cleanup before the process exits,
 // otherwise in-flight history archiving is silently dropped.
 let cleanupDone = false;
-const CLEANUP_TIMEOUT_MS = 10_000;
 
 app.on('before-quit', (event) => {
   if (cleanupDone || !orchestratorApp) return;

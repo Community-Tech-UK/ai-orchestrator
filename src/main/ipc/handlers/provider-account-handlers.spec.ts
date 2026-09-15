@@ -4,12 +4,14 @@ import { defaultProviderAccountPools } from '../../../shared/types/provider-acco
 
 const handlers = new Map<string, (event: unknown, payload: unknown) => Promise<{ success: boolean; data?: unknown; error?: { code: string; message: string } }>>();
 
+const copied = vi.hoisted(() => [] as string[]);
 vi.mock('electron', () => ({
   ipcMain: {
     handle: (channel: string, fn: (event: unknown, payload: unknown) => Promise<never>) => {
       handlers.set(channel, fn);
     },
   },
+  clipboard: { writeText: (text: string) => { copied.push(text); } },
 }));
 vi.mock('../../logging/logger', () => ({
   getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
@@ -26,10 +28,15 @@ vi.mock('../../providers/account-pool/provider-account-binding-service', () => (
   }),
 }));
 const launched = vi.hoisted(() => [] as unknown[]);
+const LOGIN_COMMAND = "CLAUDE_CONFIG_DIR='/state/claude-cli-profiles/max-b' claude auth login";
 vi.mock('../../providers/provider-login-launcher', () => ({
+  copyAccountProfileLoginCommand: (_request: unknown, writeText: (text: string) => void) => {
+    writeText(LOGIN_COMMAND);
+    return { hint: 'Sign in' };
+  },
   launchProviderLogin: async (...args: unknown[]) => {
     launched.push(args);
-    return { provider: 'claude', command: "CLAUDE_CONFIG_DIR='/state/claude-cli-profiles/max-b' claude auth login", terminal: 'Terminal', hint: 'Sign in' };
+    return { provider: 'claude', command: LOGIN_COMMAND, terminal: 'Terminal', hint: 'Sign in' };
   },
 }));
 vi.mock('../../providers/account-pool/codex-account-probe', () => ({ probeCodexAccount: vi.fn() }));
@@ -62,6 +69,7 @@ const token = { ipcAuthToken: 'renderer-token' };
 beforeEach(() => {
   handlers.clear();
   launched.length = 0;
+  copied.length = 0;
   previewRequests.length = 0;
   requestRuntimeChange.mockClear();
   bindingState.state = 'authenticated';
@@ -101,11 +109,23 @@ describe('provider-account IPC handlers', () => {
     expect(removal).toMatchObject({ success: false, error: { message: expect.stringMatching(/in use/) } });
   });
 
-  it('never returns the login command, which embeds the profile home', async () => {
+  it('copies the login command and does not open a terminal by default', async () => {
     await call(IPC_CHANNELS.PROVIDER_ACCOUNT_CREATE, { ...token, provider: 'claude', label: 'Max B' });
     const response = await call(IPC_CHANNELS.PROVIDER_ACCOUNT_LAUNCH_LOGIN, { ...token, provider: 'claude', profileId: 'max-b-ab12' });
-    expect(response).toEqual({ success: true, data: { terminal: 'Terminal', hint: 'Sign in' } });
+    expect(response).toEqual({ success: true, data: { copied: true, openedTerminal: false, hint: 'Sign in' } });
+    expect(copied).toEqual([LOGIN_COMMAND]);
+    expect(launched).toEqual([]);
+    expect(JSON.stringify(response)).not.toContain('claude-cli-profiles');
+  });
+
+  it('opens a Harness terminal only when asked, still without returning the command', async () => {
+    await call(IPC_CHANNELS.PROVIDER_ACCOUNT_CREATE, { ...token, provider: 'claude', label: 'Max B' });
+    const response = await call(IPC_CHANNELS.PROVIDER_ACCOUNT_LAUNCH_LOGIN, {
+      ...token, provider: 'claude', profileId: 'max-b-ab12', openTerminal: true,
+    });
+    expect(response).toEqual({ success: true, data: { copied: true, openedTerminal: true, terminal: 'Terminal', hint: 'Sign in' } });
     expect(launched[0]).toEqual(['claude', undefined, { provider: 'claude', profileId: 'max-b-ab12' }]);
+    expect(JSON.stringify(response)).not.toContain('claude-cli-profiles');
   });
 
   it('acknowledges ownership and updates pool policy', async () => {

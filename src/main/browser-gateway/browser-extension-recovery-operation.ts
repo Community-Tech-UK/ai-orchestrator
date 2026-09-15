@@ -7,6 +7,7 @@ import type {
 import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
 import { BrowserExtensionRecoverResultSchema } from '../remote-node/node-control-rpc-schemas';
 import { sendServiceRpc } from '../remote-node/service-rpc-client';
+import { getWorkerNodeConnectionServer } from '../remote-node/worker-node-connection';
 import {
   COORDINATOR_TO_NODE,
 } from '../remote-node/worker-node-rpc';
@@ -16,10 +17,10 @@ import {
 } from '../remote-node/worker-node-registry';
 import {
   BROWSER_EXTENSION_CONTACT_FRESH_MS,
-  describeBrowserExtensionContact,
   isBrowserExtensionContactFresh,
   type BrowserExtensionContactStateReader,
 } from './browser-extension-contact-state';
+import { classifyRemoteExtensionContact } from './browser-extension-node-contact';
 import { resolveBrowserComputerTarget } from './browser-computer-target';
 import type {
   BrowserGatewayRecoverExtensionRequest,
@@ -43,12 +44,18 @@ interface BrowserExtensionRecoveryOperationOptions {
   now?: () => number;
   pollTimeoutMs?: number;
   pollIntervalMs?: number;
+  resetNodeConnection?: (nodeId: string) => boolean;
   result: <T>(params: BrowserGatewayResultInput<T>) => BrowserGatewayResult<T>;
 }
 
 /**
- * Recovers only the worker's configured native-host relay. It deliberately has
- * no browser driver, extension-command, tab, terminal, or CLI dependency.
+ * Recovers a remote extension channel for one of two confirmed incidents, and
+ * deliberately has no browser driver, extension-command, tab, terminal, or CLI
+ * dependency:
+ * - silent + native_host_stdin_eof: restart the worker's native-host relay;
+ * - relay_not_forwarding: the relay and extension are healthy but the worker's
+ *   coordinator connection drops every forwarded poll (the 2026-09-15
+ *   stale-socket loop), so reset that connection instead.
  */
 export class BrowserExtensionRecoveryOperation {
   private readonly workerNodeRegistry: Pick<WorkerNodeRegistry, 'getHealthyNodes'>;
@@ -58,6 +65,7 @@ export class BrowserExtensionRecoveryOperation {
   private readonly now: () => number;
   private readonly pollTimeoutMs: number;
   private readonly pollIntervalMs: number;
+  private readonly resetNodeConnection: (nodeId: string) => boolean;
   private readonly result: BrowserExtensionRecoveryOperationOptions['result'];
 
   constructor(options: BrowserExtensionRecoveryOperationOptions) {
@@ -68,6 +76,11 @@ export class BrowserExtensionRecoveryOperation {
     this.now = options.now ?? Date.now;
     this.pollTimeoutMs = Math.max(0, options.pollTimeoutMs ?? DEFAULT_POLL_TIMEOUT_MS);
     this.pollIntervalMs = Math.max(1, options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS);
+    this.resetNodeConnection = options.resetNodeConnection
+      ?? ((nodeId) => getWorkerNodeConnectionServer().resetNodeConnection(
+        nodeId,
+        'browser.recover_extension: relay_not_forwarding',
+      ));
     this.result = options.result;
   }
 
@@ -102,14 +115,19 @@ export class BrowserExtensionRecoveryOperation {
     }
 
     const before = this.channelSummary(node);
+    if (before.channelState === 'relay_not_forwarding') {
+      return this.recoverByConnectionReset(request, node, before, startedAt);
+    }
     if (!before.silent || before.lastDisconnect?.reason !== 'native_host_stdin_eof') {
       return this.refused(
         request,
         'browser_extension_recovery_incident_not_confirmed',
-        'Extension recovery refused because health does not match a silent native-host EOF incident',
+        'Extension recovery refused because health does not match a silent native-host EOF '
+          + 'or relay_not_forwarding incident',
       );
     }
-    if (before.lastContactAt === undefined) {
+    const baselineContactAt = before.lastContactAt;
+    if (baselineContactAt === undefined) {
       return this.refused(
         request,
         'browser_extension_recovery_contact_baseline_missing',
@@ -134,9 +152,65 @@ export class BrowserExtensionRecoveryOperation {
         startedAt,
         'browser_extension_recovery_failed',
         'Worker extension relay recovery failed',
+        'extension_relay',
       );
     }
 
+    const after = await this.waitForRecovery(node, before, (summary) =>
+      summary.lastContactAt !== undefined
+      && summary.lastContactAt > baselineContactAt
+      && !summary.silent
+      && isBrowserExtensionContactFresh(summary.lastContactAt, this.now(), BROWSER_EXTENSION_CONTACT_FRESH_MS));
+    return after.recovered
+      ? this.finished(request, node, 'recovered', before, after.summary, startedAt, undefined,
+        'Worker extension relay recovered with fresh contact', 'extension_relay')
+      : this.finished(request, node, 'timed_out', before, after.summary, startedAt,
+        'browser_extension_recovery_timeout', 'Worker extension relay recovery timed out without fresh contact',
+        'extension_relay');
+  }
+
+  /**
+   * relay_not_forwarding: restarting the relay or native host cannot help —
+   * both are healthy. Close the worker's coordinator socket (non-revoking) and
+   * succeed only on a poll the COORDINATOR observes after the reset; the relay
+   * clock is exactly the signal that lied during the incident.
+   */
+  private async recoverByConnectionReset(
+    request: BrowserGatewayRecoverExtensionRequest,
+    node: WorkerNodeInfo,
+    before: BrowserExtensionRecoveryChannelSummary,
+    startedAt: number,
+  ): Promise<BrowserGatewayResult<BrowserRecoverExtensionResult>> {
+    let reset = false;
+    try {
+      reset = this.resetNodeConnection(node.id);
+    } catch {
+      reset = false;
+    }
+    if (!reset) {
+      return this.finished(request, node, 'failed', before, before, startedAt,
+        'browser_extension_recovery_failed', 'Worker connection reset failed: the node has no open coordinator socket',
+        'connection_reset');
+    }
+    const resetAt = this.now();
+    const after = await this.waitForRecovery(node, before, (summary) =>
+      summary.coordinatorPollAt !== undefined
+      && summary.coordinatorPollAt > resetAt
+      && isBrowserExtensionContactFresh(summary.coordinatorPollAt, this.now(), BROWSER_EXTENSION_CONTACT_FRESH_MS));
+    return after.recovered
+      ? this.finished(request, node, 'recovered', before, after.summary, startedAt, undefined,
+        'Worker connection reset; the coordinator is receiving extension polls again', 'connection_reset')
+      : this.finished(request, node, 'timed_out', before, after.summary, startedAt,
+        'browser_extension_recovery_timeout',
+        'Worker connection reset, but no extension poll reached the coordinator before the deadline',
+        'connection_reset');
+  }
+
+  private async waitForRecovery(
+    node: WorkerNodeInfo,
+    before: BrowserExtensionRecoveryChannelSummary,
+    isRecovered: (summary: BrowserExtensionRecoveryChannelSummary) => boolean,
+  ): Promise<{ recovered: boolean; summary: BrowserExtensionRecoveryChannelSummary }> {
     let after = before;
     const deadline = this.now() + this.pollTimeoutMs;
     const maxPolls = Math.ceil(this.pollTimeoutMs / this.pollIntervalMs) + 1;
@@ -146,28 +220,8 @@ export class BrowserExtensionRecoveryOperation {
       if (currentNode) {
         after = this.channelSummary(currentNode);
       }
-      if (
-        after.enabled
-        && after.running
-        && !after.silent
-        && after.lastContactAt !== undefined
-        && after.lastContactAt > before.lastContactAt
-        && isBrowserExtensionContactFresh(
-          after.lastContactAt,
-          this.now(),
-          BROWSER_EXTENSION_CONTACT_FRESH_MS,
-        )
-      ) {
-        return this.finished(
-          request,
-          node,
-          'recovered',
-          before,
-          after,
-          startedAt,
-          undefined,
-          'Worker extension relay recovered with fresh contact',
-        );
+      if (after.enabled && after.running && isRecovered(after)) {
+        return { recovered: true, summary: after };
       }
       const remainingMs = deadline - this.now();
       if (poll === maxPolls - 1 || remainingMs <= 0) {
@@ -175,39 +229,29 @@ export class BrowserExtensionRecoveryOperation {
       }
       await this.delay(Math.min(this.pollIntervalMs, remainingMs));
     }
-
-    return this.finished(
-      request,
-      node,
-      'timed_out',
-      before,
-      after,
-      startedAt,
-      'browser_extension_recovery_timeout',
-      'Worker extension relay recovery timed out without fresh contact',
-    );
+    return { recovered: false, summary: after };
   }
 
   private channelSummary(node: WorkerNodeInfo): BrowserExtensionRecoveryChannelSummary {
     const relay = node.capabilities.extensionRelay;
-    const stateLastContactAt = this.extensionContactState.getLastExtensionContactAt(node.id);
-    const lastContactAt = latestTimestamp(stateLastContactAt, relay?.lastExtensionContactAt);
     const enabled = relay?.enabled ?? Boolean(node.capabilities.hasExtensionRelay);
     const running = relay?.running ?? Boolean(node.capabilities.hasExtensionRelay);
-    const silent = enabled && running
-      ? describeBrowserExtensionContact(
-        node.id,
-        lastContactAt,
-        this.now(),
-        BROWSER_EXTENSION_CONTACT_FRESH_MS,
-      ).silent
-      : false;
+    const clocks = classifyRemoteExtensionContact({
+      coordinatorPollAt: this.extensionContactState.getLastExtensionContactAt(node.id),
+      relayContactAt: relay?.lastExtensionContactAt,
+      nodeConnectedAt: node.connectedAt,
+      now: this.now(),
+    });
+    const channelState = enabled && running ? clocks.state : 'fresh';
     const disconnect = this.extensionContactState.getLastDisconnect?.(node.id);
     return {
       enabled,
       running,
-      silent,
-      ...(lastContactAt !== undefined ? { lastContactAt } : {}),
+      silent: channelState === 'silent',
+      channelState,
+      ...(clocks.lastContactAt !== undefined ? { lastContactAt: clocks.lastContactAt } : {}),
+      ...(clocks.coordinatorPollAt !== undefined ? { coordinatorPollAt: clocks.coordinatorPollAt } : {}),
+      ...(clocks.relayContactAt !== undefined ? { relayContactAt: clocks.relayContactAt } : {}),
       ...(disconnect
         ? {
           lastDisconnect: {
@@ -246,6 +290,7 @@ export class BrowserExtensionRecoveryOperation {
     startedAt: number,
     reason: BrowserExtensionRecoveryFailureReason | undefined,
     summary: string,
+    recoveryAction: NonNullable<BrowserRecoverExtensionResult['recoveryAction']>,
   ): BrowserGatewayResult<BrowserRecoverExtensionResult> {
     const succeeded = recoveryStatus === 'recovered';
     return this.result({
@@ -261,15 +306,11 @@ export class BrowserExtensionRecoveryOperation {
         nodeId: node.id,
         nodeName: redactAgentString(node.name || node.id).slice(0, 120),
         recoveryStatus,
+        recoveryAction,
         elapsedMs: Math.max(0, Math.round(this.now() - startedAt)),
         before,
         after,
       },
     });
   }
-}
-
-function latestTimestamp(...values: (number | undefined)[]): number | undefined {
-  const timestamps = values.filter((value): value is number => typeof value === 'number');
-  return timestamps.length > 0 ? Math.max(...timestamps) : undefined;
 }

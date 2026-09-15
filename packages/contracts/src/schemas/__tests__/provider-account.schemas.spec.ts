@@ -4,6 +4,7 @@ import {
   ProviderAccountPoolsSchema,
   ProviderAccountProfileSchema,
   ProviderAccountProfilesSchema,
+  ProviderAccountLaunchLoginPayloadSchema,
   ProviderAccountRefPayloadSchema,
   ProviderAccountUpdatePayloadSchema,
 } from '../provider-account.schemas';
@@ -95,6 +96,9 @@ describe('IPC payloads', () => {
     expect(ProviderAccountCreatePayloadSchema.safeParse({ provider: 'claude', label: 'Max A', home: '/x' }).success).toBe(false);
     expect(ProviderAccountRefPayloadSchema.safeParse({ ipcAuthToken: 't', provider: 'codex', profileId: 'max-a' }).success).toBe(true);
     expect(ProviderAccountRefPayloadSchema.safeParse({ provider: 'copilot', profileId: 'max-a' }).success).toBe(false);
+    expect(ProviderAccountLaunchLoginPayloadSchema.safeParse({ ipcAuthToken: 't', provider: 'claude', profileId: 'max-a' }).success).toBe(true);
+    expect(ProviderAccountLaunchLoginPayloadSchema.safeParse({ provider: 'claude', profileId: 'max-a', openTerminal: true }).success).toBe(true);
+    expect(ProviderAccountLaunchLoginPayloadSchema.safeParse({ provider: 'claude', profileId: 'max-a', command: 'x' }).success).toBe(false);
   });
 
   it('require at least one field on update', () => {

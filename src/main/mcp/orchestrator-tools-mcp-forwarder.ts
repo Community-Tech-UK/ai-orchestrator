@@ -19,6 +19,7 @@ import { createFileTransferForwarderTools } from './orchestrator-file-transfer-f
 import { createOrchestratorEvidenceToolDefinitions } from './orchestrator-evidence-tools';
 import { CALENDAR_TOOL_SPECS } from './orchestrator-calendar-tools';
 import { createNodeExecForwarderTool } from './orchestrator-node-exec-forwarder-tool';
+import { createNodeConnectionForwarderTool } from './orchestrator-node-connection-tools';
 import {
   LIST_REMOTE_NODES_DESCRIPTION,
   RUN_ON_NODE_DESCRIPTION,
@@ -154,6 +155,7 @@ export function createOrchestratorToolsForwarderTools(
       },
     },
     createNodeExecForwarderTool(client),
+    createNodeConnectionForwarderTool(client),
     {
       name: 'read_node_output',
       description:

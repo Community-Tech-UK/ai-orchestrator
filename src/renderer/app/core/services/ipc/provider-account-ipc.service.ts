@@ -102,8 +102,12 @@ export class ProviderAccountIpcService {
     return this.api?.verifyProviderAccount(provider, profileId) ?? Promise.resolve(NOT_ELECTRON);
   }
 
-  launchLogin(provider: PooledProvider, profileId: string): Promise<IpcResponse> {
-    return this.api?.launchProviderAccountLogin(provider, profileId) ?? Promise.resolve(NOT_ELECTRON);
+  launchLogin(
+    provider: PooledProvider,
+    profileId: string,
+    options?: { openTerminal?: boolean },
+  ): Promise<IpcResponse> {
+    return this.api?.launchProviderAccountLogin(provider, profileId, options) ?? Promise.resolve(NOT_ELECTRON);
   }
 
   updatePool(input: {

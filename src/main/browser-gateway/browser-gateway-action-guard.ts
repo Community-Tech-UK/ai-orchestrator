@@ -12,7 +12,8 @@ import type { BrowserTargetRegistry } from './browser-target-registry';
 import type { BrowserGatewayContext } from './browser-gateway-service-types';
 import type { PuppeteerBrowserDriver } from './puppeteer-browser-driver';
 import { autoApproveBrowserApproval, type BrowserAutoApprovePredicate } from './browser-auto-approve';
-import { classifyBrowserAction, LEGAL_DECLARATION_REASON } from './browser-action-classifier';
+import { LEGAL_DECLARATION_REASON, type BrowserActionClassification } from './browser-action-classifier';
+import { classifyGuardedBrowserAction, type BrowserPageChallengeProbe } from './browser-page-challenge-probe';
 import type { BrowserEscalationService } from './browser-escalation-store';
 import {
   escalationResultForChallenge,
@@ -54,6 +55,7 @@ export class BrowserGatewayActionGuard {
   >;
   private readonly autoApproveRequests?: BrowserAutoApprovePredicate;
   private readonly escalations?: Pick<BrowserEscalationService, 'raise'>;
+  private readonly probePageChallenge?: BrowserPageChallengeProbe;
   private readonly result: BrowserGatewayActionGuardOptions['result'];
   private readonly onGrantedMutation?: BrowserGatewayActionGuardOptions['onGrantedMutation'];
   private readonly exactApprovalRedeemer: BrowserExactApprovalRedeemer;
@@ -67,6 +69,7 @@ export class BrowserGatewayActionGuard {
     this.approvalStore = options.approvalStore;
     this.autoApproveRequests = options.autoApproveRequests;
     this.escalations = options.escalations;
+    this.probePageChallenge = options.probePageChallenge;
     this.result = options.result;
     this.onGrantedMutation = options.onGrantedMutation;
     this.exactApprovalRedeemer = new BrowserExactApprovalRedeemer(
@@ -82,7 +85,7 @@ export class BrowserGatewayActionGuard {
     toolName: string,
     selector: string,
     actionHint?: string,
-    classificationOverride?: ReturnType<typeof classifyBrowserAction>,
+    classificationOverride?: BrowserActionClassification,
   ): Promise<BrowserGatewayMutationPreparation> {
     const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
     if (existingTab) {
@@ -210,10 +213,9 @@ export class BrowserGatewayActionGuard {
         }),
       };
     }
-    const classification = classificationOverride ?? classifyBrowserAction({
-      toolName,
-      actionHint,
-      elementContext,
+    const classification = await classifyGuardedBrowserAction({
+      probe: this.probePageChallenge, profileId: profile.id, targetId: target.id, toolName, actionHint,
+      elementContext, elementContextSource: 'inspected', override: classificationOverride,
     });
     const grants = this.grantStore.listGrants({
       instanceId: request.instanceId,
@@ -502,15 +504,15 @@ export class BrowserGatewayActionGuard {
     });
   }
 
-  private prepareExistingTabMutatingAction(
+  private async prepareExistingTabMutatingAction(
     request: BrowserGatewayContext & { profileId: string; targetId: string; requestId?: string },
     attachment: BrowserExistingTabAttachment,
     action: string,
     toolName: string,
     selector: string,
     actionHint?: string,
-    classificationOverride?: ReturnType<typeof classifyBrowserAction>,
-  ): BrowserGatewayMutationPreparation {
+    classificationOverride?: BrowserActionClassification,
+  ): Promise<BrowserGatewayMutationPreparation> {
     const originDecision = isOriginAllowed(attachment.url, attachment.allowedOrigins);
     if (!originDecision.allowed) {
       return {
@@ -535,10 +537,9 @@ export class BrowserGatewayActionGuard {
       visibleText: actionHint,
       nearbyText: actionHint,
     });
-    const classification = classificationOverride ?? classifyBrowserAction({
-      toolName,
-      actionHint,
-      elementContext,
+    const classification = await classifyGuardedBrowserAction({
+      probe: this.probePageChallenge, profileId: attachment.profileId, targetId: attachment.targetId, toolName,
+      actionHint, elementContext, elementContextSource: 'agent_hint', override: classificationOverride,
     });
     const nodeId = existingTabGrantNodeId(attachment.profileId, attachment.nodeId);
     const grants = this.grantStore.listGrants({
@@ -695,5 +696,4 @@ export class BrowserGatewayActionGuard {
       autoApproveRequests: this.autoApproveRequests,
     });
   }
-
 }

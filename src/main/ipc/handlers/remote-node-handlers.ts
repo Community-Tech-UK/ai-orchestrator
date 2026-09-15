@@ -14,6 +14,7 @@ import { generateAuthToken } from '../../remote-node/auth-validator';
 import {
   RemoteNodeIssuePairingPayloadSchema,
   RemoteNodeRevokePayloadSchema,
+  RemoteNodeResetConnectionPayloadSchema,
   RemoteNodeRevokePairingPayloadSchema,
   RemoteNodeSetTokenPayloadSchema,
   RemoteNodeGetPayloadSchema,
@@ -252,6 +253,31 @@ export function registerRemoteNodeHandlers(): void {
           success: false,
           error: {
             code: 'REMOTE_NODE_REVOKE_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  // Non-revoking counterpart to REMOTE_NODE_REVOKE: closes the live socket so
+  // the worker reconnects (ends a stale-socket reconnect loop).
+  ipcMain.handle(
+    IPC_CHANNELS.REMOTE_NODE_RESET_CONNECTION,
+    async (_event, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const validated = RemoteNodeResetConnectionPayloadSchema.parse(payload);
+        const reset = getWorkerNodeConnectionServer().resetNodeConnection(
+          validated.nodeId,
+          'Operator reset connection',
+        );
+        return { success: true, data: { reset } };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'REMOTE_NODE_RESET_CONNECTION_FAILED',
             message: (error as Error).message,
             timestamp: Date.now(),
           },

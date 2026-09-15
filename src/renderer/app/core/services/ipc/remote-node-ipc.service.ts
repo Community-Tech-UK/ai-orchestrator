@@ -240,6 +240,16 @@ export class RemoteNodeIpcService {
     }
   }
 
+  /** Close the node's live connection without revoking it; returns false if it was not connected. */
+  async resetConnection(nodeId: string): Promise<boolean> {
+    if (!this.api) return false;
+    const result = await this.api.remoteNodeResetConnection(nodeId) as IpcResult | null;
+    if (result && !result.success) {
+      throw new Error(result.error?.message ?? 'Failed to reset node connection');
+    }
+    return Boolean((result?.data as { reset?: boolean } | undefined)?.reset);
+  }
+
   async getServiceStatus(nodeId: string): Promise<ServiceStatus | null> {
     if (!this.api) return null;
     const result = await this.api.remoteNodeServiceStatus(nodeId) as IpcResult | null;

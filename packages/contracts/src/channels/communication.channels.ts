@@ -60,6 +60,7 @@ export const COMMUNICATION_CHANNELS = {
   REMOTE_NODE_LIST_PAIRINGS: 'remote-node:list-pairings',
   REMOTE_NODE_REVOKE_PAIRING: 'remote-node:revoke-pairing',
   REMOTE_NODE_REVOKE: 'remote-node:revoke',
+  REMOTE_NODE_RESET_CONNECTION: 'remote-node:reset-connection',
   REMOTE_NODE_GET_SERVER_STATUS: 'remote-node:get-server-status',
   REMOTE_NODE_REPAIR_DIAGNOSE: 'remote-node:repair:diagnose',
   REMOTE_NODE_REPAIR_COMMAND: 'remote-node:repair:command',

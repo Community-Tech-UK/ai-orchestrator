@@ -756,6 +756,33 @@ describe('orchestrator MCP tools', () => {
     await expect(readTool!.handler({ limit: 5 })).rejects.toThrow();
   });
 
+  it('reset_node_connection validates args and calls the injected reset', async () => {
+    const db = createDb();
+    const calls: unknown[] = [];
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: null,
+      resetNodeConnection: async (args) => {
+        calls.push(args);
+        return { nodeId: 'node-1', nodeName: args.node, reset: true };
+      },
+    });
+    const tool = tools.find((t) => t.name === 'reset_node_connection');
+
+    await expect(tool!.handler({ node: ' windows-pc ' })).resolves.toEqual({
+      nodeId: 'node-1',
+      nodeName: 'windows-pc',
+      reset: true,
+    });
+    expect(calls).toEqual([{ node: 'windows-pc' }]);
+    await expect(tool!.handler({})).rejects.toThrow();
+    await expect(tool!.handler({ node: 'x', extra: true })).rejects.toThrow();
+
+    const unwired = createOrchestratorToolDefinitions({ db, instanceId: null })
+      .find((t) => t.name === 'reset_node_connection');
+    await expect(unwired!.handler({ node: 'windows-pc' })).rejects.toThrow('not wired');
+  });
+
   it('terminate_node_instance forwards single-id args to the injected terminator', async () => {
     const db = createDb();
     const calls: unknown[] = [];
