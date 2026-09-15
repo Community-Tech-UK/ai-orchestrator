@@ -40,6 +40,9 @@ let escalationNotify: ((escalation: BrowserEscalation) => void) | null = null;
 
 let credentialVault: CredentialVault | null = null;
 let credentialVaultUnlockInFlight: Promise<UnlockResult> | null = null;
+let credentialVaultLockGeneration = 0;
+let credentialVaultStaleRecovery:
+  { staleSession: string; result: Promise<UnlockResult> } | null = null;
 
 /**
  * Shared credential vault. The renderer enrolment dialog and the gateway's
@@ -52,18 +55,41 @@ export function getBrowserCredentialVault(): CredentialVault {
       runner: createBwRunner(),
       bindings: new SqliteVaultOriginBindingStore(),
       getSession: () => getBrowserCredentialSession().getToken(),
+      getSessionGeneration: () => credentialVaultLockGeneration,
       // Recover from a rotated or expired CLI session without a human. Without
       // this, one laptop sleep leaves every credential fill failing until
       // somebody opens the Browser screen and clicks Unlock, which is precisely
       // the GUI step unattended operation exists to remove.
-      reauthenticate: async () => {
-        getBrowserCredentialSession().lock();
-        const result = await unlockBrowserCredentialVault();
-        if (!result.unlocked) {
-          logger.warn('Credential vault re-unlock after a stale session failed', {
-            reason: result.reason,
-          });
+      reauthenticate: async (staleSession, commandLockGeneration) => {
+        if (commandLockGeneration !== credentialVaultLockGeneration) {
+          // An explicit Lock after this command began cancels the whole
+          // operation. It must not become the trigger for a fresh unlock.
+          return { unlocked: false, reason: 'empty_session' };
         }
+        const session = getBrowserCredentialSession();
+        const currentSession = session.getToken();
+        if (currentSession && currentSession !== staleSession) {
+          // Another stale command already installed a newer token. Reuse it;
+          // clearing it here would rotate that recovery out from under its retry.
+          return { unlocked: true };
+        }
+        if (credentialVaultStaleRecovery?.staleSession === staleSession) {
+          return credentialVaultStaleRecovery.result;
+        }
+        if (currentSession === staleSession) {
+          session.lock();
+        }
+        const result = unlockBrowserCredentialVault()
+          .catch((): UnlockResult => ({ unlocked: false, reason: 'bw_unlock_failed' }))
+          .then((outcome) => {
+            if (!outcome.unlocked) {
+              logger.warn('Credential vault re-unlock after a stale session failed', {
+                reason: outcome.reason,
+              });
+            }
+            return outcome;
+          });
+        credentialVaultStaleRecovery = { staleSession, result };
         return result;
       },
     });
@@ -173,11 +199,26 @@ export function unlockBrowserCredentialVault(): Promise<UnlockResult> {
   if (credentialVaultUnlockInFlight) {
     return credentialVaultUnlockInFlight;
   }
+  const session = getBrowserCredentialSession();
+  const lockGeneration = credentialVaultLockGeneration;
+  let sessionInstalled = false;
   const unlock = unlockCredentialVault({
     runner: createBwRunner(),
-    session: getBrowserCredentialSession(),
+    session: {
+      unlock: (token) => {
+        if (credentialVaultLockGeneration !== lockGeneration) {
+          return;
+        }
+        session.unlock(token);
+        sessionInstalled = true;
+      },
+    },
     getMasterPassword: readMasterPassword,
-  });
+  }).then((outcome): UnlockResult => (
+    outcome.unlocked && !sessionInstalled
+      ? { unlocked: false, reason: 'empty_session' }
+      : outcome
+  ));
   const tracked = unlock.finally(() => {
     if (credentialVaultUnlockInFlight === tracked) {
       credentialVaultUnlockInFlight = null;
@@ -189,6 +230,7 @@ export function unlockBrowserCredentialVault(): Promise<UnlockResult> {
 
 /** Re-lock the vault (drop the in-memory session token). */
 export function lockBrowserCredentialVault(): void {
+  credentialVaultLockGeneration += 1;
   getBrowserCredentialSession().lock();
 }
 

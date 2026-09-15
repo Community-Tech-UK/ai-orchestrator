@@ -56,7 +56,12 @@ export interface CredentialVaultOptions {
   /** Returns the current BW_SESSION token, or undefined when the vault is locked. */
   getSession: () => string | undefined;
   /**
-   * Re-unlock the vault and store a fresh session, resolving true on success.
+   * Opaque generation captured with each command. When supplied, recovery gets
+   * the same value so its owner can reject work superseded by an explicit lock.
+   */
+  getSessionGeneration?: () => number;
+  /**
+   * Re-unlock the vault and store a fresh session, returning a structured result.
    *
    * Needed because holding a session token is not the same as holding a working
    * one. Bitwarden keeps ONE active CLI session: a laptop sleeping long enough,
@@ -65,7 +70,10 @@ export interface CredentialVaultOptions {
    * fails, and the auto-unlock path cannot fix it because it treats "I hold a
    * string" as unlocked and returns early.
    */
-  reauthenticate?: () => Promise<CredentialVaultReauthenticationResult>;
+  reauthenticate?: (
+    staleSession: string,
+    sessionGeneration: number | undefined,
+  ) => Promise<CredentialVaultReauthenticationResult>;
   /** Bitwarden folder the vault is jailed to. Default 'AIO-Agent'. */
   folderName?: string;
   /** Override the password generator (tests). Default: crypto-strong. */
@@ -211,8 +219,12 @@ export class CredentialVault {
   private readonly runner: BwRunner;
   private readonly bindings: VaultOriginBindingStore;
   private readonly getSession: () => string | undefined;
+  private readonly getSessionGeneration: (() => number) | undefined;
   private readonly reauthenticate:
-    (() => Promise<CredentialVaultReauthenticationResult>) | undefined;
+    ((
+      staleSession: string,
+      sessionGeneration: number | undefined,
+    ) => Promise<CredentialVaultReauthenticationResult>) | undefined;
   private readonly folderName: string;
   private readonly makePassword: () => string;
   private readonly now: () => number;
@@ -222,6 +234,7 @@ export class CredentialVault {
     this.runner = options.runner;
     this.bindings = options.bindings;
     this.getSession = options.getSession;
+    this.getSessionGeneration = options.getSessionGeneration;
     this.reauthenticate = options.reauthenticate;
     this.folderName = options.folderName ?? DEFAULT_FOLDER;
     this.makePassword = options.generatePassword ?? generateStrongPassword;
@@ -421,7 +434,14 @@ export class CredentialVault {
       return this.cachedFolderId;
     }
     const listed = await this.bw(['list', 'folders', '--search', this.folderName]);
-    const folders = safeJsonArray(listed) as Array<{ id?: string; name?: string }>;
+    const folderList = safeJson(listed);
+    if (!isFolderSummaryArray(folderList)) {
+      throw new CredentialVaultError(
+        'Could not parse bw folder list output',
+        'folder_unavailable',
+      );
+    }
+    const folders = folderList;
     const existing = folders.find((folder) => folder.name === this.folderName);
     if (existing?.id) {
       this.cachedFolderId = existing.id;
@@ -459,27 +479,42 @@ export class CredentialVault {
   }
 
   private async bw(args: string[]): Promise<string> {
-    let result = await this.runOnce(args);
+    let attempt = await this.runOnce(args);
+    let result = attempt.result;
 
     // A held token that the CLI rejects is the common failure in unattended use,
     // and it is indistinguishable from a locked vault to everything upstream.
     // Re-unlock once and retry rather than failing the whole run.
     if (this.reauthenticate && isStaleSessionFailure(result)) {
-      const reauthentication = await this.reauthenticate();
-      if (!reauthentication.unlocked) {
-        const reason = reauthentication.reason ?? 'bw_unlock_failed';
-        const code = `vault_relock_failed:${reason}` as const;
-        throw new CredentialVaultError(
-          `Credential vault re-lock recovery failed (${code})`,
-          code,
+      let reauthentication: CredentialVaultReauthenticationResult;
+      try {
+        reauthentication = await this.reauthenticate(
+          attempt.session,
+          attempt.sessionGeneration,
         );
+      } catch {
+        throw recoveryFailure('bw_unlock_failed');
       }
-      result = await this.runOnce(args);
+      if (!reauthentication.unlocked) {
+        throw recoveryFailure(reauthentication.reason ?? 'bw_unlock_failed');
+      }
+      try {
+        attempt = await this.runOnce(args);
+      } catch (error) {
+        if (error instanceof CredentialVaultError && error.code === 'vault_locked') {
+          throw recoveryFailure('empty_session');
+        }
+        throw error;
+      }
+      result = attempt.result;
+      if (isStaleSessionFailure(result)) {
+        throw recoveryFailure('bw_unlock_failed');
+      }
     }
 
     if (result.code !== 0 || isStaleSessionFailure(result)) {
-      // Neither argv nor stderr is safe to echo: a failed Bitwarden command may
-      // repeat the encoded item body, which contains the generated password.
+        // Neither argv nor command output is safe to echo: a failed Bitwarden
+        // command may repeat an encoded item body containing a password.
       throw new CredentialVaultError(
         `bw ${args[0] ?? ''} failed (exit ${result.code})`,
         'bw_command_failed',
@@ -488,12 +523,21 @@ export class CredentialVault {
     return result.stdout;
   }
 
-  private async runOnce(args: string[]): Promise<BwCommandResult> {
+  private async runOnce(args: string[]): Promise<{
+    result: BwCommandResult;
+    session: string;
+    sessionGeneration: number | undefined;
+  }> {
     const session = this.getSession();
     if (!session) {
       throw new CredentialVaultError('Credential vault is locked (no BW_SESSION)', 'vault_locked');
     }
-    return this.runner.run(args, { session });
+    const sessionGeneration = this.getSessionGeneration?.();
+    return {
+      result: await this.runner.run(args, { session }),
+      session,
+      sessionGeneration,
+    };
   }
 
   private parseItem(stdout: string): BwItem {
@@ -521,11 +565,20 @@ const PASSWORD_CHARSETS = {
  * are the messages the Bitwarden CLI emits when the session key it was handed is
  * rejected, matched case-insensitively.
  *
- * `stderr` is inspected but never logged or returned: a failed command can echo
- * an encoded item body containing a password.
+ * Command output is inspected but never logged or returned: a failed command
+ * can echo an encoded item body containing a password. Stdout is scanned only
+ * when it is not valid JSON so ordinary item bodies cannot trigger recovery.
  */
 export function isStaleSessionFailure(result: BwCommandResult): boolean {
-  const text = `${result.stderr ?? ''}`.toLowerCase();
+  if (containsStaleSessionSignal(result.stderr)) {
+    return true;
+  }
+  const stdout = result.stdout.trim();
+  return stdout !== '' && !isJsonText(stdout) && containsStaleSessionSignal(stdout);
+}
+
+function containsStaleSessionSignal(value: string): boolean {
+  const text = value.toLowerCase();
   return (
     text.includes('not logged in')
     || text.includes('vault is locked')
@@ -535,6 +588,35 @@ export function isStaleSessionFailure(result: BwCommandResult): boolean {
     || text.includes('master password: [input is hidden]')
     || text.includes('err_use_after_close')
   );
+}
+
+function recoveryFailure(
+  reason: CredentialVaultReauthenticationFailureReason,
+): CredentialVaultError {
+  const code = `vault_relock_failed:${reason}` as const;
+  return new CredentialVaultError(
+    `Credential vault re-lock recovery failed (${code})`,
+    code,
+  );
+}
+
+function isJsonText(value: string): boolean {
+  try {
+    JSON.parse(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isFolderSummaryArray(value: unknown): value is Array<{ id: string; name: string }> {
+  return Array.isArray(value) && value.every((entry) => (
+    typeof entry === 'object'
+    && entry !== null
+    && typeof entry.id === 'string'
+    && entry.id !== ''
+    && typeof entry.name === 'string'
+  ));
 }
 
 export function generateStrongPassword(length = 20): string {
@@ -614,9 +696,4 @@ function safeJson(value: string): unknown {
   } catch {
     return null;
   }
-}
-
-function safeJsonArray(value: string): unknown[] {
-  const parsed = safeJson(value);
-  return Array.isArray(parsed) ? parsed : [];
 }
