@@ -65,8 +65,14 @@ export class ProviderQuotaStore {
   } | null>(() => {
     const state = this._state();
     let worst: { provider: ProviderId; window: ProviderQuotaWindow; ratio: number; accountProfileId?: string } | null = null;
-    const consider = (snap: ProviderQuotaSnapshot | null | undefined): void => {
-      if (!snap || !snap.ok) return;
+    // A plain loop rather than a closure: TypeScript does not track assignments
+    // made inside a callback, so it would narrow `worst` to `never` below.
+    const candidates: (ProviderQuotaSnapshot | null | undefined)[] = [
+      ...Object.values(state.snapshots),
+      ...(state.accountSnapshots ?? []),
+    ];
+    for (const snap of candidates) {
+      if (!snap || !snap.ok) continue;
       for (const window of snap.windows) {
         if (window.limit <= 0) continue;
         const ratio = window.used / window.limit;
@@ -79,9 +85,7 @@ export class ProviderQuotaStore {
           };
         }
       }
-    };
-    for (const snap of Object.values(state.snapshots)) consider(snap);
-    for (const snap of state.accountSnapshots ?? []) consider(snap);
+    }
     if (!worst) return null;
     return {
       provider: worst.provider,
