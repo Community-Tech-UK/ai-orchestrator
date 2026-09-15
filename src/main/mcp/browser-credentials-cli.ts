@@ -247,7 +247,7 @@ export function resolveScope(flags: Flags): string {
  */
 function withRemedy(error: unknown): Error {
   const message = error instanceof Error ? error.message : String(error);
-  if (/vault is locked|vault_locked|BW_SESSION/i.test(message)) {
+  if (/vault is locked|vault_locked|vault_relock_failed|BW_SESSION/i.test(message)) {
     return new Error(
       `${message}\nUnlock it first: set browserVaultMasterPasswordFile and `
         + 'browserVaultAutoUnlock via `aio-mcp settings set`, or unlock the vault '

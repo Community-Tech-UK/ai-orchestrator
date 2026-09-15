@@ -364,6 +364,19 @@ describe('browser-credentials error remediation', () => {
     )).rejects.toThrow(/--move-into-folder/);
   });
 
+  it('preserves the redacted re-lock failure code and gives the unlock remedy', async () => {
+    const h = failing(
+      'Credential vault re-lock recovery failed (vault_relock_failed:empty_password)',
+    );
+    const error = await runBrowserCredentialsCli(
+      ['enrol', '--item', 'x', '--origin', 'https://a.example.com'],
+      h.deps,
+    ).catch((caught: unknown) => caught);
+
+    expect((error as Error).message).toContain('vault_relock_failed:empty_password');
+    expect((error as Error).message).toMatch(/browserVaultAutoUnlock|unlock the vault/);
+  });
+
   it('passes an unrecognised failure through unchanged', async () => {
     const h = failing('something else entirely');
     await expect(runBrowserCredentialsCli(

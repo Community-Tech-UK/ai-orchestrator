@@ -39,6 +39,7 @@ let escalationService: BrowserEscalationService | null = null;
 let escalationNotify: ((escalation: BrowserEscalation) => void) | null = null;
 
 let credentialVault: CredentialVault | null = null;
+let credentialVaultUnlockInFlight: Promise<UnlockResult> | null = null;
 
 /**
  * Shared credential vault. The renderer enrolment dialog and the gateway's
@@ -63,7 +64,7 @@ export function getBrowserCredentialVault(): CredentialVault {
             reason: result.reason,
           });
         }
-        return result.unlocked;
+        return result;
       },
     });
   }
@@ -168,12 +169,22 @@ async function readMasterPassword(): Promise<string> {
  * `{unlocked, reason?}` — the BW_SESSION token stays inside
  * getBrowserCredentialSession() in main-process memory.
  */
-export async function unlockBrowserCredentialVault(): Promise<UnlockResult> {
-  return unlockCredentialVault({
+export function unlockBrowserCredentialVault(): Promise<UnlockResult> {
+  if (credentialVaultUnlockInFlight) {
+    return credentialVaultUnlockInFlight;
+  }
+  const unlock = unlockCredentialVault({
     runner: createBwRunner(),
     session: getBrowserCredentialSession(),
     getMasterPassword: readMasterPassword,
   });
+  const tracked = unlock.finally(() => {
+    if (credentialVaultUnlockInFlight === tracked) {
+      credentialVaultUnlockInFlight = null;
+    }
+  });
+  credentialVaultUnlockInFlight = tracked;
+  return tracked;
 }
 
 /** Re-lock the vault (drop the in-memory session token). */

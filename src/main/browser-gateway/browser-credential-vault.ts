@@ -65,13 +65,35 @@ export interface CredentialVaultOptions {
    * fails, and the auto-unlock path cannot fix it because it treats "I hold a
    * string" as unlocked and returns early.
    */
-  reauthenticate?: () => Promise<boolean>;
+  reauthenticate?: () => Promise<CredentialVaultReauthenticationResult>;
   /** Bitwarden folder the vault is jailed to. Default 'AIO-Agent'. */
   folderName?: string;
   /** Override the password generator (tests). Default: crypto-strong. */
   generatePassword?: () => string;
   now?: () => number;
 }
+
+export type CredentialVaultReauthenticationFailureReason =
+  | 'empty_password'
+  | 'bw_unlock_failed'
+  | 'empty_session';
+
+export interface CredentialVaultReauthenticationResult {
+  unlocked: boolean;
+  reason?: CredentialVaultReauthenticationFailureReason;
+}
+
+export type CredentialVaultErrorCode =
+  | 'vault_locked'
+  | 'folder_unavailable'
+  | 'item_not_found'
+  | 'item_outside_agent_folder'
+  | 'origin_binding_missing'
+  | 'origin_mismatch'
+  | 'bw_command_failed'
+  | 'secret_field_empty'
+  | 'custom_field_not_found'
+  | `vault_relock_failed:${CredentialVaultReauthenticationFailureReason}`;
 
 export type CredentialFieldKind = 'username' | 'password' | 'totp';
 
@@ -165,16 +187,7 @@ export interface GetGenericSecretForFillInput {
 export class CredentialVaultError extends Error {
   constructor(
     message: string,
-    readonly code:
-      | 'vault_locked'
-      | 'folder_unavailable'
-      | 'item_not_found'
-      | 'item_outside_agent_folder'
-      | 'origin_binding_missing'
-      | 'origin_mismatch'
-      | 'bw_command_failed'
-      | 'secret_field_empty'
-      | 'custom_field_not_found',
+    readonly code: CredentialVaultErrorCode,
   ) {
     super(message);
     this.name = 'CredentialVaultError';
@@ -198,7 +211,8 @@ export class CredentialVault {
   private readonly runner: BwRunner;
   private readonly bindings: VaultOriginBindingStore;
   private readonly getSession: () => string | undefined;
-  private readonly reauthenticate: (() => Promise<boolean>) | undefined;
+  private readonly reauthenticate:
+    (() => Promise<CredentialVaultReauthenticationResult>) | undefined;
   private readonly folderName: string;
   private readonly makePassword: () => string;
   private readonly now: () => number;
@@ -450,13 +464,20 @@ export class CredentialVault {
     // A held token that the CLI rejects is the common failure in unattended use,
     // and it is indistinguishable from a locked vault to everything upstream.
     // Re-unlock once and retry rather than failing the whole run.
-    if (result.code !== 0 && this.reauthenticate && isStaleSessionFailure(result)) {
-      if (await this.reauthenticate()) {
-        result = await this.runOnce(args);
+    if (this.reauthenticate && isStaleSessionFailure(result)) {
+      const reauthentication = await this.reauthenticate();
+      if (!reauthentication.unlocked) {
+        const reason = reauthentication.reason ?? 'bw_unlock_failed';
+        const code = `vault_relock_failed:${reason}` as const;
+        throw new CredentialVaultError(
+          `Credential vault re-lock recovery failed (${code})`,
+          code,
+        );
       }
+      result = await this.runOnce(args);
     }
 
-    if (result.code !== 0) {
+    if (result.code !== 0 || isStaleSessionFailure(result)) {
       // Neither argv nor stderr is safe to echo: a failed Bitwarden command may
       // repeat the encoded item body, which contains the generated password.
       throw new CredentialVaultError(
@@ -511,6 +532,8 @@ export function isStaleSessionFailure(result: BwCommandResult): boolean {
     || text.includes('session key is invalid')
     || text.includes('invalid session')
     || text.includes('mac failed')
+    || text.includes('master password: [input is hidden]')
+    || text.includes('err_use_after_close')
   );
 }
 

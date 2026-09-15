@@ -10,23 +10,45 @@ const settingsMock = vi.hoisted(() => ({
   >,
 }));
 
+const serviceMocks = vi.hoisted(() => ({
+  bwRun: vi.fn(),
+  loggerWarn: vi.fn(),
+}));
+
 vi.mock('../core/config/settings-manager', () => ({
   getSettingsManager: () => ({ getAll: () => settingsMock.values }),
 }));
 
 vi.mock('./browser-bw-runner', () => ({
   createBwRunner: () => ({
-    run: vi.fn(async () => ({ stdout: 'RAW-SESSION\n', stderr: '', code: 0 })),
+    run: serviceMocks.bwRun,
   }),
 }));
 
 vi.mock('../logging/logger', () => ({
-  getLogger: () => ({ debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() }),
+  getLogger: () => ({
+    debug: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    warn: serviceMocks.loggerWarn,
+  }),
+}));
+
+vi.mock('./browser-unattended-sqlite-stores', () => ({
+  SqliteCredentialAuthorizationStore: class {},
+  SqliteEscalationRecordStore: class {},
+  SqliteBrowserCampaignStore: class {},
+  SqliteVaultOriginBindingStore: class {
+    put(): void {}
+    get(): undefined { return undefined; }
+  },
 }));
 
 import {
+  getBrowserCredentialVault,
   getBrowserVaultStatus,
   maybeAutoUnlockBrowserCredentialVault,
+  unlockBrowserCredentialVault,
 } from './browser-unattended-services';
 import {
   _resetBrowserCredentialSessionForTesting,
@@ -38,6 +60,12 @@ describe('maybeAutoUnlockBrowserCredentialVault', () => {
   const originalEnv = process.env['AIO_BW_MASTER_PASSWORD_FILE'];
 
   beforeEach(async () => {
+    serviceMocks.bwRun.mockReset().mockResolvedValue({
+      stdout: 'RAW-SESSION\n',
+      stderr: '',
+      code: 0,
+    });
+    serviceMocks.loggerWarn.mockReset();
     _resetBrowserCredentialSessionForTesting();
     delete process.env['AIO_BW_MASTER_PASSWORD_FILE'];
     pwFile = path.join(os.tmpdir(), `aio-test-pw-${process.pid}-${Math.random().toString(36).slice(2)}`);
@@ -87,6 +115,18 @@ describe('maybeAutoUnlockBrowserCredentialVault', () => {
     expect(getBrowserCredentialSession().locked).toBe(false);
   });
 
+  it('shares one in-flight bw unlock across concurrent callers', async () => {
+    settingsMock.values = { browserVaultAutoUnlock: true, browserVaultMasterPasswordFile: pwFile };
+
+    const results = await Promise.all([
+      unlockBrowserCredentialVault(),
+      unlockBrowserCredentialVault(),
+    ]);
+
+    expect(results).toEqual([{ unlocked: true }, { unlocked: true }]);
+    expect(serviceMocks.bwRun).toHaveBeenCalledOnce();
+  });
+
   it('reports shared-tab credential fill in the vault status', () => {
     settingsMock.values = { browserAllowSharedTabCredentialFill: true };
     expect(getBrowserVaultStatus().sharedTabCredentialFillEnabled).toBe(true);
@@ -125,6 +165,12 @@ describe('forced re-unlock', () => {
   let pwFile: string;
 
   beforeEach(async () => {
+    serviceMocks.bwRun.mockReset().mockResolvedValue({
+      stdout: 'RAW-SESSION\n',
+      stderr: '',
+      code: 0,
+    });
+    serviceMocks.loggerWarn.mockReset();
     _resetBrowserCredentialSessionForTesting();
     pwFile = path.join(await fs.mkdtemp(path.join(os.tmpdir(), 'vault-force-')), 'pw.txt');
     await fs.writeFile(pwFile, 'master-password', 'utf8');
@@ -149,5 +195,45 @@ describe('forced re-unlock', () => {
 
     expect(getBrowserVaultStatus().locked).toBe(false);
     expect(getBrowserCredentialSession().getToken()).toBe('RAW-SESSION');
+  });
+});
+
+describe('stale-session reauthentication failure', () => {
+  it('logs only the unlock reason and returns the distinct reason through the shared vault', async () => {
+    const pwFile = path.join(
+      await fs.mkdtemp(path.join(os.tmpdir(), 'vault-reauth-')),
+      'pw.txt',
+    );
+    await fs.writeFile(pwFile, 'master-password', 'utf8');
+    settingsMock.values = {
+      browserVaultAutoUnlock: true,
+      browserVaultMasterPasswordFile: pwFile,
+    };
+    serviceMocks.bwRun
+      .mockResolvedValueOnce({ stdout: '', stderr: 'Vault is locked.', code: 1 })
+      .mockResolvedValueOnce({
+        stdout: '',
+        stderr: 'unlock failed with TEST-ONLY-SECRET-BODY',
+        code: 1,
+      });
+    getBrowserCredentialSession().unlock('STALE-TEST-TOKEN');
+
+    const error = await getBrowserCredentialVault()
+      .enrolExistingCredential({ item: 'item-1', origin: 'https://portal.example.gov.uk' })
+      .catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ code: 'vault_relock_failed:bw_unlock_failed' });
+    expect(serviceMocks.loggerWarn).toHaveBeenCalledWith(
+      'Credential vault re-unlock after a stale session failed',
+      { reason: 'bw_unlock_failed' },
+    );
+    expect(JSON.stringify(serviceMocks.loggerWarn.mock.calls)).not.toContain(
+      'TEST-ONLY-SECRET-BODY',
+    );
+    expect(JSON.stringify(serviceMocks.loggerWarn.mock.calls)).not.toContain(
+      'STALE-TEST-TOKEN',
+    );
+    expect((error as Error).message).not.toContain('TEST-ONLY-SECRET-BODY');
+    await fs.rm(path.dirname(pwFile), { recursive: true, force: true });
   });
 });

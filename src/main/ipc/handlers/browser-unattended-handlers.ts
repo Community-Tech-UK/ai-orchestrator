@@ -269,7 +269,7 @@ function register<TPayload>(
         return {
           success: false,
           error: {
-            code: 'BROWSER_UNATTENDED_FAILED',
+            code: browserUnattendedFailureCode(error),
             message: error instanceof Error ? error.message : String(error),
             timestamp: Date.now(),
           },
@@ -277,4 +277,14 @@ function register<TPayload>(
       }
     },
   );
+}
+
+function browserUnattendedFailureCode(error: unknown): string {
+  if (error instanceof Error && error.name === 'CredentialVaultError') {
+    const code = (error as Error & { code?: unknown }).code;
+    if (typeof code === 'string') {
+      return code;
+    }
+  }
+  return 'BROWSER_UNATTENDED_FAILED';
 }

@@ -7,6 +7,10 @@ type Captured = {
   env: NodeJS.ProcessEnv;
 };
 
+type FakeChild = {
+  stdin: { end: ReturnType<typeof vi.fn> };
+};
+
 type FakeExecArgs = [
   file: string,
   args: string[],
@@ -21,10 +25,12 @@ type FakeExecArgs = [
 function fakeExecFile(
   onCall: (c: Captured) => void,
   outcome: { error?: (Error & { code?: number }) | null; stdout?: string; stderr?: string },
+  child: FakeChild = { stdin: { end: vi.fn() } },
 ) {
-  return (...[file, args, options, callback]: FakeExecArgs): void => {
+  return (...[file, args, options, callback]: FakeExecArgs): FakeChild => {
     onCall({ file, args, env: options.env });
     callback(outcome.error ?? null, outcome.stdout ?? '', outcome.stderr ?? '');
+    return child;
   };
 }
 
@@ -40,11 +46,42 @@ describe('createBwRunner', () => {
     const result = await runner.run(['get', 'item', 'abc'], { session: 'SECRET-SESSION' });
 
     expect(result).toEqual({ stdout: '{"id":"x"}', stderr: '', code: 0 });
-    expect(captured?.args).toEqual(['get', 'item', 'abc']);
+    expect(captured?.args).toEqual(['get', 'item', 'abc', '--nointeraction']);
     // The session must not appear in argv.
     expect(captured?.args.join(' ')).not.toContain('SECRET-SESSION');
     // It must be in the child env.
     expect(captured?.env['BW_SESSION']).toBe('SECRET-SESSION');
+  });
+
+  it('forces unlock and ordinary commands to be non-interactive without duplicating the flag', async () => {
+    const captured: string[][] = [];
+    const runner = createBwRunner({
+      execFileFn: fakeExecFile((call) => captured.push(call.args), { stdout: 'ok' }),
+    });
+
+    await runner.run(['unlock', '--passwordenv', 'BW_PASSWORD', '--raw']);
+    await runner.run(['list', 'folders', '--nointeraction'], { session: 'session' });
+
+    expect(captured).toEqual([
+      ['unlock', '--passwordenv', 'BW_PASSWORD', '--raw', '--nointeraction'],
+      ['list', 'folders', '--nointeraction'],
+    ]);
+  });
+
+  it('closes the child stdin so Bitwarden cannot wait on an interactive prompt', async () => {
+    const end = vi.fn();
+    const runner = createBwRunner({
+      execFileFn: fakeExecFile(
+        () => undefined,
+        { stdout: 'ok' },
+        { stdin: { end } },
+      ),
+    });
+
+    await runner.run(['status']);
+
+    expect(end).toHaveBeenCalledOnce();
+    expect(end).toHaveBeenCalledWith();
   });
 
   it('does not set BW_SESSION when no session is supplied', async () => {

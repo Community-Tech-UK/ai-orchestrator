@@ -20,7 +20,7 @@ type ExecFileFn = (
     stdout: string,
     stderr: string,
   ) => void,
-) => void;
+) => { stdin: { end: () => void } | null };
 
 export interface BwRunnerOptions {
   /** Path to the bw binary. Default 'bw' (resolved from PATH). */
@@ -50,10 +50,13 @@ export function createBwRunner(options: BwRunnerOptions = {}): BwRunner {
         // Session key travels in the child env only — not argv, not logs.
         env['BW_SESSION'] = opts.session;
       }
+      const nonInteractiveArgs = args.includes('--nointeraction')
+        ? [...args]
+        : [...args, '--nointeraction'];
       return new Promise<BwCommandResult>((resolve) => {
-        execFileFn(
+        const child = execFileFn(
           binary,
-          args,
+          nonInteractiveArgs,
           { env, timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024, encoding: 'utf-8' },
           (error, stdout, stderr) => {
             if (error) {
@@ -64,6 +67,9 @@ export function createBwRunner(options: BwRunnerOptions = {}): BwRunner {
             resolve({ stdout: stdout ?? '', stderr: stderr ?? '', code: 0 });
           },
         );
+        // Never leave Bitwarden able to prompt for a master password. The
+        // credential gateway supplies unlock material through child env only.
+        child.stdin?.end();
       });
     },
   };

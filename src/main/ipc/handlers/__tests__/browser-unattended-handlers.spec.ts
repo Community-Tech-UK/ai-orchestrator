@@ -82,6 +82,7 @@ vi.mock('../../../browser-gateway/browser-unattended-services', () => ({
 }));
 
 import { registerBrowserUnattendedHandlers } from '../browser-unattended-handlers';
+import { CredentialVaultError } from '../../../browser-gateway/browser-credential-vault';
 
 const fakeEvent = {};
 
@@ -254,14 +255,20 @@ describe('registerBrowserUnattendedHandlers', () => {
       expect(serviceMocks.credentialVault.enrolExistingCredential).not.toHaveBeenCalled();
     });
 
-    it('surfaces a vault failure as a failed response', async () => {
+    it('surfaces the distinct redacted vault recovery reason as the IPC error code', async () => {
       serviceMocks.credentialVault.enrolExistingCredential.mockRejectedValue(
-        new Error('bw_command_failed'),
+        new CredentialVaultError(
+          'Credential vault re-lock recovery failed (vault_relock_failed:empty_session)',
+          'vault_relock_failed:empty_session',
+        ),
       );
 
       const result = await invoke('browser:enrol-credential', enrolPayload);
 
-      expect(result.success).toBe(false);
+      expect(result).toMatchObject({
+        success: false,
+        error: { code: 'vault_relock_failed:empty_session' },
+      });
     });
 
     it('blocks untrusted senders before touching the credential vault', async () => {

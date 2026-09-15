@@ -638,7 +638,10 @@ describe('stale session recovery', () => {
   // with bw_command_failed until a human clicks Unlock.
   function makeVault(overrides: {
     responses: BwCommandResult[];
-    reauthenticate?: () => Promise<boolean>;
+    reauthenticate?: () => Promise<{
+      unlocked: boolean;
+      reason?: 'empty_password' | 'bw_unlock_failed' | 'empty_session';
+    }>;
   }) {
     const calls: string[][] = [];
     const queue = [...overrides.responses];
@@ -689,7 +692,7 @@ describe('stale session recovery', () => {
       responses: [STALE, OK_FOLDERS, OK_ITEM],
       reauthenticate: async () => {
         reauthCalls += 1;
-        return true;
+        return { unlocked: true };
       },
     });
 
@@ -711,7 +714,7 @@ describe('stale session recovery', () => {
       responses: [notFound],
       reauthenticate: async () => {
         reauthCalls += 1;
-        return true;
+        return { unlocked: true };
       },
     });
 
@@ -723,13 +726,45 @@ describe('stale session recovery', () => {
     expect(reauthCalls).toBe(0);
   });
 
-  it('gives up rather than looping when the re-unlock itself fails', async () => {
+  it('surfaces a redacted reason and gives up when the re-unlock itself fails', async () => {
     let reauthCalls = 0;
+    const secretBearingFailure: BwCommandResult = {
+      stdout: '',
+      stderr: 'Vault is locked. encoded-item=TEST-ONLY-SECRET-BODY',
+      code: 1,
+    };
     const { vault } = makeVault({
-      responses: [STALE, STALE, STALE],
+      responses: [secretBearingFailure, STALE, STALE],
       reauthenticate: async () => {
         reauthCalls += 1;
-        return false;
+        return { unlocked: false, reason: 'empty_password' };
+      },
+    });
+
+    const error = await vault.getSecretForFill({
+      vaultItemRef: 'item-1',
+      origin: 'https://portal.example.gov.uk',
+      kind: 'password',
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ code: 'vault_relock_failed:empty_password' });
+    expect((error as Error).message).toContain('vault_relock_failed:empty_password');
+    expect((error as Error).message).not.toContain('TEST-ONLY-SECRET-BODY');
+    expect(reauthCalls).toBe(1);
+  });
+
+  it('recovers from the prompt/readline failure even when the buggy CLI reports exit zero', async () => {
+    let reauthCalls = 0;
+    const promptCrash: BwCommandResult = {
+      stdout: '',
+      stderr: '? Master password: [input is hidden]\nError [ERR_USE_AFTER_CLOSE]: readline was closed',
+      code: 0,
+    };
+    const { vault, calls } = makeVault({
+      responses: [promptCrash, OK_FOLDERS, OK_ITEM],
+      reauthenticate: async () => {
+        reauthCalls += 1;
+        return { unlocked: true };
       },
     });
 
@@ -737,7 +772,50 @@ describe('stale session recovery', () => {
       vaultItemRef: 'item-1',
       origin: 'https://portal.example.gov.uk',
       kind: 'password',
-    })).rejects.toThrow(/bw .* failed/);
+    })).resolves.toBe('the-secret');
+
+    expect(reauthCalls).toBe(1);
+    expect(calls[0]).toEqual(calls[1]);
+  });
+
+  it('never reauthenticates more than once when the retried command is still stale', async () => {
+    let reauthCalls = 0;
+    const { vault } = makeVault({
+      responses: [STALE, STALE],
+      reauthenticate: async () => {
+        reauthCalls += 1;
+        return { unlocked: true };
+      },
+    });
+
+    await expect(vault.getSecretForFill({
+      vaultItemRef: 'item-1',
+      origin: 'https://portal.example.gov.uk',
+      kind: 'password',
+    })).rejects.toMatchObject({ code: 'bw_command_failed' });
+    expect(reauthCalls).toBe(1);
+  });
+
+  it('reports command failure when the retried CLI prompt again exits zero', async () => {
+    let reauthCalls = 0;
+    const promptCrash: BwCommandResult = {
+      stdout: '',
+      stderr: '? Master password: [input is hidden]\nError [ERR_USE_AFTER_CLOSE]: readline was closed',
+      code: 0,
+    };
+    const { vault } = makeVault({
+      responses: [promptCrash, promptCrash],
+      reauthenticate: async () => {
+        reauthCalls += 1;
+        return { unlocked: true };
+      },
+    });
+
+    await expect(vault.getSecretForFill({
+      vaultItemRef: 'item-1',
+      origin: 'https://portal.example.gov.uk',
+      kind: 'password',
+    })).rejects.toMatchObject({ code: 'bw_command_failed' });
     expect(reauthCalls).toBe(1);
   });
 });
@@ -750,6 +828,7 @@ describe('isStaleSessionFailure', () => {
       'Session key is invalid.',
       'Invalid session',
       'Error: mac failed.',
+      '? Master password: [input is hidden]\nError [ERR_USE_AFTER_CLOSE]: readline was closed',
     ]) {
       expect(isStaleSessionFailure({ stdout: '', stderr, code: 1 }), stderr).toBe(true);
     }

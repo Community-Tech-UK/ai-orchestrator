@@ -6,6 +6,7 @@ import {
   type FillOperationDeps,
 } from './browser-form-fill-operations';
 import type { BrowserGatewayFillCredentialRequest } from './browser-gateway-service-types';
+import { CredentialVaultError } from './browser-credential-vault';
 
 const ORIGIN = 'https://portal.in-tendhost.co.uk';
 
@@ -217,5 +218,48 @@ describe('fillCredentialOperation authorization denial', () => {
     expect(result.reason).toContain(`--origin ${liveOrigin}`);
     expect(deps.credentialVault?.getSecretForFill).not.toHaveBeenCalled();
     expect(deps.driverType).not.toHaveBeenCalled();
+  });
+});
+
+describe('fillCredentialOperation vault recovery failure', () => {
+  it('returns the distinct redacted re-lock reason to the browser caller', async () => {
+    const driverType = vi.fn();
+    const deps: FillOperationDeps = {
+      result: (<T>(input: unknown) => input as BrowserGatewayResult<T>) as FillOperationDeps['result'],
+      hasExistingTab: () => false,
+      type: vi.fn(),
+      select: vi.fn(),
+      click: vi.fn(),
+      readControl: vi.fn(),
+      driverType,
+      refreshTargetOrigin: vi.fn(async () => ORIGIN),
+      credentialVault: {
+        getSecretForFill: vi.fn(async () => {
+          throw new CredentialVaultError(
+            'Credential vault re-lock recovery failed (vault_relock_failed:empty_password)',
+            'vault_relock_failed:empty_password',
+          );
+        }),
+        createAgentCredential: vi.fn(),
+        getGenericSecretForFill: vi.fn(),
+      },
+      credentialAuthorizations: {
+        check: vi.fn(() => ({ authorized: true as const })),
+      },
+    };
+
+    const result = await fillCredentialOperation(deps, {
+      profileId: 'managed-profile',
+      targetId: 'target-1',
+      vaultItemRef: 'opaque-vault-ref',
+      fields: [{ selector: '#password', kind: 'password' }],
+    });
+
+    expect(result).toMatchObject({
+      decision: 'denied',
+      outcome: 'failed',
+      reason: 'vault_relock_failed:empty_password',
+    });
+    expect(driverType).not.toHaveBeenCalled();
   });
 });
