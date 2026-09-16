@@ -60,6 +60,7 @@
       "@contracts/schemas/campaign":         ["./packages/contracts/src/schemas/campaign.schemas"],
       "@contracts/schemas/doc-review":       ["./packages/contracts/src/schemas/doc-review.schemas"],
       "@contracts/schemas/rlm-maintenance":  ["./packages/contracts/src/schemas/rlm-maintenance.schemas"],
+      "@contracts/schemas/rtk":              ["./packages/contracts/src/schemas/rtk.schemas"],
       "@contracts/schemas/context-evidence": ["./packages/contracts/src/schemas/context-evidence.schemas"],
       "@contracts/schemas/workboard":        ["./packages/contracts/src/schemas/workboard.schemas"],
       "@contracts/channels/automation":      ["./packages/contracts/src/channels/automation.channels"],

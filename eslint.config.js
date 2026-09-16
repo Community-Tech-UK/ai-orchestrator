@@ -71,6 +71,24 @@ module.exports = defineConfig([
     },
   },
   {
+    // Main process always has getLogger() available and no DevTools console to
+    // benefit from — bare console.* there is always an inconsistency, not a
+    // legitimate debugging surface. Ban all four methods, with narrow
+    // exceptions for the logger's own console sink, the pre-logger-init
+    // bootstrap fallback, and human-readable load-test/benchmark output.
+    files: ["src/main/**/*.ts"],
+    ignores: [
+      "src/main/logging/logger.ts",
+      "src/main/main-process-entry.ts",
+      "src/main/**/__tests__/**",
+      "src/main/**/benchmarks/**",
+      "src/main/**/*.spec.ts",
+    ],
+    rules: {
+      "no-console": "error",
+    },
+  },
+  {
     files: ["**/*.html"],
     extends: [
       angular.configs.templateRecommended,
