@@ -39,6 +39,13 @@ export interface CliSystemMessage extends CliStreamMessageBase {
   content?: string;
   session_id?: string;
   usage?: CliContextUsage;
+  /** Claude `init`: per-server MCP connection outcome (`connected`, `failed`, ...). */
+  mcp_servers?: CliMcpServerStatus[];
+}
+
+export interface CliMcpServerStatus {
+  name: string;
+  status: string;
 }
 
 /**

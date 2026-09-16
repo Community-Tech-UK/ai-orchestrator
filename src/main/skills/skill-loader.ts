@@ -17,6 +17,9 @@ import {
   validateSkillName,
   type SkillIgnoreMatcher,
 } from './skill-spec';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('SkillLoader');
 
 const MAX_CACHED_SKILLS = 50;
 
@@ -65,7 +68,7 @@ export class SkillLoader extends EventEmitter {
             const skillPath = path.join(searchPath, entry.name);
             const resolvedPath = path.resolve(skillPath);
             if (!resolvedPath.startsWith(path.resolve(searchPath) + path.sep)) {
-              console.warn('Blocked path traversal in skill directory', { skillPath, searchPath });
+              logger.warn('Blocked path traversal in skill directory', { skillPath, searchPath });
               continue;
             }
             const bundle = await this.loadSkillBundle(skillPath);
@@ -101,7 +104,7 @@ export class SkillLoader extends EventEmitter {
       // out the rest.
       const nameCheck = validateSkillName(metadata.name);
       if (!nameCheck.ok) {
-        console.warn('Skipping skill with invalid name', {
+        logger.warn('Skipping skill with invalid name', {
           skillPath,
           name: metadata.name,
           reason: nameCheck.reason,

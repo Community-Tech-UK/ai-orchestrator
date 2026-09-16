@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import type { IpcMainInvokeEvent } from 'electron';
+import { ipcMain, type IpcMainInvokeEvent } from 'electron';
+import type { ErrorInfo } from '@contracts/types/transport';
 import { getLogger } from '../logging/logger';
 
 const logger = getLogger('IPC');
@@ -7,7 +8,7 @@ const logger = getLogger('IPC');
 export interface IpcResponse<T = unknown> {
   success: boolean;
   data?: T;
-  error?: { code: string; message: string; timestamp: number };
+  error?: ErrorInfo;
 }
 
 export interface ValidatedHandlerOptions {
@@ -61,4 +62,17 @@ export function validatedHandler<TInput, TOutput = unknown>(
       };
     }
   };
+}
+
+/**
+ * Shared IPC registration: trust check + Zod validation + structured errors.
+ * New channels should use this instead of a local `ipcMain.handle` wrapper.
+ */
+export function registerValidatedIpcHandler<TInput, TOutput = unknown>(
+  channel: string,
+  schema: z.ZodSchema<TInput>,
+  fn: (validated: TInput, event: IpcMainInvokeEvent) => Promise<IpcResponse<TOutput>>,
+  options: ValidatedHandlerOptions = {},
+): void {
+  ipcMain.handle(channel, validatedHandler(channel, schema, fn, options));
 }

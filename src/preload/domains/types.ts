@@ -9,5 +9,6 @@ export interface IpcResponse<T = unknown> {
     code: string;
     message: string;
     timestamp: number;
+    candidates?: string[];
   };
 }

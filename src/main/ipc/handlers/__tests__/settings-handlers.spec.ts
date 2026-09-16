@@ -185,6 +185,16 @@ describe('settings-handlers policy validation', () => {
     });
   });
 
+  it('rejects a flat SETTINGS_UPDATE payload without a settings object', async () => {
+    const result = await invoke(IPC_CHANNELS.SETTINGS_UPDATE, {
+      theme: 'light',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('SETTINGS_UPDATE_FAILED');
+    expect(settingsMocks.update).not.toHaveBeenCalled();
+  });
+
   it('rejects unknown keys before bulk IPC SETTINGS_UPDATE writes', async () => {
     const result = await invoke(IPC_CHANNELS.SETTINGS_UPDATE, {
       settings: {

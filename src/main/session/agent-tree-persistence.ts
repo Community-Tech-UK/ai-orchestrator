@@ -20,6 +20,11 @@ import { getProjectStoragePaths } from '../storage/project-storage-paths';
 
 const logger = getLogger('AgentTreePersistence');
 
+/** True when the error is Node's "path does not exist" — an expected, silent case here. */
+function isEnoent(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as { code?: string }).code === 'ENOENT';
+}
+
 interface InstanceData {
   id: string;
   displayName: string;
@@ -68,7 +73,13 @@ export class AgentTreePersistence {
     let projects: string[] = [];
     try {
       projects = await fs.readdir(projectsRoot);
-    } catch {
+    } catch (error) {
+      if (!isEnoent(error)) {
+        logger.warn('Failed to list projects root while searching for snapshot', {
+          snapshotId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
       return null;
     }
 
@@ -289,7 +300,12 @@ export class AgentTreePersistence {
     let projects: string[] = [];
     try {
       projects = await fs.readdir(projectsRoot);
-    } catch {
+    } catch (error) {
+      if (!isEnoent(error)) {
+        logger.warn('Failed to list projects root while listing snapshots', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
       return [];
     }
 
@@ -298,7 +314,13 @@ export class AgentTreePersistence {
       let files: string[] = [];
       try {
         files = await fs.readdir(storagePath);
-      } catch {
+      } catch (error) {
+        if (!isEnoent(error)) {
+          logger.warn('Failed to list agent-trees directory', {
+            project,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
         continue;
       }
 
@@ -308,7 +330,16 @@ export class AgentTreePersistence {
           const data = await fs.readFile(path.join(storagePath, file), 'utf-8');
           const snap = JSON.parse(data) as AgentTreeSnapshot;
           snapshots.push({ id: snap.id, rootId: snap.rootId, totalInstances: snap.totalInstances, timestamp: snap.timestamp });
-        } catch { /* skip corrupted */ }
+        } catch (error) {
+          // Not an expected-missing case (file was just listed) -- this is a
+          // real corrupted/unreadable snapshot, so surface it instead of
+          // silently dropping evidence of data loss.
+          logger.warn('Skipping corrupted or unreadable agent-tree snapshot file', {
+            project,
+            file,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
     }
     return snapshots.sort((a, b) => b.timestamp - a.timestamp);

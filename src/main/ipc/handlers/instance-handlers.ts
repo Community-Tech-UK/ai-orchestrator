@@ -10,7 +10,6 @@ import { getIdempotencyStore, IdempotencyStore } from '../../transport/idempoten
 import { registerInstanceProviderLimitHandlers } from './instance-provider-limit-ipc';
 import { IPC_CHANNELS } from '@contracts/channels';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
-import type { FileAttachment } from '../../../shared/types/instance.types';
 import { validateIpcPayload } from '@contracts/schemas/common';
 import {
   InputRequiredResponsePayloadSchema,
@@ -36,7 +35,11 @@ import {
 import { InstanceManager } from '../../instance/instance-manager';
 import { WindowManager } from '../../window-manager';
 import { getSettingsManager } from '../../core/config/settings-manager';
-import { resolveDefaultWorkingDirectory } from './instance-handlers-utils';
+import {
+  resolveDefaultWorkingDirectory,
+  toFileAttachments,
+  toInstanceProvider,
+} from './instance-handlers-utils';
 import { getRemoteObserverServer } from '../../remote/observer-server';
 import { getSelfPermissionGranter } from '../../security/self-permission-granter';
 import { getPauseCoordinator } from '../../pause/pause-coordinator';
@@ -96,11 +99,11 @@ export function registerInstanceHandlers(deps: {
           parentId: validatedPayload.parentInstanceId,
           displayName: validatedPayload.displayName,
           initialPrompt: validatedPayload.initialPrompt,
-          attachments: validatedPayload.attachments as import('../../../shared/types/instance.types').FileAttachment[] | undefined,
+          attachments: toFileAttachments(validatedPayload.attachments),
           yoloMode: validatedPayload.yoloMode,
           launchMode: validatedPayload.launchMode,
           agentId: validatedPayload.agentId,
-          provider: validatedPayload.provider as import('../../../shared/types/instance.types').InstanceProvider | undefined,
+          provider: toInstanceProvider(validatedPayload.provider),
           modelOverride: validatedPayload.model,
           reasoningEffort: validatedPayload.reasoningEffort,
           modelRuntimeTarget: validatedPayload.modelRuntimeTarget,
@@ -153,7 +156,7 @@ export function registerInstanceHandlers(deps: {
         );
         const workingDirectory = resolveDefaultWorkingDirectory(validated.workingDirectory);
 
-        const attachments = validated.attachments as FileAttachment[] | undefined;
+        const attachments = toFileAttachments(validated.attachments);
 
         if (validated.idempotencyKey) {
           const cache = getInstanceCreateIdempotencyCache();
@@ -227,7 +230,7 @@ export function registerInstanceHandlers(deps: {
         await instanceManager.sendInput(
           validatedPayload.instanceId,
           validatedPayload.message,
-          validatedPayload.attachments as import('../../../shared/types/instance.types').FileAttachment[] | undefined,
+          toFileAttachments(validatedPayload.attachments),
           { isRetry: validatedPayload.isRetry }
         );
 
@@ -269,7 +272,7 @@ export function registerInstanceHandlers(deps: {
         await instanceManager.steerInput(
           validatedPayload.instanceId,
           validatedPayload.message,
-          validatedPayload.attachments as import('../../../shared/types/instance.types').FileAttachment[] | undefined,
+          toFileAttachments(validatedPayload.attachments),
         );
 
         return { success: true };

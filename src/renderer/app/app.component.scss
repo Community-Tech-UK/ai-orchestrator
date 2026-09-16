@@ -44,7 +44,10 @@
   gap: 6px;
   padding: 4px 6px;
   max-width: calc(100vw - 120px);
-  overflow-x: auto;
+  /* No `overflow` here: a non-visible overflow on either axis turns this pill
+   * into a clip box and hides every dropdown anchored below it (provider quota,
+   * notifications). Width pressure is absorbed by the quota chip's own
+   * scrollable strip instead (see the rule below). */
   background: var(--bg-elevated);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-full);
@@ -58,6 +61,12 @@
 
 .title-bar-overlay app-local-ai-status-chip {
   display: inline-flex;
+}
+
+/* The quota chip is the one widget allowed to shrink below its content; its
+ * provider strip scrolls horizontally when the window is narrow. */
+.title-bar-overlay app-provider-quota-chip {
+  min-width: 0;
 }
 
 /* On Windows the native minimise/maximise/close controls live in the top-right

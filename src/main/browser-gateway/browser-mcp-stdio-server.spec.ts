@@ -1,3 +1,8 @@
+import { execFile } from 'node:child_process';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { promisify } from 'node:util';
 import { describe, expect, it, vi } from 'vitest';
 import type { BrowserGatewayRpcClientLike } from './browser-gateway-rpc-client';
 import {
@@ -9,6 +14,8 @@ import {
   BROWSER_GATEWAY_RPC_PROTOCOL_VERSION,
   computeBrowserToolSurfaceHash,
 } from './browser-rpc-contract';
+
+const execFileAsync = promisify(execFile);
 
 describe('fetchPreviouslyRevealedToolNames', () => {
   it('returns the parent-recorded revealed names', async () => {
@@ -63,6 +70,43 @@ describe('fetchPreviouslyRevealedToolNames', () => {
       restored: true,
       attempts: 2,
     });
+  }, 20_000);
+
+  it('keeps the process alive when an abandoned attempt is answered during the retry delay', async () => {
+    // Must run in a real child process: the defect was the event loop draining
+    // (exit 0, no output), which the test runner's own handles would mask.
+    const dir = await mkdtemp(join(tmpdir(), 'bg-restore-drain-'));
+    const probe = join(dir, 'probe.ts');
+    await writeFile(probe, [
+      `import { fetchPreviouslyRevealedToolNames } from ${JSON.stringify(
+        resolve(__dirname, 'browser-mcp-stdio-server.ts'),
+      )};`,
+      'let calls = 0;',
+      'const client = {',
+      '  call: () => {',
+      '    calls += 1;',
+      // First reply lands after the 2s attempt timeout, inside the retry delay —
+      // the window a main-process stall produced in production. Not jitter
+      // sensitive: Node fires expired timers in expiry order (2000 < 2100 <
+      // ~2250 for the delay) with microtasks drained between callbacks.
+      '    if (calls === 1) return new Promise((r) => setTimeout(() => r({ revealedNames: [] }), 2_100));',
+      "    return Promise.resolve({ revealedNames: ['browser.health'] });",
+      '  },',
+      '};',
+      'void fetchPreviouslyRevealedToolNames(client)',
+      '  .then((result) => console.log(`RESULT ${JSON.stringify(result)}`));',
+    ].join('\n'));
+    try {
+      const { stdout } = await execFileAsync(process.execPath, ['--import', 'tsx', probe], {
+        cwd: resolve(__dirname, '../../..'),
+        timeout: 15_000,
+      });
+      expect(stdout).toContain(
+        'RESULT {"names":["browser.health"],"restored":true,"attempts":2}',
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   }, 20_000);
 
   it('filters non-string entries defensively', async () => {

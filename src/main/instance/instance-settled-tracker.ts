@@ -29,6 +29,8 @@ export interface InstanceSettledTrackerDeps {
   getInstance: (id: string) => Instance | undefined;
   emitter: Pick<EventEmitter, 'emit' | 'on' | 'off'>;
   debounceMs?: number;
+  /** Optional direct callback invoked synchronously alongside the emitted event. */
+  onSettled?: (event: InstanceSettledEvent) => void;
 }
 
 export class InstanceSettledTracker {
@@ -84,14 +86,16 @@ export class InstanceSettledTracker {
     }
     this.settledLastEmittedKey.set(instanceId, emittedKey);
 
-    this.deps.emitter.emit('instance:settled', {
+    const event: InstanceSettledEvent = {
       instanceId,
       status: instance.status,
       timestamp: now,
       instance,
       outputMessageId: output?.id,
       outputTimestamp: output?.timestamp,
-    } satisfies InstanceSettledEvent);
+    };
+    this.deps.emitter.emit('instance:settled', event);
+    this.deps.onSettled?.(event);
   }
 
   clear(instanceId: string): void {

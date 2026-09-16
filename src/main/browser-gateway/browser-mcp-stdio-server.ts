@@ -23,6 +23,14 @@ const REVEAL_RESTORE_ATTEMPT_TIMEOUT_MS = 2_000;
 const REVEAL_RESTORE_ATTEMPTS = 3;
 const REVEAL_RESTORE_RETRY_DELAY_MS = 250;
 
+// The restore timers below are deliberately NOT unref'd. The forwarder does not
+// read stdin until the restore finishes, so during the restore these timers can
+// be the only thing keeping the process alive. An abandoned attempt that got its
+// reply late (a main-process stall) closes its socket and clears its own timer;
+// with unref'd timers the event loop then drained and the forwarder exited 0
+// silently before ever answering `initialize`. Claude CLI never retries a server
+// that closed, so the session lost Browser Gateway until it was respawned.
+
 export interface RevealRestoreOutcome {
   names: string[];
   /**
@@ -66,7 +74,6 @@ async function attemptRevealRestore(
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<typeof TIMED_OUT>((resolve) => {
     timer = setTimeout(() => resolve(TIMED_OUT), REVEAL_RESTORE_ATTEMPT_TIMEOUT_MS);
-    timer.unref?.();
   });
   try {
     const result = await Promise.race([
@@ -96,7 +103,7 @@ const TIMED_OUT = Symbol('reveal_restore_timeout');
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
-    setTimeout(resolve, ms).unref?.();
+    setTimeout(resolve, ms);
   });
 }
 

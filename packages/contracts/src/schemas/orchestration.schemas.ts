@@ -110,6 +110,25 @@ export const SupervisionHandleFailurePayloadSchema = z.object({
   error: z.string().max(10000),
 });
 
+export const SupervisionWorkerEventSchema = z.object({
+  instanceId: z.string().min(1).optional(),
+}).passthrough();
+
+export const SupervisionCircuitBreakerEventSchema = z.object({}).passthrough();
+
+export const SupervisionHealthChangedEventSchema = z.object({}).passthrough();
+
+export const SupervisionHealthGlobalEventSchema = z.object({
+  timestamp: z.number(),
+  totalWorkers: z.number().int().nonnegative(),
+  totalInstances: z.number().int().nonnegative(),
+}).passthrough();
+
+export const SupervisionTreeUpdatedEventSchema = z.object({
+  type: z.enum(['instance-registered', 'instance-unregistered']),
+  instanceId: z.string().min(1),
+}).passthrough();
+
 // ============ Worktree & Verification Payloads ============
 
 export const WorktreeCreatePayloadSchema = z.object({

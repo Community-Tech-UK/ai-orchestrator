@@ -86,16 +86,28 @@ export function setupIpcEventForwarding(deps: IpcRuntimeWiringDeps): void {
   setupAutomationEventForwarding(deps.windowManager);
 }
 
-export function serializeInstanceForIpc(instance: unknown): Record<string, unknown> {
-  const record = (
+const INSTANCE_IPC_OMITTED_KEYS = [
+  'readyPromise',
+  'respawnPromise',
+  'abortController',
+] as const;
+
+export type InstanceIpcOmittedKey = (typeof INSTANCE_IPC_OMITTED_KEYS)[number];
+
+export type SerializedInstanceForIpc = {
+  [key: string]: unknown;
+  communicationTokens?: Record<string, unknown>;
+};
+
+export function serializeInstanceForIpc(instance: unknown): SerializedInstanceForIpc {
+  const record: Record<string, unknown> =
     typeof instance === 'object' && instance !== null
       ? { ...(instance as Record<string, unknown>) }
-      : {}
-  ) as Record<string, unknown>;
+      : {};
   const communicationTokens = record['communicationTokens'];
-  delete record['readyPromise'];
-  delete record['respawnPromise'];
-  delete record['abortController'];
+  for (const key of INSTANCE_IPC_OMITTED_KEYS) {
+    delete record[key];
+  }
 
   return {
     ...record,

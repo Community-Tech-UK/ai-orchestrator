@@ -1,13 +1,13 @@
 import {
   Component,
   ChangeDetectionStrategy,
-  Input,
-  OnChanges,
   OnDestroy,
-  SimpleChanges,
   computed,
+  effect,
   inject,
+  input,
   signal,
+  untracked,
 } from '@angular/core';
 import {
   ComposerAutocompleteService,
@@ -121,26 +121,30 @@ export interface ComposerCompletionQuery {
   providers: [ComposerAutocompleteService],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ComposerAutocompleteComponent implements OnChanges, OnDestroy {
+export class ComposerAutocompleteComponent implements OnDestroy {
   private readonly autocomplete = inject(ComposerAutocompleteService);
   private searchGeneration = 0;
   private unbindTextarea: (() => void) | null = null;
 
-  @Input() textarea: HTMLTextAreaElement | null = null;
-  @Input() workspaceCwd: string | null = null;
+  readonly textarea = input<HTMLTextAreaElement | null>(null);
+  readonly workspaceCwd = input<string | null>(null);
   protected readonly query = signal<ComposerCompletionQuery | null>(null);
   protected readonly items = signal<ComposerCompletionItem[]>([]);
   protected readonly selectedIndex = signal(0);
   protected readonly isOpen = computed(() => this.query()?.kind === 'file' && this.items().length > 0);
 
-  ngOnChanges(changes: SimpleChanges): void {
-    if (changes['textarea']) {
-      this.bindTextarea(this.textarea);
-      return;
-    }
-    if (changes['workspaceCwd'] && this.textarea) {
-      void this.refreshFromTextarea(this.textarea);
-    }
+  constructor() {
+    effect(() => {
+      const textarea = this.textarea();
+      untracked(() => this.bindTextarea(textarea));
+    });
+    effect(() => {
+      this.workspaceCwd();
+      const textarea = untracked(() => this.textarea());
+      if (textarea) {
+        void this.refreshFromTextarea(textarea);
+      }
+    });
   }
 
   ngOnDestroy(): void {
@@ -153,7 +157,7 @@ export class ComposerAutocompleteComponent implements OnChanges, OnDestroy {
   }
 
   protected acceptItem(item: ComposerCompletionItem): void {
-    const textarea = this.textarea;
+    const textarea = this.textarea();
     if (!textarea) return;
     this.acceptCompletion(textarea, item);
   }
@@ -231,7 +235,7 @@ export class ComposerAutocompleteComponent implements OnChanges, OnDestroy {
     }
 
     const generation = ++this.searchGeneration;
-    const items = await this.autocomplete.searchFiles(query.query, this.workspaceCwd);
+    const items = await this.autocomplete.searchFiles(query.query, this.workspaceCwd());
 
     if (generation !== this.searchGeneration) return;
 

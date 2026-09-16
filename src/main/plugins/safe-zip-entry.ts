@@ -29,7 +29,9 @@ export class UnsafeZipEntryError extends Error {
  * 421-423 and 605-618. It does *not* inspect symlink entries, and extract-zip
  * creates them with `fs.symlink` without validating the target, so `evil -> /`
  * followed by `evil/etc/passwd` escapes `destDir` even though neither name is
- * itself invalid. That is the advisory, and rejecting symlinks closes it.
+ * itself invalid. That is the advisory, and rejecting symlinks closes it. It
+ * also closes GHSA-7pqw-9j4j-h8q3, where a symlink entry is followed by a
+ * regular file of the same name that extract-zip then writes through.
  *
  * The name checks below duplicate yauzl's and are kept deliberately: they cost
  * nothing, they document the full threat model at the point of use, and they

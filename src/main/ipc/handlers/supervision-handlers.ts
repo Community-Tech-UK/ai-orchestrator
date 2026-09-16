@@ -8,12 +8,21 @@ import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
 import { getSupervisorTree } from '../../process';
 import { validateIpcPayload } from '@contracts/schemas/common';
 import {
+  SupervisionCircuitBreakerEventSchema,
   SupervisionCreateTreePayloadSchema,
   SupervisionGetTreePayloadSchema,
   SupervisionHandleFailurePayloadSchema,
+  SupervisionHealthChangedEventSchema,
+  SupervisionHealthGlobalEventSchema,
+  SupervisionTreeUpdatedEventSchema,
+  SupervisionWorkerEventSchema,
 } from '@contracts/schemas/orchestration';
 import { getCircuitBreakerRegistry } from '../../process/circuit-breaker';
 import { getMainEventBus } from '../../event-bus/main-event-bus';
+import { getLogger } from '../../logging/logger';
+import { z } from 'zod';
+
+const logger = getLogger('SupervisionHandlers');
 
 export function registerSupervisionHandlers(): void {
   const supervisorTree = getSupervisorTree();
@@ -247,51 +256,65 @@ function setupSupervisionEventForwarding(): void {
   const supervisorTree = getSupervisorTree();
   const eventBus = getMainEventBus();
 
-  const forwardToRenderer = (channel: string, data: any) => {
-    eventBus.emitRendererEvent(channel, data);
+  const forwardToRenderer = (
+    channel: string,
+    schema: z.ZodType<unknown>,
+    data: unknown,
+  ): void => {
+    const parsed = schema.safeParse(data);
+    if (!parsed.success) {
+      logger.warn('Dropped invalid supervision renderer event', {
+        channel,
+        issues: parsed.error.issues.map((issue) => issue.message),
+      });
+      return;
+    }
+    eventBus.emitRendererEvent(channel, parsed.data);
   };
 
-  // Forward worker events
-  supervisorTree.on('worker:started', (data) => {
-    forwardToRenderer(IPC_CHANNELS.SUPERVISION_WORKER_RESTARTED, data);
+  supervisorTree.on('worker:started', (data: unknown) => {
+    forwardToRenderer(IPC_CHANNELS.SUPERVISION_WORKER_RESTARTED, SupervisionWorkerEventSchema, data);
   });
 
-  supervisorTree.on('worker:failed', (data) => {
-    forwardToRenderer(IPC_CHANNELS.SUPERVISION_WORKER_FAILED, data);
+  supervisorTree.on('worker:failed', (data: unknown) => {
+    forwardToRenderer(IPC_CHANNELS.SUPERVISION_WORKER_FAILED, SupervisionWorkerEventSchema, data);
   });
 
-  supervisorTree.on('worker:restarting', (data) => {
-    forwardToRenderer(IPC_CHANNELS.SUPERVISION_WORKER_RESTARTED, data);
+  supervisorTree.on('worker:restarting', (data: unknown) => {
+    forwardToRenderer(IPC_CHANNELS.SUPERVISION_WORKER_RESTARTED, SupervisionWorkerEventSchema, data);
   });
 
-  supervisorTree.on('circuit-breaker:state-change', (data) => {
-    forwardToRenderer(IPC_CHANNELS.SUPERVISION_CIRCUIT_BREAKER_CHANGED, data);
+  supervisorTree.on('circuit-breaker:state-change', (data: unknown) => {
+    forwardToRenderer(
+      IPC_CHANNELS.SUPERVISION_CIRCUIT_BREAKER_CHANGED,
+      SupervisionCircuitBreakerEventSchema,
+      data,
+    );
   });
 
-  supervisorTree.on('supervision:exhausted', (data) => {
-    forwardToRenderer(IPC_CHANNELS.SUPERVISION_EXHAUSTED, data);
+  supervisorTree.on('supervision:exhausted', (data: unknown) => {
+    forwardToRenderer(IPC_CHANNELS.SUPERVISION_EXHAUSTED, SupervisionWorkerEventSchema, data);
   });
 
-  supervisorTree.on('health:changed', (data) => {
-    forwardToRenderer(IPC_CHANNELS.SUPERVISION_HEALTH_CHANGED, data);
+  supervisorTree.on('health:changed', (data: unknown) => {
+    forwardToRenderer(IPC_CHANNELS.SUPERVISION_HEALTH_CHANGED, SupervisionHealthChangedEventSchema, data);
   });
 
-  supervisorTree.on('health:global', (data) => {
-    forwardToRenderer(IPC_CHANNELS.SUPERVISION_HEALTH_GLOBAL, data);
+  supervisorTree.on('health:global', (data: unknown) => {
+    forwardToRenderer(IPC_CHANNELS.SUPERVISION_HEALTH_GLOBAL, SupervisionHealthGlobalEventSchema, data);
   });
 
-  // Forward tree structure changes
-  supervisorTree.on('instance:registered', (data) => {
-    forwardToRenderer(IPC_CHANNELS.SUPERVISION_TREE_UPDATED, {
+  supervisorTree.on('instance:registered', (data: unknown) => {
+    forwardToRenderer(IPC_CHANNELS.SUPERVISION_TREE_UPDATED, SupervisionTreeUpdatedEventSchema, {
       type: 'instance-registered',
-      ...data,
+      ...(typeof data === 'object' && data !== null ? data : {}),
     });
   });
 
-  supervisorTree.on('instance:unregistered', (data) => {
-    forwardToRenderer(IPC_CHANNELS.SUPERVISION_TREE_UPDATED, {
+  supervisorTree.on('instance:unregistered', (data: unknown) => {
+    forwardToRenderer(IPC_CHANNELS.SUPERVISION_TREE_UPDATED, SupervisionTreeUpdatedEventSchema, {
       type: 'instance-unregistered',
-      ...data,
+      ...(typeof data === 'object' && data !== null ? data : {}),
     });
   });
 }

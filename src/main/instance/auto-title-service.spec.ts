@@ -235,6 +235,103 @@ describe('AutoTitleService', () => {
     });
   });
 
+  describe('maybeUpgradeTitleWithFirstReply', () => {
+    it('is a no-op when the instance never had a Phase 1/2 title generated', async () => {
+      const applyTitle = vi.fn();
+      await AutoTitleService.getInstance().maybeUpgradeTitleWithFirstReply(
+        'instance-never-titled',
+        'Turns out the deploy script had a hardcoded staging URL.',
+        applyTitle,
+      );
+      expect(applyTitle).not.toHaveBeenCalled();
+      expect(mockCreateAdapter).not.toHaveBeenCalled();
+    });
+
+    it('retitles using the opening message plus the assistant reply once the first turn settles', async () => {
+      mockIsCliAvailable.mockResolvedValue({ installed: true });
+      mockResolveCliType.mockResolvedValue('claude');
+
+      await AutoTitleService.getInstance().maybeGenerateTitle(
+        'instance-1',
+        'fix this issue',
+        vi.fn(),
+        false,
+      );
+      // Phase 2 used the vague opener as the only signal available at the time.
+      expect(mockSendMessage).toHaveBeenCalledWith(expect.objectContaining({
+        content: expect.stringContaining('fix this issue'),
+      }));
+      mockSendMessage.mockClear();
+
+      mockSendMessage.mockResolvedValue({ content: 'Deploy script hardcoded staging URL' });
+      const applyTitle = vi.fn();
+      await AutoTitleService.getInstance().maybeUpgradeTitleWithFirstReply(
+        'instance-1',
+        'Turns out the deploy script had a hardcoded staging URL.',
+        applyTitle,
+      );
+
+      expect(applyTitle).toHaveBeenCalledWith('instance-1', 'Deploy script hardcoded staging URL', 'ai');
+      expect(mockSendMessage).toHaveBeenCalledWith(expect.objectContaining({
+        content: expect.stringContaining('fix this issue'),
+      }));
+      expect(mockSendMessage).toHaveBeenCalledWith(expect.objectContaining({
+        content: expect.stringContaining('Turns out the deploy script had a hardcoded staging URL.'),
+      }));
+    });
+
+    it('is single-shot — a second settle on the same instance is a no-op', async () => {
+      mockIsCliAvailable.mockResolvedValue({ installed: true });
+      mockResolveCliType.mockResolvedValue('claude');
+      await AutoTitleService.getInstance().maybeGenerateTitle('instance-1', 'fix this issue', vi.fn(), false);
+
+      const firstApplyTitle = vi.fn();
+      await AutoTitleService.getInstance().maybeUpgradeTitleWithFirstReply(
+        'instance-1',
+        'Found the bug in the header component.',
+        firstApplyTitle,
+      );
+      expect(firstApplyTitle).toHaveBeenCalledTimes(1);
+
+      const secondApplyTitle = vi.fn();
+      await AutoTitleService.getInstance().maybeUpgradeTitleWithFirstReply(
+        'instance-1',
+        'A completely different second-turn reply.',
+        secondApplyTitle,
+      );
+      expect(secondApplyTitle).not.toHaveBeenCalled();
+    });
+
+    it('skips when the user already renamed the instance', async () => {
+      mockIsCliAvailable.mockResolvedValue({ installed: true });
+      mockResolveCliType.mockResolvedValue('claude');
+      await AutoTitleService.getInstance().maybeGenerateTitle('instance-1', 'fix this issue', vi.fn(), false);
+      mockSendMessage.mockClear();
+
+      const applyTitle = vi.fn();
+      await AutoTitleService.getInstance().maybeUpgradeTitleWithFirstReply(
+        'instance-1',
+        'Found the bug in the header component.',
+        applyTitle,
+        true,
+      );
+      expect(applyTitle).not.toHaveBeenCalled();
+      expect(mockSendMessage).not.toHaveBeenCalled();
+    });
+
+    it('skips when the assistant reply is too short to add any signal', async () => {
+      mockIsCliAvailable.mockResolvedValue({ installed: true });
+      mockResolveCliType.mockResolvedValue('claude');
+      await AutoTitleService.getInstance().maybeGenerateTitle('instance-1', 'fix this issue', vi.fn(), false);
+      mockSendMessage.mockClear();
+
+      const applyTitle = vi.fn();
+      await AutoTitleService.getInstance().maybeUpgradeTitleWithFirstReply('instance-1', 'ok', applyTitle);
+      expect(applyTitle).not.toHaveBeenCalled();
+      expect(mockSendMessage).not.toHaveBeenCalled();
+    });
+  });
+
   it('fails locally without probing a paid CLI when auxiliary acquisition or authorization throws', async () => {
     mockAuxGenerate.mockRejectedValue(new Error('authorization unavailable'));
 

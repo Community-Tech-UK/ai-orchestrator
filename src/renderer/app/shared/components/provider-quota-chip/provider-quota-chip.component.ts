@@ -184,10 +184,10 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
     </span>
   `,
   styles: [`
-    :host { display: inline-flex; position: relative; }
-    .quota-shell { display: inline-flex; position: relative; }
+    :host { display: inline-flex; position: relative; min-width: 0; }
+    .quota-shell { display: inline-flex; position: relative; min-width: 0; max-width: 100%; }
     .chip {
-      display: inline-flex; align-items: center; gap: 6px;
+      display: inline-flex; align-items: center; gap: 6px; min-width: 0;
       padding: 5px 10px 5px 8px; border-radius: 999px; border: 0;
       font: inherit; font-size: 0.6875rem; font-weight: 600; letter-spacing: 0;
       white-space: nowrap; cursor: pointer;

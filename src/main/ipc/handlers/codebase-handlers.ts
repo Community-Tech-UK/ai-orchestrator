@@ -13,7 +13,7 @@ import type {
   HybridSearchResult,
   WatcherStatus
 } from '../../../shared/types/codebase.types';
-import { StoreIdSchema, validateIpcPayload } from '@contracts/schemas/common';
+import { StoreIdSchema } from '@contracts/schemas/common';
 import {
   CodebaseIndexFilePayloadSchema,
   CodebaseIndexStorePayloadSchema,
@@ -24,6 +24,7 @@ import {
   CodebaseSearchSymbolsPayloadSchema,
 } from '@contracts/schemas/workspace-tools';
 import { z } from 'zod';
+import { validatedHandler } from '../validated-handler';
 import { getCodebaseFileWatcher } from '../../indexing/file-watcher';
 import { getCodebaseIndexingAutoCoordinator } from '../../indexing/codebase-indexing-auto-coordinator';
 import { getCodebaseIndexingLaneGateway } from '../../indexing/codebase-indexing-lane-gateway';
@@ -33,6 +34,17 @@ import type {
 } from '../../codemem/index-worker-protocol';
 import type { CodeRetrievalResult } from '../../codemem/code-retrieval-service';
 import type { WindowManager } from '../../window-manager';
+
+const CodebaseIndexTargetPayloadSchema = z.object({
+  workspacePath: z.string().min(1).max(4096).optional(),
+  target: z.enum(['codemem', 'legacy']).optional(),
+}).optional();
+
+const CodebaseStoreIdPayloadSchema = z.object({ storeId: StoreIdSchema });
+
+const CodebaseAutoStatusPayloadSchema = z.object({
+  rootPath: z.string().min(1).max(4096).optional(),
+}).optional();
 
 /**
  * Register codebase indexing handlers.
@@ -82,16 +94,18 @@ export function registerCodebaseHandlers(
     autoCoordinator.on('status', onAutoIndexStatus);
     cleanupTasks.push(() => autoCoordinator.off('status', onAutoIndexStatus));
 
-    const registerHandler = (
+    const registerHandler = <T>(
       channel: string,
+      schema: z.ZodSchema<T>,
       listener: (
+        validated: T,
         event: IpcMainInvokeEvent,
-        payload: unknown,
       ) => Promise<IpcResponse<unknown>>,
+      errorCode?: string,
     ): void => {
       ipcMain.handle(
         channel,
-        async (event, payload): Promise<IpcResponse<unknown>> => listener(event, payload),
+        validatedHandler(channel, schema, listener, { errorCode }),
       );
       cleanupTasks.push(() => ipcMain.removeHandler(channel));
     };
@@ -103,190 +117,96 @@ export function registerCodebaseHandlers(
   // Index a codebase (full or incremental)
   registerHandler(
     IPC_CHANNELS.CODEBASE_INDEX_STORE,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown
-    ): Promise<IpcResponse<IndexingStats>> => {
-      try {
-        const validated = validateIpcPayload(CodebaseIndexStorePayloadSchema, payload, 'CODEBASE_INDEX_STORE');
-        const stats = await indexingLaneGateway.indexCodebase(
-          validated.storeId,
-          validated.rootPath,
-          validated.options
-        );
-        return { success: true, data: stats };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'CODEBASE_INDEX_STORE_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
+    CodebaseIndexStorePayloadSchema,
+    async (validated) => {
+      const stats = await indexingLaneGateway.indexCodebase(
+        validated.storeId,
+        validated.rootPath,
+        validated.options,
+      );
+      return { success: true, data: stats };
+    },
+    'CODEBASE_INDEX_STORE_FAILED',
   );
 
   // Index a single file
   registerHandler(
     IPC_CHANNELS.CODEBASE_INDEX_FILE,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown
-    ): Promise<IpcResponse<void>> => {
-      try {
-        const validated = validateIpcPayload(CodebaseIndexFilePayloadSchema, payload, 'CODEBASE_INDEX_FILE');
-        await indexingLaneGateway.indexFile(validated.storeId, validated.filePath);
-        return { success: true };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'CODEBASE_INDEX_FILE_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
+    CodebaseIndexFilePayloadSchema,
+    async (validated) => {
+      await indexingLaneGateway.indexFile(validated.storeId, validated.filePath);
+      return { success: true };
+    },
+    'CODEBASE_INDEX_FILE_FAILED',
   );
 
   // Cancel ongoing indexing
   registerHandler(
     IPC_CHANNELS.CODEBASE_INDEX_CANCEL,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown,
-    ): Promise<IpcResponse<void>> => {
-      try {
-        const schema = z.object({
-          workspacePath: z.string().min(1).max(4096).optional(),
-          target: z.enum(['codemem', 'legacy']).optional(),
-        }).optional();
-        const validated = validateIpcPayload(schema, payload, 'CODEBASE_INDEX_CANCEL');
-        if (validated?.target === 'legacy') {
-          await indexingLaneGateway.cancelIndexCodebase(validated.workspacePath);
-        } else if (validated?.workspacePath) {
-          await getCodemem().indexWorkerGateway.cancelIndex(validated.workspacePath);
-        } else {
-          await indexingLaneGateway.cancelIndexCodebase();
-        }
-        return { success: true };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'CODEBASE_INDEX_CANCEL_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
+    CodebaseIndexTargetPayloadSchema,
+    async (validated) => {
+      if (validated?.target === 'legacy') {
+        await indexingLaneGateway.cancelIndexCodebase(validated.workspacePath);
+      } else if (validated?.workspacePath) {
+        await getCodemem().indexWorkerGateway.cancelIndex(validated.workspacePath);
+      } else {
+        await indexingLaneGateway.cancelIndexCodebase();
       }
-    }
+      return { success: true };
+    },
+    'CODEBASE_INDEX_CANCEL_FAILED',
   );
 
   // Get current indexing status
   registerHandler(
     IPC_CHANNELS.CODEBASE_INDEX_STATUS,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown,
-    ): Promise<IpcResponse<IndexingProgress | CodeIndexStatusSnapshot | null>> => {
-      try {
-        const schema = z.object({
-          workspacePath: z.string().min(1).max(4096).optional(),
-          target: z.enum(['codemem', 'legacy']).optional(),
-        }).optional();
-        const validated = validateIpcPayload(schema, payload, 'CODEBASE_INDEX_STATUS');
-        if (validated?.target === 'legacy') {
-          const progress = indexingLaneGateway.getIndexCodebaseProgress(validated.workspacePath);
-          return { success: true, data: progress };
-        }
-        if (validated?.workspacePath) {
-          const progress = await getCodemem().indexWorkerGateway.getIndexStatus(validated.workspacePath);
-          return { success: true, data: progress };
-        }
-        const laneProgress = indexingLaneGateway.getIndexCodebaseProgress();
-        if (laneProgress) {
-          return { success: true, data: laneProgress };
-        }
-        return {
-          success: true,
-          data: {
-            status: 'idle',
-            totalFiles: 0,
-            processedFiles: 0,
-            totalChunks: 0,
-          },
-        };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'CODEBASE_INDEX_STATUS_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
+    CodebaseIndexTargetPayloadSchema,
+    async (validated) => {
+      if (validated?.target === 'legacy') {
+        const progress = indexingLaneGateway.getIndexCodebaseProgress(validated.workspacePath);
+        return { success: true, data: progress };
       }
-    }
+      if (validated?.workspacePath) {
+        const progress = await getCodemem().indexWorkerGateway.getIndexStatus(validated.workspacePath);
+        return { success: true, data: progress };
+      }
+      const laneProgress = indexingLaneGateway.getIndexCodebaseProgress();
+      if (laneProgress) {
+        return { success: true, data: laneProgress };
+      }
+      return {
+        success: true,
+        data: {
+          status: 'idle',
+          totalFiles: 0,
+          processedFiles: 0,
+          totalChunks: 0,
+        },
+      };
+    },
+    'CODEBASE_INDEX_STATUS_FAILED',
   );
 
   // Get index stats for a store
   registerHandler(
     IPC_CHANNELS.CODEBASE_INDEX_STATS,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown
-    ): Promise<IpcResponse<IndexStats>> => {
-      try {
-        const validated = validateIpcPayload(
-          z.object({ storeId: StoreIdSchema }),
-          payload,
-          'CODEBASE_INDEX_STATS'
-        );
-        const stats = await indexingLaneGateway.getStats(validated.storeId);
-        return { success: true, data: stats };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'CODEBASE_INDEX_STATS_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
+    CodebaseStoreIdPayloadSchema,
+    async (validated) => {
+      const stats = await indexingLaneGateway.getStats(validated.storeId);
+      return { success: true, data: stats };
+    },
+    'CODEBASE_INDEX_STATS_FAILED',
   );
 
   // Clear legacy RLM codebase index artifacts for diagnostics/reset flows.
   registerHandler(
     IPC_CHANNELS.CODEBASE_LEGACY_CLEAR,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown,
-    ): Promise<IpcResponse<void>> => {
-      try {
-        const validated = validateIpcPayload(
-          z.object({ storeId: StoreIdSchema }),
-          payload,
-          'CODEBASE_LEGACY_CLEAR',
-        );
-        await indexingLaneGateway.clearLegacyCodebaseStore(validated.storeId);
-        return { success: true };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'CODEBASE_LEGACY_CLEAR_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
+    CodebaseStoreIdPayloadSchema,
+    async (validated) => {
+      await indexingLaneGateway.clearLegacyCodebaseStore(validated.storeId);
+      return { success: true };
+    },
+    'CODEBASE_LEGACY_CLEAR_FAILED',
   );
 
   // ============================================
@@ -296,65 +216,39 @@ export function registerCodebaseHandlers(
   // Code search, returned in the legacy HybridSearchResult shape for renderer compatibility.
   registerHandler(
     IPC_CHANNELS.CODEBASE_SEARCH,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown
-    ): Promise<IpcResponse<HybridSearchResult[]>> => {
-      try {
-        const validated = validateIpcPayload(CodebaseSearchPayloadSchema, payload, 'CODEBASE_SEARCH');
-        const workspacePath = validated.options.workspacePath
-          ?? resolveWorkspacePathForStore(validated.options.storeId, autoCoordinator.listStatuses());
-        const results = workspacePath
-          ? await codeRetrievalService.search({
-            workspacePath,
-            query: validated.options.query,
-            limit: validated.options.topK,
-          })
-          : [];
-        return { success: true, data: results.map(mapRetrievalToHybridResult) };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'CODEBASE_SEARCH_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
+    CodebaseSearchPayloadSchema,
+    async (validated) => {
+      const workspacePath = validated.options.workspacePath
+        ?? resolveWorkspacePathForStore(validated.options.storeId, autoCoordinator.listStatuses());
+      const results = workspacePath
+        ? await codeRetrievalService.search({
+          workspacePath,
+          query: validated.options.query,
+          limit: validated.options.topK,
+        })
+        : [];
+      return { success: true, data: results.map(mapRetrievalToHybridResult) };
+    },
+    'CODEBASE_SEARCH_FAILED',
   );
 
   // Symbol search, returned in the legacy HybridSearchResult shape for renderer compatibility.
   registerHandler(
     IPC_CHANNELS.CODEBASE_SEARCH_SYMBOLS,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown
-    ): Promise<IpcResponse<HybridSearchResult[]>> => {
-      try {
-        const validated = validateIpcPayload(CodebaseSearchSymbolsPayloadSchema, payload, 'CODEBASE_SEARCH_SYMBOLS');
-        const workspacePath = validated.workspacePath
-          ?? resolveWorkspacePathForStore(validated.storeId, autoCoordinator.listStatuses());
-        const results = workspacePath
-          ? await codeRetrievalService.search({
-            workspacePath,
-            query: validated.query,
-            limit: 20,
-          })
-          : [];
-        return { success: true, data: results.map(mapRetrievalToHybridResult) };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'CODEBASE_SEARCH_SYMBOLS_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
+    CodebaseSearchSymbolsPayloadSchema,
+    async (validated) => {
+      const workspacePath = validated.workspacePath
+        ?? resolveWorkspacePathForStore(validated.storeId, autoCoordinator.listStatuses());
+      const results = workspacePath
+        ? await codeRetrievalService.search({
+          workspacePath,
+          query: validated.query,
+          limit: 20,
+        })
+        : [];
+      return { success: true, data: results.map(mapRetrievalToHybridResult) };
+    },
+    'CODEBASE_SEARCH_SYMBOLS_FAILED',
   );
 
   // ============================================
@@ -364,96 +258,56 @@ export function registerCodebaseHandlers(
   // Start file watcher for a store
   registerHandler(
     IPC_CHANNELS.CODEBASE_WATCHER_START,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown
-    ): Promise<IpcResponse<void>> => {
-      try {
-        const validated = validateIpcPayload(CodebaseWatcherPayloadSchema, payload, 'CODEBASE_WATCHER_START');
-
-        if (!validated.rootPath) {
-          return {
-            success: false,
-            error: {
-              code: 'CODEBASE_WATCHER_START_FAILED',
-              message: 'rootPath is required',
-              timestamp: Date.now()
-            }
-          };
-        }
-
-        await fileWatcher.startWatching(validated.storeId, validated.rootPath);
-        return { success: true };
-      } catch (error) {
+    CodebaseWatcherPayloadSchema,
+    async (validated) => {
+      if (!validated.rootPath) {
         return {
           success: false,
           error: {
             code: 'CODEBASE_WATCHER_START_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
+            message: 'rootPath is required',
+            timestamp: Date.now(),
+          },
         };
       }
-    }
+
+      await fileWatcher.startWatching(validated.storeId, validated.rootPath);
+      return { success: true };
+    },
+    'CODEBASE_WATCHER_START_FAILED',
   );
 
   // Stop file watcher for a store
   registerHandler(
     IPC_CHANNELS.CODEBASE_WATCHER_STOP,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown
-    ): Promise<IpcResponse<void>> => {
-      try {
-        const validated = validateIpcPayload(CodebaseWatcherPayloadSchema, payload, 'CODEBASE_WATCHER_STOP');
-        await fileWatcher.stopWatching(validated.storeId);
-        return { success: true };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'CODEBASE_WATCHER_STOP_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
+    CodebaseWatcherPayloadSchema,
+    async (validated) => {
+      await fileWatcher.stopWatching(validated.storeId);
+      return { success: true };
+    },
+    'CODEBASE_WATCHER_STOP_FAILED',
   );
 
   // Get watcher status
   registerHandler(
     IPC_CHANNELS.CODEBASE_WATCHER_STATUS,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown
-    ): Promise<IpcResponse<WatcherStatus>> => {
-      try {
-        const validated = validateIpcPayload(CodebaseWatcherPayloadSchema, payload, 'CODEBASE_WATCHER_STATUS');
-        const status = fileWatcher.getStatus(validated.storeId);
-        if (!status) {
-          return {
-            success: true,
-            data: {
-              storeId: validated.storeId,
-              rootPath: '',
-              isWatching: false,
-              pendingChanges: 0
-            }
-          };
-        }
-        return { success: true, data: status };
-      } catch (error) {
+    CodebaseWatcherPayloadSchema,
+    async (validated) => {
+      const status = fileWatcher.getStatus(validated.storeId);
+      if (!status) {
         return {
-          success: false,
-          error: {
-            code: 'CODEBASE_WATCHER_STATUS_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
+          success: true,
+          data: {
+            storeId: validated.storeId,
+            rootPath: '',
+            isWatching: false,
+            pendingChanges: 0,
+          },
         };
       }
-    }
+      return { success: true, data: status };
+    },
+    'CODEBASE_WATCHER_STATUS_FAILED',
   );
 
   // ============================================
@@ -464,29 +318,15 @@ export function registerCodebaseHandlers(
   // when no rootPath is supplied).
   registerHandler(
     IPC_CHANNELS.CODEBASE_AUTO_STATUS_GET,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown
-    ): Promise<IpcResponse<CodebaseAutoIndexStatus | CodebaseAutoIndexStatus[] | null>> => {
-      try {
-        const schema = z.object({ rootPath: z.string().min(1).max(4096).optional() }).optional();
-        const validated = validateIpcPayload(schema, payload, 'CODEBASE_AUTO_STATUS_GET');
-        if (validated?.rootPath) {
-          const status = autoCoordinator.getStatus(validated.rootPath);
-          return { success: true, data: status ?? null };
-        }
-        return { success: true, data: autoCoordinator.listStatuses() };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'CODEBASE_AUTO_STATUS_GET_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
+    CodebaseAutoStatusPayloadSchema,
+    async (validated) => {
+      if (validated?.rootPath) {
+        const status = autoCoordinator.getStatus(validated.rootPath);
+        return { success: true, data: status ?? null };
       }
-    }
+      return { success: true, data: autoCoordinator.listStatuses() };
+    },
+    'CODEBASE_AUTO_STATUS_GET_FAILED',
   );
 
   // Note: the legacy `CODEBASE_AUTO_HINT` handler has been removed. Renderer

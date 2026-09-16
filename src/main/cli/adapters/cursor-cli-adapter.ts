@@ -4,6 +4,7 @@ import { getLogger } from '../../logging/logger';
 import type { ContextUsage, FileAttachment, OutputMessage } from '../../../shared/types/instance.types';
 import type { ModelDisplayInfo } from '../../../shared/types/provider.types';
 import { generateId } from '../../../shared/utils/id-generator';
+import { createOutputMessage, redactArgvForLog } from './base-cli-adapter-utils';
 import { isSessionNotFoundText } from './resume-error-classifier';
 import { extractThinkingContent } from '../../../shared/utils/thinking-extractor';
 import { CURSOR_DEFAULT_MODELS, discoverCursorModels } from './cursor-cli-adapter.models';
@@ -193,7 +194,7 @@ export class CursorCliAdapter extends BaseCliAdapter {
 
     const args = this.buildArgs(message);
     logger.debug('Spawning cursor-agent', {
-      args: this.redactPromptForLog(args),
+      args: redactArgvForLog(args, { lastPositional: true }),
       hasResumeId: !!this.cursorSessionId,
     });
     this.process = this.spawnProcess(args);
@@ -284,16 +285,13 @@ export class CursorCliAdapter extends BaseCliAdapter {
       // Keychain error text also contains "failed" and would otherwise be
       // eaten by the generic branch below.
       if (/SecItemCopyMatching|keychain|login item/i.test(chunk)) {
-        this.emit('output', {
-          id: generateId(),
-          timestamp: Date.now(),
-          type: 'error',
-          content:
-            "Cursor CLI couldn't read its credentials from Keychain. " +
+        this.emit('output', createOutputMessage(
+          'error',
+          "Cursor CLI couldn't read its credentials from Keychain. " +
             'Try re-running `cursor-agent login`, grant Keychain access when prompted, ' +
             'or set `CURSOR_API_KEY` in your environment.',
-          metadata: { recoverable: false, kind: 'keychain' },
-        } as OutputMessage);
+          { metadata: { recoverable: false, kind: 'keychain' } },
+        ));
         logger.warn('cursor-agent keychain issue', { text: chunk.trim() });
         return;
       }
@@ -302,13 +300,9 @@ export class CursorCliAdapter extends BaseCliAdapter {
       // the text looks like a real error. Emit an error OutputMessage so
       // consumers can surface it alongside other turn events.
       if (/error|fatal|failed/i.test(chunk)) {
-        this.emit('output', {
-          id: generateId(),
-          timestamp: Date.now(),
-          type: 'error',
-          content: chunk.trim(),
+        this.emit('output', createOutputMessage('error', chunk.trim(), {
           metadata: { recoverable: false, kind: 'stderr' },
-        } as OutputMessage);
+        }));
         logger.warn('cursor-agent stderr', { text: chunk.trim() });
       }
     });
@@ -905,21 +899,6 @@ export class CursorCliAdapter extends BaseCliAdapter {
     resultState.resolver(response);
   }
 
-  /**
-   * Redact the prompt body from arg logs. The prompt is the last positional arg
-   * (cursor-agent has no --prompt flag). This is cursor-specific and intentionally
-   * differs from copilot's flag-based redaction.
-   */
-  private redactPromptForLog(args: string[]): string[] {
-    if (args.length === 0) return args;
-    const out = [...args];
-    const tail = out[out.length - 1];
-    if (typeof tail === 'string') {
-      out[out.length - 1] = `<redacted ${tail.length} chars>`;
-    }
-    return out;
-  }
-
   // ============ InstanceManager Compatibility API ============
 
   /**
@@ -1014,13 +993,10 @@ export class CursorCliAdapter extends BaseCliAdapter {
       });
       this.emit('status', 'idle');
     } catch (error) {
-      const outputMessage: OutputMessage = {
-        id: generateId(),
-        timestamp: Date.now(),
-        type: 'error',
-        content: error instanceof Error ? error.message : String(error),
-      };
-      this.emit('output', outputMessage);
+      this.emit('output', createOutputMessage(
+        'error',
+        error instanceof Error ? error.message : String(error),
+      ));
       this.emit('status', 'error');
       this.emit('error', error instanceof Error ? error : new Error(String(error)));
       throw error;

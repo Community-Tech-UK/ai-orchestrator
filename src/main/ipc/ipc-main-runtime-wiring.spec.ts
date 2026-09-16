@@ -8,6 +8,7 @@ import {
 import type { RlmWorkerEventMsg } from '../instance/context-worker-protocol';
 import type { WindowManager } from '../window-manager';
 import {
+  serializeInstanceForIpc,
   setupRlmEventForwarding,
   teardownRlmEventForwarding,
 } from './ipc-main-runtime-wiring';
@@ -58,6 +59,26 @@ function makeWindowManager(): WindowManager {
 function sendToRenderer(windowManager: WindowManager) {
   return vi.mocked(windowManager.sendToRenderer);
 }
+
+describe('serializeInstanceForIpc', () => {
+  it('omits runtime handles and flattens communication token maps', () => {
+    const serialized = serializeInstanceForIpc({
+      id: 'inst-1',
+      readyPromise: Promise.resolve(),
+      respawnPromise: Promise.resolve(),
+      abortController: new AbortController(),
+      communicationTokens: new Map([['a', 'token-a']]),
+    });
+
+    expect(serialized).toMatchObject({
+      id: 'inst-1',
+      communicationTokens: { a: 'token-a' },
+    });
+    expect(serialized).not.toHaveProperty('readyPromise');
+    expect(serialized).not.toHaveProperty('respawnPromise');
+    expect(serialized).not.toHaveProperty('abortController');
+  });
+});
 
 describe('RLM renderer event forwarding', () => {
   afterEach(() => {

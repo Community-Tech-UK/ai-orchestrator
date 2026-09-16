@@ -80,6 +80,7 @@ import { shouldProbeAdapterProcess, StaleRuntimeReconciler } from './stale-runti
 import { getClampedLoadWatchdogMultiplier } from '../runtime/system-load-monitor';
 import { computeInitWaitBudgetMs as resolveInitWaitBudgetMs } from './init-wait-budget';
 import { getAutoTitleService } from './auto-title-service';
+import { handleInstanceSettledForAutoTitle } from './auto-title-settle-hook';
 import { productionCoreDeps } from './instance-deps';
 import { getSessionContinuityManager } from '../session/session-continuity';
 import type { ResolvedRecoveryCandidate } from '../session/session-recovery-candidate-service';
@@ -87,6 +88,7 @@ import type { RecoverSessionResult } from '../../shared/types/session-recovery.t
 import { reviveContinuitySession } from './lifecycle/continuity-revival';
 import { InstanceContinuityRecovery } from './lifecycle/instance-continuity-recovery';
 import { createInstanceManagerObserverEmitter } from './lifecycle/safe-event-observers';
+import { HarnessMcpStartupRecovery } from './lifecycle/harness-mcp-startup-recovery';
 import { getPermissionEnforcer } from '../security/permission-enforcer';
 import { getPermissionManager, type PermissionRequest, type PermissionScope } from '../security/permission-manager';
 import { cleanupAdjudicatorBreakerForInstance, maybeAdjudicateDeferredPermission, resetAdjudicatorBreaker } from '../security/approval-adjudicator';
@@ -116,7 +118,7 @@ import type {
   ProviderRuntimeEventEnvelope,
 } from '@contracts/types/provider-runtime-events';
 import { buildProviderRuntimeEventIngress } from './instance-provider-event-ingress';
-import { observeToolLoopEvent as observeToolLoopEventWiring, type ToolLoopWiringDeps } from './instance-tool-loop-wiring';
+import { observeToolLoopEvent as observeToolLoopEventWiring, resolveToolLoopWiringDeps, type ToolLoopWiringDeps } from './instance-tool-loop-wiring';
 import { toProviderOutputEvent } from '../providers/provider-output-event';
 import { toJsonSafeProviderEventPayload } from '../providers/provider-event-raw-payload';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
@@ -207,11 +209,12 @@ export class InstanceManager extends EventEmitter {
   // Tracking
   private hasReceivedFirstMessage = new Set<string>();
   private settings = getSettingsManager();
-  // WS-A2: resolved lazily so a post-construction spy on interruptInstance is honoured.
-  private readonly toolLoopWiringDeps: ToolLoopWiringDeps = {
-    getAutoInterruptSetting: () => this.settings.get('toolLoopAutoInterrupt'),
-    interruptInstance: (instanceId: string) => this.interruptInstance(instanceId, 'tool-loop-auto'),
-  };
+  private readonly toolLoopWiringDeps: ToolLoopWiringDeps;
+  private readonly mcpStartupRecovery = new HarnessMcpStartupRecovery({
+    getInstance: (id) => this.state.getInstance(id),
+    restartInstance: (id) => this.restartInstance(id),
+    emitNotice: (id, message) => this.communication.emitSystemOutput(id, message),
+  });
   private pendingPermissionRequestsByInputId = new Map<string, PermissionRequest>();
   private readonly providerEventBus = new ProviderRuntimeEventBus(
     (envelope) => this.emit('provider:normalized-event', envelope),
@@ -226,8 +229,13 @@ export class InstanceManager extends EventEmitter {
   constructor(
     private readonly windowManager?: Pick<WindowManager, 'sendToRenderer'>,
     contextPort?: InstanceContextPort,
+    injectedToolLoopDeps?: Partial<ToolLoopWiringDeps>,
   ) {
     super();
+    this.toolLoopWiringDeps = resolveToolLoopWiringDeps({
+      getAutoInterruptSetting: () => this.settings.get('toolLoopAutoInterrupt'),
+      interruptInstance: (instanceId) => this.interruptInstance(instanceId, 'tool-loop-auto'),
+    }, injectedToolLoopDeps);
 
     // Initialize the warm-start manager. The spawnAdapter callback creates a
     // fresh adapter for the given provider and immediately spawns it so that
@@ -258,6 +266,7 @@ export class InstanceManager extends EventEmitter {
     this.settledTracker = new InstanceSettledTracker({
       getInstance: (id) => this.state.getInstance(id),
       emitter: this,
+      onSettled: (event) => handleInstanceSettledForAutoTitle(event.instanceId, event.instance, { queueUpdate: (...args) => this.state.queueUpdate(...args) }),
     });
     this.context = contextPort ?? getContextWorkerClient();
     this.orchestrationMgr = new InstanceOrchestrationManager({
@@ -339,6 +348,8 @@ export class InstanceManager extends EventEmitter {
       onInterruptedExit: (id) => this.lifecycle.respawnAfterInterrupt(id),
       onUnexpectedExit: (id) => this.lifecycle.respawnAfterUnexpectedExit(id),
       onInterruptSettled: (id) => this.lifecycle.noteInterruptSettled(id),
+      onMcpServersStatus: (id, generation, servers) => this.mcpStartupRecovery.recordStartupStatus(id, generation, servers),
+      onStatusSettled: (id) => this.mcpStartupRecovery.noteSettled(id),
       ingestContext: (inst, msg) => getContextEngine().ingest({
         instance: inst,
         message: msg,
@@ -574,7 +585,10 @@ export class InstanceManager extends EventEmitter {
       setStateMachine: (id, machine) => this.state.setStateMachine(id, machine),
       deleteStateMachine: (id) => this.state.deleteStateMachine(id),
       queueInitialPromptForRenderer: (payload) => this.queueInitialPromptForRenderer(payload),
-      coreDeps: (() => { try { return productionCoreDeps(); } catch { return undefined; } })(),
+      coreDeps: (() => {
+        try { return productionCoreDeps(); }
+        catch (error) { logger.warn('productionCoreDeps() failed; using default wiring', { error: error instanceof Error ? error.message : String(error) }); return undefined; }
+      })(),
     });
     this.continuityRecovery = new InstanceContinuityRecovery({
       createInstance: (config) => this.createInstance(config),
@@ -701,6 +715,7 @@ export class InstanceManager extends EventEmitter {
       this.continuityRecovery.removeInstance(instanceId);
       this.providerEventBus.removeInstance(instanceId);
       this.settledTracker.clear(instanceId);
+      this.mcpStartupRecovery.forget(instanceId);
       removeInstanceBrowserToolsMode(instanceId);
       removeInstanceComputerUseMode(instanceId);
       removeInstanceHardened(instanceId);

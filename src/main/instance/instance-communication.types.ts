@@ -7,6 +7,7 @@ import type {
   SessionDiffStats,
 } from '../../shared/types/instance.types';
 import type { ErrorInfo } from '../../shared/types/ipc.types';
+import type { CliMcpServerStatus } from '../../shared/types/cli.types';
 import type {
   ProviderName,
   ProviderRuntimeEvent,
@@ -69,6 +70,17 @@ export interface CommunicationDependencies {
    * settled. See InterruptRespawnHandler.noteInterruptSettled().
    */
   onInterruptSettled?: (instanceId: string) => void;
+  /**
+   * Claude `init` reported per-server MCP connection outcomes for this adapter
+   * generation. See HarnessMcpStartupRecovery.
+   */
+  onMcpServersStatus?: (
+    instanceId: string,
+    adapterGeneration: number,
+    servers: CliMcpServerStatus[],
+  ) => void;
+  /** The adapter moved the instance to a settled status (idle/ready/waiting_for_input). */
+  onStatusSettled?: (instanceId: string) => void;
   onChildExit?: (childId: string, instance: Instance, exitCode: number | null) => void | Promise<void>;
   ingestContext?: (instance: Instance, message: OutputMessage) => void;
   ingestToRLM: (instanceId: string, message: OutputMessage) => void;

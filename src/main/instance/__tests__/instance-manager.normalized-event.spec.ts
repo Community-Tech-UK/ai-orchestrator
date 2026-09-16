@@ -779,6 +779,19 @@ describe('InstanceManager tool-loop detector wiring (WS-A2)', () => {
     expect(interruptSpy).toHaveBeenCalledTimes(1);
     expect(interruptSpy).toHaveBeenCalledWith('inst-loop', 'tool-loop-auto');
   });
+
+  it('uses constructor-injected interrupt instead of a post-construction spy', () => {
+    const interruptInstance = vi.fn(() => true);
+    const manager = new InstanceManager(undefined, undefined, {
+      getAutoInterruptSetting: () => true,
+      interruptInstance,
+    });
+
+    repeatToolRoundTrip(manager, 'inst-loop', 8);
+
+    expect(interruptInstance).toHaveBeenCalledTimes(1);
+    expect(interruptInstance).toHaveBeenCalledWith('inst-loop');
+  });
 });
 
 // ---------------------------------------------------------------------------

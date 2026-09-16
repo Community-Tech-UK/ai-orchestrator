@@ -312,4 +312,26 @@ describe('IPC Channel Contract', () => {
       { recoveryKey: 'history:claude:thread-1' },
     );
   });
+
+  it('maps every preload invoke channel key to a known IPC_CHANNELS entry', () => {
+    const domainsDir = path.join(ROOT, 'src/preload/domains');
+    const files = fs.readdirSync(domainsDir)
+      .filter((name) => name.endsWith('.preload.ts'))
+      .map((name) => path.join(domainsDir, name));
+    files.push(path.join(ROOT, 'src/preload/preload.ts'));
+
+    const invoked = new Set<string>();
+    const invokePattern = /invoke\(\s*(?:ch|IPC_CHANNELS)\.([A-Z0-9_]+)/g;
+    for (const filePath of files) {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      let match: RegExpExecArray | null;
+      while ((match = invokePattern.exec(content)) !== null) {
+        invoked.add(match[1]!);
+      }
+    }
+
+    expect(invoked.size).toBeGreaterThan(0);
+    const missing = [...invoked].filter((name) => !(name in IPC_CHANNELS));
+    expect(missing).toEqual([]);
+  });
 });

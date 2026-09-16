@@ -160,6 +160,51 @@ describe('ProviderAccountsTabComponent', () => {
     expect(ipc.acknowledgeOwnership).toHaveBeenCalledWith('claude');
   });
 
+  it('hides reordering and switching rules until a provider has a second account', async () => {
+    const original = ipc.list.getMockImplementation();
+    ipc.list.mockImplementation(async () => ({ profiles: [account()], pools }));
+    try {
+      const section = claudeSection(await render());
+      expect(section.querySelector('[aria-label^="Move "]')).toBeNull();
+      expect(section.querySelector('.pool-policy')).toBeNull();
+      expect(section.textContent).not.toContain('I confirm these are my own accounts');
+      expect(section.textContent).toContain('Add a second Claude account');
+    } finally {
+      if (original) ipc.list.mockImplementation(original);
+    }
+  });
+
+  it('locks the Enabled toggle on the only enabled account', async () => {
+    const section = claudeSection(await render());
+    const toggles = Array.from(section.querySelectorAll<HTMLInputElement>('.account-card input[type="checkbox"]'));
+    expect(toggles.map((toggle) => toggle.disabled)).toEqual([true, false]);
+  });
+
+  it('leads with the sign-in command only for an account that is not signed in', async () => {
+    const section = claudeSection(await render());
+    const primaries = Array.from(section.querySelectorAll('.account-card')).map(
+      (card) => card.querySelector('.btn-primary')?.textContent?.trim() ?? null,
+    );
+    expect(primaries).toEqual([null, 'Copy sign-in command']);
+  });
+
+  it('still names the expected email on an account that is signed out', async () => {
+    const statuses = Array.from(claudeSection(await render()).querySelectorAll('.account-card .status'))
+      .map((node) => node.textContent?.replace(/\s+/g, ' ').trim());
+    expect(statuses).toEqual(['Signed in as a@example.com', 'Not signed in · a@example.com']);
+  });
+
+  it('adds an account when Enter is pressed in the name field', async () => {
+    const fixture = await render();
+    const input = claudeSection(fixture).querySelector<HTMLInputElement>('.add-row input')!;
+    input.value = 'Work';
+    input.dispatchEvent(new Event('input'));
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    await settle(fixture);
+    expect(ipc.create).toHaveBeenCalledWith({ provider: 'claude', label: 'Work' });
+    fixture.destroy();
+  });
+
   it('moves an account up by sending the full new order', async () => {
     const fixture = await render();
     const second = fixture.componentInstance.accountsFor('claude')[1]!;

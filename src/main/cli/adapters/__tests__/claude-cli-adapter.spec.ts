@@ -1252,3 +1252,45 @@ describe('ClaudeCliAdapter — spawn/terminate lifecycle', () => {
     });
   });
 });
+
+describe('ClaudeCliAdapter init MCP server report', () => {
+  function feed(adapter: ClaudeCliAdapter, message: unknown): void {
+    (adapter as unknown as { processCliMessage: (m: unknown) => void }).processCliMessage(message);
+  }
+
+  it('emits the per-server MCP status from the init message', () => {
+    const adapter = new ClaudeCliAdapter({});
+    const onServers = vi.fn();
+    adapter.on('mcp_servers', onServers);
+
+    feed(adapter, {
+      type: 'system',
+      subtype: 'init',
+      session_id: 's',
+      mcp_servers: [
+        { name: 'browser-gateway', status: 'failed' },
+        { name: 'orchestrator', status: 'connected' },
+      ],
+    });
+
+    expect(onServers).toHaveBeenCalledWith([
+      { name: 'browser-gateway', status: 'failed' },
+      { name: 'orchestrator', status: 'connected' },
+    ]);
+  });
+
+  it('does not emit for non-init system messages or an init without a server list', () => {
+    const adapter = new ClaudeCliAdapter({});
+    const onServers = vi.fn();
+    adapter.on('mcp_servers', onServers);
+
+    feed(adapter, { type: 'system', subtype: 'init', session_id: 's' });
+    feed(adapter, {
+      type: 'system',
+      subtype: 'info',
+      mcp_servers: [{ name: 'browser-gateway', status: 'failed' }],
+    });
+
+    expect(onServers).not.toHaveBeenCalled();
+  });
+});

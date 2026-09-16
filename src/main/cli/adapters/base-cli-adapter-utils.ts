@@ -1,4 +1,6 @@
 import { statSync } from 'fs';
+import type { OutputMessage } from '../../../shared/types/instance.types';
+import { generateId } from '../../../shared/utils/id-generator';
 
 /**
  * JSON.stringify that escapes U+2028 and U+2029.
@@ -87,6 +89,41 @@ export class CliSpawnCwdError extends Error {
  * cwd vs non-executable binary) into a message that says *what* is missing.
  * A `CliSpawnCwdError` is already specific and passes through unchanged.
  */
+export function createOutputMessage(
+  type: OutputMessage['type'],
+  content: string,
+  extras: Omit<Partial<OutputMessage>, 'type' | 'content'> = {},
+): OutputMessage {
+  const { id, timestamp, ...rest } = extras;
+  return {
+    id: id ?? generateId(),
+    timestamp: timestamp ?? Date.now(),
+    type,
+    content,
+    ...rest,
+  };
+}
+
+export function redactArgvForLog(
+  args: string[],
+  options: { flag?: string; lastPositional?: boolean } = { lastPositional: true },
+): string[] {
+  const out = [...args];
+  if (options.flag) {
+    const i = out.indexOf(options.flag);
+    if (i >= 0 && out[i + 1] !== undefined) {
+      out[i + 1] = `<redacted ${out[i + 1].length} chars>`;
+    }
+    return out;
+  }
+  if (out.length === 0) return out;
+  const tail = out[out.length - 1];
+  if (typeof tail === 'string') {
+    out[out.length - 1] = `<redacted ${tail.length} chars>`;
+  }
+  return out;
+}
+
 export function enrichSpawnError(error: Error, command: string, cwd?: string): Error {
   if (error instanceof CliSpawnCwdError) {
     return error;

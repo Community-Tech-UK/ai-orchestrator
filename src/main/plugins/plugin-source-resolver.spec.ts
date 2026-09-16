@@ -175,4 +175,30 @@ describe('PluginSourceResolver', () => {
 
     await expect(resolver.resolve({ type: 'zip', value: zipPath })).rejects.toThrow(/symlink/);
   });
+
+  it('refuses a symlink followed by a same-named file that would write through it', async () => {
+    // GHSA-7pqw-9j4j-h8q3: extract-zip checks only each entry's parent directory,
+    // so `evil -> outside.txt` followed by a regular `evil` overwrites the target.
+    // fflate keys are unique, so encode `eviA`/`eviB` and patch both to `evil`.
+    const outsideFile = path.join(tempDir, 'outside.txt');
+    await fs.writeFile(outsideFile, 'original\n');
+    const zipPath = path.join(tempDir, 'write-through.zip');
+    const patched = Buffer.from(
+      zipSync({
+        eviA: [new Uint8Array(Buffer.from(outsideFile)), { os: 3, attrs: 0o120777 * 0x10000 }],
+        eviB: new Uint8Array(Buffer.from('pwned\n')),
+      }),
+    );
+    for (const placeholder of ['eviA', 'eviB']) {
+      for (let index = patched.indexOf(placeholder); index !== -1; ) {
+        patched.write('evil', index, 'latin1');
+        index = patched.indexOf(placeholder, index + 1);
+      }
+    }
+    await fs.writeFile(zipPath, patched);
+    const resolver = new PluginSourceResolver();
+
+    await expect(resolver.resolve({ type: 'zip', value: zipPath })).rejects.toThrow(/symlink/);
+    await expect(fs.readFile(outsideFile, 'utf8')).resolves.toBe('original\n');
+  });
 });

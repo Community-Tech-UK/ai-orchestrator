@@ -7,8 +7,11 @@
  */
 
 import { ipcMain } from 'electron';
-import { z } from 'zod';
 import { IPC_CHANNELS } from '@contracts/channels';
+import {
+  RtkHistoryPayloadSchema,
+  RtkSummaryPayloadSchema,
+} from '@contracts/schemas/rtk';
 import { validatedHandler, type IpcResponse } from '../validated-handler';
 import { getRtkRuntime } from '../../cli/rtk/rtk-runtime';
 import {
@@ -19,23 +22,6 @@ import { getSettingsManager } from '../../core/config/settings-manager';
 import { getLogger } from '../../logging/logger';
 
 const logger = getLogger('RtkHandlers');
-
-const SummaryPayloadSchema = z
-  .object({
-    projectPath: z.string().min(1).max(4000).optional(),
-    sinceMs: z.number().int().nonnegative().optional(),
-    topN: z.number().int().min(1).max(100).optional(),
-  })
-  .optional()
-  .default({});
-
-const HistoryPayloadSchema = z
-  .object({
-    projectPath: z.string().min(1).max(4000).optional(),
-    limit: z.number().int().min(1).max(1000).optional(),
-  })
-  .optional()
-  .default({});
 
 /**
  * Resolve the singleton tracking reader. Pulled out so we can unit-test
@@ -76,7 +62,7 @@ export function registerRtkHandlers(): void {
     IPC_CHANNELS.RTK_GET_SUMMARY,
     validatedHandler(
       IPC_CHANNELS.RTK_GET_SUMMARY,
-      SummaryPayloadSchema,
+      RtkSummaryPayloadSchema,
       async (payload): Promise<IpcResponse> => ({
         success: true,
         data: getReader().getSummary({
@@ -92,7 +78,7 @@ export function registerRtkHandlers(): void {
     IPC_CHANNELS.RTK_GET_HISTORY,
     validatedHandler(
       IPC_CHANNELS.RTK_GET_HISTORY,
-      HistoryPayloadSchema,
+      RtkHistoryPayloadSchema,
       async (payload): Promise<IpcResponse> => ({
         success: true,
         data: getReader().getRecentHistory({

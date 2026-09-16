@@ -10,8 +10,8 @@
  * `observeToolLoopEvent()` directly against the real `DoomLoopDetector`.
  */
 
-import { describe, it, expect, afterEach } from 'vitest';
-import { observeToolLoopEvent, type ToolLoopWiringDeps } from './instance-tool-loop-wiring';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { observeToolLoopEvent, resolveToolLoopWiringDeps, type ToolLoopWiringDeps } from './instance-tool-loop-wiring';
 import { DoomLoopDetector, getDoomLoopDetector, type ToolLoopDetectionEvent } from '../orchestration/doom-loop-detector';
 import type { ProviderRuntimeEvent } from '@contracts/types/provider-runtime-events';
 
@@ -154,5 +154,34 @@ describe('LT-062: observeToolLoopEvent output-message bridge', () => {
     const detections = collectDetections();
     observeToolLoopEvent(noopDeps, 'inst-1', { kind: 'output', content: 'hello', messageType: 'assistant' });
     expect(detections).toHaveLength(0);
+  });
+});
+
+describe('resolveToolLoopWiringDeps', () => {
+  it('keeps lazy defaults when nothing is injected', () => {
+    const defaults: ToolLoopWiringDeps = {
+      getAutoInterruptSetting: () => 'default',
+      interruptInstance: () => false,
+    };
+    const resolved = resolveToolLoopWiringDeps(defaults);
+    expect(resolved.getAutoInterruptSetting()).toBe('default');
+    expect(resolved.interruptInstance('inst-1')).toBe(false);
+  });
+
+  it('prefers constructor-injected interrupt and setting lookups', () => {
+    const interruptInstance = vi.fn(() => true);
+    const resolved = resolveToolLoopWiringDeps(
+      {
+        getAutoInterruptSetting: () => false,
+        interruptInstance: () => false,
+      },
+      {
+        getAutoInterruptSetting: () => true,
+        interruptInstance,
+      },
+    );
+    expect(resolved.getAutoInterruptSetting()).toBe(true);
+    expect(resolved.interruptInstance('inst-loop')).toBe(true);
+    expect(interruptInstance).toHaveBeenCalledWith('inst-loop');
   });
 });

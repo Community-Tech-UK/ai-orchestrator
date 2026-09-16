@@ -129,8 +129,8 @@ export function registerCommandHandlers(
               code: 'COMMAND_NOT_FOUND',
               message: `Command ${validated.commandId} not found`,
               timestamp: Date.now(),
-              candidates: snapshot.commands.slice(0, 5).map((command) => command.name)
-            } as never
+              candidates: snapshot.commands.slice(0, 5).map((command) => command.name),
+            },
           };
         }
 

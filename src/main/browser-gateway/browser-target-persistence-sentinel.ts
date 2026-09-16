@@ -137,7 +137,12 @@ export function buildPersistenceScanExpression(origin: string): string {
       const t = el.innerText || el.textContent || '';
       if (t && t.trim()) parts.push(t.slice(0, 500));
     }
-  } catch (e) {}
+  } catch (e) {
+    // Intentional swallow: this runs as injected page-context JS via CDP
+    // evaluate. An unusual page's DOM (e.g. a hostile getClientRects
+    // override) must not abort the persistence scan -- fall through to the
+    // title-only classification below instead of blocking the mutation.
+  }
   parts.push(document.title || '');
   const hay = parts.join('\\n').toLowerCase();
   for (let i = 0; i < stale.length; i++) {

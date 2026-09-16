@@ -39,6 +39,7 @@
     "./schemas/campaign":        { "types": "./src/schemas/campaign.schemas.ts",            "default": "./src/schemas/campaign.schemas.ts" },
     "./schemas/doc-review":      { "types": "./src/schemas/doc-review.schemas.ts",         "default": "./src/schemas/doc-review.schemas.ts" },
     "./schemas/rlm-maintenance": { "types": "./src/schemas/rlm-maintenance.schemas.ts",     "default": "./src/schemas/rlm-maintenance.schemas.ts" },
+    "./schemas/rtk":             { "types": "./src/schemas/rtk.schemas.ts",                 "default": "./src/schemas/rtk.schemas.ts" },
     "./schemas/context-evidence": { "types": "./src/schemas/context-evidence.schemas.ts",   "default": "./src/schemas/context-evidence.schemas.ts" },
     "./schemas/workboard":        { "types": "./src/schemas/workboard.schemas.ts",         "default": "./src/schemas/workboard.schemas.ts" },
     "./channels/instance":        { "types": "./src/channels/instance.channels.ts",        "default": "./src/channels/instance.channels.ts" },

@@ -6,6 +6,8 @@ import { isOccupancyPressureReading } from '../../shared/utils/context-occupancy
 import { clearToolOutcomes, recordToolOutcome } from '../learning/tool-outcome-store';
 import { EventEmitter } from 'events';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
+import type { CliMcpServerStatus } from '../../shared/types/cli.types';
+import type { DeferredToolUse } from '../cli/adapters/claude-cli-adapter.types';
 import { BaseCliAdapter, type CliResponse } from '../cli/adapters/base-cli-adapter';
 // History archiving moved exclusively to instance-lifecycle.ts terminateInstance()
 import { getSettingsManager } from '../core/config/settings-manager';
@@ -1565,6 +1567,7 @@ export class InstanceCommunicationManager extends EventEmitter {
 
         if (normalizedStatus === 'idle' || normalizedStatus === 'ready' || normalizedStatus === 'waiting_for_input') {
           this.deps.onToolStateChange?.(instanceId, 'idle');
+          this.deps.onStatusSettled?.(instanceId);
           // If the CLI settled back to idle while we were still interrupting in
           // place (resident CLI, no process exit, no completion promise), tell the
           // interrupt machinery to disarm its force-abort net — otherwise it would
@@ -2197,6 +2200,11 @@ export class InstanceCommunicationManager extends EventEmitter {
       this.emit('output', { instanceId, message: stallMessage });
     });
 
+    adapter.on('mcp_servers', (servers: CliMcpServerStatus[]) => {
+      if (isStaleAdapterEvent('mcp_servers')) return;
+      this.deps.onMcpServersStatus?.(instanceId, adapterGenerationAtSubscribe, servers);
+    });
+
     adapter.on('slot:wait-start', ({ provider, startedAt, deadlineAt }: { provider: string; startedAt: number; deadlineAt?: number }) => {
       if (isStaleAdapterEvent('slot:wait-start')) return;
       const instance = this.deps.getInstance(instanceId);
@@ -2276,13 +2284,17 @@ export class InstanceCommunicationManager extends EventEmitter {
       // The CLI exits with code 0 after a hook returns `defer`. Don't trigger
       // respawn — the resume flow handles this when the user approves/denies.
       if (adapter.getName() === 'claude-cli') {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const claudeAdapter = adapter as any;
-        if (typeof claudeAdapter.getDeferredToolUse === 'function' && claudeAdapter.getDeferredToolUse()) {
+        // Narrow via a structural guard rather than `as any` — avoids a
+        // concrete ClaudeCliAdapter import here while keeping the shape typed.
+        const claudeAdapter = adapter as CliAdapter & {
+          getDeferredToolUse?: () => DeferredToolUse | null;
+        };
+        const deferred = claudeAdapter.getDeferredToolUse?.();
+        if (deferred) {
           logger.info('Adapter exit with deferred tool use pending — skipping respawn', {
             instanceId,
             code,
-            toolName: claudeAdapter.getDeferredToolUse().toolName,
+            toolName: deferred.toolName,
           });
           return;
         }
@@ -2464,6 +2476,14 @@ export class InstanceCommunicationManager extends EventEmitter {
   // Output Buffer Management
   // ============================================
 
+  /** Append a message to the conversation and publish it to observers. */
+  emitSystemOutput(instanceId: string, message: OutputMessage): void {
+    const instance = this.deps.getInstance(instanceId);
+    if (!instance) return;
+    this.addToOutputBuffer(instance, message);
+    this.emit('output', { instanceId, message });
+  }
+
   /**
    * Add message to instance output buffer
    */
@@ -2569,7 +2589,14 @@ export class InstanceCommunicationManager extends EventEmitter {
         truncated: !!(messageToStore.metadata?.['truncated']),
         metadata: messageToStore.metadata ? { toolName: messageToStore.metadata['toolName'] } : undefined
       });
-    } catch { /* stats are best-effort */ }
+    } catch (error) {
+      // Stats are best-effort: never fail the message flow over telemetry,
+      // but make failures observable instead of disappearing entirely.
+      logger.debug('Token stats recording failed (best-effort)', {
+        instanceId: instance.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
 
     const settings = this.settings.getAll();
     const bufferSize = settings.outputBufferSize;

@@ -52,6 +52,7 @@ import { createCompareDomain } from './domains/compare.preload';
 import { createWorkboardDomain } from './domains/workboard.preload';
 import { createPermissionRegistryDomain } from './domains/permission-registry.preload';
 import type { IpcResponse } from './domains/types';
+import { readIpcAuthToken } from './ipc-auth-token';
 
 // --- Auth token shared across domains that need authenticated IPC calls ---
 let ipcAuthToken: string | null = null;
@@ -117,9 +118,9 @@ const origAppReady = electronAPI.appReady;
 if (origAppReady) {
   electronAPI.appReady = (): Promise<IpcResponse> =>
     origAppReady().then((response) => {
-      const data = response?.data as { ipcAuthToken?: string } | undefined;
-      if (data?.ipcAuthToken) {
-        ipcAuthToken = data.ipcAuthToken;
+      const ipcAuthTokenFromReady = readIpcAuthToken(response?.data);
+      if (ipcAuthTokenFromReady) {
+        ipcAuthToken = ipcAuthTokenFromReady;
       }
       return response;
     });

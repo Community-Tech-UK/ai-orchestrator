@@ -1,5 +1,6 @@
 /**
- * Auto Title Service - Generates short session titles from the first user message
+ * Auto Title Service - Generates short session titles from the first user
+ * message, then refines them once the assistant's actual reply is known.
  *
  * Phase 1 (instant): applies a truncated first-message title immediately.
  * Phase 2 (async): upgrades to an AI-generated summary using the existing
@@ -8,6 +9,11 @@
  * timeout, local model unreachable), one more attempt is queued and consumed
  * the next time the instance sees genuine new user activity — never on
  * hibernate/wake or session restore. See `retryTitleUpgradeIfPending`.
+ * Phase 3 (contextual, once): once the first turn settles, retitles using the
+ * opening message PLUS the assistant's own reply. Vague openers ("fix this
+ * issue", a raw paste) carry no identifiable subject on their own — no prompt
+ * can invent one — but the assistant's reply usually names the real thing.
+ * See `maybeUpgradeTitleWithFirstReply`.
  */
 
 import { resolveCliType, type CliAdapter } from '../cli/adapters/adapter-factory';
@@ -182,6 +188,15 @@ export class AutoTitleService {
    */
   private pendingRetries = new Map<string, { message: string; attachmentNames: readonly string[] }>();
 
+  /**
+   * Instances whose first message has been titled (Phase 1/2) and are waiting
+   * for their first turn to settle so Phase 3 can retitle using the assistant's
+   * actual reply — see {@link maybeUpgradeTitleWithFirstReply}. Keyed by
+   * instance ID; one-shot, consumed (deleted) on the first attempt regardless
+   * of outcome, mirroring `pendingRetries`.
+   */
+  private awaitingFirstReplyContext = new Map<string, { message: string; attachmentNames: readonly string[] }>();
+
   // eslint-disable-next-line @typescript-eslint/no-empty-function
   private constructor() {}
 
@@ -196,6 +211,7 @@ export class AutoTitleService {
     if (this.instance) {
       this.instance.processed.clear();
       this.instance.pendingRetries.clear();
+      this.instance.awaitingFirstReplyContext.clear();
     }
     (this.instance as AutoTitleService | undefined) = undefined;
   }
@@ -231,6 +247,14 @@ export class AutoTitleService {
     // Guard: nothing to summarize — short message AND no attachment to fall back on
     const hasAttachment = attachmentLabels(attachmentNames).length > 0;
     if (message.trim().length < MIN_MESSAGE_LENGTH && !hasAttachment) return;
+
+    // Register for the Phase 3 contextual upgrade (see
+    // `maybeUpgradeTitleWithFirstReply`): the opening message is often vague
+    // ("fix this issue", a raw paste) with no real subject in the text yet.
+    // Once the first turn settles, the assistant's own reply usually names the
+    // actual subject, so the caller gets one more chance to retitle using that
+    // richer context.
+    this.awaitingFirstReplyContext.set(instanceId, { message, attachmentNames });
 
     // Phase 1: Immediate fallback — truncated first message (or attachment) title
     const instantTitle = deriveInstantTitle(message, attachmentNames);
@@ -294,6 +318,66 @@ export class AutoTitleService {
       }
     } catch (error) {
       logger.warn('AI title retry failed, keeping existing title', {
+        instanceId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
+   * Phase 3 — retitle once the instance's first turn has settled, using the
+   * assistant's own reply as extra context.
+   *
+   * Phases 1 and 2 can only summarize the opening message, and a lot of real
+   * opening messages carry no identifiable subject on their own — "fix this
+   * issue", a raw error/log paste, "there's a bug in the header". No amount of
+   * prompt tuning recovers a subject that was never in the text. But by the
+   * time the first turn settles, the assistant has usually named the real
+   * thing (the actual file, error, or feature) in its reply, so one more
+   * attempt — now with that reply folded in — regularly turns "Fix Issue"
+   * into something the user can actually recognize in the sidebar.
+   *
+   * One-shot regardless of outcome (mirrors `retryTitleUpgradeIfPending`): the
+   * pending entry is removed before the attempt runs, so later turns settling
+   * on the same instance never retrigger this. Callers should invoke this from
+   * the instance's first `instance:settled` event after its opening message —
+   * later settles are no-ops because nothing remains queued.
+   *
+   * @param instanceId - Instance whose first turn just settled
+   * @param assistantReply - Concatenated text of the assistant's reply so far
+   *   in that first turn (e.g. from the output buffer). Too-short replies are
+   *   skipped — nothing meaningful to add over the Phase 1/2 title yet.
+   * @param applyTitle - Callback to set the title, mirroring the other phases
+   * @param isRenamed - Whether the user has already explicitly renamed the
+   *   instance since Phase 1/2 ran
+   */
+  async maybeUpgradeTitleWithFirstReply(
+    instanceId: string,
+    assistantReply: string,
+    applyTitle: (instanceId: string, title: string, source: 'ai') => void,
+    isRenamed = false,
+  ): Promise<void> {
+    const pending = this.awaitingFirstReplyContext.get(instanceId);
+    if (!pending) return;
+    this.awaitingFirstReplyContext.delete(instanceId);
+
+    if (isRenamed) return;
+
+    const trimmedReply = assistantReply.trim();
+    if (trimmedReply.length < MIN_MESSAGE_LENGTH) return;
+
+    const combinedText = `${pending.message}\n\nWhat actually happened: ${trimmedReply}`;
+
+    try {
+      const title = await this.generateTitle(combinedText, pending.attachmentNames);
+      if (title) {
+        applyTitle(instanceId, title, 'ai');
+        logger.info('Auto-titled instance (AI, contextual upgrade)', { instanceId, title });
+      } else {
+        logger.debug('Contextual title upgrade produced no usable title, keeping existing title', { instanceId });
+      }
+    } catch (error) {
+      logger.warn('Contextual title upgrade failed, keeping existing title', {
         instanceId,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -552,6 +636,7 @@ export class AutoTitleService {
   clearInstance(instanceId: string): void {
     this.processed.delete(instanceId);
     this.pendingRetries.delete(instanceId);
+    this.awaitingFirstReplyContext.delete(instanceId);
   }
 }
 

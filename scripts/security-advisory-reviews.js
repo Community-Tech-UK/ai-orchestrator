@@ -119,6 +119,28 @@ const ADVISORY_REVIEWS = new Map([
     },
   ],
   [
+    'https://github.com/advisories/GHSA-7pqw-9j4j-h8q3',
+    {
+      package: 'extract-zip',
+      scope: 'production',
+      reviewed: '2026-09-15',
+      rationale:
+        'CVE-2026-19693: extract-zip containment-checks only the parent directory of each '
+        + 'entry, so a symlink entry pointing outside the destination followed by a regular file '
+        + 'with the same name writes through the symlink. No patched release (latest 2.0.1 is in '
+        + 'range). Same copy and same two production paths as GHSA-jmr9-qjv8-65gv, and the same '
+        + 'controls apply: the attack needs a symlink entry to be created first, and '
+        + 'src/main/plugins/safe-zip-entry.ts rejects every symlink entry from onEntry before '
+        + 'anything is written (covered by a real-extraction test in '
+        + 'plugin-source-resolver.spec.ts); puppeteer only unpacks Chrome-for-Testing builds it '
+        + "downloads itself over HTTPS from Google's CDN.",
+      retiredBy:
+        'Upgrading puppeteer-core 22 -> 25 (@puppeteer/browsers 3.x replaced extract-zip with '
+        + 'modern-tar) and overriding the nested whatsapp-web.js puppeteer chain, then dropping '
+        + 'the direct extract-zip dependency.',
+    },
+  ],
+  [
     'https://github.com/advisories/GHSA-9f4c-93c8-jc8g',
     {
       package: 'electron',

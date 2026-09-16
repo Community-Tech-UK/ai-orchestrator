@@ -32,12 +32,12 @@ import type { AdapterCapabilities, InterruptResult, ResumeAttemptResult } from '
 import { isSessionNotFoundText } from './resume-error-classifier';
 import { getLogger } from '../../logging/logger';
 import type {
-  OutputMessage,
   ContextUsage,
   InstanceStatus,
   ThinkingContent,
 } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
+import { createOutputMessage, redactArgvForLog } from './base-cli-adapter-utils';
 import { extractThinkingContent, ThinkingBlock } from '../../../shared/utils/thinking-extractor';
 import { getDefaultCopilotCliLaunch } from '../copilot-cli-launch';
 import { startCopilotServerMode } from './copilot/copilot-server-mode';
@@ -310,7 +310,7 @@ export class CopilotCliAdapter extends BaseCliAdapter {
     return new Promise<CliResponse>((resolve, reject) => {
       const args = this.buildArgs(message);
       logger.debug('Spawning copilot', {
-        args: this.redactPromptForLog(args),
+        args: redactArgvForLog(args, { flag: '--prompt' }),
         hasResumeId: !!this.copilotSessionId,
       });
       this.process = this.spawnProcess(args);
@@ -348,15 +348,12 @@ export class CopilotCliAdapter extends BaseCliAdapter {
         const extracted = extractThinkingContent(content);
         const thinking = [...this.currentMessageReasoning, ...extracted.thinking];
 
-        this.emit('output', {
+        this.emit('output', createOutputMessage('assistant', content, {
           id: messageId,
-          timestamp: Date.now(),
-          type: 'assistant',
-          content,
           metadata: { streaming: true, accumulatedContent: extracted.response },
           thinking: thinking.length > 0 ? thinking : undefined,
           thinkingExtracted: true,
-        } as OutputMessage);
+        }));
       };
 
       const normalizeToolInput = (value: unknown): Record<string, unknown> | undefined => {
@@ -418,14 +415,11 @@ export class CopilotCliAdapter extends BaseCliAdapter {
               ...extracted.thinking.map((t) => ({ ...t, timestamp: Date.now() })),
             ];
 
-            this.emit('output', {
+            this.emit('output', createOutputMessage('assistant', extracted.response, {
               id: messageId,
-              timestamp: Date.now(),
-              type: 'assistant',
-              content: extracted.response,
               thinking: thinking.length > 0 ? thinking : undefined,
               thinkingExtracted: true,
-            } as OutputMessage);
+            }));
 
             // Per-turn token accounting: prefer outputTokens from the
             // assistant.message event; we get full usage from `result`.
@@ -457,11 +451,7 @@ export class CopilotCliAdapter extends BaseCliAdapter {
               activeToolCalls.set(toolCallId, { name: toolName, input });
             }
 
-            this.emit('output', {
-              id: generateId(),
-              timestamp: Date.now(),
-              type: 'tool_use',
-              content: `Using tool: ${toolName}`,
+            this.emit('output', createOutputMessage('tool_use', `Using tool: ${toolName}`, {
               metadata: {
                 id: toolCallId,
                 name: toolName,
@@ -470,7 +460,7 @@ export class CopilotCliAdapter extends BaseCliAdapter {
                 toolName,
                 toolCallId,
               },
-            } as OutputMessage);
+            }));
             break;
           }
 
@@ -488,41 +478,41 @@ export class CopilotCliAdapter extends BaseCliAdapter {
               ? event.data.error.message
               : undefined;
 
-            this.emit('output', {
-              id: generateId(),
-              timestamp: Date.now(),
-              type: 'tool_result',
-              content: toolSucceeded
+            this.emit('output', createOutputMessage(
+              'tool_result',
+              toolSucceeded
                 ? `Tool ${toolName} completed`
                 : `Tool ${toolName} failed${errorMessage ? `: ${errorMessage}` : ''}`,
-              metadata: {
-                name: toolName,
-                input,
-                tool_use_id: toolCallId,
-                is_error: !toolSucceeded,
-                toolName,
-                toolCallId,
-                success: toolSucceeded,
-                output: event.data?.result,
-                error: event.data?.error,
-              },
-            } as OutputMessage);
-            if (!toolSucceeded) {
-              this.emit('output', {
-                id: generateId(),
-                timestamp: Date.now(),
-                type: 'error',
-                content: `Copilot tool call failed (${toolName}${toolCallId ? `, ${toolCallId}` : ''})${errorMessage ? `: ${errorMessage}` : ''}`,
+              {
                 metadata: {
                   name: toolName,
                   input,
                   tool_use_id: toolCallId,
+                  is_error: !toolSucceeded,
                   toolName,
                   toolCallId,
+                  success: toolSucceeded,
+                  output: event.data?.result,
                   error: event.data?.error,
-                  raw: event,
                 },
-              } as OutputMessage);
+              },
+            ));
+            if (!toolSucceeded) {
+              this.emit('output', createOutputMessage(
+                'error',
+                `Copilot tool call failed (${toolName}${toolCallId ? `, ${toolCallId}` : ''})${errorMessage ? `: ${errorMessage}` : ''}`,
+                {
+                  metadata: {
+                    name: toolName,
+                    input,
+                    tool_use_id: toolCallId,
+                    toolName,
+                    toolCallId,
+                    error: event.data?.error,
+                    raw: event,
+                  },
+                },
+              ));
             }
             break;
           }
@@ -540,13 +530,9 @@ export class CopilotCliAdapter extends BaseCliAdapter {
             // Also emit as an `error` OutputMessage so it lands in the
             // instance's output buffer and becomes visible in the UI plus
             // in the child-exit summary fallback.
-            this.emit('output', {
-              id: generateId(),
-              timestamp: Date.now(),
-              type: 'error',
-              content: sessionErrMsg,
+            this.emit('output', createOutputMessage('error', sessionErrMsg, {
               metadata: { source: 'copilot-session-error' },
-            } as OutputMessage);
+            }));
             this.emit('error', new Error(sessionErrMsg));
             break;
           }
@@ -844,20 +830,6 @@ export class CopilotCliAdapter extends BaseCliAdapter {
     return args;
   }
 
-  /**
-   * Redact the prompt body from arg logs — prompts can contain sensitive data
-   * and we don't want it in log files. Shows `--prompt <redacted N chars>`.
-   */
-  private redactPromptForLog(args: string[]): string[] {
-    const out = [...args];
-    const i = out.indexOf('--prompt');
-    if (i >= 0 && out[i + 1] !== undefined) {
-      const len = out[i + 1].length;
-      out[i + 1] = `<redacted ${len} chars>`;
-    }
-    return out;
-  }
-
   // ============ InstanceManager Compatibility API ============
 
   /**
@@ -1008,13 +980,10 @@ export class CopilotCliAdapter extends BaseCliAdapter {
       await this.sendMessage(cliMessage);
       this.emit('status', 'idle' as InstanceStatus);
     } catch (error) {
-      const errorMessage: OutputMessage = {
-        id: generateId(),
-        timestamp: Date.now(),
-        type: 'error',
-        content: error instanceof Error ? error.message : String(error),
-      };
-      this.emit('output', errorMessage);
+      this.emit('output', createOutputMessage(
+        'error',
+        error instanceof Error ? error.message : String(error),
+      ));
       this.emit('status', 'error' as InstanceStatus);
       this.emit('error', error instanceof Error ? error : new Error(String(error)));
     }

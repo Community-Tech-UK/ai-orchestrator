@@ -21,6 +21,9 @@ import { CasStore } from './cas-store';
 import { runCodememMaintenance } from './codemem-pruner';
 import { CodeIndexManager } from './code-index-manager';
 import { PeriodicScan } from './periodic-scan';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('CodememIndexWorker');
 import { searchHydratedChunks } from './workspace-chunk-search';
 import { workspaceHashForPath } from './symbol-id';
 import type { WorkspaceHash } from './types';
@@ -108,7 +111,7 @@ const store = new CasStore(db);
 try {
   runMaintenance();
 } catch (error) {
-  console.warn('Codemem maintenance skipped', error instanceof Error ? error.message : String(error));
+  logger.warn('Codemem maintenance skipped', { error: error instanceof Error ? error.message : String(error) });
 }
 const indexManager = new CodeIndexManager({ store });
 const periodicScan = new PeriodicScan({ store, mgr: indexManager });
@@ -316,10 +319,9 @@ async function warmWorkspace(msg: WarmWorkspaceMsg): Promise<void> {
     store.clearCancel(workspaceHash);
     await indexManager.reconcileIndex(normalizedPath);
   } catch (error) {
-    console.warn(
-      'Codemem warm reconcile failed',
-      error instanceof Error ? error.message : String(error),
-    );
+    logger.warn('Codemem warm reconcile failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 
@@ -386,7 +388,7 @@ async function runPeriodicDriftScan(): Promise<void> {
       await periodicScan.runOnce(workspaceHash as WorkspaceHash);
     }
   } catch (error) {
-    console.warn('Codemem periodic drift scan failed', error instanceof Error ? error.message : String(error));
+    logger.warn('Codemem periodic drift scan failed', { error: error instanceof Error ? error.message : String(error) });
   } finally {
     periodicScanRunning = false;
   }

@@ -57,6 +57,31 @@ describe('VerificationPreferencesComponent', () => {
     }));
   });
 
+  it('reads typed range and checkbox events without $any casts', () => {
+    const range = document.createElement('input');
+    range.type = 'range';
+    range.value = '4';
+    component.onNumberInput({ target: range } as unknown as Event, component.defaultAgentCount.set);
+    expect(component.defaultAgentCount()).toBe(4);
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = false;
+    component.onBooleanInput({ target: checkbox } as unknown as Event, component.autoContinueDebate.set);
+    expect(component.autoContinueDebate()).toBe(false);
+
+    component.onPreferredAgentChange('claude', { target: Object.assign(document.createElement('input'), { checked: true }) } as unknown as Event);
+    expect(component.preferredAgents()).toContain('claude');
+
+    const select = document.createElement('select');
+    const option = document.createElement('option');
+    option.value = 'creative-solver';
+    select.append(option);
+    select.value = 'creative-solver';
+    component.onPersonalityChange(0, { target: select } as unknown as Event);
+    expect(component.defaultPersonalities()[0]).toBe('creative-solver');
+  });
+
   it('loads stored max debate rounds into the preferences form', () => {
     store.config.mockReturnValue({
       ...DEFAULT_VERIFICATION_CONFIG,

@@ -1564,6 +1564,11 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
             };
           }
         }
+        if (message.subtype === 'init' && Array.isArray(message.mcp_servers)) {
+          // Claude connects MCP servers once per process and never retries a
+          // failed one; the instance layer decides whether a respawn is needed.
+          this.emit('mcp_servers', message.mcp_servers);
+        }
         if (message.content) {
           this.emit('output', {
             id: generateId(),

@@ -83,7 +83,7 @@ interface PersonalityPreset {
               min="1"
               max="6"
               [value]="defaultAgentCount()"
-              (input)="defaultAgentCount.set(+$any($event.target).value)"
+              (input)="onNumberInput($event, defaultAgentCount.set)"
             />
             <span class="range-value">{{ defaultAgentCount() }}</span>
           </div>
@@ -100,7 +100,7 @@ interface PersonalityPreset {
                 <input
                   type="checkbox"
                   [checked]="preferredAgents().includes(agent.id)"
-                  (change)="togglePreferredAgent(agent.id, $any($event.target).checked)"
+                  (change)="onPreferredAgentChange(agent.id, $event)"
                 />
                 <span class="agent-name">{{ agent.name }}</span>
               </label>
@@ -125,7 +125,7 @@ interface PersonalityPreset {
               max="0.95"
               step="0.05"
               [value]="minAgreement()"
-              (input)="minAgreement.set(+$any($event.target).value)"
+              (input)="onNumberInput($event, minAgreement.set)"
             />
             <span class="range-value">{{ (minAgreement() * 100).toFixed(0) }}%</span>
           </div>
@@ -143,7 +143,7 @@ interface PersonalityPreset {
               max="0.95"
               step="0.05"
               [value]="confidenceThreshold()"
-              (input)="confidenceThreshold.set(+$any($event.target).value)"
+              (input)="onNumberInput($event, confidenceThreshold.set)"
             />
             <span class="range-value">{{ (confidenceThreshold() * 100).toFixed(0) }}%</span>
           </div>
@@ -161,7 +161,7 @@ interface PersonalityPreset {
               max="0.99"
               step="0.01"
               [value]="convergenceThreshold()"
-              (input)="convergenceThreshold.set(+$any($event.target).value)"
+              (input)="onNumberInput($event, convergenceThreshold.set)"
             />
             <span class="range-value">{{ (convergenceThreshold() * 100).toFixed(0) }}%</span>
           </div>
@@ -183,7 +183,7 @@ interface PersonalityPreset {
               min="1"
               max="10"
               [value]="maxDebateRounds()"
-              (change)="maxDebateRounds.set(+$any($event.target).value)"
+              (change)="onNumberInput($event, maxDebateRounds.set)"
             />
           </div>
         </div>
@@ -198,7 +198,7 @@ interface PersonalityPreset {
               <input
                 type="checkbox"
                 [checked]="autoContinueDebate()"
-                (change)="autoContinueDebate.set($any($event.target).checked)"
+                (change)="onBooleanInput($event, autoContinueDebate.set)"
               />
               <span class="toggle-slider"></span>
             </label>
@@ -221,7 +221,7 @@ interface PersonalityPreset {
               min="30"
               max="600"
               [value]="responseTimeout()"
-              (change)="responseTimeout.set(+$any($event.target).value)"
+              (change)="onNumberInput($event, responseTimeout.set)"
             />
             <span class="unit">seconds</span>
           </div>
@@ -238,7 +238,7 @@ interface PersonalityPreset {
               min="60"
               max="3600"
               [value]="sessionTimeout()"
-              (change)="sessionTimeout.set(+$any($event.target).value)"
+              (change)="onNumberInput($event, sessionTimeout.set)"
             />
             <span class="unit">seconds</span>
           </div>
@@ -281,7 +281,7 @@ interface PersonalityPreset {
               <span class="personality-index">Agent {{ i + 1 }}:</span>
               <select
                 [value]="p"
-                (change)="updatePersonality(i, $any($event.target).value)"
+                (change)="onPersonalityChange(i, $event)"
               >
                 @for (opt of personalityOptions; track opt.id) {
                   <option [value]="opt.id">{{ opt.name }}</option>
@@ -777,6 +777,38 @@ export class VerificationPreferencesComponent implements OnInit {
         this.defaultPersonalities.set([...config.personalities]);
       }
     }
+  }
+
+  onNumberInput(event: Event, setter: (value: number) => void): void {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) {
+      return;
+    }
+    setter(+target.value);
+  }
+
+  onBooleanInput(event: Event, setter: (value: boolean) => void): void {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) {
+      return;
+    }
+    setter(target.checked);
+  }
+
+  onPreferredAgentChange(cli: CliType, event: Event): void {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) {
+      return;
+    }
+    this.togglePreferredAgent(cli, target.checked);
+  }
+
+  onPersonalityChange(index: number, event: Event): void {
+    const target = event.target;
+    if (!(target instanceof HTMLSelectElement)) {
+      return;
+    }
+    this.updatePersonality(index, target.value);
   }
 
   togglePreferredAgent(cli: CliType, checked: boolean): void {

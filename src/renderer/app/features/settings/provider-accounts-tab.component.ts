@@ -46,16 +46,11 @@ const SIGN_IN_POLL_LIMIT = 60;
   imports: [FormsModule],
   template: `
     <div class="provider-accounts-tab">
-      <div class="tab-header">
-        <div>
-          <h3 class="section-title">Claude &amp; Codex accounts</h3>
-          <p class="section-desc">
-            Add the Claude and ChatGPT subscriptions you pay for. Sessions use the first
-            available account in the order below, and when one hits its usage limit the
-            conversation can carry on under the next one. Adding an account copies a sign-in
-            command to paste in your own terminal. Only you can change these; agents cannot.
-          </p>
-        </div>
+      <div class="tab-intro">
+        <p class="section-desc">
+          New sessions use the first available account in each list. Only you can change
+          these settings; agents cannot.
+        </p>
         <button type="button" class="btn btn-secondary" (click)="refresh()" [disabled]="busy()">
           {{ busy() ? 'Working…' : 'Refresh' }}
         </button>
@@ -76,220 +71,270 @@ const SIGN_IN_POLL_LIMIT = 60;
             <p class="warning-banner">{{ warning }}</p>
           }
 
-          <div class="accounts">
-            @for (account of accountsFor(provider.id); track account.id; let first = $first; let last = $last) {
-              <article class="account-card" [class.is-disabled]="!account.enabled">
-                <header>
-                  <div class="account-title">
-                    <strong>{{ account.label }}</strong>
-                    @if (account.id === defaultAccountId(provider.id)) {
-                      <span class="chip default">Default</span>
-                    }
-                    @if (account.isLegacy) {
-                      <span class="chip legacy">Existing sign-in</span>
-                    }
-                    @if (account.planLabel) {
-                      <span class="chip plan">{{ account.planLabel }}</span>
-                    }
+          <ol class="accounts">
+            @for (account of accountsFor(provider.id); track account.id; let index = $index; let first = $first; let last = $last; let count = $count) {
+              <li class="account-card" [class.is-disabled]="!account.enabled">
+                <div class="account-row">
+                  @if (count > 1) {
+                    <span class="order" [attr.aria-label]="'Position ' + (index + 1)">{{ index + 1 }}</span>
+                  }
+                  <div class="account-summary">
+                    <div class="account-title">
+                      <strong>{{ account.label }}</strong>
+                      @if (account.id === defaultAccountId(provider.id)) {
+                        <span class="chip default">Default</span>
+                      }
+                      @if (account.isLegacy) {
+                        <span class="chip legacy">Existing sign-in</span>
+                      }
+                      @if (account.planLabel) {
+                        <span class="chip plan">{{ account.planLabel }}</span>
+                      }
+                    </div>
+                    <span class="status" [attr.data-state]="account.binding?.state ?? 'unavailable'">
+                      {{ bindingLabel(account) }}
+                      @if (account.expectedIdentity && account.binding?.state !== 'authenticated' && account.binding?.state !== 'identity-mismatch') {
+                        · {{ account.expectedIdentity }}
+                      }
+                    </span>
                   </div>
-                  <span class="chip binding" [attr.data-state]="account.binding?.state ?? 'unavailable'">
-                    {{ bindingLabel(account) }}
-                  </span>
-                </header>
-
-                <dl class="account-facts">
-                  <div>
-                    <dt>Account</dt>
-                    <dd>{{ account.expectedIdentity ?? 'Not verified yet' }}</dd>
-                  </div>
-                  <div>
-                    <dt>Order</dt>
-                    <dd>{{ account.priority + 1 }}</dd>
-                  </div>
-                  <div>
-                    <dt>Automatic work</dt>
-                    <dd>
-                      <select
-                        [ngModel]="account.automationPolicy"
-                        (ngModelChange)="setAutomationPolicy(account, $event)"
-                        [disabled]="busy()"
-                        [attr.aria-label]="'Automatic work for ' + account.label"
-                      >
-                        <option value="allow-routed">Allowed</option>
-                        <option value="manual-only">Only when I pick it</option>
-                        <option value="disabled">Never</option>
-                      </select>
-                    </dd>
-                  </div>
-                </dl>
+                  <label class="toggle" [attr.title]="isOnlyEnabled(account) ? 'At least one account must stay enabled' : null">
+                    <input
+                      type="checkbox"
+                      [checked]="account.enabled"
+                      (change)="setEnabled(account, $any($event.target).checked)"
+                      [disabled]="busy() || isOnlyEnabled(account)"
+                    />
+                    Enabled
+                  </label>
+                </div>
 
                 @if (account.binding?.state === 'identity-mismatch' && account.binding?.observedIdentity) {
                   <p class="mismatch">
                     Signed in as {{ account.binding?.observedIdentity }}, not {{ account.expectedIdentity }}.
-                    <button type="button" class="btn btn-link" (click)="adoptObserved(account)" [disabled]="busy()">
+                    <button type="button" class="btn btn-secondary" (click)="adoptObserved(account)" [disabled]="busy()">
                       Use this account instead
                     </button>
                   </p>
                 }
 
-                <div class="account-actions">
-                  <label class="toggle">
-                    <input
-                      type="checkbox"
-                      [checked]="account.enabled"
-                      (change)="setEnabled(account, $any($event.target).checked)"
+                <div class="account-controls">
+                  <label class="inline-field">
+                    Automatic use
+                    <select
+                      [ngModel]="account.automationPolicy"
+                      (ngModelChange)="setAutomationPolicy(account, $event)"
                       [disabled]="busy()"
-                    />
-                    Enabled
+                      [attr.aria-label]="'Automatic use for ' + account.label"
+                    >
+                      <option value="allow-routed">Allowed</option>
+                      <option value="manual-only">Only when I pick it</option>
+                      <option value="disabled">Never</option>
+                    </select>
                   </label>
-                  <button type="button" class="btn" (click)="signIn(account)" [disabled]="busy()">Copy sign-in command</button>
-                  <button type="button" class="btn btn-secondary" (click)="signIn(account, true)" [disabled]="busy()">Open a terminal</button>
-                  <button type="button" class="btn btn-secondary" (click)="verify(account)" [disabled]="busy()">Verify</button>
-                  <button type="button" class="btn btn-secondary" (click)="move(account, -1)" [disabled]="busy() || first"
-                    [attr.aria-label]="'Move ' + account.label + ' up'">↑</button>
-                  <button type="button" class="btn btn-secondary" (click)="move(account, 1)" [disabled]="busy() || last"
-                    [attr.aria-label]="'Move ' + account.label + ' down'">↓</button>
-                  <button type="button" class="btn btn-secondary" (click)="rename(account)" [disabled]="busy()">Rename</button>
-                  @if (!account.isLegacy) {
-                    <button type="button" class="btn btn-danger" (click)="remove(account)" [disabled]="busy()">Remove</button>
-                  }
-                </div>
-              </article>
-            }
-          </div>
 
-          <div class="add-row">
-            <input
-              type="text"
-              [ngModel]="newLabels()[provider.id]"
-              (ngModelChange)="setNewLabel(provider.id, $event)"
-              [placeholder]="provider.subscription + ' account name, e.g. Max B'"
-              [attr.aria-label]="'New ' + provider.label + ' account name'"
-              maxlength="64"
-            />
-            <button
-              type="button"
-              class="btn"
-              (click)="addAccount(provider.id)"
-              [disabled]="busy() || !(newLabels()[provider.id] ?? '').trim()"
-            >
-              Add account
-            </button>
+                  <div class="account-actions">
+                    @if (isSignedIn(account)) {
+                      <button type="button" class="btn btn-secondary" (click)="verify(account)" [disabled]="busy()">Check sign-in</button>
+                      <button type="button" class="btn btn-secondary" (click)="signIn(account)" [disabled]="busy()"
+                        title="Copies a sign-in command to paste in your terminal">Sign in again</button>
+                    } @else {
+                      <button type="button" class="btn btn-primary" (click)="signIn(account)" [disabled]="busy()">Copy sign-in command</button>
+                      <button type="button" class="btn btn-secondary" (click)="signIn(account, true)" [disabled]="busy()">Open a terminal</button>
+                      <button type="button" class="btn btn-secondary" (click)="verify(account)" [disabled]="busy()">Check sign-in</button>
+                    }
+                    <span class="action-divider" aria-hidden="true"></span>
+                    @if (count > 1) {
+                      <button type="button" class="btn btn-secondary icon" (click)="move(account, -1)" [disabled]="busy() || first"
+                        [attr.aria-label]="'Move ' + account.label + ' up'" title="Move up">↑</button>
+                      <button type="button" class="btn btn-secondary icon" (click)="move(account, 1)" [disabled]="busy() || last"
+                        [attr.aria-label]="'Move ' + account.label + ' down'" title="Move down">↓</button>
+                    }
+                    <button type="button" class="btn btn-secondary" (click)="rename(account)" [disabled]="busy()">Rename</button>
+                    @if (!account.isLegacy) {
+                      <button type="button" class="btn btn-danger" (click)="remove(account)" [disabled]="busy()">Remove</button>
+                    }
+                  </div>
+                </div>
+              </li>
+            }
+          </ol>
+
+          <div class="add-account">
+            <div class="add-row">
+              <input
+                type="text"
+                [ngModel]="newLabels()[provider.id]"
+                (ngModelChange)="setNewLabel(provider.id, $event)"
+                (keydown.enter)="addAccount(provider.id)"
+                [placeholder]="provider.subscription + ' account name, e.g. Work'"
+                [attr.aria-label]="'New ' + provider.label + ' account name'"
+                maxlength="64"
+              />
+              <button
+                type="button"
+                class="btn btn-secondary"
+                (click)="addAccount(provider.id)"
+                [disabled]="busy() || !(newLabels()[provider.id] ?? '').trim()"
+              >
+                Add account
+              </button>
+            </div>
+            <p class="hint">Adding an account copies a sign-in command for you to paste in your own terminal.</p>
           </div>
 
           @if (pools()?.[provider.id]; as policy) {
-            <div class="pool-policy">
-              @if (policy.acknowledgedOwnershipAt === null) {
-                <div class="ownership">
-                  <p>
-                    Before a second {{ provider.label }} account can be enabled, confirm that every account in
-                    this pool is a {{ provider.subscription }} subscription you personally pay for, and that you
-                    understand {{ provider.id === 'claude' ? 'Anthropic' : 'OpenAI' }} may still apply its own
-                    usage policies to how the accounts are used.
-                  </p>
-                  <button type="button" class="btn" (click)="acknowledge(provider.id)" [disabled]="busy()">
-                    I confirm these are my own accounts
-                  </button>
-                </div>
-              }
+            @if (accountsFor(provider.id).length < 2) {
+              <p class="hint">Add a second {{ provider.subscription }} account to choose what happens when one hits its limit.</p>
+            } @else {
+              <div class="pool-policy">
+                <h5 class="policy-title">When an account hits its limit</h5>
 
-              <div class="policy-grid">
-                <label>
-                  When an account hits its limit
-                  <select [ngModel]="policy.failoverMode" (ngModelChange)="updatePool(provider.id, { failoverMode: $event })" [disabled]="busy()">
-                    <option value="automatic">Move to the next account automatically</option>
-                    <option value="ask">Tell me and let me switch</option>
-                    <option value="off">Wait for the limit to reset</option>
-                  </select>
-                </label>
-                <label>
-                  How the conversation continues
-                  <select [ngModel]="policy.continuation" (ngModelChange)="updatePool(provider.id, { continuation: $event })" [disabled]="busy()">
-                    <option value="shared-store">Resume the same session (shared history)</option>
-                    <option value="replay">Start a fresh session with the transcript</option>
-                  </select>
-                </label>
-                <label class="toggle">
-                  <input
-                    type="checkbox"
-                    [checked]="policy.preemptive.newSessions"
-                    (change)="updatePool(provider.id, { preemptive: { newSessions: $any($event.target).checked } })"
-                    [disabled]="busy()"
-                  />
-                  Start new sessions on another account when one is nearly used up
-                </label>
-                <label class="toggle">
-                  <input
-                    type="checkbox"
-                    [checked]="policy.preemptive.liveSessionsAtTurnBoundary"
-                    (change)="updatePool(provider.id, { preemptive: { liveSessionsAtTurnBoundary: $any($event.target).checked } })"
-                    [disabled]="busy()"
-                  />
-                  Also move running sessions between turns
-                </label>
-                <label>
-                  "Nearly used up" means 5-hour usage at or above (%)
-                  <input
-                    type="number"
-                    min="1"
-                    max="100"
-                    [ngModel]="policy.preemptive.thresholdPct"
-                    (change)="updatePool(provider.id, { preemptive: { thresholdPct: clampPct($any($event.target).value) } })"
-                    [disabled]="busy()"
-                  />
-                </label>
-                <label>
-                  Minutes between switches for one session
-                  <input
-                    type="number"
-                    min="0"
-                    max="1440"
-                    [ngModel]="cooldownMinutes(policy)"
-                    (change)="updatePool(provider.id, { switchCooldownMs: minutesToMs($any($event.target).value) })"
-                    [disabled]="busy()"
-                  />
-                </label>
+                @if (policy.acknowledgedOwnershipAt === null) {
+                  <div class="ownership">
+                    <p>
+                      Before a second {{ provider.label }} account can be enabled, confirm that every account in
+                      this list is a {{ provider.subscription }} subscription you personally pay for, and that you
+                      understand {{ provider.id === 'claude' ? 'Anthropic' : 'OpenAI' }} may still apply its own
+                      usage policies to how the accounts are used.
+                    </p>
+                    <button type="button" class="btn btn-primary" (click)="acknowledge(provider.id)" [disabled]="busy()">
+                      I confirm these are my own accounts
+                    </button>
+                  </div>
+                }
+
+                <div class="policy-grid">
+                  <label class="field">
+                    Switching
+                    <select [ngModel]="policy.failoverMode" (ngModelChange)="updatePool(provider.id, { failoverMode: $event })" [disabled]="busy()">
+                      <option value="automatic">Move to the next account automatically</option>
+                      <option value="ask">Tell me and let me switch</option>
+                      <option value="off">Wait for the limit to reset</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    Conversation after a switch
+                    <select [ngModel]="policy.continuation" (ngModelChange)="updatePool(provider.id, { continuation: $event })" [disabled]="busy()">
+                      <option value="shared-store">Resume the same session (shared history)</option>
+                      <option value="replay">Start a fresh session with the transcript</option>
+                    </select>
+                  </label>
+                </div>
+
+                <fieldset class="early-switch">
+                  <legend>Switch before the limit</legend>
+                  <label class="sentence">
+                    Treat an account as nearly used up at
+                    <input
+                      type="number"
+                      class="narrow"
+                      min="1"
+                      max="100"
+                      [ngModel]="policy.preemptive.thresholdPct"
+                      (change)="updatePool(provider.id, { preemptive: { thresholdPct: clampPct($any($event.target).value) } })"
+                      [disabled]="busy()"
+                    />
+                    % of its 5-hour usage
+                  </label>
+                  <label class="toggle">
+                    <input
+                      type="checkbox"
+                      [checked]="policy.preemptive.newSessions"
+                      (change)="updatePool(provider.id, { preemptive: { newSessions: $any($event.target).checked } })"
+                      [disabled]="busy()"
+                    />
+                    Start new sessions on another account
+                  </label>
+                  <label class="toggle">
+                    <input
+                      type="checkbox"
+                      [checked]="policy.preemptive.liveSessionsAtTurnBoundary"
+                      (change)="updatePool(provider.id, { preemptive: { liveSessionsAtTurnBoundary: $any($event.target).checked } })"
+                      [disabled]="busy()"
+                    />
+                    Also move running sessions between turns
+                  </label>
+                  @if (policy.preemptive.liveSessionsAtTurnBoundary && policy.failoverMode !== 'automatic') {
+                    <p class="hint indented">Running sessions only move when switching is set to automatic.</p>
+                  }
+                  <label class="sentence">
+                    Wait at least
+                    <input
+                      type="number"
+                      class="narrow"
+                      min="0"
+                      max="1440"
+                      [ngModel]="cooldownMinutes(policy)"
+                      (change)="updatePool(provider.id, { switchCooldownMs: minutesToMs($any($event.target).value) })"
+                      [disabled]="busy()"
+                    />
+                    minutes before switching the same session again
+                  </label>
+                </fieldset>
               </div>
-            </div>
+            }
           }
         </section>
       }
     </div>
   `,
   styles: [`
-    .provider-accounts-tab { display: flex; flex-direction: column; gap: 20px; }
-    .tab-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
-    .section-desc { color: var(--text-secondary); margin: 4px 0 0; max-width: 68ch; }
+    .provider-accounts-tab { display: flex; flex-direction: column; gap: 24px; }
+    .tab-intro { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+    .section-desc { color: var(--text-secondary); margin: 0; max-width: 68ch; }
     .error-banner, .warning-banner, .notice-banner {
       margin: 0; padding: 8px 12px; border-radius: 6px;
       border: 1px solid var(--border-color); background: var(--bg-secondary);
     }
     .error-banner { border-color: var(--error-color, #d33); }
-    .provider-section { display: flex; flex-direction: column; gap: 12px; }
-    .provider-title { margin: 0; font-size: 14px; }
-    .accounts { display: flex; flex-direction: column; gap: 12px; }
-    .account-card {
-      border: 1px solid var(--border-color); border-radius: 8px; padding: 14px;
-      display: flex; flex-direction: column; gap: 10px;
+    .hint { margin: 0; font-size: 12px; color: var(--text-muted, var(--text-secondary)); }
+    .hint.indented { padding-left: 24px; }
+    .provider-section {
+      display: flex; flex-direction: column; gap: 12px;
+      padding: 16px; border: 1px solid var(--border-color); border-radius: 10px;
     }
-    .account-card.is-disabled { opacity: 0.7; }
-    .account-card header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+    .provider-title { margin: 0; font-size: 15px; }
+    .accounts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    .account-card {
+      border: 1px solid var(--border-color); border-radius: 8px; padding: 12px 14px;
+      display: flex; flex-direction: column; gap: 10px; background: var(--bg-secondary);
+    }
+    .account-card.is-disabled .account-summary { opacity: 0.6; }
+    .account-row { display: flex; align-items: center; gap: 12px; }
+    .order {
+      flex: none; width: 24px; height: 24px; border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 12px; border: 1px solid var(--border-color); color: var(--text-secondary);
+    }
+    .account-summary { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
     .account-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-    .chip { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border-color); }
-    .chip.binding[data-state='authenticated'] { border-color: var(--success-color, #4a9); }
-    .chip.binding[data-state='identity-mismatch'] { border-color: var(--error-color, #d33); }
-    .account-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin: 0; }
-    .account-facts dt { font-size: 11px; color: var(--text-secondary); }
-    .account-facts dd { margin: 2px 0 0; }
-    .mismatch { margin: 0; }
-    .account-actions, .add-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-    .toggle { display: inline-flex; align-items: center; gap: 6px; }
-    .pool-policy { border-top: 1px solid var(--border-color); padding-top: 10px; display: flex; flex-direction: column; gap: 10px; }
-    .ownership { padding: 10px 12px; border-radius: 6px; background: var(--bg-secondary); }
-    .ownership p { margin: 0 0 8px; }
-    .policy-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
-    .policy-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
-    .policy-grid label.toggle { flex-direction: row; }
+    .chip { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border-color); color: var(--text-secondary); }
+    .status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); overflow-wrap: anywhere; }
+    .status::before { content: ''; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted, #888); }
+    .status[data-state='authenticated']::before { background: var(--success-color, #4a9); }
+    .status[data-state='unauthenticated']::before { background: var(--warning-color, #d93); }
+    .status[data-state='identity-mismatch']::before { background: var(--error-color, #d33); }
+    .mismatch { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .account-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+    .inline-field { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-secondary); }
+    .account-actions, .add-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .account-actions .btn { padding: 4px 10px; }
+    .account-actions .btn.icon { min-width: 30px; padding: 4px 6px; }
+    .action-divider { width: 1px; align-self: stretch; margin: 0 4px; background: var(--border-color); }
+    .add-account { display: flex; flex-direction: column; gap: 4px; }
+    .add-row input { flex: 1 1 18rem; min-width: 0; max-width: 28rem; }
+    .toggle { display: inline-flex; align-items: center; gap: 8px; }
+    .pool-policy { border-top: 1px solid var(--border-color); padding-top: 12px; display: flex; flex-direction: column; gap: 12px; }
+    .policy-title { margin: 0; font-size: 13px; }
+    .ownership { padding: 12px; border-radius: 6px; border: 1px solid var(--warning-border, var(--border-color)); background: var(--warning-bg, var(--bg-secondary)); }
+    .ownership p { margin: 0 0 10px; }
+    .policy-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+    .field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-secondary); }
+    .early-switch { margin: 0; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 6px; display: flex; flex-direction: column; gap: 8px; }
+    .early-switch legend { padding: 0 4px; font-size: 12px; color: var(--text-secondary); }
+    .sentence { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+    input.narrow { width: 5rem; }
   `],
 })
 export class ProviderAccountsTabComponent implements OnInit {
@@ -337,6 +382,16 @@ export class ProviderAccountsTabComponent implements OnInit {
     return this.byProvider()[provider].find((account) => account.enabled)?.id ?? null;
   }
 
+  isSignedIn(account: ProviderAccountView): boolean {
+    return account.binding?.state === 'authenticated';
+  }
+
+  /** The store refuses to disable the last enabled account, so the toggle does too. */
+  isOnlyEnabled(account: ProviderAccountView): boolean {
+    return account.enabled
+      && this.byProvider()[account.provider].filter((entry) => entry.enabled).length === 1;
+  }
+
   doctorWarnings(provider: PooledProvider): string[] {
     return this.doctorSignal()[provider]?.warnings ?? [];
   }
@@ -377,7 +432,8 @@ export class ProviderAccountsTabComponent implements OnInit {
 
   async addAccount(provider: PooledProvider): Promise<void> {
     const label = (this.newLabelsSignal()[provider] ?? '').trim();
-    if (!label) return;
+    // Enter in the name field bypasses the disabled button, so re-check here.
+    if (!label || this.busySignal()) return;
     await this.run(async () => {
       const created = await this.ipc.create({ provider, label });
       if (!created.success) throw new Error(created.error?.message ?? 'The account could not be added.');

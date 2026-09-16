@@ -5995,7 +5995,11 @@
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2756
+      "lines": 2771
+    },
+    {
+      "path": "src/main/instance/instance-communication.ts",
+      "lines": 2748
     },
     {
       "path": "docs/superpowers/plans/2026-03-20-cross-model-review_completed.md",
@@ -6004,10 +6008,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-21-cursor-cli-provider.md",
       "lines": 2734
-    },
-    {
-      "path": "src/main/instance/instance-communication.ts",
-      "lines": 2721
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
@@ -6066,12 +6066,12 @@
       "lines": 2112
     },
     {
-      "path": "src/main/instance/__tests__/instance-manager.lifecycle.spec.ts",
+      "path": "src/main/cli/adapters/claude-cli-adapter.ts",
       "lines": 2109
     },
     {
-      "path": "src/main/cli/adapters/claude-cli-adapter.ts",
-      "lines": 2104
+      "path": "src/main/instance/__tests__/instance-manager.lifecycle.spec.ts",
+      "lines": 2109
     },
     {
       "path": "docs/superpowers/plans/2026-04-13-codemem-phase1-index-and-lsp-facade_completed.md",
@@ -6135,7 +6135,7 @@
     },
     {
       "path": "packages/contracts/src/types/transport.types.ts",
-      "lines": 1809
+      "lines": 1811
     },
     {
       "path": "docs/superpowers/plans/2026-03-21-discord-channels_completed.md",
@@ -6278,16 +6278,16 @@
       "lines": 1383
     },
     {
+      "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
+      "lines": 1372
+    },
+    {
       "path": "src/main/chats/chat-service.spec.ts",
       "lines": 1369
     },
     {
       "path": "src/main/instance/lifecycle/interrupt-respawn-handler.ts",
       "lines": 1362
-    },
-    {
-      "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
-      "lines": 1352
     },
     {
       "path": "src/renderer/app/core/state/source-control.store.spec.ts",
@@ -6354,6 +6354,10 @@
       "lines": 1305
     },
     {
+      "path": "src/main/cli/adapters/__tests__/claude-cli-adapter.spec.ts",
+      "lines": 1297
+    },
+    {
       "path": "src/main/workspace/git/vcs-manager.ts",
       "lines": 1296
     },
@@ -6363,7 +6367,7 @@
     },
     {
       "path": "src/main/ipc/handlers/instance-handlers.ts",
-      "lines": 1290
+      "lines": 1293
     },
     {
       "path": "src/main/instance/__tests__/context-worker-client.spec.ts",
@@ -6400,10 +6404,6 @@
     {
       "path": "src/main/automations/automation-retry-integration.spec.ts",
       "lines": 1257
-    },
-    {
-      "path": "src/main/cli/adapters/__tests__/claude-cli-adapter.spec.ts",
-      "lines": 1255
     },
     {
       "path": "docs/superpowers/plans/2026-03-11-f11-scale-operations.md",
@@ -6494,10 +6494,6 @@
       "lines": 1165
     },
     {
-      "path": "src/main/cli/adapters/copilot-cli-adapter.ts",
-      "lines": 1163
-    },
-    {
       "path": "src/main/orchestration/multi-verify-coordinator.ts",
       "lines": 1156
     },
@@ -6508,6 +6504,10 @@
     {
       "path": "docs/superpowers/specs/2026-04-28-wave2-navigation-pickers-prompt-recall-design_completed.md",
       "lines": 1139
+    },
+    {
+      "path": "src/main/cli/adapters/copilot-cli-adapter.ts",
+      "lines": 1132
     },
     {
       "path": "src/main/ipc/handlers/local-ai-guard-handlers.spec.ts",
@@ -6586,6 +6586,10 @@
       "lines": 1091
     },
     {
+      "path": "src/main/instance/auto-title-service.spec.ts",
+      "lines": 1083
+    },
+    {
       "path": "src/main/context/__tests__/context-compactor.spec.ts",
       "lines": 1080
     },
@@ -6622,10 +6626,6 @@
       "lines": 1031
     },
     {
-      "path": "src/main/cli/adapters/cursor-cli-adapter.ts",
-      "lines": 1030
-    },
-    {
       "path": "src/worker-agent/worker-agent.ts",
       "lines": 1029
     },
@@ -6648,6 +6648,10 @@
     {
       "path": "src/renderer/app/features/loop/loop-control.component.spec.ts",
       "lines": 1014
+    },
+    {
+      "path": "src/main/cli/adapters/cursor-cli-adapter.ts",
+      "lines": 1006
     },
     {
       "path": "src/main/cli/adapters/claude-cli-adapter.spec.ts",
@@ -6683,10 +6687,6 @@
     },
     {
       "path": "src/main/browser-gateway/browser-health-service.spec.ts",
-      "lines": 986
-    },
-    {
-      "path": "src/main/instance/auto-title-service.spec.ts",
       "lines": 986
     },
     {
@@ -6858,12 +6858,20 @@
       "lines": 887
     },
     {
+      "path": "src/renderer/app/features/verification/config/verification-preferences.component.ts",
+      "lines": 883
+    },
+    {
       "path": "src/main/rlm/context-persistence-loader.integration.spec.ts",
       "lines": 880
     },
     {
       "path": "src/main/rlm/smart-compaction.ts",
       "lines": 880
+    },
+    {
+      "path": "src/main/instance/__tests__/instance-manager.normalized-event.spec.ts",
+      "lines": 879
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-error-recovery-resilience.COMPLETED.md",
@@ -6884,10 +6892,6 @@
     {
       "path": "docs/plans/2026-06-26-loop-engine-overhaul-spec_completed.md",
       "lines": 867
-    },
-    {
-      "path": "src/main/instance/__tests__/instance-manager.normalized-event.spec.ts",
-      "lines": 866
     },
     {
       "path": "src/renderer/app/core/state/instance/instance-list.store.ts",
@@ -6938,20 +6942,12 @@
       "lines": 852
     },
     {
-      "path": "src/renderer/app/features/verification/config/verification-preferences.component.ts",
-      "lines": 851
-    },
-    {
       "path": "src/main/ipc/handlers/loop-handlers.ts",
       "lines": 850
     },
     {
       "path": "src/main/services/voice/providers/local-whisper-transcription-provider.ts",
       "lines": 850
-    },
-    {
-      "path": "src/main/ipc/handlers/session-handlers.ts",
-      "lines": 848
     },
     {
       "path": "src/renderer/app/core/state/instance/instance-list.store.spec.ts",

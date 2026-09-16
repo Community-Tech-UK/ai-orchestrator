@@ -172,7 +172,9 @@ async function capturePosixProcessTree(
   }
   const result = await runBoundedInspection(
     runtime,
-    ['-axo', 'pid=,ppid=,pgid='],
+    // Dash-less BSD selectors, as in captureMarkedProcesses: procps-ng only
+    // accepts `-axo` through its error-fallback reparse.
+    ['ax', '-o', 'pid=,ppid=,pgid='],
     PROCESS_TABLE_MAX_OUTPUT_BYTES,
   );
   if (!result.ok) {
@@ -225,9 +227,13 @@ async function captureMarkedProcesses(
       failure: identityIncompleteFailure(),
     };
   }
+  // Keep the BSD selectors in one dash-less word. procps-ng rejects
+  // `eww -axo ...` ("must set personality to get -x option"), which made the
+  // ownership scan fail on every Linux worker. `axeww -o` is accepted by both
+  // procps-ng and macOS ps, and `e` still appends the environment to `command`.
   const result = await runBoundedInspection(
     runtime,
-    ['eww', '-axo', 'pid=,ppid=,pgid=,command='],
+    ['axeww', '-o', 'pid=,ppid=,pgid=,command='],
     PROCESS_ENV_MAX_OUTPUT_BYTES,
   );
   if (!result.ok) {

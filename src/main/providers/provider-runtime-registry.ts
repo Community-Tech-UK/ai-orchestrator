@@ -345,9 +345,44 @@ function diagnosisToRuntimeStatus(overall: ProviderHealthStatus): ProviderRuntim
 
 function extractShadowReport(probes: ProbeResult[]): CliShadowReport | undefined {
   const probe = probes.find((candidate) => candidate.name === 'cli_shadow_check');
-  const report = probe?.metadata?.['report'];
-  if (!report || typeof report !== 'object') return undefined;
-  return report as unknown as CliShadowReport;
+  return parseCliShadowReport(probe?.metadata?.['report']);
+}
+
+export function parseCliShadowReport(value: unknown): CliShadowReport | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  if (typeof record['cli'] !== 'string') {
+    return undefined;
+  }
+  if (!Array.isArray(record['installs'])) {
+    return undefined;
+  }
+  const installs = record['installs'].flatMap((install): CliShadowReport['installs'] => {
+    if (!install || typeof install !== 'object') {
+      return [];
+    }
+    const row = install as Record<string, unknown>;
+    if (typeof row['path'] !== 'string' || typeof row['installed'] !== 'boolean') {
+      return [];
+    }
+    return [{
+      path: row['path'],
+      installed: row['installed'],
+      ...(typeof row['version'] === 'string' ? { version: row['version'] } : {}),
+      ...(typeof row['error'] === 'string' ? { error: row['error'] } : {}),
+    }];
+  });
+  if (installs.length === 0) {
+    return undefined;
+  }
+  return {
+    cli: record['cli'] as CliShadowReport['cli'],
+    installs,
+    ...(typeof record['activePath'] === 'string' ? { activePath: record['activePath'] } : {}),
+    ...(typeof record['activeVersion'] === 'string' ? { activeVersion: record['activeVersion'] } : {}),
+  };
 }
 
 function errorFromProbe(

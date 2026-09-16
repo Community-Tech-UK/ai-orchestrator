@@ -153,7 +153,13 @@ export class StatusIndicatorComponent {
     this.status() === 'waking' ||
     this.status() === 'interrupting' ||
     this.status() === 'cancelling' ||
-    this.status() === 'interrupt-escalating'
+    this.status() === 'interrupt-escalating' ||
+    // Waiting states are still "live" (waiting on the user, not dead) — a static
+    // dot reads as stopped/finished. Pulse them so the difference from a truly
+    // settled state (idle/ready) stays visible without reusing the busy spinner,
+    // which would incorrectly imply the CLI itself is actively working.
+    this.status() === 'waiting_for_input' ||
+    this.status() === 'waiting_for_permission'
   );
 
   showSpinnerIndicator = computed(() =>

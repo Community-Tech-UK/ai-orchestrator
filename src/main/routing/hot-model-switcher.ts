@@ -16,6 +16,9 @@ import type { Instance } from '../../shared/types/instance.types';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
 import type { CliType } from '../cli/cli-detection';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('HotModelSwitcher');
 
 /**
  * Conversation state for export/import
@@ -542,7 +545,10 @@ export class HotModelSwitcher extends EventEmitter {
     try {
       const status = await adapter.checkStatus();
       return status.available;
-    } catch {
+    } catch (error) {
+      logger.debug('Adapter status check failed during hot-switch validation', {
+        error: error instanceof Error ? error.message : String(error),
+      });
       return false;
     }
   }

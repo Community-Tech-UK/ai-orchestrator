@@ -51,16 +51,26 @@ import type { ProviderRuntimeEvent } from '@contracts/types/provider-runtime-eve
 const logger = getLogger('InstanceToolLoopWiring');
 
 /**
- * Minimal seam `InstanceManager` exposes to this wiring. Deliberately does
- * not capture bound copies of `interruptInstance`/setting lookups at
- * construction time — implementations should resolve `this.interruptInstance`
- * etc. at call time so test spies applied after construction are honoured.
+ * Minimal seam `InstanceManager` exposes to this wiring. Production defaults
+ * still resolve `interruptInstance`/settings at call time so a post-construction
+ * spy keeps working; tests can inject replacements via the InstanceManager
+ * constructor instead of relying on that spy.
  */
 export interface ToolLoopWiringDeps {
   /** Current value of the `toolLoopAutoInterrupt` setting. */
   getAutoInterruptSetting(): unknown;
   /** Delegates to `InstanceManager.interruptInstance()`. */
   interruptInstance(instanceId: string): boolean;
+}
+
+export function resolveToolLoopWiringDeps(
+  defaults: ToolLoopWiringDeps,
+  injected?: Partial<ToolLoopWiringDeps>,
+): ToolLoopWiringDeps {
+  return {
+    getAutoInterruptSetting: injected?.getAutoInterruptSetting ?? defaults.getAutoInterruptSetting,
+    interruptInstance: injected?.interruptInstance ?? defaults.interruptInstance,
+  };
 }
 
 /** WS-B10 normalizer, fed with only the fields available on a `ProviderToolUseEvent`. */

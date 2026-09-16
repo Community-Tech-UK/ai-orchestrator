@@ -148,7 +148,16 @@
               <app-copilot-accounts-tab />
             }
             @case ('provider-accounts') {
-              <app-provider-accounts-tab />
+              @defer (on immediate) {
+                <app-provider-accounts-tab />
+              } @placeholder {
+                <div class="settings-skeleton" aria-busy="true" aria-label="Loading provider accounts…">
+                  <div class="skeleton-card">
+                    <div class="skeleton-bar wide"></div>
+                    <div class="skeleton-bar medium"></div>
+                  </div>
+                </div>
+              }
             }
             @case ('connections') {
               <app-connections-settings-tab />
@@ -175,7 +184,16 @@
               <app-permissions-settings-tab />
             }
             @case ('computer-use') {
-              <app-computer-use-settings-tab />
+              @defer (on immediate) {
+                <app-computer-use-settings-tab />
+              } @placeholder {
+                <div class="settings-skeleton" aria-busy="true" aria-label="Loading computer use settings…">
+                  <div class="skeleton-card">
+                    <div class="skeleton-bar wide"></div>
+                    <div class="skeleton-bar medium"></div>
+                  </div>
+                </div>
+              }
             }
             @case ('review') {
               <app-review-settings-tab />
@@ -208,10 +226,28 @@
               <app-auxiliary-models-settings-tab />
             }
             @case ('models') {
-              <app-models-page />
+              @defer (on immediate) {
+                <app-models-page />
+              } @placeholder {
+                <div class="settings-skeleton" aria-busy="true" aria-label="Loading models…">
+                  <div class="skeleton-card">
+                    <div class="skeleton-bar wide"></div>
+                    <div class="skeleton-bar medium"></div>
+                  </div>
+                </div>
+              }
             }
             @case ('mcp') {
-              <app-mcp-page />
+              @defer (on immediate) {
+                <app-mcp-page />
+              } @placeholder {
+                <div class="settings-skeleton" aria-busy="true" aria-label="Loading MCP settings…">
+                  <div class="skeleton-card">
+                    <div class="skeleton-bar wide"></div>
+                    <div class="skeleton-bar medium"></div>
+                  </div>
+                </div>
+              }
             }
             @case ('hooks') {
               <app-hooks-page />
@@ -223,7 +259,16 @@
               <app-snapshot-page />
             }
             @case ('archive') {
-              <app-archive-page />
+              @defer (on immediate) {
+                <app-archive-page />
+              } @placeholder {
+                <div class="settings-skeleton" aria-busy="true" aria-label="Loading archive…">
+                  <div class="skeleton-card">
+                    <div class="skeleton-bar wide"></div>
+                    <div class="skeleton-bar medium"></div>
+                  </div>
+                </div>
+              }
             }
             @case ('remote-config') {
               <app-remote-config-page />

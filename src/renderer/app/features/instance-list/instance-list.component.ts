@@ -530,12 +530,24 @@ export class InstanceListComponent implements OnDestroy {
       {
         id: 'copy-session-id',
         label: 'Copy session ID',
-        action: () => void this.copyTextToClipboard(instance.sessionId),
+        // `instance.id` is the app-level identity used everywhere else (logs, IPC,
+        // `instanceId` fields) — not the deprecated `sessionId` alias, which is
+        // actually the CLI provider's own native session handle and isn't
+        // traceable against anything Harness itself tracks.
+        action: () => void this.copyTextToClipboard(instance.id),
       }
     );
 
+    if (instance.providerSessionId) {
+      items.push({
+        id: 'copy-provider-session-id',
+        label: 'Copy provider session ID',
+        action: () => void this.copyTextToClipboard(instance.providerSessionId),
+      });
+    }
+
     const threadId = getInstanceThreadId(instance);
-    if (threadId && threadId !== instance.sessionId) {
+    if (threadId && threadId !== instance.id) {
       items.push({
         id: 'copy-thread-id',
         label: 'Copy thread ID',
@@ -609,6 +621,14 @@ export class InstanceListComponent implements OnDestroy {
       {
         id: 'copy-session-id',
         label: 'Copy session ID',
+        // `originalInstanceId` is the app-level identity this history entry was
+        // archived from — not `entry.sessionId`, which is the CLI provider's own
+        // native session handle (see the live-instance menu for the same fix).
+        action: () => void this.copyTextToClipboard(entry.originalInstanceId),
+      },
+      {
+        id: 'copy-provider-session-id',
+        label: 'Copy provider session ID',
         action: () => void this.copyTextToClipboard(entry.sessionId),
       },
     ];

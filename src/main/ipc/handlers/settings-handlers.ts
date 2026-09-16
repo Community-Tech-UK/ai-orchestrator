@@ -137,11 +137,7 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
           'SETTINGS_UPDATE'
         );
 
-        // If payload has a 'settings' key, use that; otherwise treat payload as settings
-        const settingsData = validated.settings || validated;
-        const coercedSettings = coerceRendererSettingsUpdate(
-          settingsData as Record<string, unknown>,
-        );
+        const coercedSettings = coerceRendererSettingsUpdate(validated.settings);
 
         settings.update(coercedSettings);
         broadcastSettingsChanged(deps.windowManager, {

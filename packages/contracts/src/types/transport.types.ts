@@ -262,6 +262,8 @@ export interface ErrorInfo {
   message: string;
   stack?: string;
   timestamp: number;
+  /** Optional nearby matches when a lookup fails (e.g. slash-command resolve). */
+  candidates?: string[];
 }
 
 // ============================================

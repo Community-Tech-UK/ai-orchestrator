@@ -30,6 +30,7 @@ vi.mock('../../context/output-persistence', () => ({
 }));
 
 import { ClaudeCliAdapter } from '../adapters/claude-cli-adapter';
+import { CopilotCliAdapter } from '../adapters/copilot-cli-adapter';
 import { GeminiCliAdapter } from '../adapters/gemini-cli-adapter';
 import type { BaseCliAdapter, CliStatus } from '../adapters/base-cli-adapter';
 import { MockCliHarness, type MockChildProcess } from './cli-mock-harness';
@@ -58,6 +59,13 @@ const AVAILABLE_CLAUDE_STATUS: CliStatus = {
   version: '1.0.0',
 };
 
+const AVAILABLE_COPILOT_STATUS: CliStatus = {
+  available: true,
+  authenticated: true,
+  path: 'copilot',
+  version: '1.0.0',
+};
+
 const FIXTURES: AdapterFixture[] = [
   {
     name: 'ClaudeCliAdapter',
@@ -79,6 +87,14 @@ const FIXTURES: AdapterFixture[] = [
     create: () => new GeminiCliAdapter() as unknown as TargetAdapter,
     spawn: async (adapter) => {
       vi.spyOn(adapter, 'checkStatus').mockResolvedValue(AVAILABLE_GEMINI_STATUS);
+      return adapter.spawn();
+    },
+  },
+  {
+    name: 'CopilotCliAdapter',
+    create: () => new CopilotCliAdapter() as unknown as TargetAdapter,
+    spawn: async (adapter) => {
+      vi.spyOn(adapter, 'checkStatus').mockResolvedValue(AVAILABLE_COPILOT_STATUS);
       return adapter.spawn();
     },
   },
@@ -142,6 +158,9 @@ describe.each(FIXTURES)('$name lifecycle parity', ({ create, spawn }) => {
   it('rejects cleanly when the child exits non-zero during sendMessage()', async () => {
     if (adapter instanceof ClaudeCliAdapter) {
       vi.spyOn(adapter, 'checkStatus').mockResolvedValue(AVAILABLE_CLAUDE_STATUS);
+    }
+    if (adapter instanceof CopilotCliAdapter) {
+      vi.spyOn(adapter, 'checkStatus').mockResolvedValue(AVAILABLE_COPILOT_STATUS);
     }
 
     const spawnProcessSpy = vi.spyOn(

@@ -17,8 +17,8 @@ export const SettingsUpdatePayloadSchema = z.object({
 });
 
 export const SettingsBulkUpdatePayloadSchema = z.object({
-  settings: z.record(z.string(), z.unknown()).optional(),
-}).passthrough(); // Allow direct settings as well
+  settings: z.record(z.string(), z.unknown()),
+}).strict();
 
 export const SettingsResetOnePayloadSchema = z.object({
   key: z.string().min(1).max(100),
