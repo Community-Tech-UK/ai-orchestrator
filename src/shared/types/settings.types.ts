@@ -784,6 +784,24 @@ export interface AppSettings extends DesktopComputerUseSettings {
   reactionsPollIntervalMs: number;
 
   /**
+   * Cross-session messaging: lets one live instance deliver a provenance-wrapped
+   * text message into another independent instance's conversation, addressed by
+   * name (see `CrossSessionMessagingService`). Default fully off — `enabled`
+   * gates the whole feature before any per-instance consent check runs, so a
+   * disabled install has zero cross-agent injection surface.
+   */
+  interSessionMessaging: {
+    /** Global master switch. Checked first; false makes every delivery attempt fail closed. */
+    enabled: boolean;
+    /** Allow delivery between instances with different `workingDirectory` roots. */
+    allowCrossProject: boolean;
+    /** Max hops a message may cause before further relays are rejected. Default 1. */
+    maxHops: number;
+    /** Token-bucket refill rate per `(sourceId, targetId)` pair, per minute. */
+    rateLimitPerMinute: number;
+  };
+
+  /**
    * WS-C10 — flagged prototype: measured dynamic-height DOM virtualization
    * for the main transcript (`OutputStreamComponent`), replacing the
    * always-fully-rendered "show earlier" window with a scroll-proximate

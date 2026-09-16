@@ -6,8 +6,8 @@
  */
 
 import type { IpcMainInvokeEvent } from 'electron';
+import type { z } from 'zod';
 import { IPC_CHANNELS } from '@contracts/channels';
-import { validateIpcPayload } from '@contracts/schemas/common';
 import {
   ArchiveCleanupPayloadSchema,
   ArchiveDeletePayloadSchema,
@@ -22,251 +22,134 @@ import {
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import type { InstanceManager } from '../../instance/instance-manager';
 import { getSessionArchiveManager } from '../../session/session-archive';
-
-type SessionIpcListener = (
-  event: IpcMainInvokeEvent,
-  payload: unknown,
-) => Promise<IpcResponse>;
+import { registerValidatedIpcHandler } from '../validated-handler';
 
 export interface RegisterSessionArchiveHandlersDeps {
   instanceManager: Pick<InstanceManager, 'getInstance'>;
-  registerIpcHandler(channel: string, listener: SessionIpcListener): void;
+  ensureTrustedSender?: (
+    event: IpcMainInvokeEvent,
+    channel: string,
+  ) => IpcResponse | null;
 }
 
 export function registerSessionArchiveHandlers(deps: RegisterSessionArchiveHandlersDeps): void {
-  const { instanceManager, registerIpcHandler } = deps;
+  const { instanceManager, ensureTrustedSender } = deps;
   const archiveManager = getSessionArchiveManager();
 
-  registerIpcHandler(
+  const register = <T>(
+    channel: string,
+    schema: z.ZodSchema<T>,
+    fn: (validated: T) => Promise<IpcResponse> | IpcResponse,
+    errorCode: string,
+  ): void => {
+    registerValidatedIpcHandler(
+      channel,
+      schema,
+      async (validated) => fn(validated),
+      { ensureTrustedSender, errorCode },
+    );
+  };
+
+  register(
     IPC_CHANNELS.ARCHIVE_SESSION,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown,
-    ): Promise<IpcResponse> => {
-      try {
-        const validated = validateIpcPayload(ArchiveSessionPayloadSchema, payload, 'ARCHIVE_SESSION');
-        const instance = instanceManager.getInstance(validated.instanceId);
-        if (!instance) {
-          throw new Error(`Instance not found: ${validated.instanceId}`);
-        }
-        const meta = archiveManager.archiveSession(instance, validated.tags);
-        return { success: true, data: meta };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'ARCHIVE_SESSION_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now(),
-          },
-        };
+    ArchiveSessionPayloadSchema,
+    (validated) => {
+      const instance = instanceManager.getInstance(validated.instanceId);
+      if (!instance) {
+        throw new Error(`Instance not found: ${validated.instanceId}`);
       }
+      return { success: true, data: archiveManager.archiveSession(instance, validated.tags) };
     },
+    'ARCHIVE_SESSION_FAILED',
   );
 
-  registerIpcHandler(
+  register(
     IPC_CHANNELS.ARCHIVE_LIST,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown,
-    ): Promise<IpcResponse> => {
-      try {
-        const validated = validateIpcPayload(ArchiveListPayloadSchema, payload, 'ARCHIVE_LIST');
-        const filter = validated
-          ? {
-              beforeDate: validated.beforeDate,
-              afterDate: validated.afterDate,
-              tags: validated.tags,
-              searchTerm: validated.searchTerm,
-            }
-          : undefined;
-        const archives = archiveManager.listArchivedSessions(filter);
-        return { success: true, data: archives };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'ARCHIVE_LIST_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now(),
-          },
-        };
-      }
+    ArchiveListPayloadSchema,
+    (validated) => {
+      const filter = validated
+        ? {
+            beforeDate: validated.beforeDate,
+            afterDate: validated.afterDate,
+            tags: validated.tags,
+            searchTerm: validated.searchTerm,
+          }
+        : undefined;
+      return { success: true, data: archiveManager.listArchivedSessions(filter) };
     },
+    'ARCHIVE_LIST_FAILED',
   );
 
-  registerIpcHandler(
+  register(
     IPC_CHANNELS.ARCHIVE_SEARCH,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown,
-    ): Promise<IpcResponse> => {
-      try {
-        const validated = validateIpcPayload(
-          ArchiveSearchPayloadSchema,
-          payload,
-          'ARCHIVE_SEARCH',
-        );
-        const query = validated.query.trim();
-
-        const archives = archiveManager
-          .listArchivedSessions({
-            searchTerm: query || undefined,
-            tags: validated.options?.tags,
-          })
-          .slice(0, validated.options?.limit);
-
-        return { success: true, data: archives };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'ARCHIVE_SEARCH_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now(),
-          },
-        };
-      }
+    ArchiveSearchPayloadSchema,
+    (validated) => {
+      const query = validated.query.trim();
+      const archives = archiveManager
+        .listArchivedSessions({
+          searchTerm: query || undefined,
+          tags: validated.options?.tags,
+        })
+        .slice(0, validated.options?.limit);
+      return { success: true, data: archives };
     },
+    'ARCHIVE_SEARCH_FAILED',
   );
 
-  registerIpcHandler(
+  register(
     IPC_CHANNELS.ARCHIVE_RESTORE,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown,
-    ): Promise<IpcResponse> => {
-      try {
-        const validated = validateIpcPayload(ArchiveRestorePayloadSchema, payload, 'ARCHIVE_RESTORE');
-        const sessionData = archiveManager.restoreSession(validated.archiveId);
-        return { success: true, data: sessionData };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'ARCHIVE_RESTORE_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now(),
-          },
-        };
-      }
-    },
+    ArchiveRestorePayloadSchema,
+    (validated) => ({
+      success: true,
+      data: archiveManager.restoreSession(validated.archiveId),
+    }),
+    'ARCHIVE_RESTORE_FAILED',
   );
 
-  registerIpcHandler(
+  register(
     IPC_CHANNELS.ARCHIVE_DELETE,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown,
-    ): Promise<IpcResponse> => {
-      try {
-        const validated = validateIpcPayload(ArchiveDeletePayloadSchema, payload, 'ARCHIVE_DELETE');
-        const success = archiveManager.deleteArchivedSession(
-          validated.archiveId,
-        );
-        return { success: true, data: { deleted: success } };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'ARCHIVE_DELETE_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now(),
-          },
-        };
-      }
-    },
+    ArchiveDeletePayloadSchema,
+    (validated) => ({
+      success: true,
+      data: { deleted: archiveManager.deleteArchivedSession(validated.archiveId) },
+    }),
+    'ARCHIVE_DELETE_FAILED',
   );
 
-  registerIpcHandler(
+  register(
     IPC_CHANNELS.ARCHIVE_GET_META,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown,
-    ): Promise<IpcResponse> => {
-      try {
-        const validated = validateIpcPayload(ArchiveGetMetaPayloadSchema, payload, 'ARCHIVE_GET_META');
-        const meta = archiveManager.getArchivedSessionMeta(validated.archiveId);
-        return { success: true, data: meta };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'ARCHIVE_GET_META_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now(),
-          },
-        };
-      }
-    },
+    ArchiveGetMetaPayloadSchema,
+    (validated) => ({
+      success: true,
+      data: archiveManager.getArchivedSessionMeta(validated.archiveId),
+    }),
+    'ARCHIVE_GET_META_FAILED',
   );
 
-  registerIpcHandler(
+  register(
     IPC_CHANNELS.ARCHIVE_UPDATE_TAGS,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown,
-    ): Promise<IpcResponse> => {
-      try {
-        const validated = validateIpcPayload(ArchiveUpdateTagsPayloadSchema, payload, 'ARCHIVE_UPDATE_TAGS');
-        const success = archiveManager.updateTags(
-          validated.archiveId,
-          validated.tags,
-        );
-        return { success: true, data: { updated: success } };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'ARCHIVE_UPDATE_TAGS_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now(),
-          },
-        };
-      }
-    },
+    ArchiveUpdateTagsPayloadSchema,
+    (validated) => ({
+      success: true,
+      data: { updated: archiveManager.updateTags(validated.archiveId, validated.tags) },
+    }),
+    'ARCHIVE_UPDATE_TAGS_FAILED',
   );
 
-  registerIpcHandler(
+  register(
     IPC_CHANNELS.ARCHIVE_GET_STATS,
-    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
-      try {
-        validateIpcPayload(SessionHandlerEmptyPayloadSchema, payload, 'ARCHIVE_GET_STATS');
-        const stats = archiveManager.getArchiveStats();
-        return { success: true, data: stats };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'ARCHIVE_GET_STATS_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now(),
-          },
-        };
-      }
-    },
+    SessionHandlerEmptyPayloadSchema,
+    () => ({ success: true, data: archiveManager.getArchiveStats() }),
+    'ARCHIVE_GET_STATS_FAILED',
   );
 
-  registerIpcHandler(
+  register(
     IPC_CHANNELS.ARCHIVE_CLEANUP,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown,
-    ): Promise<IpcResponse> => {
-      try {
-        const validated = validateIpcPayload(ArchiveCleanupPayloadSchema, payload, 'ARCHIVE_CLEANUP');
-        const deleted = archiveManager.cleanupOldArchives(validated.maxAgeDays);
-        return { success: true, data: { deletedCount: deleted } };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'ARCHIVE_CLEANUP_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now(),
-          },
-        };
-      }
-    },
+    ArchiveCleanupPayloadSchema,
+    (validated) => ({
+      success: true,
+      data: { deletedCount: archiveManager.cleanupOldArchives(validated.maxAgeDays) },
+    }),
+    'ARCHIVE_CLEANUP_FAILED',
   );
 }

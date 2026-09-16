@@ -59,6 +59,7 @@ import type { AppInitializationStep } from './initialization-steps';
 import { getContextEvidenceCoordinator } from '../context-evidence/context-evidence-coordinator';
 import { createDefaultLocalAiPublicOperations } from '../local-ai-guard/default-local-ai-public-operations';
 import { createDefaultCopilotAccountCliOperations } from '../mcp/copilot-account-cli-operations';
+import { getCrossSessionMessagingService } from '../instance/cross-session-messaging';
 
 const logger = getLogger('AppInitialization');
 const nodeControl = () => ({ server: getWorkerNodeConnectionServer(), registry: getWorkerNodeRegistry() });
@@ -665,6 +666,7 @@ export function createOrchestratorToolsStep(
           return { reviewId: session.id };
         },
         getDocReviewResult: (reviewId) => getDocReviewService().getSession(reviewId) ?? null,
+        sessionMessagingService: getCrossSessionMessagingService(),
         listNodeFiles: fileTransferTools.listNodeFiles,
         findNodeFiles: fileTransferTools.findNodeFiles,
         getNodeFileInfo: fileTransferTools.getNodeFileInfo,

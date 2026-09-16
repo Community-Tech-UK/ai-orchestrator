@@ -31,6 +31,7 @@ import { initializeContextEvidenceRuntime } from '../context-evidence/evidence-m
 import { initializeLocalAiGuardRuntime } from '../local-ai-guard';
 import { initializeInstanceAsyncWorkContinuation } from '../instance/instance-async-work-continuation';
 import { initializeInstanceAnnounceThenHaltContinuation } from '../instance/instance-announce-then-halt-continuation';
+import { getCrossSessionMessagingService } from '../instance/cross-session-messaging';
 import { getLoopCoordinator } from '../orchestration/loop-coordinator';
 import { isActiveLoopRuntimeState } from '../orchestration/loop-runtime-status';
 import { createLateRuntimeInitializationSteps } from './late-runtime-initialization-steps';
@@ -193,6 +194,24 @@ export function createInitializationSteps(
           getChatService({ instanceManager }).initialize();
         } catch (error) {
           logger.warn('Chat service initialization failed; chat IPC handlers will report degraded errors', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      },
+    },
+    {
+      name: 'Cross-session messaging',
+      fn: () => {
+        try {
+          getCrossSessionMessagingService({
+            getAllInstances: () => instanceManager.getAllInstances(),
+            getInstance: (id) => instanceManager.getInstance(id),
+            sendInput: (instanceId, message, attachments, options) =>
+              instanceManager.sendInput(instanceId, message, attachments, options),
+            getSettings: () => getSettingsManager().getAll(),
+          });
+        } catch (error) {
+          logger.warn('Cross-session messaging service initialization failed; the feature will report degraded errors', {
             error: error instanceof Error ? error.message : String(error),
           });
         }

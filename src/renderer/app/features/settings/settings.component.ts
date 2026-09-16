@@ -30,6 +30,7 @@ import { ProviderQuotaStore } from '../../core/state/provider-quota.store';
 import type { StartupCapabilityReport } from '../../../../shared/types/startup-capability.types';
 import { GeneralSettingsTabComponent } from './general-settings-tab.component';
 import { OrchestrationSettingsTabComponent } from './orchestration-settings-tab.component';
+import { CrossSessionMessagingSettingsTabComponent } from './cross-session-messaging-settings-tab.component';
 import { MemorySettingsTabComponent } from './memory-settings-tab.component';
 import { DisplaySettingsTabComponent } from './display-settings-tab.component';
 import { AdvancedSettingsTabComponent } from './advanced-settings-tab.component';
@@ -93,6 +94,7 @@ import {
     SettingsHealthNoticesComponent,
     GeneralSettingsTabComponent,
     OrchestrationSettingsTabComponent,
+    CrossSessionMessagingSettingsTabComponent,
     MemorySettingsTabComponent,
     DisplaySettingsTabComponent,
     EcosystemSettingsTabComponent,

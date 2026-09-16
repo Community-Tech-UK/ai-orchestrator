@@ -37,8 +37,9 @@ import type {
   ThinkingContent,
 } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
-import { createOutputMessage, redactArgvForLog } from './base-cli-adapter-utils';
+import { createOutputMessage, isCliStderrFailureText, redactArgvForLog } from './base-cli-adapter-utils';
 import { extractThinkingContent, ThinkingBlock } from '../../../shared/utils/thinking-extractor';
+import { NdjsonLineBuffer, splitCompleteNdjsonLines } from '../json-parse';
 import { getDefaultCopilotCliLaunch } from '../copilot-cli-launch';
 import { startCopilotServerMode } from './copilot/copilot-server-mode';
 import { assertRoutableCopilotLaunchShape } from './copilot/copilot-adapter-guards';
@@ -333,9 +334,8 @@ export class CopilotCliAdapter extends BaseCliAdapter {
       const activeToolCalls = new Map<string, { name: string; input?: Record<string, unknown> }>();
 
       // Line-buffered JSON parsing (Copilot emits one JSON object per line
-      // on stdout under `--output-format json`). We don't use NdjsonParser
-      // directly because Copilot's event shape differs from CliStreamMessage.
-      let lineBuffer = '';
+      // on stdout under `--output-format json`).
+      const ndjson = new NdjsonLineBuffer();
 
       const ensureStreamingMessageId = (preferredId?: string): string => {
         if (!streamingMessageId) {
@@ -608,16 +608,7 @@ export class CopilotCliAdapter extends BaseCliAdapter {
       this.process.stdout?.on('data', (data) => {
         const chunk = data.toString();
         this.outputBuffer += chunk;
-        lineBuffer += chunk;
-
-        // Split into complete lines; keep the last partial line for next chunk.
-        const lines = lineBuffer.split('\n');
-        lineBuffer = lines.pop() ?? '';
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-
+        for (const trimmed of ndjson.push(chunk)) {
           const event = parseCopilotNdjsonEvent(trimmed);
           if (!event) {
             // Non-JSON output (shouldn't happen under --output-format json, but
@@ -634,22 +625,26 @@ export class CopilotCliAdapter extends BaseCliAdapter {
         const errorStr = data.toString();
         // Heuristic: the CLI writes banners/info to stderr too. Only escalate
         // if it looks like a real error.
-        if (/error|fatal|failed/i.test(errorStr)) {
-          logger.warn('copilot stderr', { text: errorStr.trim() });
+        if (isCliStderrFailureText(errorStr)) {
+          const trimmed = errorStr.trim();
+          this.emit('output', createOutputMessage('error', trimmed.slice(0, 2000)));
+          logger.warn('copilot stderr', { text: trimmed });
+        } else {
+          logger.debug('copilot stderr', { text: errorStr.trim().slice(0, 500) });
         }
       });
 
       this.process.on('close', (code) => {
         // Flush any final partial line (shouldn't have JSON mid-object under
         // --stream on because each event is newline-terminated, but be safe).
-        if (lineBuffer.trim()) {
-          const trailingEvent = parseCopilotStreamingEvent(lineBuffer.trim());
+        const trailing = ndjson.flush();
+        if (trailing) {
+          const trailingEvent = parseCopilotStreamingEvent(trailing);
           if (trailingEvent && !(trailingEvent.type === 'result' && trailingEvent.partial === true)) {
             handleCopilotEvent(trailingEvent);
           } else {
-            logCopilotParseFailure(lineBuffer.trim());
+            logCopilotParseFailure(trailing);
           }
-          lineBuffer = '';
         }
 
         const duration = Date.now() - startTime;
@@ -699,16 +694,10 @@ export class CopilotCliAdapter extends BaseCliAdapter {
     const stdout = this.process.stdout;
     if (!stdout) return;
 
-    let lineBuffer = '';
+    const ndjson = new NdjsonLineBuffer();
     for await (const chunk of stdout) {
       if (spawnError) return;
-      lineBuffer += chunk.toString();
-      const lines = lineBuffer.split('\n');
-      lineBuffer = lines.pop() ?? '';
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
+      for (const trimmed of ndjson.push(chunk.toString())) {
         const event = parseCopilotNdjsonEvent(trimmed);
         if (event) {
           if (event.type === 'assistant.message_delta' && event.data?.deltaContent) {
@@ -728,7 +717,7 @@ export class CopilotCliAdapter extends BaseCliAdapter {
     let finalContent = '';
     const usage: CliUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
 
-    const lines = raw.split('\n').filter((l) => l.trim());
+    const lines = splitCompleteNdjsonLines(raw);
     for (const line of lines) {
       const event = parseCopilotStreamingEvent(line);
       if (event) {

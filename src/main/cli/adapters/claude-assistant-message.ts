@@ -37,7 +37,7 @@ export function processClaudeAssistantMessage(
   const assistantMsg = raw;
   const assistantTimestamp = message.timestamp || Date.now();
 
-  const streamError = parseClaudeStreamError(assistantMsg as unknown as Record<string, unknown>);
+  const streamError = parseClaudeStreamError(assistantMsg);
   if (streamError) {
     host.emit('error', streamError.error);
     return;

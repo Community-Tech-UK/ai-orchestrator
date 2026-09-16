@@ -37,6 +37,10 @@ import {
   type NodeExecToolContext,
 } from './orchestrator-node-exec-tools';
 import { createNodeConnectionToolDefinitions, type NodeConnectionToolContext } from './orchestrator-node-connection-tools';
+import {
+  createSessionMessagingToolDefinitions,
+  type SessionMessagingToolService,
+} from './orchestrator-session-messaging-tools';
 
 export * from './orchestrator-node-exec-tools';
 
@@ -383,6 +387,7 @@ export interface OrchestratorToolRuntimeContext
   calendarTools?: CalendarToolDependencies;
   releaseTools?: ReleaseToolDependencies;
   contextEvidence?: Omit<OrchestratorEvidenceToolContext, 'instanceId'> | null;
+  sessionMessagingService?: SessionMessagingToolService | null;
 }
 
 export function createOrchestratorToolDefinitions(
@@ -731,6 +736,11 @@ export function createOrchestratorToolDefinitions(
     },
     ...createNodeExecToolDefinitions(context),
     ...createNodeConnectionToolDefinitions(context),
+    ...createSessionMessagingToolDefinitions({
+      instanceId: context.instanceId,
+      enabled: context.settingsManager?.get('interSessionMessaging').enabled === true,
+      sessionMessagingService: context.sessionMessagingService,
+    }),
     ...createFileTransferToolDefinitions(context),
     ...createSettingsToolDefinitions(context),
     ...createAutomationToolDefinitions(context),

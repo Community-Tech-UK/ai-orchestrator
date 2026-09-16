@@ -1,6 +1,5 @@
 import type { IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS } from '@contracts/channels';
-import { validateIpcPayload } from '@contracts/schemas/common';
 import {
   RecoverSessionRequestSchema,
   RecoverSessionResultSchema,
@@ -8,6 +7,7 @@ import {
   SessionRecoveryListPayloadSchema,
   SessionRecoveryListResultSchema,
 } from '@contracts/schemas/session';
+import { registerValidatedIpcHandler } from '../validated-handler';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import type {
   RecoverSessionRequest,
@@ -25,14 +25,12 @@ import {
 
 const logger = getLogger('SessionRecoveryHandlers');
 
-type RecoveryIpcListener = (
-  event: IpcMainInvokeEvent,
-  payload: unknown,
-) => Promise<IpcResponse>;
-
 interface RegisterSessionRecoveryHandlersDeps {
   instanceManager: Pick<InstanceManager, 'recoverFromContinuity'>;
-  registerIpcHandler(channel: string, listener: RecoveryIpcListener): void;
+  ensureTrustedSender?: (
+    event: IpcMainInvokeEvent,
+    channel: string,
+  ) => IpcResponse | null;
 }
 
 function responseError(code: string, message: string): IpcResponse {
@@ -40,13 +38,6 @@ function responseError(code: string, message: string): IpcResponse {
     success: false,
     error: { code, message, timestamp: Date.now() },
   };
-}
-
-function validationError(channel: string, error: unknown): IpcResponse {
-  const message = error instanceof Error
-    ? error.message.replace('IPC validation failed', 'Validation failed')
-    : `Validation failed for ${channel}`;
-  return responseError('VALIDATION_FAILED', message);
 }
 
 function recoveryServiceUnavailable(): IpcResponse {
@@ -135,13 +126,7 @@ function restoreFailure(error: unknown): IpcResponse {
   return responseError('SESSION_RECOVERY_RESTORE_FAILED', 'Session recovery failed');
 }
 
-async function listRecoveryCandidates(payload: unknown): Promise<IpcResponse<SessionRecoveryCandidate[]>> {
-  try {
-    validateIpcPayload(SessionRecoveryListPayloadSchema, payload, 'SESSION_RECOVERY_LIST');
-  } catch (error) {
-    return validationError('SESSION_RECOVERY_LIST', error) as IpcResponse<SessionRecoveryCandidate[]>;
-  }
-
+async function listRecoveryCandidates(): Promise<IpcResponse<SessionRecoveryCandidate[]>> {
   const service = getRecoveryService();
   if (!service) return recoveryServiceUnavailable() as IpcResponse<SessionRecoveryCandidate[]>;
 
@@ -169,15 +154,8 @@ async function listRecoveryCandidates(payload: unknown): Promise<IpcResponse<Ses
 
 async function recoverSession(
   instanceManager: Pick<InstanceManager, 'recoverFromContinuity'>,
-  payload: unknown,
+  request: RecoverSessionRequest,
 ): Promise<IpcResponse<RecoverSessionResult>> {
-  let request: RecoverSessionRequest;
-  try {
-    request = validateIpcPayload(RecoverSessionRequestSchema, payload, 'SESSION_RECOVERY_RESTORE');
-  } catch (error) {
-    return validationError('SESSION_RECOVERY_RESTORE', error) as IpcResponse<RecoverSessionResult>;
-  }
-
   const service = getRecoveryService();
   if (!service) return recoveryServiceUnavailable() as IpcResponse<RecoverSessionResult>;
 
@@ -191,12 +169,17 @@ async function recoverSession(
 }
 
 export function registerSessionRecoveryHandlers(deps: RegisterSessionRecoveryHandlersDeps): void {
-  deps.registerIpcHandler(
+  const options = { ensureTrustedSender: deps.ensureTrustedSender };
+  registerValidatedIpcHandler(
     IPC_CHANNELS.SESSION_RECOVERY_LIST,
-    async (_event, payload) => listRecoveryCandidates(payload),
+    SessionRecoveryListPayloadSchema,
+    async () => listRecoveryCandidates(),
+    { ...options, errorCode: 'SESSION_RECOVERY_LIST_FAILED' },
   );
-  deps.registerIpcHandler(
+  registerValidatedIpcHandler(
     IPC_CHANNELS.SESSION_RECOVERY_RESTORE,
-    async (_event, payload) => recoverSession(deps.instanceManager, payload),
+    RecoverSessionRequestSchema,
+    async (request) => recoverSession(deps.instanceManager, request),
+    { ...options, errorCode: 'SESSION_RECOVERY_RESTORE_FAILED' },
   );
 }

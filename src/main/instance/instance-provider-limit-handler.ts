@@ -89,6 +89,16 @@ export interface InstanceProviderLimitHandlerDeps {
    */
   isResumable?: (instanceId: string) => boolean;
   /**
+   * Stable app-level thread/session identity for the instance being parked,
+   * captured before any restart/termination can drop it. Threaded into the
+   * durable resume automation's destination so a fire that finds the original
+   * instance gone (restart, or the user manually resumed the same thread as a
+   * *different* instance id in the meantime) can still recognize an
+   * already-live sibling by historyThreadId/sessionId instead of blindly
+   * reviving a second, duplicate process for the same underlying session.
+   */
+  getThreadIdentifiers?: (instanceId: string) => { historyThreadId?: string; sessionId?: string } | null;
+  /**
    * WS7 Phase B (offered switch): invoked once per successful park with the
    * park facts. The wiring decides whether to offer a provider switch
    * (fallback list configured + resume far enough away) and notifies.
@@ -375,6 +385,8 @@ export class InstanceProviderLimitHandler {
       resumeAt,
     });
 
+    const identifiers = deps.getThreadIdentifiers?.(params.instanceId) ?? null;
+
     const schedule = deps.scheduleResume ?? scheduleInstanceProviderLimitResume;
     const cancel = schedule({
       request: {
@@ -384,6 +396,8 @@ export class InstanceProviderLimitHandler {
         resumeAt,
         reason: params.reason,
         resumePrompt: params.resumePrompt,
+        historyThreadId: identifiers?.historyThreadId,
+        sessionId: identifiers?.sessionId,
       },
       resumeInstance: (id, opts) => this.resumeNow(id, opts),
     });
@@ -391,7 +405,7 @@ export class InstanceProviderLimitHandler {
     this.parked.set(params.instanceId, {
       cancel,
       resumePrompt: params.resumePrompt,
-      stopEarlyResumeProbe: this.startEarlyResumeProbe(params.instanceId, providerId, resumeAt, params.accountProfileId ?? null),
+      stopEarlyResumeProbe: this.startEarlyResumeProbe(params, providerId, resumeAt, params.accountProfileId ?? null),
     });
     logger.info('Parked regular session on provider limit; will auto-resume at window reset', {
       instanceId: params.instanceId,
@@ -581,27 +595,51 @@ export class InstanceProviderLimitHandler {
   }
 
   /**
-   * While parked, periodically re-probe the provider's live quota and resume
-   * as soon as a fresh snapshot shows the limit has lifted — the recorded
-   * resumeAt then acts only as a fallback ceiling. Skips the probe once the
-   * scheduled resume is imminent, never overlaps requests, and treats probe
-   * failures as "still limited" (retry next tick). The interval is unref'd
-   * and stopped by resumeNow/cancel via the park entry.
+   * While parked, periodically check for an early lift: either a pool sibling
+   * account has since become available (a fresh turn on another instance can
+   * flip the pool's default route while this one keeps waiting on its own
+   * window), or a fresh quota snapshot shows this instance's own limit has
+   * lifted — the recorded resumeAt then acts only as a fallback ceiling. The
+   * sibling check goes first and is cheap (cached bindings), so a pooled
+   * account that already recovered switches this park immediately instead of
+   * waiting out its own multi-hour window. Skips the probe once the scheduled
+   * resume is imminent, never overlaps requests, and treats probe failures as
+   * "still limited" (retry next tick). The interval is unref'd and stopped by
+   * resumeNow/cancel via the park entry.
    */
   private startEarlyResumeProbe(
-    instanceId: string,
+    params: MaybeParkKnownParams,
     providerId: ProviderId,
     resumeAt: number,
     accountProfileId: string | null,
   ): () => void {
-    const probe = this.deps?.probeQuotaSnapshot;
-    if (!probe) return () => {};
+    const deps = this.deps;
+    const probe = deps?.probeQuotaSnapshot;
+    if (!deps || !probe) return () => {};
+    const instanceId = params.instanceId;
 
     let inFlight = false;
     const timer = setInterval(() => {
       if (!this.parked.has(instanceId) || inFlight) return;
       if (resumeAt - Date.now() < 60_000) return; // scheduled resume is about to fire anyway
       inFlight = true;
+
+      const failoverParams = this.failoverParams(params, accountProfileId, resumeAt);
+      const plan = failoverParams ? deps.accountFailover?.plan(failoverParams) : undefined;
+      if (failoverParams && plan?.kind === 'switch') {
+        const entry = this.parked.get(instanceId);
+        this.parked.delete(instanceId);
+        entry?.cancel();
+        clearInterval(timer); // this probe is superseded by startAccountFailover's own re-park (if needed)
+        logger.info('Sibling pool account became available while parked; switching instead of waiting for the own window reset', {
+          instanceId,
+          provider: providerId,
+        });
+        this.startAccountFailover(failoverParams, params, providerId, resumeAt);
+        inFlight = false;
+        return;
+      }
+
       void probe(providerId, accountProfileId)
         .then((snapshot) => {
           if (!this.parked.has(instanceId) || !snapshotShowsLimitLifted(snapshot)) return;

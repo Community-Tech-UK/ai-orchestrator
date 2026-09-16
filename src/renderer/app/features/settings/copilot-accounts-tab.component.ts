@@ -20,6 +20,7 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { PromptModalComponent } from '../../shared/components/prompt-modal/prompt-modal.component';
 import {
   CopilotAccountIpcService,
   type CopilotAccountDiagnosticsView,
@@ -46,7 +47,7 @@ interface RuleGroup {
   standalone: true,
   selector: 'app-copilot-accounts-tab',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule],
+  imports: [FormsModule, PromptModalComponent],
   template: `
     <div class="copilot-accounts-tab">
       <div class="tab-header">
@@ -382,6 +383,15 @@ interface RuleGroup {
           </button>
         </div>
       </section>
+      <app-prompt-modal
+        [isOpen]="renameModalOpen()"
+        title="Rename account"
+        [initialValue]="renameInitial()"
+        placeholder="Account name"
+        confirmLabel="Rename"
+        (submitted)="onRenameSubmitted($event)"
+        (cancelled)="onRenameCancelled()"
+      />
     </div>
   `,
   styles: [`
@@ -583,10 +593,27 @@ export class CopilotAccountsTabComponent implements OnInit {
     this.newHost = '';
   }
 
-  async rename(account: CopilotAccountView): Promise<void> {
-    const label = globalThis.prompt?.('New name for this account', account.label)?.trim();
-    if (!label || label === account.label) return;
+  renameModalOpen = signal(false);
+  renameInitial = signal('');
+  private renameTarget: CopilotAccountView | null = null;
+
+  rename(account: CopilotAccountView): void {
+    this.renameTarget = account;
+    this.renameInitial.set(account.label);
+    this.renameModalOpen.set(true);
+  }
+
+  async onRenameSubmitted(label: string): Promise<void> {
+    this.renameModalOpen.set(false);
+    const account = this.renameTarget;
+    this.renameTarget = null;
+    if (!account || !label || label === account.label) return;
     await this.mutate(() => this.ipc.rename(account.id, label));
+  }
+
+  onRenameCancelled(): void {
+    this.renameModalOpen.set(false);
+    this.renameTarget = null;
   }
 
   async setAutomationPolicy(

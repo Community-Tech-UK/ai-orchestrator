@@ -232,6 +232,32 @@ export function createInstanceDomain(
     },
 
     /**
+     * Deliver a provenance-wrapped text message into another live instance,
+     * addressed by display name or id. Returns a discriminated result
+     * (delivered/rejected/not-found/ambiguous), not a bare success/failure.
+     */
+    sendCrossSessionMessage: (payload: {
+      sourceInstanceId: string;
+      targetNameOrId: string;
+      message: string;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.INSTANCE_SEND_CROSS_SESSION_MESSAGE, payload);
+    },
+
+    /** List instances currently addressable for cross-session messaging, with reasons. */
+    listMessageableSessions: (payload: { sourceInstanceId: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.INSTANCE_LIST_MESSAGEABLE_SESSIONS, payload);
+    },
+
+    /** Toggle whether this instance accepts incoming cross-session messages. */
+    toggleAllowIncomingSessionMessages: (payload: {
+      instanceId: string;
+      allow: boolean;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.INSTANCE_TOGGLE_ALLOW_INCOMING_SESSION_MESSAGES, payload);
+    },
+
+    /**
      * Rename an instance
      */
     renameInstance: (payload: {

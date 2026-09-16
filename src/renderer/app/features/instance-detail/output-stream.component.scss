@@ -436,6 +436,20 @@
         overflow-wrap: anywhere;
       }
 
+      .cross-session-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        margin-bottom: 0.35rem;
+        padding: 0.1rem 0.5rem;
+        border-radius: 999px;
+        background: var(--accent-bg, rgba(99, 102, 241, 0.12));
+        color: var(--accent-color, #6366f1);
+        font-size: 0.72rem;
+        font-weight: 600;
+        width: fit-content;
+      }
+
       .empty-stream {
         display: flex;
         flex-direction: column;

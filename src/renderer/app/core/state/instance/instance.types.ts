@@ -23,6 +23,7 @@ import type {
   InstanceWaitReason,
   DesiredRuntime,
   ThinkingContent,
+  CrossSessionMessageMetadata,
 } from '../../../../../shared/types/instance.types';
 import type { ExecutionLocation } from '../../../../../shared/types/worker-node.types';
 import type { ComputerUseAutonomyLevel } from '../../../../../shared/types/desktop-gateway-settings.types';
@@ -79,7 +80,7 @@ export interface OutputMessage {
   timestamp: number;
   type: 'assistant' | 'user' | 'system' | 'tool_use' | 'tool_result' | 'tool_outcome' | 'error';
   content: string;
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, unknown> & { crossSessionMessage?: CrossSessionMessageMetadata };
   /** File attachments associated with this message. */
   attachments?: FileAttachment[];
   /** Image refs that failed to resolve into inline attachments. */
@@ -197,6 +198,8 @@ export interface Instance {
    * suppressed. Populated from the live adapter capabilities by the backend.
    */
   selfManagesAutoCompaction?: boolean;
+  /** Whether this session currently accepts incoming cross-session messages. Off by default. */
+  allowIncomingSessionMessages?: boolean;
 }
 
 // ============================================

@@ -13,6 +13,7 @@ import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { getConversationLedgerService, type ConversationLedgerService } from '../conversation-ledger';
 import { createOperatorTables } from '../operator/operator-schema';
+import { createSessionMessagesTables } from '../instance/session-messages-schema';
 import { defaultOperatorDbPath } from '../operator/operator-database';
 import {
   createOrchestratorToolDefinitions,
@@ -42,6 +43,11 @@ import {
 } from './orchestrator-tools';
 import type { GetDocReviewResultFn, RequestDocReviewFn } from './doc-review-tools';
 import { ResetNodeConnectionArgsSchema, type NodeConnectionToolContext, type ResetNodeConnectionFn } from './orchestrator-node-connection-tools';
+import {
+  ListMessageableSessionsArgsSchema,
+  SendSessionMessageArgsSchema,
+  type SessionMessagingToolService,
+} from './orchestrator-session-messaging-tools';
 import {
   SettingsPrivilegedGetPayloadSchema,
   SettingsPrivilegedListPayloadSchema,
@@ -160,6 +166,8 @@ export interface OrchestratorToolsRpcServerOptions extends FileTransferToolConte
   postponeAutomation?: PostponeAutomationFn | null;
   /** Back `request_doc_review` / `get_doc_review_result`. */
   requestDocReview?: RequestDocReviewFn | null; getDocReviewResult?: GetDocReviewResultFn | null;
+  /** Backs cross-session messaging MCP tools. */
+  sessionMessagingService?: SessionMessagingToolService | null;
   /**
    * Returns whether the given instance may still spawn (i.e. is below the
    * configured spawn-depth limit). When it returns false, the spawn-capable
@@ -206,6 +214,7 @@ export class OrchestratorToolsRpcServer {
   private readonly postponeAutomation: PostponeAutomationFn | null;
   private readonly requestDocReview: RequestDocReviewFn | null;
   private readonly getDocReviewResult: GetDocReviewResultFn | null;
+  private readonly sessionMessagingService: SessionMessagingToolService | null;
   private readonly resolveSpawnEligibility: ((instanceId: string) => boolean) | null;
   private readonly resolveContextEvidence: NonNullable<
     OrchestratorToolsRpcServerOptions['resolveContextEvidence']
@@ -261,6 +270,7 @@ export class OrchestratorToolsRpcServer {
     this.updateAutomation = options.updateAutomation ?? null;
     this.postponeAutomation = options.postponeAutomation ?? null;
     this.requestDocReview = options.requestDocReview ?? null; this.getDocReviewResult = options.getDocReviewResult ?? null;
+    this.sessionMessagingService = options.sessionMessagingService ?? null;
     this.resolveSpawnEligibility = options.resolveSpawnEligibility ?? null;
     this.resolveContextEvidence = options.resolveContextEvidence ?? (() => null);
     this.authorizeReleaseMutation = options.authorizeReleaseMutation ?? (async () => false);
@@ -401,6 +411,22 @@ export class OrchestratorToolsRpcServer {
         const validated = ResetNodeConnectionArgsSchema.parse(params.payload);
         const tool = this.getToolsForInstance(params.instanceId).find((t) => t.name === 'reset_node_connection');
         if (!tool) throw new Error('reset_node_connection tool unavailable');
+        return tool.handler(validated);
+      }
+      case 'orchestrator_tools.send_session_message': {
+        const validated = SendSessionMessageArgsSchema.parse(params.payload);
+        const tool = this.getToolsForInstance(params.instanceId).find((t) => t.name === 'send_session_message');
+        if (!tool) {
+          throw new Error('send_session_message tool unavailable');
+        }
+        return tool.handler(validated);
+      }
+      case 'orchestrator_tools.list_messageable_sessions': {
+        const validated = ListMessageableSessionsArgsSchema.parse(params.payload);
+        const tool = this.getToolsForInstance(params.instanceId).find((t) => t.name === 'list_messageable_sessions');
+        if (!tool) {
+          throw new Error('list_messageable_sessions tool unavailable');
+        }
         return tool.handler(validated);
       }
       case 'orchestrator_tools.settings.privileged_list': {
@@ -673,6 +699,7 @@ export class OrchestratorToolsRpcServer {
     const db = defaultDriverFactory(this.operatorDbPath);
     db.pragma('journal_mode = WAL');
     createOperatorTables(db);
+    createSessionMessagesTables(db);
     this.db = db;
     this.ledger = getConversationLedgerService();
   }
@@ -704,6 +731,7 @@ export class OrchestratorToolsRpcServer {
         getDocReviewResult: this.getDocReviewResult,
         calendarTools: this.calendarTools,
         contextEvidence: this.resolveContextEvidence(instanceId),
+        sessionMessagingService: this.sessionMessagingService,
       }));
     }
     this.ensureRuntimeReady();
@@ -733,6 +761,7 @@ export class OrchestratorToolsRpcServer {
       getDocReviewResult: this.getDocReviewResult,
       calendarTools: this.calendarTools,
       contextEvidence: this.resolveContextEvidence(instanceId),
+      sessionMessagingService: this.sessionMessagingService,
     }));
   }
 

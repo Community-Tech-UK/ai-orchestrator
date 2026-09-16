@@ -1,0 +1,106 @@
+<app-settings-card
+  icon="network"
+  title="Cross-session messaging"
+  description="Let one live session deliver a message directly into another live session's conversation, outside of any agent or MCP tool call."
+>
+  <div class="setting-row">
+    <div class="setting-info">
+      <span class="setting-name">Enable cross-session messaging</span>
+      <span class="setting-hint">Off by default. When off, no session can send or receive relayed messages.</span>
+    </div>
+    <label class="toggle-label">
+      <input
+        type="checkbox"
+        class="toggle-input"
+        [checked]="settings().enabled"
+        (change)="toggleEnabled()"
+      />
+      <span class="toggle-track">
+        <span class="toggle-thumb"></span>
+      </span>
+    </label>
+  </div>
+
+  @if (settings().enabled) {
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-name">Allow cross-project messages</span>
+        <span class="setting-hint">
+          When off, sessions can only message other sessions in the same working directory.
+        </span>
+      </div>
+      <label class="toggle-label">
+        <input
+          type="checkbox"
+          class="toggle-input"
+          [checked]="settings().allowCrossProject"
+          (change)="toggleAllowCrossProject()"
+        />
+        <span class="toggle-track">
+          <span class="toggle-thumb"></span>
+        </span>
+      </label>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-name">Max relay hops</span>
+        <span class="setting-hint">How many times a message can be relayed onward before it's rejected.</span>
+      </div>
+      <input
+        type="number"
+        class="number-input"
+        min="0"
+        max="10"
+        [value]="settings().maxHops"
+        (change)="setMaxHops($any($event.target).value)"
+      />
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-name">Rate limit (messages/minute)</span>
+        <span class="setting-hint">Per source-target pair. Excess sends are rejected, not queued.</span>
+      </div>
+      <input
+        type="number"
+        class="number-input"
+        min="1"
+        max="120"
+        [value]="settings().rateLimitPerMinute"
+        (change)="setRateLimitPerMinute($any($event.target).value)"
+      />
+    </div>
+
+    <div class="consent-list">
+      <h4 class="consent-heading">Per-session consent</h4>
+      <p class="setting-hint">
+        Each live session must individually opt in to receive incoming cross-session messages.
+      </p>
+      @for (instance of liveInstances(); track instance.id) {
+        <div class="consent-row">
+          <span class="consent-name">{{ instance.displayName || instance.id }}</span>
+          <label class="toggle-label" [class.pending]="isTogglePending(instance.id)">
+            <input
+              type="checkbox"
+              class="toggle-input"
+              [checked]="instance.allowIncomingSessionMessages ?? false"
+              [disabled]="isTogglePending(instance.id)"
+              (change)="toggleInstanceConsent(instance.id, !(instance.allowIncomingSessionMessages ?? false))"
+            />
+            <span class="toggle-track">
+              <span class="toggle-thumb"></span>
+            </span>
+          </label>
+        </div>
+      } @empty {
+        <p class="setting-hint">No live sessions yet.</p>
+      }
+    </div>
+  }
+
+  <app-inline-help variant="info">
+    Delivered messages appear as a normal user turn wrapped with a "From: &lt;sender&gt;" badge, so the
+    receiving session's agent can tell it came from another instance, not you.
+  </app-inline-help>
+</app-settings-card>

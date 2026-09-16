@@ -277,6 +277,13 @@ const workerModeSchema = z.object({
   lastCoordinatorUrl: z.string().max(2048).optional(),
 }).strict();
 
+const interSessionMessagingSchema = z.object({
+  enabled: z.boolean(),
+  allowCrossProject: z.boolean(),
+  maxHops: z.number().int().min(1).max(10),
+  rateLimitPerMinute: z.number().int().min(1).max(120),
+}).strict();
+
 const open = (
   schema: z.ZodType<unknown>,
   restartRequired = false,
@@ -586,6 +593,13 @@ export const SETTINGS_TOOL_POLICY = {
   // Reactions (event-driven re-prompting)
   reactionsEnabled: open(z.boolean()),
   reactionsPollIntervalMs: open(z.number().int().min(5000).max(600_000)),
+
+  // Cross-session messaging — security-sensitive gate. Visible to agents via
+  // get_setting/list_settings for diagnosis, but not writable through
+  // set_setting: an agent must not be able to self-escalate its own ability
+  // to inject text into another instance's context. Only the renderer
+  // Settings UI (a human action) may change it.
+  interSessionMessaging: readOnly(false, interSessionMessagingSchema),
 
   // WS-C10 — flagged transcript DOM virtualization prototype (off by default)
   transcriptVirtualization: open(z.boolean()),

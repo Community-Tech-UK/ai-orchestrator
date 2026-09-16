@@ -9,6 +9,7 @@ import {
   geminiUsageTotals,
   parseGeminiNdjsonEvent,
   parseGeminiStreamingEvent,
+  isGeminiPlainContentLine,
 } from './gemini-json';
 
 describe('parseGeminiNdjsonEvent', () => {
@@ -27,6 +28,14 @@ describe('parseGeminiNdjsonEvent', () => {
 
   it('returns null for plain text without throwing', () => {
     expect(parseGeminiNdjsonEvent('not json at all')).toBeNull();
+  });
+});
+
+describe('isGeminiPlainContentLine', () => {
+  it('accepts non-JSON content and rejects banners', () => {
+    expect(isGeminiPlainContentLine('hello from gemini')).toBe(true);
+    expect(isGeminiPlainContentLine('{"type":"text"}')).toBe(false);
+    expect(isGeminiPlainContentLine('YOLO mode enabled')).toBe(false);
   });
 });
 

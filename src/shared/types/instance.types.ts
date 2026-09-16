@@ -232,12 +232,24 @@ export interface ThinkingContent {
   tokenCount?: number;
 }
 
+/**
+ * Provenance stamp for a `type: 'user'` `OutputMessage` that was delivered by
+ * `CrossSessionMessagingService` rather than typed by the human user. Kept out
+ * of `OutputMessage.type`'s closed union deliberately — see
+ * `docs/plans/2026-09-16-cross-session-messaging_spec_planned.md`.
+ */
+export interface CrossSessionMessageMetadata {
+  sourceInstanceId: string;
+  sourceDisplayName: string;
+  hopCount: number;
+}
+
 export interface OutputMessage {
   id: string;
   timestamp: number;
   type: 'assistant' | 'user' | 'system' | 'tool_use' | 'tool_result' | 'tool_outcome' | 'error';
   content: string;
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, unknown> & { crossSessionMessage?: CrossSessionMessageMetadata };
   /** File attachments associated with this message. */
   attachments?: FileAttachment[];
   /** Image references that failed to resolve into inline attachments. */
@@ -614,6 +626,15 @@ export interface Instance {
    * to also be on. Default false (opt-in per instance).
    */
   reactionsArmed?: boolean;
+
+  /**
+   * Explicit per-instance opt-in to receiving cross-session messages from other
+   * independent instances (`CrossSessionMessagingService`). Default false: a
+   * running agent cannot inject text into another agent's context unless this
+   * instance has deliberately turned it on, in addition to the global
+   * `AppSettings.interSessionMessaging.enabled` master switch.
+   */
+  allowIncomingSessionMessages?: boolean;
 }
 
 export interface InstanceCreateConfig {

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": [
+    "src/main/index.ts",
+    "src/main/main-process-entry.ts!",
+    "src/preload/preload.ts!",
+    "src/renderer/main.ts!",
+    "src/worker-agent/worker-agent.ts!",
+    "scripts/**/*.{js,ts,mjs}!",
+    "packages/*/src/index.ts"
+  ],
+  "project": [
+    "src/**/*.{ts,tsx}",
+    "packages/*/src/**/*.ts",
+    "scripts/**/*.{js,ts,mjs}"
+  ],
+  "ignore": [
+    "**/__tests__/**",
+    "**/*.spec.ts",
+    "src/preload/generated/**",
+    "apps/**",
+    "benchmarks/**",
+    "dist/**",
+    "_scratch/**",
+    "_archive/**",
+    ".aio-review/**"
+  ],
+  "ignoreBinaries": ["rtk", "madge"],
+  "ignoreDependencies": [
+    "knip"
+  ]
+}

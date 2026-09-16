@@ -63,6 +63,35 @@ export function parseNdjsonLine<T = unknown>(line: string): JsonParseResult<T> |
   return parseJsonWithRepair<T>(line);
 }
 
+/**
+ * Accumulates stdout chunks and yields complete NDJSON lines. The last
+ * unterminated fragment stays buffered until the next chunk or `flush()`.
+ */
+export class NdjsonLineBuffer {
+  private pending = '';
+
+  push(chunk: string): string[] {
+    this.pending += chunk;
+    const parts = this.pending.split('\n');
+    this.pending = parts.pop() ?? '';
+    return completeNdjsonLines(parts);
+  }
+
+  flush(): string | null {
+    const trailing = this.pending.trim();
+    this.pending = '';
+    return trailing.length > 0 ? trailing : null;
+  }
+}
+
+export function splitCompleteNdjsonLines(raw: string): string[] {
+  return completeNdjsonLines(raw.split('\n'));
+}
+
+function completeNdjsonLines(parts: string[]): string[] {
+  return parts.map((line) => line.trim()).filter((line) => line.length > 0);
+}
+
 function success<T>(value: T, repaired: boolean, partial: boolean): JsonParseResult<T> {
   return {
     ok: true,

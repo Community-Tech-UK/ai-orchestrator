@@ -57,16 +57,22 @@ import { isPooledProvider } from '../../../../shared/types/provider-account.type
   `,
   styles: [`
     .provider-account-chip {
+      position: relative;
       display: inline-flex; align-items: center; gap: 8px;
       padding: 3px 10px; border-radius: 999px; font-size: 12px;
       border: 1px solid var(--border-color); background: var(--bg-secondary); max-width: 100%;
+      cursor: pointer;
     }
     .provider-account-chip.compact { padding: 1px 8px; font-size: 11px; }
     .provider-account-chip.blocked { border-color: var(--error-color, #d33); }
     .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success-color, #4a9); }
     .dot.blocked { background: var(--error-color, #d33); }
     .text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .override { font-size: 11px; background: transparent; border: 0; color: inherit; max-width: 22px; }
+    /* Stretched over the whole chip (not just a sliver) so the whole lozenge is clickable. */
+    .override {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      opacity: 0; border: 0; cursor: pointer; appearance: none;
+    }
   `],
 })
 export class ProviderAccountChipComponent {

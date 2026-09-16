@@ -55,6 +55,7 @@
     "check:ts-max-loc": "tsx scripts/check-ts-max-loc.ts",
     "check:dead": "node scripts/check-dead-exports.js",
     "check:circular": "node scripts/check-circular-deps.js",
+    "check:knip": "node scripts/check-knip.js",
     "check:provider-parity": "node scripts/check-provider-parity.js",
     "audit:claude-cost": "node scripts/claude-cost-audit-report.mjs",
     "verify:architecture": "node scripts/check-import-boundaries.js && node scripts/check-loop-cwd-discipline.js && node scripts/generate-architecture-inventory.js --check",

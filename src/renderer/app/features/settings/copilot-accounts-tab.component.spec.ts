@@ -207,6 +207,32 @@ describe('CopilotAccountsTabComponent', () => {
     expect(fixture.componentInstance.error()).toContain('in use by a running session');
   });
 
+  it('renames an account through the in-app modal instead of the no-op window.prompt', async () => {
+    const fixture = await render();
+    const target = fixture.componentInstance.accounts()[0]!;
+    fixture.componentInstance.rename(target);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.renameModalOpen()).toBe(true);
+    expect(fixture.componentInstance.renameInitial()).toBe(target.label);
+
+    await fixture.componentInstance.onRenameSubmitted('Renamed Copilot account');
+    expect(ipc.rename).toHaveBeenCalledWith(target.id, 'Renamed Copilot account');
+    expect(fixture.componentInstance.renameModalOpen()).toBe(false);
+  });
+
+  it('does not call the IPC on rename cancel or an unchanged/blank name', async () => {
+    const fixture = await render();
+    const target = fixture.componentInstance.accounts()[0]!;
+
+    fixture.componentInstance.rename(target);
+    fixture.componentInstance.onRenameCancelled();
+    expect(ipc.rename).not.toHaveBeenCalled();
+
+    fixture.componentInstance.rename(target);
+    await fixture.componentInstance.onRenameSubmitted(target.label);
+    expect(ipc.rename).not.toHaveBeenCalled();
+  });
+
   it('shows the failure instead of an empty state when accounts cannot be read', async () => {
     // A failed read used to return `[]`, so the tab rendered "No accounts are
     // set up yet" over accounts that really existed — no error, and no way for

@@ -17,6 +17,7 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { PromptModalComponent } from '../../shared/components/prompt-modal/prompt-modal.component';
 import {
   ProviderAccountIpcService,
   type ProviderAccountDoctorView,
@@ -43,7 +44,7 @@ const SIGN_IN_POLL_LIMIT = 60;
   standalone: true,
   selector: 'app-provider-accounts-tab',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule],
+  imports: [FormsModule, PromptModalComponent],
   template: `
     <div class="provider-accounts-tab">
       <div class="tab-intro">
@@ -277,6 +278,16 @@ const SIGN_IN_POLL_LIMIT = 60;
           }
         </section>
       }
+
+      <app-prompt-modal
+        [isOpen]="renameModalOpen()"
+        title="Rename account"
+        [initialValue]="renameInitial()"
+        placeholder="Account name"
+        confirmLabel="Rename"
+        (submitted)="onRenameSubmitted($event)"
+        (cancelled)="onRenameCancelled()"
+      />
     </div>
   `,
   styles: [`
@@ -466,10 +477,27 @@ export class ProviderAccountsTabComponent implements OnInit {
     await this.mutate(() => this.ipc.update({ provider: account.provider, profileId: account.id, automationPolicy }));
   }
 
-  async rename(account: ProviderAccountView): Promise<void> {
-    const label = globalThis.prompt?.('New name for this account', account.label)?.trim();
-    if (!label || label === account.label) return;
+  renameModalOpen = signal(false);
+  renameInitial = signal('');
+  private renameTarget: ProviderAccountView | null = null;
+
+  rename(account: ProviderAccountView): void {
+    this.renameTarget = account;
+    this.renameInitial.set(account.label);
+    this.renameModalOpen.set(true);
+  }
+
+  async onRenameSubmitted(label: string): Promise<void> {
+    this.renameModalOpen.set(false);
+    const account = this.renameTarget;
+    this.renameTarget = null;
+    if (!account || !label || label === account.label) return;
     await this.mutate(() => this.ipc.update({ provider: account.provider, profileId: account.id, label }));
+  }
+
+  onRenameCancelled(): void {
+    this.renameModalOpen.set(false);
+    this.renameTarget = null;
   }
 
   async move(account: ProviderAccountView, delta: -1 | 1): Promise<void> {

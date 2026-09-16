@@ -7,50 +7,43 @@
 
 import { EventEmitter } from 'events';
 import { getLogger } from '../logging/logger';
+import {
+  MemoryCrossInstanceCommStore,
+  type CommBridge,
+  type CommMessage,
+  type CrossInstanceCommStore,
+} from './cross-instance-comm-store';
+
+export type { CommBridge, CommMessage, CrossInstanceCommStore } from './cross-instance-comm-store';
+export { MemoryCrossInstanceCommStore } from './cross-instance-comm-store';
 
 const logger = getLogger('CrossInstanceComm');
 
-export interface CommBridge {
-  id: string;
-  name: string;
-  sourceInstanceId: string;
-  targetInstanceId: string;
-  createdAt: number;
-  messageCount: number;
-}
-
-export interface CommMessage {
-  id: string;
-  bridgeId: string;
-  fromInstanceId: string;
-  toInstanceId: string;
-  content: string;
-  timestamp: number;
-  metadata?: Record<string, unknown>;
-}
-
 export class CrossInstanceCommService extends EventEmitter {
-  private static instance: CrossInstanceCommService;
-
-  private bridges = new Map<string, CommBridge>();
-  private messages = new Map<string, CommMessage[]>(); // bridgeId -> messages
-  private subscriptions = new Map<string, Set<string>>(); // instanceId -> bridgeIds
+  private static instance: CrossInstanceCommService | null = null;
 
   static getInstance(): CrossInstanceCommService {
-    if (!this.instance) {
-      this.instance = new CrossInstanceCommService();
-    }
+    this.instance ??= new CrossInstanceCommService();
     return this.instance;
   }
 
   static _resetForTesting(): void {
     if (this.instance) {
       this.instance.removeAllListeners();
-      (this.instance as unknown) = undefined;
+      this.instance.store.clear();
     }
+    this.instance = null;
   }
 
-  private constructor() {
+  static createForTesting(
+    store: CrossInstanceCommStore = new MemoryCrossInstanceCommStore(),
+  ): CrossInstanceCommService {
+    return new CrossInstanceCommService(store);
+  }
+
+  private constructor(
+    private readonly store: CrossInstanceCommStore = new MemoryCrossInstanceCommStore(),
+  ) {
     super();
   }
 
@@ -68,8 +61,7 @@ export class CrossInstanceCommService extends EventEmitter {
       messageCount: 0,
     };
 
-    this.bridges.set(id, bridge);
-    this.messages.set(id, []);
+    this.store.createBridge(bridge);
 
     logger.info('Bridge created', { bridgeId: id, name, sourceInstanceId, targetInstanceId });
     this.emit('bridge:created', bridge);
@@ -82,22 +74,9 @@ export class CrossInstanceCommService extends EventEmitter {
    * Also removes the bridge from any subscriptions.
    */
   deleteBridge(bridgeId: string): boolean {
-    if (!this.bridges.has(bridgeId)) {
+    if (!this.store.deleteBridge(bridgeId)) {
       logger.warn('Attempted to delete non-existent bridge', { bridgeId });
       return false;
-    }
-
-    this.bridges.delete(bridgeId);
-    this.messages.delete(bridgeId);
-
-    // Remove bridge from all instance subscriptions
-    for (const [instanceId, bridgeIds] of this.subscriptions) {
-      if (bridgeIds.has(bridgeId)) {
-        bridgeIds.delete(bridgeId);
-        if (bridgeIds.size === 0) {
-          this.subscriptions.delete(instanceId);
-        }
-      }
     }
 
     logger.info('Bridge deleted', { bridgeId });
@@ -110,16 +89,16 @@ export class CrossInstanceCommService extends EventEmitter {
    * Returns all bridges.
    */
   getBridges(): CommBridge[] {
-    return Array.from(this.bridges.values());
+    return this.store.listBridges();
   }
 
   /**
    * Returns bridges where the given instance is either the source or target.
    */
   getBridgesForInstance(instanceId: string): CommBridge[] {
-    return Array.from(this.bridges.values()).filter(
+    return this.store.listBridges().filter(
       (bridge) =>
-        bridge.sourceInstanceId === instanceId || bridge.targetInstanceId === instanceId
+        bridge.sourceInstanceId === instanceId || bridge.targetInstanceId === instanceId,
     );
   }
 
@@ -131,9 +110,9 @@ export class CrossInstanceCommService extends EventEmitter {
     bridgeId: string,
     fromInstanceId: string,
     content: string,
-    metadata?: Record<string, unknown>
+    metadata?: Record<string, unknown>,
   ): CommMessage {
-    const bridge = this.bridges.get(bridgeId);
+    const bridge = this.store.getBridge(bridgeId);
     if (!bridge) {
       throw new Error(`Bridge not found: ${bridgeId}`);
     }
@@ -143,7 +122,7 @@ export class CrossInstanceCommService extends EventEmitter {
       bridge.targetInstanceId !== fromInstanceId
     ) {
       throw new Error(
-        `Instance ${fromInstanceId} is not a participant of bridge ${bridgeId}`
+        `Instance ${fromInstanceId} is not a participant of bridge ${bridgeId}`,
       );
     }
 
@@ -162,9 +141,7 @@ export class CrossInstanceCommService extends EventEmitter {
       metadata,
     };
 
-    const bridgeMessages = this.messages.get(bridgeId)!;
-    bridgeMessages.push(message);
-
+    this.store.appendMessage(bridgeId, message);
     bridge.messageCount += 1;
 
     logger.info('Message sent', {
@@ -183,16 +160,11 @@ export class CrossInstanceCommService extends EventEmitter {
    * last `limit` messages.
    */
   getMessages(bridgeId: string, limit?: number): CommMessage[] {
-    const bridgeMessages = this.messages.get(bridgeId);
-    if (!bridgeMessages) {
-      return [];
-    }
-
+    const bridgeMessages = this.store.getMessages(bridgeId);
     if (limit !== undefined && limit > 0) {
       return bridgeMessages.slice(-limit);
     }
-
-    return [...bridgeMessages];
+    return bridgeMessages;
   }
 
   /**
@@ -200,16 +172,12 @@ export class CrossInstanceCommService extends EventEmitter {
    * Returns false if the bridge does not exist.
    */
   subscribe(instanceId: string, bridgeId: string): boolean {
-    if (!this.bridges.has(bridgeId)) {
+    if (!this.store.getBridge(bridgeId)) {
       logger.warn('Attempted to subscribe to non-existent bridge', { instanceId, bridgeId });
       return false;
     }
 
-    if (!this.subscriptions.has(instanceId)) {
-      this.subscriptions.set(instanceId, new Set());
-    }
-
-    this.subscriptions.get(instanceId)!.add(bridgeId);
+    this.store.subscribe(instanceId, bridgeId);
 
     logger.info('Instance subscribed to bridge', { instanceId, bridgeId });
 
@@ -220,24 +188,22 @@ export class CrossInstanceCommService extends EventEmitter {
    * Returns the bridge IDs an instance is subscribed to.
    */
   getSubscriptions(instanceId: string): string[] {
-    const bridgeIds = this.subscriptions.get(instanceId);
-    if (!bridgeIds) {
-      return [];
-    }
-    return Array.from(bridgeIds);
+    return this.store.getSubscriptions(instanceId);
   }
 
   /**
    * Clears all bridges, messages, and subscriptions.
    */
   cleanup(): void {
-    this.bridges.clear();
-    this.messages.clear();
-    this.subscriptions.clear();
+    this.store.clear();
     logger.info('CrossInstanceCommService cleaned up');
   }
 }
 
-export function getCrossInstanceComm(): CrossInstanceCommService {
+export function getCrossInstanceCommService(): CrossInstanceCommService {
   return CrossInstanceCommService.getInstance();
+}
+
+export function getCrossInstanceComm(): CrossInstanceCommService {
+  return getCrossInstanceCommService();
 }

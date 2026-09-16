@@ -45,6 +45,7 @@ import { getSelfPermissionGranter } from '../../security/self-permission-granter
 import { getPauseCoordinator } from '../../pause/pause-coordinator';
 import { clearInstanceQueueStore, loadAllInstanceQueues, saveInstanceQueue } from './instance-queue-store';
 import { registerInstanceCompactionHandlers } from './instance-compaction-handlers';
+import { registerInstanceCrossSessionMessagingHandlers } from './instance-cross-session-messaging-handlers';
 import { serializeInstance } from './instance-handler-serializers';
 import {
   createInstanceWithMessage,
@@ -749,6 +750,7 @@ export function registerInstanceHandlers(deps: {
   );
 
   registerInstanceCompactionHandlers(instanceManager);
+  registerInstanceCrossSessionMessagingHandlers(instanceManager);
 
   // ============================================
   // Output History

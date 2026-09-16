@@ -27,6 +27,7 @@ import { NdjsonParser } from '../ndjson-parser';
 import { applyClaudeHygieneEnv, resolveClaudeFallbackModel } from './claude-env-pack';
 import { nativeTranscriptExists } from './claude-transcript-registry';
 import { parseNdjsonLine } from '../json-parse';
+import { createOutputMessage, isCliStderrFailureText } from './base-cli-adapter-utils';
 import { InputFormatter } from '../input-formatter';
 import { processAttachments, buildMessageWithFiles } from '../file-handler';
 import { getLogger } from '../../logging/logger';
@@ -49,6 +50,7 @@ import {
 import { getErrorRecoveryManager } from '../../core/error-recovery';
 import {
   mergeInputRequiredMetadata,
+  toRawCliPayload,
   type RawCliPayload,
   type DeferredToolUse,
   type ClaudeCliSpawnOptions,
@@ -740,8 +742,14 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
       // Handle stderr
       this.process.stderr?.on('data', (chunk: Buffer) => {
-        const stderrError = new Error(chunk.toString().trim());
-        this.emitClassifiedError(stderrError);
+        const text = chunk.toString().trim();
+        if (!text) return;
+        if (isCliStderrFailureText(text)) {
+          this.emit('output', createOutputMessage('error', text.slice(0, 2000)));
+          this.emitClassifiedError(new Error(text));
+          return;
+        }
+        logger.debug('claude stderr', { text: text.slice(0, 500) });
       });
 
       // Handle exit
@@ -808,7 +816,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       const messages = this.parser.parse(raw);
 
       for (const msg of messages) {
-        const raw = msg as unknown as RawCliPayload;
+        const raw = toRawCliPayload(msg, msg.type);
         if (raw.type === 'assistant' && raw.message?.content) {
           const content = raw.message.content
             .filter((block) => block.type === 'text' && block.text)
@@ -1222,25 +1230,20 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
   private handleStderr(chunk: Buffer): void {
     const errorText = chunk.toString().trim();
-    logger.debug('handleStderr received', { errorText: errorText.substring(0, 500) });
+    if (!errorText) return;
 
-    if (errorText) {
-      // Check if this looks like a permission prompt
-      if (errorText.includes('permission') || errorText.includes('approve') || errorText.includes('allow') || errorText.includes('y/n')) {
-        logger.debug('STDERR contains permission-like content', {
-          errorLength: errorText.length,
-          preview: summarizeClaudeLogText(errorText, 220),
-        });
-      }
-
-      const errorMessage: OutputMessage = {
-        id: generateId(),
-        timestamp: Date.now(),
-        type: 'error',
-        content: errorText
-      };
-      this.emit('output', errorMessage);
+    if (errorText.includes('permission') || errorText.includes('approve') || errorText.includes('allow') || errorText.includes('y/n')) {
+      logger.debug('STDERR contains permission-like content', {
+        errorLength: errorText.length,
+        preview: summarizeClaudeLogText(errorText, 220),
+      });
     }
+
+    if (isCliStderrFailureText(errorText)) {
+      this.emit('output', createOutputMessage('error', errorText));
+      return;
+    }
+    logger.debug('handleStderr received', { errorText: errorText.substring(0, 500) });
   }
 
   private handleExit(code: number | null, signal: string | null): void {
@@ -1282,7 +1285,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   }
 
   private processCliMessage(message: CliStreamMessage): void {
-    const raw = message as unknown as RawCliPayload;
+    const raw = toRawCliPayload(message, message.type);
     switch (message.type) {
       case 'assistant': {
         processClaudeAssistantMessage(this as unknown as ClaudeAssistantMessageHost, message, raw);
@@ -1626,7 +1629,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       }
 
       case 'tool_progress': {
-        this.emitAsyncWork(parseClaudeToolProgress(raw as unknown as Record<string, unknown>));
+        this.emitAsyncWork(parseClaudeToolProgress(raw));
         break;
       }
 
@@ -1758,7 +1761,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       }
 
       case 'error': {
-        const streamError = parseClaudeStreamError(raw as unknown as Record<string, unknown>);
+        const streamError = parseClaudeStreamError(raw);
         this.emit('error', streamError?.error ?? new Error('Claude CLI reported an unknown error'));
         break;
       }

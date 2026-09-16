@@ -265,6 +265,16 @@
                   </div>
                 }
                 <div class="message-content">
+                  @if (item.message.type === 'user' && item.message.metadata?.crossSessionMessage; as crossSessionMeta) {
+                    <div class="cross-session-badge" [title]="'Relayed from another session (hop ' + crossSessionMeta.hopCount + ')'">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3"></path>
+                        <polyline points="16 3 21 3 21 8"></polyline>
+                        <line x1="21" y1="3" x2="12" y2="12"></line>
+                      </svg>
+                      <span>From: {{ crossSessionMeta.sourceDisplayName }}</span>
+                    </div>
+                  }
                   @if (item.message.type === 'tool_use' || item.message.type === 'tool_result') {
                     <div class="code-block-wrapper">
                       <div class="code-block-header">

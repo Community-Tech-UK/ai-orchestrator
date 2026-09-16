@@ -6,6 +6,7 @@ import {
 } from '../orchestrator-tools-mcp-config';
 import { ORCHESTRATOR_TOOL_DEFERRAL_ENV } from '../orchestrator-mcp-deferral';
 import { ORCHESTRATOR_TOOL_STABLE_ENV } from '../orchestrator-mcp-stable-tools';
+import { INTER_SESSION_MESSAGING_ENABLED_ENV } from '../orchestrator-session-messaging-tools';
 
 const AIO_MCP = '/Applications/Harness.app/Contents/Resources/aio-mcp-cli/aio-mcp';
 const SOCKET = '/Users/u/Library/Application Support/harness/ot-abc123.sock';
@@ -125,5 +126,24 @@ describe('orchestrator tools MCP config helpers', () => {
         exists: () => false,
       }),
     ).toBeNull();
+  });
+
+  it('passes the cross-session messaging visibility flag only when enabled', () => {
+    const enabled = resolveOrchestratorToolsBridgeSpec({
+      aioMcpCliPath: AIO_MCP,
+      socketPath: SOCKET,
+      instanceId: 'inst-1',
+      sessionMessagingEnabled: true,
+      exists: () => true,
+    });
+    expect(enabled?.env[INTER_SESSION_MESSAGING_ENABLED_ENV]).toBe('1');
+
+    const disabled = resolveOrchestratorToolsBridgeSpec({
+      aioMcpCliPath: AIO_MCP,
+      socketPath: SOCKET,
+      instanceId: 'inst-1',
+      exists: () => true,
+    });
+    expect(disabled?.env[INTER_SESSION_MESSAGING_ENABLED_ENV]).toBeUndefined();
   });
 });

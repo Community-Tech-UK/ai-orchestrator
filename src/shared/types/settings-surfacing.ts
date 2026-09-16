@@ -248,6 +248,9 @@ export const SETTING_SURFACING = {
   orchestrationRoutingPolicyJson: 'bespoke',
   reactionsEnabled: 'tab',
   reactionsPollIntervalMs: 'tab',
+  // Nested settings group with its own dedicated settings-panel section,
+  // like `workerMode` — no per-field metadata entries.
+  interSessionMessaging: 'bespoke',
   transcriptVirtualization: 'internal',
   progressNoteDisplay: 'tab',
 

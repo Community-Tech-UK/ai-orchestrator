@@ -6,12 +6,12 @@
  * delivered/failed/cancelled/expired admission-gated writes for a session.
  */
 
-import { ipcMain, IpcMainInvokeEvent } from 'electron';
+import type { IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS } from '@contracts/channels';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { SessionAdmissionsListPayloadSchema } from '@contracts/schemas/session';
 import { getSessionAdmissionService } from '../../session/session-admission-service';
-import { validatedHandler } from '../validated-handler';
+import { registerValidatedIpcHandler } from '../validated-handler';
 
 export interface SessionAdmissionHandlersDeps {
   ensureTrustedSender?: (
@@ -21,7 +21,7 @@ export interface SessionAdmissionHandlersDeps {
 }
 
 export function registerSessionAdmissionHandlers(deps: SessionAdmissionHandlersDeps): void {
-  const listener: Parameters<typeof ipcMain.handle>[1] = validatedHandler(
+  registerValidatedIpcHandler(
     IPC_CHANNELS.SESSION_ADMISSIONS_LIST,
     SessionAdmissionsListPayloadSchema,
     async (payload) => ({
@@ -31,14 +31,9 @@ export function registerSessionAdmissionHandlers(deps: SessionAdmissionHandlersD
         states: payload?.states,
       }),
     }),
-    { errorCode: 'SESSION_ADMISSIONS_LIST_FAILED' },
-  );
-
-  ipcMain.handle(
-    IPC_CHANNELS.SESSION_ADMISSIONS_LIST,
-    (event, ...args): IpcResponse | Promise<IpcResponse> => {
-      const trustError = deps.ensureTrustedSender?.(event, IPC_CHANNELS.SESSION_ADMISSIONS_LIST);
-      return trustError ?? (listener(event, ...args) as Promise<IpcResponse>);
+    {
+      ensureTrustedSender: deps.ensureTrustedSender,
+      errorCode: 'SESSION_ADMISSIONS_LIST_FAILED',
     },
   );
 }

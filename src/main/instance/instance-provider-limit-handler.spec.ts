@@ -36,6 +36,7 @@ interface Harness {
   resumableIds: Set<string>;
   fireScheduled: (instanceId: string) => void;
   refreshCalls: ProviderId[];
+  scheduledRequests: { instanceId: string; historyThreadId?: string; sessionId?: string }[];
 }
 
 function makeHarness(overrides: Partial<InstanceProviderLimitHandlerDeps> = {}): Harness {
@@ -51,6 +52,7 @@ function makeHarness(overrides: Partial<InstanceProviderLimitHandlerDeps> = {}):
   const scheduled = new Map<string, (instanceId: string, opts?: { resumePromptFallback?: string }) => void>();
 
   const resumableIds = new Set<string>();
+  const scheduledRequests: { instanceId: string; historyThreadId?: string; sessionId?: string }[] = [];
   handler.configure({
     isEnabled: () => enabled.value,
     setWaitReason: (id, wr) => waitReasons.set(id, wr),
@@ -61,6 +63,11 @@ function makeHarness(overrides: Partial<InstanceProviderLimitHandlerDeps> = {}):
     isResumable: (id) => resumableIds.has(id),
     scheduleResume: ({ request, resumeInstance }) => {
       scheduleCalls++;
+      scheduledRequests.push({
+        instanceId: request.instanceId,
+        historyThreadId: request.historyThreadId,
+        sessionId: request.sessionId,
+      });
       scheduled.set(request.instanceId, resumeInstance);
       return () => {
         cancels++;
@@ -80,6 +87,7 @@ function makeHarness(overrides: Partial<InstanceProviderLimitHandlerDeps> = {}):
     resumableIds,
     fireScheduled: (instanceId) => scheduled.get(instanceId)?.(instanceId),
     refreshCalls,
+    scheduledRequests,
   };
 }
 
@@ -104,6 +112,19 @@ describe('InstanceProviderLimitHandler.maybePark', () => {
     expect(h.scheduleCalls).toBe(1);
     expect(h.waitReasons.get('i1')).toEqual({ kind: 'quota-park', provider: 'claude', resumeAt });
     expect(h.handler.isParked('i1')).toBe(true);
+  });
+
+  it('threads historyThreadId/sessionId into the scheduled resume request so a later automation fire can recognize an already-live sibling instance instead of reviving a duplicate', () => {
+    const withIdentifiers = makeHarness({
+      getThreadIdentifiers: (id) => (id === 'i1' ? { historyThreadId: 'thread-abc', sessionId: 'session-xyz' } : null),
+    });
+    const resumeAt = Date.now() + 60_000;
+    withIdentifiers.handler.maybePark({
+      instanceId: 'i1', provider: CLAUDE, resetAtHint: resumeAt, reason: 'limit', resumePrompt: null,
+    });
+    expect(withIdentifiers.scheduledRequests).toEqual([
+      { instanceId: 'i1', historyThreadId: 'thread-abc', sessionId: 'session-xyz' },
+    ]);
   });
 
   it('invokes onParked with the park facts (WS7 Phase B offered-switch seam), fail-soft', () => {
@@ -526,6 +547,38 @@ describe('InstanceProviderLimitHandler early-resume quota probe', () => {
     probe.mockClear();
     await vi.advanceTimersByTimeAsync(EARLY_RESUME_PROBE_MS * 2 + 5);
     expect(probe).not.toHaveBeenCalled();
+  });
+
+  it('switches to a sibling pool account instead of waiting for the own window reset', async () => {
+    const probe = vi.fn(async () => null);
+    let siblingAvailable = false;
+    const plan = vi.fn(() => (siblingAvailable
+      ? { kind: 'switch' as const }
+      : { kind: 'none' as const, reason: 'no-candidate' as const }));
+    const perform = vi.fn(async () => ({ outcome: 'switched' as const, toProfileId: 'legacy', continuity: 'replay' as const }));
+    const h = makeHarness({
+      probeQuotaSnapshot: probe,
+      accountFailover: { plan, perform, offer: vi.fn(), shouldSwitchPreemptively: vi.fn(() => false), release: vi.fn() },
+    });
+    h.handler.maybePark({
+      instanceId: 'i1',
+      provider: CLAUDE,
+      resetAtHint: Date.now() + FAR_FUTURE,
+      reason: 'limit',
+      resumePrompt: 'resend me',
+      accountProfileId: 'claudecomtech-7e12',
+    });
+    expect(h.handler.isParked('i1')).toBe(true);
+
+    // A different, live instance's turn already flipped the pool's default
+    // route back to legacy — this park should notice on its next tick instead
+    // of waiting out `claudecomtech-7e12`'s own multi-hour window.
+    siblingAvailable = true;
+    await vi.advanceTimersByTimeAsync(EARLY_RESUME_PROBE_MS + 5);
+
+    expect(perform).toHaveBeenCalledWith(expect.objectContaining({ exhaustedProfileId: 'claudecomtech-7e12' }));
+    expect(probe).not.toHaveBeenCalled();
+    expect(h.handler.isParked('i1')).toBe(false);
   });
 
   it('skips probing when the scheduled resume is imminent', async () => {

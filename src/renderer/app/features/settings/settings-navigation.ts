@@ -4,6 +4,7 @@ import { listSettingsExternalLinks } from '../../shared/control-surface/control-
 export type SettingsTab =
   | 'general'
   | 'orchestration'
+  | 'cross-session-messaging'
   | 'connections'
   | 'copilot-accounts'
   | 'provider-accounts'
@@ -31,7 +32,6 @@ export type SettingsTab =
   | 'archive'
   | 'remote-config'
   | 'auxiliary-models';
-
 /** Tabs whose content is an embedded full-width feature page (no 760px cap). */
 export const WIDE_TABS: ReadonlySet<SettingsTab> = new Set<SettingsTab>([
   'models',
@@ -110,6 +110,13 @@ export const NAV_ITEMS: SettingsNavItem[] = [
     summary: 'Control how many agents can run and how they spawn child work.',
     group: 'Agent behavior',
     keywords: 'children instances nesting limits idle loop model terra sonnet recycle same-session iteration',
+  },
+  {
+    id: 'cross-session-messaging',
+    label: 'Cross-Session Messaging',
+    summary: 'Let one live session send a consented message into another live session.',
+    group: 'Agent behavior',
+    keywords: 'cross session messaging relay inter-session send message consent hops rate limit',
   },
   {
     id: 'auxiliary-models',

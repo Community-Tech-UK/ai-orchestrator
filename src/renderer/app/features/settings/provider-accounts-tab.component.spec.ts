@@ -219,4 +219,30 @@ describe('ProviderAccountsTabComponent', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.error-banner')?.textContent).toContain('Confirm that every Claude account');
   });
+
+  it('renames an account through the in-app modal instead of the no-op window.prompt', async () => {
+    const fixture = await render();
+    const target = fixture.componentInstance.accountsFor('claude')[0]!;
+    fixture.componentInstance.rename(target);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.renameModalOpen()).toBe(true);
+    expect(fixture.componentInstance.renameInitial()).toBe(target.label);
+
+    await fixture.componentInstance.onRenameSubmitted('Renamed Claude account');
+    expect(ipc.update).toHaveBeenCalledWith({ provider: 'claude', profileId: target.id, label: 'Renamed Claude account' });
+    expect(fixture.componentInstance.renameModalOpen()).toBe(false);
+  });
+
+  it('does not call the IPC on rename cancel or an unchanged/blank name', async () => {
+    const fixture = await render();
+    const target = fixture.componentInstance.accountsFor('claude')[0]!;
+
+    fixture.componentInstance.rename(target);
+    fixture.componentInstance.onRenameCancelled();
+    expect(ipc.update).not.toHaveBeenCalled();
+
+    fixture.componentInstance.rename(target);
+    await fixture.componentInstance.onRenameSubmitted(target.label);
+    expect(ipc.update).not.toHaveBeenCalled();
+  });
 });

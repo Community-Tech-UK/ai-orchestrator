@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { ORCHESTRATOR_TOOL_DEFERRAL_ENV } from './orchestrator-mcp-deferral';
 import { ORCHESTRATOR_TOOL_STABLE_ENV } from './orchestrator-mcp-stable-tools';
+import { INTER_SESSION_MESSAGING_ENABLED_ENV } from './orchestrator-session-messaging-tools';
 
 /**
  * MCP config writer for the orchestrator-tools stdio forwarder.
@@ -12,6 +13,7 @@ import { ORCHESTRATOR_TOOL_STABLE_ENV } from './orchestrator-mcp-stable-tools';
  *   env:     {
  *     AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET: <parent RPC socket path>,
  *     AI_ORCHESTRATOR_INSTANCE_ID:               <auth handle for the parent>,
+ *     AI_ORCHESTRATOR_INTER_SESSION_MESSAGING_ENABLED: '1' // optional
  *   }
  *
  * The forwarder talks to `OrchestratorToolsRpcServer` running in the parent
@@ -28,6 +30,8 @@ export interface OrchestratorToolsMcpConfigOptions {
    * dynamic clients reveal tools on demand. Cursor stays eager until proven.
    */
   toolDeferral?: boolean;
+  /** Advertise the cross-session messaging MCP tools for this spawned CLI. */
+  sessionMessagingEnabled?: boolean;
   exists?: (candidatePath: string) => boolean;
 }
 
@@ -69,6 +73,9 @@ export function resolveOrchestratorToolsBridgeSpec(
     env: {
       AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET: options.socketPath,
       AI_ORCHESTRATOR_INSTANCE_ID: options.instanceId,
+      ...(options.sessionMessagingEnabled
+        ? { [INTER_SESSION_MESSAGING_ENABLED_ENV]: '1' }
+        : {}),
       ...(toolMode === 'stable'
         ? { [ORCHESTRATOR_TOOL_STABLE_ENV]: '1' }
         : toolMode === 'deferred' ? { [ORCHESTRATOR_TOOL_DEFERRAL_ENV]: '1' } : {}),

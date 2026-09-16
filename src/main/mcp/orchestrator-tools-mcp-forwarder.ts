@@ -21,11 +21,19 @@ import { CALENDAR_TOOL_SPECS } from './orchestrator-calendar-tools';
 import { createNodeExecForwarderTool } from './orchestrator-node-exec-forwarder-tool';
 import { createNodeConnectionForwarderTool } from './orchestrator-node-connection-tools';
 import {
+  createSessionMessagingForwarderTools,
+  resolveSessionMessagingEnabledFromEnv,
+} from './orchestrator-session-messaging-tools';
+import {
   LIST_REMOTE_NODES_DESCRIPTION,
   RUN_ON_NODE_DESCRIPTION,
 } from './orchestrator-tool-copy';
 
 const RELEASE_TOOL_NAMES = Object.keys(RELEASE_TOOL_SPECS) as ReleaseToolName[];
+
+export interface OrchestratorToolsForwarderOptions {
+  sessionMessagingEnabled?: boolean;
+}
 
 export function createCalendarForwarderTools(
   client: OrchestratorToolsRpcClientLike,
@@ -50,7 +58,9 @@ export function createCalendarForwarderTools(
  */
 export function createOrchestratorToolsForwarderTools(
   client: OrchestratorToolsRpcClientLike,
+  options: OrchestratorToolsForwarderOptions = {},
 ): McpServerToolDefinition[] {
+  const sessionMessagingEnabled = options.sessionMessagingEnabled ?? false;
   return [
     {
       name: 'git_batch_pull',
@@ -156,6 +166,7 @@ export function createOrchestratorToolsForwarderTools(
     },
     createNodeExecForwarderTool(client),
     createNodeConnectionForwarderTool(client),
+    ...createSessionMessagingForwarderTools(client, sessionMessagingEnabled),
     {
       name: 'read_node_output',
       description:
@@ -678,6 +689,14 @@ export function createOrchestratorToolsForwarderTools(
       },
     }),
   ];
+}
+
+export function resolveOrchestratorToolsForwarderOptions(
+  env: Record<string, string | undefined> = process.env,
+): OrchestratorToolsForwarderOptions {
+  return {
+    sessionMessagingEnabled: resolveSessionMessagingEnabledFromEnv(env),
+  };
 }
 
 function stripInjected(input: object): Record<string, unknown> {

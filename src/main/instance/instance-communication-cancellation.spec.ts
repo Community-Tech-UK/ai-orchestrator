@@ -55,9 +55,9 @@ describe('InstanceCommunicationManager input cancellation', () => {
     });
     await manager.sendInput(instance.id, 'original user turn');
     const internal = manager as unknown as {
-      lastSentMessages: Map<string, { message: string }>;
+      overflow: { getLastSent(id: string): { message: string } | undefined };
     };
-    expect(internal.lastSentMessages.get(instance.id)?.message).toBe('original user turn');
+    expect(internal.overflow.getLastSent(instance.id)?.message).toBe('original user turn');
 
     manager.queueContinuityPreamble(instance.id, 'queued late context');
     let releaseHook!: () => void;
@@ -81,7 +81,7 @@ describe('InstanceCommunicationManager input cancellation', () => {
     await expect(send).rejects.toMatchObject({ name: 'AbortError' });
     expect(adapter.sendInput).toHaveBeenCalledTimes(1);
     expect(createSnapshot).toHaveBeenCalledTimes(1);
-    expect(internal.lastSentMessages.get(instance.id)?.message).toBe('original user turn');
+    expect(internal.overflow.getLastSent(instance.id)?.message).toBe('original user turn');
 
     await manager.sendInput(instance.id, 'new human turn');
     expect(adapter.sendInput).toHaveBeenLastCalledWith(

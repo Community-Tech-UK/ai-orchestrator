@@ -191,10 +191,29 @@ vi.mock('../rlm/auxiliary-llm-service', () => ({
 
 import { createOrchestratorToolsStep } from './orchestrator-tools-step';
 import { COORDINATOR_TO_NODE } from '../remote-node/worker-node-rpc';
+import {
+  _resetCrossSessionMessagingServiceForTesting,
+  getCrossSessionMessagingService,
+} from '../instance/cross-session-messaging';
+import type { AppSettings } from '@shared/types/settings.types';
 
 describe('createOrchestratorToolsStep settings node-config integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    _resetCrossSessionMessagingServiceForTesting();
+    getCrossSessionMessagingService({
+      getAllInstances: () => [],
+      getInstance: () => undefined,
+      sendInput: async () => {},
+      getSettings: () => ({
+        interSessionMessaging: {
+          enabled: false,
+          allowCrossProject: false,
+          maxHops: 3,
+          rateLimitPerMinute: 10,
+        },
+      } as unknown as AppSettings),
+    });
     captured.initializeOptions = null;
     captured.graphAuthOptions = null;
     captured.graphClientOptions = null;

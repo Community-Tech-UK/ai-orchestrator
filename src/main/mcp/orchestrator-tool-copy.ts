@@ -17,3 +17,9 @@ export const RUN_ON_NODE_DESCRIPTION =
 
 export const EXEC_ON_NODE_DESCRIPTION =
   'Run one executable with an exact argv array on a connected worker without spawning a coding agent. If the user names a machine, call list_remote_nodes first. There is no shell command string. For powershell -File, call upload_to_node first and pass its sha256 as scriptSha256; the worker rejects unbound or browser-launching scripts. Never launch or drive the operator\'s shared Chrome session; Browser Gateway work stays on the coordinator.';
+
+export const SEND_SESSION_MESSAGE_DESCRIPTION =
+  'Deliver a text message into another live instance\'s conversation with explicit provenance marking. This feature is off by default, the target must have consented to incoming cross-session messages, and the result explains why delivery was rejected or could not be resolved instead of returning a bare error.';
+
+export const LIST_MESSAGEABLE_SESSIONS_DESCRIPTION =
+  'List the live instances this session can message right now, including whether each target is reachable and the specific reason when it is not. Only advertised when cross-session messaging is enabled (off by default), and each row reflects the target\'s consent and project-scope gates.';

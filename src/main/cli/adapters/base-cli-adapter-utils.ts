@@ -124,6 +124,10 @@ export function redactArgvForLog(
   return out;
 }
 
+export function isCliStderrFailureText(text: string): boolean {
+  return /error|fatal|failed|ENOENT|EACCES|ECONNREFUSED|ETIMEDOUT|Exception/i.test(text);
+}
+
 export function enrichSpawnError(error: Error, command: string, cwd?: string): Error {
   if (error instanceof CliSpawnCwdError) {
     return error;

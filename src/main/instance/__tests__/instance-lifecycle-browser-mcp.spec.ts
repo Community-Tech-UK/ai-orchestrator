@@ -504,6 +504,7 @@ function makeBuilder(
       chromeDevtoolsAttachProfileId: overrides.chromeDevtoolsAttachProfileId ?? '',
       browserMcpToolDeferral: overrides.browserMcpToolDeferral ?? false,
       orchestratorMcpToolDeferral: overrides.orchestratorMcpToolDeferral ?? false,
+      interSessionMessaging: { enabled: false, allowCrossProject: false, maxHops: 1, rateLimitPerMinute: 5 },
     }),
     get: () => undefined,
   } as unknown as SettingsManager;

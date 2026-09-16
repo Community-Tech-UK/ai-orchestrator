@@ -1,3 +1,4 @@
+import { asUnknownRecord } from './claude-cli-adapter.types';
 import { ProviderAuthenticationError } from './provider-authentication-error';
 
 const CLAUDE_AUTH_ERROR_CODES = new Set([
@@ -35,16 +36,18 @@ function firstTextBlock(event: Record<string, unknown>): string | undefined {
  * the adapter error channel; ordinary assistant prose must not.
  */
 export function parseClaudeStreamError(
-  event: Record<string, unknown>,
+  event: unknown,
 ): ClaudeStreamError | null {
-  const rawError = event['error'];
+  const record = asUnknownRecord(event);
+  if (!record) return null;
+  const rawError = record['error'];
   const errorObject = rawError && typeof rawError === 'object'
     ? rawError as Record<string, unknown>
     : null;
   const code = stringValue(rawError) ?? stringValue(errorObject?.['code']);
-  const message = firstTextBlock(event)
+  const message = firstTextBlock(record)
     ?? stringValue(errorObject?.['message'])
-    ?? stringValue(event['content']);
+    ?? stringValue(record['content']);
   const authoritativeAuthFailure = Boolean(code && CLAUDE_AUTH_ERROR_CODES.has(code));
 
   if (authoritativeAuthFailure) {
@@ -57,7 +60,7 @@ export function parseClaudeStreamError(
     };
   }
 
-  if (event['type'] === 'error' && message) {
+  if (record['type'] === 'error' && message) {
     return { error: new Error(message), authoritativeAuthFailure: false };
   }
 

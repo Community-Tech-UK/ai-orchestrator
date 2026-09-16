@@ -91,14 +91,14 @@ import { getSessionAdmissionService } from '../session/session-admission-service
 import { stabilizeThinkingBlocks } from '../../shared/utils/thinking-extractor';
 import { nextMonotonicStreamingContent } from '../../shared/utils/streaming-content';
 import {
-  CIRCUIT_BREAKER_CONFIG,
   ACTIVE_CHILD_TURN_STATUSES,
   CHILD_TURN_COMPLETE_STATUSES,
   RECENT_ADAPTER_ERROR_OUTPUT_DEDUP_MS,
   summarizeInputResponse,
   getAccumulatedStreamingContent,
 } from './instance-communication.constants';
-import type { CircuitBreakerState } from './instance-communication.constants';
+import { InstanceCommunicationCircuitBreakers } from './instance-communication-circuit-breaker';
+import { InstanceCommunicationOverflowTracker } from './instance-communication-overflow-tracker';
 import { reconcileClaudeSafetyRouteModel } from './claude-model-routing';
 import { bindRawAdapterProviderEvents } from './instance-communication-provider-events';
 import { InstanceContinuityInputQueue } from './instance-continuity-input-queue';
@@ -118,8 +118,8 @@ export class InstanceCommunicationManager extends EventEmitter {
   private toolResultProcessor: InstanceToolResultProcessor;
   private interruptedInstances = new Set<string>();
 
-  // Circuit breaker state per instance
-  private circuitBreakers = new Map<string, CircuitBreakerState>();
+  private circuitBreakers = new InstanceCommunicationCircuitBreakers();
+  private overflow = new InstanceCommunicationOverflowTracker();
 
   /**
    * Monotonic count of estimate-vs-actual telemetry samples recorded, used only
@@ -129,15 +129,6 @@ export class InstanceCommunicationManager extends EventEmitter {
    */
   private estimationSampleCount = 0;
 
-  // Context overflow failsafe tracking
-  private lastSentMessages = new Map<string, {
-    message: string;
-    attachments?: FileAttachment[];
-    contextBlock?: string | null;
-  }>();
-  private contextWarningIssued = new Set<string>();
-  private contextOverflowRetried = new Set<string>();
-  private contextOverflowSeen = new Set<string>(); // Tracks instances that hit context overflow via output path
   // Repeated error suppression
   private lastErrorContent = new Map<string, { content: string; count: number }>();
 
@@ -151,22 +142,6 @@ export class InstanceCommunicationManager extends EventEmitter {
       getDiffTracker: deps.getDiffTracker,
       hookManager: this.hookManager,
     });
-  }
-
-  /**
-   * Get or create circuit breaker state for an instance
-   */
-  private getCircuitBreaker(instanceId: string): CircuitBreakerState {
-    let state = this.circuitBreakers.get(instanceId);
-    if (!state) {
-      state = {
-        consecutiveEmptyResponses: 0,
-        lastResponseTimestamp: 0,
-        isTripped: false
-      };
-      this.circuitBreakers.set(instanceId, state);
-    }
-    return state;
   }
 
   private getMessageTurnId(message: OutputMessage): string | undefined {
@@ -321,72 +296,22 @@ export class InstanceCommunicationManager extends EventEmitter {
     this.estimationSampleCount = sampleCount.value;
   }
 
-  /**
-   * Record a response and check circuit breaker state
-   * @returns true if circuit is OK, false if tripped
-   */
   private recordResponse(instanceId: string, hasContent: boolean): boolean {
-    const state = this.getCircuitBreaker(instanceId);
-    const now = Date.now();
-
-    // Check if we should reset after timeout
-    if (state.isTripped && (now - state.lastResponseTimestamp) > CIRCUIT_BREAKER_CONFIG.resetTimeoutMs) {
-      logger.info('Resetting tripped circuit after timeout', { instanceId });
-      state.isTripped = false;
-      state.consecutiveEmptyResponses = 0;
-    }
-
-    // If circuit is tripped, check cooldown
-    if (state.isTripped) {
-      if ((now - state.lastResponseTimestamp) < CIRCUIT_BREAKER_CONFIG.cooldownMs) {
-        logger.info('Circuit tripped, in cooldown period', { instanceId });
-        return false;
-      }
-      // Cooldown expired, allow one retry
-      state.isTripped = false;
-      state.consecutiveEmptyResponses = 0;
-      logger.info('Cooldown expired, allowing retry', { instanceId });
-    }
-
-    state.lastResponseTimestamp = now;
-
-    if (hasContent) {
-      // Good response, reset counter
-      state.consecutiveEmptyResponses = 0;
-      return true;
-    }
-
-    // Empty response
-    state.consecutiveEmptyResponses++;
-    logger.info('Empty response recorded', { instanceId, count: state.consecutiveEmptyResponses });
-
-    if (state.consecutiveEmptyResponses >= CIRCUIT_BREAKER_CONFIG.maxConsecutiveEmpty) {
-      logger.warn('Circuit breaker tripped after consecutive empty responses', { instanceId, consecutiveEmptyResponses: state.consecutiveEmptyResponses });
-      state.isTripped = true;
-      return false;
-    }
-
-    return true;
+    return this.circuitBreakers.recordResponse(instanceId, hasContent);
   }
 
   /**
    * Check if circuit is currently tripped for an instance
    */
   isCircuitTripped(instanceId: string): boolean {
-    const state = this.circuitBreakers.get(instanceId);
-    return state?.isTripped ?? false;
+    return this.circuitBreakers.isTripped(instanceId);
   }
 
   /**
    * Manually reset circuit breaker for an instance
    */
   resetCircuitBreaker(instanceId: string): void {
-    const state = this.circuitBreakers.get(instanceId);
-    if (state) {
-      state.isTripped = false;
-      state.consecutiveEmptyResponses = 0;
-      logger.info('Circuit breaker manually reset', { instanceId });
-    }
+    this.circuitBreakers.reset(instanceId);
   }
 
   /**
@@ -394,10 +319,7 @@ export class InstanceCommunicationManager extends EventEmitter {
    */
   cleanupCircuitBreaker(instanceId: string): void {
     this.circuitBreakers.delete(instanceId);
-    this.lastSentMessages.delete(instanceId);
-    this.contextWarningIssued.delete(instanceId);
-    this.contextOverflowRetried.delete(instanceId);
-    this.contextOverflowSeen.delete(instanceId);
+    this.overflow.cleanup(instanceId);
     this.continuityInputQueue.cleanup(instanceId);
     this.lastErrorContent.delete(instanceId);
     this.toolResultProcessor.cleanup(instanceId);
@@ -535,7 +457,7 @@ export class InstanceCommunicationManager extends EventEmitter {
     return tryParkOnProviderLimitImpl(
       {
         onProviderLimitTurn: this.deps.onProviderLimitTurn,
-        getResumePrompt: (id) => this.lastSentMessages.get(id)?.message ?? null,
+        getResumePrompt: (id) => this.overflow.getResumePrompt(id),
         addToOutputBuffer: (inst, msg) => this.addToOutputBuffer(inst, msg),
         emitOutput: (id, msg) => this.emit('output', { instanceId: id, message: msg }),
         transitionInstanceStatus: (inst, status) => this.transitionInstanceStatus(inst, status),
@@ -564,7 +486,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       ? { reason: `provider protocol reported auth failure: ${errorMessage.slice(0, 160)}` }
       : detectAuthFailureSignal(errorMessage);
     if (!signal) return;
-    const lastTurn = this.lastSentMessages.get(instanceId);
+    const lastTurn = this.overflow.getLastSent(instanceId);
     this.deps.onAuthFailureTurn({
       instanceId,
       reason: signal.reason,
@@ -855,7 +777,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       throwIfInstanceInputAborted(options?.signal);
       options?.beforeProviderDispatch?.();
       preparedContext.commit();
-      this.lastSentMessages.set(instanceId, { message, attachments, contextBlock: finalContextBlock });
+      this.overflow.rememberLastSent(instanceId, { message, attachments, contextBlock: finalContextBlock });
       // These mutations belong to a real provider-dispatch attempt. Keeping
       // them behind the cancellation and budget gates prevents an abandoned
       // auto-continuation from creating phantom send state.
@@ -894,7 +816,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       if (attachments?.length && isUnsupportedOrchestratorAttachmentError(sendError)) {
         this.emitAttachmentDropWarnings(instanceId, instance, adapter.getName(), attachments);
         attachments = undefined;
-        this.lastSentMessages.set(instanceId, { message, attachments, contextBlock: finalContextBlock });
+        this.overflow.rememberLastSent(instanceId, { message, attachments, contextBlock: finalContextBlock });
 
         if (!message.trim()) {
           logger.info('Dropped unsupported attachments from empty user input; skipping adapter retry', {
@@ -952,9 +874,9 @@ export class InstanceCommunicationManager extends EventEmitter {
         try {
           await this.deps.compactContext(instanceId);
           logger.info('Context compaction completed (sendInput path)', { instanceId });
-          this.contextWarningIssued.delete(instanceId);
+          this.overflow.clearWarning(instanceId);
 
-          if (this.contextOverflowRetried.has(instanceId)) {
+          if (this.overflow.hasRetried(instanceId)) {
             logger.warn('Already retried after overflow in sendInput path, going idle', { instanceId });
             const idleMsg: OutputMessage = {
               id: generateId(),
@@ -971,7 +893,7 @@ export class InstanceCommunicationManager extends EventEmitter {
           }
 
           // Retry with delegation guidance
-          this.contextOverflowRetried.add(instanceId);
+          this.overflow.markRetried(instanceId);
           const delegationGuidance = [
             '[SYSTEM: Context Overflow Recovery]',
             'Your context overflowed and has been compacted. To prevent this from happening again:',
@@ -1273,10 +1195,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         // Reset circuit breaker counter on tool activity — tool-use sequences
         // naturally produce empty assistant text between calls and shouldn't trip it
         if (message.type === 'tool_use' || message.type === 'tool_result') {
-          const state = this.getCircuitBreaker(instanceId);
-          if (state.consecutiveEmptyResponses > 0) {
-            state.consecutiveEmptyResponses = 0;
-          }
+          this.circuitBreakers.noteToolActivity(instanceId);
           if (message.type === 'tool_use') {
             this.deps.onToolStateChange?.(instanceId, 'tool_executing');
           } else if (message.type === 'tool_result') {
@@ -1294,7 +1213,7 @@ export class InstanceCommunicationManager extends EventEmitter {
           );
           // Successful response means overflow retry worked — allow future retries
           if (hasContent) {
-            this.contextOverflowRetried.delete(instanceId);
+            this.overflow.clearRetry(instanceId);
           }
           if (!hasContent) {
             const overflowEvidence = classifyContextOverflow({
@@ -1320,7 +1239,7 @@ export class InstanceCommunicationManager extends EventEmitter {
               try {
                 await this.deps.compactContext(instanceId);
                 this.resetCircuitBreaker(instanceId);
-                this.contextWarningIssued.delete(instanceId);
+                this.overflow.clearWarning(instanceId);
               } catch (compactErr) {
                 logger.error('Compaction failed during silent overflow recovery', compactErr instanceof Error ? compactErr : undefined, { instanceId });
               }
@@ -1420,8 +1339,8 @@ export class InstanceCommunicationManager extends EventEmitter {
           });
 
           // Only show the first occurrence; suppress duplicates
-          if (!this.contextOverflowSeen.has(instanceId)) {
-            this.contextOverflowSeen.add(instanceId);
+          if (!this.overflow.hasSeen(instanceId)) {
+            this.overflow.markSeen(instanceId);
             this.addToOutputBuffer(instance, message, { countAsProcessOutput: true });
             this.emit('output', { instanceId, message });
 
@@ -1855,7 +1774,7 @@ export class InstanceCommunicationManager extends EventEmitter {
             instanceId,
             resetAtHint: providerLimitSignal.resetAtHint,
             reason: providerLimitSignal.reason,
-            resumePrompt: this.lastSentMessages.get(instanceId)?.message ?? null,
+            resumePrompt: this.overflow.getResumePrompt(instanceId),
           });
         }
       }
@@ -2010,10 +1929,10 @@ export class InstanceCommunicationManager extends EventEmitter {
             logger.info('Context compaction completed', { instanceId });
 
             // Reset warning so it can fire again after compaction
-            this.contextWarningIssued.delete(instanceId);
+            this.overflow.clearWarning(instanceId);
 
             // Check if we already retried once — prevent infinite loop
-            if (this.contextOverflowRetried.has(instanceId)) {
+            if (this.overflow.hasRetried(instanceId)) {
               logger.warn('Already retried after overflow, skipping retry', { instanceId });
               const idleMessage: OutputMessage = {
                 id: generateId(),
@@ -2030,10 +1949,10 @@ export class InstanceCommunicationManager extends EventEmitter {
             }
 
             // Attempt retry with delegation guidance
-            const lastMsg = this.lastSentMessages.get(instanceId);
+            const lastMsg = this.overflow.getLastSent(instanceId);
             const retryAdapter = this.deps.getAdapter(instanceId);
             if (lastMsg && retryAdapter) {
-              this.contextOverflowRetried.add(instanceId);
+              this.overflow.markRetried(instanceId);
 
               const delegationGuidance = [
                 '[SYSTEM: Context Overflow Recovery]',
@@ -2643,7 +2562,7 @@ export class InstanceCommunicationManager extends EventEmitter {
     usage: ContextUsage,
   ): void {
     // Skip if already warned
-    if (this.contextWarningIssued.has(instanceId)) return;
+    if (this.overflow.hasWarning(instanceId)) return;
     // Skip child instances — they don't spawn children
     if (instance.parentId !== null) return;
     // Skip if not busy
@@ -2673,7 +2592,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       }
     }
 
-    this.contextWarningIssued.add(instanceId);
+    this.overflow.markWarning(instanceId);
 
     // At most two decimals; whole numbers stay whole (85%, not 85.00%).
     const percentage = Number(usage.percentage.toFixed(2));

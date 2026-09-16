@@ -10,7 +10,10 @@ import {
   OrchestratorToolsRpcClient,
   type OrchestratorToolsRpcClientLike,
 } from './orchestrator-tools-rpc-client';
-import { createOrchestratorToolsForwarderTools } from './orchestrator-tools-mcp-forwarder';
+import {
+  createOrchestratorToolsForwarderTools,
+  resolveOrchestratorToolsForwarderOptions,
+} from './orchestrator-tools-mcp-forwarder';
 
 export async function runOrchestratorToolsForwarder(
   client: OrchestratorToolsRpcClientLike = new OrchestratorToolsRpcClient(),
@@ -27,7 +30,10 @@ export function resolveOrchestratorForwarderTools(
   client: OrchestratorToolsRpcClientLike,
   onReveal: (names: string[]) => void,
 ) {
-  const all = createOrchestratorToolsForwarderTools(client);
+  const all = createOrchestratorToolsForwarderTools(
+    client,
+    resolveOrchestratorToolsForwarderOptions(),
+  );
   if (process.env[ORCHESTRATOR_TOOL_STABLE_ENV] === '1') {
     return createStableOrchestratorTools(all);
   }

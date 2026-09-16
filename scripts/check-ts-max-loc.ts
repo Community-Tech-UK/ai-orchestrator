@@ -74,7 +74,9 @@ const ALLOWLIST: Record<string, number> = {
   // be added: the schema is `.strict()`, so its absence rejected every
   // `instance:compact-status` completed event outright. Splitting this barrel is
   // the real fix and is worth doing on its own, not as a rider.
-  'packages/contracts/src/schemas/instance.schemas.ts': 703,
+  'packages/contracts/src/schemas/instance.schemas.ts': 825,
+  // Raised 703 -> 825 for the cross-session messaging feature: send/result/
+  // list-messageable/toggle-consent schemas and types (2026-09-16).
   // Allowlisted for the loop-engine/Pi-Task-18 fields (ledger-stall bounds,
   // CompletionSignalEvidence.openCount, LoopState ledger +
   // justCompacted, follow-up pending-input kind) — type/schema round-trip.
@@ -192,7 +194,9 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/context/jit-loader.ts': 773,
   // Main process — core
   'src/main/core/config/claude-md-loader.ts': 804,
-  'src/main/core/config/settings-control-policy.ts': 776,
+  // Raised 776 -> 840 for the interSessionMessaging readOnly() MCP settings
+  // policy entry (cross-session messaging, 2026-09-16).
+  'src/main/core/config/settings-control-policy.ts': 840,
   'src/main/core/error-recovery.ts': 990,
   // Main process — history
   // Raised from 1582 for the fix to the intermittent "written as 0 bytes" CI
@@ -214,7 +218,9 @@ const ALLOWLIST: Record<string, number> = {
   // to communication-completion-cost.ts.
   // Raised 2653 -> 2699: monotonic streaming merge (keep committed text on
   // Cursor ACP snapshot rewind) plus existing uncommitted work already in file.
-  'src/main/instance/instance-communication.ts': 2699,
+  // Tightened 2676 -> 2666 after extracting overflow/last-sent maps to
+  // instance-communication-overflow-tracker.ts (architecture-quality 2.2).
+  'src/main/instance/instance-communication.ts': 2666,
   'src/main/instance/instance-context.ts': 1265,
   // Raised 3450 -> 3528 for the queue-aware YOLO toggle (park-while-busy +
   // auto-apply-on-idle); the bulk lives in lifecycle/yolo-mode-queue.ts.
@@ -230,7 +236,9 @@ const ALLOWLIST: Record<string, number> = {
   // the hibernate terminate, which stopped a deliberate kill from throwing
   // hibernating -> error out of the adapter exit handler.
   // Raised 3522 -> 3537: wire interrupt-respawn stuck-detector idle callback.
-  'src/main/instance/instance-lifecycle.ts': 3537,
+  // Raised 3537 -> 3591: setAllowIncomingSessionMessages passthrough for
+  // cross-session messaging consent (2026-09-16).
+  'src/main/instance/instance-lifecycle.ts': 3591,
   // Raised 2632 -> 2655 for the sendInput post-wait liveness re-check (fail
   // fast instead of delivering input into a terminated instance).
   // Raised 2772 -> 2773 (one-line drift; re-tighten at the next manager split).
@@ -244,9 +252,12 @@ const ALLOWLIST: Record<string, number> = {
   // helpers extracted to instance-input-contexts.ts.
   // Raised 2669 -> 2720: interrupt-idle stuck-detector wiring plus existing
   // uncommitted work already in this file.
-  'src/main/instance/instance-manager.ts': 2720,
+  // Tightened 2720 -> 2417 after extracting input-required permission flow to
+  // instance-permission-request-flow.ts (architecture-quality 2.1).
+  'src/main/instance/instance-manager.ts': 2417,
   // Raised 1068 -> 1105 (2026-07-17 loop-issue fixes).
   'src/main/instance/instance-orchestration.ts': 1105,
+  'src/main/instance/instance-provider-limit-handler.ts': 715,
   'src/main/instance/lifecycle/interrupt-respawn-handler.ts': 1421,
   // Was 697 of 700. LT-018 added occupancy resets to the two fresh-session
   // fallback branches (`applyRuntimeChange`'s resume failure and
@@ -281,9 +292,16 @@ const ALLOWLIST: Record<string, number> = {
   // Added 2026-07-16 at 771 (Fable WS11.5 read_node_output afterSeq cursor:
   // buildReadNodeOutputResult pure serialization + schema/doc additions live
   // beside the tool types). Re-tighten after a tool-defs split.
-  'src/main/mcp/orchestrator-tools.ts': 771,
+  // Raised 771 -> 800: send_session_message / list_messageable_sessions MCP
+  // tool definitions for cross-session messaging (2026-09-16).
+  'src/main/mcp/orchestrator-tools.ts': 800,
   // Crossed 700 by two lines of sync_to_node/sync_from_node context wiring.
-  'src/main/mcp/orchestrator-tools-rpc-server.ts': 766,
+  // Raised 766 -> 821: createSessionMessagesTables() wiring for the
+  // cross-session messaging audit table (2026-09-16).
+  'src/main/mcp/orchestrator-tools-rpc-server.ts': 821,
+  // Crossed 700 registering send_session_message / list_messageable_sessions
+  // in the stdio forwarder's settings-gated tool list (2026-09-16).
+  'src/main/mcp/orchestrator-tools-mcp-forwarder.ts': 707,
   // Main process — remote node file transfer
   // Crossed 700 adding the sync_to_node/sync_from_node MCP handlers, which
   // must share this service's node/root/workspace validation helpers.
@@ -433,6 +451,9 @@ const ALLOWLIST: Record<string, number> = {
   'src/preload/domains/orchestration.preload.ts': 940,
   // Renderer — services
   'src/renderer/app/core/services/ipc/memory-ipc.service.ts': 724,
+  // Crossed 700 adding sendCrossSessionMessage/listMessageableSessions/
+  // toggleAllowIncomingSessionMessages wrappers (2026-09-16).
+  'src/renderer/app/core/services/ipc/instance-ipc.service.ts': 744,
   'src/renderer/app/core/services/ipc/orchestration-ipc.service.ts': 745,
   'src/renderer/app/core/services/new-session-draft.service.ts': 882,
   // Renderer — stores
@@ -475,7 +496,9 @@ const ALLOWLIST: Record<string, number> = {
   // mirroring session-artifacts-strip. Inline template + styles push it past 700.
   'src/renderer/app/features/instance-detail/session-progress-panel.component.ts': 747,
   'src/renderer/app/features/instance-detail/user-action-request.component.ts': 991,
-  'src/renderer/app/features/instance-list/instance-list.component.ts': 1334,
+  // Raised 1334 -> 1435: "Message this session…" context-menu action and
+  // compose modal for cross-session messaging (2026-09-16).
+  'src/renderer/app/features/instance-list/instance-list.component.ts': 1435,
   'src/renderer/app/features/knowledge/knowledge-page.component.ts': 1322,
   'src/renderer/app/features/logs/logs-page.component.ts': 1020,
   // Raised 992 -> 1051 for the Task 18 renderer follow-up affordance (queue a
@@ -536,13 +559,17 @@ const ALLOWLIST: Record<string, number> = {
   // Shared
   // Crossed 700 from the WS-C7 `containedExecution` field (Instance +
   // InstanceCreateConfig) — re-tighten with a dedicated split if it grows further.
-  'src/shared/types/instance.types.ts': 780,
+  // Raised 780 -> 850 for CrossSessionMessageMetadata, OutputMessage.metadata
+  // widening, and Instance.allowIncomingSessionMessages (2026-09-16).
+  'src/shared/types/instance.types.ts': 850,
   'src/shared/types/loop.types.ts': 780,
   // Crossed 700 from the WS-B3 `approvalAdjudicationEnabled` field alongside a
   // concurrent, unrelated primitive-type extraction into settings-primitives.types.ts
   // already in progress in this working tree; re-tighten once that split lands.
   // Raised 767 -> 771 for the two provider-account-pool settings keys (2026-09-13).
-  'src/shared/types/settings.types.ts': 771,
+  // Raised 771 -> 839 for the interSessionMessaging nested settings group
+  // (cross-session messaging, 2026-09-16).
+  'src/shared/types/settings.types.ts': 839,
   // Worker agent
   // Raised 989 -> 990 (one-line drift; re-tighten at the next worker split).
   'src/worker-agent/worker-agent.ts': 990,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createOutputMessage, redactArgvForLog } from './base-cli-adapter-utils';
+import { createOutputMessage, isCliStderrFailureText, redactArgvForLog } from './base-cli-adapter-utils';
 
 describe('createOutputMessage', () => {
   it('fills id and timestamp when omitted', () => {
@@ -45,5 +45,12 @@ describe('redactArgvForLog', () => {
 
   it('leaves argv unchanged when the flag is absent', () => {
     expect(redactArgvForLog(['--model', 'gpt'], { flag: '--prompt' })).toEqual(['--model', 'gpt']);
+  });
+});
+
+describe('isCliStderrFailureText', () => {
+  it('classifies real failures and ignores banners', () => {
+    expect(isCliStderrFailureText('Error: ENOENT')).toBe(true);
+    expect(isCliStderrFailureText('gemini-cli version 0.1')).toBe(false);
   });
 });

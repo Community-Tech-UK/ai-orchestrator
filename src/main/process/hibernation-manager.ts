@@ -69,7 +69,7 @@ export class HibernationManager extends EventEmitter {
   private checkTaskId: string | null = null;
   private resumeDeferredUntil = 0;
 
-  private static instance: HibernationManager;
+  private static instance: HibernationManager | null = null;
 
   static getInstance(): HibernationManager {
     if (!this.instance) {
@@ -82,7 +82,7 @@ export class HibernationManager extends EventEmitter {
     if (this.instance) {
       this.instance.stop();
     }
-    (this.instance as unknown) = undefined;
+    this.instance = null;
   }
 
   constructor(config?: Partial<HibernationConfig>) {

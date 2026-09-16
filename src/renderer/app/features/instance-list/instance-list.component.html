@@ -622,5 +622,15 @@
         (submitted)="onRenameSubmitted($event)"
         (cancelled)="onRenameCancelled()"
       />
+      <app-prompt-modal
+        [isOpen]="crossSessionMessageModalOpen()"
+        title="Message this session"
+        [message]="'Send a message to \'' + crossSessionMessageTargetLabel() + '\' from your active session.'"
+        placeholder="Type your message…"
+        confirmLabel="Send"
+        [multiline]="true"
+        (submitted)="onCrossSessionMessageSubmitted($event)"
+        (cancelled)="onCrossSessionMessageCancelled()"
+      />
 
     </div>

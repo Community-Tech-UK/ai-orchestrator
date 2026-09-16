@@ -50,7 +50,9 @@ export class ThrottledAccountQuotaProbe implements ProviderQuotaProbe {
 
   async probe(opts: { signal: AbortSignal }): Promise<ProviderQuotaSnapshot | null> {
     const now = this.now();
-    if (this.lastRunAt > 0 && now - this.lastRunAt < this.minIntervalMs()) return null;
+    if (this.lastRunAt > 0 && now - this.lastRunAt < this.minIntervalMs()) {
+      return null;
+    }
     this.lastRunAt = now;
     return this.inner.probe(opts);
   }
@@ -126,7 +128,8 @@ function registerAll(): void {
     } catch {
       profiles = [];
     }
-    for (const probe of buildAccountQuotaProbes(provider, profiles)) {
+    const built = buildAccountQuotaProbes(provider, profiles);
+    for (const probe of built) {
       service.registerProbe(probe);
     }
   }

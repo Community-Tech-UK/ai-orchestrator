@@ -28,6 +28,8 @@ import type {
   FileAttachment
 } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
+import { createOutputMessage, isCliStderrFailureText } from './base-cli-adapter-utils';
+import { NdjsonLineBuffer, splitCompleteNdjsonLines } from '../json-parse';
 import { computeTokenCost } from '../../../shared/data/model-pricing';
 import { extractThinkingContent, ThinkingBlock } from '../../../shared/utils/thinking-extractor';
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
@@ -39,6 +41,7 @@ import {
   geminiResultText,
   geminiToolName,
   geminiUsageTotals,
+  isGeminiPlainContentLine,
   logGeminiParseFailure,
   parseGeminiNdjsonEvent,
   parseGeminiStreamingEvent,
@@ -211,134 +214,87 @@ export class GeminiCliAdapter extends BaseCliAdapter {
       // Track streaming state for this response - use consistent ID and accumulate content
       const streamingMessageId = generateId();
       let accumulatedContent = '';
+      const ndjson = new NdjsonLineBuffer();
+      const handleLine = (line: string): void => {
+        const event = parseGeminiNdjsonEvent(line);
+        if (!event) {
+          logGeminiParseFailure(logger, line);
+          if (isGeminiPlainContentLine(line)) {
+            accumulatedContent += line;
+            this.emit('output', createOutputMessage('assistant', line, {
+              id: streamingMessageId,
+              metadata: {
+                streaming: true,
+                accumulatedContent,
+              },
+            }));
+          }
+          return;
+        }
+        const newContent = geminiAssistantText(event);
+
+        if (newContent) {
+          accumulatedContent += newContent;
+          this.emit('output', createOutputMessage('assistant', newContent, {
+            id: streamingMessageId,
+            metadata: {
+              streaming: true,
+              accumulatedContent,
+            },
+          }));
+          return;
+        }
+
+        const eventType = geminiEventType(event);
+        if (
+          eventType === 'tool_call' ||
+          eventType === 'tool_use' ||
+          eventType === 'tool.execution_start'
+        ) {
+          const toolName = geminiToolName(event);
+          this.emit('output', createOutputMessage('tool_use', `Using tool: ${toolName}`, {
+            metadata: { toolName, raw: event },
+          }));
+          return;
+        }
+
+        if (
+          eventType === 'tool_error' ||
+          eventType === 'tool.execution_error' ||
+          (eventType === 'tool_result' && event['error'] !== undefined && event['error'] !== null)
+        ) {
+          const toolName = geminiToolName(event);
+          const errText = geminiErrorText(event);
+          this.emit('output', createOutputMessage('error', `Tool ${toolName} failed: ${errText}`, {
+            metadata: { toolName, raw: event },
+          }));
+          return;
+        }
+
+        if (
+          eventType === 'tool_result' ||
+          eventType === 'tool.execution_complete'
+        ) {
+          const toolName = geminiToolName(event);
+          const resultText = geminiResultText(event);
+          this.emit('output', createOutputMessage('tool_result', `Tool ${toolName}: ${resultText.slice(0, 500)}`, {
+            metadata: { toolName, raw: event },
+          }));
+          return;
+        }
+
+        if (eventType === 'error' || (eventType === 'result' && event['status'] === 'error')) {
+          const errText = geminiErrorText(event);
+          this.emit('output', createOutputMessage('error', errText, {
+            metadata: { raw: event },
+          }));
+        }
+      };
 
       this.process.stdout?.on('data', (data) => {
         const chunk = data.toString();
         this.outputBuffer += chunk;
-
-        // Parse stream-json output and extract content
-        const lines = chunk.split('\n').filter((l: string) => l.trim());
-        for (const line of lines) {
-          try {
-            const event = parseGeminiNdjsonEvent(line);
-            if (!event) {
-              logGeminiParseFailure(logger, line);
-              throw new Error('Invalid JSON stream line');
-            }
-            // Handle Gemini stream-json event types.
-            // Primary content events:
-            //   {"type":"message","role":"assistant","content":"..."}
-            //   {"type":"text","text":"..."}
-            const newContent = geminiAssistantText(event);
-
-            if (newContent) {
-              accumulatedContent += newContent;
-              this.emit('output', {
-                id: streamingMessageId,
-                timestamp: Date.now(),
-                type: 'assistant',
-                content: newContent,
-                metadata: {
-                  streaming: true,
-                  accumulatedContent
-                }
-              } as OutputMessage);
-              continue;
-            }
-
-            // Tool activity events — surface as tool_use / tool_result so the
-            // orchestrator (and child summary builder) can see what the model
-            // was actually doing. Without this, a Gemini child that only ran
-            // tools and hit an error never produces any visible output and
-            // shows up to the parent as "Child exited without producing any
-            // output." The exact event shape varies across gemini-cli
-            // versions, so we accept several common variants.
-            const eventType = geminiEventType(event);
-            if (
-              eventType === 'tool_call' ||
-              eventType === 'tool_use' ||
-              eventType === 'tool.execution_start'
-            ) {
-              const toolName = geminiToolName(event);
-              this.emit('output', {
-                id: generateId(),
-                timestamp: Date.now(),
-                type: 'tool_use',
-                content: `Using tool: ${toolName}`,
-                metadata: { toolName, raw: event },
-              } as OutputMessage);
-              continue;
-            }
-
-            // Tool failures — explicit error variants first, then generic
-            // tool_result events that carry an error payload.
-            if (
-              eventType === 'tool_error' ||
-              eventType === 'tool.execution_error' ||
-              (eventType === 'tool_result' && event['error'] !== undefined && event['error'] !== null)
-            ) {
-              const toolName = geminiToolName(event);
-              const errText = geminiErrorText(event);
-              const content = `Tool ${toolName} failed: ${errText}`;
-              this.emit('output', {
-                id: generateId(),
-                timestamp: Date.now(),
-                type: 'error',
-                content,
-                metadata: { toolName, raw: event },
-              } as OutputMessage);
-              continue;
-            }
-
-            if (
-              eventType === 'tool_result' ||
-              eventType === 'tool.execution_complete'
-            ) {
-              const toolName = geminiToolName(event);
-              const resultText = geminiResultText(event);
-              this.emit('output', {
-                id: generateId(),
-                timestamp: Date.now(),
-                type: 'tool_result',
-                content: `Tool ${toolName}: ${resultText.slice(0, 500)}`,
-                metadata: { toolName, raw: event },
-              } as OutputMessage);
-              continue;
-            }
-
-            // Generic error events that aren't tool-scoped.
-            if (eventType === 'error' || (eventType === 'result' && event['status'] === 'error')) {
-              const errText = geminiErrorText(event);
-              this.emit('output', {
-                id: generateId(),
-                timestamp: Date.now(),
-                type: 'error',
-                content: errText,
-                metadata: { raw: event },
-              } as OutputMessage);
-              continue;
-            }
-          } catch {
-            // Not JSON, emit raw if it looks like content
-            if (
-              line.trim() &&
-              !line.startsWith('{') &&
-              !line.includes('YOLO mode')
-            ) {
-              accumulatedContent += line;
-              this.emit('output', {
-                id: streamingMessageId,
-                timestamp: Date.now(),
-                type: 'assistant',
-                content: line,
-                metadata: {
-                  streaming: true,
-                  accumulatedContent
-                }
-              } as OutputMessage);
-            }
-          }
-        }
+        for (const line of ndjson.push(chunk)) handleLine(line);
       });
 
       this.process.stderr?.on('data', (data) => {
@@ -352,17 +308,9 @@ export class GeminiCliAdapter extends BaseCliAdapter {
         // stderr vanish entirely. Treat anything that looks like an error
         // as an `error` output so it's both visible and captured by the
         // child-result storage fallback path.
-        const looksLikeError =
-          /error|fatal|failed|ENOENT|EACCES|ECONNREFUSED|ETIMEDOUT|Exception/i.test(trimmed);
-
-        if (looksLikeError) {
+        if (isCliStderrFailureText(trimmed)) {
           const error = new Error(trimmed);
-          this.emit('output', {
-            id: generateId(),
-            timestamp: Date.now(),
-            type: 'error',
-            content: trimmed.slice(0, 2000),
-          } as OutputMessage);
+          this.emit('output', createOutputMessage('error', trimmed.slice(0, 2000)));
           this.emitErrorIfObserved(error);
         } else {
           // Non-error stderr (debug banners, version notices). Still surface
@@ -373,18 +321,16 @@ export class GeminiCliAdapter extends BaseCliAdapter {
       });
 
       this.process.on('close', (code) => {
+        for (const line of ndjson.push('\n')) handleLine(line);
         const duration = Date.now() - startTime;
 
         // Check for API error in stream-json output (e.g., ModelNotFoundError)
         const apiError = this.extractApiError(this.outputBuffer);
         if (apiError) {
           this.emitErrorIfObserved(new Error(apiError));
-          this.emit('output', {
+          this.emit('output', createOutputMessage('error', apiError, {
             id: streamingMessageId,
-            timestamp: Date.now(),
-            type: 'error',
-            content: apiError,
-          } as OutputMessage);
+          }));
           this.process = null;
           reject(new Error(apiError));
           return;
@@ -425,12 +371,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
     this.process.on('error', (err) => {
       spawnError = new Error(`Failed to spawn gemini CLI: ${err.message}`);
       this.emitErrorIfObserved(spawnError);
-      this.emit('output', {
-        id: generateId(),
-        timestamp: Date.now(),
-        type: 'error',
-        content: spawnError.message,
-      } as OutputMessage);
+      this.emit('output', createOutputMessage('error', spawnError.message));
       this.process = null;
     });
 
@@ -442,33 +383,37 @@ export class GeminiCliAdapter extends BaseCliAdapter {
     const stdout = this.process.stdout;
     if (!stdout) return;
 
+    const ndjson = new NdjsonLineBuffer();
     for await (const chunk of stdout) {
       if (spawnError) return;
       const chunkStr = chunk.toString();
-      // Parse stream-json and extract content
-      const lines = chunkStr.split('\n').filter((l: string) => l.trim());
-      for (const line of lines) {
-        try {
-          const event = parseGeminiNdjsonEvent(line);
-          if (!event) {
-            logGeminiParseFailure(logger, line);
-            throw new Error('Invalid JSON stream line');
-          }
-          // Assistant messages: {"type":"message","role":"assistant","content":"..."}
-          const text = geminiAssistantText(event);
-          if (text) {
-            yield text;
-          }
-        } catch {
-          // Not JSON, yield if it looks like content
-          if (
-            line.trim() &&
-            !line.startsWith('{') &&
-            !line.includes('YOLO mode')
-          ) {
+      for (const line of ndjson.push(chunkStr)) {
+        const event = parseGeminiNdjsonEvent(line);
+        if (!event) {
+          logGeminiParseFailure(logger, line);
+          if (isGeminiPlainContentLine(line)) {
             yield line;
           }
+          continue;
         }
+        const text = geminiAssistantText(event);
+        if (text) {
+          yield text;
+        }
+      }
+    }
+    for (const line of ndjson.push('\n')) {
+      const event = parseGeminiNdjsonEvent(line);
+      if (!event) {
+        logGeminiParseFailure(logger, line);
+        if (isGeminiPlainContentLine(line)) {
+          yield line;
+        }
+        continue;
+      }
+      const text = geminiAssistantText(event);
+      if (text) {
+        yield text;
       }
     }
   }
@@ -501,21 +446,15 @@ export class GeminiCliAdapter extends BaseCliAdapter {
    */
   private extractContentFromStreamJson(raw: string): string {
     const contentParts: string[] = [];
-    const lines = raw.split('\n').filter((l) => l.trim());
-
-    for (const line of lines) {
-      try {
-        const event = parseGeminiStreamingEvent(line);
-        if (!event) {
-          logGeminiParseFailure(logger, line);
-          continue;
-        }
-        const text = geminiAssistantText(event);
-        if (text) {
-          contentParts.push(text);
-        }
-      } catch {
-        /* intentionally ignored: non-JSON lines are skipped during output parsing */
+    for (const line of splitCompleteNdjsonLines(raw)) {
+      const event = parseGeminiStreamingEvent(line);
+      if (!event) {
+        logGeminiParseFailure(logger, line);
+        continue;
+      }
+      const text = geminiAssistantText(event);
+      if (text) {
+        contentParts.push(text);
       }
     }
 
@@ -590,20 +529,15 @@ export class GeminiCliAdapter extends BaseCliAdapter {
    * Returns the error message string if found, null otherwise.
    */
   private extractApiError(raw: string): string | null {
-    const lines = raw.split('\n').filter((l) => l.trim());
-    for (const line of lines) {
-      try {
-        const event = parseGeminiNdjsonEvent(line);
-        if (!event) {
-          logGeminiParseFailure(logger, line);
-          continue;
-        }
-        const apiError = geminiApiErrorMessage(event);
-        if (apiError) {
-          return apiError;
-        }
-      } catch {
-        /* intentionally ignored: non-JSON lines are skipped during output parsing */
+    for (const line of splitCompleteNdjsonLines(raw)) {
+      const event = parseGeminiNdjsonEvent(line);
+      if (!event) {
+        logGeminiParseFailure(logger, line);
+        continue;
+      }
+      const apiError = geminiApiErrorMessage(event);
+      if (apiError) {
+        return apiError;
       }
     }
     return null;
@@ -673,22 +607,16 @@ export class GeminiCliAdapter extends BaseCliAdapter {
     //   2. {"type":"result","usageMetadata":{"promptTokenCount":N,"candidatesTokenCount":N,"totalTokenCount":N}}
     //   3. {"type":"turn.completed","usage":{"input_tokens":N,"output_tokens":N}}
     //   4. Any event with a top-level "usage" object
-    const lines = raw.split('\n').filter((l) => l.trim());
+    for (const line of splitCompleteNdjsonLines(raw)) {
+      const event = parseGeminiNdjsonEvent(line);
+      if (!event) {
+        logGeminiParseFailure(logger, line);
+        continue;
+      }
 
-    for (const line of lines) {
-      try {
-        const event = parseGeminiNdjsonEvent(line);
-        if (!event) {
-          logGeminiParseFailure(logger, line);
-          continue;
-        }
-
-        const usage = geminiUsageTotals(event);
-        if (usage) {
-          return usage;
-        }
-      } catch {
-        /* intentionally ignored: non-JSON lines are skipped during token count parsing */
+      const usage = geminiUsageTotals(event);
+      if (usage) {
+        return usage;
       }
     }
 
@@ -761,14 +689,9 @@ export class GeminiCliAdapter extends BaseCliAdapter {
       // Emit tool uses if any
       if (response.toolCalls) {
         for (const tool of response.toolCalls) {
-          const toolMessage: OutputMessage = {
-            id: generateId(),
-            timestamp: Date.now(),
-            type: 'tool_use',
-            content: `Using tool: ${tool.name}`,
-            metadata: { ...tool } as Record<string, unknown>
-          };
-          this.emit('output', toolMessage);
+          this.emit('output', createOutputMessage('tool_use', `Using tool: ${tool.name}`, {
+            metadata: { ...tool } as Record<string, unknown>,
+          }));
         }
       }
 
@@ -803,13 +726,10 @@ export class GeminiCliAdapter extends BaseCliAdapter {
 
       this.emit('status', 'idle' as InstanceStatus);
     } catch (error) {
-      const errorMessage: OutputMessage = {
-        id: generateId(),
-        timestamp: Date.now(),
-        type: 'error',
-        content: error instanceof Error ? error.message : String(error)
-      };
-      this.emit('output', errorMessage);
+      this.emit('output', createOutputMessage(
+        'error',
+        error instanceof Error ? error.message : String(error),
+      ));
       this.emit('status', 'error' as InstanceStatus);
       this.emitErrorIfObserved(error instanceof Error ? error : new Error(String(error)));
     }

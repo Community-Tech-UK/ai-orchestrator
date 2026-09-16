@@ -396,6 +396,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
   reactionsEnabled: true,
   reactionsPollIntervalMs: 60_000,
 
+  // Cross-session messaging — fully off by default (see settings.types.ts doc comment)
+  interSessionMessaging: {
+    enabled: false,
+    allowCrossProject: false,
+    maxHops: 1,
+    rateLimitPerMinute: 5,
+  },
+
   // Auxiliary LLM
   auxiliaryLlmEnabled: true,
   auxiliaryLlmRoutingMode: 'local-first',

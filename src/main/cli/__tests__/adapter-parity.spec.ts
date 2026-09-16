@@ -233,6 +233,42 @@ describe('GeminiCliAdapter one-shot errors', () => {
   });
 });
 
+describe('CopilotCliAdapter one-shot errors', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('emits stderr failures as error output without throwing', async () => {
+    const adapter = new CopilotCliAdapter();
+    const harness = new MockCliHarness();
+    let proc: MockChildProcess | null = null;
+    vi.spyOn(
+      adapter as unknown as { spawnProcess: (args: string[]) => ChildProcess },
+      'spawnProcess',
+    ).mockImplementation(() => {
+      proc = harness.createProcess();
+      return proc as unknown as ChildProcess;
+    });
+
+    const outputs: Array<{ type: string; content: string }> = [];
+    adapter.on('output', (message: { type: string; content: string }) => outputs.push(message));
+
+    const sendPromise = adapter.sendMessage({
+      role: 'user',
+      content: 'hello',
+    });
+
+    expect(proc).not.toBeNull();
+    expect(() => {
+      proc!.stderr.write('Error: failed to start session');
+    }).not.toThrow();
+    harness.exit();
+
+    await sendPromise.catch(() => undefined);
+    expect(outputs.some((message) => message.type === 'error' && /failed to start session/i.test(message.content))).toBe(true);
+  });
+});
+
 describe('GeminiCliAdapter stream JSON parsing', () => {
   it('recovers assistant content from a repaired stream-json line', () => {
     const adapter = new GeminiCliAdapter();

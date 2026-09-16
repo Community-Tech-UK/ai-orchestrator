@@ -43,6 +43,11 @@ export function logGeminiParseFailure(logger: GeminiJsonLogger, line: string): v
   }
 }
 
+export function isGeminiPlainContentLine(line: string): boolean {
+  const trimmed = line.trim();
+  return trimmed.length > 0 && !trimmed.startsWith('{') && !trimmed.includes('YOLO mode');
+}
+
 function isGeminiEvent(value: unknown): value is GeminiStreamEvent {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }

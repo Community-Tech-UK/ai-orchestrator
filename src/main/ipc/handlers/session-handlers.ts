@@ -3,7 +3,7 @@
  * Handles session management, archiving, and conversation history operations
  */
 
-import { ipcMain, IpcMainInvokeEvent, dialog, clipboard, shell } from 'electron';
+import { IpcMainInvokeEvent, dialog, clipboard, shell } from 'electron';
 import { promises as fs } from 'fs';
 import type { z } from 'zod';
 import { IPC_CHANNELS } from '@contracts/channels';
@@ -88,16 +88,6 @@ interface SessionHandlersDeps {
  */
 export function registerSessionHandlers(deps: SessionHandlersDeps): void {
   const { instanceManager, serializeInstance } = deps;
-  const rawIpcHandle = ipcMain.handle.bind(ipcMain);
-  const registerTrustedIpcHandler = (
-    channel: string,
-    listener: Parameters<typeof ipcMain.handle>[1],
-  ): void => {
-    rawIpcHandle(channel, (event, ...args) => {
-      const trustError = deps.ensureTrustedSender?.(event, channel);
-      return trustError ?? listener(event, ...args);
-    });
-  };
   const register = <T>(
     channel: string,
     schema: z.ZodSchema<T>,
@@ -373,7 +363,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
 
   registerSessionArchiveHandlers({
     instanceManager,
-    registerIpcHandler: registerTrustedIpcHandler,
+    ensureTrustedSender: deps.ensureTrustedSender,
   });
 
   // ============================================
@@ -559,7 +549,10 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
     }),
     'SESSION_RESUME_FAILED',
   );
-  registerSessionRecoveryHandlers({ instanceManager, registerIpcHandler: registerTrustedIpcHandler });
+  registerSessionRecoveryHandlers({
+    instanceManager,
+    ensureTrustedSender: deps.ensureTrustedSender,
+  });
 
   register(
     IPC_CHANNELS.SESSION_LIST_SNAPSHOTS,

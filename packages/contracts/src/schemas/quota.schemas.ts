@@ -70,6 +70,15 @@ export const ProviderQuotaSnapshotEventSchema = z.object({
   cliNotInstalled: z.boolean().optional(),
   windows: z.array(ProviderQuotaWindowSchema).max(100),
   plan: z.string().max(200).optional(),
+  /**
+   * Set for account-pool profile snapshots (non-legacy Claude/Codex
+   * accounts). Omitted for the provider-level (legacy) snapshot. This field
+   * was missing here even though `ProviderQuotaSnapshot` (the runtime type)
+   * has always carried it — the `.strict()` schema silently dropped every
+   * account-scoped `quota:updated` push event before it reached the
+   * renderer, so a second account's quota never appeared in the popover.
+   */
+  accountProfileId: z.string().max(200).optional(),
 }).strict();
 
 export const ProviderQuotaAlertEventSchema = z.object({

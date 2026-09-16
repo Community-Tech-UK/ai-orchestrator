@@ -194,6 +194,26 @@ export interface ClaudeCliSpawnOptions {
   };
 }
 
+export function asUnknownRecord(value: unknown): Record<string, unknown> | null {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+export function isRawCliPayload(value: unknown): value is RawCliPayload {
+  return typeof asUnknownRecord(value)?.['type'] === 'string';
+}
+
+export function toRawCliPayload(value: unknown, fallbackType = 'unknown'): RawCliPayload {
+  if (isRawCliPayload(value)) {
+    return value;
+  }
+  const record = asUnknownRecord(value);
+  const type = record?.['type'];
+  return { type: typeof type === 'string' ? type : fallbackType };
+}
+
 /**
  * Input required event payload - for permission prompts and other input requests
  */

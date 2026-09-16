@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseJsonWithRepair, parseNdjsonLine, parseStreamingJson } from './json-parse';
+import { parseJsonWithRepair, parseNdjsonLine, parseStreamingJson, NdjsonLineBuffer } from './json-parse';
 
 describe('json stream parsing helpers', () => {
   it('parses valid JSON without marking it repaired or partial', () => {
@@ -49,5 +49,20 @@ describe('json stream parsing helpers', () => {
     expect(() => parseNdjsonLine('{"unterminated":')).not.toThrow();
     expect(() => parseStreamingJson('plain text')).not.toThrow();
     expect(() => parseJsonWithRepair('plain text')).not.toThrow();
+  });
+});
+
+describe('NdjsonLineBuffer', () => {
+  it('holds a partial last line until the next newline', () => {
+    const buffer = new NdjsonLineBuffer();
+    expect(buffer.push('{"a":1}\n{"b":')).toEqual(['{"a":1}']);
+    expect(buffer.push('2}\n')).toEqual(['{"b":2}']);
+    expect(buffer.flush()).toBeNull();
+  });
+
+  it('flushes a trailing unterminated fragment', () => {
+    const buffer = new NdjsonLineBuffer();
+    expect(buffer.push('{"a":1}\n{"b":2')).toEqual(['{"a":1}']);
+    expect(buffer.flush()).toBe('{"b":2');
   });
 });

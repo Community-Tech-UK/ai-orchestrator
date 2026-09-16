@@ -7,6 +7,7 @@ import {
   QuotaRefreshAllPayloadSchema,
   QuotaSetPollIntervalPayloadSchema,
   ProviderQuotaWindowSchema,
+  ProviderQuotaSnapshotEventSchema,
 } from '../quota.schemas';
 
 describe('ProviderIdSchema', () => {
@@ -140,5 +141,33 @@ describe('ProviderQuotaWindowSchema', () => {
   it('rejects an unknown unit and unknown extra keys', () => {
     expect(ProviderQuotaWindowSchema.safeParse({ ...base, unit: 'credits' }).success).toBe(false);
     expect(ProviderQuotaWindowSchema.safeParse({ ...base, surprise: 1 }).success).toBe(false);
+  });
+});
+
+describe('ProviderQuotaSnapshotEventSchema', () => {
+  const base = {
+    provider: 'claude' as const,
+    takenAt: 1_780_000_000_000,
+    source: 'cli-result' as const,
+    ok: true,
+    windows: [],
+  };
+
+  it('accepts the provider-level (legacy) snapshot with no accountProfileId', () => {
+    expect(ProviderQuotaSnapshotEventSchema.safeParse(base).success).toBe(true);
+  });
+
+  // Regression: `ProviderQuotaService.storeSnapshot()` stamps
+  // `accountProfileId` on every account-pool profile snapshot before
+  // emitting `quota-updated`, and `ProviderQuotaSnapshot` (the runtime type)
+  // has always declared this field. Because this schema is `.strict()` and
+  // did not know about it, `ElectronWindowTransport` silently dropped every
+  // account-scoped QUOTA_UPDATED push event before it reached the renderer —
+  // a second Claude/Codex account's quota never rendered in the popover even
+  // though the probe succeeded.
+  it('accepts an account-pool snapshot carrying accountProfileId', () => {
+    expect(
+      ProviderQuotaSnapshotEventSchema.safeParse({ ...base, accountProfileId: 'claudecomtech-7e12' }).success,
+    ).toBe(true);
   });
 });

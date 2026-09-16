@@ -736,3 +736,90 @@ export const InstanceInputRequiredEventSchema = z.object({
   timestamp: z.number(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 }).strict();
+
+// ============================================
+// Cross-session messaging (one instance addressing another by name)
+// ============================================
+
+/** Why a cross-session delivery attempt was rejected before reaching the target. */
+export const CrossSessionMessageRejectionReasonSchema = z.enum([
+  'feature-disabled',
+  'consent-disabled',
+  'cross-project-not-allowed',
+  'self-send',
+  'target-terminated',
+  'rate-limited',
+  'hop-cap-exceeded',
+]);
+export type CrossSessionMessageRejectionReason = z.infer<
+  typeof CrossSessionMessageRejectionReasonSchema
+>;
+
+export const CrossSessionMessageSendPayloadSchema = z.object({
+  sourceInstanceId: InstanceIdSchema,
+  /** Exact instance id, or a case-insensitive unique display name/AI title. */
+  targetNameOrId: z.string().min(1).max(200),
+  message: z.string().min(1).max(10_000),
+}).strict();
+export type CrossSessionMessageSendPayload = z.infer<
+  typeof CrossSessionMessageSendPayloadSchema
+>;
+
+/** Discriminated outcome of one delivery attempt, for both MCP and IPC callers. */
+export const CrossSessionMessageResultSchema = z.discriminatedUnion('outcome', [
+  z.object({
+    outcome: z.literal('delivered'),
+    targetInstanceId: InstanceIdSchema,
+    targetDisplayName: z.string(),
+    hopCount: z.number().int().min(0),
+  }).strict(),
+  z.object({
+    outcome: z.literal('rejected'),
+    reason: CrossSessionMessageRejectionReasonSchema,
+    targetInstanceId: InstanceIdSchema.optional(),
+    targetDisplayName: z.string().optional(),
+  }).strict(),
+  z.object({
+    outcome: z.literal('not-found'),
+    targetNameOrId: z.string(),
+  }).strict(),
+  z.object({
+    outcome: z.literal('ambiguous'),
+    targetNameOrId: z.string(),
+    candidates: z.array(z.object({ id: InstanceIdSchema, displayName: z.string() })),
+  }).strict(),
+]);
+export type CrossSessionMessageResult = z.infer<typeof CrossSessionMessageResultSchema>;
+
+export const InstanceListMessageableSessionsPayloadSchema = z.object({
+  sourceInstanceId: InstanceIdSchema,
+}).strict();
+export type InstanceListMessageableSessionsPayload = z.infer<
+  typeof InstanceListMessageableSessionsPayloadSchema
+>;
+
+/** Why a live instance is or isn't currently addressable, surfaced for diagnosis. */
+export const MessageableSessionReasonSchema = z.enum([
+  'reachable',
+  'feature-disabled',
+  'consent-disabled',
+  'cross-project-not-allowed',
+  'self',
+]);
+export type MessageableSessionReason = z.infer<typeof MessageableSessionReasonSchema>;
+
+export const MessageableSessionSchema = z.object({
+  instanceId: InstanceIdSchema,
+  displayName: z.string(),
+  reachable: z.boolean(),
+  reason: MessageableSessionReasonSchema,
+}).strict();
+export type MessageableSession = z.infer<typeof MessageableSessionSchema>;
+
+export const InstanceToggleAllowIncomingSessionMessagesPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  allow: z.boolean(),
+}).strict();
+export type InstanceToggleAllowIncomingSessionMessagesPayload = z.infer<
+  typeof InstanceToggleAllowIncomingSessionMessagesPayloadSchema
+>;

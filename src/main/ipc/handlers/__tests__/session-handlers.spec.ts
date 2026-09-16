@@ -378,7 +378,7 @@ describe('session-handlers', () => {
 
       expect(result).toMatchObject({
         success: false,
-        error: expect.objectContaining({ code: 'ARCHIVE_SEARCH_FAILED' }),
+        error: expect.objectContaining({ code: 'VALIDATION_FAILED' }),
       });
       expect(mockListArchivedSessions).not.toHaveBeenCalled();
     });

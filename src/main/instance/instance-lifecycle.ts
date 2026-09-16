@@ -3468,6 +3468,23 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
     this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage, undefined, displayName);
   }
 
+  /**
+   * Toggle whether this instance accepts incoming cross-session messages.
+   * Default false — see `CrossSessionMessagingService`. A simple in-place
+   * mutation, like `renameInstance`, since this flag never respawns the
+   * session.
+   */
+  setAllowIncomingSessionMessages(instanceId: string, allow: boolean): void {
+    const instance = this.deps.getInstance(instanceId);
+    if (!instance) {
+      throw new Error(`Instance ${instanceId} not found`);
+    }
+
+    instance.allowIncomingSessionMessages = allow;
+    this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
+  }
+
+
   // ============================================
   // Idle Instance Management
   // ============================================

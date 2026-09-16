@@ -85,6 +85,27 @@ describe('renderer event validation', () => {
     expect(isRendererEventSchemaRegistered(IPC_CHANNELS.WAKE_EVENT_CONTEXT_GENERATED)).toBe(true);
   });
 
+  // Regression: `ProviderQuotaService.storeSnapshot()` stamps `accountProfileId`
+  // on every account-pool profile snapshot before emitting `quota-updated`.
+  // `ProviderQuotaSnapshotEventSchema` didn't know that field and is
+  // `.strict()`, so this transport silently dropped every account-scoped
+  // QUOTA_UPDATED push before it reached the renderer — a second Claude/Codex
+  // account's quota never appeared in the popover even though the probe
+  // succeeded.
+  it('validates a QUOTA_UPDATED payload carrying accountProfileId', () => {
+    const base = {
+      provider: 'claude' as const,
+      takenAt: 1_780_000_000_000,
+      source: 'cli-result' as const,
+      ok: true,
+      windows: [],
+    };
+    expect(validateRendererEventPayload(IPC_CHANNELS.QUOTA_UPDATED, base)).toBe(true);
+    expect(
+      validateRendererEventPayload(IPC_CHANNELS.QUOTA_UPDATED, { ...base, accountProfileId: 'claudecomtech-7e12' }),
+    ).toBe(true);
+  });
+
   it('validates knowledge, conversation-mining, and wake-context events', () => {
     expect(validateRendererEventPayload(IPC_CHANNELS.KG_EVENT_FACT_ADDED, {
       tripleId: 'triple-1',

@@ -164,6 +164,48 @@ export const ORCHESTRATION_TAB_HELP: HelpEntry = {
   ],
 };
 
+export const CROSS_SESSION_MESSAGING_TAB_HELP: HelpEntry = {
+  sections: [
+    {
+      kind: 'callout',
+      variant: 'info',
+      heading: 'What this does',
+      body: 'Lets one live session deliver a text message directly into another live session\'s conversation, wrapped with provenance so the receiving agent knows it came from another instance. Off by default.',
+    },
+    {
+      kind: 'steps',
+      heading: 'How it works',
+      items: [
+        'Turn on cross-session messaging below.',
+        'Each session that should receive messages must individually opt in via its consent toggle.',
+        'Use "Message this session…" from a session\'s context menu to send free text without going through an agent or MCP tool call.',
+        'Agents can also relay messages via MCP tools, gated by the same settings and consent.',
+      ],
+    },
+    {
+      kind: 'callout',
+      variant: 'warning',
+      heading: 'Cross-project and relay hops',
+      body: 'Cross-project delivery and relay hops beyond the first are off/limited by default to reduce the blast radius of a misbehaving agent forwarding messages indefinitely.',
+    },
+    {
+      kind: 'recommend',
+      items: [
+        {
+          label: 'Max relay hops',
+          value: '1',
+          why: 'Allows a single forward without enabling message chains.',
+        },
+        {
+          label: 'Rate limit',
+          value: '5/minute',
+          why: 'Enough for normal coordination, low enough to catch runaway loops quickly.',
+        },
+      ],
+    },
+  ],
+};
+
 export const AUXILIARY_MODELS_TAB_HELP: HelpEntry = {
   sections: [
     {

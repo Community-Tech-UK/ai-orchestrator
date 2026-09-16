@@ -107,7 +107,7 @@ export class SpawnConfigBuilder {
     fullToolCount: number;
     fullSchemaBytes: number;
   }>();
-  private orchestratorToolSchemaMeasurements = new Map<OrchestratorToolMode, {
+  private orchestratorToolSchemaMeasurements = new Map<string, {
     visibleToolCount: number;
     visibleSchemaBytes: number;
     fullToolCount: number;
@@ -357,17 +357,20 @@ export class SpawnConfigBuilder {
     if (!aioMcpCliPath) return null;
     const socketPath = getOrchestratorToolsRpcSocketPath();
     if (!socketPath) return null;
+    const settings = this.settings.getAll();
     const toolMode = resolveOrchestratorToolMode(
       provider,
-      this.settings.getAll().orchestratorMcpToolDeferral,
+      settings.orchestratorMcpToolDeferral,
     );
-    this.logOrchestratorToolSchemaBytes(instanceId, toolMode);
+    const sessionMessagingEnabled = settings.interSessionMessaging.enabled === true;
+    this.logOrchestratorToolSchemaBytes(instanceId, toolMode, sessionMessagingEnabled);
     return {
       aioMcpCliPath,
       socketPath,
       instanceId,
       ...(provider ? { provider } : {}),
       ...(toolMode !== 'eager' ? { toolDeferral: true } : {}),
+      ...(sessionMessagingEnabled ? { sessionMessagingEnabled } : {}),
     };
   }
 
@@ -463,9 +466,16 @@ export class SpawnConfigBuilder {
     return measurement;
   }
 
-  private logOrchestratorToolSchemaBytes(instanceId: string, toolMode: OrchestratorToolMode): void {
+  private logOrchestratorToolSchemaBytes(
+    instanceId: string,
+    toolMode: OrchestratorToolMode,
+    sessionMessagingEnabled: boolean,
+  ): void {
     try {
-      const measurement = this.getOrchestratorToolSchemaMeasurement(toolMode);
+      const measurement = this.getOrchestratorToolSchemaMeasurement(
+        toolMode,
+        sessionMessagingEnabled,
+      );
       if (toolMode === 'eager') {
         logger.info('Orchestrator tool schemas injected eagerly', {
           instanceId,
@@ -483,16 +493,22 @@ export class SpawnConfigBuilder {
     }
   }
 
-  private getOrchestratorToolSchemaMeasurement(toolMode: OrchestratorToolMode): {
+  private getOrchestratorToolSchemaMeasurement(
+    toolMode: OrchestratorToolMode,
+    sessionMessagingEnabled: boolean,
+  ): {
     visibleToolCount: number;
     visibleSchemaBytes: number;
     fullToolCount: number;
     fullSchemaBytes: number;
   } {
-    let measurement = this.orchestratorToolSchemaMeasurements.get(toolMode);
+    const cacheKey = `${toolMode}:${sessionMessagingEnabled ? 'session-messaging-on' : 'session-messaging-off'}`;
+    let measurement = this.orchestratorToolSchemaMeasurements.get(cacheKey);
     if (!measurement) {
       const noopClient = { call: async () => ({}) };
-      const fullTools = createOrchestratorToolsForwarderTools(noopClient);
+      const fullTools = createOrchestratorToolsForwarderTools(noopClient, {
+        sessionMessagingEnabled,
+      });
       const listed = toolMode === 'eager'
         ? fullTools
         : toolMode === 'stable'
@@ -505,7 +521,7 @@ export class SpawnConfigBuilder {
         fullToolCount: fullTools.length,
         fullSchemaBytes: measureOrchestratorToolSchemaBytes(fullTools),
       };
-      this.orchestratorToolSchemaMeasurements.set(toolMode, measurement);
+      this.orchestratorToolSchemaMeasurements.set(cacheKey, measurement);
     }
     return measurement;
   }

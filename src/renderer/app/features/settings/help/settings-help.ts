@@ -14,6 +14,7 @@ import type { SettingsTab } from '../settings-navigation';
 import {
   ADVANCED_TAB_HELP,
   AUXILIARY_MODELS_TAB_HELP,
+  CROSS_SESSION_MESSAGING_TAB_HELP,
   DISPLAY_TAB_HELP,
   ECOSYSTEM_TAB_HELP,
   GENERAL_TAB_HELP,
@@ -41,6 +42,7 @@ import {
 export const SETTINGS_TAB_HELP: Record<SettingsTab, HelpEntry> = {
   'general': GENERAL_TAB_HELP,
   'orchestration': ORCHESTRATION_TAB_HELP,
+  'cross-session-messaging': CROSS_SESSION_MESSAGING_TAB_HELP,
   'connections': CONNECTIONS_TAB_HELP,
   'copilot-accounts': COPILOT_ACCOUNTS_TAB_HELP,
   'provider-accounts': PROVIDER_ACCOUNTS_TAB_HELP,

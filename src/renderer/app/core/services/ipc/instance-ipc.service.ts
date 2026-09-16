@@ -14,6 +14,10 @@ import type {
   CompactionBoundaryOptions,
   CompactionPreview,
 } from '../../../../../shared/types/compaction-preview.types';
+import type {
+  CrossSessionMessageResult,
+  MessageableSession,
+} from '@contracts/schemas/instance';
 
 export interface CreateInstanceConfig {
   workingDirectory: string;
@@ -522,6 +526,48 @@ export class InstanceIpcService {
     return this.api.onCompactStatus((data) => {
       this.ngZone.run(() => callback(data));
     });
+  }
+
+  // ============================================
+  // Cross-Session Messaging
+  // ============================================
+
+  /**
+   * Deliver a provenance-wrapped text message into another live instance,
+   * addressed by display name or id. Returns the discriminated outcome
+   * (delivered/rejected/not-found/ambiguous) so the caller can show *why*.
+   */
+  async sendCrossSessionMessage(
+    sourceInstanceId: string,
+    targetNameOrId: string,
+    message: string,
+  ): Promise<IpcResponse<CrossSessionMessageResult>> {
+    if (!this.api?.sendCrossSessionMessage) {
+      return { success: false, error: { message: 'Not in Electron' } };
+    }
+    return this.api.sendCrossSessionMessage({ sourceInstanceId, targetNameOrId, message }) as Promise<
+      IpcResponse<CrossSessionMessageResult>
+    >;
+  }
+
+  /** List instances currently addressable for cross-session messaging, with reasons. */
+  async listMessageableSessions(
+    sourceInstanceId: string,
+  ): Promise<IpcResponse<MessageableSession[]>> {
+    if (!this.api?.listMessageableSessions) {
+      return { success: false, error: { message: 'Not in Electron' } };
+    }
+    return this.api.listMessageableSessions({ sourceInstanceId }) as Promise<
+      IpcResponse<MessageableSession[]>
+    >;
+  }
+
+  /** Toggle whether this instance accepts incoming cross-session messages. */
+  async toggleAllowIncomingSessionMessages(instanceId: string, allow: boolean): Promise<IpcResponse> {
+    if (!this.api?.toggleAllowIncomingSessionMessages) {
+      return { success: false, error: { message: 'Not in Electron' } };
+    }
+    return this.api.toggleAllowIncomingSessionMessages({ instanceId, allow });
   }
 
   /**

@@ -4,6 +4,7 @@ import { app } from 'electron';
 import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver, SqliteDriverFactory } from '../db/sqlite-driver';
 import { createOperatorTables } from './operator-schema';
+import { createSessionMessagesTables } from '../instance/session-messages-schema';
 
 export interface OperatorDatabaseConfig {
   dbPath?: string;
@@ -39,6 +40,7 @@ export class OperatorDatabase {
       this.db.pragma('busy_timeout = 5000');
     }
     createOperatorTables(this.db);
+    createSessionMessagesTables(this.db);
   }
 
   close(): void {

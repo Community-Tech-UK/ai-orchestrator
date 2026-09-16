@@ -8,7 +8,7 @@ import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { z } from 'zod';
 import { getLogger } from '../../logging/logger';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
-import { getCrossInstanceComm } from '../../communication/cross-instance-comm';
+import { getCrossInstanceCommService } from '../../communication/cross-instance-comm';
 
 const logger = getLogger('CommunicationHandlers');
 
@@ -56,7 +56,7 @@ function validationError(err: unknown): IpcResponse {
 }
 
 export function registerCommunicationHandlers(): void {
-  const comm = getCrossInstanceComm();
+  const comm = getCrossInstanceCommService();
 
   // ============================================
   // Bridge Management

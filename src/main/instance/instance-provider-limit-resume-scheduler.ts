@@ -18,6 +18,15 @@ export interface InstanceProviderLimitResumeRequest {
   reason: string;
   /** The user turn to re-send when the window resets; null when unknown. */
   resumePrompt: string | null;
+  /**
+   * Stable app-level thread identity, captured at park time. Carried into the
+   * durable automation's `thread` destination so a fire that finds the
+   * original instance gone can still recognize an already-live sibling
+   * instance for the same underlying session (see
+   * SessionRevivalService.findLiveInstance) instead of reviving a duplicate.
+   */
+  historyThreadId?: string;
+  sessionId?: string;
 }
 
 /**
@@ -57,6 +66,13 @@ export function scheduleInstanceProviderLimitResume(params: {
       destination: {
         kind: 'thread',
         instanceId: request.instanceId,
+        // Generic identity for SessionRevivalService.findLiveInstance/entryMatches
+        // (matched by value against instance.historyThreadId/sessionId), not
+        // literally a persisted history-entry id. Lets a fire that finds the
+        // original instance gone still detect an already-live sibling for the
+        // same underlying session before reviving a duplicate.
+        ...(request.historyThreadId ? { historyEntryId: request.historyThreadId } : {}),
+        ...(request.sessionId ? { sessionId: request.sessionId } : {}),
         reviveIfArchived: true,
       },
       action: {

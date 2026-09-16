@@ -66,4 +66,12 @@ export const INSTANCE_CHANNELS = {
   INSTANCE_QUEUE_SAVE: 'instance:queue-save',
   INSTANCE_QUEUE_LOAD_ALL: 'instance:queue-load-all',
   INSTANCE_QUEUE_INITIAL_PROMPT: 'instance:queue-initial-prompt',
+
+  // Cross-session messaging (user-initiated sends from the renderer)
+  /** Trusted renderer → main: deliver a text message into another live instance. */
+  INSTANCE_SEND_CROSS_SESSION_MESSAGE: 'instance:send-cross-session-message',
+  /** List instances currently addressable for cross-session messaging, with rejection reasons. */
+  INSTANCE_LIST_MESSAGEABLE_SESSIONS: 'instance:list-messageable-sessions',
+  /** Toggle whether this instance accepts incoming cross-session messages. */
+  INSTANCE_TOGGLE_ALLOW_INCOMING_SESSION_MESSAGES: 'instance:toggle-allow-incoming-session-messages',
 } as const;

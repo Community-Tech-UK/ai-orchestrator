@@ -2862,7 +2862,7 @@ describe('budget gate', () => {
     build({ used: 50_000, total: 200_000 });
     await comm.sendInput(instance.id, 'original user turn');
     const internal = comm as unknown as {
-      lastSentMessages: Map<string, { message: string }>;
+      overflow: { getLastSent(id: string): { message: string } | undefined };
     };
 
     comm.queueContinuityPreamble(instance.id, 'queued late context');
@@ -2877,7 +2877,7 @@ describe('budget gate', () => {
 
     expect(adapter.sendInput).toHaveBeenCalledTimes(1);
     expect(createSnapshot).toHaveBeenCalledTimes(1);
-    expect(internal.lastSentMessages.get(instance.id)?.message).toBe('original user turn');
+    expect(internal.overflow.getLastSent(instance.id)?.message).toBe('original user turn');
 
     instance.contextUsage = { used: 50_000, total: 200_000, percentage: 25 };
     await comm.sendInput(instance.id, 'new human turn');

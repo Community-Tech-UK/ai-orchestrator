@@ -1,3 +1,5 @@
+import { asUnknownRecord } from './claude-cli-adapter.types';
+
 export type CliAsyncWorkKind = 'background-shell' | 'subagent';
 export type CliAsyncWorkTerminalStatus = 'completed' | 'failed' | 'stopped';
 
@@ -138,13 +140,14 @@ export function parseClaudeTaskNotification(content: string): CliAsyncWorkEvent 
   };
 }
 
-export function parseClaudeToolProgress(message: Record<string, unknown>): CliAsyncWorkEvent | null {
-  if (message['type'] !== 'tool_progress') {
+export function parseClaudeToolProgress(message: unknown): CliAsyncWorkEvent | null {
+  const record = asUnknownRecord(message);
+  if (!record || record['type'] !== 'tool_progress') {
     return null;
   }
 
-  const workId = message['parent_tool_use_id'] ?? message['tool_use_id'];
-  const kind = kindForToolName(message['tool_name']);
+  const workId = record['parent_tool_use_id'] ?? record['tool_use_id'];
+  const kind = kindForToolName(record['tool_name']);
   if (typeof workId !== 'string' || !kind) {
     return null;
   }

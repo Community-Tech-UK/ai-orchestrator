@@ -43,6 +43,8 @@ import { VisibleInstanceResolver } from '../../core/services/visible-instance-re
 import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 import { ProjectRailBuilderService } from './project-rail-builder.service';
 import { ProjectRailPathService } from './project-rail-path.service';
+import { CrossSessionMessagingStore } from '../../core/state/instance/cross-session-messaging.store';
+import { ToastService } from '../../core/services/toast.service';
 import { getAllProjectHistoryItems, getOrderedRootIds } from './project-rail-tree.utils';
 import {
   getInstanceThreadId,
@@ -100,6 +102,8 @@ export class InstanceListComponent implements OnDestroy {
   private projectRailPaths = inject(ProjectRailPathService);
   private visibleInstanceResolver = inject(VisibleInstanceResolver);
   private clipboard = inject(CLIPBOARD_SERVICE);
+  private crossSessionMessaging = inject(CrossSessionMessagingStore);
+  private toast = inject(ToastService);
 
   filterInput = signal(loadFilterText());
   filterText = signal(loadFilterText());
@@ -488,6 +492,12 @@ export class InstanceListComponent implements OnDestroy {
         action: () => void this.renameLiveInstance(instance, displayTitle),
       },
       {
+        id: 'message-session',
+        label: 'Message this session…',
+        disabled: !this.selectedId() || this.selectedId() === instance.id,
+        action: () => this.openCrossSessionMessageModal(instance, displayTitle),
+      },
+      {
         id: 'restart-session',
         label: supportsResume ? 'Restart and resume' : 'Restart session',
         disabled: instance.status === 'initializing',
@@ -693,6 +703,60 @@ export class InstanceListComponent implements OnDestroy {
   protected onRenameCancelled(): void {
     this.renameModalOpen.set(false);
     this.renameTargetId = null;
+  }
+
+  // ── Cross-session message modal ──
+  // Source is the currently selected/active session; target is whichever
+  // session the user right-clicked "Message this session…" on. Delivery goes
+  // straight through IPC — no agent/MCP call in the loop — per plan Task 6.
+  protected crossSessionMessageModalOpen = signal(false);
+  protected crossSessionMessageTargetLabel = signal('');
+  private crossSessionMessageTargetId: string | null = null;
+
+  private openCrossSessionMessageModal(instance: Instance, displayTitle: string): void {
+    const sourceId = this.selectedId();
+    if (!sourceId || sourceId === instance.id) return;
+    this.crossSessionMessageTargetId = instance.id;
+    this.crossSessionMessageTargetLabel.set(displayTitle);
+    this.crossSessionMessageModalOpen.set(true);
+  }
+
+  protected async onCrossSessionMessageSubmitted(message: string): Promise<void> {
+    this.crossSessionMessageModalOpen.set(false);
+    const sourceId = this.selectedId();
+    const targetId = this.crossSessionMessageTargetId;
+    this.crossSessionMessageTargetId = null;
+    const trimmed = message.trim();
+    if (!sourceId || !targetId || !trimmed) return;
+
+    const result = await this.crossSessionMessaging.send(sourceId, targetId, trimmed);
+    if (result.outcome === 'delivered') {
+      this.toast.show(`Message sent to ${this.crossSessionMessageTargetLabel()}`, 'success');
+    } else {
+      this.toast.show(`Message not delivered: ${this.describeCrossSessionOutcome(result)}`, 'error');
+    }
+  }
+
+  protected onCrossSessionMessageCancelled(): void {
+    this.crossSessionMessageModalOpen.set(false);
+    this.crossSessionMessageTargetId = null;
+  }
+
+  private describeCrossSessionOutcome(
+    result: Awaited<ReturnType<CrossSessionMessagingStore['send']>>
+  ): string {
+    switch (result.outcome) {
+      case 'error':
+        return result.message;
+      case 'rejected':
+        return result.reason.replaceAll('-', ' ');
+      case 'not-found':
+        return `no session matches "${result.targetNameOrId}"`;
+      case 'ambiguous':
+        return `"${result.targetNameOrId}" matches multiple sessions`;
+      default:
+        return 'unknown error';
+    }
   }
 
   private async copyLiveTranscript(instanceId: string): Promise<void> {
