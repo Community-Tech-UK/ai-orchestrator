@@ -10,12 +10,15 @@
  *
  * Each observation MERGES into the profile's current snapshot by window id, so
  * a single-window event never erases windows the active probe reported.
+ * Usage access merges too: a Codex update refreshes whether credits are
+ * available when it says, and drops the probe's older included-usage verdict,
+ * which the newer window numbers may contradict.
  */
 
 import type { EventEmitter } from 'events';
 import type { CliRateLimitInfo } from '../../../shared/types/cli.types';
 import type { ResolvedAccountRoute } from '../../../shared/types/provider-account.types';
-import type { ProviderQuotaSnapshot, ProviderQuotaWindow } from '../../../shared/types/provider-quota.types';
+import type { ProviderQuotaSnapshot, ProviderQuotaWindow, ProviderUsageAccess } from '../../../shared/types/provider-quota.types';
 import {
   codexRateLimitsToQuotaWindows,
   mergeCodexRateLimitSnapshots,
@@ -80,14 +83,23 @@ export function attachAccountTelemetryBridge(
   const profileId = route.profileId;
   let lastCodex: CodexRateLimitSnapshot | null = null;
 
-  const ingest = (windows: ProviderQuotaWindow[], plan?: string | null): void => {
+  const ingest = (
+    windows: ProviderQuotaWindow[],
+    plan?: string | null,
+    access?: (existing: ProviderUsageAccess | undefined) => ProviderUsageAccess | undefined,
+  ): void => {
     if (windows.length === 0) return;
     try {
       const existing = service.getSnapshot(route.provider, profileId);
+      const previousAccess = existing?.ok && existing.usageAccess
+        ? { ...existing.usageAccess, observedAt: existing.usageAccess.observedAt ?? existing.takenAt }
+        : undefined;
+      const usageAccess = access ? access(previousAccess) : previousAccess;
       service.ingestFromAdapter(route.provider, {
         provider: route.provider,
         ok: true,
         windows: mergeWindows(existing, windows),
+        ...(usageAccess ? { usageAccess } : {}),
         ...(plan ? { plan } : existing?.plan ? { plan: existing.plan } : {}),
       }, 'header', profileId);
     } catch (error) {
@@ -109,7 +121,13 @@ export function attachAccountTelemetryBridge(
     const update = isParsedCodexSnapshot(payload) ? payload : parseCodexRateLimitSnapshot(payload);
     if (!update) return;
     lastCodex = mergeCodexRateLimitSnapshots(lastCodex, update);
-    ingest(codexRateLimitsToQuotaWindows(lastCodex), lastCodex.planType);
+    // Only this event's own credits block is new; a merged-in older value keeps its observation time.
+    const creditsAvailable = update.creditsAvailable;
+    ingest(codexRateLimitsToQuotaWindows(lastCodex), lastCodex.planType, (previous) => {
+      if (creditsAvailable !== null) return { ordinaryUsageAllowed: null, creditsAvailable, observedAt: Date.now() };
+      if (previous?.creditsAvailable == null) return undefined;
+      return { ordinaryUsageAllowed: null, creditsAvailable: previous.creditsAvailable, observedAt: previous.observedAt };
+    });
   };
 
   adapter.on('rate-limit-telemetry', onClaude);

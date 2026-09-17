@@ -170,4 +170,16 @@ describe('ProviderQuotaSnapshotEventSchema', () => {
       ProviderQuotaSnapshotEventSchema.safeParse({ ...base, accountProfileId: 'claudecomtech-7e12' }).success,
     ).toBe(true);
   });
+
+  // Same failure mode: a Codex snapshot carries `usageAccess`, and the strict
+  // schema must not drop its QUOTA_UPDATED event.
+  it('accepts a snapshot carrying usageAccess', () => {
+    expect(
+      ProviderQuotaSnapshotEventSchema.safeParse({
+        ...base,
+        provider: 'codex',
+        usageAccess: { ordinaryUsageAllowed: false, creditsAvailable: true },
+      }).success,
+    ).toBe(true);
+  });
 });

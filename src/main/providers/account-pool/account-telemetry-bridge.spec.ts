@@ -47,6 +47,28 @@ describe('account telemetry bridge', () => {
     expect(windows.map((window) => [window.id, window.used])).toEqual([['codex.5h', 70], ['codex.weekly', 5]]);
   });
 
+  it('keeps usage access across live Codex updates without making an old verdict look new', () => {
+    const adapter = new EventEmitter();
+    attachAccountTelemetryBridge(adapter, { provider: 'codex', profileId: 'pro-b', source: 'default', executionNodeId: 'local' }, service);
+    service.ingestFromAdapter('codex', {
+      provider: 'codex', ok: true,
+      windows: [{ kind: 'rolling-window', id: 'codex.weekly', label: 'Weekly', unit: 'percent', used: 100, limit: 100, remaining: 0, resetsAt: null }],
+      usageAccess: { ordinaryUsageAllowed: false, creditsAvailable: true },
+    }, 'admin-api', 'pro-b');
+    const probedAt = service.getSnapshot('codex', 'pro-b')!.takenAt;
+
+    // No credits block: the credits verdict survives with its original time; the included-usage verdict is dropped.
+    adapter.emit('account-rate-limits', { primary: { usedPercent: 100, windowDurationMins: 10080, resetsAt: 20 } });
+    expect(service.getSnapshot('codex', 'pro-b')?.usageAccess)
+      .toEqual({ ordinaryUsageAllowed: null, creditsAvailable: true, observedAt: probedAt });
+
+    // A credits block is new evidence.
+    adapter.emit('account-rate-limits', { credits: { hasCredits: false, unlimited: false } });
+    const access = service.getSnapshot('codex', 'pro-b')?.usageAccess;
+    expect(access).toMatchObject({ ordinaryUsageAllowed: null, creditsAvailable: false });
+    expect(access?.observedAt).toBeGreaterThanOrEqual(probedAt);
+  });
+
   it('does nothing without a route', () => {
     const adapter = new EventEmitter();
     attachAccountTelemetryBridge(adapter, undefined, service);

@@ -8,7 +8,7 @@
  * by their primary/secondary position, as the protocol source requires.
  */
 
-import type { ProviderQuotaSnapshot, ProviderQuotaWindow } from '../../../../shared/types/provider-quota.types';
+import type { ProviderQuotaSnapshot, ProviderQuotaWindow, ProviderUsageAccess } from '../../../../shared/types/provider-quota.types';
 
 export interface CodexRateLimitWindow {
   usedPercent: number;
@@ -22,6 +22,12 @@ export interface CodexRateLimitSnapshot {
   secondary: CodexRateLimitWindow | null;
   planType: string | null;
   rateLimitReachedType: string | null;
+  /**
+   * Purchased credits can pay for turns: `credits.hasCredits` or
+   * `credits.unlimited`, and no spend-control limit reached. Null when the
+   * payload carried no credits block (sparse updates usually do not).
+   */
+  creditsAvailable: boolean | null;
 }
 
 export interface CodexAccountRateLimitsRead {
@@ -60,6 +66,16 @@ function parseWindow(value: unknown): CodexRateLimitWindow | null {
   };
 }
 
+function parseCreditsAvailable(raw: Record<string, unknown>): boolean | null {
+  const credits = record(raw['credits']);
+  if (!credits) return null;
+  const hasCredits = credits['hasCredits'] ?? credits['has_credits'];
+  const unlimited = credits['unlimited'];
+  if (typeof hasCredits !== 'boolean' && typeof unlimited !== 'boolean') return null;
+  const spendControlReached = raw['spendControlReached'] ?? raw['spend_control_reached'];
+  return (hasCredits === true || unlimited === true) && spendControlReached !== true;
+}
+
 export function parseCodexRateLimitSnapshot(value: unknown): CodexRateLimitSnapshot | null {
   const raw = record(value);
   if (!raw) return null;
@@ -68,6 +84,7 @@ export function parseCodexRateLimitSnapshot(value: unknown): CodexRateLimitSnaps
     secondary: parseWindow(raw['secondary']),
     planType: str(raw['planType'] ?? raw['plan_type'], 64),
     rateLimitReachedType: str(raw['rateLimitReachedType'] ?? raw['rate_limit_reached_type'], 128),
+    creditsAvailable: parseCreditsAvailable(raw),
   };
 }
 
@@ -145,16 +162,34 @@ export function mergeCodexRateLimitSnapshots(
     secondary: update.secondary ?? previous?.secondary ?? null,
     planType: update.planType ?? previous?.planType ?? null,
     rateLimitReachedType: update.rateLimitReachedType ?? previous?.rateLimitReachedType ?? null,
+    creditsAvailable: update.creditsAvailable ?? previous?.creditsAvailable ?? null,
   };
+}
+
+/**
+ * Usage access for a snapshot. `ordinaryUsageAllowed` only comes from
+ * `account/rateLimits/read`; a live update leaves it unknown rather than
+ * carrying an older verdict past newer window numbers.
+ */
+export function codexUsageAccess(
+  snapshot: CodexRateLimitSnapshot,
+  ordinaryUsageAllowed: boolean | null = null,
+): ProviderUsageAccess | null {
+  return ordinaryUsageAllowed === null && snapshot.creditsAvailable === null
+    ? null
+    : { ordinaryUsageAllowed, creditsAvailable: snapshot.creditsAvailable };
 }
 
 export function codexQuotaSnapshot(
   snapshot: CodexRateLimitSnapshot,
+  ordinaryUsageAllowed: boolean | null = null,
 ): Omit<ProviderQuotaSnapshot, 'takenAt' | 'source'> {
+  const usageAccess = codexUsageAccess(snapshot, ordinaryUsageAllowed);
   return {
     provider: 'codex',
     ok: true,
     windows: codexRateLimitsToQuotaWindows(snapshot),
+    ...(usageAccess ? { usageAccess } : {}),
     ...(snapshot.planType ? { plan: snapshot.planType } : {}),
   };
 }

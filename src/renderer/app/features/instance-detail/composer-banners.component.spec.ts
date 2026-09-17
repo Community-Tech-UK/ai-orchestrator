@@ -13,6 +13,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ComposerBannersComponent } from './composer-banners.component';
 import { InstanceIpcService } from '../../core/services/ipc/instance-ipc.service';
 import { ProviderIpcService } from '../../core/services/ipc/provider-ipc.service';
+import { ProviderAccountIpcService } from '../../core/services/ipc/provider-account-ipc.service';
 import { InstanceStore } from '../../core/state/instance.store';
 import type { InstanceWaitReason } from '../../../../shared/types/instance.types';
 
@@ -31,6 +32,7 @@ describe('ComposerBannersComponent auth repair', () => {
     restartInstance: vi.fn(),
   };
   const providerIpc = { runProviderLogin };
+  const providerAccountIpc = { list: vi.fn(), switchSession: vi.fn() };
   const instanceStore = { getInstance: vi.fn(() => undefined), setError: vi.fn() };
 
   let fixture: ComponentFixture<ComposerBannersComponent>;
@@ -50,12 +52,14 @@ describe('ComposerBannersComponent auth repair', () => {
       success: true,
       data: { provider: 'claude', command: 'claude auth login', terminal: 'Terminal' },
     });
+    providerAccountIpc.list.mockResolvedValue({ profiles: [], pools: {} });
 
     await TestBed.configureTestingModule({
       imports: [ComposerBannersComponent],
       providers: [
         { provide: InstanceIpcService, useValue: instanceIpc },
         { provide: ProviderIpcService, useValue: providerIpc },
+        { provide: ProviderAccountIpcService, useValue: providerAccountIpc },
         { provide: InstanceStore, useValue: instanceStore },
       ],
     }).compileComponents();
@@ -142,5 +146,88 @@ describe('ComposerBannersComponent auth repair', () => {
 
     expect(authRepairCancel).toHaveBeenCalledWith('i1');
     expect(component.authNotice()).toBeNull();
+  });
+});
+
+describe('ComposerBannersComponent same-provider account switch', () => {
+  const instanceIpc = {
+    authRepairRetry: vi.fn(),
+    authRepairCancel: vi.fn(),
+    providerLimitResumeNow: vi.fn(),
+    providerLimitCancel: vi.fn(),
+    instanceFailoverNow: vi.fn(),
+    hardenedAllowPath: vi.fn(),
+    restartInstance: vi.fn(),
+  };
+  const providerIpc = { runProviderLogin: vi.fn() };
+  const list = vi.fn();
+  const switchSession = vi.fn();
+  const providerAccountIpc = { list, switchSession };
+  const getInstance = vi.fn();
+  const instanceStore = { getInstance, setError: vi.fn() };
+
+  const quotaParkWaitReason: InstanceWaitReason = {
+    kind: 'quota-park',
+    provider: 'codex',
+    resumeAt: Date.now() + 60_000,
+  };
+
+  let fixture: ComponentFixture<ComposerBannersComponent>;
+  let component: ComposerBannersComponent;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    getInstance.mockReturnValue({ id: 'i1', provider: 'codex', accountProfileId: 'acct-a' });
+    list.mockResolvedValue({
+      profiles: [
+        { id: 'acct-a', label: 'Max A', enabled: true, isLegacy: false },
+        { id: 'acct-b', label: 'Max B', enabled: true, isLegacy: false },
+        { id: 'acct-c', label: 'Disabled', enabled: false, isLegacy: false },
+      ],
+      pools: {},
+    });
+    switchSession.mockResolvedValue({ success: true });
+
+    await TestBed.configureTestingModule({
+      imports: [ComposerBannersComponent],
+      providers: [
+        { provide: InstanceIpcService, useValue: instanceIpc },
+        { provide: ProviderIpcService, useValue: providerIpc },
+        { provide: ProviderAccountIpcService, useValue: providerAccountIpc },
+        { provide: InstanceStore, useValue: instanceStore },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(ComposerBannersComponent);
+    component = fixture.componentInstance;
+    fixture.componentRef.setInput('instanceId', 'i1');
+    fixture.componentRef.setInput('waitReason', quotaParkWaitReason);
+    fixture.detectChanges();
+    await fixture.whenStable();
+  });
+
+  it('offers the other enabled sibling account, excluding the current and disabled ones', () => {
+    expect(component.accountSwitchOptions().map((a) => a.id)).toEqual(['acct-b']);
+  });
+
+  it('switches the session to the chosen account', async () => {
+    await component.onSwitchAccount({ target: { value: 'acct-b' } } as unknown as Event);
+
+    expect(switchSession).toHaveBeenCalledWith('i1', 'acct-b');
+  });
+
+  it('surfaces a failed switch on the instance store', async () => {
+    switchSession.mockResolvedValue({ success: false, error: { message: 'Account switch failed' } });
+
+    await component.onSwitchAccount({ target: { value: 'acct-b' } } as unknown as Event);
+
+    expect(instanceStore.setError).toHaveBeenCalledWith('Account switch failed');
+  });
+
+  it('offers nothing once no other accounts are left', () => {
+    fixture.componentRef.setInput('waitReason', undefined);
+    fixture.detectChanges();
+
+    expect(component.accountSwitchOptions()).toEqual([]);
   });
 });

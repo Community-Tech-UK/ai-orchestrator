@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   CodexUsageEndpointProbe,
+  parseCodexUsageAccess,
   parseCodexUsagePayload,
   type CodexAuthFileReader,
   type CodexUsageFetch,
@@ -19,6 +20,38 @@ function reader(content: string | null): CodexAuthFileReader {
     return content;
   };
 }
+
+describe('parseCodexUsageAccess', () => {
+  // Shape of a real wham/usage response for an account whose weekly window is spent but which has a top-up.
+  const toppedUp = {
+    rate_limit: { allowed: false, limit_reached: true, primary_window: { used_percent: 100, reset_at: 1_789_820_332 } },
+    credits: { has_credits: true, unlimited: false, overage_limit_reached: false, balance: '2500.0000000000' },
+    spend_control: { reached: false },
+  };
+
+  it('reads included usage and credits separately', () => {
+    expect(parseCodexUsageAccess(toppedUp)).toEqual({ ordinaryUsageAllowed: false, creditsAvailable: true });
+  });
+
+  it('reports no credits when the balance is empty, the overage limit or a spend limit is reached', () => {
+    expect(parseCodexUsageAccess({ ...toppedUp, credits: { has_credits: false, unlimited: false } })?.creditsAvailable).toBe(false);
+    expect(parseCodexUsageAccess({ ...toppedUp, credits: { ...toppedUp.credits, overage_limit_reached: true } })?.creditsAvailable).toBe(false);
+    expect(parseCodexUsageAccess({ ...toppedUp, spend_control: { reached: true } })?.creditsAvailable).toBe(false);
+  });
+
+  it('returns null when the payload says nothing about access', () => {
+    expect(parseCodexUsageAccess({ rate_limit: { primary_window: { used_percent: 5 } } })).toBeNull();
+  });
+
+  it('attaches usage access to the probe snapshot', async () => {
+    const probe = new CodexUsageEndpointProbe({
+      readFile: reader(AUTH_JSON),
+      fetchUsage: async () => ({ status: 200, body: toppedUp }),
+    });
+    const snap = await probe.probe({ signal: new AbortController().signal });
+    expect(snap?.usageAccess).toEqual({ ordinaryUsageAllowed: false, creditsAvailable: true });
+  });
+});
 
 describe('CodexUsageEndpointProbe', () => {
   it('reads Codex auth read-only, fetches wham usage, and returns percentage windows', async () => {

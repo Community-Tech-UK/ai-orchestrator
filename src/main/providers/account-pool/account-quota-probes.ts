@@ -54,9 +54,9 @@ export class ThrottledAccountQuotaProbe implements ProviderQuotaProbe {
     this.silenceAlerts = silenceAlerts;
   }
 
-  async probe(opts: { signal: AbortSignal }): Promise<ProviderQuotaSnapshot | null> {
+  async probe(opts: { signal: AbortSignal; force?: boolean }): Promise<ProviderQuotaSnapshot | null> {
     const now = this.now();
-    if (this.lastRunAt > 0 && now - this.lastRunAt < this.minIntervalMs()) {
+    if (!opts.force && this.lastRunAt > 0 && now - this.lastRunAt < this.minIntervalMs()) {
       return null;
     }
     this.lastRunAt = now;

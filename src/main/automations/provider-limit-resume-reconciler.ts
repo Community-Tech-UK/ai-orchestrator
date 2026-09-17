@@ -1,6 +1,6 @@
 import type { Automation } from '../../shared/types/automation.types';
 import type { ProviderId, ProviderQuotaSnapshot } from '../../shared/types/provider-quota.types';
-import { snapshotShowsLimitLifted } from '../instance/instance-provider-limit-handler';
+import { snapshotShowsLimitLifted } from '../instance/provider-limit-lift';
 import { getLogger } from '../logging/logger';
 
 const logger = getLogger('ProviderLimitResumeReconciler');
@@ -38,8 +38,12 @@ export interface ProviderLimitResumeReconcilerDeps {
  *
  * This reconciler is the durable counterpart of that in-park probe: while any
  * pending `instanceProviderLimitResume` automation exists, probe the provider's
- * live quota and fire the automation immediately once every window shows
- * headroom. Firing routes through the normal system-action dispatch, which
+ * live quota and fire the automation immediately once the limit shows lifted
+ * ({@link snapshotShowsLimitLifted}). Unlike the in-park probe it does not
+ * count purchased credits: the automation does not record which account the
+ * session was parked on, and the probed snapshot is the provider's default
+ * account, so another account's credits would keep firing resumes a
+ * no-credit account rejects. Firing routes through the normal system-action dispatch, which
  * de-dupes against a live park and falls back to thread revive for a dead
  * instance, so an early fire is always safe. If the provider is in fact still
  * limited, the re-sent turn re-parks with a fresh reset time — a wrong lift

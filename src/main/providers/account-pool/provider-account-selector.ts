@@ -4,8 +4,14 @@
  * evidence (bindings, ledger, quota) and this decides.
  *
  * Eligibility, in order, each with a named veto: enabled → automation policy
- * for the origin → not excluded → binding authenticated → not parked → 5-hour
- * window not exhausted → (pre-emptive) under the threshold.
+ * for the origin → not excluded → binding authenticated → not parked (unless
+ * the provider has since said the account can run) → has usage left: the
+ * provider's own verdict when it gives one, else the 5-hour and weekly
+ * windows under 100% → not credits-only when paid credits are disallowed →
+ * (pre-emptive) under the threshold.
+ *
+ * Usage left includes purchased credits: an account whose plan window is
+ * spent but which has a top-up can run, and the CLI bills the credits.
  *
  * Ordering: priority ascending (stay on the preferred account until it is
  * rejected), then the soonest weekly reset ("consume-first"), then least
@@ -23,8 +29,20 @@ import { isAutomaticAccountOrigin } from '../../../shared/types/provider-account
 export interface AccountQuotaEvidence {
   /** 5-hour window utilisation, 0..100, when known. */
   fiveHourPct?: number | null;
+  /** Weekly window utilisation, 0..100, when known. */
+  weeklyPct?: number | null;
   /** Weekly window reset, epoch ms, when known. */
   weeklyResetsAt?: number | null;
+  /**
+   * The provider's verdict that the account can (true) or cannot (false) run
+   * a turn, counting purchased credits. Null/absent when it gave none; the
+   * windows decide then.
+   */
+  usable?: boolean | null;
+  /** The account can run only by spending purchased credits. */
+  creditsOnly?: boolean;
+  /** Epoch ms the verdict was observed. */
+  observedAt?: number | null;
 }
 
 export interface SelectAccountInput {
@@ -32,6 +50,14 @@ export interface SelectAccountInput {
   origin: AccountInvocationOrigin;
   exclude?: readonly string[];
   parkedProfileIds: readonly string[];
+  /**
+   * When each parked profile's newest limit was recorded (epoch ms). A park is
+   * lifted for a profile whose usage verdict was observed after it; without
+   * an entry a park always holds.
+   */
+  parkedSince?: ReadonlyMap<string, number>;
+  /** Whether an account that can run only on purchased credits is eligible. Defaults to true. */
+  allowCredits?: boolean;
   /** Binding state per profile id. A missing entry is treated as not verified (`unbound`). */
   bindings: ReadonlyMap<string, AccountBindingState>;
   /** Skip binding vetoes (remote placement: the worker verifies its own binding). */
@@ -51,6 +77,22 @@ export type SelectAccountResult =
   | { profileId: string; reasons: string[]; considered: ConsideredAccount[] }
   | { profileId: null; considered: ConsideredAccount[] };
 
+/**
+ * A recorded limit (ledger park) is out of date when the provider has since
+ * said the account can run: a top-up or reset credit lifts a limit long
+ * before its recorded reset time. Only an explicit verdict observed after the
+ * limit was recorded counts; window percentages alone never lift a park.
+ */
+export function evidenceLiftsPark(
+  evidence: AccountQuotaEvidence | null | undefined,
+  parkedSince: number | undefined,
+  options: { allowCredits: boolean },
+): boolean {
+  if (evidence?.usable !== true || parkedSince === undefined) return false;
+  if (typeof evidence.observedAt !== 'number' || evidence.observedAt <= parkedSince) return false;
+  return options.allowCredits || evidence.creditsOnly !== true;
+}
+
 export function accountVetoFor(
   profile: ProviderAccountProfile,
   input: SelectAccountInput,
@@ -64,12 +106,22 @@ export function accountVetoFor(
   }
   if (input.exclude?.includes(profile.id)) return 'excluded';
   if (!input.ignoreBindings && input.bindings.get(profile.id) !== 'authenticated') return 'unbound';
-  if (input.parkedProfileIds.includes(profile.id)) return 'parked';
   const quota = input.quotaByProfile?.get(profile.id);
+  const allowCredits = input.allowCredits ?? true;
+  if (
+    input.parkedProfileIds.includes(profile.id)
+    && !evidenceLiftsPark(quota, input.parkedSince?.get(profile.id), { allowCredits })
+  ) {
+    return 'parked';
+  }
   const fiveHour = quota?.fiveHourPct;
-  if (typeof fiveHour === 'number' && fiveHour >= 100) return 'exhausted';
-  if (typeof input.thresholdPct === 'number' && typeof fiveHour === 'number' && fiveHour >= input.thresholdPct) {
-    return 'over-threshold';
+  if (quota?.usable === false) return 'exhausted';
+  if (quota?.usable !== true && ((fiveHour ?? 0) >= 100 || (quota?.weeklyPct ?? 0) >= 100)) return 'exhausted';
+  if (quota?.creditsOnly === true && !allowCredits) return 'credits-only';
+  if (typeof input.thresholdPct === 'number') {
+    // Moving ahead of a limit onto an account that would bill credits defeats the point.
+    if (quota?.creditsOnly === true) return 'over-threshold';
+    if (typeof fiveHour === 'number' && fiveHour >= input.thresholdPct) return 'over-threshold';
   }
   return null;
 }

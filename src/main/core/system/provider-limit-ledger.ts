@@ -167,6 +167,28 @@ export class ProviderLimitLedger {
   }
 
   /**
+   * When each parked profile's newest active limit was recorded, keyed like
+   * {@link getParkedProfileIds}. A usage verdict observed after this time can
+   * show the limit no longer holds (credits bought, reset credit applied).
+   * Rows are scoped like {@link getActive}: the model's and the account-wide
+   * ones. `anyModel` widens a null-model lookup to every model, matching what
+   * {@link clearActive} removes for a null model.
+   */
+  getParkedSince(params: { provider: ProviderId; model: string | null; now?: number; anyModel?: boolean }): Map<string, number> {
+    const model = normalizeModel(params.model) ?? '';
+    const scope = params.anyModel && model === '' ? '' : "AND (model = ? OR model = '')";
+    const args: Array<string | number> = [params.provider, params.now ?? Date.now()];
+    if (scope) args.push(model);
+    const rows = this.db.prepareCached(`
+      SELECT account_profile_id, MAX(detected_at) AS detected_at
+      FROM provider_limit_events
+      WHERE provider = ? AND resume_at > ? ${scope}
+      GROUP BY account_profile_id
+    `).all<{ account_profile_id: string; detected_at: number }>(...args);
+    return new Map(rows.map((row) => [row.account_profile_id || LEGACY_PROFILE_ID, row.detected_at]));
+  }
+
+  /**
    * "Provider parked" in an account pool: every eligible profile has an active
    * limit. With no eligible profiles listed this is the legacy profile's state,
    * which is exactly the pre-pools veto.
@@ -276,7 +298,7 @@ export class ProviderLimitLedger {
  */
 export type ProviderLimitLedgerPort = Pick<
   ProviderLimitLedger,
-  'record' | 'getActive' | 'clearActive' | 'clearAfterSuccessfulTurn' | 'getParkedProfileIds' | 'isProviderFullyParked' | 'getSoonestResumeAt'
+  'record' | 'getActive' | 'clearActive' | 'clearAfterSuccessfulTurn' | 'getParkedProfileIds' | 'getParkedSince' | 'isProviderFullyParked' | 'getSoonestResumeAt'
 >;
 
 export function getProviderLimitLedgerPort(): ProviderLimitLedgerPort {
@@ -286,6 +308,7 @@ export function getProviderLimitLedgerPort(): ProviderLimitLedgerPort {
     clearActive: (params) => ProviderLimitLedger.getInstance().clearActive(params),
     clearAfterSuccessfulTurn: (params) => ProviderLimitLedger.getInstance().clearAfterSuccessfulTurn(params),
     getParkedProfileIds: (params) => ProviderLimitLedger.getInstance().getParkedProfileIds(params),
+    getParkedSince: (params) => ProviderLimitLedger.getInstance().getParkedSince(params),
     isProviderFullyParked: (params) => ProviderLimitLedger.getInstance().isProviderFullyParked(params),
     getSoonestResumeAt: (params) => ProviderLimitLedger.getInstance().getSoonestResumeAt(params),
   };

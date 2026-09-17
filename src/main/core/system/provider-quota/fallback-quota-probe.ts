@@ -25,7 +25,7 @@ export class FallbackQuotaProbe implements ProviderQuotaProbe {
     this.provider = primary.provider;
   }
 
-  async probe(opts: { signal: AbortSignal }): Promise<ProviderQuotaSnapshot | null> {
+  async probe(opts: { signal: AbortSignal; force?: boolean }): Promise<ProviderQuotaSnapshot | null> {
     const primarySnapshot = await this.primary.probe(opts);
     if (primarySnapshot && primarySnapshot.ok && primarySnapshot.windows.length > 0) {
       return primarySnapshot;

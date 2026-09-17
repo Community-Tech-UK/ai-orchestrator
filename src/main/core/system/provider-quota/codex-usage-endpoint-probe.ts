@@ -14,6 +14,7 @@ import * as os from 'os';
 import type {
   ProviderQuotaSnapshot,
   ProviderQuotaWindow,
+  ProviderUsageAccess,
 } from '../../../../shared/types/provider-quota.types';
 import {
   clampQuotaPercent,
@@ -61,10 +62,18 @@ interface CodexUsageWindowSource {
 
 interface CodexUsagePayload {
   rate_limit?: {
+    /** The plan's included usage is allowed right now. */
+    allowed?: boolean | null;
     limit_reached?: boolean;
     primary_window?: CodexUsageWindowSource | null;
     secondary_window?: CodexUsageWindowSource | null;
   } | null;
+  credits?: {
+    has_credits?: boolean | null;
+    unlimited?: boolean | null;
+    overage_limit_reached?: boolean | null;
+  } | null;
+  spend_control?: { reached?: boolean | null } | null;
 }
 
 export class CodexUsageEndpointProbe implements ProviderQuotaProbe {
@@ -118,12 +127,14 @@ export class CodexUsageEndpointProbe implements ProviderQuotaProbe {
       return failedSnapshot(takenAt, 'Codex usage endpoint returned no rate-limit windows');
     }
 
+    const usageAccess = parseCodexUsageAccess(body as CodexUsagePayload);
     return {
       provider: 'codex',
       takenAt,
       source: 'admin-api',
       ok: true,
       windows,
+      ...(usageAccess ? { usageAccess } : {}),
     };
   }
 
@@ -174,6 +185,24 @@ export function parseCodexUsagePayload(
   if (primary) windows.push(primary);
   if (secondary) windows.push(secondary);
   return windows;
+}
+
+/**
+ * Whether the account can run a turn: `rate_limit.allowed` covers the plan's
+ * included usage, `credits` a purchased top-up. An account at 100% of its
+ * plan window reports `allowed: false` yet still runs while it has credits.
+ */
+export function parseCodexUsageAccess(payload: CodexUsagePayload): ProviderUsageAccess | null {
+  const allowed = payload.rate_limit?.allowed;
+  const ordinaryUsageAllowed = typeof allowed === 'boolean' ? allowed : null;
+  const credits = payload.credits;
+  let creditsAvailable: boolean | null = null;
+  if (credits && typeof credits === 'object' && (typeof credits.has_credits === 'boolean' || typeof credits.unlimited === 'boolean')) {
+    creditsAvailable = (credits.has_credits === true || credits.unlimited === true)
+      && credits.overage_limit_reached !== true
+      && payload.spend_control?.reached !== true;
+  }
+  return ordinaryUsageAllowed === null && creditsAvailable === null ? null : { ordinaryUsageAllowed, creditsAvailable };
 }
 
 function resetsMoreThan(

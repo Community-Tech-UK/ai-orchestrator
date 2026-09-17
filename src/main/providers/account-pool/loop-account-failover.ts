@@ -35,6 +35,7 @@ export interface LoopAccountFailoverDeps {
   store?: () => Pick<ProviderAccountStore, 'listProfiles' | 'getPoolPolicy' | 'getProfile'>;
   cachedBindingState?: (provider: PooledProvider, profileId: string) => string | undefined;
   getParkedProfileIds?: (provider: PooledProvider, model: string | null) => string[];
+  getParkedSince?: (provider: PooledProvider, model: string | null) => ReadonlyMap<string, number>;
   getQuotaEvidence?: (provider: PooledProvider, profileId: string) => AccountQuotaEvidence | null;
   notify?: (input: { kind: string; title: string; body: string }) => void;
   now?: () => number;
@@ -83,8 +84,17 @@ export class LoopAccountFailover {
    * Switch the loop away from its exhausted account when the pool allows it.
    * Returns false (park as before) for no pool, `ask`/`off` mode, an
    * unacknowledged pool, the cooldown or per-iteration cap, or no candidate.
+   * `allowCredits` false (the loop's paid-overage setting is off) skips an
+   * account that could run only on purchased credits.
    */
-  trySwitch(params: { loopRunId: string; provider: string; model: string | null; iteration: number; reason: string }): boolean {
+  trySwitch(params: {
+    loopRunId: string;
+    provider: string;
+    model: string | null;
+    iteration: number;
+    reason: string;
+    allowCredits?: boolean;
+  }): boolean {
     if (!isPooledProvider(params.provider)) return false;
     const current = this.accounts.get(params.loopRunId);
     if (!current || current.provider !== params.provider) return false;
@@ -116,11 +126,15 @@ export class LoopAccountFailover {
     }
     const parked = (this.deps.getParkedProfileIds
       ?? ((provider, model) => getProviderLimitLedgerPort().getParkedProfileIds({ provider, model })))(params.provider, params.model);
+    const parkedSince = (this.deps.getParkedSince
+      ?? ((provider, model) => getProviderLimitLedgerPort().getParkedSince({ provider, model })))(params.provider, params.model);
     const selection = selectAccount({
       profiles,
       origin: 'loop',
       exclude: [current.profileId],
       parkedProfileIds: parked,
+      parkedSince,
+      allowCredits: params.allowCredits ?? false,
       bindings,
       quotaByProfile,
       thresholdPct: null,

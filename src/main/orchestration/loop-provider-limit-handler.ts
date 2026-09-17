@@ -405,6 +405,7 @@ export class LoopProviderLimitHandler {
         model: null,
         iteration: state.totalIterations,
         reason: opts.reason,
+        allowCredits: this.allowOverage,
       });
     } catch (err) {
       logger.warn('Loop account failover failed; parking instead', {

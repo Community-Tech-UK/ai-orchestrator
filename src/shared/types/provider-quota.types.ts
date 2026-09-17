@@ -119,6 +119,12 @@ export interface ProviderQuotaSnapshot {
   /** May be empty if the probe ran but found no useful windows. */
   windows: ProviderQuotaWindow[];
   /**
+   * The provider's own verdict on whether the account can run a turn, when it
+   * publishes one (Codex). Window percentages alone cannot answer that: an
+   * account whose plan window is at 100% still runs on purchased credits.
+   */
+  usageAccess?: ProviderUsageAccess;
+  /**
    * Account-pool profile this snapshot describes. Absent for the legacy
    * profile, whose snapshot is the provider-level one.
    */
@@ -129,6 +135,24 @@ export interface ProviderQuotaSnapshot {
    * provider-specific labels (e.g. 'copilot-pro+').
    */
   plan?: string;
+}
+
+/** Provider-reported permission to use an account. Null fields are unknown. */
+export interface ProviderUsageAccess {
+  /** The plan's included usage is allowed right now. */
+  ordinaryUsageAllowed: boolean | null;
+  /**
+   * Purchased credits (or an unlimited allowance) can pay for turns once the
+   * included usage is spent. False when the balance is empty or a spend limit
+   * has been reached.
+   */
+  creditsAvailable: boolean | null;
+  /**
+   * Epoch ms the verdict was observed, when older than the snapshot carrying
+   * it (a live update that re-stamps windows but says nothing about access).
+   * Absent means the snapshot's `takenAt`.
+   */
+  observedAt?: number;
 }
 
 /** Aggregate state held in the renderer store and main-process service. */

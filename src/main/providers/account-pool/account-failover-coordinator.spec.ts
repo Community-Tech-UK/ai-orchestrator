@@ -9,7 +9,8 @@ vi.mock('../../logging/logger', () => ({
 const events = vi.hoisted(() => [] as Array<{ event: string }>);
 vi.mock('./provider-account-events', () => ({ emitProviderAccountEvent: (event: { event: string }) => events.push(event) }));
 
-import { AccountFailoverCoordinator, type AccountFailoverParams } from './account-failover-coordinator';
+import { AccountFailoverCoordinator, FRESH_QUOTA_TIMEOUT_MS, type AccountFailoverParams } from './account-failover-coordinator';
+import type { AccountQuotaEvidence } from './provider-account-selector';
 import { ProviderAccountStore } from './provider-account-store';
 import type { ProviderAccountBindingService } from './provider-account-binding-service';
 
@@ -30,7 +31,11 @@ interface Harness {
   policy: ProviderAccountPoolPolicy;
   bindingStates: Record<string, AccountBindingStatus['state']>;
   clock: { now: number };
-  quota: Record<string, { fiveHourPct: number }>;
+  quota: Record<string, AccountQuotaEvidence>;
+  parkedSince: Map<string, number>;
+  refreshed: string[];
+  /** Runs when the coordinator asks for fresh usage; may update `quota`. */
+  onRefresh: (id: string) => Promise<void>;
 }
 
 function harness(overrides: Partial<ProviderAccountPoolPolicy> = {}, profiles = [profile('legacy', 0), profile('max-b', 1), profile('max-c', 2)]): Harness {
@@ -47,6 +52,9 @@ function harness(overrides: Partial<ProviderAccountPoolPolicy> = {}, profiles = 
     bindingStates: {},
     clock: { now: 10_000 },
     quota: {},
+    parkedSince: new Map<string, number>(),
+    refreshed: [],
+    onRefresh: async () => undefined,
   };
   const store = new ProviderAccountStore({ read: () => ({ profiles, pools }) });
   const bindings = {
@@ -57,7 +65,12 @@ function harness(overrides: Partial<ProviderAccountPoolPolicy> = {}, profiles = 
     store: () => store,
     bindings: () => bindings,
     getParkedProfileIds: () => state.parked,
+    getParkedSince: () => state.parkedSince,
     getQuotaEvidence: (_provider, id) => state.quota[id] ?? null,
+    refreshQuotaEvidence: async (_provider, id) => {
+      state.refreshed.push(id);
+      await state.onRefresh(id);
+    },
     getInstance: (id) => state.instances.get(id),
     applyRuntimeChange: async (id, desired) => {
       await Promise.resolve();
@@ -229,6 +242,69 @@ describe('AccountFailoverCoordinator', () => {
       sleep: async () => { clock.now += 1_000; },
     });
     expect(await coordinator.perform(params('i1'))).toMatchObject({ outcome: 'not-switched', reason: 'busy' });
+  });
+
+  it('re-checks the signed-in candidates\' usage before choosing, and skips one that ran out since the last poll', async () => {
+    const h = harness();
+    addInstance(h, 'i1');
+    h.bindingStates = { 'max-c': 'unauthenticated' };
+    h.quota = { 'max-b': { weeklyPct: 40 } };
+    h.onRefresh = async (id) => {
+      if (id === 'max-b') h.quota['max-b'] = { weeklyPct: 100, usable: false, observedAt: h.clock.now };
+    };
+    const outcome = await h.coordinator.perform(params('i1'));
+    expect(h.refreshed).toEqual(['max-b']);
+    expect(outcome).toMatchObject({ outcome: 'not-switched', reason: 'no-candidate' });
+    expect(h.applied).toEqual([]);
+  });
+
+  it('keeps what it knew when the re-check fails and the stored snapshot turns into an error', async () => {
+    const h = harness();
+    addInstance(h, 'i1');
+    // max-b looks fine in the cache (so a switch is planned) but has run out; max-c is known to be out.
+    h.quota = { 'max-c': { weeklyPct: 100, usable: false, observedAt: 9_000 } };
+    h.onRefresh = async (id) => {
+      if (id === 'max-b') {
+        h.quota['max-b'] = { weeklyPct: 100, usable: false, observedAt: 10_000 };
+        return;
+      }
+      delete h.quota[id];
+      throw new Error('codex app-server did not start');
+    };
+    expect(await h.coordinator.perform(params('i1'))).toMatchObject({ outcome: 'not-switched', reason: 'no-candidate' });
+    expect(h.applied).toEqual([]);
+  });
+
+  it('decides on the cached usage when the re-check does not answer in time', async () => {
+    vi.useFakeTimers();
+    try {
+      const h = harness();
+      addInstance(h, 'i1');
+      h.onRefresh = () => new Promise<void>(() => undefined);
+      const pending = h.coordinator.perform(params('i1'));
+      await vi.advanceTimersByTimeAsync(FRESH_QUOTA_TIMEOUT_MS);
+      expect(await pending).toMatchObject({ outcome: 'switched', toProfileId: 'max-b' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('moves onto a parked account once the provider says it has credits, observed after the limit was recorded', async () => {
+    const h = harness({}, [profile('pro-a', 0), profile('legacy', 1)]);
+    addInstance(h, 'i1', 'pro-a');
+    const exhausted = params('i1', { exhaustedProfileId: 'pro-a' });
+    h.parked = ['pro-a', 'legacy'];
+    h.parkedSince.set('legacy', 5_000);
+    h.quota = {
+      'pro-a': { weeklyPct: 100, usable: false, observedAt: 9_000 },
+      legacy: { weeklyPct: 100, usable: true, creditsOnly: true, observedAt: 4_000 },
+    };
+    // Credits seen before the limit was recorded prove nothing.
+    expect(h.coordinator.plan(exhausted)).toEqual({ kind: 'none', reason: 'no-candidate' });
+
+    h.quota['legacy'] = { weeklyPct: 100, usable: true, creditsOnly: true, observedAt: 9_500 };
+    expect(h.coordinator.plan(exhausted)).toEqual({ kind: 'switch' });
+    expect(await h.coordinator.perform(exhausted)).toMatchObject({ outcome: 'switched', toProfileId: 'legacy' });
   });
 
   it('pre-emptively switches only when enabled, over threshold, and onto an account under it', async () => {

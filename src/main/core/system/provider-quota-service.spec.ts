@@ -166,6 +166,20 @@ describe('ProviderQuotaService', () => {
       expect(out).toMatchObject({ provider: 'claude', ok: true });
     });
 
+    it('passes force through to the probe only when asked', async () => {
+      const seen: Array<boolean | undefined> = [];
+      svc.registerProbe({
+        provider: 'codex',
+        async probe(opts) {
+          seen.push(opts.force);
+          return null;
+        },
+      });
+      await svc.refresh('codex');
+      await svc.refresh('codex', null, { force: true });
+      expect(seen).toEqual([undefined, true]);
+    });
+
     it('returns null without storing when probe returns null', async () => {
       const probe = new FakeProbe('claude', null);
       svc.registerProbe(probe);

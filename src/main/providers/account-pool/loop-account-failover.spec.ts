@@ -10,6 +10,7 @@ vi.mock('./provider-account-events', () => ({ emitProviderAccountEvent: vi.fn() 
 import { LoopAccountFailover } from './loop-account-failover';
 import { rememberAdapterAccountRoute } from './adapter-account-routes';
 import { ProviderAccountStore } from './provider-account-store';
+import type { AccountQuotaEvidence } from './provider-account-selector';
 
 function profile(id: string, priority: number): ProviderAccountProfile {
   return {
@@ -18,7 +19,10 @@ function profile(id: string, priority: number): ProviderAccountProfile {
   };
 }
 
-function setup(policy: Partial<ReturnType<typeof defaultProviderAccountPools>['codex']> = {}) {
+function setup(
+  policy: Partial<ReturnType<typeof defaultProviderAccountPools>['codex']> = {},
+  quota: Record<string, AccountQuotaEvidence> = {},
+) {
   const pools = defaultProviderAccountPools();
   pools.codex = { ...pools.codex, failoverMode: 'automatic', acknowledgedOwnershipAt: 1, switchCooldownMs: 0, ...policy };
   const store = new ProviderAccountStore({ read: () => ({ profiles: [profile('legacy', 0), profile('pro-b', 1)], pools }) });
@@ -29,7 +33,8 @@ function setup(policy: Partial<ReturnType<typeof defaultProviderAccountPools>['c
     store: () => store,
     cachedBindingState: () => undefined,
     getParkedProfileIds: () => [],
-    getQuotaEvidence: () => null,
+    getParkedSince: () => new Map<string, number>(),
+    getQuotaEvidence: (_provider, id) => quota[id] ?? null,
     notify,
     now: () => clock.now,
   });
@@ -57,6 +62,20 @@ describe('LoopAccountFailover', () => {
     expect(capped.failover.trySwitch({ loopRunId: 'loop-1', provider: 'codex', model: null, iteration: 1, reason: 'x' })).toBe(true);
     // Two profiles → at most one switch per iteration.
     expect(capped.failover.trySwitch({ loopRunId: 'loop-1', provider: 'codex', model: null, iteration: 1, reason: 'x' })).toBe(false);
+  });
+
+  it('moves onto an account that runs only on purchased credits only when the loop may spend them', () => {
+    const quota = { 'pro-b': { weeklyPct: 100, usable: true, creditsOnly: true } };
+    const params = { loopRunId: 'loop-1', provider: 'codex', model: null, iteration: 1, reason: 'x' };
+    const guarded = setup({}, quota);
+    expect(guarded.failover.trySwitch(params)).toBe(false);
+    expect(guarded.recycle).not.toHaveBeenCalled();
+    expect(setup({}, quota).failover.trySwitch({ ...params, allowCredits: true })).toBe(true);
+  });
+
+  it('does not move onto an account whose weekly usage is spent', () => {
+    const h = setup({}, { 'pro-b': { weeklyPct: 100 } });
+    expect(h.failover.trySwitch({ loopRunId: 'loop-1', provider: 'codex', model: null, iteration: 1, reason: 'x' })).toBe(false);
   });
 
   it('ignores loops it has no account record for and clears on teardown', () => {

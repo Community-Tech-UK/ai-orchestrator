@@ -83,6 +83,8 @@ export interface ProviderAccountRoutingDeps {
   bindingService?: ProviderAccountBindingService;
   /** Profile ids with an active limit for this model (ledger). */
   getParkedProfileIds?: (provider: PooledProvider, model: string | null) => string[];
+  /** When each parked profile's newest limit was recorded (ledger); newer usage evidence lifts the park. */
+  getParkedSince?: (provider: PooledProvider, model: string | null) => ReadonlyMap<string, number>;
   getSoonestResumeAt?: (provider: PooledProvider, model: string | null, profileIds: readonly string[]) => number | null;
   getQuotaEvidence?: (provider: PooledProvider, profileId: string) => AccountQuotaEvidence | null;
   now?: () => number;
@@ -243,6 +245,7 @@ export class ProviderAccountRoutingService {
       }));
     }
     const parked = this.readParked(request.provider, model);
+    const parkedSince = parked.length > 0 ? this.readParkedSince(request.provider, model) : undefined;
     const quotaByProfile = new Map<string, AccountQuotaEvidence>();
     for (const profile of profiles) {
       const evidence = this.readQuota(request.provider, profile.id);
@@ -261,6 +264,10 @@ export class ProviderAccountRoutingService {
       origin: request.origin,
       exclude: request.exclude,
       parkedProfileIds: parked,
+      parkedSince,
+      // Unattended work prefers accounts that do not bill purchased credits;
+      // the fallback below still routes to one when nothing else is left.
+      allowCredits: !isAutomaticAccountOrigin(request.origin),
       bindings,
       ignoreBindings: remote,
       quotaByProfile,
@@ -281,8 +288,10 @@ export class ProviderAccountRoutingService {
 
     // Nothing unparked: fall back to the existing behaviour (park until the
     // reset). Route to the signed-in profile whose limit lifts soonest; the
-    // send-path gate holds the turn until then.
-    const parkedButUsable = selectAccount({ ...input, parkedProfileIds: [], thresholdPct: null });
+    // send-path gate holds the turn until then. Usage evidence is ignored
+    // here too: an account the provider reports as out of usage parks on its
+    // first turn and resumes at its reset, rather than refusing the session.
+    const parkedButUsable = selectAccount({ ...input, parkedProfileIds: [], quotaByProfile: undefined, thresholdPct: null });
     if (parkedButUsable.profileId !== null && !request.exclude?.length) {
       const candidates = selection.considered
         .filter((entry) => entry.vetoReason === 'parked' || entry.vetoReason === 'exhausted')
@@ -293,7 +302,7 @@ export class ProviderAccountRoutingService {
 
     const reasons = new Set(selection.considered.map((entry) => entry.vetoReason));
     const label = pooledProviderLabel(request.provider);
-    const outcome = reasons.has('parked') || reasons.has('exhausted')
+    const outcome = reasons.has('parked') || reasons.has('exhausted') || reasons.has('credits-only')
       ? failure('all-profiles-parked', `Every ${label} account in the pool has hit its usage limit.`)
       : reasons.has('unbound')
         ? failure('profile-unauthenticated', `No enabled ${label} account is signed in. Verify or sign in to an account in Settings → Accounts.`)
@@ -322,6 +331,14 @@ export class ProviderAccountRoutingService {
         error: error instanceof Error ? error.message : String(error),
       });
       return [];
+    }
+  }
+
+  private readParkedSince(provider: PooledProvider, model: string | null): ReadonlyMap<string, number> | undefined {
+    try {
+      return this.deps.getParkedSince?.(provider, model);
+    } catch {
+      return undefined;
     }
   }
 
@@ -382,6 +399,7 @@ export function getProviderAccountRoutingService(): ProviderAccountRoutingServic
   if (!instance) {
     instance = new ProviderAccountRoutingService({
       getParkedProfileIds: (provider, model) => getProviderLimitLedgerPort().getParkedProfileIds({ provider, model }),
+      getParkedSince: (provider, model) => getProviderLimitLedgerPort().getParkedSince({ provider, model }),
       getSoonestResumeAt: (provider, model, profileIds) =>
         getProviderLimitLedgerPort().getSoonestResumeAt({ provider, model, profileIds }),
       getQuotaEvidence: (provider, profileId) => readAccountQuotaEvidence(provider, profileId),

@@ -69,6 +69,11 @@ export const ProviderQuotaSnapshotEventSchema = z.object({
   needsReauth: z.boolean().optional(),
   cliNotInstalled: z.boolean().optional(),
   windows: z.array(ProviderQuotaWindowSchema).max(100),
+  usageAccess: z.object({
+    ordinaryUsageAllowed: z.boolean().nullable(),
+    creditsAvailable: z.boolean().nullable(),
+    observedAt: z.number().int().nonnegative().optional(),
+  }).strict().optional(),
   plan: z.string().max(200).optional(),
   /**
    * Set for account-pool profile snapshots (non-legacy Claude/Codex

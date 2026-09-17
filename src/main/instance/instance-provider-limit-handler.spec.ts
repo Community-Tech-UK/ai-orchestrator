@@ -529,6 +529,18 @@ describe('InstanceProviderLimitHandler early-resume quota probe', () => {
     expect(h.resends).toEqual([{ instanceId: 'i1', prompt: 'resend me' }]);
   });
 
+  it('resumes early on a topped-up account whose plan window is still spent', async () => {
+    const probe = vi.fn(async () => ({
+      ...makeSnapshot('codex', [{ used: 100, limit: 100, resetsAt: Date.now() + FAR_FUTURE }]),
+      usageAccess: { ordinaryUsageAllowed: false, creditsAvailable: true },
+    }));
+    const h = parkWithProbe(probe);
+
+    await vi.advanceTimersByTimeAsync(EARLY_RESUME_PROBE_MS + 5);
+    expect(h.resends).toEqual([{ instanceId: 'i1', prompt: 'resend me' }]);
+    expect(h.handler.isParked('i1')).toBe(false);
+  });
+
   it('treats a failed or error probe as still limited', async () => {
     const probe = vi.fn(async () => null);
     const h = parkWithProbe(probe);

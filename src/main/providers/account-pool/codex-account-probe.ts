@@ -127,5 +127,5 @@ async function runProbe(
 /** Quota snapshot from a probe result, for the per-profile quota service entry. */
 export function codexProbeQuotaSnapshot(result: CodexAccountProbeResult): Omit<ProviderQuotaSnapshot, 'takenAt' | 'source'> | null {
   if (!result.rateLimits) return null;
-  return codexQuotaSnapshot(result.rateLimits);
+  return codexQuotaSnapshot(result.rateLimits, result.ordinaryUsageAllowed);
 }

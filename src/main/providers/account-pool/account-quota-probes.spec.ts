@@ -53,6 +53,15 @@ describe('account quota probes', () => {
     await throttled.probe({ signal });
     expect(inner.probe).toHaveBeenCalledTimes(2);
   });
+
+  it('runs a forced probe inside the throttle interval', async () => {
+    const inner = { provider: 'codex' as const, accountProfileId: 'pro-b', probe: vi.fn(async () => null) };
+    const throttled = new ThrottledAccountQuotaProbe(inner, () => 120_000, () => 1_000);
+    const signal = new AbortController().signal;
+    await throttled.probe({ signal });
+    await throttled.probe({ signal, force: true });
+    expect(inner.probe).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('ClaudeCredentialsReader for a profile config dir', () => {

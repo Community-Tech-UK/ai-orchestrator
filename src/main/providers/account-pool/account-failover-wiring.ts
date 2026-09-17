@@ -6,6 +6,7 @@
 
 import type { DesiredRuntime, Instance } from '../../../shared/types/instance.types';
 import { getProviderLimitLedgerPort } from '../../core/system/provider-limit-ledger';
+import { getProviderQuotaService } from '../../core/system/provider-quota-service';
 import { getNotificationService } from '../../notifications/notification-service';
 import {
   configureAccountFailoverCoordinator,
@@ -27,7 +28,11 @@ export function createAccountFailoverCoordinator(deps: {
     store: getProviderAccountStore,
     bindings: getProviderAccountBindingService,
     getParkedProfileIds: (provider, model) => getProviderLimitLedgerPort().getParkedProfileIds({ provider, model }),
+    getParkedSince: (provider, model) => getProviderLimitLedgerPort().getParkedSince({ provider, model }),
     getQuotaEvidence: readAccountQuotaEvidence,
+    refreshQuotaEvidence: async (provider, profileId) => {
+      await getProviderQuotaService().refresh(provider, profileId, { force: true });
+    },
     notify: (input) => {
       getNotificationService().notify({ ...input, urgency: 'normal' });
     },

@@ -12,6 +12,7 @@ vi.mock('./account-quota-evidence', () => ({ readAccountQuotaEvidence: vi.fn(() 
 import { ProviderAccountStore } from './provider-account-store';
 import { ProviderAccountRoutingService } from './provider-account-routing-service';
 import type { ProviderAccountBindingService } from './provider-account-binding-service';
+import type { AccountQuotaEvidence } from './provider-account-selector';
 
 function profile(id: string, priority: number, overrides: Partial<ProviderAccountProfile> = {}): ProviderAccountProfile {
   return {
@@ -23,6 +24,7 @@ function profile(id: string, priority: number, overrides: Partial<ProviderAccoun
 let profiles: ProviderAccountProfile[];
 let bindingStates: Record<string, AccountBindingStatus['state']>;
 let parked: string[];
+let quota: Record<string, AccountQuotaEvidence>;
 const checkBinding = vi.fn(async (entry: ProviderAccountProfile) => ({
   provider: entry.provider, profileId: entry.id, nodeId: 'local', state: bindingStates[entry.id] ?? 'authenticated', checkedAt: 1,
 }) as AccountBindingStatus);
@@ -38,6 +40,7 @@ function service(): ProviderAccountRoutingService {
     bindingService: { checkBinding, invalidate: vi.fn() } as unknown as ProviderAccountBindingService,
     getParkedProfileIds: () => parked,
     getSoonestResumeAt: (_provider, _model, ids) => (ids[0] === 'max-b' ? 1000 : 5000),
+    getQuotaEvidence: (_provider, id) => quota[id] ?? null,
   });
 }
 
@@ -45,6 +48,7 @@ beforeEach(() => {
   profiles = [profile('legacy', 0), profile('max-b', 1)];
   bindingStates = {};
   parked = [];
+  quota = {};
   checkBinding.mockClear();
 });
 
@@ -88,6 +92,24 @@ describe('ProviderAccountRoutingService', () => {
 
   it('routes to the soonest reset when every signed-in profile is parked', async () => {
     parked = ['legacy', 'max-b'];
+    const outcome = await service().resolveRouteForSpawn({ provider: 'claude', origin: 'interactive' });
+    expect(outcome).toMatchObject({ ok: true, route: { profileId: 'max-b' } });
+  });
+
+  it('steers a new session to plan usage first, and onto purchased credits only for attended work', async () => {
+    quota = { legacy: { weeklyPct: 100, usable: true, creditsOnly: true } };
+    await expect(service().resolveRouteForSpawn({ provider: 'claude', origin: 'interactive' }))
+      .resolves.toMatchObject({ ok: true, route: { profileId: 'max-b' } });
+    quota['max-b'] = { weeklyPct: 100, usable: false };
+    await expect(service().resolveRouteForSpawn({ provider: 'claude', origin: 'interactive' }))
+      .resolves.toMatchObject({ ok: true, route: { profileId: 'legacy' } });
+    // Unattended work is not put on credits; it lands on the soonest reset and parks there.
+    await expect(service().resolveRouteForSpawn({ provider: 'claude', origin: 'automation' }))
+      .resolves.toMatchObject({ ok: true, route: { profileId: 'max-b' } });
+  });
+
+  it('still routes a new session when every account reports its usage spent, rather than refusing it', async () => {
+    quota = { legacy: { weeklyPct: 100, usable: false }, 'max-b': { weeklyPct: 100, usable: false } };
     const outcome = await service().resolveRouteForSpawn({ provider: 'claude', origin: 'interactive' });
     expect(outcome).toMatchObject({ ok: true, route: { profileId: 'max-b' } });
   });

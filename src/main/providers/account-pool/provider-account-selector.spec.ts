@@ -72,6 +72,43 @@ describe('selectAccount', () => {
     expect(selectAccount(input({ profiles: tied, lastUsedAt })).profileId).toBe('b');
   });
 
+  it('vetoes a spent weekly window, and an account the provider says cannot run, as exhausted', () => {
+    const weekly = selectAccount(input({ quotaByProfile: new Map([['legacy', { weeklyPct: 100 }]]) }));
+    expect(weekly.considered).toEqual([{ profileId: 'legacy', vetoReason: 'exhausted' }]);
+    const refused = selectAccount(input({ quotaByProfile: new Map([['legacy', { fiveHourPct: 3, weeklyPct: 20, usable: false }]]) }));
+    expect(refused.considered).toEqual([{ profileId: 'legacy', vetoReason: 'exhausted' }]);
+  });
+
+  it('counts purchased credits as usage left, unless credits are disallowed', () => {
+    const quotaByProfile = new Map([['legacy', { weeklyPct: 100, usable: true, creditsOnly: true }]]);
+    expect(selectAccount(input({ quotaByProfile })).profileId).toBe('legacy');
+    const noCredits = selectAccount(input({ quotaByProfile, allowCredits: false }));
+    expect(noCredits.profileId).toBe('max-b');
+    expect(noCredits.considered).toEqual([{ profileId: 'legacy', vetoReason: 'credits-only' }]);
+  });
+
+  it('never moves pre-emptively onto an account that would bill credits', () => {
+    const quotaByProfile = new Map([['legacy', { fiveHourPct: 0, weeklyPct: 100, usable: true, creditsOnly: true }]]);
+    expect(selectAccount(input({ quotaByProfile, thresholdPct: 90 })).considered)
+      .toEqual([{ profileId: 'legacy', vetoReason: 'over-threshold' }]);
+  });
+
+  it('lifts a park only on a usable verdict observed after the limit was recorded', () => {
+    const parked = { parkedProfileIds: ['legacy'], parkedSince: new Map([['legacy', 1_000]]) };
+    const at = (observedAt: number, extra: Record<string, unknown> = {}) =>
+      new Map([['legacy', { weeklyPct: 100, usable: true, creditsOnly: true, observedAt, ...extra }]]);
+    expect(selectAccount(input({ ...parked, quotaByProfile: at(900) })).considered)
+      .toEqual([{ profileId: 'legacy', vetoReason: 'parked' }]);
+    expect(selectAccount(input({ ...parked, quotaByProfile: at(1_100) })).profileId).toBe('legacy');
+    // Without the park time a park always holds; without a verdict windows never lift it.
+    expect(selectAccount(input({ parkedProfileIds: ['legacy'], quotaByProfile: at(1_100) })).profileId).toBe('max-b');
+    expect(selectAccount(input({ ...parked, quotaByProfile: new Map([['legacy', { weeklyPct: 10, observedAt: 1_100 }]]) })).profileId)
+      .toBe('max-b');
+    // A credits-only verdict does not lift a park for work that may not spend credits.
+    expect(selectAccount(input({ ...parked, quotaByProfile: at(1_100), allowCredits: false })).considered)
+      .toEqual([{ profileId: 'legacy', vetoReason: 'parked' }]);
+  });
+
   it('reports every veto when nothing is eligible', () => {
     const result = selectAccount(input({ parkedProfileIds: ['legacy', 'max-b', 'max-c'] }));
     expect(result.profileId).toBeNull();

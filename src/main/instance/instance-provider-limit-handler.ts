@@ -8,6 +8,7 @@ import type {
 } from '../providers/account-pool/account-failover-coordinator';
 import { accountFailoverNote, type AccountFailoverNote } from './account-failover-notes';
 import { isPooledProvider } from '../../shared/types/provider-account.types';
+import { clearLimitLiftedSinceRecorded, snapshotShowsLimitLifted } from './provider-limit-lift';
 import {
   scheduleInstanceProviderLimitResume,
   type InstanceProviderLimitResumeRequest,
@@ -61,8 +62,13 @@ export interface InstanceProviderLimitHandlerDeps {
    * ProviderQuotaService.refresh().
    */
   probeQuotaSnapshot?: (provider: ProviderId, accountProfileId?: string | null) => Promise<ProviderQuotaSnapshot | null>;
-  /** Durable cross-instance provider-limit cache. Injectable for focused tests. */
-  providerLimitLedger?: Pick<ProviderLimitLedger, 'record' | 'getActive' | 'clearActive'>;
+  /**
+   * Durable cross-instance provider-limit cache. Injectable for focused tests.
+   * With `getParkedSince`, a recorded limit that newer usage evidence
+   * contradicts (credits bought, reset credit applied) stops holding sends.
+   */
+  providerLimitLedger?: Pick<ProviderLimitLedger, 'record' | 'getActive' | 'clearActive'>
+    & Partial<Pick<ProviderLimitLedger, 'getParkedSince'>>;
   /**
    * Account-pool failover (spec §8.2). Consulted after the ledger row is recorded for
    * the exhausted profile and before `park()`: a switch leaves no park state.
@@ -265,6 +271,9 @@ export class InstanceProviderLimitHandler {
       now: Date.now(),
     }) ?? null;
     if (!knownLimit) return this.maybeSwitchPreemptively(params, providerId, accountProfileId);
+    if (this.clearLimitLiftedSinceRecorded(params, providerId, accountProfileId)) {
+      return this.maybeSwitchPreemptively(params, providerId, accountProfileId);
+    }
 
     // This session's account is known-limited but another account of the pool
     // may not be: switch before sending instead of holding the turn.
@@ -277,6 +286,32 @@ export class InstanceProviderLimitHandler {
     const parked = this.park(params, providerId, knownLimit.resumeAt);
     if (failoverParams && plan?.kind === 'offer') deps.accountFailover?.offer(failoverParams, plan.toProfileId);
     return parked;
+  }
+
+  /** A recorded limit newer quota evidence contradicts stops holding the send (see provider-limit-lift.ts). */
+  private clearLimitLiftedSinceRecorded(params: MaybeParkKnownParams, provider: ProviderId, accountProfileId: string | null): boolean {
+    const deps = this.deps;
+    if (!deps?.providerLimitLedger) return false;
+    try {
+      const lifted = clearLimitLiftedSinceRecorded({
+        ledger: deps.providerLimitLedger,
+        snapshot: deps.getQuotaSnapshot(provider, accountProfileId),
+        provider,
+        model: params.model ?? null,
+        accountProfileId,
+      });
+      if (!lifted) return false;
+      logger.info('Provider reports usage available since the recorded limit; cleared the stale gate and sending', {
+        instanceId: params.instanceId, provider, accountProfileId, ...lifted,
+      });
+      return true;
+    } catch (error) {
+      logger.debug('Could not check a recorded limit against usage evidence', {
+        instanceId: params.instanceId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
   }
 
   /** Spec §8.4: move a live session at a turn boundary before its account runs out. */
@@ -642,7 +677,8 @@ export class InstanceProviderLimitHandler {
 
       void probe(providerId, accountProfileId)
         .then((snapshot) => {
-          if (!this.parked.has(instanceId) || !snapshotShowsLimitLifted(snapshot)) return;
+          // An interactive session may continue on purchased credits: the user bought them to keep going.
+          if (!this.parked.has(instanceId) || !snapshotShowsLimitLifted(snapshot, { acceptCredits: true })) return;
           logger.info('Provider limit lifted early per fresh quota probe; resuming parked session now', {
             instanceId,
             provider: providerId,
@@ -696,18 +732,6 @@ export class InstanceProviderLimitHandler {
     this.skipPreemptiveOnce.clear();
     this.deps = null;
   }
-}
-
-/**
- * A parked limit counts as lifted only when a fresh, successful snapshot
- * reports headroom on EVERY window (a reset credit zeroes the exhausted
- * window; other windows may still be pinned). An errored/absent snapshot or
- * one with no windows proves nothing and keeps the park. Shared with the
- * loop-side early-resume probe (loop-provider-limit-handler.ts).
- */
-export function snapshotShowsLimitLifted(snapshot: ProviderQuotaSnapshot | null): boolean {
-  if (!snapshot || !snapshot.ok || snapshot.windows.length === 0) return false;
-  return snapshot.windows.every((w) => w.limit <= 0 || w.used < w.limit);
 }
 
 function toProviderId(provider: InstanceProvider): ProviderId | null {

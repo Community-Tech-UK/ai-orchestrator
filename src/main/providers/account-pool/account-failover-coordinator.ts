@@ -9,10 +9,16 @@
  *    decides whether a switch should be attempted at all, so the funnel can
  *    answer the adapter's turn without awaiting. It never picks the target.
  *  - `perform()` is async: under a per-provider lock it re-reads the ledger,
- *    verifies bindings, selects the target, applies a `DesiredRuntime` with
+ *    verifies bindings, re-checks the signed-in candidates' usage with the
+ *    provider (bounded; the cached numbers can be 15 minutes old), selects the
+ *    target, applies a `DesiredRuntime` with
  *    `accountHandoffKind: 'failover'` through the runtime reconciler, and
  *    re-sends the throttled turn once. With no candidate it hands back to the
  *    caller's park.
+ *
+ * A target must have usage left, and purchased credits count: a session is
+ * only ever moved by the user's own choice or an acknowledged automatic pool,
+ * and the CLI would spend the credits on the next turn anyway.
  *
  * Guardrails: failover mode, the ownership acknowledgement, a per-turn switch
  * cap (also bounded by profile count - 1), the switch cooldown, one decision
@@ -46,6 +52,8 @@ const STORM_STEP_MS = 250;
 const STORM_MAX_DELAY_MS = 5_000;
 const IDLE_WAIT_MS = 5_000;
 const IDLE_POLL_MS = 50;
+/** Upper bound on the pre-switch usage re-check; past it the cached evidence decides. */
+export const FRESH_QUOTA_TIMEOUT_MS = 12_000;
 /** Turns re-sent by switches, remembered per instance so a duplicate report of one adds no note. */
 const DELIVERED_PROMPT_MEMORY = 16;
 /** A report matches a re-sent turn only this soon after it; identical text later is a new turn. */
@@ -94,7 +102,11 @@ export interface AccountFailoverDeps {
   store: () => ProviderAccountStore;
   bindings: () => ProviderAccountBindingService;
   getParkedProfileIds: (provider: PooledProvider, model: string | null) => string[];
+  /** When each parked profile's newest limit was recorded; lets newer usage evidence lift a stale park. */
+  getParkedSince?: (provider: PooledProvider, model: string | null) => ReadonlyMap<string, number>;
   getQuotaEvidence: (provider: PooledProvider, profileId: string) => AccountQuotaEvidence | null;
+  /** Ask the provider for a profile's current usage, bypassing probe throttling. Failures are ignored. */
+  refreshQuotaEvidence?: (provider: PooledProvider, profileId: string) => Promise<void>;
   getInstance: (instanceId: string) => Instance | undefined;
   applyRuntimeChange: (instanceId: string, desired: DesiredRuntime) => Promise<Instance>;
   resendInput: (instanceId: string, prompt: string) => void;
@@ -250,7 +262,8 @@ export class AccountFailoverCoordinator {
       .map(async (profile) => {
         bindingStates.set(profile.id, (await this.deps.bindings().checkBinding(profile)).state);
       }));
-    const selection = this.select(params, profiles, { bindingStates });
+    const cachedQuota = await this.refreshCandidateQuota(params, profiles, bindingStates);
+    const selection = this.select(params, profiles, { bindingStates, cachedQuota });
     if (selection.profileId === null) {
       this.emitExhausted(params);
       return { outcome: 'not-switched', reason: 'no-candidate', considered: selection.considered };
@@ -321,6 +334,52 @@ export class AccountFailoverCoordinator {
     return { outcome: 'switched', toProfileId, continuity };
   }
 
+  /**
+   * Fresh usage for the signed-in candidates, so a switch never lands on an
+   * account that ran out since the last poll. Returns the evidence held
+   * before the re-check: a failed probe replaces the stored snapshot with an
+   * error, and that must not erase what was already known.
+   */
+  private async refreshCandidateQuota(
+    params: AccountFailoverParams,
+    profiles: ProviderAccountProfile[],
+    bindingStates: ReadonlyMap<string, AccountBindingState>,
+  ): Promise<Map<string, AccountQuotaEvidence>> {
+    const cachedQuota = this.readQuota(params.provider, profiles);
+    const refresh = this.deps.refreshQuotaEvidence;
+    if (!refresh) return cachedQuota;
+    const candidates = profiles.filter((profile) => profile.enabled
+      && profile.id !== params.exhaustedProfileId
+      && bindingStates.get(profile.id) === 'authenticated');
+    if (candidates.length === 0) return cachedQuota;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, FRESH_QUOTA_TIMEOUT_MS);
+      timer.unref?.();
+    });
+    const refreshes = Promise.all(candidates.map((profile) =>
+      refresh(params.provider, profile.id).catch(() => undefined)));
+    try {
+      await Promise.race([refreshes, timeout]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    return cachedQuota;
+  }
+
+  private readQuota(provider: PooledProvider, profiles: ProviderAccountProfile[]): Map<string, AccountQuotaEvidence> {
+    const quotaByProfile = new Map<string, AccountQuotaEvidence>();
+    for (const profile of profiles) {
+      try {
+        const evidence = this.deps.getQuotaEvidence(provider, profile.id);
+        if (evidence) quotaByProfile.set(profile.id, evidence);
+      } catch {
+        // Quota evidence is advisory.
+      }
+    }
+    return quotaByProfile;
+  }
+
   private isMovedOff(params: AccountFailoverParams): boolean {
     const current = this.deps.getInstance(params.instanceId);
     return current !== undefined && (current.accountProfileId ?? LEGACY_ACCOUNT_PROFILE_ID) !== params.exhaustedProfileId;
@@ -356,7 +415,12 @@ export class AccountFailoverCoordinator {
   private select(
     params: AccountFailoverParams,
     profiles: ProviderAccountProfile[],
-    options: { useCachedBindings?: boolean; bindingStates?: Map<string, AccountBindingState> },
+    options: {
+      useCachedBindings?: boolean;
+      bindingStates?: Map<string, AccountBindingState>;
+      /** Evidence to fall back on for a profile whose stored snapshot no longer yields any (a failed re-check). */
+      cachedQuota?: ReadonlyMap<string, AccountQuotaEvidence>;
+    },
   ): ReturnType<typeof selectAccount> {
     const bindingStates = options.bindingStates ?? new Map<string, AccountBindingState>();
     if (options.useCachedBindings) {
@@ -371,14 +435,15 @@ export class AccountFailoverCoordinator {
     } catch {
       parked = [];
     }
-    const quotaByProfile = new Map<string, AccountQuotaEvidence>();
-    for (const profile of profiles) {
-      try {
-        const evidence = this.deps.getQuotaEvidence(params.provider, profile.id);
-        if (evidence) quotaByProfile.set(profile.id, evidence);
-      } catch {
-        // Quota evidence is advisory.
-      }
+    let parkedSince: ReadonlyMap<string, number> | undefined;
+    try {
+      parkedSince = this.deps.getParkedSince?.(params.provider, params.model);
+    } catch {
+      parkedSince = undefined;
+    }
+    const quotaByProfile = this.readQuota(params.provider, profiles);
+    for (const [profileId, evidence] of options.cachedQuota ?? []) {
+      if (!quotaByProfile.has(profileId)) quotaByProfile.set(profileId, evidence);
     }
     const lastUsedAt = new Map<string, number>();
     for (const [key, at] of this.lastUsedAt) {
@@ -398,6 +463,8 @@ export class AccountFailoverCoordinator {
       origin,
       exclude: [params.exhaustedProfileId],
       parkedProfileIds: parked,
+      parkedSince,
+      allowCredits: true,
       bindings: bindingStates,
       quotaByProfile,
       lastUsedAt,

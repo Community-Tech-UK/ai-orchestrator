@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   classifyCodexWindow,
   codexLimitResetAt,
+  codexQuotaSnapshot,
   codexRateLimitsToQuotaWindows,
   mergeCodexRateLimitSnapshots,
   parseCodexAccountRateLimitsRead,
@@ -51,6 +52,35 @@ describe('Codex account rate limits', () => {
     const merged = mergeCodexRateLimitSnapshots(previous, update);
     expect(merged.primary?.usedPercent).toBe(60);
     expect(merged.secondary?.usedPercent).toBe(5);
+  });
+
+  it('reads credits availability and reports usage access on the snapshot', () => {
+    // Shapes from real `account/rateLimits/read` responses: a topped-up Pro account and an empty Pro Lite one.
+    const toppedUp = parseCodexAccountRateLimitsRead({
+      ordinaryUsageAllowed: false,
+      rateLimits: {
+        primary: { usedPercent: 100, windowDurationMins: 10080, resetsAt: 2_000 },
+        secondary: null,
+        credits: { hasCredits: true, unlimited: false, balance: '2500.0000000000' },
+        spendControlReached: false,
+        rateLimitReachedType: 'rate_limit_reached',
+      },
+    });
+    expect(toppedUp.rateLimits?.creditsAvailable).toBe(true);
+    expect(codexQuotaSnapshot(toppedUp.rateLimits!, toppedUp.ordinaryUsageAllowed).usageAccess)
+      .toEqual({ ordinaryUsageAllowed: false, creditsAvailable: true });
+
+    const empty = parseCodexRateLimitSnapshot({ credits: { hasCredits: false, unlimited: false, balance: '0' } });
+    expect(empty?.creditsAvailable).toBe(false);
+    expect(parseCodexRateLimitSnapshot({ credits: { unlimited: true }, spendControlReached: true })?.creditsAvailable).toBe(false);
+    expect(parseCodexRateLimitSnapshot({ primary: null })?.creditsAvailable).toBeNull();
+    expect(codexQuotaSnapshot(parseCodexRateLimitSnapshot({ primary: null })!).usageAccess).toBeUndefined();
+  });
+
+  it('keeps the last known credits availability across a sparse update', () => {
+    const previous = parseCodexRateLimitSnapshot({ credits: { hasCredits: true, unlimited: false } });
+    const update = parseCodexRateLimitSnapshot({ primary: { usedPercent: 100, windowDurationMins: 10080, resetsAt: 1 } })!;
+    expect(mergeCodexRateLimitSnapshots(previous, update).creditsAvailable).toBe(true);
   });
 
   it('field-picks identity and ignores malformed payloads', () => {

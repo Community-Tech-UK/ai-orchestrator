@@ -67,7 +67,11 @@ export interface ProviderQuotaProbe {
    * warning, exhausted or pacing alerts (e.g. a disabled pool account).
    */
   readonly silenceAlerts?: boolean;
-  probe(opts: { signal: AbortSignal }): Promise<ProviderQuotaSnapshot | null>;
+  /**
+   * `force` asks a throttled probe to run now anyway: a decision (an account
+   * switch) is about to act on the answer.
+   */
+  probe(opts: { signal: AbortSignal; force?: boolean }): Promise<ProviderQuotaSnapshot | null>;
 }
 
 /**
@@ -194,8 +198,12 @@ export class ProviderQuotaService extends EventEmitter {
     this.storeSnapshot(provider, full, accountProfileId);
   }
 
-  /** Active path: invoke the registered probe. */
-  async refresh(provider: ProviderId, accountProfileId?: string | null): Promise<ProviderQuotaSnapshot | null> {
+  /** Active path: invoke the registered probe. `force` bypasses a probe's own throttle. */
+  async refresh(
+    provider: ProviderId,
+    accountProfileId?: string | null,
+    opts: { force?: boolean } = {},
+  ): Promise<ProviderQuotaSnapshot | null> {
     if (this.isPaused || getPauseCoordinator().isPaused()) {
       return null;
     }
@@ -240,7 +248,7 @@ export class ProviderQuotaService extends EventEmitter {
     this.activeAborters.add(ac);
     try {
       const result = await retryWithBackoff(
-        () => probe.probe({ signal: ac.signal }),
+        () => probe.probe({ signal: ac.signal, ...(opts.force ? { force: true } : {}) }),
         {
           attempts: QUOTA_PROBE_ATTEMPTS,
           signal: ac.signal,

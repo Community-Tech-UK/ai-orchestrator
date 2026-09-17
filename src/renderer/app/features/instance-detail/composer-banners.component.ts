@@ -2,7 +2,9 @@
  * Composer banner cluster — session-state bars that gate the composer, so
  * they render directly above it:
  *
- * - Provider quota park (WS7 Phase B): resume-now / cancel / switch-provider.
+ * - Provider quota park (WS7 Phase B): resume-now / cancel / switch-provider /
+ *   switch-account (same-provider account pool, e.g. move off a limited
+ *   Codex account onto a sibling one that was just topped up).
  * - Hardened (Seatbelt) denial (WS13 slice 3): the allow-and-retry lever —
  *   grant one absolute path as a writable root and restart into the rebuilt
  *   jail. Never disables the sandbox.
@@ -18,9 +20,11 @@ import {
 } from '@angular/core';
 import { InstanceIpcService } from '../../core/services/ipc/instance-ipc.service';
 import { ProviderIpcService } from '../../core/services/ipc/provider-ipc.service';
+import { ProviderAccountIpcService, type ProviderAccountView } from '../../core/services/ipc/provider-account-ipc.service';
 import { InstanceStore } from '../../core/state/instance.store';
 import type { InstanceStatus } from '../../core/state/instance/instance.types';
 import type { InstanceWaitReason } from '../../../../shared/types/instance.types';
+import { isPooledProvider } from '../../../../shared/types/provider-account.types';
 import { formatQuotaParkCountdown } from './input-panel-formatters';
 
 @Component({
@@ -50,6 +54,20 @@ import { formatQuotaParkCountdown } from './input-panel-formatters';
             title="Move this conversation to the next configured fallback provider instead of waiting"
             (click)="onFailoverNow()"
           >Switch provider</button>
+        }
+        @if (accountSwitchOptions().length > 0) {
+          <select
+            class="quota-park-account-select"
+            aria-label="Switch this session to another Claude or Codex account"
+            title="Move this conversation to a different account for the same provider (e.g. one you just topped up)"
+            [disabled]="accountSwitchBusy()"
+            (change)="onSwitchAccount($event)"
+          >
+            <option value="" selected disabled>Switch account…</option>
+            @for (account of accountSwitchOptions(); track account.id) {
+              <option [value]="account.id">{{ account.label }}</option>
+            }
+          </select>
         }
       </div>
     }
@@ -152,6 +170,16 @@ import { formatQuotaParkCountdown } from './input-panel-formatters';
         }
       }
 
+      .quota-park-account-select {
+        font-size: 11px;
+        padding: 2px 6px;
+        border-radius: 5px;
+        border: 1px solid var(--border-color, rgba(255, 255, 255, 0.14));
+        background: transparent;
+        color: var(--text-secondary);
+        cursor: pointer;
+      }
+
       .hardened-path-input {
         flex: 1;
         min-width: 160px;
@@ -190,6 +218,7 @@ import { formatQuotaParkCountdown } from './input-panel-formatters';
 export class ComposerBannersComponent {
   private instanceIpc = inject(InstanceIpcService);
   private providerIpc = inject(ProviderIpcService);
+  private providerAccountIpc = inject(ProviderAccountIpcService);
   private instanceStore = inject(InstanceStore);
 
   instanceId = input.required<string>();
@@ -315,6 +344,58 @@ export class ComposerBannersComponent {
 
   onFailoverNow(): void {
     void this.instanceIpc.instanceFailoverNow(this.instanceId());
+  }
+
+  /**
+   * Same-provider account switch while parked, e.g. moving off a Codex
+   * account that's still limited onto a sibling one that was just topped
+   * up. This is the in-session-window equivalent of the account chip in the
+   * header, surfaced right where the user is already looking for a way out.
+   */
+  private readonly accountsSignal = signal<ProviderAccountView[]>([]);
+  private accountsLoadGeneration = 0;
+  private readonly accountsLoader = effect(() => {
+    const park = this.quotaPark();
+    const provider = park?.provider;
+    if (!provider || !isPooledProvider(provider)) {
+      this.accountsLoadGeneration += 1;
+      this.accountsSignal.set([]);
+      return;
+    }
+    const generation = ++this.accountsLoadGeneration;
+    void this.providerAccountIpc.list(provider).then(
+      ({ profiles }) => {
+        if (generation === this.accountsLoadGeneration) this.accountsSignal.set(profiles);
+      },
+      () => {
+        if (generation === this.accountsLoadGeneration) this.accountsSignal.set([]);
+      },
+    );
+  });
+
+  readonly accountSwitchOptions = computed(() => {
+    if (!this.quotaPark()) return [];
+    const inst = this.instanceStore.getInstance(this.instanceId());
+    const currentProfileId = inst?.accountProfileId ?? 'legacy';
+    return this.accountsSignal().filter((account) => account.enabled && account.id !== currentProfileId);
+  });
+
+  readonly accountSwitchBusy = signal(false);
+
+  async onSwitchAccount(event: Event): Promise<void> {
+    const target = event.target as HTMLSelectElement;
+    const profileId = target.value;
+    target.value = '';
+    if (!profileId || this.accountSwitchBusy()) return;
+    this.accountSwitchBusy.set(true);
+    try {
+      const response = await this.providerAccountIpc.switchSession(this.instanceId(), profileId);
+      if (!response.success) {
+        this.instanceStore.setError(response.error?.message ?? 'The account could not be switched.');
+      }
+    } finally {
+      this.accountSwitchBusy.set(false);
+    }
   }
 
   /** WS13 slice 3 — hardened session died; offer the allow-and-retry lever. */

@@ -8,6 +8,8 @@ import Database from 'better-sqlite3';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { ProviderLimitLedger, createProviderLimitLedgerSchema } from '../core/system/provider-limit-ledger';
 import { InstanceProviderLimitHandler, ASSUMED_ACCOUNT_LIMIT_MS } from './instance-provider-limit-handler';
+import { snapshotShowsLimitLifted } from './provider-limit-lift';
+import type { ProviderQuotaSnapshot } from '../../shared/types/provider-quota.types';
 import type { AccountFailoverOutcome, AccountFailoverParams, AccountFailoverPlan } from '../providers/account-pool/account-failover-coordinator';
 
 function setup(plan: AccountFailoverPlan, outcome: AccountFailoverOutcome, parkEnabled = true) {
@@ -154,6 +156,90 @@ describe('InstanceProviderLimitHandler account failover', () => {
     h.handler.release('i1');
     expect(h.released).toEqual(['i1']);
     h.db.close();
+  });
+});
+
+describe('InstanceProviderLimitHandler stale known-limit gate', () => {
+  function gated(snapshot: ProviderQuotaSnapshot | null) {
+    const db = new Database(':memory:') as unknown as SqliteDriver;
+    createProviderLimitLedgerSchema(db);
+    const ledger = new ProviderLimitLedger(db);
+    const handler = new InstanceProviderLimitHandler();
+    const perform = vi.fn();
+    handler.configure({
+      isEnabled: () => true,
+      setWaitReason: vi.fn(),
+      resendInput: vi.fn(),
+      getQuotaSnapshot: () => snapshot,
+      getWorkspaceCwd: () => '/w',
+      scheduleResume: () => () => undefined,
+      providerLimitLedger: ledger,
+      accountFailover: {
+        plan: () => ({ kind: 'none', reason: 'no-candidate' }),
+        perform,
+        offer: vi.fn(),
+        release: vi.fn(),
+        shouldSwitchPreemptively: () => false,
+      },
+    });
+    return { handler, ledger, db };
+  }
+
+  const codex = { ...base, provider: 'codex' as const, accountProfileId: 'legacy' };
+  const toppedUp = (takenAt: number): ProviderQuotaSnapshot => ({
+    provider: 'codex', takenAt, source: 'admin-api', ok: true,
+    windows: [{ kind: 'rolling-window', id: 'codex.weekly', label: 'Weekly', unit: 'percent', used: 100, limit: 100, remaining: 0, resetsAt: null }],
+    usageAccess: { ordinaryUsageAllowed: false, creditsAvailable: true },
+  });
+
+  it('sends instead of parking when credits were seen after the limit was recorded, and clears the gate', () => {
+    const recordedAt = Date.now() - 10_000;
+    const h = gated(toppedUp(recordedAt + 5_000));
+    h.ledger.record({ provider: 'codex', model: null, accountProfileId: 'legacy', detectedAt: recordedAt, resumeAt: Date.now() + 86_400_000, source: 't', instanceId: null });
+    expect(h.handler.maybeParkKnown(codex)).toBe('skipped');
+    expect(h.handler.isParked('i1')).toBe(false);
+    expect(h.ledger.getActive({ provider: 'codex', model: null, accountProfileId: 'legacy' })).toBeNull();
+    h.db.close();
+  });
+
+  it('does not clear a newer model limit that the credits evidence predates', () => {
+    const now = Date.now();
+    const h = gated(toppedUp(now - 5_000));
+    h.ledger.record({ provider: 'codex', model: null, accountProfileId: 'legacy', detectedAt: now - 10_000, resumeAt: now + 86_400_000, source: 't', instanceId: null });
+    h.ledger.record({ provider: 'codex', model: 'gpt-6-astra', accountProfileId: 'legacy', detectedAt: now - 1_000, resumeAt: now + 86_400_000, source: 't', instanceId: null });
+    expect(h.handler.maybeParkKnown(codex)).toBe('parked');
+    expect(h.ledger.getActive({ provider: 'codex', model: 'gpt-6-astra', accountProfileId: 'legacy' })).not.toBeNull();
+    h.db.close();
+  });
+
+  it('keeps parking when the credits evidence predates the recorded limit', () => {
+    const recordedAt = Date.now() - 10_000;
+    const h = gated(toppedUp(recordedAt - 1));
+    h.ledger.record({ provider: 'codex', model: null, accountProfileId: 'legacy', detectedAt: recordedAt, resumeAt: Date.now() + 86_400_000, source: 't', instanceId: null });
+    expect(h.handler.maybeParkKnown(codex)).toBe('parked');
+    expect(h.ledger.getActive({ provider: 'codex', model: null, accountProfileId: 'legacy' })).not.toBeNull();
+    h.db.close();
+  });
+});
+
+describe('snapshotShowsLimitLifted', () => {
+  const snap = (used: number, usageAccess?: ProviderQuotaSnapshot['usageAccess']): ProviderQuotaSnapshot => ({
+    provider: 'codex', takenAt: 1, source: 'admin-api', ok: true,
+    windows: [{ kind: 'rolling-window', id: 'codex.weekly', label: 'Weekly', unit: 'percent', used, limit: 100, remaining: 100 - used, resetsAt: null }],
+    ...(usageAccess ? { usageAccess } : {}),
+  });
+
+  it('lifts on purchased credits only when the caller accepts credits', () => {
+    const toppedUp = snap(100, { ordinaryUsageAllowed: false, creditsAvailable: true });
+    expect(snapshotShowsLimitLifted(toppedUp)).toBe(false);
+    expect(snapshotShowsLimitLifted(toppedUp, { acceptCredits: true })).toBe(true);
+  });
+
+  it('follows the provider\'s included-usage verdict over the window numbers', () => {
+    expect(snapshotShowsLimitLifted(snap(20, { ordinaryUsageAllowed: false, creditsAvailable: false }))).toBe(false);
+    expect(snapshotShowsLimitLifted(snap(100, { ordinaryUsageAllowed: true, creditsAvailable: null }))).toBe(true);
+    expect(snapshotShowsLimitLifted(snap(20))).toBe(true);
+    expect(snapshotShowsLimitLifted(snap(100))).toBe(false);
   });
 });
 

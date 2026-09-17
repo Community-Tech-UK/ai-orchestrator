@@ -32,7 +32,7 @@ export class CompositeQuotaProbe implements ProviderQuotaProbe {
     this.provider = native.provider;
   }
 
-  async probe(opts: { signal: AbortSignal }): Promise<ProviderQuotaSnapshot | null> {
+  async probe(opts: { signal: AbortSignal; force?: boolean }): Promise<ProviderQuotaSnapshot | null> {
     const nativeSnap = await this.native.probe(opts);
 
     // Native poll is the source of truth when it has real windows.

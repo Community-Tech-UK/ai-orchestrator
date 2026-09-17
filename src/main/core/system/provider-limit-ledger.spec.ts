@@ -141,6 +141,27 @@ describe('ProviderLimitLedger', () => {
       expect(ledger.isProviderFullyParked({ provider: 'claude', model: null, eligibleProfileIds: [], now })).toBe(true);
     });
 
+    it('reports when each parked profile\'s newest active limit was recorded', () => {
+      ledger.record({ ...base, accountProfileId: 'max-a', detectedAt: now - 500 });
+      ledger.record({ ...base, accountProfileId: 'max-a', model: 'claude-opus', detectedAt: now - 100 });
+      ledger.record({ ...base, detectedAt: now - 300 });
+      // Expired and other-model rows do not hold this model's sends.
+      ledger.record({ ...base, accountProfileId: 'max-b', detectedAt: now - 900, resumeAt: now - 1 });
+      ledger.record({ ...base, accountProfileId: 'max-a', model: 'claude-sonnet', detectedAt: now - 50 });
+      expect(ledger.getParkedSince({ provider: 'claude', model: 'claude-opus', now }))
+        .toEqual(new Map([['max-a', now - 100], ['legacy', now - 300]]));
+    });
+
+    it('widens a null-model lookup to every model when asked, matching what clearActive removes', () => {
+      ledger.record({ ...base, accountProfileId: 'max-a', detectedAt: now - 500 });
+      ledger.record({ ...base, accountProfileId: 'max-a', model: 'claude-opus', detectedAt: now - 100 });
+      expect(ledger.getParkedSince({ provider: 'claude', model: null, now }).get('max-a')).toBe(now - 500);
+      expect(ledger.getParkedSince({ provider: 'claude', model: null, now, anyModel: true }).get('max-a')).toBe(now - 100);
+      // anyModel does not widen a model-scoped lookup.
+      ledger.record({ ...base, accountProfileId: 'max-a', model: 'claude-sonnet', detectedAt: now - 10 });
+      expect(ledger.getParkedSince({ provider: 'claude', model: 'claude-opus', now, anyModel: true }).get('max-a')).toBe(now - 100);
+    });
+
     it('returns the soonest reset across profiles', () => {
       ledger.record({ ...base, accountProfileId: 'max-a', resumeAt: now + 90_000 });
       ledger.record({ ...base, accountProfileId: 'max-b', resumeAt: now + 30_000 });

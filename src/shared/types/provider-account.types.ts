@@ -165,6 +165,8 @@ export type AccountVetoReason =
   | 'unbound'
   | 'parked'
   | 'exhausted'
+  /** Could run only on purchased credits, which this kind of work may not spend. */
+  | 'credits-only'
   | 'over-threshold';
 
 /** Profile IDs become directory names. Shared by the schema, resolver and IPC layer. */
