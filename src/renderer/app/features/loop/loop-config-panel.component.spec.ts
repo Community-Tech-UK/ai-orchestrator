@@ -215,6 +215,25 @@ describe('LoopConfigPanelComponent', () => {
     expect(config?.provider).toBe('codex');
   });
 
+  it('keeps a provider picked in the select over the chat default', async () => {
+    const emitted: (string | undefined)[] = [];
+    component.configChange.subscribe((config) => emitted.push(config?.provider));
+    fixture.componentRef.setInput('defaultProvider', 'claude');
+    component.showAdvanced.set(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const select = fixture.nativeElement.querySelector('#loop-cfg-provider') as HTMLSelectElement;
+    select.value = 'codex';
+    select.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(component.provider()).toBe('codex');
+    expect(component.buildConfig()?.provider).toBe('codex');
+    expect(emitted.at(-1)).toBe('codex');
+  });
+
   it('offers the available chat providers as loop provider overrides', () => {
     fixture.componentRef.setInput('availableProviders', ['gemini', 'copilot', 'cursor']);
     component.showAdvanced.set(true);

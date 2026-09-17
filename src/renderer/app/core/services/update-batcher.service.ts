@@ -6,7 +6,7 @@ import { Injectable } from '@angular/core';
 import type { ExecutionLocation } from '../../../../shared/types/worker-node.types';
 import type { ActivityState } from '../../../../shared/types/activity.types';
 import type { ReasoningEffort } from '../../../../shared/types/provider.types';
-import type { InstanceWaitReason, DesiredRuntime, ContextUsage } from '../../../../shared/types/instance.types';
+import type { InstanceWaitReason, InstanceBackgroundWork, DesiredRuntime, ContextUsage } from '../../../../shared/types/instance.types';
 import type { InstanceRuntimeSummary } from '../../../../shared/types/local-model-runtime.types';
 import type { ComputerUseAutonomyLevel } from '../../../../shared/types/desktop-gateway-settings.types';
 import type { AccountRouteSource } from '../../../../shared/types/provider-account.types';
@@ -54,6 +54,8 @@ export interface StateUpdate {
    * means "preserve existing value" — same semantics as optional fields above.
    */
   waitReason?: InstanceWaitReason | null;
+  /** Live provider-owned background work. null means "clear"; undefined preserves. */
+  backgroundWork?: InstanceBackgroundWork | null;
   /**
    * True when the instance's adapter self-manages context auto-compaction
    * (Claude CLI always; Codex in app-server mode). Suppresses the orchestrator's
@@ -121,6 +123,7 @@ export class UpdateBatcherService {
       historyThreadId: update.historyThreadId ?? existing?.historyThreadId,
       // null clears waitReason; undefined preserves existing.
       waitReason: update.waitReason !== undefined ? update.waitReason : existing?.waitReason,
+      backgroundWork: update.backgroundWork !== undefined ? update.backgroundWork : existing?.backgroundWork,
       computerUseMode: update.computerUseMode !== undefined
         ? update.computerUseMode
         : existing?.computerUseMode,

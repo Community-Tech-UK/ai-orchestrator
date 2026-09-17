@@ -10,6 +10,9 @@
  *   observed identity for the binding check). At most every 15 minutes per
  *   profile; live instances keep it fresh passively in between.
  *
+ * Disabled profiles are probed as well: disabling only takes an account out of
+ * routing, and the quota chip still shows it.
+ *
  * The legacy profile keeps the existing provider-level probes untouched.
  */
 
@@ -37,15 +40,18 @@ export const CODEX_ACCOUNT_PROBE_MIN_INTERVAL_MS = 15 * 60_000;
 export class ThrottledAccountQuotaProbe implements ProviderQuotaProbe {
   readonly provider: ProviderId;
   readonly accountProfileId: string;
+  readonly silenceAlerts: boolean;
   private lastRunAt = 0;
 
   constructor(
     private readonly inner: ProviderQuotaProbe,
     private readonly minIntervalMs: () => number,
     private readonly now: () => number = Date.now,
+    silenceAlerts = false,
   ) {
     this.provider = inner.provider;
     this.accountProfileId = inner.accountProfileId ?? '';
+    this.silenceAlerts = silenceAlerts;
   }
 
   async probe(opts: { signal: AbortSignal }): Promise<ProviderQuotaSnapshot | null> {
@@ -88,18 +94,29 @@ function claudeProbeFor(profile: ProviderAccountProfile, profileCount: () => num
       credentialsReader: new ClaudeCredentialsReader({ configDir: resolved.home }),
     }),
     () => CLAUDE_ACCOUNT_PROBE_BASE_INTERVAL_MS * Math.max(1, profileCount()),
+    Date.now,
+    !profile.enabled,
   );
 }
 
 export function buildAccountQuotaProbes(provider: PooledProvider, profiles: ProviderAccountProfile[]): ProviderQuotaProbe[] {
-  const derived = profiles.filter((profile) => profile.enabled && !profile.isLegacy);
-  const count = (): number => profiles.filter((profile) => profile.enabled).length;
+  // A disabled profile is only out of routing and failover; it is still signed
+  // in, and its quota is what you check before re-enabling it. So it is probed
+  // too (counted in the Claude cadence so it does not add polling), but its
+  // probe silences quota alerts: nobody is using it, so it must not notify.
+  const derived = profiles.filter((profile) => !profile.isLegacy);
+  const count = (): number => profiles.length;
   const probes: ProviderQuotaProbe[] = [];
   for (const profile of derived) {
     try {
       const probe = provider === 'claude'
         ? claudeProbeFor(profile, count)
-        : new ThrottledAccountQuotaProbe(new CodexAccountQuotaProbe(profile.id), () => CODEX_ACCOUNT_PROBE_MIN_INTERVAL_MS);
+        : new ThrottledAccountQuotaProbe(
+          new CodexAccountQuotaProbe(profile.id),
+          () => CODEX_ACCOUNT_PROBE_MIN_INTERVAL_MS,
+          Date.now,
+          !profile.enabled,
+        );
       if (probe) probes.push(probe);
     } catch (error) {
       logger.warn('Could not build an account quota probe', {

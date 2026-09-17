@@ -8,6 +8,7 @@ import { defaultLoopConfig } from '../../shared/types/loop.types';
 import type { LoopState } from '../../shared/types/loop.types';
 import type { ProviderQuotaSnapshot, ProviderQuotaWindow } from '../../shared/types/provider-quota.types';
 import { ScriptedCliAdapter } from '../cli/adapters/scripted-cli-adapter';
+import { CliDetectionService } from '../cli/cli-detection';
 import { tokenPacedTurn } from '../cli/adapters/scripted-cli-adapter.test-helpers';
 
 let workspace: string;
@@ -227,6 +228,59 @@ describe('LoopCoordinator usage-aware throttling', () => {
       expect(events.length).toBeGreaterThanOrEqual(1);
       expect((events[0] as { source: string }).source).toBe('quota');
       expect((events[0] as { action: string }).action).toBe('throttle');
+    } finally {
+      await coordinator.cancelLoop(state.id);
+    }
+  });
+
+  /**
+   * Regression: a failover-enabled loop parked for ~45h on a Claude limit
+   * before its first iteration. Provider failover was reachable only from a
+   * crashed iteration, never from a provider-limit park.
+   */
+  it('preventive: switches to a failover provider instead of parking when failover is enabled', async () => {
+    const detection = {
+      detected: ['claude', 'codex'].map((name) => ({ name, command: name, displayName: name, installed: true })),
+      available: [],
+      unavailable: [],
+      timestamp: new Date(),
+    };
+    vi.spyOn(CliDetectionService.prototype, 'detectAll').mockResolvedValue(detection);
+    vi.spyOn(CliDetectionService.prototype, 'peekCachedResult').mockReturnValue(detection);
+    const parks: unknown[] = [];
+    coordinator.on('loop:provider-limit', (e) => parks.push(e));
+    coordinator.setProviderLimitResumeScheduler(() => () => { /* noop */ });
+    coordinator.setQuotaSnapshotProvider((provider) => provider === 'claude'
+      ? snapshot([win({ used: 95, resetsAt: Date.now() + 120_000 })])
+      : null);
+    const invokedProviders: string[] = [];
+    coordinator.on('loop:invoke-iteration', (payload: unknown) => {
+      const p = payload as { loopRunId: string; callback: (r: LoopChildResult) => void };
+      invokedProviders.push(coordinator.getLoop(p.loopRunId)?.config.provider ?? 'unknown');
+      p.callback(iterationResult('work'));
+    });
+
+    const state = await coordinator.startLoop('chat-preventive-failover', {
+      initialPrompt: 'keep going',
+      workspaceCwd: workspace,
+      provider: 'claude',
+      failover: { enabled: true, providers: ['codex'], maxSwitches: 1 },
+      caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 1 },
+      blockSanityProbe: { enabled: false },
+      completion: {
+        ...defaultLoopConfig(workspace, 'x').completion,
+        verifyCommand: 'false',
+        runVerifyTwice: false,
+        requireCompletedFileRename: false,
+        crossModelReview: { enabled: false, blockingSeverities: ['critical'], timeoutSeconds: 10, reviewDepth: 'structured' },
+      },
+    });
+    try {
+      await waitForCondition(() => invokedProviders.length >= 1 || coordinator.getLoop(state.id)?.status === 'provider-limit', 5000);
+      expect(coordinator.getLoop(state.id)?.status).not.toBe('provider-limit');
+      expect(parks).toHaveLength(0);
+      expect(invokedProviders[0]).toBe('codex');
+      expect(coordinator.getLoop(state.id)?.failoverSwitches).toBe(1);
     } finally {
       await coordinator.cancelLoop(state.id);
     }

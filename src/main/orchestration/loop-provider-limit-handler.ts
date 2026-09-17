@@ -22,7 +22,7 @@ import type {
 
 const logger = getLogger('LoopProviderLimitHandler');
 
-export type LoopProviderLimitOutcome = 'parked' | 'terminated' | 'skipped' | 'switched-account';
+export type LoopProviderLimitOutcome = 'parked' | 'terminated' | 'skipped' | 'switched-account' | 'switched-provider';
 
 export class LoopProviderLimitHandler {
   private quotaSnapshotProvider: (provider: ProviderId, accountProfileId?: string | null) => ProviderQuotaSnapshot | null = () => null;
@@ -46,6 +46,11 @@ export class LoopProviderLimitHandler {
     resumeLoop: (loopRunId: string) => boolean;
     /** The next attempt runs in a brand-new session on the new account and needs the full prompt bootstrap. */
     requestContextReset?: (loopRunId: string) => void;
+    /**
+     * Opt-in provider failover (`config.failover`). True = the run's provider
+     * was switched and the next attempt should run on it instead of parking.
+     */
+    tryProviderFailover?: (state: LoopState, reason: string) => boolean;
   }) {}
 
   setQuotaSnapshotProvider(fn: (provider: ProviderId, accountProfileId?: string | null) => ProviderQuotaSnapshot | null): void {
@@ -278,8 +283,9 @@ export class LoopProviderLimitHandler {
       /** False when parking from an existing durable gate rather than a new signal. */
       recordLimit?: boolean;
       /**
-       * Account pools: move the loop to another account instead of parking.
-       * False for burst throttles (a server `retry-after`), which must not rotate.
+       * Account pools and opt-in provider failover: move the loop to another
+       * account, then another provider, instead of parking. False for burst
+       * throttles (a server `retry-after`), which must not rotate either.
        */
       accountFailover?: boolean;
     },
@@ -297,6 +303,8 @@ export class LoopProviderLimitHandler {
     if (accountProfileId !== null && opts.accountFailover !== false && this.switchLoopAccount(state, opts, accountProfileId, now)) {
       return 'switched-account';
     }
+    // Record before any provider switch so the failover veto and a later
+    // switch back both see this provider as limited.
     if (willResume && opts.recordLimit !== false) {
       try {
         this.providerLimitLedger?.record({
@@ -318,6 +326,9 @@ export class LoopProviderLimitHandler {
           error: err instanceof Error ? err.message : String(err),
         });
       }
+    }
+    if (opts.accountFailover !== false && this.switchLoopProvider(state, opts, accountProfileId, now)) {
+      return 'switched-provider';
     }
     this.deps.emit('loop:provider-limit', {
       loopRunId: state.id,
@@ -414,6 +425,48 @@ export class LoopProviderLimitHandler {
     });
     logger.info('Loop switched account on provider limit', { loopRunId: state.id, provider, fromAccountProfileId: accountProfileId });
     return true;
+  }
+
+  private switchLoopProvider(
+    state: LoopState,
+    opts: { reason: string; resumeAt: number | null; source: 'quota' | 'notice'; recordLimit?: boolean },
+    accountProfileId: string | null,
+    now: number,
+  ): boolean {
+    if (!this.deps.tryProviderFailover) return false;
+    const from = this.quotaIdForLoopProvider(state);
+    try {
+      const switched = this.deps.tryProviderFailover(state, opts.reason);
+      // With no known reset the ledger was not written above; record an assumed
+      // window (as account switches do) so a later switch cannot pick this
+      // provider straight back.
+      const recorded = typeof opts.resumeAt === 'number' && opts.resumeAt > now;
+      if (switched && !recorded && opts.recordLimit !== false) {
+        try {
+          this.providerLimitLedger?.record({
+            provider: from,
+            model: null,
+            accountProfileId,
+            detectedAt: now,
+            resumeAt: now + ASSUMED_ACCOUNT_LIMIT_MS,
+            source: `loop-${opts.source}`,
+            instanceId: state.id,
+          });
+        } catch (err) {
+          logger.warn('Failed to record loop provider limit after switching provider', {
+            loopRunId: state.id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+      return switched;
+    } catch (err) {
+      logger.warn('Loop provider failover threw on provider limit; parking instead', {
+        loopRunId: state.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return false;
+    }
   }
 
   scheduleWakeupResume(state: LoopState, opts: { resumeAt: number; reason: string }): void {

@@ -124,6 +124,37 @@
   position: relative;
 }
 
+/* Waiting on background work — the session is idle between turns but its
+   provider still owns a background shell or agent. Deliberately unlike every
+   other state on this badge:
+   - no rotation (a spinner would claim the CLI is mid-turn);
+   - a dashed ring that slowly breathes, not the amber attention dot (nothing
+     is waiting on the user);
+   - one fixed steel-blue colour regardless of provider, like the loop ring. */
+.provider-badge.provider-background-waiting::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 2px dashed var(--background-waiting-color);
+  animation: background-waiting-breathe 2.4s ease-in-out infinite;
+}
+
+.provider-badge.provider-background-waiting {
+  --background-waiting-color: #7aa2c8;
+}
+
+@keyframes background-waiting-breathe {
+  0%, 100% {
+    opacity: 0.6;
+    transform: scale(0.92);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+}
+
 /* Dim the provider icon when the instance is hibernated so it reads as inactive
    without hiding the provider identity. */
 .provider-badge.provider-hibernated {

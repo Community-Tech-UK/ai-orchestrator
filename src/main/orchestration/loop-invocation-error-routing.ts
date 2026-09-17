@@ -10,7 +10,7 @@ import { LoopProviderLimitHandler } from './loop-provider-limit-handler';
 
 const logger = getLogger('LoopInvocationErrorRouting');
 
-export type ClassifiedInvocationRoute = 'none' | 'retry-fresh' | 'do-not-retry' | 'parked' | 'terminated' | 'switched-account';
+export type ClassifiedInvocationRoute = 'none' | 'retry-fresh' | 'do-not-retry' | 'parked' | 'terminated' | 'switched-account' | 'switched-provider';
 
 export function routeClassifiedLoopInvocationFailure(params: {
   state: LoopState;
@@ -89,11 +89,11 @@ export function routeClassifiedLoopInvocationFailure(params: {
       source: 'quota',
       action: 'throttle',
       mustStop: true,
-      // Only a plan usage limit moves the loop to another account; a burst
-      // throttle with a short retry-after must not rotate accounts.
+      // Only a plan usage limit moves the loop to another account or provider;
+      // a burst throttle with a short retry-after must not rotate either.
       accountFailover: isProviderNotice(classification.message) || hasQuotaDiagnostics(error),
     });
-    if (outcome === 'switched-account') return 'switched-account';
+    if (outcome === 'switched-account' || outcome === 'switched-provider') return outcome;
     logger.warn('Loop invocation error routed to provider-limit park', {
       loopRunId: state.id,
       seq,

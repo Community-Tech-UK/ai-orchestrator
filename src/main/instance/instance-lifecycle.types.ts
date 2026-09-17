@@ -76,6 +76,7 @@ export interface LifecycleDependencies {
     extras?: {
       provider?: Instance['provider'];
       desiredRuntime?: Instance['desiredRuntime'] | null;
+      backgroundWork?: Instance['backgroundWork'] | null;
     },
   ) => void;
   serializeForIpc: (instance: Instance) => Record<string, unknown>;

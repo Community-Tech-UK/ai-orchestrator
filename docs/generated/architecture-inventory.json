@@ -5950,7 +5950,7 @@
     },
     {
       "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 4005
+      "lines": 3988
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-mempalace-knowledge-features_completed.md",
@@ -6025,10 +6025,6 @@
       "lines": 2695
     },
     {
-      "path": "src/main/instance/instance-communication.ts",
-      "lines": 2667
-    },
-    {
       "path": "src/main/channels/channel-message-router.ts",
       "lines": 2663
     },
@@ -6045,12 +6041,16 @@
       "lines": 2512
     },
     {
+      "path": "src/main/instance/instance-communication.ts",
+      "lines": 2497
+    },
+    {
       "path": "src/main/browser-gateway/browser-gateway-service-existing-tabs.spec.ts",
       "lines": 2463
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2418
+      "lines": 2429
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.ts",
@@ -6073,15 +6073,15 @@
       "lines": 2171
     },
     {
+      "path": "src/main/cli/adapters/claude-cli-adapter.ts",
+      "lines": 2119
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-09-resilient-codex-resume-and-agent-observability_completed.md",
       "lines": 2117
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-c-reliability-lifecycle.md",
-      "lines": 2112
-    },
-    {
-      "path": "src/main/cli/adapters/claude-cli-adapter.ts",
       "lines": 2112
     },
     {
@@ -6150,7 +6150,7 @@
     },
     {
       "path": "packages/contracts/src/types/transport.types.ts",
-      "lines": 1811
+      "lines": 1817
     },
     {
       "path": "docs/superpowers/plans/2026-03-21-discord-channels_completed.md",
@@ -6905,12 +6905,12 @@
       "lines": 869
     },
     {
-      "path": "docs/plans/2026-06-26-loop-engine-overhaul-spec_completed.md",
-      "lines": 867
+      "path": "src/renderer/app/core/state/instance/instance-list.store.ts",
+      "lines": 868
     },
     {
-      "path": "src/renderer/app/core/state/instance/instance-list.store.ts",
-      "lines": 865
+      "path": "docs/plans/2026-06-26-loop-engine-overhaul-spec_completed.md",
+      "lines": 867
     },
     {
       "path": "docs/superpowers/plans/2026-03-11-f4-f5-transcript-performance.md",
@@ -6945,6 +6945,10 @@
       "lines": 858
     },
     {
+      "path": "src/shared/types/instance.types.ts",
+      "lines": 855
+    },
+    {
       "path": "docs/superpowers/specs/2026-04-17-wave2-provider-normalization-design.md",
       "lines": 854
     },
@@ -6957,10 +6961,6 @@
       "lines": 852
     },
     {
-      "path": "src/shared/types/instance.types.ts",
-      "lines": 851
-    },
-    {
       "path": "src/main/ipc/handlers/loop-handlers.ts",
       "lines": 850
     },
@@ -6970,7 +6970,7 @@
     },
     {
       "path": "src/renderer/app/core/state/instance/instance-list.store.spec.ts",
-      "lines": 846
+      "lines": 847
     },
     {
       "path": "src/renderer/app/features/settings/remote-nodes-settings-tab.component.html",
@@ -7061,6 +7061,10 @@
       "lines": 820
     },
     {
+      "path": "src/renderer/app/core/state/instance/instance.store.ts",
+      "lines": 820
+    },
+    {
       "path": "src/main/memory/critique-agent.ts",
       "lines": 817
     },
@@ -7074,10 +7078,6 @@
     },
     {
       "path": "docs/superpowers/specs/2026-05-06-claude-code-feature-harvest-design_completed.md",
-      "lines": 814
-    },
-    {
-      "path": "src/renderer/app/core/state/instance/instance.store.ts",
       "lines": 814
     },
     {

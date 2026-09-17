@@ -33,11 +33,12 @@ afterEach(() => {
 });
 
 describe('account quota probes', () => {
-  it('builds one probe per enabled non-legacy profile, keyed by profile id', () => {
+  it('builds one probe per non-legacy profile, disabled ones included, keyed by profile id', () => {
     const claude = buildAccountQuotaProbes('claude', [profile('claude', 'legacy'), profile('claude', 'max-b'), profile('claude', 'max-c', false)]);
-    expect(claude.map((probe) => [probe.provider, probe.accountProfileId])).toEqual([['claude', 'max-b']]);
-    const codex = buildAccountQuotaProbes('codex', [profile('codex', 'legacy'), profile('codex', 'pro-b')]);
-    expect(codex.map((probe) => [probe.provider, probe.accountProfileId])).toEqual([['codex', 'pro-b']]);
+    expect(claude.map((probe) => [probe.provider, probe.accountProfileId])).toEqual([['claude', 'max-b'], ['claude', 'max-c']]);
+    expect(claude.map((probe) => probe.silenceAlerts)).toEqual([false, true]);
+    const codex = buildAccountQuotaProbes('codex', [profile('codex', 'legacy'), profile('codex', 'pro-b'), profile('codex', 'pro-c', false)]);
+    expect(codex.map((probe) => [probe.provider, probe.accountProfileId, probe.silenceAlerts])).toEqual([['codex', 'pro-b', false], ['codex', 'pro-c', true]]);
   });
 
   it('throttles a probe to its minimum interval', async () => {

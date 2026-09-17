@@ -77,6 +77,7 @@ import {
   type ClaudeAssistantMessageHost,
 } from './claude-assistant-message';
 import {
+  ClaudeBackgroundTaskTracker,
   type CliAsyncWorkEvent,
   parseClaudeAsyncWorkToolResult,
   parseClaudeAsyncWorkToolUse,
@@ -111,6 +112,8 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   private emittedAskUserQuestionKeys = new Set<string>();
   /** Map tool_use ids to tool metadata for robust permission-denial parsing */
   private toolUseContexts = new Map<string, ClaudeToolUseContext>();
+  /** Background task lifecycle from Claude's `system` task messages (one CLI process). */
+  private readonly backgroundTasks = new ClaudeBackgroundTaskTracker();
   /** Cached context window from last result message for accurate streaming percentage */
   private lastKnownContextWindow: number;
   /** Last accurate per-API-call context occupancy (input + cache + output of
@@ -1269,6 +1272,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     this.process = null;
     this.formatter = null;
     this.parser.reset();
+    this.backgroundTasks.reset();
 
     // If we have a deferred tool use, this is an expected exit (code 0) after
     // the hook returned `defer`. Don't trigger respawn — the resume flow handles it.
@@ -1509,6 +1513,9 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       }
 
       case 'system':
+        for (const event of this.backgroundTasks.observe(raw)) {
+          this.emitAsyncWork(event);
+        }
         if (message.subtype === 'context_usage' && message.usage) {
           const modelId = this.spawnOptions.model || CLAUDE_MODELS.OPUS_1M;
           const pricing = MODEL_PRICING[modelId] || {

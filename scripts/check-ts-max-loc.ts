@@ -168,7 +168,9 @@ const ALLOWLIST: Record<string, number> = {
   // independently testable claude-cli-argv-builder.ts.
   // Re-tightened 2144 -> 2064: assistant stream-message handling extracted
   // to claude-assistant-message.ts.
-  'src/main/cli/adapters/claude-cli-adapter.ts': 2064,
+  // Raised 2064 -> 2071 to wire ClaudeBackgroundTaskTracker (system task
+  // messages); the parsing itself lives in claude-cli-async-work.ts.
+  'src/main/cli/adapters/claude-cli-adapter.ts': 2071,
   // Re-tightened after extracting the exec helpers to codex/exec-helpers.ts.
   'src/main/cli/adapters/codex-cli-adapter.ts': 3344,
   // Was already at 699 (1 line under the old hard 700 cap) before LT-045's
@@ -220,7 +222,9 @@ const ALLOWLIST: Record<string, number> = {
   // Cursor ACP snapshot rewind) plus existing uncommitted work already in file.
   // Tightened 2676 -> 2666 after extracting overflow/last-sent maps to
   // instance-communication-overflow-tracker.ts (architecture-quality 2.2).
-  'src/main/instance/instance-communication.ts': 2666,
+  // Tightened 2666 -> 2496 after extracting compact/retry policy to
+  // instance-communication-overflow-policy.ts (architecture-quality remaining).
+  'src/main/instance/instance-communication.ts': 2496,
   'src/main/instance/instance-context.ts': 1265,
   // Raised 3450 -> 3528 for the queue-aware YOLO toggle (park-while-busy +
   // auto-apply-on-idle); the bulk lives in lifecycle/yolo-mode-queue.ts.

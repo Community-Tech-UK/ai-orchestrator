@@ -207,4 +207,29 @@ describe('InstanceStateManager', () => {
 
     state.destroy();
   });
+
+  it('writes backgroundWork onto the live instance and the broadcast, where null clears and undefined preserves', () => {
+    vi.useFakeTimers();
+    const state = new InstanceStateManager();
+    state.setInstance(makeInstance());
+    const batches: Array<{ updates: Array<{ backgroundWork?: unknown }> }> = [];
+    state.on('batch-update', (batch) => batches.push(batch));
+    const noPositional = [undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined] as const;
+
+    state.queueUpdate('instance-1', 'idle', ...noPositional, { backgroundWork: { count: 1, since: 500 } });
+    expect(state.getInstance('instance-1')?.backgroundWork).toEqual({ count: 1, since: 500 });
+
+    // A later status-only update in the same batch window keeps it.
+    state.queueUpdate('instance-1', 'idle');
+    vi.advanceTimersByTime(1_000);
+    expect(batches.at(-1)?.updates[0]?.backgroundWork).toEqual({ count: 1, since: 500 });
+
+    state.queueUpdate('instance-1', 'idle', ...noPositional, { backgroundWork: null });
+    expect(state.getInstance('instance-1')?.backgroundWork).toBeUndefined();
+    vi.advanceTimersByTime(1_000);
+    expect(batches.at(-1)?.updates[0]?.backgroundWork).toBeNull();
+
+    state.destroy();
+    vi.useRealTimers();
+  });
 });

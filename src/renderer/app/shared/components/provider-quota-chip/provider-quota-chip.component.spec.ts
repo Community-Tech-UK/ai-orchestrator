@@ -524,24 +524,128 @@ describe('ProviderQuotaChipComponent', () => {
   });
 
   describe('account-pool rows', () => {
-    it('lists each account under its provider without replacing the provider snapshot', async () => {
-      store.setSnapshot('claude', makeSnapshot('claude', 'max', true, [makeWindow(10, 100)]));
-      store.setAccountSnapshots([
-        { ...makeSnapshot('claude', 'max', true, [{ ...makeWindow(95, 100), id: 'claude.5h', label: '5-hour session' }]), accountProfileId: 'max-b' },
-      ]);
-      fixture.detectChanges();
-      const host = fixture.nativeElement as HTMLElement;
-      expect(host.querySelector('[data-testid="quota-strip"]')?.textContent).toContain('CC95%');
-      expect(host.querySelector('[data-testid="quota-strip"]')?.textContent).not.toContain('CC10%');
+    const claudeWeekly = (used: number) => ({ ...makeWindow(used, 100), id: 'claude.weekly', label: 'Weekly (all models)' });
+    const accountSnap = (id: string, used: number, provider: ProviderId = 'claude'): ProviderQuotaSnapshot => ({
+      ...makeSnapshot(provider, 'max', true, [provider === 'claude' ? claudeWeekly(used) : { ...makeWindow(used, 100), id: `${provider}.weekly`, label: 'Weekly' }]),
+      accountProfileId: id,
+    });
+
+    async function openPopover(host: HTMLElement): Promise<void> {
       (host.querySelector('button[data-testid="quota-toggle"]') as HTMLButtonElement).click();
       fixture.detectChanges();
       await new Promise((resolve) => setTimeout(resolve, 0));
       fixture.detectChanges();
-      const row = host.querySelector('[data-testid="quota-account-claude-max-b"]');
-      expect(row?.textContent).toContain('Account: Max B');
+    }
+
+    function stripText(host: HTMLElement): string {
+      return host.querySelector('[data-testid="quota-strip"]')?.textContent ?? '';
+    }
+
+    beforeEach(() => {
+      accountIpc.list.mockImplementation(async () => ({
+        profiles: [
+          { id: 'legacy', provider: 'claude', label: 'Personal', enabled: true, isLegacy: true, priority: 0 },
+          { id: 'max-c', provider: 'claude', label: 'Max C', enabled: true, isLegacy: false, priority: 1 },
+          { id: 'max-b', provider: 'claude', label: 'Max B', enabled: false, isLegacy: false, priority: 2 },
+        ],
+        pools: {},
+      }) as never);
+    });
+
+    it('lists each account under its provider without replacing the provider snapshot', async () => {
+      store.setSnapshot('claude', makeSnapshot('claude', 'max', true, [makeWindow(10, 100)]));
+      store.setAccountSnapshots([
+        { ...makeSnapshot('claude', 'max', true, [{ ...makeWindow(95, 100), id: 'claude.5h', label: '5-hour session' }]), accountProfileId: 'max-c' },
+      ]);
+      fixture.detectChanges();
+      const host = fixture.nativeElement as HTMLElement;
+      await openPopover(host);
+      const row = host.querySelector('[data-testid="quota-account-claude-max-c"]');
+      expect(row?.textContent).toContain('Account: Max C');
       expect(row?.textContent).toContain('95');
-      expect(host.querySelector('[data-testid="quota-account-claude-legacy"]')?.textContent).toContain('Existing sign-in');
+      expect(host.querySelector('[data-testid="quota-account-claude-legacy"]')?.textContent).toContain('Account: Personal');
       expect(host.querySelector('[data-testid="quota-provider-claude"]')?.textContent).toContain('10');
+    });
+
+    it('shows every account percentage under one provider code, existing sign-in first', async () => {
+      store.setSnapshot('claude', makeSnapshot('claude', 'max', true, [claudeWeekly(100)]));
+      store.setAccountSnapshots([accountSnap('max-b', 4), accountSnap('max-c', 11)]);
+      fixture.detectChanges();
+      const host = fixture.nativeElement as HTMLElement;
+      await openPopover(host);
+      // Pool priority order (max-c before max-b), not snapshot arrival order.
+      expect(stripText(host)).toContain('CC100%·11%·4%');
+    });
+
+    it('colours each account percentage by its own usage', () => {
+      store.setSnapshot('claude', makeSnapshot('claude', 'max', true, [claudeWeekly(100)]));
+      store.setAccountSnapshots([accountSnap('max-c', 7)]);
+      fixture.detectChanges();
+      const host = fixture.nativeElement as HTMLElement;
+      const parts = Array.from(host.querySelectorAll<HTMLElement>('[data-testid="quota-strip"] .provider-value > span:not(.account-separator)'));
+      expect(parts.map((part) => part.textContent)).toEqual(['100%', '7%']);
+      expect(parts[0].style.color).not.toBe(parts[1].style.color);
+    });
+
+    it('keeps a single existing sign-in unlabelled', async () => {
+      store.setSnapshot('claude', makeSnapshot('claude', 'max', true, [claudeWeekly(20)]));
+      fixture.detectChanges();
+      const host = fixture.nativeElement as HTMLElement;
+      await openPopover(host);
+      expect(stripText(host)).toContain('CC20%');
+      expect(host.querySelector('[data-testid="quota-provider-claude"]')?.textContent).not.toContain('Account:');
+    });
+
+    it('labels a lone extra account so it is never shown as the existing sign-in', async () => {
+      store.setAccountSnapshots([accountSnap('max-c', 30)]);
+      fixture.detectChanges();
+      const host = fixture.nativeElement as HTMLElement;
+      await openPopover(host);
+      expect(host.querySelector('[data-testid="quota-account-claude-max-c"]')?.textContent).toContain('Account: Max C');
+      expect(host.querySelector('[data-testid="quota-account-claude-legacy"]')).toBeFalsy();
+    });
+
+    it('labels a disabled account and drops accounts that no longer exist', async () => {
+      store.setSnapshot('claude', makeSnapshot('claude', 'max', true, [claudeWeekly(50)]));
+      store.setAccountSnapshots([accountSnap('max-b', 60), accountSnap('removed', 99)]);
+      fixture.detectChanges();
+      const host = fixture.nativeElement as HTMLElement;
+      await openPopover(host);
+      expect(host.querySelector('[data-testid="quota-account-claude-max-b"]')?.textContent).toContain('Account: Max B (disabled)');
+      expect(host.querySelector('[data-testid="quota-account-claude-removed"]')).toBeFalsy();
+      expect(stripText(host)).toContain('CC50%·60%');
+      expect(stripText(host)).not.toContain('99%');
+    });
+
+    it('leaves an account without windows out of the strip but shows its status', async () => {
+      store.setSnapshot('claude', makeSnapshot('claude', 'max', true, [claudeWeekly(40)]));
+      store.setAccountSnapshots([{
+        ...makeSnapshot('claude', undefined, false),
+        error: 'Usage endpoint unavailable',
+        accountProfileId: 'max-c',
+      }]);
+      fixture.detectChanges();
+      const host = fixture.nativeElement as HTMLElement;
+      await openPopover(host);
+      expect(stripText(host)).toContain('CC40%');
+      expect(stripText(host)).not.toContain('·');
+      expect(host.querySelector('[data-testid="quota-account-claude-max-c"]')?.textContent).toContain('Usage endpoint unavailable');
+    });
+
+    it('flags reauth on the account that needs it, not the whole provider', async () => {
+      store.setSnapshot('claude', makeSnapshot('claude', 'max', true, [claudeWeekly(40)]));
+      store.setAccountSnapshots([{
+        ...makeSnapshot('claude', undefined, false),
+        error: 'Sign in to Max C again',
+        needsReauth: true,
+        accountProfileId: 'max-c',
+      }]);
+      fixture.detectChanges();
+      const host = fixture.nativeElement as HTMLElement;
+      await openPopover(host);
+      expect(stripText(host)).toContain('CC40%·reauth');
+      expect(host.querySelector('[data-testid="quota-reauth-claude"]')).toBeFalsy();
+      expect(host.querySelector('[data-testid="quota-reauth-claude-max-c"]')?.textContent).toContain('Sign in to Max C again');
     });
   });
 });

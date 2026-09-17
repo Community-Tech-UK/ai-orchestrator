@@ -8,9 +8,11 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { classifyLoopError } from '../core/loop-error-classification';
 import { defaultLoopConfig, type LoopState } from '../../shared/types/loop.types';
+import { CliDetectionService } from '../cli/cli-detection';
 import {
   attemptLoopFailover,
   decideLoopFailover,
+  runCoordinatorProviderLimitFailover,
   type AttemptLoopFailoverDeps,
 } from './loop-failover';
 
@@ -150,5 +152,30 @@ describe('attemptLoopFailover (category matrix with the REAL classifier)', () =>
     const outcome = attemptLoopFailover(state, new Error('401 unauthorized: invalid api key'), 3, 'IMPLEMENT', deps);
     expect(outcome.switched).toBe(false);
     expect(outcome.note).toContain('manager offline');
+  });
+});
+
+describe('runCoordinatorProviderLimitFailover', () => {
+  function args(state: LoopState) {
+    return { state, reason: 'weekly limit', seq: 0, stage: 'IMPLEMENT' as const, onSwitched: vi.fn(), emit: vi.fn() };
+  }
+
+  it('does nothing when the run did not opt in', () => {
+    const state = makeState();
+    state.config.failover = { enabled: false, providers: ['codex'], maxSwitches: 1 };
+    const peek = vi.spyOn(CliDetectionService.prototype, 'peekCachedResult');
+    expect(runCoordinatorProviderLimitFailover(args(state))).toBe(false);
+    expect(peek).not.toHaveBeenCalled();
+    peek.mockRestore();
+  });
+
+  it('vetoes every candidate while CLI detection has never run, leaving the park in place', () => {
+    const state = makeState();
+    const peek = vi.spyOn(CliDetectionService.prototype, 'peekCachedResult').mockReturnValue(null);
+    const a = args(state);
+    expect(runCoordinatorProviderLimitFailover(a)).toBe(false);
+    expect(state.config.provider).toBe('claude');
+    expect(a.onSwitched).not.toHaveBeenCalled();
+    peek.mockRestore();
   });
 });

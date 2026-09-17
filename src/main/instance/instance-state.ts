@@ -334,11 +334,14 @@ export class InstanceStateManager extends EventEmitter {
      * Rare fields grouped into an options bag rather than extending the
      * positional tail: `provider` announces a cross-provider swap;
      * `desiredRuntime` broadcasts a queued (or cleared, via null)
-     * while-busy runtime change. Omitted fields preserve pending values.
+     * while-busy runtime change; `backgroundWork` broadcasts live
+     * provider-owned background work (null clears it). Omitted fields
+     * preserve pending values.
      */
     extras?: {
       provider?: Instance['provider'];
       desiredRuntime?: Instance['desiredRuntime'] | null;
+      backgroundWork?: Instance['backgroundWork'] | null;
     },
   ): void {
     const updateStore = this.pendingInstances.has(instanceId)
@@ -373,6 +376,10 @@ export class InstanceStateManager extends EventEmitter {
       if (runtimeInstance) {
         runtimeInstance.waitReason = safeWaitReason ?? undefined;
       }
+    }
+    // Same LT-160 rule: hibernation and check-in readers use the live object.
+    if (extras?.backgroundWork !== undefined && runtimeInstance) {
+      runtimeInstance.backgroundWork = extras.backgroundWork ?? undefined;
     }
     updateStore.set(instanceId, {
       instanceId,
@@ -411,6 +418,11 @@ export class InstanceStateManager extends EventEmitter {
         extras?.desiredRuntime !== undefined
           ? extras.desiredRuntime
           : existing?.desiredRuntime,
+      // backgroundWork: null clears it; undefined preserves existing.
+      backgroundWork:
+        extras?.backgroundWork !== undefined
+          ? extras.backgroundWork
+          : existing?.backgroundWork,
       // Account pools: always the live stamp, so a failover or a spawn-time
       // stamp reaches the renderer on the next status update.
       accountProfileId: runtimeInstance?.accountProfileId ?? existing?.accountProfileId,

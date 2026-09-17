@@ -257,7 +257,7 @@ import { LoopPingPongReviewAbortRegistry } from './loop-pingpong-review-abort';
 import { getWorktreeManager } from '../workspace/git/worktree-manager';
 import { verifyManagedWorktreeOwnership } from '../workspace/git/worktree-cleanup';
 import { routeClassifiedLoopInvocationFailure } from './loop-invocation-error-routing';
-import { runCoordinatorLoopFailover } from './loop-failover';
+import { LoopFailoverRunner } from './loop-failover';
 import { cleanupLoopWorktreeAfterTerminate } from './loop-worktree-termination-cleanup';
 import { evaluateReviewStall } from './loop-review-stall-policy';
 import { chargeFailedAttemptUsage } from './loop-failed-attempt-usage';
@@ -291,6 +291,10 @@ export class LoopCoordinator extends EventEmitter {
   private lifecycle = new LoopLifecycleStateManager();
   /** Transient per-run convergence, reset, failover, and cap hints. */
   private completionContext = new LoopCompletionContextStore();
+  private loopFailover = new LoopFailoverRunner({
+    completionContext: this.completionContext,
+    emit: (eventName, payload) => this.emit(eventName, payload),
+  });
   /** Compatibility seam for existing black-box specs that inspect live state. */
   private get active(): Map<string, LoopState> {
     return this.lifecycle.statesForTesting();
@@ -467,6 +471,7 @@ export class LoopCoordinator extends EventEmitter {
     terminate: (state, status, reason) => this.terminate(state, status, reason),
     resumeLoop: (loopRunId) => this.resumeLoop(loopRunId),
     requestContextReset: (loopRunId) => this.completionContext.requestContextReset(loopRunId),
+    tryProviderFailover: (state, reason) => this.loopFailover.onProviderLimit(state, reason),
   });
 
   private scheduledWakeups = new Map<string, ScheduledWakeup>();
@@ -1765,12 +1770,13 @@ export class LoopCoordinator extends EventEmitter {
       // quota window. At ≥90% (or exhausted, or already on paid overage) we
       // park instead of starting a turn that would spill into real money.
       if (state.status === 'running') {
+        await this.loopFailover.warmCliDetection(state);
         const ledgerOutcome = this.providerLimitHandler.maybeParkKnownProviderLimit(
           state,
           this.completionContext.getDownshiftModel(state.id) ?? null,
         );
         if (ledgerOutcome === 'terminated') return;
-        if (ledgerOutcome === 'parked') continue;
+        if (ledgerOutcome === 'parked' || ledgerOutcome === 'switched-provider') continue;
 
         const throttle = this.providerLimitHandler.evaluateLoopQuotaThrottle(state);
         if (throttle.action === 'downshift' && throttle.downshift) {
@@ -1797,7 +1803,8 @@ export class LoopCoordinator extends EventEmitter {
             windowId: throttle.window?.id,
           });
           if (outcome === 'terminated') return;
-          if (outcome === 'parked') continue; // next pass blocks in waitWhilePaused
+          // parked: next pass blocks in waitWhilePaused; switched-provider: re-check the new provider.
+          if (outcome === 'parked' || outcome === 'switched-provider') continue;
           // 'skipped' (stale/soft) or 'switched-account' (fresh session on the new account) → spawn this iteration.
         } else {
           this.completionContext.clearDownshiftModel(state.id);
@@ -2114,8 +2121,8 @@ export class LoopCoordinator extends EventEmitter {
             return;
           }
           if (route === 'terminated') return;
-          // Retry on the new account now: a brand-new session, outside the degraded-retry budget.
-          if (route === 'switched-account') { this.completionContext.consumeContextReset(state.id); forceContextReset = true; continue; }
+          // Retry on the new account/provider now: a brand-new session, outside the degraded-retry budget.
+          if (route === 'switched-account' || route === 'switched-provider') { this.completionContext.consumeContextReset(state.id); forceContextReset = true; continue; }
           if (route !== 'none') break;
         }
 
@@ -2207,7 +2214,7 @@ export class LoopCoordinator extends EventEmitter {
           // WS7 Phase A: an opt-in failover run whose recovery exhausted on a
           // provider-fault category retries the iteration on a fallback
           // provider (iteration boundary; fresh session) instead of dying.
-          if (invocationFailure && await this.tryLoopFailover(state, invocationFailure, seq, stage)) {
+          if (invocationFailure && await this.loopFailover.afterInvocationFailure(state, invocationFailure, seq, stage)) {
             clearInFlightIteration(state, seq);
             this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
             continue;
@@ -2255,7 +2262,7 @@ export class LoopCoordinator extends EventEmitter {
           outcome,
           resumeAt: derived.resumeAt,
         });
-        if (outcome === 'parked' || outcome === 'switched-account') continue;
+        if (outcome === 'parked' || outcome === 'switched-account' || outcome === 'switched-provider') continue;
         return;
       }
 
@@ -3678,30 +3685,6 @@ export class LoopCoordinator extends EventEmitter {
   }
 
   // ============ Internal — helpers ============
-
-  /**
-   * WS7 Phase A: attempt an opt-in provider switch after terminal invocation
-   * failure. Selection routes through the FailoverManager (cooldown/circuit
-   * telemetry) with loop-scope vetoes: WS2 provider-limit ledger park and CLI
-   * availability. On success the run's provider is switched, the switch budget
-   * is consumed, the next iteration is tagged `failedOverFrom` and forced onto
-   * a fresh session. Never throws; false = proceed to terminal handling.
-   */
-  private async tryLoopFailover(state: LoopState, error: unknown, seq: number, stage: LoopStage): Promise<boolean> {
-    return runCoordinatorLoopFailover({
-      state,
-      error,
-      seq,
-      stage,
-      downshiftModel: this.completionContext.getDownshiftModel(state.id),
-      onSwitched: (from) => {
-        this.completionContext.setPendingFailover(state.id, from);
-        this.completionContext.requestContextReset(state.id);
-        state.lastThreadCaps = undefined;
-      },
-      emit: (eventName, payload) => this.emit(eventName, payload),
-    });
-  }
 
   /**
    * Pause the run on a structural BLOCKED condition (preflight gate, health

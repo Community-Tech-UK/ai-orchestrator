@@ -29,6 +29,9 @@ const STATUS_COLORS: Record<InstanceStatus, string> = {
   terminated: '#6b7280',   // Gray
 };
 
+/** Steel blue — shared with the rail's background-waiting ring. */
+const BACKGROUND_WAITING_COLOR = '#7aa2c8';
+
 const STATUS_LABELS: Record<InstanceStatus, string> = {
   initializing: 'Initializing...',
   ready: 'Ready',
@@ -73,6 +76,7 @@ const STATUS_LABELS: Record<InstanceStatus, string> = {
           [attr.aria-label]="label()"
           [style.backgroundColor]="color()"
           [class.pulsing]="isPulsing()"
+          [class.background-waiting]="isBackgroundWaiting()"
           [title]="label()"
         ></div>
       }
@@ -110,6 +114,13 @@ const STATUS_LABELS: Record<InstanceStatus, string> = {
       animation: pulse 1.5s ease-in-out infinite;
     }
 
+    /* Idle, but still waiting on provider-owned background work. A slow
+       halo in its own colour: not the busy spinner, not the amber pulse. */
+    .status-indicator.background-waiting {
+      box-shadow: 0 0 0 0 rgba(122, 162, 200, 0.6);
+      animation: background-waiting 2.4s ease-out infinite;
+    }
+
     .status-label {
       font-size: 12px;
       color: var(--text-secondary);
@@ -127,6 +138,15 @@ const STATUS_LABELS: Record<InstanceStatus, string> = {
       }
     }
 
+    @keyframes background-waiting {
+      0% {
+        box-shadow: 0 0 0 0 rgba(122, 162, 200, 0.6);
+      }
+      70%, 100% {
+        box-shadow: 0 0 0 6px rgba(122, 162, 200, 0);
+      }
+    }
+
     @keyframes spin {
       from {
         transform: rotate(0deg);
@@ -141,9 +161,20 @@ const STATUS_LABELS: Record<InstanceStatus, string> = {
 export class StatusIndicatorComponent {
   status = input.required<InstanceStatus>();
   showLabel = input<boolean>(false);
+  /** Live provider-owned background tasks; only changes the display while idle. */
+  backgroundWorkCount = input<number>(0);
 
-  color = computed(() => STATUS_COLORS[this.status()]);
-  label = computed(() => STATUS_LABELS[this.status()]);
+  /**
+   * Idle between turns while the provider still owns background work. Checked
+   * against settled statuses only, so a running turn keeps its spinner.
+   */
+  isBackgroundWaiting = computed(() =>
+    this.backgroundWorkCount() > 0
+    && (this.status() === 'idle' || this.status() === 'ready')
+  );
+
+  color = computed(() => this.isBackgroundWaiting() ? BACKGROUND_WAITING_COLOR : STATUS_COLORS[this.status()]);
+  label = computed(() => this.isBackgroundWaiting() ? 'Waiting on background work' : STATUS_LABELS[this.status()]);
   visibleLabel = computed(() => this.label());
 
   isPulsing = computed(() =>

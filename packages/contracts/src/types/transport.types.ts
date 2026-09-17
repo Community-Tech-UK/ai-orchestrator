@@ -7,6 +7,7 @@ import type { IpcChannel } from '../channels/index';
 import type {
   ContextUsage,
   FileAttachment,
+  InstanceBackgroundWork,
   InstanceRecoveryMethod,
   InstanceStatus,
   InstanceWaitReason,
@@ -132,6 +133,11 @@ export interface InstanceStateUpdatePayload {
    * pending affordance (applied or cancelled); undefined preserves.
    */
   desiredRuntime?: DesiredRuntime | null;
+  /**
+   * Live provider-owned background work (background shells and agents) that
+   * outlives the turn that started it. null clears; undefined preserves.
+   */
+  backgroundWork?: InstanceBackgroundWork | null;
   /** Claude/Codex account-pool profile the session runs on; undefined preserves. */
   accountProfileId?: string;
   /** How that account was chosen (default, failover, …). */

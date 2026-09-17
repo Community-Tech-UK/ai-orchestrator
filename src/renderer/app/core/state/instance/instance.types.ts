@@ -21,6 +21,7 @@ import type {
   InstanceStatus as SharedInstanceStatus,
   InstanceRecoveryMethod,
   InstanceWaitReason,
+  InstanceBackgroundWork,
   DesiredRuntime,
   ThinkingContent,
   CrossSessionMessageMetadata,
@@ -191,6 +192,8 @@ export interface Instance {
   metadata?: Record<string, unknown>;
   /** Machine-readable wait reason for UI display (Phase 6 / §G). Set during backoff, interrupt-ack, respawning, etc. */
   waitReason?: InstanceWaitReason;
+  /** Live provider-owned background work; an idle session with this set is still waiting. */
+  backgroundWork?: InstanceBackgroundWork;
   /**
    * True when the instance's adapter self-manages context auto-compaction
    * (Claude CLI always; Codex in app-server mode). When set, the orchestrator

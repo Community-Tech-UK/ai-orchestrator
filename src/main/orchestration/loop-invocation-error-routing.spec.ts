@@ -37,13 +37,16 @@ function noop(): void {
   /* intentional no-op stub for LoopProviderLimitHandler deps */
 }
 
-function makeProviderLimitHandler(): LoopProviderLimitHandler {
+function makeProviderLimitHandler(
+  tryProviderFailover?: (state: LoopState, reason: string) => boolean,
+): LoopProviderLimitHandler {
   return new LoopProviderLimitHandler({
     emit: noop,
     cloneStateForBroadcast: (state) => state,
     setConvergenceNote: noop,
     terminate: noop,
     resumeLoop: () => false,
+    tryProviderFailover,
   });
 }
 
@@ -151,6 +154,18 @@ describe('routeClassifiedLoopInvocationFailure — recovery recipe wiring (C3)',
     const { params } = baseParams(state, error, { seq: 1, providerLimitHandler: handler });
     expect(routeClassifiedLoopInvocationFailure(params)).toBe('switched-account');
     expect(trySwitch).toHaveBeenCalledTimes(1);
+    handler.clearResumeTimer(state.id);
+  });
+
+  it('reports a switched provider for a plan limit when opt-in provider failover moves the run', () => {
+    const state = makeLoopState({ config: { ...defaultLoopConfig('/tmp/project', 'ship it'), provider: 'claude' } });
+    const tryProviderFailover = vi.fn(() => true);
+    const handler = makeProviderLimitHandler(tryProviderFailover);
+    handler.setLoopAccountFailover({ currentProfileId: () => null, trySwitch: vi.fn(() => false) });
+    const error = Object.assign(new Error('turn failed'), { status: 429, headers: { 'retry-after': '5' }, quota: { exhausted: true } });
+    const { params } = baseParams(state, error, { seq: 1, providerLimitHandler: handler });
+    expect(routeClassifiedLoopInvocationFailure(params)).toBe('switched-provider');
+    expect(tryProviderFailover).toHaveBeenCalledTimes(1);
     handler.clearResumeTimer(state.id);
   });
 

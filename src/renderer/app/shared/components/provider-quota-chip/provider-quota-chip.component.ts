@@ -36,9 +36,34 @@ import type {
   ProviderQuotaWindow,
 } from '../../../../../shared/types/provider-quota.types';
 import { formatQuotaAmount } from '../../../../../shared/util/provider-quota-format';
+import {
+  LEGACY_SECTION_ID,
+  quotaAccountSections,
+  type QuotaAccountProfile,
+  type QuotaAccountSection,
+} from './provider-quota-account-sections';
 
 export type QuotaChipVariant = 'window' | 'plan' | 'empty';
 export type QuotaChipBand = 'green' | 'yellow' | 'orange' | 'red';
+
+interface QuotaStripPart { text: string; fg: string; percent: number }
+
+interface QuotaDetailSection {
+  id: string;
+  label: string | null;
+  updatedText: string;
+  status: string;
+  needsReauth: boolean;
+  reauthHint: string | null;
+  windows: ProviderQuotaWindow[];
+}
+
+interface QuotaDetailEntry {
+  provider: ProviderId;
+  label: string;
+  updatedText: string;
+  sections: QuotaDetailSection[];
+}
 
 const BAND_COLORS: Record<QuotaChipBand, { fg: string; bg: string }> = {
   green:  { fg: '#22c55e', bg: 'rgba(34,197,94,0.12)' },
@@ -87,7 +112,11 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
             @for (entry of stripEntries(); track entry.provider) {
               <span class="provider-entry" [style.color]="entry.fg">
                 <span class="provider-code">{{ entry.code }}</span>
-                <span class="provider-value">{{ entry.value }}</span>
+                <span class="provider-value">
+                  @for (part of entry.parts; track $index) {
+                    @if (!$first) {<span class="account-separator">·</span>}<span [style.color]="part.fg">{{ part.text }}</span>
+                  }
+                </span>
                 @if (pacingProvider() === entry.provider) {
                   <svg
                     class="pacing-badge"
@@ -126,44 +155,24 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
                   (click)="refreshProvider(provider.provider)"
                 >Refresh</button>
               </span>
-              @if (provider.needsReauth) {
+              @for (section of provider.sections; track section.id) {
                 <span
-                  class="reauth-row"
-                  [attr.data-testid]="'quota-reauth-' + provider.provider"
-                >⚠ Reauth needed — {{ provider.reauthHint }}</span>
-              }
-              @if (provider.accounts.length > 0 && provider.windows.length > 0) {
-                <span class="account-rows" [attr.data-testid]="'quota-account-' + provider.provider + '-legacy'">
-                  <span class="window-label account-label">Account: Existing sign-in</span>
-                  @for (window of provider.windows; track window.id) {
-                    <span class="window-row">
-                      <span class="window-label">{{ window.label }}</span>
-                      <span class="window-value">{{ formatWindowValue(window) }}</span>
-                      <span class="bar"><span class="bar-fill" [style.width.%]="windowPercent(window)"></span></span>
-                      @if (window.resetsAt) {
-                        <span class="window-reset">resets {{ formatReset(window.resetsAt) }}</span>
-                      }
+                  class="account-rows"
+                  [attr.data-testid]="section.label ? 'quota-account-' + provider.provider + '-' + section.id : null"
+                >
+                  @if (section.label) {
+                    <span class="account-heading">
+                      <span class="window-label account-label">Account: {{ section.label }}</span>
+                      <span class="account-age">{{ section.updatedText }}</span>
                     </span>
                   }
-                </span>
-              } @else if (provider.windows.length > 0) {
-                @for (window of provider.windows; track window.id) {
-                  <span class="window-row">
-                    <span class="window-label">{{ window.label }}</span>
-                    <span class="window-value">{{ formatWindowValue(window) }}</span>
-                    <span class="bar"><span class="bar-fill" [style.width.%]="windowPercent(window)"></span></span>
-                    @if (window.resetsAt) {
-                      <span class="window-reset">resets {{ formatReset(window.resetsAt) }}</span>
-                    }
-                  </span>
-                }
-              } @else if (!provider.needsReauth) {
-                <span class="window-row muted">{{ provider.status }}</span>
-              }
-              @for (account of provider.accounts; track account.id) {
-                <span class="account-rows" [attr.data-testid]="'quota-account-' + provider.provider + '-' + account.id">
-                  <span class="window-label account-label">Account: {{ account.label }}</span>
-                  @for (window of account.windows; track window.id) {
+                  @if (section.needsReauth) {
+                    <span
+                      class="reauth-row"
+                      [attr.data-testid]="section.id === 'legacy' ? 'quota-reauth-' + provider.provider : 'quota-reauth-' + provider.provider + '-' + section.id"
+                    >⚠ Reauth needed — {{ section.reauthHint }}</span>
+                  }
+                  @for (window of section.windows; track window.id) {
                     <span class="window-row">
                       <span class="window-label">{{ window.label }}</span>
                       <span class="window-value">{{ formatWindowValue(window) }}</span>
@@ -173,7 +182,9 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
                       }
                     </span>
                   } @empty {
-                    <span class="window-row muted">{{ account.status }}</span>
+                    @if (!section.needsReauth) {
+                      <span class="window-row muted">{{ section.status }}</span>
+                    }
                   }
                 </span>
               }
@@ -207,7 +218,10 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
     .pacing-badge { width: 11px; height: 11px; color: #f6c453; flex-shrink: 0; }
     .text { text-transform: none; }
     .account-rows { display: contents; }
+    .account-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; font-size: 0.72rem; }
     .account-label { font-weight: 600; opacity: 0.9; }
+    .account-age { flex-shrink: 0; font-size: 0.66rem; color: var(--text-secondary, #a0a0a0); }
+    .account-separator { margin: 0 2px; opacity: 0.55; }
     .aux { opacity: 0.75; font-weight: 500; }
     .popover {
       position: absolute; right: 0; top: calc(100% + 8px); z-index: 20;
@@ -254,8 +268,8 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
   /** Live tick used solely to re-render the "resets in" hint each minute. */
   private readonly nowMs = signal(Date.now());
   private readonly accountIpc = inject(ProviderAccountIpcService);
-  /** `provider:profileId` → account label, loaded when the popover opens. */
-  private readonly accountLabels = signal<Record<string, string>>({});
+  /** Account profiles (labels, order, enabled state); null until loaded. */
+  private readonly accountProfiles = signal<QuotaAccountProfile[] | null>(null);
   private nowTimer: ReturnType<typeof setInterval> | null = null;
   readonly popoverOpen = signal(false);
 
@@ -266,7 +280,7 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
         .sort()
         .join(',');
       if (!ids) return;
-      void this.loadAccountLabels();
+      void this.loadAccountProfiles();
     });
   }
 
@@ -296,9 +310,8 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
   readonly pacingProvider = computed<ProviderId | null>(() => {
     const warning = this.store.lastPacingWarning();
     if (!warning) return null;
-    const family = this.familySnapshots(warning.provider);
-    const currentWindow = family
-      .flatMap((snap) => snap.windows)
+    const currentWindow = this.accountSections(warning.provider)
+      .flatMap((section) => section.snapshot.windows)
       .find((window) => window.id === warning.window.id);
     if (
       !currentWindow
@@ -339,11 +352,10 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
       const amount = w.window.unit === 'percent'
         ? `${formatQuotaAmount(w.window.used)}% used`
         : `${formatQuotaAmount(w.window.used)} of ${formatQuotaAmount(w.window.limit)} ${w.window.unit}`;
-      const account = w.accountProfileId
-        ? this.accountLabels()[`${w.provider}:${w.accountProfileId}`] ?? w.accountProfileId
-        : null;
-      const extra = this.store.accountSnapshots().filter((entry) => entry.provider === w.provider).length;
-      const pool = extra > 0 ? ` · ${extra + 1} accounts` : '';
+      const sections = this.accountSections(w.provider);
+      const account = sections.find((section) =>
+        section.id === (w.accountProfileId ?? LEGACY_SECTION_ID))?.label ?? w.accountProfileId ?? null;
+      const pool = sections.length > 1 ? ` · ${sections.length} accounts` : '';
       return `${PROVIDER_LABELS[w.provider]}${account ? ` (${account})` : ''}${pool}: ${w.window.label}: ${amount}`;
     }
     const ok = this.firstOkSnapshot();
@@ -351,99 +363,69 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
     return '';
   });
 
+  /**
+   * One entry per provider with each account's summary percentage, existing
+   * sign-in first: "CC 100%·7%" is one provider with two accounts. Each
+   * percentage carries its own colour; the provider code takes the worst.
+   */
   readonly stripEntries = computed(() => {
     const snaps = this.store.snapshots();
-    const entries: { provider: ProviderId; code: string; value: string; percent: number; fg: string }[] = [];
+    const entries: { provider: ProviderId; code: string; parts: QuotaStripPart[]; fg: string }[] = [];
     for (const provider of PROVIDER_ORDER) {
-      const snap = snaps[provider];
       // A missing CLI means "this provider doesn't exist here" — hide it
       // rather than rendering an error/plan row.
-      if (snap?.cliNotInstalled) continue;
-      const family = this.familySnapshots(provider);
+      if (snaps[provider]?.cliNotInstalled) continue;
+      const family = this.accountSections(provider).map((section) => section.snapshot);
       if (family.length === 0) continue;
       const code = PROVIDER_CODES[provider];
-      const needsReauth = family.some((entry) => entry.needsReauth);
-      let window: ProviderQuotaWindow | null = null;
-      let percent = -1;
-      for (const candidate of family) {
-        if (!candidate.ok) continue;
-        const summary = this.summaryWindow(candidate);
-        if (!summary) continue;
-        const candidatePercent = this.windowPercent(summary);
-        if (candidatePercent > percent) {
-          window = summary;
-          percent = candidatePercent;
+      const parts: QuotaStripPart[] = [];
+      for (const snap of family) {
+        const summary = snap.ok ? this.summaryWindow(snap) : null;
+        if (summary) {
+          const percent = this.windowPercent(summary);
+          parts.push({
+            // A warning glyph when last-known numbers are shown but the login
+            // that produced them has expired.
+            text: `${Math.round(percent)}%${snap.needsReauth ? ' ⚠' : ''}`,
+            fg: snap.needsReauth ? BAND_COLORS.red.fg : stripEntryColor(percent),
+            percent: snap.needsReauth ? 100 : percent,
+          });
+        } else if (snap.needsReauth) {
+          // No usable windows and the user must sign in again — make it
+          // visible rather than hiding the account.
+          parts.push({ text: 'reauth', fg: BAND_COLORS.red.fg, percent: 100 });
         }
       }
-      if (window) {
-        entries.push({
-          provider,
-          code,
-          // Append a warning glyph when last-known numbers are shown but the
-          // login that produced them has expired.
-          value: `${Math.round(percent)}%${needsReauth ? ' ⚠' : ''}`,
-          percent,
-          fg: needsReauth ? BAND_COLORS.red.fg : stripEntryColor(percent),
-        });
-      } else if (needsReauth) {
-        // No usable windows and the user must sign in again — make it visible
-        // in the collapsed chip rather than hiding the provider entirely.
-        entries.push({ provider, code, value: 'reauth', percent: 0, fg: BAND_COLORS.red.fg });
+      if (parts.length > 0) {
+        const worst = parts.reduce((a, b) => (b.percent > a.percent ? b : a));
+        entries.push({ provider, code, parts, fg: worst.fg });
       } else if (family.some((entry) => entry.ok)) {
         const plan = family.find((entry) => entry.ok && entry.plan)?.plan ?? 'ok';
-        entries.push({
-          provider,
-          code,
-          value: plan,
-          percent: 0,
-          fg: STRIP_NEUTRAL_FG,
-        });
+        entries.push({ provider, code, parts: [{ text: plan, fg: STRIP_NEUTRAL_FG, percent: 0 }], fg: STRIP_NEUTRAL_FG });
       }
     }
     return entries;
   });
 
-  readonly detailEntries = computed(() => {
+  readonly detailEntries = computed<QuotaDetailEntry[]>(() => {
     const snaps = this.store.snapshots();
-    const accountSnaps = this.store.accountSnapshots();
-    return PROVIDER_ORDER
-      .map((provider) => {
-        const snap = snaps[provider];
-        // Providers whose CLI isn't installed are hidden from the popover —
-        // there is no quota to manage for a CLI that doesn't exist here.
-        if (!snap || snap.cliNotInstalled) return null;
-        const needsReauth = snap.needsReauth === true;
-        return {
-          provider,
-          label: PROVIDER_LABELS[provider],
-          updatedText: formatUpdatedAge(snap.takenAt, this.nowMs()),
-          status: snap.ok ? `Signed in · ${snap.plan ?? 'unknown plan'}` : (snap.error ?? 'Unavailable'),
-          needsReauth,
-          // The probe's error string is already the actionable instruction;
-          // fall back to a per-provider hint when it isn't present.
-          reauthHint: needsReauth ? (snap.error ?? PROVIDER_REAUTH_HINTS[provider]) : null,
-          windows: snap.ok ? snap.windows.filter((window) => window.limit > 0) : [],
-          // Account-pool rows under the provider (one per non-legacy account).
-          accounts: accountSnaps
-            .filter((entry) => entry.provider === provider && entry.accountProfileId)
-            .map((entry) => ({
-              id: entry.accountProfileId as string,
-              label: this.accountLabels()[`${provider}:${entry.accountProfileId}`] ?? (entry.accountProfileId as string),
-              status: entry.ok ? `Updated ${formatUpdatedAge(entry.takenAt, this.nowMs())}` : (entry.error ?? 'Unavailable'),
-              windows: entry.ok ? entry.windows.filter((window) => window.limit > 0) : [],
-            })),
-        };
-      })
-      .filter((entry): entry is {
-        provider: ProviderId;
-        label: string;
-        updatedText: string;
-        status: string;
-        needsReauth: boolean;
-        reauthHint: string | null;
-        windows: ProviderQuotaWindow[];
-        accounts: { id: string; label: string; status: string; windows: ProviderQuotaWindow[] }[];
-      } => entry !== null);
+    const now = this.nowMs();
+    const entries: QuotaDetailEntry[] = [];
+    for (const provider of PROVIDER_ORDER) {
+      // Providers whose CLI isn't installed are hidden from the popover —
+      // there is no quota to manage for a CLI that doesn't exist here.
+      if (snaps[provider]?.cliNotInstalled) continue;
+      const sections = this.accountSections(provider);
+      if (sections.length === 0) continue;
+      const newest = Math.max(...sections.map((section) => section.snapshot.takenAt));
+      entries.push({
+        provider,
+        label: PROVIDER_LABELS[provider],
+        updatedText: formatUpdatedAge(snaps[provider]?.takenAt ?? newest, now),
+        sections: sections.map((section) => detailSection(provider, section, now)),
+      });
+    }
+    return entries;
   });
 
   ngOnInit(): void {
@@ -461,15 +443,16 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
 
   togglePopover(): void {
     this.popoverOpen.update((open) => !open);
-    if (this.popoverOpen() && this.store.accountSnapshots().length > 0) void this.loadAccountLabels();
+    if (this.popoverOpen() && this.store.accountSnapshots().length > 0) void this.loadAccountProfiles();
   }
 
-  private async loadAccountLabels(): Promise<void> {
+  private async loadAccountProfiles(): Promise<void> {
     try {
       const { profiles } = await this.accountIpc.list();
-      this.accountLabels.set(Object.fromEntries(profiles.map((profile) => [`${profile.provider}:${profile.id}`, profile.label])));
+      this.accountProfiles.set(profiles);
     } catch {
-      // Labels are cosmetic; the account id still identifies the row.
+      // Keep the last known list. Without one, every account snapshot is
+      // still shown, identified by its profile id.
     }
   }
 
@@ -500,10 +483,13 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
     return `in ${formatDuration(ms)}`;
   }
 
-  private familySnapshots(provider: ProviderId): ProviderQuotaSnapshot[] {
-    const providerSnap = this.store.snapshots()[provider];
-    const accounts = this.store.accountSnapshots().filter((entry) => entry.provider === provider);
-    return providerSnap ? [providerSnap, ...accounts] : accounts;
+  private accountSections(provider: ProviderId): QuotaAccountSection[] {
+    return quotaAccountSections(
+      provider,
+      this.store.snapshots()[provider],
+      this.store.accountSnapshots(),
+      this.accountProfiles(),
+    );
   }
 
   /** First provider with `ok: true` snapshot, in stable order. */
@@ -546,6 +532,22 @@ function formatDuration(ms: number): string {
   if (d > 0) return `${d}d ${h}h ${m}m`;
   if (h > 0) return `${h}h ${m}m`;
   return `${m}m`;
+}
+
+function detailSection(provider: ProviderId, section: QuotaAccountSection, now: number): QuotaDetailSection {
+  const snap = section.snapshot;
+  const needsReauth = snap.needsReauth === true;
+  return {
+    id: section.id,
+    label: section.label,
+    updatedText: formatUpdatedAge(snap.takenAt, now),
+    status: snap.ok ? `Signed in · ${snap.plan ?? 'unknown plan'}` : (snap.error ?? 'Unavailable'),
+    needsReauth,
+    // The probe's error string is already the actionable instruction; fall
+    // back to a per-provider hint when it isn't present.
+    reauthHint: needsReauth ? (snap.error ?? PROVIDER_REAUTH_HINTS[provider]) : null,
+    windows: snap.ok ? snap.windows.filter((window) => window.limit > 0) : [],
+  };
 }
 
 function formatUpdatedAge(takenAt: number, now: number): string {

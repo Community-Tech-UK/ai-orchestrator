@@ -1316,13 +1316,24 @@ export class InstanceManager extends EventEmitter {
 
   /**
    * Queue a partial state update for an instance without changing its status.
-   * Used by subsystems (loop coordinator, remote heartbeat) to push machine-readable
-   * wait reasons without owning the full lifecycle transition.
+   * Used by subsystems (loop coordinator, remote heartbeat, background-work
+   * registry) to push machine-readable wait state without owning the full
+   * lifecycle transition.
    */
-  queueInstanceUpdate(instanceId: string, update: { waitReason?: import('../../shared/types/instance.types').InstanceWaitReason | null }): void {
+  queueInstanceUpdate(
+    instanceId: string,
+    update: {
+      waitReason?: import('../../shared/types/instance.types').InstanceWaitReason | null;
+      backgroundWork?: import('../../shared/types/instance.types').InstanceBackgroundWork | null;
+    },
+  ): void {
     const instance = this.state.getInstance(instanceId);
     if (!instance) return;
-    this.state.queueUpdate(instanceId, instance.status, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, update.waitReason);
+    this.state.queueUpdate(
+      instanceId, instance.status, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      update.waitReason,
+      update.backgroundWork !== undefined ? { backgroundWork: update.backgroundWork } : undefined,
+    );
   }
 
   /**

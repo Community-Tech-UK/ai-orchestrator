@@ -21,12 +21,13 @@
 import type { LoopFailoverConfig } from '../../shared/types/loop.types';
 import type { LoopProvider } from '../../shared/types/loop.types';
 import type { LoopStage, LoopState } from '../../shared/types/loop.types';
-import { detectAvailableClis } from '../cli/cli-detection';
+import { detectAvailableClis, getCliDetectionService, type CliInfo } from '../cli/cli-detection';
 import { classifyLoopError } from '../core/loop-error-classification';
 import { isProviderParkedForFailover } from '../providers/account-pool/provider-parked-veto';
 import { getNotificationService } from '../notifications/notification-service';
 import { getFailoverManager } from '../providers/failover-manager';
 import { getLogger } from '../logging/logger';
+import type { LoopCompletionContextStore } from './loop-completion-context-store';
 
 const logger = getLogger('LoopFailover');
 
@@ -177,29 +178,27 @@ export function attemptLoopFailover(
   }
 }
 
-export async function runCoordinatorLoopFailover(args: {
+interface CoordinatorLoopFailoverArgs {
   state: LoopState;
-  error: unknown;
   seq: number;
   stage: LoopStage;
   downshiftModel?: string | null;
   onSwitched: (from: LoopProvider) => void;
   emit: (eventName: string, payload: unknown) => void;
-}): Promise<boolean> {
-  if (!args.state.config.failover?.enabled) return false;
+}
 
-  let installed: ReadonlySet<string>;
-  try {
-    const clis = await detectAvailableClis();
-    installed = new Set(clis.filter((cli) => cli.installed).map((cli) => cli.name));
-  } catch {
-    installed = new Set();
-  }
-  const outcome = attemptLoopFailover(args.state, args.error, args.seq, args.stage, {
-    classify: (err) => classifyLoopError(err, {
-      provider: args.state.config.provider,
-      model: args.downshiftModel ?? undefined,
-    }),
+function installedProvidersFrom(clis: readonly CliInfo[]): ReadonlySet<string> {
+  return new Set(clis.filter((cli) => cli.installed).map((cli) => cli.name));
+}
+
+function runCoordinatorFailoverAttempt(
+  args: CoordinatorLoopFailoverArgs,
+  error: unknown,
+  installed: ReadonlySet<string>,
+  classify: AttemptLoopFailoverDeps['classify'],
+): boolean {
+  const outcome = attemptLoopFailover(args.state, error, args.seq, args.stage, {
+    classify,
     selectTarget: (request) => getFailoverManager().selectLoopFailoverTarget(request),
     isProviderParked: (provider) => isProviderParkedForFailover(provider),
     installedProviders: installed,
@@ -228,4 +227,103 @@ export async function runCoordinatorLoopFailover(args: {
     args.onSwitched(outcome.from);
   }
   return outcome.switched;
+}
+
+export async function runCoordinatorLoopFailover(
+  args: CoordinatorLoopFailoverArgs & { error: unknown },
+): Promise<boolean> {
+  if (!args.state.config.failover?.enabled) return false;
+
+  let installed: ReadonlySet<string>;
+  try {
+    installed = installedProvidersFrom(await detectAvailableClis());
+  } catch {
+    installed = new Set();
+  }
+  return runCoordinatorFailoverAttempt(args, args.error, installed, (err) => classifyLoopError(err, {
+    provider: args.state.config.provider,
+    model: args.downshiftModel ?? undefined,
+  }));
+}
+
+/**
+ * Provider-limit variant: the loop is about to park (or terminate) on a usage
+ * limit. A limit is by definition a failover category, so no error
+ * classification is needed; the same opt-in, switch budget and vetoes apply.
+ *
+ * Synchronous because every park site is. CLI availability comes from the
+ * detection cache, which the coordinator warms before each iteration of a
+ * failover-enabled run; with no cache yet every candidate is vetoed and the
+ * loop parks exactly as it would have without failover.
+ */
+export function runCoordinatorProviderLimitFailover(
+  args: CoordinatorLoopFailoverArgs & { reason: string },
+): boolean {
+  if (!args.state.config.failover?.enabled) return false;
+
+  const cached = getCliDetectionService().peekCachedResult();
+  const installed = cached ? installedProvidersFrom(cached.detected) : new Set<string>();
+  return runCoordinatorFailoverAttempt(args, args.reason, installed, () => ({
+    axes: { shouldFailover: true },
+    reason: 'provider usage limit',
+    message: args.reason,
+  }));
+}
+
+type LoopFailoverContextStore = Pick<
+  LoopCompletionContextStore,
+  'getDownshiftModel' | 'setPendingFailover' | 'requestContextReset' | 'clearDownshiftModel'
+>;
+
+/**
+ * The coordinator's entry points into provider failover. Selection routes
+ * through the FailoverManager (cooldown/circuit telemetry) with loop-scope
+ * vetoes: WS2 provider-limit ledger park and CLI availability. On success the
+ * run's provider is switched, the switch budget is consumed, the next
+ * iteration is tagged `failedOverFrom` and forced onto a fresh session.
+ */
+export class LoopFailoverRunner {
+  constructor(private readonly deps: {
+    completionContext: LoopFailoverContextStore;
+    emit: (eventName: string, payload: unknown) => void;
+  }) {}
+
+  /** After terminal invocation failure. Never throws; false = proceed to terminal handling. */
+  afterInvocationFailure(state: LoopState, error: unknown, seq: number, stage: LoopStage): Promise<boolean> {
+    return runCoordinatorLoopFailover({
+      state,
+      error,
+      seq,
+      stage,
+      downshiftModel: this.deps.completionContext.getDownshiftModel(state.id),
+      onSwitched: (from) => this.onSwitched(state, from),
+      emit: this.deps.emit,
+    });
+  }
+
+  /** In place of a provider-limit park or terminate. Never throws; false = park. */
+  onProviderLimit(state: LoopState, reason: string): boolean {
+    return runCoordinatorProviderLimitFailover({
+      state,
+      reason,
+      seq: state.totalIterations,
+      stage: state.currentStage,
+      onSwitched: (from) => this.onSwitched(state, from),
+      emit: this.deps.emit,
+    });
+  }
+
+  /** Refresh the CLI detection cache that {@link onProviderLimit} reads synchronously. */
+  async warmCliDetection(state: LoopState): Promise<void> {
+    if (!state.config.failover?.enabled) return;
+    await detectAvailableClis().catch(() => []);
+  }
+
+  private onSwitched(state: LoopState, from: LoopProvider): void {
+    this.deps.completionContext.setPendingFailover(state.id, from);
+    this.deps.completionContext.requestContextReset(state.id);
+    // A downshift model belongs to the old provider's catalog.
+    this.deps.completionContext.clearDownshiftModel(state.id);
+    state.lastThreadCaps = undefined;
+  }
 }

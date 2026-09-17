@@ -215,6 +215,7 @@ describe('InstanceListStore', () => {
       executionLocation: { type: 'remote', nodeId: 'node-1' },
       metadata: { key: 'value' },
       waitReason: { kind: 'quota-park', provider: 'claude', resumeAt: 999 },
+      backgroundWork: { count: 2, since: 444 },
       selfManagesAutoCompaction: true,
     };
 

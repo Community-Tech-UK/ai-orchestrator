@@ -337,6 +337,28 @@ describe('ProviderQuotaService', () => {
       expect(warnings.filter((w) => w.threshold === 50)).toHaveLength(2);
     });
 
+    it('stores but does not alert on snapshots from a probe that silences alerts', async () => {
+      const alerts: unknown[] = [];
+      svc.on('quota-warning', (a) => alerts.push(a));
+      svc.on('quota-exhausted', (a) => alerts.push(a));
+      svc.on('quota-pacing-warning', (a) => alerts.push(a));
+      const silenced: ProviderQuotaProbe = {
+        provider: 'claude',
+        accountProfileId: 'disabled-b',
+        silenceAlerts: true,
+        probe: async () => makeSnapshot('claude', 100, 100),
+      };
+      svc.registerProbe(silenced);
+      await svc.refresh('claude', 'disabled-b');
+      svc.ingestFromAdapter('claude', makeIngest('claude', 100, 100), 'header', 'disabled-b');
+      expect(svc.getSnapshot('claude', 'disabled-b')?.windows[0]?.used).toBe(100);
+      expect(alerts).toHaveLength(0);
+
+      svc.registerProbe(new FakeProbe('claude', makeSnapshot('claude', 100, 100), 'enabled-c'));
+      await svc.refresh('claude', 'enabled-c');
+      expect(alerts.length).toBeGreaterThan(0);
+    });
+
     it('does not emit alerts when limit is 0 (unknown/unlimited)', () => {
       const warnings: ProviderQuotaAlert[] = [];
       svc.on('quota-warning', (a: ProviderQuotaAlert) => warnings.push(a));

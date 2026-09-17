@@ -30,6 +30,7 @@ import { maybeStartWorkerModeOnLaunch } from '../remote-node/worker-mode-autosta
 import { initializeContextEvidenceRuntime } from '../context-evidence/evidence-maintenance-service';
 import { initializeLocalAiGuardRuntime } from '../local-ai-guard';
 import { initializeInstanceAsyncWorkContinuation } from '../instance/instance-async-work-continuation';
+import { initializeInstanceAsyncWorkPublisher } from '../instance/instance-async-work-publisher';
 import { initializeInstanceAnnounceThenHaltContinuation } from '../instance/instance-announce-then-halt-continuation';
 import { getCrossSessionMessagingService } from '../instance/cross-session-messaging';
 import { getLoopCoordinator } from '../orchestration/loop-coordinator';
@@ -359,7 +360,15 @@ export function createInitializationSteps(
     },
     {
       name: 'Background task continuation',
-      fn: () => { initializeInstanceAsyncWorkContinuation(instanceManager); },
+      fn: () => {
+        initializeInstanceAsyncWorkPublisher(instanceManager);
+        initializeInstanceAsyncWorkContinuation(
+          instanceManager,
+          (instanceId) => getLoopCoordinator().getActiveLoops().some(
+            (loop) => loop.chatId === instanceId && isActiveLoopRuntimeState(loop),
+          ),
+        );
+      },
     },
     createAnnounceThenHaltContinuationInitializationStep(instanceManager),
     { name: 'Verification invokers', fn: () => registerDefaultMultiVerifyInvoker(instanceManager) },

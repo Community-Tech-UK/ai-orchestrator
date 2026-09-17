@@ -2,7 +2,10 @@
       <div class="header-top">
         <div class="instance-identity">
           <div class="name-row">
-            <app-status-indicator [status]="instance().status" />
+            <app-status-indicator
+              [status]="instance().status"
+              [backgroundWorkCount]="instance().backgroundWork?.count ?? 0"
+            />
             @if (isEditingName()) {
               <input
                 type="text"

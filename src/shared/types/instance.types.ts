@@ -106,6 +106,8 @@ export interface PlanModeConfig {
 
 import type { InstanceWaitReason } from './instance-wait-reason.types';
 export type { InstanceWaitReason };
+import type { InstanceBackgroundWork } from './instance-background-work.types';
+export type { InstanceBackgroundWork };
 
 /**
  * An idle instance offered to memory-pressure reclamation.
@@ -456,6 +458,8 @@ export interface Instance {
    * spinner always has a legible reason. Cleared when the wait resolves.
    */
   waitReason?: InstanceWaitReason;
+  /** Live provider-owned background work; see {@link InstanceBackgroundWork}. */
+  backgroundWork?: InstanceBackgroundWork;
   /** Replacement instance id when this instance has been superseded by edit/fork. */
   supersededBy?: string;
   /** True when this instance was cancelled specifically for prompt edit retry. */

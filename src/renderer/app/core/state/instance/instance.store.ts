@@ -348,6 +348,9 @@ export class InstanceStore implements OnDestroy {
           historyThreadId: update.historyThreadId ?? inst.historyThreadId,
           // null clears waitReason; undefined preserves existing.
           waitReason: update.waitReason !== undefined ? (update.waitReason ?? undefined) : inst.waitReason,
+          // null clears backgroundWork; undefined preserves existing.
+          backgroundWork:
+            update.backgroundWork !== undefined ? (update.backgroundWork ?? undefined) : inst.backgroundWork,
           selfManagesAutoCompaction:
             update.selfManagesAutoCompaction ?? inst.selfManagesAutoCompaction,
           // Provider changes after a cross-provider swap of an existing session.
@@ -459,6 +462,9 @@ export class InstanceStore implements OnDestroy {
             historyThreadId: update.historyThreadId ?? instance.historyThreadId,
             // null clears waitReason; undefined preserves existing.
             waitReason: update.waitReason !== undefined ? (update.waitReason ?? undefined) : instance.waitReason,
+            // null clears backgroundWork; undefined preserves existing.
+            backgroundWork:
+              update.backgroundWork !== undefined ? (update.backgroundWork ?? undefined) : instance.backgroundWork,
             selfManagesAutoCompaction:
               update.selfManagesAutoCompaction ?? instance.selfManagesAutoCompaction,
             // Provider changes after a cross-provider swap of an existing session.

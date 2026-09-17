@@ -152,6 +152,25 @@ export class InstanceRowComponent {
     this.instance().status === 'hibernating'
   );
   readonly isHibernated = computed(() => this.instance().status === 'hibernated');
+  /**
+   * Idle between turns, but the provider still owns a background shell or
+   * agent. Not finished, not busy, and not waiting on the user, so it gets its
+   * own indicator rather than borrowing the spinner or the amber dot.
+   */
+  readonly isWaitingOnBackgroundWork = computed(() => {
+    const { status, backgroundWork } = this.instance();
+    return (backgroundWork?.count ?? 0) > 0
+      && (status === 'idle' || status === 'ready')
+      && !this.showActivitySpinner()
+      && !this.needsAttention();
+  });
+  private readonly backgroundWorkLabel = computed(() => {
+    const work = this.instance().backgroundWork;
+    if (!work) return '';
+    const tasks = work.count === 1 ? '1 background task' : `${work.count} background tasks`;
+    const since = new Date(work.since).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return `Waiting on ${tasks} (since ${since})`;
+  });
   readonly supportsResume = computed(() =>
     this.instance().provider === 'claude' || this.instance().provider === 'codex'
   );
@@ -229,6 +248,7 @@ export class InstanceRowComponent {
     if (this.instance().status === 'error') parts.push('error');
     else if (this.isHibernated()) parts.push('hibernated — send a message to wake');
     else if (this.needsAttention() || this.showActivitySpinner()) parts.push(this.activityLabel());
+    else if (this.isWaitingOnBackgroundWork()) parts.push(this.backgroundWorkLabel());
     return parts.filter(Boolean).join(' · ');
   });
 

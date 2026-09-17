@@ -196,6 +196,14 @@ export class CliDetectionService {
   }
 
   /**
+   * The last detection result regardless of cache age, without detecting.
+   * For synchronous callers that can tolerate a slightly stale answer.
+   */
+  peekCachedResult(): DetectionResult | null {
+    return this.cache;
+  }
+
+  /**
    * Clear the detection cache
    */
   clearCache(): void {

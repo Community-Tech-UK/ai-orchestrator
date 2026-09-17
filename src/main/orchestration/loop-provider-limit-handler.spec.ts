@@ -371,3 +371,78 @@ describe('LoopProviderLimitHandler account-pool failover', () => {
     handler.clearResumeTimer('loop-c');
   });
 });
+
+describe('LoopProviderLimitHandler provider failover', () => {
+  function stateFor(id: string) {
+    return { id, chatId: 'chat', status: 'running', totalIterations: 0, currentStage: 'IMPLEMENT', config: { provider: 'claude', workspaceCwd: '/w' } } as never;
+  }
+
+  function makeHandler(tryProviderFailover: (state: LoopState, reason: string) => boolean) {
+    const emit = vi.fn();
+    const handler = new LoopProviderLimitHandler({
+      emit,
+      cloneStateForBroadcast: (state) => state,
+      setConvergenceNote: vi.fn(),
+      terminate: vi.fn(),
+      resumeLoop: vi.fn(),
+      tryProviderFailover,
+    });
+    const ledger = { record: vi.fn(), getActive: vi.fn(), clearActive: vi.fn() };
+    handler.setProviderLimitLedger(ledger as never);
+    handler.setLoopAccountFailover({ currentProfileId: () => null, trySwitch: vi.fn(() => false) });
+    return { handler, emit, ledger };
+  }
+
+  it('switches provider instead of parking, after recording the limit for the old provider', () => {
+    const order: string[] = [];
+    const tryProviderFailover = vi.fn(() => { order.push('switch'); return true; });
+    const { handler, emit, ledger } = makeHandler(tryProviderFailover);
+    ledger.record.mockImplementation(() => { order.push('record'); });
+    const state = stateFor('loop-p');
+
+    const outcome = handler.handleProviderLimit(state, {
+      reason: 'weekly limit', resumeAt: Date.now() + 60_000, source: 'quota', action: 'throttle',
+    });
+
+    expect(outcome).toBe('switched-provider');
+    expect(tryProviderFailover).toHaveBeenCalledWith(state, 'weekly limit');
+    expect(order).toEqual(['record', 'switch']);
+    expect(ledger.record).toHaveBeenCalledWith(expect.objectContaining({ provider: 'claude' }));
+    expect((state as { status: string }).status).toBe('running');
+    expect(emit).not.toHaveBeenCalledWith('loop:provider-limit', expect.anything());
+  });
+
+  it('tries a switch before terminating when no reset time is known, recording an assumed limit window', () => {
+    const { handler, ledger } = makeHandler(() => true);
+    const now = Date.now();
+    expect(handler.handleProviderLimit(stateFor('loop-t'), {
+      reason: 'limit notice', resumeAt: null, source: 'notice', action: 'notice', mustStop: true,
+    })).toBe('switched-provider');
+    expect(ledger.record).toHaveBeenCalledTimes(1);
+    expect(ledger.record).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'claude',
+      source: 'loop-notice',
+      resumeAt: expect.any(Number),
+    }));
+    expect(ledger.record.mock.calls[0][0].resumeAt).toBeGreaterThan(now);
+  });
+
+  it('parks when no switch is possible, the switch throws, or the signal is a burst throttle', () => {
+    const resumeAt = Date.now() + 60_000;
+    const opts = { reason: 'x', resumeAt, source: 'quota' as const, action: 'throttle' as const, mustStop: true };
+
+    const none = makeHandler(() => false);
+    expect(none.handler.handleProviderLimit(stateFor('loop-n'), opts)).toBe('parked');
+    none.handler.clearResumeTimer('loop-n');
+
+    const throws = makeHandler(() => { throw new Error('boom'); });
+    expect(throws.handler.handleProviderLimit(stateFor('loop-x'), opts)).toBe('parked');
+    throws.handler.clearResumeTimer('loop-x');
+
+    const burstSwitch = vi.fn(() => true);
+    const burst = makeHandler(burstSwitch);
+    expect(burst.handler.handleProviderLimit(stateFor('loop-b'), { ...opts, accountFailover: false })).toBe('parked');
+    expect(burstSwitch).not.toHaveBeenCalled();
+    burst.handler.clearResumeTimer('loop-b');
+  });
+});

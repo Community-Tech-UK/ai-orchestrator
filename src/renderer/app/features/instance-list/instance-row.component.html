@@ -27,6 +27,7 @@
           [class.provider-looping]="isLooping()"
           [class.provider-hibernated]="isHibernated()"
           [class.provider-needs-attention]="needsAttention()"
+          [class.provider-background-waiting]="isWaitingOnBackgroundWork()"
           [style.color]="providerVisual().color"
           [style.--provider-color]="providerVisual().color"
         >

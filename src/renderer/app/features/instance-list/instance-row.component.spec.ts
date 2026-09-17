@@ -295,3 +295,79 @@ describe('InstanceRowComponent — tool-loop badge (N2)', () => {
     expect(indicator.getAttribute('aria-label') ?? '').toContain('Tool loop detected');
   });
 });
+
+/**
+ * An idle session whose provider still owns background work (a background
+ * shell or agent) is waiting, not finished. It needs its own indicator: not the
+ * busy spinner (the CLI is not mid-turn) and not the amber attention dot (it is
+ * not waiting on the user).
+ */
+describe('InstanceRowComponent — waiting on background work', () => {
+  let fixture: ComponentFixture<HostComponent>;
+
+  beforeEach(async () => {
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({
+      imports: [HostComponent],
+      providers: [
+        { provide: RemoteNodeStore, useValue: { nodeById: () => null } },
+        { provide: ToolLoopAlertStore, useValue: { hasCriticalAlert: () => false } },
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(HostComponent);
+    fixture.detectChanges();
+  });
+
+  afterEach(() => fixture.destroy());
+
+  function badge(): HTMLElement {
+    return fixture.nativeElement.querySelector('.provider-badge') as HTMLElement;
+  }
+
+  function indicatorLabel(): string {
+    return (fixture.nativeElement.querySelector('.leading-indicator') as HTMLElement).getAttribute('aria-label') ?? '';
+  }
+
+  it('marks an idle session that still owns background work, and names it', () => {
+    fixture.componentInstance.instance.set(makeInstance({
+      status: 'idle',
+      backgroundWork: { count: 2, since: Date.now() - 5_000 },
+    }));
+    fixture.detectChanges();
+
+    expect(badge().classList).toContain('provider-background-waiting');
+    expect(badge().classList).not.toContain('provider-busy');
+    expect(fixture.nativeElement.querySelector('.attention-overlay-dot')).toBeNull();
+    expect(indicatorLabel()).toContain('Waiting on 2 background tasks');
+  });
+
+  it('uses the singular for one task', () => {
+    fixture.componentInstance.instance.set(makeInstance({
+      status: 'ready',
+      backgroundWork: { count: 1, since: Date.now() },
+    }));
+    fixture.detectChanges();
+
+    expect(indicatorLabel()).toContain('Waiting on 1 background task');
+    expect(indicatorLabel()).not.toContain('tasks');
+  });
+
+  it('lets the busy spinner win while a turn is running', () => {
+    fixture.componentInstance.instance.set(makeInstance({
+      status: 'busy',
+      backgroundWork: { count: 1, since: Date.now() },
+    }));
+    fixture.detectChanges();
+
+    expect(badge().classList).toContain('provider-busy');
+    expect(badge().classList).not.toContain('provider-background-waiting');
+  });
+
+  it('shows nothing extra for an idle session with no background work', () => {
+    fixture.componentInstance.instance.set(makeInstance({ status: 'idle' }));
+    fixture.detectChanges();
+
+    expect(badge().classList).not.toContain('provider-background-waiting');
+    expect(indicatorLabel()).toBe('Claude');
+  });
+});

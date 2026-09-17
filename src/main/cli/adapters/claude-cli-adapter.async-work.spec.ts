@@ -105,4 +105,73 @@ describe('ClaudeCliAdapter async-work events', () => {
     }]);
     expect(outputs).toEqual([]);
   });
+
+  it('tracks a command moved to the background by its timeout through to the provider-resumed turn', () => {
+    const { events, feed } = makeAdapter();
+    // Order and shapes as emitted by Claude CLI stream-json on 2026-09-17.
+    feed({
+      type: 'assistant',
+      message: {
+        content: [{
+          type: 'tool_use',
+          id: 'toolu-slow',
+          name: 'Bash',
+          input: { command: 'python3 sync.py', timeout: 5000 },
+        }],
+      },
+    });
+    feed({
+      type: 'system',
+      subtype: 'task_started',
+      task_id: 'b5mda85zy',
+      tool_use_id: 'toolu-slow',
+      is_backgrounded: false,
+      task_type: 'local_bash',
+    });
+    feed({
+      type: 'system',
+      subtype: 'background_tasks_changed',
+      tasks: [{ task_id: 'b5mda85zy', task_type: 'local_bash', description: 'python3 sync.py' }],
+    });
+    feed({ type: 'system', subtype: 'task_updated', task_id: 'b5mda85zy', patch: { is_backgrounded: true } });
+    feed({
+      type: 'user',
+      message: {
+        content: [{
+          type: 'tool_result',
+          tool_use_id: 'toolu-slow',
+          content: 'Command did not complete within its 5s timeout and was moved to the background (ID: b5mda85zy). Output is being written to: /tmp/b5mda85zy.output',
+        }],
+      },
+    });
+    feed({ type: 'system', subtype: 'background_tasks_changed', tasks: [] });
+    feed({ type: 'system', subtype: 'task_updated', task_id: 'b5mda85zy', patch: { status: 'completed' } });
+    feed({
+      type: 'system',
+      subtype: 'task_notification',
+      task_id: 'b5mda85zy',
+      tool_use_id: 'toolu-slow',
+      status: 'completed',
+      output_file: '/tmp/b5mda85zy.output',
+      summary: 'Background command completed',
+    });
+    feed({ type: 'system', subtype: 'init', session_id: 'session-1' });
+
+    expect(events).toEqual([
+      { phase: 'snapshot', work: [{ workId: 'b5mda85zy', kind: 'background-shell' }] },
+      // Reported twice (task_updated and the tool_result text); the registry
+      // treats a repeated start for the same work id as a no-op.
+      { phase: 'started', workId: 'b5mda85zy', replacesWorkId: 'toolu-slow', kind: 'background-shell' },
+      { phase: 'started', workId: 'b5mda85zy', replacesWorkId: 'toolu-slow', kind: 'background-shell' },
+      { phase: 'snapshot', work: [] },
+      {
+        phase: 'terminal',
+        workId: 'b5mda85zy',
+        replacesWorkId: 'toolu-slow',
+        kind: 'background-shell',
+        status: 'completed',
+      },
+      { phase: 'provider-resumed' },
+    ]);
+  });
 });

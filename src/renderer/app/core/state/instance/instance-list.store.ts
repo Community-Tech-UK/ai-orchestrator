@@ -774,6 +774,9 @@ export class InstanceListStore {
       waitReason: this.isRecord(d['waitReason'])
         ? (d['waitReason'] as Instance['waitReason'])
         : undefined,
+      backgroundWork: this.isRecord(d['backgroundWork'])
+        ? (d['backgroundWork'] as unknown as Instance['backgroundWork'])
+        : undefined,
       desiredRuntime: this.isRecord(d['desiredRuntime'])
         ? (d['desiredRuntime'] as unknown as Instance['desiredRuntime'])
         : undefined,

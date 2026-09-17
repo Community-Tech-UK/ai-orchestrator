@@ -8,7 +8,7 @@ export interface LastSentTurn {
 
 /**
  * Per-instance overflow / last-turn bookkeeping for InstanceCommunicationManager.
- * Compaction and retry policy stay on the manager; this object only owns the maps.
+ * Compaction and retry policy live on InstanceCommunicationOverflowPolicy; this object owns the maps.
  */
 export class InstanceCommunicationOverflowTracker {
   private readonly lastSent = new Map<string, LastSentTurn>();

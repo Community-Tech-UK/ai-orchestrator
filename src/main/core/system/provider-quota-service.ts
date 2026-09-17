@@ -62,6 +62,11 @@ export interface ProviderQuotaProbe {
   readonly provider: ProviderId;
   /** Account-pool profile the probe reads. Absent for the legacy/provider-level probe. */
   readonly accountProfileId?: string;
+  /**
+   * When true, the probe's snapshots are stored and shown but never raise
+   * warning, exhausted or pacing alerts (e.g. a disabled pool account).
+   */
+  readonly silenceAlerts?: boolean;
   probe(opts: { signal: AbortSignal }): Promise<ProviderQuotaSnapshot | null>;
 }
 
@@ -383,7 +388,7 @@ export class ProviderQuotaService extends EventEmitter {
     }
     this.detectWindowResets(key, snapshot);
     this.emit('quota-updated', snapshot);
-    if (snapshot.ok) {
+    if (snapshot.ok && !this.probes.get(key)?.silenceAlerts) {
       this.checkThresholds(provider, snapshot, key);
       this.checkPacing(provider, snapshot, key);
     }
