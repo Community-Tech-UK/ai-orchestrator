@@ -5962,19 +5962,19 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3592
+      "lines": 3598
     },
     {
       "path": "docs/superpowers/plans/2026-06-08-50-hour-loop-resilience_completed.md",
       "lines": 3564
     },
     {
-      "path": "docs/superpowers/plans/2026-04-28-wave2-navigation-pickers-prompt-recall-plan_completed.md",
-      "lines": 3523
+      "path": "src/main/instance/instance-communication.spec.ts",
+      "lines": 3529
     },
     {
-      "path": "src/main/instance/instance-communication.spec.ts",
-      "lines": 3485
+      "path": "docs/superpowers/plans/2026-04-28-wave2-navigation-pickers-prompt-recall-plan_completed.md",
+      "lines": 3523
     },
     {
       "path": "docs/superpowers/plans/2026-04-05-bash-validation-pipeline_completed.md",
@@ -6033,6 +6033,10 @@
       "lines": 2659
     },
     {
+      "path": "src/main/instance/instance-communication.ts",
+      "lines": 2536
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-07-remote-folder-browsing.md",
       "lines": 2519
     },
@@ -6041,16 +6045,12 @@
       "lines": 2512
     },
     {
-      "path": "src/main/instance/instance-communication.ts",
-      "lines": 2497
-    },
-    {
       "path": "src/main/browser-gateway/browser-gateway-service-existing-tabs.spec.ts",
       "lines": 2463
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2429
+      "lines": 2430
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.ts",
@@ -6193,6 +6193,10 @@
       "lines": 1613
     },
     {
+      "path": "src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts",
+      "lines": 1605
+    },
+    {
       "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
       "lines": 1589
     },
@@ -6223,10 +6227,6 @@
     {
       "path": "docs/superpowers/specs/2026-04-28-pause-on-vpn-design_completed.md",
       "lines": 1540
-    },
-    {
-      "path": "src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts",
-      "lines": 1537
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.change-model.spec.ts",

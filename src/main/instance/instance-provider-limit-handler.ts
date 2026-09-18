@@ -10,6 +10,7 @@ import { accountFailoverNote, type AccountFailoverNote } from './account-failove
 import { isPooledProvider } from '../../shared/types/provider-account.types';
 import { clearLimitLiftedSinceRecorded, snapshotShowsLimitLifted } from './provider-limit-lift';
 import {
+  buildProviderLimitContinuationPrompt,
   scheduleInstanceProviderLimitResume,
   type InstanceProviderLimitResumeRequest,
 } from './instance-provider-limit-resume-scheduler';
@@ -462,7 +463,9 @@ export class InstanceProviderLimitHandler {
    * re-send the throttled turn. Idempotent — a double-fire (timer vs.
    * automation) within {@link RESUME_DEDUPE_MS} is ignored. `resumePromptFallback`
    * covers the post-restart case where the in-memory park entry is gone but the
-   * durable automation carried the prompt.
+   * durable automation carried the prompt. A live park that captured no turn
+   * gets {@link buildProviderLimitContinuationPrompt}; with neither, nothing is
+   * sent, so a stale Resume click stays a no-op.
    */
   resumeNow(instanceId: string, opts?: { resumePromptFallback?: string }): boolean {
     const deps = this.deps;
@@ -494,7 +497,14 @@ export class InstanceProviderLimitHandler {
     if (prompt !== null && prompt.length > 0) {
       deps.resendInput(instanceId, prompt);
       logger.info('Resumed regular session after provider quota reset', { instanceId });
+    } else if (entry) {
+      // A live park that captured no turn was raised on a turn dispatched
+      // outside sendInput() (the create-time initial prompt), so there is
+      // nothing to replay — continue rather than resume into silence.
+      deps.resendInput(instanceId, buildProviderLimitContinuationPrompt());
+      logger.info('Resumed regular session with a continuation turn; none captured', { instanceId });
     } else {
+      // Stale action, e.g. a Resume click landing after the park cleared.
       logger.info('Cleared provider-limit park with no message to re-send', { instanceId });
     }
     return true;
@@ -533,9 +543,9 @@ export class InstanceProviderLimitHandler {
       this.lastResumeAt.set(instanceId, now);
       this.clearKnownLimitGate(instanceId);
       deps.setWaitReason(instanceId, null);
-      if (fallbackPrompt && fallbackPrompt.length > 0) {
-        deps.resendInput(instanceId, fallbackPrompt);
-      }
+      // The automation only fires for a park that was still armed, so an absent
+      // prompt means the park captured none — continue, never do nothing.
+      deps.resendInput(instanceId, fallbackPrompt || buildProviderLimitContinuationPrompt());
       return 'resent';
     }
     return 'fell-through';

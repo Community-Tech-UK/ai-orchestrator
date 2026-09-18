@@ -3010,6 +3010,50 @@ describe('provider-limit park on thrown sendInput errors', () => {
     ).toBe(true);
   });
 
+  it('routes a direct-to-adapter turn (the initial prompt) through the park funnel with that prompt', () => {
+    const adapter = new FakeAdapter('codex-cli');
+    instance.status = 'busy';
+    const transitionState = vi.fn((inst: Instance, status) => { inst.status = status; });
+    const onProviderLimitTurn = vi.fn().mockReturnValue('switching-account');
+    const manager = createManager(onProviderLimitTurn, transitionState);
+
+    const handled = manager.providerLimitGateForDirectTurn.handleSendError(
+      instance,
+      adapter as unknown as CliAdapter,
+      new Error(LIVE_INCIDENT_MESSAGE),
+      'run the daily workflow',
+    );
+
+    expect(handled).toBe(true);
+    expect(onProviderLimitTurn.mock.calls[0][0]).toMatchObject({
+      instanceId: instance.id,
+      resumePrompt: 'run the daily workflow',
+    });
+    expect(instance.status).toBe('idle');
+    expect(instance.outputBuffer.some((m) => m.metadata?.['accountFailover'] === true)).toBe(true);
+    // A non-limit error is left to the caller's normal failure handling.
+    expect(manager.providerLimitGateForDirectTurn.handleSendError(
+      instance, adapter as unknown as CliAdapter, new Error('app-server dropped'), 'run the daily workflow',
+    )).toBe(false);
+  });
+
+  it('lets a direct-to-adapter turn through when the known-limit preflight throws', () => {
+    const manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, nextAdapter) => adapters.set(id, nextAdapter),
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+      checkKnownProviderLimitBeforeSend: vi.fn(() => { throw new Error('ledger unavailable'); }),
+    });
+
+    expect(manager.providerLimitGateForDirectTurn.holdBeforeSend(instance, 'run the daily workflow')).toBe(false);
+  });
+
   it('does not dispatch a turn when the provider-limit preflight parks a known active gate', async () => {
     const adapter = new FakeAdapter('claude-cli');
     adapters.set(instance.id, adapter as unknown as CliAdapter);

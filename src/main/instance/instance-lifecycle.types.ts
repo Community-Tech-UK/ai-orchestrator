@@ -10,6 +10,7 @@ import type {
   SessionDiffStats,
 } from '../../shared/types/instance.types';
 import type { CoreDeps } from './instance-deps';
+import type { DirectTurnProviderLimitGate } from './lifecycle/initial-prompt-recovery';
 import type { InstanceStateMachine } from './instance-state-machine';
 import type { SessionDiffTracker } from './session-diff-tracker';
 import type { WarmStartManager } from './warm-start-manager';
@@ -122,6 +123,8 @@ export interface LifecycleDependencies {
   getStateMachine?: (instanceId: string) => InstanceStateMachine | undefined;
   setStateMachine?: (instanceId: string, machine: InstanceStateMachine) => void;
   deleteStateMachine?: (instanceId: string) => void;
+  /** Known-limit preflight + park/account failover for the create-time initial prompt. */
+  initialPromptProviderLimitGate?: DirectTurnProviderLimitGate;
   queueInitialPromptForRenderer?: (payload: {
     instanceId: string;
     message: string;

@@ -30,6 +30,35 @@ export interface InstanceProviderLimitResumeRequest {
 }
 
 /**
+ * The turn to send when a park resumes and no user turn was captured to
+ * re-send.
+ *
+ * `resumePrompt` is only populated by turns that went through
+ * `InstanceCommunicationManager.sendInput`. A session created from a
+ * create-time initial prompt dispatches straight to the adapter, so a park
+ * raised on *that* turn's completion — the normal Claude shape, where the limit
+ * notice arrives as exit-0 assistant content — records no prompt at all. Before
+ * this existed such a park resumed by clearing itself and sending nothing, and
+ * the session sat idle until someone noticed.
+ *
+ * Re-sending the initial prompt is not a safe substitute: by the time a
+ * five-hour window closes the session can be hours into that task, and
+ * replaying it restarts the work from the beginning. A continuation turn keeps
+ * the transcript and the progress.
+ *
+ * Shared by the durable automation's dispatch fallback and
+ * `InstanceProviderLimitHandler.resumeNow` so both halves of the feature resume
+ * a promptless park identically.
+ */
+export function buildProviderLimitContinuationPrompt(): string {
+  return [
+    'The provider usage limit that stopped your previous turn has reset, so this session can continue.',
+    '',
+    'Pick the task back up from where that turn stopped. The conversation above is the record of what is already done: keep those results and do not repeat completed steps. If the task was already finished, say so in one line instead of redoing it.',
+  ].join('\n');
+}
+
+/**
  * Schedule an instance resume two ways, exactly like the loop path:
  *
  * 1. A **durable one-time automation** (survives app restart/crash) whose
@@ -54,7 +83,10 @@ export function scheduleInstanceProviderLimitResume(params: {
     const { createAutomationWithScheduling } = await import('../automations/automation-create-service');
     const automation = await createAutomationWithScheduling({
       name: `Resume session after ${request.provider} quota reset`,
-      description: `Auto-created provider-limit resume for instance ${request.instanceId}.`,
+      // The reason belongs here, not in the dispatched prompt: it is triage
+      // detail for whoever finds this row still pending, and reads as noise to
+      // the model that receives the continuation turn.
+      description: `Auto-created provider-limit resume for instance ${request.instanceId}. Reason: ${request.reason}`,
       enabled: true,
       schedule: {
         type: 'oneTime',
@@ -87,14 +119,10 @@ export function scheduleInstanceProviderLimitResume(params: {
         // cannot resume the live instance directly (e.g. after an app restart,
         // when the thread must be revived first). The runner then revives the
         // thread and sends this prompt. Prefer the user's paused turn so the
-        // work actually continues; otherwise a short resume note.
+        // work actually continues; otherwise the shared continuation turn.
         prompt: request.resumePrompt
           ? request.resumePrompt
-          : [
-              `Provider quota window reset for session ${request.instanceId}.`,
-              `Reason: ${request.reason}`,
-              'Continue the previous task.',
-            ].join('\n'),
+          : buildProviderLimitContinuationPrompt(),
       },
     });
     automationId = automation?.id ?? null;

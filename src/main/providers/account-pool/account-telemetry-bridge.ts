@@ -138,6 +138,11 @@ export function attachAccountTelemetryBridge(
   };
 }
 
+/**
+ * A raw `account/rateLimits/updated` payload also has `primary` and
+ * `rateLimitReachedType`; only the parsed form has `creditsAvailable` (raw
+ * carries a `credits` block and resetsAt in seconds).
+ */
 function isParsedCodexSnapshot(value: unknown): value is CodexRateLimitSnapshot {
-  return Boolean(value && typeof value === 'object' && 'primary' in value && 'rateLimitReachedType' in value);
+  return Boolean(value && typeof value === 'object' && 'primary' in value && 'creditsAvailable' in value);
 }

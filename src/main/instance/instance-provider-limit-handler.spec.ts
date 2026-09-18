@@ -4,6 +4,7 @@ import {
   EARLY_RESUME_PROBE_MS,
   type InstanceProviderLimitHandlerDeps,
 } from './instance-provider-limit-handler';
+import { buildProviderLimitContinuationPrompt } from './instance-provider-limit-resume-scheduler';
 import type { InstanceProvider, InstanceWaitReason } from '../../shared/types/instance.types';
 import type { ProviderId, ProviderQuotaSnapshot } from '../../shared/types/provider-quota.types';
 
@@ -292,6 +293,44 @@ describe('InstanceProviderLimitHandler.resumeNow', () => {
     expect(resumed).toBe(true);
     expect(h.resends).toEqual([{ instanceId: 'i-restarted', prompt: 'original turn' }]);
   });
+
+  // Observed 2026-09-17: three sessions parked on the Claude five_hour limit and
+  // resumed on time, but each had run entirely off its create-time initial
+  // prompt — a turn that never reaches sendInput(), so nothing populated the
+  // overflow tracker and the park recorded `resumePrompt: null`. The resume
+  // cleared the park, sent nothing, and the sessions sat idle.
+  it('sends the continuation turn when the park captured no turn to re-send', () => {
+    h.handler.maybePark({ instanceId: 'i1', provider: CLAUDE, resetAtHint: Date.now() + 60_000, reason: 'x', resumePrompt: null });
+
+    expect(h.handler.resumeNow('i1')).toBe(true);
+    expect(h.resends).toHaveLength(1);
+    expect(h.resends[0]?.instanceId).toBe('i1');
+    expect(h.resends[0]?.prompt).toBe(buildProviderLimitContinuationPrompt());
+    expect(h.waitReasons.get('i1')).toBeNull();
+    expect(h.handler.isParked('i1')).toBe(false);
+  });
+
+  it('prefers the captured turn over the continuation turn', () => {
+    h.handler.maybePark({ instanceId: 'i1', provider: CLAUDE, resetAtHint: Date.now() + 60_000, reason: 'x', resumePrompt: 'the real turn' });
+
+    expect(h.handler.resumeNow('i1')).toBe(true);
+    expect(h.resends).toEqual([{ instanceId: 'i1', prompt: 'the real turn' }]);
+  });
+
+  it('sends nothing when there is neither a live park nor a carried turn', () => {
+    // A stale Resume click landing after the park already cleared must not
+    // inject an unsolicited turn into a session that is not parked.
+    expect(h.handler.resumeNow('i-not-parked')).toBe(true);
+    expect(h.resends).toHaveLength(0);
+  });
+
+  it('still de-dupes a double fire when the park captured no turn', () => {
+    h.handler.maybePark({ instanceId: 'i1', provider: CLAUDE, resetAtHint: Date.now() + 60_000, reason: 'x', resumePrompt: null });
+
+    h.fireScheduled('i1');
+    expect(h.handler.resumeNow('i1')).toBe(false);
+    expect(h.resends).toHaveLength(1);
+  });
 });
 
 describe('InstanceProviderLimitHandler.resumeFromAutomation', () => {
@@ -311,6 +350,16 @@ describe('InstanceProviderLimitHandler.resumeFromAutomation', () => {
     expect(h.handler.resumeFromAutomation('i-live', 'original turn')).toBe('resent');
     expect(h.resends).toEqual([{ instanceId: 'i-live', prompt: 'original turn' }]);
     expect(h.waitReasons.get('i-live')).toBeNull();
+  });
+
+  it('sends the continuation turn post-restart when the automation carried no prompt', () => {
+    // The durable automation only fires for a park that was still armed, so a
+    // promptless fire after a restart must still continue the session.
+    h.resumableIds.add('i-live');
+    expect(h.handler.resumeFromAutomation('i-live')).toBe('resent');
+    expect(h.resends).toEqual([
+      { instanceId: 'i-live', prompt: buildProviderLimitContinuationPrompt() },
+    ]);
   });
 
   it('falls through when no park exists and the instance is not live', () => {

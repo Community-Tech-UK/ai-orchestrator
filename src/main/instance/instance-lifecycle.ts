@@ -1011,6 +1011,10 @@ export class InstanceLifecycleManager extends EventEmitter {
     attachments?: InstanceCreateConfig['attachments'];
   }): Promise<void> {
     const { instance, adapter, resolvedCliType, message } = params;
+    // Same provider-limit funnel as sendInput(): hold on a known limit (or move
+    // to another pool account) before sending, and park/fail over on a limit error.
+    const limitGate = this.deps.initialPromptProviderLimitGate;
+    if (limitGate?.holdBeforeSend(instance, message)) return;
     const runtimeMessage = params.contextBlock?.trim()
       ? `${params.contextBlock}\n\n${message}`
       : message;
@@ -1024,6 +1028,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         this.queuePausedInitialPrompt({ instance, message: runtimeMessage, attachments });
         return;
       }
+      if (limitGate?.handleSendError(instance, adapter, initialError, message)) return;
 
       if (!attachments?.length || !isUnsupportedOrchestratorAttachmentError(initialError)) {
         throw initialError;
@@ -1047,6 +1052,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           this.queuePausedInitialPrompt({ instance, message: runtimeMessage, attachments });
           return;
         }
+        if (limitGate?.handleSendError(instance, adapter, retryError, message)) return;
         throw retryError;
       }
     }

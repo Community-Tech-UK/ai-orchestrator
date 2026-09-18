@@ -463,11 +463,12 @@ export class InstanceCommunicationManager extends EventEmitter {
     adapter: CliAdapter,
     error: unknown,
     errorMessage: string,
+    resumePrompt?: string,
   ): boolean {
     return tryParkOnProviderLimitImpl(
       {
         onProviderLimitTurn: this.deps.onProviderLimitTurn,
-        getResumePrompt: (id) => this.overflow.getResumePrompt(id),
+        getResumePrompt: (id) => resumePrompt ?? this.overflow.getResumePrompt(id),
         addToOutputBuffer: (inst, msg) => this.addToOutputBuffer(inst, msg),
         emitOutput: (id, msg) => this.emit('output', { instanceId: id, message: msg }),
         transitionInstanceStatus: (inst, status) => this.transitionInstanceStatus(inst, status),
@@ -480,6 +481,44 @@ export class InstanceCommunicationManager extends EventEmitter {
       errorMessage,
     );
   }
+
+  /**
+   * Provider-limit handling for a turn dispatched straight to the adapter,
+   * outside sendInput() — the create-time initial prompt. Without it an
+   * automation's first turn skipped both the known-limit preflight and the
+   * park/account-failover funnel. `holdBeforeSend` returns true when a known
+   * limit took the turn; `handleSendError` when a limit error was parked or
+   * handed to an account switch. `prompt` is the turn to re-send.
+   */
+  readonly providerLimitGateForDirectTurn = {
+    holdBeforeSend: (instance: Instance, prompt: string): boolean => {
+      try {
+        return shouldSkipKnownProviderLimitDispatch(this.deps.checkKnownProviderLimitBeforeSend, {
+          instanceId: instance.id,
+          provider: instance.provider,
+          model: instance.currentModel ?? null,
+          prompt,
+        });
+      } catch (error) {
+        // An unreadable ledger must not cost the session its first turn; the
+        // send-error funnel still catches a real limit.
+        logger.warn('Known provider-limit preflight failed; sending the turn', {
+          instanceId: instance.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return false;
+      }
+    },
+    handleSendError: (instance: Instance, adapter: CliAdapter, error: unknown, prompt: string): boolean =>
+      this.tryParkOnProviderLimit(
+        instance.id,
+        instance,
+        adapter,
+        error,
+        error instanceof Error ? error.message : String(error),
+        prompt,
+      ),
+  };
 
   /**
    * Flags a failed turn whose text reads as a provider sign-out, so the

@@ -609,6 +609,74 @@ describe('createInstance spawn transaction rollback', () => {
     expect(notice).toBeDefined();
   });
 
+  it('hands an initial-prompt usage-limit error to the provider-limit funnel instead of the failure notice', async () => {
+    const harness = makeHarness();
+    const adapter = makeFakeAdapter();
+    // The live 2026-09-17 automation failure: the Codex account was out of usage.
+    const limitError = new Error("You've hit your usage limit. Try again at Sep 23rd, 2026 2:11 PM. - [codex_error_info: usageLimitExceeded]");
+    adapter.sendInput.mockRejectedValue(limitError);
+    mocks.createAdapter.mockReturnValue(adapter);
+    const gate = { holdBeforeSend: vi.fn(() => false), handleSendError: vi.fn(() => true) };
+    harness.deps.initialPromptProviderLimitGate = gate;
+
+    const instance = await harness.manager.createInstance({
+      workingDirectory: '/tmp/project',
+      provider: 'codex',
+      initialPrompt: 'run the daily workflow',
+    });
+    await expect(instance.readyPromise).resolves.toBeUndefined();
+
+    expect(gate.holdBeforeSend).toHaveBeenCalledWith(instance, 'run the daily workflow');
+    expect(gate.handleSendError).toHaveBeenCalledWith(instance, adapter, limitError, 'run the daily workflow');
+    expect(harness.instances.has(instance.id)).toBe(true);
+    const failedNotice = instance.outputBuffer.find(
+      (m) => (m as { metadata?: { initialPromptFailed?: boolean } }).metadata?.initialPromptFailed,
+    );
+    expect(failedNotice).toBeUndefined();
+  });
+
+  it('does not dispatch the initial prompt when a known provider limit takes the turn', async () => {
+    const harness = makeHarness();
+    const adapter = makeFakeAdapter();
+    mocks.createAdapter.mockReturnValue(adapter);
+    const gate = { holdBeforeSend: vi.fn(() => true), handleSendError: vi.fn(() => false) };
+    harness.deps.initialPromptProviderLimitGate = gate;
+
+    const instance = await harness.manager.createInstance({
+      workingDirectory: '/tmp/project',
+      provider: 'codex',
+      initialPrompt: 'run the daily workflow',
+    });
+    await expect(instance.readyPromise).resolves.toBeUndefined();
+
+    expect(gate.holdBeforeSend).toHaveBeenCalledOnce();
+    expect(adapter.sendInput).not.toHaveBeenCalled();
+    expect(harness.instances.has(instance.id)).toBe(true);
+  });
+
+  it('still posts the failure notice when the provider-limit funnel declines the error', async () => {
+    const harness = makeHarness();
+    const adapter = makeFakeAdapter();
+    adapter.sendInput.mockRejectedValue(new Error('app-server dropped mid-turn'));
+    mocks.createAdapter.mockReturnValue(adapter);
+    harness.deps.initialPromptProviderLimitGate = {
+      holdBeforeSend: vi.fn(() => false),
+      handleSendError: vi.fn(() => false),
+    };
+
+    const instance = await harness.manager.createInstance({
+      workingDirectory: '/tmp/project',
+      provider: 'codex',
+      initialPrompt: 'hello world',
+    });
+    await expect(instance.readyPromise).resolves.toBeUndefined();
+
+    const failedNotice = instance.outputBuffer.find(
+      (m) => (m as { metadata?: { initialPromptFailed?: boolean } }).metadata?.initialPromptFailed,
+    );
+    expect(failedNotice).toBeDefined();
+  });
+
   it('commits on success and leaves every resource registered', async () => {
     const harness = makeHarness();
     const adapter = makeFakeAdapter();

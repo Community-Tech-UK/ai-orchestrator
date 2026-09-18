@@ -1,8 +1,19 @@
 import type { Instance, InstanceStatus, OutputMessage } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
+import type { CliAdapter } from '../../cli/adapters/adapter-factory';
 import { getLogger } from '../../logging/logger';
 
 const logger = getLogger('InitialPromptRecovery');
+
+/**
+ * The regular-session provider-limit funnel, for a turn sent directly to the
+ * adapter. Both methods return true when the limit took ownership of the turn
+ * (parked, or moving to another pool account that re-sends `prompt`).
+ */
+export interface DirectTurnProviderLimitGate {
+  holdBeforeSend(instance: Instance, prompt: string): boolean;
+  handleSendError(instance: Instance, adapter: CliAdapter, error: unknown, prompt: string): boolean;
+}
 
 export interface InitialPromptRecoveryDeps {
   transitionState(instance: Instance, status: InstanceStatus): void;

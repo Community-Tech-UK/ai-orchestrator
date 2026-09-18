@@ -69,6 +69,23 @@ describe('account telemetry bridge', () => {
     expect(access?.observedAt).toBeGreaterThanOrEqual(probedAt);
   });
 
+  it('parses a raw app-server update that carries rateLimitReachedType instead of mistaking it for a parsed snapshot', () => {
+    const adapter = new EventEmitter();
+    attachAccountTelemetryBridge(adapter, { provider: 'codex', profileId: 'pro-b', source: 'default', executionNodeId: 'local' }, service);
+    // The real `account/rateLimits/updated` shape: resetsAt in seconds, credits as a block.
+    adapter.emit('account-rate-limits', {
+      limitId: 'codex',
+      primary: { usedPercent: 100, windowDurationMins: 10080, resetsAt: 1_790_169_067 },
+      secondary: null,
+      credits: { hasCredits: true, unlimited: false, balance: '12' },
+      planType: 'pro',
+      rateLimitReachedType: null,
+    });
+    const snapshot = service.getSnapshot('codex', 'pro-b');
+    expect(snapshot?.usageAccess).toMatchObject({ ordinaryUsageAllowed: null, creditsAvailable: true });
+    expect(snapshot?.windows[0]?.resetsAt).toBe(1_790_169_067_000);
+  });
+
   it('does nothing without a route', () => {
     const adapter = new EventEmitter();
     attachAccountTelemetryBridge(adapter, undefined, service);

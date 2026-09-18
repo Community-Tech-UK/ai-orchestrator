@@ -591,6 +591,7 @@ export class InstanceManager extends EventEmitter {
       setStateMachine: (id, machine) => this.state.setStateMachine(id, machine),
       deleteStateMachine: (id) => this.state.deleteStateMachine(id),
       queueInitialPromptForRenderer: (payload) => this.queueInitialPromptForRenderer(payload),
+      initialPromptProviderLimitGate: this.communication.providerLimitGateForDirectTurn,
       coreDeps: (() => {
         try { return productionCoreDeps(); }
         catch (error) { logger.warn('productionCoreDeps() failed; using default wiring', { error: error instanceof Error ? error.message : String(error) }); return undefined; }
