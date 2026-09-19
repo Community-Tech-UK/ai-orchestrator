@@ -116,9 +116,9 @@ export class ComposerSubmissionService {
    * Persist a composition before it leaves the composer.
    *
    * Resolves only once the record is durable. Callers must not clear the
-   * composer or submit until it does. A failed durable write is logged and
-   * swallowed: the in-memory record still drives retry for this session, and an
-   * un-journalled send is no worse than the pre-fix behaviour.
+   * composer or submit until it does. A first-write failure rejects so the
+   * caller keeps the live composition intact instead of emitting an
+   * unrecoverable request.
    */
   async begin(input: ComposerSubmissionInput): Promise<ComposerSubmissionRecord> {
     const now = Date.now();
@@ -133,13 +133,10 @@ export class ComposerSubmissionService {
       stages: [{ stage: 'begin', at: now, detail: `${input.text.length} chars, ${input.files.length} files` }],
     };
 
-    // A fresh Send for this draft supersedes any earlier unsent attempt on it.
-    // The composer was never cleared, so the new record already contains that
-    // content (possibly edited) — leaving the old one would show a recovery
-    // banner whose Retry re-sends stale text.
+    await this.writeInitial(record);
+    // Supersede only after the replacement is durable. Removing the earlier
+    // journal entry first would recreate the loss window if this write failed.
     await this.dropRecoverableFor(input.draftKey);
-
-    await this.write(record);
     this.records.update((current) => [...current, record]);
     return record;
   }
@@ -366,6 +363,23 @@ export class ComposerSubmissionService {
       // Durability is best-effort: losing the journal write must not also lose
       // the send. The in-memory copy still drives retry within this session.
       console.warn('[composer-submission] failed to persist journal entry', { id: record.id, error });
+    }
+  }
+
+  /**
+   * The first write establishes the no-loss invariant. It cannot be best-effort:
+   * callers leave the composition in the live composer when this rejects, rather
+   * than emitting a request which would have no recoverable copy after reload.
+   */
+  private async writeInitial(record: ComposerSubmissionRecord): Promise<void> {
+    try {
+      await this.storage.put(record);
+    } catch (error) {
+      console.warn('[composer-submission] failed to persist initial journal entry', {
+        id: record.id,
+        error,
+      });
+      throw new Error('Could not preserve this message before sending. Please try again.');
     }
   }
 }

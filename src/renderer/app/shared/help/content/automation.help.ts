@@ -124,6 +124,50 @@ export const CAMPAIGNS_HELP: HelpEntry = {
   ],
 };
 
+export const PLAN_QUEUE_HELP: HelpEntry = {
+  sections: [
+    {
+      kind: 'callout',
+      variant: 'info',
+      heading: 'What this does',
+      body: 'Works through plan or livetest documents with one worker session per document, each in its own git worktree. A verifier on a different provider judges every round, and verified work lands on the checked-out branch as one local squash commit (never pushed). You only handle what genuinely needs a decision.',
+    },
+    {
+      kind: 'steps',
+      heading: 'How to use it',
+      items: [
+        'Pick a parent session — its working directory becomes the run\'s workspace.',
+        'Choose the document kind: plans or livetests, and optionally narrow with a glob.',
+        'Click Start run. Triage assigns each document ready, needs-answer, or skip.',
+        'Answer any question with the radio options offered: documents triage could not clear, and workers that stopped to ask something.',
+        'Resolve parked items: Resume, Land anyway, or Discard once you know why work stalled.',
+      ],
+    },
+    {
+      kind: 'list',
+      heading: 'Key panels',
+      items: [
+        'Runs: every document\'s state, round count, errored rounds, and verdict summary.',
+        'Reconciler alerts: worktrees or branches the coordinator no longer recognises as owned.',
+        'Needs James (livetests): open checks a livetest verdict genuinely could not resolve itself.',
+        'Parked work: branch name and diffstat for items stuck on a round limit, an unreliable verifier, or an error.',
+      ],
+    },
+    {
+      kind: 'callout',
+      variant: 'tip',
+      heading: 'Only real livetest checks are listed',
+      body: 'A livetest verdict classifies each open check as real, policy-gated or stale. Real checks are listed for you; policy-gated ones (blocked by a setting or approval rule) show as a count; stale ones should simply be retried.',
+    },
+    {
+      kind: 'callout',
+      variant: 'warning',
+      heading: 'Land anyway and Discard cannot be undone',
+      body: 'Landing a branch that never passed verification, or discarding a parked item\'s work, both require an explicit confirm click because neither can be reversed afterward.',
+    },
+  ],
+};
+
 export const WORKFLOWS_HELP: HelpEntry = {
   sections: [
     {

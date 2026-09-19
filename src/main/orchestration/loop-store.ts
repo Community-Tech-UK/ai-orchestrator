@@ -31,6 +31,7 @@ import {
 } from './loop-store-checkpoints';
 import { countLoopIterations, selectLoopIterations } from './loop-store-iterations';
 import {
+  getLoopWorktreeRecord,
   getPendingLoopWorktreeLifecycles,
   parseWorktreeLifecycle,
   reserveManagedLoopWorktree,
@@ -310,6 +311,10 @@ export class LoopStore {
 
   getPendingWorktreeLifecycles() {
     return getPendingLoopWorktreeLifecycles(this.db);
+  }
+
+  getWorktreeRecord(loopRunId: string) {
+    return getLoopWorktreeRecord(this.db, loopRunId);
   }
 
   /**

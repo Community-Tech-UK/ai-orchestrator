@@ -1,8 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { TestBed } from '@angular/core/testing';
+import type { LoopRunSummaryPayload } from '@contracts/schemas/loop';
+import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
+import { LoopIpcService } from '../../core/services/ipc/loop-ipc.service';
+import { RendererPollSchedulerService } from '../../core/services/renderer-poll-scheduler.service';
+import { LoopStore } from '../../core/state/loop.store';
 import {
   deriveReattemptSeed,
   LATER_ITERATION_CONTINUATION_LABEL,
+  LoopPastRunsPanelComponent,
 } from './loop-past-runs-panel.component';
+import { LoopPanelOpenerService } from './loop-panel-opener.service';
 
 /**
  * Tests for the pure reattempt-mapping helper that powers the
@@ -82,5 +90,63 @@ describe('deriveReattemptSeed', () => {
     expect(
       deriveReattemptSeed({ initialPrompt: '', iterationPrompt: 'continuation only' }),
     ).toBeNull();
+  });
+});
+
+// The class is constructed in an injection context rather than rendered: the
+// action touches no signal inputs, so the limitation above does not apply.
+describe('LoopPastRunsPanelComponent.onResolveBlocked', () => {
+  function setup(response: { success: boolean; error?: { message: string } }) {
+    const refreshHistory = vi.fn(async () => undefined);
+    const resolveBlockedWorktree = vi.fn(async () => response);
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        {
+          provide: LoopStore,
+          useValue: { ensureWired: vi.fn(), refreshHistory, runsForChat: () => () => [] },
+        },
+        { provide: LoopIpcService, useValue: { resolveBlockedWorktree } },
+        { provide: CLIPBOARD_SERVICE, useValue: { copyText: vi.fn() } },
+        { provide: LoopPanelOpenerService, useValue: { open: vi.fn() } },
+        { provide: RendererPollSchedulerService, useValue: { register: () => () => undefined } },
+      ],
+    });
+    const panel = TestBed.runInInjectionContext(() => new LoopPastRunsPanelComponent());
+    const internals = panel as unknown as {
+      onResolveBlocked(run: LoopRunSummaryPayload): Promise<void>;
+      resolvingRunId(): string | null;
+      resolveError(): { runId: string; message: string } | null;
+    };
+    return { internals, refreshHistory, resolveBlockedWorktree };
+  }
+
+  const run = { id: 'loop-1', chatId: 'chat-1' } as LoopRunSummaryPayload;
+
+  it('resolves through IPC and refreshes the chat history', async () => {
+    const { internals, refreshHistory, resolveBlockedWorktree } = setup({ success: true });
+
+    await internals.onResolveBlocked(run);
+
+    expect(resolveBlockedWorktree).toHaveBeenCalledWith('loop-1');
+    expect(refreshHistory).toHaveBeenCalledWith('chat-1');
+    expect(internals.resolveError()).toBeNull();
+    expect(internals.resolvingRunId()).toBeNull();
+  });
+
+  it('shows the refusal reason on the row and does not refresh', async () => {
+    const { internals, refreshHistory } = setup({
+      success: false,
+      error: { message: 'The worktree folder still has uncommitted changes; commit or discard them first' },
+    });
+
+    await internals.onResolveBlocked(run);
+
+    expect(internals.resolveError()).toEqual({
+      runId: 'loop-1',
+      message: 'The worktree folder still has uncommitted changes; commit or discard them first',
+    });
+    expect(refreshHistory).not.toHaveBeenCalled();
+    expect(internals.resolvingRunId()).toBeNull();
   });
 });

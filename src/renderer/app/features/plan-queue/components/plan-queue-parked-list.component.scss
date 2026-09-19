@@ -1,0 +1,49 @@
+.pq-parked-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pq-parked-empty {
+  opacity: 0.7;
+}
+
+.pq-parked-item {
+  border: 1px solid var(--pq-border-color, #3a3a3a);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.pq-parked-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.pq-parked-branch {
+  font-family: monospace;
+  font-weight: 600;
+}
+
+.pq-parked-diffstat {
+  opacity: 0.8;
+}
+
+.pq-parked-reason {
+  margin-top: 4px;
+  color: #e0a458;
+}
+
+.pq-parked-actions,
+.pq-parked-confirm {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pq-discard,
+.pq-confirm-yes {
+  background: #b3261e;
+  color: #fff;
+}

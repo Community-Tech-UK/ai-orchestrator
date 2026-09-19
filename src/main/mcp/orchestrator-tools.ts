@@ -9,6 +9,7 @@ import type { McpServerToolDefinition } from './mcp-server-tools';
 import type { WorkerAgentBuildSummary, WorkerNodeAndroidAutomationSummary, WorkerNodeBrowserAutomationSummary, WorkerNodeExtensionRelaySummary, WorkerNodeFileTransferSummary } from '../../shared/types/worker-node.types';
 import { createAutomationToolDefinitions } from './orchestrator-automation-tools';
 import { createDocReviewToolDefinitions, type GetDocReviewResultFn, type RequestDocReviewFn } from './doc-review-tools';
+import { createPlanQueueToolDefinitions, type PlanQueueToolOperations } from './plan-queue-tools';
 import {
   createSettingsToolDefinitions,
   type SettingsChangeBroadcaster,
@@ -302,9 +303,15 @@ export interface ReadNodeOutputResult {
  * remote-spawned instance's output buffer + status. Returns null when the
  * instance id is unknown. Kept injected for the same reason as
  * {@link SpawnRemoteInstanceFn}.
+ *
+ * `waitMs` polls in the real implementation; the optional `abortSignal`
+ * (the RPC server's per-request signal, aborted when the caller's socket
+ * disconnects) lets that poll stop early instead of sleeping out its full
+ * wait budget for a client that already went away.
  */
 export type ReadInstanceOutputFn = (
   args: ReadNodeOutputArgs,
+  abortSignal?: AbortSignal,
 ) => Promise<ReadNodeOutputResult | null>;
 
 /** Per-message content cap for read_node_output responses. */
@@ -368,6 +375,8 @@ export interface OrchestratorToolRuntimeContext
   extends FileTransferToolContext, NodeExecToolContext, NodeConnectionToolContext {
   db: SqliteDriver;
   instanceId?: string | null;
+  /** Aborted when the calling socket disconnects mid-request (see orchestrator-tools-rpc-socket.ts). Long-polling handlers (e.g. read_node_output's waitMs) should stop early on abort rather than run out their full wait budget. */
+  abortSignal?: AbortSignal;
   ledger?: ConversationLedgerService | null;
   gitBatchService?: GitBatchService;
   listRemoteNodes?: ListRemoteNodesFn | null;
@@ -384,6 +393,7 @@ export interface OrchestratorToolRuntimeContext
   postponeAutomation?: PostponeAutomationFn | null;
   requestDocReview?: RequestDocReviewFn | null;
   getDocReviewResult?: GetDocReviewResultFn | null;
+  planQueueTools?: PlanQueueToolOperations | null;
   calendarTools?: CalendarToolDependencies;
   releaseTools?: ReleaseToolDependencies;
   contextEvidence?: Omit<OrchestratorEvidenceToolContext, 'instanceId'> | null;
@@ -691,7 +701,7 @@ export function createOrchestratorToolDefinitions(
             'read_node_output is unavailable: remote output reading is not wired in this process',
           );
         }
-        const result = await context.readInstanceOutput(parsed);
+        const result = await context.readInstanceOutput(parsed, context.abortSignal);
         if (!result) {
           throw new Error(`Instance not found: ${parsed.instanceId}`);
         }
@@ -745,6 +755,7 @@ export function createOrchestratorToolDefinitions(
     ...createSettingsToolDefinitions(context),
     ...createAutomationToolDefinitions(context),
     ...createDocReviewToolDefinitions(context),
+    ...createPlanQueueToolDefinitions(context),
     ...createCalendarToolDefinitions(context.calendarTools),
     ...createReleaseToolDefinitions(context.releaseTools),
     ...(context.contextEvidence && context.instanceId

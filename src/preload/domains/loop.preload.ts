@@ -115,6 +115,8 @@ export function createLoopDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
       ipcRenderer.invoke(ch.LOOP_LIST_RUNS, { limit }),
     loopGetAwayRecap: (awaySince: number): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_GET_AWAY_RECAP, { awaySince }),
+    loopResolveBlockedWorktree: (loopRunId: string): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.LOOP_RESOLVE_BLOCKED_WORKTREE, { loopRunId }),
     loopGetIterations: (loopRunId: string, fromSeq?: number, toSeq?: number): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_GET_ITERATIONS, { loopRunId, fromSeq, toSeq }),
     verificationRunsList: (params: { loopRunId?: string; instanceId?: string }): Promise<IpcResponse> =>

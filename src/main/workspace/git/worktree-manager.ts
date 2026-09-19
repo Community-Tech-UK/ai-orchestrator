@@ -29,6 +29,8 @@ import {
 import { getLogger } from '../../logging/logger';
 import { getGitWriteQueue } from './git-write-queue';
 import { gitExec, gitExecSafe } from './git-exec';
+import { listActivePlanDocuments } from './active-plan-documents';
+import { LOOP_DIRTY_ROOT_POLICY } from './loop-landing-policy';
 import { provisionWorktreeDependencies } from './worktree-deps';
 import {
   applyWorktreeIncludes,
@@ -364,7 +366,10 @@ export class WorktreeManager extends EventEmitter {
       const result = await getGitWriteQueue().enqueue('harvest', async () => {
         await gitExec(['add', '-A'], session.worktreePath);
         const msg = `Harvest: orchestrator captured session output\n\nWorktree: ${session.branchName}\nTask: ${session.taskDescription.slice(0, 120)}`;
-        await gitExec(['commit', '--no-gpg-sign', '-m', msg], session.worktreePath);
+        // A safety commit on the throwaway session branch: repository hooks
+        // (plan-spec guard, `node` missing from a packaged app's PATH) must not
+        // strand the output. Landing rules are enforced before integration.
+        await gitExec(['commit', '--no-gpg-sign', '--no-verify', '-m', msg], session.worktreePath);
         return gitExec(['rev-parse', 'HEAD'], session.worktreePath);
       });
 
@@ -685,6 +690,15 @@ export class WorktreeManager extends EventEmitter {
     return result;
   }
 
+  /** Active plan/spec/livetest documents the session branch would land on its base. */
+  async listActivePlanDocuments(worktreeId: string): Promise<string[]> {
+    const session = this.sessions.get(worktreeId);
+    if (!session) throw new Error(`Worktree not found: ${worktreeId}`);
+    if (!session.baseBranch) throw new Error('Managed worktree base branch metadata is missing');
+    const repoRoot = await this.getWorktreeAdminRoot(session);
+    return listActivePlanDocuments(repoRoot, session.baseBranch, session.branchName);
+  }
+
   async promoteWorktreeIntegration(
     worktreeId: string,
     integrationBranch: string,
@@ -701,6 +715,7 @@ export class WorktreeManager extends EventEmitter {
       session.baseBranch,
       integrationBranch,
       expectedIntegrationTip,
+      { dirtyRootPolicy: LOOP_DIRTY_ROOT_POLICY },
     );
   }
 

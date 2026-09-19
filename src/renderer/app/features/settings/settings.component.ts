@@ -79,13 +79,15 @@ import {
   LAST_TAB_KEY,
   NAV_COLLAPSED_KEY,
   NAV_ITEMS,
-  WIDE_TABS,
   isSettingsTab,
+  resolveSettingsLayout,
   type HelpStatus,
   type NavBadge,
+  type SettingsLayoutMode,
   type SettingsNavItem,
   type SettingsTab,
 } from './settings-navigation';
+import { bindSettingsViewportMediaQueries } from './settings-viewport-media';
 
 @Component({
   selector: 'app-settings',
@@ -151,11 +153,37 @@ export class SettingsComponent {
   /** Whether the contextual help/preview pane is collapsed (item 13). */
   readonly helpCollapsed = signal(this.readHelpCollapsed());
 
+  /**
+   * True at the compact-nav breakpoint (≤900px): the in-flow rail stays at
+   * its 56px-equivalent collapsed width and the full nav is reached through
+   * a temporary overlay (`compactNavOpen`) instead of the desktop collapse.
+   */
+  readonly compactViewport = signal(false);
+  /** Compact-nav overlay open state. Transient — never persisted. */
+  readonly compactNavOpen = signal(false);
+  /** True at the Help-rail breakpoint (≤1180px): the persistent Help rail
+   * is hidden and Help is reached through a drawer (`helpDrawerOpen`) instead. */
+  readonly helpDrawerMode = signal(false);
+  /** Help drawer open state. Transient — never persisted. */
+  readonly helpDrawerOpen = signal(false);
+
   /** Latest startup-capability report — backs the Doctor + Models surfaces. */
   private readonly startupReport = signal<StartupCapabilityReport | null>(null);
 
-  readonly isWideTab = computed(() => WIDE_TABS.has(this.activeTab()));
   readonly activeItem = computed(() => NAV_ITEMS.find((item) => item.id === this.activeTab()));
+  /** Effective content measure for the active tab — see `SettingsLayoutMode`. */
+  readonly layoutMode = computed<SettingsLayoutMode>(() => resolveSettingsLayout(this.activeItem()));
+  readonly isExpandedTab = computed(() => this.layoutMode() === 'expanded');
+  readonly isEmbeddedTab = computed(() => this.layoutMode() === 'embedded');
+  /**
+   * The rail's actual collapsed state. In a compact viewport the rail is
+   * always the 56px-equivalent collapsed form; the desktop `navCollapsed`
+   * preference stays untouched underneath and takes over again once the
+   * viewport widens.
+   */
+  readonly effectiveNavCollapsed = computed(() =>
+    this.compactViewport() ? true : this.navCollapsed(),
+  );
   /** True while the settings store is loading from disk on first open. */
   readonly isLoading = computed(() => this.store.loading());
 
@@ -375,6 +403,15 @@ export class SettingsComponent {
     this.cliUpdates.init();
     void this.remoteNodes.initialize();
     void this.providerQuota.initialize();
+    bindSettingsViewportMediaQueries(
+      {
+        compactViewport: this.compactViewport,
+        compactNavOpen: this.compactNavOpen,
+        helpDrawerMode: this.helpDrawerMode,
+        helpDrawerOpen: this.helpDrawerOpen,
+      },
+      this.destroyRef,
+    );
 
     // Startup-capability report → Doctor + Models badges and help status.
     void this.appIpc.getStartupCapabilities().then((report) => {
@@ -507,6 +544,9 @@ export class SettingsComponent {
   selectTab(tab: SettingsTab): void {
     this.activeTab.set(tab);
     this.persistTab(tab);
+    if (this.compactViewport()) {
+      this.compactNavOpen.set(false);
+    }
     void this.router.navigate([], {
       relativeTo: this.route,
       fragment: tab,
@@ -525,20 +565,66 @@ export class SettingsComponent {
     void this.router.navigate(['/']);
   }
 
+  /**
+   * Escape closes the deepest open overlay first: the Help drawer, then the
+   * compact-nav overlay, then Settings itself — never more than one thing
+   * at a time (Global Constraints: navigation must not steal focus or state
+   * unexpectedly).
+   */
   onKeydown(event: KeyboardEvent): void {
-    if (event.key === 'Escape') {
-      this.goBack();
+    if (event.key !== 'Escape') {
+      return;
     }
+    if (this.helpDrawerOpen()) {
+      this.closeHelpDrawer();
+      event.stopPropagation();
+      return;
+    }
+    if (this.compactViewport() && this.compactNavOpen()) {
+      this.compactNavOpen.set(false);
+      event.stopPropagation();
+      return;
+    }
+    this.goBack();
   }
 
-  /** Toggle the contextual help/preview pane and remember the choice (item 13). */
+  /**
+   * Toggle the contextual help/preview pane. Below the Help-rail breakpoint
+   * this opens/closes the transient drawer instead, leaving the persisted
+   * desktop `helpCollapsed` preference untouched (item 13).
+   */
   toggleHelp(): void {
+    if (this.helpDrawerMode()) {
+      this.helpDrawerOpen.update((open) => !open);
+      return;
+    }
     const collapsed = !this.helpCollapsed();
     this.helpCollapsed.set(collapsed);
     this.persistHelpCollapsed(collapsed);
   }
 
+  openHelpDrawer(): void {
+    this.helpDrawerOpen.set(true);
+  }
+
+  closeHelpDrawer(): void {
+    this.helpDrawerOpen.set(false);
+  }
+
+  closeCompactNav(): void {
+    this.compactNavOpen.set(false);
+  }
+
+  /**
+   * Toggle the settings nav. In a compact viewport this opens/closes the
+   * temporary overlay instead, leaving the persisted desktop `navCollapsed`
+   * preference untouched.
+   */
   toggleNav(): void {
+    if (this.compactViewport()) {
+      this.compactNavOpen.update((open) => !open);
+      return;
+    }
     const collapsed = !this.navCollapsed();
     if (collapsed) {
       this.searchQuery.set('');

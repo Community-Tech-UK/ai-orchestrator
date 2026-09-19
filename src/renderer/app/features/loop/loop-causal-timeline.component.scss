@@ -61,6 +61,16 @@
 
 .loop-timeline__recovery-desc { opacity: 0.75; }
 
+/* Not a button: this recovery has no single automatic action, so it renders
+   as a plain label rather than something that looks clickable. Italics is the
+   non-colour cue; the description beside it explains what to do instead. */
+.loop-timeline__recovery-label--info {
+  flex: none;
+  font-size: 11px;
+  font-style: italic;
+  font-weight: 600;
+}
+
 .loop-timeline__spend {
   display: flex;
   gap: 6px;

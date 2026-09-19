@@ -106,4 +106,27 @@ describe('Claude CLI browser gate', () => {
     const mcpConfigIndex = args.indexOf('--mcp-config');
     expect(args[mcpConfigIndex + 1]).toBe('{"mcpServers":{"browser-gateway":{}}}');
   });
+
+  it('normalizes every supported remote workspace connector for the final Claude argv', () => {
+    const adapter = createClaudeAdapter({
+      mcpConfig: [JSON.stringify({
+        mcpServers: {
+          'workspace-stdio': { command: 'npx', args: ['workspace-server'] },
+          'workspace-http': { transport: 'http', url: 'https://example.test/mcp' },
+          'workspace-sse': { transport: 'sse', url: 'https://example.test/events' },
+        },
+      })],
+    });
+
+    const args = buildArgs(adapter);
+    const mcpConfigIndex = args.indexOf('--mcp-config');
+    const config = JSON.parse(args[mcpConfigIndex + 1]);
+    expect(config.mcpServers).toMatchObject({
+      'workspace-stdio': { command: 'npx', args: ['workspace-server'] },
+      'workspace-http': { type: 'http', url: 'https://example.test/mcp' },
+      'workspace-sse': { type: 'sse', url: 'https://example.test/events' },
+    });
+    expect(config.mcpServers['workspace-http']).not.toHaveProperty('transport');
+    expect(config.mcpServers['workspace-sse']).not.toHaveProperty('transport');
+  });
 });

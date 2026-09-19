@@ -121,7 +121,7 @@ export function scanAddedLinesForCleanliness(diff: string): LoopCleanlinessResul
     if (!rawLine.startsWith('+') || rawLine.startsWith('+++ ')) continue;
     const line = rawLine.slice(1);
     const detail = { line: line.slice(0, 240) };
-    if (line.includes('<<<<<<<') || line.includes('=======') || line.includes('>>>>>>>')) {
+    if (/^(?:<{7,}|={7,}|>{7,}|\|{7,})(?:[ \t].*)?$/.test(line)) {
       findings.push({
         severity: 'blocking',
         code: 'cleanliness-blocking',

@@ -34,6 +34,7 @@ import { TERMINAL_CHANNELS } from './terminal.channels';
 import { AUXILIARY_LLM_CHANNELS } from './auxiliary-llm.channels';
 import { CAMPAIGN_CHANNELS } from './campaign.channels';
 import { DOC_REVIEW_CHANNELS } from './doc-review.channels';
+import { PLAN_QUEUE_CHANNELS } from './plan-queue.channels';
 import { NOTIFICATION_CHANNELS } from './notification.channels';
 import { CONTEXT_EVIDENCE_CHANNELS } from './context-evidence.channels';
 import { LOCAL_AI_GUARD_CHANNELS } from './local-ai-guard.channels';
@@ -72,6 +73,7 @@ export {
   AUXILIARY_LLM_CHANNELS,
   CAMPAIGN_CHANNELS,
   DOC_REVIEW_CHANNELS,
+  PLAN_QUEUE_CHANNELS,
   NOTIFICATION_CHANNELS,
   CONTEXT_EVIDENCE_CHANNELS,
   LOCAL_AI_GUARD_CHANNELS,
@@ -115,6 +117,7 @@ export const IPC_CHANNELS = {
   ...AUXILIARY_LLM_CHANNELS,
   ...CAMPAIGN_CHANNELS,
   ...DOC_REVIEW_CHANNELS,
+  ...PLAN_QUEUE_CHANNELS,
   ...NOTIFICATION_CHANNELS,
   ...CONTEXT_EVIDENCE_CHANNELS,
   ...LOCAL_AI_GUARD_CHANNELS,

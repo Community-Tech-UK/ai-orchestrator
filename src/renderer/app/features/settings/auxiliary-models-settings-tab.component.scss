@@ -8,6 +8,35 @@
   gap: var(--spacing-md);
 }
 
+// One card stack per active Overview/Models/Slots/Advanced section.
+.section-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.endpoint-summary-counts {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+}
+
+// Text-only navigation action (Overview -> Advanced), not a filled button.
+.link-btn {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  color: var(--primary-color);
+  text-decoration: underline;
+  padding: 0.375rem 0;
+  cursor: pointer;
+}
+
+.link-btn:hover {
+  opacity: 0.85;
+}
+
 .section-title {
   margin: 0 0 0.25rem 0;
   font-size: 1rem;
@@ -186,6 +215,62 @@ select {
 
 .slot-table tr:nth-child(even) td {
   background: var(--glass-subtle);
+}
+
+// Narrow-width equivalent of the slot table: labelled cards instead of a
+// horizontally scrolling table. Hidden by default; the table hides in its
+// place below 760px so exactly one representation is visible at a time.
+.slot-cards {
+  display: none;
+}
+
+.slot-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 0.75rem;
+  background: var(--glass-subtle);
+}
+
+.slot-card-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.slot-card-name {
+  font-family: var(--font-mono);
+}
+
+.slot-card-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.slot-card-label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+@media (max-width: 760px) {
+  .slot-table {
+    display: none;
+  }
+
+  .slot-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
 }
 
 .error-banner {

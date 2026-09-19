@@ -31,6 +31,17 @@ vi.mock('../security/permission-manager', () => ({
   getPermissionManager: () => ({ loadProjectRules: vi.fn() }),
 }));
 
+const { settingsGetAll } = vi.hoisted(() => ({
+  settingsGetAll: vi.fn(() => ({
+    workspaceSecretsEnabled: true,
+    workspaceSecretsAllowAgentRequests: true,
+  })),
+}));
+
+vi.mock('../core/config/settings-manager', () => ({
+  getSettingsManager: () => ({ getAll: settingsGetAll }),
+}));
+
 function gateDecision(action: 'allow' | 'deny' | 'ask'): ToolExecutionGateDecision {
   return {
     action,
@@ -95,6 +106,69 @@ describe('InstancePermissionRequestFlow', () => {
       'permission:lifecycle',
       expect.objectContaining({ outcome: 'deny', instanceId: 'inst-1' }),
     );
+    expect(host.emit).not.toHaveBeenCalledWith('instance:input-required', expect.anything());
+  });
+
+  it.each([
+    ['the master switch is off', { workspaceSecretsEnabled: false, workspaceSecretsAllowAgentRequests: true }],
+    ['agent requests are barred', { workspaceSecretsEnabled: true, workspaceSecretsAllowAgentRequests: false }],
+  ])('refuses an agent secret request when %s', async (_label, settings) => {
+    settingsGetAll.mockReturnValueOnce(settings);
+    const host = createHost();
+    const flow = new InstancePermissionRequestFlow(host);
+
+    await flow.handleInputRequired({
+      instanceId: 'inst-1',
+      requestId: 'req-secret',
+      prompt: 'I need the deploy token',
+      timestamp: Date.now(),
+      metadata: { type: 'secret_required', name: 'DEPLOY_TOKEN' },
+    });
+
+    expect(host.emit).not.toHaveBeenCalledWith('instance:input-required', expect.anything());
+    expect(host.sendInputResponse).toHaveBeenCalledWith(
+      'inst-1',
+      expect.stringContaining('workspace secret requests are turned off in Settings.'),
+    );
+    expect(host.emit).toHaveBeenCalledWith(
+      'permission:lifecycle',
+      expect.objectContaining({ outcome: 'deny', toolName: 'workspace-secret', source: 'operator-setting' }),
+    );
+    expect(host.addToOutputBuffer).toHaveBeenCalled();
+  });
+
+  it('forwards an agent secret request when both operator switches are on', async () => {
+    const host = createHost();
+    const flow = new InstancePermissionRequestFlow(host);
+
+    await flow.handleInputRequired({
+      instanceId: 'inst-1',
+      requestId: 'req-secret-ok',
+      prompt: 'I need the deploy token',
+      timestamp: Date.now(),
+      metadata: { type: 'secret_required', name: 'DEPLOY_TOKEN' },
+    });
+
+    expect(host.emit).toHaveBeenCalledWith(
+      'instance:input-required',
+      expect.objectContaining({ requestId: 'req-secret-ok' }),
+    );
+    expect(host.sendInputResponse).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when settings cannot be read', async () => {
+    settingsGetAll.mockImplementationOnce(() => { throw new Error('settings unavailable'); });
+    const host = createHost();
+    const flow = new InstancePermissionRequestFlow(host);
+
+    await flow.handleInputRequired({
+      instanceId: 'inst-1',
+      requestId: 'req-secret-fail',
+      prompt: 'I need the deploy token',
+      timestamp: Date.now(),
+      metadata: { type: 'secret_required', name: 'DEPLOY_TOKEN' },
+    });
+
     expect(host.emit).not.toHaveBeenCalledWith('instance:input-required', expect.anything());
   });
 

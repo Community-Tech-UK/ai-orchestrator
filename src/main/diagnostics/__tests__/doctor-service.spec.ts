@@ -6,11 +6,13 @@ const {
   getProviderConfigs,
   capabilityGetLastReport,
   capabilityRun,
+  scanAllCliInstalls,
 } = vi.hoisted(() => ({
   diagnoseProvider: vi.fn(),
   getProviderConfigs: vi.fn(),
   capabilityGetLastReport: vi.fn(),
   capabilityRun: vi.fn(),
+  scanAllCliInstalls: vi.fn(async () => [] as unknown[]),
 }));
 
 vi.mock('../../commands/command-manager', () => ({
@@ -40,17 +42,21 @@ vi.mock('../../bootstrap/capability-probe', () => ({
 }));
 
 vi.mock('../../cli/cli-detection', () => ({
-  CLI_REGISTRY: {},
-  SUPPORTED_CLIS: [],
+  CLI_REGISTRY: { grok: { displayName: 'Grok Build' } },
+  SUPPORTED_CLIS: ['grok'],
   getCliDetectionService: () => ({
     detectAll: vi.fn(async () => ({ detected: [], available: [] })),
-    scanAllCliInstalls: vi.fn(async () => []),
+    scanAllCliInstalls,
   }),
 }));
 
 vi.mock('../../cli/cli-update-service', () => ({
   getCliUpdateService: () => ({
-    getUpdatePlan: vi.fn(),
+    getUpdatePlan: vi.fn(async (cli: string) => ({
+      cli,
+      displayName: 'Grok Build',
+      supported: false,
+    })),
   }),
 }));
 
@@ -155,6 +161,54 @@ describe('DoctorService', () => {
 
     expect(capabilityRun).not.toHaveBeenCalled();
     expect(report.startupCapabilities).toBe(bootReport);
+  });
+
+  it('rescans CLI installs on a forced report and reuses them otherwise', async () => {
+    // A forced Doctor report is the user asking to look again; an unforced one
+    // may reuse a recent scan.
+    capabilityGetLastReport.mockReturnValue({ status: 'ready', generatedAt: 1, checks: [] });
+    capabilityRun.mockResolvedValue({ status: 'ready', generatedAt: 2, checks: [] });
+
+    await new DoctorService().getReport({ force: true });
+    expect(scanAllCliInstalls).toHaveBeenLastCalledWith('grok', { forceRefresh: true });
+
+    await new DoctorService().getReport();
+    expect(scanAllCliInstalls).toHaveBeenLastCalledWith('grok', { forceRefresh: false });
+  });
+
+  it('keeps the installer-copy tag in the CLI health snapshot', async () => {
+    // The snapshot feeds the operator artifact. Dropping `installerCopy` there
+    // would show an operator two grok copies with no hint that one is the
+    // installer's own — exactly the ambiguity this reporting fix removes.
+    scanAllCliInstalls.mockResolvedValueOnce([
+      { path: '/Users/test/.nvm/versions/node/v24.15.0/bin/grok', version: '1.0.34', installed: true },
+      {
+        path: '/Users/test/.grok/bin/grok',
+        version: '1.0.34',
+        installed: true,
+        installerCopy: true,
+      },
+    ]);
+    capabilityGetLastReport.mockReturnValue({ status: 'ready', generatedAt: 1, checks: [] });
+
+    const report = await new DoctorService().getReport();
+
+    expect(report.cliHealth.installs[0]?.installs).toEqual([
+      {
+        path: '/Users/test/.nvm/versions/node/v24.15.0/bin/grok',
+        version: '1.0.34',
+        installed: true,
+        error: undefined,
+        installerCopy: undefined,
+      },
+      {
+        path: '/Users/test/.grok/bin/grok',
+        version: '1.0.34',
+        installed: true,
+        error: undefined,
+        installerCopy: true,
+      },
+    ]);
   });
 
   it('maps startup checks to Doctor sections', () => {

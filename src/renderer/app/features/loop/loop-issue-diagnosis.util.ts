@@ -453,6 +453,8 @@ export function buildIterationEvidenceView(iteration: {
     verifyText = 'Verify timed out — the command itself did not finish, so this is not a test failure.';
   } else if (iteration.verifyFailureKind === 'infra') {
     verifyText = 'Verify could not run (infrastructure), so this is not a test failure.';
+  } else if (iteration.verifyFailureKind === 'cancelled') {
+    verifyText = 'Verify was killed because the loop run was cancelled, so this is not a test failure.';
   } else if (iteration.verifyFailureKind === 'environment') {
     verifyText = 'Verify failed because the isolated workspace is missing dependencies (for example node_modules), not because the tests themselves failed.';
   } else if (iteration.verifyStatus === 'failed') {

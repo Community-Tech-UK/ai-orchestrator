@@ -1,0 +1,42 @@
+<div class="pq-parked-list">
+  <h2>Parked work</h2>
+  @if (items().length === 0) {
+    <div class="pq-parked-empty">No parked work.</div>
+  } @else {
+    @for (item of items(); track item.id) {
+      <div class="pq-parked-item">
+        <div class="pq-parked-head">
+          <span class="pq-parked-branch">{{ item.branchName ?? '(no branch)' }}</span>
+          <span class="pq-parked-diffstat">{{ diffstatFor(item.id) }}</span>
+        </div>
+        @if (item.parkReason) {
+          <div class="pq-parked-reason">Parked: {{ parkReasonLabel(item.parkReason) }}</div>
+        }
+
+        @if (isConfirming(item.id, 'discard-item')) {
+          <div class="pq-parked-confirm" role="group" aria-label="Confirm discard">
+            Discard this item's work? This cannot be undone.
+            <button type="button" class="pq-confirm-yes" (click)="confirmAction(item.id, 'discard-item')">
+              Confirm discard
+            </button>
+            <button type="button" (click)="cancelConfirm()">Never mind</button>
+          </div>
+        } @else if (isConfirming(item.id, 'land-anyway')) {
+          <div class="pq-parked-confirm" role="group" aria-label="Confirm land anyway">
+            Land this branch even though it never passed verification?
+            <button type="button" class="pq-confirm-yes" (click)="confirmAction(item.id, 'land-anyway')">
+              Confirm land anyway
+            </button>
+            <button type="button" (click)="cancelConfirm()">Never mind</button>
+          </div>
+        } @else {
+          <div class="pq-parked-actions">
+            <button type="button" (click)="onResume(item.id)">Resume</button>
+            <button type="button" (click)="requestConfirm(item.id, 'land-anyway')">Land anyway</button>
+            <button type="button" class="pq-discard" (click)="requestConfirm(item.id, 'discard-item')">Discard</button>
+          </div>
+        }
+      </div>
+    }
+  }
+</div>

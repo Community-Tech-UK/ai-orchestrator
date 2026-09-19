@@ -29,7 +29,7 @@
  * never recorded on failure.
  */
 
-import { spawn } from 'child_process';
+import { spawn, type ChildProcess, type SpawnOptions } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
@@ -50,6 +50,7 @@ const AUTH_CHECK_TIMEOUT_MS = 10_000;
 const PUSH_TIMEOUT_MS = 60_000;
 const PR_CREATE_TIMEOUT_MS = 30_000;
 const APPROVAL_TTL_MS = 24 * 60 * 60 * 1000;
+const GH_TERMINATION_GRACE_MS = 500;
 
 // ---- Public types -----------------------------------------------------------
 
@@ -90,6 +91,12 @@ export interface GhCommandResult {
   stdout: string;
   stderr: string;
   code: number | null;
+}
+
+export interface GhCommandRunnerOptions {
+  spawnGh?: (command: string, args: string[], options: SpawnOptions) => ChildProcess;
+  killGroup?: (pid: number | undefined, signal: NodeJS.Signals) => boolean;
+  killGraceMs?: number;
 }
 
 /** Thrown by the default `runGh` implementation when the timeout fires. */
@@ -182,23 +189,52 @@ function isGhAuthError(stderr: string): boolean {
  * process-group kill on expiry (P0.1 fix pattern — a plain wrapper-PID kill
  * would leave `gh`'s browser/network children running past the deadline).
  */
-function defaultRunGh(args: string[], cwd: string, timeoutMs: number): Promise<GhCommandResult> {
+export function runGhCommand(
+  args: string[],
+  cwd: string,
+  timeoutMs: number,
+  options: GhCommandRunnerOptions = {},
+): Promise<GhCommandResult> {
   return new Promise<GhCommandResult>((resolve, reject) => {
-    const proc = spawn('gh', args, { cwd, detached: process.platform !== 'win32' });
+    const spawnGh = options.spawnGh ?? spawn;
+    const killGroup = options.killGroup ?? killProcessGroup;
+    const killGraceMs = options.killGraceMs ?? GH_TERMINATION_GRACE_MS;
+    const proc = spawnGh('gh', args, { cwd, detached: process.platform !== 'win32' });
     let stdout = '';
     let stderr = '';
     let settled = false;
     let timedOut = false;
+    let escalationTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const timer = setTimeout(() => {
-      timedOut = true;
-      if (!killProcessGroup(proc.pid, 'SIGTERM')) {
+    const clearTimers = (): void => {
+      clearTimeout(timer);
+      if (escalationTimer) clearTimeout(escalationTimer);
+    };
+
+    const terminate = (signal: NodeJS.Signals): void => {
+      if (!killGroup(proc.pid, signal)) {
         try {
-          proc.kill('SIGTERM');
+          proc.kill(signal);
         } catch {
           // Process may already be gone.
         }
       }
+    };
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      timedOut = true;
+      terminate('SIGTERM');
+      // A process that ignores SIGTERM (hung on a syscall, wedged network
+      // stack) must not run past the deadline forever — escalate to SIGKILL
+      // after a short grace period instead of waiting indefinitely for `close`.
+      escalationTimer = setTimeout(() => {
+        if (settled) return;
+        terminate('SIGKILL');
+        settled = true;
+        clearTimers();
+        reject(new GhTimeoutError(`gh ${args[0] ?? ''} timed out after ${timeoutMs}ms`));
+      }, killGraceMs);
     }, timeoutMs);
 
     proc.stdout?.on('data', (chunk) => {
@@ -210,13 +246,13 @@ function defaultRunGh(args: string[], cwd: string, timeoutMs: number): Promise<G
     proc.on('error', (err) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      clearTimers();
       reject(err);
     });
     proc.on('close', (code) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      clearTimers();
       if (timedOut) {
         reject(new GhTimeoutError(`gh ${args[0] ?? ''} timed out after ${timeoutMs}ms`));
         return;
@@ -268,7 +304,7 @@ function defaultDeps(): PrCreationDeps {
     getAllowPrCreationMap: () => getSettingsManager().getAll().allowPrCreation ?? {},
     checkPermission: (request) => getPermissionManager().checkPermission(request),
     askApproval: defaultAskApproval,
-    runGh: defaultRunGh,
+    runGh: runGhCommand,
     branchExists: defaultBranchExists,
     hasUpstream: defaultHasUpstream,
     gitPush: defaultGitPush,

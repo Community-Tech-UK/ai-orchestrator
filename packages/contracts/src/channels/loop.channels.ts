@@ -15,6 +15,9 @@ export const LOOP_CHANNELS = {
    *  the Workboard's global recovery of active/recently-terminal loop items. */
   LOOP_LIST_RUNS: 'loop:list-runs',
   LOOP_GET_AWAY_RECAP: 'loop:get-away-recap',
+  /** Operator marks a run's blocked managed worktree as resolved by hand, so
+   *  boot recovery stops retrying it. Deletes nothing. */
+  LOOP_RESOLVE_BLOCKED_WORKTREE: 'loop:resolve-blocked-worktree',
   LOOP_GET_ITERATIONS: 'loop:get-iterations',
   /** Read the durable verification execution ledger for one loop or instance. */
   VERIFICATION_RUNS_LIST: 'verification-runs:list',

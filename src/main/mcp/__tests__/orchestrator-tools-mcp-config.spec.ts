@@ -30,6 +30,25 @@ describe('orchestrator tools MCP config helpers', () => {
     });
   });
 
+  it('includes the capability token env var only when one is supplied', () => {
+    const withToken = resolveOrchestratorToolsBridgeSpec({
+      aioMcpCliPath: AIO_MCP,
+      socketPath: SOCKET,
+      instanceId: 'inst-1',
+      capabilityToken: 'cap-abc',
+      exists: () => true,
+    });
+    expect(withToken?.env['AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_CAPABILITY']).toBe('cap-abc');
+
+    const withoutToken = resolveOrchestratorToolsBridgeSpec({
+      aioMcpCliPath: AIO_MCP,
+      socketPath: SOCKET,
+      instanceId: 'inst-1',
+      exists: () => true,
+    });
+    expect(withoutToken?.env).not.toHaveProperty('AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_CAPABILITY');
+  });
+
   it('returns null when the aio-mcp SEA binary is missing', () => {
     expect(
       resolveOrchestratorToolsBridgeSpec({

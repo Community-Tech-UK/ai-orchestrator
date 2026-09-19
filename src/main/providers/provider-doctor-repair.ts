@@ -1,4 +1,9 @@
-import type { CliShadowReport } from '../cli/cli-detection';
+import {
+  isInstallerOwnedPath,
+  knownInstallVersions,
+  type CliShadowReport,
+} from '../cli/cli-install-mirrors';
+import { CLI_REGISTRY, type CliRegistryEntry } from '../cli/cli-registry';
 import type { ProviderProbeErrorKind, RepairAction } from '../../shared/types/provider-doctor.types';
 
 interface ProbeForRepair {
@@ -14,14 +19,21 @@ interface DiagnosisForRepair {
   probes: ProbeForRepair[];
 }
 
-/** Install command previews — no secrets, generic paths only. */
-const INSTALL_COMMANDS: Record<string, string> = {
+/**
+  * Install command previews — no secrets, generic paths only. Shared with
+  * `ProviderDoctor.generateRecommendations`, so a provider has one canonical
+  * install instruction across repair actions and recommendations.
+  */
+export const INSTALL_COMMANDS: Record<string, string> = {
   'claude-cli': 'npm install -g @anthropic-ai/claude-code',
   'codex-cli': 'npm install -g @openai/codex',
   'gemini-cli': 'npm install -g @google/gemini-cli',
   'antigravity': 'Install Antigravity from antigravity.google, then run `agy` once to sign in',
   'copilot': 'gh extension install github/gh-copilot  # or: npm install -g @github/copilot',
   'cursor': 'Install Cursor from https://cursor.sh and add cursor-agent to PATH',
+  // Its postinstall also refreshes the ~/.grok/bin copy, which is why a grok
+  // version conflict is fixed by reinstalling rather than deleting a copy.
+  'grok': 'npm install -g @xai-official/grok',
   'anthropic-api': 'npm install -g @anthropic-ai/claude-code',
 };
 
@@ -44,10 +56,14 @@ export function classifyProbeFailure(probe: ProbeForRepair): ProviderProbeErrorK
       return 'cli_not_found';
 
     case 'cli_shadow_check': {
+      // Fallback for a probe that arrived without its own errorKind. A report
+      // listing copies with differing readable versions is a version mismatch;
+      // anything less specific stays the generic shadow-install kind.
       const report = probe.metadata?.['report'] as CliShadowReport | undefined;
       if (report && report.installs.length >= 2) {
-        const versions = new Set(report.installs.map((i) => i.version));
-        return versions.size > 1 ? 'cli_version_mismatch' : 'cli_shadow_install';
+        return knownInstallVersions(report.installs).length > 1
+          ? 'cli_version_mismatch'
+          : 'cli_shadow_install';
       }
       return 'cli_shadow_install';
     }
@@ -96,6 +112,18 @@ export function buildRepairActions(diagnosis: DiagnosisForRepair): RepairAction[
 
       case 'cli_shadow_install': {
         const report = probe.metadata?.['report'] as CliShadowReport | undefined;
+        if (installerMaintainsExtraCopies(provider)) {
+          // Reached only via the report-less fallback (the probe classifies a
+          // real report as a version mismatch). Removal is still the wrong
+          // advice for a CLI that reinstalls its own extra copy.
+          actions.push({
+            kind,
+            command: INSTALL_COMMANDS[provider] ?? '# reinstall the CLI',
+            description: 'Several copies of this CLI are on PATH. Reinstall it — its installer maintains the extra copy, so deleting one just gets it recreated.',
+            severity: 'warning',
+          });
+          break;
+        }
         if (report && report.installs.length >= 2) {
           const hint = report.installs
             .slice(1)
@@ -120,9 +148,21 @@ export function buildRepairActions(diagnosis: DiagnosisForRepair): RepairAction[
 
       case 'cli_version_mismatch': {
         const installCmd = INSTALL_COMMANDS[provider] ?? '# reinstall the CLI';
+        // Deleting a copy is the wrong advice for one the CLI's own installer
+        // maintains (grok's postinstall rewrites ~/.grok/bin): reinstalling
+        // refreshes it, and deleting it just gets it recreated. But only
+        // those copies — a stale grok under another node version or Homebrew
+        // is untouched by the reinstall and still has to be removed.
+        const report = probe.metadata?.['report'] as CliShadowReport | undefined;
+        const stale = report?.installs.slice(1) ?? [];
+        const allInstallerOwned = stale.length > 0
+          && stale.every((install) => isInstallerOwnedCopy(provider, install.path));
+        const suffix = allInstallerOwned
+          ? '  # refreshes every copy the installer owns'
+          : '  # then remove older copies from PATH';
         actions.push({
           kind,
-          command: `${installCmd}  # then remove older copies from PATH`,
+          command: `${installCmd}${suffix}`,
           description: 'Multiple CLI installs with different versions — update to a single consistent version.',
           severity: 'warning',
         });
@@ -168,6 +208,32 @@ export function buildRepairActions(diagnosis: DiagnosisForRepair): RepairAction[
 }
 
 /**
+ * True when this provider's CLI installer keeps a second copy of itself on
+ * PATH (see `CliRegistryEntry.installerMirrorDirs`). Doctor providers use the
+ * `-cli` suffixed ids, so strip it before looking the CLI up.
+ */
+export function installerMaintainsExtraCopies(provider: string): boolean {
+  return Boolean(registryEntryForProvider(provider)?.installerMirrorDirs?.length);
+}
+
+/**
+ * Whether this particular copy is one the provider's CLI installer maintains
+ * itself — the copies a reinstall refreshes and a user must not delete. Any
+ * other stale copy (another node version's global bin, Homebrew) is a real
+ * leftover that only removal fixes.
+ */
+export function isInstallerOwnedCopy(provider: string, installPath: string): boolean {
+  const entry = registryEntryForProvider(provider);
+  return entry ? isInstallerOwnedPath(entry, installPath) : false;
+}
+
+/** Doctor providers use `-cli` suffixed ids; the registry is keyed by CLI type. */
+function registryEntryForProvider(provider: string): CliRegistryEntry | undefined {
+  const registry: Record<string, CliRegistryEntry | undefined> = CLI_REGISTRY;
+  return registry[provider] ?? registry[provider.replace(/-cli$/, '')];
+}
+
+/**
  * Classifies an auth failure message into expired vs missing.
  * Used internally in the authenticated probe handlers.
  */
@@ -177,6 +243,39 @@ export function classifyAuthKind(message: string): ProviderProbeErrorKind {
     return 'auth_expired';
   }
   return 'auth_missing';
+}
+
+/**
+ * The recommendation for a shadow report, decided per stale copy. A copy the
+ * CLI's own installer maintains (grok's ~/.grok/bin) is refreshed by
+ * reinstalling and must not be deleted — the installer recreates it. Any
+ * other stale copy (another node version's global bin, Homebrew) is a leftover
+ * that only removal fixes, so it keeps its uninstall hint. CLI Health shows
+ * recommendations only, so this string is all the guidance it gives.
+ */
+export function buildShadowRecommendation(provider: string, report: CliShadowReport): string {
+  const stale = report.installs.slice(1);
+  const owned = stale.filter((install) => isInstallerOwnedCopy(provider, install.path));
+  const leftovers = stale.filter((install) => !owned.includes(install));
+  const parts = [
+    `Shadow install detected. Active: ${report.activePath} (v${report.activeVersion ?? '?'}).`,
+  ];
+  if (leftovers.length > 0) {
+    const lines = leftovers.map((install) => {
+      const uninstallHint = inferUninstallHint(install.path);
+      return `- ${install.path} (v${install.version ?? '?'})`
+        + `${uninstallHint ? ` — uninstall: ${uninstallHint}` : ''}`;
+    });
+    parts.push(`Remove the stale copies so the active install is the only one:\n${lines.join('\n')}`);
+  }
+  if (owned.length > 0) {
+    const lines = owned.map((install) => `- ${install.path} (v${install.version ?? '?'})`);
+    parts.push(
+      `Reinstall ${provider} to refresh the copies its installer maintains — do not delete`
+      + ` these by hand, the installer recreates them:\n${lines.join('\n')}`,
+    );
+  }
+  return parts.join(' ');
 }
 
 /**

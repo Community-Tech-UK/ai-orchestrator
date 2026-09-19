@@ -6,7 +6,7 @@
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { getLogger } from '../logging/logger';
 import { IpcResponse } from '../../shared/types/ipc.types';
-import { CliDetectionService, CliType, SUPPORTED_CLIS } from '../cli/cli-detection';
+import { CLI_REGISTRY, CliDetectionService, CliType, SUPPORTED_CLIS } from '../cli/cli-detection';
 import { getCliUpdateService } from '../cli/cli-update-service';
 import { getCliLatestVersionService } from '../cli/cli-latest-version';
 import { isUpdateAvailable } from '../cli/semver';
@@ -174,12 +174,20 @@ export function registerCliVerificationHandlers(
           ollama: 'ollama',
         };
 
-        const entries = await Promise.all(
+        // Pinned so each card's install list, update plan and cli_shadow_check
+        // row all read one scan, however long the probes between them take.
+        const entries = await cliDetection.withPinnedInstallScans(() => Promise.all(
           SUPPORTED_CLIS.map(async (cliType) => {
-            const installs = await cliDetection.scanAllCliInstalls(cliType);
+            // Fresh scan for the card; the update plan and the doctor's
+            // cli_shadow_check below reuse it, so every part of the card is
+            // built from the same view of PATH.
+            const installs = await cliDetection.scanAllCliInstalls(cliType, { forceRefresh: true });
             const updatePlan = await getCliUpdateService().getUpdatePlan(cliType).catch((error) => ({
               cli: cliType,
-              displayName: cliType,
+              // Registry name, not the raw id: CLI Health titles each card from
+              // this, so a failed plan lookup must not rename "Grok Build" to
+              // "grok" in the UI.
+              displayName: CLI_REGISTRY[cliType]?.displayName ?? cliType,
               supported: false,
               reason: error instanceof Error ? error.message : String(error),
             }));
@@ -206,7 +214,7 @@ export function registerCliVerificationHandlers(
               updatePlan,
             };
           }),
-        );
+        ));
 
         return { success: true, data: { entries, timestamp: Date.now() } };
       } catch (error) {
@@ -295,7 +303,7 @@ export function registerCliVerificationHandlers(
         if (!type || !SUPPORTED_CLIS.includes(type as CliType)) {
           throw new Error(`Unknown CLI type: ${type}`);
         }
-        const installs = await cliDetection.scanAllCliInstalls(type as CliType);
+        const installs = await cliDetection.scanAllCliInstalls(type as CliType, { forceRefresh: true });
         return { success: true, data: { cli: type, installs } };
       } catch (error) {
         return {

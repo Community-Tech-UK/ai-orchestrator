@@ -6,8 +6,10 @@
 
 .pattern-row {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
+  gap: var(--spacing-sm);
   padding: var(--spacing-sm) var(--spacing-md);
   background: var(--bg-primary);
   border-radius: var(--radius-sm);
@@ -24,7 +26,7 @@
   flex-direction: column;
   gap: 4px;
   min-width: 0;
-  flex: 1;
+  flex: 1 1 220px;
 }
 
 .pattern-header {
@@ -77,6 +79,9 @@
   background: var(--bg-tertiary);
   padding: 2px 6px;
   border-radius: var(--radius-sm);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  display: inline-block;
 }
 
 .pattern-meta {
@@ -95,6 +100,7 @@
 .btn-approve,
 .btn-reject {
   padding: var(--spacing-xs) var(--spacing-sm);
+  min-height: 44px;
   border-radius: var(--radius-sm);
   font-size: 11px;
   font-weight: 500;

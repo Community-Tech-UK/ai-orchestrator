@@ -107,9 +107,20 @@
                 autocomplete="off"
                 spellcheck="false"
                 [disabled]="isResponding()"
+                [attr.aria-describedby]="secretCardWarning(request) ? 'secret-warning-' + request.id : null"
                 (input)="onSecretValueChange(request.id, $event)"
               />
             </label>
+            @if (secretCardWarning(request); as warning) {
+              <p
+                class="secret-card-warning"
+                [id]="'secret-warning-' + request.id"
+                role="status"
+                aria-live="polite"
+              >
+                {{ warning }}
+              </p>
+            }
             <p class="secret-footer">Stored encrypted on this Mac. Never shown to the agent.</p>
             <div class="request-actions">
               <button

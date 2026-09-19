@@ -115,6 +115,7 @@ import {
   registerTerminalHandlers,
   registerAuxiliaryLlmHandlers,
   registerCampaignHandlers,
+  registerPlanQueueHandlers,
   registerRlmMaintenanceHandlers,
   registerNotificationHandlers,
   registerSkillAttributionHandlers,
@@ -535,6 +536,9 @@ export class IpcMainHandler {
 
     // Campaign mode handlers (DAG of loop specs)
     registerCampaignHandlers({ windowManager: this.windowManager });
+
+    // Plan Queue panel (one worker per plan/livetest document)
+    registerPlanQueueHandlers({ windowManager: this.windowManager });
 
     // Knowledge graph handlers (fact/entity CRUD and queries)
     registerKnowledgeGraphHandlers();

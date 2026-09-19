@@ -1,0 +1,231 @@
+<div class="node-detail">
+  <button class="back-button btn btn-secondary small" type="button" (click)="backRequested.emit()">
+    ← Back to computers
+  </button>
+
+  <div class="node-row node-row-header">
+    <div>
+      <span class="node-id">{{ node().name }}</span>
+      <div class="node-meta">
+        <span>{{ node().id }}</span>
+        <span>{{ formatNodePlatformLabel(node().platform) }}</span>
+        @if (node().address) {
+          <span>{{ node().address }}</span>
+        }
+        <span>{{ formatNodeCapacity(healthEntry()) }}</span>
+      </div>
+    </div>
+    <div class="status-actions">
+      <span class="status-badge" [class]="'status-badge ' + healthEntry().status">{{ healthEntry().status }}</span>
+      <button class="btn btn-secondary small" type="button" (click)="copyDiagnostics()">
+        Copy diagnostics
+      </button>
+      @if (healthEntry().status !== 'disconnected') {
+        <button
+          class="btn btn-secondary small"
+          type="button"
+          title="Close this computer's live connection without revoking it. It reconnects by itself."
+          (click)="requestReset()"
+        >
+          Reset connection
+        </button>
+      }
+      <button class="btn btn-danger small" type="button" (click)="requestRevoke()">
+        Revoke
+      </button>
+    </div>
+  </div>
+
+  <div class="node-meta">
+    <span>Registered {{ formatRelativeTime(healthEntry().createdAt) }}</span>
+    @if (healthEntry().lastSeenAt) {
+      <span>Last authenticated {{ formatRelativeTime(healthEntry().lastSeenAt) }}</span>
+    }
+    @if (healthEntry().pairingLabel) {
+      <span>Credential {{ healthEntry().pairingLabel }}</span>
+    }
+    @if (healthEntry().connectedAt) {
+      <span>Connected {{ formatRelativeTime(healthEntry().connectedAt) }}</span>
+    }
+    @if (healthEntry().lastHeartbeat) {
+      <span>Heartbeat {{ formatRelativeTime(healthEntry().lastHeartbeat) }}</span>
+    }
+  </div>
+
+  <app-remote-node-repair-panel [entry]="healthEntry()" />
+
+  <div class="badge-row">
+    <span
+      class="capability-chip browser-automation"
+      [attr.data-state]="browserAutomationState(healthEntry())"
+      [title]="browserAutomationState(healthEntry()) === 'chrome-only'
+        ? 'Chrome is installed but automation is not enabled on this node.'
+        : browserAutomationState(healthEntry()) === 'off'
+          ? 'No Chrome/Chromium runtime detected on this node.'
+          : 'Agents spawned on this node get chrome-devtools browser tools.'"
+    >
+      {{ browserAutomationLabel(healthEntry()) }}
+    </span>
+    <span
+      class="capability-chip browser-automation"
+      [attr.data-state]="extensionRelayState(healthEntry())"
+      [title]="extensionRelayState(healthEntry()) === 'ready'
+        ? 'Chrome extension native-host relay is listening on this node.'
+        : extensionRelayState(healthEntry()) === 'enabled'
+          ? 'Chrome extension relay is enabled but not currently running.'
+          : 'Chrome extension relay is off on this node.'"
+    >
+      {{ extensionRelayLabel(healthEntry()) }}
+    </span>
+    <span
+      class="capability-chip android-automation"
+      [attr.data-state]="androidAutomationState(healthEntry())"
+      [title]="androidAutomationState(healthEntry()) === 'sdk-only'
+        ? 'Android SDK/ADB is detected, but automation is not ready on this node.'
+        : androidAutomationState(healthEntry()) === 'off'
+          ? 'No Android SDK/ADB state reported by this node.'
+          : 'Agents spawned on this node can receive mobile-mcp Android tools.'"
+    >
+      {{ androidAutomationLabel(healthEntry()) }}
+    </span>
+    @if (healthEntry().supportsGpu) {
+      <span class="capability-chip">GPU</span>
+    }
+    @for (cli of healthEntry().supportedClis; track cli) {
+      <span class="capability-chip">{{ cli }}</span>
+    }
+    @if (healthEntry().supportsBrowser) {
+      <button class="btn btn-secondary small" type="button" (click)="toggleBrowserConfig()">
+        {{ browserConfigOpen() ? 'Close' : 'Configure browser automation' }}
+      </button>
+    }
+    @if (healthEntry().status === 'connected') {
+      <button class="btn btn-secondary small" type="button" (click)="toggleAndroidConfig()">
+        {{ androidConfigOpen() ? 'Close' : 'Configure Android automation' }}
+      </button>
+    }
+  </div>
+
+  @if (browserConfigOpen()) {
+    <div class="ba-config-form">
+      <label class="ba-row">
+        <input
+          type="checkbox"
+          [checked]="baDraftEnabled()"
+          (change)="baDraftEnabled.set(!baDraftEnabled())"
+        />
+        <span>Enable browser automation on this node</span>
+      </label>
+
+      <label class="ba-field">
+        <span class="ba-label">Automation profile directory</span>
+        <input
+          type="text"
+          class="ba-input"
+          placeholder="Leave blank for default (~/.orchestrator/browser-automation-profile)"
+          [value]="baDraftProfileDir()"
+          (input)="baDraftProfileDir.set($any($event.target).value)"
+        />
+      </label>
+
+      <label class="ba-row">
+        <input
+          type="checkbox"
+          [checked]="baDraftHeadless()"
+          (change)="baDraftHeadless.set(!baDraftHeadless())"
+        />
+        <span>Run Chrome headless</span>
+      </label>
+
+      <label class="ba-row">
+        <input
+          type="checkbox"
+          [checked]="baDraftExtensionRelayEnabled()"
+          (change)="baDraftExtensionRelayEnabled.set(!baDraftExtensionRelayEnabled())"
+        />
+        <span>Enable shared-tab extension relay on this node</span>
+      </label>
+
+      <p class="field-hint ba-warning">
+        Browser automation has no per-action approval — only enable it on
+        trusted nodes, and point the profile at a dedicated Chrome profile
+        (not your everyday browser). First use needs a one-time profile
+        login on that machine.
+      </p>
+
+      <div class="ba-actions">
+        <button
+          class="btn btn-primary small"
+          type="button"
+          [disabled]="baBusy()"
+          (click)="submitBrowserConfig()"
+        >
+          {{ baBusy() ? 'Applying…' : 'Apply' }}
+        </button>
+        <button
+          class="btn btn-secondary small"
+          type="button"
+          [disabled]="baBusy()"
+          (click)="browserConfigOpen.set(false)"
+        >
+          Cancel
+        </button>
+      </div>
+
+      <div class="ba-login">
+        <span class="ba-label">One-time profile login</span>
+        @if (!healthEntry().browserAutomation?.profileDir) {
+          <p class="field-hint">Apply the config above first, then log the profile in here.</p>
+        } @else {
+          <label class="ba-field">
+            <span class="ba-label">Login URL</span>
+            <input
+              type="text"
+              class="ba-input"
+              [value]="loginUrlDraft()"
+              (input)="loginUrlDraft.set($any($event.target).value)"
+            />
+          </label>
+
+          @if (loginCommandPreview()) {
+            <pre class="ba-command">{{ loginCommandPreview() }}</pre>
+          }
+
+          <p class="field-hint ba-warning">
+            Chrome opens on <strong>{{ node().name }}</strong>'s own screen —
+            you must be at that computer (or connected via remote desktop)
+            to complete the login. Then close that Chrome window.
+          </p>
+
+          <div class="ba-actions">
+            <button class="btn btn-secondary small" type="button" (click)="copyLoginCommand()">
+              Copy command
+            </button>
+            <button
+              class="btn btn-secondary small"
+              type="button"
+              [disabled]="loginBusy()"
+              (click)="requestRunLogin()"
+            >
+              {{ loginBusy() ? 'Launching…' : 'Run on node' }}
+            </button>
+          </div>
+
+          @if (loginNotice()) {
+            <p class="field-hint">{{ loginNotice() }}</p>
+          }
+        }
+      </div>
+    </div>
+  }
+
+  @if (androidConfigOpen()) {
+    <app-remote-node-android-config
+      [busy]="aaBusy()"
+      [enabledFallback]="healthEntry().androidAutomationReady"
+      [summary]="healthEntry().androidAutomation"
+      (applyRequested)="submitAndroidConfig($event)"
+      (cancelRequested)="androidConfigOpen.set(false)"
+    />
+  }
+</div>

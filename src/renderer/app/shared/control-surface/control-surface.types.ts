@@ -26,6 +26,7 @@ export type ControlSurfaceId =
   | 'chat-search'
   | 'automations'
   | 'campaigns'
+  | 'plan-queue'
   | 'workflows'
   | 'hooks'
   | 'skills'

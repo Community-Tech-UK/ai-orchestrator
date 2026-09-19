@@ -178,6 +178,24 @@ describe('InstanceRowComponent — tooltip disclosure', () => {
     });
   });
 
+  describe('Plan Queue marker', () => {
+    it('names the queue role of a queue-spawned session and shows its tooltip', () => {
+      fixture.componentInstance.instance.set(makeInstance({ metadata: { planQueueRole: 'verifier' } } as Partial<Instance>));
+      fixture.detectChanges();
+      const marker = query('.plan-queue-marker');
+      expect(marker.getAttribute('aria-label')).toBe('Plan Queue verifier');
+      hover(marker);
+      expect(openTooltips()[0]?.textContent).toContain('Plan Queue verifier');
+    });
+
+    it('is absent for ordinary sessions and for unknown role values', () => {
+      expect(fixture.nativeElement.querySelector('.plan-queue-marker')).toBeNull();
+      fixture.componentInstance.instance.set(makeInstance({ metadata: { planQueueRole: 'admin' } } as Partial<Instance>));
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.plan-queue-marker')).toBeNull();
+    });
+  });
+
   /**
    * Gate 14: `error` status was an 8%-opacity red row background and `yoloMode`
    * a 14%-opacity inset border, with neither named in text, aria, or a tooltip

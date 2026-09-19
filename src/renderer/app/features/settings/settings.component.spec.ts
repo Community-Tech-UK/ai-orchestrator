@@ -31,6 +31,10 @@ import type { CliUpdatePillState } from '../../../../shared/types/diagnostics.ty
 const specDirectory = dirname(fileURLToPath(import.meta.url));
 const template = readFileSync(resolve(specDirectory, './settings.component.html'), 'utf8');
 const styles = readFileSync(resolve(specDirectory, './settings.component.scss'), 'utf8');
+const contentStyles = readFileSync(
+  resolve(specDirectory, './settings.component.content.scss'),
+  'utf8',
+);
 
 await resolveComponentResources((url) => {
   if (url.endsWith('settings.component.scss')) {
@@ -70,6 +74,63 @@ function makeNode(
   return { id, name: id, status, connected } as RemoteNodeRosterEntry;
 }
 
+type MediaListener = (event: MediaQueryListEvent) => void;
+
+/**
+ * Stub `window.matchMedia` for the two Task 2 breakpoints so tests can flip
+ * compact-nav / Help-drawer mode without a real narrow window. Mirrors the
+ * `MediaQueryList` surface `bindSettingsViewportMediaQueries` actually uses
+ * (`matches`, `addEventListener`/`removeEventListener`).
+ */
+function installMatchMediaStub(initial: { compact: boolean; helpDrawer: boolean }): {
+  setCompact: (value: boolean) => void;
+  setHelpDrawer: (value: boolean) => void;
+} {
+  const listeners = new Map<string, Set<MediaListener>>();
+  const matches = new Map<string, boolean>([
+    ['(max-width: 900px)', initial.compact],
+    ['(max-width: 1180px)', initial.helpDrawer],
+  ]);
+
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    writable: true,
+    value: (query: string): MediaQueryList => {
+      const list = {
+        get matches() {
+          return matches.get(query) ?? false;
+        },
+        media: query,
+        onchange: null,
+        addEventListener: (_type: string, listener: EventListener) => {
+          const set = listeners.get(query) ?? new Set<MediaListener>();
+          set.add(listener as MediaListener);
+          listeners.set(query, set);
+        },
+        removeEventListener: (_type: string, listener: EventListener) => {
+          listeners.get(query)?.delete(listener as MediaListener);
+        },
+        addListener: () => undefined,
+        removeListener: () => undefined,
+        dispatchEvent: () => false,
+      };
+      return list as MediaQueryList;
+    },
+  });
+
+  const fire = (query: string, value: boolean): void => {
+    matches.set(query, value);
+    for (const listener of listeners.get(query) ?? []) {
+      listener({ matches: value, media: query } as MediaQueryListEvent);
+    }
+  };
+
+  return {
+    setCompact: (value) => fire('(max-width: 900px)', value),
+    setHelpDrawer: (value) => fire('(max-width: 1180px)', value),
+  };
+}
+
 describe('SettingsComponent', () => {
   let fixture: ComponentFixture<SettingsComponent>;
   let component: SettingsComponent;
@@ -88,9 +149,11 @@ describe('SettingsComponent', () => {
   let startupCallback: ((report: StartupCapabilityReport) => void) | null;
   let nodes$: WritableSignal<RemoteNodeRosterEntry[]>;
   let cliPillState$: WritableSignal<CliUpdatePillState>;
+  let media: ReturnType<typeof installMatchMediaStub>;
 
   beforeEach(async () => {
     localStorage.clear();
+    media = installMatchMediaStub({ compact: false, helpDrawer: false });
     fragment$ = new BehaviorSubject<string | null>(null);
     queryParamMap$ = new BehaviorSubject(convertToParamMap({}));
     route = {
@@ -419,5 +482,150 @@ describe('SettingsComponent', () => {
       await frame();
       expect(row.scrollIntoView).not.toHaveBeenCalled();
     });
+  });
+
+  // ─── Task 1 — layout modes ──────────────────────────────────────────────
+
+  it('keeps the section header for expanded tabs and suppresses it for embedded tabs', () => {
+    component.selectTab('remote-nodes');
+    expect(component.layoutMode()).toBe('expanded');
+    expect(component.isExpandedTab()).toBe(true);
+    expect(component.isEmbeddedTab()).toBe(false);
+
+    component.selectTab('ecosystem');
+    expect(component.layoutMode()).toBe('embedded');
+    expect(component.isExpandedTab()).toBe(false);
+    expect(component.isEmbeddedTab()).toBe(true);
+
+    component.selectTab('general');
+    expect(component.layoutMode()).toBe('standard');
+
+    expect(template).toContain('!isEmbeddedTab()');
+    expect(template).toContain('[class.expanded]="isExpandedTab()"');
+    expect(template).toContain('[class.embedded]="isEmbeddedTab()"');
+    expect(template).not.toContain('isWideTab');
+  });
+
+  it('uses a wider content measure class for expanded tabs without dropping padding', () => {
+    expect(contentStyles).toContain('.settings-body.expanded');
+    expect(contentStyles).toContain('min(1120px, 100%)');
+    expect(contentStyles).toContain('.settings-content.embedded');
+    expect(contentStyles).not.toContain('.settings-content.wide');
+  });
+
+  // ─── Task 2 — adaptive navigation and Help ─────────────────────────────
+
+  it('starts compact mode on a 56px-equivalent collapsed rail without touching desktop nav prefs', () => {
+    localStorage.setItem(NAV_COLLAPSED_KEY, 'false');
+
+    media.setCompact(true);
+
+    expect(component.compactViewport()).toBe(true);
+    expect(component.effectiveNavCollapsed()).toBe(true);
+    expect(component.compactNavOpen()).toBe(false);
+    expect(localStorage.getItem(NAV_COLLAPSED_KEY)).toBe('false');
+  });
+
+  it('opens the compact nav overlay without persisting NAV_COLLAPSED_KEY', () => {
+    media.setCompact(true);
+    localStorage.setItem(NAV_COLLAPSED_KEY, 'false');
+
+    component.toggleNav();
+
+    expect(component.compactNavOpen()).toBe(true);
+    expect(localStorage.getItem(NAV_COLLAPSED_KEY)).toBe('false');
+    expect(component.navCollapsed()).toBe(false);
+  });
+
+  it('closes the compact nav overlay when a tab is selected', () => {
+    media.setCompact(true);
+    component.compactNavOpen.set(true);
+
+    component.selectTab('display');
+
+    expect(component.compactNavOpen()).toBe(false);
+    expect(component.activeTab()).toBe('display');
+  });
+
+  it('closes the compact nav overlay once the viewport widens again', () => {
+    media.setCompact(true);
+    component.compactNavOpen.set(true);
+
+    media.setCompact(false);
+
+    expect(component.compactViewport()).toBe(false);
+    expect(component.compactNavOpen()).toBe(false);
+  });
+
+  it('leaves the desktop nav toggle behavior untouched above the compact breakpoint', () => {
+    component.toggleNav();
+
+    expect(component.navCollapsed()).toBe(true);
+    expect(component.compactNavOpen()).toBe(false);
+    expect(localStorage.getItem(NAV_COLLAPSED_KEY)).toBe('true');
+  });
+
+  it('makes a "Help & tips" affordance available below the rail breakpoint without changing helpCollapsed prefs', () => {
+    media.setHelpDrawer(true);
+    localStorage.setItem('aiorch.settings.helpCollapsed', 'false');
+
+    expect(component.helpDrawerMode()).toBe(true);
+    expect(component.helpCollapsed()).toBe(false);
+
+    component.openHelpDrawer();
+
+    expect(component.helpDrawerOpen()).toBe(true);
+    expect(localStorage.getItem('aiorch.settings.helpCollapsed')).toBe('false');
+    expect(component.helpCollapsed()).toBe(false);
+
+    component.closeHelpDrawer();
+    expect(component.helpDrawerOpen()).toBe(false);
+    expect(localStorage.getItem('aiorch.settings.helpCollapsed')).toBe('false');
+  });
+
+  it('routes toggleHelp() through the drawer below the rail breakpoint instead of the desktop collapse', () => {
+    media.setHelpDrawer(true);
+
+    component.toggleHelp();
+
+    expect(component.helpDrawerOpen()).toBe(true);
+    expect(component.helpCollapsed()).toBe(false);
+    expect(localStorage.getItem('aiorch.settings.helpCollapsed')).toBeNull();
+  });
+
+  it('closes the Help drawer once the viewport widens past the rail breakpoint', () => {
+    media.setHelpDrawer(true);
+    component.helpDrawerOpen.set(true);
+
+    media.setHelpDrawer(false);
+
+    expect(component.helpDrawerMode()).toBe(false);
+    expect(component.helpDrawerOpen()).toBe(false);
+  });
+
+  it('closes Help, then compact nav, then Settings on Escape — never more than one at a time', () => {
+    media.setCompact(true);
+    media.setHelpDrawer(true);
+    component.compactNavOpen.set(true);
+    component.helpDrawerOpen.set(true);
+    const emit = vi.spyOn(component.closeDialog, 'emit');
+
+    component.onKeydown(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(component.helpDrawerOpen()).toBe(false);
+    expect(component.compactNavOpen()).toBe(true);
+    expect(emit).not.toHaveBeenCalled();
+
+    component.onKeydown(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(component.compactNavOpen()).toBe(false);
+    expect(emit).not.toHaveBeenCalled();
+
+    component.onKeydown(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(emit).toHaveBeenCalledOnce();
+  });
+
+  it('exposes a Help & tips affordance for drawer mode in the template', () => {
+    expect(template).toContain('Help &amp; tips');
+    expect(template).toContain('settings-help-drawer');
+    expect(template).toContain('help-drawer-trigger');
   });
 });

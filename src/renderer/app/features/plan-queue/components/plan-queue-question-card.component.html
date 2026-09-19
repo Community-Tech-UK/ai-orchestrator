@@ -1,0 +1,20 @@
+<fieldset class="pq-question-card">
+  <legend>{{ question().question }}</legend>
+  <div class="pq-question-options" role="radiogroup" [attr.aria-label]="question().question">
+    @for (option of question().options; track option.id) {
+      <label class="pq-question-option">
+        <input
+          type="radio"
+          [name]="groupName"
+          [value]="option.id"
+          [checked]="selectedOptionId() === option.id"
+          (change)="selectOption(option.id)"
+        />
+        {{ option.label }}
+      </label>
+    }
+  </div>
+  <button type="button" class="pq-question-submit" [disabled]="!selectedOptionId()" (click)="onSubmit()">
+    Submit answer
+  </button>
+</fieldset>

@@ -37,6 +37,7 @@ src/main/
 ├── observation/      # Observation/telemetry pipeline
 ├── orchestration/    # Multi-agent coordination (see below)
 ├── persistence/      # Data persistence (RLM database)
+├── plan-queue/       # Plan Queue: one verified, worktree-isolated worker per plan/livetest document
 ├── plugins/          # Plugin system
 ├── prompt-history/   # Prompt recall persistence and delta emission
 ├── process/          # Supervisor tree, resource governor, pool, hibernation
@@ -115,6 +116,15 @@ Located in `src/main/orchestration/` (27 files):
    - Every attempt (delivered or rejected) is durably audited via `session-messages-schema.ts`, which reuses the existing `OperatorDatabase`/sqlite infra rather than introducing a new store.
    - Exposed to the renderer over three IPC channels in `src/main/ipc/handlers/instance-cross-session-messaging-handlers.ts` (list messageable sessions, send a message, read settings), and to CLIs/agents as MCP tools in `src/main/mcp/orchestrator-session-messaging-tools.ts`; the MCP path derives `sourceInstanceId` server-side from the trusted RPC connection context (never from LLM-supplied input) to prevent spoofed provenance.
    - Renderer surface: `CrossSessionMessagingStore` (signal store) backs a "Message this session…" context-menu action and compose dialog in `instance-list.component`, plus a dedicated "Cross-Session Messaging" Settings tab for the global toggles and per-instance consent list.
+
+10. **Plan Queue** (`src/main/plan-queue/`)
+   - Works through plan (`*_plan.md`) or livetest (`*_livetest.md`) documents. A session calls the `plan_queue_start` MCP tool (or James starts a run from the Plan Queue panel) and becomes the parent of every instance the run spawns.
+   - `plan-queue-coordinator.ts` is a deterministic scheduler (singleton, initialized and recovered from `plan-queue-bootstrap.ts` after the loop store opens). Code decides what runs next, whether an item is done and when it lands; LLMs only triage, work and judge. Limits: worker slots per run (items holding a worktree), verification slots shared across runs, a load-average gate, and one landing at a time.
+   - Per item: `plan-queue-discovery.ts` classifies documents by filename state; a triage instance reports readiness through `plan_queue_report_triage`; `needs-answer` items wait for James (panel radio controls or `plan_queue_answer` from the parent). A worker instance runs in the item's own `queue/*` branch and `.worktrees/queue/...` worktree; each finished turn is checkpointed by the coordinator (`--no-verify`, so a hook can never refuse it). A verifier on a different provider (`plan-queue-verifier-select.ts` → `resolveCheckerPlan`) judges each round and reports through `plan_queue_report_verdict`, which only that verifier may call. FAIL sends findings back to the same worker; PASS lands the branch as one squash commit built in the item worktree WITH the repository's pre-commit hook (`plan-queue-squash.ts`, `plan-queue-item-landing.ts`), carrying the coordinator-renamed `_completed` documents (`plan-queue-doc-close.ts`) in the same commit, then fast-forwards the base (`plan-queue-landing.ts`, `promoteIntegrationBranch` with `block-overlap` so untracked root documents do not block).
+   - No-lost-work invariants (`plan-queue-worktree.ts`): the `plan_queue_items` row owns the worktree before it exists; removal requires a clean tree at the recorded checkpoint; branches are deleted only after landing or an explicit Discard. Every item ends `landed`, `parked` (branch kept, worktree removed, parked note appended to the document) or `skipped`. `plan-queue-item-flow.ts` serialises all side effects per item. `plan-queue-reconciler.ts` reports queue worktrees/branches with no owning row and never deletes.
+   - Persistence: `plan_queue_runs` / `plan_queue_items` (migration 17 in `loop-schema.ts`, same DB as loops and campaigns). Boot recovery restores relaxed settings, runs the reconciler, re-attaches or respawns workers, re-verifies interrupted verifications and resumes interrupted landings.
+   - Optional per-run relaxation (`plan-queue-relaxation.ts`) of exactly `computerUseAutonomyLevel` and `providersExcludedFromAutomation`, snapshotted on the run row before it is applied and restored at run end and on boot (a value changed by hand during the run is left alone).
+   - Surfaces: MCP tools in `src/main/mcp/plan-queue-tools.ts`; IPC in `src/main/ipc/handlers/plan-queue-handlers.ts` (`plan-queue:*` channels); renderer panel under `src/renderer/app/features/plan-queue/`; queue-spawned instances carry `metadata.planQueueRole` for the rail marker. Idle workers hold a reclaim hold (`src/main/process/reclaim-holds.ts`) so the resource governor reclaims other idle instances first.
 
 ## Provider System
 

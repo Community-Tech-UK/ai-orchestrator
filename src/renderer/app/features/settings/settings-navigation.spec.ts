@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { NAV_ITEMS, SETTINGS_EXTERNAL_LINKS } from './settings-navigation';
+import { NAV_ITEMS, SETTINGS_EXTERNAL_LINKS, resolveSettingsLayout } from './settings-navigation';
 
 describe('settings navigation', () => {
   it('groups Connections with network and remote controls', () => {
@@ -45,5 +45,40 @@ describe('settings navigation', () => {
       'snapshots',
       'worktrees',
     ].sort());
+  });
+
+  it('defaults ordinary tabs to the standard layout measure', () => {
+    const general = NAV_ITEMS.find((item) => item.id === 'general');
+    const display = NAV_ITEMS.find((item) => item.id === 'display');
+
+    expect(resolveSettingsLayout(general)).toBe('standard');
+    expect(resolveSettingsLayout(display)).toBe('standard');
+    expect(general?.layout).toBeUndefined();
+  });
+
+  it('marks Remote Nodes, Permissions, and Auxiliary Models as expanded', () => {
+    for (const id of ['remote-nodes', 'permissions', 'auxiliary-models'] as const) {
+      const item = NAV_ITEMS.find((entry) => entry.id === id);
+      expect(resolveSettingsLayout(item)).toBe('expanded');
+      expect(item?.layout).toBe('expanded');
+    }
+  });
+
+  it('marks Ecosystem and feature pages as embedded', () => {
+    for (const id of [
+      'ecosystem',
+      'models',
+      'mcp',
+      'hooks',
+      'worktrees',
+      'snapshots',
+      'archive',
+      'remote-config',
+      'doctor',
+    ] as const) {
+      const item = NAV_ITEMS.find((entry) => entry.id === id);
+      expect(resolveSettingsLayout(item)).toBe('embedded');
+      expect(item?.layout).toBe('embedded');
+    }
   });
 });

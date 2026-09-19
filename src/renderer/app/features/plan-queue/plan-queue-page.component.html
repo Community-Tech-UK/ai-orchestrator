@@ -1,0 +1,54 @@
+<div class="pq-page">
+  <header class="pq-header">
+    <h1>Plan Queue</h1>
+    <span class="pq-subtitle">Work through plan and livetest documents with verified workers.</span>
+  </header>
+
+  <app-plan-queue-start-form [parentSessions]="parentSessions()" (start)="onStart($event)" />
+
+  @if (store.lastError(); as err) {
+    <div class="pq-error" role="alert">{{ err }}</div>
+  }
+
+  @if (store.needsAnswerItems().length > 0) {
+    <div class="pq-attention-banner" role="status">
+      {{ store.needsAnswerItems().length }} item(s) need your answer below.
+    </div>
+  }
+
+  <app-plan-queue-alerts-list [alerts]="store.reconcilerAlerts()" (refresh)="onRefreshAlerts()" />
+
+  @if (store.needJamesReal().length > 0 || store.policyGatedCount() > 0) {
+    <app-plan-queue-need-james-list
+      [records]="store.needJamesReal()"
+      [policyGatedCount]="store.policyGatedCount()"
+    />
+  }
+
+  @if (store.parkedItems().length > 0) {
+    <app-plan-queue-parked-list
+      [items]="store.parkedItems()"
+      (resumeItem)="onResumeItem($event)"
+      (landAnyway)="onLandAnyway($event)"
+      (discardItem)="onDiscardItem($event)"
+    />
+  }
+
+  <section class="pq-runs">
+    <h2>Runs</h2>
+    @if (store.isLoading()) {
+      <div class="pq-loading">Loading plan queue runs...</div>
+    } @else if (store.allRuns().length === 0) {
+      <div class="pq-empty">No plan queue runs yet.</div>
+    } @else {
+      <app-plan-queue-run-list
+        [runs]="store.allRuns()"
+        (pauseRun)="onPauseRun($event)"
+        (resumeRun)="onResumeRun($event)"
+        (cancelRun)="onCancelRun($event)"
+        (answer)="onAnswer($event)"
+        (skipItem)="onSkipItem($event)"
+      />
+    }
+  </section>
+</div>

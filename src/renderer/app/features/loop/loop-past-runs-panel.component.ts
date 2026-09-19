@@ -12,15 +12,17 @@ import {
 import type { LoopRunSummaryPayload } from '@contracts/schemas/loop';
 import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 import { LoopStore } from '../../core/state/loop.store';
+import { LoopIpcService } from '../../core/services/ipc/loop-ipc.service';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import {
   formatCostCents,
   formatTimestamp,
   humanTokens,
   loopStatusLabel,
   loopStatusTone,
-  managedWorktreeStatus,
   relativeTime,
 } from './loop-formatters.util';
+import { managedWorktreeStatus } from './managed-worktree-status.util';
 import { LoopPanelOpenerService } from './loop-panel-opener.service';
 import { RendererPollSchedulerService } from '../../core/services/renderer-poll-scheduler.service';
 
@@ -88,6 +90,7 @@ export function deriveReattemptSeed(
 @Component({
   selector: 'app-loop-past-runs-panel',
   standalone: true,
+  imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (runs().length > 0) {
@@ -144,8 +147,22 @@ export function deriveReattemptSeed(
                       [disabled]="reattemptDisabledReason(run) !== null"
                       [title]="reattemptDisabledReason(run) ?? 'Open the loop config pre-filled with this prompt'"
                     >Reattempt</button>
+                    @if (run.worktreeLifecycle?.phase === 'blocked') {
+                      <button
+                        type="button"
+                        class="pr-action-btn pr-action-resolve"
+                        (click)="onResolveBlocked(run)"
+                        [disabled]="resolvingRunId() !== null"
+                        appTooltip="Record that you have dealt with this blocked workspace yourself, so AIO stops retrying it. Nothing is deleted."
+                      >{{ resolvingRunId() === run.id ? 'Resolving…' : 'Mark resolved' }}</button>
+                    }
                   </span>
                 </div>
+                @if (resolveError(); as failure) {
+                  @if (failure.runId === run.id) {
+                    <div class="pr-resolve-error" role="alert">{{ failure.message }}</div>
+                  }
+                }
                 @if (run.initialPrompt) {
                   <div class="pr-prompt-preview" [class.expanded]="isRowExpanded(run.id)">{{ run.initialPrompt }}</div>
                   @if (isRowExpanded(run.id) && hasDistinctIterationPrompt(run)) {
@@ -268,6 +285,9 @@ export function deriveReattemptSeed(
     .pr-prompt-empty {
       margin-top: 4px; font-size: 11px; opacity: 0.5; font-style: italic;
     }
+    .pr-resolve-error {
+      margin-top: 4px; font-size: 11px; color: var(--error-color, #f87171);
+    }
   `],
 })
 export class LoopPastRunsPanelComponent implements OnDestroy {
@@ -291,6 +311,7 @@ export class LoopPastRunsPanelComponent implements OnDestroy {
   private clipboard = inject(CLIPBOARD_SERVICE);
   private opener = inject(LoopPanelOpenerService);
   private pollScheduler = inject(RendererPollSchedulerService);
+  private loopIpc = inject(LoopIpcService);
 
   /** 1Hz tick to re-render relative timestamps without per-row timers. */
   private tick = signal(0);
@@ -299,6 +320,8 @@ export class LoopPastRunsPanelComponent implements OnDestroy {
   protected panelExpanded = signal(false);
   protected expandedRowIds = signal<ReadonlySet<string>>(new Set());
   protected copiedRunId = signal<string | null>(null);
+  protected resolvingRunId = signal<string | null>(null);
+  protected resolveError = signal<{ runId: string; message: string } | null>(null);
   private copiedClearHandle: ReturnType<typeof setTimeout> | null = null;
 
   /** All persisted runs for the current chat (most recent first). */
@@ -441,5 +464,26 @@ export class LoopPastRunsPanelComponent implements OnDestroy {
 
   protected managedStatus(run: LoopRunSummaryPayload) {
     return managedWorktreeStatus(run.worktreeLifecycle, run.status);
+  }
+
+  /** Operator dealt with a blocked managed workspace by hand. Main refuses a
+   *  folder that still holds uncommitted work and deletes nothing. */
+  protected async onResolveBlocked(run: LoopRunSummaryPayload): Promise<void> {
+    if (this.resolvingRunId() !== null) return;
+    this.resolvingRunId.set(run.id);
+    this.resolveError.set(null);
+    try {
+      const result = await this.loopIpc.resolveBlockedWorktree(run.id);
+      if (!result.success) {
+        this.resolveError.set({
+          runId: run.id,
+          message: result.error?.message ?? 'Could not mark this workspace resolved.',
+        });
+        return;
+      }
+      await this.store.refreshHistory(run.chatId);
+    } finally {
+      this.resolvingRunId.set(null);
+    }
   }
 }

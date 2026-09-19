@@ -22,6 +22,26 @@ import { applyProviderSessionDurability } from './provider-session-durability';
 
 const logger = getLogger('DeferredPermissionHandler');
 
+/**
+ * Statuses that mean an interrupt/cancel has already moved the instance off
+ * `waiting_for_permission` while we were waiting for the session mutex
+ * (LT-137 interrupt-in-flight race). `InterruptRespawnHandler.interrupt()`
+ * mutates instance.status synchronously and does NOT take the session mutex,
+ * so it can run to completion during the `await acquireSessionMutex(...)`
+ * below. The state machine allows `interrupting`/`cancelling`/`cancelled`/
+ * `interrupt-escalating` -> `respawning` (needed for their own recovery
+ * flows), so proceeding here would not throw — it would silently race the
+ * in-flight interrupt with a second respawn of the same instance.
+ */
+const INTERRUPT_IN_FLIGHT_STATUSES = new Set<InstanceStatus>([
+  'interrupting',
+  'cancelling',
+  'cancelled',
+  'interrupt-escalating',
+  'terminated',
+  'failed',
+]);
+
 /** Narrow interface for the subset of lifecycle/deps operations this handler needs. */
 export interface DeferredPermissionDeps {
   getInstance: (id: string) => Instance | undefined;
@@ -113,6 +133,41 @@ export class DeferredPermissionHandler {
     let release: (() => void) | undefined;
     try {
       release = await this.ops.acquireSessionMutex(instanceId, 'resume-deferred-permission');
+
+      // Re-read after the mutex wait: a concurrent interrupt/cancel may have
+      // already moved the lifecycle off waiting_for_permission (LT-137).
+      const latest = this.deps.getInstance(instanceId);
+      if (!latest) {
+        throw new Error(`Instance ${instanceId} not found`);
+      }
+      if (INTERRUPT_IN_FLIGHT_STATUSES.has(latest.status)) {
+        const pendingAdapter = this.deps.getAdapter(instanceId);
+        const pendingClaudeAdapter = pendingAdapter as unknown as ClaudeCliAdapter | undefined;
+        const pendingDeferred = typeof pendingClaudeAdapter?.getDeferredToolUse === 'function'
+          ? pendingClaudeAdapter.getDeferredToolUse()
+          : null;
+        if (pendingDeferred) {
+          // Still write the decision so the hook/tool call isn't silently
+          // lost, even though we won't respawn to deliver it right now.
+          const decisionVerb: 'allow' | 'deny' | 'modify' =
+            !approved ? 'deny' : updatedInput !== undefined ? 'modify' : 'allow';
+          this.services.writeDecision(
+            pendingDeferred.toolUseId,
+            decisionVerb,
+            approved
+              ? 'User approved via orchestrator UI (interrupt in flight)'
+              : 'User denied via orchestrator UI (interrupt in flight)',
+            updatedInput,
+          );
+        }
+        logger.warn('Skipping deferred-permission respawn; interrupt already in flight', {
+          instanceId,
+          status: latest.status,
+          approved,
+        });
+        return;
+      }
+
       const oldAdapter = this.deps.getAdapter(instanceId);
       if (!oldAdapter) {
         throw new Error(`No adapter for instance ${instanceId}`);

@@ -1,0 +1,24 @@
+.pq-question-card {
+  border: 1px solid var(--pq-border-color, #3a3a3a);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 8px 0;
+}
+
+.pq-question-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.pq-question-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.pq-question-submit {
+  margin-top: 4px;
+}

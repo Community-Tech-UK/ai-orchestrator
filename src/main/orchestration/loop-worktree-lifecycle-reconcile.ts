@@ -9,9 +9,15 @@ import {
 } from '../workspace/git/worktree-integration';
 import { deleteLocalBranchIfPresent } from '../workspace/git/worktree-cleanup';
 import { verifyManagedWorktreeOwnership } from '../workspace/git/worktree-cleanup';
+import { listActivePlanDocuments } from '../workspace/git/active-plan-documents';
+import { LOOP_DIRTY_ROOT_POLICY } from '../workspace/git/loop-landing-policy';
+import { ACTIVE_PLAN_DOCUMENTS_BLOCK_REASON } from './loop-worktree-lifecycle';
 import { removeOrphanWorktree } from './loop-worktree-reconcile';
 
 const logger = getLogger('LoopWorktreeLifecycleReconcile');
+
+const SESSION_BRANCH_CHANGED_BLOCK_REASON =
+  'Session branch changed outside AIO; review it before landing';
 
 export interface PendingManagedWorktreeLifecycle {
   id: string;
@@ -146,10 +152,12 @@ export async function reconcileManagedWorktreeLifecycles(
           transition('harvesting', { lastError: undefined });
           await getGitWriteQueue().enqueue('boot-harvest', async () => {
             await gitExec(['add', '-A'], row.worktreePath!);
+            // Safety commit on the session branch; hooks must not strand it.
             await gitExecSafe(
               [
                 'commit',
                 '--no-gpg-sign',
+                '--no-verify',
                 '-m',
                 'Boot reconcile: captured managed loop session output',
               ],
@@ -184,6 +192,18 @@ export async function reconcileManagedWorktreeLifecycles(
             transition('blocked', {
               lastError: 'Managed session branch identity could not be verified',
             });
+            blocked++;
+            continue;
+          }
+          // A blocked run waits for a human. If its branch gained commits AIO
+          // did not make (an operator's rescue commit, say), landing that work
+          // unreviewed is not recovery; keep it blocked.
+          if (
+            lifecycle.phase === 'blocked'
+            && lifecycle.sessionTip
+            && lifecycle.sessionTip !== liveTip
+          ) {
+            transition('blocked', { lastError: SESSION_BRANCH_CHANGED_BLOCK_REASON });
             blocked++;
             continue;
           }
@@ -283,6 +303,25 @@ export async function reconcileManagedWorktreeLifecycles(
           blocked++;
           continue;
         }
+        const activePlanDocuments = await listActivePlanDocuments(
+          row.workspaceCwd,
+          lifecycle.baseBranch,
+          sessionBranch,
+        );
+        if (activePlanDocuments.length > 0) {
+          transition('blocked', { lastError: ACTIVE_PLAN_DOCUMENTS_BLOCK_REASON });
+          if (worktreeExists && row.worktreePath) {
+            if (await removeOrphanWorktree(
+              row.workspaceCwd,
+              row.worktreePath,
+              sessionBranch,
+            )) {
+              store.clearWorktreeInfo(row.id);
+            }
+          }
+          blocked++;
+          continue;
+        }
         transition('integrating', {
           integrationBranch,
           lastError: undefined,
@@ -339,6 +378,7 @@ export async function reconcileManagedWorktreeLifecycles(
         lifecycle.baseBranch,
         integrationBranch,
         lifecycle.integrationTip,
+        { dirtyRootPolicy: LOOP_DIRTY_ROOT_POLICY },
       );
       if (promotion.status === 'blocked') {
         transition('blocked', { lastError: promotion.reason });

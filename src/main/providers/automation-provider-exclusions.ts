@@ -5,12 +5,13 @@
  * ---------------
  * A provider's licence can be scoped to a context the app knows nothing about —
  * a work GitHub Copilot seat usable only on that employer's repositories, say.
- * The app has six independent places that pick a provider on the user's behalf
- * (`resolveCliType`'s fallback priority, scaffolding routing, magic prompts, the
- * consensus fan-out, the verification panel, and the ping-pong reviewer pool),
- * each with its own hardcoded preference array. Before this module there was no
- * single lever that could keep a provider out of all of them, so "I removed it
- * from the cross-model reviewer" covered one path out of six.
+ * The app has seven independent places that pick a provider on the user's
+ * behalf (`resolveCliType`'s fallback priority, scaffolding routing, magic
+ * prompts, background auto-title generation, the consensus fan-out, the
+ * verification panel, and the ping-pong reviewer pool), each with its own
+ * hardcoded preference array. Before this module there was no single lever
+ * that could keep a provider out of all of them, so "I removed it from the
+ * cross-model reviewer" covered one path out of seven.
  *
  * The rule is deliberately narrow: EXCLUDED FROM AUTOMATIC SELECTION, NOT
  * DISABLED. A listed provider stays fully usable when the user explicitly picks

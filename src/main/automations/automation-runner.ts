@@ -38,7 +38,7 @@ import type {
   ThreadWakeupRunnerFactory,
 } from './automation-runner-types';
 import { renderWebhookPromptTemplate } from './webhook-prompt-template';
-import { classifyFinalOutputProviderLimit } from './automation-run-provider-limit';
+import { classifyFinalOutputProviderLimit } from '../cli/final-output-provider-limit';
 import {
   readAutomationModelDefaults,
   resolveAutomationSpawnTarget,
@@ -219,7 +219,7 @@ export class AutomationRunner {
   }
 
   private async dispatchRun(claimed: ClaimedAutomationRun, manager: InstanceManager): Promise<void> {
-    const systemRun = this.dispatchSystemActionIfHandled(claimed);
+    const systemRun = await this.dispatchSystemActionIfHandled(claimed);
     if (systemRun) {
       this.handleTerminalRun(systemRun);
       return;
@@ -405,7 +405,9 @@ export class AutomationRunner {
     this.failTrackedInstance(instanceId, 'Automation instance was removed');
   }
 
-  private dispatchSystemActionIfHandled(claimed: ClaimedAutomationRun): AutomationRun | null {
+  private async dispatchSystemActionIfHandled(
+    claimed: ClaimedAutomationRun,
+  ): Promise<AutomationRun | null> {
     return dispatchAutomationSystemAction(claimed, { store: this.store, now: () => this.now() });
   }
 
@@ -671,7 +673,7 @@ export class AutomationRunner {
 
     const snapshotForSystemAction = retryRun.configSnapshot;
     if (snapshotForSystemAction) {
-      const systemRun = this.dispatchSystemActionIfHandled({
+      const systemRun = await this.dispatchSystemActionIfHandled({
         run: retryRun,
         automation: automationShellFromRunSnapshot(retryRun),
         snapshot: snapshotForSystemAction,

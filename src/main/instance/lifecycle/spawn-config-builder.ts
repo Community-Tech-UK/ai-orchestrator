@@ -62,7 +62,10 @@ import {
   type OrchestratorToolMode,
   type OrchestratorToolsMcpConfigOptions,
 } from '../../mcp/orchestrator-tools-mcp-config';
-import { getOrchestratorToolsRpcSocketPath } from '../../mcp/orchestrator-tools-rpc-server';
+import {
+  getOrchestratorToolsRpcInstanceCapability,
+  getOrchestratorToolsRpcSocketPath,
+} from '../../mcp/orchestrator-tools-rpc-server';
 import { createOrchestratorToolsForwarderTools } from '../../mcp/orchestrator-tools-mcp-forwarder';
 import {
   createDeferredOrchestratorTools,
@@ -252,11 +255,19 @@ export class SpawnConfigBuilder {
     if (!socketPath) {
       return undefined;
     }
+    // Fails closed the same way a missing socket already does: without a
+    // capability this env would let the shell reach the RPC socket with only
+    // a guessable instance id, so skip wiring it entirely instead.
+    const capabilityToken = getOrchestratorToolsRpcInstanceCapability(instanceId);
+    if (!capabilityToken) {
+      return undefined;
+    }
     return {
       ...baseEnv,
       AIO_MCP: aioMcpCliPath,
       AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET: socketPath,
       AI_ORCHESTRATOR_INSTANCE_ID: instanceId,
+      AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_CAPABILITY: capabilityToken,
       PATH: prependPath(path.dirname(aioMcpCliPath), baseEnv['PATH'] ?? process.env['PATH'] ?? ''),
     };
   }
@@ -357,6 +368,11 @@ export class SpawnConfigBuilder {
     if (!aioMcpCliPath) return null;
     const socketPath = getOrchestratorToolsRpcSocketPath();
     if (!socketPath) return null;
+    // Fails closed: without a capability the spawned bridge could never
+    // authenticate a call, so skip wiring it rather than hand the child a
+    // dead-on-arrival MCP server (mirrors the missing-socketPath case above).
+    const capabilityToken = getOrchestratorToolsRpcInstanceCapability(instanceId);
+    if (!capabilityToken) return null;
     const settings = this.settings.getAll();
     const toolMode = resolveOrchestratorToolMode(
       provider,
@@ -368,6 +384,7 @@ export class SpawnConfigBuilder {
       aioMcpCliPath,
       socketPath,
       instanceId,
+      capabilityToken,
       ...(provider ? { provider } : {}),
       ...(toolMode !== 'eager' ? { toolDeferral: true } : {}),
       ...(sessionMessagingEnabled ? { sessionMessagingEnabled } : {}),

@@ -112,3 +112,49 @@ export function formatNodeCapacity(
 ): string {
   return `${entry.activeInstances}/${entry.maxConcurrentInstances} capacity`;
 }
+
+/** Formats a future timestamp (e.g. a pairing credential's expiry) as "in Nm/Nh/Nd" or "now". */
+export function formatExpiry(timestamp: number): string {
+  const remainingMs = timestamp - Date.now();
+  if (remainingMs <= 0) {
+    return 'now';
+  }
+
+  const remainingMinutes = Math.round(remainingMs / 60_000);
+  if (remainingMinutes < 60) {
+    return `in ${remainingMinutes}m`;
+  }
+
+  const remainingHours = Math.round(remainingMinutes / 60);
+  if (remainingHours < 48) {
+    return `in ${remainingHours}h`;
+  }
+
+  const remainingDays = Math.round(remainingHours / 24);
+  return `in ${remainingDays}d`;
+}
+
+/** Formats a past timestamp (e.g. last-seen/registered) as "Nm/Nh/Nd ago", "just now", or "never". */
+export function formatRelativeTime(timestamp?: number): string {
+  if (!timestamp) {
+    return 'never';
+  }
+
+  const deltaMs = Date.now() - timestamp;
+  if (deltaMs < 60_000) {
+    return 'just now';
+  }
+
+  const deltaMinutes = Math.round(deltaMs / 60_000);
+  if (deltaMinutes < 60) {
+    return `${deltaMinutes}m ago`;
+  }
+
+  const deltaHours = Math.round(deltaMinutes / 60);
+  if (deltaHours < 48) {
+    return `${deltaHours}h ago`;
+  }
+
+  const deltaDays = Math.round(deltaHours / 24);
+  return `${deltaDays}d ago`;
+}

@@ -1,0 +1,19 @@
+<div class="pq-run-controls">
+  @if (confirmingCancel()) {
+    <span class="pq-cancel-confirm" role="group" aria-label="Confirm cancel run">
+      Cancel this run? In-flight items will park.
+      <button type="button" class="pq-confirm-yes" (click)="onConfirmCancel()">Confirm cancel</button>
+      <button type="button" (click)="onCancelCancel()">Never mind</button>
+    </span>
+  } @else {
+    @if (run().status === 'running') {
+      <button type="button" (click)="onPause()">Pause</button>
+      <button type="button" class="pq-cancel" (click)="onCancelClick()">Cancel</button>
+    } @else if (run().status === 'paused') {
+      <button type="button" class="pq-resume" (click)="onResume()">Resume</button>
+      <button type="button" class="pq-cancel" (click)="onCancelClick()">Cancel</button>
+    } @else {
+      <span class="pq-run-terminal-status">{{ run().status }}</span>
+    }
+  }
+</div>

@@ -9,6 +9,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
+import type { ChildProcess, SpawnOptions } from 'node:child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -21,6 +24,7 @@ import {
   PrCreationService,
   GhTimeoutError,
   extractPrUrl,
+  runGhCommand,
   resolvePrCreationOptIn,
   type PrCreationDeps,
   type GhCommandResult,
@@ -393,6 +397,34 @@ describe('PrCreationService', () => {
     await h.service.createPullRequest({ ...BASE_OPTIONS, loopId: 'loop-2' });
     const evidenceStore = h.deps.getEvidenceStore();
     expect(evidenceStore.listForLoop('loop-2')).toHaveLength(0);
+  });
+});
+
+describe('runGhCommand', () => {
+  it('rejects after escalating an unresponsive timed-out gh process group', async () => {
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: PassThrough;
+      stderr: PassThrough;
+    };
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    const signals: NodeJS.Signals[] = [];
+    const spawnGh = vi.fn((_command: string, _args: string[], _options: SpawnOptions) => (
+      child as unknown as ChildProcess
+    ));
+    const killGroup = vi.fn((_pid: number | undefined, signal: NodeJS.Signals) => {
+      signals.push(signal);
+      if (signal === 'SIGKILL') queueMicrotask(() => child.emit('close', null, signal));
+      return true;
+    });
+
+    await expect(runGhCommand(['auth', 'status'], '/repo', 1, {
+      spawnGh,
+      killGroup,
+      killGraceMs: 1,
+    })).rejects.toBeInstanceOf(GhTimeoutError);
+
+    expect(signals).toEqual(['SIGTERM', 'SIGKILL']);
   });
 });
 

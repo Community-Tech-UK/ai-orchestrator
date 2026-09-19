@@ -11,8 +11,8 @@ Run commands through `$AIO_MCP`:
 $AIO_MCP --help
 ```
 
-Required environment for settings repair, remote-node roster checks, and
-remote-node release-readiness capture:
+Required environment for settings repair, loop control, remote-node roster
+checks, and remote-node release-readiness capture:
 
 ```text
 AIO_MCP
@@ -33,10 +33,32 @@ $AIO_MCP settings list [--json] [--category <category>] [--all]
 $AIO_MCP settings get <key> [--json]
 $AIO_MCP settings set <key> <json-value> [--json]
 $AIO_MCP settings reset <key> [--json]
+$AIO_MCP loop list [--all] [--limit <n>] [--json]
+$AIO_MCP loop resume <loop-run-id> [--json]
 $AIO_MCP remote-nodes [--json]
 $AIO_MCP local-ai --help
 $AIO_MCP release-readiness --help
 ```
+
+`loop` is how you restart a loop that has parked. Only two statuses can resume:
+`paused`, and `provider-limit` with no end time. `loop list` shows exactly those
+and prints the resume command for each; `--all` adds terminal runs with the
+reason they cannot resume. `loop resume` re-hydrates the loop from its stored
+checkpoint when the app restarted since it parked, then starts the next
+iteration. It exits non-zero with the reason when the loop is terminal, unknown,
+already running, or has no checkpoint.
+
+Resuming spends provider tokens and takes effect immediately, and nothing
+prompts James to approve it. That instruction is on you, not on a dialog: before
+you resume a loop James did not just ask you to resume, say which loop and why.
+The one hard gate is `maxSpawnDepth` — a session at the ceiling is refused,
+because resuming starts new agent work. `loop list` still works there.
+
+`loop` is not `aio-loop-control`. `aio-loop-control` is the control channel
+inside a running loop iteration (`complete`, `block`, `wakeup`, `fail`) and
+needs `AIO_LOOP_CONTROL_FILE` in its environment. It cannot restart a parked
+loop; do not report a parked loop as unresumable because that binary has no
+command for it.
 
 `orchestrator-tools`, `codemem`, `browser-gateway`, `computer-use`, and
 `native-host` are forwarder subcommands. Do not run them as interactive repair
@@ -48,6 +70,19 @@ The `orchestrator-tools` forwarder exposes `request_doc_review` (args:
 build the HTML artifact with the `doc-review-artifact` skill into the workspace's
 `.aio-review/` dir, call `request_doc_review`, then apply the returned decisions
 to the Markdown source. These are MCP tools, not `$AIO_MCP` CLI subcommands.
+
+It also exposes the Plan Queue tools: `plan_queue_start` (args: `kind` =
+`plans` or `livetests`, optional `glob`, `worker_slots`, `verification_slots`,
+`max_rounds`, `relax_settings`, `verifier_gates`, `post_merge_gate`; the gate
+lists default to this app's checklist, so pass the target repository's own
+commands or `[]` for any other repository), `plan_queue_status` (`run_id?`),
+`plan_queue_answer` (`item_id`, `option_id`) and `plan_queue_control`
+(`action`, `run_id?`, `item_id?`). Use them when James asks to work through the
+plan or livetest documents; ask James any question the queue sends back and
+record his choice with `plan_queue_answer`. `plan_queue_report_triage` and
+`plan_queue_report_verdict` belong to the queue's own triage and verifier
+sessions and are refused from anyone else. These are MCP tools, not `$AIO_MCP`
+CLI subcommands.
 
 ## What This CLI May Change
 

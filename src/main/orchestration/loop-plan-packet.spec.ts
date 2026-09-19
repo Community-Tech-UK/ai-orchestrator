@@ -53,6 +53,47 @@ describe('parseLoopPlanPacketMarkdown', () => {
     }]);
   });
 
+  it('accepts a top-level phase heading from a standalone phase file', () => {
+    const summary = parseLoopPlanPacketMarkdown(
+      '/repo/.aio-loop-state/loop/phases/01-inventory.md',
+      SAMPLE.replace('## Phase 1:', '# Phase 1:'),
+    );
+
+    expect(summary.malformed).toBe(false);
+    expect(summary.phases[0]?.title).toBe('Baseline Audit');
+  });
+
+  it('accepts Markdown section headings from a standalone phase file', () => {
+    const summary = parseLoopPlanPacketMarkdown(
+      '/repo/.aio-loop-state/loop/phases/01-inventory.md',
+      SAMPLE
+        .replace('## Phase 1:', '# Phase 1:')
+        .replace('Acceptance Criteria:', '## Acceptance Criteria')
+        .replace('Required Commands:', '## Required Commands')
+        .replace('Evidence:', '## Evidence'),
+    );
+
+    expect(summary.malformed).toBe(false);
+    expect(summary.criteriaTotal).toBe(2);
+    expect(summary.criteriaWithEvidence).toBe(1);
+  });
+
+  it('counts ordered acceptance criteria from a standalone phase file', () => {
+    const summary = parseLoopPlanPacketMarkdown(
+      '/repo/.aio-loop-state/loop/phases/01-inventory.md',
+      SAMPLE
+        .replace('## Phase 1:', '# Phase 1:')
+        .replace('- [ ] Captures repo baseline before first child iteration.', '1. Captures repo baseline before first child iteration.')
+        .replace('- [ ] Writes repo-baseline.json under the scoped state dir.', '2. Writes repo-baseline.json under the scoped state dir.'),
+    );
+
+    expect(summary.criteriaTotal).toBe(2);
+    expect(summary.phases[0]?.acceptanceCriteria).toEqual([
+      'Captures repo baseline before first child iteration.',
+      'Writes repo-baseline.json under the scoped state dir.',
+    ]);
+  });
+
   it('marks packets malformed when required sections are missing', () => {
     const summary = parseLoopPlanPacketMarkdown('/repo/ROADMAP.md', '## Phase 1: Missing Sections\n\n- item');
 

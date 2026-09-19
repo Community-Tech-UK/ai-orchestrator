@@ -3,9 +3,11 @@ import {
   buildCanonicalConnectionConfig,
   buildPairingCommand,
   buildPairingLink,
+  formatExpiry,
   formatPairingCredentialLabel,
   formatNodeCapacity,
   formatNodePlatformLabel,
+  formatRelativeTime,
   selectPairingConnectionHost,
   selectPairingConnectionPort,
 } from './remote-nodes-pairing-ui';
@@ -64,5 +66,22 @@ describe('remote-nodes-pairing-ui', () => {
     expect(buildPairingCommand(input)).toBe(
       `aio-worker pair "${buildPairingLink(input)}"`,
     );
+  });
+
+  it('formats a future expiry relative to now', () => {
+    const now = Date.now();
+    expect(formatExpiry(now - 1)).toBe('now');
+    expect(formatExpiry(now + 5 * 60_000)).toBe('in 5m');
+    expect(formatExpiry(now + 3 * 3_600_000)).toBe('in 3h');
+    expect(formatExpiry(now + 3 * 86_400_000)).toBe('in 3d');
+  });
+
+  it('formats a past timestamp relative to now, or "never" when absent', () => {
+    const now = Date.now();
+    expect(formatRelativeTime(undefined)).toBe('never');
+    expect(formatRelativeTime(now - 1_000)).toBe('just now');
+    expect(formatRelativeTime(now - 5 * 60_000)).toBe('5m ago');
+    expect(formatRelativeTime(now - 3 * 3_600_000)).toBe('3h ago');
+    expect(formatRelativeTime(now - 3 * 86_400_000)).toBe('3d ago');
   });
 });

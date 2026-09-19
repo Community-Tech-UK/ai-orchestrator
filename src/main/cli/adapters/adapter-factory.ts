@@ -38,7 +38,10 @@ import { getInstanceExtraWritableRoots, isInstanceHardened } from '../../instanc
 import { isInstanceContainedExecution } from '../../instance/lifecycle/contained-execution-scoping';
 import { getPermissionRegistry } from '../../orchestration/permission-registry';
 import { getProviderConcurrencyLimiter } from '../provider-concurrency-limiter';
-import { filterProvidersForAutomation } from '../../providers/automation-provider-exclusions';
+import {
+  filterProvidersForAutomation,
+  isProviderExcludedFromAutomation,
+} from '../../providers/automation-provider-exclusions';
 import {
   buildBrowserGatewayAcpMcpServers,
   buildBrowserGatewayCodexConfigToml,
@@ -179,7 +182,20 @@ export async function resolveCliType(
     }
   }
 
-  // Default to Claude if nothing is detected (will fail gracefully later)
+  // Default to Claude if nothing is detected (will fail gracefully later) —
+  // UNLESS the operator barred Claude itself from automatic selection. This
+  // catch-all is still automatic selection (an explicit request or an
+  // explicit `defaultCli` already returned above), so silently defaulting to
+  // an excluded provider here would be exactly the bypass this policy exists
+  // to close, and — unlike the priority loop above — Claude can genuinely be
+  // installed and available at this point, so the "will fail gracefully
+  // later" reasoning no longer holds.
+  if (isProviderExcludedFromAutomation('claude')) {
+    logger.warn('No CLI detected and default (claude) is excluded from automatic selection');
+    throw new Error(
+      'No CLI provider could be resolved automatically: every available provider is excluded from automatic selection (providersExcludedFromAutomation), and the default fallback provider (claude) is itself excluded.',
+    );
+  }
   logger.warn('No CLI detected, defaulting to claude');
   return 'claude';
 }

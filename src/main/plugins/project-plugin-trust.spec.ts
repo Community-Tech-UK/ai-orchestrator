@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import { randomUUID } from 'node:crypto';
 import * as os from 'os';
 import * as path from 'path';
 import { describe, expect, it, afterEach } from 'vitest';
@@ -81,7 +82,7 @@ describe('canonicalizeProjectPluginRoot — symlink resolution (2026-07-31 fresh
 
   it('a symlink alias of the TRUSTED directory resolves to the same canonical root', () => {
     const trustedDir = makeTmpDir('project-plugin-trust-trusted');
-    const aliasPath = path.join(os.tmpdir(), `plugin-trust-alias-${Date.now()}`);
+    const aliasPath = path.join(os.tmpdir(), `plugin-trust-alias-${randomUUID()}`);
     fs.symlinkSync(trustedDir, aliasPath, 'dir');
     tmpDirs.push(aliasPath);
 
@@ -100,7 +101,7 @@ describe('canonicalizeProjectPluginRoot — symlink resolution (2026-07-31 fresh
   it('a symlink alias of an UNTRUSTED directory does not inherit a differently-named trusted root', () => {
     const trustedDir = makeTmpDir('project-plugin-trust-approved');
     const untrustedDir = makeTmpDir('project-plugin-trust-other');
-    const aliasToUntrusted = path.join(os.tmpdir(), `plugin-trust-alias-other-${Date.now()}`);
+    const aliasToUntrusted = path.join(os.tmpdir(), `plugin-trust-alias-other-${randomUUID()}`);
     fs.symlinkSync(untrustedDir, aliasToUntrusted, 'dir');
     tmpDirs.push(aliasToUntrusted);
 

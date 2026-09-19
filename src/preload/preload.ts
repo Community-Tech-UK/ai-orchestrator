@@ -39,6 +39,7 @@ import { createChatDomain } from './domains/chat.preload';
 import { createRuntimePluginDomain } from './domains/runtime-plugin.preload';
 import { createRtkDomain } from './domains/rtk.preload';
 import { createLoopDomain } from './domains/loop.preload';
+import { createPlanQueueDomain } from './domains/plan-queue.preload';
 import { createMobileGatewayDomain } from './domains/mobile-gateway.preload';
 import { createTerminalDomain } from './domains/terminal.preload';
 import { createAuxiliaryLlmDomain } from './domains/auxiliary-llm.preload';
@@ -98,6 +99,7 @@ const electronAPI = {
   ...createTerminalDomain(ipcRenderer, IPC_CHANNELS),
   ...createAuxiliaryLlmDomain(ipcRenderer, IPC_CHANNELS),
   ...createDocReviewDomain(ipcRenderer, IPC_CHANNELS),
+  ...createPlanQueueDomain(ipcRenderer, IPC_CHANNELS),
   ...createNotificationDomain(ipcRenderer, IPC_CHANNELS),
   ...createContextEvidenceDomain(ipcRenderer, IPC_CHANNELS),
   ...createLocalAiGuardDomain(ipcRenderer, IPC_CHANNELS),

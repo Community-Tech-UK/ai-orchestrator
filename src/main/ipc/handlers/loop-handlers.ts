@@ -19,9 +19,11 @@ import {
 } from '@contracts/schemas/loop';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { buildAwayRecap } from '../../orchestration/away-recap';
+import { registerLoopWorktreeResolveHandler } from './loop-worktree-resolve-handler';
 import { getLoopCoordinator } from '../../orchestration/loop-coordinator';
 import { getDocReviewService } from '../../doc-review/doc-review-service';
 import { buildLoopCheckpoint } from '../../orchestration/loop-checkpoint';
+import { resumeLoopRun } from '../../orchestration/loop-resume';
 import { getLoopStore } from '../../orchestration/loop-store';
 import { inferLoopVerifyCommand } from '../../orchestration/loop-verify-command';
 import { prepareLoopStartConfig } from '../../orchestration/loop-start-config';
@@ -397,18 +399,8 @@ export function registerLoopHandlers(deps: {
   ipcMain.handle(IPC_CHANNELS.LOOP_RESUME, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
       const validated = validateIpcPayload(LoopByIdPayloadSchema, payload, 'LOOP_RESUME');
-      let ok = coordinator.resumeLoop(validated.loopRunId);
-      let state = coordinator.getLoop(validated.loopRunId);
-      if (!ok && !state) {
-        const checkpoint = store.getCheckpoint(validated.loopRunId);
-        if (checkpoint) {
-          state = await coordinator.restoreLoopFromCheckpoint(checkpoint);
-          ok = coordinator.resumeLoop(validated.loopRunId);
-          state = coordinator.getLoop(validated.loopRunId);
-        }
-      }
-      if (state) try { store.upsertRun(state); } catch { /* noop */ }
-      return { success: true, data: { ok, state } };
+      const outcome = await resumeLoopRun(coordinator, store, validated.loopRunId);
+      return { success: true, data: { ok: outcome.ok, state: outcome.state } };
     } catch (error) {
       return errorResponse('LOOP_RESUME_FAILED', error);
     }
@@ -523,6 +515,8 @@ export function registerLoopHandlers(deps: {
       return errorResponse('LOOP_GET_AWAY_RECAP_FAILED', error);
     }
   });
+
+  registerLoopWorktreeResolveHandler(store);
 
   ipcMain.handle(IPC_CHANNELS.LOOP_GET_ITERATIONS, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {

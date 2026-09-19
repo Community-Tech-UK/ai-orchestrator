@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ResourceGovernor } from './resource-governor';
+import { _resetReclaimHoldsForTesting, holdFromReclaim } from './reclaim-holds';
 import type { MemoryPressureLevel } from '../memory/memory-monitor';
 
 describe('ResourceGovernor', () => {
@@ -266,6 +267,38 @@ describe('ResourceGovernor', () => {
 
     expect(h.terminateInstance.mock.calls.map((c) => c[0])).toEqual(['oldest', 'older']);
     expect((h.terminatedEvents[0] as any).count).toBe(2);
+  });
+
+  it('reclaims unheld instances before ones a coordinator holds, even when the held one is older', async () => {
+    const now = Date.now();
+    holdFromReclaim('queue-worker', 'plan-queue');
+    try {
+      const h = makeCriticalHarness([
+        { id: 'queue-worker', lastActivity: now - 60 * 60 * 1000, hasConversation: false },
+        { id: 'other', lastActivity: now - 10 * 60 * 1000, hasConversation: false },
+      ], { maxReclaimsPerCriticalEpisode: 1 });
+
+      h.fireCritical();
+      await Promise.resolve();
+
+      expect(h.terminateInstance.mock.calls.map((c) => c[0])).toEqual(['other']);
+    } finally {
+      _resetReclaimHoldsForTesting();
+    }
+  });
+
+  it('still reclaims a held instance when nothing else is eligible', async () => {
+    holdFromReclaim('queue-worker', 'plan-queue');
+    try {
+      const h = makeCriticalHarness([
+        { id: 'queue-worker', lastActivity: Date.now() - 60 * 60 * 1000, hasConversation: true },
+      ]);
+      h.fireCritical();
+      await Promise.resolve();
+      expect(h.hibernateInstance).toHaveBeenCalledWith('queue-worker');
+    } finally {
+      _resetReclaimHoldsForTesting();
+    }
   });
 
   it('does not escalate a failed hibernate into a terminate', async () => {

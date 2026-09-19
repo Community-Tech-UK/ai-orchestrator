@@ -21,14 +21,20 @@ import {
 import { checkClaudeCliAuthentication } from './claude-cli-auth';
 import { checkCodexCliAuthentication } from './codex-cli-auth';
 import { checkGeminiCliAuthentication } from './gemini-cli-auth';
-import { CliDetectionService, type CliType, type CliShadowReport } from '../cli/cli-detection';
+import { CliDetectionService, type CliType } from '../cli/cli-detection';
+import {
+  independentInstalls,
+  knownInstallVersions,
+  type CliShadowReport,
+} from '../cli/cli-install-mirrors';
 import type { ProviderProbeErrorKind, RepairAction, RuntimeLogBundle } from '../../shared/types/provider-doctor.types';
 import { getProviderRuntimeRegistry } from './provider-runtime-registry';
 import { getProviderInstanceManager } from './provider-instance-manager';
 import {
   buildRepairActions,
   classifyAuthKind,
-  inferUninstallHint,
+  buildShadowRecommendation,
+  INSTALL_COMMANDS,
 } from './provider-doctor-repair';
 import { buildRuntimeLogBundle } from './provider-doctor-log-bundle';
 import { redactValue } from '../diagnostics/redaction';
@@ -91,6 +97,17 @@ function isPluginProviderId(provider: string): boolean {
 
 function redactProbeMessage(message: string): string {
   return redactValue(message, {});
+}
+
+/**
+ * Trailing clause naming the copies a CLI's own installer keeps (see
+ * `CliInstall.installerCopy`), so every shadow-check message accounts for
+ * exactly the rows CLI Health lists.
+ */
+function installerCopyNote(count: number): string {
+  if (count < 1) return '';
+  return ` (+${count} installer-maintained ${count === 1 ? 'copy' : 'copies'}`
+    + ' of the same install)';
 }
 
 // ---------------------------------------------------------------------------
@@ -225,14 +242,35 @@ export class ProviderDoctor {
           }
 
           const start = Date.now();
-          const report = await CliDetectionService.getInstance().detectShadowInstalls(cliType);
+          const { installs, shadow: report } = await CliDetectionService
+            .getInstance()
+            .inspectCliInstalls(cliType);
           const latencyMs = Date.now() - start;
 
           if (!report) {
+            // Say what was actually found. Claiming "single active install"
+            // while CLI Health listed several copies beside it (same version,
+            // so nothing can silently win) read as a self-contradiction.
+            // Installer-maintained duplicates (`installerCopy`, e.g. grok's
+            // own postinstall copy in ~/.grok/bin) are named separately rather
+            // than counted as rival installs.
+            const separate = independentInstalls(installs);
+            const mirrors = installs.length - separate.length;
+            const versions = knownInstallVersions(separate);
+            const unreadable = separate.length - separate.filter((i) => i.version).length;
+            const summary = separate.length < 2
+              ? 'Single active install (no shadows detected)'
+              : versions.length === 0
+                ? `${separate.length} copies on PATH, none reporting a readable version`
+                : unreadable > 0
+                  ? `${separate.length} copies on PATH, v${versions[0]} where readable ` +
+                    '(no conflict among the versions that could be read)'
+                  : `${separate.length} copies on PATH, all reporting ` +
+                    `v${versions[0]} (no version conflict)`;
             return {
               name: 'cli_shadow_check',
               status: 'pass' as const,
-              message: 'Single active install (no shadows detected)',
+              message: `${summary}${installerCopyNote(mirrors)}`,
               latencyMs,
             };
           }
@@ -241,15 +279,21 @@ export class ProviderDoctor {
             .map((i) => `${i.path} (v${i.version ?? '?'})`)
             .join('\n  ');
 
-          // Choose the more specific kind based on version diversity.
-          const versions = new Set(report.installs.map((i) => i.version));
-          const errorKind: ProviderProbeErrorKind =
-            versions.size > 1 ? 'cli_version_mismatch' : 'cli_shadow_install';
+          // A report is only built for separate copies whose versions were
+          // read and disagree (`buildShadowReport`), so the kind is never the
+          // vaguer 'cli_shadow_install' here — that one is left for a shadow
+          // failure that arrives without a usable report.
+          const errorKind: ProviderProbeErrorKind = 'cli_version_mismatch';
 
           return {
             name: 'cli_shadow_check',
             status: 'fail' as const,
-            message: `Multiple ${cliType} installs with different versions:\n  ${versionList}`,
+            // The installer-copy clause belongs here too: without it the
+            // message accounts for fewer copies than CLI Health lists beside
+            // it, which is the contradiction this whole check exists to avoid.
+            message: `Multiple ${cliType} installs with different versions`
+              + `${installerCopyNote(installs.length - report.installs.length)}:`
+              + `\n  ${versionList}`,
             latencyMs,
             metadata: { report: report as unknown as Record<string, unknown> },
             errorKind,
@@ -487,31 +531,19 @@ export class ProviderDoctor {
       if (probe.status !== 'fail') continue;
       switch (probe.name) {
         case 'cli_installed': {
-          const installCmds: Record<string, string> = {
-            'claude-cli': 'npm install -g @anthropic-ai/claude-code',
-            'codex-cli': 'npm install -g @openai/codex',
-            'gemini-cli': 'npm install -g @google/gemini-cli',
-            'antigravity': 'Install Antigravity from antigravity.google, then run `agy` once to sign in',
-            'copilot': 'Install GitHub CLI and run `gh copilot`, or install `npm install -g @github/copilot`',
-            'cursor': 'Install Cursor and ensure `cursor-agent` is on PATH',
-            'grok': 'Install Grok Build from https://x.ai/cli (then ensure ~/.grok/bin or %USERPROFILE%\\.grok\\bin is on PATH)',
-          };
+          // One table, shared with the repair actions. Keeping a second copy
+          // here drifted: grok ended up recommending the download page while
+          // its repair action said npm, and copilot/cursor differed in wording.
+          const installCmd = INSTALL_COMMANDS[provider] ?? 'check the provider docs';
           recs.push(
-            `Optional: the ${provider} CLI is not installed. The orchestrator works fine without it — install it only if you want to use this provider: ${installCmds[provider] ?? 'check the provider docs'}`,
+            `Optional: the ${provider} CLI is not installed. The orchestrator works fine without it — install it only if you want to use this provider: ${installCmd}`,
           );
           break;
         }
         case 'cli_shadow_check': {
           const report = probe.metadata?.['report'] as CliShadowReport | undefined;
           if (report && report.installs.length >= 2) {
-            const stale = report.installs.slice(1);
-            const lines = stale.map((i) => {
-              const uninstallHint = inferUninstallHint(i.path);
-              return `- ${i.path} (v${i.version ?? '?'})${uninstallHint ? ` — uninstall: ${uninstallHint}` : ''}`;
-            });
-            recs.push(
-              `Shadow install detected. Active: ${report.activePath} (v${report.activeVersion ?? '?'}). Remove the stale copies so the active install is the only one:\n${lines.join('\n')}`,
-            );
+            recs.push(buildShadowRecommendation(provider, report));
           } else {
             recs.push(`Shadow check failed: ${probe.message}`);
           }

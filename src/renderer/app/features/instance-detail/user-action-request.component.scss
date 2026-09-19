@@ -74,6 +74,12 @@
   resize: none;
 }
 
+.secret-card-warning {
+  margin: 0;
+  font-size: 12px;
+  color: var(--warning-color, #f59e0b);
+}
+
 .request-header {
   display: flex;
   align-items: center;

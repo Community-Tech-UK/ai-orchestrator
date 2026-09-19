@@ -16,14 +16,23 @@ import {
   SUPPORTED_CLIS,
   WINDOWS_EXECUTABLE_EXTENSIONS,
   getCliCandidatePaths,
+  expandInstallerMirrorDirs,
   type CliRegistryEntry,
   type CliType,
 } from './cli-registry';
+import {
+  buildShadowReport,
+  tagInstallerMirrors,
+  type CliInstall,
+  type CliShadowReport,
+} from './cli-install-mirrors';
 
-// Re-exported for back-compat: existing importers reference these from
-// './cli-detection'. The definitions now live in ./cli-registry.
+// Re-exported because existing importers reference these from
+// './cli-detection'. The definitions now live in ./cli-registry and
+// ./cli-install-mirrors.
 export { CLI_REGISTRY, SUPPORTED_CLIS };
 export type { CliType };
+export type { CliShadowReport };
 
 const logger = getLogger('CliDetection');
 
@@ -62,28 +71,6 @@ export interface DetectionResult {
 }
 
 /**
- * One concrete installation of a CLI found on disk.
- */
-export interface CliInstall {
-  path: string;
-  version?: string;
-  installed: boolean;
-  error?: string;
-}
-
-/**
- * A shadow report — emitted when a CLI has more than one install on disk
- * reporting different versions.  `installs` is ordered by PATH search
- * priority (first = the one the app will actually use).
- */
-export interface CliShadowReport {
-  cli: CliType;
-  installs: CliInstall[];
-  activePath?: string;
-  activeVersion?: string;
-}
-
-/**
  * CLI Detection Service - Singleton that detects and caches available CLI tools
  */
 export class CliDetectionService {
@@ -93,6 +80,37 @@ export class CliDetectionService {
   private cacheTime = 0;
   private inFlightNormal: Promise<DetectionResult> | null = null;
   private inFlightForced: Promise<DetectionResult> | null = null;
+  /**
+   * Short-lived per-CLI install scans. One CLI Health refresh asks for the
+   * same scan three times over (the card's install list, the update plan, and
+   * the `cli_shadow_check` probe), each re-spawning `--version` for every copy
+   * on PATH. Beyond the wasted processes, those scans could disagree: a probe
+   * that times out under fork pressure in one pass and succeeds in the next
+   * made the card claim the copies agreed while the probe row beside it
+   * reported a version conflict. Reuse is bounded by a short TTL; a caller
+   * that needs one scan to back several reads regardless of how long they take
+   * (CLI Health's refresh) pins it with `withPinnedInstallScans`. Cleared by
+   * `clearCache()` after an update.
+   *
+   * `installScanGeneration` moves on every `clearCache()`. A scan that was
+   * already running when an update finished must neither store its pre-update
+   * result nor be joined by a later caller — otherwise the Refresh straight
+   * after "Run updater" could show the old version.
+   */
+  private installScans = new Map<CliType, { installs: CliInstall[]; at: number }>();
+  private installScansInFlight = new Map<
+    CliType,
+    { generation: number; scan: Promise<CliInstall[]> }
+  >();
+  private installScanGeneration = 0;
+  private installScanTtlMs = 5000;
+  /**
+   * Upper bound on reuse while pinned. A pin should only span one refresh, but
+   * `ProviderDoctor.diagnose` has no overall timeout — without a cap a probe
+   * that never settled would hold the pin and switch expiry off until restart.
+   */
+  private installScanPinnedMaxAgeMs = 60_000;
+  private installScanPins = 0;
 
   // eslint-disable-next-line @typescript-eslint/no-empty-function
   private constructor() {}
@@ -209,6 +227,8 @@ export class CliDetectionService {
   clearCache(): void {
     this.cache = null;
     this.cacheTime = 0;
+    this.installScans.clear();
+    this.installScanGeneration += 1;
   }
 
   /**
@@ -464,7 +484,61 @@ export class CliDetectionService {
    * the real `$PATH`, dedupes by realpath (symlinks resolving to the same
    * file count as one install), and runs each copy with its version flag.
    */
-  async scanAllCliInstalls(type: CliType): Promise<CliInstall[]> {
+  async scanAllCliInstalls(
+    type: CliType,
+    options: { forceRefresh?: boolean } = {},
+  ): Promise<CliInstall[]> {
+    // `forceRefresh` is for a user asking to look again (CLI Health's Refresh):
+    // it skips the recent result, but still joins a scan already in flight,
+    // since that one started just now. Later callers in the same refresh then
+    // reuse this fresh scan instead of re-running it.
+    const cached = this.installScans.get(type);
+    const maxAge = this.installScanPins > 0
+      ? this.installScanPinnedMaxAgeMs
+      : this.installScanTtlMs;
+    const reusable = cached && Date.now() - cached.at < maxAge;
+    if (!options.forceRefresh && reusable) {
+      return cached.installs;
+    }
+
+    const generation = this.installScanGeneration;
+    const inFlight = this.installScansInFlight.get(type);
+    if (inFlight && inFlight.generation === generation) return inFlight.scan;
+
+    const scan: Promise<CliInstall[]> = this.runInstallScan(type)
+      .then((installs) => {
+        if (generation === this.installScanGeneration) {
+          this.installScans.set(type, { installs, at: Date.now() });
+        }
+        return installs;
+      })
+      .finally(() => {
+        if (this.installScansInFlight.get(type)?.scan === scan) {
+          this.installScansInFlight.delete(type);
+        }
+      });
+    this.installScansInFlight.set(type, { generation, scan });
+    return scan;
+  }
+
+  /**
+   * Run `work` with stored install scans pinned: none expires until `work`
+   * settles (bounded at a minute), so every read inside it sees the same scan
+   * however long its other steps take. CLI Health's refresh needs this — between the card's scan and
+   * the `cli_shadow_check` probe it also runs `--version` and `which` probes
+   * with 5s timeouts, and under fork pressure a plain TTL could lapse and let
+   * the probe row disagree with the card. `clearCache()` still wins.
+   */
+  async withPinnedInstallScans<T>(work: () => Promise<T>): Promise<T> {
+    this.installScanPins += 1;
+    try {
+      return await work();
+    } finally {
+      this.installScanPins -= 1;
+    }
+  }
+
+  private async runInstallScan(type: CliType): Promise<CliInstall[]> {
     const config = CLI_REGISTRY[type];
     if (!config) {
       return [];
@@ -474,6 +548,11 @@ export class CliDetectionService {
     const searchDirs = [
       ...getCliAdditionalPaths(process.env, process.platform),
       ...(process.env['PATH'] || '').split(process.platform === 'win32' ? ';' : ':'),
+      // Directories this CLI's own installer writes (e.g. `$GROK_HOME/bin`).
+      // Scanned for this CLI only and appended last, so they neither reorder
+      // the result nor leak onto the spawn PATH every CLI shares; the realpath
+      // dedupe below drops any already reached through PATH.
+      ...expandInstallerMirrorDirs(config, process.env),
     ].filter(Boolean);
 
     // On Windows a CLI may exist only as `<cmd>.exe` — Claude Code's native
@@ -543,27 +622,22 @@ export class CliDetectionService {
       }),
     );
 
-    return results.filter((r) => r.installed);
+    return tagInstallerMirrors(config, results.filter((r) => r.installed));
   }
 
   /**
-   * Checks a CLI for shadow installs — multiple copies at different PATH
-   * locations, reporting different versions.  Returns null if there is no
-   * shadow (0 or 1 installs, or all installs report the same version).
+   * The full PATH picture for a CLI: every distinct copy found (installer
+   * duplicates included, tagged with `installerCopy`), plus the shadow report,
+   * which is null when there is nothing to warn about. Callers needing both —
+   * the `cli_shadow_check` probe reports the copy count either way — get them
+   * from one scan.
    */
-  async detectShadowInstalls(type: CliType): Promise<CliShadowReport | null> {
+  async inspectCliInstalls(type: CliType): Promise<{
+    installs: CliInstall[];
+    shadow: CliShadowReport | null;
+  }> {
     const installs = await this.scanAllCliInstalls(type);
-    if (installs.length < 2) return null;
-
-    const versions = new Set(installs.map((i) => i.version ?? 'unknown'));
-    if (versions.size < 2) return null;
-
-    return {
-      cli: type,
-      installs,
-      activePath: installs[0]?.path,
-      activeVersion: installs[0]?.version,
-    };
+    return { installs, shadow: buildShadowReport(type, installs) };
   }
 
   /**

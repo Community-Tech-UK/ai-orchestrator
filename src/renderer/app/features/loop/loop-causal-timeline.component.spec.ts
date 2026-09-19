@@ -124,6 +124,33 @@ describe('LoopCausalTimelineComponent (B5)', () => {
     expect(live.textContent).toContain('Blocked at Terminal decision');
   });
 
+  /**
+   * `wait-or-switch-provider` and `review-now` are deliberate no-ops
+   * (`timelineRecoveryTarget` routes neither to a handler). Before this fix
+   * they still rendered `.loop-timeline__recovery-btn` — a button whose click
+   * did nothing. They must render as plain, non-clickable text instead.
+   */
+  it('renders the deliberate no-op recoveries as text, never a dead button', () => {
+    seed('provider-limit', { endedAt: null });
+    expect(fixture.nativeElement.querySelector('.loop-timeline__recovery-btn')).toBeNull();
+    const label = fixture.nativeElement.querySelector('.loop-timeline__recovery-label--info');
+    expect(label?.getAttribute('data-recovery-id')).toBe('wait-or-switch-provider');
+    expect(label?.tagName).toBe('SPAN');
+
+    seed('needs-human-arbitration');
+    expect(fixture.nativeElement.querySelector('.loop-timeline__recovery-btn')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.loop-timeline__recovery-label--info')
+      ?.getAttribute('data-recovery-id')).toBe('review-now');
+  });
+
+  it('renders an actionable recovery as a real, clickable button', () => {
+    seed('paused');
+    const button = fixture.nativeElement.querySelector('.loop-timeline__recovery-btn') as HTMLButtonElement;
+    expect(button.getAttribute('data-recovery-id')).toBe('resume');
+    button.click();
+    expect(fixture.componentInstance.chosen).toEqual(['resume']);
+  });
+
   it('dims a step this run does not use rather than hiding it', () => {
     seed('running', { hasVerifyCommand: false });
     const verify = steps().find((s) => s.getAttribute('data-step-id') === 'verify')!;

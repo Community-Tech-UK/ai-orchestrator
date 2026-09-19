@@ -204,4 +204,15 @@
   :host(.collapsed) {
     display: none;
   }
+
+  /* Task 2 — inside the Settings help drawer the pane is the drawer's only
+   * content, not the hidden persistent rail, so it stays visible and fills
+   * the drawer's width even though the plain (undecorated) host is hidden
+   * at this breakpoint. */
+  :host(.drawer),
+  :host(.drawer.collapsed) {
+    display: flex;
+    width: 100%;
+    border-left: none;
+  }
 }

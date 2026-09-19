@@ -124,4 +124,10 @@ describe('HelpPaneComponent', () => {
     (rail as HTMLButtonElement).click();
     expect(toggles).toBe(1);
   });
+
+  it('keeps drawer host styles visible under the Settings help-rail breakpoint', () => {
+    const scss = resources['help-pane.component.scss'];
+    expect(scss).toContain(':host(.drawer)');
+    expect(scss).toContain('display: flex');
+  });
 });

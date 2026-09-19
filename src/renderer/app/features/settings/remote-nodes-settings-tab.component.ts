@@ -18,6 +18,7 @@ import { isRemoteNodeOnline } from '../../core/state/remote-node-connectivity';
 import {
   RemoteNodeIpcService,
   RemoteNodeServerStatus,
+  type BrowserAutomationConfigInput,
 } from '../../core/services/ipc/remote-node-ipc.service';
 import type {
   RemotePairingCredentialInfo,
@@ -25,58 +26,57 @@ import type {
 } from '../../../../shared/types/worker-node.types';
 import type { HarnessRole } from '../../../../shared/types/pair-both.types';
 import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
-import { InlineHelpComponent } from '../../shared/help/inline-help.component';
 import { SaveStateBannerComponent, type SaveState } from './ui/save-state-banner.component';
 import { ValidationRowComponent } from './ui/validation-row.component';
 import { CopyRowComponent } from './ui/copy-row.component';
 import { CodePreviewBlockComponent } from './ui/code-preview-block.component';
 import { DangerZoneComponent } from './ui/danger-zone.component';
+import { SettingsSectionTabsComponent } from './ui/settings-section-tabs.component';
+import type { SettingsSectionTab } from './settings-navigation';
+import {
+  type RemoteNodesSection,
+  isRemoteNodesSection,
+  buildRemoteNodesSectionTabs,
+  syncSelectedNodeAfterRosterChange,
+} from './remote-nodes-section-state';
 import {
   type NodeHealthEntry,
   buildNodeHealthEntries,
-  browserAutomationState,
-  browserAutomationLabel,
-  extensionRelayState,
-  extensionRelayLabel,
-  androidAutomationState,
-  androidAutomationLabel,
   withPatchedBrowserAutomation,
   withPatchedExtensionRelay,
   withPatchedAndroidAutomation,
-  loginCommandPreview,
 } from './remote-nodes-browser-automation';
-import {
-  RemoteNodeAndroidConfigComponent,
-  type AndroidAutomationConfigDraft,
-} from './remote-node-android-config.component';
-import { RemoteNodeRepairPanelComponent } from './remote-node-repair-panel.component';
+import { type AndroidAutomationConfigDraft } from './remote-node-android-config.component';
 import { CoordinatorPairingComponent } from './coordinator-pairing.component';
+import { RemoteNodeListComponent } from './remote-node-list.component';
+import { RemoteNodeDetailComponent, type RemoteNodeDetailAction } from './remote-node-detail.component';
 import {
   buildCanonicalConnectionConfig,
-  buildNodeDiagnostics,
   buildPairingCommand,
   buildPairingLink,
   formatPairingCredentialLabel,
-  formatNodeCapacity,
-  formatNodePlatformLabel,
+  formatExpiry,
+  formatRelativeTime,
   selectPairingConnectionHost,
   selectPairingConnectionPort,
   type PairingCopyInput,
 } from './remote-nodes-pairing-ui';
 
+export type { RemoteNodesSection };
+
 @Component({
   standalone: true,
   selector: 'app-remote-nodes-settings-tab',
   imports: [
-    InlineHelpComponent,
     SaveStateBannerComponent,
     ValidationRowComponent,
     CopyRowComponent,
     CodePreviewBlockComponent,
     DangerZoneComponent,
-    RemoteNodeAndroidConfigComponent,
-    RemoteNodeRepairPanelComponent,
+    SettingsSectionTabsComponent,
     CoordinatorPairingComponent,
+    RemoteNodeListComponent,
+    RemoteNodeDetailComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './remote-nodes-settings-tab.component.html',
@@ -114,18 +114,17 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
   protected readonly liveNodes = signal<RemoteNodeRosterEntry[]>([]);
   protected readonly connectedCount = signal(0);
 
-  // Per-node browser-automation config form (one node configured at a time).
-  protected readonly configuringNodeId = signal<string | null>(null);
-  protected readonly baDraftEnabled = signal(false);
-  protected readonly baDraftProfileDir = signal('');
-  protected readonly baDraftHeadless = signal(false);
-  protected readonly baDraftExtensionRelayEnabled = signal(false);
+  // Task-based section navigation (Task 3) and Computers list/detail selection (Task 4).
+  protected readonly activeSection = signal<RemoteNodesSection>('overview');
+  protected readonly selectedNodeId = signal<string | null>(null);
+  private nodeSelectionInitialDone = false;
+
+  // Async state for the per-node config forms owned by RemoteNodeDetailComponent
+  // (Task 4) — the drafts themselves live in the child; this component keeps the
+  // authoritative in-flight/error state and performs the IPC calls.
   protected readonly baBusy = signal(false);
-  // Per-node Android automation config form (one node configured at a time).
-  protected readonly androidConfiguringNodeId = signal<string | null>(null);
   protected readonly aaBusy = signal(false);
   // Tier 3 — guided profile login.
-  protected readonly loginUrlDraft = signal('https://www.facebook.com');
   protected readonly loginBusy = signal(false);
   protected readonly loginNotice = signal<string | null>(null);
 
@@ -133,6 +132,14 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
 
   private unsubscribeNodeEvent: (() => void) | null = null;
   private unsubscribeNodesChanged: (() => void) | null = null;
+
+  readonly selectedNode = computed<RemoteNodeRosterEntry | null>(() => {
+    const id = this.selectedNodeId();
+    if (!id) {
+      return null;
+    }
+    return this.liveNodes().find((node) => node.id === id) ?? null;
+  });
 
   readonly hasDraftChanges = computed(() => {
     return (
@@ -180,6 +187,32 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
     return buildNodeHealthEntries(this.liveNodes());
   };
 
+  /** Tabs for the shared section switcher; badges reflect live counts. */
+  protected sectionTabs(): SettingsSectionTab[] {
+    return buildRemoteNodesSectionTabs(this.pendingPairings().length, this.connectedCount());
+  }
+
+  protected onSectionChange(id: string): void {
+    if (isRemoteNodesSection(id)) {
+      this.activeSection.set(id);
+    }
+  }
+
+  protected goToSection(id: RemoteNodesSection): void {
+    this.activeSection.set(id);
+  }
+
+  private syncSelectedNode(nodes: RemoteNodeRosterEntry[]): void {
+    const next = syncSelectedNodeAfterRosterChange(
+      { selectedNodeId: this.selectedNodeId(), initialSelectionDone: this.nodeSelectionInitialDone },
+      nodes,
+    );
+    this.nodeSelectionInitialDone = next.initialSelectionDone;
+    if (next.selectedNodeId !== this.selectedNodeId()) {
+      this.selectedNodeId.set(next.selectedNodeId);
+    }
+  }
+
   async ngOnInit(): Promise<void> {
     this.syncDraftsFromStore();
     await Promise.all([
@@ -196,6 +229,7 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
     this.unsubscribeNodesChanged = this.ipc.onNodesChanged((nodes) => {
       this.liveNodes.set(nodes);
       this.connectedCount.set(nodes.filter(isRemoteNodeOnline).length);
+      this.syncSelectedNode(nodes);
     });
   }
 
@@ -232,6 +266,7 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
       const nodes = await this.ipc.listNodes();
       this.liveNodes.set(nodes);
       this.connectedCount.set(nodes.filter(isRemoteNodeOnline).length);
+      this.syncSelectedNode(nodes);
     } catch {
       // Non-fatal.
     }
@@ -346,10 +381,6 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
     await this.writeClipboard(JSON.stringify(this.buildConnectionConfig(token), null, 2));
   }
 
-  async copyNodeDiagnostics(entry: NodeHealthEntry): Promise<void> {
-    await this.writeClipboard(JSON.stringify(this.buildNodeDiagnostics(entry), null, 2));
-  }
-
   async revokePairing(token: string): Promise<void> {
     if (!confirm('Revoke this one-time pairing credential?')) {
       return;
@@ -430,53 +461,51 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
     }
   }
 
-  protected browserAutomationState = browserAutomationState;
-  protected browserAutomationLabel = browserAutomationLabel;
-  protected extensionRelayState = extensionRelayState;
-  protected extensionRelayLabel = extensionRelayLabel;
-  protected androidAutomationState = androidAutomationState;
-  protected androidAutomationLabel = androidAutomationLabel;
   protected formatPairingCredentialLabel = formatPairingCredentialLabel;
-  protected formatNodePlatformLabel = formatNodePlatformLabel;
-  protected formatNodeCapacity = formatNodeCapacity;
-
-  protected openBrowserConfig(entry: NodeHealthEntry): void {
-    this.configuringNodeId.set(entry.id);
-    this.baDraftEnabled.set(entry.browserAutomation?.enabled ?? entry.browserAutomationReady);
-    this.baDraftProfileDir.set(entry.browserAutomation?.profileDir ?? '');
-    this.baDraftHeadless.set(entry.browserAutomation?.headless ?? false);
-    this.baDraftExtensionRelayEnabled.set(entry.extensionRelay?.enabled ?? entry.extensionRelayReady);
-  }
-
-  protected cancelBrowserConfig(): void { this.configuringNodeId.set(null); }
-
-  protected openAndroidConfig(entry: NodeHealthEntry): void {
-    this.androidConfiguringNodeId.set(entry.id);
-  }
-
-  protected cancelAndroidConfig(): void { this.androidConfiguringNodeId.set(null); }
 
   /**
-   * The exact login command that "Run on node" would execute, for the node's
-   * reported profile + platform. Empty until the profile has been applied (so
-   * the previewed command matches what actually runs). Returns '' on any
-   * unsafe/unknown input rather than throwing into the template.
+   * Single entry point for every user intent emitted by RemoteNodeDetailComponent
+   * (Task 4). The child owns per-node draft/open-close UI state; this method
+   * owns the authoritative async operations, confirmations, and error surface —
+   * unchanged from the pre-Task-4 per-method behavior, just parameterized by
+   * the emitted action instead of reading the component's own draft signals.
    */
-  protected loginCommandPreview(entry: NodeHealthEntry): string {
-    return loginCommandPreview(entry, this.loginUrlDraft());
-  }
-
-  async copyLoginCommand(entry: NodeHealthEntry): Promise<void> {
-    const command = this.loginCommandPreview(entry);
-    if (command) {
-      await this.writeClipboard(command);
+  protected onDetailAction(action: RemoteNodeDetailAction): void {
+    switch (action.type) {
+      case 'revoke':
+        void this.revokeNode(action.nodeId);
+        break;
+      case 'reset-connection': {
+        const entry = this.nodeHealthEntries().find((e) => e.id === action.nodeId);
+        if (entry) {
+          void this.resetConnection(entry);
+        }
+        break;
+      }
+      case 'configure-browser':
+        void this.applyBrowserConfigFor(action.nodeId, action.config, action.extensionRelayEnabled);
+        break;
+      case 'configure-android':
+        void this.applyAndroidConfigFor(action.nodeId, action.config);
+        break;
+      case 'run-login':
+        void this.runLoginOnNodeFor(action.nodeId, action.url);
+        break;
+      case 'copy':
+        void this.writeClipboard(action.value);
+        break;
+      case 'repair':
+        // No-op: app-remote-node-repair-panel is fully self-contained (its own
+        // IPC calls and state) — nothing for the parent to do.
+        break;
     }
   }
 
   /** Fire the login Chrome on the node (opens on that machine's screen). */
-  async runLoginOnNode(entry: NodeHealthEntry): Promise<void> {
+  private async runLoginOnNodeFor(nodeId: string, url: string): Promise<void> {
+    const entry = this.nodeHealthEntries().find((e) => e.id === nodeId);
     const ok = confirm(
-      `Open a login Chrome on "${entry.name}"?\n\n` +
+      `Open a login Chrome on "${entry?.name ?? nodeId}"?\n\n` +
       "Chrome opens on that computer's screen and the node's managed Chrome is " +
       'stopped first. You must be at that machine (or on remote desktop) to log in.',
     );
@@ -487,9 +516,9 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
     this.loginNotice.set(null);
     this.error.set(null);
     try {
-      await this.ipc.runBrowserLogin(entry.id, this.loginUrlDraft().trim() || undefined);
+      await this.ipc.runBrowserLogin(nodeId, url.trim() || undefined);
       this.loginNotice.set(
-        `Chrome is opening on ${entry.name}. Log in there, then close that window — the session will be reused.`,
+        `Chrome is opening on ${entry?.name ?? nodeId}. Log in there, then close that window — the session will be reused.`,
       );
     } catch (err) {
       this.error.set((err as Error).message);
@@ -499,11 +528,11 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
   }
 
   /** Push the drafted browser-automation config to the node (service-scoped). */
-  async applyBrowserConfig(): Promise<void> {
-    const nodeId = this.configuringNodeId();
-    if (!nodeId) {
-      return;
-    }
+  private async applyBrowserConfigFor(
+    nodeId: string,
+    config: BrowserAutomationConfigInput,
+    extensionRelayEnabled: boolean,
+  ): Promise<void> {
     const entry = this.nodeHealthEntries().find((e) => e.id === nodeId);
     const wasEnabled = entry?.browserAutomation?.enabled ?? entry?.browserAutomationReady ?? false;
 
@@ -511,7 +540,7 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
     // ungoverned capability, so make enabling a deliberate action (the IPC layer
     // shares the trusted-operator model with service.restart; this is the
     // in-app authorization gate).
-    if (this.baDraftEnabled() && !wasEnabled) {
+    if (config.enabled && !wasEnabled) {
       const ok = confirm(
         `Enable browser automation on "${entry?.name ?? nodeId}"?\n\n` +
         'Agents spawned on this node will be able to drive a logged-in Chrome ' +
@@ -526,31 +555,23 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
     this.baBusy.set(true);
     this.error.set(null);
     try {
-      const profileDir = this.baDraftProfileDir().trim();
-      const summary = await this.ipc.updateBrowserAutomation(nodeId, {
-        enabled: this.baDraftEnabled(),
-        headless: this.baDraftHeadless(),
-        ...(profileDir ? { profileDir } : {}),
-      }, {
-        enabled: this.baDraftExtensionRelayEnabled(),
+      const summary = await this.ipc.updateBrowserAutomation(nodeId, config, {
+        enabled: extensionRelayEnabled,
       });
       // Apply the authoritative summary the node returned immediately, rather
-      // than waiting for the next heartbeat — keeps the badge + login section in
+      // than waiting for the next heartbeat — keeps the roster + detail view in
       // sync without a second Configure click.
       const browserSummary = summary?.browserAutomation;
       if (browserSummary) {
         this.liveNodes.update((nodes) =>
           withPatchedBrowserAutomation(nodes, nodeId, browserSummary),
         );
-        this.baDraftProfileDir.set(browserSummary.profileDir);
-        this.baDraftHeadless.set(browserSummary.headless);
       }
       const relaySummary = summary?.extensionRelay;
       if (relaySummary) {
         this.liveNodes.update((nodes) =>
           withPatchedExtensionRelay(nodes, nodeId, relaySummary),
         );
-        this.baDraftExtensionRelayEnabled.set(relaySummary.enabled);
       }
       // Reconcile with the registry in the background (best-effort).
       void this.refreshNodes();
@@ -561,11 +582,10 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
     }
   }
 
-  async applyAndroidConfig(payload: AndroidAutomationConfigDraft): Promise<void> {
-    const nodeId = this.androidConfiguringNodeId();
-    if (!nodeId) {
-      return;
-    }
+  private async applyAndroidConfigFor(
+    nodeId: string,
+    payload: AndroidAutomationConfigDraft,
+  ): Promise<void> {
     const entry = this.nodeHealthEntries().find((e) => e.id === nodeId);
     const wasEnabled = entry?.androidAutomation?.enabled ?? entry?.androidAutomationReady ?? false;
 
@@ -599,49 +619,8 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
     return pairing.expiresAt - Date.now() <= 15 * 60_000;
   }
 
-  protected formatExpiry(timestamp: number): string {
-    const remainingMs = timestamp - Date.now();
-    if (remainingMs <= 0) {
-      return 'now';
-    }
-
-    const remainingMinutes = Math.round(remainingMs / 60_000);
-    if (remainingMinutes < 60) {
-      return `in ${remainingMinutes}m`;
-    }
-
-    const remainingHours = Math.round(remainingMinutes / 60);
-    if (remainingHours < 48) {
-      return `in ${remainingHours}h`;
-    }
-
-    const remainingDays = Math.round(remainingHours / 24);
-    return `in ${remainingDays}d`;
-  }
-
-  protected formatRelativeTime(timestamp?: number): string {
-    if (!timestamp) {
-      return 'never';
-    }
-
-    const deltaMs = Date.now() - timestamp;
-    if (deltaMs < 60_000) {
-      return 'just now';
-    }
-
-    const deltaMinutes = Math.round(deltaMs / 60_000);
-    if (deltaMinutes < 60) {
-      return `${deltaMinutes}m ago`;
-    }
-
-    const deltaHours = Math.round(deltaMinutes / 60);
-    if (deltaHours < 48) {
-      return `${deltaHours}h ago`;
-    }
-
-    const deltaDays = Math.round(deltaHours / 24);
-    return `${deltaDays}d ago`;
-  }
+  protected formatExpiry = formatExpiry;
+  protected formatRelativeTime = formatRelativeTime;
 
   private buildConnectionConfig(token: string): Record<string, unknown> {
     return buildCanonicalConnectionConfig(this.buildPairingCopyInput(token));
@@ -653,10 +632,6 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
 
   private buildPairingCommand(token: string): string {
     return buildPairingCommand(this.buildPairingCopyInput(token));
-  }
-
-  private buildNodeDiagnostics(entry: NodeHealthEntry): Record<string, unknown> {
-    return buildNodeDiagnostics(entry);
   }
 
   private buildPairingCopyInput(token: string): PairingCopyInput {

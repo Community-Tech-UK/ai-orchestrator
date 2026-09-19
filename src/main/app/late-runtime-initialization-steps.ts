@@ -51,6 +51,7 @@ import { getChildAnnouncer } from '../orchestration/child-announcer';
 import type { ChildAnnouncement } from '../../shared/types/child-announce.types';
 import { getReactionEngine } from '../reactions';
 import { getCampaignCoordinator } from '../orchestration/campaign-coordinator';
+import { initializePlanQueue } from '../plan-queue/plan-queue-bootstrap';
 import { initializeCodemem, getCodemem } from '../codemem';
 import { initializeBrowserGatewayRuntime } from '../browser-gateway';
 import { initializeDesktopGatewayRuntime } from '../desktop-gateway';
@@ -178,6 +179,18 @@ export function createLateRuntimeInitializationSteps(
           await coordinator.recoverInterruptedCampaigns();
         } catch (error) {
           logger.warn('Campaign coordinator initialization failed; campaign IPC will report degraded errors', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      },
+    },
+    {
+      name: 'Plan queue coordinator',
+      fn: async () => {
+        try {
+          await initializePlanQueue(instanceManager);
+        } catch (error) {
+          logger.warn('Plan queue initialization failed; plan queue tools will report errors', {
             error: error instanceof Error ? error.message : String(error),
           });
         }

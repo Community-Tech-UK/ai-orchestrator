@@ -1,5 +1,49 @@
 import { describe, expect, it, vi } from 'vitest';
-import { combineAbortSignals } from './abort-signals';
+import { abortableSleep, combineAbortSignals } from './abort-signals';
+
+describe('abortableSleep', () => {
+  it('resolves after the requested delay when no signal is supplied', async () => {
+    vi.useFakeTimers();
+    try {
+      const resolved = vi.fn();
+      void abortableSleep(1000).then(resolved);
+      await vi.advanceTimersByTimeAsync(999);
+      expect(resolved).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(resolved).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('resolves immediately when the signal is already aborted', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const start = Date.now();
+
+    await abortableSleep(10_000, controller.signal);
+
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
+
+  it('resolves early — before the delay elapses — once the signal aborts mid-wait (RPC socket disconnect)', async () => {
+    vi.useFakeTimers();
+    try {
+      const controller = new AbortController();
+      const resolved = vi.fn();
+      void abortableSleep(120_000, controller.signal).then(resolved);
+
+      await vi.advanceTimersByTimeAsync(500);
+      expect(resolved).not.toHaveBeenCalled();
+
+      controller.abort();
+      await Promise.resolve();
+      expect(resolved).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
 
 describe('combineAbortSignals', () => {
   it('returns a non-aborted signal when no source signals are supplied', () => {

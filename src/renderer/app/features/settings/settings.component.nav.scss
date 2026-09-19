@@ -302,9 +302,24 @@
 }
 
 @media (max-width: 900px) {
+  /* Task 2 — the compact-nav breakpoint. The in-flow rail always renders at
+   * its 56px-equivalent collapsed width; the full 236px nav only appears as
+   * a temporary overlay (`.nav-overlay-open`, driven by `compactNavOpen`),
+   * never by widening the in-flow rail itself. */
   .settings-sidebar {
+    width: 56px;
+    min-width: 56px;
+  }
+
+  .settings-sidebar.nav-overlay-open {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: calc(var(--z-overlay) + 1);
     width: 236px;
     min-width: 236px;
+    box-shadow: 12px 0 34px color-mix(in srgb, var(--bg-primary) 56%, transparent);
   }
 
   .settings-sidebar.nav-collapsed {

@@ -29,6 +29,7 @@ import { runSettingsCli } from './settings-cli';
 import { runLocalAiCli } from './local-ai-cli';
 import { runBrowserCredentialsCli } from './browser-credentials-cli';
 import { runCopilotAccountCli } from './copilot-account-cli';
+import { runLoopCli } from './loop-cli';
 
 type AioMcpRunner = (argv: readonly string[]) => Promise<void>;
 
@@ -44,6 +45,7 @@ const SUBCOMMANDS = {
   'local-ai': runLocalAiCli,
   'browser-credentials': runBrowserCredentialsCli,
   'copilot-account': runCopilotAccountCli,
+  loop: runLoopCli,
 } as const;
 
 export type AioMcpSubcommand = keyof typeof SUBCOMMANDS;
@@ -90,6 +92,8 @@ function formatHelp(): string {
     '  settings            Inspect and repair app settings through the parent app',
     '  local-ai            Discover, validate, and enrol Local AI targets',
     '  browser-credentials Bind a vault login to an origin and manage fill grants',
+    '  copilot-account     Inspect Copilot profiles and workspace routing',
+    '  loop                List parked loops and resume one',
     '',
   ].join('\n');
 }

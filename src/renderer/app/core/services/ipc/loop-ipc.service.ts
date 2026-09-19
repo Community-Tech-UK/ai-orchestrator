@@ -382,6 +382,18 @@ export class LoopIpcService {
     return fn(awaySince);
   }
 
+  /** Mark a run's blocked managed worktree resolved by hand. Deletes nothing. */
+  async resolveBlockedWorktree(loopRunId: string): Promise<IpcResponse> {
+    if (!this.api) return notInElectron();
+    const fn = (this.api as unknown as {
+      loopResolveBlockedWorktree?: (id: string) => Promise<IpcResponse>;
+    }).loopResolveBlockedWorktree;
+    if (typeof fn !== 'function') {
+      return { success: false, error: { message: 'resolve-worktree bridge unavailable. Reload the app.' } };
+    }
+    return fn(loopRunId);
+  }
+
   async getIterations(loopRunId: string, fromSeq?: number, toSeq?: number): Promise<IpcResponse<{ iterations: LoopIterationPayload[] }>> {
     if (!this.api) return notInElectron();
     return this.api.loopGetIterations(loopRunId, fromSeq, toSeq) as Promise<IpcResponse<{ iterations: LoopIterationPayload[] }>>;

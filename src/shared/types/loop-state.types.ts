@@ -429,6 +429,9 @@ export interface LoopWorktreeLifecycle {
   /** Exact AIO-owned integration ref tip approved for promotion. */
   integrationTip?: string;
   lastError?: string;
+  /** Set when the operator marked a blocked workspace resolved by hand. The
+   *  phase is then `cleaned`, so boot recovery stops retrying it. */
+  resolvedByOperatorAt?: number;
   updatedAt: number;
 }
 

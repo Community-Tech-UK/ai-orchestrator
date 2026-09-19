@@ -167,7 +167,6 @@
 }
 
 .hook-approvals-card,
-.guide-card,
 .backup-card {
   padding: var(--spacing-md) var(--spacing-lg);
 }
@@ -265,54 +264,31 @@
   flex-shrink: 0;
 }
 
-.guide-link {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  width: 100%;
-  padding: var(--spacing-sm) 0;
-  background: transparent;
-  border: 0;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition:
-    background var(--transition-fast),
-    color var(--transition-fast);
-  text-align: left;
-
-  &:hover {
-    color: var(--primary-color);
-  }
-}
-
-.guide-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--primary-color) 14%, transparent);
-  color: var(--primary-color);
-  font-size: 18px;
-}
-
-.guide-text {
+.section-panel {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--density-section-gap);
 }
 
-.guide-title {
-  font-size: var(--text-md);
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.guide-desc {
+/** Inline "open a setup guide" affordance — replaces the old standalone
+ * Setup Guides card; its explanatory copy now lives in contextual Help. */
+.guide-link-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  margin-top: var(--spacing-sm);
+  padding: var(--spacing-xs) 0;
+  background: transparent;
+  border: 0;
+  color: var(--primary-color);
   font-size: var(--text-sm);
-  color: var(--text-secondary);
+  font-weight: 500;
+  cursor: pointer;
+  min-height: 44px;
+
+  &:hover {
+    text-decoration: underline;
+  }
 }
 
 .backup-card {
@@ -323,8 +299,11 @@
   border-radius: 0;
 }
 
-.backup-card .reset-section {
-  border-top: 1px solid var(--border-subtle);
+/* Reset lives alone inside the danger zone — right-align its single control. */
+.reset-section {
+  justify-content: flex-end;
+  min-height: auto;
+  padding: 0;
 }
 
 /* Export / Import result banner */
@@ -344,25 +323,6 @@
   background: var(--error-bg);
   color: var(--error-color);
   border: 1px solid var(--error-border);
-}
-
-/* Future Settings Note */
-.future-settings-note {
-  padding: var(--spacing-md);
-  background: color-mix(in srgb, var(--surface-sunken-bg) 40%, transparent);
-  border-radius: var(--radius-md);
-  border: 1px dashed color-mix(in srgb, var(--border-color) 76%, transparent);
-
-  ul {
-    margin: var(--spacing-sm) 0 0;
-    padding-left: var(--spacing-lg);
-    color: var(--text-muted);
-    font-size: var(--text-sm);
-  }
-
-  li {
-    margin-bottom: var(--spacing-xs);
-  }
 }
 
 @media (max-width: 760px) {

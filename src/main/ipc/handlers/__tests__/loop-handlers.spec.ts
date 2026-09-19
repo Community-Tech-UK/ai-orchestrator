@@ -925,6 +925,56 @@ describe('LOOP_RESUME handler', () => {
     expect(response.success).toBe(true);
     expect(response.data).toEqual({ ok: true, state });
   });
+
+  it('answers ok=false, not an error response, when no live loop and no checkpoint exist', async () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    hoisted.coordinator.resumeLoop.mockReturnValue(false);
+    hoisted.coordinator.getLoop.mockReturnValue(undefined);
+    hoisted.store.getCheckpoint.mockReturnValue(null);
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager: makeInstanceManager([]),
+    });
+    const handler = findIpcHandler(IPC_CHANNELS.LOOP_RESUME);
+
+    const response = await handler({}, { loopRunId: 'loop-gone' });
+
+    expect(hoisted.coordinator.restoreLoopFromCheckpoint).not.toHaveBeenCalled();
+    expect(response.success).toBe(true);
+    expect(response.data).toEqual({ ok: false, state: undefined });
+  });
+
+  it('surfaces a fail-closed restore error as LOOP_RESUME_FAILED', async () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const state = makeLoopState({ id: 'loop-noworktree', status: 'paused', endedAt: null });
+    hoisted.coordinator.resumeLoop.mockReturnValue(false);
+    hoisted.coordinator.getLoop.mockReturnValue(undefined);
+    hoisted.store.getCheckpoint.mockReturnValue({
+      version: 1 as const,
+      loopRunId: state.id,
+      chatId: state.chatId,
+      status: state.status,
+      state,
+      historyTail: [],
+      convergenceNote: null,
+      planRegenerationCount: 0,
+      pendingContextReset: false,
+      updatedAt: 123,
+    });
+    hoisted.coordinator.restoreLoopFromCheckpoint.mockRejectedValueOnce(
+      new Error('isolateLoopWorkspaces: worktree missing on restore (fail-closed)'),
+    );
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager: makeInstanceManager([]),
+    });
+    const handler = findIpcHandler(IPC_CHANNELS.LOOP_RESUME);
+
+    const response = await handler({}, { loopRunId: 'loop-noworktree' });
+
+    expect(response.success).toBe(false);
+    expect(response.error?.code).toBe('LOOP_RESUME_FAILED');
+  });
 });
 
 describe('LOOP_RESUME_WITH_ANSWERS handler', () => {
@@ -1214,6 +1264,65 @@ describe('VERIFICATION_RUNS_LIST handler', () => {
       error: expect.objectContaining({ code: 'VERIFICATION_RUNS_LIST_FAILED' }),
     }));
     expect(hoisted.verificationRunStore.listForInstance).toHaveBeenCalledWith('instance-1');
+  });
+});
+
+describe('LOOP_GET_AWAY_RECAP handler (N12)', () => {
+  function endedRun(overrides: { id: string; endedAt: number }) {
+    return {
+      chatId: 'chat-1',
+      status: 'completed',
+      totalIterations: 3,
+      totalTokens: 100,
+      totalCostCents: 42,
+      startedAt: overrides.endedAt - 60_000,
+      endReason: null,
+      workspaceCwd: '/work/project',
+      initialPrompt: 'Fix the flaky test',
+      iterationPrompt: null,
+      ...overrides,
+    };
+  }
+
+  it('filters loop_runs through the caller-supplied awaySince boundary and returns a recap', async () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const instanceManager = makeInstanceManager([]);
+    hoisted.store.listRuns.mockReturnValue([
+      endedRun({ id: 'loop-old', endedAt: 1_000 }),
+      endedRun({ id: 'loop-new', endedAt: 5_000 }),
+    ]);
+    registerLoopHandlers({ windowManager: windowManager as never, instanceManager });
+
+    const response = await findIpcHandler(IPC_CHANNELS.LOOP_GET_AWAY_RECAP)({}, { awaySince: 3_000 });
+
+    expect(hoisted.store.listRuns).toHaveBeenCalledWith(200);
+    expect(response.success).toBe(true);
+    const data = response.data as { recap: { cards: { runId: string }[] } | null };
+    expect(data.recap?.cards.map((c) => c.runId)).toEqual(['loop-new']);
+  });
+
+  it('returns recap: null (not an error) when nothing ended in the window', async () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const instanceManager = makeInstanceManager([]);
+    hoisted.store.listRuns.mockReturnValue([endedRun({ id: 'loop-old', endedAt: 1_000 })]);
+    registerLoopHandlers({ windowManager: windowManager as never, instanceManager });
+
+    const response = await findIpcHandler(IPC_CHANNELS.LOOP_GET_AWAY_RECAP)({}, { awaySince: 3_000 });
+
+    expect(response).toEqual({ success: true, data: { recap: null } });
+  });
+
+  it('fails closed on a malformed payload rather than throwing past the handler', async () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const instanceManager = makeInstanceManager([]);
+    registerLoopHandlers({ windowManager: windowManager as never, instanceManager });
+
+    const response = await findIpcHandler(IPC_CHANNELS.LOOP_GET_AWAY_RECAP)({}, { awaySince: 'not-a-number' });
+
+    expect(response).toEqual(expect.objectContaining({
+      success: false,
+      error: expect.objectContaining({ code: 'LOOP_GET_AWAY_RECAP_FAILED' }),
+    }));
   });
 });
 

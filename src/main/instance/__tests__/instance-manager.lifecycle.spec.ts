@@ -894,6 +894,7 @@ import {
   type ResolvedRecoveryCandidate,
 } from '../../session/session-recovery-candidate-service';
 import { getRecoverySensitiveValues } from '../instance-recovery-redaction';
+import { getInstanceAuthRepairHandler } from '../instance-auth-repair-handler';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -2012,6 +2013,53 @@ describe('InstanceManager', () => {
       expect(() => adapter.emit('exit', 1, null)).not.toThrow();
 
       expect(instance.status).toBe('hibernating');
+    });
+  });
+
+  describe('in-session auth repair wiring (LT-168)', () => {
+    // configure()'s `revive` dependency is a plain closure over `this`, stored
+    // as a private field with no public getter — reach in the same way the
+    // handler itself does, rather than driving the full blocked-entry +
+    // probe-polling machinery just to exercise this one callback.
+    function getConfiguredRevive(): (id: string) => Promise<string | null> {
+      return (getInstanceAuthRepairHandler() as unknown as {
+        deps: { revive: (id: string) => Promise<string | null> } | null;
+      }).deps!.revive;
+    }
+
+    it('restarts the instance in place rather than looking it up in archived history', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Auth Repair Wiring',
+      });
+      await instance.readyPromise;
+
+      const restartSpy = vi.spyOn(manager, 'restartInstance').mockResolvedValue({
+        success: true,
+        method: 'native-resume',
+      });
+
+      const revivedId = await getConfiguredRevive()(instance.id);
+
+      expect(restartSpy).toHaveBeenCalledWith(instance.id);
+      expect(revivedId).toBe(instance.id);
+    });
+
+    it('returns null (keeping the repair banner up) when the in-place restart fails', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Auth Repair Wiring Failure',
+      });
+      await instance.readyPromise;
+
+      vi.spyOn(manager, 'restartInstance').mockResolvedValue({
+        success: false,
+        error: 'boom',
+      });
+
+      const revivedId = await getConfiguredRevive()(instance.id);
+
+      expect(revivedId).toBeNull();
     });
   });
 

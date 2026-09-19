@@ -260,9 +260,26 @@ describe('reconcileManagedWorktreeLifecycles', () => {
     expect(cleared).toEqual([]);
   });
 
-  it('keeps a dirty-root promotion visibly blocked and retries it on the next boot', async () => {
+  it('promotes past an unrelated untracked root file', async () => {
     const { store, row } = fakeStore();
-    const operatorFile = join(repo, 'operator.txt');
+    const operatorFile = join(repo, 'operator_plan.md');
+    writeFileSync(operatorFile, 'operator work\n');
+
+    const result = await reconcileManagedWorktreeLifecycles(store);
+
+    expect(result).toEqual({ reconciled: 1, blocked: 0, total: 1 });
+    expect(row.lifecycle.phase).toBe('cleaned');
+    expect(await git(['rev-parse', 'main'], repo)).toBe(
+      await git(['rev-parse', 'integration/main'], repo),
+    );
+    expect(existsSync(operatorFile)).toBe(true);
+  });
+
+  it('keeps a promotion that overlaps dirty root work blocked and retries it on the next boot', async () => {
+    const { store, row } = fakeStore();
+    // The session added feature.txt; an untracked root copy of the same path
+    // is operator work the promotion would collide with.
+    const operatorFile = join(repo, 'feature.txt');
     writeFileSync(operatorFile, 'operator work\n');
 
     const first = await reconcileManagedWorktreeLifecycles(store);
@@ -270,7 +287,7 @@ describe('reconcileManagedWorktreeLifecycles', () => {
     expect(first).toEqual({ reconciled: 0, blocked: 1, total: 1 });
     expect(row.lifecycle).toMatchObject({
       phase: 'blocked',
-      lastError: 'root checkout has uncommitted changes',
+      lastError: 'root checkout has uncommitted changes to a promoted path: feature.txt',
     });
     expect(await git(['rev-parse', 'main'], repo)).not.toBe(
       await git(['rev-parse', 'integration/main'], repo),
@@ -286,6 +303,91 @@ describe('reconcileManagedWorktreeLifecycles', () => {
     expect(await git(['rev-parse', 'main'], repo)).toBe(
       await git(['rev-parse', 'integration/main'], repo),
     );
+  });
+
+  it('captures a dirty worktree at boot even when a pre-commit hook refuses the commit', async () => {
+    const { store, row } = fakeStore();
+    await git(['branch', '-D', 'integration/main'], repo);
+    await git(['update-ref', '-d', 'refs/aio/managed-integrations/integration/main'], repo);
+    const hooksDir = join(repo, '.worktrees', 'refusing-hooks');
+    mkdirSync(hooksDir, { recursive: true });
+    writeFileSync(join(hooksDir, 'pre-commit'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+    await git(['config', 'core.hooksPath', hooksDir], repo);
+    writeFileSync(join(worktreePath, 'late-output.txt'), 'late\n');
+    row.lifecycle = {
+      ...row.lifecycle,
+      phase: 'harvesting',
+      integrationBranch: undefined,
+      integrationTip: undefined,
+    };
+
+    const result = await reconcileManagedWorktreeLifecycles(store);
+
+    expect(result).toEqual({ reconciled: 1, blocked: 0, total: 1 });
+    expect(row.lifecycle.phase).toBe('cleaned');
+    expect(await git(['ls-tree', '--name-only', 'main'], repo)).toContain('late-output.txt');
+  });
+
+  it('keeps a blocked run blocked when its clean session branch moved outside AIO', async () => {
+    const { store, row, cleared } = fakeStore();
+    await git(['branch', '-D', 'integration/main'], repo);
+    await git(['update-ref', '-d', 'refs/aio/managed-integrations/integration/main'], repo);
+    const mainBefore = await git(['rev-parse', 'main'], repo);
+    // An operator safety commit on a run whose own harvest had failed.
+    writeFileSync(join(worktreePath, 'rescued.txt'), 'rescued\n');
+    await git(['add', '-A'], worktreePath);
+    await git(['commit', '-q', '--no-gpg-sign', '-m', 'rescue'], worktreePath);
+    const rescuedTip = await git(['rev-parse', branchName], repo);
+    row.lifecycle = {
+      ...row.lifecycle,
+      phase: 'blocked',
+      integrationBranch: undefined,
+      integrationTip: undefined,
+      lastError: 'Harvest failed with uncommitted work',
+    };
+
+    const result = await reconcileManagedWorktreeLifecycles(store);
+
+    expect(result).toEqual({ reconciled: 0, blocked: 1, total: 1 });
+    expect(row.lifecycle).toMatchObject({
+      phase: 'blocked',
+      sessionTip: originalSessionTip,
+      lastError: 'Session branch changed outside AIO; review it before landing',
+    });
+    expect(await git(['rev-parse', 'main'], repo)).toBe(mainBefore);
+    expect(await git(['branch', '--list', 'integration/main'], repo)).toBe('');
+    expect(await git(['rev-parse', branchName], repo)).toBe(rescuedTip);
+    expect(existsSync(worktreePath)).toBe(true);
+    expect(cleared).toEqual([]);
+  });
+
+  it('refuses to integrate a session branch that adds active plan documents', async () => {
+    const { store, row } = fakeStore();
+    await git(['branch', '-D', 'integration/main'], repo);
+    await git(['update-ref', '-d', 'refs/aio/managed-integrations/integration/main'], repo);
+    const mainBefore = await git(['rev-parse', 'main'], repo);
+    mkdirSync(join(worktreePath, 'docs'));
+    writeFileSync(join(worktreePath, 'docs', 'feature_plan.md'), '# active plan\n');
+    await git(['add', '-A'], worktreePath);
+    await git(['commit', '-q', '--no-gpg-sign', '--no-verify', '-m', 'plan'], worktreePath);
+    row.lifecycle = {
+      ...row.lifecycle,
+      phase: 'harvested',
+      sessionTip: await git(['rev-parse', branchName], repo),
+      integrationBranch: undefined,
+      integrationTip: undefined,
+    };
+
+    const result = await reconcileManagedWorktreeLifecycles(store);
+
+    expect(result).toEqual({ reconciled: 0, blocked: 1, total: 1 });
+    expect(row.lifecycle).toMatchObject({
+      phase: 'blocked',
+      lastError: 'Session adds active plan/spec/livetest documents; land it manually',
+    });
+    expect(await git(['rev-parse', 'main'], repo)).toBe(mainBefore);
+    expect(await git(['branch', '--list', 'integration/main'], repo)).toBe('');
+    expect(await git(['branch', '--list', branchName], repo)).toContain(branchName);
   });
 
   it('preserves a cancelled run branch and removes only its managed directory', async () => {

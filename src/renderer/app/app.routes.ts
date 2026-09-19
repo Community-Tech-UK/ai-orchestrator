@@ -35,6 +35,12 @@ const controlSurfaceRoutes: Routes = [
       import('./features/campaign/campaign.routes').then((m) => m.CAMPAIGN_ROUTES),
   },
   {
+    path: 'plan-queue',
+    data: controlSurfaceRouteData('plan-queue'),
+    loadChildren: () =>
+      import('./features/plan-queue/plan-queue.routes').then((m) => m.PLAN_QUEUE_ROUTES),
+  },
+  {
     path: 'workflows',
     data: controlSurfaceRouteData('workflows'),
     loadComponent: () =>

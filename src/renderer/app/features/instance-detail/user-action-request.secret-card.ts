@@ -28,6 +28,29 @@ export function isSecretRequest(request: UserActionRequest): boolean {
   return request.requestType === 'secret_required' && Boolean(request.secretRequest?.name);
 }
 
+/**
+ * Live, non-blocking format check for the secret card. Only warns for the
+ * format hints the agent can request explicitly; `bearer`/`opaque` values
+ * have no fixed shape, so they never produce a warning. Never validates
+ * against the actual secret value beyond a prefix check, and never echoes it.
+ */
+export function secretFormatWarning(
+  expectedFormat: NonNullable<UserActionRequest['secretRequest']>['expectedFormat'],
+  value: string,
+): string | null {
+  const trimmed = value.trim();
+  if (!trimmed || !expectedFormat || expectedFormat === 'opaque' || expectedFormat === 'bearer') {
+    return null;
+  }
+  if (expectedFormat === 'github_pat' && !/^(ghp_|github_pat_)/.test(trimmed)) {
+    return 'This does not look like a GitHub personal access token.';
+  }
+  if (expectedFormat === 'openai_key' && !trimmed.startsWith('sk-')) {
+    return 'This does not look like an OpenAI API key.';
+  }
+  return null;
+}
+
 export class SecretCardDrafts {
   private readonly values = new Map<string, string>();
 
@@ -37,6 +60,16 @@ export class SecretCardDrafts {
 
   has(requestId: string): boolean {
     return (this.values.get(requestId) || '').trim().length > 0;
+  }
+
+  value(requestId: string): string {
+    return this.values.get(requestId) || '';
+  }
+
+  /** Live, non-blocking format warning for the draft; never blocks submission
+   *  and never echoes the secret value. */
+  warning(request: UserActionRequest): string | null {
+    return secretFormatWarning(request.secretRequest?.expectedFormat, this.value(request.id));
   }
 
   take(requestId: string): string {

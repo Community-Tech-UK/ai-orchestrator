@@ -45,11 +45,28 @@ vi.mock('../logging/logger', () => ({
   getLogger: vi.fn(() => mockLog),
 }));
 
+const { mockFilterProvidersForAutomation } = vi.hoisted(() => ({
+  // Default passthrough: real exclusion behaviour is covered by
+  // automation-provider-exclusions.spec.ts; this file only needs to prove the
+  // filter is consulted before the candidate loop runs.
+  mockFilterProvidersForAutomation: vi.fn((providers: readonly string[]) => [...providers]),
+}));
+
+vi.mock('../providers/automation-provider-exclusions', () => ({
+  filterProvidersForAutomation: mockFilterProvidersForAutomation,
+}));
+
 import { AutoTitleService } from './auto-title-service';
 
 describe('AutoTitleService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // clearAllMocks() resets call history but not a previously-set
+    // mockImplementation, so an override from one test (e.g. the exclusion
+    // test below) would otherwise leak into every later test.
+    mockFilterProvidersForAutomation.mockImplementation(
+      (providers: readonly string[]) => [...providers],
+    );
     mockAuxGenerate.mockResolvedValue({
       text: '',
       decision: {
@@ -125,6 +142,36 @@ describe('AutoTitleService', () => {
         model: expect.any(String),
       }),
     });
+  });
+
+  it('honours providersExcludedFromAutomation for the cross-provider title borrow', async () => {
+    // Operator barred antigravity from automatic selection (e.g. a
+    // work-scoped seat) — the same lever every other auto-pick site respects.
+    mockFilterProvidersForAutomation.mockImplementation(
+      (providers: readonly string[]) => providers.filter((p) => p !== 'antigravity'),
+    );
+    mockIsCliAvailable.mockImplementation(async (type: string) => ({
+      installed: type === 'antigravity' || type === 'claude',
+    }));
+    mockResolveCliType.mockImplementation(async (type: string) => type);
+
+    const applyTitle = vi.fn();
+
+    await AutoTitleService.getInstance().maybeGenerateTitle(
+      'instance-1',
+      'Investigate the broken deployment and summarize the fix.',
+      applyTitle,
+      false,
+    );
+
+    expect(mockFilterProvidersForAutomation).toHaveBeenCalledWith(
+      ['antigravity', 'claude', 'codex'],
+      'autoTitle',
+    );
+    // Excluded before availability is even probed.
+    expect(mockIsCliAvailable).not.toHaveBeenCalledWith('antigravity');
+    expect(mockIsCliAvailable).toHaveBeenCalledWith('claude');
+    expect(mockResolveCliType).toHaveBeenCalledWith('claude');
   });
 
   it('keeps instant title when no CLI is available', async () => {

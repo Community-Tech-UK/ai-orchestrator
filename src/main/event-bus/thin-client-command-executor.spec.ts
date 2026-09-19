@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { createThinClientCommandExecutor } from './thin-client-command-executor';
 import type { Instance } from '../../shared/types/instance.types';
 import type { OrchestrationHandler } from '../orchestration/orchestration-handler';
+import type { LoopState } from '../../shared/types/loop.types';
+import type { LoopCheckpoint } from '../orchestration/loop-checkpoint';
 
 describe('createThinClientCommandExecutor', () => {
   it('implements the instance remote-control command subset', async () => {
@@ -132,7 +134,7 @@ describe('createThinClientCommandExecutor', () => {
       chatId: 'chat-1',
       status: 'running',
       config: { initialPrompt: 'goal', workspaceCwd: '/workspace' },
-    };
+    } as unknown as LoopState;
     const loopCoordinator = {
       startLoop: vi.fn(async () => state),
       pauseLoop: vi.fn(() => true),
@@ -141,8 +143,9 @@ describe('createThinClientCommandExecutor', () => {
       intervene: vi.fn(() => true),
       acceptCompletion: vi.fn(async () => true),
       getLoop: vi.fn(() => state),
+      restoreLoopFromCheckpoint: vi.fn(async () => state),
     };
-    const loopStore = { upsertRun: vi.fn() };
+    const loopStore = { upsertRun: vi.fn(), getCheckpoint: vi.fn(() => null) };
     const execute = createThinClientCommandExecutor({
       instanceManager: makeBaseInstanceManager(),
       loopCoordinator,
@@ -186,6 +189,77 @@ describe('createThinClientCommandExecutor', () => {
     expect(loopCoordinator.cancelLoop).toHaveBeenCalledWith('loop-1');
     expect(loopCoordinator.acceptCompletion).toHaveBeenCalledWith('loop-1');
     expect(loopStore.upsertRun).toHaveBeenCalled();
+  });
+
+  it('restores a loop parked before a restart when a mobile client resumes it', async () => {
+    // The coordinator holds no state for it (the app restarted since it parked),
+    // so resumeLoop alone returns false — the silent no-op mobile used to get.
+    const parked = {
+      id: 'loop-parked',
+      chatId: 'chat-1',
+      status: 'provider-limit',
+      endedAt: null,
+    } as unknown as LoopState;
+    const checkpoint = { loopRunId: 'loop-parked', state: parked } as unknown as LoopCheckpoint;
+    const live = new Map<string, LoopState>();
+    const loopCoordinator = {
+      startLoop: vi.fn(async () => parked),
+      pauseLoop: vi.fn(() => true),
+      resumeLoop: vi.fn((id: string) => {
+        const state = live.get(id);
+        if (!state) return false;
+        state.status = 'running';
+        return true;
+      }),
+      cancelLoop: vi.fn(async () => true),
+      intervene: vi.fn(() => true),
+      acceptCompletion: vi.fn(async () => true),
+      getLoop: vi.fn((id: string) => live.get(id)),
+      restoreLoopFromCheckpoint: vi.fn(async (cp: LoopCheckpoint) => {
+        live.set(cp.loopRunId, cp.state);
+        return cp.state;
+      }),
+    };
+    const loopStore = {
+      upsertRun: vi.fn(),
+      getCheckpoint: vi.fn((id: string) => (id === 'loop-parked' ? checkpoint : null)),
+    };
+    const execute = createThinClientCommandExecutor({
+      instanceManager: makeBaseInstanceManager(),
+      loopCoordinator,
+      loopStore,
+    });
+
+    const response = await execute('loop:resume', {
+      ipcAuthToken: 'secret',
+      loopRunId: 'loop-parked',
+    });
+
+    expect(loopCoordinator.restoreLoopFromCheckpoint).toHaveBeenCalledOnce();
+    expect(response).toMatchObject({ success: true, data: { ok: true } });
+    expect(live.get('loop-parked')?.status).toBe('running');
+  });
+
+  it('reports a mobile resume of an unknown loop as not-ok rather than erroring', async () => {
+    const loopCoordinator = {
+      startLoop: vi.fn(),
+      pauseLoop: vi.fn(() => false),
+      resumeLoop: vi.fn(() => false),
+      cancelLoop: vi.fn(async () => false),
+      intervene: vi.fn(() => false),
+      acceptCompletion: vi.fn(async () => false),
+      getLoop: vi.fn(() => undefined),
+      restoreLoopFromCheckpoint: vi.fn(),
+    };
+    const execute = createThinClientCommandExecutor({
+      instanceManager: makeBaseInstanceManager(),
+      loopCoordinator,
+      loopStore: { upsertRun: vi.fn(), getCheckpoint: vi.fn(() => null) },
+    });
+
+    await expect(execute('loop:resume', { ipcAuthToken: 'secret', loopRunId: 'nope' }))
+      .resolves.toEqual({ success: true, data: { ok: false, state: undefined } });
+    expect(loopCoordinator.restoreLoopFromCheckpoint).not.toHaveBeenCalled();
   });
 
   it('implements chat command vocabulary against the chat service', async () => {

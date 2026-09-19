@@ -614,8 +614,50 @@ function hasInlineMcpServerConfig(configs: string[], serverName: string): boolea
   });
 }
 
+/**
+ * Claude Code requires `type: 'http' | 'sse'` for remote MCP servers. Older
+ * Harness config producers used the generic `transport` field instead, which
+ * makes Claude silently skip the server. Normalize only inline JSON because
+ * file paths are intentionally handed to the CLI unchanged.
+ */
+function normalizeClaudeInlineMcpConfig(entry: string): string {
+  const trimmed = entry.trim();
+  if (!trimmed.startsWith('{')) {
+    return entry;
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as { mcpServers?: Record<string, unknown> };
+    if (!parsed.mcpServers || typeof parsed.mcpServers !== 'object') {
+      return entry;
+    }
+
+    let changed = false;
+    const mcpServers = Object.fromEntries(Object.entries(parsed.mcpServers).map(([name, server]) => {
+      if (!server || typeof server !== 'object' || Array.isArray(server)) {
+        return [name, server];
+      }
+      const definition = server as Record<string, unknown>;
+      const transport = definition['transport'];
+      if (
+        definition['type'] !== undefined
+        || (transport !== 'http' && transport !== 'sse')
+      ) {
+        return [name, server];
+      }
+      const { transport: _transport, ...withoutTransport } = definition;
+      changed = true;
+      return [name, { ...withoutTransport, type: transport }];
+    }));
+
+    return changed ? JSON.stringify({ ...parsed, mcpServers }) : entry;
+  } catch {
+    return entry;
+  }
+}
+
 export function buildClaudeMcpConfig(options: UnifiedSpawnOptions): string[] | undefined {
-  const configs = [...(options.mcpConfig ?? [])];
+  const configs = (options.mcpConfig ?? []).map(normalizeClaudeInlineMcpConfig);
   const browserGatewayConfig = options.browserGatewayMcp
     ? buildBrowserGatewayMcpConfigJson(
         withBrowserGatewayProvider(options.browserGatewayMcp, 'claude'),

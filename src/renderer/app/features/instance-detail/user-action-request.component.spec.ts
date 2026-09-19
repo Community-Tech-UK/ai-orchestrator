@@ -638,6 +638,59 @@ describe('UserActionRequestComponent', () => {
     expect(fakeIpc.respondToInputRequired).not.toHaveBeenCalled();
     expect(fixture.nativeElement.textContent).not.toContain('ghp_exampleplaceholdervalue0000000000');
   });
+
+  it('shows a non-blocking, accessible format warning for a secret that does not match the requested kind', async () => {
+    currentInstanceId.set('inst-secret-format');
+    fixture.detectChanges();
+    await settle(fixture);
+
+    onInputRequired({
+      instanceId: 'inst-secret-format',
+      requestId: 'req-secret-format',
+      prompt: 'Need a GitHub token to install the connector.',
+      timestamp: 1,
+      metadata: {
+        type: 'secret_required',
+        name: 'github-pat',
+        label: 'GitHub personal access token',
+        purpose: 'Install the workspace MCP connector',
+        expectedFormat: 'github_pat',
+      },
+    });
+    fixture.detectChanges();
+    await settle(fixture);
+
+    const input = fixture.nativeElement.querySelector('.secret-input') as HTMLInputElement;
+
+    // No warning before anything is typed.
+    expect(fixture.nativeElement.querySelector('.secret-card-warning')).toBeNull();
+
+    input.value = 'not-a-github-token';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    const warning = fixture.nativeElement.querySelector('.secret-card-warning') as HTMLElement;
+    expect(warning).not.toBeNull();
+    expect(warning.textContent).toContain('does not look like a GitHub personal access token');
+    expect(warning.getAttribute('role')).toBe('status');
+    expect(warning.getAttribute('aria-live')).toBe('polite');
+    expect(warning.id).toBe(input.getAttribute('aria-describedby'));
+    // The warning never echoes the typed value.
+    expect(warning.textContent).not.toContain('not-a-github-token');
+
+    const saveBtn = Array.from(
+      fixture.nativeElement.querySelectorAll('.btn-approve'),
+    ).find((btn) => (btn as HTMLButtonElement).textContent?.includes('Save securely')) as HTMLButtonElement;
+    // A format mismatch never blocks submission.
+    expect(saveBtn.disabled).toBe(false);
+
+    input.value = 'ghp_exampleplaceholdervalue0000000000';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.secret-card-warning')).toBeNull();
+    expect(input.getAttribute('aria-describedby')).toBeNull();
+  });
 });
 
 function overrideInputs(

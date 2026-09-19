@@ -347,4 +347,18 @@ describe('buildIterationEvidenceView', () => {
     expect(view.verifyText).toContain('missing dependencies');
     expect(view.verifyText).toContain('node_modules');
   });
+
+  it('distinguishes a cancelled verify from a failed command', () => {
+    const view = buildIterationEvidenceView({
+      progressSignals: [],
+      completionSignalsFired: [],
+      verifyStatus: 'failed',
+      verifyFailureKind: 'cancelled',
+      testPassCount: 0,
+      testFailCount: 0,
+      filesChanged: [],
+    });
+    expect(view.verifyText).toContain('cancelled');
+    expect(view.verifyText).toContain('not a test failure');
+  });
 });

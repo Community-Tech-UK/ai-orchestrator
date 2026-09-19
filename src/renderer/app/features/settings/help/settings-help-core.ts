@@ -218,10 +218,10 @@ export const AUXILIARY_MODELS_TAB_HELP: HelpEntry = {
       kind: 'steps',
       heading: 'How to use it',
       items: [
-        'Enable auxiliary models and choose a routing mode.',
-        'Click Refresh to scan for Ollama and custom endpoints.',
-        'Set quick and quality tier models from the dropdowns.',
-        'Test a slot to see which endpoint it routes through.',
+        'Overview: enable auxiliary models, set a routing mode and optional daily spend cap, and check endpoint health.',
+        'Models: pick a quick (small/fast) and a quality (larger) default model.',
+        'Slots: override the tier or model for one slot, or test it to see which endpoint it routes through.',
+        'Advanced: see full discovered-endpoint detail and probe a custom OpenAI-compatible or Ollama endpoint.',
       ],
     },
     {
@@ -339,7 +339,7 @@ export const PERMISSIONS_TAB_HELP: HelpEntry = {
       kind: 'callout',
       variant: 'info',
       heading: 'What this does',
-      body: 'Sets the default answer for filesystem and network actions an agent takes that no rule or earlier decision already covers.',
+      body: 'Sets the default answer for filesystem, network, and browser actions an agent takes that no rule or earlier decision already covers. The page splits into four views: Requests (waiting for your approval), Rules (default action, suggested rules, rule analysis), Audit (decision and denial history), and Insights (activity summary).',
     },
     {
       kind: 'callout',
@@ -360,13 +360,16 @@ export const PERMISSIONS_TAB_HELP: HelpEntry = {
       kind: 'callout',
       variant: 'tip',
       heading: 'Learned patterns',
-      body: 'Approving a learned pattern turns a repeated decision into a standing rule, cutting future prompts. The Activity summary shows rule counts, remembered decisions, and accuracy so you can judge how well automation is working.',
+      body: 'Approving a learned pattern turns a repeated decision into a standing rule, cutting future prompts. Insights shows rule counts, remembered decisions, and accuracy so you can judge how well automation is working.',
     },
     {
-      kind: 'callout',
-      variant: 'tip',
-      heading: 'Browser automation',
-      body: 'The "things to know" cards explain how browser permissions differ from filesystem ones; read them before granting browser access.',
+      kind: 'steps',
+      heading: 'Browser automation — before you approve',
+      items: [
+        'Use a separate browser profile so an agent’s sessions stay apart from your personal passwords and cookies.',
+        'Approve session-level access first; make it permanent only once you’re happy it’s working as expected.',
+        'Only approve browser tools you recognise — they can navigate, click, and read page content.',
+      ],
     },
     {
       kind: 'recommend',
@@ -426,16 +429,33 @@ export const ADVANCED_TAB_HELP: HelpEntry = {
       kind: 'callout',
       variant: 'info',
       heading: 'What this does',
-      body: 'Low-level tuning for code indexing, browser automation, MCP safety, hook approvals, and backup/restore. Most people should leave these at their defaults.',
+      body: 'Three sections: Runtime tunes performance and indexing, Security covers MCP safety, hook approvals, and credential handling, and Data covers backup, restore, and reset. Most people should leave these at their defaults.',
     },
     {
       kind: 'list',
-      heading: 'Main sections',
+      heading: 'Runtime',
       items: [
-        'Runtime controls: parser buffer, diagnostics, file scanning.',
-        'Code memory indexing: symbol search and workspace prewarm.',
-        'Knowledge Graph auto-build and MCP safety guards.',
-        'Hook approvals and backup/restore.',
+        'Runtime controls, Browser DevTools attach, and code-memory/legacy search indexing.',
+        'Quota pacing warnings and Knowledge Graph auto-build.',
+        'Session failover and handoff, deferred tool loading, and the optional remote model catalog.',
+      ],
+    },
+    {
+      kind: 'list',
+      heading: 'Security',
+      items: [
+        'MCP safety guards and hook approvals.',
+        'Instruction/memory trust gates and the Claude subprocess environment scrub.',
+        'The Local AI paid-fallback guard.',
+        'Credentials & secrets, set apart at the bottom: the browser credential vault, workspace secrets, and shared-tab credential fill.',
+      ],
+    },
+    {
+      kind: 'list',
+      heading: 'Data',
+      items: [
+        'Export or import portable settings.',
+        'Reset all settings to defaults, set apart at the bottom and confirmation-gated.',
       ],
     },
     {
@@ -447,8 +467,8 @@ export const ADVANCED_TAB_HELP: HelpEntry = {
     {
       kind: 'callout',
       variant: 'tip',
-      heading: 'Browser DevTools attach',
-      body: 'Use Refresh profiles and the managed-profile dropdown to pick which Chrome profile agents drive. The Setup guides section walks through browser automation end to end.',
+      heading: 'Browser DevTools attach setup',
+      body: 'Use Refresh profiles and the managed-profile dropdown to pick which Chrome profile agents drive, then use "Open the browser automation setup guide" in that same card for the full walkthrough end to end.',
     },
     {
       kind: 'callout',

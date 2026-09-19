@@ -205,6 +205,7 @@ describe('scanAddedLinesForCleanliness', () => {
     const result = scanAddedLinesForCleanliness([
       '+++ b/src/a.ts',
       '+<<<<<<< HEAD',
+      '+||||||| base',
       '+it.only("does x", () => {})',
       '+console.log("debug")',
       '+debugger;',
@@ -212,8 +213,30 @@ describe('scanAddedLinesForCleanliness', () => {
     ].join('\n'));
 
     expect(result.status).toBe('failed');
-    expect(result.findings).toHaveLength(4);
+    expect(result.findings).toHaveLength(5);
     expect(result.findings.every((finding) => finding.severity === 'blocking')).toBe(true);
+  });
+
+  it('does not mistake a section divider comment for a git conflict marker', () => {
+    const result = scanAddedLinesForCleanliness('+// ============ Workspace Secret Card ============');
+
+    expect(result.status).toBe('passed');
+    expect(result.findings).toEqual([]);
+  });
+
+  it.each([
+    '<<<<<<< HEAD',
+    '||||||| base',
+    '=======',
+    '>>>>>>> feature/branch',
+  ])('detects a standalone %s conflict marker', (marker) => {
+    const result = scanAddedLinesForCleanliness(`+${marker}`);
+
+    expect(result.status).toBe('failed');
+    expect(result.findings).toEqual([expect.objectContaining({
+      severity: 'blocking',
+      message: 'Added line contains a git conflict marker.',
+    })]);
   });
 
   it('emits review findings for temporary marker comments', () => {

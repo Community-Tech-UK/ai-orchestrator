@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import { createRequire } from 'node:module';
 import * as path from 'node:path';
+import { assertSeaBuildSupported, NODE_SEA_FUSE } from './scripts/sea-build-support';
 
 const localRequire = createRequire(__filename);
 
@@ -16,6 +17,7 @@ function assertNode22Plus(): void {
 
 async function main(): Promise<void> {
   assertNode22Plus();
+  assertSeaBuildSupported();
   const bundle = path.resolve('dist/loop-control-cli/index.js');
   if (!fs.existsSync(bundle)) {
     throw new Error(`Missing ${bundle} — run npm run build:loop-control-cli first`);
@@ -46,7 +48,7 @@ async function main(): Promise<void> {
     'NODE_SEA_BLOB',
     seaConfig.output,
     '--sentinel-fuse',
-    'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2',
+    NODE_SEA_FUSE,
   ];
   if (process.platform === 'darwin') postjectArgs.push('--macho-segment-name', 'NODE_SEA');
   execFileSync(process.execPath, [localRequire.resolve('postject/dist/cli.js'), ...postjectArgs], { stdio: 'inherit' });

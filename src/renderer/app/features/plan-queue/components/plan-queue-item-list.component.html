@@ -1,0 +1,40 @@
+<div class="pq-item-list">
+  @if (items().length === 0) {
+    <div class="pq-item-list-empty">No documents in this run.</div>
+  } @else {
+    @for (item of items(); track item.id) {
+      <div class="pq-item" [attr.data-state]="item.state">
+        <div class="pq-item-head">
+          <span class="pq-item-doc" [title]="item.documentPath">{{ documentBasename(item.documentPath) }}</span>
+          <span class="pq-item-state" [attr.data-state]="item.state">{{ stateLabel(item.state) }}</span>
+          <span class="pq-item-round">Round {{ item.round }}</span>
+          @if (item.erroredRounds > 0) {
+            <span class="pq-item-errored-rounds">{{ item.erroredRounds }} errored round(s)</span>
+          }
+          @if (isSkippable(item.state)) {
+            <button type="button" class="pq-item-skip" (click)="onSkip(item.id)">Skip</button>
+          }
+        </div>
+
+        @if (item.verdict) {
+          <div class="pq-item-verdict">{{ verdictSummary(item.verdict) }}</div>
+        }
+
+        @if (item.parkReason) {
+          <div class="pq-item-park-reason">Parked: {{ parkReasonLabel(item.parkReason) }}</div>
+        }
+
+        @if (item.detail) {
+          <div class="pq-item-detail">{{ item.detail }}</div>
+        }
+
+        @if (item.question && hasOpenQuestion(item.state)) {
+          <app-plan-queue-question-card
+            [question]="item.question"
+            (submitAnswer)="onAnswer(item.id, $event)"
+          />
+        }
+      </div>
+    }
+  }
+</div>

@@ -2,6 +2,7 @@ import { getLogger } from '../logging/logger';
 import { generateId } from '../../shared/utils/id-generator';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import { getPermissionEnforcer } from '../security/permission-enforcer';
+import { getSettingsManager } from '../core/config/settings-manager';
 import { type PermissionRequest, type PermissionScope } from '../security/permission-manager';
 import {
   loadOptionalProjectRules,
@@ -38,6 +39,21 @@ export interface InputRequiredPayload {
  * Pending-request bookkeeping, auto-allow/deny, and lifecycle events live here;
  * the manager remains the EventEmitter / send-resume host.
  */
+const SECRET_REQUESTS_DISABLED_REASON =
+  'workspace secret requests are turned off in Settings.';
+
+/** Both operator switches must be on before an agent may raise a secret card. */
+function secretCardRequestsAllowed(): boolean {
+  try {
+    const settings = getSettingsManager().getAll();
+    return settings.workspaceSecretsEnabled !== false
+      && settings.workspaceSecretsAllowAgentRequests !== false;
+  } catch {
+    // Settings unavailable: fail closed, the card is an operator-gated surface.
+    return false;
+  }
+}
+
 export class InstancePermissionRequestFlow {
   private readonly pendingByInputId = new Map<string, PermissionRequest>();
 
@@ -62,6 +78,48 @@ export class InstancePermissionRequestFlow {
       requestId: payload.requestId,
       metadataType: metaType,
     });
+
+    // Operator switches for the workspace secret card. `workspaceSecretsEnabled`
+    // is the master switch and `workspaceSecretsAllowAgentRequests` bars agents
+    // from raising the card; both are documented as operator-only. Refuse here,
+    // in main, so the card never reaches the renderer, and answer the agent so
+    // it is not left waiting on a prompt nobody will see.
+    if (metaType === 'secret_required' && !secretCardRequestsAllowed()) {
+      logger.info('[APPROVAL_TRACE] manager_block_secret_request', {
+        approvalTraceId,
+        instanceId: payload.instanceId,
+        requestId: payload.requestId,
+      });
+      this.emitPermissionLifecycleEvent({
+        instanceId: payload.instanceId,
+        requestId: payload.requestId,
+        outcome: 'deny',
+        toolName: 'workspace-secret',
+        reason: SECRET_REQUESTS_DISABLED_REASON,
+        source: 'operator-setting',
+        metadataType: metaType,
+      });
+      try {
+        await this.host.sendInputResponse(
+          payload.instanceId,
+          `Secret request refused: ${SECRET_REQUESTS_DISABLED_REASON} Continue without it, or ask the user to supply the value another way.`,
+        );
+      } catch {
+        /* intentionally ignored: auto-response send failure is non-critical */
+      }
+      if (instance) {
+        const msg = {
+          id: generateId(),
+          timestamp: Date.now(),
+          type: 'system' as const,
+          content: `Blocked a secret request from this session: ${SECRET_REQUESTS_DISABLED_REASON}`,
+          metadata: { secretRequestBlocked: true },
+        };
+        this.host.addToOutputBuffer(instance, msg);
+        this.host.publishOutput(payload.instanceId, msg);
+      }
+      return;
+    }
 
     // Only gate the known CLI permission denial prompts (Claude CLI emits these for tool_result denial).
     if (metaType === 'permission_denial') {

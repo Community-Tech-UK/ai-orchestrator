@@ -7,10 +7,19 @@ import { getLogger } from '../logging/logger';
 
 const logger = getLogger('LoopWorktreeLifecycle');
 
+/**
+ * Auto-integration refuses a session that adds active plan/spec/livetest
+ * documents: those must stay untracked on the base branch. The work stays
+ * durable on the session branch for a human to land.
+ */
+export const ACTIVE_PLAN_DOCUMENTS_BLOCK_REASON =
+  'Session adds active plan/spec/livetest documents; land it manually';
+
 export interface LoopWorktreeFinalizerManager {
   harvestWorktree(
     worktreeId: string,
   ): Promise<{ committed: boolean; hasUncommittedWork: boolean; hash?: string }>;
+  listActivePlanDocuments(worktreeId: string): Promise<string[]>;
   integrateWorktree(
     worktreeId: string,
     options?: Record<string, never>,
@@ -115,6 +124,18 @@ export async function finalizeLoopWorktree(args: FinalizeLoopWorktreeArgs): Prom
       await manager.cleanupWorktree(worktreeSessionId, { retainBranch: true });
       store.clearWorktreeInfo(state.id);
       transition('cleaned');
+      return;
+    }
+
+    const activePlanDocuments = await manager.listActivePlanDocuments(worktreeSessionId);
+    if (activePlanDocuments.length > 0) {
+      logger.warn('Managed worktree integration refused: active plan documents', {
+        loopRunId: state.id,
+        documents: activePlanDocuments,
+      });
+      transition('blocked', { lastError: ACTIVE_PLAN_DOCUMENTS_BLOCK_REASON });
+      await manager.cleanupWorktree(worktreeSessionId, { retainBranch: true });
+      store.clearWorktreeInfo(state.id);
       return;
     }
 

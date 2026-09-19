@@ -67,6 +67,7 @@ export const CONTROL_SURFACES: readonly ControlSurfaceItem[] = [
   surface({ id: 'chat-search', path: '/chat-search', label: 'Chat Search', subtitle: 'Find prior conversations and reusable context.', group: 'knowledge', kind: 'tool' }),
   surface({ id: 'automations', path: '/automations', label: 'Automations', subtitle: 'Schedule and monitor recurring agent work.', group: 'automation', kind: 'workflow', dashboard: true }),
   surface({ id: 'campaigns', path: '/campaigns', label: 'Campaigns', subtitle: 'Coordinate multi-loop campaign runs.', group: 'automation', kind: 'workflow', layout: 'wide', dashboard: true }),
+  surface({ id: 'plan-queue', path: '/plan-queue', label: 'Plan Queue', subtitle: 'Work through plan and livetest documents with verified workers.', group: 'automation', kind: 'workflow', layout: 'wide', dashboard: true }),
   surface({ id: 'workflows', path: '/workflows', label: 'Workflows', subtitle: 'Compose reusable automation flows.', group: 'automation', kind: 'workflow', dashboard: true }),
   surface({ id: 'hooks', path: '/hooks', label: 'Hooks', subtitle: 'Run commands on agent lifecycle events.', group: 'automation', kind: 'workflow', dashboard: true, settings: true }),
   surface({ id: 'skills', path: '/skills', label: 'Skills', subtitle: 'Browse available agent skills.', group: 'agents', kind: 'tool', dashboard: true }),

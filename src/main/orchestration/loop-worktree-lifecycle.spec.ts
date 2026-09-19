@@ -36,6 +36,7 @@ function makeManager(
       hasUncommittedWork: true,
       hash: 'harvest',
     }),
+    listActivePlanDocuments: vi.fn().mockResolvedValue([]),
     integrateWorktree: vi.fn().mockResolvedValue({
       success: true,
       integrationBranch: 'integration/main',
@@ -128,6 +129,51 @@ describe('finalizeLoopWorktree', () => {
     expect(manager.integrateWorktree).not.toHaveBeenCalled();
     expect(manager.cleanupWorktree).not.toHaveBeenCalled();
     expect(store.clearWorktreeInfo).not.toHaveBeenCalled();
+  });
+
+  it('refuses to auto-integrate a session that adds active plan documents', async () => {
+    const state = makeState();
+    const manager = makeManager({
+      listActivePlanDocuments: vi.fn().mockResolvedValue(['docs/plans/feature_plan.md']),
+    });
+    const store = makeStore();
+    const phases: string[] = [];
+
+    await finalizeLoopWorktree({
+      state,
+      status: 'completed',
+      worktreeSessionId: 'wt-1',
+      manager,
+      store,
+      onTransition: (lifecycle) => phases.push(lifecycle.phase),
+    });
+
+    expect(phases).toEqual(['harvesting', 'harvested', 'blocked']);
+    expect(state.worktreeLifecycle).toMatchObject({
+      phase: 'blocked',
+      sessionBranch: 'task-loop-1',
+      sessionTip: 'harvest',
+      lastError: 'Session adds active plan/spec/livetest documents; land it manually',
+    });
+    expect(manager.integrateWorktree).not.toHaveBeenCalled();
+    expect(manager.promoteWorktreeIntegration).not.toHaveBeenCalled();
+    expect(manager.cleanupWorktree).toHaveBeenCalledWith('wt-1', { retainBranch: true });
+    expect(store.clearWorktreeInfo).toHaveBeenCalledWith('loop-1');
+  });
+
+  it('does not inspect plan documents for a run that will not be integrated', async () => {
+    const state = makeState('cancelled');
+    const manager = makeManager();
+
+    await finalizeLoopWorktree({
+      state,
+      status: 'cancelled',
+      worktreeSessionId: 'wt-1',
+      manager,
+      store: makeStore(),
+    });
+
+    expect(manager.listActivePlanDocuments).not.toHaveBeenCalled();
   });
 
   it('keeps both branch refs visible when promotion is blocked', async () => {

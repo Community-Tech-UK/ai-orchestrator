@@ -15,9 +15,11 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { runRestoreFrame, RESTORE_FRAME_FALLBACK_MS } from './restore-frame';
 
 const realRaf = globalThis.requestAnimationFrame;
+const realCancelRaf = globalThis.cancelAnimationFrame;
 
 afterEach(() => {
   globalThis.requestAnimationFrame = realRaf;
+  globalThis.cancelAnimationFrame = realCancelRaf;
   vi.useRealTimers();
 });
 
@@ -45,6 +47,19 @@ describe('runRestoreFrame', () => {
     expect(step).not.toHaveBeenCalled();
 
     vi.advanceTimersByTime(RESTORE_FRAME_FALLBACK_MS);
+    expect(step).toHaveBeenCalledOnce();
+  });
+
+  it('runs the fallback when frame globals are restored before it fires', () => {
+    vi.useFakeTimers();
+    const step = vi.fn();
+    globalThis.requestAnimationFrame = (() => 1) as unknown as typeof requestAnimationFrame;
+    globalThis.cancelAnimationFrame = vi.fn();
+
+    runRestoreFrame(step);
+    globalThis.cancelAnimationFrame = undefined as unknown as typeof cancelAnimationFrame;
+
+    expect(() => vi.advanceTimersByTime(RESTORE_FRAME_FALLBACK_MS)).not.toThrow();
     expect(step).toHaveBeenCalledOnce();
   });
 

@@ -41,6 +41,10 @@ function isExcluded(path: string): boolean {
     // Surface shell's back-to-dashboard control this audit guards, so the
     // feature legitimately carries its own Back.
     || rel.startsWith('workboard/')
+    // Settings → Remote Nodes → Computers is a list/detail workspace whose
+    // narrow single-pane layout needs a detail→list "Back to computers"
+    // control. Like the Workboard's, it is intra-view, not the shell's Back.
+    || rel.startsWith('settings/remote-node-detail.component.')
     || rel === 'settings/settings.component.ts';
 }
 

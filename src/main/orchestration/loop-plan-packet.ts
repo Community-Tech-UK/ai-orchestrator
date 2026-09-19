@@ -6,8 +6,8 @@ import type {
 } from '../../shared/types/loop.types';
 import type { LoopArtifactPaths } from './loop-artifact-paths';
 
-const PHASE_HEADING = /^##\s+Phase\s+(\d+)\s*:\s*(.+?)\s*$/;
-const SECTION_HEADING = /^(Acceptance Criteria|Required Commands|Evidence):\s*$/;
+const PHASE_HEADING = /^#{1,2}\s+Phase\s+(\d+)\s*:\s*(.+?)\s*$/;
+const SECTION_HEADING = /^(?:#{1,6}\s+)?(Acceptance Criteria|Required Commands|Evidence):?\s*$/;
 const EVIDENCE_SHAPE = /\b\S+:\d+\b/;
 
 type PacketSection = 'acceptance' | 'commands' | 'evidence' | null;
@@ -72,7 +72,7 @@ export function parseLoopPlanPacketMarkdown(
       continue;
     }
 
-    if (!line.startsWith('-')) continue;
+    if (!/^(?:-|\d+[.)])\s+/.test(line)) continue;
     const item = cleanListItem(line);
     if (!item) continue;
     if (currentSection === 'acceptance') current.acceptanceCriteria.push(item);
@@ -123,8 +123,7 @@ export async function readLoopPlanPacket(paths: LoopArtifactPaths): Promise<Loop
 
 function cleanListItem(line: string): string {
   return line
-    .replace(/^-\s+\[[ xX]\]\s*/, '')
-    .replace(/^-\s*/, '')
+    .replace(/^(?:-|\d+[.)])\s+(?:\[[ xX]\]\s*)?/, '')
     .trim();
 }
 

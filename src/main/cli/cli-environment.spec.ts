@@ -244,6 +244,19 @@ describe('cli-environment', () => {
     expect(buildCliPath(env, 'darwin')).toContain(':/usr/bin:/bin');
   });
 
+  it('keeps $GROK_HOME off the spawn PATH every CLI shares', () => {
+    // A relocated grok install is found by the install scan for grok alone
+    // (CLI_REGISTRY.grok.installerMirrorDirs). Putting $GROK_HOME/bin here
+    // would prepend a grok-only env var to the PATH that every CLI is spawned
+    // with, changing which binary any of them resolves.
+    const env = { HOME: '/Users/alice', GROK_HOME: '/opt/grok-home' } as NodeJS.ProcessEnv;
+    const paths = getCliAdditionalPaths(env, 'darwin');
+
+    expect(paths).not.toContain('/opt/grok-home/bin');
+    expect(paths).toContain('/Users/alice/.grok/bin');
+    expect(buildCliPath(env, 'darwin')).not.toContain('/opt/grok-home');
+  });
+
   it('prefers nvm and user-managed bin dirs over Homebrew on POSIX', () => {
     // Regression: a forgotten Homebrew-npm copy of a CLI (e.g. codex 0.97.0
     // at /opt/homebrew/bin) used to shadow the user's current nvm install

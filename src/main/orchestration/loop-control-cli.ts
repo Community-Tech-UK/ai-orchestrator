@@ -146,6 +146,9 @@ function helpText(): string {
     '  aio-loop-control wakeup --summary "<why to resume>" --resume-in "<seconds>"',
     '  aio-loop-control fail --summary "<failure reason>"',
     '',
+    'These record an intent for the loop this shell is running inside.',
+    'To list parked loops or restart one, use `aio-mcp loop` instead.',
+    '',
   ].join('\n');
 }
 

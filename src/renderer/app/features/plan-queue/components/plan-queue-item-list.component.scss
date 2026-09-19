@@ -1,0 +1,50 @@
+.pq-item-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pq-item-list-empty {
+  opacity: 0.7;
+  padding: 8px 0;
+}
+
+.pq-item {
+  border: 1px solid var(--pq-border-color, #3a3a3a);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.pq-item-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pq-item-doc {
+  font-weight: 600;
+}
+
+.pq-item-state {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.85em;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.pq-item-errored-rounds {
+  color: #e0a458;
+}
+
+.pq-item-skip {
+  margin-left: auto;
+}
+
+.pq-item-verdict,
+.pq-item-park-reason,
+.pq-item-detail {
+  margin-top: 6px;
+  font-size: 0.92em;
+  opacity: 0.9;
+}

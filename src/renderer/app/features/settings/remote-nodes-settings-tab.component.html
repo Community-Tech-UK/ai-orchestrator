@@ -5,296 +5,140 @@
     browser, using its GPU, or adding extra AI&nbsp;CLI capacity.
   </p>
 
-  <app-inline-help variant="info" heading="What is a remote node?">
-    A <strong>remote node</strong> is another computer (for example your Windows
-    PC) that does heavy jobs on this app's behalf — browser automation, GPU
-    work, or extra AI CLI capacity. This machine stays in charge and simply
-    hands out the work; the other computer runs it and reports back.
-    <br /><br />
-    To connect one: <strong>1.</strong> turn on the server below &nbsp;·&nbsp;
-    <strong>2.</strong> create a one-time pairing code &nbsp;·&nbsp;
-    <strong>3.</strong> scan or open that code on the other computer.
-  </app-inline-help>
-
   @if (error()) {
-    <div class="error-msg">{{ error() }}</div>
+    <div class="error-msg" role="alert">{{ error() }}</div>
   }
 
-  <div class="connection-card">
-    <div class="card-row">
-      <div>
-        <span class="card-name">Computer Role</span>
-        <p class="field-hint section-inline-hint">
-          Choose whether this computer coordinates work or runs as a worker for another Harness.
-        </p>
-      </div>
-      <span class="status-badge connected">{{ store.harnessRole() }}</span>
-    </div>
+  <app-settings-section-tabs
+    [tabs]="sectionTabs()"
+    [activeId]="activeSection()"
+    ariaLabel="Remote Nodes sections"
+    (activeIdChange)="onSectionChange($event)"
+  />
 
-    <div class="role-choice-row">
-      <button
-        class="btn btn-secondary"
-        type="button"
-        [class.selected]="store.harnessRole() === 'coordinator'"
-        (click)="changeComputerRole('coordinator')"
-      >
-        Main Harness
-      </button>
-      <button
-        class="btn btn-secondary"
-        type="button"
-        [class.selected]="store.harnessRole() === 'worker'"
-        (click)="changeComputerRole('worker')"
-      >
-        Worker
-      </button>
-      <button
-        class="btn btn-secondary"
-        type="button"
-        [class.selected]="store.harnessRole() === 'unset'"
-        (click)="changeComputerRole('unset')"
-      >
-        Ask on launch
-      </button>
-    </div>
-  </div>
+  @switch (activeSection()) {
+    @case ('overview') {
+      <section id="remote-nodes-panel-overview" role="tabpanel" aria-labelledby="overview" tabindex="0" class="section-panel">
+        <div class="connection-card">
+          <div class="card-row">
+            <div>
+              <span class="card-name">Computer Role</span>
+              <p class="field-hint section-inline-hint">
+                Choose whether this computer coordinates work or runs as a worker for another Harness.
+              </p>
+            </div>
+            <span class="status-badge connected">{{ store.harnessRole() }}</span>
+          </div>
 
-  <div class="connection-card">
-    <div class="card-row">
-      <div class="card-info">
-        <span class="card-name">Enable Remote Node Server</span>
-      </div>
-      <label class="toggle-label">
-        <input
-          type="checkbox"
-          class="toggle-input"
-          [checked]="store.remoteNodesEnabled()"
-          (change)="toggleEnabled()"
-        />
-        <span class="toggle-track">
-          <span class="toggle-thumb"></span>
-        </span>
-      </label>
-    </div>
+          <div class="role-choice-row">
+            <button
+              class="btn btn-secondary"
+              type="button"
+              [class.selected]="store.harnessRole() === 'coordinator'"
+              (click)="changeComputerRole('coordinator')"
+            >
+              Main Harness
+            </button>
+            <button
+              class="btn btn-secondary"
+              type="button"
+              [class.selected]="store.harnessRole() === 'worker'"
+              (click)="changeComputerRole('worker')"
+            >
+              Worker
+            </button>
+            <button
+              class="btn btn-secondary"
+              type="button"
+              [class.selected]="store.harnessRole() === 'unset'"
+              (click)="changeComputerRole('unset')"
+            >
+              Ask on launch
+            </button>
+          </div>
+        </div>
 
-    <p class="field-hint">
-      Starts a small server on <strong>this</strong> machine that other computers
-      dial into. Turning it off disconnects every remote node. Traffic stays on
-      your local network — nothing is sent to the internet.
-    </p>
+        <div class="connection-card">
+          <div class="card-row">
+            <div class="card-info">
+              <span class="card-name">Enable Remote Node Server</span>
+            </div>
+            <label class="toggle-label">
+              <input
+                type="checkbox"
+                class="toggle-input"
+                [checked]="store.remoteNodesEnabled()"
+                (change)="toggleEnabled()"
+              />
+              <span class="toggle-track">
+                <span class="toggle-thumb"></span>
+              </span>
+            </label>
+          </div>
 
-    <p class="field-hint connection-summary">
-      @if (serverStatus().running) {
-        <span class="status-badge connected">Running on {{ serverStatus().host ?? store.remoteNodesServerHost() }}:{{ serverStatus().port ?? store.remoteNodesServerPort() }}</span>
-        <span>{{ serverStatus().registeredCount ?? nodeHealthEntries().length }} registered</span>
-        <span>{{ serverStatus().pendingPairingCount ?? pendingPairings().length }} pending pairing credentials</span>
-      } @else {
-        <span class="status-badge disconnected">Server stopped</span>
-      }
-    </p>
+          <p class="field-hint">
+            Starts a small server on <strong>this</strong> machine that other computers
+            dial into. Turning it off disconnects every remote node. Traffic stays on
+            your local network — nothing is sent to the internet.
+          </p>
 
-    @if (serverStatus().running && serverStatus().localIps?.length) {
-      <p class="field-hint connection-summary">
-        Workers should connect to
-        @for (ip of serverStatus().localIps!; track ip; let last = $last) {
-          <span class="machine-ip">{{ ip }}:{{ serverStatus().port ?? store.remoteNodesServerPort() }}</span>@if (!last) {<span> or </span>}
+          <p class="field-hint connection-summary">
+            @if (serverStatus().running) {
+              <span class="status-badge connected">Running on {{ serverStatus().host ?? store.remoteNodesServerHost() }}:{{ serverStatus().port ?? store.remoteNodesServerPort() }}</span>
+              <span>{{ connectedCount() }} connected</span>
+              <span>{{ serverStatus().registeredCount ?? nodeHealthEntries().length }} registered</span>
+              <span>{{ serverStatus().pendingPairingCount ?? pendingPairings().length }} pending pairing credentials</span>
+            } @else {
+              <span class="status-badge disconnected">Server stopped</span>
+            }
+          </p>
+
+          @if (serverStatus().running && serverStatus().localIps?.length) {
+            <p class="field-hint connection-summary">
+              Workers should connect to
+              @for (ip of serverStatus().localIps!; track ip; let last = $last) {
+                <span class="machine-ip">{{ ip }}:{{ serverStatus().port ?? store.remoteNodesServerPort() }}</span>@if (!last) {<span> or </span>}
+              }
+            </p>
+          }
+
+          <app-validation-row
+            [status]="serverStatus().running ? 'pass' : 'warn'"
+            [label]="serverStatus().running ? 'Server accepting workers' : 'Server stopped'"
+            [detail]="serverStatus().running ? 'Remote workers can pair and receive eligible tasks.' : 'Enable the server before sharing pairing credentials.'"
+          />
+        </div>
+
+        @if (store.remoteNodesEnabled()) {
+          <div class="connection-card overview-summary">
+            <span class="card-name">Automatic offload</span>
+            <p class="field-hint">
+              Browser: {{ store.remoteNodesAutoOffloadBrowser() ? 'On' : 'Off' }} ·
+              Android: {{ store.remoteNodesAutoOffloadAndroid() ? 'On' : 'Off' }} ·
+              GPU: {{ store.remoteNodesAutoOffloadGpu() ? 'On' : 'Off' }}.
+              Change these in Advanced.
+            </p>
+            <div class="btn-row">
+              <button class="btn btn-secondary" type="button" (click)="goToSection('pairing')">
+                Manage pairing →
+              </button>
+              <button class="btn btn-secondary" type="button" (click)="goToSection('advanced')">
+                Server &amp; advanced settings →
+              </button>
+            </div>
+          </div>
         }
-      </p>
+      </section>
     }
+    @case ('pairing') {
+      <section id="remote-nodes-panel-pairing" role="tabpanel" aria-labelledby="pairing" tabindex="0" class="section-panel">
+        @if (store.remoteNodesEnabled()) {
+          <app-coordinator-pairing />
 
-    <app-validation-row
-      [status]="serverStatus().running ? 'pass' : 'warn'"
-      [label]="serverStatus().running ? 'Server accepting workers' : 'Server stopped'"
-      [detail]="serverStatus().running ? 'Remote workers can pair and receive eligible tasks.' : 'Enable the server before sharing pairing credentials.'"
-    />
-  </div>
-
-  @if (store.remoteNodesEnabled()) {
-    <div class="connection-card">
-      <span class="card-name">Server Configuration</span>
-      <p class="field-hint">
-        How this machine listens for remote computers. The defaults work for most
-        setups — only change these if a port is already taken or you run more than
-        one separate group of machines.
-      </p>
-
-      <div class="field-grid">
-        <div class="field-group">
-          <label class="field-label" for="rn-port">Port</label>
-          <input
-            id="rn-port"
-            type="number"
-            class="field-input"
-            [value]="draftPort()"
-            (input)="draftPort.set(+$any($event.target).value)"
-            min="1024"
-            max="65535"
-            placeholder="4878"
-          />
-          <p class="field-hint">
-            The network port remote computers connect to. Default is 4878 —
-            change it only if another program is already using that port.
-          </p>
-        </div>
-
-        <div class="field-group">
-          <label class="field-label" for="rn-host">Host</label>
-          <input
-            id="rn-host"
-            type="text"
-            class="field-input"
-            [value]="draftHost()"
-            (input)="draftHost.set($any($event.target).value)"
-            placeholder="0.0.0.0"
-          />
-          <p class="field-hint">
-            Which connections to accept. <code>0.0.0.0</code> = any computer on
-            your network (the normal choice). <code>127.0.0.1</code> = this
-            machine only, so nothing else can connect.
-          </p>
-        </div>
-
-        <div class="field-group">
-          <label class="field-label" for="rn-namespace">Namespace</label>
-          <input
-            id="rn-namespace"
-            type="text"
-            class="field-input"
-            [value]="draftNamespace()"
-            (input)="draftNamespace.set($any($event.target).value)"
-            placeholder="default"
-          />
-          <p class="field-hint">
-            A label that groups machines together. A remote computer only
-            auto-finds this app when its namespace matches. Leave it as
-            <code>default</code> unless you deliberately run several separate
-            clusters.
-          </p>
-        </div>
-      </div>
-
-      <div class="field-group">
-        <div class="card-row">
-          <label class="field-label" for="rn-require-tls">Encrypt connections (TLS)</label>
-          <label class="toggle-label">
-            <input
-              id="rn-require-tls"
-              type="checkbox"
-              class="toggle-input"
-              [checked]="draftRequireTls()"
-              (change)="draftRequireTls.set(!draftRequireTls())"
-            />
-            <span class="toggle-track">
-              <span class="toggle-thumb"></span>
-            </span>
-          </label>
-        </div>
-        <p class="field-hint">
-          Scrambles the traffic between this app and remote computers so others
-          on the network can't read it. Recommended on shared or public Wi-Fi;
-          optional on a trusted home network.
-        </p>
-      </div>
-
-      @if (draftRequireTls()) {
-        <div class="field-group">
-          <label class="field-label" for="rn-tls-mode">Certificate source</label>
-          <select
-            id="rn-tls-mode"
-            class="field-input"
-            [value]="draftTlsMode()"
-            (change)="draftTlsMode.set($any($event.target).value)"
-          >
-            <option value="auto">Auto — let this app generate one</option>
-            <option value="custom">Custom — I'll provide my own files</option>
-          </select>
-          <p class="field-hint">
-            <strong>Auto</strong> creates a self-signed certificate for you (no
-            setup — fine for a home/LAN). <strong>Custom</strong> lets you point
-            at your own certificate and key files (advanced).
-          </p>
-        </div>
-      }
-
-      <div class="field-group">
-        <div class="card-row">
-          <label class="field-label" for="rn-offload-browser">Auto-offload Browser Tasks</label>
-          <label class="toggle-label">
-            <input
-              id="rn-offload-browser"
-              type="checkbox"
-              class="toggle-input"
-              [checked]="draftAutoOffloadBrowser()"
-              (change)="draftAutoOffloadBrowser.set(!draftAutoOffloadBrowser())"
-            />
-            <span class="toggle-track">
-              <span class="toggle-thumb"></span>
-            </span>
-          </label>
-        </div>
-        <p class="field-hint">
-          When a job needs a real web browser and a connected computer has one,
-          send it there automatically instead of running it on this machine.
-        </p>
-      </div>
-
-      <div class="field-group">
-        <div class="card-row">
-          <label class="field-label" for="rn-offload-android">Auto-offload Android Tasks</label>
-          <label class="toggle-label">
-            <input
-              id="rn-offload-android"
-              type="checkbox"
-              class="toggle-input"
-              [checked]="draftAutoOffloadAndroid()"
-              (change)="draftAutoOffloadAndroid.set(!draftAutoOffloadAndroid())"
-            />
-            <span class="toggle-track">
-              <span class="toggle-thumb"></span>
-            </span>
-          </label>
-        </div>
-        <p class="field-hint">
-          When a job needs an Android emulator or device and a connected computer
-          has Android automation enabled, send it there automatically.
-        </p>
-      </div>
-
-      <div class="field-group">
-        <div class="card-row">
-          <label class="field-label" for="rn-offload-gpu">Auto-offload GPU Tasks</label>
-          <label class="toggle-label">
-            <input
-              id="rn-offload-gpu"
-              type="checkbox"
-              class="toggle-input"
-              [checked]="draftAutoOffloadGpu()"
-              (change)="draftAutoOffloadGpu.set(!draftAutoOffloadGpu())"
-            />
-            <span class="toggle-track">
-              <span class="toggle-thumb"></span>
-            </span>
-          </label>
-        </div>
-        <p class="field-hint">
-          When a job needs a GPU (for example running a local model) and a
-          connected computer has one, send it there automatically.
-        </p>
-      </div>
-
-      <app-save-state-banner
-        [state]="configSaveState()"
-        (apply)="applyAndRestart()"
-        (discard)="syncDraftsFromStore()"
-      />
-    </div>
-
-    <app-coordinator-pairing />
-
-    <details class="connection-card advanced-legacy-pairing">
-      <summary>
-        <span class="card-name">Advanced: aio-worker pair command</span>
-        <span class="status-badge" [class]="pendingPairings().length > 0 ? 'status-badge connecting' : 'status-badge disconnected'">
+          <details class="connection-card advanced-legacy-pairing">
+            <summary>
+              <span class="card-name">Advanced pairing (aio-worker pair command)</span>
+              <span class="status-badge" [class]="pendingPairings().length > 0 ? 'status-badge connecting' : 'status-badge disconnected'">
           {{ pendingPairings().length }} pending
         </span>
       </summary>
@@ -460,6 +304,230 @@
       }
     </details>
 
+        }
+      </section>
+    }
+    @case ('computers') {
+      <section id="remote-nodes-panel-computers" role="tabpanel" aria-labelledby="computers" tabindex="0" class="section-panel">
+        @if (store.remoteNodesEnabled()) {
+          <div class="card-row computers-header">
+            <span class="card-name">Connected Computers</span>
+            <span class="status-badge" [class]="connectedCount() > 0 ? 'status-badge connected' : 'status-badge disconnected'">
+              {{ connectedCount() }} {{ connectedCount() === 1 ? 'node' : 'nodes' }} connected
+            </span>
+          </div>
+
+          <div class="node-workspace" [class.has-selection]="selectedNode() !== null">
+            <div class="node-workspace-list">
+              <app-remote-node-list
+                [nodes]="liveNodes()"
+                [selectedNodeId]="selectedNodeId()"
+                (nodeSelected)="selectedNodeId.set($event)"
+              />
+            </div>
+            <div class="node-workspace-detail">
+              @if (selectedNode(); as node) {
+                <app-remote-node-detail
+                  [node]="node"
+                  [baBusy]="baBusy()"
+                  [aaBusy]="aaBusy()"
+                  [loginBusy]="loginBusy()"
+                  [loginNotice]="loginNotice()"
+                  (backRequested)="selectedNodeId.set(null)"
+                  (actionRequested)="onDetailAction($event)"
+                />
+              } @else {
+                <p class="field-hint">Select a computer from the list to see its details.</p>
+              }
+            </div>
+          </div>
+        } @else {
+          <p class="field-hint">Enable the remote-node server in Overview to see connected computers.</p>
+        }
+      </section>
+    }
+    @case ('advanced') {
+      <section id="remote-nodes-panel-advanced" role="tabpanel" aria-labelledby="advanced" tabindex="0" class="section-panel">
+        @if (store.remoteNodesEnabled()) {
+          <div class="connection-card">
+            <span class="card-name">Server and routing</span>
+            <p class="field-hint">
+              How this machine listens for remote computers. The defaults work for most
+              setups — only change these if a port is already taken or you run more than
+              one separate group of machines.
+            </p>
+
+            <div class="field-grid">
+              <div class="field-group">
+                <label class="field-label" for="rn-port">Port</label>
+                <input
+                  id="rn-port"
+                  type="number"
+                  class="field-input"
+                  [value]="draftPort()"
+                  (input)="draftPort.set(+$any($event.target).value)"
+                  min="1024"
+                  max="65535"
+                  placeholder="4878"
+                />
+                <p class="field-hint">
+                  The network port remote computers connect to. Default is 4878 —
+                  change it only if another program is already using that port.
+                </p>
+              </div>
+
+              <div class="field-group">
+                <label class="field-label" for="rn-host">Host</label>
+                <input
+                  id="rn-host"
+                  type="text"
+                  class="field-input"
+                  [value]="draftHost()"
+                  (input)="draftHost.set($any($event.target).value)"
+                  placeholder="0.0.0.0"
+                />
+                <p class="field-hint">
+                  Which connections to accept. <code>0.0.0.0</code> = any computer on
+                  your network (the normal choice). <code>127.0.0.1</code> = this
+                  machine only, so nothing else can connect.
+                </p>
+              </div>
+
+              <div class="field-group">
+                <label class="field-label" for="rn-namespace">Namespace</label>
+                <input
+                  id="rn-namespace"
+                  type="text"
+                  class="field-input"
+                  [value]="draftNamespace()"
+                  (input)="draftNamespace.set($any($event.target).value)"
+                  placeholder="default"
+                />
+                <p class="field-hint">
+                  A label that groups machines together. A remote computer only
+                  auto-finds this app when its namespace matches. Leave it as
+                  <code>default</code> unless you deliberately run several separate
+                  clusters.
+                </p>
+              </div>
+            </div>
+
+            <div class="field-group">
+              <div class="card-row">
+                <label class="field-label" for="rn-require-tls">Encrypt connections (TLS)</label>
+                <label class="toggle-label">
+                  <input
+                    id="rn-require-tls"
+                    type="checkbox"
+                    class="toggle-input"
+                    [checked]="draftRequireTls()"
+                    (change)="draftRequireTls.set(!draftRequireTls())"
+                  />
+                  <span class="toggle-track">
+                    <span class="toggle-thumb"></span>
+                  </span>
+                </label>
+              </div>
+              <p class="field-hint">
+                Scrambles the traffic between this app and remote computers so others
+                on the network can't read it. Recommended on shared or public Wi-Fi;
+                optional on a trusted home network.
+              </p>
+            </div>
+
+            @if (draftRequireTls()) {
+              <div class="field-group">
+                <label class="field-label" for="rn-tls-mode">Certificate source</label>
+                <select
+                  id="rn-tls-mode"
+                  class="field-input"
+                  [value]="draftTlsMode()"
+                  (change)="draftTlsMode.set($any($event.target).value)"
+                >
+                  <option value="auto">Auto — let this app generate one</option>
+                  <option value="custom">Custom — I'll provide my own files</option>
+                </select>
+                <p class="field-hint">
+                  <strong>Auto</strong> creates a self-signed certificate for you (no
+                  setup — fine for a home/LAN). <strong>Custom</strong> lets you point
+                  at your own certificate and key files (advanced).
+                </p>
+              </div>
+            }
+
+            <div class="field-group">
+              <div class="card-row">
+                <label class="field-label" for="rn-offload-browser">Auto-offload Browser Tasks</label>
+                <label class="toggle-label">
+                  <input
+                    id="rn-offload-browser"
+                    type="checkbox"
+                    class="toggle-input"
+                    [checked]="draftAutoOffloadBrowser()"
+                    (change)="draftAutoOffloadBrowser.set(!draftAutoOffloadBrowser())"
+                  />
+                  <span class="toggle-track">
+                    <span class="toggle-thumb"></span>
+                  </span>
+                </label>
+              </div>
+              <p class="field-hint">
+                When a job needs a real web browser and a connected computer has one,
+                send it there automatically instead of running it on this machine.
+              </p>
+            </div>
+
+            <div class="field-group">
+              <div class="card-row">
+                <label class="field-label" for="rn-offload-android">Auto-offload Android Tasks</label>
+                <label class="toggle-label">
+                  <input
+                    id="rn-offload-android"
+                    type="checkbox"
+                    class="toggle-input"
+                    [checked]="draftAutoOffloadAndroid()"
+                    (change)="draftAutoOffloadAndroid.set(!draftAutoOffloadAndroid())"
+                  />
+                  <span class="toggle-track">
+                    <span class="toggle-thumb"></span>
+                  </span>
+                </label>
+              </div>
+              <p class="field-hint">
+                When a job needs an Android emulator or device and a connected computer
+                has Android automation enabled, send it there automatically.
+              </p>
+            </div>
+
+            <div class="field-group">
+              <div class="card-row">
+                <label class="field-label" for="rn-offload-gpu">Auto-offload GPU Tasks</label>
+                <label class="toggle-label">
+                  <input
+                    id="rn-offload-gpu"
+                    type="checkbox"
+                    class="toggle-input"
+                    [checked]="draftAutoOffloadGpu()"
+                    (change)="draftAutoOffloadGpu.set(!draftAutoOffloadGpu())"
+                  />
+                  <span class="toggle-track">
+                    <span class="toggle-thumb"></span>
+                  </span>
+                </label>
+              </div>
+              <p class="field-hint">
+                When a job needs a GPU (for example running a local model) and a
+                connected computer has one, send it there automatically.
+              </p>
+            </div>
+
+            <app-save-state-banner
+              [state]="configSaveState()"
+              (apply)="applyAndRestart()"
+              (discard)="syncDraftsFromStore()"
+            />
+          </div>
+
     <app-danger-zone
       title="Manual Pairing Token (advanced)"
       description="Automation only. A long-lived code you set yourself for connecting a computer by script or config file instead of the QR/link flow above. It is used up the first time a computer registers with it. Most people should use Quick Pairing instead and can ignore this."
@@ -551,295 +619,10 @@
         </div>
       }
     </app-danger-zone>
-
-    <div class="connection-card">
-      <div class="card-row">
-        <span class="card-name">Connected Computers</span>
-        <span class="status-badge" [class]="connectedCount() > 0 ? 'status-badge connected' : 'status-badge disconnected'">
-          {{ connectedCount() }} {{ connectedCount() === 1 ? 'node' : 'nodes' }} connected
-        </span>
-      </div>
-
-      <p class="field-hint">
-        Computers that have paired with this app, with what each can do
-        (browser, GPU, installed AI CLIs) and whether it's online right now.
-      </p>
-
-      <app-inline-help variant="tip" heading="Browser automation per node">
-        <p>
-          <strong>Ready</strong> — agents spawned on this node get
-          <code>chrome-devtools</code> browser tools driving a logged-in Chrome.
-          <strong>Chrome only</strong> — Chrome is installed but automation isn't
-          enabled yet. <strong>Off</strong> — no Chrome runtime detected.
-        </p>
-        <p>
-          Enable it with the per-node toggle below. First-time setup also needs a
-          one-time profile login on that machine — see
-          <code>docs/remote-browser-automation-runbook.md</code>.
-        </p>
-      </app-inline-help>
-
-      <app-inline-help variant="tip" heading="Android automation per node">
-        <p>
-          <strong>Ready</strong> — agents spawned with Android placement get
-          <code>mobile-mcp</code> locked to one leased device. <strong>SDK detected</strong>
-          means ADB is present but automation is not enabled yet.
-        </p>
-      </app-inline-help>
-
-      @if (nodeHealthEntries().length === 0) {
-        <p class="field-hint">No computers have connected yet. Create a pairing code above and enter it on the other machine to connect one.</p>
-      } @else {
-        @for (entry of nodeHealthEntries(); track entry.id) {
-          <div class="node-health-card">
-            <div class="node-row node-row-header">
-              <div>
-                <span class="node-id">{{ entry.name }}</span>
-                <div class="node-meta">
-                  <span>{{ entry.id }}</span>
-                  <span>{{ formatNodePlatformLabel(entry.platform) }}</span>
-                  @if (entry.address) {
-                    <span>{{ entry.address }}</span>
-                  }
-                  <span>{{ formatNodeCapacity(entry) }}</span>
-                </div>
-              </div>
-              <div class="status-actions">
-                <span class="status-badge" [class]="'status-badge ' + entry.status">{{ entry.status }}</span>
-                <button
-                  class="btn btn-secondary small"
-                  type="button"
-                  (click)="copyNodeDiagnostics(entry)"
-                >
-                  Copy diagnostics
-                </button>
-                @if (entry.status !== 'disconnected') {
-                  <button
-                    class="btn btn-secondary small"
-                    type="button"
-                    title="Close this computer's live connection without revoking it. It reconnects by itself."
-                    (click)="resetConnection(entry)"
-                  >
-                    Reset connection
-                  </button>
-                }
-                <button
-                  class="btn btn-danger small"
-                  type="button"
-                  (click)="revokeNode(entry.id)"
-                >
-                  Revoke
-                </button>
-              </div>
-            </div>
-
-            <div class="node-meta">
-              <span>Registered {{ formatRelativeTime(entry.createdAt) }}</span>
-              @if (entry.lastSeenAt) {
-                <span>Last authenticated {{ formatRelativeTime(entry.lastSeenAt) }}</span>
-              }
-              @if (entry.pairingLabel) {
-                <span>Credential {{ entry.pairingLabel }}</span>
-              }
-              @if (entry.connectedAt) {
-                <span>Connected {{ formatRelativeTime(entry.connectedAt) }}</span>
-              }
-              @if (entry.lastHeartbeat) {
-                <span>Heartbeat {{ formatRelativeTime(entry.lastHeartbeat) }}</span>
-              }
-            </div>
-
-            <app-remote-node-repair-panel [entry]="entry" />
-
-            <div class="badge-row">
-              <span
-                class="capability-chip browser-automation"
-                [attr.data-state]="browserAutomationState(entry)"
-                [title]="browserAutomationState(entry) === 'chrome-only'
-                  ? 'Chrome is installed but automation is not enabled on this node.'
-                  : browserAutomationState(entry) === 'off'
-                    ? 'No Chrome/Chromium runtime detected on this node.'
-                    : 'Agents spawned on this node get chrome-devtools browser tools.'"
-              >
-                {{ browserAutomationLabel(entry) }}
-              </span>
-              <span
-                class="capability-chip browser-automation"
-                [attr.data-state]="extensionRelayState(entry)"
-                [title]="extensionRelayState(entry) === 'ready'
-                  ? 'Chrome extension native-host relay is listening on this node.'
-                  : extensionRelayState(entry) === 'enabled'
-                    ? 'Chrome extension relay is enabled but not currently running.'
-                    : 'Chrome extension relay is off on this node.'"
-              >
-                {{ extensionRelayLabel(entry) }}
-              </span>
-              <span
-                class="capability-chip android-automation"
-                [attr.data-state]="androidAutomationState(entry)"
-                [title]="androidAutomationState(entry) === 'sdk-only'
-                  ? 'Android SDK/ADB is detected, but automation is not ready on this node.'
-                  : androidAutomationState(entry) === 'off'
-                    ? 'No Android SDK/ADB state reported by this node.'
-                    : 'Agents spawned on this node can receive mobile-mcp Android tools.'"
-              >
-                {{ androidAutomationLabel(entry) }}
-              </span>
-              @if (entry.supportsGpu) {
-                <span class="capability-chip">GPU</span>
-              }
-              @for (cli of entry.supportedClis; track cli) {
-                <span class="capability-chip">{{ cli }}</span>
-              }
-              @if (entry.supportsBrowser) {
-                <button
-                  class="btn btn-secondary small"
-                  type="button"
-                  (click)="configuringNodeId() === entry.id ? cancelBrowserConfig() : openBrowserConfig(entry)"
-                >
-                  {{ configuringNodeId() === entry.id ? 'Close' : 'Configure browser automation' }}
-                </button>
-              }
-              @if (entry.status === 'connected') {
-                <button
-                  class="btn btn-secondary small"
-                  type="button"
-                  (click)="androidConfiguringNodeId() === entry.id ? cancelAndroidConfig() : openAndroidConfig(entry)"
-                >
-                  {{ androidConfiguringNodeId() === entry.id ? 'Close' : 'Configure Android automation' }}
-                </button>
-              }
-            </div>
-
-            @if (configuringNodeId() === entry.id) {
-              <div class="ba-config-form">
-                <label class="ba-row">
-                  <input
-                    type="checkbox"
-                    [checked]="baDraftEnabled()"
-                    (change)="baDraftEnabled.set(!baDraftEnabled())"
-                  />
-                  <span>Enable browser automation on this node</span>
-                </label>
-
-                <label class="ba-field">
-                  <span class="ba-label">Automation profile directory</span>
-                  <input
-                    type="text"
-                    class="ba-input"
-                    placeholder="Leave blank for default (~/.orchestrator/browser-automation-profile)"
-                    [value]="baDraftProfileDir()"
-                    (input)="baDraftProfileDir.set($any($event.target).value)"
-                  />
-                </label>
-
-                <label class="ba-row">
-                  <input
-                    type="checkbox"
-                    [checked]="baDraftHeadless()"
-                    (change)="baDraftHeadless.set(!baDraftHeadless())"
-                  />
-                  <span>Run Chrome headless</span>
-                </label>
-
-                <label class="ba-row">
-                  <input
-                    type="checkbox"
-                    [checked]="baDraftExtensionRelayEnabled()"
-                    (change)="baDraftExtensionRelayEnabled.set(!baDraftExtensionRelayEnabled())"
-                  />
-                  <span>Enable shared-tab extension relay on this node</span>
-                </label>
-
-                <p class="field-hint ba-warning">
-                  Browser automation has no per-action approval — only enable it on
-                  trusted nodes, and point the profile at a dedicated Chrome profile
-                  (not your everyday browser). First use needs a one-time profile
-                  login on that machine.
-                </p>
-
-                <div class="ba-actions">
-                  <button
-                    class="btn btn-primary small"
-                    type="button"
-                    [disabled]="baBusy()"
-                    (click)="applyBrowserConfig()"
-                  >
-                    {{ baBusy() ? 'Applying…' : 'Apply' }}
-                  </button>
-                  <button
-                    class="btn btn-secondary small"
-                    type="button"
-                    [disabled]="baBusy()"
-                    (click)="cancelBrowserConfig()"
-                  >
-                    Cancel
-                  </button>
-                </div>
-
-                <div class="ba-login">
-                  <span class="ba-label">One-time profile login</span>
-                  @if (!entry.browserAutomation?.profileDir) {
-                    <p class="field-hint">Apply the config above first, then log the profile in here.</p>
-                  } @else {
-                    <label class="ba-field">
-                      <span class="ba-label">Login URL</span>
-                      <input
-                        type="text"
-                        class="ba-input"
-                        [value]="loginUrlDraft()"
-                        (input)="loginUrlDraft.set($any($event.target).value)"
-                      />
-                    </label>
-
-                    @if (loginCommandPreview(entry)) {
-                      <pre class="ba-command">{{ loginCommandPreview(entry) }}</pre>
-                    }
-
-                    <p class="field-hint ba-warning">
-                      Chrome opens on <strong>{{ entry.name }}</strong>'s own screen —
-                      you must be at that computer (or connected via remote desktop)
-                      to complete the login. Then close that Chrome window.
-                    </p>
-
-                    <div class="ba-actions">
-                      <button
-                        class="btn btn-secondary small"
-                        type="button"
-                        (click)="copyLoginCommand(entry)"
-                      >
-                        Copy command
-                      </button>
-                      <button
-                        class="btn btn-secondary small"
-                        type="button"
-                        [disabled]="loginBusy()"
-                        (click)="runLoginOnNode(entry)"
-                      >
-                        {{ loginBusy() ? 'Launching…' : 'Run on node' }}
-                      </button>
-                    </div>
-
-                    @if (loginNotice()) {
-                      <p class="field-hint">{{ loginNotice() }}</p>
-                    }
-                  }
-                </div>
-              </div>
-            }
-
-            @if (androidConfiguringNodeId() === entry.id) {
-              <app-remote-node-android-config
-                [busy]="aaBusy()"
-                [enabledFallback]="entry.androidAutomationReady"
-                [summary]="entry.androidAutomation"
-                (applyRequested)="applyAndroidConfig($event)"
-                (cancelRequested)="cancelAndroidConfig()"
-              />
-            }
-          </div>
+        } @else {
+          <p class="field-hint">Enable the remote-node server in Overview to edit server and routing settings.</p>
         }
-      }
-    </div>
+      </section>
+    }
   }
 </div>

@@ -1,0 +1,314 @@
+<div class="ecosystem">
+  <div class="page-header">
+    <div class="header-title">
+      <span class="title">Ecosystem</span>
+      <span class="subtitle">Browse commands, agents, tools, and plugin integrations.</span>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <div class="dir">
+      <label class="label" for="ecosystem-wd-select">Working directory</label>
+      <div class="controls">
+        <select
+          id="ecosystem-wd-select"
+          class="select"
+          [value]="workingDirectory()"
+          (change)="onSelectWorkingDirectory($event)"
+        >
+          @for (d of recentDirectories(); track d.path) {
+            <option [value]="d.path">{{ d.path }}</option>
+          }
+        </select>
+        <button type="button" class="btn" (click)="pickWorkingDirectory()">Choose…</button>
+        <button type="button" class="btn" (click)="reload()" [disabled]="loading()">Reload</button>
+      </div>
+    </div>
+    @if (error()) {
+      <div class="error" role="alert">{{ error() }}</div>
+    }
+  </div>
+
+  <app-instruction-inspector [workingDirectory]="workingDirectory()" />
+
+  <app-settings-section-tabs
+    [tabs]="categoryTabs()"
+    [activeId]="activeCategory()"
+    ariaLabel="Ecosystem resource category"
+    (activeIdChange)="selectCategory($event)"
+  />
+
+  <div class="workspace">
+    <div class="list-pane" [id]="activeListPanelId()" role="tabpanel" [attr.aria-labelledby]="activeCategory()" tabindex="0">
+      <div class="list-pane-header">
+        <span class="list-pane-title">{{ activeCategoryLabel() }}</span>
+        @if (activeCategoryDefinition().createLabel; as createLabel) {
+          <button type="button" class="mini-btn" (click)="createNewForActiveCategory()">{{ createLabel }}</button>
+        }
+      </div>
+
+      <div class="list">
+        @switch (activeCategory()) {
+          @case ('command') {
+            @for (cmd of commands(); track cmd.name) {
+              <button
+                type="button"
+                class="item"
+                [class.active]="selectedKind() === 'command' && selectedKey() === cmd.name"
+                (click)="select('command', cmd.name, cmd.filePath || null)"
+                [attr.title]="cmd.filePath || ''"
+              >
+                <div class="item-title">/{{ cmd.name }}</div>
+                <div class="item-sub">{{ cmd.description }}</div>
+              </button>
+            }
+            @if (commands().length === 0) {
+              <div class="empty">No commands yet — click New command to create one</div>
+            }
+          }
+          @case ('agent') {
+            @for (a of agents(); track a.profile.id) {
+              <button
+                type="button"
+                class="item"
+                [class.active]="selectedKind() === 'agent' && selectedKey() === a.profile.id"
+                (click)="select('agent', a.profile.id, a.source === 'file' ? a.filePath : null)"
+                [attr.title]="a.source === 'file' ? a.filePath : 'Built in to the app'"
+              >
+                <div class="item-title">
+                  {{ a.profile.name }}
+                  <span class="pill" [class.builtin]="a.source === 'built-in'">{{
+                    a.source === 'built-in' ? 'built-in' : 'custom'
+                  }}</span>
+                </div>
+                <div class="item-sub">{{ a.profile.description }}</div>
+              </button>
+            }
+            @if (agents().length === 0) {
+              <div class="empty">No agents found</div>
+            }
+          }
+          @case ('tool') {
+            @for (t of tools(); track t.id) {
+              <button
+                type="button"
+                class="item"
+                [class.active]="selectedKind() === 'tool' && selectedKey() === t.id"
+                (click)="select('tool', t.id, t.filePath)"
+                [attr.title]="t.filePath"
+              >
+                <div class="item-title">{{ t.id }}</div>
+                <div class="item-sub">{{ t.description }}</div>
+              </button>
+            }
+            @if (tools().length === 0) {
+              <div class="empty">No tools yet — click New tool to create one</div>
+            }
+          }
+          @case ('plugin') {
+            @for (p of plugins(); track p.filePath) {
+              <button
+                type="button"
+                class="item"
+                [class.active]="selectedKind() === 'plugin' && selectedKey() === p.filePath"
+                (click)="select('plugin', p.filePath, p.filePath)"
+                [attr.title]="p.filePath"
+              >
+                <div class="item-title">{{ basename(p.filePath) }}</div>
+                <div class="item-sub">
+                  {{ p.hookKeys.length }} event {{ p.hookKeys.length === 1 ? 'handler' : 'handlers' }}
+                </div>
+              </button>
+            }
+            @if (plugins().length === 0) {
+              <div class="empty">No plugins yet — click New plugin to create one</div>
+            }
+          }
+          @case ('output-style') {
+            <p class="section-hint">
+              Sets how new agents communicate. Click one to make it active for new
+              sessions. Built-in styles add a directive; your own
+              <code>.md</code> styles can replace the whole prompt.
+            </p>
+            @for (style of outputStyleOptions(); track style.name) {
+              <button
+                type="button"
+                class="item"
+                [class.active]="activeOutputStyle() === style.name"
+                (click)="selectOutputStyle(style.name)"
+                [attr.title]="style.filePath || (style.source === 'built-in' ? 'Built in to the app' : '')"
+              >
+                <div class="item-title">
+                  {{ style.label }}
+                  <span class="pill" [class.builtin]="style.source === 'built-in'">{{
+                    style.source === 'built-in' ? 'built-in' : 'custom'
+                  }}</span>
+                  @if (activeOutputStyle() === style.name) {
+                    <span class="pill active-pill">active</span>
+                  }
+                </div>
+                @if (style.description) {
+                  <div class="item-sub">{{ style.description }}</div>
+                } @else if (style.source === 'user' && style.mode === 'replace') {
+                  <div class="item-sub">Replaces the full system prompt</div>
+                }
+              </button>
+            }
+            @if (outputStyleOptions().length === 0) {
+              <div class="empty">No output styles found</div>
+            }
+            @if (outputStyleScanDirs().length > 0) {
+              <div class="scan">
+                <div class="scan-title">Where the app looks for your output styles</div>
+                <div class="scan-list">
+                  @for (d of outputStyleScanDirs(); track d) {
+                    <div class="scan-item">{{ d }}</div>
+                  }
+                </div>
+              </div>
+            }
+          }
+        }
+      </div>
+    </div>
+
+    <div class="detail-pane">
+      @if (activeCategory() === 'output-style') {
+        @if (selectedOutputStyleDetail(); as style) {
+          <div class="detail">
+            <div class="detail-header">
+              <div class="detail-title" [attr.title]="style.label">
+                {{ style.label }}
+                @if (activeOutputStyle() === style.name) {
+                  <span class="pill active-pill">active</span>
+                }
+              </div>
+            </div>
+
+            <div class="meta">
+              <div class="row">
+                <span class="k">Source</span>
+                <span class="v">{{ style.source === 'built-in' ? 'Built in to the app' : 'Your own style' }}</span>
+              </div>
+              @if (style.filePath) {
+                <div class="row">
+                  <span class="k">File</span>
+                  <span class="v">{{ style.filePath }}</span>
+                </div>
+              }
+              @if (style.mode) {
+                <div class="row">
+                  <span class="k">Mode</span>
+                  <span class="v">{{ style.mode === 'replace' ? 'Replaces the full system prompt' : 'Adds a directive to the default prompt' }}</span>
+                </div>
+              }
+            </div>
+
+            @if (style.description) {
+              <p class="section-hint">{{ style.description }}</p>
+            }
+
+            @if (activeOutputStyle() !== style.name) {
+              <div class="editor-actions">
+                <button type="button" class="btn primary" (click)="setOutputStyle(style.name)">Set active</button>
+              </div>
+            }
+          </div>
+        } @else {
+          <div class="placeholder">Select an output style on the left to view its details.</div>
+        }
+      } @else if (!selectedKind()) {
+        <div class="placeholder">
+          Select an item on the left to view or edit it.
+        </div>
+      } @else {
+        <div class="detail">
+          <div class="detail-header">
+            <div class="detail-title" [attr.title]="selectedKind() + ': ' + selectedKey()">
+              {{ selectedKind() }}: {{ selectedKey() }}
+            </div>
+            <div class="detail-actions">
+              @if (selectedFilePath()) {
+                <button type="button" class="btn" (click)="openPath(selectedFilePath()!)">Open file</button>
+                <button type="button" class="btn" (click)="openContainingFolder(selectedFilePath()!)">Show in folder</button>
+                <button type="button" class="btn" (click)="reloadSelectedFile()">Reload file</button>
+              }
+            </div>
+          </div>
+
+          <div class="meta">
+            <div class="row">
+              <span class="k">File</span>
+              <span class="v">{{ selectedFilePath() || 'No file (built-in)' }}</span>
+            </div>
+
+            @if (overrideFiles().length > 1) {
+              <div class="row">
+                <span class="k">Other versions</span>
+                <span class="v">
+                  @for (f of overrideFiles(); track f) {
+                    <button type="button" class="link" (click)="selectCandidateFile(f)">{{ f }}</button>
+                  }
+                </span>
+              </div>
+            }
+          </div>
+
+          @if (!selectedFilePath()) {
+            <div class="placeholder small">
+              This item is built into the app and cannot be edited here.
+            </div>
+          } @else {
+            @if (fileTruncated()) {
+              <div class="warn">This file is large — only the first portion is shown below.</div>
+            }
+
+            <textarea
+              class="editor"
+              [value]="fileContent()"
+              (input)="onEdit($event)"
+              spellcheck="false"
+              [attr.aria-label]="'File contents for ' + selectedKey()"
+            ></textarea>
+
+            <app-save-state-banner
+              [state]="saveState()"
+              [errorText]="saveError()"
+              (apply)="saveFile()"
+              (discard)="discardEdits()"
+            />
+          }
+
+          <div class="scan">
+            <div class="scan-title">Where the app looks for {{ selectedKind() === 'command' ? 'commands' : selectedKind() === 'agent' ? 'agents' : selectedKind() === 'tool' ? 'tools' : 'plugins' }}</div>
+            <div class="scan-list">
+              @for (d of scanDirsForSelectedKind(); track d) {
+                <div class="scan-item">{{ d }}</div>
+              }
+            </div>
+          </div>
+
+          @if ((ecosystem()?.tools?.errors?.length || 0) > 0 || (ecosystem()?.plugins?.errors?.length || 0) > 0) {
+            <div class="scan">
+              <div class="scan-title">Files that failed to load</div>
+              <div class="scan-list">
+                @for (e of (ecosystem()?.tools?.errors || []); track e.filePath) {
+                  <div class="scan-item error-item">
+                    <div class="err-path">{{ e.filePath }}</div>
+                    <div class="err-msg">{{ e.error }}</div>
+                  </div>
+                }
+                @for (e of (ecosystem()?.plugins?.errors || []); track e.filePath) {
+                  <div class="scan-item error-item">
+                    <div class="err-path">{{ e.filePath }}</div>
+                    <div class="err-msg">{{ e.error }}</div>
+                  </div>
+                }
+              </div>
+            </div>
+          }
+        </div>
+      }
+    </div>
+  </div>
+</div>

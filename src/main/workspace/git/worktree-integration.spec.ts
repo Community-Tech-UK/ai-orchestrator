@@ -375,6 +375,52 @@ describe('promoteIntegrationBranch', () => {
       .toBe('operator work\n');
   });
 
+  it('block-overlap promotes past an unrelated untracked root file and leaves it alone', async () => {
+    const integrationTip = await integrateFeature('task-overlap-ok');
+    mkdirSync(join(repo, 'docs'), { recursive: true });
+    writeFileSync(join(repo, 'docs/active_plan.md'), '# untracked working doc\n');
+
+    const result = await promoteIntegrationBranch(repo, 'main', 'integration/main', undefined, {
+      dirtyRootPolicy: 'block-overlap',
+    });
+
+    expect(result).toEqual({ status: 'promoted', method: 'checked-out-ff', tip: integrationTip });
+    expect(await git(['rev-parse', 'main'], repo)).toBe(integrationTip);
+    expect(existsSync(join(repo, 'promoted.txt'))).toBe(true);
+    expect(await git(['status', '--porcelain'], repo)).toBe('?? docs/');
+  });
+
+  it('block-overlap promotes past an unrelated modified tracked file', async () => {
+    await commitFile('tracked.txt', 'original\n', 'add tracked file');
+    const integrationTip = await integrateFeature('task-overlap-tracked');
+    writeFileSync(join(repo, 'tracked.txt'), 'operator edit\n');
+
+    const result = await promoteIntegrationBranch(repo, 'main', 'integration/main', undefined, {
+      dirtyRootPolicy: 'block-overlap',
+    });
+
+    expect(result).toMatchObject({ status: 'promoted', tip: integrationTip });
+    expect(await git(['status', '--porcelain'], repo)).toBe('M tracked.txt');
+  });
+
+  it('block-overlap still blocks, naming the path, when an untracked root file is being promoted', async () => {
+    await integrateFeature('task-overlap-clash');
+    const mainBefore = await git(['rev-parse', 'main'], repo);
+    writeFileSync(join(repo, 'promoted.txt'), 'operator version\n');
+
+    const result = await promoteIntegrationBranch(repo, 'main', 'integration/main', undefined, {
+      dirtyRootPolicy: 'block-overlap',
+    });
+
+    expect(result).toEqual({
+      status: 'blocked',
+      reason: 'root checkout has uncommitted changes to a promoted path: promoted.txt',
+    });
+    expect(await git(['rev-parse', 'main'], repo)).toBe(mainBefore);
+    expect(await import('node:fs/promises').then((fs) => fs.readFile(join(repo, 'promoted.txt'), 'utf8')))
+      .toBe('operator version\n');
+  });
+
   it('blocks when main diverged from the integration branch', async () => {
     await integrateFeature('task-divergent');
     await commitFile('main-only.txt', 'main moved\n', 'advance main independently');

@@ -4,6 +4,14 @@
  * Lets users enable/disable the auxiliary LLM routing layer, choose a routing
  * mode, probe custom endpoints, inspect discovered candidates, and test-fire a
  * generate call against a slot.
+ *
+ * Reorganised (2026-08-28 settings UX remediation, Task 6) into four
+ * task-based sections rendered by the shared `SettingsSectionTabsComponent`:
+ * Overview (everyday enablement/routing + a compact endpoint-health summary),
+ * Models (quick/quality tier defaults), Slots (per-slot overrides and test
+ * tools), and Advanced (full endpoint discovery + the custom endpoint
+ * probe). All setting keys, IPC calls, and per-slot semantics are unchanged
+ * from the previous single-page layout — this is presentation only.
  */
 
 import {
@@ -25,6 +33,11 @@ import {
   type AuxiliaryLlmSlotConfig,
   type AuxiliaryLlmSlotConfigMap,
 } from '../../../../shared/types/auxiliary-llm.types';
+import type { SettingsSectionTab } from './settings-navigation';
+import { SettingsSectionTabsComponent } from './ui/settings-section-tabs.component';
+
+/** The four task-based sections this tab is organised around. */
+export type AuxiliaryModelsSection = 'overview' | 'models' | 'slots' | 'advanced';
 
 const ROUTING_MODES = [
   { value: 'local-first', label: 'Local first (prefer Ollama/LAN)' },
@@ -81,367 +94,31 @@ interface SlotTestState {
 @Component({
   selector: 'app-auxiliary-models-settings-tab',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, SettingsSectionTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `
-    <div class="aux-tab">
-      <!-- Master enable toggle -->
-      <div class="card">
-        <div class="field-row">
-          <div>
-            <div class="field-label">Enable auxiliary models</div>
-            <div class="field-hint">
-              Route helper calls (compression, titles, scoring) to local or cheap
-              models instead of the main frontier model.
-            </div>
-          </div>
-          <input
-            type="checkbox"
-            [checked]="settingsStore.get('auxiliaryLlmEnabled')"
-            (change)="onEnabledChange($event)"
-          />
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="field-row">
-          <div>
-            <div class="field-label">Daily cloud spend cap (USD)</div>
-            <div class="field-hint">
-              Leave blank for no cap. When set, local models remain free and a
-              metered auxiliary request is reserved at its maximum configured
-              output cost before it is sent. Unknown-priced cloud models are blocked.
-            </div>
-          </div>
-          <input
-            id="auxiliary-daily-spend-cap"
-            type="number"
-            min="0"
-            step="0.01"
-            class="field-input"
-            placeholder="Unlimited"
-            [value]="dailySpendCapInputValue()"
-            (change)="onDailySpendCapChange($event)"
-          />
-        </div>
-      </div>
-
-      <!-- Routing mode -->
-      <div class="card">
-        <div class="field-row">
-          <div>
-            <div class="field-label">Routing mode</div>
-            <div class="field-hint">Controls how the router picks an endpoint for each slot.</div>
-          </div>
-          <select
-            [value]="settingsStore.get('auxiliaryLlmRoutingMode')"
-            (change)="onRoutingModeChange($event)"
-          >
-            @for (mode of routingModes; track mode.value) {
-              <option [value]="mode.value">{{ mode.label }}</option>
-            }
-          </select>
-        </div>
-      </div>
-
-      <!-- Use this machine's localhost Ollama -->
-      <div class="card">
-        <div class="field-row">
-          <div>
-            <div class="field-label">Use this machine's local Ollama</div>
-            <div class="field-hint">
-              When off, auxiliary routing skips this Mac's localhost Ollama and
-              prefers remote worker nodes (e.g. a GPU box). Ollama keeps running
-              for other features such as embeddings.
-            </div>
-          </div>
-          <input
-            type="checkbox"
-            [checked]="settingsStore.get('auxiliaryLlmUseLocalhostOllama')"
-            (change)="onUseLocalhostOllamaChange($event)"
-          />
-        </div>
-      </div>
-
-      <!-- routingClassification: let the aux model influence loop model choice -->
-      <div class="card">
-        <div class="field-row">
-          <div>
-            <div class="field-label">Let aux model influence loop routing</div>
-            <div class="field-hint">
-              When on, each routed Loop Mode spawn asks the auxiliary model whether
-              the task is simple enough for a cheap/fast model and, if so, prefers
-              the fast tier. Adds one quick aux call per spawn. Off keeps loop
-              model selection purely heuristic.
-            </div>
-          </div>
-          <input
-            type="checkbox"
-            [checked]="settingsStore.get('auxiliaryLlmRoutingClassificationEnabled')"
-            (change)="onRoutingClassificationChange($event)"
-          />
-        </div>
-      </div>
-
-      <!-- Discovered candidates -->
-      <div class="card">
-        <div class="card-head">
-          <div class="section-title">Discovered endpoints</div>
-          <button
-            type="button"
-            class="btn"
-            [disabled]="loadingCandidates()"
-            (click)="refreshCandidates()"
-          >
-            {{ loadingCandidates() ? 'Scanning…' : 'Refresh' }}
-          </button>
-        </div>
-        <p class="section-desc">
-          Ollama localhost is always probed. Configured endpoints appear here too.
-        </p>
-
-        @if (candidateError(); as err) {
-          <div class="error-banner">{{ err }}</div>
-        }
-
-        @if (candidates().length > 0) {
-          @for (c of candidates(); track c.endpoint.id) {
-            <div class="card" style="margin-top: 0.5rem;">
-              <div class="card-head">
-                <div>
-                  <span class="candidate-label">{{ c.endpoint.label }}</span>
-                  <span class="candidate-url"> &mdash; {{ c.endpoint.baseUrl }}</span>
-                </div>
-                <span class="health-badge" [attr.data-healthy]="c.healthy">
-                  {{ c.healthy ? 'Online' : 'Offline' }}
-                </span>
-              </div>
-              @if (c.reason) {
-                <div class="field-hint">{{ c.reason }}</div>
-              }
-              @if (c.models.length > 0) {
-                <ul class="model-list">
-                  @for (m of c.models; track m.id) {
-                    <li class="model-chip">{{ m.name || m.id }}</li>
-                  }
-                </ul>
-              }
-            </div>
-          }
-        } @else if (!loadingCandidates()) {
-          <p class="empty">No candidates yet. Click Refresh to scan.</p>
-        }
-      </div>
-
-      <!-- Manual endpoint probe -->
-      <div class="card">
-        <div class="section-title">Probe a custom endpoint</div>
-        <p class="section-desc">
-          Test reachability of a custom OpenAI-compatible or Ollama endpoint before
-          adding it to settings.
-        </p>
-        <div class="endpoint-form">
-          <div class="form-row">
-            <label class="field-label" for="probe-provider">Provider</label>
-            <select id="probe-provider" [(ngModel)]="probeProvider">
-              @for (p of providers; track p) {
-                <option [value]="p">{{ p }}</option>
-              }
-            </select>
-          </div>
-          <div class="form-row">
-            <label class="field-label" for="probe-url">Base URL</label>
-            <input
-              id="probe-url"
-              type="url"
-              class="field-input"
-              placeholder="http://localhost:11434"
-              [(ngModel)]="probeBaseUrl"
-            />
-          </div>
-          <div class="form-row">
-            <label class="field-label" for="probe-key-env">API key env var</label>
-            <input
-              id="probe-key-env"
-              type="text"
-              class="field-input"
-              placeholder="OPENAI_API_KEY"
-              [(ngModel)]="probeApiKeyEnv"
-            />
-          </div>
-          <div class="form-actions">
-            <button
-              type="button"
-              class="btn btn-primary"
-              [disabled]="probing() || !probeBaseUrl"
-              (click)="probeEndpoint()"
-            >
-              {{ probing() ? 'Probing…' : 'Probe' }}
-            </button>
-            @if (probeResult() !== null) {
-              <span [class]="probeResult() ? 'health-badge' : 'health-badge'"
-                    [attr.data-healthy]="probeResult()">
-                {{ probeResult() ? 'Reachable' : 'Unreachable' }}
-              </span>
-            }
-            @if (probeError()) {
-              <span class="error-banner">{{ probeError() }}</span>
-            }
-          </div>
-        </div>
-      </div>
-
-      <!-- Quick & quality tier models -->
-      <div class="card">
-        <div class="section-title">Quick &amp; quality models</div>
-        <p class="section-desc">
-          Pick two models once. Slots tagged <strong>quick</strong> (scoring,
-          routing, titles) use the quick model; <strong>quality</strong> slots
-          (compression, distillation) use the quality model. A per-slot model
-          override below always wins. Hit Refresh above to populate the lists.
-        </p>
-        <div class="field-row">
-          <label class="field-label" for="quick-model">Quick model (small/fast)</label>
-          <select
-            id="quick-model"
-            [value]="settingsStore.get('auxiliaryLlmQuickModel')"
-            (change)="onTierModelChange('auxiliaryLlmQuickModel', $event)"
-          >
-            <option value="">Auto (first available)</option>
-            @for (m of availableModels(); track m) {
-              <option [value]="m">{{ m }}</option>
-            }
-          </select>
-        </div>
-        <div class="field-row">
-          <label class="field-label" for="quality-model">Quality model (larger)</label>
-          <select
-            id="quality-model"
-            [value]="settingsStore.get('auxiliaryLlmQualityModel')"
-            (change)="onTierModelChange('auxiliaryLlmQualityModel', $event)"
-          >
-            <option value="">Auto (first available)</option>
-            @for (m of availableModels(); track m) {
-              <option [value]="m">{{ m }}</option>
-            }
-          </select>
-        </div>
-      </div>
-
-      <!-- Slot table -->
-      <div class="card">
-        <div class="section-title">Slots</div>
-        <p class="section-desc">Each slot routes a specific category of helper call.</p>
-        <table class="slot-table">
-          <thead>
-            <tr>
-              <th>Slot</th>
-              <th title="Which tier model this slot uses by default (quick = small/fast, quality = larger). Set the two tier models above.">
-                Tier
-              </th>
-              <th title="Override the tier model for this slot with a specific model. Auto = use the slot's tier model (or first available if no tier model is set).">
-                Model override
-              </th>
-              <th title="When on, this slot may escalate to the main frontier model if no auxiliary model produces output. Turn off to cap this slot at your configured auxiliary endpoints — if none is available it uses a deterministic local summary. Note: this only blocks the frontier model; content is still sent to whatever auxiliary endpoints you configure, which may be cloud.">
-                Frontier fallback
-              </th>
-              <th>Test</th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (slot of slots; track slot) {
-              <tr>
-                <td>
-                  {{ slot }}
-                  @if (!isSlotWired(slot)) {
-                    <span
-                      class="slot-inactive-badge"
-                      title="No feature consumes this slot yet — the Test button still works, but nothing in normal operation routes through it."
-                      >not yet active</span
-                    >
-                  }
-                  <div class="field-hint">&rarr; {{ effectiveSlotModelLabel(slot) }}</div>
-                </td>
-                <td>
-                  <select
-                    [value]="slotTier(slot)"
-                    (change)="onSlotTierChange(slot, $event)"
-                    [attr.aria-label]="'Tier for ' + slot"
-                  >
-                    <option value="">None</option>
-                    <option value="quick">quick</option>
-                    <option value="quality">quality</option>
-                  </select>
-                </td>
-                <td>
-                  <select
-                    [value]="slotModel(slot)"
-                    (change)="onSlotModelChange(slot, $event)"
-                    [attr.aria-label]="'Model override for ' + slot"
-                  >
-                    <option value="">Auto (use tier)</option>
-                    @for (m of availableModels(); track m) {
-                      <option [value]="m">{{ m }}</option>
-                    }
-                  </select>
-                </td>
-                <td>
-                  <input
-                    type="checkbox"
-                    [checked]="frontierFallbackEnabled(slot)"
-                    (change)="onFrontierFallbackChange(slot, $event)"
-                    [attr.aria-label]="'Allow cloud fallback for ' + slot"
-                  />
-                </td>
-                <td>
-                  <button
-                    type="button"
-                    class="btn"
-                    [disabled]="$safeNavigationMigration(slotTest(slot)?.testing)"
-                    (click)="testSlot(slot)"
-                  >
-                    {{ slotTest(slot)?.testing ? 'Testing…' : 'Test' }}
-                  </button>
-                </td>
-              </tr>
-              @if (slotTest(slot); as t) {
-                @if (t.error) {
-                  <tr class="slot-test-row">
-                    <td colspan="5"><div class="error-banner">{{ t.error }}</div></td>
-                  </tr>
-                } @else if (t.text !== null) {
-                  <tr class="slot-test-row">
-                    <td colspan="5">
-                      <pre class="test-output">{{ t.text }}</pre>
-                      @if (t.decision; as d) {
-                        <div class="field-hint">
-                          Routed via <strong>{{ d.source }}</strong> to
-                          <strong>{{ d.endpointId ?? d.provider }}</strong>
-                          (model: {{ d.model ?? 'auto' }}) &mdash; {{ d.reason }}
-                        </div>
-                      }
-                    </td>
-                  </tr>
-                }
-              }
-            }
-          </tbody>
-        </table>
-        <p class="field-hint">
-          Frontier fallback off = this slot never escalates to the main frontier
-          model; if no auxiliary model is available it uses a deterministic local
-          summary. It does <strong>not</strong> stop content reaching the auxiliary
-          endpoints you configure — those may be cloud (e.g. cheap-first mode or a
-          manual OpenAI-compatible endpoint).
-        </p>
-      </div>
-    </div>
-  `,
+  templateUrl: './auxiliary-models-settings-tab.component.html',
   styleUrl: './auxiliary-models-settings-tab.component.scss',
 })
 export class AuxiliaryModelsSettingsTabComponent implements OnInit {
   private readonly ipc = inject(AuxiliaryLlmIpcService);
   protected readonly settingsStore = inject(SettingsStore);
+
+  protected readonly activeSection = signal<AuxiliaryModelsSection>('overview');
+  protected readonly sectionTabs: SettingsSectionTab[] = [
+    { id: 'overview', label: 'Overview', panelId: 'panel-overview' },
+    { id: 'models', label: 'Models', panelId: 'panel-models' },
+    { id: 'slots', label: 'Slots', panelId: 'panel-slots' },
+    { id: 'advanced', label: 'Advanced', panelId: 'panel-advanced' },
+  ];
+
+  onSectionChange(id: string): void {
+    this.activeSection.set(id as AuxiliaryModelsSection);
+  }
+
+  /** Lets Overview's "View endpoint details" action jump straight to Advanced. */
+  protected goToSection(section: AuxiliaryModelsSection): void {
+    this.activeSection.set(section);
+  }
 
   protected readonly routingModes = ROUTING_MODES;
   protected readonly slots = SLOTS;
@@ -502,6 +179,28 @@ export class AuxiliaryModelsSettingsTabComponent implements OnInit {
     }
     return Array.from(ids).sort();
   });
+
+  /** Endpoint-health counts shown in Overview's compact summary. */
+  protected readonly onlineCandidateCount = computed(
+    () => this.candidates().filter((c) => c.healthy).length,
+  );
+  protected readonly offlineCandidateCount = computed(
+    () => this.candidates().length - this.onlineCandidateCount(),
+  );
+
+  /**
+   * Human-readable "what will Quick/Quality actually resolve to" feedback for
+   * the Models section — mirrors the auto-pick label already shown per slot,
+   * but for the tier model itself rather than a slot's effective model.
+   */
+  protected effectiveTierModelLabel(
+    key: 'auxiliaryLlmQuickModel' | 'auxiliaryLlmQualityModel',
+  ): string {
+    const explicit = this.settingsStore.get(key);
+    if (explicit) return explicit;
+    const auto = this.availableModels()[0];
+    return auto ? `Auto → ${auto}` : 'Auto (no candidates yet)';
+  }
 
   ngOnInit(): void {
     void this.refreshCandidates();

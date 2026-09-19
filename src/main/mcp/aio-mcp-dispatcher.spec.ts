@@ -10,6 +10,7 @@ const dispatcherMocks = vi.hoisted(() => ({
   runReleaseReadinessCli: vi.fn(async () => undefined),
   runSettingsCli: vi.fn(async () => undefined),
   runLocalAiCli: vi.fn(async () => undefined),
+  runLoopCli: vi.fn(async () => undefined),
 }));
 
 vi.mock('./orchestrator-tools-mcp-forwarder-runtime', () => ({
@@ -39,6 +40,9 @@ vi.mock('./settings-cli', () => ({
 vi.mock('./local-ai-cli', () => ({
   runLocalAiCli: dispatcherMocks.runLocalAiCli,
 }));
+vi.mock('./loop-cli', () => ({
+  runLoopCli: dispatcherMocks.runLoopCli,
+}));
 
 import { isAioMcpSubcommand, runAioMcpDispatcher } from './aio-mcp-dispatcher';
 
@@ -58,6 +62,7 @@ describe('aio-mcp-dispatcher', () => {
     expect(isAioMcpSubcommand('release-readiness')).toBe(true);
     expect(isAioMcpSubcommand('settings')).toBe(true);
     expect(isAioMcpSubcommand('local-ai')).toBe(true);
+    expect(isAioMcpSubcommand('loop')).toBe(true);
     expect(isAioMcpSubcommand('something-else')).toBe(false);
     expect(isAioMcpSubcommand(null)).toBe(false);
     expect(isAioMcpSubcommand(undefined)).toBe(false);
@@ -115,6 +120,24 @@ describe('aio-mcp-dispatcher', () => {
     const code = await runAioMcpDispatcher(argv('local-ai', 'discover', '--json'));
     expect(dispatcherMocks.runLocalAiCli).toHaveBeenCalledWith(['discover', '--json']);
     expect(code).toBe(0);
+  });
+
+  it('routes "loop" to runLoopCli with remaining args', async () => {
+    const code = await runAioMcpDispatcher(argv('loop', 'resume', 'loop-1'));
+    expect(dispatcherMocks.runLoopCli).toHaveBeenCalledWith(['resume', 'loop-1']);
+    expect(code).toBe(0);
+  });
+
+  it('returns code 1 and the refusal reason when a loop cannot be resumed', async () => {
+    dispatcherMocks.runLoopCli.mockRejectedValueOnce(
+      new Error('Loop loop-1 is cap-reached, which is terminal.'),
+    );
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const code = await runAioMcpDispatcher(argv('loop', 'resume', 'loop-1'));
+    expect(code).toBe(1);
+    expect(stderr.mock.calls.map((c) => String(c[0])).join(''))
+      .toMatch(/aio-mcp loop failed: Loop loop-1 is cap-reached/);
+    stderr.mockRestore();
   });
 
   it('exits with code 2 and prints help on unknown subcommand', async () => {

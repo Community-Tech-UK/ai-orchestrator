@@ -193,7 +193,7 @@ describe('ComposerSubmissionService', () => {
     expect(service.recoverableFor('project:/Users/suas/work/other')).toBeNull();
   });
 
-  it('still returns a usable record when the durable write fails', async () => {
+  it('refuses to begin a submission when its first durable write fails', async () => {
     const failing: ComposerSubmissionStorage = {
       list: async () => [],
       put: async () => {
@@ -204,14 +204,37 @@ describe('ComposerSubmissionService', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const degraded = makeService(failing);
 
-    const record = await degraded.begin(baseInput());
+    await expect(degraded.begin(baseInput())).rejects.toThrow('Could not preserve this message');
 
-    // Losing durability must not also lose the send: the in-memory record still
-    // drives retry for this session.
-    expect(record.status).toBe('pending');
-    expect(degraded.pending()).toHaveLength(1);
+    // The component retains its live composition when `begin()` rejects, so
+    // emitting a non-durable request would add a new loss window on reload.
+    expect(degraded.pending()).toHaveLength(0);
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
+  });
+
+  it('retains an earlier recoverable record when its replacement cannot be persisted', async () => {
+    const records = new Map<string, ComposerSubmissionRecord>();
+    let rejectWrites = false;
+    const storage: ComposerSubmissionStorage = {
+      list: async () => [...records.values()],
+      put: async (record) => {
+        if (rejectWrites) throw new Error('QuotaExceededError');
+        records.set(record.id, record);
+      },
+      delete: async (id) => {
+        records.delete(id);
+      },
+    };
+    const durable = makeService(storage);
+    const original = await durable.begin(baseInput({ text: 'original composition' }));
+    await durable.markFailed(original.id, 'offline');
+    rejectWrites = true;
+
+    await expect(durable.begin(baseInput({ text: 'replacement composition' })))
+      .rejects.toThrow('Could not preserve this message');
+
+    expect([...records.values()].map((record) => record.id)).toEqual([original.id]);
   });
 
   it('keeps a correlated stage trail on the durable record', async () => {

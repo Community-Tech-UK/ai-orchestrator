@@ -3,7 +3,7 @@
  * population, and the zero-actions case for a passing diagnosis.
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ProviderDoctor,
   classifyProbeFailure,
@@ -38,7 +38,7 @@ vi.mock('../cli/copilot-cli-launch', () => ({
 vi.mock('../cli/cli-detection', () => ({
   CliDetectionService: {
     getInstance: vi.fn().mockReturnValue({
-      detectShadowInstalls: vi.fn().mockResolvedValue(null),
+      inspectCliInstalls: vi.fn().mockResolvedValue({ installs: [], shadow: null }),
     }),
   },
 }));
@@ -251,6 +251,17 @@ describe('buildRepairActions', () => {
     expect(actions[0].severity).toBe('warning');
   });
 
+  it('reinstalls rather than removes for a report-less shadow failure on grok', () => {
+    // The probe classifies a real report as a version mismatch, so this kind
+    // only arrives without usable metadata. Removal is still wrong advice for
+    // a CLI that reinstalls its own extra copy.
+    const probe = makeProbe('cli_shadow_check', 'fail', { errorKind: 'cli_shadow_install' });
+    const actions = buildRepairActions(makeDiagnosis('grok', [probe]));
+    expect(actions[0].command).toBe('npm install -g @xai-official/grok');
+    expect(actions[0].description).toContain('Reinstall');
+    expect(actions[0].description).not.toContain('Remove stale');
+  });
+
   it('returns a warning action for cli_version_mismatch', () => {
     const probe = makeProbe('cli_shadow_check', 'fail', { errorKind: 'cli_version_mismatch' });
     const diagnosis = makeDiagnosis('claude-cli', [probe]);
@@ -259,6 +270,62 @@ describe('buildRepairActions', () => {
     expect(actions[0].severity).toBe('warning');
     // Must include the install command so the user knows how to update
     expect(actions[0].command).toContain('npm install');
+    expect(actions[0].command).toContain('remove older copies from PATH');
+  });
+
+  // Ownership is resolved from the environment; pin it so these assertions
+  // do not depend on the machine (a Windows box resolves via USERPROFILE).
+  const home = '/Users/grok-test';
+
+  describe('grok installer-owned copies', () => {
+    beforeEach(() => {
+      vi.stubEnv('HOME', home);
+      vi.stubEnv('USERPROFILE', '');
+      vi.stubEnv('GROK_HOME', '');
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    const grokShim = `${home}/.nvm/versions/node/v24.15.0/bin/grok`;
+    const grokInstallerCopy = `${home}/.grok/bin/grok`;
+
+    function grokMismatch(stalePaths: string[]) {
+      const report = {
+        installs: [
+          { path: grokShim, version: '1.0.34', installed: true },
+          ...stalePaths.map((path) => ({ path, version: '1.0.30', installed: true })),
+        ],
+        activePath: grokShim,
+        activeVersion: '1.0.34',
+      };
+      return makeProbe('cli_shadow_check', 'fail', {
+        errorKind: 'cli_version_mismatch',
+        metadata: { report: report as unknown as Record<string, unknown> },
+      });
+    }
+
+    it('does not tell grok users to delete the copy its own installer recreates', () => {
+      // grok's npm postinstall rewrites ~/.grok/bin on every install, so the
+      // generic "then remove older copies from PATH" would be undone —
+      // reinstalling is what resolves that copy.
+      const actions = buildRepairActions(makeDiagnosis('grok', [grokMismatch([grokInstallerCopy])]));
+      expect(actions[0].command).toBe(
+        'npm install -g @xai-official/grok  # refreshes every copy the installer owns',
+      );
+    });
+
+    it('still says to remove a stale grok the installer does not own', () => {
+      // A leftover under another node version or Homebrew is untouched by the
+      // reinstall — only removal fixes it, so the reinstall-only wording would
+      // leave the conflict in place forever.
+      const actions = buildRepairActions(makeDiagnosis('grok', [
+        grokMismatch([grokInstallerCopy, '/opt/homebrew/bin/grok']),
+      ]));
+      expect(actions[0].command).toContain('npm install -g @xai-official/grok');
+      expect(actions[0].command).toContain('then remove older copies from PATH');
+    });
   });
 
   it('returns a critical action for auth_missing', () => {
@@ -350,7 +417,7 @@ describe('ProviderDoctor probe errorKind population', () => {
 
   it('populated errorKind is absent on a passing probe result', async () => {
     // The cli_shadow_check probe returns pass when no shadow report exists —
-    // which is the default mock (detectShadowInstalls returns null).
+    // which is the default mock (inspectCliInstalls reports no shadow).
     const doctor = ProviderDoctor.getInstance();
     // Run only the shadow check probe in isolation for speed.
     const probe = doctor.getProbesForProvider('claude-cli').find(p => p.name === 'cli_shadow_check');
@@ -372,7 +439,7 @@ describe('ProviderDoctor probe errorKind population', () => {
 
   it('full diagnose() call populates repairActions on DiagnosisResult', async () => {
     // The top-level mock makes execFile succeed (cli_installed passes),
-    // detectShadowInstalls returns null (shadow passes), and auth returns false.
+    // inspectCliInstalls reports no shadow (shadow passes), and auth returns false.
     // So we expect exactly one repair action for the auth_missing probe.
     ProviderDoctor._resetForTesting();
     const doctor = ProviderDoctor.getInstance();

@@ -46,6 +46,12 @@ describe('WorkerTerminalHandler (real node-pty)', () => {
         const { pid } = handler.create({ sessionId: 't1', cwd: root });
         expect(pid).toBeGreaterThan(0);
 
+        // A real login shell is not ready the instant `forkpty` returns. Wait
+        // for its initial prompt/output before sending a command; otherwise a
+        // fast write can race the shell initialisation and be dropped.
+        await waitFor(() => outputs.length > 0, 5000);
+        expect(outputs).not.toEqual([]);
+
         handler.input('t1', 'echo REALPTY_OK\r');
         await waitFor(() => outputs.join('').includes('REALPTY_OK'), 5000);
         expect(outputs.join('')).toContain('REALPTY_OK');
@@ -59,5 +65,6 @@ describe('WorkerTerminalHandler (real node-pty)', () => {
         rmSync(root, { recursive: true, force: true });
       }
     },
+    15_000,
   );
 });

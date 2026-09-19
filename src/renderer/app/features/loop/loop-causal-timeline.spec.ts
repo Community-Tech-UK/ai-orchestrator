@@ -136,6 +136,18 @@ describe('provider-limit', () => {
     expect(timeline.blockingStepId).toBeNull();
     expect(timeline.nextAutomaticAction).toContain('It continues');
   });
+
+  /**
+   * A parked loop always schedules its own resume
+   * (`LoopProviderLimitHandler.scheduleResume`); `instanceProviderLimitResumeEnabled`
+   * governs regular sessions only. So the parked step must never claim the run
+   * waits for the operator.
+   */
+  it('says a provider-limit park resumes on its own', () => {
+    const timeline = buildLoopCausalTimeline(state({ status: 'provider-limit', endedAt: null }));
+    expect(timeline.nextAutomaticAction).toContain('resumes on its own');
+    expect(timeline.recovery.id).toBe('wait-or-switch-provider');
+  });
 });
 
 describe('spend meter', () => {

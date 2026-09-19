@@ -346,7 +346,7 @@ export class DoctorService {
     for (const cli of SUPPORTED_CLIS) {
       const detected = detectedByName.get(cli);
       const [installs, plan] = await Promise.all([
-        detectionService.scanAllCliInstalls(cli).catch(() => []),
+        detectionService.scanAllCliInstalls(cli, { forceRefresh }).catch(() => []),
         updateService.getUpdatePlan(cli).catch((error) => ({
           cli,
           displayName: CLI_REGISTRY[cli]?.displayName ?? cli,
@@ -368,6 +368,7 @@ export class DoctorService {
           version: install.version,
           installed: install.installed,
           error: install.error,
+          installerCopy: install.installerCopy,
         })),
         updatePlan,
         error: detected?.error,

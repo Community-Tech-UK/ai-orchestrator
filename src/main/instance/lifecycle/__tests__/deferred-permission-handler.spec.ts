@@ -253,4 +253,89 @@ describe('DeferredPermissionHandler', () => {
 
     expect(instance.status).toBe('idle');
   });
+
+  // LT-137 interrupt-in-flight race: InterruptRespawnHandler.interrupt() mutates
+  // instance.status synchronously and does not take the session mutex, so it can
+  // run to completion while resumeAfterDeferredPermission is awaiting
+  // acquireSessionMutex(). The state-machine fix above only stops a crash on
+  // waiting_for_permission -> respawning; interrupting -> respawning is a legal
+  // transition, so nothing else guards against a stale respawn racing the
+  // in-flight interrupt.
+  it('LT-137: skips the respawn (but still writes the decision) when an interrupt is already in flight', async () => {
+    const instance = makeInstance({ status: 'waiting_for_permission' });
+
+    const oldAdapter = {
+      getName: vi.fn().mockReturnValue('claude-cli'),
+      getRuntimeCapabilities: vi.fn().mockReturnValue({
+        supportsResume: true,
+        supportsForkSession: false,
+        supportsNativeCompaction: false,
+        supportsPermissionPrompts: true,
+        supportsDeferPermission: true,
+      }),
+      terminate: vi.fn().mockResolvedValue(undefined),
+      getDeferredToolUse: vi.fn().mockReturnValue({
+        toolName: 'bash',
+        toolInput: { command: 'pwd' },
+        toolUseId: 'tool-1',
+        sessionId: 'session-resume-1',
+        deferredAt: 10,
+      }),
+    } as const;
+    const newAdapter = {
+      config: {},
+      spawn: vi.fn().mockResolvedValue(4321),
+    } as const;
+
+    const deps = {
+      getInstance: vi.fn().mockReturnValue(instance),
+      getAdapter: vi.fn().mockReturnValue(oldAdapter),
+      setAdapter: vi.fn(),
+      deleteAdapter: vi.fn().mockReturnValue(true),
+      deleteDiffTracker: vi.fn(),
+      setDiffTracker: vi.fn(),
+      setupAdapterEvents: vi.fn(),
+      queueUpdate: vi.fn(),
+    };
+    const ops = {
+      transitionState: vi.fn((target: Instance, status: Instance['status']) => {
+        target.status = status;
+      }),
+      resolveCliTypeForInstance: vi.fn().mockResolvedValue('claude-cli'),
+      getMcpConfig: vi.fn().mockReturnValue(['mcp.json']),
+      getPermissionHookPath: vi.fn().mockReturnValue('/hook.js'),
+      waitForResumeHealth: vi.fn().mockResolvedValue(true),
+      createCliAdapter: vi.fn().mockReturnValue(newAdapter),
+      // Simulate a concurrent InterruptRespawnHandler.interrupt() flipping the
+      // instance to 'interrupting' while resumeAfterDeferredPermission is
+      // still awaiting the mutex.
+      acquireSessionMutex: vi.fn().mockImplementation(async () => {
+        instance.status = 'interrupting';
+        return () => undefined;
+      }),
+    };
+    const services = {
+      writeDecision: vi.fn(),
+      getDecisionDir: vi.fn().mockReturnValue('/tmp/decisions'),
+      createDiffTracker: vi.fn().mockReturnValue({ kind: 'tracker' }),
+    };
+    const handler = new DeferredPermissionHandler(deps, ops, services);
+
+    await expect(
+      handler.resumeAfterDeferredPermission(instance.id, true),
+    ).resolves.toBeUndefined();
+
+    // The decision is still recorded so it isn't silently lost...
+    expect(services.writeDecision).toHaveBeenCalledWith(
+      'tool-1',
+      'allow',
+      'User approved via orchestrator UI (interrupt in flight)',
+      undefined,
+    );
+    // ...but the respawn itself is skipped: no terminate/spawn of a second adapter.
+    expect(oldAdapter.terminate).not.toHaveBeenCalled();
+    expect(ops.createCliAdapter).not.toHaveBeenCalled();
+    expect(newAdapter.spawn).not.toHaveBeenCalled();
+    expect(instance.status).toBe('interrupting');
+  });
 });

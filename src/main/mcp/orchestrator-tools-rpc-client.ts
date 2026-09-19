@@ -6,7 +6,11 @@
  * parent process. Talks line-delimited JSON-RPC 2.0 over the Unix socket the
  * parent advertises via `AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET` (or a
  * named pipe on Windows), authenticating with the per-child instance id
- * passed in `AI_ORCHESTRATOR_INSTANCE_ID`.
+ * passed in `AI_ORCHESTRATOR_INSTANCE_ID` plus the per-spawn capability
+ * token passed in `AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_CAPABILITY` — the
+ * instance id alone is guessable (and visible to any process that can read
+ * another instance's env), so the server rejects a request missing a
+ * matching capability.
  *
  * Errors surface as plain rejections — the forwarder turns them into MCP
  * JSON-RPC error responses on stdout. Connection is one-shot per call
@@ -45,14 +49,15 @@ export class OrchestratorToolsRpcClient implements OrchestratorToolsRpcClientLik
   async call(method: string, payload: Record<string, unknown>): Promise<unknown> {
     const socketPath = this.env['AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET'];
     const instanceId = this.env['AI_ORCHESTRATOR_INSTANCE_ID'];
-    if (!socketPath || !instanceId) {
+    const capability = this.env['AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_CAPABILITY'];
+    if (!socketPath || !instanceId || !capability) {
       throw new OrchestratorToolsUnavailableError();
     }
     return this.send(socketPath, {
       jsonrpc: '2.0',
       id: nextRequestId++,
       method,
-      params: { instanceId, payload },
+      params: { instanceId, capability, payload },
     });
   }
 

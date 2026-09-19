@@ -801,6 +801,35 @@ describe('managed worktree lifecycle persistence', () => {
     updatedAt: 1234,
   } as const;
 
+  it('reads a run worktree record and drops an operator-resolved row from boot recovery', () => {
+    const config = {
+      ...defaultLoopConfig('/tmp/project', 'goal'),
+      executionCwd: '/tmp/project/.worktrees/task-example',
+      worktreeBranch: 'task-example',
+    };
+    store.reserveManagedWorktree({ id: 'loop-blocked', chatId: 'chat-b', config, lifecycle });
+
+    expect(store.getWorktreeRecord('loop-blocked')).toEqual({
+      worktreePath: config.executionCwd,
+      lifecycle,
+    });
+    expect(store.getWorktreeRecord('missing')).toBeNull();
+    expect(store.getPendingWorktreeLifecycles().map((row) => row.id)).toEqual(['loop-blocked']);
+
+    store.updateWorktreeLifecycle('loop-blocked', {
+      ...lifecycle,
+      phase: 'cleaned',
+      resolvedByOperatorAt: 2000,
+      updatedAt: 2000,
+    });
+
+    expect(store.getPendingWorktreeLifecycles()).toEqual([]);
+    expect(store.getRunSummary('loop-blocked')?.worktreeLifecycle).toMatchObject({
+      phase: 'cleaned',
+      resolvedByOperatorAt: 2000,
+    });
+  });
+
   it('durably reserves an acquired worktree before full loop startup completes', () => {
     const config = {
       ...defaultLoopConfig('/tmp/project', 'goal'),

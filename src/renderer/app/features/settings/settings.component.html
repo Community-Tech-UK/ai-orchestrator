@@ -1,14 +1,41 @@
-<div class="settings-page" (keydown)="onKeydown($event)" tabindex="0">
+<div
+  class="settings-page"
+  [class.compact-viewport]="compactViewport()"
+  [class.help-drawer-mode]="helpDrawerMode()"
+  (keydown)="onKeydown($event)"
+  tabindex="0"
+>
+  @if (compactViewport() && compactNavOpen()) {
+    <button
+      type="button"
+      class="settings-nav-scrim"
+      aria-label="Close settings navigation"
+      (click)="closeCompactNav()"
+    ></button>
+  }
+
   <!-- Left nav rail -->
-  <aside class="settings-sidebar" [class.nav-collapsed]="navCollapsed()">
+  <aside
+    class="settings-sidebar"
+    [class.nav-collapsed]="effectiveNavCollapsed() && !(compactViewport() && compactNavOpen())"
+    [class.nav-overlay-open]="compactViewport() && compactNavOpen()"
+  >
     <button
       class="settings-nav-toggle"
       type="button"
       (click)="toggleNav()"
       aria-controls="settings-section-navigation"
-      [attr.aria-label]="navCollapsed() ? 'Expand settings navigation' : 'Collapse settings navigation'"
-      [attr.aria-expanded]="!navCollapsed()"
-      [title]="navCollapsed() ? 'Expand settings navigation' : 'Collapse settings navigation'"
+      [attr.aria-label]="
+        compactViewport()
+          ? (compactNavOpen() ? 'Close settings navigation' : 'Open settings navigation')
+          : (navCollapsed() ? 'Expand settings navigation' : 'Collapse settings navigation')
+      "
+      [attr.aria-expanded]="compactViewport() ? compactNavOpen() : !navCollapsed()"
+      [title]="
+        compactViewport()
+          ? (compactNavOpen() ? 'Close settings navigation' : 'Open settings navigation')
+          : (navCollapsed() ? 'Expand settings navigation' : 'Collapse settings navigation')
+      "
     >
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M15 18l-6-6 6-6" />
@@ -98,7 +125,7 @@
   <!-- Main content area -->
   <main class="settings-main">
     <div class="settings-main-primary">
-      @if (!isWideTab() && activeItem(); as item) {
+      @if (!isEmbeddedTab() && activeItem(); as item) {
         <header class="section-topbar">
           <span class="section-icon">
             <app-settings-nav-icon [name]="item.id" />
@@ -107,12 +134,45 @@
             <h2>{{ item.label }}</h2>
             <p>{{ item.summary }}</p>
           </div>
+          @if (helpDrawerMode()) {
+            <button
+              type="button"
+              class="help-drawer-trigger"
+              (click)="openHelpDrawer()"
+              aria-controls="settings-help-drawer"
+              [attr.aria-expanded]="helpDrawerOpen()"
+            >
+              Help &amp; tips
+            </button>
+          }
         </header>
+      } @else if (helpDrawerMode()) {
+        <div class="embedded-help-bar">
+          <button
+            type="button"
+            class="help-drawer-trigger"
+            (click)="openHelpDrawer()"
+            aria-controls="settings-help-drawer"
+            [attr.aria-expanded]="helpDrawerOpen()"
+          >
+            Help &amp; tips
+          </button>
+        </div>
       }
 
-      <div class="settings-content" [class.wide]="isWideTab()">
+      <div
+        class="settings-content"
+        [class.embedded]="isEmbeddedTab()"
+        [class.expanded]="isExpandedTab()"
+      >
         @if (isLoading()) {
-          <div class="settings-skeleton" aria-busy="true" aria-label="Loading settings…">
+          <div
+            class="settings-skeleton"
+            [class.expanded]="isExpandedTab()"
+            [class.embedded]="isEmbeddedTab()"
+            aria-busy="true"
+            aria-label="Loading settings…"
+          >
             <div class="skeleton-card">
               <div class="skeleton-bar wide"></div>
               <div class="skeleton-bar medium"></div>
@@ -139,7 +199,12 @@
              shown beside the controls they are about rather than in one global
              dump where most of them would be meaningless. -->
         <app-settings-health-notices [tab]="activeTab()" />
-        <div class="settings-body" [class.wide]="isWideTab()" [class.hidden]="isLoading()">
+        <div
+          class="settings-body"
+          [class.expanded]="isExpandedTab()"
+          [class.embedded]="isEmbeddedTab()"
+          [class.hidden]="isLoading()"
+        >
           @switch (activeTab()) {
             @case ('general') {
               <app-general-settings-tab />
@@ -281,7 +346,7 @@
       </div>
     </div>
 
-    <!-- Contextual help / preview pane (item 13) - registry-driven -->
+    <!-- Contextual help / preview pane (item 13) - registry-driven desktop rail -->
     <app-help-pane
       class="settings-help-pane"
       [entry]="activeHelp()"
@@ -290,4 +355,28 @@
       (toggled)="toggleHelp()"
     />
   </main>
+
+  @if (helpDrawerOpen()) {
+    <button
+      type="button"
+      class="settings-help-drawer-scrim"
+      aria-label="Close help drawer"
+      (click)="closeHelpDrawer()"
+    ></button>
+    <aside
+      id="settings-help-drawer"
+      class="settings-help-drawer"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Help &amp; tips"
+    >
+      <app-help-pane
+        class="settings-help-pane drawer"
+        [entry]="activeHelp()"
+        [collapsed]="false"
+        [status]="activeHelpStatus()"
+        (toggled)="closeHelpDrawer()"
+      />
+    </aside>
+  }
 </div>

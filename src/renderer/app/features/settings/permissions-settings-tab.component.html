@@ -1,451 +1,454 @@
-<div class="section">
-  <div class="section-header">
-    <h4>Default action for new requests</h4>
-    <div class="header-actions">
-      <button class="btn-secondary" (click)="loadPermissionPreset()" [disabled]="loading()">
-        Refresh
-      </button>
-    </div>
-  </div>
+<app-settings-section-tabs
+  [tabs]="sectionTabs()"
+  [activeId]="activeSection()"
+  ariaLabel="Permissions sections"
+  (activeIdChange)="onSectionChange($event)"
+/>
 
-  <p class="section-description">
-    When an agent tries to read or write files, or make a network request, and no specific rule
-    covers it yet, this setting decides what happens. <strong>Ask</strong> is the safest starting
-    point — you confirm each new action once, then the app remembers your answer.
-  </p>
+@if (activeSection() === 'requests') {
+  <div id="permissions-panel-requests" role="tabpanel" aria-labelledby="requests" tabindex="0">
+    @if (pendingBrowserWarning()) {
+      <div class="section pending-browser-note" role="status" aria-live="polite">
+        <span class="pending-browser-note-icon" aria-hidden="true">&#9888;</span>
+        <span>{{ pendingBrowserWarning() }}</span>
+      </div>
+    }
 
-  <div class="preset-row">
-    <label class="preset-field">
-      <span>When no rule matches</span>
-      <select
-        class="scope-select"
-        [value]="draftPermissionPreset()"
-        (change)="setDraftPermissionPreset($any($event.target).value)"
-      >
-        <option value="allow">Allow — permit automatically (least safe)</option>
-        <option value="ask">Ask — prompt me each time (recommended)</option>
-        <option value="deny">Deny — block automatically (most restrictive)</option>
-      </select>
-    </label>
-
-    <div class="preset-meta">
-      <span class="stat-label">Active setting</span>
-      <strong>{{ permissionPreset() }}</strong>
-    </div>
-  </div>
-
-  <app-save-state-banner
-    [state]="permissionPresetSaveState()"
-    (apply)="applyPermissionPreset()"
-    (discard)="discardPermissionPreset()"
-  />
-
-  @if (defaultWorkspacePreflight()) {
-    <div class="preflight-wrapper">
-      <app-task-preflight-card
-        [report]="defaultWorkspacePreflight()"
-        [loading]="presetLoading()"
-        title="Default workspace check"
-        subtitle="A preview of what your current setting will allow or block when an agent works in your default folder."
-        emptyMessage="Set a default working directory to preview what will be allowed or blocked."
-      />
-    </div>
-  } @else if (store.defaultWorkingDirectory()) {
-    <div class="preflight-wrapper">
-      <app-task-preflight-card
-        [report]="defaultWorkspacePreflight()"
-        [loading]="presetLoading()"
-        title="Default workspace check"
-        subtitle="A preview of what your current setting will allow or block when an agent works in your default folder."
-        emptyMessage="Checking the default workspace..."
-      />
-    </div>
-  } @else {
-    <p class="section-description">Go to General settings and set a default working directory to preview what will be allowed or blocked.</p>
-  }
-</div>
-
-<div class="section">
-  <div class="section-header">
-    <h4>Browser automation — things to know</h4>
-  </div>
-
-  <p class="section-description">
-    When an agent controls a real web browser it can read pages, click buttons, and make network
-    requests — so it needs broader access than a typical read-only task. The tips below help you
-    stay in control.
-  </p>
-
-  <div class="permission-guidance">
-    <div class="guidance-card">
-      <strong>Use a separate browser profile</strong>
-      <span>Keep the agent&apos;s browser sessions separate from your personal Chrome profile so your saved passwords and cookies stay private.</span>
-    </div>
-    <div class="guidance-card">
-      <strong>Start with session-level approval</strong>
-      <span>Approve browser access for this session only first. Once you&apos;re happy it&apos;s working as expected, you can make it permanent.</span>
-    </div>
-    <div class="guidance-card">
-      <strong>Only allow browser tools you recognise</strong>
-      <span>A browser tool can navigate, click, and read page content. Only approve tools from sources you trust.</span>
-    </div>
-  </div>
-</div>
-
-<!-- Pending Batch Permissions Section -->
-<div class="section">
-  <div class="section-header">
-    <h4>Waiting for your approval</h4>
-    <div class="header-actions">
-      <button
-        class="btn-secondary"
-        (click)="loadPendingPermissions()"
-        [disabled]="loading()"
-      >
-        Refresh
-      </button>
-    </div>
-  </div>
-
-  <p class="section-description">
-    These are actions an agent has paused on and is waiting for you to allow or block.
-    Use the scope dropdown to control how long your answer is remembered.
-  </p>
-
-  @if (loading()) {
-    <div class="loading-state">Loading...</div>
-  } @else if (pendingPermissions().length === 0) {
-    <div class="empty-state">
-      <span class="empty-icon">&#10003;</span>
-      <span>Nothing waiting for your approval</span>
-    </div>
-  } @else {
-    <div class="batch-actions">
-      <button
-        class="btn-allow"
-        (click)="handleBatchDecision('allow_all')"
-        [disabled]="loading()"
-      >
-        Allow all ({{ pendingPermissions().length }})
-      </button>
-      <button
-        class="btn-deny"
-        (click)="handleBatchDecision('deny_all')"
-        [disabled]="loading()"
-      >
-        Block all
-      </button>
-      <select
-        class="scope-select"
-        [value]="batchScope()"
-        (change)="batchScope.set($any($event.target).value)"
-      >
-        <option value="once">Just this once — ask me again next time</option>
-        <option value="session">For this session — forget when I close the app</option>
-        <option value="always">Always — remember permanently</option>
-      </select>
-    </div>
-
-    <div class="permissions-list">
-      @for (permission of pendingPermissions(); track permission.id) {
-        <div class="permission-row">
-          <div class="permission-info">
-            <span class="permission-scope">{{ permission.scope }}</span>
-            <span class="permission-resource">{{ permission.resource }}</span>
-            @if (permission.toolName) {
-              <span class="permission-tool">via {{ permission.toolName }}</span>
-            }
-          </div>
-          <div class="permission-actions">
-            <button
-              class="btn-allow-sm"
-              (click)="handleSingleDecision(permission, 'allow')"
-              [disabled]="loading()"
-              appTooltip="Allow"
-              aria-label="Allow"
-            >
-              &#10003;
-            </button>
-            <button
-              class="btn-deny-sm"
-              (click)="handleSingleDecision(permission, 'deny')"
-              [disabled]="loading()"
-              appTooltip="Deny"
-              aria-label="Deny"
-            >
-              &#10005;
-            </button>
-          </div>
+    <!-- Pending Batch Permissions Section -->
+    <div class="section">
+      <div class="section-header">
+        <h4>Waiting for your approval</h4>
+        <div class="header-actions">
+          <button
+            class="btn-secondary"
+            (click)="loadPendingPermissions()"
+            [disabled]="loading()"
+          >
+            Refresh
+          </button>
         </div>
-      }
-    </div>
-  }
-</div>
+      </div>
 
-<!-- Permission Audit Section -->
-<div class="section">
-  <div class="section-header">
-    <h4>Permission audit</h4>
-    <div class="header-actions">
-      <button
-        class="btn-secondary"
-        (click)="loadPermissionAudit()"
-        [disabled]="loading()"
-      >
-        Refresh
-      </button>
-    </div>
-  </div>
+      <p class="section-description">
+        These are actions an agent has paused on and is waiting for you to allow or block.
+        Use the scope dropdown to control how long your answer is remembered.
+      </p>
 
-  <p class="section-description">
-    Review recent permission decisions and hard denials. Filter by instance id when tracing a specific agent session.
-  </p>
+      @if (loading()) {
+        <div class="loading-state">Loading...</div>
+      } @else if (pendingPermissions().length === 0) {
+        <div class="empty-state">
+          <span class="empty-icon">&#10003;</span>
+          <span>Nothing waiting for your approval</span>
+        </div>
+      } @else {
+        <div class="batch-actions">
+          <button
+            class="btn-allow"
+            (click)="handleBatchDecision('allow_all')"
+            [disabled]="loading()"
+          >
+            Allow all ({{ pendingPermissions().length }})
+          </button>
+          <button
+            class="btn-deny"
+            (click)="handleBatchDecision('deny_all')"
+            [disabled]="loading()"
+          >
+            Block all
+          </button>
+          <select
+            class="scope-select"
+            [value]="batchScope()"
+            (change)="batchScope.set($any($event.target).value)"
+          >
+            <option value="once">Just this once — ask me again next time</option>
+            <option value="session">For this session — forget when I close the app</option>
+            <option value="always">Always — remember permanently</option>
+          </select>
+        </div>
 
-  <div class="audit-filter-row">
-    <label class="audit-filter">
-      <span>Instance id</span>
-      <input
-        type="text"
-        [value]="permissionAuditInstanceId()"
-        (input)="updatePermissionAuditInstanceId($any($event.target).value)"
-        placeholder="Leave blank for recent decisions"
-      />
-    </label>
-  </div>
-
-  @if (permissionAuditDecisions().length === 0 && permissionAuditDenials().length === 0) {
-    <div class="empty-state">
-      <span class="empty-icon">&#128274;</span>
-      <span>No permission audit entries found</span>
-    </div>
-  } @else {
-    <div class="audit-list">
-      @for (decision of permissionAuditDecisions(); track decision.decidedAt + decision.resource + decision.action) {
-        <div class="audit-row">
-          <div class="audit-main">
-            <span class="audit-action" [class.allow]="decision.action === 'allow'" [class.deny]="decision.action === 'deny'">
-              {{ decision.action }}
-            </span>
-            <span class="audit-resource">{{ decision.resource }}</span>
-            @if (decision.toolName) {
-              <span class="audit-tool">via {{ decision.toolName }}</span>
-            }
-          </div>
-          <div class="audit-meta">
-            <span>{{ decision.instanceId }}</span>
-            <span>{{ decision.scope }}</span>
-            @if (decision.decidedBy) {
-              <span>{{ decision.decidedBy }}</span>
-            }
-            @if (decision.isCached) {
-              <span>cached</span>
-            }
-            <span>{{ formatAuditTimestamp(decision.decidedAt) }}</span>
-          </div>
-          @if (decision.reason) {
-            <div class="audit-reason">{{ decision.reason }}</div>
+        <div class="permissions-list">
+          @for (permission of pendingPermissions(); track permission.id) {
+            <div class="permission-row">
+              <div class="permission-info">
+                <span class="permission-scope">{{ permission.scope }}</span>
+                <span class="permission-resource">{{ permission.resource }}</span>
+                @if (permission.toolName) {
+                  <span class="permission-tool">via {{ permission.toolName }}</span>
+                }
+              </div>
+              <div class="permission-actions">
+                <button
+                  class="btn-allow-sm"
+                  (click)="handleSingleDecision(permission, 'allow')"
+                  [disabled]="loading()"
+                  appTooltip="Allow"
+                  aria-label="Allow"
+                >
+                  &#10003;
+                </button>
+                <button
+                  class="btn-deny-sm"
+                  (click)="handleSingleDecision(permission, 'deny')"
+                  [disabled]="loading()"
+                  appTooltip="Deny"
+                  aria-label="Deny"
+                >
+                  &#10005;
+                </button>
+              </div>
+            </div>
           }
         </div>
       }
+    </div>
+  </div>
+}
 
-      @for (denial of permissionAuditDenials(); track denial.timestamp + denial.instanceId + denial.toolName) {
-        <div class="audit-row denial">
-          <div class="audit-main">
-            <span class="audit-action deny">{{ denial.behavior }}</span>
-            <span class="audit-resource">{{ denial.toolName }}</span>
-          </div>
-          <div class="audit-meta">
-            <span>{{ denial.instanceId }}</span>
-            <span>{{ formatAuditTimestamp(denial.timestamp) }}</span>
-          </div>
-          <div class="audit-reason">{{ denial.reason }}</div>
+@if (activeSection() === 'rules') {
+  <div id="permissions-panel-rules" role="tabpanel" aria-labelledby="rules" tabindex="0">
+    <div class="section">
+      <div class="section-header">
+        <h4>Default action for new requests</h4>
+        <div class="header-actions">
+          <button class="btn-secondary" (click)="loadPermissionPreset()" [disabled]="loading()">
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      <p class="section-description">
+        When an agent tries to read or write files, or make a network request, and no specific rule
+        covers it yet, this setting decides what happens. <strong>Ask</strong> is the safest starting
+        point — you confirm each new action once, then the app remembers your answer.
+      </p>
+
+      <div class="preset-row">
+        <label class="preset-field">
+          <span>When no rule matches</span>
+          <select
+            class="scope-select"
+            [value]="draftPermissionPreset()"
+            (change)="setDraftPermissionPreset($any($event.target).value)"
+          >
+            <option value="allow">Allow — permit automatically (least safe)</option>
+            <option value="ask">Ask — prompt me each time (recommended)</option>
+            <option value="deny">Deny — block automatically (most restrictive)</option>
+          </select>
+        </label>
+
+        <div class="preset-meta">
+          <span class="stat-label">Active setting</span>
+          <strong>{{ permissionPreset() }}</strong>
+        </div>
+      </div>
+
+      <app-save-state-banner
+        [state]="permissionPresetSaveState()"
+        (apply)="applyPermissionPreset()"
+        (discard)="discardPermissionPreset()"
+      />
+
+      @if (defaultWorkspacePreflight()) {
+        <div class="preflight-wrapper">
+          <app-task-preflight-card
+            [report]="defaultWorkspacePreflight()"
+            [loading]="presetLoading()"
+            title="Default workspace check"
+            subtitle="A preview of what your current setting will allow or block when an agent works in your default folder."
+            emptyMessage="Set a default working directory to preview what will be allowed or blocked."
+          />
+        </div>
+      } @else if (store.defaultWorkingDirectory()) {
+        <div class="preflight-wrapper">
+          <app-task-preflight-card
+            [report]="defaultWorkspacePreflight()"
+            [loading]="presetLoading()"
+            title="Default workspace check"
+            subtitle="A preview of what your current setting will allow or block when an agent works in your default folder."
+            emptyMessage="Checking the default workspace..."
+          />
+        </div>
+      } @else {
+        <p class="section-description">Go to General settings and set a default working directory to preview what will be allowed or blocked.</p>
+      }
+    </div>
+
+    <!-- Learned Patterns Section -->
+    <div class="section">
+      <div class="section-header">
+        <h4>Suggested automatic rules</h4>
+        <div class="header-actions">
+          <button
+            class="btn-secondary"
+            (click)="loadLearnedPatterns()"
+            [disabled]="loading()"
+          >
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      <p class="section-description">
+        Each time you approve or block a request, the app looks for patterns in your answers.
+        When it spots one it thinks is reliable, it appears here as a suggested rule.
+        Approve a suggestion to have that action handled automatically in future —
+        no more prompts for that pattern. Dismiss it to keep being asked.
+      </p>
+
+      @if (loading()) {
+        <div class="loading-state">Loading...</div>
+      } @else if (learnedPatterns().length === 0) {
+        <div class="empty-state">
+          <span class="empty-icon">&#128218;</span>
+          <span>No suggestions yet — answer a few prompts and they&apos;ll appear here</span>
+        </div>
+      } @else {
+        <div class="patterns-list">
+          @for (pattern of learnedPatterns(); track pattern.id) {
+            <div class="pattern-row" [class.approved]="pattern.approved">
+              <div class="pattern-info">
+                <div class="pattern-header">
+                  <span class="pattern-scope">{{ pattern.scope }}</span>
+                  <span
+                    class="pattern-action"
+                    [class.allow]="pattern.recommendedAction === 'allow'"
+                    [class.deny]="pattern.recommendedAction === 'deny'"
+                  >
+                    {{ pattern.recommendedAction }}
+                  </span>
+                  @if (pattern.approved) {
+                    <span class="pattern-approved-badge">Active</span>
+                  }
+                </div>
+                <div class="pattern-details">
+                  <code class="pattern-value">{{ pattern.pattern }}</code>
+                </div>
+                <div class="pattern-meta">
+                  <span class="confidence">
+                    {{ (pattern.confidence * 100).toFixed(0) }}% confidence
+                  </span>
+                  <span class="samples">based on {{ pattern.sampleCount }} past decisions</span>
+                </div>
+              </div>
+              <div class="pattern-actions">
+                @if (!pattern.approved) {
+                  <button
+                    class="btn-approve"
+                    (click)="approvePattern(pattern.id)"
+                    [disabled]="loading()"
+                    title="Turn this into an automatic rule"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    class="btn-reject"
+                    (click)="rejectPattern(pattern.id)"
+                    [disabled]="loading()"
+                    title="Dismiss this suggestion"
+                  >
+                    Dismiss
+                  </button>
+                } @else {
+                  <span class="approved-text">Running as a rule</span>
+                }
+              </div>
+            </div>
+          }
         </div>
       }
     </div>
-  }
-</div>
 
-<!-- Learned Patterns Section -->
-<div class="section">
-  <div class="section-header">
-    <h4>Suggested automatic rules</h4>
-    <div class="header-actions">
-      <button
-        class="btn-secondary"
-        (click)="loadLearnedPatterns()"
-        [disabled]="loading()"
-      >
-        Refresh
-      </button>
+    <!-- Rule Analysis Section -->
+    <div class="section">
+      <div class="section-header">
+        <h4>
+          Rule analysis
+          @if (shadowedRuleFindings().length > 0) {
+            <span class="shadow-count-badge">{{ shadowedRuleFindings().length }}</span>
+          }
+        </h4>
+        <div class="header-actions">
+          <button
+            class="btn-secondary"
+            (click)="loadShadowedRuleFindings()"
+            [disabled]="shadowedRulesLoading()"
+          >
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      <p class="section-description">
+        Rules are checked in order — the first one that matches wins. This looks for rules that can
+        never win because a broader rule ahead of them always matches first, so they never get a
+        chance to decide anything. Read-only for now; nothing here is changed automatically.
+      </p>
+
+      @if (shadowedRulesLoading()) {
+        <div class="loading-state">Loading...</div>
+      } @else if (shadowedRuleFindings().length === 0) {
+        <div class="empty-state">
+          <span class="empty-icon">&#10003;</span>
+          <span>No dead rules found</span>
+        </div>
+      } @else {
+        <div class="audit-list">
+          @for (finding of shadowedRuleFindings(); track finding.rule.id) {
+            <div class="audit-row" [class.denial]="finding.kind === 'conflicting'">
+              <div class="audit-main">
+                <span class="audit-action" [class.deny]="finding.kind === 'conflicting'">
+                  {{ finding.kind === 'conflicting' ? 'conflicting' : 'redundant' }}
+                </span>
+                <span class="audit-resource">{{ finding.rule.pattern }}</span>
+                <span class="audit-tool">shadowed by {{ finding.shadowedBy.pattern }}</span>
+              </div>
+              <div class="audit-meta">
+                <span>{{ finding.rule.scope }}</span>
+                <span>{{ finding.rule.source }} · priority {{ finding.rule.priority }}</span>
+                <span>vs {{ finding.shadowedBy.source }} · priority {{ finding.shadowedBy.priority }}</span>
+              </div>
+              <div class="audit-reason">{{ finding.explanation }}</div>
+            </div>
+          }
+        </div>
+      }
     </div>
   </div>
+}
 
-  <p class="section-description">
-    Each time you approve or block a request, the app looks for patterns in your answers.
-    When it spots one it thinks is reliable, it appears here as a suggested rule.
-    Approve a suggestion to have that action handled automatically in future —
-    no more prompts for that pattern. Dismiss it to keep being asked.
-  </p>
+@if (activeSection() === 'audit') {
+  <div id="permissions-panel-audit" role="tabpanel" aria-labelledby="audit" tabindex="0">
+    <!-- Permission Audit Section -->
+    <div class="section">
+      <div class="section-header">
+        <h4>Permission audit</h4>
+        <div class="header-actions">
+          <button
+            class="btn-secondary"
+            (click)="loadPermissionAudit()"
+            [disabled]="loading()"
+          >
+            Refresh
+          </button>
+        </div>
+      </div>
 
-  @if (loading()) {
-    <div class="loading-state">Loading...</div>
-  } @else if (learnedPatterns().length === 0) {
-    <div class="empty-state">
-      <span class="empty-icon">&#128218;</span>
-      <span>No suggestions yet — answer a few prompts and they&apos;ll appear here</span>
-    </div>
-  } @else {
-    <div class="patterns-list">
-      @for (pattern of learnedPatterns(); track pattern.id) {
-        <div class="pattern-row" [class.approved]="pattern.approved">
-          <div class="pattern-info">
-            <div class="pattern-header">
-              <span class="pattern-scope">{{ pattern.scope }}</span>
-              <span
-                class="pattern-action"
-                [class.allow]="pattern.recommendedAction === 'allow'"
-                [class.deny]="pattern.recommendedAction === 'deny'"
-              >
-                {{ pattern.recommendedAction }}
-              </span>
-              @if (pattern.approved) {
-                <span class="pattern-approved-badge">Active</span>
+      <p class="section-description">
+        Review recent permission decisions and hard denials. Filter by instance id when tracing a specific agent session.
+      </p>
+
+      <div class="audit-filter-row">
+        <label class="audit-filter">
+          <span>Instance id</span>
+          <input
+            type="text"
+            [value]="permissionAuditInstanceId()"
+            (input)="updatePermissionAuditInstanceId($any($event.target).value)"
+            placeholder="Leave blank for recent decisions"
+          />
+        </label>
+      </div>
+
+      @if (permissionAuditDecisions().length === 0 && permissionAuditDenials().length === 0) {
+        <div class="empty-state">
+          <span class="empty-icon">&#128274;</span>
+          <span>No permission audit entries found</span>
+        </div>
+      } @else {
+        <div class="audit-list">
+          @for (decision of permissionAuditDecisions(); track decision.decidedAt + decision.resource + decision.action) {
+            <div class="audit-row">
+              <div class="audit-main">
+                <span class="audit-action" [class.allow]="decision.action === 'allow'" [class.deny]="decision.action === 'deny'">
+                  {{ decision.action }}
+                </span>
+                <span class="audit-resource">{{ decision.resource }}</span>
+                @if (decision.toolName) {
+                  <span class="audit-tool">via {{ decision.toolName }}</span>
+                }
+              </div>
+              <div class="audit-meta">
+                <span>{{ decision.instanceId }}</span>
+                <span>{{ decision.scope }}</span>
+                @if (decision.decidedBy) {
+                  <span>{{ decision.decidedBy }}</span>
+                }
+                @if (decision.isCached) {
+                  <span>cached</span>
+                }
+                <span>{{ formatAuditTimestamp(decision.decidedAt) }}</span>
+              </div>
+              @if (decision.reason) {
+                <div class="audit-reason">{{ decision.reason }}</div>
               }
             </div>
-            <div class="pattern-details">
-              <code class="pattern-value">{{ pattern.pattern }}</code>
+          }
+
+          @for (denial of permissionAuditDenials(); track denial.timestamp + denial.instanceId + denial.toolName) {
+            <div class="audit-row denial">
+              <div class="audit-main">
+                <span class="audit-action deny">{{ denial.behavior }}</span>
+                <span class="audit-resource">{{ denial.toolName }}</span>
+              </div>
+              <div class="audit-meta">
+                <span>{{ denial.instanceId }}</span>
+                <span>{{ formatAuditTimestamp(denial.timestamp) }}</span>
+              </div>
+              <div class="audit-reason">{{ denial.reason }}</div>
             </div>
-            <div class="pattern-meta">
-              <span class="confidence">
-                {{ (pattern.confidence * 100).toFixed(0) }}% confidence
-              </span>
-              <span class="samples">based on {{ pattern.sampleCount }} past decisions</span>
-            </div>
-          </div>
-          <div class="pattern-actions">
-            @if (!pattern.approved) {
-              <button
-                class="btn-approve"
-                (click)="approvePattern(pattern.id)"
-                [disabled]="loading()"
-                title="Turn this into an automatic rule"
-              >
-                Approve
-              </button>
-              <button
-                class="btn-reject"
-                (click)="rejectPattern(pattern.id)"
-                [disabled]="loading()"
-                title="Dismiss this suggestion"
-              >
-                Dismiss
-              </button>
-            } @else {
-              <span class="approved-text">Running as a rule</span>
-            }
-          </div>
+          }
         </div>
       }
     </div>
-  }
-</div>
-
-<!-- Rule Analysis Section -->
-<div class="section">
-  <div class="section-header">
-    <h4>
-      Rule analysis
-      @if (shadowedRuleFindings().length > 0) {
-        <span class="shadow-count-badge">{{ shadowedRuleFindings().length }}</span>
-      }
-    </h4>
-    <div class="header-actions">
-      <button
-        class="btn-secondary"
-        (click)="loadShadowedRuleFindings()"
-        [disabled]="shadowedRulesLoading()"
-      >
-        Refresh
-      </button>
-    </div>
   </div>
+}
 
-  <p class="section-description">
-    Rules are checked in order — the first one that matches wins. This looks for rules that can
-    never win because a broader rule ahead of them always matches first, so they never get a
-    chance to decide anything. Read-only for now; nothing here is changed automatically.
-  </p>
-
-  @if (shadowedRulesLoading()) {
-    <div class="loading-state">Loading...</div>
-  } @else if (shadowedRuleFindings().length === 0) {
-    <div class="empty-state">
-      <span class="empty-icon">&#10003;</span>
-      <span>No dead rules found</span>
-    </div>
-  } @else {
-    <div class="audit-list">
-      @for (finding of shadowedRuleFindings(); track finding.rule.id) {
-        <div class="audit-row" [class.denial]="finding.kind === 'conflicting'">
-          <div class="audit-main">
-            <span class="audit-action" [class.deny]="finding.kind === 'conflicting'">
-              {{ finding.kind === 'conflicting' ? 'conflicting' : 'redundant' }}
-            </span>
-            <span class="audit-resource">{{ finding.rule.pattern }}</span>
-            <span class="audit-tool">shadowed by {{ finding.shadowedBy.pattern }}</span>
-          </div>
-          <div class="audit-meta">
-            <span>{{ finding.rule.scope }}</span>
-            <span>{{ finding.rule.source }} · priority {{ finding.rule.priority }}</span>
-            <span>vs {{ finding.shadowedBy.source }} · priority {{ finding.shadowedBy.priority }}</span>
-          </div>
-          <div class="audit-reason">{{ finding.explanation }}</div>
-        </div>
-      }
-    </div>
-  }
-</div>
-
-<!-- Statistics Section -->
-<div class="section">
-  <div class="section-header">
-    <h4>Activity summary</h4>
-  </div>
-
-  <div class="stats-grid">
-    <div class="stat-card">
-      <div class="stat-value">{{ stats().totalRules }}</div>
-      <div class="stat-label">Automatic rules</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-value">{{ stats().cacheSize }}</div>
-      <div class="stat-label">Remembered decisions</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-value">{{ stats().approvedPatterns }}</div>
-      <div class="stat-label">Approved suggestions</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-value">
-        {{ (stats().accuracyRate * 100).toFixed(0) }}%
+@if (activeSection() === 'insights') {
+  <div id="permissions-panel-insights" role="tabpanel" aria-labelledby="insights" tabindex="0">
+    <!-- Statistics Section -->
+    <div class="section">
+      <div class="section-header">
+        <h4>Activity summary</h4>
       </div>
-      <div class="stat-label">Suggestion accuracy</div>
-    </div>
-  </div>
 
-  <div class="learning-progress">
-    <div class="progress-header">
-      <span>How well suggestions are landing</span>
-      <span>
-        {{ stats().suggestionsAccepted }} of {{ stats().suggestionsMade }}
-        suggestions approved
-      </span>
-    </div>
-    <div class="progress-bar">
-      <div
-        class="progress-fill"
-        [style.width.%]="stats().accuracyRate * 100"
-      ></div>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-value">{{ stats().totalRules }}</div>
+          <div class="stat-label">Automatic rules</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">{{ stats().cacheSize }}</div>
+          <div class="stat-label">Remembered decisions</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">{{ stats().approvedPatterns }}</div>
+          <div class="stat-label">Approved suggestions</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">
+            {{ (stats().accuracyRate * 100).toFixed(0) }}%
+          </div>
+          <div class="stat-label">Suggestion accuracy</div>
+        </div>
+      </div>
+
+      <div class="learning-progress">
+        <div class="progress-header">
+          <span>How well suggestions are landing</span>
+          <span>
+            {{ stats().suggestionsAccepted }} of {{ stats().suggestionsMade }}
+            suggestions approved
+          </span>
+        </div>
+        <div class="progress-bar">
+          <div
+            class="progress-fill"
+            [style.width.%]="stats().accuracyRate * 100"
+          ></div>
+        </div>
+      </div>
     </div>
   </div>
-</div>
+}

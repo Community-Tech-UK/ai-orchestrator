@@ -1,0 +1,33 @@
+.pq-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 4px;
+}
+
+.pq-header h1 {
+  margin: 0;
+}
+
+.pq-subtitle {
+  opacity: 0.75;
+}
+
+.pq-error {
+  border: 1px solid #b3261e;
+  color: #b3261e;
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+.pq-attention-banner {
+  border: 1px solid #e0a458;
+  color: #e0a458;
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+.pq-loading,
+.pq-empty {
+  opacity: 0.7;
+}

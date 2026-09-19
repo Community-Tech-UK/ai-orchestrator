@@ -1,0 +1,24 @@
+<div class="pq-run-list">
+  @for (run of runs(); track run.id) {
+    <div class="pq-run" [attr.data-status]="run.status">
+      <div class="pq-run-head">
+        <span class="pq-run-kind">{{ run.kind }}</span>
+        <span class="pq-run-cwd" [title]="run.workspaceCwd">{{ run.workspaceCwd }}</span>
+        <span class="pq-run-started">Started {{ formatStartedAt(run.startedAt) }}</span>
+        <span class="pq-run-item-count">{{ run.items.length }} document(s)</span>
+        <app-plan-queue-run-controls
+          [run]="run"
+          (pauseRun)="pauseRun.emit($event)"
+          (resumeRun)="resumeRun.emit($event)"
+          (cancelRun)="cancelRun.emit($event)"
+        />
+      </div>
+
+      <app-plan-queue-item-list
+        [items]="run.items"
+        (answer)="answer.emit($event)"
+        (skipItem)="skipItem.emit($event)"
+      />
+    </div>
+  }
+</div>

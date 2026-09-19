@@ -117,3 +117,17 @@ export function getPendingLoopWorktreeLifecycles(
     }
   });
 }
+
+export function getLoopWorktreeRecord(
+  db: SqliteDriver,
+  loopRunId: string,
+): { worktreePath: string | null; lifecycle?: LoopWorktreeLifecycle } | null {
+  const row = db.prepare(
+    'SELECT worktree_path, worktree_lifecycle_json FROM loop_runs WHERE id = ?',
+  ).get<{ worktree_path: string | null; worktree_lifecycle_json: string | null }>(loopRunId);
+  if (!row) return null;
+  return {
+    worktreePath: row.worktree_path,
+    lifecycle: parseWorktreeLifecycle(row.worktree_lifecycle_json),
+  };
+}

@@ -722,6 +722,35 @@ describe('orchestrator MCP tools', () => {
     expect(result).toMatchObject({ instanceId: 'inst-9', done: true });
   });
 
+  it('read_node_output forwards the runtime context abortSignal to the injected reader (WS: RPC cancellation)', async () => {
+    const db = createDb();
+    const abortController = new AbortController();
+    const receivedSignals: (AbortSignal | undefined)[] = [];
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: null,
+      abortSignal: abortController.signal,
+      readInstanceOutput: async (args, abortSignal) => {
+        receivedSignals.push(abortSignal);
+        return {
+          instanceId: args.instanceId,
+          status: 'idle',
+          done: true,
+          messageCount: 0,
+          truncated: false,
+          lastSeq: -1,
+          messages: [],
+        };
+      },
+    });
+    const readTool = tools.find((t) => t.name === 'read_node_output');
+
+    await readTool!.handler({ instanceId: 'inst-9' });
+
+    expect(receivedSignals).toEqual([abortController.signal]);
+    expect(receivedSignals[0]?.aborted).toBe(false);
+  });
+
   it('read_node_output throws when the instance is unknown', async () => {
     const db = createDb();
     const tools = createOrchestratorToolDefinitions({

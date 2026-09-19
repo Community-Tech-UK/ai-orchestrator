@@ -14,8 +14,6 @@
 export type HintId =
   /** First time the loop configuration is opened. */
   | 'loop-config-first-open'
-  /** A run parked on a provider limit while self-resume is switched off. */
-  | 'loop-provider-limit-resume-off'
   /** A critical tool loop is live and auto-interrupt is off. */
   | 'tool-loop-auto-interrupt-off'
   /** A message was queued for an instance that is running a loop. */
@@ -69,14 +67,6 @@ export const HINTS: Readonly<Record<HintId, HintCopy>> = {
       + 'operator-reviewed completion. It can also stop before then: a cap ends '
       + 'the run whether or not it got there, and so does a failure it cannot get past.',
     action: 'Set a verify command if you have one — it is what turns "looks done" into "is done".',
-  },
-  'loop-provider-limit-resume-off': {
-    id: 'loop-provider-limit-resume-off',
-    title: 'This run is parked until the provider window reopens',
-    body:
-      'Provider-limit recovery is off, so it will sit here rather than resume itself '
-      + 'when the window clears — which overnight means the run is simply dead until morning.',
-    action: 'Turn on provider-limit recovery in Settings, or switch this run to another provider.',
   },
   'tool-loop-auto-interrupt-off': {
     // "A tool call is repeating with no progress" described only ONE of the
@@ -176,19 +166,6 @@ export function withDismissed(dismissed: readonly string[], id: HintId): readonl
  */
 export function shouldHintQueuedWhileLooping(queuedCount: number, isLooping: boolean): boolean {
   return queuedCount > 0 && isLooping;
-}
-
-/**
- * A run parked on a provider limit with self-resume switched off will sit there
- * until a person notices. The same run with recovery on needs no advice, and a
- * run that has already ended is past helping.
- */
-export function shouldHintProviderLimitResumeOff(
-  status: string,
-  endedAt: number | null,
-  resumeEnabled: boolean,
-): boolean {
-  return status === 'provider-limit' && endedAt === null && !resumeEnabled;
 }
 
 /** A tool loop is live and nothing but the operator will stop it. */

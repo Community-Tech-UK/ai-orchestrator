@@ -36,6 +36,7 @@ import { getProviderRuntimeService } from '../providers/provider-runtime-service
 import { attachProviderRoutes } from './lifecycle/provider-route-preflight';
 import { getAuxiliaryLlmService } from '../rlm/auxiliary-llm-service';
 import type { AuxiliaryLlmDecision } from '../../shared/types/auxiliary-llm.types';
+import { filterProvidersForAutomation } from '../providers/automation-provider-exclusions';
 import {
   runAuthorizedFrontierFallback,
   runCorrelatedPaidFrontierCall,
@@ -513,7 +514,12 @@ export class AutoTitleService {
     }
 
     let cliType: Awaited<ReturnType<typeof resolveCliType>> | null = null;
-    for (const candidate of FAST_PROVIDER_PREFERENCE) {
+    // Same lever as every other automatic-selection site (magic prompts,
+    // scaffolding, cross-model review, …): a provider the operator barred from
+    // automatic pick (e.g. a work-scoped Copilot seat) must not be silently
+    // borrowed for background title generation either.
+    const candidates = filterProvidersForAutomation(FAST_PROVIDER_PREFERENCE, 'autoTitle');
+    for (const candidate of candidates) {
       try {
         const info = await isCliAvailable(candidate);
         if (info.installed) {

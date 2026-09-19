@@ -1854,6 +1854,16 @@ export class LoopCoordinator extends EventEmitter {
         const preflight = await runLoopPreflight(state, this.completionDetector, (execution) => {
           this.verificationRunLedger.record(state, undefined, execution);
         });
+        // The loop can be cancelled (or otherwise terminated) while this
+        // preflight verify is in flight — no iteration exists yet, so the
+        // in-flight-iteration cancel guard elsewhere has nothing to catch.
+        // Without this check, a preflight that resolves 'failed' (e.g. its
+        // verify child was killed by cancelLoop) fell straight through to
+        // pauseWithBlockedSignal below, which sets status unconditionally and
+        // resurrected an already-'cancelled' run back to 'paused'.
+        if (isTerminalLoopRuntimeState(state) || this.lifecycle.isCancelled(state.id)) {
+          continue;
+        }
         state.preflight = preflight;
         await writeLoopPreflightArtifact(state, preflight);
         this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });

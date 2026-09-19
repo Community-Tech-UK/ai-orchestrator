@@ -1,0 +1,26 @@
+<div class="pq-alerts">
+  <div class="pq-alerts-head">
+    <h2>Reconciler alerts</h2>
+    <button type="button" (click)="onRefresh()">Refresh</button>
+  </div>
+  @if (alerts().length === 0) {
+    <div class="pq-alerts-empty">No worktree or branch alerts.</div>
+  } @else {
+    <ul class="pq-alerts-list">
+      @for (alert of alerts(); track alert.kind + (alert.path ?? '') + (alert.branchName ?? '') + (alert.itemId ?? '')) {
+        <li class="pq-alert">
+          <span class="pq-alert-kind">{{ alertLabel(alert.kind) }}</span>
+          @if (alert.path) {
+            <span class="pq-alert-path">{{ alert.path }}</span>
+          }
+          @if (alert.branchName) {
+            <span class="pq-alert-branch">{{ alert.branchName }}</span>
+          }
+          @if (alert.itemId) {
+            <span class="pq-alert-item">item {{ alert.itemId }}</span>
+          }
+        </li>
+      }
+    </ul>
+  }
+</div>

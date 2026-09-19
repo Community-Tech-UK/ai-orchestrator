@@ -68,6 +68,49 @@ describe('LoopCoordinator audit integration', () => {
     expect(preflightReport).toContain('false');
   });
 
+  it('does not let a slow block-mode preflight overwrite a concurrent cancel back to paused', async () => {
+    let cancelledEmits = 0;
+    coordinator.on('loop:cancelled', () => {
+      cancelledEmits += 1;
+    });
+    const pausedNoProgress: unknown[] = [];
+    coordinator.on('loop:paused-no-progress', (payload) => pausedNoProgress.push(payload));
+
+    const base = defaultLoopConfig(workspace, 'preflight should fail slowly');
+    const state = await coordinator.startLoop('chat-preflight-cancel-race', {
+      initialPrompt: 'make the tests pass',
+      workspaceCwd: workspace,
+      caps: { ...base.caps, maxIterations: 5 },
+      audit: {
+        ...base.audit,
+        preflightMode: 'block',
+      },
+      completion: {
+        ...base.completion,
+        // Slow enough that cancelLoop below reliably fires while the
+        // coordinator is still awaiting runLoopPreflight's verify command.
+        verifyCommand: 'sleep 0.5 && false',
+      },
+    });
+
+    // Give runLoop's own tick time to enter the preflight branch and start
+    // awaiting the verify command before cancelling.
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(coordinator.getLoop(state.id)?.status).toBe('running');
+
+    await coordinator.cancelLoop(state.id);
+    expect(coordinator.getLoop(state.id)?.status).toBe('cancelled');
+
+    // Let the in-flight preflight await resolve; without the guard this used
+    // to stomp the terminal 'cancelled' status back to 'paused'.
+    await new Promise((resolve) => setTimeout(resolve, 700));
+
+    const live = coordinator.getLoop(state.id);
+    expect(live?.status).toBe('cancelled');
+    expect(cancelledEmits).toBe(1);
+    expect(pausedNoProgress).toHaveLength(0);
+  });
+
   maybe('smoke-tests preflight, plan packet artifacts, ledger gating, and clean audit completion in a temp repo', async () => {
     initGitRepo();
     let invocations = 0;

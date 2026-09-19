@@ -65,11 +65,11 @@ describe('EncryptedEvidenceBlobStore', () => {
       safeStorage: createSafeStorage(),
     });
     store = new EncryptedEvidenceBlobStore({ userDataPath, keyManager });
-  });
+  }, 30_000);
 
   afterEach(async () => {
     await rm(userDataPath, { recursive: true, force: true });
-  });
+  }, 30_000);
 
   function withFileSystem(
     fileSystem: Partial<EvidenceStorageFileSystem>,

@@ -86,6 +86,70 @@ describe('OrchestratorToolsRpcServer.handleRequest', () => {
     expect(result).toEqual({ echoed: { root: '/repo', concurrency: 4 } });
   });
 
+  it('routes loop RPC methods to the injected loop operations', async () => {
+    const resume = vi.fn(() => ({
+      loopRunId: 'loop-1',
+      resumed: true,
+      status: 'running',
+      previousStatus: 'provider-limit',
+      restoredFromCheckpoint: true,
+    }));
+    const { server } = makeServer({
+      loopOperations: { list: vi.fn(() => ({ count: 0, runs: [] })), resume },
+    });
+
+    const result = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 20,
+      method: 'orchestrator_tools.loop.resume',
+      params: { instanceId: KNOWN_INSTANCE, payload: { loopRunId: 'loop-1' } },
+    });
+
+    expect(resume).toHaveBeenCalledWith({ loopRunId: 'loop-1' });
+    expect(result).toMatchObject({ loopRunId: 'loop-1', resumed: true });
+  });
+
+  it('refuses loop resume from an instance at the spawn-depth ceiling', async () => {
+    const resume = vi.fn();
+    const list = vi.fn(() => ({ count: 0, runs: [] }));
+    const { server } = makeServer({
+      loopOperations: { list, resume },
+      resolveSpawnEligibility: () => false,
+    });
+
+    await expect(
+      server.handleRequest({
+        jsonrpc: '2.0',
+        id: 22,
+        method: 'orchestrator_tools.loop.resume',
+        params: { instanceId: KNOWN_INSTANCE, payload: { loopRunId: 'loop-1' } },
+      }),
+    ).rejects.toThrow(/spawn-depth limit/);
+    expect(resume).not.toHaveBeenCalled();
+
+    // Read-only discovery stays available to the same capped instance.
+    await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 23,
+      method: 'orchestrator_tools.loop.list',
+      params: { instanceId: KNOWN_INSTANCE, payload: {} },
+    });
+    expect(list).toHaveBeenCalledOnce();
+  });
+
+  it('reports loop RPC as unavailable when no loop operations are wired', async () => {
+    const { server } = makeServer();
+
+    await expect(
+      server.handleRequest({
+        jsonrpc: '2.0',
+        id: 21,
+        method: 'orchestrator_tools.loop.list',
+        params: { instanceId: KNOWN_INSTANCE, payload: {} },
+      }),
+    ).rejects.toThrow(/Loop CLI operations unavailable/);
+  });
+
   it('rejects requests from unknown instances', async () => {
     const { server } = makeServer();
 
@@ -1211,6 +1275,92 @@ describe('OrchestratorToolsRpcServer.handleRequest', () => {
   });
 });
 
+describe('OrchestratorToolsRpcServer.getInstanceCapability', () => {
+  afterEach(() => {
+    _resetOrchestratorToolsRpcServerForTesting();
+  });
+
+  it('returns null for an instance that is not known locally (never mints for a guessed id)', () => {
+    const { server } = makeServer();
+    expect(server.getInstanceCapability('instance-unknown')).toBeNull();
+  });
+
+  it('returns a token for a known local instance, stable across repeated calls', () => {
+    const { server } = makeServer();
+    const first = server.getInstanceCapability(KNOWN_INSTANCE);
+    const second = server.getInstanceCapability(KNOWN_INSTANCE);
+    expect(first).toBeTruthy();
+    expect(first).toBe(second);
+  });
+
+  it('mints different tokens for two different instances', () => {
+    const { server } = makeServer({ isKnownLocalInstance: () => true });
+    expect(server.getInstanceCapability('instance-a')).not.toBe(server.getInstanceCapability('instance-b'));
+  });
+});
+
+describe('OrchestratorToolsRpcServer abort-signal plumbing', () => {
+  afterEach(() => {
+    _resetOrchestratorToolsRpcServerForTesting();
+  });
+
+  it('threads the handleRequest abortSignal through to the tool runtime context (WS: RPC cancellation)', async () => {
+    const capturedContexts: unknown[] = [];
+    const server = new OrchestratorToolsRpcServer({
+      userDataPath: fs.mkdtempSync(path.join(os.tmpdir(), 'ot-rpc-abort-')),
+      isKnownLocalInstance: (id) => id === KNOWN_INSTANCE,
+      registerCleanup: () => undefined,
+      toolFactory: (context) => {
+        capturedContexts.push(context);
+        return [{
+          name: 'git_batch_pull',
+          description: '',
+          inputSchema: { type: 'object' },
+          handler: async () => ({ ok: true }),
+        }];
+      },
+    });
+    const abortController = new AbortController();
+
+    await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'orchestrator_tools.git_batch_pull',
+      params: { instanceId: KNOWN_INSTANCE, payload: { root: '/r' } },
+    }, abortController.signal);
+
+    expect(capturedContexts).toHaveLength(1);
+    expect((capturedContexts[0] as { abortSignal?: AbortSignal }).abortSignal).toBe(abortController.signal);
+  });
+
+  it('handleRequest without an abortSignal argument leaves the tool context abortSignal undefined', async () => {
+    const capturedContexts: unknown[] = [];
+    const server = new OrchestratorToolsRpcServer({
+      userDataPath: fs.mkdtempSync(path.join(os.tmpdir(), 'ot-rpc-abort-none-')),
+      isKnownLocalInstance: (id) => id === KNOWN_INSTANCE,
+      registerCleanup: () => undefined,
+      toolFactory: (context) => {
+        capturedContexts.push(context);
+        return [{
+          name: 'git_batch_pull',
+          description: '',
+          inputSchema: { type: 'object' },
+          handler: async () => ({ ok: true }),
+        }];
+      },
+    });
+
+    await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'orchestrator_tools.git_batch_pull',
+      params: { instanceId: KNOWN_INSTANCE, payload: { root: '/r' } },
+    });
+
+    expect((capturedContexts[0] as { abortSignal?: AbortSignal }).abortSignal).toBeUndefined();
+  });
+});
+
 describe('OrchestratorToolsRpcServer socket roundtrip', () => {
   let tmpDir: string;
   let server: OrchestratorToolsRpcServer;
@@ -1241,33 +1391,17 @@ describe('OrchestratorToolsRpcServer socket roundtrip', () => {
     _resetOrchestratorToolsRpcServerForTesting();
   });
 
-  it('handles an actual JSON-RPC roundtrip over a real socket', async () => {
-    if (process.platform === 'win32') {
-      // Skip on Windows — uses named pipes, the test connect path differs.
-      return;
-    }
-    const socketPath = server.getSocketPath();
-    expect(socketPath).toBeTruthy();
-
-    const response = await new Promise<unknown>((resolve, reject) => {
-      const client = net.connect(socketPath!);
+  /** Sends one line-delimited JSON-RPC request over a real socket and resolves with the parsed reply. */
+  function sendOverSocket(socketPath: string, request: Record<string, unknown>): Promise<unknown> {
+    return new Promise<unknown>((resolve, reject) => {
+      const client = net.connect(socketPath);
       let buffer = '';
       const timer = setTimeout(() => {
         client.destroy();
         reject(new Error('socket roundtrip timed out'));
       }, 3000);
       client.on('connect', () => {
-        client.write(
-          `${JSON.stringify({
-            jsonrpc: '2.0',
-            id: 99,
-            method: 'orchestrator_tools.git_batch_pull',
-            params: {
-              instanceId: KNOWN_INSTANCE,
-              payload: { root: '/repo' },
-            },
-          })}\n`,
-        );
+        client.write(`${JSON.stringify(request)}\n`);
       });
       client.on('data', (chunk) => {
         buffer += chunk.toString('utf-8');
@@ -1285,6 +1419,28 @@ describe('OrchestratorToolsRpcServer socket roundtrip', () => {
         reject(err);
       });
     });
+  }
+
+  it('handles an actual JSON-RPC roundtrip over a real socket, authenticated by capability', async () => {
+    if (process.platform === 'win32') {
+      // Skip on Windows — uses named pipes, the test connect path differs.
+      return;
+    }
+    const socketPath = server.getSocketPath();
+    expect(socketPath).toBeTruthy();
+    const capability = server.getInstanceCapability(KNOWN_INSTANCE);
+    expect(capability).toBeTruthy();
+
+    const response = await sendOverSocket(socketPath!, {
+      jsonrpc: '2.0',
+      id: 99,
+      method: 'orchestrator_tools.git_batch_pull',
+      params: {
+        instanceId: KNOWN_INSTANCE,
+        capability,
+        payload: { root: '/repo' },
+      },
+    });
 
     expect(response).toEqual({
       jsonrpc: '2.0',
@@ -1292,6 +1448,55 @@ describe('OrchestratorToolsRpcServer socket roundtrip', () => {
       result: { ok: true, ran: 'in parent' },
     });
     expect(toolHandler).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a real socket request with a missing capability token (fail closed — e.g. a child spawned before capabilities existed)', async () => {
+    if (process.platform === 'win32') return;
+    const socketPath = server.getSocketPath();
+
+    const response = await sendOverSocket(socketPath!, {
+      jsonrpc: '2.0',
+      id: 100,
+      method: 'orchestrator_tools.git_batch_pull',
+      params: {
+        instanceId: KNOWN_INSTANCE,
+        // capability deliberately omitted
+        payload: { root: '/repo' },
+      },
+    }) as { error?: { message: string } };
+
+    expect(response.error?.message).toBe('invalid or missing orchestrator-tools capability token');
+    expect(toolHandler).not.toHaveBeenCalled();
+  });
+
+  it('rejects a real socket request with a wrong capability token (fail closed)', async () => {
+    if (process.platform === 'win32') return;
+    const socketPath = server.getSocketPath();
+
+    const response = await sendOverSocket(socketPath!, {
+      jsonrpc: '2.0',
+      id: 101,
+      method: 'orchestrator_tools.git_batch_pull',
+      params: {
+        instanceId: KNOWN_INSTANCE,
+        capability: 'forged-token',
+        payload: { root: '/repo' },
+      },
+    }) as { error?: { message: string } };
+
+    expect(response.error?.message).toBe('invalid or missing orchestrator-tools capability token');
+    expect(toolHandler).not.toHaveBeenCalled();
+  });
+
+  it('handleRequest called directly (no socket) stays callable without a capability — preserves the existing direct-dispatch test surface', async () => {
+    const result = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 102,
+      method: 'orchestrator_tools.git_batch_pull',
+      params: { instanceId: KNOWN_INSTANCE, payload: { root: '/repo' } },
+    });
+
+    expect(result).toEqual({ ok: true, ran: 'in parent' });
   });
 });
 

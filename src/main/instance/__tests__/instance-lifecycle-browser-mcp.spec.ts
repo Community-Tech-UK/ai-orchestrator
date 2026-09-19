@@ -53,6 +53,7 @@ const mcpInjectionMocks = vi.hoisted(() => ({
 const orchestratorToolsMocks = vi.hoisted(() => ({
   buildOrchestratorToolsMcpConfig: vi.fn(() => '{"mcpServers":{"orchestrator":{}}}'),
   getOrchestratorToolsRpcSocketPath: vi.fn<() => string | null>(() => '/tmp/harness/ot-test.sock'),
+  getOrchestratorToolsRpcInstanceCapability: vi.fn<(instanceId: string) => string | null>(() => 'cap-test-token'),
   resolveOrchestratorToolMode: (provider?: string, toolDeferral = false) => {
     if (!toolDeferral) return 'eager';
     if (provider?.trim().toLowerCase() === 'codex') return 'stable';
@@ -120,6 +121,7 @@ vi.mock('../../mcp/orchestrator-mcp-stable-tools', () => ({
 
 vi.mock('../../mcp/orchestrator-tools-rpc-server', () => ({
   getOrchestratorToolsRpcSocketPath: orchestratorToolsMocks.getOrchestratorToolsRpcSocketPath,
+  getOrchestratorToolsRpcInstanceCapability: orchestratorToolsMocks.getOrchestratorToolsRpcInstanceCapability,
 }));
 
 vi.mock('../../codemem/mcp-config', () => ({
@@ -384,6 +386,7 @@ describe('SpawnConfigBuilder — MCP configs route through the aio-mcp SEA + RPC
       aioMcpCliPath: FAKE_AIO_MCP_PATH,
       socketPath: FAKE_ORCHESTRATOR_TOOLS_SOCKET,
       instanceId: 'instance-tools',
+      capabilityToken: 'cap-test-token',
       provider: 'claude',
     });
   });
@@ -397,6 +400,7 @@ describe('SpawnConfigBuilder — MCP configs route through the aio-mcp SEA + RPC
       aioMcpCliPath: FAKE_AIO_MCP_PATH,
       socketPath: FAKE_ORCHESTRATOR_TOOLS_SOCKET,
       instanceId: 'instance-tools',
+      capabilityToken: 'cap-test-token',
       provider: 'claude',
       toolDeferral: true,
     });
@@ -411,8 +415,21 @@ describe('SpawnConfigBuilder — MCP configs route through the aio-mcp SEA + RPC
       aioMcpCliPath: FAKE_AIO_MCP_PATH,
       socketPath: FAKE_ORCHESTRATOR_TOOLS_SOCKET,
       instanceId: 'instance-tools',
+      capabilityToken: 'cap-test-token',
       provider: 'cursor',
     });
+  });
+
+  it('omits orchestrator-tools when the RPC server cannot mint a capability, even with the SEA + socket present (fail closed)', () => {
+    orchestratorToolsMocks.getOrchestratorToolsRpcInstanceCapability.mockReturnValue(null);
+    const builder = makeBuilder();
+
+    builder.getMcpConfig({ type: 'local' }, 'instance-x', 'claude');
+
+    expect(orchestratorToolsMocks.buildOrchestratorToolsMcpConfig).not.toHaveBeenCalled();
+    // Restore the default so later tests in this describe block (which don't
+    // re-arrange this mock themselves) keep getting a valid capability.
+    orchestratorToolsMocks.getOrchestratorToolsRpcInstanceCapability.mockReturnValue('cap-test-token');
   });
 
   it('builds local shell env so agents can invoke aio-mcp settings directly', () => {
@@ -424,6 +441,7 @@ describe('SpawnConfigBuilder — MCP configs route through the aio-mcp SEA + RPC
       AIO_MCP: FAKE_AIO_MCP_PATH,
       AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET: FAKE_ORCHESTRATOR_TOOLS_SOCKET,
       AI_ORCHESTRATOR_INSTANCE_ID: 'instance-tools',
+      AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_CAPABILITY: 'cap-test-token',
     });
     expect(env?.['PATH']?.split(delimiter)[0]).toBe(
       '/Applications/Harness.app/Contents/Resources/aio-mcp-cli',
@@ -442,6 +460,10 @@ describe('SpawnConfigBuilder — MCP configs route through the aio-mcp SEA + RPC
       FAKE_ORCHESTRATOR_TOOLS_SOCKET,
     );
     aioMcpPathMocks.resolveAioMcpCliPath.mockReturnValue(null);
+    expect(builder.getHarnessCliEnv({ type: 'local' }, 'instance-tools')).toBeUndefined();
+
+    aioMcpPathMocks.resolveAioMcpCliPath.mockReturnValue(FAKE_AIO_MCP_PATH);
+    orchestratorToolsMocks.getOrchestratorToolsRpcInstanceCapability.mockReturnValue(null);
     expect(builder.getHarnessCliEnv({ type: 'local' }, 'instance-tools')).toBeUndefined();
   });
 

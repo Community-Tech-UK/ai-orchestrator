@@ -255,6 +255,13 @@
   color: var(--text-secondary);
 }
 
+// Same-version duplicates: informational only, so no warning chrome.
+.duplicate-note {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
 .update-reason {
   margin: 0;
 }
@@ -327,6 +334,12 @@
 .tag-stale {
   background: var(--pill-warn-bg);
   color: var(--pill-warn-fg);
+}
+
+// A same-version second copy is redundant, not stale — neutral, not amber.
+.tag-duplicate {
+  background: var(--pill-neutral-bg);
+  color: var(--pill-neutral-fg);
 }
 
 .rec-text {

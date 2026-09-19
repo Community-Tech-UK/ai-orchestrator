@@ -32,17 +32,24 @@ export type SettingsTab =
   | 'archive'
   | 'remote-config'
   | 'auxiliary-models';
-/** Tabs whose content is an embedded full-width feature page (no 760px cap). */
-export const WIDE_TABS: ReadonlySet<SettingsTab> = new Set<SettingsTab>([
-  'models',
-  'mcp',
-  'hooks',
-  'worktrees',
-  'snapshots',
-  'archive',
-  'remote-config',
-  'doctor',
-]);
+
+/**
+ * Content measure for a Settings section.
+ * - `standard` — capped form column (~840px) with the section heading (default).
+ * - `expanded` — wider measure (~1120px), section heading kept, for task-heavy
+ *   tabs that outgrew the standard column but are not a full feature page.
+ * - `embedded` — edge-to-edge, full-height feature page; heading and content
+ *   padding are suppressed (the page renders its own chrome).
+ */
+export type SettingsLayoutMode = 'standard' | 'expanded' | 'embedded';
+
+/** A tab in the shared in-page `SettingsSectionTabsComponent` switcher. */
+export interface SettingsSectionTab {
+  id: string;
+  label: string;
+  panelId: string;
+  badge?: string;
+}
 
 /** localStorage key used to remember the last-opened settings section. */
 export const LAST_TAB_KEY = 'aiorch.settings.lastTab';
@@ -77,6 +84,13 @@ export interface SettingsNavItem {
   recommended?: boolean;
   /** Extra search terms beyond the label/summary. */
   keywords?: string;
+  /** Content measure; omitted means `standard`. */
+  layout?: SettingsLayoutMode;
+}
+
+/** Resolve the effective layout mode for a nav item (default `standard`). */
+export function resolveSettingsLayout(item: SettingsNavItem | undefined): SettingsLayoutMode {
+  return item?.layout ?? 'standard';
 }
 
 /**
@@ -124,6 +138,7 @@ export const NAV_ITEMS: SettingsNavItem[] = [
     summary: 'Route helper calls through local or cheap models.',
     group: 'Agent behavior',
     keywords: 'ollama local gemma auxiliary llm routing cheap loop classify',
+    layout: 'expanded',
   },
   {
     id: 'review',
@@ -145,6 +160,7 @@ export const NAV_ITEMS: SettingsNavItem[] = [
     summary: 'Default approval rules for filesystem, network, and browser actions.',
     group: 'Agent behavior',
     keywords: 'allow deny security tools approval rules',
+    layout: 'expanded',
   },
   {
     id: 'computer-use',
@@ -159,6 +175,7 @@ export const NAV_ITEMS: SettingsNavItem[] = [
     summary: 'Choose provider models and per-model overrides.',
     group: 'Workspace tools',
     keywords: 'model opus sonnet gpt gemini haiku',
+    layout: 'embedded',
   },
   {
     id: 'mcp',
@@ -166,6 +183,7 @@ export const NAV_ITEMS: SettingsNavItem[] = [
     summary: 'Manage tool servers shared across provider CLIs.',
     group: 'Workspace tools',
     keywords: 'mcp servers tools context protocol',
+    layout: 'embedded',
   },
   {
     id: 'hooks',
@@ -173,6 +191,7 @@ export const NAV_ITEMS: SettingsNavItem[] = [
     summary: 'Run custom commands on agent lifecycle events.',
     group: 'Workspace tools',
     keywords: 'hooks events automation scripts triggers',
+    layout: 'embedded',
   },
   {
     id: 'worktrees',
@@ -180,6 +199,7 @@ export const NAV_ITEMS: SettingsNavItem[] = [
     summary: 'Configure git worktrees for parallel agent work.',
     group: 'Workspace tools',
     keywords: 'git worktree branch parallel',
+    layout: 'embedded',
   },
   {
     id: 'snapshots',
@@ -187,6 +207,7 @@ export const NAV_ITEMS: SettingsNavItem[] = [
     summary: 'Capture and restore workspace checkpoints.',
     group: 'Workspace tools',
     keywords: 'checkpoint restore backup',
+    layout: 'embedded',
   },
   {
     id: 'archive',
@@ -194,6 +215,7 @@ export const NAV_ITEMS: SettingsNavItem[] = [
     summary: 'Browse and restore archived sessions.',
     group: 'Workspace tools',
     keywords: 'archived sessions history old',
+    layout: 'embedded',
   },
   {
     id: 'network',
@@ -236,6 +258,7 @@ export const NAV_ITEMS: SettingsNavItem[] = [
     summary: 'Connect another computer to run browser, GPU, or extra CLI work for this app.',
     group: 'Network & Remote',
     keywords: 'remote nodes offload distributed gpu browser worker pair',
+    layout: 'expanded',
   },
   {
     id: 'mobile',
@@ -250,6 +273,7 @@ export const NAV_ITEMS: SettingsNavItem[] = [
     summary: 'Sync settings from a remote configuration source.',
     group: 'Network & Remote',
     keywords: 'sync cloud remote shared',
+    layout: 'embedded',
   },
   {
     id: 'cli-health',
@@ -264,6 +288,7 @@ export const NAV_ITEMS: SettingsNavItem[] = [
     summary: 'Diagnose startup, provider, browser, and instruction issues.',
     group: 'Health & Diagnostics',
     keywords: 'diagnostics troubleshoot environment health checks',
+    layout: 'embedded',
   },
   {
     id: 'provider-quota',
@@ -285,6 +310,7 @@ export const NAV_ITEMS: SettingsNavItem[] = [
     summary: 'Browse commands, agents, tools, and plugin integrations.',
     group: 'Workspace tools',
     keywords: 'integrations extensions plugins',
+    layout: 'embedded',
   },
   {
     id: 'advanced',

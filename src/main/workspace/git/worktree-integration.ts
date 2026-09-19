@@ -43,6 +43,22 @@ async function git(args: string[], cwd: string): Promise<string> {
   return typeof stdout === 'string' ? stdout.trim() : String(stdout).trim();
 }
 
+/**
+ * Untrimmed stdout, for NUL-delimited output. `git status -z` entries start
+ * with a two-character status that may itself be a leading space, which the
+ * trim in {@link git} would eat.
+ */
+async function gitRaw(args: string[], cwd: string): Promise<string> {
+  const { stdout } = await execFileAsync('git', args, {
+    cwd,
+    env: hermeticGitEnv(),
+    encoding: 'utf-8',
+    maxBuffer: 10 * 1024 * 1024,
+    timeout: 60_000,
+  });
+  return typeof stdout === 'string' ? stdout : String(stdout);
+}
+
 async function gitSafe(args: string[], cwd: string): Promise<string> {
   try {
     return await git(args, cwd);
@@ -281,6 +297,44 @@ function hasRootCheckoutChanges(
   });
 }
 
+/**
+ * How a dirty root checkout affects promotion.
+ *
+ * - `block-any` (default): any uncommitted or untracked root path blocks.
+ * - `block-overlap`: block only when a dirty root path is also touched by the
+ *   promotion. For repositories that keep untracked working documents in the
+ *   root on purpose, where `block-any` can never pass. `git merge --ff-only`
+ *   still refuses to overwrite local or untracked files, so this is a precheck
+ *   that names the path, not the only safeguard.
+ */
+export type DirtyRootPolicy = 'block-any' | 'block-overlap';
+
+export interface PromoteIntegrationOptions {
+  dirtyRootPolicy?: DirtyRootPolicy;
+}
+
+/** Root paths from `git status --porcelain -z`, both sides of a rename included. */
+function parseStatusPathsZ(statusZ: string): string[] {
+  const paths: string[] = [];
+  const fields = statusZ.split('\0').filter(Boolean);
+  for (let i = 0; i < fields.length; i += 1) {
+    const entry = fields[i];
+    paths.push(entry.slice(3));
+    // Renames and copies carry their source path as the next NUL field.
+    if (entry[0] === 'R' || entry[0] === 'C') {
+      i += 1;
+      if (fields[i]) paths.push(fields[i]);
+    }
+  }
+  return paths;
+}
+
+function pathsCollide(a: string, b: string): boolean {
+  const left = a.replace(/\/$/, '');
+  const right = b.replace(/\/$/, '');
+  return left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
+}
+
 export type BasePromotionResult =
   | { status: 'promoted'; method: 'checked-out-ff' | 'update-ref'; tip: string }
   | { status: 'already-promoted'; tip: string }
@@ -288,7 +342,7 @@ export type BasePromotionResult =
 
 const ZERO_OID = '0000000000000000000000000000000000000000';
 
-function integrationOwnershipRef(integrationBranch: string): string {
+export function integrationOwnershipRef(integrationBranch: string): string {
   return `refs/aio/managed-integrations/${integrationBranch}`;
 }
 
@@ -306,7 +360,9 @@ export async function promoteIntegrationBranch(
   baseBranch: string,
   integrationBranch: string,
   expectedIntegrationTip?: string,
+  options: PromoteIntegrationOptions = {},
 ): Promise<BasePromotionResult> {
+  const dirtyRootPolicy = options.dirtyRootPolicy ?? 'block-any';
   return getGitWriteQueue().enqueue('promote-integration', async () => {
     const baseTip = await gitSafe(
       ['rev-parse', '--verify', '--quiet', `refs/heads/${baseBranch}`],
@@ -393,7 +449,27 @@ export async function promoteIntegrationBranch(
         return { status: 'blocked', reason: 'unable to inspect root checkout status' };
       }
       if (hasRootCheckoutChanges(rootStatus, checkouts, repoRoot)) {
-        return { status: 'blocked', reason: 'root checkout has uncommitted changes' };
+        if (dirtyRootPolicy === 'block-any') {
+          return { status: 'blocked', reason: 'root checkout has uncommitted changes' };
+        }
+        let overlap: string | undefined;
+        try {
+          const landing = (await gitRaw(['diff', '--name-only', '-z', baseTip, integrationTip], repoRoot))
+            .split('\0')
+            .filter(Boolean);
+          const dirty = parseStatusPathsZ(
+            await gitRaw(['status', '--porcelain', '-z', '--untracked-files=all'], repoRoot),
+          );
+          overlap = dirty.find((d) => landing.some((l) => pathsCollide(d, l)));
+        } catch {
+          return { status: 'blocked', reason: 'unable to compare root changes with the promotion' };
+        }
+        if (overlap) {
+          return {
+            status: 'blocked',
+            reason: `root checkout has uncommitted changes to a promoted path: ${overlap}`,
+          };
+        }
       }
 
       try {

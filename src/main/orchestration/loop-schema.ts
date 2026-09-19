@@ -8,7 +8,7 @@
 
 import type { SqliteDriver } from '../db/sqlite-driver';
 
-export const LOOP_SCHEMA_VERSION = 16;
+export const LOOP_SCHEMA_VERSION = 18;
 
 interface LoopMigration {
   version: number;
@@ -331,6 +331,74 @@ const MIGRATIONS: LoopMigration[] = [
     name: '016_loop_runs_worktree_lifecycle',
     up: `
       ALTER TABLE loop_runs ADD COLUMN worktree_lifecycle_json TEXT;
+    `,
+  },
+  {
+    // Plan Queue: one worker instance per plan/livetest document, judged by a
+    // separate verifier. `plan_queue_items` owns each item's worktree — branch
+    // and path are written here BEFORE the worktree is created, so ownership
+    // survives a restart (WorktreeManager.sessions is in-memory only).
+    version: 17,
+    name: '017_plan_queue',
+    up: `
+      CREATE TABLE IF NOT EXISTS plan_queue_runs (
+        id TEXT PRIMARY KEY,
+        parent_instance_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        workspace_cwd TEXT NOT NULL,
+        status TEXT NOT NULL,
+        config_json TEXT NOT NULL,
+        relaxation_json TEXT,
+        worker_provider TEXT,
+        worker_model TEXT,
+        started_at INTEGER NOT NULL,
+        ended_at INTEGER,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_plan_queue_runs_status
+        ON plan_queue_runs(status, started_at DESC);
+
+      CREATE TABLE IF NOT EXISTS plan_queue_items (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES plan_queue_runs(id) ON DELETE CASCADE,
+        document_path TEXT NOT NULL,
+        state TEXT NOT NULL,
+        round INTEGER NOT NULL DEFAULT 0,
+        errored_rounds INTEGER NOT NULL DEFAULT 0,
+        branch_name TEXT,
+        worktree_path TEXT,
+        base_commit TEXT,
+        checkpoint_commit TEXT,
+        verified_main_commit TEXT,
+        landed_commit TEXT,
+        worker_instance_id TEXT,
+        verifier_instance_id TEXT,
+        question_json TEXT,
+        answer TEXT,
+        park_reason TEXT,
+        detail TEXT,
+        verdict_json TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        UNIQUE (run_id, document_path)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_plan_queue_items_run
+        ON plan_queue_items(run_id, created_at);
+
+      CREATE INDEX IF NOT EXISTS idx_plan_queue_items_state
+        ON plan_queue_items(state);
+    `,
+  },
+  {
+    // Plan Queue: landing refusals (pre-commit hook or active documents) since
+    // the item last landed or parked. Persisted so "the second refusal parks"
+    // holds across an app restart.
+    version: 18,
+    name: '018_plan_queue_landing_refusals',
+    up: `
+      ALTER TABLE plan_queue_items ADD COLUMN landing_refusals INTEGER NOT NULL DEFAULT 0;
     `,
   },
 ];

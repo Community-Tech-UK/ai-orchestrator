@@ -101,9 +101,9 @@ describe('CliDetectionService.scanAllCliInstalls — macOS app bundles', () => {
   it('does not report an app-owned copy as a shadow install', async () => {
     const { CliDetectionService } = await import('../cli-detection');
 
-    const report = await CliDetectionService.getInstance().detectShadowInstalls('codex');
+    const { shadow } = await CliDetectionService.getInstance().inspectCliInstalls('codex');
 
-    expect(report).toBeNull();
+    expect(shadow).toBeNull();
   });
 
   it('excludes a user-visible symlink that resolves into an app bundle', async () => {

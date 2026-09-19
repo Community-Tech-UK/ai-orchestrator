@@ -1,0 +1,36 @@
+<form class="pq-start-form" (submit)="$event.preventDefault(); onSubmit()">
+  <h2>Start run</h2>
+
+  <label class="pq-start-field">
+    Parent session
+    <select [ngModel]="selectedParentId()" name="parentSession" (ngModelChange)="selectedParentId.set($event)">
+      <option value="">Choose a session…</option>
+      @for (session of parentSessions(); track session.id) {
+        <option [value]="session.id">{{ session.label }} — {{ session.workingDirectory }}</option>
+      }
+    </select>
+  </label>
+
+  <fieldset class="pq-start-kind">
+    <legend>Document kind</legend>
+    @for (k of kinds; track k) {
+      <label class="pq-start-kind-option">
+        <input type="radio" name="pqStartKind" [value]="k" [checked]="kind() === k" (change)="kind.set(k)" />
+        {{ k }}
+      </label>
+    }
+  </fieldset>
+
+  <label class="pq-start-field">
+    Glob (optional)
+    <input
+      type="text"
+      placeholder="docs/plans/**/*_plan.md"
+      [ngModel]="glob()"
+      name="glob"
+      (ngModelChange)="glob.set($event)"
+    />
+  </label>
+
+  <button type="submit" [disabled]="!canStart()">Start run</button>
+</form>

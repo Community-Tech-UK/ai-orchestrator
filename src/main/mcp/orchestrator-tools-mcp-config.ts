@@ -11,8 +11,9 @@ import { INTER_SESSION_MESSAGING_ENABLED_ENV } from './orchestrator-session-mess
  *   command: <resources>/aio-mcp-cli/aio-mcp
  *   args:    ['orchestrator-tools']
  *   env:     {
- *     AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET: <parent RPC socket path>,
- *     AI_ORCHESTRATOR_INSTANCE_ID:               <auth handle for the parent>,
+ *     AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET:     <parent RPC socket path>,
+ *     AI_ORCHESTRATOR_INSTANCE_ID:                   <auth handle for the parent>,
+ *     AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_CAPABILITY: <per-spawn capability token>,
  *     AI_ORCHESTRATOR_INTER_SESSION_MESSAGING_ENABLED: '1' // optional
  *   }
  *
@@ -24,6 +25,13 @@ export interface OrchestratorToolsMcpConfigOptions {
   aioMcpCliPath: string;
   socketPath: string;
   instanceId: string;
+  /**
+   * Per-spawn capability minted by `getOrchestratorToolsRpcInstanceCapability`.
+   * Omitted only when the parent RPC server cannot mint one yet (defensive —
+   * mirrors how a missing `socketPath` already disables the bridge); the
+   * server rejects any real socket request that lacks a matching one.
+   */
+  capabilityToken?: string;
   provider?: string;
   /**
    * Request a compact surface: Codex uses fixed search/describe/execute wrappers;
@@ -73,6 +81,9 @@ export function resolveOrchestratorToolsBridgeSpec(
     env: {
       AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET: options.socketPath,
       AI_ORCHESTRATOR_INSTANCE_ID: options.instanceId,
+      ...(options.capabilityToken
+        ? { AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_CAPABILITY: options.capabilityToken }
+        : {}),
       ...(options.sessionMessagingEnabled
         ? { [INTER_SESSION_MESSAGING_ENABLED_ENV]: '1' }
         : {}),

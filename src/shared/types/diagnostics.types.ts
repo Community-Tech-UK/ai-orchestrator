@@ -47,6 +47,14 @@ export interface CliInstallSummary {
   version?: string;
   installed: boolean;
   error?: string;
+  /**
+   * True when the CLI's own installer maintains this copy as a second PATH
+   * entry for an installation already listed (e.g. grok's postinstall writes
+   * `~/.grok/bin` beside its npm shim). Carried into the Doctor snapshot and
+   * operator artifact so a support bundle shows why a CLI appears twice
+   * instead of looking like a version conflict.
+   */
+  installerCopy?: true;
 }
 
 /**

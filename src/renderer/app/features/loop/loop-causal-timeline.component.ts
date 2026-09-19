@@ -13,6 +13,7 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 
 import type { LoopTimeline, LoopTimelineStepState } from './loop-causal-timeline';
+import { timelineRecoveryTarget } from './loop-control-timeline';
 
 @Component({
   selector: 'app-loop-causal-timeline',
@@ -46,12 +47,23 @@ import type { LoopTimeline, LoopTimelineStepState } from './loop-causal-timeline
 
         @if (t.recovery.id !== 'none') {
           <div class="loop-timeline__recovery">
-            <button
-              type="button"
-              class="loop-timeline__recovery-btn"
-              [attr.data-recovery-id]="t.recovery.id"
-              (click)="recoveryChosen.emit(t.recovery.id)"
-            >{{ t.recovery.label }}</button>
+            <!-- A button only exists for a recovery id that actually routes to a
+                 panel handler (see timelineRecoveryTarget). The others render as
+                 plain text — not a button — so the distinction between "click
+                 this" and "here is what to do" never rests on colour alone. -->
+            @if (isActionable(t.recovery.id)) {
+              <button
+                type="button"
+                class="loop-timeline__recovery-btn"
+                [attr.data-recovery-id]="t.recovery.id"
+                (click)="recoveryChosen.emit(t.recovery.id)"
+              >{{ t.recovery.label }}</button>
+            } @else {
+              <span
+                class="loop-timeline__recovery-label loop-timeline__recovery-label--info"
+                [attr.data-recovery-id]="t.recovery.id"
+              >{{ t.recovery.label }}</span>
+            }
             <span class="loop-timeline__recovery-desc">{{ t.recovery.description }}</span>
           </div>
         }
@@ -88,5 +100,9 @@ export class LoopCausalTimelineComponent {
 
   protected dollars(cents: number): string {
     return `$${(cents / 100).toFixed(2)}`;
+  }
+
+  protected isActionable(recoveryId: string): boolean {
+    return timelineRecoveryTarget(recoveryId) !== null;
   }
 }

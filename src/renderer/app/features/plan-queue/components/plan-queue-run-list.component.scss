@@ -1,0 +1,39 @@
+.pq-run-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.pq-run {
+  border: 1px solid var(--pq-border-color, #3a3a3a);
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.pq-run-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.pq-run-kind {
+  text-transform: uppercase;
+  font-size: 0.8em;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.pq-run-cwd {
+  opacity: 0.8;
+  font-family: monospace;
+}
+
+.pq-run-started,
+.pq-run-item-count {
+  opacity: 0.7;
+  font-size: 0.9em;
+}

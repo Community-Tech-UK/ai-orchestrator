@@ -111,6 +111,14 @@
               </svg>
             </span>
           }
+          @if (planQueueRole()) {
+            <span class="plan-queue-marker" [appTooltip]="planQueueRoleLabel()" [attr.aria-label]="planQueueRoleLabel()" [attr.data-role]="planQueueRole()">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M4 6h16M4 12h10M4 18h6" />
+                <path d="M16 16l2 2 4-4" />
+              </svg>
+            </span>
+          }
           <span class="instance-name">{{ resolvedDisplayTitle() }}</span>
           @if (hasPendingApproval()) {
             <span class="approval-chip" appTooltip="This instance has a pending permission request">Awaiting approval</span>

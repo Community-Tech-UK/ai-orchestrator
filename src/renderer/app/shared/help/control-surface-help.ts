@@ -12,6 +12,7 @@ import {
   AUTOMATIONS_HELP,
   CAMPAIGNS_HELP,
   HOOKS_HELP,
+  PLAN_QUEUE_HELP,
   WORKFLOWS_HELP,
 } from './content/automation.help';
 import {
@@ -79,6 +80,7 @@ export const CONTROL_SURFACE_HELP: Record<ControlSurfaceId, HelpEntry> = {
   'chat-search': CHAT_SEARCH_HELP,
   'automations': AUTOMATIONS_HELP,
   'campaigns': CAMPAIGNS_HELP,
+  'plan-queue': PLAN_QUEUE_HELP,
   'workflows': WORKFLOWS_HELP,
   'hooks': HOOKS_HELP,
   'skills': SKILLS_HELP,

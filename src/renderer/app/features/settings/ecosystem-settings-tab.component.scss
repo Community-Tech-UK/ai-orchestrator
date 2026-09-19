@@ -1,14 +1,52 @@
+:host {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
 .ecosystem {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
   gap: var(--spacing-md);
+  padding: var(--spacing-lg);
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
-.topbar {
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  flex-shrink: 0;
+}
+
+.header-title {
+  display: flex;
+  flex-direction: column;
+}
+
+.title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.subtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.toolbar {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--spacing-md);
+  flex-shrink: 0;
 }
 
 .dir .label {
@@ -70,30 +108,31 @@
   color: var(--error-color);
 }
 
-.content {
+.workspace {
   display: grid;
-  grid-template-columns: 1fr 1.2fr;
+  grid-template-columns: minmax(260px, 340px) 1fr;
   gap: var(--spacing-md);
-  align-items: start;
+  flex: 1;
+  min-height: 420px;
 }
 
-.left,
-.right {
+.list-pane,
+.detail-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   background: var(--bg-secondary);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
   overflow: hidden;
 }
 
-.section {
-  border-bottom: 1px solid var(--border-subtle);
+.detail-pane {
+  overflow-y: auto;
 }
 
-.section:last-child {
-  border-bottom: none;
-}
-
-.section-title {
+.list-pane-header {
+  flex-shrink: 0;
   padding: 10px 12px;
   font-family: var(--font-display);
   font-size: 12px;
@@ -103,6 +142,12 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+
+.list-pane-title {
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
 }
 
 .mini-btn {
@@ -126,8 +171,9 @@
 .list {
   display: flex;
   flex-direction: column;
-  max-height: 170px;
-  overflow: auto;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .item {
@@ -230,6 +276,10 @@
 }
 
 .detail-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: var(--font-display);
   font-size: 14px;
   font-weight: 800;
@@ -353,7 +403,11 @@
 }
 
 @media (max-width: 1100px) {
-  .content {
+  .workspace {
     grid-template-columns: 1fr;
+  }
+
+  .list-pane {
+    max-height: 320px;
   }
 }

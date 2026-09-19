@@ -545,6 +545,9 @@ export const LoopIterationSchema = z.object({
   childInstanceId: z.string().nullable(),
   tokens: z.number().int().nonnegative(),
   costCents: z.number().int().nonnegative(),
+  /** True when the provider reported an authoritative cost; false means
+   *  `costCents` was estimated from token counts. */
+  costKnown: z.boolean().optional(),
   filesChanged: z.array(LoopFileChangeSchema),
   filesRead: z.array(z.string()).default([]),
   toolCalls: z.array(LoopToolCallRecordSchema),
@@ -608,6 +611,7 @@ export const LoopStateSchema = z.object({
     integrationBranch: z.string().optional(),
     integrationTip: z.string().optional(),
     lastError: z.string().optional(),
+    resolvedByOperatorAt: z.number().int().optional(),
     updatedAt: z.number().int(),
   }).optional(),
   repoBaseline: LoopRepoBaselineSnapshotSchema.optional(),

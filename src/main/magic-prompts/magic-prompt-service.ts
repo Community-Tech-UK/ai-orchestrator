@@ -10,7 +10,11 @@
  * can be unit-tested without spawning a real CLI.
  */
 
-import { resolveCliType, type CliAdapter } from '../cli/adapters/adapter-factory';
+import {
+  mapSettingsToDetectionType,
+  resolveCliType,
+  type CliAdapter,
+} from '../cli/adapters/adapter-factory';
 import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
 import type { UnifiedSpawnOptions } from '../cli/adapters/adapter-factory';
 import { isCliAvailable, type CliType } from '../cli/cli-detection';
@@ -77,12 +81,24 @@ function hasSendMessage(adapter: CliAdapter): adapter is SendMessageAdapter {
   return typeof (adapter as { sendMessage?: unknown }).sendMessage === 'function';
 }
 
+/**
+ * A legacy provider preference can map to a different runtime CLI (currently
+ * `gemini` → `antigravity`). Check both identities before an automatic magic
+ * prompt resolves it, so excluding the runtime cannot be bypassed by its
+ * legacy preference spelling.
+ */
+function isEligibleForAutomaticMagicPrompt(provider: string): boolean {
+  const resolved = mapSettingsToDetectionType(provider as CliType);
+  return !isProviderExcludedFromAutomation(provider)
+    && (resolved === 'auto' || !isProviderExcludedFromAutomation(resolved));
+}
+
 async function defaultResolveProvider(preferred?: string): Promise<CliType | null> {
   // Honor an explicit preference first — unless the operator barred that
   // provider from automatic use. A magic prompt is a background one-shot, never
   // a session the user opened, so even a caller-supplied provider is an
   // automatic choice here and the exclusion applies.
-  if (preferred && !isProviderExcludedFromAutomation(preferred)) {
+  if (preferred && isEligibleForAutomaticMagicPrompt(preferred)) {
     try {
       const info = await isCliAvailable(preferred as CliType);
       if (info.installed) return await resolveCliType(preferred as CliType);
@@ -91,6 +107,7 @@ async function defaultResolveProvider(preferred?: string): Promise<CliType | nul
     }
   }
   for (const candidate of filterProvidersForAutomation(FAST_PROVIDER_PREFERENCE, 'magicPrompt')) {
+    if (!isEligibleForAutomaticMagicPrompt(candidate)) continue;
     try {
       const info = await isCliAvailable(candidate);
       if (info.installed) return await resolveCliType(candidate);

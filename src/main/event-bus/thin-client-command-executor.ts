@@ -28,6 +28,8 @@ import { getPauseCoordinator } from '../pause/pause-coordinator';
 import { getRemoteObserverServer } from '../remote/observer-server';
 import { getLoopCoordinator } from '../orchestration/loop-coordinator';
 import { getLoopStore } from '../orchestration/loop-store';
+import type { LoopCheckpoint } from '../orchestration/loop-checkpoint';
+import { resumeLoopRun } from '../orchestration/loop-resume';
 import { prepareLoopStartConfig as prepareDefaultLoopStartConfig } from '../orchestration/loop-start-config';
 import { buildReplayContinuityMessage } from '../session/replay-continuity';
 import { retainedPromptsMissingFrom } from '../instance/prompt-retention';
@@ -92,9 +94,14 @@ export interface ThinClientCommandExecutorDeps {
     cancelLoop(loopRunId: string): Promise<boolean>;
     intervene(loopRunId: string, message: string, kind?: LoopPendingInputKind): boolean;
     acceptCompletion(loopRunId: string): Promise<boolean>;
-    getLoop(loopRunId: string): unknown;
+    getLoop(loopRunId: string): LoopState | undefined;
+    /** Required so `loop:resume` can re-hydrate a loop parked before a restart. */
+    restoreLoopFromCheckpoint(checkpoint: LoopCheckpoint): Promise<LoopState>;
   };
-  loopStore?: { upsertRun(state: unknown): void };
+  loopStore?: {
+    upsertRun(state: unknown): void;
+    getCheckpoint(loopRunId: string): LoopCheckpoint | null;
+  };
   prepareLoopStartConfig?: (config: LoopConfigInput) => Promise<ThinClientLoopConfig>;
   chatService?: ThinClientChatService;
   snapshotManager?: {
@@ -142,9 +149,7 @@ export function createThinClientCommandExecutor(
             Promise.resolve(coordinator.pauseLoop(loopRunId))
           );
         case 'loop:resume':
-          return loopById(deps, payload, 'LOOP_RESUME', 'LOOP_RESUME_FAILED', (coordinator, loopRunId) =>
-            Promise.resolve(coordinator.resumeLoop(loopRunId))
-          );
+          return await resumeLoop(deps, payload);
         case 'loop:cancel':
           return loopById(deps, payload, 'LOOP_CANCEL', 'LOOP_CANCEL_FAILED', (coordinator, loopRunId) =>
             coordinator.cancelLoop(loopRunId)
@@ -338,6 +343,30 @@ async function loopById(
     return { success: true, data: { ok, state } };
   } catch (error) {
     return errorResponse(errorCode, error);
+  }
+}
+
+/**
+ * `loop:resume` cannot go through `loopById`: `coordinator.resumeLoop` alone
+ * returns false for any loop the coordinator no longer holds in memory, which
+ * is every loop parked before an app restart. Mobile clients hitting exactly
+ * that case used to get a silent `ok: false`. Share the renderer's
+ * restore-then-resume sequence instead.
+ */
+async function resumeLoop(
+  deps: ThinClientCommandExecutorDeps,
+  payload: unknown,
+): Promise<IpcResponse> {
+  try {
+    const validated = validateIpcPayload(LoopByIdPayloadSchema, payload, 'THIN_CLIENT_LOOP_RESUME');
+    const outcome = await resumeLoopRun(
+      getLoopCoordinatorForDeps(deps),
+      getLoopStoreForDeps(deps),
+      validated.loopRunId,
+    );
+    return { success: true, data: { ok: outcome.ok, state: outcome.state } };
+  } catch (error) {
+    return errorResponse('LOOP_RESUME_FAILED', error);
   }
 }
 

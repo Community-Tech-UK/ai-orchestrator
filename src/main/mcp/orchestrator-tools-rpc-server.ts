@@ -42,6 +42,7 @@ import {
   type UpdateAutomationFn,
 } from './orchestrator-tools';
 import type { GetDocReviewResultFn, RequestDocReviewFn } from './doc-review-tools';
+import { isPlanQueueRpcMethod, PLAN_QUEUE_TOOL_NAMES, type PlanQueueToolOperations } from './plan-queue-tools';
 import { ResetNodeConnectionArgsSchema, type NodeConnectionToolContext, type ResetNodeConnectionFn } from './orchestrator-node-connection-tools';
 import {
   ListMessageableSessionsArgsSchema,
@@ -80,6 +81,11 @@ import {
 import type { OrchestratorEvidenceToolContext } from './orchestrator-evidence-tools';
 import { EVIDENCE_RPC_SPECS } from './orchestrator-tools-rpc-evidence';
 import { createOrchestratorToolsSocketPath } from './orchestrator-tools-socket-path';
+import { OrchestratorToolsRpcInstanceCapability } from './orchestrator-tools-rpc-capability';
+import {
+  handleOneShotOrchestratorToolsRpcSocket,
+  type OrchestratorToolsRpcSocketRequest,
+} from './orchestrator-tools-rpc-socket';
 import type { CalendarToolDependencies } from './orchestrator-calendar-tools';
 import {
   CALENDAR_READ_RPC_SPECS,
@@ -87,6 +93,7 @@ import {
   dispatchCalendarMutation,
 } from './orchestrator-tools-rpc-calendar';
 import { dispatchLocalAiCliRpc, isLocalAiCliRpcMethod, type LocalAiCliOperations } from './orchestrator-tools-rpc-local-ai';
+import { dispatchLoopCliRpc, isLoopCliMutationMethod, isLoopCliRpcMethod, type LoopCliOperations } from './orchestrator-tools-rpc-loop';
 import { dispatchCopilotAccountCliRpc, isCopilotAccountCliRpcMethod, type CopilotAccountCliOperations } from './orchestrator-tools-rpc-copilot-account';
 import { dispatchBrowserCredentialsCliRpc, isBrowserCredentialsCliRpcMethod } from './orchestrator-tools-rpc-browser-credentials';
 
@@ -94,22 +101,19 @@ const logger = getLogger('OrchestratorToolsRpcServer');
 
 /** Per-surface tool scoping for spawn-depth defense-in-depth. */
 const ORCHESTRATOR_TOOLSETS = createToolsetRegistry([
-  { name: 'orchestrator-tools-full', tools: ['git_batch_pull', 'list_remote_nodes', 'run_on_node', 'exec_on_node', 'read_node_output', ...FILE_TRANSFER_TOOL_NAMES, 'list_settings', 'get_setting', 'set_setting', 'reset_setting', 'update_node_config', 'create_automation', 'list_automations', 'delete_automation', 'update_automation', 'postpone_automation', 'request_doc_review', 'get_doc_review_result', ...CALENDAR_TOOL_NAMES, 'evidence_list', 'evidence_search', 'evidence_read', 'evidence_compare', 'evidence_verify'] },
+  { name: 'orchestrator-tools-full', tools: ['git_batch_pull', 'list_remote_nodes', 'run_on_node', 'exec_on_node', 'read_node_output', ...FILE_TRANSFER_TOOL_NAMES, 'list_settings', 'get_setting', 'set_setting', 'reset_setting', 'update_node_config', 'create_automation', 'list_automations', 'delete_automation', 'update_automation', 'postpone_automation', 'request_doc_review', 'get_doc_review_result', ...PLAN_QUEUE_TOOL_NAMES, ...CALENDAR_TOOL_NAMES, 'evidence_list', 'evidence_search', 'evidence_read', 'evidence_compare', 'evidence_verify'] },
   { name: 'orchestrator-tools-leaf', includes: ['orchestrator-tools-full'], tools: ['!run_on_node', '!exec_on_node'] },
 ]);
 
 const DEFAULT_MAX_PAYLOAD_BYTES = 256 * 1024;
 const MAX_RPC_ENVELOPE_BYTES = 16 * 1024;
 
-interface OrchestratorToolsRpcRequest {
-  jsonrpc?: '2.0';
-  id?: number | string | null;
-  method: string;
-  params?: unknown;
-}
+type OrchestratorToolsRpcRequest = OrchestratorToolsRpcSocketRequest;
 
 interface OrchestratorToolsRpcParams {
   instanceId: string;
+  /** Per-spawn capability token (AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_CAPABILITY). Verified only for requests that arrive over the real socket — see `assertSocketRequestCapability`. */
+  capability?: string;
   payload: Record<string, unknown>;
 }
 
@@ -166,6 +170,8 @@ export interface OrchestratorToolsRpcServerOptions extends FileTransferToolConte
   postponeAutomation?: PostponeAutomationFn | null;
   /** Back `request_doc_review` / `get_doc_review_result`. */
   requestDocReview?: RequestDocReviewFn | null; getDocReviewResult?: GetDocReviewResultFn | null;
+  /** Backs the plan_queue_* tools (caller-checked by the coordinator). */
+  planQueueTools?: PlanQueueToolOperations | null;
   /** Backs cross-session messaging MCP tools. */
   sessionMessagingService?: SessionMessagingToolService | null;
   /**
@@ -185,6 +191,7 @@ export interface OrchestratorToolsRpcServerOptions extends FileTransferToolConte
   /** Backs the privileged Local AI Guard CLI without importing native runtime code into the SEA. */
   localAiGuardOperations?: LocalAiCliOperations | null;
   copilotAccountOperations?: CopilotAccountCliOperations | null;
+  loopOperations?: LoopCliOperations | null;
   authorizeCalendarMutation?: (
     request: CalendarMutationAuthorizationRequest,
   ) => Promise<boolean>;
@@ -214,6 +221,7 @@ export class OrchestratorToolsRpcServer {
   private readonly postponeAutomation: PostponeAutomationFn | null;
   private readonly requestDocReview: RequestDocReviewFn | null;
   private readonly getDocReviewResult: GetDocReviewResultFn | null;
+  private readonly planQueueTools: PlanQueueToolOperations | null;
   private readonly sessionMessagingService: SessionMessagingToolService | null;
   private readonly resolveSpawnEligibility: ((instanceId: string) => boolean) | null;
   private readonly resolveContextEvidence: NonNullable<
@@ -225,9 +233,11 @@ export class OrchestratorToolsRpcServer {
   private readonly calendarTools: CalendarToolDependencies;
   private readonly localAiGuardOperations: LocalAiCliOperations | null;
   private readonly copilotAccountOperations: CopilotAccountCliOperations | null;
+  private readonly loopOperations: LoopCliOperations | null;
   private readonly authorizeCalendarMutation: NonNullable<
     OrchestratorToolsRpcServerOptions['authorizeCalendarMutation']
   >;
+  private readonly instanceCapabilities = new OrchestratorToolsRpcInstanceCapability();
   private readonly buckets = new Map<string, number[]>();
   private readonly toolFactory: NonNullable<OrchestratorToolsRpcServerOptions['toolFactory']>;
   /** True when callers provided their own toolFactory — usually tests that
@@ -270,6 +280,7 @@ export class OrchestratorToolsRpcServer {
     this.updateAutomation = options.updateAutomation ?? null;
     this.postponeAutomation = options.postponeAutomation ?? null;
     this.requestDocReview = options.requestDocReview ?? null; this.getDocReviewResult = options.getDocReviewResult ?? null;
+    this.planQueueTools = options.planQueueTools ?? null;
     this.sessionMessagingService = options.sessionMessagingService ?? null;
     this.resolveSpawnEligibility = options.resolveSpawnEligibility ?? null;
     this.resolveContextEvidence = options.resolveContextEvidence ?? (() => null);
@@ -277,6 +288,7 @@ export class OrchestratorToolsRpcServer {
     this.calendarTools = options.calendarTools ?? {};
     this.localAiGuardOperations = options.localAiGuardOperations ?? null;
     this.copilotAccountOperations = options.copilotAccountOperations ?? null;
+    this.loopOperations = options.loopOperations ?? null;
     this.authorizeCalendarMutation = options.authorizeCalendarMutation ?? (async () => false);
     this.toolFactoryInjected = options.toolFactory !== undefined;
     this.toolFactory = options.toolFactory ?? createOrchestratorToolDefinitions;
@@ -327,7 +339,7 @@ export class OrchestratorToolsRpcServer {
     return this.socketPath;
   }
 
-  async handleRequest(request: OrchestratorToolsRpcRequest): Promise<unknown> {
+  async handleRequest(request: OrchestratorToolsRpcRequest, abortSignal?: AbortSignal): Promise<unknown> {
     const params = this.parseParams(request.params);
     if (!this.isKnownLocalInstance(params.instanceId)) {
       throw new Error('unknown orchestrator-tools instance');
@@ -336,15 +348,15 @@ export class OrchestratorToolsRpcServer {
     this.enforcePayloadSize(params.payload);
     const fileTransferSpec = FILE_TRANSFER_RPC_SPECS.find((spec) => spec.method === request.method);
     if (fileTransferSpec) {
-      return this.dispatchValidatedTool(fileTransferSpec.toolName, fileTransferSpec.schema, params);
+      return this.dispatchValidatedTool(fileTransferSpec.toolName, fileTransferSpec.schema, params, abortSignal);
     }
     const evidenceSpec = EVIDENCE_RPC_SPECS.find((spec) => spec.method === request.method);
     if (evidenceSpec) {
-      return this.dispatchValidatedTool(evidenceSpec.toolName, evidenceSpec.schema, params);
+      return this.dispatchValidatedTool(evidenceSpec.toolName, evidenceSpec.schema, params, abortSignal);
     }
     const calendarReadSpec = CALENDAR_READ_RPC_SPECS.find((spec) => spec.method === request.method);
     if (calendarReadSpec) {
-      return this.dispatchValidatedTool(calendarReadSpec.toolName, calendarReadSpec.schema, params);
+      return this.dispatchValidatedTool(calendarReadSpec.toolName, calendarReadSpec.schema, params, abortSignal);
     }
     if (isBrowserCredentialsCliRpcMethod(request.method)) return dispatchBrowserCredentialsCliRpc(request.method, params.payload);
     if (isCopilotAccountCliRpcMethod(request.method)) {
@@ -353,11 +365,17 @@ export class OrchestratorToolsRpcServer {
     if (isLocalAiCliRpcMethod(request.method)) {
       return dispatchLocalAiCliRpc(request.method, params.payload, this.localAiGuardOperations);
     }
+    if (isLoopCliRpcMethod(request.method)) {
+      this.enforceLoopMutationEligibility(request.method, params.instanceId);
+      return dispatchLoopCliRpc(request.method, params.payload, this.loopOperations);
+    }
+    // Each plan_queue_* handler validates its own payload (plan-queue-tools.ts).
+    if (isPlanQueueRpcMethod(request.method)) return this.dispatchSameNameTool(request.method, params, abortSignal);
 
     switch (request.method) {
       case 'orchestrator_tools.git_batch_pull': {
         const validated = GitBatchPullArgsSchema.parse(params.payload);
-        const tools = this.getToolsForInstance(params.instanceId);
+        const tools = this.getToolsForInstance(params.instanceId, abortSignal);
         const tool = tools.find((t) => t.name === 'git_batch_pull');
         if (!tool) {
           throw new Error('git_batch_pull tool unavailable');
@@ -366,7 +384,7 @@ export class OrchestratorToolsRpcServer {
       }
       case 'orchestrator_tools.list_remote_nodes': {
         const validated = ListRemoteNodesArgsSchema.parse(params.payload);
-        const tools = this.getToolsForInstance(params.instanceId);
+        const tools = this.getToolsForInstance(params.instanceId, abortSignal);
         const tool = tools.find((t) => t.name === 'list_remote_nodes');
         if (!tool) {
           throw new Error('list_remote_nodes tool unavailable');
@@ -375,7 +393,7 @@ export class OrchestratorToolsRpcServer {
       }
       case 'orchestrator_tools.run_on_node': {
         const validated = RunOnNodeArgsSchema.parse(params.payload);
-        const tools = this.getToolsForInstance(params.instanceId);
+        const tools = this.getToolsForInstance(params.instanceId, abortSignal);
         const tool = tools.find((t) => t.name === 'run_on_node');
         if (!tool) {
           throw new Error('run_on_node tool unavailable');
@@ -384,14 +402,14 @@ export class OrchestratorToolsRpcServer {
       }
       case 'orchestrator_tools.exec_on_node': {
         const validated = ExecOnNodeArgsSchema.parse(params.payload);
-        const tools = this.getToolsForInstance(params.instanceId);
+        const tools = this.getToolsForInstance(params.instanceId, abortSignal);
         const tool = tools.find((t) => t.name === 'exec_on_node');
         if (!tool) throw new Error('exec_on_node tool unavailable');
         return tool.handler(validated);
       }
       case 'orchestrator_tools.read_node_output': {
         const validated = ReadNodeOutputArgsSchema.parse(params.payload);
-        const tools = this.getToolsForInstance(params.instanceId);
+        const tools = this.getToolsForInstance(params.instanceId, abortSignal);
         const tool = tools.find((t) => t.name === 'read_node_output');
         if (!tool) {
           throw new Error('read_node_output tool unavailable');
@@ -400,7 +418,7 @@ export class OrchestratorToolsRpcServer {
       }
       case 'orchestrator_tools.terminate_node_instance': {
         const validated = TerminateNodeInstanceArgsSchema.parse(params.payload);
-        const tools = this.getToolsForInstance(params.instanceId);
+        const tools = this.getToolsForInstance(params.instanceId, abortSignal);
         const tool = tools.find((t) => t.name === 'terminate_node_instance');
         if (!tool) {
           throw new Error('terminate_node_instance tool unavailable');
@@ -409,13 +427,13 @@ export class OrchestratorToolsRpcServer {
       }
       case 'orchestrator_tools.reset_node_connection': {
         const validated = ResetNodeConnectionArgsSchema.parse(params.payload);
-        const tool = this.getToolsForInstance(params.instanceId).find((t) => t.name === 'reset_node_connection');
+        const tool = this.getToolsForInstance(params.instanceId, abortSignal).find((t) => t.name === 'reset_node_connection');
         if (!tool) throw new Error('reset_node_connection tool unavailable');
         return tool.handler(validated);
       }
       case 'orchestrator_tools.send_session_message': {
         const validated = SendSessionMessageArgsSchema.parse(params.payload);
-        const tool = this.getToolsForInstance(params.instanceId).find((t) => t.name === 'send_session_message');
+        const tool = this.getToolsForInstance(params.instanceId, abortSignal).find((t) => t.name === 'send_session_message');
         if (!tool) {
           throw new Error('send_session_message tool unavailable');
         }
@@ -423,7 +441,7 @@ export class OrchestratorToolsRpcServer {
       }
       case 'orchestrator_tools.list_messageable_sessions': {
         const validated = ListMessageableSessionsArgsSchema.parse(params.payload);
-        const tool = this.getToolsForInstance(params.instanceId).find((t) => t.name === 'list_messageable_sessions');
+        const tool = this.getToolsForInstance(params.instanceId, abortSignal).find((t) => t.name === 'list_messageable_sessions');
         if (!tool) {
           throw new Error('list_messageable_sessions tool unavailable');
         }
@@ -447,7 +465,7 @@ export class OrchestratorToolsRpcServer {
       }
       case 'orchestrator_tools.settings.list': {
         const validated = SettingsToolListPayloadSchema.parse(params.payload);
-        const tools = this.getToolsForInstance(params.instanceId);
+        const tools = this.getToolsForInstance(params.instanceId, abortSignal);
         const tool = tools.find((t) => t.name === 'list_settings');
         if (!tool) {
           throw new Error('list_settings tool unavailable');
@@ -456,7 +474,7 @@ export class OrchestratorToolsRpcServer {
       }
       case 'orchestrator_tools.settings.get': {
         const validated = SettingsToolGetPayloadSchema.parse(params.payload);
-        const tools = this.getToolsForInstance(params.instanceId);
+        const tools = this.getToolsForInstance(params.instanceId, abortSignal);
         const tool = tools.find((t) => t.name === 'get_setting');
         if (!tool) {
           throw new Error('get_setting tool unavailable');
@@ -465,7 +483,7 @@ export class OrchestratorToolsRpcServer {
       }
       case 'orchestrator_tools.settings.set': {
         const validated = SettingsToolSetPayloadSchema.parse(params.payload);
-        const tools = this.getToolsForInstance(params.instanceId);
+        const tools = this.getToolsForInstance(params.instanceId, abortSignal);
         const tool = tools.find((t) => t.name === 'set_setting');
         if (!tool) {
           throw new Error('set_setting tool unavailable');
@@ -474,7 +492,7 @@ export class OrchestratorToolsRpcServer {
       }
       case 'orchestrator_tools.settings.reset': {
         const validated = SettingsToolResetPayloadSchema.parse(params.payload);
-        const tools = this.getToolsForInstance(params.instanceId);
+        const tools = this.getToolsForInstance(params.instanceId, abortSignal);
         const tool = tools.find((t) => t.name === 'reset_setting');
         if (!tool) {
           throw new Error('reset_setting tool unavailable');
@@ -483,7 +501,7 @@ export class OrchestratorToolsRpcServer {
       }
       case 'orchestrator_tools.node_config.update': {
         const validated = SettingsToolUpdateNodeConfigPayloadSchema.parse(params.payload);
-        const tools = this.getToolsForInstance(params.instanceId);
+        const tools = this.getToolsForInstance(params.instanceId, abortSignal);
         const tool = tools.find((t) => t.name === 'update_node_config');
         if (!tool) {
           throw new Error('update_node_config tool unavailable');
@@ -492,7 +510,7 @@ export class OrchestratorToolsRpcServer {
       }
       case 'orchestrator_tools.create_automation': {
         const validated = CreateAutomationArgsSchema.parse(params.payload);
-        const tools = this.getToolsForInstance(params.instanceId);
+        const tools = this.getToolsForInstance(params.instanceId, abortSignal);
         const tool = tools.find((t) => t.name === 'create_automation');
         if (!tool) {
           throw new Error('create_automation tool unavailable');
@@ -501,7 +519,7 @@ export class OrchestratorToolsRpcServer {
       }
       case 'orchestrator_tools.list_automations': {
         const validated = ListAutomationsArgsSchema.parse(params.payload);
-        const tools = this.getToolsForInstance(params.instanceId);
+        const tools = this.getToolsForInstance(params.instanceId, abortSignal);
         const tool = tools.find((t) => t.name === 'list_automations');
         if (!tool) {
           throw new Error('list_automations tool unavailable');
@@ -510,7 +528,7 @@ export class OrchestratorToolsRpcServer {
       }
       case 'orchestrator_tools.delete_automation': {
         const validated = DeleteAutomationArgsSchema.parse(params.payload);
-        const tools = this.getToolsForInstance(params.instanceId);
+        const tools = this.getToolsForInstance(params.instanceId, abortSignal);
         const tool = tools.find((t) => t.name === 'delete_automation');
         if (!tool) {
           throw new Error('delete_automation tool unavailable');
@@ -519,7 +537,7 @@ export class OrchestratorToolsRpcServer {
       }
       case 'orchestrator_tools.update_automation': {
         const validated = UpdateAutomationArgsSchema.parse(params.payload);
-        const tools = this.getToolsForInstance(params.instanceId);
+        const tools = this.getToolsForInstance(params.instanceId, abortSignal);
         const tool = tools.find((t) => t.name === 'update_automation');
         if (!tool) {
           throw new Error('update_automation tool unavailable');
@@ -528,7 +546,7 @@ export class OrchestratorToolsRpcServer {
       }
       case 'orchestrator_tools.postpone_automation': {
         const validated = PostponeAutomationArgsSchema.parse(params.payload);
-        const tools = this.getToolsForInstance(params.instanceId);
+        const tools = this.getToolsForInstance(params.instanceId, abortSignal);
         const tool = tools.find((t) => t.name === 'postpone_automation');
         if (!tool) {
           throw new Error('postpone_automation tool unavailable');
@@ -540,13 +558,13 @@ export class OrchestratorToolsRpcServer {
         // Both tools validate their own payload via zod schemas inside
         // doc-review-tools.ts, so the generic same-name dispatch (used for
         // the release tools below) is sufficient here.
-        return this.dispatchSameNameTool(request.method, params);
+        return this.dispatchSameNameTool(request.method, params, abortSignal);
       case 'orchestrator_tools.build_release_operational_readiness_report':
       case 'orchestrator_tools.build_ios_release_plan':
       case 'orchestrator_tools.build_android_release_plan':
       case 'orchestrator_tools.build_new_app_setup_plan':
       case 'orchestrator_tools.generate_play_data_safety_csv':
-        return this.dispatchSameNameTool(request.method, params);
+        return this.dispatchSameNameTool(request.method, params, abortSignal);
       case 'orchestrator_tools.execute_android_play_release':
       case 'orchestrator_tools.execute_ios_asc_finalization': {
         const authorized = await this.authorizeReleaseMutation({
@@ -557,7 +575,7 @@ export class OrchestratorToolsRpcServer {
         if (!authorized) {
           throw new Error('release_operator_authorization_required');
         }
-        return this.dispatchSameNameTool(request.method, params);
+        return this.dispatchSameNameTool(request.method, params, abortSignal);
       }
       // LT-192: dispatchCalendarMutation fails fast on a doomed account
       // before requesting approval; see orchestrator-tools-rpc-calendar.ts.
@@ -566,7 +584,7 @@ export class OrchestratorToolsRpcServer {
       case 'orchestrator_tools.graph_calendar_update_event':
       case 'orchestrator_tools.graph_calendar_delete_event':
         return dispatchCalendarMutation(
-          { calendarTools: this.calendarTools, authorizeCalendarMutation: this.authorizeCalendarMutation, dispatchSameNameTool: (m, p) => this.dispatchSameNameTool(m, p) },
+          { calendarTools: this.calendarTools, authorizeCalendarMutation: this.authorizeCalendarMutation, dispatchSameNameTool: (m, p) => this.dispatchSameNameTool(m, p, abortSignal) },
           params.instanceId, request.method, params.payload,
         );
       default:
@@ -577,9 +595,10 @@ export class OrchestratorToolsRpcServer {
   private async dispatchSameNameTool(
     method: string,
     params: OrchestratorToolsRpcParams,
+    abortSignal?: AbortSignal,
   ): Promise<unknown> {
     const toolName = method.slice('orchestrator_tools.'.length);
-    const tool = this.getToolsForInstance(params.instanceId).find((candidate) => candidate.name === toolName);
+    const tool = this.getToolsForInstance(params.instanceId, abortSignal).find((candidate) => candidate.name === toolName);
     if (!tool) {
       throw new Error(`${toolName} tool unavailable`);
     }
@@ -598,67 +617,43 @@ export class OrchestratorToolsRpcServer {
     toolName: string,
     schema: { parse(value: unknown): Record<string, unknown> },
     params: OrchestratorToolsRpcParams,
+    abortSignal?: AbortSignal,
   ): Promise<unknown> {
     const validated = schema.parse(params.payload);
-    const tool = this.getToolsForInstance(params.instanceId).find((candidate) => candidate.name === toolName);
+    const tool = this.getToolsForInstance(params.instanceId, abortSignal).find((candidate) => candidate.name === toolName);
     if (!tool) {
       throw new Error(`${toolName} tool unavailable`);
     }
     return tool.handler(validated);
   }
 
+  /**
+   * Real socket traffic (the only way an `aio-mcp orchestrator-tools` child
+   * ever reaches this server) is authenticated by BOTH the instance id
+   * checked in `handleRequest` AND a per-spawn capability token checked here.
+   * `handleRequest` itself stays callable without a token so the large
+   * pre-existing direct-call test surface for tool dispatch is unaffected —
+   * this method is the only production entry point that requires one.
+   */
   private handleSocket(socket: net.Socket): void {
-    let buffer = '';
-    socket.on('data', (chunk) => {
-      buffer += chunk.toString('utf-8');
-      if (
-        Buffer.byteLength(buffer, 'utf-8') >
-        this.maxPayloadBytes + MAX_RPC_ENVELOPE_BYTES
-      ) {
-        this.writeError(socket, null, 'Orchestrator-tools RPC request too large');
-        return;
-      }
-      const newline = buffer.indexOf('\n');
-      if (newline === -1) {
-        return;
-      }
-      const line = buffer.slice(0, newline);
-      buffer = buffer.slice(newline + 1);
-      void this.handleSocketLine(socket, line);
+    handleOneShotOrchestratorToolsRpcSocket(socket, {
+      maxMessageBytes: this.maxPayloadBytes + MAX_RPC_ENVELOPE_BYTES,
+      authenticate: (request) => this.assertSocketRequestCapability(request),
+      handle: (request, abortSignal) => this.handleRequest(request, abortSignal),
     });
   }
 
-  private async handleSocketLine(socket: net.Socket, line: string): Promise<void> {
-    let request: OrchestratorToolsRpcRequest | null = null;
-    try {
-      request = JSON.parse(line) as OrchestratorToolsRpcRequest;
-      const result = await this.handleRequest(request);
-      socket.end(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result })}\n`);
-    } catch (error) {
-      this.writeError(
-        socket,
-        request?.id ?? null,
-        error instanceof SyntaxError
-          ? 'Invalid orchestrator-tools RPC request JSON'
-          : error instanceof Error
-            ? error.message
-            : String(error),
-      );
+  /** Throws (rejecting the request) unless `params.capability` is a valid, matching capability for `params.instanceId`. Missing or wrong — including a child spawned before this capability existed — is rejected; there is no grandfathering. */
+  private assertSocketRequestCapability(request: OrchestratorToolsRpcRequest): void {
+    const params = this.parseParams(request.params);
+    if (!this.instanceCapabilities.verify(params.instanceId, params.capability)) {
+      throw new Error('invalid or missing orchestrator-tools capability token');
     }
   }
 
-  private writeError(
-    socket: net.Socket,
-    id: OrchestratorToolsRpcRequest['id'],
-    message: string,
-  ): void {
-    socket.end(
-      `${JSON.stringify({
-        jsonrpc: '2.0',
-        id,
-        error: { code: -32000, message },
-      })}\n`,
-    );
+  /** Mints the capability token for a spawned instance, or null if it is not a known local instance. */
+  getInstanceCapability(instanceId: string): string | null {
+    return this.instanceCapabilities.mint(instanceId, this.isKnownLocalInstance);
   }
 
   private parseParams(params: unknown): OrchestratorToolsRpcParams {
@@ -672,7 +667,11 @@ export class OrchestratorToolsRpcServer {
     if (!value.payload || typeof value.payload !== 'object' || Array.isArray(value.payload)) {
       throw new Error('Orchestrator-tools RPC payload is required');
     }
-    return { instanceId: value.instanceId, payload: value.payload };
+    return {
+      instanceId: value.instanceId,
+      ...(typeof value.capability === 'string' ? { capability: value.capability } : {}),
+      payload: value.payload,
+    };
   }
 
   private enforcePayloadSize(payload: Record<string, unknown>): void {
@@ -704,7 +703,7 @@ export class OrchestratorToolsRpcServer {
     this.ledger = getConversationLedgerService();
   }
 
-  private getToolsForInstance(instanceId: string): McpServerToolDefinition[] {
+  private getToolsForInstance(instanceId: string, abortSignal?: AbortSignal): McpServerToolDefinition[] {
     if (this.toolFactoryInjected) {
       // Tests inject a factory that ignores its `db`/`ledger` args; opening
       // the real operator DB here would defeat the point of injection.
@@ -712,6 +711,7 @@ export class OrchestratorToolsRpcServer {
         db: null as unknown as SqliteDriver,
         ledger: null,
         instanceId,
+        abortSignal,
         listRemoteNodes: this.listRemoteNodes,
         ...this.fileTransferTools,
         spawnRemoteInstance: this.spawnRemoteInstance,
@@ -729,6 +729,7 @@ export class OrchestratorToolsRpcServer {
         postponeAutomation: this.postponeAutomation,
         requestDocReview: this.requestDocReview,
         getDocReviewResult: this.getDocReviewResult,
+        planQueueTools: this.planQueueTools,
         calendarTools: this.calendarTools,
         contextEvidence: this.resolveContextEvidence(instanceId),
         sessionMessagingService: this.sessionMessagingService,
@@ -742,6 +743,7 @@ export class OrchestratorToolsRpcServer {
       db: this.db,
       ledger: this.ledger,
       instanceId,
+      abortSignal,
       listRemoteNodes: this.listRemoteNodes,
       ...this.fileTransferTools,
       spawnRemoteInstance: this.spawnRemoteInstance,
@@ -759,6 +761,7 @@ export class OrchestratorToolsRpcServer {
       postponeAutomation: this.postponeAutomation,
       requestDocReview: this.requestDocReview,
       getDocReviewResult: this.getDocReviewResult,
+      planQueueTools: this.planQueueTools,
       calendarTools: this.calendarTools,
       contextEvidence: this.resolveContextEvidence(instanceId),
       sessionMessagingService: this.sessionMessagingService,
@@ -784,6 +787,25 @@ export class OrchestratorToolsRpcServer {
       ORCHESTRATOR_TOOLSETS.resolve('orchestrator-tools-full').filter((t) => !leaf.has(t)),
     );
     return tools.filter((tool) => !stripped.has(tool.name));
+  }
+
+  /**
+   * Resuming a loop starts a fresh agentic iteration with provider spend and
+   * workspace write access — the same class of action as `run_on_node`, which
+   * instances at the spawn-depth ceiling deliberately lose (see
+   * `resolveSpawnEligibility` in `orchestrator-tools-step.ts`). The CLI-style
+   * methods are dispatched before `scopeToolsForInstance` runs, so without
+   * this an instance capped precisely to stop it starting more agent work
+   * could restart a loop instead. `loop.list` stays available: it is read-only
+   * and is how a caller finds the id in the first place.
+   */
+  private enforceLoopMutationEligibility(method: string, instanceId: string): void {
+    if (!isLoopCliMutationMethod(method)) return;
+    if (!this.resolveSpawnEligibility || this.resolveSpawnEligibility(instanceId)) return;
+    throw new Error(
+      'loop resume is unavailable to this session: it has reached the spawn-depth limit, '
+      + 'and resuming a loop would start new agent work.',
+    );
   }
 
   private createSocketPath(): string {
@@ -814,6 +836,17 @@ export async function initializeOrchestratorToolsRpcServer(
 
 export function getOrchestratorToolsRpcSocketPath(): string | null {
   return orchestratorToolsRpcServer?.getSocketPath() ?? null;
+}
+
+/**
+ * Mints the AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_CAPABILITY value for a spawned
+ * instance's env, or null before the parent RPC server exists / the instance
+ * is not (yet) known locally. Callers (SpawnConfigBuilder) treat null the
+ * same as a missing socket path — skip wiring the orchestrator-tools bridge
+ * rather than spawn one that can never authenticate.
+ */
+export function getOrchestratorToolsRpcInstanceCapability(instanceId: string): string | null {
+  return orchestratorToolsRpcServer?.getInstanceCapability(instanceId) ?? null;
 }
 
 export function _resetOrchestratorToolsRpcServerForTesting(): void {

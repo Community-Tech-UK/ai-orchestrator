@@ -1,0 +1,22 @@
+.pq-run-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pq-cancel-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #e0a458;
+}
+
+.pq-confirm-yes {
+  background: #b3261e;
+  color: #fff;
+}
+
+.pq-run-terminal-status {
+  opacity: 0.75;
+  text-transform: capitalize;
+}

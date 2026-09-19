@@ -21,7 +21,12 @@ vi.mock('../../cli/cli-detection', () => ({
   isCliAvailable: vi.fn(async (type: string) => ({ installed: state.installed.has(type) })),
 }));
 vi.mock('../../cli/adapters/adapter-factory', () => ({
-  resolveCliType: vi.fn(async (type: string) => type),
+  mapSettingsToDetectionType: vi.fn((type: string) =>
+    type === 'gemini' ? 'antigravity' : type,
+  ),
+  resolveCliType: vi.fn(async (type: string) =>
+    type === 'gemini' ? 'antigravity' : type,
+  ),
 }));
 vi.mock('../../providers/provider-runtime-service', () => ({
   getProviderRuntimeService: vi.fn(() => ({ createAdapter: vi.fn() })),
@@ -87,6 +92,38 @@ describe('magic prompt provider resolution honours automation exclusions', () =>
 
     expect(result.ok).toBe(true);
     expect(createAdapter).toHaveBeenCalledWith('codex', expect.anything());
+  });
+
+  it('does not use the legacy gemini candidate when it resolves to excluded antigravity', async () => {
+    state.excluded = ['antigravity'];
+    state.installed = new Set(['gemini']);
+    const { service, createAdapter } = serviceCapturingProvider();
+
+    const result = await service.run({ id: 'recap', text: 'some conversation text' });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: 'No CLI provider is available to run this command',
+    });
+    expect(createAdapter).not.toHaveBeenCalled();
+  });
+
+  it('does not honour a legacy gemini preference when it resolves to excluded antigravity', async () => {
+    state.excluded = ['antigravity'];
+    state.installed = new Set(['gemini']);
+    const { service, createAdapter } = serviceCapturingProvider();
+
+    const result = await service.run({
+      id: 'recap',
+      text: 'some conversation text',
+      provider: 'gemini',
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: 'No CLI provider is available to run this command',
+    });
+    expect(createAdapter).not.toHaveBeenCalled();
   });
 
   it('ignores an explicitly requested provider that is excluded', async () => {

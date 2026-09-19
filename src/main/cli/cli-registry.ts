@@ -30,6 +30,36 @@ export interface CliRegistryEntry {
   authPattern?: RegExp;
   capabilities: string[];
   alternativePaths: string[];
+  /**
+   * Directories the CLI's *own* installer maintains as a second copy of an
+   * install that already appears elsewhere on PATH — not a rival install a
+   * user forgot about.
+   *
+   * Grok is the motivating case: `npm i -g @xai-official/grok` drops the usual
+   * shim in the node bin dir, then its postinstall unpacks the same versioned
+   * binary into `$GROK_HOME/bin` (default `~/.grok/bin`) and appends that dir
+   * to the shell profile. Both copies are therefore present on every npm-based
+   * grok install, at the same version, by design — reporting the second as a
+   * redundant copy is a permanent false positive, and "remove it" advice the
+   * next `npm update -g` would undo.
+   *
+   * A copy here is tagged `installerCopy` only when its version matches the
+   * install found first outside these directories (see `tagInstallerMirrors`):
+   * it stays visible in the copy
+   * list and in diagnostics, but stops counting as a redundant install. A
+   * genuinely stale copy — e.g. a postinstall that failed and left an older
+   * binary behind — is left untagged and still surfaces as a version
+   * conflict, and a directory that holds the *only* install (native
+   * installer, no npm shim) is reported as that install. These directories are
+   * also scanned for this CLI (so a relocated `$GROK_HOME` is found) but never
+   * added to the spawn PATH other CLIs share.
+   *
+   * An ordered fallback list, not a union: the installer writes to the first
+   * entry whose placeholders all resolve, as grok's postinstall does with
+   * `$GROK_HOME ?? ~/.grok`. Same placeholder syntax as `alternativePaths`,
+   * but these are directories.
+   */
+  installerMirrorDirs?: string[];
 }
 
 /**
@@ -174,6 +204,13 @@ export const CLI_REGISTRY: Record<CliType, CliRegistryEntry> = {
       '%LOCALAPPDATA%\\grok\\bin\\grok.exe',
       '%USERPROFILE%\\.grok\\bin\\grok.exe',
     ],
+    // Written by @xai-official/grok's own postinstall: `$GROK_HOME/bin` when
+    // GROK_HOME is set, otherwise `~/.grok/bin` — one or the other, never
+    // both, exactly as the package resolves it.
+    installerMirrorDirs: [
+      '%GROK_HOME%/bin',
+      '~/.grok/bin',
+    ],
   },
   ollama: {
     name: 'ollama',
@@ -261,4 +298,78 @@ export function getCliCandidatePaths(
   }
 
   return [...new Set(candidates.filter(Boolean))];
+}
+
+/**
+ * Normalize a path for directory comparison: one separator style, no repeated
+ * or trailing separators, and case-folded on Windows (whose filesystem is
+ * case-insensitive, so `C:\Users\X\.grok\bin` and `c:/users/x/.grok/bin` are
+ * the same directory).
+ *
+ * Collapsing repeats matters: a PATH entry written with a trailing slash makes
+ * the scanner build `<dir>//<cmd>`, and `$GROK_HOME` may arrive with one too.
+ * Leading `//` is preserved — on Windows that is a UNC root, not a repeat.
+ */
+function normalizePathForComparison(value: string, platform: NodeJS.Platform): string {
+  const unified = value
+    .replace(/\\/g, '/')
+    .replace(/(?!^)\/{2,}/g, '/')
+    .replace(/(?!^)\/+$/, '');
+  return platform === 'win32' ? unified.toLowerCase() : unified;
+}
+
+/**
+ * The concrete directories a CLI's own installer mirrors an install into (see
+ * `CliRegistryEntry.installerMirrorDirs`), expanded at scan time and
+ * normalized for comparison. Templates referencing an unset variable are
+ * skipped rather than probed as a literal.
+ */
+export function getInstallerMirrorDirs(
+  config: CliRegistryEntry,
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): string[] {
+  return [...new Set(
+    expandInstallerMirrorDirs(config, env)
+      .map((dir) => normalizePathForComparison(dir, platform)),
+  )];
+}
+
+/**
+ * The same directories as `getInstallerMirrorDirs`, expanded but not
+ * normalized — real paths to probe on disk. The install scan adds these to
+ * its search list for this CLI only, so a relocated `$GROK_HOME` is found
+ * without putting it on the spawn PATH that every CLI shares.
+ */
+export function expandInstallerMirrorDirs(
+  config: CliRegistryEntry,
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
+  // Ordered alternatives, not a union: the installer writes to exactly one
+  // place, the first template whose placeholders all resolve — as grok's
+  // postinstall does with `$GROK_HOME ?? ~/.grok`. With GROK_HOME set, a
+  // ~/.grok/bin copy is a leftover a reinstall never touches, so it must not
+  // be treated as installer-owned.
+  for (const template of config.installerMirrorDirs ?? []) {
+    const expanded = expandAltPath(template, env);
+    if (expanded) return [expanded];
+  }
+  return [];
+}
+
+/**
+ * True when `installPath` is an executable sitting directly inside one of
+ * `mirrorDirs` (as returned by `getInstallerMirrorDirs`).
+ */
+export function isInstallerMirrorPath(
+  installPath: string,
+  mirrorDirs: string[],
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  if (mirrorDirs.length === 0) return false;
+  const normalized = normalizePathForComparison(installPath, platform);
+  const lastSeparator = normalized.lastIndexOf('/');
+  if (lastSeparator < 0) return false;
+  const parentDir = normalized.slice(0, lastSeparator);
+  return mirrorDirs.includes(parentDir);
 }

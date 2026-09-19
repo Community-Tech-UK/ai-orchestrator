@@ -35,6 +35,7 @@
 
 .section-heading {
   min-width: 0;
+  flex: 1;
 }
 
 .section-heading h2 {
@@ -57,7 +58,7 @@
   padding: var(--spacing-xl) var(--density-settings-content-padding) var(--density-settings-content-padding);
 }
 
-.settings-content.wide {
+.settings-content.embedded {
   padding: 0;
 }
 
@@ -65,7 +66,11 @@
   max-width: 840px;
 }
 
-.settings-body.wide {
+.settings-body.expanded {
+  max-width: min(1120px, 100%);
+}
+
+.settings-body.embedded {
   max-width: none;
   height: 100%;
 }
@@ -79,6 +84,14 @@
   flex-direction: column;
   gap: var(--spacing-lg);
   max-width: 840px;
+}
+
+.settings-skeleton.expanded {
+  max-width: min(1120px, 100%);
+}
+
+.settings-skeleton.embedded {
+  max-width: none;
 }
 
 .skeleton-card {

@@ -193,7 +193,7 @@ describe('loop-schema v16 managed worktree lifecycle', () => {
 
     runLoopMigrations(driver);
 
-    expect(LOOP_SCHEMA_VERSION).toBe(16);
+    expect(LOOP_SCHEMA_VERSION).toBe(18);
     expect(appliedVersions()).toContain(16);
     expect(columnNames('loop_runs')).toContain('worktree_lifecycle_json');
     const row = driver
@@ -203,5 +203,33 @@ describe('loop-schema v16 managed worktree lifecycle', () => {
       status: 'completed',
       worktree_lifecycle_json: null,
     });
+  });
+});
+
+describe('loop-schema v18 plan queue landing refusals', () => {
+  it('adds landing_refusals to an existing v17 plan queue item as 0', () => {
+    runLoopMigrationsUpTo(driver, 17);
+    expect(columnNames('plan_queue_items')).not.toContain('landing_refusals');
+
+    driver
+      .prepare(
+        `INSERT INTO plan_queue_runs (id, parent_instance_id, kind, workspace_cwd, status, config_json, started_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run('run-v17', 'parent', 'plans', '/p', 'running', '{}', 1, 1);
+    driver
+      .prepare(
+        `INSERT INTO plan_queue_items (id, run_id, document_path, state, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run('item-v17', 'run-v17', '/p/docs/a_plan.md', 'landing', 1, 1);
+
+    runLoopMigrations(driver);
+
+    expect(appliedVersions()).toContain(18);
+    const row = driver
+      .prepare('SELECT state, landing_refusals FROM plan_queue_items WHERE id = ?')
+      .get<{ state: string; landing_refusals: number }>('item-v17');
+    expect(row).toEqual({ state: 'landing', landing_refusals: 0 });
   });
 });

@@ -176,6 +176,15 @@ export const REMOTE_NODES_TAB_HELP: HelpEntry = {
       body: 'Agents on remote nodes can drive logged-in Chrome and Android with no per-action approval. Enable offload only on trusted nodes.',
     },
     {
+      kind: 'list',
+      heading: 'Reading a computer’s automation badges',
+      items: [
+        'Browser — Ready: agents get live chrome-devtools tools. Enabled: configured but Chrome has not started yet. Chrome only: installed but automation is off. Off: no Chrome runtime detected.',
+        'Android — Ready: agents get mobile-mcp locked to one leased device. Enabled: configured but nothing is running yet. SDK detected: ADB is present but automation is off. Off: no Android SDK/ADB reported.',
+        'Enable either from that computer in the Computers section; first-time browser automation also needs a one-time profile login on that machine.',
+      ],
+    },
+    {
       kind: 'recommend',
       items: [
         {
@@ -257,7 +266,7 @@ export const CLI_HEALTH_TAB_HELP: HelpEntry = {
       kind: 'callout',
       variant: 'warning',
       heading: 'Shadow installs cause version drift',
-      body: 'When several copies of a CLI sit on PATH, the first wins. Remove redundant copies to avoid silent version mismatches.',
+      body: 'When several copies of a CLI sit on PATH, the first one wins. A card is only flagged when its copies report different versions — that is the case worth fixing, and each card\'s recommendation under Show details says how, which for some CLIs is a reinstall rather than deleting a copy. Copies at the same version are listed for information only. A copy a CLI installs itself (grok writes one into ~/.grok/bin) is labelled "installer copy" and not counted when it matches the version in use; an out-of-date one is flagged like any other, and reinstalling the CLI refreshes it.',
     },
     {
       kind: 'recommend',

@@ -24,11 +24,24 @@ vi.mock('../channels/channel-manager', () => ({
 
 const loopCoordinatorMocks = vi.hoisted(() => ({
   resumeLoop: vi.fn(),
+  getLoop: vi.fn(),
+  restoreLoopFromCheckpoint: vi.fn(),
+  getCheckpoint: vi.fn(),
+  upsertRun: vi.fn(),
 }));
 
 vi.mock('../orchestration/loop-coordinator', () => ({
   getLoopCoordinator: vi.fn(() => ({
     resumeLoop: loopCoordinatorMocks.resumeLoop,
+    getLoop: loopCoordinatorMocks.getLoop,
+    restoreLoopFromCheckpoint: loopCoordinatorMocks.restoreLoopFromCheckpoint,
+  })),
+}));
+
+vi.mock('../orchestration/loop-store', () => ({
+  getLoopStore: vi.fn(() => ({
+    getCheckpoint: loopCoordinatorMocks.getCheckpoint,
+    upsertRun: loopCoordinatorMocks.upsertRun,
   })),
 }));
 
@@ -160,6 +173,10 @@ describe('AutomationRunner thread wakeups', () => {
       instanceId,
     }));
     loopCoordinatorMocks.resumeLoop.mockReset().mockReturnValue(true);
+    loopCoordinatorMocks.getLoop.mockReset().mockReturnValue({ id: 'loop-1', status: 'running' });
+    loopCoordinatorMocks.restoreLoopFromCheckpoint.mockReset();
+    loopCoordinatorMocks.getCheckpoint.mockReset().mockReturnValue(null);
+    loopCoordinatorMocks.upsertRun.mockReset();
     fireThreadWakeup.mockResolvedValue(completed);
     threadWakeupFactory.mockReturnValue({ fireThreadWakeup });
   });
@@ -194,6 +211,86 @@ describe('AutomationRunner thread wakeups', () => {
         historyEntryId: 'history-1',
       }),
     });
+  });
+
+  it('restores a loop parked before an app restart when the quota automation fires', async () => {
+    // The whole point of this automation is to fire hours later. By then the
+    // app has usually restarted, so the coordinator holds no state and a bare
+    // resumeLoop returns false — the silent failure this covers.
+    const checkpoint = { loopRunId: 'loop-quota', state: { id: 'loop-quota' } };
+    const live = new Set<string>();
+    loopCoordinatorMocks.getLoop.mockImplementation((id: string) =>
+      (live.has(id) ? { id, status: 'running' } : undefined));
+    loopCoordinatorMocks.resumeLoop.mockImplementation((id: string) => live.has(id));
+    loopCoordinatorMocks.getCheckpoint.mockImplementation((id: string) =>
+      (id === 'loop-quota' ? checkpoint : null));
+    loopCoordinatorMocks.restoreLoopFromCheckpoint.mockImplementation(async () => {
+      live.add('loop-quota');
+      return checkpoint.state;
+    });
+
+    const automation = makeAutomation();
+    automation.action = {
+      ...automation.action,
+      systemAction: { type: 'loopProviderLimitResume', loopRunId: 'loop-quota' },
+    };
+    const run = makeRun();
+    run.configSnapshot = { ...run.configSnapshot!, action: automation.action };
+    vi.mocked(store.get).mockResolvedValue(automation);
+    vi.mocked(store.decideAndInsertRun).mockReturnValue({ kind: 'started', run });
+
+    const runner = new AutomationRunner(store, undefined, () => 2_000, threadWakeupFactory);
+    runner.initialize(manager);
+
+    await runner.fire('automation-1', { trigger: 'scheduled', scheduledAt: 2_000 });
+
+    expect(loopCoordinatorMocks.restoreLoopFromCheckpoint).toHaveBeenCalledWith(checkpoint);
+    expect(store.terminalizeRun).toHaveBeenCalledWith(
+      'run-1',
+      'succeeded',
+      undefined,
+      expect.stringContaining('resumed after provider quota reset'),
+      expect.anything(),
+    );
+  });
+
+  it('reports the restore fault instead of throwing when the loop worktree is gone', async () => {
+    loopCoordinatorMocks.resumeLoop.mockReturnValue(false);
+    loopCoordinatorMocks.getLoop.mockReturnValue(undefined);
+    loopCoordinatorMocks.getCheckpoint.mockReturnValue({ loopRunId: 'loop-quota', state: {} });
+    loopCoordinatorMocks.restoreLoopFromCheckpoint.mockRejectedValue(
+      new Error('isolateLoopWorkspaces: worktree missing on restore (fail-closed)'),
+    );
+
+    const automation = makeAutomation();
+    automation.action = {
+      ...automation.action,
+      systemAction: { type: 'loopProviderLimitResume', loopRunId: 'loop-quota' },
+    };
+    const run = makeRun();
+    run.configSnapshot = { ...run.configSnapshot!, action: automation.action };
+    vi.mocked(store.get).mockResolvedValue(automation);
+    vi.mocked(store.decideAndInsertRun).mockReturnValue({ kind: 'started', run });
+
+    const runner = new AutomationRunner(store, undefined, () => 2_000, threadWakeupFactory);
+    runner.initialize(manager);
+
+    const result = await runner.fire('automation-1', { trigger: 'scheduled', scheduledAt: 2_000 });
+
+    // The restore must actually be attempted (a bare resumeLoop would never
+    // reach the checkpoint), its fail-closed throw must not escape as an
+    // unhandled rejection, and the pre-existing degradation must survive: this
+    // run has a thread destination, so wake the thread rather than terminalize.
+    expect(loopCoordinatorMocks.restoreLoopFromCheckpoint).toHaveBeenCalledOnce();
+    expect(result.status).toBe('started');
+    expect(fireThreadWakeup).toHaveBeenCalledOnce();
+    expect(store.terminalizeRun).not.toHaveBeenCalledWith(
+      'run-1',
+      'failed',
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    );
   });
 
   it('directly resumes loop provider-limit system actions without waking a thread', async () => {

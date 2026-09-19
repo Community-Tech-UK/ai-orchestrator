@@ -39,13 +39,13 @@ import {
   loopIterationDuration,
   loopPauseReason,
   loopStatusPill,
-  managedWorktreeStatus,
   progressVerdictView,
   shortTime,
   summaryHasDistinctIterationPrompt as hasDistinctIterationPrompt,
   summarizeToolDetail,
   terminalStatusLabel,
 } from './loop-formatters.util';
+import { managedWorktreeStatus } from './managed-worktree-status.util';
 import { LoopInspectorProgressComponent } from './loop-inspector-progress.component';
 import { LoopIssueCardComponent } from './loop-issue-card.component';
 import { LoopIterationEvidenceComponent } from './loop-iteration-evidence.component';
@@ -65,7 +65,6 @@ import { freshEyesFindingsDetail } from './loop-fresh-eyes-findings-panel.util';
 import { LoopBranchEpisodeCardComponent } from './loop-branch-episode-card.component';
 import { InlineHintComponent } from '../../shared/hint/inline-hint.component';
 import {
-  shouldHintProviderLimitResumeOff,
   shouldHintToolLoopAutoInterruptOff,
 } from '../../../../shared/types/hint-policy';
 import { SettingsStore } from '../../core/state/settings.store';
@@ -142,12 +141,6 @@ export class LoopControlComponent implements OnDestroy {
   private readonly toolLoopAlerts = inject(ToolLoopAlertStore);
 
   /** UX5 — predicates live in `hint-policy.ts` beside the copy they gate. */
-  readonly showProviderLimitHint = computed(() => shouldHintProviderLimitResumeOff(
-    this.active()?.status ?? '',
-    this.active()?.endedAt ?? null,
-    this.settingsForHints.settings().instanceProviderLimitResumeEnabled === true,
-  ));
-
   readonly showToolLoopHint = computed(() => shouldHintToolLoopAutoInterruptOff(
     this.toolLoopAlerts.hasCriticalAlert(this.chatId() ?? undefined),
     this.settingsForHints.settings().toolLoopAutoInterrupt === true,

@@ -1,0 +1,26 @@
+<div class="pq-need-james">
+  <h2>Needs James (livetests)</h2>
+  @if (policyGatedCount() > 0) {
+    <div class="pq-need-james-policy-gated">
+      {{ policyGatedCount() }} further check(s) are policy-gated: blocked by a setting or approval rule rather than by anything only you can do.
+    </div>
+  }
+  @if (groupedByRun().length === 0) {
+    <div class="pq-need-james-empty">No open livetest checks need you right now.</div>
+  } @else {
+    @for (group of groupedByRun(); track group.runId) {
+      <div class="pq-need-james-run">
+        <div class="pq-need-james-run-head">Run {{ group.runId }} — {{ group.records.length }} open check(s)</div>
+        <ul class="pq-need-james-checks">
+          @for (record of group.records; track record.itemId + record.check) {
+            <li class="pq-need-james-check">
+              <span class="pq-need-james-doc">{{ record.documentPath }}</span>
+              <span class="pq-need-james-check-text">{{ record.check }}</span>
+              <span class="pq-need-james-reason">{{ record.reason }}</span>
+            </li>
+          }
+        </ul>
+      </div>
+    }
+  }
+</div>

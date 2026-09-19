@@ -1,0 +1,97 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+
+.node-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.node-list-empty {
+  margin: 0;
+}
+
+.node-list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 48px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.node-list-row:hover {
+  background: var(--glass-strong);
+}
+
+.node-list-row:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+}
+
+.node-list-row.selected {
+  border-color: var(--primary-color);
+  background: color-mix(in srgb, var(--primary-color) 10%, var(--bg-primary));
+}
+
+.node-list-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.node-list-name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-list-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.status-badge {
+  flex-shrink: 0;
+  padding: 0.125rem 0.5rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  text-transform: capitalize;
+  font-weight: 500;
+}
+
+.status-badge.connected {
+  background: var(--pill-ok-bg);
+  color: var(--pill-ok-fg);
+}
+
+.status-badge.connecting {
+  background: var(--pill-warn-bg);
+  color: var(--pill-warn-fg);
+}
+
+.status-badge.disconnected {
+  background: var(--pill-neutral-bg);
+  color: var(--pill-neutral-fg);
+}
+
+.status-badge.degraded {
+  background: var(--pill-warn-bg);
+  color: var(--pill-warn-fg);
+}

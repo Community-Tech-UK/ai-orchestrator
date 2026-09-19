@@ -4,7 +4,6 @@ import {
   COST_HIDDEN_BUSY_THRESHOLD,
   HINTS,
   shouldHintCostHiddenWhileBusy,
-  shouldHintProviderLimitResumeOff,
   shouldHintQueuedWhileLooping,
   shouldHintToolLoopAutoInterruptOff,
   shouldShowHint,
@@ -88,26 +87,6 @@ describe('UX5 predicates', () => {
 
     it('stays silent for a loop with nothing queued', () => {
       expect(shouldHintQueuedWhileLooping(0, true)).toBe(false);
-    });
-  });
-
-  describe('shouldHintProviderLimitResumeOff', () => {
-    it('fires for a parked run with self-resume off', () => {
-      expect(shouldHintProviderLimitResumeOff('provider-limit', null, false)).toBe(true);
-    });
-
-    it('stays silent when recovery is already on', () => {
-      expect(shouldHintProviderLimitResumeOff('provider-limit', null, true)).toBe(false);
-    });
-
-    /** `endedAt` set means the provider-limit state is terminal — past helping. */
-    it('stays silent once the run has ended', () => {
-      expect(shouldHintProviderLimitResumeOff('provider-limit', 123, false)).toBe(false);
-    });
-
-    it('stays silent for any other status', () => {
-      expect(shouldHintProviderLimitResumeOff('running', null, false)).toBe(false);
-      expect(shouldHintProviderLimitResumeOff('paused', null, false)).toBe(false);
     });
   });
 

@@ -1,5 +1,5 @@
 /**
- * Advanced Settings Tab Component - Advanced options, hook approvals, setup guides
+ * Advanced Settings Tab Component - Runtime, Security, and Data sections.
  */
 
 import {
@@ -10,12 +10,20 @@ import {
   signal,
   effect,
 } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { SettingsStore } from '../../core/state/settings.store';
 import { SettingsIpcService } from '../../core/services/ipc/settings-ipc.service';
 import { BrowserGatewayIpcService } from '../../core/services/ipc/browser-gateway-ipc.service';
 import { SettingRowComponent } from './setting-row.component';
 import { SettingsTieredRowListComponent } from './settings-tiered-row-list.component';
 import { SettingsNavIconComponent } from './ui/settings-nav-icon.component';
+import { SettingsSectionTabsComponent } from './ui/settings-section-tabs.component';
+import { DangerZoneComponent } from './ui/danger-zone.component';
+import {
+  ADVANCED_SECTION_DEFINITIONS,
+  ADVANCED_SECTION_TABS,
+  type AdvancedSection,
+} from './advanced-settings-sections';
 import type { AppSettings } from '../../../../shared/types/settings.types';
 import type { SettingMetadata } from '../../../../shared/types/settings-metadata.types';
 import type { BrowserProfile } from '@contracts/types/browser';
@@ -39,37 +47,42 @@ interface HookApprovalSummary {
   handlerSummary?: string;
 }
 
-interface AdvancedSectionDefinition {
-  id: string;
-  title: string;
-  description: string;
-  keys: readonly (keyof AppSettings)[];
-}
-
-interface AdvancedSection {
+/** One rendered card: a definition's static copy plus its resolved live settings. */
+interface AdvancedSectionView {
   id: string;
   title: string;
   description: string;
   settings: SettingMetadata[];
+  group: AdvancedSection;
+  dangerous?: boolean;
 }
 
 @Component({
   selector: 'app-advanced-settings-tab',
   changeDetection: ChangeDetectionStrategy.OnPush,
   standalone: true,
-  imports: [SettingRowComponent, SettingsNavIconComponent, SettingsTieredRowListComponent],
+  imports: [
+    SettingRowComponent,
+    SettingsNavIconComponent,
+    SettingsTieredRowListComponent,
+    SettingsSectionTabsComponent,
+    DangerZoneComponent,
+    NgTemplateOutlet,
+  ],
   template: `
-    @for (section of advancedSections(); track section.id) {
-      <section
-        class="advanced-section"
-        [attr.aria-labelledby]="section.id"
-      >
+    <app-settings-section-tabs
+      [tabs]="sectionTabs"
+      [activeId]="activeSection()"
+      ariaLabel="Advanced sections"
+      (activeIdChange)="onSectionChange($event)"
+    />
+
+    <ng-template #sectionCard let-section>
+      <section class="advanced-section" [attr.aria-labelledby]="section.id">
         @if (section.id === chromeDevtoolsSectionId) {
           <div class="section-heading-row">
             <div class="section-heading">
-              <h3 [id]="section.id" class="subsection-title">
-                {{ section.title }}
-              </h3>
+              <h3 [id]="section.id" class="subsection-title">{{ section.title }}</h3>
               <p class="section-description">{{ section.description }}</p>
             </div>
             <div class="button-group section-actions">
@@ -84,9 +97,7 @@ interface AdvancedSection {
           </div>
         } @else {
           <div class="section-heading">
-            <h3 [id]="section.id" class="subsection-title">
-              {{ section.title }}
-            </h3>
+            <h3 [id]="section.id" class="subsection-title">{{ section.title }}</h3>
             <p class="section-description">{{ section.description }}</p>
           </div>
         }
@@ -103,208 +114,220 @@ interface AdvancedSection {
         </div>
         @if (section.id === chromeDevtoolsSectionId) {
           @if (browserProfilesError(); as profilesError) {
-            <p class="section-hint error">{{ profilesError }}</p>
-          } @else if (
-            browserProfiles().length === 0 && !browserProfilesLoading()
-          ) {
+            <p class="section-hint error" role="alert">{{ profilesError }}</p>
+          } @else if (browserProfiles().length === 0 && !browserProfilesLoading()) {
             <p class="section-hint">
               No managed browser profiles yet. Create one on the Browser screen,
               then choose it here.
             </p>
           }
+          <button
+            class="guide-link-inline"
+            (click)="openDocsFile('BROWSER_AUTOMATION_SETUP.md')"
+            title="How to let agents control a real web browser"
+          >
+            <app-settings-nav-icon name="network" />
+            <span>Open the browser automation setup guide</span>
+          </button>
         }
       </section>
+    </ng-template>
+
+    @if (activeSection() === 'runtime') {
+      <div id="advanced-panel-runtime" class="section-panel" role="tabpanel" aria-labelledby="runtime" tabindex="0">
+        @for (section of runtimeSections(); track section.id) {
+          <ng-container [ngTemplateOutlet]="sectionCard" [ngTemplateOutletContext]="{ $implicit: section }" />
+        }
+      </div>
     }
 
-    <section
-      class="advanced-section"
-      aria-labelledby="mcp-safety-heading"
-      data-test="settings-section-mcp"
-    >
-      <div class="section-heading">
-        <h3 id="mcp-safety-heading" class="subsection-title">MCP safety</h3>
-        <p class="section-description">
-          Safeguards for MCP (Model Context Protocol) tool use — config backups and filesystem write guards. Leave these on unless you have a reason to change them.
-        </p>
-      </div>
-      <div class="settings-list-card">
-        <app-settings-tiered-row-list
-          [settings]="store.mcpSettings()"
-          [valueFor]="readSetting"
-          (valueChange)="onSettingChange($event)"
-        />
-      </div>
-    </section>
+    @if (activeSection() === 'security') {
+      <div id="advanced-panel-security" class="section-panel" role="tabpanel" aria-labelledby="security" tabindex="0">
+        <section
+          class="advanced-section"
+          aria-labelledby="mcp-safety-heading"
+          data-test="settings-section-mcp"
+        >
+          <div class="section-heading">
+            <h3 id="mcp-safety-heading" class="subsection-title">MCP safety</h3>
+            <p class="section-description">
+              Safeguards for MCP (Model Context Protocol) tool use — config backups and filesystem write guards. Leave these on unless you have a reason to change them.
+            </p>
+          </div>
+          <div class="settings-list-card">
+            <app-settings-tiered-row-list
+              [settings]="store.mcpSettings()"
+              [valueFor]="readSetting"
+              (valueChange)="onSettingChange($event)"
+            />
+          </div>
+        </section>
 
-    <section class="advanced-section" aria-labelledby="hook-approvals-heading">
-      <div class="section-heading-row">
-        <div class="section-heading">
-          <h3 id="hook-approvals-heading" class="subsection-title">
-            Hook approvals
-          </h3>
-          <p class="section-description">
-            Hooks are actions the app runs automatically at certain points (for example, running a script after a task finishes). Some hooks ask for one-time approval before they run. Review and manage those approvals here.
-          </p>
-        </div>
-        <div class="button-group section-actions">
-          <button
-            class="btn-secondary"
-            (click)="loadHookApprovals()"
-            [disabled]="hookApprovalsLoading()"
-          >
-            Refresh
-          </button>
-          <button
-            class="btn-secondary"
-            (click)="clearHookApprovals()"
-            [disabled]="hookApprovalsLoading()"
-          >
-            Clear all
-          </button>
-        </div>
-      </div>
-      <div class="settings-list-card hook-approvals-card">
-        <div class="hook-approvals-list">
-          @if (hookApprovalsLoading()) {
-            <div class="hook-approvals-empty">Loading...</div>
-          } @else if (hookApprovalsError()) {
-            <div class="hook-approvals-empty error">
-              {{ hookApprovalsError() }}
+        <section class="advanced-section" aria-labelledby="hook-approvals-heading">
+          <div class="section-heading-row">
+            <div class="section-heading">
+              <h3 id="hook-approvals-heading" class="subsection-title">
+                Hook approvals
+              </h3>
+              <p class="section-description">
+                Hooks are actions the app runs automatically at certain points (for example, running a script after a task finishes). Some hooks ask for one-time approval before they run. Review and manage those approvals here.
+              </p>
             </div>
-          } @else if (hookApprovals().length === 0) {
-            <div class="hook-approvals-empty">No hooks are waiting for approval.</div>
-          } @else {
-            @for (hook of hookApprovals(); track hook.id) {
-              <div class="hook-approval-row">
-                <div class="hook-approval-info">
-                  <div class="hook-approval-title">
-                    <span class="hook-name">{{ hook.name }}</span>
-                    <span class="hook-event">{{ hook.event }}</span>
-                  </div>
-                  <div class="hook-approval-meta">
-                    <span class="hook-status" [class.approved]="hook.approved">
-                      {{ hook.approved ? 'Approved' : 'Pending' }}
-                    </span>
-                    <span class="hook-type">{{ hook.handlerType }}</span>
-                    @if (hook.handlerSummary) {
-                      <span class="hook-summary">{{ hook.handlerSummary }}</span>
-                    }
-                  </div>
+            <div class="button-group section-actions">
+              <button
+                class="btn-secondary"
+                (click)="loadHookApprovals()"
+                [disabled]="hookApprovalsLoading()"
+              >
+                Refresh
+              </button>
+              <button
+                class="btn-secondary"
+                (click)="clearHookApprovals()"
+                [disabled]="hookApprovalsLoading()"
+              >
+                Clear all
+              </button>
+            </div>
+          </div>
+          <div class="settings-list-card hook-approvals-card">
+            <div class="hook-approvals-list">
+              @if (hookApprovalsLoading()) {
+                <div class="hook-approvals-empty" role="status" aria-live="polite">Loading...</div>
+              } @else if (hookApprovalsError()) {
+                <div class="hook-approvals-empty error" role="alert">
+                  {{ hookApprovalsError() }}
                 </div>
-                <div class="hook-approval-actions">
-                  @if (hook.approved) {
-                    <button
-                      class="btn-secondary"
-                      (click)="updateHookApproval(hook.id, false)"
-                      [disabled]="hookApprovalsLoading()"
-                    >
-                      Revoke
-                    </button>
-                  } @else {
-                    <button
-                      class="btn-primary"
-                      (click)="updateHookApproval(hook.id, true)"
-                      [disabled]="hookApprovalsLoading()"
-                    >
-                      Approve
-                    </button>
-                  }
-                </div>
-              </div>
+              } @else if (hookApprovals().length === 0) {
+                <div class="hook-approvals-empty">No hooks are waiting for approval.</div>
+              } @else {
+                @for (hook of hookApprovals(); track hook.id) {
+                  <div class="hook-approval-row">
+                    <div class="hook-approval-info">
+                      <div class="hook-approval-title">
+                        <span class="hook-name">{{ hook.name }}</span>
+                        <span class="hook-event">{{ hook.event }}</span>
+                      </div>
+                      <div class="hook-approval-meta">
+                        <span class="hook-status" [class.approved]="hook.approved">
+                          {{ hook.approved ? 'Approved' : 'Pending' }}
+                        </span>
+                        <span class="hook-type">{{ hook.handlerType }}</span>
+                        @if (hook.handlerSummary) {
+                          <span class="hook-summary">{{ hook.handlerSummary }}</span>
+                        }
+                      </div>
+                    </div>
+                    <div class="hook-approval-actions">
+                      @if (hook.approved) {
+                        <button
+                          class="btn-secondary"
+                          (click)="updateHookApproval(hook.id, false)"
+                          [disabled]="hookApprovalsLoading()"
+                        >
+                          Revoke
+                        </button>
+                      } @else {
+                        <button
+                          class="btn-primary"
+                          (click)="updateHookApproval(hook.id, true)"
+                          [disabled]="hookApprovalsLoading()"
+                        >
+                          Approve
+                        </button>
+                      }
+                    </div>
+                  </div>
+                }
+              }
+            </div>
+          </div>
+        </section>
+
+        @for (section of securitySections(); track section.id) {
+          <ng-container [ngTemplateOutlet]="sectionCard" [ngTemplateOutletContext]="{ $implicit: section }" />
+        }
+
+        @if (securityDangerousSections().length > 0) {
+          <app-danger-zone
+            title="Credentials &amp; secrets"
+            description="These controls affect real passwords and credential auto-fill on your own browser tabs. Review before changing."
+          >
+            @for (section of securityDangerousSections(); track section.id) {
+              <ng-container [ngTemplateOutlet]="sectionCard" [ngTemplateOutletContext]="{ $implicit: section }" />
             }
+          </app-danger-zone>
+        }
+      </div>
+    }
+
+    @if (activeSection() === 'data') {
+      <div id="advanced-panel-data" class="section-panel" role="tabpanel" aria-labelledby="data" tabindex="0">
+        <section class="advanced-section" aria-labelledby="backup-restore-heading">
+          <div class="section-heading">
+            <h3 id="backup-restore-heading" class="subsection-title">
+              Backup &amp; restore
+            </h3>
+          </div>
+          <div class="settings-list-card backup-card">
+            <div class="setting-row export-import-section">
+              <div class="setting-info">
+                <h3 class="setting-label">Export or import settings</h3>
+                <p class="setting-description">
+                  Save portable settings to a file. Credentials, paired devices,
+                  local paths, and machine identities are excluded.
+                </p>
+              </div>
+              <div class="setting-control button-group">
+                <button
+                  class="btn-secondary"
+                  (click)="doExport()"
+                  [disabled]="exportImportWorking()"
+                >
+                  Export
+                </button>
+                <button
+                  class="btn-primary"
+                  (click)="doImport()"
+                  [disabled]="exportImportWorking()"
+                >
+                  Import
+                </button>
+              </div>
+            </div>
+          </div>
+          @if (exportImportMessage()) {
+            <div
+              class="export-import-result"
+              [class.success]="exportImportSuccess()"
+              [class.error]="!exportImportSuccess()"
+              [attr.role]="exportImportSuccess() ? 'status' : 'alert'"
+              [attr.aria-live]="exportImportSuccess() ? 'polite' : null"
+            >
+              {{ exportImportMessage() }}
+            </div>
           }
-        </div>
-      </div>
-    </section>
+        </section>
 
-    <section class="advanced-section" aria-labelledby="setup-guides-heading">
-      <div class="section-heading">
-        <h3 id="setup-guides-heading" class="subsection-title">Setup guides</h3>
-        <p class="section-description">
-          Step-by-step guides for optional features that need extra setup on your machine.
-        </p>
-      </div>
-      <div class="settings-list-card guide-card">
-        <button
-          class="guide-link"
-          (click)="openDocsFile('BROWSER_AUTOMATION_SETUP.md')"
-          title="How to let agents control a real web browser"
+        <app-danger-zone
+          title="Reset all settings"
+          description="Restore app settings to their defaults on this machine. This does not delete conversation history or workspace files."
         >
-          <span class="guide-icon">
-            <app-settings-nav-icon name="network" />
-          </span>
-          <span class="guide-text">
-            <span class="guide-title">Browser automation</span>
-            <span class="guide-desc"
-              >Let agents control a real web browser using Chrome DevTools</span
-            >
-          </span>
-        </button>
+          <div class="setting-row reset-section">
+            <div class="setting-control button-group">
+              <button
+                class="btn-danger"
+                type="button"
+                (click)="doResetAll()"
+                [disabled]="exportImportWorking()"
+              >
+                Reset all
+              </button>
+            </div>
+          </div>
+        </app-danger-zone>
       </div>
-    </section>
-
-    <section class="advanced-section" aria-labelledby="backup-restore-heading">
-      <div class="section-heading">
-        <h3 id="backup-restore-heading" class="subsection-title">
-          Backup &amp; restore
-        </h3>
-      </div>
-      <div class="settings-list-card backup-card">
-        <div class="setting-row export-import-section">
-          <div class="setting-info">
-            <h3 class="setting-label">Export or import settings</h3>
-            <p class="setting-description">
-              Save portable settings to a file. Credentials, paired devices,
-              local paths, and machine identities are excluded.
-            </p>
-          </div>
-          <div class="setting-control button-group">
-            <button
-              class="btn-secondary"
-              (click)="doExport()"
-              [disabled]="exportImportWorking()"
-            >
-              Export
-            </button>
-            <button
-              class="btn-primary"
-              (click)="doImport()"
-              [disabled]="exportImportWorking()"
-            >
-              Import
-            </button>
-          </div>
-        </div>
-        <div class="setting-row reset-section">
-          <div class="setting-info">
-            <h3 class="setting-label">Reset all settings</h3>
-            <p class="setting-description">
-              Restore app settings to their defaults on this machine. This does
-              not delete conversation history or workspace files.
-            </p>
-          </div>
-          <div class="setting-control button-group">
-            <button
-              class="btn-danger"
-              (click)="doResetAll()"
-              [disabled]="exportImportWorking()"
-            >
-              Reset all
-            </button>
-          </div>
-        </div>
-      </div>
-      @if (exportImportMessage()) {
-        <div
-          class="export-import-result"
-          [class.success]="exportImportSuccess()"
-          [class.error]="!exportImportSuccess()"
-        >
-          {{ exportImportMessage() }}
-        </div>
-      }
-    </section>
-
+    }
   `,
   styleUrl: './advanced-settings-tab.component.scss',
 })
@@ -317,93 +340,26 @@ export class AdvancedSettingsTabComponent {
   private settingsIpc = inject(SettingsIpcService);
   private browserGatewayIpc = inject(BrowserGatewayIpcService);
 
+  readonly sectionTabs = ADVANCED_SECTION_TABS;
+  readonly activeSection = signal<AdvancedSection>('runtime');
+
+  onSectionChange(id: string): void {
+    if (id === 'runtime' || id === 'security' || id === 'data') {
+      this.activeSection.set(id);
+    }
+  }
+
   /** Section id whose chrome-devtools profile row gets the managed-profile dropdown. */
   readonly chromeDevtoolsSectionId = 'chrome-devtools-attach-heading';
   private static readonly CHROME_DEVTOOLS_PROFILE_KEY: keyof AppSettings =
     'chromeDevtoolsAttachProfileId';
 
-  private readonly advancedSectionDefinitions: readonly AdvancedSectionDefinition[] = [
-    {
-      id: 'runtime-controls-heading',
-      title: 'Runtime controls',
-      description: 'Low-level tuning for the model, output parser, diagnostics, and how far instruction files scan. Leave these unless you\'re debugging a specific issue.',
-      keys: [
-        // 'customModelOverride' retired (S1.9): nothing reads it at runtime —
-        // `migrateLegacyCustomModelOverride` moves any value into
-        // `customModelsByProvider` and then clears it, so a value typed here
-        // did nothing and then vanished. The key and its migration stay for
-        // existing installs; only the control is gone.
-        'parserBufferMaxKB',
-        'commandDiagnosticsAvailable',
-        'broadRootFileThreshold',
-      ],
-    },
-    {
-      id: 'chrome-devtools-attach-heading',
-      title: 'Browser DevTools attach',
-      description: 'Let agents drive a managed browser profile with the richer chrome-devtools tools after they sign in through the browser tools. Open and log into the managed profile first, then chrome-devtools connects to that same browser.',
-      keys: [
-        'chromeDevtoolsAttachEnabled',
-        'chromeDevtoolsAttachProfileId',
-      ],
-    },
-    {
-      id: 'codemem-indexing-heading',
-      title: 'Code memory indexing',
-      description: 'Controls how agents look up symbols and structure in your code. Leave the defaults on unless the indexer is causing performance problems.',
-      keys: [
-        'codememEnabled',
-        'codememIndexingEnabled',
-        'codememLspWorkerEnabled',
-        'codememPrewarmEnabled',
-        'codememPrewarmMaxConcurrent',
-        'codememPrewarmDebounceMs',
-        'codememPrewarmStartupHint',
-      ],
-    },
-    {
-      id: 'legacy-codebase-index-heading',
-      title: 'Legacy search index',
-      description: 'An older, heavier full-text and embedding index. Most people should leave this off — it\'s mainly useful when debugging the legacy search path.',
-      keys: [
-        'codebaseAutoIndexEnabled',
-        'codebaseAutoIndexMaxFiles',
-        'codebaseAutoIndexMaxBytes',
-        'codebaseAutoIndexConcurrent',
-        'codebaseAutoIndexDebounceMs',
-        'codebaseAutoIndexStartupHint',
-      ],
-    },
-    {
-      id: 'quota-pacing-heading',
-      title: 'Quota pacing',
-      description: 'Early warnings when a known provider quota window is being used faster than its time budget. Calendar and unknown windows are excluded because their elapsed time cannot be measured reliably.',
-      keys: [
-        'quotaPacingWarningEnabled',
-        'quotaPacingUtilizationThresholdPercent',
-        'quotaPacingLatestElapsedPercent',
-      ],
-    },
-    {
-      id: 'project-knowledge-mirror-heading',
-      title: 'Knowledge Graph auto-build',
-      description: 'Keeps the Knowledge Graph up to date as you work by copying code structure into it automatically. Leave the defaults unless the auto-build is too slow on large projects.',
-      keys: [
-        'projectKnowledgeAutoMirrorEnabled',
-        'projectKnowledgeAutoMirrorDebounceMs',
-        'projectKnowledgeAutoMirrorMaxConcurrent',
-        'projectKnowledgeAutoMirrorSkipWithinMs',
-        'projectKnowledgeAutoMirrorStartupHint',
-      ],
-    },
-  ];
-
-  readonly advancedSections = computed<AdvancedSection[]>(() => {
+  private readonly advancedSectionViews = computed<AdvancedSectionView[]>(() => {
     const settings = this.store.advancedSettings();
     const byKey = new Map(settings.map((setting) => [setting.key, setting]));
     const groupedKeys = new Set<keyof AppSettings>();
 
-    const sections = this.advancedSectionDefinitions
+    const sections = ADVANCED_SECTION_DEFINITIONS
       .map((section) => {
         const sectionSettings = section.keys
           .map((key) => {
@@ -417,6 +373,8 @@ export class AdvancedSettingsTabComponent {
           title: section.title,
           description: section.description,
           settings: sectionSettings,
+          group: section.group,
+          dangerous: section.dangerous,
         };
       })
       .filter((section) => section.settings.length > 0);
@@ -426,6 +384,9 @@ export class AdvancedSettingsTabComponent {
       return sections;
     }
 
+    // Safety net: a newly-added advanced-category setting that hasn't been
+    // filed into a card yet still surfaces here (in Runtime) instead of
+    // silently vanishing from the UI.
     return [
       ...sections,
       {
@@ -433,9 +394,21 @@ export class AdvancedSettingsTabComponent {
         title: 'Other advanced controls',
         description: 'Advanced settings not yet grouped into a section above.',
         settings: uncategorized,
+        group: 'runtime' as const,
+        dangerous: false,
       },
     ];
   });
+
+  readonly runtimeSections = computed(() =>
+    this.advancedSectionViews().filter((section) => section.group === 'runtime'),
+  );
+  readonly securitySections = computed(() =>
+    this.advancedSectionViews().filter((section) => section.group === 'security' && !section.dangerous),
+  );
+  readonly securityDangerousSections = computed(() =>
+    this.advancedSectionViews().filter((section) => section.group === 'security' && section.dangerous),
+  );
 
   hookApprovals = signal<HookApprovalSummary[]>([]);
   hookApprovalsLoading = signal(false);

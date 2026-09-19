@@ -11,6 +11,7 @@ import {
   resolveRunOnNodeProvider,
 } from './run-on-node-support';
 import { initializeOrchestratorToolsRpcServer } from '../mcp/orchestrator-tools-rpc-server';
+import { abortableSleep } from '../util/abort-signals';
 import { buildReadNodeOutputResult } from '../mcp/orchestrator-tools';
 import { defaultOperatorDbPath, getOperatorDatabase } from '../operator/operator-database';
 import { GraphAuthManager } from '../graph/graph-auth';
@@ -46,6 +47,8 @@ import {
 import { getAutomationEvents } from '../automations/automation-events';
 import { createAutomationToolImplementations } from '../automations/automation-tool-impl';
 import { getDocReviewService } from '../doc-review/doc-review-service';
+import { getPlanQueueCoordinator } from '../plan-queue/plan-queue-coordinator';
+import { createPlanQueueToolOperations } from '../plan-queue/plan-queue-tool-operations';
 import { DocReviewDeliveryCoordinator } from '../doc-review/doc-review-delivery-coordinator';
 import { getLoopCoordinator } from '../orchestration/loop-coordinator';
 import { getPauseCoordinator } from '../pause/pause-coordinator';
@@ -58,6 +61,7 @@ import { broadcastSettingsChanged } from '../ipc/handlers/settings-broadcast';
 import type { AppInitializationStep } from './initialization-steps';
 import { getContextEvidenceCoordinator } from '../context-evidence/context-evidence-coordinator';
 import { createDefaultLocalAiPublicOperations } from '../local-ai-guard/default-local-ai-public-operations';
+import { createDefaultLoopCliOperations } from '../orchestration/default-loop-cli-operations';
 import { createDefaultCopilotAccountCliOperations } from '../mcp/copilot-account-cli-operations';
 import { getCrossSessionMessagingService } from '../instance/cross-session-messaging';
 
@@ -146,8 +150,6 @@ export function createOrchestratorToolsStep(
         'waking',
       ]);
       const MAX_MESSAGE_CONTENT = 4000;
-      const sleep = (ms: number): Promise<void> =>
-        new Promise((resolve) => setTimeout(resolve, ms));
       // Implementations backing create/list/delete/update/postpone automation
       // MCP tools. Extracted to ../automations/automation-tool-impl.ts so the
       // logic is integration-tested against a real in-memory store; here we wire
@@ -217,6 +219,7 @@ export function createOrchestratorToolsStep(
         isKnownLocalInstance: (instanceId) => Boolean(instanceManager.getInstance(instanceId)),
         localAiGuardOperations: createDefaultLocalAiPublicOperations(),
         copilotAccountOperations: createDefaultCopilotAccountCliOperations(),
+        loopOperations: createDefaultLoopCliOperations(),
         resolveContextEvidence: (instanceId) => {
           const instance = instanceManager.getInstance(instanceId);
           const state = instance?.contextEvidence;
@@ -551,16 +554,15 @@ export function createOrchestratorToolsStep(
         // Backs the `read_node_output` MCP tool: serialize a remote-spawned
         // instance's output buffer + status so an external agent can read the
         // results back. Optionally polls until the turn completes.
-        readInstanceOutput: async (args) => {
+        readInstanceOutput: async (args, abortSignal) => {
           const deadline = Date.now() + (args.waitMs ?? 0);
           let instance = instanceManager.getInstance(args.instanceId);
           if (!instance) {
             return null;
           }
-          // Poll until the instance leaves a working state or the wait budget
-          // is exhausted. The first check happens before any sleep.
-          while (WORKING_STATUSES.has(instance.status) && Date.now() < deadline) {
-            await sleep(Math.min(500, Math.max(0, deadline - Date.now())));
+          // Poll until working ends, waitMs runs out, or the caller disconnects.
+          while (WORKING_STATUSES.has(instance.status) && Date.now() < deadline && !abortSignal?.aborted) {
+            await abortableSleep(Math.min(500, Math.max(0, deadline - Date.now())), abortSignal);
             instance = instanceManager.getInstance(args.instanceId);
             if (!instance) {
               return null;
@@ -666,6 +668,8 @@ export function createOrchestratorToolsStep(
           return { reviewId: session.id };
         },
         getDocReviewResult: (reviewId) => getDocReviewService().getSession(reviewId) ?? null,
+        // Plan Queue MCP tools; the coordinator caller-checks every role tool.
+        planQueueTools: createPlanQueueToolOperations(getPlanQueueCoordinator),
         sessionMessagingService: getCrossSessionMessagingService(),
         listNodeFiles: fileTransferTools.listNodeFiles,
         findNodeFiles: fileTransferTools.findNodeFiles,

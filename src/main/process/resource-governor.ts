@@ -23,6 +23,7 @@ import { getMemoryMonitor } from '../memory/memory-monitor';
 import type { MemoryStats, MemoryPressureLevel } from '../memory/memory-monitor';
 import { registerCleanup } from '../util/cleanup-registry';
 import { getInstanceAsyncWorkRegistry } from '../instance/instance-async-work-registry';
+import { hasReclaimHold } from './reclaim-holds';
 
 export interface ResourceGovernorConfig {
   /** Per-instance soft memory cap in MB (default: 512) */
@@ -350,7 +351,8 @@ export class ResourceGovernor extends EventEmitter {
       .getIdleInstances(threshold)
       .filter((instance) => !getInstanceAsyncWorkRegistry().hasInhibitor(instance.id))
       .slice()
-      .sort((a, b) => a.lastActivity - b.lastActivity)
+      // Held instances (see reclaim-holds.ts) go after every unheld one.
+      .sort((a, b) => Number(hasReclaimHold(a.id)) - Number(hasReclaimHold(b.id)) || a.lastActivity - b.lastActivity)
       .slice(0, cap);
   }
 

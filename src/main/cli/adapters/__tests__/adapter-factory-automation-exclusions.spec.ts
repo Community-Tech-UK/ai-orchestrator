@@ -52,9 +52,22 @@ describe('resolveCliType — automation provider exclusions', () => {
     it('falls back to claude when every available provider is excluded', async () => {
       // Documents the existing no-CLI-detected behaviour rather than inventing
       // a new failure mode: the caller surfaces the spawn error downstream.
+      // Claude itself is not excluded here, so this catch-all default is not
+      // a policy bypass — claude was never installed either way.
       state.excluded = ['copilot', 'cursor'];
       state.available = ['copilot', 'cursor'];
       await expect(resolveCliType('auto', 'auto')).resolves.toBe('claude');
+    });
+
+    it('refuses automatic selection when the fallback provider is also excluded', async () => {
+      // Claude is both installed AND excluded here — the catch-all default
+      // must not silently spawn it just because nothing else in the priority
+      // list matched.
+      state.excluded = ['claude'];
+      state.available = ['claude'];
+      await expect(resolveCliType('auto', 'auto')).rejects.toThrow(
+        /excluded from automatic selection/,
+      );
     });
   });
 

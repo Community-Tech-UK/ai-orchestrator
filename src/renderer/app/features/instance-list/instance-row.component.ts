@@ -90,6 +90,31 @@ export class InstanceRowComponent {
    */
   readonly isAutomation = computed(() => Boolean(this.instance().metadata?.['automationId']));
 
+  /**
+   * True when this session was spawned by the Plan Queue coordinator as a
+   * triage, worker, or verifier instance. Detected via durable instance
+   * metadata, the same mechanism `isAutomation` uses. Drives a small
+   * provenance marker in the rail so a Plan Queue session reads as such
+   * alongside the automation clock indicator.
+   */
+  readonly planQueueRole = computed(() => {
+    const role = this.instance().metadata?.['planQueueRole'];
+    return role === 'worker' || role === 'verifier' || role === 'triage' ? role : null;
+  });
+
+  readonly planQueueRoleLabel = computed(() => {
+    switch (this.planQueueRole()) {
+      case 'worker':
+        return 'Plan Queue worker';
+      case 'verifier':
+        return 'Plan Queue verifier';
+      case 'triage':
+        return 'Plan Queue triage';
+      default:
+        return '';
+    }
+  });
+
   readonly diffTooltip = computed(() => {
     const stats = this.instance().diffStats;
     if (!stats || Object.keys(stats.files).length === 0) return '';

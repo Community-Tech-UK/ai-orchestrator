@@ -35,12 +35,19 @@ export function runRestoreFrame(
 ): void {
   let done = false;
   let frameId = 0;
+  // Test teardown and embedded web views can replace frame globals between
+  // scheduling and the fallback. Capture the canceller with the matching frame
+  // scheduler so the delayed winner cannot fail after its environment changes.
+  const cancelFrame =
+    typeof globalThis.cancelAnimationFrame === 'function'
+      ? globalThis.cancelAnimationFrame
+      : undefined;
   const once = (): void => {
     if (done) return;
     done = true;
     // Cancel the loser so it does not hold this closure (and the viewport it
     // captures) alive. Mirrors Angular's own `scheduleCallbackWithRafRace`.
-    cancelAnimationFrame(frameId);
+    cancelFrame?.(frameId);
     clearTimeout(timerId);
     step();
   };

@@ -41,7 +41,14 @@ export interface LoopTimelineStep {
 
 /** What the operator can do about a blocked step. */
 export interface LoopRecoveryAction {
-  /** Stable id so a host can wire a button without matching on prose. */
+  /**
+   * Stable id so a host can wire a button without matching on prose.
+   * `loop-control-timeline.ts#timelineRecoveryTarget` is the single place
+   * that decides which of these has a real handler behind it; the widget
+   * renders a button only for the ones that do (see
+   * `LoopCausalTimelineComponent`), never for `wait-or-switch-provider` or
+   * `review-now`.
+   */
   id: 'resume' | 'raise-cap' | 'wait-or-switch-provider' | 'review-now' | 'none';
   label: string;
   /** What pressing it does, in one sentence. */
@@ -197,6 +204,9 @@ export function buildLoopCausalTimeline(input: LoopTimelineInput): LoopTimeline 
   } else if (isProviderLimitParked(input)) {
     blocking = 'work';
     detail = 'The provider signalled a usage limit, so the run parked instead of paying overage.';
+    // A parked loop always schedules its own resume
+    // (`LoopProviderLimitHandler.scheduleResume`); no setting gates it.
+    // `instanceProviderLimitResumeEnabled` governs regular sessions only.
     nextAutomaticAction = 'It resumes on its own once the provider window reopens.';
     recovery = {
       id: 'wait-or-switch-provider',

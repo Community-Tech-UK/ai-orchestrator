@@ -17,6 +17,7 @@ const EXPECTED_PATHS = [
   '/chat-search',
   '/automations',
   '/campaigns',
+  '/plan-queue',
   '/workflows',
   '/hooks',
   '/skills',

@@ -43,6 +43,20 @@ describe('OrchestratorToolsRpcClient', () => {
     );
   });
 
+  it('throws OrchestratorToolsUnavailableError when the capability token is missing', async () => {
+    const client = new OrchestratorToolsRpcClient({
+      env: {
+        AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET: '/tmp/x.sock',
+        AI_ORCHESTRATOR_INSTANCE_ID: 'inst-1',
+        // AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_CAPABILITY deliberately absent —
+        // simulates a child spawned before per-spawn capabilities existed.
+      },
+    });
+    await expect(client.call('orchestrator_tools.git_batch_pull', { root: '/r' })).rejects.toBeInstanceOf(
+      OrchestratorToolsUnavailableError,
+    );
+  });
+
   it('sends a single line-delimited JSON-RPC envelope and resolves the parent reply', async () => {
     if (process.platform === 'win32') return;
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ot-client-test-'));
@@ -73,6 +87,7 @@ describe('OrchestratorToolsRpcClient', () => {
       env: {
         AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET: socketPath,
         AI_ORCHESTRATOR_INSTANCE_ID: 'inst-roundtrip',
+        AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_CAPABILITY: 'cap-roundtrip',
       },
     });
 
@@ -83,11 +98,15 @@ describe('OrchestratorToolsRpcClient', () => {
     const envelope = JSON.parse(receivedLines[0]!) as {
       jsonrpc: string;
       method: string;
-      params: { instanceId: string; payload: Record<string, unknown> };
+      params: { instanceId: string; capability: string; payload: Record<string, unknown> };
     };
     expect(envelope.jsonrpc).toBe('2.0');
     expect(envelope.method).toBe('orchestrator_tools.git_batch_pull');
-    expect(envelope.params).toEqual({ instanceId: 'inst-roundtrip', payload: { root: '/repo' } });
+    expect(envelope.params).toEqual({
+      instanceId: 'inst-roundtrip',
+      capability: 'cap-roundtrip',
+      payload: { root: '/repo' },
+    });
   });
 
   it('rejects with the parent\'s error message when the response carries an error envelope', async () => {
@@ -114,6 +133,7 @@ describe('OrchestratorToolsRpcClient', () => {
       env: {
         AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET: socketPath,
         AI_ORCHESTRATOR_INSTANCE_ID: 'inst-err',
+        AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_CAPABILITY: 'cap-err',
       },
     });
 
@@ -148,6 +168,7 @@ describe('OrchestratorToolsRpcClient', () => {
       env: {
         AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET: socketPath,
         AI_ORCHESTRATOR_INSTANCE_ID: 'inst-slow',
+        AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_CAPABILITY: 'cap-slow',
       },
       timeoutMs: 50,
     });

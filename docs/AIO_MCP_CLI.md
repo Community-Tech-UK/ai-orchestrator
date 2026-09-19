@@ -20,7 +20,7 @@ dist/aio-mcp-cli-sea/aio-mcp --help
 
 ## What It Can Do
 
-`aio-mcp` has six human-facing command groups:
+`aio-mcp` has seven human-facing command groups:
 
 | Command | Purpose |
 | --- | --- |
@@ -30,6 +30,7 @@ dist/aio-mcp-cli-sea/aio-mcp --help
 | `local-ai` | Discover, validate, list, and enrol Local AI Guard targets through the running parent app. |
 | `copilot-account` | Inspect GitHub Copilot account routing: profiles, rules, what a workspace resolves to, and routing health. Read-only. |
 | `browser-credentials` | Bind an existing vault login to an origin, and mint, list or revoke the standing authorizations an unattended browser fill needs. |
+| `loop` | List parked loops and resume one, including after an app restart. |
 
 It also has MCP and integration forwarders:
 
@@ -58,6 +59,23 @@ Build the artifact with the `doc-review-artifact` skill first, then call
 `request_doc_review` with its path. Markdown stays the source of truth; apply the
 returned decisions to the `.md` source and re-render. The artifact path is validated
 to sit inside the workspace's `.aio-review/` directory (never committed).
+
+### Plan Queue tools
+
+The same forwarder exposes the Plan Queue (see `src/main/plan-queue/`). A session
+calls `plan_queue_start` and becomes the parent of one nested worker session per
+document; each worker gets its own `queue/*` branch and `.worktrees/queue/...`
+worktree, a verifier on a different provider judges each round, and verified work
+lands on the checked-out branch as one local squash commit (never pushed).
+
+| Tool | Args | Purpose |
+| --- | --- | --- |
+| `plan_queue_start` | `kind` (`plans`\|`livetests`), `glob?`, `worker_slots?`, `verification_slots?`, `max_rounds?`, `relax_settings?`, `verifier_gates?`, `post_merge_gate?` | Discover documents and start a run with the caller as parent. The gate lists default to this app's checklist; pass the target repository's own commands (or `[]`) elsewhere. Not available to queue-spawned sessions. |
+| `plan_queue_status` | `run_id?` | One run's items (state, round, question, park reason, findings), or recent runs plus reconciler alerts. |
+| `plan_queue_answer` | `item_id`, `option_id` | Record James's answer to a readiness or worker question. Parent session only. |
+| `plan_queue_control` | `action`, `run_id?`, `item_id?` | Pause, resume or cancel a run; skip, resume, land-anyway or discard an item. Parent session only. |
+| `plan_queue_report_triage` | `run_id`, `records` | Triage agent only (caller-checked). |
+| `plan_queue_report_verdict` | `item_id`, `verdict`, `findings?`, `gates_run?`, `document_complete?`, `need_james?` | The item's current verifier only (caller-checked); a worker cannot report its own verdict. |
 
 ## `copilot-account` (read-only)
 
@@ -94,9 +112,9 @@ future change adds one upstream.
 
 ## Runtime Requirements
 
-Settings, remote-node roster, and remote-node release-readiness captures need a
-local orchestrator-tools RPC socket and a known Harness instance id. Harness
-injects these into local spawned agent shells:
+Settings, loop control, remote-node roster, and remote-node release-readiness
+captures need a local orchestrator-tools RPC socket and a known Harness instance
+id. Harness injects these into local spawned agent shells:
 
 ```bash
 AIO_MCP
@@ -273,6 +291,57 @@ or Tailscale IPv4 host.
 
 The table output is easier for a person to read. Use `--json` when another tool
 will parse the result.
+
+## Loop
+
+Lists parked loops and restarts one. A loop parks in two ways that outlive the
+process that started it: `paused` (an operator pause, or the boot-time
+running→paused reconcile) and `provider-limit` with no end time (usage-aware
+throttling). Both are resumable; every other terminal status is not.
+
+```bash
+$AIO_MCP loop list [--all] [--limit <n>] [--json]
+$AIO_MCP loop resume <loop-run-id> [--json]
+```
+
+`list` shows only resumable loops by default, each with the exact `resume`
+command for it. `--all` adds the terminal runs and says why each one cannot
+resume.
+
+`resume` re-hydrates the loop from its stored checkpoint when the app has been
+restarted since it parked, then starts the next iteration — the same parent-side
+path as the renderer's Resume button. It exits non-zero with the refusal reason
+when the loop is terminal, unknown, already running, or has no checkpoint to
+restore from. Restoring an isolated loop whose managed worktree has been deleted
+fails closed rather than silently falling back to the workspace root.
+
+Resuming spends provider tokens and starts agent work that writes to the loop's
+workspace or worktree. It is a deliberate write command, unlike
+`copilot-account`, because the alternative was that only a human at the renderer
+could ever restart a parked loop.
+
+Be clear about what does and does not gate it:
+
+- There is **no approval prompt**. Unlike the release and calendar mutations on
+  the same socket, `loop resume` does not raise a permission request — that
+  would put a human click back in the path this command exists to remove. The
+  comparable precedent is `run_on_node`, which also starts fresh agent work
+  without a dialog.
+- Following that precedent, `loop resume` **is** refused for a session that has
+  reached `maxSpawnDepth`, the same guard that strips `run_on_node` from such a
+  session. `loop list` stays available to it.
+- There is **no per-loop ownership check**: any local instance the parent knows
+  may resume any resumable loop, and `loop list` shows every recorded run's
+  workspace path and goal preview. That is the same visibility an agent shell
+  already has by reading `.aio-loop-state/` or the loop-mode database directly,
+  so it is not a new disclosure, but it is worth knowing before you widen who
+  gets a Harness shell.
+
+This is not `aio-loop-control`. That separate binary is the control channel
+*inside* a running loop iteration — it needs the per-iteration
+`AIO_LOOP_CONTROL_FILE` in its environment and only records `complete`,
+`block`, `wakeup` and `fail` intents for the loop it is running in. Nothing
+there can restart a loop that has already parked.
 
 ## Browser Credentials
 

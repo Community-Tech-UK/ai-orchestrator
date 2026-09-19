@@ -205,6 +205,33 @@ describe('WorktreeManager.integrateWorktree — auto-integration (real git)', ()
     expect(await git(['branch', '--show-current'], repo)).toBe('main');
   });
 
+  it('promotes loop work past an unrelated untracked root file but not an overlapping one', async () => {
+    const mgr = WorktreeManager.getInstance();
+    const session = await mgr.createWorktree('loop-dirty-root', 'dirty root', {
+      repoRoot: repo,
+      baseBranch: 'main',
+      skipInstall: true,
+    });
+    writeFileSync(join(session.worktreePath, 'feature.txt'), 'feature\n');
+    await git(['add', 'feature.txt'], session.worktreePath);
+    await git(['commit', '-q', '--no-gpg-sign', '-m', 'agent work'], session.worktreePath);
+    const integration = await mgr.integrateWorktree(session.id);
+    writeFileSync(join(repo, 'feature.txt'), 'operator work\n');
+
+    await expect(
+      mgr.promoteWorktreeIntegration(session.id, integration.integrationBranch),
+    ).resolves.toEqual({
+      status: 'blocked',
+      reason: 'root checkout has uncommitted changes to a promoted path: feature.txt',
+    });
+
+    rmSync(join(repo, 'feature.txt'));
+    writeFileSync(join(repo, 'notes_plan.md'), 'untracked operator plan\n');
+    await expect(
+      mgr.promoteWorktreeIntegration(session.id, integration.integrationBranch),
+    ).resolves.toMatchObject({ status: 'promoted', method: 'checked-out-ff' });
+  });
+
   it('durably prepares ownership before creating the Git worktree or branch', async () => {
     const mgr = WorktreeManager.getInstance();
     let prepared = false;
@@ -264,6 +291,57 @@ describe('WorktreeManager.integrateWorktree — auto-integration (real git)', ()
 
     expect(await git(['branch', '--list', session.branchName], repo)).toBe('');
     expect(await git(['branch', '--show-current'], repo)).toBe('main');
+  });
+
+  it('commits harvested work even when a pre-commit hook refuses the commit', async () => {
+    // A repository hook (plan-spec guard, `test:staged`) must not strand the
+    // session's output: the harvest commit is a safety commit on a throwaway
+    // session branch, not a landing on the base branch.
+    const hooksDir = join(repo, 'refusing-hooks');
+    mkdirSync(hooksDir);
+    writeFileSync(join(hooksDir, 'pre-commit'), '#!/bin/sh\necho refused >&2\nexit 1\n', {
+      mode: 0o755,
+    });
+    await git(['config', 'core.hooksPath', hooksDir], repo);
+    const mgr = WorktreeManager.getInstance();
+    const session = await mgr.createWorktree('loop-hook-refusal', 'hook refusal', {
+      repoRoot: repo,
+      baseBranch: 'main',
+      skipInstall: true,
+    });
+    writeFileSync(join(session.worktreePath, 'agent-output.txt'), 'work\n');
+    const baseTip = await git(['rev-parse', 'HEAD'], session.worktreePath);
+
+    const result = await mgr.harvestWorktree(session.id);
+
+    const tip = await git(['rev-parse', 'HEAD'], session.worktreePath);
+    expect(result).toEqual({ committed: true, hasUncommittedWork: true, hash: tip });
+    expect(tip).not.toBe(baseTip);
+    expect(await git(['status', '--porcelain'], session.worktreePath)).toBe('');
+    expect(await git(['show', '--name-only', '--format=', tip], repo)).toContain('agent-output.txt');
+  });
+
+  it('lists active plan documents the session branch adds relative to its base', async () => {
+    const mgr = WorktreeManager.getInstance();
+    const session = await mgr.createWorktree('loop-plan-docs', 'plan docs', {
+      repoRoot: repo,
+      baseBranch: 'main',
+      skipInstall: true,
+    });
+    mkdirSync(join(session.worktreePath, 'docs'));
+    writeFileSync(join(session.worktreePath, 'docs', 'feature_plan.md'), '# plan\n');
+    writeFileSync(join(session.worktreePath, 'docs', 'feature_plan_completed.md'), '# done\n');
+    writeFileSync(
+      join(session.worktreePath, 'docs', 'register_plan.md'),
+      '# Register\n\nType: standing register\n',
+    );
+    writeFileSync(join(session.worktreePath, 'code.ts'), 'export {};\n');
+    await git(['add', '-A'], session.worktreePath);
+    await git(['commit', '-q', '--no-gpg-sign', '--no-verify', '-m', 'work'], session.worktreePath);
+
+    await expect(mgr.listActivePlanDocuments(session.id)).resolves.toEqual([
+      'docs/feature_plan.md',
+    ]);
   });
 
   it('fails closed when harvest cannot inspect worktree status', async () => {
