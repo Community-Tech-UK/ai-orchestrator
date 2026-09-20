@@ -264,6 +264,21 @@ a technical/external prerequisite, not a James action.
 - **Cross-cutting rollup** → `docs/plans/livetest-backlog.md` (update in place). **Not
   `_scratch/`** — that is disposable and the user will not find it there. `_scratch/` is fine for
   the working matrix and scratch scripts.
+- **A quoted main-process log line needs a source that outlives the run.** Redirecting Electron's
+  stdout does not capture it: `LogManager` fixes its path from `app.getPath('userData')` when the
+  first `getLogger()` runs (`src/main/logging/logger.ts`), which is during module import — before
+  `app.setPath('userData', …)` applies `AIO_DEV_USER_DATA_PATH` at `src/main/index.ts:64`. A dev app
+  therefore writes into the **production** `~/Library/Application Support/harness/logs/app.log`, and
+  deleting your `/tmp` profile does not destroy that evidence — but the file rotates at 10 MB
+  (`logger.ts:88`). Copy the slice you cite into your evidence directory before cleanup, and quote
+  the timestamp and `loopRunId`/instance id so the claim stays checkable after the line numbers
+  move.
+- **Running a doc as a Plan Queue item:** an item that reproduces no defect legitimately ends with
+  **zero commits** on its branch. That is not lost work — the coordinator reads the untracked
+  document from the root checkout and puts its `_completed` copy into the landing commit itself
+  (`prepareClosedDocuments` → `buildLandingCommit`, `src/main/plan-queue/plan-queue-doc-close.ts`,
+  `plan-queue-squash.ts`), and only after a verifier PASS. Do not copy the document into the
+  worktree or commit it yourself.
 - **Never** rename a doc `_livetest_completed.md` unless *every* check in it passes with current
   evidence. Partial passes stay open with the residual stated plainly.
 - **Never** add content to a file already named `_completed`.

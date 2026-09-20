@@ -151,6 +151,25 @@ describe('landItemBranch', () => {
     expect(git(['rev-parse', 'main'])).toBe(mainBefore);
   });
 
+  // A livetest item that reproduces no defect changes no tracked file, so its
+  // closed document is the whole landing. Without this the evidence would be
+  // silently dropped at the "nothing to land" branch.
+  it('lands the closed document when the item branch has no commits of its own', async () => {
+    const item = makeItemWithWork({});
+    const mainBefore = git(['rev-parse', 'main']);
+
+    const result = await landItemBranch(item, repo, 'main', 'Livetest: sample (plan queue)', [
+      { relativePath: 'docs/plans/sample_livetest_completed.md', content: 'evidence\n' },
+    ]);
+
+    expect(result.status).toBe('landed');
+    expect(git(['rev-list', '--count', `${mainBefore}..main`])).toBe('1');
+    expect(git(['show', '--name-only', '--format=', 'main']).split('\n')).toEqual(['docs/plans/sample_livetest_completed.md']);
+    expect(git(['show', 'main:docs/plans/sample_livetest_completed.md'])).toBe('evidence');
+    expect(git(['status', '--porcelain'], item.worktreePath ?? '')).toBe('');
+    expect(git(['branch', '--show-current'], item.worktreePath ?? '')).toBe(item.branchName);
+  });
+
   it('blocks, changing nothing, when a root file would be overwritten', async () => {
     const item = makeItemWithWork({ 'clash.txt': 'from item\n' });
     writeFileSync(join(repo, 'clash.txt'), 'operator copy\n');
