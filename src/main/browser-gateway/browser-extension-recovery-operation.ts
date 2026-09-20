@@ -21,6 +21,11 @@ import {
   type BrowserExtensionContactStateReader,
 } from './browser-extension-contact-state';
 import { classifyRemoteExtensionContact } from './browser-extension-node-contact';
+import {
+  browserExtensionQueueKeyForNode,
+  getBrowserExtensionCommandStore,
+} from './browser-extension-command-store';
+import type { BrowserDeliveryHealth } from './browser-worker-agent-skew';
 import { resolveBrowserComputerTarget } from './browser-computer-target';
 import type {
   BrowserGatewayRecoverExtensionRequest,
@@ -45,17 +50,26 @@ interface BrowserExtensionRecoveryOperationOptions {
   pollTimeoutMs?: number;
   pollIntervalMs?: number;
   resetNodeConnection?: (nodeId: string) => boolean;
+  deliveryHealth?: (nodeId: string) => BrowserDeliveryHealth;
+  clearDeliveryHealth?: (nodeId: string) => void;
   result: <T>(params: BrowserGatewayResultInput<T>) => BrowserGatewayResult<T>;
 }
 
 /**
- * Recovers a remote extension channel for one of two confirmed incidents, and
+ * Recovers a remote extension channel for one of three confirmed incidents, and
  * deliberately has no browser driver, extension-command, tab, terminal, or CLI
  * dependency:
  * - silent + native_host_stdin_eof: restart the worker's native-host relay;
  * - relay_not_forwarding: the relay and extension are healthy but the worker's
  *   coordinator connection drops every forwarded poll (the 2026-09-15
- *   stale-socket loop), so reset that connection instead.
+ *   stale-socket loop), so reset that connection instead;
+ * - commands_unanswered: both clocks are fresh and commands are delivered, but
+ *   the extension answers none of them (windows-pc, 2026-09-20), so restart the
+ *   relay to force the service worker to re-establish its port.
+ *
+ * The third case used to fall through to `incident_not_confirmed`: the gate
+ * tested `silent`, and a channel polling once a second is never silent, so the
+ * one node that most needed recovery was the one node that could not get it.
  */
 export class BrowserExtensionRecoveryOperation {
   private readonly workerNodeRegistry: Pick<WorkerNodeRegistry, 'getHealthyNodes'>;
@@ -66,6 +80,8 @@ export class BrowserExtensionRecoveryOperation {
   private readonly pollTimeoutMs: number;
   private readonly pollIntervalMs: number;
   private readonly resetNodeConnection: (nodeId: string) => boolean;
+  private readonly deliveryHealth: (nodeId: string) => BrowserDeliveryHealth;
+  private readonly clearDeliveryHealth: (nodeId: string) => void;
   private readonly result: BrowserExtensionRecoveryOperationOptions['result'];
 
   constructor(options: BrowserExtensionRecoveryOperationOptions) {
@@ -81,6 +97,12 @@ export class BrowserExtensionRecoveryOperation {
         nodeId,
         'browser.recover_extension: relay_not_forwarding',
       ));
+    this.deliveryHealth = options.deliveryHealth
+      ?? ((nodeId) => getBrowserExtensionCommandStore()
+        .describeDeliveryHealth(browserExtensionQueueKeyForNode(nodeId)));
+    this.clearDeliveryHealth = options.clearDeliveryHealth
+      ?? ((nodeId) => getBrowserExtensionCommandStore()
+        .clearDeliveryHealth(browserExtensionQueueKeyForNode(nodeId)));
     this.result = options.result;
   }
 
@@ -118,12 +140,15 @@ export class BrowserExtensionRecoveryOperation {
     if (before.channelState === 'relay_not_forwarding') {
       return this.recoverByConnectionReset(request, node, before, startedAt);
     }
+    if (before.channelState === 'commands_unanswered') {
+      return this.recoverUnansweredChannel(request, node, before, startedAt);
+    }
     if (!before.silent || before.lastDisconnect?.reason !== 'native_host_stdin_eof') {
       return this.refused(
         request,
         'browser_extension_recovery_incident_not_confirmed',
-        'Extension recovery refused because health does not match a silent native-host EOF '
-          + 'or relay_not_forwarding incident',
+        'Extension recovery refused because health does not match a silent native-host EOF, '
+          + 'a relay_not_forwarding, or a commands_unanswered incident',
       );
     }
     const baselineContactAt = before.lastContactAt;
@@ -206,6 +231,72 @@ export class BrowserExtensionRecoveryOperation {
         'connection_reset');
   }
 
+  /**
+   * commands_unanswered: both contact clocks are fresh and commands are being
+   * handed off, but the extension answers none of them — an MV3 service worker
+   * whose poll loop outlived its command handler. A connection reset cannot
+   * help (the connection is fine), so the remedy is to restart the worker's
+   * native-host relay: dropping the bridge forces the service worker to
+   * re-establish its port, which is the cheapest thing that can replace a dead
+   * handler.
+   *
+   * Recovery is NOT declared on channel state. The state that triggered this is
+   * derived from the very command window the restart is meant to clear, so
+   * reading it back would report success instantly and permanently. Success is
+   * a poll the coordinator observes strictly AFTER the restart, and the answer
+   * window is only cleared then — a failed attempt must leave the node honestly
+   * marked broken rather than reset to a green that nothing re-earned.
+   *
+   * A service worker that comes back still broken simply re-trips this state on
+   * the next command. When it does, restarting Chrome on the node is the escalation
+   * (scripts/windows/restart-chrome.bat); the coordinator cannot do that itself,
+   * because exec_on_node's grammar deliberately refuses to launch the operator's
+   * browser.
+   */
+  private async recoverUnansweredChannel(
+    request: BrowserGatewayRecoverExtensionRequest,
+    node: WorkerNodeInfo,
+    before: BrowserExtensionRecoveryChannelSummary,
+    startedAt: number,
+  ): Promise<BrowserGatewayResult<BrowserRecoverExtensionResult>> {
+    try {
+      const response = await this.callServiceRpc(
+        node.id,
+        COORDINATOR_TO_NODE.BROWSER_EXTENSION_RECOVER,
+        {},
+      );
+      BrowserExtensionRecoverResultSchema.parse(response);
+    } catch {
+      return this.finished(
+        request,
+        node,
+        'failed',
+        before,
+        before,
+        startedAt,
+        'browser_extension_recovery_failed',
+        'Worker extension relay restart failed while the channel was accepting but not answering commands',
+        'extension_relay',
+      );
+    }
+
+    const restartedAt = this.now();
+    const after = await this.waitForRecovery(node, before, (summary) =>
+      summary.coordinatorPollAt !== undefined
+      && summary.coordinatorPollAt > restartedAt
+      && isBrowserExtensionContactFresh(summary.coordinatorPollAt, this.now(), BROWSER_EXTENSION_CONTACT_FRESH_MS));
+    if (!after.recovered) {
+      return this.finished(request, node, 'timed_out', before, after.summary, startedAt,
+        'browser_extension_recovery_timeout',
+        'Worker extension relay restarted, but no extension poll reached the coordinator before the deadline',
+        'extension_relay');
+    }
+    this.clearDeliveryHealth(node.id);
+    return this.finished(request, node, 'recovered', before, this.channelSummary(node), startedAt, undefined,
+      'Worker extension relay restarted and the extension is polling again; the next command proves whether it executes',
+      'extension_relay');
+  }
+
   private async waitForRecovery(
     node: WorkerNodeInfo,
     before: BrowserExtensionRecoveryChannelSummary,
@@ -240,6 +331,7 @@ export class BrowserExtensionRecoveryOperation {
       coordinatorPollAt: this.extensionContactState.getLastExtensionContactAt(node.id),
       relayContactAt: relay?.lastExtensionContactAt,
       nodeConnectedAt: node.connectedAt,
+      commandsAnswered: this.deliveryHealth(node.id).commandsAnswered,
       now: this.now(),
     });
     const channelState = enabled && running ? clocks.state : 'fresh';

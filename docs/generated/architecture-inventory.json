@@ -6088,7 +6088,7 @@
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
-      "lines": 2484
+      "lines": 2486
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service-existing-tabs.spec.ts",
@@ -6687,6 +6687,10 @@
       "lines": 1038
     },
     {
+      "path": "src/main/browser-gateway/browser-health-service.spec.ts",
+      "lines": 1036
+    },
+    {
       "path": "src/renderer/app/features/hooks/hooks-config.component.ts",
       "lines": 1031
     },
@@ -6753,10 +6757,6 @@
     {
       "path": "src/main/repo-jobs/repo-job-service.ts",
       "lines": 989
-    },
-    {
-      "path": "src/main/browser-gateway/browser-health-service.spec.ts",
-      "lines": 986
     },
     {
       "path": "src/main/local-ai-guard/local-ai-guard.integration.spec.ts",
@@ -6913,6 +6913,10 @@
     {
       "path": "docs/superpowers/specs/2026-05-04-global-operator-control-plane-design_superseded.md",
       "lines": 888
+    },
+    {
+      "path": "src/main/browser-gateway/browser-extension-command-store.spec.ts",
+      "lines": 887
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-reload-no-effect.spec.ts",

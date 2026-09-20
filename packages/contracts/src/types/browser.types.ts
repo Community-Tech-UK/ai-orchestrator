@@ -323,8 +323,11 @@ export interface BrowserExtensionRecoveryChannelSummary {
   /**
    * `relay_not_forwarding`: the worker relay sees extension polls but none
    * reach the coordinator (a stuck worker connection, not a dead extension).
+   * `commands_unanswered`: polls reach the coordinator and commands are
+   * delivered, but the extension answers none of them (a service worker
+   * polling without executing, not a stuck connection).
    */
-  channelState?: 'fresh' | 'relay_not_forwarding' | 'silent';
+  channelState?: 'fresh' | 'relay_not_forwarding' | 'commands_unanswered' | 'silent';
   lastContactAt?: number;
   /** Last poll RPC that actually reached the coordinator. */
   coordinatorPollAt?: number;

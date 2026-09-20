@@ -846,9 +846,9 @@ function toolDescription(name: BrowserMcpToolName): string {
   }
   if (name === 'browser.recover_extension') {
     return 'Recover a selected remote Browser Gateway extension channel only when health confirms an incident: '
-      + 'a silent native_host_stdin_eof restarts the worker relay; relay_not_forwarding (the relay sees polls the '
-      + 'coordinator never receives) resets the worker connection without revoking it. '
-      + 'Calls the worker service directly and never opens Chrome, tabs, terminals, or coding CLIs.';
+      + 'a silent native_host_stdin_eof, or commands_unanswered (polls arrive and commands are delivered but '
+      + 'nothing answers), restarts the worker relay; relay_not_forwarding (the relay sees polls the coordinator '
+      + 'never receives) resets that connection. Calls the worker service and never opens Chrome, tabs or CLIs.';
   }
   if (name === 'browser.close_tab') {
     return `${UNTRUSTED_WARNING} Close one Browser Gateway tab. Destructive: requires an approved destructive grant. Use profileId and targetId from list_targets (targetId is also exposed as id).`;

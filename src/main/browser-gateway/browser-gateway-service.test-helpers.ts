@@ -120,6 +120,8 @@ export function makeService(overrides: {
   extensionRecoveryPollTimeoutMs?: BrowserGatewayServiceOptions['extensionRecoveryPollTimeoutMs'];
   extensionRecoveryPollIntervalMs?: BrowserGatewayServiceOptions['extensionRecoveryPollIntervalMs'];
   extensionRecoveryResetNodeConnection?: BrowserGatewayServiceOptions['extensionRecoveryResetNodeConnection'];
+  extensionRecoveryDeliveryHealth?: BrowserGatewayServiceOptions['extensionRecoveryDeliveryHealth'];
+  extensionRecoveryClearDeliveryHealth?: BrowserGatewayServiceOptions['extensionRecoveryClearDeliveryHealth'];
   /** Disabled by default so dispatch-counting fakes see only the action; 'default' uses the real probe. */
   pageChallengeProbe?: BrowserGatewayServiceOptions['pageChallengeProbe'] | 'default';
   useSingleton?: boolean;
@@ -370,6 +372,8 @@ export function makeService(overrides: {
     extensionRecoveryPollTimeoutMs: overrides.extensionRecoveryPollTimeoutMs,
     extensionRecoveryPollIntervalMs: overrides.extensionRecoveryPollIntervalMs,
     extensionRecoveryResetNodeConnection: overrides.extensionRecoveryResetNodeConnection,
+    extensionRecoveryDeliveryHealth: overrides.extensionRecoveryDeliveryHealth,
+    extensionRecoveryClearDeliveryHealth: overrides.extensionRecoveryClearDeliveryHealth,
     pageChallengeProbe: overrides.pageChallengeProbe === 'default' ? undefined : overrides.pageChallengeProbe ?? null,
     healthService: overrides.healthService ?? {
       diagnose: async (): Promise<BrowserGatewayHealthReport> => ({

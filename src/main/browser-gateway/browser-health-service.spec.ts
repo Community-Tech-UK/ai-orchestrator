@@ -635,6 +635,56 @@ describe('BrowserHealthService', () => {
       const report = await healthService(relayNode(now - 5 * MINUTE), now - 6 * MINUTE, now).diagnose();
       expect(report.remoteExtensions.nodes[0]).toMatchObject({ channelState: 'silent', silent: true });
     });
+
+    it('stops calling a polling-but-unanswering channel deliverable (2026-09-20 windows-pc)', async () => {
+      const now = 100 * MINUTE;
+      const node = relayNode(now - 1_000);
+      const service = new BrowserHealthService({
+        profileStore: { listProfiles: () => [] },
+        rawAutomationHealthService: { diagnose: async () => ({ status: 'missing' }) as never },
+        workerNodeRegistry: { getAllNodes: () => [node] },
+        // Both clocks fresh: nothing in the contact state can see this fault.
+        extensionContactState: {
+          getLastExtensionContactAt: () => now - 1_000,
+          isExtensionContactFresh: () => true,
+          describeExtensionContact: (nodeId: string) => ({ nodeId, silent: false }),
+          getContactGapStats: () => ({ gapCount: 0, longestGapMs: 0 }),
+        },
+        extensionCommandStore: {
+          describeQueue: (queueKey) => ({
+            queueKey,
+            queuedCount: 0,
+            inFlightCount: 0,
+            waitingPollerCount: 2,
+          }),
+          // Pre-delivery is perfectly happy: the commands ARE being handed off.
+          describePreDeliveryCapability: () => ({ commandsDeliverable: true }),
+          describeDeliveryHealth: () => ({
+            commandsAnswered: false,
+            consecutiveUnanswered: 5,
+            lastReason: 'browser_extension_command_timeout',
+          }),
+        },
+        connectionFlapState: () => undefined,
+        mcpBridgeAvailable: () => true,
+        chromeRuntimeDetector: async () => ({ available: true, command: 'chrome' }),
+        now: () => now,
+      });
+
+      const report = await service.diagnose();
+
+      expect(report.remoteExtensions).toMatchObject({ ready: 0, silent: 0 });
+      expect(report.remoteExtensions.nodes[0]).toMatchObject({
+        channelState: 'commands_unanswered',
+        // Not silent, and polling a second ago — which is exactly why the old
+        // report called this node healthy for nine hours.
+        silent: false,
+        commandsDeliverable: false,
+        commandsUndeliverableReason: 'commands_unanswered',
+        consecutiveUnansweredCommands: 5,
+        coordinatorPollAgeMs: 1_000,
+      });
+    });
   });
 
   it('counts service-worker restarts when extension start time changes', async () => {

@@ -148,8 +148,13 @@ export interface BrowserGatewayHealthReport {
       /**
        * `relay_not_forwarding`: the worker relay sees extension polls but none
        * reach the coordinator, so commands cannot be delivered.
+       * `commands_unanswered`: polls DO reach the coordinator and commands are
+       * delivered, but nothing comes back — the service worker is polling
+       * without executing. Every clock looks healthy in this state.
        */
       channelState: RemoteExtensionChannelState;
+      /** Delivered commands that timed out in a row; omitted when zero. */
+      consecutiveUnansweredCommands?: number;
       /** Most recent of the two contact clocks below. */
       lastContactAt?: number;
       /** Milliseconds since the most recent of either contact clock. */
@@ -212,7 +217,7 @@ export interface BrowserHealthServiceOptions {
   connectionFlapState?: (nodeId: string) => WorkerConnectionFlapState | undefined;
   extensionCommandStore?: Pick<
     BrowserExtensionCommandStore,
-    'describeQueue' | 'describePreDeliveryCapability'
+    'describeQueue' | 'describePreDeliveryCapability' | 'describeDeliveryHealth'
   >;
   toolRevealStore?: Pick<BrowserToolRevealStore, 'listSurfaces'>;
   extensionTabStore?: Pick<BrowserExtensionTabStore, 'listTabs'>;
@@ -294,7 +299,7 @@ export class BrowserHealthService {
   private readonly connectionFlapState: (nodeId: string) => WorkerConnectionFlapState | undefined;
   private readonly extensionCommandStore: Pick<
     BrowserExtensionCommandStore,
-    'describeQueue' | 'describePreDeliveryCapability'
+    'describeQueue' | 'describePreDeliveryCapability' | 'describeDeliveryHealth'
   >;
   private readonly toolRevealStore: Pick<BrowserToolRevealStore, 'listSurfaces'>;
   private readonly extensionTabStore: Pick<BrowserExtensionTabStore, 'listTabs'>;
@@ -563,10 +568,14 @@ export class BrowserHealthService {
         const relay = node.capabilities.extensionRelay;
         const enabled = relay?.enabled ?? Boolean(node.capabilities.hasExtensionRelay);
         const running = relay?.running ?? Boolean(node.capabilities.hasExtensionRelay);
+        const deliveryHealth = this.extensionCommandStore.describeDeliveryHealth(
+          browserExtensionQueueKeyForNode(node.id),
+        );
         const clocks = classifyRemoteExtensionContact({
           coordinatorPollAt: this.extensionContactState.getLastExtensionContactAt(node.id),
           relayContactAt: relay?.lastExtensionContactAt,
           nodeConnectedAt: node.connectedAt,
+          commandsAnswered: deliveryHealth.commandsAnswered,
           now: this.now(),
         });
         const channelState = enabled && running ? clocks.state : 'fresh';
@@ -584,6 +593,11 @@ export class BrowserHealthService {
           ...this.preDeliveryCapability(node.id),
         });
         const relayNotForwarding = channelState === 'relay_not_forwarding';
+        // A channel that accepts commands and never answers them is not
+        // deliverable in any sense the caller cares about. Reporting it as
+        // deliverable is what made a 9h outage on windows-pc read as healthy,
+        // and it also gated browser.recover_extension shut.
+        const commandsUnanswered = channelState === 'commands_unanswered';
         return {
           nodeId: node.id,
           nodeName: node.name,
@@ -591,12 +605,18 @@ export class BrowserHealthService {
           running,
           silent: channelState === 'silent',
           channelState,
-          commandsDeliverable: capability.commandsDeliverable && !relayNotForwarding,
+          commandsDeliverable:
+            capability.commandsDeliverable && !relayNotForwarding && !commandsUnanswered,
           ...(capability.reason
             ? { commandsUndeliverableReason: capability.reason }
             : relayNotForwarding
               ? { commandsUndeliverableReason: 'relay_not_forwarding' }
-              : {}),
+              : commandsUnanswered
+                ? { commandsUndeliverableReason: 'commands_unanswered' }
+                : {}),
+          ...(deliveryHealth.consecutiveUnanswered > 0
+            ? { consecutiveUnansweredCommands: deliveryHealth.consecutiveUnanswered }
+            : {}),
           lastContactAt,
           ...(lastContactAt !== undefined
             ? { contactAgeMs: Math.max(0, this.now() - lastContactAt) }

@@ -8,6 +8,11 @@ import type { BrowserGatewayResultInput } from './browser-gateway-result';
 import type { AgentSafeTarget } from './browser-safe-dto';
 import type { BrowserGatewayFindOrOpenRequest } from './browser-gateway-service-types';
 import {
+  browserExtensionQueueKeyForNode,
+  getBrowserExtensionCommandStore,
+} from './browser-extension-command-store';
+import type { BrowserDeliveryHealth } from './browser-worker-agent-skew';
+import {
   getWorkerNodeRegistry,
   type WorkerNodeRegistry,
 } from '../remote-node/worker-node-registry';
@@ -15,6 +20,12 @@ import {
 export interface RemoteExtensionContactDeps {
   extensionContactState: BrowserExtensionContactStateReader;
   workerNodeRegistry?: Pick<WorkerNodeRegistry, 'getNode'>;
+  /**
+   * Answered/unanswered history for the node's command queue. Optional, and
+   * defaulted to the real store, so existing callers and lightweight fakes are
+   * unaffected while every caller still classifies the channel identically.
+   */
+  deliveryHealth?: (nodeId: string) => BrowserDeliveryHealth;
   now?: () => number;
 }
 
@@ -28,8 +39,17 @@ export interface RemoteExtensionContactDeps {
  *   this BEFORE forwarding, so it stays fresh while forwarding fails — the
  *   2026-09-15 stale-socket loop showed "last contacted 15s ago" for an hour
  *   while every command was not_delivered.
+ *
+ * Neither clock proves anything EXECUTES. An MV3 service worker can keep
+ * long-polling after the half that runs commands has died, which is why
+ * `commands_unanswered` exists: both clocks fresh, every command timing out.
+ * Observed on windows-pc 2026-09-20 with a 9.3h-stale tab inventory.
  */
-export type RemoteExtensionChannelState = 'fresh' | 'relay_not_forwarding' | 'silent';
+export type RemoteExtensionChannelState =
+  | 'fresh'
+  | 'relay_not_forwarding'
+  | 'commands_unanswered'
+  | 'silent';
 
 export interface RemoteExtensionContactClocks {
   state: RemoteExtensionChannelState;
@@ -46,14 +66,23 @@ export function classifyRemoteExtensionContact(input: {
   relayContactAt?: number;
   /** Node registration time; bounds the "no poll recorded yet" grace. */
   nodeConnectedAt?: number;
+  /**
+   * Whether delivered commands are coming back. Optional so callers that only
+   * care about contact clocks (and lightweight fakes) need not supply it.
+   */
+  commandsAnswered?: boolean;
   now: number;
   freshMs?: number;
 }): RemoteExtensionContactClocks {
   const freshMs = input.freshMs ?? BROWSER_EXTENSION_CONTACT_FRESH_MS;
-  const { coordinatorPollAt, relayContactAt, nodeConnectedAt, now } = input;
+  const { coordinatorPollAt, relayContactAt, nodeConnectedAt, commandsAnswered, now } = input;
   let state: RemoteExtensionChannelState;
   if (isBrowserExtensionContactFresh(coordinatorPollAt, now, freshMs)) {
-    state = 'fresh';
+    // Polls are landing, so delivery is not the problem. Execution may still
+    // be: only an unanswered-command run demotes a channel from `fresh`, and
+    // it is checked here rather than in health so every caller of this
+    // classifier — error text, staleness flags, recovery — agrees.
+    state = commandsAnswered === false ? 'commands_unanswered' : 'fresh';
   } else if (!isBrowserExtensionContactFresh(relayContactAt, now, freshMs)) {
     state = 'silent';
   } else if (coordinatorPollAt !== undefined) {
@@ -83,22 +112,29 @@ export function readRemoteExtensionContactClocks(
   deps: RemoteExtensionContactDeps,
 ): RemoteExtensionContactClocks {
   const node = (deps.workerNodeRegistry ?? getWorkerNodeRegistry()).getNode(nodeId);
+  const readDeliveryHealth = deps.deliveryHealth
+    ?? ((id: string) => getBrowserExtensionCommandStore()
+      .describeDeliveryHealth(browserExtensionQueueKeyForNode(id)));
   return classifyRemoteExtensionContact({
     coordinatorPollAt: deps.extensionContactState.getLastExtensionContactAt(nodeId),
     relayContactAt: node?.capabilities.extensionRelay?.lastExtensionContactAt,
     nodeConnectedAt: node?.connectedAt,
+    commandsAnswered: readDeliveryHealth(nodeId).commandsAnswered,
     now: now(deps),
   });
 }
 
-/** Delivery freshness: true only when polls are (or may soon be) reaching the coordinator. */
+/**
+ * Usable freshness: true only when polls are (or may soon be) reaching the
+ * coordinator AND the channel is answering. Deliberately has no fast path on
+ * the raw contact clock — that short-circuit returned true for any channel
+ * still polling, which is precisely the `commands_unanswered` node whose tabs
+ * must be flagged stale rather than served as confirmed.
+ */
 export function isRemoteExtensionContactFresh(
   nodeId: string,
   deps: RemoteExtensionContactDeps,
 ): boolean {
-  if (deps.extensionContactState.isExtensionContactFresh(nodeId)) {
-    return true;
-  }
   return readRemoteExtensionContactClocks(nodeId, deps).state === 'fresh';
 }
 
@@ -170,6 +206,14 @@ export function remoteExtensionContactSummary(
       + ' (worker is not forwarding polls; browser.recover_extension resets the node connection)'
       + disconnectSuffix;
   }
+  if (clocks.state === 'commands_unanswered') {
+    // Leads with the poll age on purpose: that number looks healthy, and
+    // saying so first is what stops the reader concluding the channel is fine.
+    return `extension polled ${formatAge(clocks.coordinatorPollAgeMs ?? 0)} ago but has not answered`
+      + ' the last commands sent to it (the service worker is polling without executing;'
+      + ' browser.recover_extension restarts the relay, and restarting Chrome on the node clears it)'
+      + disconnectSuffix;
+  }
   if (lastContactAt === undefined) {
     return `no extension contact recorded${disconnectSuffix}`;
   }
@@ -189,7 +233,7 @@ function remoteExtensionContactDescription(
   deps: RemoteExtensionContactDeps,
 ): string {
   const clocks = readRemoteExtensionContactClocks(nodeId, deps);
-  if (clocks.state === 'relay_not_forwarding') {
+  if (clocks.state === 'relay_not_forwarding' || clocks.state === 'commands_unanswered') {
     return remoteExtensionContactSummary(nodeId, deps);
   }
   return clocks.lastContactAt === undefined

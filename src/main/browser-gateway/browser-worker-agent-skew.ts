@@ -6,6 +6,28 @@ export const BROWSER_EXTENSION_RUNTIME_INCOMPATIBLE = 'browser_extension_runtime
 /** Consecutive pre-delivery rejections before a live channel counts as incapable. */
 export const PRE_DELIVERY_INCAPABLE_MIN = 3;
 
+/**
+ * Consecutive DELIVERED-but-unanswered commands before a polling channel counts
+ * as unable to execute. Distinct from the pre-delivery counter above: these
+ * commands were handed off successfully, so every delivery-side signal stays
+ * green while nothing actually runs.
+ */
+export const POST_DELIVERY_UNANSWERED_MIN = 3;
+
+/**
+ * Whether a channel that ACCEPTS commands is also answering them. The two are
+ * independent — an MV3 service worker can keep long-polling after the half that
+ * executes commands has died — and conflating them is what let a node report
+ * `commandsDeliverable: true` for 9 hours while every command timed out.
+ */
+export interface BrowserDeliveryHealth {
+  /** False only once POST_DELIVERY_UNANSWERED_MIN consecutive commands timed out. */
+  commandsAnswered: boolean;
+  consecutiveUnanswered: number;
+  lastUnansweredAt?: number;
+  lastReason?: string;
+}
+
 export interface BrowserRuntimeEvidence {
   extensionVersion?: string;
   extensionStartedAt?: number;

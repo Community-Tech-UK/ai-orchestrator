@@ -390,6 +390,8 @@ export class BrowserGatewayService {
       extensionContactState: this.extensionContactState, sendServiceRpc: options.sendServiceRpc,
       delay: options.extensionRecoveryDelay, now: options.extensionRecoveryNow,
       resetNodeConnection: options.extensionRecoveryResetNodeConnection,
+      deliveryHealth: options.extensionRecoveryDeliveryHealth,
+      clearDeliveryHealth: options.extensionRecoveryClearDeliveryHealth,
       pollTimeoutMs: options.extensionRecoveryPollTimeoutMs, pollIntervalMs: options.extensionRecoveryPollIntervalMs,
       result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params), });
     this.mutationEffectVerifier = new BrowserMutationEffectVerifier({

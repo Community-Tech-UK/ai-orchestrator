@@ -28,7 +28,11 @@ function deps(options: {
     driver: { evaluate },
     existingTabOperations: { sendCommand },
     extensionContactState: {
-      getLastExtensionContactAt: () => undefined,
+      // Both reads derive from one timestamp, as the real contact state does.
+      // They used to disagree here (no contact recorded, yet "fresh"), which
+      // only went unnoticed while freshness had a fast path on the boolean.
+      getLastExtensionContactAt: () =>
+        (options.coordinatorFresh ?? true) ? Date.now() : Date.now() - 10 * 60_000,
       isExtensionContactFresh: () => options.coordinatorFresh ?? true,
       describeExtensionContact: (nodeId: string) => ({ nodeId, silent: false }),
       getContactGapStats: () => ({ gapCount: 0, longestGapMs: 0 }),

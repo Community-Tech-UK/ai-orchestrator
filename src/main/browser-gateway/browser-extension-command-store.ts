@@ -2,8 +2,10 @@ import { randomUUID } from 'node:crypto';
 import {
   BROWSER_EXTENSION_RUNTIME_INCOMPATIBLE,
   PRE_DELIVERY_INCAPABLE_MIN,
+  type BrowserDeliveryHealth,
   type BrowserPreDeliveryCapability,
 } from './browser-worker-agent-skew';
+import { BrowserExtensionDeliveryHealthTracker } from './browser-extension-delivery-health';
 
 export type BrowserExtensionCommandName =
   | 'open_tab'
@@ -170,6 +172,9 @@ export class BrowserExtensionCommandStore {
     BrowserExtensionCommandQueueKey,
     PreDeliveryOutcome[]
   >();
+  /** Answered/unanswered history for commands that WERE delivered. */
+  private readonly deliveryHealth =
+    new BrowserExtensionDeliveryHealthTracker<BrowserExtensionCommandQueueKey>();
 
   static getInstance(): BrowserExtensionCommandStore {
     if (!this.instance) {
@@ -283,6 +288,10 @@ export class BrowserExtensionCommandStore {
     }
     this.pending.delete(result.commandId);
     clearTimeout(pending.timeout);
+    // Answered, not succeeded. A command the extension ran and rejected proves
+    // the execution path is alive just as well as one that worked, so a channel
+    // returning honest errors must never be classed as unanswered.
+    this.deliveryHealth.record(pending.queueKey, { answered: true, at: Date.now() });
     if (result.ok) {
       pending.resolve(result.result);
       return;
@@ -383,6 +392,9 @@ export class BrowserExtensionCommandStore {
     this.queues.delete(queueKey);
     this.handoffPending.delete(queueKey);
     this.preDeliveryOutcomes.delete(queueKey);
+    // The channel that reconnects is a new one; its predecessor's unanswered
+    // commands say nothing about whether it can execute.
+    this.deliveryHealth.clear(queueKey);
     // A rejected queue usually means the node disconnected. The channel that
     // reconnects may be a different extension build, so receipt capability
     // must be re-proven rather than assumed.
@@ -489,6 +501,11 @@ export class BrowserExtensionCommandStore {
           return;
         }
         this.pending.delete(commandId);
+        this.deliveryHealth.record(pending.queueKey, {
+          answered: false,
+          at: Date.now(),
+          reason: 'browser_extension_command_receipt_missing',
+        });
         pending.reject(new Error('browser_extension_command_receipt_missing'));
       }, Math.min(BROWSER_EXTENSION_RECEIPT_WINDOW_MS, pending.executionWindowMs));
       return;
@@ -519,6 +536,17 @@ export class BrowserExtensionCommandStore {
     this.preDeliveryOutcomes.set(queueKey, recent);
   }
 
+  /** Whether this channel is answering the commands it accepts. */
+  describeDeliveryHealth(
+    queueKey: BrowserExtensionCommandQueueKey,
+  ): BrowserDeliveryHealth {
+    return this.deliveryHealth.describe(queueKey);
+  }
+
+  clearDeliveryHealth(queueKey: BrowserExtensionCommandQueueKey): void {
+    this.deliveryHealth.clear(queueKey);
+  }
+
   /**
    * The extension acknowledged receiving a command. Registers the queue as
    * receipt-capable and upgrades the pending command's watchdog to the full
@@ -545,6 +573,11 @@ export class BrowserExtensionCommandStore {
   private armExecutionTimeout(pending: PendingCommand, commandId: string): void {
     pending.timeout = setTimeout(() => {
       this.pending.delete(commandId);
+      this.deliveryHealth.record(pending.queueKey, {
+        answered: false,
+        at: Date.now(),
+        reason: 'browser_extension_command_timeout',
+      });
       pending.reject(new Error(formatDeliveredCommandTimeout(pending.describeChannelState?.())));
     }, pending.executionWindowMs);
   }

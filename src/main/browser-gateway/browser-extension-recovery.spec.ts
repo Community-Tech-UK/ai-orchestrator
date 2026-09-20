@@ -320,6 +320,119 @@ describe('Browser Gateway extension relay recovery', () => {
     });
   });
 
+  describe('commands_unanswered (2026-09-20 windows-pc polling-but-not-executing)', () => {
+    const MINUTE = 60_000;
+
+    function unansweredContact(coordinatorPollAt: () => number) {
+      return {
+        getLastExtensionContactAt: vi.fn(() => coordinatorPollAt()),
+        // Fresh by the clock: the whole point of the incident.
+        isExtensionContactFresh: vi.fn(() => true),
+        describeExtensionContact: vi.fn(() => ({ nodeId: 'node-1', silent: false })),
+        getContactGapStats: vi.fn(() => ({ gapCount: 0, longestGapMs: 0 })),
+        getLastDisconnect: vi.fn(() => undefined),
+      };
+    }
+
+    it('restarts the relay for a fresh channel that answers nothing, and only then clears the window', async () => {
+      let now = 100 * MINUTE;
+      let coordinatorPollAt = now - 1_000;
+      const sendServiceRpc = vi.fn().mockResolvedValue(workerRecoveryResult(1_000));
+      const clearDeliveryHealth = vi.fn();
+      const resetNodeConnection = vi.fn(() => true);
+      const { service } = makeService({
+        extensionContactState: unansweredContact(() => coordinatorPollAt),
+        workerNodeRegistry: { getHealthyNodes: () => [makeRelayNode('node-1', 'windows-pc')] },
+        sendServiceRpc,
+        extensionRecoveryResetNodeConnection: resetNodeConnection,
+        extensionRecoveryDeliveryHealth: () => ({
+          commandsAnswered: false,
+          consecutiveUnanswered: 5,
+          lastReason: 'browser_extension_command_timeout',
+        }),
+        extensionRecoveryClearDeliveryHealth: clearDeliveryHealth,
+        extensionRecoveryNow: () => now,
+        extensionRecoveryDelay: async (ms) => {
+          now += ms;
+          if (now >= 100 * MINUTE + 2_000) coordinatorPollAt = 100 * MINUTE + 2_000;
+        },
+        extensionRecoveryPollTimeoutMs: 10_000,
+        extensionRecoveryPollIntervalMs: 1_000,
+      });
+
+      const result = await service.recoverExtension({ computer: 'windows-pc' });
+
+      expect(result).toMatchObject({
+        decision: 'allowed',
+        outcome: 'succeeded',
+        data: {
+          recoveryStatus: 'recovered',
+          recoveryAction: 'extension_relay',
+          before: { channelState: 'commands_unanswered', silent: false },
+        },
+      });
+      // The relay is restarted; the socket is healthy, so it is NOT reset.
+      expect(sendServiceRpc).toHaveBeenCalledOnce();
+      expect(sendServiceRpc).toHaveBeenCalledWith(
+        'node-1',
+        COORDINATOR_TO_NODE.BROWSER_EXTENSION_RECOVER,
+        {},
+      );
+      expect(resetNodeConnection).not.toHaveBeenCalled();
+      expect(clearDeliveryHealth).toHaveBeenCalledWith('node-1');
+    });
+
+    it('leaves the node honestly broken when no poll follows the restart', async () => {
+      let now = 100 * MINUTE;
+      const clearDeliveryHealth = vi.fn();
+      const { service } = makeService({
+        // Contact never advances past the restart instant.
+        extensionContactState: unansweredContact(() => 100 * MINUTE - 1_000),
+        workerNodeRegistry: { getHealthyNodes: () => [makeRelayNode('node-1', 'windows-pc')] },
+        sendServiceRpc: vi.fn().mockResolvedValue(workerRecoveryResult(1_000)),
+        extensionRecoveryDeliveryHealth: () => ({
+          commandsAnswered: false,
+          consecutiveUnanswered: 3,
+        }),
+        extensionRecoveryClearDeliveryHealth: clearDeliveryHealth,
+        extensionRecoveryNow: () => now,
+        extensionRecoveryDelay: async (ms) => { now += ms; },
+        extensionRecoveryPollTimeoutMs: 3_000,
+        extensionRecoveryPollIntervalMs: 1_000,
+      });
+
+      await expect(service.recoverExtension({ nodeId: 'node-1' })).resolves.toMatchObject({
+        outcome: 'failed',
+        reason: 'browser_extension_recovery_timeout',
+        data: { recoveryStatus: 'timed_out', recoveryAction: 'extension_relay' },
+      });
+      // Clearing here would hand the node a green health nothing re-earned.
+      expect(clearDeliveryHealth).not.toHaveBeenCalled();
+    });
+
+    it('still refuses a fresh channel that is answering its commands', async () => {
+      const now = 100 * MINUTE;
+      const sendServiceRpc = vi.fn();
+      const { service } = makeService({
+        extensionContactState: unansweredContact(() => now - 1_000),
+        workerNodeRegistry: { getHealthyNodes: () => [makeRelayNode('node-1', 'windows-pc')] },
+        sendServiceRpc,
+        extensionRecoveryDeliveryHealth: () => ({
+          commandsAnswered: true,
+          consecutiveUnanswered: 0,
+        }),
+        extensionRecoveryNow: () => now,
+      });
+
+      await expect(service.recoverExtension({ nodeId: 'node-1' })).resolves.toMatchObject({
+        decision: 'denied',
+        outcome: 'not_run',
+        reason: 'browser_extension_recovery_incident_not_confirmed',
+      });
+      expect(sendServiceRpc).not.toHaveBeenCalled();
+    });
+  });
+
   it('keeps public payload validation strict and routes the exact Browser RPC method', async () => {
     expect(validateBrowserRpcPayload('browser.recover_extension', {
       computer: 'windows-pc',

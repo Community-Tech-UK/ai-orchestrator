@@ -787,4 +787,100 @@ describe('BrowserExtensionCommandStore', () => {
     await expect(pending).rejects.toThrow('node_disconnected');
     await expect(poll).resolves.toBeNull();
   });
+
+  describe('delivery health (delivered but never answered)', () => {
+    const QUEUE = 'node:node-1';
+
+    /** Queue a command, hand it to a poller, then let its execution window lapse. */
+    async function timeOutOneCommand(store: BrowserExtensionCommandStore): Promise<void> {
+      const pending = store.sendCommand({
+        queueKey: QUEUE,
+        command: 'snapshot',
+        timeoutMs: 1_000,
+      });
+      pending.catch(() => undefined);
+      await store.pollCommand(QUEUE, { timeoutMs: 1 });
+      await vi.advanceTimersByTimeAsync(1_001);
+      await expect(pending).rejects.toThrow(/browser_extension_command_timeout/u);
+    }
+
+    it('reports healthy until enough delivered commands go unanswered in a row', async () => {
+      vi.useFakeTimers();
+      const store = new BrowserExtensionCommandStore();
+
+      // An idle channel nobody has asked to do anything is not broken.
+      expect(store.describeDeliveryHealth(QUEUE)).toMatchObject({
+        commandsAnswered: true,
+        consecutiveUnanswered: 0,
+      });
+
+      await timeOutOneCommand(store);
+      await timeOutOneCommand(store);
+      // Two is a bad patch; it must not condemn the channel on its own.
+      expect(store.describeDeliveryHealth(QUEUE)).toMatchObject({
+        commandsAnswered: true,
+        consecutiveUnanswered: 2,
+      });
+
+      await timeOutOneCommand(store);
+      expect(store.describeDeliveryHealth(QUEUE)).toMatchObject({
+        commandsAnswered: false,
+        consecutiveUnanswered: 3,
+        lastReason: 'browser_extension_command_timeout',
+      });
+    });
+
+    it('counts an error the extension returned as answered, not as a timeout', async () => {
+      vi.useFakeTimers();
+      const store = new BrowserExtensionCommandStore();
+      await timeOutOneCommand(store);
+      await timeOutOneCommand(store);
+      await timeOutOneCommand(store);
+      expect(store.describeDeliveryHealth(QUEUE).commandsAnswered).toBe(false);
+
+      const pending = store.sendCommand({ queueKey: QUEUE, command: 'snapshot', timeoutMs: 1_000 });
+      pending.catch(() => undefined);
+      const command = await store.pollCommand(QUEUE, { timeoutMs: 1 });
+      // A refusal still proves the execution path is alive.
+      store.resolveCommand({
+        commandId: command!.id,
+        ok: false,
+        error: 'no_such_element',
+        queueKey: QUEUE,
+      } as never);
+      await expect(pending).rejects.toThrow('no_such_element');
+
+      expect(store.describeDeliveryHealth(QUEUE)).toMatchObject({
+        commandsAnswered: true,
+        consecutiveUnanswered: 0,
+      });
+    });
+
+    it('clears the history explicitly and when the queue is rejected', async () => {
+      vi.useFakeTimers();
+      const store = new BrowserExtensionCommandStore();
+      await timeOutOneCommand(store);
+      await timeOutOneCommand(store);
+      await timeOutOneCommand(store);
+      expect(store.describeDeliveryHealth(QUEUE).commandsAnswered).toBe(false);
+
+      store.clearDeliveryHealth(QUEUE);
+      expect(store.describeDeliveryHealth(QUEUE)).toMatchObject({
+        commandsAnswered: true,
+        consecutiveUnanswered: 0,
+      });
+
+      await timeOutOneCommand(store);
+      await timeOutOneCommand(store);
+      await timeOutOneCommand(store);
+      expect(store.describeDeliveryHealth(QUEUE).commandsAnswered).toBe(false);
+
+      // The channel that reconnects is a different one; it inherits no verdict.
+      store.rejectQueue(QUEUE, 'node_disconnected');
+      expect(store.describeDeliveryHealth(QUEUE)).toMatchObject({
+        commandsAnswered: true,
+        consecutiveUnanswered: 0,
+      });
+    });
+  });
 });

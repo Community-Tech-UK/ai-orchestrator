@@ -1,4 +1,5 @@
 import type { BrowserPageChallengeProbe } from './browser-page-challenge-probe';
+import type { BrowserDeliveryHealth } from './browser-worker-agent-skew';
 import type {
   BrowserAttachExistingTabRequest,
   BrowserCreateProfileRequest,
@@ -289,6 +290,10 @@ export interface BrowserGatewayServiceOptions {
   pageChallengeProbe?: BrowserPageChallengeProbe | null;
   /** Non-revoking worker connection reset used for relay_not_forwarding recovery. */
   extensionRecoveryResetNodeConnection?: (nodeId: string) => boolean;
+  /** Answered/unanswered command history used to detect commands_unanswered. */
+  extensionRecoveryDeliveryHealth?: (nodeId: string) => BrowserDeliveryHealth;
+  /** Clears that history once a commands_unanswered recovery actually succeeds. */
+  extensionRecoveryClearDeliveryHealth?: (nodeId: string) => void;
   /**
    * Agent credential vault (Bitwarden-backed). Optional: when absent,
    * browser.fill_credential is unavailable. Secrets resolved here never enter
