@@ -1,7 +1,8 @@
-import type { BrowserPermissionGrant } from '@contracts/types/browser';
+import type { BrowserListGrantsRequest, BrowserPermissionGrant } from '@contracts/types/browser';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { getRLMDatabase } from '../persistence/rlm-database';
 import { generateId } from '../../shared/utils/id-generator';
+import { normalizeOrigin } from './browser-origin-policy';
 
 interface BrowserGrantRow {
   id: string;
@@ -16,6 +17,7 @@ interface BrowserGrantRow {
   allow_external_navigation: number;
   upload_roots_json: string | null;
   autonomous: number;
+  user_approved_credentials: number;
   requested_by: string;
   decided_by: BrowserPermissionGrant['decidedBy'];
   decision: BrowserPermissionGrant['decision'];
@@ -37,6 +39,9 @@ export interface BrowserGrantListFilter {
   nodeId?: string;
   includeExpired?: boolean;
   limit?: number;
+  before?: BrowserListGrantsRequest['before'];
+  /** Internal authorization lookup: include standing grants beyond the UI page limit. */
+  authorizationOrigin?: string;
 }
 
 export class BrowserGrantStore {
@@ -51,9 +56,9 @@ export class BrowserGrantStore {
         INSERT INTO browser_permission_grants
           (id, mode, instance_id, provider, node_id, profile_id, target_id,
            allowed_origins_json, allowed_action_classes_json,
-           allow_external_navigation, upload_roots_json, autonomous,
+           allow_external_navigation, upload_roots_json, autonomous, user_approved_credentials,
            requested_by, decided_by, decision, reason, expires_at, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       )
       .run(
@@ -69,6 +74,7 @@ export class BrowserGrantStore {
         input.allowExternalNavigation ? 1 : 0,
         input.uploadRoots ? JSON.stringify(input.uploadRoots) : null,
         input.autonomous ? 1 : 0,
+        input.userApprovedCredentials ? 1 : 0,
         input.requestedBy,
         input.decidedBy,
         input.decision,
@@ -91,7 +97,7 @@ export class BrowserGrantStore {
     const where: string[] = [];
     const params: unknown[] = [];
     if (filter.instanceId) {
-      where.push('instance_id = ?');
+      where.push("(instance_id = ? OR (mode = 'persistent' AND decided_by = 'user'))");
       params.push(filter.instanceId);
     }
     if (filter.profileId && filter.nodeId) {
@@ -113,20 +119,47 @@ export class BrowserGrantStore {
       where.push('consumed_at IS NULL');
     }
 
+    // Keep operator paging separate from authorization's complete standing-grant lookup.
+    const pageWhere = [...where];
+    const pageParams = [...params];
+    if (filter.before) {
+      pageWhere.push('(created_at < ? OR (created_at = ? AND id < ?))');
+      pageParams.push(filter.before.createdAt, filter.before.createdAt, filter.before.id);
+    }
     const limit = Math.min(Math.max(filter.limit ?? 100, 1), 100);
-    params.push(limit);
     const rows = this.db
       .prepare(
         `
         SELECT *
         FROM browser_permission_grants
-        ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''}
+        ${pageWhere.length > 0 ? `WHERE ${pageWhere.join(' AND ')}` : ''}
         ORDER BY created_at DESC, id DESC
         LIMIT ?
       `,
       )
-      .all<BrowserGrantRow>(...params);
-    return rows.map((row) => this.map(row));
+      .all<BrowserGrantRow>(...pageParams, limit);
+    const origin = filter.authorizationOrigin ? normalizeOrigin(filter.authorizationOrigin) : null;
+    if (!origin) return rows.map((row) => this.map(row));
+
+    // UI pagination must not hide an older standing permission. Scope and exact
+    // origin keep this second, fixed query limited to relevant persistent grants.
+    const standingRows = this.db.prepare(`
+      SELECT * FROM browser_permission_grants
+      WHERE ${where.length ? where.join(' AND ') : '1 = 1'}
+        AND mode = 'persistent' AND decided_by = 'user'
+        AND EXISTS (
+          SELECT 1 FROM json_each(CASE WHEN json_valid(allowed_origins_json)
+            THEN allowed_origins_json ELSE '[]' END) AS approved_origin
+          WHERE json_extract(approved_origin.value, '$.scheme') = ?
+            AND lower(json_extract(approved_origin.value, '$.hostPattern')) = ?
+            AND json_extract(approved_origin.value, '$.includeSubdomains') = 0
+            AND COALESCE(json_extract(approved_origin.value, '$.port'),
+              CASE json_extract(approved_origin.value, '$.scheme') WHEN 'https' THEN 443 ELSE 80 END) = ?
+        )
+      ORDER BY created_at DESC, id DESC
+    `).all<BrowserGrantRow>(...params, origin.scheme, origin.host, origin.port);
+    return [...new Map([...rows, ...standingRows].map((row) => [row.id, row])).values()]
+      .map((row) => this.map(row));
   }
 
   revokeGrant(grantId: string, reason?: string): BrowserPermissionGrant | null {
@@ -171,6 +204,7 @@ export class BrowserGrantStore {
         ? this.parseJson(row.upload_roots_json, [])
         : undefined,
       autonomous: row.autonomous === 1,
+      ...(row.user_approved_credentials === 1 ? { userApprovedCredentials: true } : {}),
       requestedBy: row.requested_by,
       decidedBy: row.decided_by,
       decision: row.decision,

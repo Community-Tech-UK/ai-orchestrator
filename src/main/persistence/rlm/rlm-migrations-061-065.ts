@@ -108,4 +108,60 @@ export const RLM_MIGRATIONS_061_065: Migration[] = [
         ON provider_limit_events(provider, model, resume_at DESC, detected_at DESC);
     `,
   },
+  {
+    name: '064_browser_persistent_grants',
+    // SQLite cannot alter the original mode CHECK constraint. Rebuild within
+    // runMigrations' transaction, preserving every grant and all lookup indexes.
+    up: `
+      CREATE TABLE browser_permission_grants_next (
+        id TEXT PRIMARY KEY,
+        mode TEXT NOT NULL CHECK (mode IN ('per_action', 'session', 'autonomous', 'persistent')),
+        instance_id TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        profile_id TEXT,
+        target_id TEXT,
+        allowed_origins_json TEXT NOT NULL,
+        allowed_action_classes_json TEXT NOT NULL,
+        allow_external_navigation INTEGER NOT NULL DEFAULT 0,
+        upload_roots_json TEXT,
+        autonomous INTEGER NOT NULL DEFAULT 0,
+        requested_by TEXT NOT NULL,
+        decided_by TEXT NOT NULL CHECK (decided_by IN ('user', 'timeout', 'revoked')),
+        decision TEXT NOT NULL CHECK (decision IN ('allow', 'deny')),
+        reason TEXT,
+        expires_at INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        revoked_at INTEGER,
+        consumed_at INTEGER,
+        node_id TEXT,
+        user_approved_credentials INTEGER NOT NULL DEFAULT 0 CHECK (user_approved_credentials IN (0, 1))
+      );
+      INSERT INTO browser_permission_grants_next (
+        id, mode, instance_id, provider, profile_id, target_id, allowed_origins_json,
+        allowed_action_classes_json, allow_external_navigation, upload_roots_json,
+        autonomous, requested_by, decided_by, decision, reason, expires_at,
+        created_at, revoked_at, consumed_at, node_id
+      ) SELECT id, mode, instance_id, provider, profile_id, target_id, allowed_origins_json,
+        allowed_action_classes_json, allow_external_navigation, upload_roots_json,
+        autonomous, requested_by, decided_by, decision, reason, expires_at,
+        created_at, revoked_at, consumed_at, node_id FROM browser_permission_grants;
+      DROP TABLE browser_permission_grants;
+      ALTER TABLE browser_permission_grants_next RENAME TO browser_permission_grants;
+      CREATE INDEX idx_browser_grants_instance_profile_expiry
+        ON browser_permission_grants(instance_id, profile_id, expires_at);
+      CREATE INDEX idx_browser_grants_target ON browser_permission_grants(target_id);
+      CREATE INDEX idx_browser_grants_instance_node_expiry
+        ON browser_permission_grants(instance_id, node_id, expires_at);
+      CREATE INDEX idx_browser_grants_persistent_scope
+        ON browser_permission_grants(mode, profile_id, node_id, expires_at);
+    `,
+    // Reverting must expire standing grants, never turn them into unbounded
+    // legacy autonomous grants. The expanded mode constraint is harmless.
+    down: `
+      UPDATE browser_permission_grants SET expires_at = created_at, mode = 'autonomous'
+        WHERE mode = 'persistent';
+      DROP INDEX idx_browser_grants_persistent_scope;
+      ALTER TABLE browser_permission_grants DROP COLUMN user_approved_credentials;
+    `,
+  },
 ];

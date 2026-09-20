@@ -1,4 +1,5 @@
 import * as path from 'node:path';
+import { PERSISTENT_BROWSER_GRANT_EXPIRES_AT } from '@contracts/types/browser';
 import type {
   BrowserActionClass,
   BrowserAllowedOrigin,
@@ -147,6 +148,7 @@ export function primaryActionClass(classes: BrowserActionClass[]): BrowserAction
 }
 
 export function defaultGrantExpiresAt(mode: BrowserGrantMode, now: number): number {
+  if (mode === 'persistent') return PERSISTENT_BROWSER_GRANT_EXPIRES_AT;
   if (mode === 'per_action') {
     return now + 30 * 60 * 1000;
   }
@@ -158,6 +160,7 @@ export function capGrantExpiresAt(
   requestedExpiresAt: number,
   now: number,
 ): number {
+  if (mode === 'persistent') return PERSISTENT_BROWSER_GRANT_EXPIRES_AT;
   const max = mode === 'autonomous'
     ? now + 24 * 60 * 60 * 1000
     : now + 24 * 60 * 60 * 1000;

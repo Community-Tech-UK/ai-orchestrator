@@ -76,10 +76,8 @@ import { readBrowserTargetData } from './browser-gateway-read-target-data';
 import { BrowserManualHandoffOperations } from './browser-manual-handoff-operations';
 import { classifyBrowserFillForm } from './browser-action-classifier';
 import { createBrowserPageChallengeProbe } from './browser-page-challenge-probe';
-import {
-  validateBrowserUploadPath,
-  type BrowserUploadPolicyResult,
-} from './browser-upload-policy';
+import { validateBrowserUploadPath, type BrowserUploadPolicyResult } from './browser-upload-policy';
+import { resolveBrowserUploadGrant } from './browser-upload-grant';
 import {
   BrowserExtensionTabStore,
   type BrowserExistingTabAttachment,
@@ -1876,6 +1874,27 @@ export class BrowserGatewayService {
     if (prepared.result) {
       return prepared.result;
     }
+    const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
+    const profile = this.profileStore.getProfile(request.profileId);
+    if (!existingTab && !profile) {
+      return this.result({
+        context: request, profileId: request.profileId, targetId: request.targetId,
+        action: 'upload_file', toolName: 'browser.upload_file', actionClass: 'file-upload',
+        decision: 'denied', outcome: 'not_run', reason: 'profile_not_found',
+        summary: 'browser.upload_file denied because the profile was not found', data: null,
+      });
+    }
+    const profileRoot = existingTab
+      ? placeholderExistingTabProfileRoot(request.filePath) : this.resolveProfileRoot(profile!);
+    const uploadPolicy = { filePath: request.filePath, workspaceRoots: [], profileRoot,
+      userDataPath: existingTab ? profileRoot : path.dirname(profileRoot) };
+    const selection = resolveBrowserUploadGrant({
+      request, prepared, grantStore: this.grantStore,
+      nodeId: existingTabGrantNodeId(request.profileId, existingTab?.nodeId) ?? profile?.executionNodeId ?? 'local',
+      policy: uploadPolicy,
+    });
+    prepared = selection.prepared;
+    const selectedGrantId = prepared.grant.id;
     const recheck = this.actionGuard.recheckPreparedGrant(
       request,
       'upload_file',
@@ -1885,29 +1904,18 @@ export class BrowserGatewayService {
     if (recheck) {
       return recheck;
     }
-    const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
-    const profile = this.profileStore.getProfile(request.profileId);
-    if (existingTab) {
-      const uploadDecision = validateBrowserUploadPath({
-        filePath: request.filePath,
-        workspaceRoots: [],
-        approvedRoots: prepared.grant.uploadRoots ?? [],
-        userDataPath: placeholderExistingTabProfileRoot(request.filePath),
-        profileRoot: placeholderExistingTabProfileRoot(request.filePath),
-        autonomous: prepared.grant.autonomous,
-      });
-      if (!uploadDecision.allowed) {
-        const approvalOutcome = this.resolveUploadApproval(request, prepared, uploadDecision);
-        if (approvalOutcome.result) {
-          return approvalOutcome.result;
-        }
-        prepared = {
-          grant: approvalOutcome.autoGrant,
-          actionClass: 'file-upload',
-          origin: prepared.origin,
-          url: prepared.url,
-        };
+    const uploadDecision = prepared.grant.id === selectedGrantId ? selection.uploadDecision
+      : validateBrowserUploadPath({ ...uploadPolicy, approvedRoots: prepared.grant.uploadRoots ?? [], autonomous: prepared.grant.autonomous });
+    if (!uploadDecision.allowed) {
+      const approvalOutcome = this.resolveUploadApproval(request, prepared, uploadDecision);
+      if (approvalOutcome.result) {
+        return approvalOutcome.result;
       }
+      prepared = {
+        grant: approvalOutcome.autoGrant, actionClass: 'file-upload', origin: prepared.origin, url: prepared.url,
+      };
+    }
+    if (existingTab) {
       try {
         let uploadFilePath = uploadDecision.resolvedPath ?? request.filePath;
         const uploadStat = await fs.stat(uploadFilePath);
@@ -1943,42 +1951,6 @@ export class BrowserGatewayService {
       }
     }
 
-    if (!profile) {
-      return this.result({
-        context: request,
-        profileId: request.profileId,
-        targetId: request.targetId,
-        action: 'upload_file',
-        toolName: 'browser.upload_file',
-        actionClass: 'file-upload',
-        decision: 'denied',
-        outcome: 'not_run',
-        reason: 'profile_not_found',
-        summary: 'browser.upload_file denied because the profile was not found',
-        data: null,
-      });
-    }
-    const profileRoot = this.resolveProfileRoot(profile);
-    const uploadDecision = validateBrowserUploadPath({
-      filePath: request.filePath,
-      workspaceRoots: [],
-      approvedRoots: prepared.grant.uploadRoots ?? [],
-      userDataPath: path.dirname(profileRoot),
-      profileRoot,
-      autonomous: prepared.grant.autonomous,
-    });
-    if (!uploadDecision.allowed) {
-      const approvalOutcome = this.resolveUploadApproval(request, prepared, uploadDecision);
-      if (approvalOutcome.result) {
-        return approvalOutcome.result;
-      }
-      prepared = {
-        grant: approvalOutcome.autoGrant,
-        actionClass: 'file-upload',
-        origin: prepared.origin,
-        url: prepared.url,
-      };
-    }
     try {
       await this.driver.uploadFile(
         request.profileId,

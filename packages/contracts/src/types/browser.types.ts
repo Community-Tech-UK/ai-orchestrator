@@ -39,7 +39,9 @@ export type BrowserTargetInspectionState =
   | 'inspection_unavailable';
 export type BrowserGatewayDecision = 'allowed' | 'denied' | 'requires_user';
 export type BrowserGatewayOutcome = 'not_run' | 'succeeded' | 'failed';
-export type BrowserGrantMode = 'per_action' | 'session' | 'autonomous';
+export type BrowserGrantMode = 'per_action' | 'session' | 'autonomous' | 'persistent';
+/** SQLite-compatible sentinel; only mode=persistent means until revoked. */
+export const PERSISTENT_BROWSER_GRANT_EXPIRES_AT = 8_640_000_000_000_000;
 export type BrowserApprovalRequestStatus =
   | 'pending'
   | 'approved'
@@ -140,6 +142,8 @@ export interface BrowserPermissionGrant {
   allowExternalNavigation: boolean;
   uploadRoots?: string[];
   autonomous: boolean;
+  /** Stamped only by an explicit operator approval, never by policy/campaigns. */
+  userApprovedCredentials?: boolean;
   requestedBy: string;
   decidedBy: 'user' | 'timeout' | 'revoked';
   decision: 'allow' | 'deny';
@@ -651,6 +655,8 @@ export interface BrowserListGrantsRequest {
   profileId?: string;
   includeExpired?: boolean;
   limit?: number;
+  /** Exclusive keyset cursor from the last grant in the preceding page. */
+  before?: { createdAt: number; id: string };
 }
 
 export interface BrowserRevokeGrantRequest {

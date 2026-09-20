@@ -7,6 +7,7 @@ import {
   runMigrations,
 } from '../persistence/rlm/rlm-schema';
 import { BrowserGrantStore } from './browser-grant-store';
+import { PERSISTENT_BROWSER_GRANT_EXPIRES_AT } from '@contracts/types/browser';
 
 function createDb(): SqliteDriver {
   const db = defaultDriverFactory(':memory:');
@@ -143,5 +144,37 @@ describe('BrowserGrantStore', () => {
     });
     expect(store.listGrants({ instanceId: 'instance-1', nodeId: 'node-1' })).toEqual([grant]);
     expect(store.listGrants({ instanceId: 'instance-1', nodeId: 'node-2' })).toEqual([]);
+  });
+
+  it('finds older standing permissions beyond the listing limit without crossing sites or computers', () => {
+    const standing = store.createGrant({
+      mode: 'persistent', instanceId: 'old-instance', provider: 'codex', nodeId: 'windows-pc',
+      allowedOrigins: [{ scheme: 'https', hostPattern: 'example.com', includeSubdomains: false }],
+      allowedActionClasses: ['credential'], allowExternalNavigation: false, autonomous: true,
+      userApprovedCredentials: true, requestedBy: 'user', decidedBy: 'user', decision: 'allow',
+      expiresAt: PERSISTENT_BROWSER_GRANT_EXPIRES_AT,
+    });
+    vi.setSystemTime(2_000);
+    for (let index = 0; index < 105; index++) {
+      store.createGrant({ ...standing, instanceId: 'new-instance', mode: 'session', expiresAt: 61_000 });
+    }
+    const filter = {
+      instanceId: 'new-instance', profileId: 'existing-tab:n.windows-pc:1:2', nodeId: 'windows-pc',
+    };
+    expect(store.listGrants(filter)).toHaveLength(100);
+    expect(store.listGrants(filter).some((grant) => grant.id === standing.id)).toBe(false);
+
+    const reloaded = new BrowserGrantStore(db);
+    const matches = reloaded.listGrants({ ...filter, authorizationOrigin: 'https://example.com' });
+    expect(matches.filter((grant) => grant.id === standing.id)).toEqual([standing]);
+    for (const authorizationOrigin of ['https://elsewhere.example', 'http://example.com', 'https://example.com:8443']) {
+      expect(reloaded.listGrants({ ...filter, authorizationOrigin })
+        .some((grant) => grant.id === standing.id)).toBe(false);
+    }
+    expect(reloaded.listGrants({ ...filter, nodeId: 'local', authorizationOrigin: 'https://example.com' })
+      .some((grant) => grant.id === standing.id)).toBe(false);
+    reloaded.revokeGrant(standing.id);
+    expect(reloaded.listGrants({ ...filter, authorizationOrigin: 'https://example.com' })
+      .some((grant) => grant.id === standing.id)).toBe(false);
   });
 });

@@ -108,6 +108,8 @@ describe('BrowserApprovalsBannerComponent', () => {
     expect(Array.from(select?.options ?? []).map((option) => option.textContent?.trim())).toEqual([
       'Approve once',
       'Allow for session',
+      'Allow unattended',
+      'Allow forever',
     ]);
 
     element.querySelector<HTMLButtonElement>('.banner-btn.primary')?.click();
@@ -190,7 +192,8 @@ describe('BrowserApprovalsBannerComponent', () => {
     expect(Array.from(select?.options ?? []).map((option) => option.textContent?.trim())).toEqual([
       'Approve once',
       'Allow for session',
-      'Always allow',
+      'Allow unattended',
+      'Allow forever',
     ]);
     const buttons = Array.from(element.querySelectorAll<HTMLButtonElement>('.banner-btn'));
     expect(buttons.map((button) => button.textContent?.trim())).toEqual([
@@ -252,9 +255,67 @@ describe('BrowserApprovalsBannerComponent', () => {
     }));
   });
 
-  it('shows the duration dropdown for a request_grant that includes submit', async () => {
-    const fixture = setup([
-      makeApproval({
+  it.each(['session', 'autonomous', 'persistent'] as const)(
+    'requires confirmation for a submit request with %s duration', async (mode) => {
+      const fixture = setup([
+        makeApproval({
+          toolName: 'browser.request_grant',
+          action: 'request_grant',
+          actionClass: 'submit',
+          origin: 'https://education.app.jaggaer.com',
+          proposedGrant: {
+            mode: 'session',
+            allowedOrigins: [
+              { scheme: 'https', hostPattern: 'education.app.jaggaer.com', includeSubdomains: false },
+            ],
+            allowedActionClasses: ['read', 'navigate', 'input', 'submit'],
+            allowExternalNavigation: false,
+            autonomous: false,
+          },
+        }),
+      ]);
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const element: HTMLElement = fixture.nativeElement;
+      const select = element.querySelector<HTMLSelectElement>('.banner-scope');
+      expect(Array.from(select?.options ?? []).map((option) => option.textContent?.trim())).toEqual([
+        'Approve once',
+        'Allow for session',
+        'Allow unattended',
+        'Allow forever',
+      ]);
+      expect(element.querySelector('.banner-btn.primary')?.textContent?.trim()).toBe('Approve');
+      expect(element.textContent).toContain('Type education.app.jaggaer.com to allow publishing or deleting');
+
+      select!.value = mode;
+      select!.dispatchEvent(new Event('change'));
+      fixture.detectChanges();
+      element.querySelector<HTMLButtonElement>('.banner-btn.primary')?.click();
+      await fixture.whenStable();
+      expect(gateway.approveRequest).not.toHaveBeenCalled();
+      expect(element.textContent).toContain('Type education.app.jaggaer.com');
+
+      const confirm = element.querySelector<HTMLInputElement>('.banner-confirm input');
+      confirm!.value = 'education.app.jaggaer.com';
+      confirm!.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      element.querySelector<HTMLButtonElement>('.banner-btn.primary')?.click();
+      await fixture.whenStable();
+
+      expect(gateway.approveRequest).toHaveBeenCalledWith(expect.objectContaining({
+        grant: expect.objectContaining({
+          mode,
+          allowedActionClasses: ['read', 'navigate', 'input', 'submit'],
+          autonomous: mode !== 'session',
+        }),
+      }));
+    },
+  );
+
+  it.each(['session', 'autonomous', 'persistent'] as const)(
+    'keeps %s selected and the typed host across a pending-request poll', async (mode) => {
+      const pending = makeApproval({
         toolName: 'browser.request_grant',
         action: 'request_grant',
         actionClass: 'submit',
@@ -268,86 +329,34 @@ describe('BrowserApprovalsBannerComponent', () => {
           allowExternalNavigation: false,
           autonomous: false,
         },
-      }),
-    ]);
-    await fixture.whenStable();
-    fixture.detectChanges();
+      });
+      const fixture = setup([pending]);
+      await fixture.whenStable();
+      fixture.detectChanges();
 
-    const element: HTMLElement = fixture.nativeElement;
-    const select = element.querySelector<HTMLSelectElement>('.banner-scope');
-    expect(Array.from(select?.options ?? []).map((option) => option.textContent?.trim())).toEqual([
-      'Approve once',
-      'Allow for session',
-    ]);
-    expect(element.querySelector('.banner-btn.primary')?.textContent?.trim()).toBe('Approve');
-    expect(element.textContent).toContain('Type education.app.jaggaer.com to allow publishing or deleting');
+      const element: HTMLElement = fixture.nativeElement;
+      const select = element.querySelector<HTMLSelectElement>('.banner-scope');
+      select!.value = mode;
+      select!.dispatchEvent(new Event('change'));
+      const confirm = element.querySelector<HTMLInputElement>('.banner-confirm input');
+      confirm!.value = 'education.app.jaggaer.com';
+      confirm!.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
 
-    select!.value = 'session';
-    select!.dispatchEvent(new Event('change'));
-    fixture.detectChanges();
-    element.querySelector<HTMLButtonElement>('.banner-btn.primary')?.click();
-    await fixture.whenStable();
-    expect(gateway.approveRequest).not.toHaveBeenCalled();
-    expect(element.textContent).toContain('Type education.app.jaggaer.com');
+      TestBed.inject(BrowserApprovalsStore).pendingRequests.set([{ ...pending }]);
+      fixture.detectChanges();
 
-    const confirm = element.querySelector<HTMLInputElement>('.banner-confirm input');
-    confirm!.value = 'education.app.jaggaer.com';
-    confirm!.dispatchEvent(new Event('input'));
-    fixture.detectChanges();
-    element.querySelector<HTMLButtonElement>('.banner-btn.primary')?.click();
-    await fixture.whenStable();
+      expect(element.querySelector<HTMLSelectElement>('.banner-scope')?.value).toBe(mode);
+      expect(element.querySelector<HTMLInputElement>('.banner-confirm input')?.value)
+        .toBe('education.app.jaggaer.com');
 
-    expect(gateway.approveRequest).toHaveBeenCalledWith(expect.objectContaining({
-      grant: expect.objectContaining({
-        mode: 'session',
-        allowedActionClasses: ['read', 'navigate', 'input', 'submit'],
-        autonomous: false,
-      }),
-    }));
-  });
-
-  it('keeps the chosen duration and typed host across a pending-request poll', async () => {
-    const pending = makeApproval({
-      toolName: 'browser.request_grant',
-      action: 'request_grant',
-      actionClass: 'submit',
-      origin: 'https://education.app.jaggaer.com',
-      proposedGrant: {
-        mode: 'session',
-        allowedOrigins: [
-          { scheme: 'https', hostPattern: 'education.app.jaggaer.com', includeSubdomains: false },
-        ],
-        allowedActionClasses: ['read', 'navigate', 'input', 'submit'],
-        allowExternalNavigation: false,
-        autonomous: false,
-      },
-    });
-    const fixture = setup([pending]);
-    await fixture.whenStable();
-    fixture.detectChanges();
-
-    const element: HTMLElement = fixture.nativeElement;
-    const select = element.querySelector<HTMLSelectElement>('.banner-scope');
-    select!.value = 'session';
-    select!.dispatchEvent(new Event('change'));
-    const confirm = element.querySelector<HTMLInputElement>('.banner-confirm input');
-    confirm!.value = 'education.app.jaggaer.com';
-    confirm!.dispatchEvent(new Event('input'));
-    fixture.detectChanges();
-
-    TestBed.inject(BrowserApprovalsStore).pendingRequests.set([{ ...pending }]);
-    fixture.detectChanges();
-
-    expect(element.querySelector<HTMLSelectElement>('.banner-scope')?.value).toBe('session');
-    expect(element.querySelector<HTMLInputElement>('.banner-confirm input')?.value)
-      .toBe('education.app.jaggaer.com');
-
-    element.querySelector<HTMLButtonElement>('.banner-btn.primary')?.click();
-    await fixture.whenStable();
-    expect(gateway.approveRequest).toHaveBeenCalledWith(expect.objectContaining({
-      grant: expect.objectContaining({ mode: 'session' }),
-    }));
-  });
+      element.querySelector<HTMLButtonElement>('.banner-btn.primary')?.click();
+      await fixture.whenStable();
+      expect(gateway.approveRequest).toHaveBeenCalledWith(expect.objectContaining({
+        grant: expect.objectContaining({ mode, autonomous: mode !== 'session' }),
+      }));
+    },
+  );
 
   it('requires the host phrase for a destructive proposal too', async () => {
     const fixture = setup([
@@ -373,6 +382,8 @@ describe('BrowserApprovalsBannerComponent', () => {
       .map((option) => option.textContent?.trim())).toEqual([
       'Approve once',
       'Allow for session',
+      'Allow unattended',
+      'Allow forever',
     ]);
     element.querySelector<HTMLButtonElement>('.banner-btn.primary')?.click();
     await fixture.whenStable();
@@ -387,7 +398,52 @@ describe('BrowserApprovalsBannerComponent', () => {
     expect(gateway.approveRequest).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['credential', 'unknown'] as const)(
+  it.each([
+    ['credential', 'persistent'],
+    ['credential', 'autonomous'],
+    ['file-upload', 'autonomous'],
+  ] as const)('approves %s with the selected %s duration', async (actionClass, mode) => {
+    const pending = makeApproval({
+      toolName: actionClass === 'credential' ? 'browser.click' : 'browser.upload_file',
+      action: actionClass === 'credential' ? 'click' : 'upload_file',
+      actionClass,
+      proposedGrant: {
+        ...makeApproval().proposedGrant,
+        allowedActionClasses: [actionClass],
+      },
+    });
+    const fixture = setup([pending]);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const element: HTMLElement = fixture.nativeElement;
+    const select = element.querySelector<HTMLSelectElement>('.banner-scope');
+    expect(Array.from(select?.options ?? []).map((option) => option.textContent?.trim())).toEqual([
+      'Approve once', 'Allow for session', 'Allow unattended', 'Allow forever',
+    ]);
+    select!.value = mode;
+    select!.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+    if (mode === 'persistent') {
+      expect(element.textContent).toContain('This site and computer, across sessions, until revoked.');
+    }
+    element.querySelector<HTMLButtonElement>('.banner-btn.primary')?.click();
+    await fixture.whenStable();
+
+    expect(gateway.approveRequest).toHaveBeenCalledWith({
+      requestId: pending.requestId,
+      grant: {
+        ...pending.proposedGrant,
+        mode,
+        autonomous: true,
+      },
+      reason: mode === 'persistent'
+        ? 'Allowed until revoked from browser permission bar'
+        : 'Allowed unattended from browser permission bar',
+    });
+  });
+
+  it.each(['unknown'] as const)(
     'exposes Approve once and Deny for %s hard stops',
     async (actionClass) => {
       const fixture = setup([

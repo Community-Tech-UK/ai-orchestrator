@@ -51,6 +51,8 @@ export interface BrowserAutoApproveDeps {
 export function autoApproveBrowserApproval(
   deps: BrowserAutoApproveDeps,
 ): BrowserPermissionGrant | null {
+  // Forever is a durable operator decision, never a predicate/policy upgrade.
+  if (deps.approval.proposedGrant.mode === 'persistent') return null;
   const proposedClasses = deps.approval.proposedGrant.allowedActionClasses;
   if (AUTO_APPROVE_UNGRANTABLE_CLASSES.some((cls) => proposedClasses.includes(cls))) {
     return null;

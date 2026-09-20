@@ -9,6 +9,7 @@ import type {
   BrowserTarget,
 } from '@contracts/types/browser';
 import type { RemoteNodeRosterEntry } from '../../../../shared/types/worker-node.types';
+import { buildBannerGrant } from '../../core/state/browser-approvals-banner.rules';
 
 export type BrowserPageView = 'browser' | 'permissions' | 'diagnostics' | 'unattended';
 export type BrowserHealthTone = 'neutral' | 'ready' | 'warning' | 'error';
@@ -98,6 +99,16 @@ export function isBrowserProfileNodeSelectable(node: RemoteNodeRosterEntry): boo
   return node.capabilities.hasBrowserMcp && node.status !== 'disconnected';
 }
 
+export function formatBrowserProfileExecutionLocation(
+  profile: BrowserProfile,
+  nodes: RemoteNodeRosterEntry[],
+): string {
+  const nodeId = profile.executionNodeId;
+  if (!nodeId) return 'Local coordinator';
+  const node = nodes.find((candidate) => candidate.id === nodeId);
+  return node ? `${node.name} · ${browserNodeReadinessLabel(node)}` : `${nodeId} · Missing`;
+}
+
 export function formatBrowserUploadRoots(approval: BrowserApprovalRequest): string {
   return approval.proposedGrant.uploadRoots?.join(', ') ?? '';
 }
@@ -126,21 +137,19 @@ export function buildBrowserGrantProposal(
   mode: BrowserGrantMode,
   autonomousSubmit: boolean,
   autonomousDestructive: boolean,
-): BrowserGrantProposal {
-  const allowedActionClasses = new Set<BrowserActionClass>(
-    approval.proposedGrant.allowedActionClasses,
-  );
-  if (mode === 'autonomous' && autonomousSubmit) {
+): BrowserGrantProposal | null {
+  const grant = buildBannerGrant(approval, mode);
+  if (!grant) return null;
+  const allowedActionClasses = new Set<BrowserActionClass>(grant.allowedActionClasses);
+  if (grant.autonomous && autonomousSubmit) {
     allowedActionClasses.add('submit');
   }
-  if (mode === 'autonomous' && autonomousDestructive) {
+  if (grant.autonomous && autonomousDestructive) {
     allowedActionClasses.add('destructive');
   }
   return {
-    ...approval.proposedGrant,
-    mode,
+    ...grant,
     allowedActionClasses: Array.from(allowedActionClasses),
-    autonomous: mode === 'autonomous',
   };
 }
 

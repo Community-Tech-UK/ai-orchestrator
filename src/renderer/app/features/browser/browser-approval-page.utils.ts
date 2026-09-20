@@ -3,6 +3,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import type { ActivatedRoute } from '@angular/router';
 import type { BrowserApprovalRequest } from '@contracts/types/browser';
 import type { BrowserPageView } from './browser-page-view.utils';
+import { bannerCanQuickApprove, bannerGrantModes } from '../../core/state/browser-approvals-banner.rules';
 
 interface WritableValue<T> { set(value: T): void }
 const MAX_FOCUS_ATTEMPTS = 8;
@@ -56,7 +57,12 @@ export function bindBrowserApprovalDeepLink(input: {
 }
 
 export function browserApprovalExactOnly(approval: BrowserApprovalRequest): boolean {
-  return approval.actionClass === 'credential' || approval.actionClass === 'unknown';
+  return bannerGrantModes(approval).length <= 1;
+}
+
+export const browserApprovalCanApprove = bannerCanQuickApprove;
+export function browserApprovalCanApproveForever(approval: BrowserApprovalRequest): boolean {
+  return bannerGrantModes(approval).includes('persistent');
 }
 
 export function browserApprovalPosition(

@@ -12,12 +12,14 @@ import type {
   BrowserPermissionGrant,
   BrowserRevokeGrantRequest,
 } from '@contracts/types/browser';
+import { BrowserApproveRequestPayloadSchema, BrowserCreateGrantRequestSchema } from '@contracts/schemas/browser';
 import type { BrowserApprovalStore } from './browser-approval-store';
 import type { BrowserGrantStore } from './browser-grant-store';
 import type { BrowserProfileStore } from './browser-profile-store';
 import {
   capGrantExpiresAt,
   defaultGrantExpiresAt,
+  allowedOriginFromUrl,
   primaryActionClass,
 } from './browser-gateway-service-helpers';
 import type { BrowserGatewayContext } from './browser-gateway-service-types';
@@ -137,6 +139,7 @@ export class BrowserGatewayApprovalOperations {
   async approveRequest(
     request: BrowserGatewayContext & BrowserApproveRequestPayload,
   ): Promise<BrowserGatewayResult<BrowserPermissionGrant | null>> {
+    BrowserApproveRequestPayloadSchema.parse({ requestId: request.requestId, grant: request.grant, reason: request.reason });
     const approval = this.getScopedApprovalRequest(request.requestId, request.instanceId);
     if (!approval) {
       return this.deps.result({
@@ -173,8 +176,15 @@ export class BrowserGatewayApprovalOperations {
     const scope = grantScopeForApproval({
       profileId: approval.profileId,
       targetId: approval.targetId,
-      proposedNodeId: approvedGrant.nodeId,
+      // Persistent consent follows the trusted target, never an agent-authored
+      // node hint retained in a pending proposal (including older requests).
+      proposedNodeId: approvedGrant.mode === 'persistent' ? undefined : approvedGrant.nodeId,
     });
+    if (approvedGrant.mode === 'persistent') {
+      scope.nodeId ??= this.deps.profileStore.getProfile(approval.profileId)?.executionNodeId ?? 'local';
+      // A managed profile's tabs are ephemeral; retain the profile and computer.
+      delete scope.targetId;
+    }
     const grant = this.deps.grantStore.createGrant({
       ...approvedGrant,
       // An explicit user "Allow" on an approval covering submit/destructive
@@ -183,8 +193,9 @@ export class BrowserGatewayApprovalOperations {
       // non-autonomous per_action/session grant would be dead on arrival and
       // the very next retry would re-prompt the user in a loop.
       autonomous:
-        (approvedGrant.mode === 'autonomous' && approvedGrant.autonomous) ||
+        approvedGrant.mode === 'persistent' || (approvedGrant.mode === 'autonomous' && approvedGrant.autonomous) ||
         requiresAutonomousGrant(approvedGrant.allowedActionClasses),
+      userApprovedCredentials: approvedGrant.mode !== 'per_action' && approvedGrant.allowedActionClasses.includes('credential'),
       instanceId: approval.instanceId,
       provider: approval.provider,
       ...scope,
@@ -268,19 +279,23 @@ export class BrowserGatewayApprovalOperations {
   async createGrant(
     request: BrowserGatewayContext & BrowserCreateGrantRequest,
   ): Promise<BrowserGatewayResult<BrowserPermissionGrant>> {
+    BrowserCreateGrantRequestSchema.parse(request);
     const now = Date.now();
     const grant = this.deps.grantStore.createGrant({
       mode: request.mode,
       instanceId: request.instanceId,
       provider: request.provider,
-      nodeId: request.nodeId,
+      nodeId: request.mode === 'persistent'
+        ? (request.profileId ? this.deps.profileStore.getProfile(request.profileId)?.executionNodeId : request.nodeId) ?? 'local'
+        : request.nodeId,
       profileId: request.profileId,
-      targetId: request.targetId,
+      targetId: request.mode === 'persistent' ? undefined : request.targetId,
       allowedOrigins: request.allowedOrigins,
       allowedActionClasses: request.allowedActionClasses,
       allowExternalNavigation: request.allowExternalNavigation,
       uploadRoots: request.uploadRoots,
-      autonomous: request.mode === 'autonomous' && request.autonomous,
+      autonomous: request.mode === 'persistent' || request.mode === 'autonomous' && request.autonomous,
+      userApprovedCredentials: request.mode !== 'per_action' && request.allowedActionClasses.includes('credential'),
       requestedBy: request.requestedBy,
       decidedBy: 'user',
       decision: 'allow',
@@ -312,6 +327,7 @@ export class BrowserGatewayApprovalOperations {
       profileId: request.profileId,
       includeExpired: request.includeExpired,
       limit: request.limit ?? 100,
+      before: request.before,
     });
     return this.deps.result({
       context: request,
@@ -333,7 +349,7 @@ export class BrowserGatewayApprovalOperations {
       const ownGrant = this.deps.grantStore.listGrants({
         instanceId: request.instanceId,
         includeExpired: true,
-      }).find((grant) => grant.id === request.grantId);
+      }).find((grant) => grant.id === request.grantId && grant.instanceId === request.instanceId && grant.mode !== 'persistent');
       if (!ownGrant) {
         return this.deps.result({
           context: request,
@@ -399,12 +415,19 @@ export class BrowserGatewayApprovalOperations {
   }
 }
 
-/** Credential and unknown hard stops authorize only the exact retry being approved. */
+/** Unknown actions remain exact-only; reusable credential consent is an explicit operator choice. */
 function normalizeApprovalGrant(
   approval: BrowserApprovalRequest,
   requested: BrowserGrantProposal,
 ): BrowserGrantProposal {
-  if (approval.actionClass !== 'credential' && approval.actionClass !== 'unknown') {
+  if (approval.actionClass !== 'unknown' && (
+    approval.actionClass !== 'credential' || requested.mode !== 'per_action'
+  )) {
+    if (requested.mode === 'persistent') {
+      const origin = allowedOriginFromUrl(approval.origin ?? approval.url ?? '');
+      if (!origin) throw new Error('persistent_grant_requires_explicit_origin');
+      return { ...requested, nodeId: undefined, allowedOrigins: [origin], autonomous: true };
+    }
     return requested;
   }
   return {

@@ -32,6 +32,8 @@ import { BrowserExactApprovalRedeemer } from './browser-exact-approval-redemptio
 import { createOrReusePendingBrowserApproval } from './browser-pending-approval-match';
 import { providerFromContext } from './browser-provider';
 import { refreshRegisteredBrowserTarget } from './browser-live-target';
+import { prepareReusableCredentialApproval } from './browser-reusable-credential-approval';
+import { browserMutationResult } from './browser-mutation-result';
 import type {
   BrowserGatewayActionGuardOptions,
   BrowserGatewayMutationPreparation,
@@ -220,6 +222,7 @@ export class BrowserGatewayActionGuard {
     const grants = this.grantStore.listGrants({
       instanceId: request.instanceId,
       profileId: profile.id,
+      authorizationOrigin: originDecision.origin,
     });
     const match = findMatchingBrowserGrant({
       grants,
@@ -229,10 +232,13 @@ export class BrowserGatewayActionGuard {
       targetId: target.id,
       origin: originDecision.origin,
       liveOrigin: target.origin ?? originDecision.origin,
+      nodeId: profile.executionNodeId ?? 'local',
       actionClass: classification.actionClass,
       autonomousRequired: actionClassRequiresAutonomy(classification.actionClass),
     });
 
+    const reusable = prepareReusableCredentialApproval(classification, match.grant, originDecision.origin, currentUrl);
+    if (reusable) return reusable;
     const exact = this.exactApprovalRedeemer.prepare({
       context: request,
       requestId: request.requestId,
@@ -367,14 +373,18 @@ export class BrowserGatewayActionGuard {
     // set) because the tab's own profileId is per-attachment/ephemeral — see
     // browser-grant-scope.ts. Without this, an approved existing-tab grant
     // could never be found here and every retry re-prompted the user (LT-001).
-    const nodeId = existingTabGrantNodeId(request.profileId);
+    const nodeId = existingTabGrantNodeId(request.profileId)
+      ?? this.profileStore.getProfile(request.profileId)?.executionNodeId ?? 'local';
     const grants = this.grantStore.listGrants({
       instanceId: request.instanceId,
       profileId: request.profileId,
       nodeId,
+      authorizationOrigin: prepared.origin,
     });
+    // Validate the authority already selected for this action; another approval
+    // arriving meanwhile does not revoke it or replace its constraints.
     const match = findMatchingBrowserGrant({
-      grants,
+      grants: grants.filter((candidate) => candidate.id === prepared.grant.id),
       instanceId: request.instanceId ?? '',
       provider: providerFromContext(request.provider),
       nodeId,
@@ -444,21 +454,8 @@ export class BrowserGatewayActionGuard {
     prepared: BrowserGatewayPreparedMutation,
   ): BrowserGatewayResult<null> {
     this.recordMutationSucceeded(prepared);
-    return this.result({
-      context: request,
-      profileId: request.profileId,
-      targetId: request.targetId,
-      action,
-      toolName,
-      actionClass: prepared.actionClass,
-      decision: 'allowed',
+    return browserMutationResult(this.result, request, action, toolName, prepared, {
       outcome: 'succeeded',
-      summary: `${toolName} executed under approved grant`,
-      origin: prepared.origin,
-      url: prepared.url,
-      grantId: prepared.grant.id,
-      autonomous: prepared.grant.autonomous,
-      data: null,
     });
   }
 
@@ -485,22 +482,9 @@ export class BrowserGatewayActionGuard {
       this.grantStore.consumeGrant(prepared.grant.id);
     }
     this.exactApprovalRedeemer.release(prepared.exactApprovalRequestId);
-    return this.result({
-      context: request,
-      profileId: request.profileId,
-      targetId: request.targetId,
-      action,
-      toolName,
-      actionClass: prepared.actionClass,
-      decision: 'allowed',
+    return browserMutationResult(this.result, request, action, toolName, prepared, {
       outcome: 'failed',
       reason: message,
-      summary: `${toolName} failed: ${message}`,
-      origin: prepared.origin,
-      url: prepared.url,
-      grantId: prepared.grant.id,
-      autonomous: prepared.grant.autonomous,
-      data: null,
     });
   }
 
@@ -546,6 +530,7 @@ export class BrowserGatewayActionGuard {
       instanceId: request.instanceId,
       profileId: attachment.profileId,
       nodeId,
+      authorizationOrigin: originDecision.origin,
     });
     const match = findMatchingBrowserGrant({
       grants,
@@ -560,6 +545,8 @@ export class BrowserGatewayActionGuard {
       autonomousRequired: actionClassRequiresAutonomy(classification.actionClass),
     });
 
+    const reusable = prepareReusableCredentialApproval(classification, match.grant, originDecision.origin, attachment.url);
+    if (reusable) return reusable;
     const exact = this.exactApprovalRedeemer.prepare({
       context: request,
       requestId: request.requestId,

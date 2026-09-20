@@ -1,5 +1,6 @@
 import type {
   BrowserActionClass,
+  BrowserAllowedOrigin,
   BrowserApprovalRequest,
   BrowserGrantMode,
   BrowserGrantProposal,
@@ -12,20 +13,12 @@ const NEVER_QUICK_APPROVE_CLASSES = new Set<BrowserActionClass>([
   'sensitive_identity',
 ]);
 
-/** Hard stops the main process will narrow to a one-action grant. */
+/** Unclassified actions still require an exact, one-action decision. */
 const EXACT_APPROVAL_CLASSES = new Set<BrowserActionClass>([
-  'credential',
   'unknown',
 ]);
 
-/** Always allow is only for ordinary browsing, not uploads, submits, or secrets. */
-const ALWAYS_ALLOW_CLASSES = new Set<BrowserActionClass>([
-  'read',
-  'navigate',
-  'input',
-]);
-
-export type BannerGrantMode = Extract<BrowserGrantMode, 'per_action' | 'session' | 'autonomous'>;
+export type BannerGrantMode = BrowserGrantMode;
 
 export function bannerCanQuickApprove(approval: BrowserApprovalRequest): boolean {
   return bannerGrantModes(approval).length > 0;
@@ -44,13 +37,8 @@ export function bannerGrantModes(approval: BrowserApprovalRequest): BannerGrantM
   }
   const modes: BannerGrantMode[] = ['per_action'];
   if (classesForMode(approval, 'session').length > 0) {
-    modes.push('session');
-  }
-  if (
-    proposed.length > 0 &&
-    proposed.every((actionClass) => ALWAYS_ALLOW_CLASSES.has(actionClass))
-  ) {
-    modes.push('autonomous');
+    modes.push('session', 'autonomous');
+    if (persistentBrowserApprovalOrigin(approval)) modes.push('persistent');
   }
   return modes;
 }
@@ -62,7 +50,9 @@ export function bannerModeLabel(mode: BannerGrantMode): string {
     case 'session':
       return 'Allow for session';
     case 'autonomous':
-      return 'Always allow';
+      return 'Allow unattended';
+    case 'persistent':
+      return 'Allow forever';
   }
 }
 
@@ -81,9 +71,31 @@ export function buildBannerGrant(
   return {
     ...approval.proposedGrant,
     mode,
+    allowedOrigins: mode === 'persistent'
+      ? [persistentBrowserApprovalOrigin(approval)!]
+      : approval.proposedGrant.allowedOrigins,
     allowedActionClasses,
-    autonomous: mode === 'autonomous',
+    autonomous: mode === 'autonomous' || mode === 'persistent',
   };
+}
+
+/** Forever approves only the displayed site, never a proposed wildcard or another site. */
+export function persistentBrowserApprovalOrigin(
+  approval: BrowserApprovalRequest,
+): BrowserAllowedOrigin | null {
+  try {
+    const url = new URL(approval.origin ?? approval.url ?? '');
+    if ((url.protocol !== 'http:' && url.protocol !== 'https:') ||
+      !url.hostname || url.hostname.includes('*') || url.username || url.password) return null;
+    return {
+      scheme: url.protocol === 'http:' ? 'http' : 'https',
+      hostPattern: url.hostname,
+      ...(url.port ? { port: Number(url.port) } : {}),
+      includeSubdomains: false,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /** Main promotes submit/destructive grants to autonomous; the phrase is the human gate. */
@@ -114,7 +126,9 @@ function classesForMode(
       (actionClass) => !NEVER_QUICK_APPROVE_CLASSES.has(actionClass),
     ),
   );
-  if (mode === 'per_action' && approval.toolName !== 'browser.request_grant') {
+  if (mode === 'per_action' && (
+    approval.toolName !== 'browser.request_grant' || EXACT_APPROVAL_CLASSES.has(approval.actionClass)
+  )) {
     return [approval.actionClass];
   }
   if (mode === 'per_action') {

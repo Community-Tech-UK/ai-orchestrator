@@ -44,6 +44,9 @@ export class BrowserGrantRequestOperations {
   async requestGrant(
     request: BrowserGatewayContext & BrowserRequestGrantRequest,
   ): Promise<BrowserGatewayResult<null>> {
+    if (request.proposedGrant.mode === 'persistent') {
+      throw new Error('persistent_browser_grants_require_operator_approval');
+    }
     const existingTab = this.deps.extensionTabStore.getTab(request.profileId, request.targetId);
     if (existingTab) {
       return this.requestGrantForExistingTab(request, existingTab);
@@ -96,6 +99,7 @@ export class BrowserGrantRequestOperations {
       grants: this.deps.grantStore.listGrants({
         instanceId: request.instanceId,
         profileId: profile.id,
+        authorizationOrigin: originDecision.origin,
       }),
       instanceId: request.instanceId ?? '',
       provider: providerFromContext(request.provider),
@@ -103,6 +107,7 @@ export class BrowserGrantRequestOperations {
       targetId: target.id,
       origin: originDecision.origin,
       proposal: request.proposedGrant,
+      nodeId: profile.executionNodeId ?? 'local',
     });
     if (covering) {
       return this.alreadyGrantedResult(request, {
@@ -137,7 +142,7 @@ export class BrowserGrantRequestOperations {
       actionClass,
       origin: originDecision.origin,
       url: currentUrl,
-      proposedGrant: request.proposedGrant,
+      proposedGrant: { ...request.proposedGrant, nodeId: profile.executionNodeId ?? 'local' },
       expiresAt: Date.now() + 30 * 60 * 1000,
     });
     const autoGrant = this.deps.autoApproveApproval?.(approval) ?? null;
@@ -210,6 +215,7 @@ export class BrowserGrantRequestOperations {
       grants: this.deps.grantStore.listGrants({
         instanceId: request.instanceId,
         profileId: attachment.profileId,
+        authorizationOrigin: originDecision.origin,
         ...(nodeId ? { nodeId } : {}),
       }),
       instanceId: request.instanceId ?? '',
@@ -253,7 +259,7 @@ export class BrowserGrantRequestOperations {
       actionClass,
       origin: originDecision.origin,
       url: attachment.url,
-      proposedGrant: request.proposedGrant,
+      proposedGrant: { ...request.proposedGrant, nodeId },
       expiresAt: Date.now() + 30 * 60 * 1000,
     });
     const autoGrant = this.deps.autoApproveApproval?.(approval) ?? null;

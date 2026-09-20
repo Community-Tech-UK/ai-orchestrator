@@ -1,5 +1,4 @@
-import type { BrowserApprovalRequest, BrowserGatewayResult, BrowserPermissionGrant,
-  BrowserDownloadFileResult } from '@contracts/types/browser';
+import type { BrowserApprovalRequest, BrowserGatewayResult, BrowserPermissionGrant } from '@contracts/types/browser';
 import type { BrowserExistingTabAttachment } from './browser-extension-tab-store';
 import type { BrowserExtensionCommandName,
   BrowserExtensionCommandStore } from './browser-extension-command-store';
@@ -28,6 +27,7 @@ import {
 import { allowedOriginFromUrl, extractTabPayload } from './browser-gateway-service-helpers';
 import { providerFromContext } from './browser-provider';
 import { findMatchingBrowserGrant } from './browser-grant-policy';
+import { existingTabGrantNodeId } from './browser-grant-scope';
 import { boundBrowserText } from './browser-redaction';
 import { postTimeoutMutationProbe } from './browser-existing-tab-timeout-probe';
 import type { BrowserReliabilityEvents } from './browser-reliability-events';
@@ -37,6 +37,8 @@ import {
   type BrowserTargetPersistenceSentinel,
 } from './browser-target-persistence-sentinel';
 import type { BrowserWriteJournal } from './browser-write-journal';
+import { extractScreenshotBase64 } from './browser-extension-result-normalizers';
+export { normalizeDownloadFileResult } from './browser-extension-result-normalizers';
 
 const EXTENSION_COMMAND_RESULT_GRACE_MS = 5_000;
 const SHORT_EXTENSION_COMMAND_RESULT_GRACE_MS = 500;
@@ -91,20 +93,24 @@ export class BrowserExistingTabOperations {
         });
       }
       origin = originDecision.origin;
+      const nodeId = existingTabGrantNodeId(attachment.profileId, attachment.nodeId);
       const grants = this.deps.grantStore.listGrants({
         instanceId: request.instanceId,
         profileId: attachment.profileId,
+        nodeId,
+        authorizationOrigin: origin,
       });
       const match = findMatchingBrowserGrant({
-        grants,
+        grants: grants.filter((candidate) => candidate.allowExternalNavigation),
         instanceId: request.instanceId ?? '',
         provider: providerFromContext(request.provider),
         profileId: attachment.profileId,
+        nodeId,
         targetId: attachment.targetId,
         origin,
         actionClass: 'navigate',
       });
-      grant = match.grant?.allowExternalNavigation ? match.grant : undefined;
+      grant = match.grant;
       if (!grant) {
         const allowedOrigin = allowedOriginFromUrl(request.url);
         if (!allowedOrigin) {
@@ -642,59 +648,4 @@ function extensionCommandCallerTimeoutMs(executionTimeoutMs: number): number {
     ? EXTENSION_COMMAND_RESULT_GRACE_MS
     : SHORT_EXTENSION_COMMAND_RESULT_GRACE_MS;
   return executionTimeoutMs + graceMs;
-}
-
-function extractScreenshotBase64(result: unknown): string {
-  if (!result || typeof result !== 'object' || Array.isArray(result)) {
-    throw new Error('browser_extension_screenshot_result_invalid');
-  }
-  const value = (result as Record<string, unknown>)['screenshotBase64'];
-  if (typeof value !== 'string' || !value) {
-    throw new Error('browser_extension_screenshot_result_invalid');
-  }
-  // The extension now returns raw base64 (CDP), but tolerate a data: URL prefix
-  // for any image mime type for backwards/forwards compatibility.
-  return value.replace(/^data:image\/[a-z0-9.+-]+;base64,/i, '').slice(0, 2_000_000);
-}
-
-export function normalizeDownloadFileResult(result: unknown): BrowserDownloadFileResult {
-  if (!result || typeof result !== 'object' || Array.isArray(result)) {
-    throw new Error('browser_download_result_invalid');
-  }
-  const value = result as Record<string, unknown>;
-  const download: BrowserDownloadFileResult = {};
-  if (typeof value['id'] === 'number' || typeof value['id'] === 'string') {
-    download.id = value['id'];
-  }
-  if (typeof value['url'] === 'string') {
-    download.url = value['url'];
-  }
-  if (typeof value['finalUrl'] === 'string') {
-    download.finalUrl = value['finalUrl'];
-  }
-  if (typeof value['filename'] === 'string') {
-    download.filename = value['filename'];
-  }
-  if (typeof value['mime'] === 'string') {
-    download.mime = value['mime'];
-  }
-  if (typeof value['bytesReceived'] === 'number') {
-    download.bytesReceived = value['bytesReceived'];
-  }
-  if (typeof value['totalBytes'] === 'number') {
-    download.totalBytes = value['totalBytes'];
-  }
-  if (typeof value['state'] === 'string') {
-    download.state = value['state'];
-  }
-  if (typeof value['startedAt'] === 'string') {
-    download.startedAt = value['startedAt'];
-  }
-  if (typeof value['endedAt'] === 'string') {
-    download.endedAt = value['endedAt'];
-  }
-  if (!download.filename && !download.url) {
-    throw new Error('browser_download_result_invalid');
-  }
-  return download;
 }

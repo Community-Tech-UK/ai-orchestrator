@@ -1381,31 +1381,124 @@ describe('BrowserPageComponent', () => {
     });
   });
 
-  it('scopes typed confirmation to unattended submit or destructive access', async () => {
+  it('approves credential access forever from its request card', async () => {
     const component = fixture.componentInstance;
-    const approval = component.approvalRequests()[0]!;
-    service.approveRequest.mockClear();
+    const approval: BrowserApprovalRequest = {
+      ...component.approvalRequests()[0]!,
+      actionClass: 'credential',
+      proposedGrant: {
+        ...component.approvalRequests()[0]!.proposedGrant,
+        allowedActionClasses: ['credential'],
+      },
+    };
+    component.approvalRequests.set([approval]);
+    openView('permissions');
 
-    component.toggleAutonomousSubmit(approval);
-    component.toggleAutonomousDestructive(approval);
-    await component.approveApprovalRequest(approval, 'autonomous');
-
-    expect(service.approveRequest).not.toHaveBeenCalled();
-    expect(component.errorMessage()).toContain('Type Local App');
-
-    component.onAutonomousConfirmationInput(approval, inputEvent('Local App'));
-    await component.approveApprovalRequest(approval, 'autonomous');
+    const button = Array.from((fixture.nativeElement as HTMLElement)
+      .querySelectorAll<HTMLButtonElement>('.permission-actions button'))
+      .find((candidate) => candidate.textContent?.trim() === 'Allow forever');
+    expect(button).toBeDefined();
+    button!.click();
+    await vi.advanceTimersByTimeAsync(100);
+    await fixture.whenStable();
 
     expect(service.approveRequest).toHaveBeenCalledWith({
-      requestId: 'request-1',
-      grant: expect.objectContaining({
-        mode: 'autonomous',
+      requestId: approval.requestId,
+      grant: {
+        ...approval.proposedGrant,
+        mode: 'persistent',
         autonomous: true,
-        allowedActionClasses: ['input', 'submit', 'destructive'],
-      }),
+      },
       reason: 'Approved from Browser Gateway page',
     });
   });
+
+  it('shows the site and Until revoked for a forever grant and keeps revocation available', () => {
+    fixture.componentInstance.activeGrants.update((grants) => [{
+      ...grants[0]!,
+      mode: 'persistent',
+      autonomous: true,
+    }]);
+    openView('permissions');
+
+    const grant = (fixture.nativeElement as HTMLElement).querySelector('.grant-row');
+    expect(grant?.textContent).toContain('Forever');
+    expect(grant?.textContent).toContain('http://localhost:4567');
+    expect(grant?.querySelector('.grant-expiry')?.textContent?.trim()).toBe('Until revoked');
+    expect(grant?.querySelector('button')?.textContent?.trim()).toBe('Revoke grant');
+  });
+
+  it.each([undefined, 'file:///tmp/page.html', 'not a URL'])(
+    'withholds forever and reports an explicit error without a valid origin (%s)', async (origin) => {
+      const component = fixture.componentInstance;
+      const approval = { ...component.approvalRequests()[0]!, origin, url: undefined };
+      component.approvalRequests.set([approval]);
+      openView('permissions');
+
+      const buttons = Array.from((fixture.nativeElement as HTMLElement)
+        .querySelectorAll<HTMLButtonElement>('.permission-actions button'))
+        .map((button) => button.textContent?.trim());
+      expect(buttons).toEqual(['Allow once', 'Allow for session', 'Allow unattended', 'Deny']);
+
+      await component.approveApprovalRequest(approval, 'persistent');
+
+      expect(service.approveRequest).not.toHaveBeenCalled();
+      expect(component.errorMessage()).toBe('This request cannot be approved with the selected duration and scope.');
+    },
+  );
+
+  it.each([
+    ['payment', ['payment']],
+    ['financial_identity', ['financial_identity']],
+    ['sensitive_identity', ['sensitive_identity']],
+    ['input', ['read', 'input', 'payment']],
+  ] as const)('withholds approval for %s requests containing never-grantable classes', (actionClass, proposedClasses) => {
+    const component = fixture.componentInstance;
+    const approval: BrowserApprovalRequest = {
+      ...component.approvalRequests()[0]!,
+      actionClass,
+      proposedGrant: {
+        ...component.approvalRequests()[0]!.proposedGrant,
+        allowedActionClasses: [...proposedClasses],
+      },
+    };
+    component.approvalRequests.set([approval]);
+    openView('permissions');
+
+    const card = (fixture.nativeElement as HTMLElement).querySelector('.approval-row');
+    expect(Array.from(card?.querySelectorAll<HTMLButtonElement>('.permission-actions button') ?? [])
+      .map((button) => button.textContent?.trim())).toEqual(['Deny']);
+    expect(card?.querySelector('.autonomous-controls')).toBeNull();
+    expect(service.approveRequest).not.toHaveBeenCalled();
+  });
+
+  it.each(['autonomous', 'persistent'] as const)(
+    'requires typed confirmation for submit or destructive access in %s mode', async (mode) => {
+      const component = fixture.componentInstance;
+      const approval = component.approvalRequests()[0]!;
+      service.approveRequest.mockClear();
+
+      component.toggleAutonomousSubmit(approval);
+      component.toggleAutonomousDestructive(approval);
+      await component.approveApprovalRequest(approval, mode);
+
+      expect(service.approveRequest).not.toHaveBeenCalled();
+      expect(component.errorMessage()).toContain('Type Local App');
+
+      component.onAutonomousConfirmationInput(approval, inputEvent('Local App'));
+      await component.approveApprovalRequest(approval, mode);
+
+      expect(service.approveRequest).toHaveBeenCalledWith({
+        requestId: 'request-1',
+        grant: expect.objectContaining({
+          mode,
+          autonomous: true,
+          allowedActionClasses: ['input', 'submit', 'destructive'],
+        }),
+        reason: 'Approved from Browser Gateway page',
+      });
+    },
+  );
 
   it('does not bypass confirmation by choosing a narrower label for a submit proposal', async () => {
     const component = fixture.componentInstance;
@@ -1440,6 +1533,83 @@ describe('BrowserPageComponent', () => {
       grantId: 'grant-1',
       reason: 'Revoked from Browser Gateway page',
     });
+  });
+
+  it('loads an older forever grant, keeps controls disabled while loading, and revokes it', async () => {
+    const component = fixture.componentInstance;
+    const base = component.activeGrants()[0]!;
+    const firstPage = Array.from({ length: 25 }, (_, index) => ({
+      ...base,
+      id: `grant-recent-${index}`,
+      createdAt: 100 - index,
+    }));
+    const olderGrant = { ...base, id: 'grant-older-forever', createdAt: 1, mode: 'persistent' as const };
+    service.listGrants.mockReset()
+      .mockResolvedValueOnce(gatewayResult(firstPage))
+      .mockResolvedValueOnce(gatewayResult([olderGrant]))
+      .mockResolvedValue(gatewayResult(firstPage));
+    await component.refreshGrants();
+    openView('permissions');
+
+    const element: HTMLElement = fixture.nativeElement;
+    const loadMore = element.querySelector<HTMLButtonElement>('[data-testid="load-more-grants"]');
+    expect(element.querySelectorAll('.grant-row')).toHaveLength(25);
+    expect(loadMore?.textContent?.trim()).toBe('Load more grants');
+    loadMore!.click();
+    fixture.detectChanges();
+    expect(loadMore?.disabled).toBe(true);
+    expect(loadMore?.textContent?.trim()).toBe('Loading grants…');
+    expect(Array.from(element.querySelectorAll<HTMLButtonElement>('.grants-panel button'))
+      .every((button) => button.disabled)).toBe(true);
+    await vi.advanceTimersByTimeAsync(100);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(service.listGrants).toHaveBeenNthCalledWith(2, {
+      limit: 25, before: { createdAt: 76, id: 'grant-recent-24' },
+    });
+    expect(element.querySelectorAll('.grant-row')).toHaveLength(26);
+    expect(element.querySelector('[data-testid="load-more-grants"]')).toBeNull();
+    const olderRow = Array.from(element.querySelectorAll<HTMLElement>('.grant-row'))
+      .find((row) => row.textContent?.includes('grant-older-forever'));
+    expect(olderRow?.textContent).toContain('Until revoked');
+    olderRow!.querySelector<HTMLButtonElement>('button')!.click();
+    await vi.advanceTimersByTimeAsync(100);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(service.revokeGrant).toHaveBeenLastCalledWith({
+      grantId: 'grant-older-forever', reason: 'Revoked from Browser Gateway page',
+    });
+    expect(service.listGrants).toHaveBeenLastCalledWith({ limit: 25 });
+    expect(element.querySelectorAll('.grant-row')).toHaveLength(25);
+    expect(element.textContent).not.toContain('grant-older-forever');
+    expect(element.querySelector('[data-testid="load-more-grants"]')).not.toBeNull();
+  });
+
+  it('resets the grants display and pagination cursor when Reload is clicked', async () => {
+    const component = fixture.componentInstance;
+    const base = component.activeGrants()[0]!;
+    const firstPage = Array.from({ length: 25 }, (_, index) => ({ ...base, id: `first-${index}` }));
+    service.listGrants.mockReset()
+      .mockResolvedValueOnce(gatewayResult(firstPage))
+      .mockResolvedValueOnce(gatewayResult([{ ...base, id: 'older-grant' }]))
+      .mockResolvedValueOnce(gatewayResult([{ ...base, id: 'fresh-grant' }]));
+    await component.refreshGrants();
+    await component.loadMoreGrants();
+    openView('permissions');
+    const element: HTMLElement = fixture.nativeElement;
+    expect(element.querySelectorAll('.grant-row')).toHaveLength(26);
+
+    element.querySelector<HTMLButtonElement>('.grants-panel .section-heading button')!.click();
+    await vi.advanceTimersByTimeAsync(100);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(service.listGrants).toHaveBeenLastCalledWith({ limit: 25 });
+    expect(element.querySelectorAll('.grant-row')).toHaveLength(1);
+    expect(element.querySelector('.grant-row')?.textContent).toContain('fresh-grant');
+    expect(element.querySelector('[data-testid="load-more-grants"]')).toBeNull();
   });
 
   function openView(view: 'browser' | 'permissions' | 'diagnostics' | 'unattended'): void {

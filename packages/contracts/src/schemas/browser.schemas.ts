@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PERSISTENT_BROWSER_GRANT_EXPIRES_AT } from '../types/browser.types';
 import {
   BrowserAccessibilityNodeSchema,
   BrowserElementCandidateSchema,
@@ -87,6 +88,7 @@ export const BrowserGrantModeSchema = z.enum([
   'per_action',
   'session',
   'autonomous',
+  'persistent',
 ]);
 export type BrowserGrantMode = z.infer<typeof BrowserGrantModeSchema>;
 export const BrowserApprovalRequestStatusSchema = z.enum([
@@ -206,6 +208,15 @@ export const BrowserGrantProposalSchema = z
   .strict();
 export type BrowserGrantProposal = z.infer<typeof BrowserGrantProposalSchema>;
 
+function validatePersistentScope(value: z.infer<typeof BrowserGrantProposalSchema>, ctx: z.RefinementCtx): void {
+  if (value.mode !== 'persistent') return;
+  if (!value.autonomous || value.allowedOrigins.some(
+    (origin) => origin.includeSubdomains || origin.hostPattern.includes('*') || !origin.hostPattern.trim(),
+  ) || value.allowedActionClasses.some((action) => ['unknown', 'payment', 'financial_identity', 'sensitive_identity'].includes(action))) {
+    ctx.addIssue({ code: 'custom', message: 'Persistent grants require explicit sites, autonomous=true, and grantable action classes.' });
+  }
+}
+
 export const BrowserPermissionGrantSchema = z
   .object({
     id: idSchema,
@@ -220,6 +231,7 @@ export const BrowserPermissionGrantSchema = z
     allowExternalNavigation: z.boolean(),
     uploadRoots: z.array(z.string().min(1).max(2000)).optional(),
     autonomous: z.boolean(),
+    userApprovedCredentials: z.boolean().optional(),
     requestedBy: z.string().min(1).max(200),
     decidedBy: z.enum(['user', 'timeout', 'revoked']),
     decision: z.enum(['allow', 'deny']),
@@ -231,6 +243,12 @@ export const BrowserPermissionGrantSchema = z
   })
   .strict()
   .superRefine((value, ctx) => {
+    validatePersistentScope(value, ctx);
+    if (value.mode === 'persistent' && (
+      value.expiresAt !== PERSISTENT_BROWSER_GRANT_EXPIRES_AT || !value.profileId && !value.nodeId
+    )) {
+      ctx.addIssue({ code: 'custom', message: 'Persistent browser grants must be scoped to a profile or computer and last until revoked.' });
+    }
     if (value.mode === 'autonomous') {
       if (!value.autonomous) {
         ctx.addIssue({
@@ -731,7 +749,7 @@ export type BrowserApprovalRequestLookup = z.infer<
 export const BrowserApproveRequestPayloadSchema = z
   .object({
     requestId: idSchema,
-    grant: BrowserGrantProposalSchema,
+    grant: BrowserGrantProposalSchema.superRefine(validatePersistentScope),
     reason: z.string().min(1).max(1000).optional(),
   })
   .strict();
@@ -757,7 +775,7 @@ export const BrowserCreateGrantRequestSchema = BrowserGrantProposalSchema.extend
   requestedBy: z.string().min(1).max(200),
   expiresAt: z.number().int().nonnegative(),
   reason: z.string().min(1).max(1000).optional(),
-}).strict();
+}).strict().superRefine(validatePersistentScope);
 export type BrowserCreateGrantRequest = z.infer<
   typeof BrowserCreateGrantRequestSchema
 >;
@@ -769,6 +787,10 @@ export const BrowserListGrantsRequestSchema = z
     profileId: idSchema.optional(),
     includeExpired: z.boolean().optional(),
     limit: z.number().int().min(1).max(100).optional(),
+    before: z.object({
+      createdAt: z.number().int().nonnegative(),
+      id: idSchema,
+    }).strict().optional(),
   })
   .strict();
 export type BrowserListGrantsRequest = z.infer<
@@ -797,7 +819,8 @@ export type BrowserListApprovalRequestsRequest = z.infer<
 >;
 
 export const BrowserRequestGrantRequestSchema = BrowserTargetRequestSchema.extend({
-  proposedGrant: BrowserGrantProposalSchema,
+  // Agents may request bounded access; only the operator may choose forever.
+  proposedGrant: BrowserGrantProposalSchema.extend({ mode: z.enum(['per_action', 'session', 'autonomous']) }),
   reason: z.string().min(1).max(1000).optional(),
 }).strict();
 export type BrowserRequestGrantRequest = z.infer<

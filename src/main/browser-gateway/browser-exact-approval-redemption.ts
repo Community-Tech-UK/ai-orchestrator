@@ -106,6 +106,7 @@ export class BrowserExactApprovalRedeemer {
         instanceId: input.instanceId,
         profileId: input.profileId,
         nodeId: input.nodeId,
+        authorizationOrigin: input.origin,
       }),
       instanceId: input.instanceId,
       provider: input.provider,

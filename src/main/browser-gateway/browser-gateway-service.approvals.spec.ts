@@ -198,7 +198,7 @@ describe('BrowserGatewayService approvals', () => {
     expect(driver.click).toHaveBeenCalledWith('profile-1', 'target-1', 'button.save');
   });
 
-  it('deduplicates and redeems one exact credential approval without broadening its scope', async () => {
+  it('deduplicates and redeems an explicit Allow once credential approval without broadening its scope', async () => {
     const { service, driver, grants, grantStore, approvalRequests } = makeService();
     inspectElementMock(driver).mockResolvedValue({
       role: 'button',
@@ -228,9 +228,9 @@ describe('BrowserGatewayService approvals', () => {
       requestId: approvalRequests[0].requestId,
       grant: {
         ...approvalRequests[0].proposedGrant,
-        mode: 'autonomous',
+        mode: 'per_action',
         allowedActionClasses: ['credential', 'input'],
-        autonomous: true,
+        autonomous: false,
       },
       reason: 'Approved from Browser Gateway page',
     });

@@ -36,7 +36,7 @@ function result<T>(data: T) {
 }
 
 describe('BrowserPageComponent approval deep link', () => {
-  it('opens Permissions, focuses the requested card, and keeps credential choices exact-only', async () => {
+  it('focuses requested cards, offers reusable credential choices, and keeps unknown actions exact-only', async () => {
     const requestId = 'request-credential-1234';
     const queryParams = new BehaviorSubject(convertToParamMap({
       view: 'permissions',
@@ -109,10 +109,12 @@ describe('BrowserPageComponent approval deep link', () => {
     expect(focus).toHaveBeenCalled();
     expect(card?.textContent).toContain('Request 1 of 1');
     expect(card?.textContent).toContain('#request-');
-    expect(card?.querySelector('.autonomous-controls')).toBeNull();
+    expect(card?.querySelector('.autonomous-controls')).not.toBeNull();
     const labels = Array.from(card?.querySelectorAll('button') ?? [])
       .map((button) => button.textContent?.trim());
-    expect(labels).toEqual(['Allow once', 'Deny']);
+    expect(labels).toEqual([
+      'Allow once', 'Allow for session', 'Allow unattended', 'Allow forever', 'Deny',
+    ]);
 
     const nextRequestId = 'request-unknown-5678';
     approvalResponses = [
@@ -138,6 +140,9 @@ describe('BrowserPageComponent approval deep link', () => {
       `#browser-approval-${nextRequestId}`,
     );
     expect(nextCard).not.toBeNull();
+    expect(nextCard?.querySelector('.autonomous-controls')).toBeNull();
+    expect(Array.from(nextCard?.querySelectorAll('button') ?? [])
+      .map((button) => button.textContent?.trim())).toEqual(['Allow once', 'Deny']);
     expect(nextCard?.style.outline).toContain('2px solid');
     expect(focus).toHaveBeenCalledTimes(2);
   });

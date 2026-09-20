@@ -309,13 +309,21 @@
                 </details>
               }
               <div class="row-actions wrap permission-actions">
-                <button class="btn small primary" type="button" [disabled]="working()" (click)="approveApprovalRequest(approval, 'per_action')">Allow once</button>
+                @if (canApprove(approval)) {
+                  <button class="btn small primary" type="button" [disabled]="working()" (click)="approveApprovalRequest(approval, 'per_action')">Allow once</button>
+                }
                 @if (!exactApprovalOnly(approval)) {
                   <button class="btn small" type="button" [disabled]="working()" (click)="approveApprovalRequest(approval, 'session')">Allow for session</button>
                   <button class="btn small" type="button" [disabled]="working()" (click)="approveApprovalRequest(approval, 'autonomous')">Allow unattended</button>
+                  @if (canApproveForever(approval)) {
+                    <button class="btn small" type="button" [disabled]="working()" (click)="approveApprovalRequest(approval, 'persistent')">Allow forever</button>
+                  }
                 }
                 <button class="btn small danger" type="button" [disabled]="working()" (click)="denyApprovalRequest(approval.requestId)">Deny</button>
               </div>
+              @if (canApproveForever(approval)) {
+                <p>Forever applies to the approved sites and computer across agent sessions, until you revoke it.</p>
+              }
             </article>
           } @empty {
             <div class="empty-state large"><strong>No approvals waiting</strong><span>Browser actions that need your decision will appear here.</span></div>
@@ -324,20 +332,26 @@
       </section>
 
       <aside class="panel grants-panel">
-        <div class="section-heading"><div><h2>Active grants</h2><p>Access currently available to agents</p></div><button class="btn small" type="button" [disabled]="working()" (click)="refreshGrants()">Reload</button></div>
+        <div class="section-heading"><div><h2>Active grants</h2><p>Access currently available to agents</p></div><button class="btn small" type="button" [disabled]="working() || grantsLoading()" (click)="refreshGrants()">Reload</button></div>
         <div class="grant-list">
           @for (grant of activeGrants(); track grant.id) {
             <article class="grant-row">
               <div class="permission-heading"><span class="audit-action">{{ grant.id }}</span><span class="status-badge" [class.warning]="grant.autonomous">{{ grant.autonomous ? 'autonomous' : 'user approved' }}</span></div>
-              <span class="audit-tool">{{ grant.mode }}</span>
+              <span class="audit-tool">{{ grant.mode === 'persistent' ? 'Forever' : grant.mode }}</span>
+              @for (origin of grant.allowedOrigins; track $index) {
+                <p>{{ origin.scheme }}://{{ origin.includeSubdomains ? '*.' : '' }}{{ origin.hostPattern }}{{ origin.port ? ':' + origin.port : '' }}</p>
+              }
               <p>{{ grant.allowedActionClasses.join(', ') }}</p>
-              <p class="grant-expiry">Expires {{ formatGrantExpiry(grant.expiresAt) }}</p>
-              <button class="btn small danger" type="button" [disabled]="working()" (click)="revokeGrant(grant.id)">Revoke grant</button>
+              <p class="grant-expiry">{{ grant.mode === 'persistent' ? 'Until revoked' : 'Expires ' + formatGrantExpiry(grant.expiresAt) }}</p>
+              <button class="btn small danger" type="button" [disabled]="working() || grantsLoading()" (click)="revokeGrant(grant.id)">Revoke grant</button>
             </article>
           } @empty {
             <div class="empty-state"><strong>No active grants</strong><span>Approved browser access will appear here.</span></div>
           }
         </div>
+        @if (hasMoreGrants()) {
+          <button class="btn small" data-testid="load-more-grants" type="button" [disabled]="working() || grantsLoading()" (click)="loadMoreGrants()">{{ grantsLoading() ? 'Loading grants…' : 'Load more grants' }}</button>
+        }
       </aside>
     </main>
   }

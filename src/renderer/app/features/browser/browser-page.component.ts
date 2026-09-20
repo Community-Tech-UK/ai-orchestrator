@@ -16,7 +16,6 @@ import type {
   BrowserAuditEntry,
   BrowserGatewayResult,
   BrowserGrantMode,
-  BrowserPermissionGrant,
   BrowserProfile,
   BrowserTarget,
 } from '@contracts/types/browser';
@@ -26,8 +25,11 @@ import { BrowserGatewayIpcService } from '../../core/services/ipc/browser-gatewa
 import { AuxiliaryLlmIpcService } from '../../core/services/ipc/auxiliary-llm-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import { BrowserUnattendedPanelComponent } from './browser-unattended-panel.component';
+import { BrowserGrantPaginator } from './browser-grant-paginator';
 import {
   bindBrowserApprovalDeepLink,
+  browserApprovalCanApprove,
+  browserApprovalCanApproveForever,
   browserApprovalExactOnly,
   BrowserApprovalFocus,
   browserApprovalPosition,
@@ -45,6 +47,7 @@ import {
   formatBrowserAuditAge,
   formatBrowserElementContext,
   formatBrowserGrantExpiry,
+  formatBrowserProfileExecutionLocation,
   formatBrowserUploadRoots,
   isBrowserProfileNodeSelectable,
   LatestBrowserRequestGate,
@@ -85,7 +88,12 @@ export class BrowserPageComponent implements OnInit, AfterViewChecked {
   readonly targets = signal<BrowserTarget[]>([]);
   readonly auditEntries = signal<BrowserAuditEntry[]>([]);
   readonly approvalRequests = this.approvals.pendingRequests;
-  readonly activeGrants = signal<BrowserPermissionGrant[]>([]);
+  private readonly grantPages = new BrowserGrantPaginator(
+    (request) => this.ipc.listGrants(request), (message) => this.errorMessage.set(message),
+  );
+  readonly activeGrants = this.grantPages.grants;
+  readonly grantsLoading = this.grantPages.loading;
+  readonly hasMoreGrants = this.grantPages.hasMore;
   readonly health = signal<unknown>(null);
   readonly snapshot = signal<BrowserSnapshotView | null>(null);
   readonly extractedText = signal<string | null>(null);
@@ -260,15 +268,8 @@ export class BrowserPageComponent implements OnInit, AfterViewChecked {
 
   async refreshApprovals(): Promise<void> { await this.approvals.refresh(true); }
 
-  async refreshGrants(): Promise<void> {
-    const response = await this.latestRequests.run(
-      'grants', () => this.ipc.listGrants({ limit: 25 }),
-    );
-    if (!response) {
-      return;
-    }
-    this.applyGatewayArray(response, this.activeGrants);
-  }
+  async refreshGrants(): Promise<void> { await this.grantPages.reload(); }
+  async loadMoreGrants(): Promise<void> { await this.grantPages.loadMore(); }
 
   async refreshHealth(): Promise<void> {
     const response = await this.latestRequests.run('health', () => this.ipc.getHealth());
@@ -556,6 +557,7 @@ export class BrowserPageComponent implements OnInit, AfterViewChecked {
       this.autonomousSubmitIsEnabled(approval),
       this.autonomousDestructiveIsEnabled(approval),
     );
+    if (!grant) { this.errorMessage.set('This request cannot be approved with the selected duration and scope.'); return; }
     if (
       browserGrantRequiresAutonomousConfirmation(grant) &&
       this.autonomousConfirmation(approval).trim() !== phrase
@@ -609,6 +611,8 @@ export class BrowserPageComponent implements OnInit, AfterViewChecked {
   readonly formatElementContext = formatBrowserElementContext;
   readonly formatUploadRoots = formatBrowserUploadRoots;
   readonly exactApprovalOnly = browserApprovalExactOnly;
+  readonly canApprove = browserApprovalCanApprove;
+  readonly canApproveForever = browserApprovalCanApproveForever;
   readonly shortApprovalId = shortBrowserApprovalId;
   readonly approvalReceivedAt = browserApprovalReceivedAt;
   approvalPosition(approval: BrowserApprovalRequest): number { return browserApprovalPosition(approval, this.approvalRequests()); }
@@ -621,16 +625,11 @@ export class BrowserPageComponent implements OnInit, AfterViewChecked {
       this.autonomousSubmitIsEnabled(approval),
       this.autonomousDestructiveIsEnabled(approval),
     );
-    return browserGrantRequiresAutonomousConfirmation(grant);
+    return grant !== null && browserGrantRequiresAutonomousConfirmation(grant);
   }
   confirmationPhrase(approval: BrowserApprovalRequest): string { return browserApprovalConfirmationPhrase(approval, this.profiles()); }
   profileExecutionLocationLabel(profile: BrowserProfile): string {
-    const nodeId = profile.executionNodeId;
-    if (!nodeId) {
-      return 'Local coordinator';
-    }
-    const node = this.remoteNodes.nodeById(nodeId);
-    return node ? `${node.name} · ${this.nodeReadinessLabel(node)}` : `${nodeId} · Missing`;
+    return formatBrowserProfileExecutionLocation(profile, this.remoteNodes.nodes());
   }
 
   readonly nodeReadinessLabel = browserNodeReadinessLabel;

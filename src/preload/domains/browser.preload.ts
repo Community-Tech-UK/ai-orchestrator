@@ -5,7 +5,7 @@ import type { IpcResponse } from './types';
 type BrowserProfilePayload = { profileId: string };
 type BrowserTargetPayload = BrowserProfilePayload & { targetId: string };
 type BrowserGrantProposalPayload = {
-  mode: 'per_action' | 'session' | 'autonomous';
+  mode: 'per_action' | 'session' | 'autonomous' | 'persistent';
   allowedOrigins: Array<{
     scheme: 'https' | 'http';
     hostPattern: string;
@@ -180,6 +180,7 @@ export function createBrowserDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHA
       profileId?: string;
       includeExpired?: boolean;
       limit?: number;
+      before?: { createdAt: number; id: string };
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.BROWSER_LIST_GRANTS, payload ?? {});
     },

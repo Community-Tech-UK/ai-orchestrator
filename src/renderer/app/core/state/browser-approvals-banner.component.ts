@@ -8,7 +8,7 @@
  * the agent stalled on a decision nobody knew was wanted.
  *
  * Grantable requests can be allowed here with a duration dropdown (once,
- * session, or always). Payment and identity-secret scopes still go to review.
+ * session, unattended, or forever). Payment and identity-secret scopes still go to review.
  * Deny stays available for every pending request.
  */
 
@@ -98,6 +98,9 @@ import {
                     <option [value]="mode">{{ modeLabel(mode) }}</option>
                   }
                 </select>
+              }
+              @if (selectedMode() === 'persistent') {
+                <span class="banner-duration">This site and computer, across sessions, until revoked.</span>
               }
               <button
                 type="button"
@@ -233,6 +236,12 @@ import {
       font-size: 0.78rem;
       font-weight: 600;
       background-position: right 8px center;
+    }
+
+    .banner-duration {
+      max-width: 16rem;
+      color: var(--text-secondary, #cbd5e1);
+      font-size: 0.72rem;
     }
 
     .banner-btn {
@@ -498,7 +507,9 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
       case 'session':
         return 'Allowed for session from browser permission bar';
       case 'autonomous':
-        return 'Always allowed from browser permission bar';
+        return 'Allowed unattended from browser permission bar';
+      case 'persistent':
+        return 'Allowed until revoked from browser permission bar';
     }
   }
 

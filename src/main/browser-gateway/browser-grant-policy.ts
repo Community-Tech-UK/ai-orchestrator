@@ -75,6 +75,12 @@ export function findMatchingBrowserGrant(
   }
 
   const now = input.now ?? Date.now();
+  // A newer campaign/legacy grant must not hide explicit reusable credential
+  // consent. Those grants cannot satisfy credential hard stops on their own.
+  const reusableCredential = input.actionClass === 'credential'
+    ? input.grants.find((candidate) => candidate.decidedBy === 'user' && candidate.userApprovedCredentials && candidate.mode !== 'per_action' && grantMatches(candidate, input, now))
+    : undefined;
+  if (reusableCredential) return { grant: reusableCredential };
   const grant = input.grants.find((candidate) =>
     grantMatches(candidate, input, now),
   );
@@ -103,6 +109,7 @@ const GRANT_MODE_RANK: Record<BrowserGrantMode, number> = {
   per_action: 0,
   session: 1,
   autonomous: 2,
+  persistent: 3,
 };
 
 /**
@@ -215,18 +222,30 @@ function grantMatches(
   if (grant.decision !== 'allow') {
     return false;
   }
-  if (grant.instanceId !== input.instanceId) {
+  const persistent = grant.mode === 'persistent';
+  if (persistent && (grant.decidedBy !== 'user' || (!grant.profileId && !grant.nodeId))) {
     return false;
   }
-  if (input.provider && grant.provider !== input.provider) {
+  if (!persistent && grant.instanceId !== input.instanceId) {
     return false;
   }
+  if (!persistent && input.provider && grant.provider !== input.provider) {
+    return false;
+  }
+  if (persistent && grant.nodeId !== (input.nodeId ?? 'local')) return false;
   if (grant.profileId && grant.profileId !== input.profileId) {
     return false;
   }
-  if (!grant.profileId && grant.nodeId && grant.nodeId !== input.nodeId) {
+  if (!persistent && !grant.profileId && grant.nodeId && grant.nodeId !== input.nodeId) {
     return false;
   }
+  // A computer-scoped forever grant cannot leak into a managed profile.
+  if (persistent && !grant.profileId && !input.profileId.startsWith('existing-tab:')) {
+    return false;
+  }
+  if (persistent && (input.actionClass === 'unknown' || grant.allowedOrigins.some(
+    (origin) => origin.includeSubdomains || origin.hostPattern.includes('*'),
+  ))) return false;
   if (grant.targetId && input.targetId && grant.targetId !== input.targetId) {
     return false;
   }

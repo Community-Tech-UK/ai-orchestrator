@@ -343,12 +343,13 @@ export class BrowserCloseTabOperations {
     candidate: CloseCandidate,
   ): BrowserPermissionGrant | null {
     const origin = this.candidateOrigin(candidate);
-    const nodeId = existingTabGrantNodeId(candidate.profileId, candidate.nodeId);
+    const nodeId = existingTabGrantNodeId(candidate.profileId, candidate.nodeId) ?? candidate.nodeId ?? 'local';
     const match = findMatchingBrowserGrant({
       grants: this.deps.grantStore.listGrants({
         instanceId: request.instanceId,
         profileId: candidate.profileId,
         nodeId,
+        authorizationOrigin: origin,
       }),
       instanceId: request.instanceId ?? '',
       provider: providerFromContext(request.provider),
