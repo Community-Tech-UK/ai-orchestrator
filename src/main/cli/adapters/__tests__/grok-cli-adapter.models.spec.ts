@@ -63,6 +63,22 @@ describe('parseGrokModelList', () => {
       { id: 'grok-4.6', isDefault: true },
     ]);
   });
+
+  it('parses the live CLI 1.0.40 list (asterisk default, dash previous)', () => {
+    // Verbatim `grok models` from Grok Build CLI 1.0.40. The non-default row
+    // uses a dash bullet, which is how 4.6 still appears next to 4.7.
+    expect(parseGrokModelList(`You are logged in with grok.com.
+
+Default model: grok-4.7
+
+Available models:
+  * grok-4.7 (default)
+  - grok-4.6
+`)).toEqual([
+      { id: 'grok-4.7', isDefault: true },
+      { id: 'grok-4.6', isDefault: false },
+    ]);
+  });
 });
 
 describe('Grok model display metadata', () => {
@@ -97,6 +113,7 @@ describe('Grok model display metadata', () => {
   });
 
   it('formats a readable name and falls back to the raw id', () => {
+    expect(formatGrokModelName('grok-4.7')).toBe('Grok 4.7');
     expect(formatGrokModelName('grok-4.6')).toBe('Grok 4.6');
     expect(formatGrokModelName('grok-code-fast-1')).toBe('Grok code fast 1');
     expect(formatGrokModelName('something-else')).toBe('something-else');

@@ -118,7 +118,7 @@ describe('ClaudeUsageEndpointProbe', () => {
       const snap = await probe.probe({ signal: signal() });
       expect(fetched).toBe(false);
       expect(snap!.error).toMatch(/expired/i);
-      expect(snap!.needsReauth).toBe(true);
+      expect(snap!.needsReauth).toBeFalsy();
     });
   });
 

@@ -236,8 +236,11 @@ describe('getProviderModelRate provider-id aliasing (LT-190)', () => {
     // silently dropped and Grok could only ever be priced from the static
     // table. xAI is a primary vendor billing per token, so unlike the
     // Copilot/Cursor reseller cases above, the static fallback is correct.
-    expect(getProviderModelRate('xai', GROK_MODELS.GROK_46)).toEqual(
-      MODEL_PRICING[GROK_MODELS.GROK_46],
+    expect(getProviderModelRate('xai', GROK_MODELS.GROK_47)).toEqual(
+      MODEL_PRICING[GROK_MODELS.GROK_47],
+    );
+    expect(getProviderModelRate('grok', GROK_MODELS.GROK_47)).toEqual(
+      MODEL_PRICING[GROK_MODELS.GROK_47],
     );
     expect(getProviderModelRate('grok', GROK_MODELS.GROK_46)).toEqual(
       MODEL_PRICING[GROK_MODELS.GROK_46],

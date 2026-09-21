@@ -70,6 +70,18 @@ describe('ProviderAccountChipComponent', () => {
     expect(ipc.previewRoute).not.toHaveBeenCalled();
   });
 
+  it('renders nothing when the provider has only one enabled account', async () => {
+    profiles = [account({ id: 'suas', label: 'Codex SUAS', isLegacy: false })];
+    const fixture = await render({ provider: 'claude', mode: 'session', instanceId: 'inst-1' });
+    expect(fixture.nativeElement.querySelector('.provider-account-chip')).toBeNull();
+  });
+
+  it('renders nothing when a second account is disabled', async () => {
+    profiles = [account(), account({ id: 'max-b-1a2b', label: 'Max B', priority: 1, isLegacy: false, enabled: false })];
+    const fixture = await render({ provider: 'claude', mode: 'session', instanceId: 'inst-1' });
+    expect(fixture.nativeElement.querySelector('.provider-account-chip')).toBeNull();
+  });
+
   it('renders nothing for providers without pools', async () => {
     const fixture = await render({ provider: 'gemini' });
     expect(fixture.nativeElement.querySelector('.provider-account-chip')).toBeNull();
@@ -113,7 +125,9 @@ describe('ProviderAccountChipComponent', () => {
     const confirm = vi.fn(() => false);
     vi.stubGlobal('confirm', confirm);
     const fixture = await render({ provider: 'claude', mode: 'session', instanceId: 'inst-1', accountProfileId: 'legacy', accountRoutingSource: 'failover' });
-    expect(fixture.nativeElement.textContent).toContain('Max A · moved here at a usage limit');
+    expect(fixture.nativeElement.querySelector('.text')?.textContent).toBe('Max A');
+    expect(fixture.nativeElement.textContent).not.toContain('moved here at a usage limit');
+    expect(fixture.nativeElement.textContent).not.toContain('the account this conversation runs on');
     const select = fixture.nativeElement.querySelector('select') as HTMLSelectElement;
     select.value = 'max-b-1a2b';
     await fixture.componentInstance.onSelect({ target: select } as unknown as Event);

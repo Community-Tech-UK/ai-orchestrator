@@ -5,11 +5,11 @@
  *  - `draft`: before a session starts, shows the account the pool would pick
  *    ("Max A · default", "Max B · Max A is at its limit") with an override.
  *    The override is emitted so the create sends the account the user chose.
- *  - `session`: the account a live session runs on and how it got there, with
- *    a switch that asks for confirmation (an explicit account handoff).
+ *  - `session`: the account a live session runs on, with a switch that asks
+ *    for confirmation (an explicit account handoff).
  *
- * Renders nothing for other providers or while the provider has no pool, so
- * hosts embed it unconditionally.
+ * Renders nothing for other providers or while the provider has fewer than
+ * two enabled accounts (nothing to switch to), so hosts embed it unconditionally.
  */
 
 import {
@@ -103,9 +103,9 @@ export class ProviderAccountChipComponent {
     const provider = this.provider();
     return isPooledProvider(provider) ? provider : null;
   });
-  readonly poolActive = computed(() => this.accountsSignal().some((account) => !account.isLegacy));
   readonly selectableAccounts = computed(() =>
     this.accountsSignal().filter((account) => account.enabled).sort((a, b) => a.priority - b.priority));
+  readonly poolActive = computed(() => this.selectableAccounts().length > 1);
   readonly selectedValue = computed(() =>
     this.mode() === 'session' ? this.currentProfileId() : (this.chosenProfileId() ?? ''));
 
@@ -113,7 +113,7 @@ export class ProviderAccountChipComponent {
 
   readonly label = computed(() => {
     if (this.mode() === 'session') {
-      return `${this.labelFor(this.currentProfileId())} · ${this.sourceLabel(this.accountRoutingSource() ?? 'persisted')}`;
+      return this.labelFor(this.currentProfileId());
     }
     const preview = this.previewSignal();
     if (!preview?.outcome.ok) return '';

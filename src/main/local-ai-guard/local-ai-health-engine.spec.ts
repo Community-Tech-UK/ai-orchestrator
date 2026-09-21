@@ -476,6 +476,72 @@ describe('LocalAiHealthEngine', () => {
     expect(transition.incidentAction).toBe('none');
   });
 
+  it('keeps a successful canary eligible across lightweight checks inside the canary cadence', () => {
+    const previous = status({
+      state: 'checking',
+      routableRoles: [],
+      consecutiveSuccesses: 0,
+      layers: {
+        worker: sample({ layer: 'worker', checkedAt: BASE_TIME }),
+        endpoint: sample({ layer: 'endpoint', checkedAt: BASE_TIME }),
+        model: sample({ layer: 'model', checkedAt: BASE_TIME }),
+        inference: sample({
+          layer: 'inference',
+          checkType: 'functional',
+          checkedAt: BASE_TIME,
+          durationMs: 811,
+        }),
+      },
+    });
+    const checkedAt = BASE_TIME + 180_000;
+    const transition = expectValid(engine.apply(
+      target(),
+      previous,
+      [
+        sample({ layer: 'worker', checkedAt }),
+        sample({ layer: 'endpoint', checkedAt }),
+        sample({ layer: 'model', checkedAt }),
+      ],
+      checkedAt,
+    ));
+
+    expect(transition.current).toMatchObject({
+      state: 'healthy',
+      routableRoles: ['compression', 'titleGeneration'],
+      consecutiveFailures: 0,
+    });
+    expect(transition.current.layers.inference?.checkedAt).toBe(BASE_TIME);
+  });
+
+  it('returns checking when a required canary is overdue past its cadence plus freshness grace', () => {
+    const previous = status({
+      layers: {
+        worker: sample({ layer: 'worker', checkedAt: BASE_TIME }),
+        inference: sample({
+          layer: 'inference',
+          checkType: 'functional',
+          checkedAt: BASE_TIME,
+        }),
+      },
+    });
+    const checkedAt = BASE_TIME + 600_000 + 120_000 + 1;
+    const transition = expectValid(engine.apply(
+      target(),
+      previous,
+      [
+        sample({ layer: 'worker', checkedAt }),
+        sample({ layer: 'endpoint', checkedAt }),
+        sample({ layer: 'model', checkedAt }),
+      ],
+      checkedAt,
+    ));
+
+    expect(transition.current).toMatchObject({
+      state: 'checking',
+      routableRoles: [],
+    });
+  });
+
   it('normalizes history to distinct active transitions and keeps the exact window edge', () => {
     const edge = BASE_TIME - 10 * 60 * 1_000;
     const previous = status({

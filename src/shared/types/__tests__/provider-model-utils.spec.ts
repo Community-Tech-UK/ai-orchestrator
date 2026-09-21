@@ -48,7 +48,7 @@ describe('DEFAULT_LOOP_MODEL_BY_PROVIDER pins (T41)', () => {
   // Grok has no balanced row; the honest pin is the id that actually runs.
   it('pins grok to the id the CLI really spawns', () => {
     expect(resolveModelForTier('balanced', 'grok')).toBeUndefined();
-    expect(DEFAULT_LOOP_MODEL_BY_PROVIDER['grok']).toBe('grok-4.6');
+    expect(DEFAULT_LOOP_MODEL_BY_PROVIDER['grok']).toBe('grok-4.7');
   });
 
   // Copilot is an EBRD-only seat; silently retargeting it is out of scope.

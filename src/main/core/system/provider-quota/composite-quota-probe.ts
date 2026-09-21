@@ -53,15 +53,13 @@ export class CompositeQuotaProbe implements ProviderQuotaProbe {
       fallback = null;
     }
     if (fallback && fallback.windows.length > 0) {
-      // Surface last-known windows from the monitor, but keep an actionable
-      // reauth flag the native probe raised so the UI can still prompt sign-in
-      // (the monitor's cached numbers can outlive the user's own login).
-      const attributed = this.accountProfileId
+      // Last-known monitor bars replace a window-less native result. Do not
+      // stamp needsReauth onto them: token-usage-monitor shows the same
+      // cached numbers without a sign-in alarm when it skips an expired
+      // Claude token.
+      return this.accountProfileId
         ? { ...fallback, accountProfileId: this.accountProfileId }
         : fallback;
-      return nativeSnap?.needsReauth
-        ? { ...attributed, needsReauth: true, error: nativeSnap.error }
-        : attributed;
     }
 
     return nativeSnap;

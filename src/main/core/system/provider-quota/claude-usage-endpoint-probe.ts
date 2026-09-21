@@ -27,9 +27,9 @@
  * `extra_usage` becomes a USD "credits" window — the real-money overage guard.
  *
  * Best-effort by design: the endpoint is undocumented and may change or rate-
- * limit the poll. Any failure (no token, expired token, HTTP error, bad shape)
- * resolves to an `ok: false` snapshot with a human-readable `error`; we never
- * throw and never hard-depend on it.
+ * limit the poll. Any failure (no token after Claude Code was asked to refresh,
+ * HTTP error, bad shape) resolves to an `ok: false` snapshot with a
+ * human-readable `error`; we never throw and never hard-depend on it.
  */
 
 import type {
@@ -141,8 +141,11 @@ export class ClaudeUsageEndpointProbe implements ProviderQuotaProbe {
 
     const { credential, reason } = await this.credentialsReader.read();
     if (!credential) {
+      // Expired after Claude Code was asked to refresh is a transient skip,
+      // not a sign-in problem. The standalone monitor keeps last-known bars
+      // and so should we.
       return failedSnapshot(takenAt, describeCredentialFailure(reason), {
-        needsReauth: reason === 'expired' || reason === 'denied' || reason === 'not-found' || reason === 'malformed',
+        needsReauth: reason === 'denied' || reason === 'not-found' || reason === 'malformed',
       });
     }
 
@@ -298,7 +301,7 @@ function failedSnapshot(
 function describeCredentialFailure(reason: CredentialFailureReason | undefined): string {
   switch (reason) {
     case 'expired':
-      return 'Claude OAuth token expired — use this account in Claude Code to refresh';
+      return 'Claude OAuth token expired (skipped — Claude Code could not refresh)';
     case 'denied':
       return 'Keychain access denied reading the Claude OAuth token';
     case 'malformed':

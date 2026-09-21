@@ -89,7 +89,13 @@ describe('ClaudeCredentialsReader for a profile config dir', () => {
     const readFile = vi.fn(async (_filePath: string): Promise<string> => {
       throw Object.assign(new Error('missing'), { code: 'ENOENT' });
     });
-    const reader = new ClaudeCredentialsReader({ platform: 'darwin', configDir: '/home/example/.claude-work', securityExec, readFile });
+    const reader = new ClaudeCredentialsReader({
+      platform: 'darwin',
+      configDir: '/home/example/.claude-work',
+      securityExec,
+      readFile,
+      refreshCliAuth: async () => false,
+    });
     expect(await reader.read()).toEqual({ credential: null, reason: 'not-found' });
     expect(securityExec.mock.calls[0]?.[0]).toEqual(['find-generic-password', '-s', 'Claude Code-credentials-af7cd477', '-w']);
     expect(readFile).toHaveBeenCalledWith('/home/example/.claude-work/.credentials.json');

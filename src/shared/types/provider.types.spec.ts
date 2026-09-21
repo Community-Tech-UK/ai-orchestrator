@@ -376,15 +376,16 @@ describe('catalog-backed model normalization', () => {
     // rather than be forwarded and kill the spawn. A model `grok models` reports
     // but the static list has not caught up with is trusted via the catalog.
     replaceKnownModelCatalogSnapshot([
-      { provider: 'grok', id: 'grok-4.7' },
+      { provider: 'grok', id: 'grok-4.8' },
     ]);
 
     expect(normalizeModelForProvider('grok', 'grok-4.5')).toBe(
       getPrimaryModelForProvider('grok'),
     );
-    expect(getPrimaryModelForProvider('grok')).toBe(GROK_MODELS.GROK_46);
+    expect(getPrimaryModelForProvider('grok')).toBe(GROK_MODELS.GROK_47);
+    expect(normalizeModelForProvider('grok', GROK_MODELS.GROK_47)).toBe(GROK_MODELS.GROK_47);
     expect(normalizeModelForProvider('grok', GROK_MODELS.GROK_46)).toBe(GROK_MODELS.GROK_46);
-    expect(normalizeModelForProvider('grok', 'grok-4.7')).toBe('grok-4.7');
+    expect(normalizeModelForProvider('grok', 'grok-4.8')).toBe('grok-4.8');
     // The adapter reads `auto` as "omit -m"; normalization must not resolve it.
     expect(normalizeModelForProvider('grok', 'auto')).toBe('auto');
   });

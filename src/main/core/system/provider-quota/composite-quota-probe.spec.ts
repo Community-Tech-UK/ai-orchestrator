@@ -60,17 +60,16 @@ describe('CompositeQuotaProbe', () => {
     expect(snap).toBe(OK_NO_WINDOWS);
   });
 
-  it('propagates needsReauth onto state.json windows when native flags reauth', async () => {
+  it('keeps last-known monitor bars without a reauth alarm', async () => {
     const nativeReauth: ProviderQuotaSnapshot = {
       provider: 'codex', takenAt: 1, source: 'admin-api', ok: false,
       error: 'token expired', needsReauth: true, windows: [],
     };
     const probe = new CompositeQuotaProbe(nativeProbe(nativeReauth), fallback(STATE_JSON));
     const snap = await probe.probe({ signal: signal() });
-    expect(snap).not.toBe(STATE_JSON);
     expect(snap!.windows).toEqual(STATE_JSON.windows);
-    expect(snap!.needsReauth).toBe(true);
-    expect(snap!.error).toBe('token expired');
+    expect(snap!.needsReauth).toBeFalsy();
+    expect(snap!.ok).toBe(true);
   });
 
   it('asks the monitor for the wrapped account profile, not the legacy provider key', async () => {
@@ -95,7 +94,7 @@ describe('CompositeQuotaProbe', () => {
     const snap = await probe.probe({ signal: signal() });
     expect(calls).toEqual([['claude', 'max-b']]);
     expect(snap!.windows).toEqual(accountWindows.windows);
-    expect(snap!.needsReauth).toBe(true);
+    expect(snap!.needsReauth).toBeFalsy();
     expect(snap!.accountProfileId).toBe('max-b');
   });
 

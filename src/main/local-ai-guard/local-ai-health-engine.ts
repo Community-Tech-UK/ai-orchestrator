@@ -98,9 +98,9 @@ export class LocalAiHealthEngine {
     const newRequiredEvaluation = accepted.some((item) => item.required);
     const mergedSamples = layerValues(layers);
     const freshMergedSamples = mergedSamples.filter((item) =>
-      isFresh(item.checkedAt, effectiveNow, target.freshnessLimitMs));
+      isFresh(item.checkedAt, effectiveNow, layerFreshnessLimitMs(target, item.layer)));
     const staleRequiredEvidence = mergedSamples.some((item) =>
-      item.required && !isFresh(item.checkedAt, effectiveNow, target.freshnessLimitMs));
+      item.required && !isFresh(item.checkedAt, effectiveNow, layerFreshnessLimitMs(target, item.layer)));
     const hasFreshRequiredEvidence = freshMergedSamples.some((item) => item.required);
     const evidenceIsUsable = hasFreshRequiredEvidence && !staleRequiredEvidence;
 
@@ -488,6 +488,19 @@ function isPreRouteSample(sample: unknown): boolean {
 
 function isFresh(checkedAt: number, now: number, freshnessLimitMs: number): boolean {
   return checkedAt <= now && now - checkedAt <= freshnessLimitMs;
+}
+
+function layerFreshnessLimitMs(
+  target: LocalAiTarget,
+  layer: LocalAiProbeResult['layer'],
+): number {
+  if (layer === 'inference') {
+    const interval = validTimestamp(target.canary.intervalMs);
+    if (interval !== undefined && interval > 0) {
+      return interval + target.freshnessLimitMs;
+    }
+  }
+  return target.freshnessLimitMs;
 }
 
 function validTimestamp(value: unknown): number | undefined {

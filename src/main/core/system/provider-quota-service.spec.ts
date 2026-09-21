@@ -232,10 +232,10 @@ describe('ProviderQuotaService', () => {
       const out = await svc.refresh('claude');
       expect(out).toMatchObject({
         ok: true,
-        needsReauth: true,
-        error: 'expired',
+        needsReauth: false,
         takenAt,
       });
+      expect(out!.error).toBeUndefined();
       expect(out!.windows[0].used).toBe(20);
     });
   });

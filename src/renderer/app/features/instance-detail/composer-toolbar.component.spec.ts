@@ -710,7 +710,8 @@ describe('ComposerToolbarComponent account chip', () => {
     });
     const host = await renderToolbar('inst-live');
     expect(host.querySelector('app-provider-account-chip')).not.toBeNull();
-    expect(host.textContent).toContain('Max A');
+    expect(host.querySelector('.text')?.textContent).toBe('Max A');
+    expect(host.textContent).not.toContain('the account this conversation runs on');
     expect(host.querySelector('select')?.getAttribute('aria-label')).toBe(
       'Switch this session to another account',
     );

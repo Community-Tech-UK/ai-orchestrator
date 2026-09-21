@@ -57,7 +57,7 @@ describe('adapter factory — grok', () => {
       workingDirectory: '/tmp',
       model: 'grok-4.5',
     }));
-    expect(args[args.indexOf('-m') + 1]).toBe('grok-4.6');
+    expect(args[args.indexOf('-m') + 1]).toBe('grok-4.7');
   });
 
   it('omits -m entirely when no model is requested, so the CLI picks its own default', () => {

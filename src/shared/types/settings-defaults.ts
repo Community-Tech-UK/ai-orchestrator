@@ -49,7 +49,7 @@ export const DEFAULT_REVIEWER_MODEL_BY_PROVIDER: Readonly<Record<RemoteReviewerP
   antigravity: 'Gemini 3.5 Flash (Medium)',
   copilot: COPILOT_MODELS.CLAUDE_SONNET_46,
   cursor: 'composer-2.5',
-  grok: GROK_MODELS.GROK_46,
+  grok: GROK_MODELS.GROK_47,
 };
 
 /**
@@ -66,12 +66,12 @@ export const DEFAULT_REVIEWER_MODEL_BY_PROVIDER: Readonly<Record<RemoteReviewerP
  *     Opus (or Opus-1M for a new chat) on every iteration.
  *   - gemini → Gemini 3 Flash: the balanced tier. Unpinned, router-off landed
  *     on Gemini 3.1 Pro.
- *   - grok → grok-4.6: Grok has NO balanced row, so `applyProviderResolution`
+ *   - grok → grok-4.7: Grok has NO balanced row, so `applyProviderResolution`
  *     warned and passed the Claude decision through unchanged; `sonnet` then
- *     reached `createCliAdapter('grok')`, was repaired to grok-4.6, and the HUD
- *     showed a Claude id while the flagship ran. Pinning the id that actually
- *     runs makes the display honest. Raise this the day a cheaper Grok id
- *     appears on the live `grok models` list (G34).
+ *     reached `createCliAdapter('grok')`, was repaired to the flagship, and the
+ *     HUD showed a Claude id while the flagship ran. Pinning the id that
+ *     actually runs makes the display honest. Raise this the day a cheaper
+ *     Grok id appears on the live `grok models` list (G34).
  *
  * Copilot is deliberately absent: it is an EBRD-only seat, its first balanced
  * row is Claude Sonnet 4.6, and silently retargeting it is out of scope.
@@ -81,7 +81,7 @@ export const DEFAULT_LOOP_MODEL_BY_PROVIDER: Readonly<Record<string, string>> = 
   codex: OPENAI_MODELS.GPT56_TERRA,
   claude: CLAUDE_MODELS.SONNET,
   gemini: GOOGLE_MODELS.GEMINI_3_FLASH,
-  grok: GROK_MODELS.GROK_46,
+  grok: GROK_MODELS.GROK_47,
 };
 
 /**

@@ -131,11 +131,12 @@ export const MODELS_DEV_SNAPSHOT: Record<string, ModelsDevSnapshotEntry> = {
   'grok-4.3': { provider: 'xai', input: 1.25, output: 2.5, contextWindow: 1000000, maxOutputTokens: 30000 },
   'grok-4.5': { provider: 'xai', input: 2, output: 6, contextWindow: 500000, maxOutputTokens: 500000 },
   'grok-4.6': { provider: 'xai', input: 2, output: 6, contextWindow: 500000, maxOutputTokens: 500000 },
+  'grok-4.7': { provider: 'xai', input: 2, output: 6, contextWindow: 500000, maxOutputTokens: 500000 },
   'grok-build-0.1': { provider: 'xai', input: 1, output: 2, contextWindow: 256000, maxOutputTokens: 256000 },
 };
 
 export const MODELS_DEV_SNAPSHOT_META = {
   source: 'https://models.dev/api.json',
   providerScope: ['anthropic', 'openai', 'google', 'xai', 'github-copilot'],
-  modelCount: 108,
+  modelCount: 109,
 } as const;

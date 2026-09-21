@@ -9,10 +9,11 @@
  *
  *     You are logged in with grok.com.
  *
- *     Default model: grok-4.6
+ *     Default model: grok-4.7
  *
  *     Available models:
- *       * grok-4.6 (default)
+ *       * grok-4.7 (default)
+ *       - grok-4.6
  *
  * There is no JSON mode for this subcommand, so it must be line-parsed. Only
  * the bulleted rows under `Available models:` are entries — `Default model:`
@@ -66,7 +67,7 @@ export function classifyGrokModelTier(modelId: string): 'fast' | 'balanced' | 'p
   return 'powerful';
 }
 
-/** `grok-4.6` → `Grok 4.6`. Falls back to the raw id for unfamiliar shapes. */
+/** `grok-4.7` → `Grok 4.7`. Falls back to the raw id for unfamiliar shapes. */
 export function formatGrokModelName(modelId: string): string {
   const match = modelId.match(/^grok-(.+)$/i);
   if (!match) return modelId;

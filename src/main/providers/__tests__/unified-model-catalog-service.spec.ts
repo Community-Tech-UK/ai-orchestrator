@@ -949,6 +949,7 @@ describe('UnifiedModelCatalogService — FIX 1: models.dev-only entries included
     const devEntries: ModelsDevEntry[] = [
       { id: GROK_MODELS.GROK_45, provider: 'xai', rate: { input: 2, output: 6 } },
       { id: GROK_MODELS.GROK_46, provider: 'xai', rate: { input: 2, output: 6 } },
+      { id: GROK_MODELS.GROK_47, provider: 'xai', rate: { input: 2, output: 6 } },
     ];
     const svc = makeServiceWithMock({}, devEntries);
 
@@ -958,7 +959,7 @@ describe('UnifiedModelCatalogService — FIX 1: models.dev-only entries included
     );
     // ...and the shared snapshot the spawn-time validators read agrees, so a
     // stale stored selection still degrades to the current default.
-    expect(normalizeModelForProvider('grok', GROK_MODELS.GROK_45)).toBe(GROK_MODELS.GROK_46);
+    expect(normalizeModelForProvider('grok', GROK_MODELS.GROK_45)).toBe(GROK_MODELS.GROK_47);
   });
 
   it('does NOT add a models.dev entry whose id already exists in the static catalog', () => {

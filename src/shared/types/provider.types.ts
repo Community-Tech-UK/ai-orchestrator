@@ -333,6 +333,7 @@ export const CURSOR_MODELS = {
 } as const;
 
 export const GROK_MODELS = {
+  GROK_47: 'grok-4.7',
   GROK_46: 'grok-4.6',
   /**
    * Retired: `grok models` on CLI 1.0.5 no longer lists 4.5, and passing it
@@ -391,7 +392,7 @@ export const DEFAULT_MODELS: Record<ProviderType, string> = {
   'amazon-bedrock': 'anthropic.claude-sonnet-4-6-20260401-v1:0',
   'azure': OPENAI_MODELS.GPT55,
   cursor: CURSOR_MODELS.AUTO,
-  grok: GROK_MODELS.GROK_46,
+  grok: GROK_MODELS.GROK_47,
 };
 
 /**
@@ -462,6 +463,7 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
   // for prompts under 200k tokens — both models double to 4.0/12.0 above that,
   // which this flat table cannot express. The live models.dev overlay, now
   // namespaced to `grok`, takes precedence at runtime.)
+  [GROK_MODELS.GROK_47]: { input: 2.0, output: 6.0 },
   [GROK_MODELS.GROK_46]: { input: 2.0, output: 6.0 },
   [GROK_MODELS.GROK_45]: { input: 2.0, output: 6.0 },
 };
@@ -622,8 +624,10 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
   // from the installed CLI and that list wins in the unified catalog, so a new
   // xAI release surfaces without a code edit. 4.5 is deliberately absent: the
   // CLI rejects it outright, so listing it would only offer a broken choice.
+  // 4.6 stays offered — CLI 1.0.40 still lists it next to the 4.7 default.
   grok: [
-    { id: GROK_MODELS.GROK_46, name: 'Grok 4.6', tier: 'powerful', pinned: true, family: 'Grok' },
+    { id: GROK_MODELS.GROK_47, name: 'Grok 4.7', tier: 'powerful', pinned: true, family: 'Grok' },
+    { id: GROK_MODELS.GROK_46, name: 'Grok 4.6', tier: 'powerful', family: 'Grok' },
   ],
 };
 

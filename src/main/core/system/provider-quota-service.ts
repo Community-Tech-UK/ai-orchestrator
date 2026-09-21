@@ -527,22 +527,23 @@ export function knownWindowDurationMs(window: ProviderQuotaWindow): number | nul
 }
 
 /**
- * Keep last-known usage bars when a later probe only reports that login has
- * expired. Token-usage-monitor does the same: it skips the poll and leaves
- * the previous windows on screen with an older "updated" time.
+ * Keep last-known usage bars when a later probe cannot produce windows.
+ * Token-usage-monitor does the same: it skips an expired Claude token and
+ * leaves the previous bars on screen with an older "updated" time, without
+ * a reauth alarm.
  */
 export function retainLastKnownQuotaWindows(
   previous: ProviderQuotaSnapshot | null,
   incoming: ProviderQuotaSnapshot,
 ): ProviderQuotaSnapshot {
   if (incoming.windows.length > 0 || incoming.cliNotInstalled) return incoming;
-  if (!incoming.needsReauth) return incoming;
+  if (incoming.ok) return incoming;
   if (!previous || previous.windows.length === 0 || previous.cliNotInstalled) return incoming;
   return {
     ...previous,
     ok: true,
-    needsReauth: true,
-    error: incoming.error ?? previous.error,
+    needsReauth: false,
+    error: undefined,
   };
 }
 

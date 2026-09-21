@@ -3,7 +3,7 @@
  * interactions via ACP (`grok agent stdio`).
  *
  * Note on identity: `provider` is `'grok'` because ProviderName names the CLI
- * transport. The backing model (currently `grok-4.6`) is selected via
+ * transport. The backing model (currently `grok-4.7`) is selected via
  * `options.model` / `defaultModel`.
  */
 
@@ -41,7 +41,7 @@ export const DEFAULT_GROK_CONFIG: ProviderConfig = {
   type: 'grok',
   name: 'Grok Build',
   enabled: false,
-  defaultModel: GROK_MODELS.GROK_46,
+  defaultModel: GROK_MODELS.GROK_47,
 };
 
 export const GROK_DESCRIPTOR: ProviderAdapterDescriptor = {
@@ -183,7 +183,7 @@ export class GrokCliProvider extends BaseProvider {
   }
 
   private updateUsageFromContext(context: ContextUsage): void {
-    const modelId = this.config.defaultModel || GROK_MODELS.GROK_46;
+    const modelId = this.config.defaultModel || GROK_MODELS.GROK_47;
     const pricing = (MODEL_PRICING as Record<string, { input: number; output: number }>)[modelId]
       || { input: 2.0, output: 6.0 };
 
