@@ -6,6 +6,8 @@ import {
   type BrowserPreDeliveryCapability,
 } from './browser-worker-agent-skew';
 import { BrowserExtensionDeliveryHealthTracker } from './browser-extension-delivery-health';
+// Type-only in the other direction, so this is not a runtime cycle.
+import { isDeliveredCommandTimeout } from './browser-extension-command-failures';
 
 export type BrowserExtensionCommandName =
   | 'open_tab'
@@ -288,10 +290,26 @@ export class BrowserExtensionCommandStore {
     }
     this.pending.delete(result.commandId);
     clearTimeout(pending.timeout);
-    // Answered, not succeeded. A command the extension ran and rejected proves
-    // the execution path is alive just as well as one that worked, so a channel
-    // returning honest errors must never be classed as unanswered.
-    this.deliveryHealth.record(pending.queueKey, { answered: true, at: Date.now() });
+    // Answered, not succeeded. A command the extension RAN and rejected — a
+    // missing selector, a refused action — proves the execution path is alive
+    // just as well as one that worked, so honest errors must not be classed as
+    // unanswered.
+    //
+    // Its own watchdog firing is the exception, and it is the important one.
+    // `runCommandWithWatchdog` in the extension replies with a bare
+    // `browser_extension_command_timeout` when a command blows its budget, so
+    // the reply arrives, resolveCommand runs, and the coordinator's own
+    // armExecutionTimeout never fires. Treating that as "answered" made
+    // commands_unanswered unreachable in practice: on windows-pc 2026-09-21
+    // every single failure arrived this way, and health stayed green through a
+    // 9h outage. A channel that only ever returns timeouts is not executing
+    // anything, which is exactly what the state is for.
+    const answered = result.ok || !isDeliveredCommandTimeout(result.error ?? '');
+    this.deliveryHealth.record(pending.queueKey, {
+      answered,
+      at: Date.now(),
+      ...(answered ? {} : { reason: (result.error || 'browser_extension_command_timeout').slice(0, 120) }),
+    });
     if (result.ok) {
       pending.resolve(result.result);
       return;

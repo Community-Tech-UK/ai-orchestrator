@@ -11,6 +11,21 @@ export const PRE_DELIVERY_INCAPABLE_MIN = 3;
  * as unable to execute. Distinct from the pre-delivery counter above: these
  * commands were handed off successfully, so every delivery-side signal stays
  * green while nothing actually runs.
+ *
+ * Why more than one: a single timeout is not a verdict. `report_inventory` in
+ * particular is given only a 2.5s budget by the list_targets refresh and, on a
+ * node with many tabs, routinely outlives it while tab reports are still
+ * streaming in — see INVENTORY_LIVENESS_HORIZON_MS in
+ * browser-gateway-refresh-support.ts, which exists for exactly that case. Any
+ * command that genuinely runs resets the run to zero, so three in a row with
+ * nothing succeeding in between is the signal.
+ *
+ * Known limitation: a channel whose ONLY traffic is refreshes, on a large tab
+ * set, could still reach three and read as unable to execute while being merely
+ * slow. Nothing auto-remediates on that — it makes browser.recover_extension
+ * available, it does not invoke it — so the cost is a pessimistic reading, not
+ * an unwanted restart. If that proves noisy, the fix is to downgrade the verdict
+ * when the tab store shows inventory re-reported inside the liveness horizon.
  */
 export const POST_DELIVERY_UNANSWERED_MIN = 3;
 

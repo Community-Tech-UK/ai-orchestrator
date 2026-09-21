@@ -856,6 +856,54 @@ describe('BrowserExtensionCommandStore', () => {
       });
     });
 
+    it('counts the extension\'s OWN watchdog timeout as unanswered, not as a reply', async () => {
+      vi.useFakeTimers();
+      const store = new BrowserExtensionCommandStore();
+
+      // The extension's runCommandWithWatchdog rejects with a bare
+      // browser_extension_command_timeout when a command blows its budget. That
+      // arrives as a normal command RESULT, so resolveCommand runs and the
+      // coordinator's own execution timeout never fires. Treating it as a reply
+      // is what kept a 9h outage on windows-pc reading as healthy.
+      for (const error of [
+        'browser_extension_command_timeout',
+        'browser_extension_cdp_timeout:DOM.enable',
+        'browser_extension_channel_down (node down)',
+      ]) {
+        const pending = store.sendCommand({ queueKey: QUEUE, command: 'snapshot', timeoutMs: 1_000 });
+        pending.catch(() => undefined);
+        const command = await store.pollCommand(QUEUE, { timeoutMs: 1 });
+        store.resolveCommand({
+          commandId: command!.id,
+          ok: false,
+          error,
+          queueKey: QUEUE,
+        } as never);
+        await expect(pending).rejects.toThrow(error.split(' ')[0]!);
+      }
+
+      expect(store.describeDeliveryHealth(QUEUE)).toMatchObject({
+        commandsAnswered: false,
+        consecutiveUnanswered: 3,
+        lastReason: 'browser_extension_channel_down (node down)',
+      });
+
+      // And a command that genuinely runs clears the verdict again.
+      const ok = store.sendCommand({ queueKey: QUEUE, command: 'snapshot', timeoutMs: 1_000 });
+      const okCommand = await store.pollCommand(QUEUE, { timeoutMs: 1 });
+      store.resolveCommand({
+        commandId: okCommand!.id,
+        ok: true,
+        result: { done: true },
+        queueKey: QUEUE,
+      } as never);
+      await expect(ok).resolves.toEqual({ done: true });
+      expect(store.describeDeliveryHealth(QUEUE)).toMatchObject({
+        commandsAnswered: true,
+        consecutiveUnanswered: 0,
+      });
+    });
+
     it('clears the history explicitly and when the queue is rejected', async () => {
       vi.useFakeTimers();
       const store = new BrowserExtensionCommandStore();

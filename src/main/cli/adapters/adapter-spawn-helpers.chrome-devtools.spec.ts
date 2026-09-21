@@ -85,6 +85,34 @@ describe('withBrowserGatewaySystemPrompt', () => {
     expect(result.systemPrompt).toContain('[mobile-mcp attached to a leased Android device]');
   });
 
+  /**
+   * A wedged extension channel fails every command with a transport error while
+   * health can still look green. Observed live 2026-09-20: a Codex session hit
+   * `browser_extension_command_timeout` on both the remote node and the local
+   * channel, then asked the user to open and share a tab by hand — the remedy
+   * for a tab the gateway genuinely cannot see, not for a dead channel. The
+   * prompt has to route transport failures at recovery, not at the user.
+   */
+  it('routes browser transport failures to health/recovery, not a manual tab share', () => {
+    const result = withBrowserGatewaySystemPrompt({
+      browserGatewayMcp: {
+        aioMcpCliPath: '/tmp/aio-mcp',
+        socketPath: '/tmp/browser-gateway.sock',
+        instanceId: 'instance-browser',
+        exists: () => true,
+      },
+    } as UnifiedSpawnOptions);
+
+    expect(result.systemPrompt).toContain('browser_extension_command_timeout');
+    expect(result.systemPrompt).toContain('browser.recover_extension');
+    expect(result.systemPrompt).toContain(
+      'A transport failure is never a reason to ask the user to open or share a tab.',
+    );
+    // The share-tab handoff survives for its real case: a working channel with
+    // an already-authenticated tab that must not be reopened.
+    expect(result.systemPrompt).toContain('Only ask the user to share the current tab');
+  });
+
   it('steers Computer Use input through accessibility targets and escalation', () => {
     const result = withBrowserGatewaySystemPrompt({
       mcpConfig: [JSON.stringify({

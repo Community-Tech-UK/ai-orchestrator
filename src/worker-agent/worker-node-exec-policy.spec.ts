@@ -374,6 +374,31 @@ describe('trusted node.exec command resolution', () => {
     )).toContain('rights=([int64]$_.FileSystemRights -band 0xffffffffL)');
   });
 
+  it('never puts a statement separator immediately after an opening hash literal', () => {
+    const script = buildWindowsAclInspectionScript(
+      TRUSTED_WINDOWS_POWERSHELL,
+      win32.dirname(TRUSTED_WINDOWS_POWERSHELL),
+    );
+
+    // The shipped bug: joining every line with ';' produced `@{;daclPresent=`,
+    // which PowerShell rejects as "The hash literal was incomplete". The child
+    // exited 1 with empty stdout and every exec_on_node call on Windows died in
+    // inspectWindowsAcl's catch-all. Asserting on a substring of the script (as
+    // the test above does) cannot catch a syntax error, so assert the shape
+    // that was actually wrong.
+    expect(script).not.toMatch(/@\{\s*;/u);
+
+    // Every `@{` must be followed by a key, a newline, or a closing brace —
+    // never by a bare separator.
+    for (const match of script.matchAll(/@\{(.)/gu)) {
+      expect(match[1]).not.toBe(';');
+    }
+
+    // And the opener must genuinely end its line, which is what makes the
+    // multi-line hash literal parse.
+    expect(script.split('\n')).toContain('[pscustomobject]@{');
+  });
+
   it.each([
     ['untrusted read-only candidate', 'powershell.exe', TRUSTED_WINDOWS_POWERSHELL, 0, 'S-1-5-32-545', 0x80000000, false],
     ['trusted read/write candidate', 'powershell.exe', TRUSTED_WINDOWS_POWERSHELL, 0, TRUSTED_INSTALLER_SID, 0xc0000000, false],

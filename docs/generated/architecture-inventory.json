@@ -6491,6 +6491,10 @@
       "lines": 1231
     },
     {
+      "path": "src/worker-agent/worker-node-exec-policy.spec.ts",
+      "lines": 1229
+    },
+    {
       "path": "src/renderer/app/core/state/local-ai-guard.store.spec.ts",
       "lines": 1228
     },
@@ -6517,10 +6521,6 @@
     {
       "path": "src/main/orchestration/loop-store.spec.ts",
       "lines": 1206
-    },
-    {
-      "path": "src/worker-agent/worker-node-exec-policy.spec.ts",
-      "lines": 1204
     },
     {
       "path": "docs/plans/2026-06-27-supergoal-inspired-loop-planning-audit_completed.md",
@@ -6855,6 +6855,10 @@
       "lines": 935
     },
     {
+      "path": "src/main/browser-gateway/browser-extension-command-store.spec.ts",
+      "lines": 935
+    },
+    {
       "path": "src/preload/domains/orchestration.preload.ts",
       "lines": 935
     },
@@ -6913,10 +6917,6 @@
     {
       "path": "docs/superpowers/specs/2026-05-04-global-operator-control-plane-design_superseded.md",
       "lines": 888
-    },
-    {
-      "path": "src/main/browser-gateway/browser-extension-command-store.spec.ts",
-      "lines": 887
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-reload-no-effect.spec.ts",
