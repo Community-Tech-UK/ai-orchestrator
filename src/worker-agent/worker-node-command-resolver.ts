@@ -75,7 +75,16 @@ const WINDOWS_WRITE_CAPABLE_RIGHTS = (
   | 0x10000000 // GENERIC_ALL
   | 0x40000000 // GENERIC_WRITE
 );
-const WINDOWS_ACL_TIMEOUT_MS = 1_000;
+/**
+ * Budget for one ACL inspection child process. Was 1s, which a healthy run
+ * very nearly missed: the working inspection measured 690 ms on windows-pc
+ * (2026-09-21), leaving 310 ms of headroom on an idle box. Since the child is
+ * SIGKILLed on expiry and every exec_on_node call depends on it, a loaded
+ * machine would have turned this into an intermittent, misleading
+ * "inspection failed or was unavailable". Bare PowerShell spawn alone is
+ * ~156 ms there.
+ */
+const WINDOWS_ACL_TIMEOUT_MS = 5_000;
 const WINDOWS_ACL_MAX_OUTPUT_BYTES = 64 * 1024;
 
 export async function resolveTrustedNodeExecExecutable(
@@ -365,5 +374,18 @@ export function buildWindowsAclInspectionScript(
     '}',
     '})',
     'ConvertTo-Json -InputObject $records -Compress -Depth 5',
-  ].join(';');
+    // Newline, NOT ';'. One of the lines above opens a hash literal
+    // (`[pscustomobject]@{`), and a semicolon joiner put a `;` immediately
+    // after that brace — `@{;daclPresent=...` — which PowerShell rejects with
+    // "The hash literal was incomplete". The child then exited 1 with empty
+    // stdout, JSON.parse('') threw, and inspectWindowsAcl's catch-all reported
+    // "trusted Windows ACL inspection failed or was unavailable", so NO
+    // exec_on_node call could run on Windows at all.
+    //
+    // Measured on windows-pc 2026-09-21: semicolon join exit 1 / 0 chars;
+    // newline join exit 0 / 2004 chars of valid JSON (2 records).
+    //
+    // The unit tests never caught it because they inject a fake
+    // inspectWindowsAcl, so this string was built but never executed.
+  ].join('\n');
 }
