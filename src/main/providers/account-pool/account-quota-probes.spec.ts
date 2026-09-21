@@ -54,13 +54,32 @@ describe('account quota probes', () => {
     expect(inner.probe).toHaveBeenCalledTimes(2);
   });
 
-  it('runs a forced probe inside the throttle interval', async () => {
-    const inner = { provider: 'codex' as const, accountProfileId: 'pro-b', probe: vi.fn(async () => null) };
-    const throttled = new ThrottledAccountQuotaProbe(inner, () => 120_000, () => 1_000);
-    const signal = new AbortController().signal;
-    await throttled.probe({ signal });
-    await throttled.probe({ signal, force: true });
-    expect(inner.probe).toHaveBeenCalledTimes(2);
+  it('falls back to the usage monitor for an account when the native probe has no windows', async () => {
+    const readProvider = vi.fn(async () => ({
+      provider: 'claude' as const,
+      takenAt: 1_700_000_000_000,
+      source: 'inferred' as const,
+      ok: true,
+      windows: [{
+        kind: 'rolling-window' as const,
+        id: 'claude.weekly',
+        label: 'Weekly (all models)',
+        unit: 'messages' as const,
+        used: 20,
+        limit: 100,
+        remaining: 80,
+        resetsAt: null,
+      }],
+    }));
+    const claude = buildAccountQuotaProbes(
+      'claude',
+      [profile('claude', 'max-b')],
+      { readProvider },
+    );
+    const snap = await claude[0]!.probe({ signal: new AbortController().signal, force: true });
+    expect(readProvider).toHaveBeenCalledWith('claude', 'max-b');
+    expect(snap!.windows[0].used).toBe(20);
+    expect(snap!.accountProfileId).toBe('max-b');
   });
 });
 

@@ -36,6 +36,10 @@ import {
   normalizeQuotaAmount,
   quotaRemaining,
 } from '../../../../shared/util/provider-quota-format';
+import {
+  LEGACY_ACCOUNT_PROFILE_ID,
+  PROVIDER_ACCOUNT_PROFILE_ID_PATTERN,
+} from '../../../../shared/types/provider-account.types';
 import { getLogger } from '../../../logging/logger';
 
 const logger = getLogger('UsageMonitorSource');
@@ -120,6 +124,8 @@ interface RawWindow {
 interface RawProviderEntry {
   plan?: string;
   windows?: RawWindow[];
+  updated_at?: number | string;
+  updatedAt?: number | string;
 }
 
 interface RawState {
@@ -159,6 +165,44 @@ export class UsageMonitorSource {
    * or `null` when the file is absent / stale / malformed.
    */
   async read(): Promise<Map<ProviderId, ProviderQuotaSnapshot> | null> {
+    const loaded = await this.loadRaw();
+    if (!loaded) return null;
+
+    const out = new Map<ProviderId, ProviderQuotaSnapshot>();
+    for (const provider of KNOWN_PROVIDERS) {
+      const snap = snapshotFromEntry(provider, resolveEntry(loaded.providers, provider), loaded.takenAt);
+      if (snap) out.set(provider, snap);
+    }
+
+    return out.size > 0 ? out : null;
+  }
+
+  /**
+   * Snapshot for one provider. Pass a non-legacy `accountProfileId` to read
+   * that pool account's own state.json key (`claude:max-b`); never fall back
+   * to the legacy provider entry, which belongs to a different login.
+   */
+  async readProvider(
+    provider: ProviderId,
+    accountProfileId?: string | null,
+  ): Promise<ProviderQuotaSnapshot | null> {
+    const loaded = await this.loadRaw();
+    if (!loaded) return null;
+    if (isDerivedAccountProfileId(accountProfileId)) {
+      return snapshotFromEntry(
+        provider,
+        loaded.providers[`${provider}:${accountProfileId}`],
+        loaded.takenAt,
+        accountProfileId,
+      );
+    }
+    return snapshotFromEntry(provider, resolveEntry(loaded.providers, provider), loaded.takenAt);
+  }
+
+  private async loadRaw(): Promise<{
+    providers: Record<string, RawProviderEntry>;
+    takenAt: number;
+  } | null> {
     if (!(await this.isFresh())) return null;
 
     let raw: string;
@@ -176,38 +220,44 @@ export class UsageMonitorSource {
       return null;
     }
 
-    const takenAt = coerceEpochMs(parsed.updated_at ?? parsed.updatedAt) ?? this.now();
-    const providers = parsed.providers ?? (parsed as Record<string, RawProviderEntry>);
-
-    const out = new Map<ProviderId, ProviderQuotaSnapshot>();
-    for (const provider of KNOWN_PROVIDERS) {
-      const entry = resolveEntry(providers, provider);
-      if (!entry || !Array.isArray(entry.windows)) continue;
-      const windows = entry.windows
-        .map((w) => normalizeWindow(provider, w))
-        .filter((w): w is ProviderQuotaWindow => w !== null);
-      if (windows.length === 0) continue;
-      out.set(provider, {
-        provider,
-        takenAt,
-        source: 'inferred',
-        ok: true,
-        plan: typeof entry.plan === 'string' ? entry.plan : undefined,
-        windows,
-      });
-    }
-
-    return out.size > 0 ? out : null;
-  }
-
-  /** Convenience: snapshot for a single provider, or null. */
-  async readProvider(provider: ProviderId): Promise<ProviderQuotaSnapshot | null> {
-    const all = await this.read();
-    return all?.get(provider) ?? null;
+    return {
+      providers: parsed.providers ?? (parsed as Record<string, RawProviderEntry>),
+      takenAt: coerceEpochMs(parsed.updated_at ?? parsed.updatedAt) ?? this.now(),
+    };
   }
 }
 
 // ─── parsing helpers ───────────────────────────────────────────────────────
+
+function isDerivedAccountProfileId(
+  accountProfileId: string | null | undefined,
+): accountProfileId is string {
+  return typeof accountProfileId === 'string'
+    && accountProfileId !== LEGACY_ACCOUNT_PROFILE_ID
+    && PROVIDER_ACCOUNT_PROFILE_ID_PATTERN.test(accountProfileId);
+}
+
+function snapshotFromEntry(
+  provider: ProviderId,
+  entry: RawProviderEntry | undefined,
+  fileTakenAt: number,
+  accountProfileId?: string,
+): ProviderQuotaSnapshot | null {
+  if (!entry || !Array.isArray(entry.windows)) return null;
+  const windows = entry.windows
+    .map((w) => normalizeWindow(provider, w))
+    .filter((w): w is ProviderQuotaWindow => w !== null);
+  if (windows.length === 0) return null;
+  return {
+    provider,
+    takenAt: coerceEpochMs(entry.updated_at ?? entry.updatedAt) ?? fileTakenAt,
+    source: 'inferred',
+    ok: true,
+    plan: typeof entry.plan === 'string' ? entry.plan : undefined,
+    windows,
+    ...(accountProfileId ? { accountProfileId } : {}),
+  };
+}
 
 /**
  * Resolve the raw state.json entry for a provider, preferring a native entry

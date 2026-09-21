@@ -177,6 +177,8 @@
       [provider]="providerForUi()"
       [currentModel]="modelForUi()"
       [currentReasoningEffort]="detail.chat.reasoningEffort"
+      [accountProfileId]="currentInstance()?.accountProfileId"
+      [accountRoutingSource]="currentInstance()?.accountRoutingSource"
       [workingDirectory]="detail.chat.currentCwd"
       [loopChatId]="detail.chat.id"
       [isReplayFallback]="false"

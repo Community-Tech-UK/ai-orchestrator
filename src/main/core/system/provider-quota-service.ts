@@ -264,9 +264,12 @@ export class ProviderQuotaService extends EventEmitter {
         },
       );
       if (result == null) return null;
-      const full: ProviderQuotaSnapshot = { ...result, takenAt: Date.now() };
+      const full: ProviderQuotaSnapshot = {
+        ...result,
+        takenAt: result.takenAt > 0 ? result.takenAt : Date.now(),
+      };
       this.storeSnapshot(provider, full, accountProfileId);
-      return full;
+      return this.getSnapshot(provider, accountProfileId);
     } catch (err) {
       if (ac.signal.aborted && (this.isPaused || getPauseCoordinator().isPaused())) {
         return null;
@@ -282,7 +285,7 @@ export class ProviderQuotaService extends EventEmitter {
       };
       this.storeSnapshot(provider, errSnap, accountProfileId);
       logger.warn(`Quota probe for ${probeKey} failed: ${errSnap.error}`);
-      return errSnap;
+      return this.getSnapshot(provider, accountProfileId);
     } finally {
       this.activeAborters.delete(ac);
     }
@@ -388,6 +391,10 @@ export class ProviderQuotaService extends EventEmitter {
 
   private storeSnapshot(provider: ProviderId, snapshot: ProviderQuotaSnapshot, accountProfileId?: string | null): void {
     const key = providerQuotaKey(provider, accountProfileId);
+    const previous = key === provider
+      ? this.snapshots.get(provider) ?? null
+      : this.accountSnapshots.get(key) ?? null;
+    snapshot = retainLastKnownQuotaWindows(previous, snapshot);
     if (key === provider) {
       this.snapshots.set(provider, snapshot);
     } else {
@@ -517,6 +524,26 @@ export function knownWindowDurationMs(window: ProviderQuotaWindow): number | nul
   if (/(?:^|[.\s_-])5(?:h|[-\s]?hour)(?:$|[.\s_-])/.test(identity)) return FIVE_HOUR_MS;
   if (/(?:^|[.\s_-])weekly?(?:$|[.\s_-])/.test(identity)) return WEEK_MS;
   return null;
+}
+
+/**
+ * Keep last-known usage bars when a later probe only reports that login has
+ * expired. Token-usage-monitor does the same: it skips the poll and leaves
+ * the previous windows on screen with an older "updated" time.
+ */
+export function retainLastKnownQuotaWindows(
+  previous: ProviderQuotaSnapshot | null,
+  incoming: ProviderQuotaSnapshot,
+): ProviderQuotaSnapshot {
+  if (incoming.windows.length > 0 || incoming.cliNotInstalled) return incoming;
+  if (!incoming.needsReauth) return incoming;
+  if (!previous || previous.windows.length === 0 || previous.cliNotInstalled) return incoming;
+  return {
+    ...previous,
+    ok: true,
+    needsReauth: true,
+    error: incoming.error ?? previous.error,
+  };
 }
 
 // Lazy singleton — same pattern as cost-tracker.ts.

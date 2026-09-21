@@ -23,6 +23,7 @@ import {
 import { InstanceIpcService } from '../../core/services/ipc';
 import { InstanceStore } from '../../core/state/instance.store';
 import { ToastService } from '../../core/services/toast.service';
+import { ProviderAccountIpcService } from '../../core/services/ipc/provider-account-ipc.service';
 import type { ContextUsage } from '../../core/state/instance/instance.types';
 import type {
   InstanceRuntimeSummary,
@@ -37,6 +38,19 @@ const ipcStub = {
 const toastStub = {
   show: vi.fn(),
 };
+
+const providerAccountIpcStub = {
+  list: vi.fn().mockResolvedValue({ profiles: [], pools: {} }),
+  previewRoute: vi.fn(),
+  switchSession: vi.fn(),
+};
+
+const toolbarProviders = [
+  { provide: InstanceStore, useValue: {} },
+  { provide: InstanceIpcService, useValue: ipcStub },
+  { provide: ToastService, useValue: toastStub },
+  { provide: ProviderAccountIpcService, useValue: providerAccountIpcStub },
+];
 
 // Override signal-input getters (vitest does not run the Angular compiler).
 function overrideInputs(
@@ -100,11 +114,7 @@ describe('ComposerToolbarComponent', () => {
 
     await TestBed.configureTestingModule({
       imports: [ComposerToolbarComponent],
-      providers: [
-        { provide: InstanceStore, useValue: {} },
-        { provide: InstanceIpcService, useValue: ipcStub },
-        { provide: ToastService, useValue: toastStub },
-      ],
+      providers: toolbarProviders,
     }).compileComponents();
 
     const fixture = TestBed.createComponent(ComposerToolbarComponent);
@@ -547,11 +557,7 @@ describe('ComposerToolbarComponent context ring label (rendered)', () => {
   async function renderWith(contextUsage: ContextUsage): Promise<string> {
     await TestBed.configureTestingModule({
       imports: [ComposerToolbarComponent],
-      providers: [
-        { provide: InstanceStore, useValue: {} },
-        { provide: InstanceIpcService, useValue: ipcStub },
-        { provide: ToastService, useValue: toastStub },
-      ],
+      providers: toolbarProviders,
     }).compileComponents();
 
     const fixture = TestBed.createComponent(ComposerToolbarComponent);
@@ -596,11 +602,7 @@ describe('ComposerToolbarComponent aggregate occupancy (LT-034)', () => {
     TestBed.resetTestingModule();
     await TestBed.configureTestingModule({
       imports: [ComposerToolbarComponent],
-      providers: [
-        { provide: InstanceStore, useValue: {} },
-        { provide: InstanceIpcService, useValue: ipcStub },
-        { provide: ToastService, useValue: toastStub },
-      ],
+      providers: toolbarProviders,
     }).compileComponents();
     component = TestBed.createComponent(ComposerToolbarComponent).componentInstance;
     overrideInputs(component, {
@@ -643,5 +645,98 @@ describe('ComposerToolbarComponent aggregate occupancy (LT-034)', () => {
     expect(component.occupancyKnown()).toBe(true);
     expect(component.ringPct()).toBe(25);
     expect(component.ringTitle()).toContain('25% used');
+  });
+});
+
+describe('ComposerToolbarComponent account chip', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+    providerAccountIpcStub.list.mockReset();
+    providerAccountIpcStub.list.mockResolvedValue({ profiles: [], pools: {} });
+  });
+
+  async function renderToolbar(instanceId: string): Promise<HTMLElement> {
+    await TestBed.configureTestingModule({
+      imports: [ComposerToolbarComponent],
+      providers: toolbarProviders,
+    }).compileComponents();
+    const fixture = TestBed.createComponent(ComposerToolbarComponent);
+    fixture.componentRef.setInput('instanceId', instanceId);
+    fixture.componentRef.setInput('provider', 'claude');
+    fixture.componentRef.setInput('currentModel', 'claude-opus-4-5');
+    fixture.componentRef.setInput('accountProfileId', 'legacy');
+    fixture.componentRef.setInput('accountRoutingSource', 'persisted');
+    fixture.detectChanges();
+    for (let tick = 0; tick < 5; tick += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      fixture.detectChanges();
+    }
+    return fixture.nativeElement as HTMLElement;
+  }
+
+  it('offers the live session account next to the model picker when a pool exists', async () => {
+    providerAccountIpcStub.list.mockResolvedValue({
+      profiles: [
+        {
+          id: 'legacy',
+          provider: 'claude',
+          label: 'Max A',
+          expectedIdentity: null,
+          expectedAccountKey: null,
+          planLabel: null,
+          priority: 0,
+          enabled: true,
+          automationPolicy: 'allow-routed',
+          isLegacy: true,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        {
+          id: 'max-b-1a2b',
+          provider: 'claude',
+          label: 'Max B',
+          expectedIdentity: null,
+          expectedAccountKey: null,
+          planLabel: null,
+          priority: 1,
+          enabled: true,
+          automationPolicy: 'allow-routed',
+          isLegacy: false,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+      pools: {},
+    });
+    const host = await renderToolbar('inst-live');
+    expect(host.querySelector('app-provider-account-chip')).not.toBeNull();
+    expect(host.textContent).toContain('Max A');
+    expect(host.querySelector('select')?.getAttribute('aria-label')).toBe(
+      'Switch this session to another account',
+    );
+  });
+
+  it('hides the account chip on a history preview', async () => {
+    providerAccountIpcStub.list.mockResolvedValue({
+      profiles: [
+        {
+          id: 'legacy',
+          provider: 'claude',
+          label: 'Max A',
+          expectedIdentity: null,
+          expectedAccountKey: null,
+          planLabel: null,
+          priority: 0,
+          enabled: true,
+          automationPolicy: 'allow-routed',
+          isLegacy: false,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+      pools: {},
+    });
+    const host = await renderToolbar('history-preview:history-a');
+    expect(host.querySelector('app-provider-account-chip')).toBeNull();
   });
 });

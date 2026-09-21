@@ -180,6 +180,30 @@ describe('UsageMonitorSource', () => {
     expect(snap!.windows).toHaveLength(1);
     expect(snap!.windows[0].label).toBe('ok');
   });
+
+  it('reads a pool account key and never falls back to the legacy provider entry', async () => {
+    const src = makeSource({
+      json: {
+        claude: { windows: [{ label: 'legacy', used: 8, limit: 100 }], updated_at: NOW / 1000 },
+        'claude:max-b': {
+          windows: [{ label: 'account', used: 20, limit: 100 }],
+          updated_at: (NOW / 1000) - 7_200,
+        },
+      },
+    });
+    const account = await src.readProvider('claude', 'max-b');
+    expect(account).not.toBeNull();
+    expect(account!.windows[0].used).toBe(20);
+    expect(account!.accountProfileId).toBe('max-b');
+    expect(account!.takenAt).toBe(NOW - 7_200_000);
+
+    const missing = await src.readProvider('claude', 'max-c');
+    expect(missing).toBeNull();
+
+    const legacy = await src.readProvider('claude');
+    expect(legacy!.windows[0].used).toBe(8);
+    expect(legacy!.accountProfileId).toBeUndefined();
+  });
 });
 
 // Regression: this fallback source is what CompositeQuotaProbe uses whenever a

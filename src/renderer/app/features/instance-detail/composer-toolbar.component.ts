@@ -5,6 +5,8 @@
  * Provides:
  *   (a) Context-usage ring — small circular SVG indicator of context window % used
  *   (b) Model picker — reuses CompactModelPickerComponent in pending-create mode
+ *   (c) Account chip — which Claude/Codex pool account the session runs on, with
+ *       an explicit switch (same control as the header and the draft composer)
  *
  * Reasoning effort is owned entirely by the model picker (it exposes the full,
  * provider-aware tier set per model and applies the provider default). The toolbar
@@ -32,8 +34,10 @@ import {
 } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
+import { ProviderAccountChipComponent } from '../../shared/components/provider-account-chip.component';
 import { InstanceIpcService } from '../../core/services/ipc';
 import { ToastService } from '../../core/services/toast.service';
+import type { AccountRouteSource } from '../../../../shared/types/provider-account.types';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import type { ContextUsage } from '../../core/state/instance/instance.types';
 import type { InstanceProvider, InstanceStatus } from '../../core/state/instance/instance.types';
@@ -56,7 +60,7 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
   selector: 'app-composer-toolbar',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CompactModelPickerComponent, DecimalPipe],
+  imports: [CompactModelPickerComponent, ProviderAccountChipComponent, DecimalPipe],
   template: `
     <div class="composer-toolbar-row">
       <!-- (a) Context ring -->
@@ -112,7 +116,19 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
         />
       }
 
-      <!-- (c) Queued change badge — a swap requested while busy applies on the
+      <!-- (c) Claude/Codex account — same switch as the header, next to the
+           picker so a restarted session can change accounts without scrolling. -->
+      @if (showAccountChip()) {
+        <app-provider-account-chip
+          mode="session"
+          [provider]="provider()"
+          [instanceId]="instanceId()"
+          [accountProfileId]="accountProfileId()"
+          [accountRoutingSource]="accountRoutingSource()"
+        />
+      }
+
+      <!-- (d) Queued change badge — a swap requested while busy applies on the
            next idle; clicking the ✕ cancels it. -->
       @if (desiredRuntimeLabel(); as pendingLabel) {
         <button
@@ -193,6 +209,12 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
 
     .pending-model-chip__x {
       opacity: 0.8;
+    }
+
+    app-provider-account-chip {
+      display: inline-flex;
+      align-items: center;
+      max-width: min(100%, 280px);
     }
 
     .runtime-summary-chip {
@@ -307,6 +329,11 @@ export class ComposerToolbarComponent {
    * label instead of pretending the backing CLI provider/model is the runtime. */
   runtimeSummary = input<InstanceRuntimeSummary | undefined>(undefined);
 
+  /** Claude/Codex pool account this live session runs on. */
+  accountProfileId = input<string | null | undefined>(undefined);
+  /** How that account was chosen, for the chip label. */
+  accountRoutingSource = input<AccountRouteSource | null | undefined>(undefined);
+
   /** Live instance status. Drives gating of the picker. */
   instanceStatus = input<InstanceStatus | undefined>(undefined);
 
@@ -410,6 +437,8 @@ export class ComposerToolbarComponent {
   });
 
   private readonly historyEntryId = computed(() => historyEntryIdFromPreview(this.instanceId()));
+  /** History preview is not a live instance; switching accounts would have nowhere to go. */
+  readonly showAccountChip = computed(() => !this.historyEntryId());
   readonly pickerSelection = computed<PendingSelection | null>(() => {
     const entryId = this.historyEntryId();
     return (entryId ? this.historySessions.selection(entryId) : null) ?? this.pendingSelection();

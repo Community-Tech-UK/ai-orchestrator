@@ -87,6 +87,7 @@ import type {
 } from '../../core/state/instance/instance.types';
 import type { InstanceRuntimeSummary } from '../../../../shared/types/local-model-runtime.types';
 import type { InstanceWaitReason, DesiredRuntime } from '../../../../shared/types/instance.types';
+import type { AccountRouteSource } from '../../../../shared/types/provider-account.types';
 import { ComposerToolbarComponent } from './composer-toolbar.component';
 import { ComposerBannersComponent } from './composer-banners.component';
 import { ComposerRecoveryBannerComponent } from './composer-recovery-banner.component';
@@ -192,6 +193,9 @@ export class InputPanelComponent implements OnDestroy {
   runtimeSummary = input<InstanceRuntimeSummary | undefined>(undefined);
   /** Provider/model change queued while busy — forwarded to the composer toolbar's pending chip. */
   desiredRuntime = input<DesiredRuntime | undefined>(undefined);
+  /** Claude/Codex pool account this live session runs on — forwarded to the toolbar chip. */
+  accountProfileId = input<string | null | undefined>(undefined);
+  accountRoutingSource = input<AccountRouteSource | null | undefined>(undefined);
   workingDirectory = input<string | null>(null);
   loopChatId = input<string | null>(null);
   contextUsage = input<ContextUsage | undefined>(undefined);

@@ -203,6 +203,41 @@ describe('ProviderQuotaService', () => {
       expect(out!.windows).toEqual([]);
       expect(svc.getSnapshot('claude')).not.toBeNull();
     });
+
+    it('keeps the probe takenAt so last-known monitor data does not look fresh', async () => {
+      const takenAt = 1_700_000_000_000;
+      svc.registerProbe(new FakeProbe('claude', { ...makeSnapshot('claude', 10, 100), takenAt }));
+      const out = await svc.refresh('claude');
+      expect(out!.takenAt).toBe(takenAt);
+    });
+
+    it('keeps last-known windows when a later probe only reports reauth', async () => {
+      svc.registerProbe(new FakeProbe('claude', makeSnapshot('claude', 20, 100)));
+      await svc.refresh('claude');
+      const takenAt = svc.getSnapshot('claude')!.takenAt;
+      svc.registerProbe({
+        provider: 'claude',
+        async probe() {
+          return {
+            provider: 'claude',
+            takenAt: Date.now(),
+            source: 'admin-api',
+            ok: false,
+            needsReauth: true,
+            error: 'expired',
+            windows: [],
+          };
+        },
+      });
+      const out = await svc.refresh('claude');
+      expect(out).toMatchObject({
+        ok: true,
+        needsReauth: true,
+        error: 'expired',
+        takenAt,
+      });
+      expect(out!.windows[0].used).toBe(20);
+    });
   });
 
   describe('CLI-installed gating', () => {

@@ -141,7 +141,9 @@ export class ClaudeUsageEndpointProbe implements ProviderQuotaProbe {
 
     const { credential, reason } = await this.credentialsReader.read();
     if (!credential) {
-      return failedSnapshot(takenAt, describeCredentialFailure(reason));
+      return failedSnapshot(takenAt, describeCredentialFailure(reason), {
+        needsReauth: reason === 'expired' || reason === 'denied' || reason === 'not-found' || reason === 'malformed',
+      });
     }
 
     let status: number;
@@ -156,7 +158,11 @@ export class ClaudeUsageEndpointProbe implements ProviderQuotaProbe {
     }
 
     if (status === 401 || status === 403) {
-      return failedSnapshot(takenAt, 'Claude OAuth token rejected (401/403) — re-login may be required');
+      return failedSnapshot(
+        takenAt,
+        'Claude OAuth token rejected (401/403) — use this account in Claude Code to refresh',
+        { needsReauth: true },
+      );
     }
     if (status === 429) {
       return failedSnapshot(takenAt, 'Claude usage endpoint rate-limited (429)');
@@ -273,7 +279,11 @@ function slug(value: string): string {
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 
-function failedSnapshot(takenAt: number, error: string): ProviderQuotaSnapshot {
+function failedSnapshot(
+  takenAt: number,
+  error: string,
+  extra?: { needsReauth?: boolean },
+): ProviderQuotaSnapshot {
   return {
     provider: 'claude',
     takenAt,
@@ -281,13 +291,14 @@ function failedSnapshot(takenAt: number, error: string): ProviderQuotaSnapshot {
     ok: false,
     error,
     windows: [],
+    needsReauth: extra?.needsReauth,
   };
 }
 
 function describeCredentialFailure(reason: CredentialFailureReason | undefined): string {
   switch (reason) {
     case 'expired':
-      return 'Claude OAuth token is expired (skipped — never refreshed read-only)';
+      return 'Claude OAuth token expired — use this account in Claude Code to refresh';
     case 'denied':
       return 'Keychain access denied reading the Claude OAuth token';
     case 'malformed':

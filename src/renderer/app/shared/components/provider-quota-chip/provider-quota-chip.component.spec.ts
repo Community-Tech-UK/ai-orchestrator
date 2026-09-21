@@ -647,5 +647,22 @@ describe('ProviderQuotaChipComponent', () => {
       expect(host.querySelector('[data-testid="quota-reauth-claude"]')).toBeFalsy();
       expect(host.querySelector('[data-testid="quota-reauth-claude-max-c"]')?.textContent).toContain('Sign in to Max C again');
     });
+
+    it('keeps last-known account windows when that account needs reauth', async () => {
+      store.setSnapshot('claude', makeSnapshot('claude', 'max', true, [claudeWeekly(40)]));
+      store.setAccountSnapshots([{
+        ...makeSnapshot('claude', 'max', true, [claudeWeekly(20)]),
+        needsReauth: true,
+        error: 'Claude OAuth token expired — use this account in Claude Code to refresh',
+        accountProfileId: 'max-c',
+      }]);
+      fixture.detectChanges();
+      const host = fixture.nativeElement as HTMLElement;
+      await openPopover(host);
+      expect(stripText(host)).toContain('CC40%·20%');
+      expect(stripText(host)).toContain('⚠');
+      expect(host.querySelector('[data-testid="quota-account-claude-max-c"]')?.textContent).toContain('Weekly (all models)');
+      expect(host.querySelector('[data-testid="quota-reauth-claude-max-c"]')?.textContent).toMatch(/oauth token expired/i);
+    });
   });
 });

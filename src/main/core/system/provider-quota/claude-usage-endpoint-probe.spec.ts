@@ -118,6 +118,7 @@ describe('ClaudeUsageEndpointProbe', () => {
       const snap = await probe.probe({ signal: signal() });
       expect(fetched).toBe(false);
       expect(snap!.error).toMatch(/expired/i);
+      expect(snap!.needsReauth).toBe(true);
     });
   });
 
@@ -129,7 +130,8 @@ describe('ClaudeUsageEndpointProbe', () => {
       });
       const snap = await probe.probe({ signal: signal() });
       expect(snap!.ok).toBe(false);
-      expect(snap!.error).toMatch(/rejected|re-login/i);
+      expect(snap!.error).toMatch(/rejected|refresh/i);
+      expect(snap!.needsReauth).toBe(true);
     });
 
     it('maps 429 to a rate-limit message', async () => {

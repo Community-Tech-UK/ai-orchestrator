@@ -380,7 +380,9 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
       const code = PROVIDER_CODES[provider];
       const parts: QuotaStripPart[] = [];
       for (const snap of family) {
-        const summary = snap.ok ? this.summaryWindow(snap) : null;
+        const summary = snap.ok || (snap.needsReauth && snap.windows.length > 0)
+          ? this.summaryWindow(snap)
+          : null;
         if (summary) {
           const percent = this.windowPercent(summary);
           parts.push({
@@ -546,7 +548,7 @@ function detailSection(provider: ProviderId, section: QuotaAccountSection, now: 
     // The probe's error string is already the actionable instruction; fall
     // back to a per-provider hint when it isn't present.
     reauthHint: needsReauth ? (snap.error ?? PROVIDER_REAUTH_HINTS[provider]) : null,
-    windows: snap.ok ? snap.windows.filter((window) => window.limit > 0) : [],
+    windows: snap.windows.filter((window) => window.limit > 0 && (snap.ok || snap.needsReauth)),
   };
 }
 

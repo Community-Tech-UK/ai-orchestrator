@@ -24,12 +24,16 @@ import { UsageMonitorSource } from './usage-monitor-source';
 
 export class CompositeQuotaProbe implements ProviderQuotaProbe {
   readonly provider: ProviderId;
+  readonly accountProfileId?: string;
+  readonly silenceAlerts?: boolean;
 
   constructor(
     private readonly native: ProviderQuotaProbe,
     private readonly source: Pick<UsageMonitorSource, 'readProvider'> = new UsageMonitorSource(),
   ) {
     this.provider = native.provider;
+    this.accountProfileId = native.accountProfileId;
+    this.silenceAlerts = native.silenceAlerts;
   }
 
   async probe(opts: { signal: AbortSignal; force?: boolean }): Promise<ProviderQuotaSnapshot | null> {
@@ -44,7 +48,7 @@ export class CompositeQuotaProbe implements ProviderQuotaProbe {
     // populate yet. Best-effort: any failure leaves the native snapshot.
     let fallback: ProviderQuotaSnapshot | null = null;
     try {
-      fallback = await this.source.readProvider(this.provider);
+      fallback = await this.source.readProvider(this.provider, this.accountProfileId);
     } catch {
       fallback = null;
     }
@@ -52,7 +56,12 @@ export class CompositeQuotaProbe implements ProviderQuotaProbe {
       // Surface last-known windows from the monitor, but keep an actionable
       // reauth flag the native probe raised so the UI can still prompt sign-in
       // (the monitor's cached numbers can outlive the user's own login).
-      return nativeSnap?.needsReauth ? { ...fallback, needsReauth: true } : fallback;
+      const attributed = this.accountProfileId
+        ? { ...fallback, accountProfileId: this.accountProfileId }
+        : fallback;
+      return nativeSnap?.needsReauth
+        ? { ...attributed, needsReauth: true, error: nativeSnap.error }
+        : attributed;
     }
 
     return nativeSnap;

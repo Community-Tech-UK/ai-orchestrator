@@ -7,6 +7,7 @@ import type { UnifiedSelection } from '../models/model-selection.types';
 import { InstanceIpcService } from '../../core/services/ipc/instance-ipc.service';
 import { InstanceStore } from '../../core/state/instance.store';
 import { ToastService } from '../../core/services/toast.service';
+import { ProviderAccountIpcService } from '../../core/services/ipc/provider-account-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import { HistoryPreviewSessionService } from './history-preview-session.service';
 
@@ -23,6 +24,7 @@ describe('Composer model feedback (rendered picker and host)', () => {
       { provide: InstanceIpcService, useValue: { changeModel } },
       { provide: InstanceStore, useValue: {} },
       { provide: ToastService, useValue: { show } },
+      { provide: ProviderAccountIpcService, useValue: { list: vi.fn().mockResolvedValue({ profiles: [], pools: {} }) } },
     ] });
     fixture = TestBed.createComponent(ComposerToolbarComponent);
     fixture.componentRef.setInput('instanceId', 'real-1');

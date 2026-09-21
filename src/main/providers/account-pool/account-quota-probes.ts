@@ -25,6 +25,8 @@ import {
 } from '../../core/system/provider-quota-service';
 import { ClaudeCredentialsReader } from '../../core/system/provider-quota/claude-credentials-reader';
 import { ClaudeUsageEndpointProbe } from '../../core/system/provider-quota/claude-usage-endpoint-probe';
+import { CompositeQuotaProbe } from '../../core/system/provider-quota/composite-quota-probe';
+import { UsageMonitorSource } from '../../core/system/provider-quota/usage-monitor-source';
 import { getLogger } from '../../logging/logger';
 import { codexProbeQuotaSnapshot, probeCodexAccount } from './codex-account-probe';
 import { getProviderAccountBindingService } from './provider-account-binding-service';
@@ -85,21 +87,32 @@ class CodexAccountQuotaProbe implements ProviderQuotaProbe {
   }
 }
 
-function claudeProbeFor(profile: ProviderAccountProfile, profileCount: () => number): ProviderQuotaProbe | null {
+function claudeProbeFor(
+  profile: ProviderAccountProfile,
+  profileCount: () => number,
+  usageMonitor: Pick<UsageMonitorSource, 'readProvider'>,
+): ProviderQuotaProbe | null {
   const resolved = resolveAccountProfileHome({ provider: 'claude', profileId: profile.id }, { createIfMissing: false });
   if (resolved.kind !== 'derived') return null;
   return new ThrottledAccountQuotaProbe(
-    new ClaudeUsageEndpointProbe({
-      accountProfileId: profile.id,
-      credentialsReader: new ClaudeCredentialsReader({ configDir: resolved.home }),
-    }),
+    new CompositeQuotaProbe(
+      new ClaudeUsageEndpointProbe({
+        accountProfileId: profile.id,
+        credentialsReader: new ClaudeCredentialsReader({ configDir: resolved.home }),
+      }),
+      usageMonitor,
+    ),
     () => CLAUDE_ACCOUNT_PROBE_BASE_INTERVAL_MS * Math.max(1, profileCount()),
     Date.now,
     !profile.enabled,
   );
 }
 
-export function buildAccountQuotaProbes(provider: PooledProvider, profiles: ProviderAccountProfile[]): ProviderQuotaProbe[] {
+export function buildAccountQuotaProbes(
+  provider: PooledProvider,
+  profiles: ProviderAccountProfile[],
+  usageMonitor: Pick<UsageMonitorSource, 'readProvider'> = new UsageMonitorSource(),
+): ProviderQuotaProbe[] {
   // A disabled profile is only out of routing and failover; it is still signed
   // in, and its quota is what you check before re-enabling it. So it is probed
   // too (counted in the Claude cadence so it does not add polling), but its
@@ -110,9 +123,9 @@ export function buildAccountQuotaProbes(provider: PooledProvider, profiles: Prov
   for (const profile of derived) {
     try {
       const probe = provider === 'claude'
-        ? claudeProbeFor(profile, count)
+        ? claudeProbeFor(profile, count, usageMonitor)
         : new ThrottledAccountQuotaProbe(
-          new CodexAccountQuotaProbe(profile.id),
+          new CompositeQuotaProbe(new CodexAccountQuotaProbe(profile.id), usageMonitor),
           () => CODEX_ACCOUNT_PROBE_MIN_INTERVAL_MS,
           Date.now,
           !profile.enabled,
@@ -145,7 +158,7 @@ function registerAll(): void {
     } catch {
       profiles = [];
     }
-    const built = buildAccountQuotaProbes(provider, profiles);
+    const built = buildAccountQuotaProbes(provider, profiles, monitorSource);
     for (const probe of built) {
       service.registerProbe(probe);
     }
@@ -153,9 +166,13 @@ function registerAll(): void {
 }
 
 let unsubscribe: (() => void) | null = null;
+let monitorSource: Pick<UsageMonitorSource, 'readProvider'> | undefined;
 
 /** Register per-profile probes now and whenever the pools change. Idempotent. */
-export function registerAccountQuotaProbes(): void {
+export function registerAccountQuotaProbes(
+  source?: Pick<UsageMonitorSource, 'readProvider'>,
+): void {
+  if (source) monitorSource = source;
   registerAll();
   unsubscribe ??= onProviderAccountsChanged(registerAll);
 }
@@ -163,4 +180,5 @@ export function registerAccountQuotaProbes(): void {
 export function _resetAccountQuotaProbesForTesting(): void {
   unsubscribe?.();
   unsubscribe = null;
+  monitorSource = undefined;
 }

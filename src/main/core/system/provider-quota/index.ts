@@ -212,5 +212,5 @@ export function registerDefaultQuotaProbes(): void {
   service.registerProbe(new CompositeQuotaProbe(new CursorUsageSummaryProbe(), usageMonitor));
   service.registerProbe(new CompositeQuotaProbe(new GrokBillingProbe(), usageMonitor));
   // Claude/Codex account pools: one probe per non-legacy profile (D6/D7).
-  registerAccountQuotaProbes();
+  registerAccountQuotaProbes(usageMonitor);
 }

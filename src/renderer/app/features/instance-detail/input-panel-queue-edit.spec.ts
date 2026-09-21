@@ -143,6 +143,8 @@ class ComposerToolbarStubComponent {
   @Input() currentModel: string | undefined = undefined;
   @Input() currentReasoningEffort: unknown = undefined;
   @Input() instanceStatus = 'idle';
+  @Input() accountProfileId: string | undefined = undefined;
+  @Input() accountRoutingSource: string | undefined = undefined;
 }
 
 @Component({

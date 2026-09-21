@@ -7,8 +7,8 @@ function win(used: number): ProviderQuotaWindow {
   return { kind: 'rolling-window', id: 'x.w', label: 'w', unit: 'requests', used, limit: 100, remaining: 100 - used, resetsAt: null };
 }
 
-function nativeProbe(snap: ProviderQuotaSnapshot | null): ProviderQuotaProbe {
-  return { provider: 'codex', probe: async () => snap };
+function nativeProbe(snap: ProviderQuotaSnapshot | null, accountProfileId?: string): ProviderQuotaProbe {
+  return { provider: 'codex', accountProfileId, probe: async () => snap };
 }
 
 function fallback(snap: ProviderQuotaSnapshot | null) {
@@ -70,6 +70,33 @@ describe('CompositeQuotaProbe', () => {
     expect(snap).not.toBe(STATE_JSON);
     expect(snap!.windows).toEqual(STATE_JSON.windows);
     expect(snap!.needsReauth).toBe(true);
+    expect(snap!.error).toBe('token expired');
+  });
+
+  it('asks the monitor for the wrapped account profile, not the legacy provider key', async () => {
+    const calls: Array<[string, string | null | undefined]> = [];
+    const nativeReauth: ProviderQuotaSnapshot = {
+      provider: 'claude', takenAt: 1, source: 'admin-api', ok: false,
+      error: 'expired', needsReauth: true, windows: [],
+    };
+    const accountWindows: ProviderQuotaSnapshot = {
+      provider: 'claude', takenAt: 2, source: 'inferred', ok: true, windows: [win(20)],
+    };
+    const probe = new CompositeQuotaProbe(
+      { provider: 'claude', accountProfileId: 'max-b', probe: async () => nativeReauth },
+      {
+        readProvider: async (provider, accountProfileId) => {
+          calls.push([provider, accountProfileId]);
+          return accountWindows;
+        },
+      },
+    );
+    expect(probe.accountProfileId).toBe('max-b');
+    const snap = await probe.probe({ signal: signal() });
+    expect(calls).toEqual([['claude', 'max-b']]);
+    expect(snap!.windows).toEqual(accountWindows.windows);
+    expect(snap!.needsReauth).toBe(true);
+    expect(snap!.accountProfileId).toBe('max-b');
   });
 
   it('inherits the wrapped probe provider id', () => {
