@@ -16,7 +16,10 @@ import {
   type ModelDisplayInfo,
   type ProviderType,
 } from './provider.types';
-import { isKnownCatalogModelForProvider } from './provider-model-catalog-snapshot';
+import {
+  getPinnedCatalogModelId,
+  isKnownCatalogModelForProvider,
+} from './provider-model-catalog-snapshot';
 
 /**
  * Get available models for a given CLI provider.
@@ -157,6 +160,14 @@ export function normalizeModelAliasForProvider(
  */
 export function getPrimaryModelForProvider(provider: string): string | undefined {
   const normalizedProvider = normalizeProviderModelNamespace(provider);
+  // Grok's installed CLI is the source of truth for "current". Once `grok models`
+  // has pinned its `(default)` row into the live catalog, that id is the primary
+  // so a new release is what new sessions and retired-id repair spawn. Before
+  // discovery, the static list's first row remains the offline fallback.
+  if (normalizedProvider === 'grok') {
+    const liveDefault = getPinnedCatalogModelId(normalizedProvider);
+    if (liveDefault) return liveDefault;
+  }
   return getModelsForProvider(normalizedProvider)[0]?.id ?? getDefaultModelForCli(normalizedProvider);
 }
 

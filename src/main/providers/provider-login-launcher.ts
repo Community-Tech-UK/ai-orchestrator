@@ -11,6 +11,9 @@
  */
 
 import { execFile, spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { getLogger } from '../logging/logger';
 import {
   assertSafeCopilotProfileId,
@@ -71,6 +74,12 @@ const PROVIDER_ALIASES: Record<string, string> = {
 
 /** Only ever letters, digits, spaces and `-_.` — asserted before shell embedding. */
 const SAFE_COMMAND = /^[A-Za-z0-9 ._-]+$/;
+/**
+ * Email pinned onto `claude auth login --email`. The login page otherwise
+ * follows whichever Claude account the browser is already signed into.
+ * Reject anything this regex does not match rather than quoting it cleverly.
+ */
+const CLAUDE_LOGIN_EMAIL = /^[A-Za-z0-9._+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
 
 /**
  * Exact lowercase hostname. Mirrors `CopilotHostSchema` in the contracts
@@ -171,29 +180,89 @@ function assertEmbeddablePath(home: string, platform: NodeJS.Platform): string {
 }
 
 /**
+ * `claude auth login --email` fragment, or '' when the address is missing or
+ * not safe to embed. Callers quote the address; this function is the only
+ * place an email enters a sign-in command.
+ */
+export function claudeLoginEmailFlag(email: string | undefined, platform: NodeJS.Platform): string {
+  const trimmed = email?.trim() ?? '';
+  if (!CLAUDE_LOGIN_EMAIL.test(trimmed)) return '';
+  const quoted = platform === 'win32' ? `"${trimmed}"` : `'${trimmed}'`;
+  return ` --email ${quoted}`;
+}
+
+function claudeLoginHint(email: string | undefined): string {
+  const trimmed = email?.trim() ?? '';
+  if (CLAUDE_LOGIN_EMAIL.test(trimmed)) {
+    return `Sign in as ${trimmed}. If the browser is already signed into a different Claude account, switch to this one before approving. Harness never sees the token.`;
+  }
+  return 'Sign in with the Claude account this profile is for. Harness never sees the token.';
+}
+
+/** `oauthAccount.emailAddress` from a Claude config file, when it is a string. */
+export function readClaudeOauthEmail(claudeJsonPath: string): string | undefined {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(claudeJsonPath, 'utf8'));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
+    const account = (parsed as { oauthAccount?: { emailAddress?: unknown } }).oauthAccount;
+    const email = account?.emailAddress;
+    return typeof email === 'string' && email.trim() ? email.trim() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The email a Claude sign-in must target. The pool's verified identity wins.
+ * The legacy CLI home falls back to `~/.claude.json`, which is the account
+ * that home already belongs to.
+ */
+export function lookupClaudeLoginEmail(profileId: string): string | undefined {
+  try {
+    const expected = getProviderAccountStore()
+      .listProfiles('claude')
+      .find((entry) => entry.id === profileId)
+      ?.expectedIdentity
+      ?.trim();
+    if (expected) return expected;
+  } catch {
+    // Store unavailable during tests or early startup.
+  }
+  if (profileId !== 'legacy') return undefined;
+  return readClaudeOauthEmail(join(homedir(), '.claude.json'));
+}
+
+/**
  * `CLAUDE_CONFIG_DIR=<derived home> claude auth login` for one Claude account
  * profile, after seeding the home. The legacy profile signs in to `~/.claude`
- * with the plain command.
+ * with `CLAUDE_CONFIG_DIR` cleared, so a shell that has the variable set cannot
+ * write the login into a pooled profile. `--email` pins the browser login to
+ * that home's account when we know it.
  */
 export function buildClaudeProfileLoginCommand(
   profileId: string,
   platform: NodeJS.Platform = process.platform,
   continuation: 'shared-store' | 'replay' = 'shared-store',
+  email?: string,
 ): ProviderLoginCommand {
   assertSafeAccountProfileId(profileId);
   const resolved = resolveAccountProfileHome({ provider: 'claude', profileId });
+  const emailFlag = claudeLoginEmailFlag(email, platform);
   if (resolved.kind === 'legacy') {
-    return { provider: 'claude', command: 'claude auth login' };
+    const command = platform === 'win32'
+      ? `set "CLAUDE_CONFIG_DIR=" & claude auth login${emailFlag}`
+      : `env -u CLAUDE_CONFIG_DIR claude auth login${emailFlag}`;
+    return { provider: 'claude', command, hint: claudeLoginHint(email) };
   }
   const quoted = assertEmbeddablePath(resolved.home, platform);
   seedClaudeProfileHome(resolved.home, { continuation });
   const command = platform === 'win32'
-    ? `set "CLAUDE_CONFIG_DIR=${resolved.home}" && claude auth login`
-    : `CLAUDE_CONFIG_DIR=${quoted} claude auth login`;
+    ? `set "CLAUDE_CONFIG_DIR=${resolved.home}" && claude auth login${emailFlag}`
+    : `CLAUDE_CONFIG_DIR=${quoted} claude auth login${emailFlag}`;
   return {
     provider: 'claude',
     command,
-    hint: 'Sign in with the Claude account this profile is for. Harness never sees the token.',
+    hint: claudeLoginHint(email),
   };
 }
 
@@ -241,7 +310,12 @@ export function buildAccountProfileLoginCommand(
     } catch {
       continuation = 'shared-store';
     }
-    return buildClaudeProfileLoginCommand(request.profileId, platform, continuation);
+    return buildClaudeProfileLoginCommand(
+      request.profileId,
+      platform,
+      continuation,
+      lookupClaudeLoginEmail(request.profileId),
+    );
   }
   return buildCodexProfileLoginCommand(request.profileId, platform);
 }
@@ -351,18 +425,25 @@ export async function launchProviderLogin(
   // A Copilot or Claude/Codex account-profile sign-in is built here rather than
   // looked up, because it has to carry that profile's derived home. Everything
   // caller-supplied (the profile ID, the host) is validated before it becomes a command.
+  const canonical = PROVIDER_ALIASES[provider] ?? provider;
+  // Doctor "Sign in" for Claude is the legacy CLI home, not whichever account
+  // the browser session happens to be. Build that command here so it clears
+  // CLAUDE_CONFIG_DIR and pins --email; the fixed table cannot carry either.
+  const legacyClaude = !copilotProfile && !accountProfile && canonical === 'claude';
   const login = copilotProfile
     ? buildCopilotProfileLoginCommand(copilotProfile)
     : accountProfile
       ? buildAccountProfileLoginCommand(accountProfile)
-      : getProviderLoginCommand(provider);
+      : legacyClaude
+        ? buildClaudeProfileLoginCommand('legacy', process.platform, 'shared-store', lookupClaudeLoginEmail('legacy'))
+        : getProviderLoginCommand(provider);
   if (!login) {
     throw new Error(`No known sign-in command for provider "${provider}".`);
   }
   // The Copilot profile command legitimately carries quotes and `=` from the
   // audited quoting helper, so it is exempt from the fixed-table character
   // allowlist — its own inputs were validated above.
-  if (!copilotProfile && !accountProfile && !SAFE_COMMAND.test(login.command)) {
+  if (!copilotProfile && !accountProfile && !legacyClaude && !SAFE_COMMAND.test(login.command)) {
     // Unreachable with the table above; guards future edits from smuggling
     // shell metacharacters into the AppleScript/cmd wrappers.
     throw new Error(`Refusing to run an unsafe login command for "${provider}".`);

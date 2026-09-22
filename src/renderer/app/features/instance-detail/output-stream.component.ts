@@ -51,10 +51,7 @@ import { InstanceStore } from '../../core/state/instance/instance.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { MessageFormatService } from './message-format.service';
 import { OutputScrollService } from './output-scroll.service';
-import {
-  CLIPBOARD_SERVICE,
-  type ClipboardMessageAttachment,
-} from '../../core/services/clipboard.service';
+import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import type { LinkKind } from '../../../../shared/utils/link-detection';
 import { shouldCollapseUserMessage, toggleExpandedId } from './output-stream-message-collapse';
@@ -70,6 +67,7 @@ import {
 import type { RenderedDisplayItem, LinkedFileTarget } from './output-stream.types';
 import { MarkdownRenderCache } from './output-stream-markdown-cache';
 import {
+  buildClipboardMessagePayload,
   buildLinkedFileTarget as createLinkedFileTarget,
   getSystemFileManagerLabel,
 } from './output-stream.utils';
@@ -982,37 +980,19 @@ export class OutputStreamComponent {
    * Copy message content to clipboard.
    *
    * If the message has attachments, copies them alongside the text. Images
-   * keep the native image clipboard representation; every data-backed
-   * attachment is also represented in plain text and rich HTML.
+   * keep the native image clipboard representation and appear inline in rich
+   * HTML; other data-backed attachments are listed in plain text and HTML.
    */
   async copyMessageContent(
     content: string,
     messageId: string,
     attachments?: FileAttachment[],
   ): Promise<void> {
-    const copyableAttachments = (attachments ?? []).filter(
-      (a) => typeof a.data === 'string' && a.data.startsWith('data:'),
-    );
-    const imageAttachments = copyableAttachments.filter(
-      (a) => a.type.startsWith('image/'),
-    );
-    const clipboardAttachments: ClipboardMessageAttachment[] = copyableAttachments.map(
-      (attachment) => ({
-        name: attachment.name,
-        type: attachment.type,
-        size: attachment.size,
-        dataUrl: attachment.data,
-      }),
-    );
-
-    if (!content && clipboardAttachments.length === 0) return;
+    const payload = buildClipboardMessagePayload(content, attachments);
+    if (!payload) return;
 
     const result = await this.clipboard.copyMessage(
-      {
-        text: content,
-        images: imageAttachments.map((a) => ({ dataUrl: a.data, name: a.name })),
-        attachments: clipboardAttachments,
-      },
+      payload,
       { silent: true, label: 'message' },
     );
 

@@ -434,6 +434,7 @@ describe('DropZoneComponent', () => {
               getAsFile: () => imageFile,
             },
           ],
+          getData: () => '',
         },
       } as unknown as ClipboardEvent;
 
@@ -457,6 +458,7 @@ describe('DropZoneComponent', () => {
           items: [
             { type: 'text/plain', getAsFile: () => null },
           ],
+          getData: () => 'plain text',
         },
       } as unknown as ClipboardEvent;
 
@@ -464,6 +466,54 @@ describe('DropZoneComponent', () => {
 
       expect(emit).not.toHaveBeenCalled();
       expect(event.preventDefault).not.toHaveBeenCalled();
+    });
+
+    it('lets the text through when a copied message carries text and an image', () => {
+      // Regression: copying a chat message with an image puts text, HTML and
+      // the image on the clipboard. Pasting it used to attach the image and
+      // cancel the paste, silently dropping the message text.
+      const emit = vi.spyOn(component.imagesPasted, 'emit');
+      const imageFile = makeFile('image.png', 'image/png');
+
+      const event = {
+        preventDefault: vi.fn(),
+        clipboardData: {
+          items: [
+            { type: 'text/plain', getAsFile: () => null },
+            { type: 'text/html', getAsFile: () => null },
+            { type: 'image/png', getAsFile: () => imageFile },
+          ],
+          getData: (format: string) =>
+            format === 'text/plain' ? 'Oh wow, this is ugly and needs the UX fixing please.' : '',
+        },
+      } as unknown as ClipboardEvent;
+
+      component.onPaste(event);
+
+      expect(event.preventDefault).not.toHaveBeenCalled();
+      expect(emit).toHaveBeenCalledTimes(1);
+      expect(emit.mock.calls[0][0][0].type).toBe('image/png');
+    });
+
+    it('suppresses the filename text when an image file is copied from Finder', () => {
+      const emit = vi.spyOn(component.imagesPasted, 'emit');
+      const imageFile = makeFile('Screenshot 2026-09-22.png', 'image/png');
+
+      const event = {
+        preventDefault: vi.fn(),
+        clipboardData: {
+          items: [
+            { type: 'text/plain', getAsFile: () => null },
+            { type: 'image/png', getAsFile: () => imageFile },
+          ],
+          getData: (format: string) => (format === 'text/plain' ? 'Screenshot 2026-09-22.png' : ''),
+        },
+      } as unknown as ClipboardEvent;
+
+      component.onPaste(event);
+
+      expect(event.preventDefault).toHaveBeenCalled();
+      expect(emit).toHaveBeenCalledTimes(1);
     });
 
     it('handles clipboard with no items gracefully', () => {

@@ -36,6 +36,10 @@ import {
   buildShadowRecommendation,
   INSTALL_COMMANDS,
 } from './provider-doctor-repair';
+import {
+  buildClaudeProfileLoginCommand,
+  lookupClaudeLoginEmail,
+} from './provider-login-launcher';
 import { buildRuntimeLogBundle } from './provider-doctor-log-bundle';
 import { redactValue } from '../diagnostics/redaction';
 
@@ -551,8 +555,14 @@ export class ProviderDoctor {
         }
         case 'authenticated':
           if (provider === 'claude-cli') {
+            const login = buildClaudeProfileLoginCommand(
+              'legacy',
+              process.platform,
+              'shared-store',
+              lookupClaudeLoginEmail('legacy'),
+            );
             recs.push(
-              'Authentication missing. Run `claude auth login` to sign in, then retry diagnostics. If the CLI still looks unhealthy, run `claude doctor` in a trusted terminal.'
+              `Authentication missing. Run \`${login.command}\` to sign in, then retry diagnostics. If the CLI still looks unhealthy, run \`claude doctor\` in a trusted terminal.`,
             );
           } else if (provider === 'codex-cli') {
             recs.push(

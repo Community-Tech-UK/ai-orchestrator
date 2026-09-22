@@ -3,6 +3,8 @@
  * None of these touch component state or Angular signals.
  */
 
+import type { FileAttachment } from '../../../../shared/types/instance.types';
+import type { ClipboardMessagePayload } from '../../core/services/clipboard.service';
 import type { LinkedFileTarget } from './output-stream.types';
 
 export interface BuildLinkedFileTargetOptions {
@@ -133,4 +135,30 @@ export function getSystemFileManagerLabel(): string {
     return 'Files';
   }
   return 'Finder';
+}
+
+/**
+ * Build the clipboard payload for a chat message's copy button. Images go in
+ * `images` only (native image + inline HTML). Listing them in `attachments`
+ * as well would add an "Attachments:" block to the plain text, which is
+ * what gets pasted back into the composer. Returns null when there is
+ * nothing to copy.
+ */
+export function buildClipboardMessagePayload(
+  content: string,
+  attachments?: FileAttachment[],
+): ClipboardMessagePayload | null {
+  const copyable = (attachments ?? []).filter(
+    (a) => typeof a.data === 'string' && a.data.startsWith('data:'),
+  );
+  if (!content && copyable.length === 0) return null;
+
+  const isImage = (a: FileAttachment): boolean => a.type.startsWith('image/');
+  return {
+    text: content,
+    images: copyable.filter(isImage).map((a) => ({ dataUrl: a.data, name: a.name })),
+    attachments: copyable
+      .filter((a) => !isImage(a))
+      .map((a) => ({ name: a.name, type: a.type, size: a.size, dataUrl: a.data })),
+  };
 }

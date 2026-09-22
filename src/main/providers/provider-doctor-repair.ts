@@ -5,6 +5,10 @@ import {
 } from '../cli/cli-install-mirrors';
 import { CLI_REGISTRY, type CliRegistryEntry } from '../cli/cli-registry';
 import type { ProviderProbeErrorKind, RepairAction } from '../../shared/types/provider-doctor.types';
+import {
+  buildClaudeProfileLoginCommand,
+  lookupClaudeLoginEmail,
+} from './provider-login-launcher';
 
 interface ProbeForRepair {
   name: string;
@@ -171,13 +175,19 @@ export function buildRepairActions(diagnosis: DiagnosisForRepair): RepairAction[
 
       case 'auth_missing':
       case 'auth_expired': {
-        const loginCmd = LOGIN_COMMANDS[provider] ?? '# re-run the provider login command';
+        const claudeLogin = provider === 'claude-cli'
+          ? buildClaudeProfileLoginCommand('legacy', process.platform, 'shared-store', lookupClaudeLoginEmail('legacy'))
+          : null;
+        const loginCmd = claudeLogin?.command
+          ?? LOGIN_COMMANDS[provider]
+          ?? '# re-run the provider login command';
         actions.push({
           kind,
           command: loginCmd,
-          description: kind === 'auth_missing'
-            ? `Authenticate the ${provider} CLI so it can communicate with the provider.`
-            : `Credentials for ${provider} are expired or invalid — re-authenticate.`,
+          description: claudeLogin?.hint
+            ?? (kind === 'auth_missing'
+              ? `Authenticate the ${provider} CLI so it can communicate with the provider.`
+              : `Credentials for ${provider} are expired or invalid — re-authenticate.`),
           severity: 'critical',
         });
         break;

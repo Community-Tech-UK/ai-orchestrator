@@ -1,9 +1,13 @@
 export interface KnownProviderModelId {
   provider: string;
   id: string;
+  /** Set when the live catalog marked this id as the provider's current default. */
+  pinned?: boolean;
 }
 
 let knownModelCatalogIdsByProvider = new Map<string, Set<string>>();
+/** First pinned id per provider. Grok uses this as the live primary. */
+let pinnedModelIdByProvider = new Map<string, string>();
 
 /**
  * Replace the process-local live catalog snapshot used by synchronous model
@@ -14,12 +18,14 @@ export function replaceKnownModelCatalogSnapshot(
   entries: Iterable<KnownProviderModelId>,
 ): void {
   const next = new Map<string, Set<string>>();
+  const pinned = new Map<string, string>();
 
   for (const entry of entries) {
-    addKnownModelId(next, entry);
+    addKnownModelId(next, pinned, entry);
   }
 
   knownModelCatalogIdsByProvider = next;
+  pinnedModelIdByProvider = pinned;
 }
 
 export function mergeKnownModelCatalogSnapshot(
@@ -30,16 +36,25 @@ export function mergeKnownModelCatalogSnapshot(
       ([provider, ids]) => [provider, new Set(ids)] as const,
     ),
   );
+  const pinned = new Map(pinnedModelIdByProvider);
 
   for (const entry of entries) {
-    addKnownModelId(next, entry);
+    addKnownModelId(next, pinned, entry);
   }
 
   knownModelCatalogIdsByProvider = next;
+  pinnedModelIdByProvider = pinned;
 }
 
 export function clearKnownModelCatalogSnapshotForTesting(): void {
   knownModelCatalogIdsByProvider = new Map<string, Set<string>>();
+  pinnedModelIdByProvider = new Map<string, string>();
+}
+
+/** Live catalog's pinned id for a provider, when discovery marked one. */
+export function getPinnedCatalogModelId(provider: string): string | undefined {
+  const normalizedProvider = normalizeProviderModelNamespace(provider);
+  return pinnedModelIdByProvider.get(normalizedProvider);
 }
 
 export function getKnownCatalogModelIdsForProvider(provider: string): string[] {
@@ -59,6 +74,7 @@ export function isKnownCatalogModelForProvider(
 
 function addKnownModelId(
   target: Map<string, Set<string>>,
+  pinned: Map<string, string>,
   entry: KnownProviderModelId,
 ): void {
   const provider = normalizeProviderModelNamespace(entry.provider);
@@ -67,6 +83,10 @@ function addKnownModelId(
   const ids = target.get(provider) ?? new Set<string>();
   ids.add(id);
   target.set(provider, ids);
+  // First pin wins. Grok discovery pins exactly the CLI `(default)` row.
+  if (entry.pinned === true && !pinned.has(provider)) {
+    pinned.set(provider, id);
+  }
 }
 
 function normalizeProviderModelNamespace(provider: string): string {

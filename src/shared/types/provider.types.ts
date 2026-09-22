@@ -11,6 +11,7 @@ export { getProviderModelContextWindow };
 export {
   clearKnownModelCatalogSnapshotForTesting,
   getKnownCatalogModelIdsForProvider,
+  getPinnedCatalogModelId,
   mergeKnownModelCatalogSnapshot,
   replaceKnownModelCatalogSnapshot,
   type KnownProviderModelId,

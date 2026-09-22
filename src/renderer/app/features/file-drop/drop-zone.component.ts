@@ -337,11 +337,13 @@ export class DropZoneComponent {
     if (!items) return;
 
     const imageFiles: File[] = [];
+    const sourceNames = new Set<string>();
 
     for (const item of Array.from(items)) {
       if (item.type.startsWith('image/')) {
         const file = item.getAsFile();
         if (file) {
+          sourceNames.add(file.name);
           // Create a named file from the blob with a short, friendly name
           const ext = file.type.split('/')[1] || 'png';
           const namedFile = new File(
@@ -354,9 +356,15 @@ export class DropZoneComponent {
       }
     }
 
-    if (imageFiles.length > 0) {
+    if (imageFiles.length === 0) return;
+
+    // A copied chat message carries its text alongside the image. Let the
+    // browser's default paste insert that text; only suppress it when there
+    // is none, or when it is just the filename of a file copied in Finder.
+    const text = event.clipboardData?.getData('text/plain')?.trim() ?? '';
+    if (!text || sourceNames.has(text)) {
       event.preventDefault();
-      this.imagesPasted.emit(imageFiles);
     }
+    this.imagesPasted.emit(imageFiles);
   }
 }

@@ -390,6 +390,16 @@ describe('catalog-backed model normalization', () => {
     expect(normalizeModelForProvider('grok', 'auto')).toBe('auto');
   });
 
+  it('follows the live Grok CLI default once discovery has pinned one', () => {
+    replaceKnownModelCatalogSnapshot([
+      { provider: 'grok', id: 'grok-4.8', pinned: true },
+      { provider: 'grok', id: GROK_MODELS.GROK_47 },
+    ]);
+
+    expect(getPrimaryModelForProvider('grok')).toBe('grok-4.8');
+    expect(normalizeModelForProvider('grok', GROK_MODELS.GROK_45)).toBe('grok-4.8');
+  });
+
   it('degrades overlong dynamic model IDs before they reach runtime boundaries', () => {
     const maxLengthCodexModel = `gpt-${'a'.repeat(MAX_MODEL_ID_LENGTH - 4)}`;
     const tooLongCodexModel = `${maxLengthCodexModel}a`;

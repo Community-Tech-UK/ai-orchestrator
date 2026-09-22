@@ -85,6 +85,12 @@ export interface UnifiedModelEntry {
    * Sourced from models.dev or static model-discovery catalog.
    */
   maxOutputTokens?: number;
+  /**
+   * True when a live source marked this row as the current default.
+   * The Grok picker treats a discovered pin as authoritative, so a new
+   * `grok models` default lands in Latest without a static-catalog edit.
+   */
+  pinned?: boolean;
   /** Highest-precedence source that contributed this entry. */
   source: CatalogSource;
   /** True when the entry came from the user's provider-specific custom list. */

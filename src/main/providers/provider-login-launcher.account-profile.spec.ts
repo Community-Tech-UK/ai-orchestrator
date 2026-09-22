@@ -22,7 +22,9 @@ vi.mock('../cli/adapters/adapter-spawn-helpers', async () => {
 import {
   buildClaudeProfileLoginCommand,
   buildCodexProfileLoginCommand,
+  claudeLoginEmailFlag,
   copyAccountProfileLoginCommand,
+  readClaudeOauthEmail,
 } from './provider-login-launcher';
 
 // Pure builders only: nothing here opens a terminal.
@@ -44,9 +46,35 @@ describe('account-profile login commands', () => {
       .toBe(`set "CLAUDE_CONFIG_DIR=${home}" && claude auth login`);
   });
 
-  it('uses the plain command for the legacy profile', () => {
-    expect(buildClaudeProfileLoginCommand('legacy', 'darwin').command).toBe('claude auth login');
+  it('clears CLAUDE_CONFIG_DIR for the legacy profile so login cannot land in a pool home', () => {
+    expect(buildClaudeProfileLoginCommand('legacy', 'darwin').command).toBe('env -u CLAUDE_CONFIG_DIR claude auth login');
+    expect(buildClaudeProfileLoginCommand('legacy', 'win32').command).toBe('set "CLAUDE_CONFIG_DIR=" & claude auth login');
     expect(buildCodexProfileLoginCommand('legacy', 'darwin').command).toBe('codex login');
+  });
+
+  it('pins --email so the browser login cannot follow a different Claude account', () => {
+    const login = buildClaudeProfileLoginCommand('legacy', 'darwin', 'shared-store', 'a@example.com');
+    expect(login.command).toBe("env -u CLAUDE_CONFIG_DIR claude auth login --email 'a@example.com'");
+    expect(login.hint).toContain('a@example.com');
+
+    const derived = buildClaudeProfileLoginCommand('max-b', 'darwin', 'replay', 'b@example.com');
+    const home = realpathSync(join(stateRoot.current, 'claude-cli-profiles', 'max-b'));
+    expect(derived.command).toBe(`CLAUDE_CONFIG_DIR='${home}' claude auth login --email 'b@example.com'`);
+    expect(buildClaudeProfileLoginCommand('max-b', 'win32', 'replay', 'b@example.com').command)
+      .toBe(`set "CLAUDE_CONFIG_DIR=${home}" && claude auth login --email "b@example.com"`);
+  });
+
+  it('drops an email that is not safe to embed', () => {
+    expect(claudeLoginEmailFlag("a@example.com'; touch /tmp/x", 'darwin')).toBe('');
+    expect(buildClaudeProfileLoginCommand('legacy', 'darwin', 'shared-store', 'not-an-email').command)
+      .toBe('env -u CLAUDE_CONFIG_DIR claude auth login');
+  });
+
+  it('reads only the oauth account email from a Claude config file', () => {
+    const path = join(stateRoot.current, '.claude.json');
+    writeFileSync(path, JSON.stringify({ oauthAccount: { emailAddress: 'owner@example.com', accessToken: 'secret' } }));
+    expect(readClaudeOauthEmail(path)).toBe('owner@example.com');
+    expect(readClaudeOauthEmail(join(stateRoot.current, 'missing.json'))).toBeUndefined();
   });
 
   it('builds a device-auth Codex login into a seeded fresh home', () => {

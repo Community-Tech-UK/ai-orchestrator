@@ -160,34 +160,36 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
                 (click)="selectRow(row)"
               >
                 <span class="model-picker-row__body">
-                  <span class="model-picker-row__name">{{ row.model.name }}</span>
-                  <span class="model-picker-row__meta">
-                    <span
-                      class="model-picker-provider-mark model-picker-provider-mark--small"
-                      [style.color]="row.providerColor"
-                      aria-hidden="true"
-                    >
-                      <svg viewBox="0 0 24 24">
-                        <path [attr.d]="providerIconPath(row.provider)"></path>
-                      </svg>
-                    </span>
-                    <span class="model-picker-row__provider">{{ row.providerLabel }}</span>
-                    @if (row.model.localModel) {
-                      <span class="model-picker-row__badge" [class.model-picker-row__badge--warn]="!row.model.localModel.healthy">
-                        {{ row.model.localModel.healthy ? 'Healthy' : 'Unavailable' }}
+                  <span class="model-picker-row__identity">
+                    <span class="model-picker-row__name">{{ row.model.name }}</span>
+                    <span class="model-picker-row__meta">
+                      <span
+                        class="model-picker-provider-mark model-picker-provider-mark--small"
+                        [style.color]="row.providerColor"
+                        aria-hidden="true"
+                      >
+                        <svg viewBox="0 0 24 24">
+                          <path [attr.d]="providerIconPath(row.provider)"></path>
+                        </svg>
                       </span>
-                      @if (row.model.localModel.loaded) {
-                        <span class="model-picker-row__badge model-picker-row__badge--loaded" [attr.title]="loadedContextTitle(row)">Loaded</span>
+                      <span class="model-picker-row__provider">{{ row.providerLabel }}</span>
+                      @if (row.model.localModel) {
+                        <span class="model-picker-row__badge" [class.model-picker-row__badge--warn]="!row.model.localModel.healthy">
+                          {{ row.model.localModel.healthy ? 'Healthy' : 'Unavailable' }}
+                        </span>
+                        @if (row.model.localModel.loaded) {
+                          <span class="model-picker-row__badge model-picker-row__badge--loaded" [attr.title]="loadedContextTitle(row)">Loaded</span>
+                        }
                       }
+                    </span>
+                    @if (row.model.localModel) {
+                      <span class="model-picker-row__chips" aria-label="Local model capabilities">
+                        @if (row.model.localModel.capabilities.multiTurn) { <span class="model-picker-row__chip">Chat</span> }
+                        @if (row.model.localModel.capabilities.toolUse !== 'none') { <span class="model-picker-row__chip">Tools</span> }
+                        @else { <span class="model-picker-row__chip model-picker-row__chip--muted">No tools</span> }
+                      </span>
                     }
                   </span>
-                  @if (row.model.localModel) {
-                    <span class="model-picker-row__chips" aria-label="Local model capabilities">
-                      @if (row.model.localModel.capabilities.multiTurn) { <span class="model-picker-row__chip">Chat</span> }
-                      @if (row.model.localModel.capabilities.toolUse !== 'none') { <span class="model-picker-row__chip">Tools</span> }
-                      @else { <span class="model-picker-row__chip model-picker-row__chip--muted">No tools</span> }
-                    </span>
-                  }
                 </span>
               </button>
 
@@ -321,10 +323,11 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
     }
 
     .model-picker-provider-mark--small {
-      width: 16px;
-      height: 16px;
+      width: 12px;
+      height: 12px;
       font-size: 10px;
       opacity: 0.92;
+      flex: 0 0 auto;
     }
 
     .model-picker-main {
@@ -410,12 +413,12 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
 
     .model-picker-row {
       display: grid;
-      grid-template-columns: 38px minmax(0, 1fr) auto;
+      grid-template-columns: 28px minmax(0, 1fr) auto;
       align-items: center;
-      min-height: 58px;
-      margin-bottom: 6px;
+      min-height: 32px;
+      margin-bottom: 2px;
       border: 1px solid transparent;
-      border-radius: 8px;
+      border-radius: 6px;
       background: color-mix(in srgb, var(--bg-elevated, #242424) 62%, transparent);
       color: var(--text-primary, #f4f4f5);
       cursor: pointer;
@@ -442,11 +445,11 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 30px;
-      height: 30px;
-      margin-left: 6px;
+      width: 22px;
+      height: 22px;
+      margin-left: 3px;
       border: 0;
-      border-radius: 8px;
+      border-radius: 5px;
       background: transparent;
       /* Grey outline when not favourited; gold fill (via .active) when it is. */
       color: var(--text-muted, #8f8f96);
@@ -460,8 +463,8 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
     }
 
     .model-picker-row__favorite svg {
-      width: 18px;
-      height: 18px;
+      width: 13px;
+      height: 13px;
       fill: none;
       stroke: currentColor;
       stroke-width: 1.75;
@@ -491,18 +494,28 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
 
     .model-picker-row__body {
       min-width: 0;
-      display: grid;
-      gap: 4px;
-      padding: 9px 8px 9px 0;
+      display: flex;
+      align-items: center;
+      padding: 3px 6px 3px 0;
+    }
+
+    .model-picker-row__identity {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 6px 8px;
+      flex-wrap: wrap;
     }
 
     .model-picker-row__name {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      font-size: 14px;
-      font-weight: 700;
-      line-height: 1.3;
+      min-width: 0;
+      flex: 0 1 auto;
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.2;
       color: var(--text-primary, #f4f4f5);
     }
 
@@ -510,10 +523,12 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
       display: inline-flex;
       min-width: 0;
       align-items: center;
-      gap: 6px;
-      flex-wrap: wrap;
+      gap: 4px;
+      flex: 0 0 auto;
+      flex-wrap: nowrap;
       color: var(--text-muted, #9ca3af);
-      font-size: 12px;
+      font-size: 11px;
+      line-height: 1;
     }
 
     .model-picker-row__provider {
@@ -523,13 +538,13 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
     }
 
     .model-picker-row__badge,
-    .model-picker-row__chip { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border: 1px solid color-mix(in srgb, var(--success-border, rgba(34,197,94,0.42)) 75%, transparent); border-radius: 999px; color: var(--success-text, #86efac); background: color-mix(in srgb, var(--success-bg, rgba(34,197,94,0.14)) 72%, transparent); font-size: 10px; font-weight: 700; line-height: 1; white-space: nowrap; }
+    .model-picker-row__chip { display: inline-flex; align-items: center; height: 16px; padding: 0 5px; border: 1px solid color-mix(in srgb, var(--success-border, rgba(34,197,94,0.42)) 75%, transparent); border-radius: 999px; color: var(--success-text, #86efac); background: color-mix(in srgb, var(--success-bg, rgba(34,197,94,0.14)) 72%, transparent); font-size: 10px; font-weight: 700; line-height: 1; white-space: nowrap; }
 
     .model-picker-row__badge--warn { border-color: color-mix(in srgb, var(--warning-border, rgba(251,191,36,0.46)) 75%, transparent); color: var(--warning-text, #fbbf24); background: color-mix(in srgb, var(--warning-bg, rgba(251,191,36,0.14)) 72%, transparent); }
 
     .model-picker-row__badge--loaded { border-color: color-mix(in srgb, var(--primary-color, #14b8a6) 50%, transparent); color: color-mix(in srgb, var(--primary-color, #14b8a6) 70%, white); background: color-mix(in srgb, var(--primary-color, #14b8a6) 14%, transparent); }
 
-    .model-picker-row__chips { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .model-picker-row__chips { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 
     .model-picker-row__chip { border-color: color-mix(in srgb, var(--border-light, rgba(255,255,255,0.22)) 80%, transparent); color: var(--text-secondary, #c4c4c9); background: color-mix(in srgb, var(--bg-primary, #111) 42%, transparent); }
 
@@ -539,9 +554,9 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
       display: inline-flex;
       align-items: center;
       justify-content: flex-end;
-      gap: 8px;
+      gap: 6px;
       min-width: 0;
-      padding-right: 10px;
+      padding-right: 6px;
     }
 
     .model-picker-row__reasoning-label {
@@ -566,9 +581,9 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
     .model-picker-row__reasoning {
       appearance: none;
       flex: 0 0 auto;
-      width: 160px;
-      height: 26px;
-      padding: 0 24px 0 10px;
+      width: 148px;
+      height: 22px;
+      padding: 0 20px 0 8px;
       border: 1px solid var(--border-color, rgba(255,255,255,0.16));
       border-radius: 6px;
       background-color: var(--bg-elevated, #242424);
@@ -578,7 +593,7 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
       background-size: 10px;
       color: var(--text-secondary, #c4c4c9);
       font: inherit;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
       line-height: 1;
       outline: none;
@@ -604,13 +619,13 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      height: 26px;
-      min-width: 28px;
-      padding: 0 8px;
-      border-radius: 6px;
+      height: 22px;
+      min-width: 24px;
+      padding: 0 6px;
+      border-radius: 5px;
       background: color-mix(in srgb, var(--bg-primary, #111) 60%, transparent);
       color: var(--text-muted, #9ca3af);
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 700;
       letter-spacing: 0.01em;
     }
@@ -633,7 +648,7 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
       }
 
       .model-picker-row {
-        grid-template-columns: 34px minmax(0, 1fr) auto;
+        grid-template-columns: 26px minmax(0, 1fr) auto;
       }
 
       .model-picker-row__shortcut {

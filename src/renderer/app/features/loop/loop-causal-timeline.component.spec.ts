@@ -19,12 +19,14 @@ await resolveComponentResources(() => Promise.resolve(''));
   template: `
     <app-loop-causal-timeline
       [timeline]="timeline()"
+      [showSpend]="showSpend()"
       (recoveryChosen)="chosen.push($event)"
     />
   `,
 })
 class HostComponent {
   readonly timeline = signal<LoopTimeline | null>(null);
+  readonly showSpend = signal(true);
   readonly chosen: string[] = [];
 }
 
@@ -110,6 +112,13 @@ describe('LoopCausalTimelineComponent (B5)', () => {
     const spend = fixture.nativeElement.querySelector('.loop-timeline__spend') as HTMLElement;
     expect(spend.textContent).toContain('$2.50');
     expect(spend.textContent).toContain('of $20.00');
+  });
+
+  it('omits the spend meter when the host turns it off', () => {
+    fixture.componentInstance.showSpend.set(false);
+    seed('running', { spentCents: 250 });
+    expect(fixture.nativeElement.querySelector('.loop-timeline__spend')).toBeNull();
+    expect(steps()).toHaveLength(4);
   });
 
   it('omits the cap when the run is uncapped', () => {

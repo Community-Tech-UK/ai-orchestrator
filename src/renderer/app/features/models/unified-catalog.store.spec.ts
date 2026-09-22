@@ -8,6 +8,8 @@ vi.mock('../../../../shared/types/provider.types', async (importOriginal) => ({
   getModelsForProvider: (provider: string) =>
     provider === 'claude'
       ? [{ id: 'opus', name: 'Opus Curated', tier: 'powerful', pinned: true, family: 'Opus' }]
+      : provider === 'grok'
+        ? [{ id: 'grok-4.7', name: 'Grok 4.7 curated', tier: 'powerful', pinned: true, family: 'Grok' }]
       : provider === 'local-model'
         ? [{ id: 'lm://worker-node/node-win/ollama/ollama/qwen', name: 'Wrong Curated', tier: 'powerful' }]
       : [],
@@ -120,6 +122,37 @@ describe('UnifiedCatalogStore', () => {
       { id: 'opus', name: 'Opus Curated', tier: 'powerful', pinned: true, family: 'Opus' },
       // 'haiku' is not curated → humanized id as the name; tier from the catalog.
       { id: 'haiku', name: 'haiku', tier: 'fast' },
+    ]);
+  });
+
+  it('pins a newly discovered Grok default and does not keep a stale static pin', async () => {
+    ipc = makeIpc([
+      entry({
+        id: 'grok-4.8',
+        provider: 'grok',
+        name: 'Grok 4.8',
+        source: 'cli-discovered',
+        tier: 'powerful',
+        family: 'Grok',
+        pinned: true,
+      }),
+      entry({
+        id: 'grok-4.7',
+        provider: 'grok',
+        name: 'Grok 4.7',
+        source: 'cli-discovered',
+        tier: 'powerful',
+        family: 'Grok',
+      }),
+    ]);
+    const store = setup();
+
+    await store.refresh();
+
+    expect(store.displayModelsForProvider('grok')).toEqual([
+      { id: 'grok-4.8', name: 'Grok 4.8', tier: 'powerful', family: 'Grok', pinned: true },
+      // Static list still pins 4.7, but the live CLI default owns Latest.
+      { id: 'grok-4.7', name: 'Grok 4.7 curated', tier: 'powerful', family: 'Grok' },
     ]);
   });
 

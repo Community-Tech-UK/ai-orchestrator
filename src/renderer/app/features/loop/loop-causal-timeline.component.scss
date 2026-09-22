@@ -1,31 +1,35 @@
 .loop-timeline {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   font-size: 11px;
 }
 
 .loop-timeline__steps {
   display: grid;
-  gap: 4px;
-  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  /* Four across when there is room, two-by-two in a narrow pane; never a
+     fixed four columns that squeezes each label onto three lines. */
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
 .loop-timeline__step {
-  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.12));
-  border-radius: 4px;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 6px 8px;
+  gap: 1px;
+  min-width: 0;
+  padding: 6px 10px;
 }
 
 .loop-timeline__step-label { font-weight: 600; }
-.loop-timeline__step-state { opacity: 0.65; }
-.loop-timeline__step-detail { line-height: 1.45; opacity: 0.85; }
+.loop-timeline__step-state { font-size: 10px; opacity: 0.6; }
+.loop-timeline__step-detail { line-height: 1.45; opacity: 0.85; overflow-wrap: anywhere; }
 
 /* Tint reinforces the state word; it never carries the state alone. */
 .loop-timeline__step[data-state='blocked'] {
@@ -33,12 +37,16 @@
   background: rgba(247, 140, 124, 0.1);
 }
 .loop-timeline__step[data-state='active'] {
-  border-color: rgba(110, 168, 254, 0.5);
+  border-color: rgba(110, 168, 254, 0.55);
+  background: rgba(110, 168, 254, 0.1);
 }
-.loop-timeline__step[data-state='skipped'] { opacity: 0.55; }
+.loop-timeline__step[data-state='active'] .loop-timeline__step-state { color: #8fb8ff; opacity: 1; }
+.loop-timeline__step[data-state='done'] .loop-timeline__step-state { color: #8edc8e; opacity: 1; }
+.loop-timeline__step[data-state='pending'] { opacity: 0.7; }
+.loop-timeline__step[data-state='skipped'] { opacity: 0.5; }
 
-.loop-timeline__next { margin: 0; line-height: 1.5; }
-.loop-timeline__next-label { font-weight: 600; opacity: 0.75; }
+.loop-timeline__next { margin: 0; line-height: 1.5; opacity: 0.85; }
+.loop-timeline__next-label { font-weight: 600; opacity: 0.7; }
 
 .loop-timeline__recovery {
   align-items: center;

@@ -60,196 +60,216 @@
   />
 
   @if (active(); as a) {
-    <div class="loop-status" [class.paused]="a.status === 'paused' || (a.status === 'provider-limit' && a.endedAt === null)">
-      @if (statusPill(); as pill) {
-        <span class="ls-pill" [attr.data-pill]="pill.kind" [appTooltip]="copy('loop.statusPill')">{{ pill.label }}</span>
+    <section
+      class="loop-card"
+      [class.paused]="a.status === 'paused' || (a.status === 'provider-limit' && a.endedAt === null)"
+      aria-label="Active loop"
+    >
+      <div class="loop-status">
+        @if (statusPill(); as pill) {
+          <span class="ls-pill" [attr.data-pill]="pill.kind" [appTooltip]="copy('loop.statusPill')">{{ pill.label }}</span>
+        }
+        @if (latestVerdict(); as verdict) {
+          <!-- No role and no aria-label ON PURPOSE: this span has visible text, so that text
+               IS its accessible name, and role=img would REPLACE it (gates 9 and 10).
+               tabindex=0 because the tooltip is the ONLY carrier of the explanation in some
+               states - showIssueCard is null under any banner, and only the no-progress
+               banner re-renders the headline; claimed-failed and awaiting-review show static
+               text. Focusable means the tooltip opens on keyboard focus and stamps
+               aria-describedby, so the explanation is reachable without a mouse. -->
+          <span class="ls-verdict" tabindex="0" [attr.data-verdict]="verdict.value" [appTooltip]="verdict.title">{{ verdict.label }}</span>
+        }
+        <span class="ls-text" [appTooltip]="metricStripTooltip()" appTooltipVariant="dense">
+          {{ runningIteration() ? ('iteration ' + iterationNumber(runningIteration()!.seq) + ' running') : (a.totalIterations + ' iterations run') }}
+          · {{ iterationCapLabel(a.config.caps.maxIterations) === '∞' ? 'no cap' : 'max ' + iterationCapLabel(a.config.caps.maxIterations) }}
+          @if (metricStageOrPhase(); as sop) {
+            · {{ sop }}
+          }
+          · current {{ currentIterationLabel() }}
+          · total {{ duration(elapsed()) }}
+          · {{ activeTokenUsage(a.totalTokens) }}
+          · {{ activeCostUsage(a.totalCostCents) }}
+        </span>
+        <span class="ls-actions">
+          @if (a.status === 'running') {
+            <button type="button" (click)="onPause()" [appTooltip]="copy('loop.pause')" aria-label="Pause loop">Pause</button>
+          } @else if (a.status === 'paused' || (a.status === 'provider-limit' && a.endedAt === null)) {
+            @if (pauseKind() === 'awaiting-review') {
+              <button type="button" class="ls-accept" (click)="onAcceptCompletion()" [appTooltip]="copy('loop.acceptCompletion')" aria-label="Accept the work as complete">Accept as complete</button>
+            }
+            <button type="button" (click)="onResumeAnyway()" [appTooltip]="resumeTooltip()" aria-label="Resume loop">Resume</button>
+          }
+          <button type="button" (click)="onToggleInspector()" [appTooltip]="copy('loop.inspect')" aria-label="Inspect loop trace">{{ inspectorExpanded() ? 'Hide trace' : 'Inspect' }}</button>
+          <button type="button" (click)="onInjectHint()" [appTooltip]="copy('loop.hint')" aria-label="Inject a hint into the next iteration">Hint</button>
+          <button type="button" (click)="onQueueFollowUp()" [appTooltip]="copy('loop.followUp')" aria-label="Queue a follow-up before the loop finishes">Follow-up</button>
+          <button type="button" class="ls-stop" (click)="onStop()" aria-label="Stop loop">Stop</button>
+        </span>
+      </div>
+
+      @if (showToolLoopHint()) {
+        <!-- UX5: behaviour-gated, so it appears only for the configuration that
+             actually leaves this run stuck. -->
+        <app-inline-hint hintId="tool-loop-auto-interrupt-off" [condition]="showToolLoopHint()" />
       }
-      <!-- UX5: behaviour-gated, so it appears only for the configuration that
-           actually leaves this run stuck. -->
-      <app-inline-hint hintId="tool-loop-auto-interrupt-off" [condition]="showToolLoopHint()" />
-      <!-- B5: the pill says WHAT; this says WHY and WHAT NEXT. -->
+      <!-- B5: the pill says WHAT; this says WHY and WHAT NEXT. The spend meter is
+           off here because the metric strip above already carries cost, with
+           honest "pending" wording while an iteration is unsettled. -->
       <app-loop-causal-timeline
         [timeline]="causalTimeline()"
+        [showSpend]="false"
         (recoveryChosen)="onTimelineRecovery($event)"
       />
-      @if (latestVerdict(); as verdict) {
-        <!-- No role and no aria-label ON PURPOSE: this span has visible text, so that text
-             IS its accessible name, and role=img would REPLACE it (gates 9 and 10).
-             tabindex=0 because the tooltip is the ONLY carrier of the explanation in some
-             states - showIssueCard is null under any banner, and only the no-progress
-             banner re-renders the headline; claimed-failed and awaiting-review show static
-             text. Focusable means the tooltip opens on keyboard focus and stamps
-             aria-describedby, so the explanation is reachable without a mouse. -->
-        <span class="ls-verdict" tabindex="0" [attr.data-verdict]="verdict.value" [appTooltip]="verdict.title">{{ verdict.label }}</span>
+
+      @if (showIssueCard(); as issue) {
+        <app-loop-issue-card
+          [issue]="issue"
+          (hint)="onInjectHint()"
+          (inspect)="onToggleInspector()"
+          (stopLoop)="onStop()"
+          (resumeLoop)="onResumeAnyway()"
+        />
       }
-      <span class="ls-text" [appTooltip]="metricStripTooltip()" appTooltipVariant="dense">
-        {{ runningIteration() ? ('iteration ' + iterationNumber(runningIteration()!.seq) + ' running') : (a.totalIterations + ' iterations run') }}/{{ iterationCapLabel(a.config.caps.maxIterations) }}
-        @if (metricStageOrPhase(); as sop) {
-          · {{ sop }}
-        }
-        · current {{ currentIterationLabel() }}
-        · total {{ duration(elapsed()) }}
-        · {{ activeTokenUsage(a.totalTokens) }}
-        · {{ activeCostUsage(a.totalCostCents) }}
-      </span>
-      <span class="ls-actions">
-        @if (a.status === 'running') {
-          <button type="button" (click)="onPause()" [appTooltip]="copy('loop.pause')" aria-label="Pause loop">Pause</button>
-        } @else if (a.status === 'paused' || (a.status === 'provider-limit' && a.endedAt === null)) {
-          @if (pauseKind() === 'awaiting-review') {
-            <button type="button" class="ls-accept" (click)="onAcceptCompletion()" [appTooltip]="copy('loop.acceptCompletion')" aria-label="Accept the work as complete">Accept as complete</button>
-          }
-          <button type="button" (click)="onResumeAnyway()" [appTooltip]="resumeTooltip()" aria-label="Resume loop">Resume</button>
-        }
-        <button type="button" (click)="onToggleInspector()" [appTooltip]="copy('loop.inspect')" aria-label="Inspect loop trace">{{ inspectorExpanded() ? 'Hide trace' : 'Inspect' }}</button>
-        <button type="button" (click)="onInjectHint()" [appTooltip]="copy('loop.hint')" aria-label="Inject a hint into the next iteration">Hint</button>
-        <button type="button" (click)="onQueueFollowUp()" [appTooltip]="copy('loop.followUp')" aria-label="Queue a follow-up before the loop finishes">Follow-up</button>
-        <button type="button" class="ls-stop" (click)="onStop()" aria-label="Stop loop">Stop</button>
-      </span>
-    </div>
 
-    @if (showIssueCard(); as issue) {
-      <app-loop-issue-card
-        [issue]="issue"
-        (hint)="onInjectHint()"
-        (inspect)="onToggleInspector()"
-        (stopLoop)="onStop()"
-        (resumeLoop)="onResumeAnyway()"
-      />
-    }
-
-    @if (pingPong(); as pp) {
-      <div class="loop-pingpong">
-        <span class="lp-badge" [appTooltip]="copy('loop.chip.reviewPingPong')">REVIEW PING-PONG</span>
-        <span class="lp-text">
-          round {{ pp.roundCount }}/{{ pingPongMaxRounds() }}
-          @if (pp.lastReviewerProvider) { · reviewer {{ pp.lastReviewerProvider }} }
-          @if (pp.subject) { · {{ pp.subject }} }
-          · {{ pingPongOpenIssues() }} open {{ pingPongOpenIssues() === 1 ? 'issue' : 'issues' }}
-          · reviewer {{ cost(pp.reviewerCostCents) }}
-        </span>
-        @if (a.status === 'running') {
-          <span class="lp-actions">
-            <button type="button" (click)="onPingPongSkipRound()" appTooltip="Skips the next reviewer round; the loop continues without it.">Skip round</button>
-            <button type="button" (click)="onPingPongForceArbitration()" appTooltip="Stops the review rounds and hands the open issues to you.">Arbitrate</button>
+      @if (pingPong(); as pp) {
+        <div class="loop-pingpong">
+          <span class="lp-badge" [appTooltip]="copy('loop.chip.reviewPingPong')">REVIEW PING-PONG</span>
+          <span class="lp-text">
+            round {{ pp.roundCount }}/{{ pingPongMaxRounds() }}
+            @if (pp.lastReviewerProvider) { · reviewer {{ pp.lastReviewerProvider }} }
+            @if (pp.subject) { · {{ pp.subject }} }
+            · {{ pingPongOpenIssues() }} open {{ pingPongOpenIssues() === 1 ? 'issue' : 'issues' }}
+            · reviewer {{ cost(pp.reviewerCostCents) }}
           </span>
-        }
-      </div>
-    }
-
-    @if (honestyChips().length > 0) {
-      <div class="loop-honesty">
-        @for (chip of honestyChips(); track chip) {
-          <span class="lp-badge" [appTooltip]="chipTooltip(chip)">{{ chip }}</span>
-        }
-      </div>
-    }
-
-    @if (showGate()) {
-      <div class="loop-gate" appTooltip="What the loop must clear before it is allowed to stop.">
-        @for (step of gateSteps(); track step.key) {
-          @if (step.state !== 'skipped') {
-            <span class="lg-step" [attr.data-state]="step.state">{{ step.text }}</span>
-          }
-        }
-      </div>
-    }
-
-    @if (auditStatus(); as audit) {
-      <div class="loop-audit">
-        <!-- tabindex: tooltip carries the "does not block the run" correction (house rule 4). -->
-        <span
-          class="lau-chip"
-          tabindex="0"
-          [attr.data-state]="audit.preflightState"
-          [appTooltip]="audit.preflightTitle"
-        >{{ audit.preflightLabel }}</span>
-        <span
-          class="lau-chip"
-          tabindex="0"
-          [attr.data-state]="audit.finalAuditState"
-          [appTooltip]="audit.finalAuditTitle"
-        >{{ audit.finalAuditLabel }}</span>
-        @if (audit.reportFile) {
-          <code>{{ audit.reportFile }}</code>
-        }
-      </div>
-    }
-
-    @if (reactionsArmed() !== null) {
-      <div class="loop-reactions">
-        <label class="lr-toggle">
-          <input
-            type="checkbox"
-            [checked]="reactionsArmed() === true"
-            (change)="onToggleReactionsArmed()"
-          />
-          Auto-react to CI &amp; review events
-        </label>
-        @if (reactionsArmed()) {
-          <span class="lr-hint">Armed — CI failures and review requests will trigger a fix prompt.</span>
-          <label class="lr-toggle lr-toggle-nested">
-            <input
-              type="checkbox"
-              [checked]="autoMergeAllowed()"
-              (change)="onToggleAutoMerge()"
-            />
-            Allow auto-merge when approved &amp; green
-          </label>
-          @if (autoMergeAllowed()) {
-            <span class="lr-hint lr-hint-warn">
-              Auto-merge armed — an approved PR with passing CI and no conflicts will be squash-merged automatically (re-checked live before merging).
+          @if (a.status === 'running') {
+            <span class="lp-actions">
+              <button type="button" (click)="onPingPongSkipRound()" appTooltip="Skips the next reviewer round; the loop continues without it.">Skip round</button>
+              <button type="button" (click)="onPingPongForceArbitration()" appTooltip="Stops the review rounds and hands the open issues to you.">Arbitrate</button>
             </span>
           }
-        }
-      </div>
-    }
+        </div>
+      }
 
-    <details class="loop-runcfg">
-      <summary>Run configuration</summary>
-      <div class="loop-runcfg-rows">
-        @for (row of runConfigSummary(); track row.label) {
-          <div class="lrc-row">
-            <span class="lrc-label">{{ row.label }}</span>
-            <span class="lrc-value">{{ row.value }}</span>
-          </div>
-        }
-      </div>
-    </details>
+      @if (honestyChips().length > 0) {
+        <div class="loop-honesty">
+          @for (chip of honestyChips(); track chip) {
+            <span class="lp-badge" [appTooltip]="chipTooltip(chip)">{{ chip }}</span>
+          }
+        </div>
+      }
 
-    <div class="loop-activity">
-      <div class="la-title">
-        <span>Live loop activity</span>
-        <code>{{ executionPath(a.config) }}</code>
-      </div>
-      @if (activity().length > 0) {
-        <div class="la-list">
-          @for (event of recentActivity(); track event.timestamp + event.kind + event.message) {
-            <div class="la-row" [class.error]="event.kind === 'error'" [class.warn]="event.kind === 'stream-idle' || event.kind === 'input_required'">
-              <span class="la-time">{{ time(event.timestamp) }}</span>
-              <span class="la-kind">{{ kindLabel(event.kind) }}</span>
-              <span class="la-message">
-                {{ event.message }}
-                @if (event.kind === 'tool_use' && toolDetail(event.detail); as d) {
-                  <span class="la-tool-arg">{{ d }}</span>
-                }
-                <!-- N4: the plain line above stays as the chronological record;
-                     this makes the same findings inspectable and actionable. -->
-                @if (findingsDetail(event.detail); as findings) {
-                  <app-loop-fresh-eyes-findings-panel
-                    [detail]="findings"
-                    (fixRequested)="onFixFindings($event)"
+      @if (showGate()) {
+        <div class="loop-gate" appTooltip="What the loop must clear before it is allowed to stop.">
+          @for (step of gateSteps(); track step.key) {
+            @if (step.state !== 'skipped') {
+              <span class="lg-step" [attr.data-state]="step.state">{{ step.text }}</span>
+            }
+          }
+        </div>
+      }
+
+      @if (auditStatus() || reactionsArmed() !== null) {
+        <div class="loop-meta">
+          @if (auditStatus(); as audit) {
+            <div class="loop-audit">
+              <!-- tabindex: tooltip carries the "does not block the run" correction (house rule 4). -->
+              <span
+                class="lau-chip"
+                tabindex="0"
+                [attr.data-state]="audit.preflightState"
+                [appTooltip]="audit.preflightTitle"
+              >{{ audit.preflightLabel }}</span>
+              <span
+                class="lau-chip"
+                tabindex="0"
+                [attr.data-state]="audit.finalAuditState"
+                [appTooltip]="audit.finalAuditTitle"
+              >{{ audit.finalAuditLabel }}</span>
+              @if (audit.reportFile) {
+                <code>{{ audit.reportFile }}</code>
+              }
+            </div>
+          }
+
+          @if (reactionsArmed() !== null) {
+            <div class="loop-reactions">
+              <label class="lr-toggle">
+                <input
+                  type="checkbox"
+                  [checked]="reactionsArmed() === true"
+                  (change)="onToggleReactionsArmed()"
+                />
+                Auto-react to CI &amp; review events
+              </label>
+              @if (reactionsArmed()) {
+                <span class="lr-hint">Armed — CI failures and review requests will trigger a fix prompt.</span>
+                <label class="lr-toggle">
+                  <input
+                    type="checkbox"
+                    [checked]="autoMergeAllowed()"
+                    (change)="onToggleAutoMerge()"
                   />
+                  Allow auto-merge when approved &amp; green
+                </label>
+                @if (autoMergeAllowed()) {
+                  <span class="lr-hint lr-hint-warn">
+                    Auto-merge armed — an approved PR with passing CI and no conflicts will be squash-merged automatically (re-checked live before merging).
+                  </span>
                 }
-              </span>
+              }
             </div>
           }
         </div>
-      } @else {
-        <div class="la-empty">Waiting for child CLI output. If this stays empty, the child has not emitted any stream events yet.</div>
       }
-    </div>
 
+      <details class="loop-runcfg">
+        <summary>Run configuration</summary>
+        <div class="loop-runcfg-rows">
+          @for (row of runConfigSummary(); track row.label) {
+            <div class="lrc-row">
+              <span class="lrc-label">{{ row.label }}</span>
+              <span class="lrc-value">{{ row.value }}</span>
+            </div>
+          }
+        </div>
+      </details>
+
+      <div class="loop-activity">
+        <div class="la-title">
+          <span class="la-heading">Live activity</span>
+          <!-- dir=rtl keeps the worktree name (the END of the path) visible when it
+               is truncated; the bdi restores normal left-to-right reading order.
+             tabindex: once truncated, the tooltip is the only carrier of the full
+             path, so it must open on keyboard focus too (house rule 4). -->
+          <code class="la-path" dir="rtl" tabindex="0" [appTooltip]="executionPath(a.config)"><bdi>{{ executionPath(a.config) }}</bdi></code>
+        </div>
+        @if (activity().length > 0) {
+          <div class="la-list">
+            @for (event of recentActivity(); track event.timestamp + event.kind + event.message) {
+              <div class="la-row" [class.error]="event.kind === 'error'" [class.warn]="event.kind === 'stream-idle' || event.kind === 'input_required'">
+                <span class="la-time">{{ time(event.timestamp) }}</span>
+                <span class="la-kind">{{ kindLabel(event.kind) }}</span>
+                <span class="la-message">
+                  {{ event.message }}
+                  @if (event.kind === 'tool_use' && toolDetail(event.detail); as d) {
+                    <span class="la-tool-arg">{{ d }}</span>
+                  }
+                  <!-- N4: the plain line above stays as the chronological record;
+                       this makes the same findings inspectable and actionable. -->
+                  @if (findingsDetail(event.detail); as findings) {
+                    <app-loop-fresh-eyes-findings-panel
+                      [detail]="findings"
+                      (fixRequested)="onFixFindings($event)"
+                    />
+                  }
+                </span>
+              </div>
+            }
+          </div>
+        } @else {
+          <div class="la-empty">Waiting for child CLI output. If this stays empty, the child has not emitted any stream events yet.</div>
+        }
+      </div>
+    </section>
   }
 
   @if (inspectorExpanded() && inspectableLoopId()) {

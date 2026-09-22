@@ -11,22 +11,37 @@ button {
   -webkit-app-region: no-drag;
 }
 
+/* One card for the whole active run. Sections inside are separated by the
+ * card's gap and hairline dividers, not by a stack of separately bordered
+ * boxes. */
+.loop-card {
+  display: flex; flex-direction: column; gap: 10px;
+  margin: 6px 0; padding: 10px 12px;
+  border: 1px solid rgba(95,142,224,0.35); background: rgba(95,142,224,0.05);
+  border-radius: 8px; font-size: 12px;
+}
+.loop-card.paused { border-color: rgba(247,192,122,0.5); background: rgba(247,192,122,0.05); }
+
 .loop-status {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
-  padding: 6px 10px; margin: 6px 0;
-  border: 1px solid rgba(95,142,224,0.45); background: rgba(95,142,224,0.1);
-  border-radius: 6px; font-size: 12px;
 }
-.loop-status.paused { border-color: rgba(247,192,122,0.6); background: rgba(247,192,122,0.08); }
-.ls-text { flex: 1; }
-.ls-actions { display: flex; gap: 4px; }
+.ls-text {
+  flex: 1 1 220px; min-width: 0;
+  font-size: 11px; line-height: 1.45; opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+.ls-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-left: auto; }
 .ls-actions button {
-  padding: 3px 8px; font-size: 11px; font: inherit;
+  padding: 3px 10px; font: inherit; font-size: 11px;
   background: rgba(255,255,255,0.05); color: inherit;
-  border: 1px solid rgba(255,255,255,0.12); border-radius: 4px;
+  border: 1px solid rgba(255,255,255,0.12); border-radius: 5px;
   cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
 }
-.ls-stop { color: #f78c7c !important; }
+.ls-actions button:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.2); }
+.ls-actions button:focus-visible { outline: 2px solid rgba(143,184,255,0.8); outline-offset: 1px; }
+.ls-stop { color: #f78c7c !important; border-color: rgba(247,140,124,0.35) !important; }
+.ls-stop:hover { background: rgba(247,140,124,0.12) !important; }
 .ls-accept {
   color: #8edc8e !important;
   font-weight: 600;
@@ -61,11 +76,8 @@ button {
 
 /* LF-8 completion-gate stepper — declared → verify → rename → review → stop. */
 .loop-gate {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
-  margin: -2px 0 6px; padding: 5px 10px;
-  border: 1px solid rgba(255,255,255,0.08);
-  background: rgba(255,255,255,0.025);
-  border-radius: 6px; font-size: 10px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px;
+  font-size: 10px;
 }
 .lg-step {
   position: relative;
@@ -75,19 +87,23 @@ button {
   border: 1px solid rgba(255,255,255,0.12);
 }
 .lg-step:not(:last-child)::after {
-  content: '→'; position: absolute; right: -8px; top: 50%; transform: translateY(-50%);
+  /* Centred in the 18px column gap, clear of both pills. */
+  content: '→'; position: absolute; right: -14px; top: 50%; transform: translateY(-50%);
   opacity: 0.4; font-family: inherit;
 }
 .lg-step[data-state="done"]    { color: #8edc8e; border-color: rgba(142,220,142,0.4); background: rgba(142,220,142,0.10); }
 .lg-step[data-state="blocked"] { color: #f78c7c; border-color: rgba(247,140,124,0.55); background: rgba(247,140,124,0.14); font-weight: 700; }
 .lg-step[data-state="pending"] { color: rgba(231,231,234,0.55); }
 
+/* Secondary run facts and opt-ins, on one wrapping row. */
+.loop-meta {
+  display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px 16px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255,255,255,0.07);
+}
 .loop-audit {
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
-  margin: -2px 0 6px; padding: 5px 10px;
-  border: 1px solid rgba(255,255,255,0.08);
-  background: rgba(255,255,255,0.025);
-  border-radius: 6px; font-size: 10px;
+  font-size: 10px;
 }
 .loop-audit code {
   max-width: 160px;
@@ -98,7 +114,6 @@ button {
 }
 .lau-chip {
   padding: 1px 8px; border-radius: 999px;
-  font-family: var(--font-mono, monospace);
   font-weight: 600;
   border: 1px solid rgba(255,255,255,0.12);
 }
@@ -110,15 +125,12 @@ button {
 .lau-chip[data-state="off"] { color: rgba(231,231,234,0.55); }
 
 /* LF-8 read-only run-config summary — what spawned the active run. */
-.loop-runcfg {
-  margin: -2px 0 6px; padding: 4px 10px;
-  border: 1px solid rgba(255,255,255,0.08);
-  background: rgba(255,255,255,0.02);
-  border-radius: 6px; font-size: 11px;
-}
+.loop-runcfg { font-size: 11px; }
 .loop-runcfg > summary {
-  cursor: pointer; opacity: 0.7; font-weight: 600; list-style: revert;
+  cursor: pointer; opacity: 0.65; font-weight: 600; list-style: revert;
+  width: fit-content;
 }
+.loop-runcfg > summary:hover { opacity: 0.9; }
 .loop-runcfg-rows { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
 .lrc-row { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 8px; line-height: 1.4; }
 .lrc-label {
@@ -128,10 +140,9 @@ button {
 .lrc-value { overflow-wrap: anywhere; opacity: 0.92; }
 
 .loop-activity {
-  margin: -2px 0 6px;
   padding: 8px 10px;
-  border: 1px solid rgba(255,255,255,0.1);
-  background: rgba(255,255,255,0.035);
+  border: 1px solid rgba(255,255,255,0.07);
+  background: rgba(0,0,0,0.18);
   border-radius: 6px;
   font-size: 11px;
 }
@@ -139,18 +150,22 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 12px;
   margin-bottom: 6px;
-  opacity: 0.75;
-  font-weight: 600;
 }
-.la-title code {
-  max-width: 58%;
+.la-heading { font-weight: 600; opacity: 0.7; flex: none; }
+.la-title .la-path {
+  min-width: 0;
+  max-width: 65%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 400;
+  font-size: 10px;
+  background: none;
+  padding: 0;
+  opacity: 0.5;
 }
+.la-title .la-path:focus-visible { outline: 2px solid rgba(143,184,255,0.8); outline-offset: 1px; opacity: 0.85; }
 .la-list { display: flex; flex-direction: column; gap: 3px; }
 .la-row {
   display: grid;
@@ -557,19 +572,22 @@ button {
 .lsum-prompt-pre:last-child { margin-bottom: 0; }
 code { font-size: 11px; padding: 1px 4px; background: rgba(255,255,255,0.08); border-radius: 3px; }
 
-/* Reaction arming + auto-merge opt-in (loop inspector) */
-.loop-reactions { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; }
-.lr-toggle { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; }
-.lr-toggle-nested { margin-left: 18px; }
-.lr-hint { font-size: 11px; opacity: 0.7; }
-.lr-hint-warn { margin-left: 18px; opacity: 0.9; color: var(--color-warning, #d98e00); }
+/* Reaction arming + auto-merge opt-in, inside the meta row */
+.loop-reactions { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.lr-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; cursor: pointer; opacity: 0.85; }
+.lr-toggle:hover { opacity: 1; }
+.lr-toggle input { margin: 0; accent-color: #6ea8fe; }
+/* Everything after the first toggle (its hint, the auto-merge toggle and its
+   warning) indents under that toggle's checkbox. Relies on the DOM order. */
+.lr-toggle + .lr-hint, .lr-hint + .lr-toggle, .lr-hint-warn { margin-left: 19px; }
+.lr-hint { font-size: 10px; opacity: 0.65; }
+.lr-hint-warn { opacity: 0.9; color: var(--color-warning, #d98e00); }
 
 /* Conversational ping-pong review readout */
 .loop-pingpong {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 6px 0;
   font-size: 12px;
   flex-wrap: wrap;
 }

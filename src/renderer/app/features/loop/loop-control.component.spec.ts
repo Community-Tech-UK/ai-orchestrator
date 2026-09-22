@@ -264,6 +264,21 @@ describe('LoopControlComponent', () => {
     expect(text).toContain('1.00M tok');        // configured maxTokens is an active cap
   });
 
+  it('renders the active run as one card whose strip states the iteration cap in words', () => {
+    listeners.stateChanged.forEach((cb) => cb({ loopRunId: 'loop-1', state: activeState() }));
+    fixture.detectChanges();
+
+    const card = fixture.nativeElement.querySelector('.loop-card') as HTMLElement | null;
+    expect(card).toBeTruthy();
+    expect(card!.querySelector('.loop-status')).toBeTruthy();
+    expect(card!.querySelector('app-loop-causal-timeline')).toBeTruthy();
+    expect(card!.querySelector('.loop-activity')).toBeTruthy();
+    expect(statusStripText().replace(/\s+/g, ' ')).toMatch(/· max \d+ ·/);
+    // The strip carries cost; a second spend meter here would contradict its
+    // "pending" wording with a fabricated "$0.00".
+    expect(card!.querySelector('.loop-timeline__spend')).toBeNull();
+  });
+
   it('shows human iteration numbers, the effective execution path, and an unambiguous prior verdict', async () => {
     const state = activeState();
     state.config.executionCwd = '/tmp/project/.worktrees/loop-1';

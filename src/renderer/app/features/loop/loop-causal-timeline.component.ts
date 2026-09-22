@@ -68,15 +68,17 @@ import { timelineRecoveryTarget } from './loop-control-timeline';
           </div>
         }
 
-        <p class="loop-timeline__spend">
-          <span class="loop-timeline__spend-amount">{{ dollars(t.spend.spentCents) }}</span>
-          @if (t.spend.maxCostCents !== null) {
-            <span class="loop-timeline__spend-cap">of {{ dollars(t.spend.maxCostCents) }}</span>
-          }
-          <!-- Always stated. An estimate shown as a measurement is how a cost
-               display stops being believed. -->
-          <span class="loop-timeline__spend-source">{{ t.spend.sourceLabel }}</span>
-        </p>
+        @if (showSpend()) {
+          <p class="loop-timeline__spend">
+            <span class="loop-timeline__spend-amount">{{ dollars(t.spend.spentCents) }}</span>
+            @if (t.spend.maxCostCents !== null) {
+              <span class="loop-timeline__spend-cap">of {{ dollars(t.spend.maxCostCents) }}</span>
+            }
+            <!-- Always stated. An estimate shown as a measurement is how a cost
+                 display stops being believed. -->
+            <span class="loop-timeline__spend-source">{{ t.spend.sourceLabel }}</span>
+          </p>
+        }
 
         <p class="loop-timeline__announcement" aria-live="polite">{{ t.announcement }}</p>
       </section>
@@ -86,6 +88,11 @@ import { timelineRecoveryTarget } from './loop-control-timeline';
 })
 export class LoopCausalTimelineComponent {
   readonly timeline = input<LoopTimeline | null>(null);
+  /**
+   * Hosts that already show cost elsewhere turn this off, so the same run
+   * never reads "$0.00 estimated" in one place and "cost pending" in another.
+   */
+  readonly showSpend = input(true);
   readonly recoveryChosen = output<string>();
 
   protected stateLabel(state: LoopTimelineStepState): string {

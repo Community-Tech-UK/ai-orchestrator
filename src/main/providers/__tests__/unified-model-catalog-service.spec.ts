@@ -25,6 +25,7 @@ import {
   CLAUDE_LEGACY_PRICING_ALIASES,
   CLAUDE_PINNED_MODELS,
   GROK_MODELS,
+  getPrimaryModelForProvider,
   normalizeModelForProvider,
   type ModelDisplayInfo,
 } from '../../../shared/types/provider.types';
@@ -343,6 +344,22 @@ describe('UnifiedModelCatalogService — precedence: models.dev pricing overlay'
 });
 
 describe('UnifiedModelCatalogService — precedence: CLI-discovered (highest)', () => {
+  it('pins the Grok CLI default and makes it the primary, including an id the static list lacks', () => {
+    const svc = makeServiceWithMock();
+
+    svc.onCliDiscoveryRefreshed('grok', [
+      { id: 'grok-4.8', name: 'Grok 4.8', tier: 'powerful', family: 'Grok', pinned: true },
+      { id: GROK_MODELS.GROK_47, name: 'Grok 4.7', tier: 'powerful', family: 'Grok' },
+    ]);
+    vi.runAllTimers();
+
+    const ids = svc.getModelsByProvider('grok').map((model) => model.id);
+    expect(ids).toEqual(['grok-4.8', GROK_MODELS.GROK_47]);
+    expect(svc.getModel('grok-4.8')?.pinned).toBe(true);
+    expect(svc.getModel(GROK_MODELS.GROK_47)?.pinned).toBeUndefined();
+    expect(getPrimaryModelForProvider('grok')).toBe('grok-4.8');
+  });
+
   it('CLI-discovered entries supersede static entries for the same provider', () => {
     const svc = makeServiceWithMock();
 

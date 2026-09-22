@@ -104,13 +104,18 @@ export class UnifiedCatalogStore {
       }));
     }
     const curated = new Map(getModelsForProvider(provider).map((m) => [m.id, m]));
-    return this.modelsForProvider(norm).map((entry) => {
+    const rows = this.modelsForProvider(norm);
+    // Once `grok models` has marked a default, that pin is Latest. A stale
+    // static pin on the previous release must not keep the old id on top.
+    const grokLivePin = norm === 'grok' && rows.some((entry) => entry.pinned === true);
+    return rows.map((entry) => {
       const known = curated.get(entry.id);
+      const pinned = grokLivePin ? entry.pinned === true : known?.pinned === true;
       return {
         id: entry.id,
         name: known?.name ?? entry.name ?? humanizeModelId(entry.id),
         tier: entry.tier,
-        ...(known?.pinned ? { pinned: known.pinned } : {}),
+        ...(pinned ? { pinned: true } : {}),
         ...(entry.reasoning ? { reasoning: entry.reasoning } : {}),
         ...(known?.family ?? entry.family ? { family: known?.family ?? entry.family } : {}),
       };
