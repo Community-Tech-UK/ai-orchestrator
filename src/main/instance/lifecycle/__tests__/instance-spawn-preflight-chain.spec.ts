@@ -100,6 +100,22 @@ describe('InstanceSpawnPreflightChain', () => {
     expect(deps.consumeWarmAdapter).not.toHaveBeenCalled();
   });
 
+  it('refuses an unsandboxed warm adapter when the create requests hardened mode', async () => {
+    const deps = makeDeps();
+    deps.consumeWarmAdapter.mockReturnValue({ getName: () => 'claude' } as CliAdapter);
+    const chain = new InstanceSpawnPreflightChain(deps);
+
+    const result = await chain.prepare({
+      config: { workingDirectory: '/tmp/project', provider: 'claude', hardened: true },
+      instance: { workingDirectory: '/tmp/project', bareMode: false },
+      provider: 'claude',
+      spawnOptions: makeSpawnOptions({ browserGatewayMcp: undefined }),
+    });
+
+    expect(result.kind).toBe('fresh');
+    expect(deps.consumeWarmAdapter).not.toHaveBeenCalled();
+  });
+
   it('forces a fresh local preflight for resume and warms the workspace', async () => {
     const deps = makeDeps();
     const chain = new InstanceSpawnPreflightChain(deps);

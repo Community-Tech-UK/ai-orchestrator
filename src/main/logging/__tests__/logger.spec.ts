@@ -154,6 +154,18 @@ describe('LogManager', () => {
       expect(entries).toHaveLength(1);
       expect(entries[0].message).toBe('hello world');
     });
+
+    it('enables a file sink from the browser forwarder log environment', () => {
+      logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'forwarder-logtest-'));
+      process.env['AI_ORCHESTRATOR_BROWSER_FORWARDER_LOG_DIR'] = logDir;
+      try {
+        const manager = new LogManager({ enableConsole: false });
+        expect(manager.getConfig().enableFile).toBe(true);
+        expect(manager.getLogFilePaths()[0]).toBe(path.join(logDir, 'logs', 'app.log'));
+      } finally {
+        delete process.env['AI_ORCHESTRATOR_BROWSER_FORWARDER_LOG_DIR'];
+      }
+    });
   });
 
   describe('secret redaction at the sink (Task 14)', () => {

@@ -70,14 +70,14 @@ export function buildAcpMinableInput(
  * credit the miner +0.15 confidence for a fix that never ran.
  */
 export function buildAcpToolOutcomeFallback(
-  params: { toolCallId: string; status: string; title: string; hasRenderedOutput: boolean },
+  params: { toolCallId: string; status: string; title: string; hasRenderedOutput: boolean; rawOutput?: Record<string, unknown> },
   id: string,
   timestamp: number,
 ): OutputMessage | null {
   if (params.hasRenderedOutput) return null;
   if (params.status !== 'completed' && params.status !== 'failed') return null;
   return buildToolOutcomeMessage(
-    { toolUseId: params.toolCallId, isError: params.status === 'failed', toolName: params.title },
+    { toolUseId: params.toolCallId, isError: acpToolFailed(params.status, params.rawOutput), toolName: params.title },
     id,
     timestamp,
   );
@@ -86,6 +86,11 @@ export function buildAcpToolOutcomeFallback(
 /** A status after which an ACP tool call sends no further updates. */
 export function isAcpTerminalToolStatus(status: string): boolean {
   return status === 'completed' || status === 'failed' || status === 'cancelled';
+}
+
+function acpToolFailed(status: string, rawOutput?: Record<string, unknown>): boolean {
+  return status === 'failed' ||
+    (status === 'completed' && typeof rawOutput?.['exitCode'] === 'number' && rawOutput['exitCode'] !== 0);
 }
 
 /**
@@ -98,7 +103,7 @@ export function isAcpTerminalToolStatus(status: string): boolean {
  * and emits it once, when the call settles or its turn ends.
  */
 export function buildAcpToolResultMessage(
-  params: { toolCallId: string; title: string; status: string; sessionUpdate: string; output: string },
+  params: { toolCallId: string; title: string; status: string; sessionUpdate: string; output: string; rawOutput?: Record<string, unknown> },
   id: string,
   timestamp: number,
 ): OutputMessage {
@@ -116,7 +121,7 @@ export function buildAcpToolResultMessage(
       transport: 'acp',
       // LT-196: outcome rides this already-correlated message; `cancelled`
       // and an unsettled call are neither outcome, so it is left unset.
-      ...(status === 'completed' || status === 'failed' ? { is_error: status === 'failed' } : {}),
+      ...(status === 'completed' || status === 'failed' ? { is_error: acpToolFailed(status, params.rawOutput) } : {}),
     },
   };
 }

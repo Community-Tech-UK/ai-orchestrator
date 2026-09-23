@@ -1,5 +1,19 @@
 # Harness Cross-Platform Auto-Update Live Test
 
+## Status — 2026-09-06
+Open: 9 · Closed: 0 · Failed: 0
+James-only: add the seven CI signing/notarization secrets, bump the version, push a `vX.Y.Z` tag, and let `release.yml` publish a real N-to-N+1 release before any check below becomes agent-runnable.
+
+> **Found a defect while running these checks?** Record it in the remediation spec —
+> `docs/plans/livetest-remediation-register.md` — as a new `LT-NNN` item
+> (index row, then a section with observed behaviour, root cause, required behaviour and
+> acceptance), and add a matching implementation-status section to
+> `docs/plans/2026-07-19-livetest-failure-remediation_plan.md`. That is the spec's own rule 6:
+> a pending or unrun check is not automatically a defect, but a *reproduced* one belongs there,
+> not only here. Per-check evidence stays in this file.
+>
+> Before starting a run, read `docs/plans/livetest-campaign-runbook.md`.
+
 > Prerequisites: rebuild and publish signed stable releases from
 > `.github/workflows/release.yml`, then run these checks on real target machines.
 > This document tracks checks that cannot be proven by unit tests, an unsigned
@@ -55,6 +69,9 @@ Expected result: every target selects its own architecture payload, never
 restarts active work automatically, supports both install paths, and preserves
 application data.
 
+Why deferred: needs a real signed N and N+1 release; none exists yet (see
+Release prerequisites).
+
 ## macOS arm64 and x64 trust checks
 
 For each downloaded DMG and installed application:
@@ -71,6 +88,10 @@ Expected result: signature verification succeeds, Gatekeeper reports an
 accepted notarized Developer ID application, the stapled ticket validates, and
 both the Electron executable and Swift helper report the target architecture.
 
+Why deferred: needs a Developer-ID-signed, notarized release build; the current
+local/installed build is ad-hoc signed only (Gatekeeper `rejected`, no stapled
+ticket — reconfirmed 2026-07-26).
+
 ## Windows x64 trust check
 
 Run in PowerShell against the installed executable and downloaded NSIS
@@ -84,6 +105,9 @@ Get-AuthenticodeSignature ".\Harness-N+1-win-x64.exe" | Format-List Status,Statu
 Expected result: both signatures have `Status: Valid`, Windows identifies the
 configured publisher, and the update installs without a SmartScreen
 unknown-publisher warning attributable to an unsigned binary.
+
+Why deferred: needs a Windows-code-signed release build; the installed build on
+`windows-pc` reports `NotSigned` (reconfirmed 2026-07-13).
 
 ## Linux x64 and arm64 runtime check
 
@@ -105,9 +129,45 @@ Expected result: the AppImage runs on the matching native architecture, the
 update path, and the app relaunches successfully. A DEB installation is not an
 auto-update test target.
 
+Why deferred: needs a published N and N+1 AppImage release; none exists yet.
+
 ## Completion
 
 Record the release tags, machine/OS versions, artifact filenames, and observed
 results for every row. Rename this file to
 `2026-07-11-harness-auto-update-plan_livetest_completed.md` only after all five
 target rows and both install paths pass with evidence.
+
+## Closed checks
+
+None yet. No signed release has ever been published, so none of this doc's checks
+(shared N-to-N+1 behavior, macOS/Windows/Linux trust checks) have been run.
+
+## Latest verification (release prerequisites)
+
+Checked repeatedly and identically since 2026-07-12 (also 2026-07-13, 07-26, 07-29,
+08-12, 08-18, 08-19, 08-24, 08-31): every run found the same blocked state, live
+against GitHub, not inferred. Most recent check (2026-08-31):
+
+| Prerequisite | Command | Result |
+| --- | --- | --- |
+| Repository Actions secrets | `gh secret list` | no entries |
+| Pushed release tag | `git tag -l 'v*'` | no entries |
+| GitHub Releases | `gh release list --limit 10` | no entries |
+| Release workflow runs | `gh run list --workflow release.yml --limit 10` | no runs (workflow has never fired) |
+| `package.json#version` | — | `0.1.0`, unchanged since first check |
+
+A local ad-hoc/Apple-Development code-signing identity exists on the build machine
+(`security find-identity -v -p codesigning`, Team ID `GJL9WJ4S4W`), but this is not a
+substitute for the CI-supplied Developer ID / notarization secrets the release workflow
+needs — the two are unrelated (confirmed 2026-08-18, reconfirmed 2026-08-19/08-24).
+The `.worktrees/harness-auto-update-v0.1.0` AIO-managed worktree exists on branch
+`release/harness-auto-update-v0.1.0` and has been left untouched throughout, per policy.
+
+**Residual, unchanged since 2026-08-18:** James must (1) add the seven release secrets
+(`MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_API_KEY`, `APPLE_API_KEY_ID`,
+`APPLE_API_ISSUER`, `WINDOWS_CSC_LINK`, `WINDOWS_CSC_KEY_PASSWORD`) as repo or
+environment secrets, (2) bump the version and push a `vX.Y.Z` tag, and (3) let
+`release.yml` complete and publish a non-draft, non-prerelease release with the
+expected assets. Only then do any of the checks above become runnable on any target.
+Nothing in this doc is agent-reachable today.

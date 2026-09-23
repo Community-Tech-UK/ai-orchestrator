@@ -144,14 +144,22 @@ export const CODEX_TIMEOUTS = {
   EXEC_LIVENESS_HEARTBEAT_MS: 15_000,
 
   /**
-   * Bounded wait for a `thread/compacted` notification after an explicit
+   * Bounded wait for Codex to report a compaction as running after an explicit
    * `thread/compact/start`. Compaction runs asynchronously server-side — the
-   * RPC ack only means it *started* — so a per-turn-cap retry must wait for the
-   * shrunken thread to land before re-sending, or it races the pre-compact
-   * thread and overflows again. If the notification never arrives, the wait
-   * elapses and recovery fails closed without retrying the unchanged thread.
+   * RPC ack only means it was *accepted* — so a per-turn-cap retry must wait for
+   * the shrunken thread to land before re-sending, or it races the pre-compact
+   * thread and overflows again. If nothing is reported, the wait elapses and
+   * recovery fails closed without retrying the unchanged thread.
    */
   COMPACTION_SETTLE_MS: 30_000,
+
+  /**
+   * Bounded wait for a compaction Codex has reported running to finish.
+   * Summarising a large thread is a model call: a 107k-token thread took 70s
+   * live (2026-09-23), so the 30s start window alone failed a compaction that
+   * was succeeding. Kept below the stuck detector's 240s generating limit.
+   */
+  COMPACTION_RUNNING_MS: 180_000,
 } as const;
 
 /**

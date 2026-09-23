@@ -10,6 +10,7 @@
  */
 
 import {
+  AfterViewChecked,
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
@@ -18,6 +19,7 @@ import {
   inject,
   output,
   signal,
+  viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -88,6 +90,7 @@ import {
   type SettingsTab,
 } from './settings-navigation';
 import { bindSettingsViewportMediaQueries } from './settings-viewport-media';
+import { SettingsHelpDrawerFocus } from './settings-help-drawer-focus';
 
 @Component({
   selector: 'app-settings',
@@ -131,7 +134,7 @@ import { bindSettingsViewportMediaQueries } from './settings-viewport-media';
   templateUrl: './settings.component.html',
   styleUrl: './settings.component.scss',
 })
-export class SettingsComponent {
+export class SettingsComponent implements AfterViewChecked {
   protected readonly store = inject(SettingsStore);
   private router = inject(Router);
   private route = inject(ActivatedRoute);
@@ -141,6 +144,8 @@ export class SettingsComponent {
   private providerQuota = inject(ProviderQuotaStore);
   private destroyRef = inject(DestroyRef);
   private readonly hostRef = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly helpDrawerFocus = new SettingsHelpDrawerFocus();
+  private readonly helpDrawer = viewChild<ElementRef<HTMLElement>>('helpDrawer');
   private activeFragmentTab: SettingsTab | null = null;
 
   /** Still emitted when opened as a modal (legacy callers). */
@@ -423,6 +428,7 @@ export class SettingsComponent {
       this.startupReport.set(report);
     });
     this.destroyRef.onDestroy(stopStartupCapabilities);
+    this.destroyRef.onDestroy(() => this.helpDrawerFocus.destroy());
 
     this.route.fragment.pipe(takeUntilDestroyed()).subscribe((fragment) => {
       this.activeFragmentTab = isSettingsTab(fragment) ? fragment : null;
@@ -609,6 +615,10 @@ export class SettingsComponent {
 
   closeHelpDrawer(): void {
     this.helpDrawerOpen.set(false);
+  }
+
+  ngAfterViewChecked(): void {
+    this.helpDrawerFocus.sync(this.helpDrawerOpen(), this.helpDrawer()?.nativeElement ?? null);
   }
 
   closeCompactNav(): void {

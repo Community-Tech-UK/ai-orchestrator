@@ -61,6 +61,50 @@ describe('CompactionGate', () => {
     expect(() => gate.settle()).not.toThrow();
   });
 
+  it('moves a running compaction onto the longer running window and reports it stalled, not timed out', async () => {
+    vi.useFakeTimers();
+    try {
+      const gate = new CompactionGate();
+      let outcome: string | null = null;
+      void gate.wait(1_000, 10_000).then((value) => { outcome = value; });
+
+      await vi.advanceTimersByTimeAsync(900);
+      gate.markRunning();
+      // Past the start window: a running compaction is not treated as absent.
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(outcome).toBeNull();
+
+      // A repeated start signal must not keep extending the deadline.
+      gate.markRunning();
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(outcome).toBe('stalled');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('resolves a running compaction as observed when it settles inside the running window', async () => {
+    vi.useFakeTimers();
+    try {
+      const gate = new CompactionGate();
+      const pending = gate.wait(1_000, 10_000);
+      gate.markRunning();
+      await vi.advanceTimersByTimeAsync(7_000);
+
+      gate.settle();
+
+      await expect(pending).resolves.toBe('observed');
+      expect(gate.hasPendingWaiters()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('markRunning() with no waiters is a no-op', () => {
+    const gate = new CompactionGate();
+    expect(() => gate.markRunning()).not.toThrow();
+  });
+
   it('distinguishes cancellation from an unobserved timeout when compaction could not start', async () => {
     const gate = new CompactionGate();
     const pending = gate.wait(60_000);

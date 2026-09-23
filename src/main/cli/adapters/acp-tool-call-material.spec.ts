@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ACP_RAW_OUTPUT_MAX_CHARS,
   buildAcpToolCallArguments,
+  buildAcpToolOutcomeFallback,
   buildAcpToolResultMessage,
   isAcpTerminalToolStatus,
   renderAcpRawOutput,
@@ -70,5 +71,28 @@ describe('buildAcpToolResultMessage', () => {
       .toMatchObject({ is_error: false });
     expect(buildAcpToolResultMessage({ ...base, status: 'cancelled' }, 'm3', 7).metadata).not.toHaveProperty('is_error');
     expect(buildAcpToolResultMessage({ ...base, status: 'in_progress' }, 'm4', 8).metadata).not.toHaveProperty('is_error');
+  });
+
+  it('marks a completed command with a nonzero exit code as failed', () => {
+    expect(buildAcpToolResultMessage({ ...base, status: 'completed', rawOutput: { exitCode: 2 } }, 'm5', 9).metadata)
+      .toMatchObject({ is_error: true });
+    expect(buildAcpToolResultMessage({ ...base, status: 'completed', rawOutput: { exitCode: 0 } }, 'm6', 10).metadata)
+      .toMatchObject({ is_error: false });
+    expect(buildAcpToolResultMessage({ ...base, status: 'cancelled', rawOutput: { exitCode: 2 } }, 'm7', 11).metadata)
+      .not.toHaveProperty('is_error');
+  });
+});
+
+describe('buildAcpToolOutcomeFallback', () => {
+  it('records a completed command with no rendered output and a nonzero exit code as failed', () => {
+    const outcome = buildAcpToolOutcomeFallback({
+      toolCallId: 'c1', title: 'Run tests', status: 'completed', hasRenderedOutput: false,
+      rawOutput: { exitCode: 2 },
+    }, 'm1', 12);
+    expect(outcome?.metadata).toMatchObject({ tool_use_id: 'c1', is_error: true });
+    expect(buildAcpToolOutcomeFallback({
+      toolCallId: 'c1', title: 'Run tests', status: 'cancelled', hasRenderedOutput: false,
+      rawOutput: { exitCode: 2 },
+    }, 'm2', 13)).toBeNull();
   });
 });

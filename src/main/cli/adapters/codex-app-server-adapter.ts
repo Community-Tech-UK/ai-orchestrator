@@ -53,6 +53,7 @@ import {
   type CodexContextDiagnosticSink,
 } from './codex/context-pressure-diagnostics';
 import { CodexContextCostController } from './codex/context-cost-controller';
+import { CodexCompactionSignalTracker } from './codex/compaction-signals';
 import { tokenCount } from './codex/token-usage-breakdown';
 import { buildObservedCompactionEvents } from './codex/compaction-presentation';
 import type {
@@ -89,6 +90,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
   private contextDiagnosticsSink: CodexContextDiagnosticSink | null;
   private contextDiagnosticsWarningLogged = false;
   private readonly requestQueue = new SerializedCodexRequestQueue();
+  private readonly compactionSignals = new CodexCompactionSignalTracker();
   private readonly mcpElicitationBridge = new CodexMcpElicitationBridge({
     onInputRequired: (payload) => this.emit('input_required', payload),
     onStatus: (status) => this.emit('status', status as InstanceStatus),
@@ -108,6 +110,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
       : null;
     this.contextCostController = new CodexContextCostController({
       compactionTimeoutMs: CODEX_TIMEOUTS.COMPACTION_SETTLE_MS,
+      compactionRunningTimeoutMs: CODEX_TIMEOUTS.COMPACTION_RUNNING_MS,
       interrupt: () => this.interrupt(),
       getCompactionTarget: () => this.getAppServerClient() && this.getAppServerThreadId() && this.useAppServer
         ? {
@@ -267,9 +270,11 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
       }
       return;
     }
-    if (notification.method !== 'thread/compacted') return;
-    const threadId = notification.params['threadId'];
-    if (typeof threadId !== 'string' || threadId !== this.getAppServerThreadId()) return;
+    const threadId = this.getAppServerThreadId();
+    const signal = this.compactionSignals.accept(notification, threadId);
+    // A running compaction is a silent model call: extend any explicit wait and prove liveness.
+    if (signal === 'started') { this.contextCostController.recordCompactionStarted(); this.emit('heartbeat'); }
+    if (signal !== 'completed' || !threadId) return;
     this.contextDiagnostics?.recordCompactionObserved();
     this.handleObservedThreadCompaction(threadId);
   }

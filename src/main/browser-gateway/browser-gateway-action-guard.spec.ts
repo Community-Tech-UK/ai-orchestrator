@@ -45,6 +45,7 @@ function makeGuard(opts: {
   grants?: BrowserPermissionGrant[];
   approvals?: BrowserApprovalRequest[];
   probe?: BrowserGatewayActionGuardOptions['probePageChallenge'];
+  managed?: boolean;
 } = {}) {
   const withEscalations = opts.withEscalations ?? true;
   const grants = opts.grants ?? [];
@@ -71,10 +72,15 @@ function makeGuard(opts: {
 
   const consumeGrant = vi.fn();
   const options: BrowserGatewayActionGuardOptions = {
-    profileStore: { getProfile: vi.fn(() => undefined) } as unknown as BrowserGatewayActionGuardOptions['profileStore'],
-    targetRegistry: { listTargets: vi.fn(() => []) } as unknown as BrowserGatewayActionGuardOptions['targetRegistry'],
-    driver: { refreshTarget: vi.fn(), inspectElement: vi.fn() } as unknown as BrowserGatewayActionGuardOptions['driver'],
-    extensionTabStore: { getTab: vi.fn(() => attachment) } as unknown as BrowserGatewayActionGuardOptions['extensionTabStore'],
+    profileStore: { getProfile: vi.fn(() => opts.managed ? {
+      id: 'p1', allowedOrigins: attachment.allowedOrigins, executionNodeId: 'local',
+    } : undefined) } as unknown as BrowserGatewayActionGuardOptions['profileStore'],
+    targetRegistry: { listTargets: vi.fn(() => opts.managed ? [{ id: 't1' }] : []) } as unknown as BrowserGatewayActionGuardOptions['targetRegistry'],
+    driver: {
+      refreshTarget: vi.fn(async () => ({ id: 't1', url: attachment.url, origin: attachment.origin })),
+      inspectElement: vi.fn(async () => ({ visibleText: 'ordinary field' })),
+    } as unknown as BrowserGatewayActionGuardOptions['driver'],
+    extensionTabStore: { getTab: vi.fn(() => opts.managed ? undefined : attachment) } as unknown as BrowserGatewayActionGuardOptions['extensionTabStore'],
     grantStore: {
       listGrants: vi.fn(() => grants),
       createGrant: vi.fn(),
@@ -211,6 +217,23 @@ describe('BrowserGatewayActionGuard exact credential approval redemption', () =>
     expect(createRequest).not.toHaveBeenCalled();
     guard.recordMutationSucceeded(prepared as BrowserGatewayPreparedMutation);
     expect(consumeGrant).toHaveBeenCalledWith(credentialGrant.id);
+  });
+
+  it('redeems and rechecks an exact approval for a caller with no instanceId', async () => {
+    const grant = { ...credentialGrant, instanceId: 'unknown', requestedBy: 'unknown' };
+    const approval = { ...approvedRequest, instanceId: 'unknown' };
+    const { guard, createRequest } = makeGuard({ grants: [grant], approvals: [approval] });
+    const request = { provider: 'orchestrator', profileId: 'p1', targetId: 't1', requestId: approval.requestId };
+
+    const prepared = await guard.prepareMutatingAction(
+      request, approval.action, approval.toolName, approval.selector!, 'challenge',
+      { actionClass: 'credential', hardStop: true, reason: CREDENTIAL_CHALLENGE_REASON },
+    );
+
+    expect((prepared as BrowserGatewayPreparedMutation).grant.id).toBe(grant.id);
+    expect(guard.recheckPreparedGrant(request, approval.action, approval.toolName,
+      prepared as BrowserGatewayPreparedMutation)).toBeNull();
+    expect(createRequest).not.toHaveBeenCalled();
   });
 
   it.each([undefined, 'wrong-request'])('does not redeem an omitted or wrong request ID (%s)', async (requestId) => {
@@ -478,6 +501,33 @@ describe('BrowserGatewayActionGuard existing-tab grant scope (LT-001 regression)
     // REQUEST's profileId ('existing-tab:t1') derives node scope 'local',
     // which must never match a grant scoped to a different remote node.
     expect(recheck).not.toBeNull();
+  });
+});
+
+describe('BrowserGatewayActionGuard omitted instance identity', () => {
+  const grant: BrowserPermissionGrant = {
+    ...CAMPAIGN_SUBMIT_GRANT,
+    id: 'anonymous-input-grant',
+    mode: 'session',
+    instanceId: 'unknown',
+    requestedBy: 'unknown',
+    allowedActionClasses: ['input'],
+    autonomous: false,
+  };
+  const request = { provider: 'orchestrator', profileId: 'p1', targetId: 't1' };
+
+  it.each([false, true])('accepts the caller\'s approved grant on managed=%s path', async (managed) => {
+    const { guard, createRequest } = makeGuard({ grants: [grant], managed });
+
+    const prepared = await guard.prepareMutatingAction(
+      request, 'type into field', 'browser.type', '#field', 'ordinary field',
+      { actionClass: 'input', hardStop: false },
+    );
+
+    expect((prepared as BrowserGatewayPreparedMutation).grant.id).toBe(grant.id);
+    expect(guard.recheckPreparedGrant(request, 'type into field', 'browser.type',
+      prepared as BrowserGatewayPreparedMutation)).toBeNull();
+    expect(createRequest).not.toHaveBeenCalled();
   });
 });
 

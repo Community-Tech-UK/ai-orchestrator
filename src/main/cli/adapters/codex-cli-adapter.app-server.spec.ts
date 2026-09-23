@@ -484,6 +484,41 @@ describe('CodexCliAdapter', () => {
       });
       expect(compactedOutputs).toHaveLength(2);
     });
+
+    it('observes a contextCompaction item once, even when a legacy build also sends thread/compacted', () => {
+      const adapter = new CodexCliAdapter();
+      const internals = adapter as unknown as {
+        appServerThreadId: string;
+        handleIdleAppServerNotification(notification: SyntheticNotification): void;
+      };
+      internals.appServerThreadId = 'thread-1';
+      const compactedOutputs: unknown[] = [];
+      adapter.on('output', (output: { metadata?: Record<string, unknown> }) => {
+        if (output.metadata?.['threadCompacted']) compactedOutputs.push(output);
+      });
+      const item = { type: 'contextCompaction', id: 'compaction-item' };
+
+      internals.handleIdleAppServerNotification({
+        method: 'item/started',
+        params: { threadId: 'thread-1', turnId: 'compact-turn', item },
+      });
+      expect(compactedOutputs).toHaveLength(0);
+
+      internals.handleIdleAppServerNotification({
+        method: 'item/completed',
+        params: { threadId: 'thread-1', turnId: 'compact-turn', item },
+      });
+      expect(compactedOutputs).toHaveLength(1);
+      internals.handleIdleAppServerNotification({
+        method: 'thread/compacted',
+        params: { threadId: 'thread-1', turnId: 'compact-turn' },
+      });
+      internals.handleIdleAppServerNotification({
+        method: 'item/completed',
+        params: { threadId: 'child-thread', turnId: 'child-turn', item },
+      });
+      expect(compactedOutputs).toHaveLength(1);
+    });
   });
 
   describe('context-pressure diagnostics', () => {
@@ -915,7 +950,12 @@ describe('CodexCliAdapter', () => {
   describe('turn cost governor', () => {
     function installSyntheticCostClient(
       adapter: CodexCliAdapter,
-      options: { completeInsteadOfInterrupt?: boolean; requestSharedRecovery?: boolean } = {},
+      options: {
+        completeInsteadOfInterrupt?: boolean;
+        requestSharedRecovery?: boolean;
+        /** `context-item` replays what codex-cli 0.156.1 sends: no `thread/compacted`, only a compaction turn. */
+        compactionSignal?: 'legacy' | 'context-item';
+      } = {},
     ) {
       const order: string[] = [];
       const turnInputs: string[] = [];
@@ -995,6 +1035,22 @@ describe('CodexCliAdapter', () => {
             return { success: true };
           }
           if (method === 'thread/compact/start') {
+            if (options.compactionSignal === 'context-item') {
+              // The real server answers the RPC first and reports the compaction later.
+              setTimeout(() => {
+                const turn = { id: 'compact-turn', status: 'inProgress' };
+                const item = { type: 'contextCompaction', id: 'compaction-item' };
+                const params = { threadId: 'thread-1', turnId: turn.id };
+                client.notificationHandler?.({ method: 'turn/started', params: { threadId: 'thread-1', turn } });
+                client.notificationHandler?.({ method: 'item/started', params: { ...params, item } });
+                client.notificationHandler?.({ method: 'item/completed', params: { ...params, item } });
+                client.notificationHandler?.({
+                  method: 'turn/completed',
+                  params: { threadId: 'thread-1', turn: { ...turn, status: 'completed' } },
+                });
+              }, 0);
+              return {};
+            }
             client.notificationHandler?.({
               method: 'thread/compacted',
               params: { threadId: 'thread-1' },
@@ -1044,6 +1100,30 @@ describe('CodexCliAdapter', () => {
       expect(turnInputs[1]).toMatch(/continue the interrupted task/i);
       expect(turnInputs[1]).not.toContain('Original expensive task');
       expect(completions).toEqual(['Continued safely']);
+    });
+
+    it('confirms compaction from the contextCompaction item current Codex builds send instead of thread/compacted', async () => {
+      const adapter = new CodexCliAdapter({ contextCostGovernorEnabled: true });
+      const { order, turnInputs } = installSyntheticCostClient(adapter, {
+        requestSharedRecovery: true,
+        compactionSignal: 'context-item',
+      });
+      const completions: string[] = [];
+      const pauses: unknown[] = [];
+      adapter.on('complete', (response: { content: string }) => completions.push(response.content));
+      adapter.on('output', (output: { metadata?: Record<string, unknown> }) => {
+        if (output.metadata?.['contextCostRecoveryPaused']) pauses.push(output);
+      });
+
+      await (adapter as unknown as {
+        appServerSendMessageInner(message: string): Promise<void>;
+      }).appServerSendMessageInner('Original expensive task');
+
+      expect(pauses).toEqual([]);
+      expect(order).toEqual(['turn/start', 'turn/interrupt', 'thread/compact/start', 'turn/start']);
+      expect(turnInputs[1]).toMatch(/continue the interrupted task/i);
+      expect(completions).toEqual(['Continued safely']);
+      expect(adapter.nativeCompactionKnownUnsupported()).toBe(false);
     });
 
     // W6: ContextSafetyPolicy caps recoveries per user send. It can only do

@@ -72,8 +72,11 @@ export class InstanceSpawnPreflightChain {
     // are launch-scoped, so reusing one for a yolo create would leave the
     // instance metadata saying yolo=true while the CLI still requests approval.
     const warmYoloMismatch = spawnOptions.yoloMode === true;
+    // Warm adapters are also spawned without the per-instance Seatbelt wrapper.
+    // Its restrictions cannot be added to an already-running CLI process.
     const warmStartBlocked = Boolean(
       config.resume
+      || config.hardened
       || config.forceNodeId
       || config.nodePlacement
       || config.modelRuntimeTarget

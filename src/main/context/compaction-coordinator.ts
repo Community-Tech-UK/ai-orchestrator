@@ -105,7 +105,7 @@ export class CompactionCoordinator extends EventEmitter {
   /**
    * LT-045: instance ids that have already proven, this session, that the
    * connected provider build never confirms native compaction (accepts the
-   * RPC but never emits e.g. `thread/compacted`). The per-adapter sticky
+   * RPC but reports no compaction at all). The per-adapter sticky
    * flag this mirrors (`CodexContextCostController.nativeCompactionUnobserved`,
    * LT-017) lives on the adapter object, which restart-with-summary replaces
    * wholesale on every fallback — so on the manual-compaction path, where a

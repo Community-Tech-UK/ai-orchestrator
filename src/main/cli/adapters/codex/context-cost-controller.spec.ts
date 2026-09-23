@@ -125,6 +125,57 @@ describe('CodexContextCostController shared-policy execution adapter', () => {
       }
     });
 
+    // 2026-09-23: codex-cli 0.156.1 took 70s to compact a 107k-token thread.
+    // The 30s window failed a compaction that was succeeding and then disabled
+    // native compaction for the rest of the session.
+    it('waits out a slow compaction the provider reported running', async () => {
+      vi.useFakeTimers();
+      try {
+        const { controller, proofEvents } = createController({
+          compactionTimeoutMs: 30,
+          compactionRunningTimeoutMs: 180,
+          getCompactionTarget: () => ({
+            threadId: 'thread-fixture',
+            start: async () => { controller.recordCompactionStarted(); },
+          }),
+        });
+
+        const pending = controller.compactContext(30);
+        await vi.advanceTimersByTimeAsync(70);
+        controller.recordCompactionObserved(1_000);
+
+        await expect(pending).resolves.toBe(true);
+        expect(controller.nativeCompactionKnownUnsupported()).toBe(false);
+        expect(proofEvents).toContainEqual({ action: 'native-compaction', stage: 'observed' });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('fails a stalled compaction without marking native compaction unsupported', async () => {
+      vi.useFakeTimers();
+      try {
+        const start = vi.fn(async () => { controller.recordCompactionStarted(); });
+        const { controller } = createController({
+          compactionTimeoutMs: 30,
+          compactionRunningTimeoutMs: 180,
+          getCompactionTarget: () => ({ threadId: 'thread-fixture', start }),
+        });
+
+        const first = controller.compactContext(30);
+        await vi.advanceTimersByTimeAsync(180);
+        await expect(first).resolves.toBe(false);
+        expect(controller.nativeCompactionKnownUnsupported()).toBe(false);
+
+        // The next attempt still issues a real compaction request.
+        void controller.compactContext(30);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(start).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('leaves the native path enabled when the provider does emit the notification', async () => {
       const { controller, proofEvents } = createController({ compactionTimeoutMs: 50 });
       // A provider that settles the gate during the compact RPC — i.e. a build

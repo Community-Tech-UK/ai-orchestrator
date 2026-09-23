@@ -265,6 +265,7 @@ export async function initializeBrowserGatewayRuntime(
         manifestPath: nativeHostPaths.manifestPath,
         nativeDir: nativeHostPaths.nativeDir,
         isPackaged: app.isPackaged,
+        isStartupSmoke: process.env['AIO_STARTUP_SMOKE'] === '1',
         forceClaim: process.env['AIO_CLAIM_LOCAL_BROWSER_MANIFEST'] === '1',
       });
       if (!claimChromeManifest) {

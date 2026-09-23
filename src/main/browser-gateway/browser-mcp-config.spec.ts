@@ -68,6 +68,16 @@ describe('browser-mcp-config', () => {
     });
   });
 
+  it('passes a persistent forwarder log directory through the bridge environment', () => {
+    const bridge = resolveBrowserGatewayBridgeSpec({
+      ...options,
+      logDirectory: '/tmp/harness-profile/browser-forwarders/instance-1',
+    });
+
+    expect(bridge?.env['AI_ORCHESTRATOR_BROWSER_FORWARDER_LOG_DIR'])
+      .toBe('/tmp/harness-profile/browser-forwarders/instance-1');
+  });
+
   it('sets the tool-deferral env flag only when requested (WS9)', () => {
     const withDeferral = resolveBrowserGatewayBridgeSpec({
       ...options,

@@ -52,4 +52,25 @@ describe('SaveStateBannerComponent', () => {
     expect(text).toContain('Reset');
     expect(text).toContain('Apply changes');
   });
+
+  it.each(['saved', 'saving', 'dirty', 'restart'] as SaveState[])(
+    'announces the %s state politely',
+    (state) => {
+      fixture.componentInstance.state = state;
+      fixture.detectChanges();
+
+      const banner = (fixture.nativeElement as HTMLElement).querySelector('.save-banner');
+      expect(banner?.getAttribute('role')).toBe('status');
+      expect(banner?.getAttribute('aria-live')).toBe('polite');
+    }
+  );
+
+  it('announces save errors assertively', () => {
+    fixture.componentInstance.state = 'error';
+    fixture.detectChanges();
+
+    const banner = (fixture.nativeElement as HTMLElement).querySelector('.save-banner');
+    expect(banner?.getAttribute('role')).toBe('alert');
+    expect(banner?.getAttribute('aria-live')).toBe('assertive');
+  });
 });

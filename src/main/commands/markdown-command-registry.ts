@@ -633,9 +633,11 @@ export class MarkdownCommandRegistry {
   clearCache(workingDirectory?: string): void {
     if (!workingDirectory) {
       this.cacheByWorkingDir.clear();
+      this.dirMtimeCache.clear();
       return;
     }
     this.cacheByWorkingDir.delete(workingDirectory);
+    this.clearDirectoryMtimeCache(workingDirectory);
   }
 
   /**

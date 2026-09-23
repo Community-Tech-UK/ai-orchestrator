@@ -6038,7 +6038,7 @@
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
-      "lines": 3189
+      "lines": 3193
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase1-contracts-package_completed.md",
@@ -6053,16 +6053,16 @@
       "lines": 2851
     },
     {
+      "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
+      "lines": 2851
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-17-wave2-provider-normalization_completed.md",
       "lines": 2832
     },
     {
       "path": "src/main/browser-gateway/browser-extension-assets.spec.ts",
       "lines": 2772
-    },
-    {
-      "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
-      "lines": 2771
     },
     {
       "path": "docs/superpowers/plans/2026-04-21-cursor-cli-provider_completed.md",

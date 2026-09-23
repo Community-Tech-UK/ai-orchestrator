@@ -659,6 +659,10 @@ describe('AcpCliAdapter', () => {
     expect(outputHandler).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'tool_result', content: 'alpha line one\nbeta line two\n' }),
     );
+    expect(outputHandler).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'tool_result',
+      metadata: expect.objectContaining({ toolCallId: 'exec-1', status: 'completed', is_error: true }),
+    }));
 
     // Nothing captured at all: no `result` key, so downstream hashing fails open.
     const thinkResult = toolResultHandler.mock.calls.map(([call]) => call).find((call) => call.id === 'think-1');

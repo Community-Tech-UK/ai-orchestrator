@@ -9,26 +9,13 @@ import * as os from 'os';
 import * as path from 'path';
 import { EventEmitter } from 'events';
 import { LogWriterClient } from './log-writer-client';
+import { getElectronUserDataPath, getForwarderLogDirectory } from './log-paths';
 import { redactForSink } from '../diagnostics/redaction';
 import {
   redactLogString,
   sanitizeLogError,
   truncateLogString,
 } from './logger-redaction';
-
-/**
- * Safely get the Electron app userData path.
- * Returns undefined if Electron is not available (e.g., in tests).
- */
-function getElectronUserDataPath(): string | undefined {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { app } = require('electron');
-    return app?.getPath?.('userData');
-  } catch {
-    return undefined;
-  }
-}
 
 /**
  * Log levels (in order of severity)
@@ -334,12 +321,15 @@ export class LogManager extends EventEmitter {
     super();
     this.config = { ...DEFAULT_CONFIG, ...config };
 
+    const forwarderLogDir = getForwarderLogDirectory();
     const baseDir = this.config.logDirectory
+      || forwarderLogDir
       || getElectronUserDataPath()
       || path.join(os.tmpdir(), 'claude-orchestrator');
 
-    // Disable file logging when running outside Electron (tests)
-    if (!this.config.logDirectory && !getElectronUserDataPath()) {
+    // Disable file logging when running outside Electron (tests) unless an
+    // explicit or forwarder log directory supplies a real sink.
+    if (!this.config.logDirectory && !forwarderLogDir && !getElectronUserDataPath()) {
       this.config.enableFile = false;
     }
 

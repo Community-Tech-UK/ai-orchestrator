@@ -7,7 +7,7 @@ import { isCodexInputTooLargeError } from './exec-error-classifier';
 export interface InputCapRecoveryOps {
   /** Send the pending turn against the current app-server thread. */
   send(): Promise<void>;
-  /** Compact the current thread; true means `thread/compacted` was observed. */
+  /** Compact the current thread; true means the provider's completion signal was observed. */
   compact(): Promise<boolean>;
   /** Reopen a fresh thread — clears server-side context. */
   reopenThread(): Promise<void>;

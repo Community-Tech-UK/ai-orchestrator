@@ -20,7 +20,9 @@ export type SaveState = 'saved' | 'saving' | 'dirty' | 'restart' | 'error';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="save-banner" [attr.data-state]="state()">
+    <div class="save-banner" [attr.data-state]="state()"
+      [attr.role]="state() === 'error' ? 'alert' : 'status'"
+      [attr.aria-live]="state() === 'error' ? 'assertive' : 'polite'">
       <span class="save-status">
         @switch (state()) {
           @case ('saving') {

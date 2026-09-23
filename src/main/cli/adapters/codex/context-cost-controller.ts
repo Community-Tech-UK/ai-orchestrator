@@ -30,7 +30,10 @@ interface PendingRecovery {
 export interface CodexContextCostControllerDeps {
   /** @deprecated Decisions are owned by ContextSafetyPolicy; retained for config compatibility. */
   enabled?: boolean;
+  /** Window for the provider to report a requested compaction as running. */
   compactionTimeoutMs: number;
+  /** Window for a compaction reported as running to finish. Defaults to `compactionTimeoutMs`. */
+  compactionRunningTimeoutMs?: number;
   interrupt(): InterruptResult;
   getCompactionTarget(): { threadId: string; start(): Promise<unknown> } | null;
   emitSystem(content: string, metadata: Record<string, unknown>): void;
@@ -86,18 +89,23 @@ export class CodexContextCostController {
     const awaited = this.gate.hasPendingWaiters();
     this.gate.settle();
     this.governor.recordCompactionObserved(cumulativeTokens);
-    // The connected app-server demonstrably does emit `thread/compacted`, so
+    // The connected app-server demonstrably does signal compaction, so
     // clear any earlier negative verdict — a CLI upgrade mid-session should
     // re-enable the native path rather than stay disabled until restart.
     this.nativeCompactionUnobserved = false;
     if (!awaited) this.deps.recordActionProof?.('native-compaction', 'observed');
   }
 
+  /** The provider reported a compaction running; an explicit wait moves to its running window. */
+  recordCompactionStarted(): void {
+    this.gate.markRunning();
+  }
+
   /**
-   * Set once the connected app-server has accepted a compact RPC but never sent
-   * `thread/compacted` within the timeout. Some Codex builds never emit it at
-   * all, and without this every compaction paid the full timeout again for no
-   * possible benefit (LT-017).
+   * Set once the connected app-server has accepted a compact RPC but reported
+   * no compaction at all within the start window. Without this every
+   * compaction paid the full timeout again for no possible benefit (LT-017).
+   * A compaction that was reported running but finished late does not set it.
    */
   private nativeCompactionUnobserved = false;
 
@@ -116,7 +124,7 @@ export class CodexContextCostController {
       });
       return false;
     }
-    const observed = this.gate.wait(timeoutMs);
+    const observed = this.gate.wait(timeoutMs, this.deps.compactionRunningTimeoutMs ?? timeoutMs);
     if (!await this.startCompaction()) {
       this.gate.cancel();
       return false;
@@ -131,6 +139,7 @@ export class CodexContextCostController {
     }
     logger.warn('Context compaction was acknowledged but not observed', {
       timeoutMs,
+      runningTimeoutMs: this.deps.compactionRunningTimeoutMs ?? timeoutMs,
       outcome,
       nativeCompactionDisabledForSession: this.nativeCompactionUnobserved,
     });

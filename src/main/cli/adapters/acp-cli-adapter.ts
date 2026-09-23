@@ -1607,7 +1607,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
     if (output) {
       this.emit('output', buildAcpToolResultMessage(
-        { toolCallId, title, status, sessionUpdate: update.sessionUpdate, output },
+        { toolCallId, title, status, sessionUpdate: update.sessionUpdate, output, rawOutput: update.rawOutput },
         generateId(), Date.now(),
       ));
     }
@@ -1621,7 +1621,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
     this.emit('tool_result', toolCall);
     // LT-196: covers a terminal call that rendered no output (see helper).
     const fallback = buildAcpToolOutcomeFallback(
-      { toolCallId, status, title, hasRenderedOutput: Boolean(output) },
+      { toolCallId, status, title, hasRenderedOutput: Boolean(output), rawOutput: update.rawOutput },
       generateId(), Date.now(),
     );
     if (fallback) this.emit('output', fallback);

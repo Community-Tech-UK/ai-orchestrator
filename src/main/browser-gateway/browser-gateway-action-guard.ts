@@ -226,7 +226,7 @@ export class BrowserGatewayActionGuard {
     });
     const match = findMatchingBrowserGrant({
       grants,
-      instanceId: request.instanceId ?? '',
+      instanceId: request.instanceId ?? 'unknown',
       provider: providerFromContext(request.provider),
       profileId: profile.id,
       targetId: target.id,
@@ -385,7 +385,7 @@ export class BrowserGatewayActionGuard {
     // arriving meanwhile does not revoke it or replace its constraints.
     const match = findMatchingBrowserGrant({
       grants: grants.filter((candidate) => candidate.id === prepared.grant.id),
-      instanceId: request.instanceId ?? '',
+      instanceId: request.instanceId ?? 'unknown',
       provider: providerFromContext(request.provider),
       nodeId,
       profileId: request.profileId,
@@ -534,7 +534,7 @@ export class BrowserGatewayActionGuard {
     });
     const match = findMatchingBrowserGrant({
       grants,
-      instanceId: request.instanceId ?? '',
+      instanceId: request.instanceId ?? 'unknown',
       provider: providerFromContext(request.provider),
       nodeId,
       profileId: attachment.profileId,

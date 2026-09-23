@@ -108,6 +108,7 @@ describe('RemoteNodesSettingsTabComponent', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    store.remoteNodesEnabled.mockReturnValue(true);
     ipc.getServerStatus.mockResolvedValue({ running: false } as RemoteNodeServerStatus);
     ipc.listNodes.mockResolvedValue([]);
     ipc.listPairingCredentials.mockResolvedValue([]);
@@ -320,6 +321,15 @@ describe('RemoteNodesSettingsTabComponent', () => {
   });
 
   describe('task-based section navigation (Task 3)', () => {
+    it('explains how to enable pairing when the remote-node server is disabled', () => {
+      store.remoteNodesEnabled.mockReturnValue(false);
+      fixture.detectChanges();
+      (fixture.nativeElement.querySelectorAll('[role="tab"]')[1] as HTMLButtonElement).click();
+      fixture.detectChanges();
+
+      const pairing = fixture.nativeElement.querySelector('#remote-nodes-panel-pairing');
+      expect(pairing?.textContent).toContain('Enable the remote-node server in Overview');
+    });
     it('renders four section tabs with matching tab panels, only the active panel visible', () => {
       fixture.detectChanges();
 

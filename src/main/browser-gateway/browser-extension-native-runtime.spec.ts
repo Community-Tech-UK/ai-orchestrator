@@ -290,6 +290,16 @@ describe('browser extension native runtime', () => {
       })).toBe(true);
     });
 
+    it('preserves the installed manifest for a packaged startup smoke profile', () => {
+      const dir = tempDirWithPrefix('claim-smoke-');
+      expect(mayClaimBrowserExtensionNativeHostManifest({
+        ...foreignManifest(dir),
+        isPackaged: true,
+        isStartupSmoke: true,
+        forceClaim: true,
+      })).toBe(false);
+    });
+
     it('honours an explicit force-claim opt-in from an unpackaged install', () => {
       const dir = tempDirWithPrefix('claim-forced-');
       expect(mayClaimBrowserExtensionNativeHostManifest({

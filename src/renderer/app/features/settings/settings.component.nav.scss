@@ -17,8 +17,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 44px;
+  height: 44px;
   margin: var(--spacing-md) var(--spacing-md) 0 auto;
   padding: 0;
   border: 1px solid color-mix(in srgb, var(--border-color) 76%, transparent);
@@ -276,7 +276,7 @@
 
 .settings-sidebar.nav-collapsed .settings-nav {
   gap: 4px;
-  padding: 0 6px var(--spacing-md);
+  padding: 0 5px var(--spacing-md);
 }
 
 .settings-sidebar.nav-collapsed .nav-group-label,
@@ -288,7 +288,7 @@
 
 .settings-sidebar.nav-collapsed .nav-item {
   justify-content: center;
-  min-height: 38px;
+  min-height: 44px;
   padding: 6px 0;
 }
 

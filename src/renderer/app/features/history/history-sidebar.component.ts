@@ -30,7 +30,7 @@ import type { OutputMessage } from '../../core/state/instance/instance.types';
   template: `
     <div
       class="history-backdrop"
-      (click)="closeHistory.emit()"
+      (click)="onBackdropClick($event)"
       (keydown.escape)="closeHistory.emit()"
       tabindex="0"
       role="button"
@@ -421,6 +421,12 @@ export class HistorySidebarComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.resizeCleanup?.();
+  }
+
+  onBackdropClick(event: MouseEvent): void {
+    if (event.target === event.currentTarget) {
+      this.closeHistory.emit();
+    }
   }
 
   startResize(event: MouseEvent): void {

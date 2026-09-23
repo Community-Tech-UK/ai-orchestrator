@@ -75,7 +75,14 @@ const WORKER_ENTRY = resolve(SPEC_DIR, '../context-worker-main.ts');
 // table) joined the RLM migration graph the worker already includes. Diff-verified
 // against a `git archive HEAD` copy: HEAD 146, working tree 147, that migration
 // batch the only addition, no removals, zero Electron value-importers.
-const CLOSURE_SIZE_CEILING = 148;
+// 2026-09-23: 148 after `log-paths.ts` was extracted from `logger.ts`, which
+// the LT-543 forwarder-log-directory hook pushed to 702/700 lines. Diff-verified
+// by import-edge diff: `logger.ts` gained exactly one value-import (`./log-paths`)
+// and `log-paths.ts` is a leaf with no value imports at all — the two path
+// helpers moved out of `logger.ts`, carrying the lazy guarded `require('electron')`
+// try/catch this guardrail explicitly sanctions. Sole addition, no removals,
+// zero Electron value-importers.
+const CLOSURE_SIZE_CEILING = 149;
 
 function resolveImport(spec: string, fromFile: string): string | null {
   if (!spec.startsWith('.')) return null; // bare module (electron, node:*, npm)

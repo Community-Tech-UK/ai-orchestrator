@@ -224,8 +224,14 @@ export function mayClaimBrowserExtensionNativeHostManifest(input: {
   manifestPath: string;
   nativeDir: string;
   isPackaged: boolean;
+  isStartupSmoke?: boolean;
   forceClaim?: boolean;
 }): boolean {
+  // The smoke harness deletes its isolated user-data path on exit, so its
+  // wrapper must never replace the machine-global Chrome manifest.
+  if (input.isStartupSmoke === true) {
+    return false;
+  }
   if (input.forceClaim === true || input.isPackaged) {
     return true;
   }

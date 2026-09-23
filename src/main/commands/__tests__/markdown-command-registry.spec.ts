@@ -105,6 +105,19 @@ describe('priority field on loaded commands', () => {
 });
 
 describe('mtime skip — per-directory optimisation', () => {
+  it('keeps commands on repeated scans after clearing the working-directory cache', async () => {
+    readdirResults.set(PROJECT_COMMANDS, [makeDirent('hello.md')]);
+    fileContents.set(commandFile(PROJECT_COMMANDS, 'hello.md'), '# Hello\nworld');
+
+    const reg = MarkdownCommandRegistry.getInstance();
+    const first = await reg.listCommands('/tmp/test-project');
+    reg.clearCache('/tmp/test-project');
+    const second = await reg.listCommands('/tmp/test-project');
+
+    expect(first.commands.map((command) => command.name)).toEqual(['hello']);
+    expect(second.commands.map((command) => command.name)).toEqual(['hello']);
+  });
+
   it('skips re-walking a directory whose mtime is unchanged within TTL', async () => {
     readdirResults.set(HOME_COMMANDS, [makeDirent('hello.md')]);
     fileContents.set(commandFile(HOME_COMMANDS, 'hello.md'), '# Hello\nworld');

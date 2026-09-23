@@ -12,9 +12,10 @@ import { tomlArray, tomlBareKey, tomlString } from './mcp-config-toml-helpers';
  *   command: <resources>/aio-mcp-cli/aio-mcp
  *   args:    ['browser-gateway']
  *   env:     {
- *     AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: <parent RPC socket path>,
- *     AI_ORCHESTRATOR_BROWSER_INSTANCE_ID:    <auth handle for the parent>,
- *     AI_ORCHESTRATOR_BROWSER_PROVIDER:       <optional provider override>,
+ *     AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET:     <parent RPC socket path>,
+ *     AI_ORCHESTRATOR_BROWSER_INSTANCE_ID:        <auth handle for the parent>,
+ *     AI_ORCHESTRATOR_BROWSER_PROVIDER:           <optional provider override>,
+ *     AI_ORCHESTRATOR_BROWSER_FORWARDER_LOG_DIR:  <optional persistent log directory>,
  *   }
  *
  * The forwarder talks to `BrowserGatewayRpcServer` running in the parent
@@ -31,6 +32,13 @@ export interface BrowserGatewayMcpConfigOptions {
    * dynamic clients reveal tools on demand. Unsupported clients remain eager.
    */
   toolDeferral?: boolean;
+  /**
+   * Persistent directory for the forwarder's own file log sink (LT-543).
+   * Passed through as `AI_ORCHESTRATOR_BROWSER_FORWARDER_LOG_DIR`; the
+   * forwarder's `LogManager` reads it because outside Electron there is no
+   * userData path and its file sink would otherwise be disabled.
+   */
+  logDirectory?: string;
   exists?: (candidatePath: string) => boolean;
 }
 
@@ -77,6 +85,9 @@ export function resolveBrowserGatewayBridgeSpec(
     AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: options.socketPath,
     AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: options.instanceId,
     ...(options.provider ? { AI_ORCHESTRATOR_BROWSER_PROVIDER: options.provider } : {}),
+    ...(options.logDirectory
+      ? { AI_ORCHESTRATOR_BROWSER_FORWARDER_LOG_DIR: options.logDirectory }
+      : {}),
     ...(toolMode === 'stable'
       ? { [BROWSER_TOOL_STABLE_ENV]: '1' }
       : toolMode === 'deferred' ? { [BROWSER_TOOL_DEFERRAL_ENV]: '1' } : {}),
