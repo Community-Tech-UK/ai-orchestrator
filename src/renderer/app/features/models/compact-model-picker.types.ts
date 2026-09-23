@@ -8,7 +8,7 @@ import type { ReasoningEffort } from '../../../../shared/types/provider.types';
  * even though chats currently don't). Excludes the `auto` sentinel —
  * the picker always pins a concrete provider.
  */
-export type PickerProvider = ChatProvider | 'cursor' | 'grok' | 'local-model';
+export type PickerProvider = ChatProvider | 'cursor' | 'grok' | 'opencode' | 'local-model';
 
 /**
  * Operating mode of the compact model picker.

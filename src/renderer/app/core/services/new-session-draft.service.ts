@@ -817,6 +817,7 @@ export class NewSessionDraftService {
       value === 'copilot' ||
       value === 'cursor' ||
       value === 'grok' ||
+      value === 'opencode' ||
       value === 'auto';
   }
 

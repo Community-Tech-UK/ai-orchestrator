@@ -355,6 +355,7 @@ describe('AutomationsPageComponent row actions', () => {
       'copilot',
       'cursor',
       'grok',
+      'opencode',
     ]);
     expect(fixture.nativeElement.querySelector('select[name="provider"]')).toBeNull();
 

@@ -137,6 +137,25 @@ describe('CliUpdateService', () => {
     expect(CLI_UPDATE_SPECS.grok?.npmPackage).toBe('@xai-official/grok');
   });
 
+  it('uses `opencode upgrade` and knows the opencode-ai npm package', async () => {
+    const path = '/Users/test/.nvm/versions/node/v24/bin/opencode';
+    const detection = makeDetection({
+      one: { opencode: makeInfo('opencode', path, '1.18.29') },
+      installs: { opencode: [{ path, version: '1.18.29' }] },
+    });
+
+    const service = new CliUpdateService({ detection, exists: (candidate) => candidate === path, platform: 'darwin' });
+
+    await expect(service.getUpdatePlan('opencode')).resolves.toMatchObject({
+      cli: 'opencode',
+      supported: true,
+      strategy: 'self-update',
+      command: path,
+      args: ['upgrade'],
+    });
+    expect(CLI_UPDATE_SPECS.opencode?.npmPackage).toBe('opencode-ai');
+  });
+
   it('uses the GitHub CLI extension updater when Copilot is provided by gh', async () => {
     const detection = makeDetection({
       one: {

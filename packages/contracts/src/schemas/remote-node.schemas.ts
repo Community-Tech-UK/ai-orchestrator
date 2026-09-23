@@ -38,7 +38,7 @@ export const RemoteNodeServiceActionPayloadSchema = z.object({
 
 export const RemoteNodeProviderDiagnosePayloadSchema = z.object({
   nodeId: z.string().uuid(),
-  provider: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']),
+  provider: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode']),
 });
 
 export const RemoteNodeRepairDiagnosePayloadSchema = z.object({

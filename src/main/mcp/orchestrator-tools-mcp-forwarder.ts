@@ -139,7 +139,7 @@ export function createOrchestratorToolsForwarderTools(
           },
           provider: {
             type: 'string',
-            enum: ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok'],
+            enum: ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode'],
             description: 'CLI provider to use on the node (defaults to the node/app default).',
           },
           model: {
@@ -445,7 +445,7 @@ export function createOrchestratorToolsForwarderTools(
           description: { type: 'string', description: 'Optional human-readable description.' },
           provider: {
             type: 'string',
-            enum: ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok'],
+            enum: ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode'],
             description:
               'CLI provider to run with. When omitted, new automations default to Claude Opus latest with the 1M context window. An explicitly selected provider uses that provider\'s model resolution.',
           },
@@ -541,7 +541,7 @@ export function createOrchestratorToolsForwarderTools(
           },
           provider: {
             type: 'string',
-            enum: ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok'],
+            enum: ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode'],
             description: 'New CLI provider. Omit to leave unchanged.',
           },
           model: {

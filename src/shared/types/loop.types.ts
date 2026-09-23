@@ -78,7 +78,7 @@ export const DEFAULT_LOOP_MAX_COST_CENTS: number | null = null;
 export type LoopContextStrategy = 'fresh-child' | 'hybrid' | 'same-session';
 
 /** Concrete provider for child iterations. `auto` is resolved before persistence. */
-export type LoopProvider = 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok';
+export type LoopProvider = 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'opencode';
 
 /**
  * Fable WS7 Phase A — per-loop provider failover. Default DISABLED: switching

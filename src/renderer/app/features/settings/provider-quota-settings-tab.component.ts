@@ -44,6 +44,7 @@ const PROVIDERS: { id: ProviderId; label: string }[] = [
   { id: 'copilot', label: 'GitHub Copilot' },
   { id: 'cursor', label: 'Cursor' },
   { id: 'grok', label: 'Grok' },
+  { id: 'opencode', label: 'OpenCode' },
 ];
 
 const INTERVAL_OPTIONS: IntervalOption[] = [
@@ -62,6 +63,7 @@ const LIMIT_UNAVAILABLE_TEXT: Record<ProviderId, string> = {
   copilot: 'GitHub Copilot does not report account limits outside an active coding session. Sign-in status is available but usage totals are not.',
   cursor: 'Cursor usage is available when Harness can read Cursor’s macOS Keychain session token, or when the standalone token-usage-monitor has written a fresh snapshot.',
   grok: 'Grok Build billing from ~/.grok/auth.json (monthly / on-demand USD). Sign in with `grok login` if the chip shows reauth.',
+  opencode: 'OpenCode does not report plan usage, and MiMo Token Plan usage is only shown in the MiMo console (it needs a browser login, not the API key). Check the console for remaining credits.',
 };
 
 @Component({
@@ -154,7 +156,7 @@ export class ProviderQuotaSettingsTabComponent implements OnInit {
   readonly intervalOptions = INTERVAL_OPTIONS;
 
   readonly intervals = signal<Record<ProviderId, number>>({
-    claude: 0, codex: 0, gemini: 0, antigravity: 0, copilot: 0, cursor: 0, grok: 0,
+    claude: 0, codex: 0, gemini: 0, antigravity: 0, copilot: 0, cursor: 0, grok: 0, opencode: 0,
   });
 
   readonly lastWarning = this.store.lastWarning;

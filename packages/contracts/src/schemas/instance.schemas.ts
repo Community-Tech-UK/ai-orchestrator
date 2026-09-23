@@ -36,7 +36,7 @@ export const InstanceStatusSchema = z.enum([
   'failed',
   'terminated',
 ]);
-const InstanceCreateProviderSchema = z.enum(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']);
+const InstanceCreateProviderSchema = z.enum(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode']);
 const NodePlacementPrefsSchema = z.object({
   requiresBrowser: z.boolean().optional(),
   requiresAndroid: z.boolean().optional(),
@@ -44,7 +44,7 @@ const NodePlacementPrefsSchema = z.object({
   requiresGpu: z.boolean().optional(),
   preferPlatform: z.enum(['darwin', 'win32', 'linux']).optional(),
   preferNodeId: z.string().optional(),
-  requiresCli: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']).optional(),
+  requiresCli: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode']).optional(),
   requiresWorkingDirectory: z.string().min(1).max(4096).optional(),
 });
 export const ModelRuntimeTargetSchema = z.discriminatedUnion('kind', [
@@ -314,7 +314,7 @@ export const InstanceChangeAgentPayloadSchema = z.object({
 export type InstanceChangeAgentPayload = z.infer<typeof InstanceChangeAgentPayloadSchema>;
 
 /** Concrete provider targets for a cross-provider swap (no 'auto' sentinel). */
-const InstanceChangeProviderSchema = z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']);
+const InstanceChangeProviderSchema = z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode']);
 
 export const InstanceChangeModelPayloadSchema = z.object({
   instanceId: InstanceIdSchema,
@@ -735,6 +735,13 @@ export const InstanceInputRequiredEventSchema = z.object({
   prompt: z.string(),
   timestamp: z.number(),
   metadata: z.record(z.string(), z.unknown()).optional(),
+}).strict();
+
+/** A pending input request that no longer needs an answer, and why. */
+export const InstanceInputRequiredResolvedEventSchema = z.object({
+  instanceId: z.string(),
+  requestId: z.string(),
+  reason: z.enum(['timeout', 'auto_approved', 'decided', 'cancelled', 'exited']),
 }).strict();
 
 // ============================================

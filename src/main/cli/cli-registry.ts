@@ -12,10 +12,10 @@ import { getCliAdditionalPaths } from './cli-environment';
  * data / older remote nodes); its live successor is `antigravity` (the `agy`
  * CLI). Legacy `gemini` is normalized to `antigravity` in mapSettingsToDetectionType.
  */
-export type CliType = 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'ollama' | 'cursor' | 'grok';
+export type CliType = 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'ollama' | 'cursor' | 'grok' | 'opencode';
 
 /** CLIs surfaced in CLI Health. `gemini` is excluded — superseded by `antigravity`. */
-export const SUPPORTED_CLIS: CliType[] = ['claude', 'codex', 'antigravity', 'copilot', 'ollama', 'cursor', 'grok'];
+export const SUPPORTED_CLIS: CliType[] = ['claude', 'codex', 'antigravity', 'copilot', 'ollama', 'cursor', 'grok', 'opencode'];
 
 /**
  * Registry entry for a CLI tool
@@ -210,6 +210,31 @@ export const CLI_REGISTRY: Record<CliType, CliRegistryEntry> = {
     installerMirrorDirs: [
       '%GROK_HOME%/bin',
       '~/.grok/bin',
+    ],
+  },
+  opencode: {
+    name: 'opencode',
+    command: 'opencode',
+    displayName: 'OpenCode',
+    versionFlag: '--version',
+    versionPattern: /(\d+\.\d+\.\d+)/,
+    capabilities: [
+      'streaming',
+      'tool-use',
+      'file-access',
+      'shell',
+      'multi-turn',
+      'mcp-servers',
+    ],
+    alternativePaths: [
+      // opencode.ai/install writes the binary to `$HOME/.opencode/bin`.
+      '~/.opencode/bin/opencode',
+      '/opt/homebrew/bin/opencode',
+      '/usr/local/bin/opencode',
+      '~/.local/bin/opencode',
+      '~/.npm-global/bin/opencode',
+      '%APPDATA%\\npm\\opencode.cmd',
+      '%USERPROFILE%\\.opencode\\bin\\opencode.exe',
     ],
   },
   ollama: {

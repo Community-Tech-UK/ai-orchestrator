@@ -164,7 +164,7 @@ export class ProviderDoctor {
         name: 'cli_installed',
         description: 'Check if the CLI binary is installed and accessible',
         critical: true,
-        appliesTo: ['claude-cli', 'codex-cli', 'gemini-cli', 'antigravity', 'copilot', 'cursor', 'grok'],
+        appliesTo: ['claude-cli', 'codex-cli', 'gemini-cli', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode'],
         run: async (provider) => {
           if (provider === 'copilot') {
             const start = Date.now();
@@ -188,6 +188,7 @@ export class ProviderDoctor {
             'antigravity': 'agy',
             'cursor': 'cursor-agent',
             'grok': 'grok',
+            'opencode': 'opencode',
           };
           const cmd = cliMap[provider];
           if (!cmd) {
@@ -224,7 +225,7 @@ export class ProviderDoctor {
         name: 'cli_shadow_check',
         description: 'Check for stale or shadow CLI installs at multiple PATH locations',
         critical: false,
-        appliesTo: ['claude-cli', 'codex-cli', 'gemini-cli', 'antigravity', 'copilot', 'cursor', 'grok'],
+        appliesTo: ['claude-cli', 'codex-cli', 'gemini-cli', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode'],
         run: async (provider) => {
           const cliTypeMap: Record<string, CliType | undefined> = {
             'claude-cli': 'claude',
@@ -234,6 +235,7 @@ export class ProviderDoctor {
             'copilot': 'copilot',
             'cursor': 'cursor',
             'grok': 'grok',
+            'opencode': 'opencode',
           };
           const cliType = cliTypeMap[provider];
           if (!cliType) {

@@ -50,12 +50,14 @@ describe('UserActionRequestComponent', () => {
     metadata?: Record<string, unknown>;
   }) => void;
   let currentInstanceId: WritableSignal<string | null>;
+  let onInputRequiredResolved: (payload: { instanceId: string; requestId: string; reason: string }) => void;
 
   const fakeIpc = {
     listUserActionRequests: vi.fn(),
     listUserActionRequestsForInstance: vi.fn(),
     onUserActionRequest: vi.fn(),
     onInputRequired: vi.fn(),
+    onInputRequiredResolved: vi.fn(),
     respondToUserAction: vi.fn(),
     respondToInputRequired: vi.fn(),
     submitSecretCard: vi.fn(),
@@ -84,6 +86,11 @@ describe('UserActionRequestComponent', () => {
     });
     fakeIpc.onInputRequired.mockImplementation((callback: typeof onInputRequired) => {
       onInputRequired = callback;
+      return vi.fn();
+    });
+    onInputRequiredResolved = () => undefined;
+    fakeIpc.onInputRequiredResolved.mockImplementation((callback: typeof onInputRequiredResolved) => {
+      onInputRequiredResolved = callback;
       return vi.fn();
     });
     fakeIpc.respondToUserAction.mockResolvedValue({ success: true, data: {} });
@@ -204,6 +211,84 @@ describe('UserActionRequestComponent', () => {
     await settle(fixture);
 
     expect(fixture.nativeElement.textContent).toContain('Allow Bash command?');
+  });
+
+  // ── Generic ACP permission cards (timeout / Cancel / stale replies) ─────
+
+  const showAcpPermissionCard = async (requestId = 'acp_permission:7') => {
+    currentInstanceId.set('inst-acp');
+    fixture.detectChanges();
+    await settle(fixture);
+    onInputRequired({
+      instanceId: 'inst-acp',
+      requestId,
+      prompt: 'ACP agent requests permission to continue tool execution. Tool: rm answer.txt',
+      timestamp: 1_900_000_000_000,
+      metadata: { type: 'acp_permission_request', transport: 'acp' },
+    });
+    fixture.detectChanges();
+  };
+  const buttonByText = (text: string): HTMLButtonElement =>
+    Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>)
+      .find((button) => button.textContent?.trim() === text)!;
+
+  it('removes an ACP card when its request is settled without the user (timeout)', async () => {
+    await showAcpPermissionCard();
+    expect(fixture.nativeElement.textContent).toContain('Tool: rm answer.txt');
+
+    onInputRequiredResolved({ instanceId: 'inst-acp', requestId: 'acp_permission:7', reason: 'timeout' });
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).not.toContain('Tool: rm answer.txt');
+    expect(fakeIpc.respondToInputRequired).not.toHaveBeenCalled();
+  });
+
+  it('Cancel on an ACP card sends a keyed cancel and removes the card', async () => {
+    await showAcpPermissionCard();
+
+    buttonByText('Cancel').click();
+    await settle(fixture);
+    fixture.detectChanges();
+
+    expect(fakeIpc.respondToInputRequired).toHaveBeenCalledWith('inst-acp', 'acp_permission:7', 'cancel', 'acp_permission:7');
+    expect(fixture.nativeElement.textContent).not.toContain('Tool: rm answer.txt');
+    expect(fakeInstanceStore.decrementPendingApproval).toHaveBeenCalledWith('inst-acp');
+  });
+
+  it('drops a card whose request already expired instead of showing an error', async () => {
+    fakeIpc.respondToInputRequired.mockResolvedValue({
+      success: false,
+      error: { code: 'INPUT_REQUIRED_NOT_PENDING', message: 'No pending ACP permission or elicitation request is waiting for a response.' },
+    });
+    await showAcpPermissionCard();
+
+    buttonByText('Cancel').click();
+    await settle(fixture);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).not.toContain('Tool: rm answer.txt');
+    expect(fixture.nativeElement.textContent).not.toContain('No pending ACP permission');
+    // The resolved event owns the pending count for settled requests.
+    expect(fakeInstanceStore.decrementPendingApproval).not.toHaveBeenCalled();
+  });
+
+  it('Cancel on a non-ACP generic card sends no text', async () => {
+    currentInstanceId.set('inst-claude');
+    fixture.detectChanges();
+    await settle(fixture);
+    onInputRequired({
+      instanceId: 'inst-claude',
+      requestId: 'elicitation-1',
+      prompt: '[docs] Pick a page',
+      timestamp: 1_900_000_000_000,
+      metadata: { type: 'mcp_elicitation', serverName: 'docs' },
+    });
+    fixture.detectChanges();
+
+    buttonByText('Cancel').click();
+    await settle(fixture);
+
+    expect(fakeIpc.respondToInputRequired).not.toHaveBeenCalled();
   });
 
   // ── Modify-approval tests ────────────────────────────────────────────────

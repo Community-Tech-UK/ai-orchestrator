@@ -19,6 +19,7 @@ describe('provider menu constants', () => {
       'copilot',
       'cursor',
       'grok',
+      'opencode',
       'local-model',
     ]);
   });
@@ -32,10 +33,12 @@ describe('provider menu constants', () => {
       copilot: 'Copilot',
       cursor: 'Cursor',
       grok: 'Grok',
+      opencode: 'OpenCode',
       'local-model': 'Local Models',
     });
     expect(PROVIDER_MENU_COLORS.cursor).toBe('var(--text-primary)');
     expect(PROVIDER_MENU_COLORS.grok).toBe('#1da1f2');
+    expect(PROVIDER_MENU_COLORS.opencode).toBe('var(--text-secondary)');
     expect(PROVIDER_MENU_COLORS['local-model']).toBe('#14b8a6');
   });
 });

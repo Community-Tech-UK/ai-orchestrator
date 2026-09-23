@@ -69,6 +69,12 @@ export const CLI_UPDATE_SPECS: Partial<Record<CliType, CliUpdateSpec>> = {
     npmPackage: '@xai-official/grok',
     selfUpdateArgs: ['update'],
   },
+  // OpenCode ships as npm `opencode-ai` (or the opencode.ai/install binary)
+  // and self-updates with `opencode upgrade`, whichever way it was installed.
+  opencode: {
+    npmPackage: 'opencode-ai',
+    selfUpdateArgs: ['upgrade'],
+  },
   ollama: {
     brewFormula: 'ollama',
   },

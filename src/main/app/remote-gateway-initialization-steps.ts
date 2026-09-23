@@ -15,6 +15,13 @@ import {
   hydrateRemoteNodeConfig,
   getDiscoveryService,
 } from '../remote-node';
+import { getRemoteAuthService } from '../auth/remote-auth';
+import { advertiseCoordinatorAddresses } from '../remote-node/coordinator-address-advertiser';
+import { resolveAdvertisedCoordinatorUrls } from '../remote-node/coordinator-advertised-urls';
+import {
+  CoordinatorTailscaleWatcher,
+  setActiveCoordinatorTailscaleWatcher,
+} from '../remote-node/coordinator-tailscale-watcher';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { AppInitializationContext, AppInitializationStep } from './initialization-steps';
 import type { RemoteFsEventNotification } from '../../shared/types/remote-fs.types';
@@ -40,6 +47,40 @@ export function createWorkerNodeSubsystemStep(
       const rpcRouter = new RpcEventRouter(connection, registry);
       rpcRouter.start();
 
+      // A worker whose only working route is this Mac's Tailscale looks dead
+      // when Tailscale is switched off, although it is healthy and retrying.
+      // Say so directly (2026-09-22: 3.5h outage blamed on the worker).
+      const tailscaleWatcher = new CoordinatorTailscaleWatcher({
+        listPairedNodes: () => getRemoteAuthService().listSessions()
+          .map((session) => ({ id: session.nodeId, name: session.nodeName })),
+        notify: ({ title, body }) => getNotificationService().notify({
+          kind: 'coordinator-tailscale-down',
+          title,
+          body,
+          // Critical for the same reason as node-disconnected below: it explains
+          // an outage that otherwise runs unnoticed. One alert per transition to
+          // stopped; the fixed fingerprint collapses a flapping tunnel.
+          urgency: 'critical',
+          fingerprintFields: {},
+        }),
+        // Roster hints derive from this state; nudge open node views to refetch.
+        onStateChange: (state) => windowManager.sendToRenderer('remote-node:event', {
+          type: 'coordinator-route',
+          coordinatorTailscale: state,
+        }),
+      });
+      setActiveCoordinatorTailscaleWatcher(tailscaleWatcher);
+      registry.on('node:connected', (node) => {
+        if (typeof node === 'string') return;
+        tailscaleWatcher.noteNodeConnected(node);
+        // Keep the worker's fallback routes current (LAN IPs change under DHCP).
+        void advertiseCoordinatorAddresses(node.id, {
+          resolveUrls: () => resolveAdvertisedCoordinatorUrls(getRemoteNodeConfig()),
+          sendNotification: (nodeId, method, params, scope) =>
+            connection.sendNotification(nodeId, method, params, scope),
+        });
+      });
+
       // Surface connection flap storms to the renderer so a flapping node is
       // visible to the operator instead of silently churning through work.
       connection.on('node:flap-storm', (info: {
@@ -63,6 +104,7 @@ export function createWorkerNodeSubsystemStep(
         // instances go silent on the coordinator but keep running locally, and
         // the watchdog would otherwise respawn them out from under live work.
         instanceManager.pauseStuckTrackingForNode(nodeId);
+        tailscaleWatcher.noteNodeDisconnected();
         handleNodeFailover(nodeId, instanceManager);
         context.syncRemoteNodeMetricsToLoadBalancer(nodeId);
       });
@@ -125,6 +167,7 @@ export function createWorkerNodeSubsystemStep(
       // never advertised, so on 2026-09-07 a worker pinned to a dead Tailscale
       // address retried it for four hours with a working LAN path available.
       getDiscoveryService().publish(config.serverPort, config.namespace, config.namespace);
+      tailscaleWatcher.start();
       logger.info('Worker node subsystem started', {
         port: config.serverPort,
         host: config.serverHost,

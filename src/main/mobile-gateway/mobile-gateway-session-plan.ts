@@ -10,7 +10,7 @@ import {
   getDefaultReasoningEffort,
   getModelShortName,
   isModelTier,
-  looksLikeCodexModelId,
+  isDynamicProviderModelId,
   resolveModelForTier,
   type ReasoningEffort,
 } from '../../shared/types/provider.types';
@@ -25,6 +25,7 @@ const KNOWN_PROVIDERS = new Set([
   'copilot',
   'cursor',
   'grok',
+  'opencode',
 ]);
 
 /** Short, chip-matching provider labels for the phone caption. */
@@ -36,6 +37,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   copilot: 'Copilot',
   cursor: 'Cursor',
   grok: 'Grok',
+  opencode: 'OpenCode',
   ollama: 'Ollama',
 };
 
@@ -98,8 +100,7 @@ export async function resolveMobileSessionPlan(params: {
         requestedModel: resolvedModel,
         knownModelIds,
         fallbackModel: getDefaultModelForCli(resolvedProvider),
-        allowDynamicCodexModel:
-          resolvedProvider === 'codex' && looksLikeCodexModelId(resolvedModel),
+        allowDynamicModel: isDynamicProviderModelId(resolvedProvider, resolvedModel),
       });
       resolvedModel = selection.model;
     }

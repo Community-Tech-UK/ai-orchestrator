@@ -10,6 +10,7 @@ export const BuiltInProviderNameSchema = z.enum([
   'anthropic-api',
   'cursor',
   'grok',
+  'opencode',
 ]);
 
 export const PluginProviderNameSchema = z

@@ -252,6 +252,12 @@ export class InstanceStore implements OnDestroy {
         }
       })
     );
+    // Settled without the user (timeout, auto-approve, cancel): no longer pending.
+    this.addSubscription(
+      this.eventBus.inputRequiredResolved$.subscribe((payload) => {
+        this.decrementPendingApproval(payload.instanceId);
+      })
+    );
   }
 
   private addSubscription(subscription: { unsubscribe(): void }): void {

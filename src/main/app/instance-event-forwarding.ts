@@ -510,6 +510,10 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
       message: payload.prompt,
     });
   });
+  instanceManager.on('instance:input-required-resolved', (payload) => {
+    windowManager.sendToRenderer(IPC_CHANNELS.INPUT_REQUIRED_RESOLVED, payload);
+    observer.clearPrompt(payload.requestId);
+  });
 
   // WS-A2: result-aware tool-loop detections (repeat-no-progress, ping-pong,
   // runaway). Channel name kept as `instance:doom-loop` for continuity with

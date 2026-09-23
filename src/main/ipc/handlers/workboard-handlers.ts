@@ -145,7 +145,7 @@ function resolveProvider(
 }
 
 const PROVIDER_IDS: ReadonlySet<string> = new Set<ProviderId>([
-  'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok',
+  'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode',
 ]);
 
 function isProviderId(value: string): value is ProviderId {

@@ -7,7 +7,7 @@ describe('registerBuiltInProviders', () => {
   let registry: ProviderAdapterRegistryImpl;
   beforeEach(() => { registry = new ProviderAdapterRegistryImpl(); });
 
-  it('registers all seven built-in adapters', () => {
+  it('registers all eight built-in adapters', () => {
     registerBuiltInProviders(registry);
     expect(registry.list().map(d => d.provider).sort()).toEqual([
       'antigravity',
@@ -17,6 +17,7 @@ describe('registerBuiltInProviders', () => {
       'cursor',
       'gemini',
       'grok',
+      'opencode',
     ]);
   });
 
@@ -40,6 +41,7 @@ describe('registerBuiltInProviders', () => {
       'cursor',
       'gemini',
       'grok',
+      'opencode',
     ]);
   });
 });

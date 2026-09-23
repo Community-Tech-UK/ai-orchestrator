@@ -9,7 +9,7 @@ export interface LoopConfigInput {
   iterationPrompt?: string;
   workspaceCwd: string;
   planFile?: string;
-  provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok';
+  provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'opencode';
   contextStrategy?: 'fresh-child' | 'hybrid' | 'same-session';
   caps?: Partial<{
     maxIterations: number | null;
@@ -38,7 +38,7 @@ export interface LoopConfigInput {
       reviewDepth: 'structured' | 'tiered';
       pingPong?: {
         enabled: boolean;
-        reviewerProvider?: 'auto' | 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok';
+        reviewerProvider?: 'auto' | 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'opencode';
         subject?: 'auto' | 'plan' | 'impl';
         maxRounds?: number;
         freshReviewerEachRound?: boolean;

@@ -7,6 +7,7 @@ import { DiscoveryClient } from './discovery-client';
 import { LocalInstanceManager } from './local-instance-manager';
 import { LocalModelSessionManager } from './local-model-session-manager';
 import { nextReconnectDelayMs, shouldResetReconnectAttempt } from './reconnect-backoff';
+import { applyAdvertisedCoordinatorUrls, parseCoordinatorAddressesNotification } from './worker-coordinator-addresses';
 import type {
   WorkerAndroidAutomationConfig,
   WorkerBrowserAutomationConfig,
@@ -265,7 +266,7 @@ export class WorkerAgent extends EventEmitter {
     return buildCoordinatorCandidates(
       this.activeCoordinatorUrl,
       this.config.coordinatorUrl,
-      this.config.coordinatorUrls
+      [...(this.config.coordinatorUrls ?? []), ...(this.config.advertisedCoordinatorUrls ?? [])]
     );
   }
 
@@ -887,6 +888,11 @@ export class WorkerAgent extends EventEmitter {
   }
 
   private handleRpcNotification(msg: RpcMessage): void {
+    const advertised = parseCoordinatorAddressesNotification(msg);
+    if (advertised) {
+      if (applyAdvertisedCoordinatorUrls(this.config, advertised)) persistConfig(this.configPath, this.config);
+      return;
+    }
     this.rpcDispatcher.handleRpcNotification(msg);
   }
 

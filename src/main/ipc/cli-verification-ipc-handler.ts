@@ -171,6 +171,7 @@ export function registerCliVerificationHandlers(
           copilot: 'copilot',
           cursor: 'cursor',
           grok: 'grok',
+          opencode: 'opencode',
           ollama: 'ollama',
         };
 

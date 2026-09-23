@@ -89,6 +89,13 @@ export interface InstanceOutputEvent {
   message: OutputMessage;
 }
 
+/** A pending input request that was settled without the user; its card must go. */
+export interface InputRequiredResolvedEvent {
+  instanceId: string;
+  requestId: string;
+  reason: 'timeout' | 'auto_approved' | 'decided' | 'cancelled' | 'exited';
+}
+
 export interface InputRequiredEvent {
   instanceId: string;
   requestId: string;
@@ -152,6 +159,10 @@ export class IpcEventBusService {
 
   readonly inputRequired$ = this.createStream<InputRequiredEvent>((next) =>
     this.instanceIpc.onInputRequired((data) => next(data as InputRequiredEvent)),
+  );
+
+  readonly inputRequiredResolved$ = this.createStream<InputRequiredResolvedEvent>((next) =>
+    this.instanceIpc.onInputRequiredResolved((data) => next(data)),
   );
 
   private createStream<T>(

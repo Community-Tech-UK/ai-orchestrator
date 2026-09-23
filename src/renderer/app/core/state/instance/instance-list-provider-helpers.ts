@@ -80,5 +80,6 @@ function isInstanceProvider(value: unknown): value is Instance['provider'] {
     || value === 'copilot'
     || value === 'ollama'
     || value === 'cursor'
-    || value === 'grok';
+    || value === 'grok'
+    || value === 'opencode';
 }

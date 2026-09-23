@@ -67,6 +67,13 @@
   color: var(--text-muted);
 }
 
+.node-list-hint {
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--pill-warn-fg);
+  white-space: normal;
+}
+
 .status-badge {
   flex-shrink: 0;
   padding: 0.125rem 0.5rem;

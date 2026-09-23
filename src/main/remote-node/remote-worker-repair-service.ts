@@ -4,6 +4,7 @@ import {
   getTailscaleIpv4Address,
   getTailscaleMagicDnsName,
 } from '../util/network-addresses';
+import { buildCoordinatorUrls } from './coordinator-advertised-urls';
 import { getRemoteNodeConfig, type RemoteNodeConfig } from './remote-node-config';
 import { getRemoteWorkerRepairTracker, type RemoteWorkerRepairTracker } from './remote-worker-repair-tracker';
 import { getWorkerNodeRegistry, type WorkerNodeRegistry } from './worker-node-registry';
@@ -243,25 +244,11 @@ export class RemoteWorkerRepairService {
   }
 
   private buildCoordinatorUrls(config: RemoteNodeConfig): string[] {
-    const protocol = config.tlsCertPath && config.tlsKeyPath ? 'wss' : 'ws';
-    const port = config.serverPort;
-    const candidates = [
-      this.readTailscaleDnsName(),
-      this.readTailscaleIp(),
-      ...this.readLocalIps(),
-      config.serverHost !== '0.0.0.0' ? config.serverHost : null,
-    ].filter((host): host is string => typeof host === 'string' && host.trim().length > 0);
-
-    const seen = new Set<string>();
-    const urls: string[] = [];
-    for (const host of candidates) {
-      const url = `${protocol}://${host}:${port}`;
-      if (!seen.has(url)) {
-        seen.add(url);
-        urls.push(url);
-      }
-    }
-    return urls;
+    return buildCoordinatorUrls(config, {
+      tailscaleDnsName: this.readTailscaleDnsName(),
+      tailscaleIp: this.readTailscaleIp(),
+      localIps: this.readLocalIps(),
+    });
   }
 
   private isTlsRepairBlocked(config: RemoteNodeConfig): boolean {

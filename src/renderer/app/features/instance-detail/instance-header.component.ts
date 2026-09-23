@@ -469,6 +469,8 @@ export class InstanceHeaderComponent implements OnInit {
         return 'Cursor';
       case 'grok':
         return 'Grok';
+      case 'opencode':
+        return 'OpenCode';
       default:
         return 'AI';
     }
@@ -496,6 +498,8 @@ export class InstanceHeaderComponent implements OnInit {
         return '#E5E7EB';
       case 'grok':
         return '#1DA1F2';
+      case 'opencode':
+        return '#D4D4D8';
       default:
         return '#888888';
     }
@@ -662,6 +666,8 @@ export function resolveHeaderProviderDisplayName(
       return 'Cursor';
     case 'grok':
       return 'Grok';
+    case 'opencode':
+      return 'OpenCode';
     default:
       return 'AI';
   }

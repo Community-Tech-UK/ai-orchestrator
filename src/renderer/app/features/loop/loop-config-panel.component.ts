@@ -519,7 +519,7 @@ export class LoopConfigPanelComponent {
   }
 
   private resolveProvider(value: string | null | undefined, providers: PickerProvider[]): PickerProvider {
-    const provider = value === 'claude' || value === 'codex' || value === 'gemini' || value === 'antigravity' || value === 'copilot' || value === 'cursor' || value === 'grok'
+    const provider = value === 'claude' || value === 'codex' || value === 'gemini' || value === 'antigravity' || value === 'copilot' || value === 'cursor' || value === 'grok' || value === 'opencode'
       ? value
       : 'claude';
     return providers.includes(provider) ? provider : (providers[0] ?? 'claude');
@@ -574,7 +574,7 @@ export class LoopConfigPanelComponent {
         ? {
             failover: {
               enabled: true,
-              providers: this.failoverProviders() as ('claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok')[],
+              providers: this.failoverProviders() as ('claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'opencode')[],
               maxSwitches: 1,
             },
           }

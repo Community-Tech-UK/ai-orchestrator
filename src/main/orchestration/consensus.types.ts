@@ -5,7 +5,7 @@
 export type ConsensusStrategy = 'majority' | 'weighted' | 'all';
 
 export interface ConsensusProviderSpec {
-  provider: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok';
+  provider: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'opencode';
   model?: string;
   weight?: number;
 }

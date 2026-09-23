@@ -16,7 +16,7 @@ import { isAdapterOnLoanError } from '../instance/lifecycle/adapter-loan-registr
 import { readJsonBody, sendJsonResponse } from './mobile-gateway-http-utils';
 import { serializeInstance } from './mobile-gateway-serializers';
 
-const MODEL_PROVIDERS = ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok'] as const;
+const MODEL_PROVIDERS = ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode'] as const;
 const DYNAMIC_MODEL_PROVIDERS = new Set<string>(['copilot', 'cursor']);
 const MODEL_CACHE_TTL_MS = 5 * 60_000;
 

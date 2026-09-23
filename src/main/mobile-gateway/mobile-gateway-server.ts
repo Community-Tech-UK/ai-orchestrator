@@ -110,7 +110,7 @@ const MESSAGE_REPLAY_LIMIT = 300;
 /** Ping idle WS clients on this interval; reap any that miss a pong (dead cellular link). */
 const WS_HEARTBEAT_MS = 30_000;
 
-const VALID_PROVIDERS = new Set(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']);
+const VALID_PROVIDERS = new Set(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode']);
 const VALID_REASONING_EFFORTS = new Set<string>(REASONING_EFFORTS);
 
 /** Minimal EventEmitter surface the gateway subscribes to / detaches from. */
@@ -292,6 +292,11 @@ export class MobileGatewayServer {
   private readonly onProviderEvent = (envelope: unknown) =>
     this.handleProviderEvent(envelope as ProviderRuntimeEventEnvelope);
   private readonly onInputRequired = (payload: unknown) => this.handleInputRequired(payload);
+  /** A prompt settled without anyone answering (timeout, auto-approve, cancelled turn). */
+  private readonly onInputRequiredResolved = (payload: unknown) => {
+    const requestId = (payload as { requestId?: unknown } | null)?.requestId;
+    if (typeof requestId === 'string') this.clearPrompt(requestId);
+  };
   private readonly onUserAction = (request: unknown) => this.handleUserAction(request);
   private readonly onPauseChange = () => {
     this.broadcast({ type: 'pause-state', data: this.pauseState() });
@@ -618,6 +623,7 @@ export class MobileGatewayServer {
     instanceManager.on('instance:batch-update', this.onBatchUpdate);
     instanceManager.on('provider:normalized-event', this.onProviderEvent);
     instanceManager.on('instance:input-required', this.onInputRequired);
+    instanceManager.on('instance:input-required-resolved', this.onInputRequiredResolved);
 
     try {
       this.orchestration = instanceManager.getOrchestrationHandler();
@@ -656,6 +662,7 @@ export class MobileGatewayServer {
     instanceManager.removeListener('instance:batch-update', this.onBatchUpdate);
     instanceManager.removeListener('provider:normalized-event', this.onProviderEvent);
     instanceManager.removeListener('instance:input-required', this.onInputRequired);
+    instanceManager.removeListener('instance:input-required-resolved', this.onInputRequiredResolved);
     this.orchestration?.removeListener('user-action-request', this.onUserAction);
     this.orchestration = null;
     this.attachedPause?.removeListener('change', this.onPauseChange);

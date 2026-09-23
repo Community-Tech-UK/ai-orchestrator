@@ -1,7 +1,7 @@
 import {
   getDefaultModelForCli,
   isModelTier,
-  looksLikeCodexModelId,
+  isDynamicProviderModelId,
   resolveModelReplacementForProvider,
   resolveModelForTier,
 } from '../../../shared/types/provider.types';
@@ -54,7 +54,8 @@ export interface ResolvedModelSelection {
 
 /**
  * Owns the complete create-time model decision: precedence, tier expansion,
- * provider-catalog validation, dynamic Codex tolerance, and degradation.
+ * provider-catalog validation, dynamic-model tolerance (Codex, OpenCode), and
+ * degradation.
  */
 export class ModelSelectionResolver {
   private readonly getKnownModels: (provider: string) => Promise<string[]>;
@@ -114,8 +115,7 @@ export class ModelSelectionResolver {
       requestedModel: model,
       knownModelIds,
       fallbackModel: this.getDefaultModel(input.provider),
-      allowDynamicCodexModel:
-        input.provider === 'codex' && looksLikeCodexModelId(model),
+      allowDynamicModel: isDynamicProviderModelId(input.provider, model),
     });
 
     const result = selection.degradation

@@ -23,6 +23,15 @@ vi.mock('../../security/env-filter', () => ({
   getSafeEnvForTrustedProcess: () => ({ ...process.env }),
 }));
 
+// Copilot's spawn() tries WS14 server mode, which resolves the SDK bundled in
+// the host's installed `@github/copilot` package and starts a real runtime.
+// Report the SDK as absent so these tests stay hermetic and exercise the
+// exec-per-message lifecycle; server mode is covered by
+// copilot-cli-adapter.server-mode.spec.ts.
+vi.mock('../adapters/copilot/copilot-sdk-loader', () => ({
+  loadCopilotSdk: () => null,
+}));
+
 vi.mock('../../context/output-persistence', () => ({
   getOutputPersistenceManager: () => ({
     maybeExternalize: (_name: string, content: string) => Promise.resolve(content),

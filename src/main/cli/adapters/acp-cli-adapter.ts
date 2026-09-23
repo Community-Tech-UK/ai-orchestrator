@@ -105,6 +105,13 @@ import {
 } from './acp-prompt-timeout-policy';
 import { classifyMissingUsage, classifyTurnEndingFailure, describeTruncatedAcpTurn, turnEndingFailureMetadata } from './acp-transport-failure';
 import { buildRetryRecoveredMessage, buildRetryStateMessage } from './acp-retry-state';
+import { buildAcpElicitationResponse } from './acp-elicitation-response';
+import { applyAcpSessionConfig, type AcpSessionConfigRequest } from './acp-session-config-options';
+import { AcpSessionCostLedger, buildAcpMeasuredContextEvent, parseAcpUsageUpdate } from './acp-usage-update';
+import { appendAcpThoughtDelta, buildAcpTurnThinking } from './acp-thought-stream';
+import type { AcpStartupGate } from './acp-startup-gate';
+import { tagAcpProviderLimit } from './acp-provider-limit';
+import { normalizeAcpAvailableCommands, renderAcpPlan } from './acp-session-update-normalizers';
 import {
   buildAcpMinableInput, buildAcpToolCallArguments, buildAcpToolOutcomeFallback, buildAcpToolResultMessage,
   isAcpTerminalToolStatus, renderAcpRawOutput,
@@ -233,11 +240,6 @@ interface AcpPendingElicitationRequest {
   params?: AcpElicitationCreateParams;
 }
 
-type AcpElicitationResponse =
-  | { action: 'accept'; content?: Record<string, unknown> }
-  | { action: 'decline' }
-  | { action: 'cancel' };
-
 export interface AcpCliAdapterConfig extends Omit<CliAdapterConfig, 'command' | 'cwd'> {
   adapterName?: string;
   contextCapabilityProfile?: 'copilot-acp';
@@ -260,7 +262,7 @@ export interface AcpCliAdapterConfig extends Omit<CliAdapterConfig, 'command' | 
   clientCapabilities?: AcpClientCapabilities;
   clientInfo?: AcpImplementationInfo;
   permissionRequestTimeoutMs?: number;
-  permissionRegistry?: Pick<PermissionRegistry, 'requestPermission'>;
+  permissionRegistry?: Pick<PermissionRegistry, 'requestPermission'> & Partial<Pick<PermissionRegistry, 'resolve'>>;
   permissionContext?: {
     instanceId: string;
     childId?: string;
@@ -294,7 +296,18 @@ export interface AcpCliAdapterConfig extends Omit<CliAdapterConfig, 'command' | 
    *  activity-aware prompt timeout remains authoritative — this only narrates
    *  the wait so a long silence is visible before the turn fails. */
   stallWarningMs?: number;
+  /** Model/effort applied with `session/set_config_option` once the session
+   *  opens (agents with no model flag, e.g. OpenCode). Never fails the spawn. */
+  sessionConfig?: AcpSessionConfigRequest;
+  /** Held from process spawn until `initialize` answers (see acp-startup-gate.ts). */
+  startupGate?: AcpStartupGate;
+  /** The agent's reported cost is the only cost: a turn without one records
+   *  $0 instead of pricing its tokens from a static table (OpenCode fronts
+   *  flat-fee and free backends that no price row describes). */
+  reportedCostOnly?: boolean;
 }
+
+type InputRequiredResolvedReason = 'timeout' | 'auto_approved' | 'decided' | 'cancelled' | 'exited';
 
 function toError(value: unknown, fallback: string): Error {
   if (value instanceof Error) {
@@ -364,6 +377,11 @@ export class AcpCliAdapter extends BaseCliAdapter {
   /** Wait kinds already surfaced to the transcript for the current turn. */
   private readonly stallKindsNoticed = new Set<AcpTurnWaitKind>();
   private protocolErrorOutputCount = 0;
+  /** `configOptions` from the last `session/new`/`session/load` response. */
+  private sessionConfigOptions: unknown;
+  private readonly costLedger = new AcpSessionCostLedger();
+  /** True once the agent reported measured occupancy via `usage_update`. */
+  private measuredOccupancy = false;
 
   constructor(config: AcpCliAdapterConfig) {
     super({
@@ -410,7 +428,8 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
   override getContextCapabilities(): ProviderContextCapabilities {
     if (this.acpConfig.contextCapabilityProfile !== 'copilot-acp') {
-      return super.getContextCapabilities();
+      const base = super.getContextCapabilities();
+      return this.measuredOccupancy ? { ...base, occupancyReporting: 'current' } : base;
     }
     return {
       toolResultControl: 'post-retention',
@@ -495,9 +514,11 @@ export class AcpCliAdapter extends BaseCliAdapter {
       }
     }
 
+    const releaseStartupGate = this.acpConfig.startupGate ? await this.acpConfig.startupGate() : undefined;
     try {
       this.process = this.spawnProcess([]);
     } catch (error) {
+      releaseStartupGate?.();
       this.releaseConcurrencySlot();
       throw error;
     }
@@ -509,7 +530,8 @@ export class AcpCliAdapter extends BaseCliAdapter {
         clientCapabilities: this.acpConfig.clientCapabilities ?? DEFAULT_CLIENT_CAPABILITIES,
         clientInfo: this.acpConfig.clientInfo ?? DEFAULT_CLIENT_INFO,
       };
-      const initializeResult = await this.sendRequest<AcpInitializeResult>('initialize', initializeParams);
+      const initializeResult = await this.sendRequest<AcpInitializeResult>('initialize', initializeParams)
+        .finally(() => releaseStartupGate?.());
       this.agentCapabilities = initializeResult.agentCapabilities ?? null;
 
       if ((initializeResult.authMethods?.length ?? 0) > 0) {
@@ -529,6 +551,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
       const sessionId = await this.openSession();
       this.setSessionId(sessionId);
+      await this.applySessionConfig(sessionId);
       this.initialized = true;
       this.emit('status', 'ready');
 
@@ -659,6 +682,9 @@ export class AcpCliAdapter extends BaseCliAdapter {
         responseText,
         turn.toolActivityChunks.join('\n'),
       );
+      const turnCostUsd = this.costLedger.settleTurn();
+      if (usage && turnCostUsd !== undefined) usage.cost = turnCostUsd;
+      else if (usage && usage.cost === undefined && this.acpConfig.reportedCostOnly) usage.cost = 0;
       // LT-018: publish the raw ACP usage aggregate (not the LT-100 estimate
       // above) so occupancy stays honest ("no usage ⇒ no event") even when
       // cost falls back to an estimate.
@@ -698,7 +724,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       this.completeResponse(response);
       return response;
     } catch (error) {
-      const failure = toError(error, 'ACP prompt turn failed.');
+      const failure = tagAcpProviderLimit(toError(error, 'ACP prompt turn failed.'));
       this.emitFinalAssistantFlushes(turn);
       this.flushUnsettledToolResults();
       const partialText = turn.chunks.join('');
@@ -719,6 +745,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
           )
         : undefined;
       if (partialUsage?.totalTokens) {
+        if (this.acpConfig.reportedCostOnly) partialUsage.cost = 0;
         Object.assign(failure, {
           partialUsage,
           ...(this.acpConfig.model ? { partialModel: this.acpConfig.model } : {}),
@@ -785,6 +812,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
     this.loggedMissingUsageWarning = false;
     this.loggedMissingUsage = false;
     this.cumulativeTokens = 0;
+    this.measuredOccupancy = false;
     this.toolCalls.clear();
     this.stdoutBuffer = '';
     await super.terminate(graceful);
@@ -907,18 +935,25 @@ export class AcpCliAdapter extends BaseCliAdapter {
       const outcome = this.selectPermissionOutcome(pending, response, permissionKey);
       await this.sendResponse(pending.rpcId, { outcome });
       this.pendingPermissionRequests.delete(pending.key);
+      // Close the registry entry with the user's real decision; left open, it
+      // reads as "blocked on approval" and is later recorded as a timeout denial.
+      const chosen = outcome.outcome === 'selected' ? pending.options.find((o) => o.optionId === outcome.optionId) : undefined;
+      this.acpConfig.permissionRegistry?.resolve?.(pending.key, chosen?.kind.startsWith('allow') === true, 'user');
       this.emit('status', 'busy');
       return;
     }
 
     const pendingElicitation = this.resolvePendingElicitationRequest(permissionKey);
     if (!pendingElicitation) {
-      throw new Error('No pending ACP permission or elicitation request is waiting for a response.');
+      // Coded so the respond handler can tell the renderer the card is stale, not failed.
+      throw Object.assign(new Error('No pending ACP permission or elicitation request is waiting for a response.'), {
+        code: 'INPUT_REQUIRED_NOT_PENDING',
+      });
     }
 
     await this.sendResponse(
       pendingElicitation.rpcId,
-      this.buildElicitationResponse(pendingElicitation, response),
+      buildAcpElicitationResponse(pendingElicitation.params, response),
     );
     this.pendingElicitationRequests.delete(pendingElicitation.key);
     this.emit('status', 'busy');
@@ -951,7 +986,10 @@ export class AcpCliAdapter extends BaseCliAdapter {
       this.currentPrompt = null;
       this.recentAssistantTurn = null;
       this.rejectPendingRequests(new Error(`ACP agent exited (${code ?? 'null'}${signal ? `/${signal}` : ''}).`));
+      for (const key of this.pendingPermissionRequests.keys()) this.withdrawInputRequired(key, 'exited');
       this.pendingPermissionRequests.clear();
+      for (const key of this.pendingElicitationRequests.keys()) this.emitInputRequiredResolved(key, 'exited');
+      this.pendingElicitationRequests.clear();
       this.clearStallWatchdog();
       // Free the concurrency slot so queued spawns can proceed even when the
       // agent dies without us calling terminate() (crash, EXC_BAD_ACCESS,
@@ -987,7 +1025,9 @@ export class AcpCliAdapter extends BaseCliAdapter {
         mcpServers: this.acpConfig.mcpServers ?? [],
       };
       try {
-        await this.sendRequest<null>('session/load', loadParams);
+        const loaded = await this.sendRequest<{ configOptions?: unknown } | null>('session/load', loadParams);
+        this.sessionConfigOptions = loaded?.configOptions;
+        this.costLedger.reset(false);
       } catch (error) {
         this.lastResumeAttemptResult = {
           source: 'native',
@@ -1014,9 +1054,27 @@ export class AcpCliAdapter extends BaseCliAdapter {
       mcpServers: this.acpConfig.mcpServers ?? [],
     };
     const result = await this.sendRequest<AcpSessionNewResult>('session/new', newParams);
+    this.sessionConfigOptions = result.configOptions;
+    this.costLedger.reset(true);
     this.lastResumeAttemptResult = undefined;
     this.reportResolvedModel(result.models?.currentModelId);
     return result.sessionId;
+  }
+
+  /** Apply `acpConfig.sessionConfig`; skips and rejections become one warning line. */
+  private async applySessionConfig(sessionId: string): Promise<void> {
+    const requested = this.acpConfig.sessionConfig;
+    if (!requested?.model && !requested?.effort) return;
+    const outcome = await applyAcpSessionConfig(
+      (configId, value) => this.sendRequest('session/set_config_option', { sessionId, configId, value }),
+      this.sessionConfigOptions,
+      requested,
+    );
+    if (outcome.warnings.length === 0) return;
+    logger.warn('ACP session config not fully applied', { adapter: this.getName(), warnings: outcome.warnings });
+    this.emitStructuredOutput('system', `${outcome.warnings.join(' ')} The agent's own default is used instead.`, {
+      source: 'acp-session-config',
+    });
   }
 
   /**
@@ -1091,7 +1149,10 @@ export class AcpCliAdapter extends BaseCliAdapter {
         }
       }),
     );
+    // Live keys, not the pre-await snapshot: an exit during the await already withdrew them.
+    const stillOpen = [...this.pendingPermissionRequests.keys()];
     this.pendingPermissionRequests.clear();
+    for (const key of stillOpen) this.withdrawInputRequired(key, 'cancelled');
   }
 
   private async cancelPendingElicitationRequests(): Promise<void> {
@@ -1108,7 +1169,9 @@ export class AcpCliAdapter extends BaseCliAdapter {
         }
       }),
     );
+    const stillOpen = [...this.pendingElicitationRequests.keys()];
     this.pendingElicitationRequests.clear();
+    for (const key of stillOpen) this.emitInputRequiredResolved(key, 'cancelled');
   }
 
   private rejectPendingRequests(error: Error): void {
@@ -1305,7 +1368,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       case 'plan':
         {
           const entries = this.normalizePlanEntries(rawUpdate);
-          this.emitStructuredOutput('system', this.renderPlan(entries), {
+          this.emitStructuredOutput('system', renderAcpPlan(entries), {
             sessionUpdate,
             entries,
           });
@@ -1318,7 +1381,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
           // not conversation content — surfacing it as a chat bubble was
           // pure noise. Parse it for diagnostics; if the agent ever exposes
           // a command palette in the UI, this is the hook to wire up.
-          const commands = this.normalizeAvailableCommands(rawUpdate);
+          const commands = normalizeAcpAvailableCommands(rawUpdate);
           logger.debug('ACP available_commands_update', {
             sessionId,
             commandCount: commands.length,
@@ -1327,6 +1390,16 @@ export class AcpCliAdapter extends BaseCliAdapter {
         break;
       case 'retry_state':
         this.handleRetryState(update as Extract<AcpSessionUpdate, { sessionUpdate: 'retry_state' }>);
+        break;
+      case 'agent_thought_chunk': {
+        // Reasoning, never answer text. Replayed history (no live turn) is dropped.
+        const turn = this.currentPrompt ?? this.recentAssistantTurn;
+        const text = this.extractContentText(rawUpdate['content'] as AcpContentBlock | undefined);
+        if (turn) appendAcpThoughtDelta(turn, optionalString(rawUpdate['messageId']), text);
+        break;
+      }
+      case 'usage_update':
+        this.handleUsageUpdate(rawUpdate);
         break;
       case 'config_option_update':
       case 'session_info_update':
@@ -1405,11 +1478,23 @@ export class AcpCliAdapter extends BaseCliAdapter {
     const messageId = turn ? (turn.retryNoticeId ??= generateId()) : generateId();
     this.emit('output', buildRetryStateMessage(update, messageId));
   }
+  private handleUsageUpdate(rawUpdate: Record<string, unknown>): void {
+    const update = parseAcpUsageUpdate(rawUpdate);
+    this.costLedger.observe(update.sessionCostUsd, this.currentPrompt !== null);
+    const event = buildAcpMeasuredContextEvent(update, this.cumulativeTokens);
+    if (!event) return;
+    this.measuredOccupancy = true;
+    this.emit('context', event);
+  }
   private resolveRetryNotice(turn: AcpPendingPromptTurn): void {
     if (turn.retryNoticeId) this.emit('output', buildRetryRecoveredMessage(turn.retryNoticeId));
   }
   private emitFinalAssistantFlushes(turn: AcpPendingPromptTurn): void {
-    for (const flush of collectAcpAssistantFlushes(turn)) {
+    const thinking = buildAcpTurnThinking(turn);
+    const flushes = collectAcpAssistantFlushes(turn);
+    // A turn that only reasoned (no answer text) still shows its thinking.
+    if (flushes.length === 0 && thinking) flushes.push({ id: turn.responseId, content: '' });
+    for (const flush of flushes) {
       this.emit('output', {
         id: flush.id,
         timestamp: Date.now(),
@@ -1420,6 +1505,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
           streaming: false,
           accumulatedContent: flush.content,
         },
+        ...(thinking ? { thinking, thinkingExtracted: true } : {}),
       } satisfies OutputMessage);
     }
   }
@@ -1599,7 +1685,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
         granted: true,
         decidedBy: 'auto_approve',
         decidedAt: Date.now(),
-      });
+      }, { cardShown: false });
       return;
     }
 
@@ -1698,7 +1784,11 @@ export class AcpCliAdapter extends BaseCliAdapter {
     });
   }
 
-  private async resolvePermissionDecision(key: string, decision: PermissionDecision): Promise<void> {
+  private async resolvePermissionDecision(
+    key: string,
+    decision: PermissionDecision,
+    { cardShown = true }: { cardShown?: boolean } = {},
+  ): Promise<void> {
     const pending = this.pendingPermissionRequests.get(key);
     if (!pending) {
       return;
@@ -1707,8 +1797,24 @@ export class AcpCliAdapter extends BaseCliAdapter {
     const responseText = decision.granted ? 'allow' : 'deny';
     const outcome = this.selectPermissionOutcome(pending, responseText, key);
     await this.sendResponse(pending.rpcId, { outcome });
-    this.pendingPermissionRequests.delete(key);
+    // Settled without the user (timeout, auto-approve, parent decision): the
+    // renderer card for this request must go, or it stays up answering nothing.
+    // Only if still ours: an exit during the await has already withdrawn it.
+    if (this.pendingPermissionRequests.delete(key) && cardShown) {
+      this.emitInputRequiredResolved(key, decision.decidedBy === 'timeout' ? 'timeout'
+        : decision.decidedBy === 'auto_approve' ? 'auto_approved' : 'decided');
+    }
     this.emit('status', 'busy');
+  }
+
+  private emitInputRequiredResolved(id: string, reason: InputRequiredResolvedReason): void {
+    this.emit('input_required_resolved', { id, reason });
+  }
+
+  /** A permission request nobody answered: close its registry entry (banner, audit) and its card. */
+  private withdrawInputRequired(key: string, reason: Extract<InputRequiredResolvedReason, 'cancelled' | 'exited'>): void {
+    this.acpConfig.permissionRegistry?.resolve?.(key, false, 'cancelled');
+    this.emitInputRequiredResolved(key, reason);
   }
 
   private emitStructuredOutput(
@@ -1819,47 +1925,6 @@ export class AcpCliAdapter extends BaseCliAdapter {
     });
   }
 
-  private normalizeAvailableCommands(
-    update: Record<string, unknown>,
-  ): NonNullable<AcpAvailableCommandsUpdate['availableCommands']> {
-    // ACP spec field name is `availableCommands` (camelCase). Older drafts
-    // used the bare `commands` key — accept both so we work against
-    // cursor-agent (canonical), copilot, and any older agents in the wild.
-    const candidate = update['availableCommands'] ?? update['commands'];
-    if (!Array.isArray(candidate)) {
-      // The slash-command catalog is informational and optional. A missing
-      // or non-array payload is not a real protocol violation — older code
-      // surfaced a red "Malformed ACP available commands update" bubble in
-      // the chat, which scared users off perfectly working sessions
-      // (cursor's payload uses `availableCommands` so the lookup against
-      // `commands` always missed). Log for diagnostics and move on.
-      logger.debug('ACP available_commands_update missing commands array', {
-        keys: Object.keys(update),
-      });
-      return [];
-    }
-
-    return candidate.flatMap((command) => {
-      if (typeof command === 'string' && command.trim()) {
-        return [{ name: command.trim() }];
-      }
-
-      if (!isRecord(command)) {
-        return [];
-      }
-
-      const name = optionalString(command['name']);
-      if (!name) {
-        return [];
-      }
-
-      return [{
-        name,
-        description: optionalString(command['description']),
-      }];
-    });
-  }
-
   private normalizePermissionOptions(options: unknown): AcpPermissionOption[] {
     if (!Array.isArray(options)) {
       this.emitRecoverableProtocolError('Malformed ACP permission request options', {
@@ -1888,18 +1953,6 @@ export class AcpCliAdapter extends BaseCliAdapter {
         kind: kind as AcpPermissionOption['kind'],
       }];
     });
-  }
-
-  private renderPlan(entries: AcpPlanUpdate['entries']): string {
-    if (entries.length === 0) {
-      return 'Plan: no entries advertised.';
-    }
-
-    const lines = entries.map((entry) => {
-      const parts = [entry.status, entry.priority].filter(Boolean).join(' / ');
-      return parts ? `- ${entry.content} (${parts})` : `- ${entry.content}`;
-    });
-    return ['Plan:', ...lines].join('\n');
   }
 
   private buildPermissionPrompt(pending: AcpPendingPermissionRequest): string {
@@ -2023,83 +2076,6 @@ export class AcpCliAdapter extends BaseCliAdapter {
     return undefined;
   }
 
-  private buildElicitationResponse(
-    pending: AcpPendingElicitationRequest,
-    responseText: string,
-  ): AcpElicitationResponse {
-    const normalized = slug(responseText);
-    if (!normalized || normalized === 'cancel') {
-      return { action: 'cancel' };
-    }
-    if (normalized === 'decline' || normalized === 'deny' || normalized === 'reject' || normalized === 'no') {
-      return { action: 'decline' };
-    }
-
-    return {
-      action: 'accept',
-      content: this.buildElicitationContent(pending.params, responseText),
-    };
-  }
-
-  private buildElicitationContent(
-    params: AcpElicitationCreateParams | undefined,
-    responseText: string,
-  ): Record<string, unknown> {
-    const trimmed = responseText.trim();
-    if (trimmed.startsWith('{')) {
-      try {
-        const parsed = JSON.parse(trimmed);
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          return parsed as Record<string, unknown>;
-        }
-      } catch {
-        // Fall through to schema-guided wrapping below.
-      }
-    }
-
-    const schema = params?.requestedSchema ?? params?.schema;
-    const properties = schema && typeof schema === 'object' && !Array.isArray(schema)
-      ? schema['properties']
-      : undefined;
-    if (properties && typeof properties === 'object' && !Array.isArray(properties)) {
-      const keys = Object.keys(properties);
-      if (keys.length === 1 && keys[0]) {
-        const propertySchema = (properties as Record<string, unknown>)[keys[0]];
-        return {
-          [keys[0]]: this.coerceElicitationValue(trimmed, propertySchema),
-        };
-      }
-    }
-
-    return { response: trimmed };
-  }
-
-  private coerceElicitationValue(value: string, schema: unknown): unknown {
-    if (!schema || typeof schema !== 'object' || Array.isArray(schema)) {
-      return value;
-    }
-
-    const type = (schema as Record<string, unknown>)['type'];
-    if (type === 'boolean') {
-      const normalized = slug(value);
-      if (['true', 'yes', 'y', '1', 'approve', 'accept'].includes(normalized)) {
-        return true;
-      }
-      if (['false', 'no', 'n', '0', 'deny', 'decline', 'reject'].includes(normalized)) {
-        return false;
-      }
-    }
-    if (type === 'integer') {
-      const parsed = Number.parseInt(value, 10);
-      return Number.isNaN(parsed) ? value : parsed;
-    }
-    if (type === 'number') {
-      const parsed = Number(value);
-      return Number.isNaN(parsed) ? value : parsed;
-    }
-    return value;
-  }
-
   private toPromptBlocks(message: CliMessage): AcpContentBlock[] {
     const prompt: AcpContentBlock[] = [];
 
@@ -2209,7 +2185,9 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
     this.hasReportedUsage = true;
     this.cumulativeTokens = cumulativeTokensAfter;
-    this.emit('context', event);
+    // Measured occupancy (usage_update) already drives the meter; the turn
+    // aggregate would overwrite it with a summed, overstated figure.
+    if (!this.measuredOccupancy) this.emit('context', event);
     return true;
   }
 

@@ -35,7 +35,7 @@ export type SidebarStyle = 'standard' | 'compact';
  * as distinct from the turn's final answer.
  */
 export type ProgressNoteDisplay = 'expanded' | 'compact' | 'hidden';
-export type CanonicalCliType = 'claude' | 'gemini' | 'antigravity' | 'codex' | 'copilot' | 'auto' | 'cursor' | 'grok';
+export type CanonicalCliType = 'claude' | 'gemini' | 'antigravity' | 'codex' | 'copilot' | 'auto' | 'cursor' | 'grok' | 'opencode';
 export type CliType = CanonicalCliType | 'openai'; // legacy alias kept for persisted settings compatibility
 export type ConfigSource = 'project' | 'user' | 'default';
 export type DefaultMissedRunPolicy = 'skip' | 'notify' | 'runOnce';

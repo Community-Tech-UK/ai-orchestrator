@@ -1806,6 +1806,12 @@ export class InstanceCommunicationManager extends EventEmitter {
       });
     });
 
+    // A request settled without the user (timeout, auto-approve, cancel, exit): drop its card.
+    adapter.on('input_required_resolved', (payload: { id: string; reason: string }) => {
+      if (isStaleAdapterEvent('input_required_resolved')) return;
+      this.emit('input-required-resolved', { instanceId, requestId: payload.id, reason: payload.reason });
+    });
+
     adapter.on('error', async (error: Error) => {
       if (isStaleAdapterEvent('error')) {
         return;

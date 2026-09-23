@@ -61,6 +61,9 @@ REM above, and the first match would slice the file from there.
 $ErrorActionPreference = 'Continue'
 
 $taskName = 'AI Orchestrator Worker'
+# The update task (install-worker-launcher.ps1 -RegisterUpdateTask) runs the same
+# launcher, so it is stopped too: left running it could relaunch mid-kill.
+$updateTaskName = 'AI Orchestrator Worker Update'
 $orch     = Join-Path $env:USERPROFILE '.orchestrator'
 $vbs      = Join-Path $orch 'run-worker-hidden.vbs'
 $bat      = Join-Path $orch 'start-worker-autoupdate.bat'
@@ -182,16 +185,18 @@ try {
     Write-Host '      (could not read Task Scheduler - continuing)'
 }
 if ($tasks) {
-    $task = $tasks | Where-Object { $_.TaskName -eq $taskName } | Select-Object -First 1
-    if ($task) {
-        try {
-            $task | Stop-ScheduledTask -ErrorAction Stop
-            Write-Host '      stopped'
-        } catch {
-            Write-Host ('      could not stop it - continuing: {0}' -f $_.Exception.Message)
+    foreach ($name in @($taskName, $updateTaskName)) {
+        $task = $tasks | Where-Object { $_.TaskName -eq $name } | Select-Object -First 1
+        if ($task) {
+            try {
+                $task | Stop-ScheduledTask -ErrorAction Stop
+                Write-Host ('      stopped {0}' -f $name)
+            } catch {
+                Write-Host ('      could not stop {0} - continuing: {1}' -f $name, $_.Exception.Message)
+            }
+        } elseif ($name -eq $taskName) {
+            Write-Host '      (no such task - continuing)'
         }
-    } else {
-        Write-Host '      (no such task - continuing)'
     }
 }
 Write-Host ''

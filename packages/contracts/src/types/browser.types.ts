@@ -60,6 +60,7 @@ export type BrowserProvider =
   | 'copilot'
   | 'cursor'
   | 'grok'
+  | 'opencode'
   | 'orchestrator';
 
 export interface BrowserAllowedOrigin {

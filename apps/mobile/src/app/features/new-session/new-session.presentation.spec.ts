@@ -28,6 +28,7 @@ describe('new session presentation', () => {
   it('uses readable provider labels', () => {
     expect(providerDisplayName('auto')).toBe('Auto');
     expect(providerDisplayName('copilot')).toBe('Copilot');
+    expect(providerDisplayName('opencode')).toBe('OpenCode');
     expect(providerDisplayName('local_model')).toBe('Local Model');
   });
 

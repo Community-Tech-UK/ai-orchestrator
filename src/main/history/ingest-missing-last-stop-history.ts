@@ -10,6 +10,7 @@ const KNOWN_PROVIDERS = new Set<InstanceProvider>([
   'copilot',
   'cursor',
   'grok',
+  'opencode',
   'auto',
 ]);
 

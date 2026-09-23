@@ -33,7 +33,7 @@ export interface CreateInstanceWithMessageOptions {
   files?: File[];
   workingDirectory?: string;
   agentId?: string;
-  provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'auto';
+  provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'opencode' | 'auto';
   model?: string;
   /** Omitted = spawn path applies the app-level per-provider default. */
   reasoningEffort?: ReasoningEffort | null;

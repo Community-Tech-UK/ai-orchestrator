@@ -42,8 +42,13 @@ export const DEFAULT_CONTEXT_EVIDENCE_MODE_BY_PROVIDER = Object.freeze({
  * flagship reasoning model, so each entry is the provider's balanced tier.
  * 'auto' or an empty string in settings still means "let the CLI decide" for
  * anyone who explicitly wants that.
+ *
+ * OpenCode is the one deliberate exception. It fronts whichever backends the
+ * user connected (MiMo Token Plan, Zen, OpenRouter, ...), so there is no model
+ * id that exists for every OpenCode user; its reviewer inherits OpenCode's own
+ * configured default until the user sets one here.
  */
-export const DEFAULT_REVIEWER_MODEL_BY_PROVIDER: Readonly<Record<RemoteReviewerProvider, string>> = {
+export const DEFAULT_REVIEWER_MODEL_BY_PROVIDER: Readonly<Record<Exclude<RemoteReviewerProvider, 'opencode'>, string>> = {
   claude: CLAUDE_MODELS.SONNET,
   codex: OPENAI_MODELS.GPT56_TERRA,
   antigravity: 'Gemini 3.5 Flash (Medium)',

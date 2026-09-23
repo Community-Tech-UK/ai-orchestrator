@@ -122,7 +122,8 @@ const ALLOWLIST: Record<string, number> = {
   // Declarative Zod request/response schema catalog for the browser domain;
   // crossed 700 with the snapshot/assert_persisted/write_journal schemas.
   // Raised 731 -> 796 for close + inspection-state request schemas.
-  'packages/contracts/src/schemas/browser.schemas.ts': 796,
+  // Raised 796 -> 797 for the `opencode` BrowserProvider enum member.
+  'packages/contracts/src/schemas/browser.schemas.ts': 797,
   // Main process — desktop gateway
   // Crossed 700 during the in-flight desktop computer-use gateway work
   // (2026-07-12). Allowlisted at its then-current size so the gate stays
@@ -156,7 +157,8 @@ const ALLOWLIST: Record<string, number> = {
   // 706 rather than dropping the guard; the file is a refactor candidate.
   // Raised 762 -> 772 for Cursor ACP unattended flags (--force/--trust).
   // Raised 772 -> 775 for loop overflow concurrencyPriority on ACP adapters.
-  'src/main/cli/adapters/adapter-factory.ts': 775,
+  // Lowered 775 -> 748: createGrokAdapter moved to grok-adapter-factory.ts.
+  'src/main/cli/adapters/adapter-factory.ts': 748,
   'src/main/cli/adapters/base-cli-adapter.ts': 988,
   // Raised 2218 -> 2286 for resident interrupt control_request handling.
   // Raised 2286 -> 2345 for per-text-block assistant emission + rate-limit dedup.

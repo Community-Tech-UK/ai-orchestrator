@@ -135,7 +135,7 @@ export interface LoopStartConfigInput {
   iterationPrompt?: string;
   workspaceCwd: string;
   planFile?: string;
-  provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok';
+  provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'opencode';
   contextStrategy?: 'fresh-child' | 'hybrid' | 'same-session';
   /** WS6: per-iteration agentic turn cap (`null` = provider default). */
   maxTurnsPerIteration?: number | null;
@@ -144,7 +144,7 @@ export interface LoopStartConfigInput {
   /** WS7 Phase A: opt-in provider failover for this run. */
   failover?: {
     enabled: boolean;
-    providers: ('claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok')[];
+    providers: ('claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'opencode')[];
     maxSwitches: number;
   };
   caps?: Partial<{
@@ -175,7 +175,7 @@ export interface LoopStartConfigInput {
       reviewDepth: 'structured' | 'tiered';
       pingPong?: {
         enabled: boolean;
-        reviewerProvider?: 'auto' | 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok';
+        reviewerProvider?: 'auto' | 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'opencode';
         subject?: 'auto' | 'plan' | 'impl';
         maxRounds?: number;
         freshReviewerEachRound?: boolean;

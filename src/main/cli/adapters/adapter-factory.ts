@@ -28,7 +28,6 @@ import { RemoteLocalModelAdapter } from './remote-local-model-adapter';
 import { CliDetectionService, CliType } from '../cli-detection';
 import { getDefaultCopilotCliLaunch } from '../copilot-cli-launch';
 import type { CliType as SettingsCliType } from '../../../shared/types/settings.types';
-import { normalizeModelForProvider } from '../../../shared/types/provider.types';
 import type { ExecutionLocation } from '../../../shared/types/worker-node.types';
 import { getWorkerNodeConnectionServer } from '../../remote-node/worker-node-connection';
 import { getLogger } from '../../logging/logger';
@@ -85,6 +84,8 @@ import {
   withBrowserGatewaySystemPrompt,
   writeGeminiBrowserGatewaySettings,
 } from './adapter-spawn-helpers';
+import { createGrokAdapter } from './grok-adapter-factory';
+import { createOpenCodeAdapter } from './opencode-adapter-factory';
 
 const logger = getLogger('AdapterFactory');
 const INTERACTIVE_RUNTIME_UNAVAILABLE =
@@ -93,6 +94,8 @@ const INTERACTIVE_RUNTIME_UNAVAILABLE =
 // Re-export the spawn-option types so existing `import { UnifiedSpawnOptions,
 // CliAdapter } from './adapter-factory'` sites keep resolving.
 export type { UnifiedSpawnOptions, CliAdapter } from './adapter-factory.types';
+export { createGrokAdapter } from './grok-adapter-factory';
+export { createOpenCodeAdapter } from './opencode-adapter-factory';
 
 /**
  * Maps settings CliType to detection CliType
@@ -117,6 +120,8 @@ export function mapSettingsToDetectionType(settingsType: SettingsCliType | CliTy
       return 'cursor';
     case 'grok':
       return 'grok';
+    case 'opencode':
+      return 'opencode';
     case 'ollama':
       return 'ollama';
     case 'auto':
@@ -170,7 +175,7 @@ export async function resolveCliType(
   // automatic selection are dropped here only — an explicitly requested CLI or
   // an explicit `defaultCli` (both handled above) is a human choice and stands.
   const priority = filterProvidersForAutomation<CliType>(
-    ['claude', 'codex', 'antigravity', 'copilot', 'cursor', 'grok', 'ollama'],
+    ['claude', 'codex', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode', 'ollama'],
     'resolveCliType',
   );
   logger.debug('Falling back to auto-detect', { priority });
@@ -558,83 +563,6 @@ export function createCursorAdapter(options: UnifiedSpawnOptions): AcpCliAdapter
 }
 
 /**
- * Creates a Grok Build CLI adapter via ACP (`grok agent stdio`).
- *
- * Model and reasoning effort are global flags on `grok agent` (before the
- * `stdio` subcommand). `--always-approve` matches yolo / unattended runs so
- * `session/request_permission` does not block the turn.
- */
-export function createGrokAdapter(options: UnifiedSpawnOptions): AcpCliAdapter {
-  const browserGatewayMcpServers = options.browserGatewayMcp
-    ? buildBrowserGatewayAcpMcpServers(
-        withBrowserGatewayProvider(options.browserGatewayMcp, 'grok'),
-      )
-    : [];
-  const chromeDevtoolsMcpServers = options.chromeDevtoolsMcp
-    ? buildChromeDevtoolsAcpMcpServers(options.chromeDevtoolsMcp)
-    : [];
-  const mobileMcpServers = options.mobileMcp
-    ? buildMobileMcpAcpMcpServers(options.mobileMcp)
-    : [];
-  const inlineMcpServers = buildInlineMcpServersAcpMcpServers(options.mcpConfig);
-  const agentArgs: string[] = ['agent'];
-  // Normalized at the spawn boundary, not only at session-create: wake/restart/
-  // resume rebuild spawn options from the persisted `instance.currentModel`, and
-  // an id xAI has retired fails the spawn outright ("unknown model id", exit 1).
-  // Only an EXPLICIT model is normalized — absent one, `-m` stays off so the CLI
-  // picks its own default rather than us pinning the last id we hard-coded.
-  const requestedModel = options.model?.trim()
-    ? normalizeModelForProvider('grok', options.model)?.trim()
-    : undefined;
-  if (requestedModel && requestedModel.toLowerCase() !== 'auto') {
-    agentArgs.push('-m', requestedModel);
-  }
-  const effort = options.reasoningEffort?.trim();
-  if (effort && effort !== 'none' && effort !== 'workflow') {
-    const mapped =
-      effort === 'minimal' ? 'low'
-        : effort === 'xhigh' || effort === 'max' ? 'high'
-          : effort;
-    if (mapped === 'low' || mapped === 'medium' || mapped === 'high') {
-      agentArgs.push('--reasoning-effort', mapped);
-    }
-  }
-  if (options.yoloMode !== false) {
-    agentArgs.push('--always-approve');
-  }
-  agentArgs.push('stdio');
-  const env = mergeSpawnEnv(options);
-  extendEnvWithRtk(env, options.rtk);
-  return new AcpCliAdapter({
-    adapterName: 'grok-acp',
-    command: 'grok',
-    args: agentArgs,
-    workingDirectory: options.workingDirectory ?? process.cwd(),
-    sessionId: options.sessionId,
-    resume: options.resume,
-    ...(Object.keys(env).length > 0 ? { env } : {}),
-    mcpServers: [
-      ...(options.mcpServers ?? []),
-      ...inlineMcpServers,
-      ...browserGatewayMcpServers,
-      ...chromeDevtoolsMcpServers,
-      ...mobileMcpServers,
-    ],
-    model: options.model,
-    systemPrompt: options.systemPrompt,
-    rtkEnabled: Boolean(options.rtk?.enabled && options.rtk.binaryPath),
-    timeout: options.timeout,
-    stallWarningMs: resolveAcpStallWarningMs(Boolean(options.childId)),
-    permissionRegistry: getPermissionRegistry(),
-    permissionContext: buildAcpPermissionContext(options, 'grok'),
-    concurrencyLimiter: getProviderConcurrencyLimiter(),
-    concurrencyKey: 'grok',
-    concurrencyAcquireTimeoutMs: 60_000,
-    ...(options.concurrencyPriority === 'overflow' ? { concurrencyPriority: 'overflow' as const } : {}),
-  });
-}
-
-/**
  * Creates an Ollama adapter that communicates with the local Ollama REST API.
  * Requires a running Ollama daemon (ollama serve or Ollama.app).
  */
@@ -770,6 +698,9 @@ export function createCliAdapter(
       case 'grok':
         return createGrokAdapter(effectiveOptions);
 
+      case 'opencode':
+        return createOpenCodeAdapter(effectiveOptions);
+
       case 'ollama':
         return createOllamaAdapter(effectiveOptions);
 
@@ -816,6 +747,8 @@ export function getCliDisplayName(cliType: CliType): string {
       return 'Cursor CLI';
     case 'grok':
       return 'Grok Build';
+    case 'opencode':
+      return 'OpenCode';
     case 'ollama':
       return 'Ollama';
     default:

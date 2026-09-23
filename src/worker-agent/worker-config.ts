@@ -98,6 +98,12 @@ export interface WorkerConfig {
    * stable Tailscale name alongside the LAN address, without relying on mDNS.
    */
   coordinatorUrls?: string[];
+  /**
+   * URLs the coordinator last advertised for itself (`node.coordinatorAddresses`),
+   * tried after the configured ones. Replaced wholesale on every advertisement,
+   * so a stale LAN address the coordinator no longer holds drops out.
+   */
+  advertisedCoordinatorUrls?: string[];
   authToken: string;
   nodeToken?: string;
   recoveryToken?: string;
@@ -286,6 +292,13 @@ function normalizeFileConfig(fileConfig: Partial<WorkerConfig> & PairingConfigFi
     normalized.coordinatorUrls = fileConfig.coordinatorUrls
       .map((url) => normalizeCoordinatorUrl(url))
       .filter((url): url is string => Boolean(url));
+  }
+  if (Array.isArray(fileConfig.advertisedCoordinatorUrls)) {
+    normalized.advertisedCoordinatorUrls = fileConfig.advertisedCoordinatorUrls
+      .map((url) => normalizeCoordinatorUrl(url))
+      .filter((url): url is string => Boolean(url));
+  } else {
+    delete normalized.advertisedCoordinatorUrls;
   }
 
   if (typeof fileConfig.host === 'string' && isValidPort(fileConfig.port)) {

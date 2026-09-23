@@ -316,6 +316,7 @@ const RUN_ON_NODE_PROVIDER_ORDER: readonly ConcreteProvider[] = [
   'copilot',
   'cursor',
   'grok',
+  'opencode',
   'gemini',
 ];
 

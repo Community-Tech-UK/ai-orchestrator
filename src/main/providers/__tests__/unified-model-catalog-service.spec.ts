@@ -956,6 +956,24 @@ describe('UnifiedModelCatalogService — FIX 1: models.dev-only entries included
     expect(svc.getModelsByProvider('xai')).toHaveLength(0);
   });
 
+  it('does NOT put models.dev "opencode" (Zen) bare ids into the OpenCode picker', () => {
+    // models.dev publishes OpenCode Zen as `opencode/<bare id>`, but the
+    // OpenCode CLI needs the `opencode/big-pickle` form. Only CLI discovery
+    // feeds the opencode bucket.
+    const devEntries: ModelsDevEntry[] = [
+      { id: 'big-pickle', provider: 'opencode', rate: { input: 0, output: 0 } },
+    ];
+    const svc = makeServiceWithMock({}, devEntries);
+
+    expect(svc.getModelsByProvider('opencode')).toHaveLength(0);
+
+    svc.onCliDiscoveryRefreshed('opencode', [
+      { id: 'opencode/big-pickle', name: 'Big Pickle', tier: 'balanced', family: 'OpenCode Zen' },
+    ]);
+    vi.runAllTimers();
+    expect(svc.getModelsByProvider('opencode').map((model) => model.id)).toEqual(['opencode/big-pickle']);
+  });
+
   it('does NOT re-admit a retired id that models.dev still publishes', () => {
     // models.dev still lists `xai/grok-4.5` even though `grok models` dropped
     // it and the CLI exits 1 on it. With the xai->grok mapping in place, the

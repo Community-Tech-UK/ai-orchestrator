@@ -54,6 +54,11 @@ const LOGIN_COMMANDS: Record<string, ProviderLoginCommand> = {
   codex: { provider: 'codex', command: 'codex login' },
   copilot: { provider: 'copilot', command: 'copilot login' },
   cursor: { provider: 'cursor', command: 'cursor-agent login' },
+  opencode: {
+    provider: 'opencode',
+    command: 'opencode auth login',
+    hint: 'Pick the backend to connect. For a MiMo Token Plan, choose the Xiaomi Token Plan region that matches the base URL in the MiMo console (Europe is token-plan-ams), then paste the key. OpenCode stores it; Harness never sees it.',
+  },
   antigravity: {
     provider: 'antigravity',
     command: 'agy',

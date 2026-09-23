@@ -98,6 +98,7 @@ export function toLoopPickerProvider(
     || provider === 'copilot'
     || provider === 'cursor'
     || provider === 'grok'
+    || provider === 'opencode'
     ? provider
     : 'claude';
 }

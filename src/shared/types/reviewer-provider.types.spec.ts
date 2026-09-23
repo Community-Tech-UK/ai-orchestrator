@@ -7,7 +7,7 @@ import {
 describe('remote reviewer providers', () => {
   it('contains every canonical remote CLI reviewer once', () => {
     expect(REMOTE_REVIEWER_PROVIDER_IDS).toEqual([
-      'claude', 'codex', 'antigravity', 'copilot', 'cursor', 'grok',
+      'claude', 'codex', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode',
     ]);
   });
 

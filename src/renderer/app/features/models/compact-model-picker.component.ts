@@ -392,7 +392,8 @@ export class CompactModelPickerComponent {
 
   protected readonly modelLabel = computed(() => {
     const id = this.controller.selectedModelId();
-    if (!id) return 'Select model';
+    // OpenCode has no house default: an unset model runs OpenCode's own one.
+    if (!id) return this.selectedPickerProvider() === 'opencode' ? 'OpenCode default' : 'Select model';
     const list = this.modelsForProviderFn(this.selectedPickerProvider());
     return list.find((m) => m.id === id)?.name ?? id;
   });
@@ -401,7 +402,7 @@ export class CompactModelPickerComponent {
     const r = this.controller.selectedReasoningEffort();
     if (r) return REASONING_LABELS[r] ?? r;
     const provider = this.selectedPickerProvider();
-    return provider === 'claude' || provider === 'codex' ? 'Provider default' : null;
+    return provider === 'claude' || provider === 'codex' || provider === 'opencode' ? 'Provider default' : null;
   });
 
   /**

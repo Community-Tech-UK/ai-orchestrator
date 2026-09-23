@@ -165,6 +165,10 @@ describe('Copilot spawn-path bypass detection', () => {
   const CLASSIFIED_EXEMPTIONS: Record<string, string> = {
     'src/main/cli/adapters/adapter-factory.ts':
       'The factory itself — it enforces the route rather than resolving it.',
+    'src/main/cli/adapters/grok-adapter-factory.ts':
+      'Grok half of the factory, split out for size; builds only a Grok ACP adapter, never Copilot.',
+    'src/main/cli/adapters/opencode-adapter-factory.ts':
+      'OpenCode half of the factory, split out for size; builds only an OpenCode ACP adapter, never Copilot.',
     'src/main/providers/provider-runtime-service.ts':
       'Thin delegation to the factory; every caller routes first.',
     'src/main/instance/warm-start-manager.ts':

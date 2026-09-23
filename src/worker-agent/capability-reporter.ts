@@ -334,6 +334,7 @@ function detectClis(): CanonicalCliType[] {
     { name: 'copilot', command: 'gh' },
     { name: 'cursor', command: 'cursor-agent' },
     { name: 'grok', command: 'grok' },
+    { name: 'opencode', command: 'opencode' },
     { name: 'ollama', command: 'ollama' },
   ];
 

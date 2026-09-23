@@ -55,6 +55,9 @@ export const COORDINATOR_TO_NODE = {
   // WS15 stream durability: replay request after reconnect + cursor acks.
   STREAM_RESUME: 'node.streamResume',
   STREAM_ACK: 'node.streamAck',
+  // Notification: the coordinator's current reachable URLs, sent after each
+  // registration so a worker survives the host's LAN IP changing.
+  COORDINATOR_ADDRESSES: 'node.coordinatorAddresses',
   FS_READ_DIRECTORY: 'fs.readDirectory',
   FS_STAT: 'fs.stat',
   FS_SEARCH: 'fs.search',

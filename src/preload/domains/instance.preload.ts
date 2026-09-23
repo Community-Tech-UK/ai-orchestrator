@@ -27,7 +27,7 @@ export function createInstanceDomain(
       yoloMode?: boolean;
       launchMode?: 'orchestrated' | 'interactive';
       agentId?: string;
-      provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'auto';
+      provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'opencode' | 'auto';
       model?: string;
       reasoningEffort?: ReasoningEffort | null;
       modelRuntimeTarget?: ModelRuntimeTarget;
@@ -49,7 +49,7 @@ export function createInstanceDomain(
       attachments?: unknown[];
       launchMode?: 'orchestrated' | 'interactive';
       agentId?: string;
-      provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'auto';
+      provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'opencode' | 'auto';
       model?: string;
       reasoningEffort?: ReasoningEffort | null;
       modelRuntimeTarget?: ModelRuntimeTarget;
@@ -348,7 +348,7 @@ export function createInstanceDomain(
       model?: string;
       reasoningEffort?: ReasoningEffort | null;
       modelRuntimeTarget?: ModelRuntimeTarget;
-      provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok';
+      provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'opencode';
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.INSTANCE_CHANGE_MODEL, payload);
     },
@@ -618,6 +618,14 @@ export function createInstanceDomain(
       console.log('[Preload] Listener registered for channel:', ch.INPUT_REQUIRED);
       return () =>
         ipcRenderer.removeListener(ch.INPUT_REQUIRED, handler);
+    },
+
+    /** Input requests settled without the user (timeout, auto-approve, cancelled turn, exit): drop their cards. */
+    onInputRequiredResolved: (callback: (payload: { instanceId: string; requestId: string;
+      reason: 'timeout' | 'auto_approved' | 'decided' | 'cancelled' | 'exited' }) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, payload: Parameters<typeof callback>[0]) => callback(payload);
+      ipcRenderer.on(ch.INPUT_REQUIRED_RESOLVED, handler);
+      return () => ipcRenderer.removeListener(ch.INPUT_REQUIRED_RESOLVED, handler);
     },
 
     /**

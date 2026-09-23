@@ -27,7 +27,7 @@ export interface CreateInstanceConfig {
   yoloMode?: boolean;
   launchMode?: InstanceLaunchMode;
   agentId?: string;
-  provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'auto';
+  provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'opencode' | 'auto';
   model?: string;
   /** Omitted = spawn path applies the app-level per-provider default. */
   reasoningEffort?: ReasoningEffort | null;
@@ -54,7 +54,7 @@ export interface CreateInstanceWithMessageConfig {
   attachments?: FileAttachment[];
   launchMode?: InstanceLaunchMode;
   agentId?: string;
-  provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'auto';
+  provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'opencode' | 'auto';
   model?: string;
   /** Omitted = spawn path applies the app-level per-provider default. */
   reasoningEffort?: ReasoningEffort | null;
@@ -312,7 +312,7 @@ export class InstanceIpcService {
     model: string | undefined,
     reasoningEffort?: ReasoningEffort | null,
     modelRuntimeTarget?: ModelRuntimeTarget,
-    provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok',
+    provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'opencode',
   ): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.changeModel({
@@ -628,6 +628,18 @@ export class InstanceIpcService {
         });
         callback(payload);
       });
+    });
+  }
+
+  /** Subscribe to input requests settled without the user (their cards must go). */
+  onInputRequiredResolved(callback: (payload: {
+    instanceId: string;
+    requestId: string;
+    reason: 'timeout' | 'auto_approved' | 'decided' | 'cancelled' | 'exited';
+  }) => void): () => void {
+    if (!this.api?.onInputRequiredResolved) return () => { /* noop */ };
+    return this.api.onInputRequiredResolved((payload) => {
+      this.ngZone.run(() => callback(payload));
     });
   }
 

@@ -33,6 +33,10 @@
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File .\scripts\windows\install-worker-launcher.ps1 `
     -RepoPath 'C:\Users\shutu\Documents\Work\orchestrat0r\ai-orchestrator' -RegisterTask
+.EXAMPLE
+  # Add only the update task (no elevation needed; the keep-alive is untouched):
+  powershell -ExecutionPolicy Bypass -File .\scripts\windows\install-worker-launcher.ps1 `
+    -RepoPath 'C:\Users\shutu\Documents\Work\orchestrat0r\ai-orchestrator' -RegisterUpdateTask
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
@@ -53,8 +57,27 @@ param(
 
   # How often Task Scheduler re-checks that the worker is running. The task uses
   # MultipleInstancesPolicy=IgnoreNew and the worker holds a single-instance
-  # lock, so a repeat while healthy is a no-op.
+  # lock, so a repeat never starts a second worker. A repeat that does run while
+  # a worker is alive pulls and brings that worker onto new code
+  # (update-running-worker.ps1).
   [int]$RepeatMinutes = 5,
+
+  [switch]$RegisterTask,
+
+  # Register a SECOND task that runs the same launcher on its own schedule.
+  #
+  # Why it exists: while the keep-alive task above owns the worker it stays in
+  # the Running state, and IgnoreNew then suppresses every one of its repeats -
+  # so in the designed steady state nothing ever pulled new code. This task is
+  # not running (unless it happens to be the one that started the worker, in
+  # which case the keep-alive is the idle one), so one of the two always fires.
+  # Creating a NEW task needs no elevation, so this can be added without
+  # replacing the keep-alive task.
+  [switch]$RegisterUpdateTask,
+
+  [string]$UpdateTaskName = 'AI Orchestrator Worker Update',
+
+  [int]$UpdateMinutes = 15,
 
   # The account the worker actually runs as, which is NOT always the account you
   # are running this script as. "Run as administrator" can switch you into a
@@ -65,9 +88,7 @@ param(
   # which the worker user could not even read. It looked registered, reported an
   # armed NextRunTime, and could never run: LogonType Interactive for an account
   # with no interactive session just accumulates missed runs.
-  [string]$WorkerUser = "$env:USERDOMAIN\$env:USERNAME",
-
-  [switch]$RegisterTask
+  [string]$WorkerUser = "$env:USERDOMAIN\$env:USERNAME"
 )
 
 Set-StrictMode -Version Latest
@@ -244,6 +265,7 @@ if (-not $workerProfile) {
              " -InstallRoot `"$(Join-Path $workerProfile '.orchestrator')`"" +
              " -WorkerUser `"$WorkerUser`" -TaskName `"$TaskName`" -RepeatMinutes $RepeatMinutes" +
              $(if ($RegisterTask) { ' -RegisterTask' } else { '' }) +
+             $(if ($RegisterUpdateTask) { " -RegisterUpdateTask -UpdateTaskName `"$UpdateTaskName`" -UpdateMinutes $UpdateMinutes" } else { '' }) +
              $(if ($WhatIfPreference) { ' -WhatIf' } else { '' })
     throw @"
 Install root does not belong to the worker account. Nothing has been written.
@@ -326,6 +348,44 @@ if ($PSCmdlet.ShouldProcess($deployedStamp, 'Write deployed-launcher drift stamp
   Write-Host "  wrote $deployedStamp"
 }
 
+# --- update task --------------------------------------------------------------
+
+if ($RegisterUpdateTask) {
+  # Same action as the keep-alive: the hidden VBS running the deployed launcher.
+  # If the worker happens to be down when this fires it starts it, and then
+  # blocks for its lifetime exactly like the keep-alive does - hence the same
+  # unlimited execution time limit.
+  $updateAction = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument "`"$deployedVbs`"" -WorkingDirectory $RepoPath
+  # Offset from the keep-alive's start so the two do not fire in the same
+  # second. The launcher lock in start-worker.bat covers any overlap anyway.
+  $updateTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(3) `
+    -RepetitionInterval (New-TimeSpan -Minutes $UpdateMinutes)
+  $updateSettings = New-ScheduledTaskSettingsSet `
+    -MultipleInstances IgnoreNew `
+    -AllowStartIfOnBatteries `
+    -DontStopIfGoingOnBatteries `
+    -StartWhenAvailable `
+    -ExecutionTimeLimit ([TimeSpan]::Zero)
+  $updatePrincipal = New-ScheduledTaskPrincipal -UserId $WorkerUser -LogonType Interactive -RunLevel Limited
+  if ($PSCmdlet.ShouldProcess($UpdateTaskName, 'Register update task')) {
+    try {
+      Register-ScheduledTask -TaskName $UpdateTaskName -Action $updateAction -Trigger $updateTrigger `
+        -Settings $updateSettings -Principal $updatePrincipal -Force | Out-Null
+      Write-Host "  registered scheduled task '$UpdateTaskName' (update check every $UpdateMinutes min)"
+      $updateNext = (Get-ScheduledTask -TaskName $UpdateTaskName | Get-ScheduledTaskInfo).NextRunTime
+      if ($updateNext) {
+        Write-Host "  verified update task is armed: next run at $updateNext"
+      } else {
+        Write-Warning "Update task registered but NextRunTime is EMPTY - it is not armed."
+      }
+    } catch {
+      # Not fatal for the rest of the install: the keep-alive task still works,
+      # the worker just will not pick up new code until it next restarts.
+      Write-Warning "Could not register '$UpdateTaskName': $($_.Exception.Message). If a task with that name already exists and was created elevated, re-run from an elevated PowerShell with -WorkerUser '$WorkerUser'."
+    }
+  }
+}
+
 # --- scheduled task -----------------------------------------------------------
 
 if (-not $RegisterTask) {
@@ -333,7 +393,7 @@ if (-not $RegisterTask) {
   if ($WhatIfPreference) {
     Write-Host 'Dry run only - nothing was written. Re-run without -WhatIf to deploy.'
   } else {
-    Write-Host 'Launcher files deployed. Scheduled task left untouched (pass -RegisterTask to update it).'
+    Write-Host 'Launcher files deployed. Keep-alive task left untouched (pass -RegisterTask to update it).'
   }
   return
 }

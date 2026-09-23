@@ -52,7 +52,7 @@ export interface AndroidAutomationConfigInput {
 }
 
 export interface RemoteNodeEvent {
-  type: 'connected' | 'disconnected' | 'degraded' | 'metrics' | 'updated' | 'flap-storm';
+  type: 'connected' | 'disconnected' | 'degraded' | 'metrics' | 'updated' | 'flap-storm' | 'coordinator-route';
   nodeId?: string;
   node?: RemoteNodeRosterEntry | WorkerNodeInfo;
   /** Present on 'flap-storm' events: human-readable node name. */
@@ -61,6 +61,8 @@ export interface RemoteNodeEvent {
   replacesInWindow?: number;
   /** Present on 'flap-storm' events: detection window in ms. */
   windowMs?: number;
+  /** Present on 'coordinator-route' events: this computer's Tailscale state. */
+  coordinatorTailscale?: 'running' | 'stopped' | 'absent' | 'unknown';
 }
 
 export interface RemoteNodeServerStatus {

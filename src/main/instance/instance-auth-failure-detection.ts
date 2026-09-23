@@ -18,6 +18,8 @@ export interface AuthFailureSignal {
  * - Claude: "Failed to authenticate: OAuth session expired and could not be refreshed"
  * - Codex: "Not logged in. Run `codex login`"
  * - API-key setups: "invalid api key", "authentication_error", HTTP 401
+ * - OpenCode (ACP): "Invalid API Key" from the backend, and ACP
+ *   `auth_required` ("provider authentication required") with no credential
  */
 const AUTH_FAILURE_PATTERNS: RegExp[] = [
   /\boauth\b[^.]{0,40}\bexpired\b/i,
@@ -25,7 +27,8 @@ const AUTH_FAILURE_PATTERNS: RegExp[] = [
   /\bauthentication[ _-]?error\b/i,
   /\bnot (?:logged in|authenticated)\b/i,
   /\bplease (?:re-?)?(?:run|sign|log)[ -]?in\b/i,
-  /\brun `?(?:claude auth login|codex login|copilot login|cursor-agent login)`?/i,
+  /\brun `?(?:claude auth login|codex login|copilot login|cursor-agent login|opencode auth login)`?/i,
+  /\bprovider authentication required\b/i,
   /\b(?:invalid|expired|revoked|missing)\b[^.]{0,30}\b(?:api key|credentials?|token|session)\b/i,
   /\b401\b[^.]{0,20}\bunauthoriz/i,
   /\bunauthorized\b[^.]{0,20}\b401\b/i,

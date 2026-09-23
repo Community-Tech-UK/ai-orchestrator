@@ -40,6 +40,8 @@ export interface NodeHealthEntry {
   lastSeenAt?: number;
   pairingLabel?: string;
   platform?: NodePlatform;
+  /** Coordinator-side reason a disconnected node cannot connect (roster only). */
+  connectivityHint?: string;
   supportsBrowser: boolean;
   /** Browser automation wired & ready on the node (chrome-devtools MCP). */
   browserAutomationReady: boolean;
@@ -102,6 +104,7 @@ export function buildNodeHealthEntries(
         lastHeartbeat: live?.lastHeartbeat,
         lastSeenAt: roster?.lastAuthenticatedAt ?? registered?.lastSeenAt,
         pairingLabel: roster?.pairingLabel ?? registered?.pairingLabel,
+        ...(roster?.connectivityHint ? { connectivityHint: roster.connectivityHint } : {}),
         platform: liveIsRoster
           ? roster?.platform ?? registered?.platform
           : live?.capabilities.platform ?? registered?.platform,

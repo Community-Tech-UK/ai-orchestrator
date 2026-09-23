@@ -172,6 +172,8 @@ export class ProviderQuotaService extends EventEmitter {
       copilot: null,
       cursor: null,
       grok: null,
+      // No quota source: MiMo's Token Plan usage endpoint needs a console login.
+      opencode: null,
     };
     for (const p of PROVIDERS) out[p] = this.snapshots.get(p) ?? null;
     return this.accountSnapshots.size > 0

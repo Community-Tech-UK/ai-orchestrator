@@ -25,6 +25,7 @@ describe('provider-login-launcher', () => {
     expect(getProviderLoginCommand('codex-cli')?.command).toBe('codex login');
     expect(getProviderLoginCommand('copilot')?.command).toBe('copilot login');
     expect(getProviderLoginCommand('cursor')?.command).toBe('cursor-agent login');
+    expect(getProviderLoginCommand('opencode')?.command).toBe('opencode auth login');
   });
 
   it('returns null for a provider with no known login command', () => {
@@ -72,7 +73,7 @@ describe('provider-login-launcher', () => {
 
   it('every login command stays within the shell-safe character set', () => {
     const safe = /^[A-Za-z0-9 ._-]+$/;
-    for (const provider of ['claude', 'codex', 'copilot', 'cursor', 'antigravity', 'gemini']) {
+    for (const provider of ['claude', 'codex', 'copilot', 'cursor', 'opencode', 'antigravity', 'gemini']) {
       const login = getProviderLoginCommand(provider);
       expect(login, provider).not.toBeNull();
       expect(safe.test(login!.command), `${provider}: ${login!.command}`).toBe(true);

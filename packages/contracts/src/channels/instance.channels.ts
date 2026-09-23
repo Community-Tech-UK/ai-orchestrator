@@ -61,6 +61,8 @@ export const INSTANCE_CHANNELS = {
   // Input required events (CLI permission prompts, etc.)
   INPUT_REQUIRED: 'instance:input-required',
   INPUT_REQUIRED_RESPOND: 'instance:input-required-respond',
+  /** Main → renderer: a pending input request was settled without the user (timeout, auto-approve, turn cancelled, CLI exit). */
+  INPUT_REQUIRED_RESOLVED: 'instance:input-required-resolved',
 
   // Queue persistence (Pause on VPN feature)
   INSTANCE_QUEUE_SAVE: 'instance:queue-save',

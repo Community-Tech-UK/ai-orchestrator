@@ -39,6 +39,9 @@ import { formatNodeCapacity, formatNodePlatformLabel } from './remote-nodes-pair
                 }
                 <span>{{ formatNodeCapacity(entry) }}</span>
               </span>
+              @if (entry.connectivityHint) {
+                <span class="node-list-hint" role="status">{{ entry.connectivityHint }}</span>
+              }
             </span>
             <span class="status-badge" [class]="'status-badge ' + entry.status">{{ entry.status }}</span>
           </button>

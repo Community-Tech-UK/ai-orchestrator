@@ -31,7 +31,8 @@ export interface PendingApprovalItem extends PermissionRequest {
 export interface PermissionDecision {
   requestId: string;
   granted: boolean;
-  decidedBy: 'user' | 'auto_approve' | 'timeout' | 'parent_deny';
+  /** `cancelled`: withdrawn because the turn stopped or the agent exited before anyone answered. */
+  decidedBy: 'user' | 'auto_approve' | 'timeout' | 'parent_deny' | 'cancelled';
   decidedAt: number;
 }
 

@@ -1123,6 +1123,35 @@ describe('MobileGatewayServer', () => {
     }
   });
 
+  it('clears a phone prompt that was settled without an answer (timeout)', async () => {
+    const token = await pairToken();
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?token=${token}`);
+    const messages = collectMessages(ws);
+    await new Promise<void>((resolve, reject) => {
+      ws.once('open', resolve);
+      ws.once('error', reject);
+    });
+    try {
+      await nextOfType(messages, 'snapshot');
+      source.emit('instance:input-required', {
+        instanceId: 'a',
+        requestId: 'acp_permission:9',
+        prompt: 'ACP agent requests permission to continue tool execution.',
+        metadata: { type: 'acp_permission_request', transport: 'acp' },
+      });
+      await nextOfType(messages, 'permission-prompt');
+
+      source.emit('instance:input-required-resolved', { instanceId: 'a', requestId: 'acp_permission:9', reason: 'timeout' });
+
+      const cleared = await nextOfType(messages, 'permission-cleared');
+      expect((cleared['data'] as { requestId: string }).requestId).toBe('acp_permission:9');
+      const prompts = (await (await authed(token, '/api/prompts')).json()) as unknown[];
+      expect(prompts).toHaveLength(0);
+    } finally {
+      ws.close();
+    }
+  });
+
   it('preserves user-action option ids and routes responses to orchestration', async () => {
     const token = await pairToken();
     const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?token=${token}`);

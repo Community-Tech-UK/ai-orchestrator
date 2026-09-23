@@ -1,5 +1,5 @@
 import * as os from 'os';
-import { execFileSync } from 'child_process';
+import { execFile, execFileSync } from 'child_process';
 
 export interface LocalIpv4Candidate {
   name: string;
@@ -137,6 +137,61 @@ export function getTailscaleMagicDnsName(): string | null {
   }
 
   return null;
+}
+
+export interface TailscaleSelfStatus {
+  /** Tailscale's backend state, e.g. `Running`, `Stopped`, `NeedsLogin`. */
+  backendState: string | null;
+  dnsName: string | null;
+}
+
+export type TailscaleStatusExec = (command: string, args: string[], timeoutMs: number) => Promise<string>;
+
+const defaultTailscaleStatusExec: TailscaleStatusExec = (command, args, timeoutMs) =>
+  new Promise<string>((resolve, reject) => {
+    execFile(command, args, { encoding: 'utf8', timeout: timeoutMs }, (error, stdout) => {
+      // A stopped backend can exit non-zero while still printing valid status
+      // JSON; that JSON is exactly what reports "Stopped", so keep it.
+      if (error && !stdout.trim().startsWith('{')) reject(error);
+      else resolve(stdout);
+    });
+  });
+
+/**
+ * Non-blocking read of `tailscale status --json --self`. Returns null when no
+ * Tailscale CLI answered (not installed, or every candidate failed).
+ *
+ * Use this on the main process's hot paths instead of
+ * {@link getTailscaleMagicDnsName}: that one is synchronous and can stall the
+ * event loop for 750ms per CLI candidate when Tailscale is absent.
+ */
+export async function readTailscaleSelfStatus(
+  exec: TailscaleStatusExec = defaultTailscaleStatusExec,
+  timeoutMs = 1_500,
+): Promise<TailscaleSelfStatus | null> {
+  for (const command of getTailscaleCommandCandidates()) {
+    try {
+      const statusJson = await exec(command, ['status', '--json', '--self'], timeoutMs);
+      return {
+        backendState: getTailscaleBackendStateFromStatusJson(statusJson),
+        dnsName: getTailscaleDnsNameFromStatusJson(statusJson),
+      };
+    } catch {
+      // This candidate is absent or failed; try the next one before giving up.
+    }
+  }
+  return null;
+}
+
+export function getTailscaleBackendStateFromStatusJson(statusJson: string): string | null {
+  try {
+    const parsed = JSON.parse(statusJson) as { BackendState?: unknown };
+    return typeof parsed.BackendState === 'string' && parsed.BackendState.trim()
+      ? parsed.BackendState.trim()
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 export function getTailscaleDnsNameFromStatusJson(statusJson: string): string | null {

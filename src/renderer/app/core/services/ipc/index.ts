@@ -177,6 +177,7 @@ export class IpcFacadeService {
   listUserActionRequests = this.instance.listUserActionRequests.bind(this.instance);
   listUserActionRequestsForInstance = this.instance.listUserActionRequestsForInstance.bind(this.instance);
   onInputRequired = this.instance.onInputRequired.bind(this.instance);
+  onInputRequiredResolved = this.instance.onInputRequiredResolved.bind(this.instance);
   respondToInputRequired = this.instance.respondToInputRequired.bind(this.instance);
   submitSecretCard = this.instance.submitSecretCard.bind(this.instance);
   declineSecretCard = this.instance.declineSecretCard.bind(this.instance);

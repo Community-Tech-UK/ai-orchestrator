@@ -14,6 +14,7 @@ export const DEFAULT_INSTANCE_PROVIDERS: PickerProvider[] = [
   'copilot',
   'cursor',
   'grok',
+  'opencode',
   'local-model',
 ];
 
@@ -25,6 +26,7 @@ export const PROVIDER_MENU_LABELS: Record<PickerProvider, string> = {
   copilot: 'Copilot',
   cursor: 'Cursor',
   grok: 'Grok',
+  opencode: 'OpenCode',
   'local-model': 'Local Models',
 };
 
@@ -38,5 +40,7 @@ export const PROVIDER_MENU_COLORS: Record<PickerProvider, string> = {
   // both dark and light themes when consumed via `[style.color]`.
   cursor: 'var(--text-primary)',
   grok: '#1da1f2',
+  // Neutral: OpenCode fronts many backends, so it borrows no vendor colour.
+  opencode: 'var(--text-secondary)',
   'local-model': '#14b8a6',
 };

@@ -774,6 +774,7 @@ export function mapLoopProviderToProviderType(loopProvider: string): ProviderTyp
     case 'copilot': return 'copilot';
     case 'cursor': return 'cursor';
     case 'grok': return 'grok';
+    case 'opencode': return 'opencode';
     default: return null;
   }
 }

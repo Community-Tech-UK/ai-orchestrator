@@ -22,6 +22,7 @@ export interface CreateInstanceInput {
 }
 
 export function providerDisplayName(provider: string): string {
+  if (provider === 'opencode') return 'OpenCode';
   return provider
     .split(/[-_\s]+/)
     .filter(Boolean)

@@ -197,7 +197,7 @@ export class ModelPickerController {
         // wider `PickerProvider` is for the instance-draft surface; on chat
         // surfaces the menu only renders the 4 chat providers, so a cursor
         // value here would be a programming error. Guard at runtime.
-        if (target.provider === 'cursor' || target.provider === 'grok' || target.provider === 'local-model') return false;
+        if (target.provider === 'cursor' || target.provider === 'grok' || target.provider === 'opencode' || target.provider === 'local-model') return false;
         await this.chatStore.setProvider(c.id, target.provider);
       }
       if (target.modelId !== undefined && target.modelId !== c.model) {

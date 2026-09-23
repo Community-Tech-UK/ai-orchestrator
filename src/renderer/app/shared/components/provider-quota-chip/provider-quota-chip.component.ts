@@ -82,6 +82,7 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
   copilot: 'Copilot',
   cursor: 'Cursor',
   grok: 'Grok',
+  opencode: 'OpenCode',
 };
 
 @Component({
@@ -568,7 +569,7 @@ function stripEntryColor(percent: number): string {
   return STRIP_NEUTRAL_FG;
 }
 
-const PROVIDER_ORDER: ProviderId[] = ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok'];
+const PROVIDER_ORDER: ProviderId[] = ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode'];
 const PROVIDER_CODES: Record<ProviderId, string> = {
   claude: 'CC',
   codex: 'CX',
@@ -577,6 +578,7 @@ const PROVIDER_CODES: Record<ProviderId, string> = {
   copilot: 'CP',
   cursor: 'CU',
   grok: 'GX',
+  opencode: 'OC',
 };
 const PREFERRED_SUMMARY_WINDOW_IDS: Partial<Record<ProviderId, string[]>> = {
   claude: ['claude.weekly'],
@@ -592,4 +594,5 @@ const PROVIDER_REAUTH_HINTS: Record<ProviderId, string> = {
   copilot: 'Run `gh auth login` to sign in again',
   cursor: 'Open Cursor and sign in to refresh the session',
   grok: 'Run `grok login` (or set XAI_API_KEY) to sign in again',
+  opencode: 'Run `opencode auth login` to sign in again',
 };

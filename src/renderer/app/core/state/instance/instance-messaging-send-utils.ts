@@ -17,12 +17,13 @@ export function getSendInputTimeoutMs(provider: Instance['provider']): number | 
   // so a renderer deadline would only abandon the local wait while leaving
   // the provider turn alive. That makes the composer look idle and lets the
   // next send collide with the still-running turn.
-  // Grok Build uses the same ACP session/prompt contract as Cursor/Copilot.
+  // Grok Build and OpenCode use the same ACP session/prompt contract as Cursor/Copilot.
   if (
     provider === 'codex'
     || provider === 'cursor'
     || provider === 'copilot'
     || provider === 'grok'
+    || provider === 'opencode'
   ) {
     return NO_SEND_INPUT_IPC_TIMEOUT_MS;
   }

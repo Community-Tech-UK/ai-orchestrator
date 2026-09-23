@@ -38,6 +38,7 @@ export const INSTALL_COMMANDS: Record<string, string> = {
   // Its postinstall also refreshes the ~/.grok/bin copy, which is why a grok
   // version conflict is fixed by reinstalling rather than deleting a copy.
   'grok': 'npm install -g @xai-official/grok',
+  'opencode': 'npm install -g opencode-ai  # or: curl -fsSL https://opencode.ai/install | bash',
   'anthropic-api': 'npm install -g @anthropic-ai/claude-code',
 };
 
@@ -45,6 +46,7 @@ const LOGIN_COMMANDS: Record<string, string> = {
   'claude-cli': 'claude auth login',
   'codex-cli': 'codex login',
   'gemini-cli': 'gemini  # follow the interactive auth prompts',
+  'opencode': 'opencode auth login',
   'anthropic-api': 'export ANTHROPIC_API_KEY=<your-key>',
 };
 

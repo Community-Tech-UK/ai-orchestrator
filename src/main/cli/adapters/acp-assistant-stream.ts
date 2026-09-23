@@ -19,6 +19,8 @@ export interface AcpAssistantTurnState {
   agentMessageIds: Set<string>;
   retryNoticeId?: string;
   toolActivityChunks: string[];
+  /** `agent_thought_chunk` text keyed by the agent's messageId (see acp-thought-stream.ts). */
+  thoughtChunksById: Map<string, string[]>;
 }
 
 export function createAcpAssistantTurn(responseId: string): AcpAssistantTurnState {
@@ -29,6 +31,7 @@ export function createAcpAssistantTurn(responseId: string): AcpAssistantTurnStat
     messageChunksById: new Map<string, string[]>(),
     agentMessageIds: new Set<string>(),
     toolActivityChunks: [],
+    thoughtChunksById: new Map<string, string[]>(),
   };
 }
 

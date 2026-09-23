@@ -73,6 +73,31 @@ describe('ModelSelectionResolver', () => {
     })).resolves.toEqual({ model: 'gpt-5.9-codex' });
   });
 
+  it('keeps an OpenCode provider/model id the catalog has not caught up with', async () => {
+    // A fresh OpenCode home first lists its bundled models.dev snapshot, so the
+    // discovered catalog can lag what `opencode acp` actually offers.
+    const resolver = new ModelSelectionResolver({
+      getKnownModels: vi.fn().mockResolvedValue(['opencode/mimo-v2.5-free']),
+      getDefaultModel: () => undefined,
+    });
+
+    await expect(resolver.resolve({
+      provider: 'opencode',
+      configModelOverride: 'opencode/mimo-v2.6-flash-free',
+    })).resolves.toEqual({ model: 'opencode/mimo-v2.6-flash-free' });
+  });
+
+  it('drops a non provider/model id for OpenCode so OpenCode uses its own default', async () => {
+    const resolver = new ModelSelectionResolver({
+      getKnownModels: vi.fn().mockResolvedValue(['opencode/big-pickle']),
+      getDefaultModel: () => undefined,
+    });
+
+    const result = await resolver.resolve({ provider: 'opencode', configModelOverride: 'sonnet' });
+    expect(result.model).toBeUndefined();
+    expect(result.degradation?.requestedModel).toBe('sonnet');
+  });
+
   it('lets a remote provider choose its own default instead of inheriting coordinator defaults', async () => {
     const getKnownModels = vi.fn();
     const resolver = new ModelSelectionResolver({ getKnownModels });

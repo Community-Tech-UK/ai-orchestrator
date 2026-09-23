@@ -42,6 +42,7 @@ export function resolveProviderName(
     case 'copilot':
     case 'cursor':
     case 'grok':
+    case 'opencode':
       return instanceProvider;
     case 'auto':
     case undefined:

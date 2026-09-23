@@ -969,6 +969,9 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
         return 'M12 2 20 7v10l-8 5-8-5V7l8-5Zm0 2.35L6 8.1v7.8l6 3.75 6-3.75V8.1l-6-3.75Z';
       case 'grok':
         return 'M12 2c5.523 0 10 4.477 10 10s-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2Zm0 2.5A7.5 7.5 0 1 0 19.5 12 7.5 7.5 0 0 0 12 4.5Zm-3.25 4.25h2.1l1.15 3.4 1.15-3.4h2.1l-2.2 5.5h-2.1l-2.2-5.5Z';
+      case 'opencode':
+        // Neutral terminal glyph: OpenCode fronts many backends.
+        return 'M4 3.5h16A2.5 2.5 0 0 1 22.5 6v12a2.5 2.5 0 0 1-2.5 2.5H4A2.5 2.5 0 0 1 1.5 18V6A2.5 2.5 0 0 1 4 3.5Zm0 2a.5.5 0 0 0-.5.5v12a.5.5 0 0 0 .5.5h16a.5.5 0 0 0 .5-.5V6a.5.5 0 0 0-.5-.5H4Zm2.54 3.13 1.42-1.42L12.25 12l-4.29 4.29-1.42-1.42L9.41 12 6.54 9.13ZM12.5 15h5v2h-5v-2Z';
       case 'local-model':
         return 'M4 6.5 12 2l8 4.5v9L12 20l-8-4.5v-9Zm2 1.18v6.64l6 3.38 6-3.38V7.68L12 4.3 6 7.68Zm6 1.1 3.5-1.97 1.5.84-5 2.82-5-2.82 1.5-.84L12 8.78Zm-5 3.03 5 2.82 5-2.82v1.72l-5 2.82-5-2.82v-1.72Z';
     }

@@ -13,7 +13,7 @@
  * together, so excluding one does not exclude the other.
  */
 export const AUTOMATION_PROVIDER_IDS = [
-  'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'ollama',
+  'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode', 'ollama',
 ] as const;
 
 export type AutomationProviderId = typeof AUTOMATION_PROVIDER_IDS[number];
@@ -29,5 +29,6 @@ export const AUTOMATION_PROVIDER_DEFINITIONS: readonly {
   { id: 'copilot', label: 'GitHub Copilot' },
   { id: 'cursor', label: 'Cursor CLI' },
   { id: 'grok', label: 'Grok Build' },
+  { id: 'opencode', label: 'OpenCode' },
   { id: 'ollama', label: 'Ollama' },
 ] as const;

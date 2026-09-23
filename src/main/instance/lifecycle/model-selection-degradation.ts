@@ -24,7 +24,7 @@ export function resolveAvailableModelSelection(params: {
   requestedModel?: string;
   knownModelIds: readonly string[];
   fallbackModel?: string;
-  allowDynamicCodexModel?: boolean;
+  allowDynamicModel?: boolean;
 }): ModelSelectionResolution {
   const requestedModel = params.requestedModel?.trim();
   if (!requestedModel) {
@@ -52,7 +52,7 @@ export function resolveAvailableModelSelection(params: {
     return { model: requestedModel };
   }
 
-  if (params.allowDynamicCodexModel) {
+  if (params.allowDynamicModel) {
     return { model: requestedModel };
   }
 
@@ -109,7 +109,7 @@ export function resolveRuntimeChangeModel(params: {
   requestedModel: string;
   knownModelIds: readonly string[];
   fallbackModel?: string;
-  allowDynamicCodexModel?: boolean;
+  allowDynamicModel?: boolean;
   modelSource?: string;
 }): { model?: string; degradation?: ModelSelectionDegradation; userVisible: boolean } {
   const requestedModel = resolveModelReplacementForProvider(
@@ -121,7 +121,7 @@ export function resolveRuntimeChangeModel(params: {
     requestedModel,
     knownModelIds: params.knownModelIds,
     fallbackModel: params.fallbackModel,
-    allowDynamicCodexModel: params.allowDynamicCodexModel,
+    allowDynamicModel: params.allowDynamicModel,
   });
   const userVisible = Boolean(selection.degradation) && params.modelSource !== 'global-default';
   return {

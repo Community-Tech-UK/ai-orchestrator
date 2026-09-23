@@ -263,6 +263,10 @@ powershell -ExecutionPolicy Bypass -File .\scripts\windows\install-worker-launch
 # deploy AND (re)register the scheduled task
 powershell -ExecutionPolicy Bypass -File .\scripts\windows\install-worker-launcher.ps1 `
   -RepoPath 'C:\path\to\ai-orchestrator' -RegisterTask
+
+# add the update task (a NEW task needs no elevation; the keep-alive is untouched)
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\install-worker-launcher.ps1 `
+  -RepoPath 'C:\path\to\ai-orchestrator' -RegisterUpdateTask
 ```
 
 What it produces:
@@ -297,7 +301,9 @@ The registered task differs from the old hand-made one in two ways that matter:
   logon, and a separate **time trigger repeating every 5 minutes** is the
   keep-alive, so a worker that *exits* mid-session is picked up within minutes.
   `MultipleInstancesPolicy=IgnoreNew` plus the worker's own single-instance lock
-  make the repeat a no-op while it is healthy.
+  mean a repeat never starts a second worker. A repeat that runs while a worker
+  is alive brings that worker onto new code instead (see *Keeping a running worker
+  on current code* below).
 
 The keep-alive is deliberately **not** attached to the logon trigger. A trigger's
 repetition only begins when that trigger activates, so a repetition hung off the
@@ -376,10 +382,12 @@ bad principal instead. So: *yes* gets the elevation advice, *no* says elevation 
 probably not the cause and lists the likely alternatives, and *unknown* says
 plainly that neither can be ruled out and to check the service first.
 
-### The launcher skips itself when a worker is already up
+### The launcher does not build under a live worker
 
 `start-worker.bat` checks, before it builds anything, whether a worker is already
-running from this checkout, and exits 0 if so.
+running from this checkout. If so it hands over to
+`scripts\windows\update-running-worker.ps1` and exits with its result, rather
+than building underneath the live worker.
 
 Without that check the repetition is actively harmful whenever the worker was
 started outside the task — by hand, or from another console. Every firing ran
@@ -396,9 +404,46 @@ skips, and a missing PowerShell, a CIM failure or an unreadable command line all
 proceed exactly as before. Skipping when nothing is running would silently disable
 the keep-alive, so the doubt has to resolve toward doing the work.
 
-In the intended steady state this rarely fires, because the task owns the worker:
-the blocking VBS keeps the task *Running* for the worker's lifetime and
-`MultipleInstancesPolicy=IgnoreNew` suppresses the repeats.
+In the intended steady state the keep-alive's repeats do not fire at all, because
+the task owns the worker: the blocking VBS keeps the task *Running* for the
+worker's lifetime and `MultipleInstancesPolicy=IgnoreNew` suppresses them. That is
+also why a worker used to stay on old code indefinitely, and why the update task
+below exists.
+
+### Keeping a running worker on current code
+
+Before 2026-09-22 a pull landed new code on disk and the running worker kept
+serving the old build: the launcher exited as soon as it saw a live worker, and
+in the steady state the keep-alive never even ran. windows-pc was found running a
+three-day-old bundle.
+
+Three pieces fix it:
+
+- **`update-running-worker.ps1`** runs whenever the launcher finds a live worker.
+  If `HEAD` differs from `dist\worker-agent\.source-commit` (written after every
+  successful build; missing means unknown), it rebuilds. Then, if the rebuild
+  happened or the bundle is newer than the running worker child, it stops the
+  **child only**; the supervisor respawns it from the new bundle about a second
+  later. It never stops an unsupervised worker (nothing would bring it back), and
+  it defers the restart while the worker has live descendants such as a provider
+  CLI, a terminal or a build. The walk stops at `chrome.exe`, `conhost.exe` and
+  `adb.exe`, because the managed Chrome and its native-messaging hosts are always
+  there. A failed build exits 1 and leaves the running worker untouched.
+  `-DryRun` reports without building or stopping anything.
+- **An update task**, `AI Orchestrator Worker Update`, registered by
+  `-RegisterUpdateTask` and running the same launcher every 15 minutes
+  (`-UpdateMinutes`). Whichever of the two tasks does not own the worker keeps
+  firing, so updates run in the steady state too.
+- **A launcher lock**, `%USERPROFILE%\.orchestrator\launcher.lock` (a directory;
+  `mkdir` is atomic). It is held from the live check until just before `node`
+  starts, so the two tasks firing together at logon cannot both build and start
+  a worker. A lock older than 20 minutes is treated as left over from an
+  interrupted run and reclaimed.
+
+Verified on windows-pc 2026-09-22 with an isolated harness (temp checkout, fake
+profile, fake build, fake supervisor): lock busy / stale / released, build
+failure, cold start and stamp, up to date, rebuild then restart, busy deferral,
+and the deferred restart on a later idle run.
 
 **Known limit: this recovers from a worker that DIES, not one that HANGS.** The
 action blocks for the worker's lifetime, and `ExecutionTimeLimit` is `PT0S`
@@ -412,8 +457,10 @@ Because the repetition will restart the worker within 5 minutes, **stopping it
 deliberately now means disabling the task**, not just killing the process:
 
 ```powershell
-Disable-ScheduledTask -TaskName 'AI Orchestrator Worker'   # stop it staying up
-Enable-ScheduledTask  -TaskName 'AI Orchestrator Worker'   # put it back
+Disable-ScheduledTask -TaskName 'AI Orchestrator Worker'          # stop it staying up
+Disable-ScheduledTask -TaskName 'AI Orchestrator Worker Update'   # the update task can start it too
+Enable-ScheduledTask  -TaskName 'AI Orchestrator Worker'          # put them back
+Enable-ScheduledTask  -TaskName 'AI Orchestrator Worker Update'
 ```
 
 The installer backs up the previous task definition to
@@ -624,6 +671,52 @@ This is a fallback path. Prefer the copied pairing command or canonical config w
 - Docker containers or WSL2 (multicast may not cross the virtual bridge)
 
 In these cases, set `coordinatorUrl` explicitly in the worker config or use an SSH tunnel.
+
+## Coordinator-Advertised Addresses
+
+A worker keeps the coordinator URL it was paired with. When the coordinator's LAN
+address changes (a new DHCP lease), a LAN fallback pinned at pairing time goes
+stale, and the worker is left with whatever other route it has. On 2026-09-22 that
+left windows-pc depending on Tailscale alone.
+
+So after every registration the coordinator sends a `node.coordinatorAddresses`
+notification (scope `service`) listing where it can currently be reached: its
+Tailscale MagicDNS name (only while Tailscale is running), its Tailscale IP, and
+its ranked LAN IPs, all on the same port and protocol. The worker stores them as
+`advertisedCoordinatorUrls` in `worker-node.json`, replacing the previous list, and
+tries them after `coordinatorUrl` and `coordinatorUrls`. A worker pinned to
+`wss://` ignores advertised `ws://` routes. Older workers ignore the notification.
+
+## When the Coordinator's Tailscale Is Off
+
+A worker that reaches the coordinator over Tailscale looks dead when the
+coordinator's own Tailscale is switched off, even though it is healthy and
+retrying. Its log shows endless `Coordinator network not ready; deferring
+WebSocket connection`. The coordinator watches its own Tailscale state and, when
+it stops while worker nodes are paired, raises one critical notification ("Tailscale
+is off on this computer") naming the nodes it last saw over Tailscale. Disconnected
+nodes show the same hint on their card and in Settings → Computers.
+
+Check it directly on the Mac with
+`/Applications/Tailscale.app/Contents/MacOS/Tailscale status` (`WantRunning: false`
+in `tailscale debug prefs` means it was switched off, not logged out).
+
+## Windows Update Restarts
+
+The worker starts at logon, so after a Windows Update restart it stays offline until
+someone signs in. Windows can sign the user back in after an update restart and lock
+the session ("Use my sign-in info to automatically finish setting up after an
+update"). `scripts\windows\configure-update-restart-signon.ps1` reports that setting
+and the active hours; run it elevated with `-Apply` (and `-WorkerUser`, because
+elevating may switch account) to turn it on. It only covers restarts that Windows
+Update starts; a power cut or a manual restart still waits at the sign-in screen.
+
+```powershell
+# report only
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\configure-update-restart-signon.ps1 -WorkerUser '9950X3D\shutu'
+# elevated: turn it on
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\configure-update-restart-signon.ps1 -WorkerUser '9950X3D\shutu' -Apply
+```
 
 ## Per-Node Identity
 

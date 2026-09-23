@@ -92,6 +92,8 @@ export class MessageFormatService {
         return 'Cursor';
       case 'grok':
         return 'Grok';
+      case 'opencode':
+        return 'OpenCode';
       default:
         return 'AI';
     }

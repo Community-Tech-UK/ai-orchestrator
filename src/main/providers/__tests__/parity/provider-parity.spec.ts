@@ -6,7 +6,7 @@
  * each provider at the adapter-event boundary (the same seam used by the
  * four per-provider specs).
  *
- * Matrix: 9 scenarios × 6 providers = 54 test cases.
+ * Matrix: 9 scenarios × 7 providers = 63 test cases.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -122,11 +122,21 @@ class FakeGrokAdapter extends EventEmitter {
   async sendInput(): Promise<void> { /* no-op */ }
 }
 
+// --- OpenCode (ACP via createOpenCodeAdapter) ---
+class FakeOpenCodeAdapter extends EventEmitter {
+  async spawn(): Promise<void> { /* no-op */ }
+  getSessionId(): string { return 'sess-opencode'; }
+  getPid(): number | null { return null; }
+  async terminate(): Promise<void> { /* no-op */ }
+  async sendInput(): Promise<void> { /* no-op */ }
+}
+
 vi.mock('../../../cli/adapters/adapter-factory', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../cli/adapters/adapter-factory')>();
   return {
     ...actual,
     createGrokAdapter: vi.fn().mockImplementation(() => new FakeGrokAdapter()),
+    createOpenCodeAdapter: vi.fn().mockImplementation(() => new FakeOpenCodeAdapter()),
   };
 });
 
@@ -139,6 +149,7 @@ import { GeminiCliProvider } from '../../gemini-cli-provider';
 import { CopilotCliProvider } from '../../copilot-cli-provider';
 import { CursorCliProvider } from '../../cursor-cli-provider';
 import { GrokCliProvider } from '../../grok-cli-provider';
+import { OpenCodeCliProvider } from '../../opencode-cli-provider';
 
 // ---------------------------------------------------------------------------
 // Fixture type: constructs a provider+adapter pair with instanceId 'i-parity'.
@@ -147,7 +158,7 @@ interface ParityFixture {
   setup: () => Promise<{ provider: BaseProvider; adapter: EventEmitter; envelopes: ProviderRuntimeEventEnvelope[] }>;
 }
 
-// Deliberately covers 6 of the built-in providers (see matrix comment above);
+// Deliberately covers 7 of the built-in providers (see matrix comment above);
 // Partial avoids requiring fixtures for every ProviderName variant.
 const PROVIDERS: Partial<Record<ProviderName, ParityFixture>> = {
   claude: {
@@ -203,6 +214,16 @@ const PROVIDERS: Partial<Record<ProviderName, ParityFixture>> = {
   grok: {
     setup: async () => {
       const provider = new GrokCliProvider({ type: 'grok', name: 'Grok Build', enabled: true });
+      const envelopes: ProviderRuntimeEventEnvelope[] = [];
+      provider.events$.subscribe(e => envelopes.push(e));
+      await provider.initialize({ workingDirectory: '/tmp', instanceId: 'i-parity' });
+      const adapter = (provider as unknown as { adapter: EventEmitter }).adapter;
+      return { provider, adapter, envelopes };
+    },
+  },
+  opencode: {
+    setup: async () => {
+      const provider = new OpenCodeCliProvider({ type: 'opencode', name: 'OpenCode', enabled: true });
       const envelopes: ProviderRuntimeEventEnvelope[] = [];
       provider.events$.subscribe(e => envelopes.push(e));
       await provider.initialize({ workingDirectory: '/tmp', instanceId: 'i-parity' });
@@ -310,7 +331,7 @@ const SCENARIOS: readonly Scenario[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Matrix: 9 scenarios × 6 providers = 54 test cases
+// Matrix: 9 scenarios × 7 providers = 63 test cases
 // ---------------------------------------------------------------------------
 describe('cross-provider parity', () => {
   for (const scenario of SCENARIOS) {

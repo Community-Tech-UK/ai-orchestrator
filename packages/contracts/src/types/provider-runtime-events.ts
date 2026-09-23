@@ -28,7 +28,8 @@ export type BuiltInProviderName =
   | 'copilot'
   | 'anthropic-api'
   | 'cursor'
-  | 'grok';
+  | 'grok'
+  | 'opencode';
 
 /**
  * Worker-isolated plugin providers use a reserved namespace so they cannot

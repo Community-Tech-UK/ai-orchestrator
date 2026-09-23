@@ -117,7 +117,7 @@ const PRIVILEGED_CLI_OPERATOR_ONLY_KEYS = new Set<keyof AppSettings>([
 ]);
 const metadataByKey = new Map(SETTINGS_METADATA.map((metadata) => [metadata.key, metadata]));
 
-const cliSchema = z.enum(['auto', 'claude', 'gemini', 'antigravity', 'codex', 'copilot', 'cursor', 'grok', 'openai']);
+const cliSchema = z.enum(['auto', 'claude', 'gemini', 'antigravity', 'codex', 'copilot', 'cursor', 'grok', 'opencode', 'openai']);
 const themeSchema = z.enum(['dark', 'light', 'system']);
 const displayDensitySchema = z.enum(['comfortable', 'compact']);
 const sidebarStyleSchema = z.enum(['standard', 'compact']);
@@ -396,7 +396,7 @@ export const SETTINGS_TOOL_POLICY = {
   // WS7 Phase B: the operator's fallback-provider list is the failover consent
   // surface. Open so it is configurable, bounded to the known loop providers.
   sessionFailoverProviders: open(
-    z.array(z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok'])).max(7),
+    z.array(z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode'])).max(8),
   ),
   sessionFailoverMaxSwitches: open(numberSettingSchema('sessionFailoverMaxSwitches')),
   sessionFailoverOfferAfterMinutes: open(numberSettingSchema('sessionFailoverOfferAfterMinutes')),

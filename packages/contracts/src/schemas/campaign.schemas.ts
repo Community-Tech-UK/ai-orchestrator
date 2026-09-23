@@ -106,7 +106,7 @@ export const CampaignImportPlanPreviewPayloadSchema = z.object({
   planFile: z.string().min(1).max(2000),
   baseLoop: z.object({
     verifyCommand: z.string().max(4000),
-    provider: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']).optional(),
+    provider: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode']).optional(),
     maxCostCents: z.number().int().positive().max(1_000_000).optional(),
     maxTurnsPerIteration: z.number().int().positive().max(1000).optional(),
   }),

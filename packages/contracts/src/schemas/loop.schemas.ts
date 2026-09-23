@@ -75,7 +75,7 @@ export const LoopCompletionOutcomeSchema = z.enum([
 ]);
 export const LoopVerdictSchema = z.enum(['OK', 'WARN', 'CRITICAL']);
 export const LoopVerifyFailureKindSchema = z.enum(['command', 'timeout', 'infra', 'environment', 'cancelled']);
-export const LoopProviderSchema = z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']);
+export const LoopProviderSchema = z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode']);
 export const LoopContextStrategySchema = z.enum(['fresh-child', 'hybrid', 'same-session']);
 export const ProgressSignalIdSchema = z.enum(['A', 'B', 'C', 'D', 'D-prime', 'E', 'F', 'G', 'H', 'I', 'BLOCKED']);
 export const CompletionSignalIdSchema = z.enum([
@@ -163,7 +163,7 @@ export const LoopReviewSeveritySchema = z.enum(['critical', 'high', 'medium', 'l
 export const LoopPingPongConfigSchema = z.object({
   enabled: z.boolean(),
   reviewerProvider: z
-    .enum(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok'])
+    .enum(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode'])
     .optional(),
   subject: z.enum(['auto', 'plan', 'impl']).optional(),
   maxRounds: z.number().int().min(1).max(20).optional(),
@@ -370,7 +370,7 @@ export const LoopConfigSchema = z.object({
   /** WS7 Phase A: opt-in per-loop provider failover (default disabled). */
   failover: z.object({
     enabled: z.boolean(),
-    providers: z.array(z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok'])).max(7),
+    providers: z.array(z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode'])).max(8),
     maxSwitches: z.number().int().min(1).max(5),
   }).optional(),
   /** Absolute path to the per-session worktree. Set automatically by the

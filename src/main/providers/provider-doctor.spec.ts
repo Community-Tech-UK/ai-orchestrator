@@ -251,6 +251,14 @@ describe('buildRepairActions', () => {
     expect(actions[0].severity).toBe('warning');
   });
 
+  it('offers the OpenCode install command when opencode is missing', () => {
+    const probe = makeProbe('cli_installed', 'fail', { errorKind: 'cli_not_found' });
+    const actions = buildRepairActions(makeDiagnosis('opencode', [probe]));
+    expect(actions[0].kind).toBe('cli_not_found');
+    expect(actions[0].command).toContain('npm install -g opencode-ai');
+    expect(actions[0].command).toContain('https://opencode.ai/install');
+  });
+
   it('reinstalls rather than removes for a report-less shadow failure on grok', () => {
     // The probe classifies a real report as a version mismatch, so this kind
     // only arrives without usable metadata. Removal is still wrong advice for

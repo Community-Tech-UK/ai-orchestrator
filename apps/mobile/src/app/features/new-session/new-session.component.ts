@@ -44,7 +44,7 @@ import {
 
 import { trustedNewSessionDirectory } from './new-session.navigation';
 
-const PROVIDERS = ['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor', 'grok'] as const;
+const PROVIDERS = ['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor', 'grok', 'opencode'] as const;
 
 @Component({
   standalone: true,

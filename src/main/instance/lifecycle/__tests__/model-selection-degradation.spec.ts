@@ -24,7 +24,7 @@ describe('resolveAvailableModelSelection', () => {
       requestedModel: 'gpt-5.9-codex',
       knownModelIds: ['gpt-5.3-codex'],
       fallbackModel: 'gpt-5.3-codex',
-      allowDynamicCodexModel: true,
+      allowDynamicModel: true,
     });
 
     expect(result).toEqual({ model: 'gpt-5.9-codex' });
@@ -38,7 +38,7 @@ describe('resolveAvailableModelSelection', () => {
       requestedModel,
       knownModelIds: [],
       fallbackModel: 'gpt-5.3-codex',
-      allowDynamicCodexModel: true,
+      allowDynamicModel: true,
     });
 
     expect(requestedModel).toHaveLength(MAX_MODEL_ID_LENGTH + 4);

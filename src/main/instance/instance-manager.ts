@@ -705,6 +705,10 @@ export class InstanceManager extends EventEmitter {
       logger.info('Input-required event received', summarizeInputRequiredPayload(payload));
       void this.permissionRequests.handleInputRequired(payload);
     });
+    this.communication.on('input-required-resolved', (payload: { instanceId: string; requestId: string }) => {
+      this.permissionRequests.clearPending(payload.instanceId, payload.requestId);
+      this.emit('instance:input-required-resolved', payload);
+    });
 
     // Lifecycle events
     this.lifecycle.on('created', (payload) => {

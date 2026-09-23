@@ -146,6 +146,8 @@ export class InstanceRowComponent {
         return { icon: 'cursor', color: '#E5E7EB', label: 'Cursor' } as const;
       case 'grok':
         return { icon: 'grok', color: '#1DA1F2', label: 'Grok' } as const;
+      case 'opencode':
+        return { icon: 'opencode', color: '#D4D4D8', label: 'OpenCode' } as const;
       default:
         return { icon: 'default', color: '#9CA3AF', label: 'Provider' } as const;
     }

@@ -7,6 +7,7 @@ import type {
 } from '../../shared/types/worker-node.types';
 import { getRemoteAuthService } from '../auth/remote-auth';
 import { getWorkerNodeRegistry } from './worker-node-registry';
+import { getActiveCoordinatorTailscaleWatcher } from './coordinator-tailscale-watcher';
 
 interface RegistryLike {
   getAllNodes(): WorkerNodeInfo[];
@@ -19,6 +20,8 @@ interface AuthServiceLike {
 export interface RemoteNodeRosterServiceOptions {
   registry?: RegistryLike;
   authService?: AuthServiceLike;
+  /** Coordinator-side reason a disconnected node cannot connect, if known. */
+  getDisconnectedNodeHint?: (nodeId: string) => string | undefined;
 }
 
 const STATUS_RANK: Record<RemoteNodeRosterEntry['status'], number> = {
@@ -35,6 +38,8 @@ export class RemoteNodeRosterService {
     return buildRemoteNodeRoster(
       this.registry().getAllNodes(),
       this.authService().listSessions(),
+      this.options.getDisconnectedNodeHint
+        ?? ((nodeId) => getActiveCoordinatorTailscaleWatcher()?.getDisconnectedNodeHint(nodeId)),
     );
   }
 
@@ -54,13 +59,18 @@ export class RemoteNodeRosterService {
 export function buildRemoteNodeRoster(
   liveNodes: WorkerNodeInfo[],
   sessions: NodeIdentity[],
+  getDisconnectedNodeHint: (nodeId: string) => string | undefined = () => undefined,
 ): RemoteNodeRosterEntry[] {
   const liveById = new Map(liveNodes.map((node) => [node.id, node]));
   const sessionById = new Map(sessions.map((session) => [session.nodeId, session]));
   const ids = new Set<string>([...liveById.keys(), ...sessionById.keys()]);
 
   return [...ids]
-    .map((id) => buildEntry(id, liveById.get(id), sessionById.get(id)))
+    .map((id) => {
+      const entry = buildEntry(id, liveById.get(id), sessionById.get(id));
+      const hint = entry.connected ? undefined : getDisconnectedNodeHint(id);
+      return hint ? { ...entry, connectivityHint: hint } : entry;
+    })
     .sort((left, right) => {
       const statusDiff = STATUS_RANK[left.status] - STATUS_RANK[right.status];
       return statusDiff !== 0 ? statusDiff : left.name.localeCompare(right.name);

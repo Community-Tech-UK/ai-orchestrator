@@ -230,7 +230,7 @@ src/
 ### Prerequisites
 - Node.js 24.15.0 (see `.nvmrc`)
 - npm 10+
-- At least one CLI installed: `claude`, `gemini`, `codex`, or `copilot`
+- At least one CLI installed: `claude`, `gemini`, `codex`, `copilot`, `cursor-agent`, `grok`, or `opencode`
 
 ### Commands
 
@@ -273,6 +273,26 @@ npx tsc --noEmit -p tsconfig.spec.json  # spec files too
 - Run `npx electron-rebuild -f -w better-sqlite3` to rebuild for Electron
 - The postinstall script does this automatically, but may fail on Windows without C++ build tools
 - If you see "Could not locate the bindings file", this is the fix
+
+### Using MiMo Token Plan with OpenCode
+
+Harness reaches Xiaomi MiMo models through the OpenCode CLI (provider `opencode`),
+which it drives over ACP like Grok. OpenCode holds the Token Plan key; Harness never
+reads or stores it.
+
+1. Install OpenCode: `npm install -g opencode-ai` (or `curl -fsSL https://opencode.ai/install | bash`).
+2. Run `opencode auth login` (or the OpenCode sign-in button in CLI Health), choose
+   the **Xiaomi Token Plan** region that matches the base URL in the MiMo console
+   (`token-plan-ams` is Europe, `token-plan-sgp` Singapore, `token-plan-cn` China),
+   and paste the `tp-…` key.
+3. In Harness, pick **OpenCode** as the provider and choose a model such as
+   `xiaomi-token-plan-ams/mimo-v2.6-pro`. The list comes from `opencode models`, so
+   only backends OpenCode can use appear. With no model chosen, OpenCode's own
+   default runs (a free OpenCode Zen model when no backend is connected).
+
+Token Plan usage and remaining credits are only shown in the MiMo console; the
+console's usage endpoint needs a browser login, so Harness shows no quota chip for
+OpenCode.
 
 ---
 

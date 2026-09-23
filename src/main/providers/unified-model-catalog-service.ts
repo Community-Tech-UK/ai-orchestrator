@@ -432,6 +432,14 @@ export class UnifiedModelCatalogService extends EventEmitter {
       if ((RETIRED_PROVIDER_MODELS[provider] ?? []).includes(devEntry.id)) {
         continue;
       }
+      // models.dev's `opencode` namespace is OpenCode's hosted Zen service,
+      // keyed by bare ids (`big-pickle`). The OpenCode CLI only accepts
+      // `provider/model` ids (`opencode/big-pickle`), so those rows would be
+      // unusable choices in the OpenCode picker. OpenCode's models come from
+      // CLI discovery (`opencode models --verbose`) alone.
+      if (provider === 'opencode') {
+        continue;
+      }
 
       const pricing: UnifiedModelEntry['pricing'] = {
         inputPerMillion: devEntry.rate.input,

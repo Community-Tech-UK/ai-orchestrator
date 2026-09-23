@@ -68,7 +68,8 @@ vi.mock('../orchestration/doom-loop-detector', () => ({ getDoomLoopDetector: vi.
 vi.mock('../orchestration/orchestration-activity-bridge', () => ({ getOrchestrationActivityBridge: vi.fn(() => ({ initialize: vi.fn() })) }));
 vi.mock('../orchestration/multi-verify-coordinator', () => ({ getMultiVerifyCoordinator: vi.fn(() => ({})) }));
 vi.mock('../memory/memory-monitor', () => ({ getMemoryMonitor: vi.fn(() => ({ on: vi.fn() })) }));
-vi.mock('../remote/observer-server', () => ({ getRemoteObserverServer: vi.fn(() => ({ publishInstanceState: vi.fn(), publishInstanceOutput: vi.fn(), recordPrompt: vi.fn() })) }));
+const mockObserverClearPrompt = vi.hoisted(() => vi.fn());
+vi.mock('../remote/observer-server', () => ({ getRemoteObserverServer: vi.fn(() => ({ publishInstanceState: vi.fn(), publishInstanceOutput: vi.fn(), recordPrompt: vi.fn(), clearPrompt: mockObserverClearPrompt })) }));
 vi.mock('../repo-jobs', () => ({ getRepoJobService: vi.fn(() => ({ on: vi.fn() })) }));
 vi.mock('../process/load-balancer', () => ({ getLoadBalancer: vi.fn(() => ({ removeMetrics: vi.fn(), updateMetrics: vi.fn() })) }));
 vi.mock('../workflows/workflow-manager', () => ({ getWorkflowManager: vi.fn(() => ({ cleanupInstance: vi.fn() })) }));
@@ -111,6 +112,22 @@ describe('setupInstanceEventForwarding', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRecordProviderThreadCompactionMarker.mockReturnValue('marker-1');
+  });
+
+  it('tells the renderer and the remote observer when a prompt is settled without an answer', () => {
+    const mgr = buildManager();
+    setupInstanceEventForwarding({
+      instanceManager: mgr,
+      windowManager: mockWindowManager,
+      isStatelessExecProvider: () => false,
+      getNodeLatencyForInstance: () => undefined,
+    });
+
+    const payload = { instanceId: 'inst-1', requestId: 'acp_permission:7', reason: 'timeout' };
+    mgr.emit('instance:input-required-resolved', payload);
+
+    expect(mockSendToRenderer).toHaveBeenCalledWith(IPC_CHANNELS.INPUT_REQUIRED_RESOLVED, payload);
+    expect(mockObserverClearPrompt).toHaveBeenCalledWith('acp_permission:7');
   });
 
   it('forwards provider:normalized-event to renderer IPC', () => {

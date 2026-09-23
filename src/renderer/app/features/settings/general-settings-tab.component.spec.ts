@@ -103,6 +103,7 @@ describe('GeneralSettingsTabComponent model defaults', () => {
       'copilot',
       'cursor',
       'grok',
+      'opencode',
     ]);
     expect(picker.selection).toEqual({ provider: 'claude', model: 'opus', reasoning: null });
     // Neither key renders as a metadata-driven row — the picker replaces both.

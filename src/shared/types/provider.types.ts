@@ -33,7 +33,8 @@ export type ProviderType =
   | 'amazon-bedrock'  // AWS Bedrock
   | 'azure'           // Azure OpenAI
   | 'cursor'          // Cursor AI editor CLI
-  | 'grok';           // xAI Grok Build CLI
+  | 'grok'            // xAI Grok Build CLI
+  | 'opencode';       // OpenCode CLI (ACP; MiMo Token Plan and other backends)
 
 export type ProviderConfigType = ProviderType | PluginProviderName;
 
@@ -363,9 +364,11 @@ export const RETIRED_PROVIDER_MODELS: Readonly<Record<string, readonly string[]>
 };
 
 /**
- * Default models for each provider
+ * Default models for each provider. OpenCode has none on purpose: its model ids
+ * are `provider/model` pairs that depend on which backends the user connected,
+ * so an unset model means "use OpenCode's own default".
  */
-export const DEFAULT_MODELS: Record<ProviderType, string> = {
+export const DEFAULT_MODELS: Record<Exclude<ProviderType, 'opencode'>, string> & Partial<Record<ProviderType, string>> = {
   // Plain Opus, NOT the [1m] variant: this default feeds one-shot orchestration
   // invocations (verify/review/debate/workflow) via getDefaultModelForCli, where
   // prompts sit far below 200k — the 1M window buys nothing there while exposing
@@ -647,6 +650,7 @@ export {
   getPrimaryModelForProvider,
   normalizeModelForProvider,
   looksLikeCodexModelId,
+  isDynamicProviderModelId,
   isModelTier,
   resolveModelForTier,
   getModelShortName,

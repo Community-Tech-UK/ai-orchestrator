@@ -298,6 +298,7 @@ export function normalizeDiagnosisProvider(provider: string): ProviderRuntimePro
     case 'copilot':
     case 'cursor':
     case 'grok':
+    case 'opencode':
     case 'ollama':
       return provider;
     default:

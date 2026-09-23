@@ -74,6 +74,11 @@ export class RemoteNodesStore implements OnDestroy {
   }
 
   private handleEvent(event: RemoteNodeEvent): void {
+    if (event.type === 'coordinator-route') {
+      // Node hints are computed by the roster in main; refetch rather than guess.
+      void this.refresh();
+      return;
+    }
     const current = this.nodes();
     const nodeId = event.node?.id ?? event.nodeId;
     if (!nodeId) {
@@ -95,6 +100,8 @@ export class RemoteNodesStore implements OnDestroy {
             n.id === nodeId ? { ...n, status: 'disconnected' as const, connected: false } : n,
           ),
         );
+        // Fetch the roster so a coordinator-side hint (Tailscale off) appears.
+        void this.refresh();
         break;
       case 'degraded':
         this.nodes.set(
@@ -149,6 +156,8 @@ export class RemoteNodesStore implements OnDestroy {
       connectedAt: node.connectedAt ?? existing?.connectedAt,
       lastHeartbeat: node.lastHeartbeat ?? existing?.lastHeartbeat,
       latencyMs: node.latencyMs ?? existing?.latencyMs,
+      // Never carry a stale hint forward: only a roster entry can set one.
+      connectivityHint: rosterFields.connectivityHint,
     };
   }
 }

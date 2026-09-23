@@ -180,6 +180,9 @@ export function getPrimaryModelForProvider(provider: string): string | undefined
  * Codex accepts any OpenAI/Codex-style model id because its list evolves
  * faster than our static allowlist.
  * Dynamic providers (Copilot, Cursor, Auto) preserve explicit non-empty ids.
+ * OpenCode keeps `provider/model` ids verbatim (they depend on which backends
+ * the user connected) and drops anything else, so a stale cross-provider id
+ * such as `sonnet` falls back to OpenCode's own default instead of being sent.
  */
 export function normalizeModelForProvider(
   provider: string,
@@ -242,9 +245,26 @@ export function normalizeModelForProvider(
         ? normalizedModel
         : fallback;
     }
+    case 'opencode':
+      return normalizedModel.includes('/') ? normalizedModel : fallback;
     default:
       return normalizedModel;
   }
+}
+
+/**
+ * Whether a model id may be accepted without appearing in the catalog because
+ * the provider's own model list moves faster than ours. Codex: any
+ * OpenAI-style id. OpenCode: any `provider/model` id, since OpenCode validates
+ * it against the session's own options and warns instead of failing, and its
+ * catalog rows can lag the CLI (a fresh OpenCode home first lists its bundled
+ * models.dev snapshot).
+ */
+export function isDynamicProviderModelId(provider: string, modelId: string): boolean {
+  const normalizedProvider = normalizeProviderModelNamespace(provider);
+  if (normalizedProvider === 'codex') return looksLikeCodexModelId(modelId);
+  if (normalizedProvider === 'opencode') return modelId.includes('/');
+  return false;
 }
 
 /**
@@ -313,6 +333,8 @@ const CLI_TO_PROVIDER_TYPE: Record<string, ProviderType> = {
   ollama: 'ollama',
   cursor: 'cursor',
   grok: 'grok',
+  // Maps to no DEFAULT_MODELS row on purpose: OpenCode picks its own default.
+  opencode: 'opencode',
 };
 
 /**

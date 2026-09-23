@@ -19,6 +19,7 @@ import {
   getPrimaryModelForProvider,
   getProviderModelContextWindow,
   isAntigravityModelId,
+  isDynamicProviderModelId,
   mergeKnownModelCatalogSnapshot,
   normalizeModelAliasForProvider,
   normalizeModelForProvider,
@@ -472,5 +473,28 @@ describe('antigravity model selection', () => {
     expect(normalizeModelForProvider('antigravity', 'gemini-3-pro-preview')).toBe(
       'Gemini 3.1 Pro (High)'
     );
+  });
+});
+
+describe('opencode model selection', () => {
+  it('keeps provider/model ids verbatim and drops anything else to the OpenCode default', () => {
+    expect(normalizeModelForProvider('opencode', 'xiaomi-token-plan-ams/mimo-v2.6-pro')).toBe('xiaomi-token-plan-ams/mimo-v2.6-pro');
+    expect(normalizeModelForProvider('opencode', 'sonnet')).toBeUndefined();
+    expect(normalizeModelForProvider('opencode', 'balanced')).toBeUndefined();
+    expect(normalizeModelForProvider('opencode', undefined)).toBeUndefined();
+  });
+
+  it('has no house default model or reasoning effort', () => {
+    expect(DEFAULT_MODELS.opencode).toBeUndefined();
+    expect(getDefaultModelForCli('opencode')).toBeUndefined();
+    expect(getPrimaryModelForProvider('opencode')).toBeUndefined();
+    expect(getDefaultReasoningEffort('opencode')).toBeNull();
+  });
+
+  it('treats uncatalogued provider/model ids as dynamic for OpenCode only', () => {
+    expect(isDynamicProviderModelId('opencode', 'opencode/mimo-v2.6-flash-free')).toBe(true);
+    expect(isDynamicProviderModelId('opencode', 'sonnet')).toBe(false);
+    expect(isDynamicProviderModelId('codex', 'gpt-5.9-codex')).toBe(true);
+    expect(isDynamicProviderModelId('grok', 'xai/grok-9')).toBe(false);
   });
 });

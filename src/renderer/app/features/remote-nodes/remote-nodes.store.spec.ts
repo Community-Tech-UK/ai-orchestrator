@@ -215,4 +215,49 @@ describe('RemoteNodesStore', () => {
     });
     expect(store.connectedNodes().map((node) => node.id)).toEqual(['node-1']);
   });
+  it('refetches the roster when the coordinator route state changes', async () => {
+    let nodeEventCallback: ((event: RemoteNodeEvent) => void) | null = null;
+    const hinted = { ...makeNode('node-1', 'disconnected'), connectivityHint: 'Tailscale is off on this computer.' };
+    const ipc = {
+      listNodes: vi.fn().mockResolvedValue([hinted]),
+      onNodeEvent: vi.fn((callback: (event: RemoteNodeEvent) => void) => {
+        nodeEventCallback = callback;
+        return () => undefined;
+      }),
+    };
+    TestBed.configureTestingModule({
+      providers: [RemoteNodesStore, { provide: RemoteNodeIpcService, useValue: ipc }],
+    });
+    const store = TestBed.inject(RemoteNodesStore);
+
+    (nodeEventCallback as ((event: RemoteNodeEvent) => void) | null)?.({
+      type: 'coordinator-route',
+      coordinatorTailscale: 'stopped',
+    });
+    await vi.waitFor(() => expect(store.nodes()[0]?.connectivityHint).toBe('Tailscale is off on this computer.'));
+    expect(ipc.listNodes).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops a stale connectivity hint when the node reconnects', () => {
+    let nodeEventCallback: ((event: RemoteNodeEvent) => void) | null = null;
+    const ipc = {
+      listNodes: vi.fn().mockResolvedValue([]),
+      onNodeEvent: vi.fn((callback: (event: RemoteNodeEvent) => void) => {
+        nodeEventCallback = callback;
+        return () => undefined;
+      }),
+    };
+    TestBed.configureTestingModule({
+      providers: [RemoteNodesStore, { provide: RemoteNodeIpcService, useValue: ipc }],
+    });
+    const store = TestBed.inject(RemoteNodesStore);
+    store.nodes.set([{ ...makeNode('node-1', 'disconnected'), connectivityHint: 'Tailscale is off on this computer.' }]);
+
+    (nodeEventCallback as ((event: RemoteNodeEvent) => void) | null)?.({
+      type: 'connected',
+      node: { id: 'node-1', name: 'node-1', status: 'connected', address: '100.1.1.1' } as WorkerNodeInfo,
+    });
+
+    expect(store.nodes()[0]?.connectivityHint).toBeUndefined();
+  });
 });

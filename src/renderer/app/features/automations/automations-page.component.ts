@@ -427,6 +427,7 @@ export class AutomationsPageComponent {
     'copilot',
     'cursor',
     'grok',
+    'opencode',
   ]);
 
   /**

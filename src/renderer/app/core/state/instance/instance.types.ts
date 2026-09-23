@@ -92,7 +92,7 @@ export interface OutputMessage {
   thinkingExtracted?: boolean;
 }
 
-export type InstanceProvider = 'claude' | 'codex' | 'gemini' | 'antigravity' | 'ollama' | 'copilot' | 'cursor' | 'grok';
+export type InstanceProvider = 'claude' | 'codex' | 'gemini' | 'antigravity' | 'ollama' | 'copilot' | 'cursor' | 'grok' | 'opencode';
 export type InstanceLaunchMode = SharedInstanceLaunchMode;
 
 export interface Instance {
@@ -242,7 +242,7 @@ export interface CreateInstanceConfig {
   yoloMode?: boolean;
   launchMode?: InstanceLaunchMode;
   agentId?: string;
-  provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'auto';
+  provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'grok' | 'opencode' | 'auto';
   model?: string;
   /** Omitted = spawn path applies the app-level per-provider default. */
   reasoningEffort?: ReasoningEffort | null;

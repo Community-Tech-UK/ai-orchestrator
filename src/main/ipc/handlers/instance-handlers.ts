@@ -1280,10 +1280,13 @@ export function registerInstanceHandlers(deps: {
           data: { requestId: validatedPayload.requestId, responded: true }
         };
       } catch (error) {
+        // A request that timed out or was auto-answered before this reply is
+        // stale, not failed: the renderer drops the card instead of erroring.
+        const notPending = (error as { code?: unknown }).code === 'INPUT_REQUIRED_NOT_PENDING';
         return {
           success: false,
           error: {
-            code: 'INPUT_REQUIRED_RESPOND_FAILED',
+            code: notPending ? 'INPUT_REQUIRED_NOT_PENDING' : 'INPUT_REQUIRED_RESPOND_FAILED',
             message: (error as Error).message,
             timestamp: Date.now()
           }

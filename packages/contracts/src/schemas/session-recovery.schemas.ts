@@ -21,6 +21,7 @@ export const SessionRecoveryProviderSchema = z.enum([
   'auto',
   'cursor',
   'grok',
+  'opencode',
 ]);
 
 export const SessionRecoveryCandidateSchema = z.object({

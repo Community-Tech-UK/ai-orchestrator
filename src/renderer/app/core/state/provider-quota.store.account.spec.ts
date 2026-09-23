@@ -7,7 +7,7 @@ import type { ProviderQuotaSnapshot } from '../../../../shared/types/provider-qu
 let pushed: ((data: unknown) => void) | null = null;
 
 const ipc = {
-  quotaGetAll: vi.fn(async () => ({ success: true, data: { snapshots: { claude: null, codex: null, gemini: null, antigravity: null, copilot: null, cursor: null, grok: null } } })),
+  quotaGetAll: vi.fn(async () => ({ success: true, data: { snapshots: { claude: null, codex: null, gemini: null, antigravity: null, copilot: null, cursor: null, grok: null, opencode: null } } })),
   quotaRefreshAll: vi.fn(async () => ({ success: true, data: [] })),
   quotaSetPollInterval: vi.fn(async () => ({ success: true })),
   onQuotaUpdated: vi.fn((handler: (data: unknown) => void) => {

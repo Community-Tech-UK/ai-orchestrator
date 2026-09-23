@@ -15,6 +15,10 @@ import { formatRemoteNodePlatformLabel } from '../../shared/remote-node-display'
         <span class="node-platform">{{ platformLabel() }}</span>
       </div>
 
+      @if (node().connectivityHint) {
+        <p class="connectivity-hint" role="status">{{ node().connectivityHint }}</p>
+      }
+
       <div class="node-metrics">
         <div class="metric">
           <span class="metric-label">CPU</span>
@@ -126,6 +130,13 @@ import { formatRemoteNodePlatformLabel } from '../../shared/remote-node-display'
       font-size: 11px;
       font-weight: 600;
       color: var(--color-text-secondary);
+    }
+
+    .connectivity-hint {
+      margin: 0 0 12px;
+      font-size: 12px;
+      line-height: 1.4;
+      color: var(--warning-color);
     }
 
     .node-metrics {

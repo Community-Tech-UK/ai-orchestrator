@@ -332,7 +332,7 @@ export const TerminalExitParamsSchema = z.object({
 });
 
 export const ProviderDiagnoseParamsSchema = z.object({
-  provider: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']),
+  provider: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode']),
 });
 
 // -- Node config update (privileged: scope=service) ---------------------------
@@ -646,6 +646,11 @@ export const LocalModelSessionIdParamsSchema = z.object({
   sessionId: z.string().min(1).max(200),
 });
 
+/** The coordinator's current reachable ws/wss URLs, best-first (privileged: scope=service). */
+export const CoordinatorAddressesParamsSchema = z.object({
+  urls: z.array(z.string().regex(/^wss?:\/\/[^\s]+$/).max(512)).min(1).max(16),
+});
+
 // -- Schema map for method-based lookup ---------------------------------------
 
 export const RPC_PARAM_SCHEMAS: Record<string, z.ZodType> = {
@@ -707,6 +712,7 @@ export const COORDINATOR_TO_NODE_PARAM_SCHEMAS: Record<string, z.ZodType> = {
   'fs.readFile': FsReadFileParamsSchema,
   'fs.writeFile': FsWriteFileParamsSchema,
   'config.update': ConfigUpdateParamsSchema,
+  'node.coordinatorAddresses': CoordinatorAddressesParamsSchema,
   'browser.cdp.open': BrowserCdpOpenParamsSchema,
   'browser.cdp.send': BrowserCdpSendParamsSchema,
   'browser.cdp.close': BrowserCdpCloseParamsSchema,

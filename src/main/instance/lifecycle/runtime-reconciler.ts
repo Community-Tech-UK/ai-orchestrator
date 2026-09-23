@@ -31,7 +31,7 @@ import {
   getDefaultModelForCli,
   getProviderModelContextWindow,
   isModelTier,
-  looksLikeCodexModelId,
+  isDynamicProviderModelId,
   resolveModelForTier,
 } from '../../../shared/types/provider.types';
 import { getAgentById, getDefaultAgent } from '../../../shared/types/agent.types';
@@ -269,7 +269,7 @@ export class RuntimeReconciler {
           requestedModel: modelToValidate,
           knownModelIds,
           fallbackModel: getDefaultModelForCli(cliType),
-          allowDynamicCodexModel: cliType === 'codex' && looksLikeCodexModelId(modelToValidate),
+          allowDynamicModel: isDynamicProviderModelId(cliType, modelToValidate),
           modelSource: swapModelSource,
         });
         if (selection.degradation) {

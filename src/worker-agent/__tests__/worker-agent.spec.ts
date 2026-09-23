@@ -105,6 +105,9 @@ vi.mock('../worker-config', () => ({
       }
     : config,
   normalizeFileTransferConfig: vi.fn((config) => config),
+  // Real enough for the advertised-address path: ws/wss only, trimmed.
+  normalizeCoordinatorUrl: (url?: string) =>
+    typeof url === 'string' && /^wss?:\/\//.test(url.trim()) ? url.trim() : undefined,
 }));
 
 vi.mock('../coordinator-network-readiness', async (importOriginal) => {
@@ -786,6 +789,47 @@ describe('WorkerAgent', () => {
     secondSocket.emit('close');
 
     expect((agent as unknown as { reconnectAttempt: number }).reconnectAttempt).toBe(2);
+  });
+
+  it('stores and persists coordinator-advertised addresses, then tries them after configured ones', () => {
+    const config: WorkerConfig = { ...mockConfig, coordinatorUrls: ['ws://10.0.0.5:4878'] };
+    agent = new WorkerAgent(config);
+
+    (agent as unknown as { handleMessage: (raw: string) => void }).handleMessage(JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'node.coordinatorAddresses',
+      scope: 'service',
+      params: { urls: ['ws://macbook.tailnet.ts.net:4878', 'ws://192.168.0.156:4878'] },
+    }));
+
+    expect(config.advertisedCoordinatorUrls).toEqual([
+      'ws://macbook.tailnet.ts.net:4878',
+      'ws://192.168.0.156:4878',
+    ]);
+    expect(workerConfigMockState.persistConfig).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ advertisedCoordinatorUrls: config.advertisedCoordinatorUrls }),
+    );
+    expect((agent as unknown as { getCandidateUrls: () => string[] }).getCandidateUrls()).toEqual([
+      'ws://localhost:4878',
+      'ws://10.0.0.5:4878',
+      'ws://macbook.tailnet.ts.net:4878',
+      'ws://192.168.0.156:4878',
+    ]);
+  });
+
+  it('ignores coordinator-advertised addresses sent without service scope', () => {
+    const config: WorkerConfig = { ...mockConfig };
+    agent = new WorkerAgent(config);
+
+    (agent as unknown as { handleMessage: (raw: string) => void }).handleMessage(JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'node.coordinatorAddresses',
+      params: { urls: ['ws://evil.example:4878'] },
+    }));
+
+    expect(config.advertisedCoordinatorUrls).toBeUndefined();
+    expect(workerConfigMockState.persistConfig).not.toHaveBeenCalled();
   });
 
   it('persists a recovery token returned by the coordinator during registration', () => {

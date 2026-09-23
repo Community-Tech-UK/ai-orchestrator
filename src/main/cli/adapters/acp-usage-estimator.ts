@@ -81,6 +81,9 @@ export function toAcpCliUsage(
       inputTokens: usage!.inputTokens,
       outputTokens: usage!.outputTokens,
       totalTokens: usage!.totalTokens,
+      ...(usage!.cachedReadTokens !== undefined ? { cacheReadTokens: usage!.cachedReadTokens } : {}),
+      ...(usage!.cachedWriteTokens !== undefined ? { cacheWriteTokens: usage!.cachedWriteTokens } : {}),
+      ...(usage!.thoughtTokens !== undefined ? { reasoningTokens: usage!.thoughtTokens } : {}),
       cost: usage!.costUsd,
       duration,
     };

@@ -191,4 +191,15 @@ describe('buildRemoteNodeRoster', () => {
 
     expect(roster[0].fileTransfer).toEqual(fileTransfer);
   });
+  it('attaches a coordinator-side connectivity hint to disconnected nodes only', () => {
+    const hint = 'Tailscale is off on this computer.';
+    const roster = buildRemoteNodeRoster(
+      [makeNode({ id: 'live', name: 'live-pc' })],
+      [makeIdentity(), makeIdentity({ nodeId: 'offline', nodeName: 'offline-pc', sessionId: 'session-2' })],
+      () => hint,
+    );
+
+    expect(roster.find((entry) => entry.id === 'live')?.connectivityHint).toBeUndefined();
+    expect(roster.find((entry) => entry.id === 'offline')?.connectivityHint).toBe(hint);
+  });
 });

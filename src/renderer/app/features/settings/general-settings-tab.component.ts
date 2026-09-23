@@ -24,6 +24,7 @@ const DEFAULT_MODEL_PROVIDERS: DefaultModelProvider[] = [
   'copilot',
   'cursor',
   'grok',
+  'opencode',
 ];
 
 @Component({

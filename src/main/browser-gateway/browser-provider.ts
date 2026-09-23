@@ -8,6 +8,7 @@ export function providerFromContext(provider: string | undefined): BrowserProvid
     provider === 'copilot' ||
     provider === 'cursor' ||
     provider === 'grok' ||
+    provider === 'opencode' ||
     provider === 'orchestrator'
     ? provider
     : 'orchestrator';

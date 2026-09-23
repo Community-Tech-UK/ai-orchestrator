@@ -227,6 +227,12 @@ export interface RemoteNodeRosterEntry {
   fileTransfer?: WorkerNodeFileTransferSummary;
   latencyMs?: number;
   /**
+   * Why a disconnected node probably cannot connect, when the coordinator can
+   * tell from its own side (e.g. this computer's Tailscale is off). Absent
+   * while connected.
+   */
+  connectivityHint?: string;
+  /**
    * Backward-compatible non-secret capability block for existing renderer
    * helpers. It deliberately excludes all identity/session tokens.
    */

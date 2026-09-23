@@ -5,6 +5,8 @@
  * optional ACP transport.
  */
 
+import type { AcpAgentThoughtChunkUpdate, AcpUsageUpdate } from './acp-session-update.types';
+
 /**
  * Base type for all CLI stream messages
  */
@@ -482,8 +484,12 @@ export interface AcpPromptUsage {
   inputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
+  thoughtTokens?: number;
+  cachedReadTokens?: number;
+  cachedWriteTokens?: number;
   costUsd?: number;
 }
+
 
 export interface AcpSessionPromptResult {
   stopReason: AcpStopReason;
@@ -603,6 +609,7 @@ export interface AcpRetryStateUpdate {
   reason?: string;
 }
 
+
 export type AcpSessionUpdate =
   | AcpAgentMessageChunkUpdate
   | AcpUserMessageChunkUpdate
@@ -612,7 +619,9 @@ export type AcpSessionUpdate =
   | AcpSessionInfoUpdate
   | AcpConfigOptionUpdate
   | AcpAvailableCommandsUpdate
-  | AcpRetryStateUpdate;
+  | AcpRetryStateUpdate
+  | AcpUsageUpdate
+  | AcpAgentThoughtChunkUpdate;
 
 export interface AcpSessionUpdateNotificationParams {
   sessionId: string;

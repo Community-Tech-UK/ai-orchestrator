@@ -47,7 +47,7 @@ export const CreateAutomationArgsSchema = z
     /** Optional human-readable description. */
     description: z.string().max(2000).optional(),
     /** CLI provider to run with (defaults to Claude Opus latest, 1M). */
-    provider: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']).optional(),
+    provider: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode']).optional(),
     /** Whether the automation is active immediately. Defaults to true. */
     enabled: z.boolean().optional(),
     /**
@@ -195,7 +195,7 @@ export const UpdateAutomationArgsSchema = z
     /** New absolute working directory. Omit to leave unchanged. */
     workingDirectory: WorkingDirectorySchema.optional(),
     /** New CLI provider. Omit to leave unchanged. */
-    provider: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']).optional(),
+    provider: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode']).optional(),
     /** New model override for the spawned agent. Omit to leave unchanged. */
     model: ModelIdSchema.refine((value) => value.length > 0, {
       message: 'String must contain at least 1 character(s)',
@@ -340,7 +340,7 @@ export function createAutomationToolDefinitions(
           description: { type: 'string', description: 'Optional human-readable description.' },
           provider: {
             type: 'string',
-            enum: ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok'],
+            enum: ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode'],
             description:
               'CLI provider to run with. When omitted, new automations default to Claude Opus latest with the 1M context window. An explicitly selected provider uses that provider\'s model resolution.',
           },
@@ -447,7 +447,7 @@ export function createAutomationToolDefinitions(
           },
           provider: {
             type: 'string',
-            enum: ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok'],
+            enum: ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode'],
             description: 'New CLI provider. Omit to leave unchanged.',
           },
           model: {

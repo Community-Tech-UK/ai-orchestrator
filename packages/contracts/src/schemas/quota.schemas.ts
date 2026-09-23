@@ -12,7 +12,7 @@ import { z } from 'zod';
 // to plumb a new export through @contracts/schemas/common.
 const IpcAuthTokenSchema = z.string().max(500).optional();
 
-export const ProviderIdSchema = z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok']);
+export const ProviderIdSchema = z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode']);
 
 export const QuotaGetAllPayloadSchema = z
   .object({

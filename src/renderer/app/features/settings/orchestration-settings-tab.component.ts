@@ -20,6 +20,7 @@ const LOOP_PROVIDER_DEFINITIONS: readonly { id: PickerProvider; label: string }[
   { id: 'copilot', label: 'GitHub Copilot' },
   { id: 'cursor', label: 'Cursor CLI' },
   { id: 'grok', label: 'Grok Build' },
+  { id: 'opencode', label: 'OpenCode' },
 ] as const;
 
 interface LoopProviderView {

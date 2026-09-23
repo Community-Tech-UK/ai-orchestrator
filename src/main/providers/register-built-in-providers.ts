@@ -1,5 +1,5 @@
 /**
- * Built-in provider bootstrap — registers all 5 CLI/SDK adapters with the
+ * Built-in provider bootstrap — registers the built-in CLI/SDK adapters with the
  * adapter registry.  Call once at main-process startup before any code that
  * creates provider instances via ProviderInstanceManager.
  */
@@ -12,6 +12,7 @@ import { AntigravityCliProvider, ANTIGRAVITY_DESCRIPTOR } from './antigravity-cl
 import { CopilotCliProvider, COPILOT_DESCRIPTOR } from './copilot-cli-provider';
 import { CursorCliProvider, CURSOR_DESCRIPTOR } from './cursor-cli-provider';
 import { GrokCliProvider, GROK_DESCRIPTOR } from './grok-cli-provider';
+import { OpenCodeCliProvider, OPENCODE_DESCRIPTOR } from './opencode-cli-provider';
 
 export function registerBuiltInProviders(registry: ProviderAdapterRegistry): void {
   const builtIns = [
@@ -22,6 +23,7 @@ export function registerBuiltInProviders(registry: ProviderAdapterRegistry): voi
     [COPILOT_DESCRIPTOR, (config: typeof COPILOT_DESCRIPTOR.defaultConfig) => new CopilotCliProvider(config)],
     [CURSOR_DESCRIPTOR, (config: typeof CURSOR_DESCRIPTOR.defaultConfig) => new CursorCliProvider(config)],
     [GROK_DESCRIPTOR, (config: typeof GROK_DESCRIPTOR.defaultConfig) => new GrokCliProvider(config)],
+    [OPENCODE_DESCRIPTOR, (config: typeof OPENCODE_DESCRIPTOR.defaultConfig) => new OpenCodeCliProvider(config)],
   ] as const;
 
   for (const [descriptor, factory] of builtIns) {

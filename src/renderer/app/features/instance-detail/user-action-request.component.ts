@@ -23,7 +23,11 @@ import {
   shouldClearRequestAfterYoloEnabled
 } from './user-action-request.rules';
 import type { UserActionRequest } from './user-action-request.types';
-import type { AskUserQuestionEntry } from '../../../../shared/types/ask-user-question.types';
+import {
+  coerceAskQuestions,
+  isAcpInputRequired,
+  isInputRequiredNotPending,
+} from './user-action-request.input-required';
 import {
   clearResponseError,
   errorMessage,
@@ -87,6 +91,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
 
   private unsubscribeUserAction: (() => void) | null = null;
   private unsubscribeInputRequired: (() => void) | null = null;
+  private unsubscribeInputRequiredResolved: (() => void) | null = null;
 
   constructor() {
     // Reload pending requests when instanceId changes and keep the card scoped
@@ -184,7 +189,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         || metadata?.type === 'codex_mcp_approval';
       const askQuestions =
         metadata?.type === 'ask_user_question'
-          ? this.coerceAskQuestions((payload.metadata as Record<string, unknown> | undefined)?.['questions'])
+          ? coerceAskQuestions((payload.metadata as Record<string, unknown> | undefined)?.['questions'])
           : undefined;
       const secretRequest = metadata?.type === 'secret_required'
         ? coerceSecretRequest(payload.metadata as Record<string, unknown> | undefined)
@@ -241,9 +246,23 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
       }
     });
     console.log('[APPROVAL_TRACE][renderer:user-action] onInputRequired subscription ready');
+
+    // Requests settled without the user (timeout, auto-approve, cancelled turn,
+    // CLI exit) would otherwise leave a card that answers nothing.
+    this.unsubscribeInputRequiredResolved = this.ipc.onInputRequiredResolved((payload) => {
+      this.dropInputRequiredCard(payload.requestId);
+    });
+  }
+
+  private dropInputRequiredCard(requestId: string): void {
+    this.inputRequiredTexts.delete(requestId);
+    this.pendingInputRequiredById.delete(requestId);
+    clearResponseError(this.responseErrors, requestId);
+    this.pendingRequests.update((requests) => requests.filter((r) => r.id !== requestId));
   }
 
   ngOnDestroy(): void {
+    this.unsubscribeInputRequiredResolved?.();
     if (this.unsubscribeUserAction) {
       this.unsubscribeUserAction();
     }
@@ -500,47 +519,6 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
 
     // Clean up answer tracking
     this.questionAnswers.delete(request.id);
-  }
-
-  /**
-   * Validate and normalize the structured `questions` array shipped on
-   * AskUserQuestion `input_required` metadata. Returns undefined when nothing
-   * actionable is present so the card falls back to the freeform text box.
-   */
-  private coerceAskQuestions(value: unknown): AskUserQuestionEntry[] | undefined {
-    if (!Array.isArray(value)) {
-      return undefined;
-    }
-    const entries: AskUserQuestionEntry[] = [];
-    for (const raw of value) {
-      if (!raw || typeof raw !== 'object') {
-        continue;
-      }
-      const obj = raw as Record<string, unknown>;
-      const question = typeof obj['question'] === 'string' ? obj['question'] : '';
-      const header = typeof obj['header'] === 'string' ? obj['header'] : undefined;
-      const options = Array.isArray(obj['options'])
-        ? obj['options']
-            .filter(
-              (opt): opt is { label: string; description?: string } =>
-                !!opt && typeof opt === 'object' && typeof (opt as { label?: unknown }).label === 'string'
-            )
-            .map((opt) => ({
-              label: opt.label,
-              description: typeof opt.description === 'string' ? opt.description : undefined
-            }))
-        : [];
-      if (!question && !header && options.length === 0) {
-        continue;
-      }
-      entries.push({
-        header,
-        question: question || header || 'Please choose an option',
-        multiSelect: obj['multiSelect'] === true,
-        options
-      });
-    }
-    return entries.length > 0 ? entries : undefined;
   }
 
   isAskOptionSelected(requestId: string, questionIndex: number, label: string): boolean {
@@ -868,7 +846,10 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
       // Handle input_required differently - send retry message or denial to CLI
       if (request.requestType === 'input_required') {
         if (!this.isPermissionRequest(request)) {
-          const inputText = (selectedOption || '').trim();
+          const acp = isAcpInputRequired(request);
+          // Cancel on an ACP card is a real answer (outcome `cancelled`); on
+          // other generic cards the reply is plain input, so nothing is sent.
+          const inputText = (selectedOption || (!approved && acp ? 'cancel' : '')).trim();
           if (!inputText) {
             return;
           }
@@ -883,9 +864,17 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
           const result = await this.ipc.respondToInputRequired(
             request.instanceId,
             request.id,
-            inputText
+            inputText,
+            // ACP resolves the reply by key, so a stale sibling card cannot absorb it.
+            acp ? request.id : undefined,
           );
 
+          if (!result.success && isInputRequiredNotPending(result)) {
+            // Already settled elsewhere (timeout, auto-approve); the resolved
+            // event handles the pending count.
+            this.dropInputRequiredCard(request.id);
+            return;
+          }
           if (result.success) {
             console.log('[APPROVAL_TRACE][renderer:user-action] submit_generic_input_required_success', {
               approvalTraceId,

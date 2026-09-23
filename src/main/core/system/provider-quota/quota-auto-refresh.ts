@@ -52,6 +52,8 @@ export function mapProviderTypeToQuotaId(type: ProviderType): ProviderId | null 
       return 'cursor';
     case 'grok':
       return 'grok';
+    // OpenCode has no quota probe (MiMo's usage endpoint is console-cookie only).
+    case 'opencode':
     case 'ollama':
     case 'amazon-bedrock':
     case 'azure':
