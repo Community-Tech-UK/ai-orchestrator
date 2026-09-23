@@ -106,6 +106,7 @@
                 type="password"
                 autocomplete="off"
                 spellcheck="false"
+                [value]="secretCardValue(request.id)"
                 [disabled]="isResponding()"
                 [attr.aria-describedby]="secretCardWarning(request) ? 'secret-warning-' + request.id : null"
                 (input)="onSecretValueChange(request.id, $event)"

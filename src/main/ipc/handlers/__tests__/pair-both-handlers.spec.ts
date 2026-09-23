@@ -33,6 +33,7 @@ const mocks = vi.hoisted(() => ({
   stopRuntime: vi.fn(),
   installService: vi.fn(),
   clearWorkerConfig: vi.fn(),
+  watcherStart: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
@@ -67,6 +68,10 @@ vi.mock('../../../remote-node/worker-node-connection', () => ({
     isRunning: () => true,
     start: vi.fn(),
   }),
+}));
+
+vi.mock('../../../remote-node/coordinator-tailscale-watcher', () => ({
+  getActiveCoordinatorTailscaleWatcher: () => ({ start: mocks.watcherStart }),
 }));
 
 vi.mock('../../../util/network-addresses', () => ({
@@ -214,6 +219,7 @@ describe('pair-both IPC handlers', () => {
       },
     });
     expect(mocks.publish).toHaveBeenCalledWith(candidate);
+    expect(mocks.watcherStart).toHaveBeenCalledOnce();
   });
 
   it('returns the paired config without starting the worker before post-pair choice', async () => {

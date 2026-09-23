@@ -228,6 +228,7 @@ function isValidCommand(cmd: unknown): cmd is OrchestratorCommand {
         'confirm',
         'select_option',
         'ask_questions',
+        'secret_required',
       ];
 
       if (
@@ -265,6 +266,19 @@ function isValidCommand(cmd: unknown): cmd is OrchestratorCommand {
           request.questions.every(
             (question) => typeof question === 'string' && question.trim().length > 0
           )
+        );
+      }
+
+      if (request.requestType === 'secret_required') {
+        const secret = request.secretRequest;
+        return Boolean(
+          secret &&
+          typeof secret.name === 'string' && /[a-z0-9]/i.test(secret.name) &&
+          typeof secret.label === 'string' && secret.label.trim() &&
+          typeof secret.purpose === 'string' && secret.purpose.trim() &&
+          (secret.expectedFormat === undefined ||
+            ['github_pat', 'openai_key', 'bearer', 'opaque'].includes(secret.expectedFormat)) &&
+          !Object.hasOwn(secret, 'value')
         );
       }
 

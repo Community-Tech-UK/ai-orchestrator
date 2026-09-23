@@ -23,6 +23,7 @@ import { getLogger } from '../../logging/logger';
 import { generateId } from '../../../shared/utils/id-generator';
 import { getModelSwitchUnavailableReason } from '../../../shared/types/instance-status-policy';
 import { getSessionMutex } from '../../session/session-mutex';
+import { getSessionAdmissionService } from '../../session/session-admission-service';
 import {
   getSessionContinuityManager,
   getSessionContinuityManagerIfInitialized,
@@ -52,6 +53,7 @@ import {
   type SwapTargetProvider,
 } from './model-change-provider-swap';
 import { computeRuntimeDiff, planContinuity } from './runtime-reconciler-plan';
+import { resolveReconcilerResumeHealth } from './runtime-reconciler-resume-health';
 import { assertAdapterNotOnLoan, beginRuntimeChange, type RuntimeChangeClaim } from './adapter-loan-registry';
 import { announceRuntimeChangeSet, runtimeChangeNoticesFor } from './runtime-change-notices';
 import type { UnifiedSpawnOptions } from '../../cli/adapters/adapter-factory';
@@ -361,7 +363,10 @@ export class RuntimeReconciler {
         try {
           pid = await adapter.spawn();
           instance.processId = pid;
-          if (shouldResume && !(await this.resolveResumeHealth(instanceId))) {
+          if (shouldResume && !(await resolveReconcilerResumeHealth(
+            instanceId,
+            () => this.deps.evaluateResumeHealth(instanceId),
+          ))) {
             throw new Error('Native resume did not stabilize after model change');
           }
           await this.deps.waitForInputReadinessBoundary(instanceId, adapter);
@@ -563,44 +568,6 @@ export class RuntimeReconciler {
    * session flags and `recoveryMethod` are set here; all interrupt-phase and
    * renderer bookkeeping stays with the orchestrator.
    */
-  /**
-   * Resume-health policy, shared by the recovery-respawn and runtime-change
-   * paths. Keep a healthy session; destroy only a proven-unrecoverable one
-   * (process dead / session-not-found / wrong session). An `inconclusive`
-   * verdict — alive but unproven after the load-scaled window — is retried once
-   * and then accepted, so a session that was merely slow under host load is
-   * never torn down. Tearing it down is exactly what previously lost the live
-   * thread and in-flight background agents on "resume failed".
-   *
-   * The runtime-change path used to collapse `inconclusive` to `false` via the
-   * boolean `waitForResumeHealth`, which destroyed live sessions under host
-   * load (LT-008); it now shares this policy.
-   *
-   * @returns true to keep the resumed session, false to fall back to a fresh one.
-   */
-  private async resolveResumeHealth(instanceId: string): Promise<boolean> {
-    const first = await this.deps.evaluateResumeHealth(instanceId);
-    if (first === 'healthy') {
-      return true;
-    }
-    if (first === 'unrecoverable') {
-      return false;
-    }
-    // inconclusive — give a slow host one more window before deciding.
-    const second = await this.deps.evaluateResumeHealth(instanceId);
-    if (second === 'unrecoverable') {
-      return false;
-    }
-    if (second === 'inconclusive') {
-      logger.warn(
-        'Recovery resume health inconclusive after retry; keeping the live session '
-        + 'rather than destroying it (host may be overloaded)',
-        { instanceId },
-      );
-    }
-    return true;
-  }
-
   async applyRecoveryRespawn(
     instanceId: string,
     request: RecoveryRespawnRequest,
@@ -615,6 +582,24 @@ export class RuntimeReconciler {
         'applyRecoveryRespawn requires the caller to hold the session lock (recovery-entry contract)',
       );
     }
+
+    // Spawn can report ready before fresh-fallback history reconciles children.
+    // Keep respawning child completions pending through that reconciliation.
+    const releaseChildCompletions = getSessionAdmissionService()
+      .holdRespawningChildCompletions(instanceId);
+    try {
+      return await this.runRecoveryRespawn(instanceId, instance, request, hooks);
+    } finally {
+      releaseChildCompletions();
+    }
+  }
+
+  private async runRecoveryRespawn(
+    instanceId: string,
+    instance: Instance,
+    request: RecoveryRespawnRequest,
+    hooks: RecoveryRespawnHooks,
+  ): Promise<RecoveryRespawnOutcome> {
 
     let adapter = await this.deps.createRuntimeAdapter(
       request.cliType,
@@ -635,7 +620,10 @@ export class RuntimeReconciler {
     try {
       pid = await adapter.spawn();
       instance.processId = pid;
-      if (request.shouldResume && !(await this.resolveResumeHealth(instanceId))) {
+      if (request.shouldResume && !(await resolveReconcilerResumeHealth(
+        instanceId,
+        () => this.deps.evaluateResumeHealth(instanceId),
+      ))) {
         throw new Error('Native resume did not stabilize during recovery respawn');
       }
       instance.providerSessionId = request.postSpawnProviderSessionId;

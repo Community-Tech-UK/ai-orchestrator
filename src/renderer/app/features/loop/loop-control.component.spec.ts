@@ -844,6 +844,21 @@ describe('LoopControlComponent', () => {
     expect(timeline?.nextAutomaticAction).toContain('stays paused until you resume');
   });
 
+  it('keeps the causal timeline visible in the terminal summary without a dead cap action', () => {
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: { ...activeState(), status: 'cap-reached', endedAt: 1778310600000, endReason: 'iteration cap reached' },
+    }));
+    fixture.detectChanges();
+
+    const summary = fixture.nativeElement.querySelector('.loop-summary') as HTMLElement;
+    expect(summary.querySelector('app-loop-causal-timeline .loop-timeline')).toBeTruthy();
+    expect(summary.textContent).toContain('Blocked at Terminal decision');
+    expect(summary.querySelector('button[data-recovery-id="raise-cap"]')).toBeNull();
+    expect(summary.querySelector('.loop-timeline__recovery-label[data-recovery-id="raise-cap"]')).toBeTruthy();
+    expect(ipc.resume).not.toHaveBeenCalled();
+  });
+
   it('routes a timeline recovery action to the resume handler', async () => {
     listeners.stateChanged.forEach((cb) => cb({
       loopRunId: 'loop-1',

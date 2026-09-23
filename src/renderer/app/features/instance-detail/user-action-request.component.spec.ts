@@ -724,6 +724,54 @@ describe('UserActionRequestComponent', () => {
     expect(fixture.nativeElement.textContent).not.toContain('ghp_exampleplaceholdervalue0000000000');
   });
 
+  it('clears a rejected secret from the input and accepts a fresh retry', async () => {
+    currentInstanceId.set('inst-secret-retry');
+    fakeIpc.submitSecretCard.mockResolvedValueOnce({
+      success: false,
+      error: { message: 'Secure storage unavailable' },
+    });
+    fixture.detectChanges();
+    await settle(fixture);
+
+    onInputRequired({
+      instanceId: 'inst-secret-retry',
+      requestId: 'req-secret-retry',
+      prompt: 'A value is required.',
+      timestamp: 1,
+      metadata: {
+        type: 'secret_required',
+        name: 'example-value',
+        label: 'Example value',
+        purpose: 'Connect this workspace',
+      },
+    });
+    fixture.detectChanges();
+    await settle(fixture);
+
+    const input = fixture.nativeElement.querySelector('.secret-input') as HTMLInputElement;
+    const saveBtn = Array.from(
+      fixture.nativeElement.querySelectorAll('.btn-approve'),
+    ).find((btn) => (btn as HTMLButtonElement).textContent?.includes('Save securely')) as HTMLButtonElement;
+    input.value = 'example-placeholder-value';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    saveBtn.click();
+    await settle(fixture);
+
+    expect(fixture.nativeElement.textContent).toContain('Secure storage unavailable');
+    expect(input.value).toBe('');
+    expect(saveBtn.disabled).toBe(true);
+
+    input.value = 'fresh-placeholder-value';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    expect(saveBtn.disabled).toBe(false);
+    saveBtn.click();
+    await settle(fixture);
+    expect(fakeIpc.submitSecretCard).toHaveBeenCalledTimes(2);
+    expect(fixture.nativeElement.querySelector('.secret-input')).toBeNull();
+  });
+
   it('shows a non-blocking, accessible format warning for a secret that does not match the requested kind', async () => {
     currentInstanceId.set('inst-secret-format');
     fixture.detectChanges();

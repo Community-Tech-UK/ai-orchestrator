@@ -21,6 +21,7 @@ describe('Codex app-server runtime failures', () => {
     ['thread not found: thread-123', 'thread-unavailable', 'replay-required'],
     ['unauthorized: login required', 'authentication', 'terminal'],
     ['context-cost recovery paused because interruption was unconfirmed', 'recovery-paused', 'user-action'],
+    ['failed to submit turn input: ActiveTurnNotSteerable { turn_kind: Compact }', 'request-rejected', 'retry-thread'],
   ] as const)('classifies %s as %s', (message, kind, recoverability) => {
     expect(classifyCodexAppServerFailure(new Error(message))).toMatchObject({
       kind,

@@ -21,6 +21,9 @@ import {
 import { registerCleanup } from '../../util/cleanup-registry';
 import { validatedHandler, type IpcResponse } from '../validated-handler';
 import { getLogger } from '../../logging/logger';
+import { getSkillRegistry } from '../../skills/skill-registry';
+import { resolveSkillSource } from '../../memory/skills-loader';
+import { buildSkillHealthCatalog } from '../../skills/skill-health-catalog';
 
 const logger = getLogger('SkillAttributionHandlers');
 
@@ -87,13 +90,23 @@ export function registerSkillAttributionHandlers(
     validatedHandler(
       IPC_CHANNELS.SKILLS_HEALTH_SUMMARY,
       SkillsHealthSummaryPayloadSchema,
-      async (payload): Promise<IpcResponse> => ({
-        success: true,
-        data: {
-          summary: attribution.getHealthSummary(payload?.since),
-          controls: attribution.listControls(),
-        },
-      }),
+      async (payload): Promise<IpcResponse> => {
+        const controls = attribution.listControls();
+        return {
+          success: true,
+          data: {
+            summary: attribution.getHealthSummary(payload?.since),
+            budgetSkips: attribution.getRecentBudgetSkips(),
+            controls,
+            catalog: buildSkillHealthCatalog(
+              getSkillRegistry().listSkills(),
+              controls,
+              resolveSkillSource,
+              (source) => attribution.resolveSourceDefaultMode(source),
+            ),
+          },
+        };
+      },
     ),
   );
 

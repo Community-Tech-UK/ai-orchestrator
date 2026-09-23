@@ -2,12 +2,20 @@ import type { InterruptResult, TurnInterruptCompletion } from '../base-cli-adapt
 import type { ProviderContextActionHandlerResult } from '../../../context-evidence/provider-context-action-executor';
 import { getLogger } from '../../../logging/logger';
 import { CompactionGate } from './compaction-gate';
+import { classifyCodexAppServerFailure } from './app-server-runtime-errors';
 import {
   CodexTurnCostGovernor,
   type CodexTurnCostObservation,
 } from './turn-cost-governor';
 
 const logger = getLogger('CodexContextCostController');
+
+/**
+ * The provider's own compaction turn can still be closing when the
+ * continuation is submitted right after `contextCompaction` completes.
+ * One short retry clears that race without surfacing it to the user.
+ */
+const CONTINUE_TURN_RETRY_DELAY_MS = 750;
 
 export const COST_RECOVERY_CONTINUATION =
   'Continue the interrupted task from where you left off. Inspect the current workspace state before acting, do not repeat completed edits or commands, and finish the original request.';
@@ -54,6 +62,15 @@ export class CodexContextCostController {
   private readonly gate = new CompactionGate();
   private readonly governor = new CodexTurnCostGovernor();
   private pendingRecovery: PendingRecovery | null = null;
+  /**
+   * Set when a compaction is observed outside an active `compactContext` wait
+   * (e.g. Codex self-managed compaction during the controlled-recovery interrupt).
+   * Without this the next `compactContext` call starts a fresh gate wait and
+   * sends `thread/compact/start` against an already-compacted thread, which
+   * never signals again — the wait times out and poisons
+   * `nativeCompactionUnobserved` for the rest of the session.
+   */
+  private compactionObservedSinceCheck = false;
 
   constructor(private readonly deps: CodexContextCostControllerDeps) {}
 
@@ -72,10 +89,16 @@ export class CodexContextCostController {
     this.deps.recordActionProof?.(action, 'requested');
     const interruptResult = this.deps.interrupt();
     if (interruptResult.status !== 'accepted' || !interruptResult.completion) {
-      this.deps.emitSystem(
-        'Codex context recovery paused because a safe interrupt could not be confirmed. The current turn remains preserved.',
-        { contextCostRecoveryPaused: true, reasonCode: 'interrupt-unconfirmed' },
-      );
+      // LT-270: on Codex builds observed in the campaign, this is the common,
+      // expected outcome — the triggering turn has almost always already
+      // completed by the time the async policy queue evaluates the 4x
+      // crossing, so there is nothing left to interrupt. It is a safe no-op
+      // (no work lost, nothing compacted), not an actionable event, so it is
+      // only logged rather than surfaced as a transcript system message.
+      logger.info('Context recovery skipped — no active turn to interrupt', {
+        action,
+        interruptStatus: interruptResult.status,
+      });
       this.deps.recordRecovery?.('paused', 'interrupt-unconfirmed');
       return { proof: 'none' };
     }
@@ -93,7 +116,10 @@ export class CodexContextCostController {
     // clear any earlier negative verdict — a CLI upgrade mid-session should
     // re-enable the native path rather than stay disabled until restart.
     this.nativeCompactionUnobserved = false;
-    if (!awaited) this.deps.recordActionProof?.('native-compaction', 'observed');
+    if (!awaited) {
+      this.compactionObservedSinceCheck = true;
+      this.deps.recordActionProof?.('native-compaction', 'observed');
+    }
   }
 
   /** The provider reported a compaction running; an explicit wait moves to its running window. */
@@ -123,6 +149,15 @@ export class CodexContextCostController {
         timeoutMs,
       });
       return false;
+    }
+    // A compaction that landed outside the previous wait (Codex self-managed
+    // during the controlled-recovery interrupt) already shrank the thread.
+    // Sending another `thread/compact/start` against it produces no further
+    // signal, so the gate would time out and wrongly disable the native path.
+    if (this.compactionObservedSinceCheck) {
+      this.compactionObservedSinceCheck = false;
+      logger.info('Skipping native compaction — a compaction was already observed since the last check');
+      return true;
     }
     const observed = this.gate.wait(timeoutMs, this.deps.compactionRunningTimeoutMs ?? timeoutMs);
     if (!await this.startCompaction()) {
@@ -177,7 +212,7 @@ export class CodexContextCostController {
       { contextCostRecovery: true, action: pending.action },
     );
     this.deps.recordActionProof?.('same-thread-continuation', 'requested');
-    await params.continueTurn(COST_RECOVERY_CONTINUATION, params.recoveryCount + 1);
+    await this.continueTurnWithRetry(params);
     this.deps.recordActionProof?.('same-thread-continuation', 'observed');
     this.deps.recordRecovery?.('continued');
     return true;
@@ -185,6 +220,26 @@ export class CodexContextCostController {
 
   clearPending(): void {
     this.pendingRecovery = null;
+  }
+
+  /**
+   * Submits the same-thread continuation, retrying once if the provider's own
+   * compaction turn is still closing (surfaced as a "not steerable"/"failed
+   * to submit turn input" rejection for `turn_kind: Compact`). Codex clears
+   * that state almost immediately, so a single short-delayed retry is enough;
+   * any other error, or a second failure, is rethrown to the caller.
+   */
+  private async continueTurnWithRetry(params: RecoverAfterTurnParams): Promise<void> {
+    try {
+      await params.continueTurn(COST_RECOVERY_CONTINUATION, params.recoveryCount + 1);
+    } catch (error) {
+      if (classifyCodexAppServerFailure(error).recoverability !== 'retry-thread') throw error;
+      logger.warn('Same-thread continuation raced the provider compaction turn closing; retrying once', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await new Promise((resolve) => setTimeout(resolve, CONTINUE_TURN_RETRY_DELAY_MS));
+      await params.continueTurn(COST_RECOVERY_CONTINUATION, params.recoveryCount + 1);
+    }
   }
 
   private async startCompaction(): Promise<boolean> {

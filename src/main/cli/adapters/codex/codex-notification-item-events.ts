@@ -15,7 +15,7 @@ import type {
   TurnCaptureState,
   TurnPhase,
 } from './app-server-types';
-import { toCodexMessagePhase } from './app-server-types';
+import { isAsyncDeliveryAgentMessage, toCodexMessagePhase } from './app-server-types';
 import {
   getCommandAggregatedOutput,
   getCommandExitCode,
@@ -236,7 +236,32 @@ export function handleItemCompleted(
     const text = item.text || item.content
       || (item.message && typeof item.message === 'object' ? item.message.content : undefined)
       || '';
-    if (text) {
+    if (text && isAsyncDeliveryAgentMessage(item)) {
+      // Show the question as its own bubble, but keep it out of the turn's
+      // final-answer bookkeeping: treating it as final ended the turn here
+      // while Codex carried on working unseen. A subagent's question is shown
+      // too, labelled, because the user can only answer through the root.
+      const isRoot = !threadId || threadId === state.threadId;
+      // Finalise a streamed question in its own bubble and drop the stream, so
+      // the single-stream fallback cannot later merge the real answer into it.
+      // Child-thread deltas are never streamed, so only the root has one.
+      const streamed = isRoot && item.id ? state.streamingAgentMessages.get(item.id) : undefined;
+      if (isRoot && item.id) state.streamingAgentMessages.delete(item.id);
+      const subagentLabel = isRoot ? undefined : state.threadLabels.get(threadId) ?? threadId;
+      host.emitOutput({
+        id: streamed?.outputId ?? (item.id ? `codex-async-question:${item.id}` : generateId()),
+        timestamp: Date.now(),
+        type: 'assistant',
+        content: subagentLabel ? `Question from subagent ${subagentLabel}:\n\n${text}` : text,
+        metadata: {
+          ...(streamed ? { streaming: false, accumulatedContent: text } : {}),
+          asyncUserInput: true,
+          ...(item.questions ? { questions: item.questions } : {}),
+          ...(subagentLabel ? { subagentLabel } : {}),
+          ...(state.turnId ? { turnId: state.turnId } : {}),
+        },
+      });
+    } else if (text) {
       const itemPhase = item.phase || (params['phase'] as string | undefined) || null;
       state.messages.push({ lifecycle: 'completed', phase: itemPhase, text });
 

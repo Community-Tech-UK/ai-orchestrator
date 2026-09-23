@@ -730,6 +730,10 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
     return this.secretCardDrafts.has(requestId);
   }
 
+  secretCardValue(requestId: string): string {
+    return this.secretCardDrafts.value(requestId);
+  }
+
   secretCardWarning(request: UserActionRequest): string | null {
     return this.secretCardDrafts.warning(request);
   }

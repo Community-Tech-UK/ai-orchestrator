@@ -236,6 +236,180 @@ describe('CodexCliAdapter', () => {
     expect(recoveryWarning.mock.calls.flat().join(' ')).not.toMatch(/thread became unavailable|stale/i);
   });
 
+  it('keeps the turn open across an async user-input question until Codex completes it', async () => {
+    const client = createSyntheticTurnClient([]);
+    const question = 'Keep Keychain writes blocked?\n- Yes\n- No';
+    client.request.mockImplementation(async (method: string) => {
+      if (method !== 'turn/start') throw new Error(`Unexpected synthetic RPC: ${method}`);
+      client.notificationHandler?.({
+        method: 'turn/started',
+        params: { threadId: 'thread-1', turn: { id: 'turn-1' } },
+      });
+      client.notificationHandler?.({
+        method: 'item/agentMessage/delta',
+        params: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'call_q1', delta: 'Keep Keychain writes' },
+      });
+      // request_user_input_async: tagged final_answer, but Codex keeps working.
+      client.notificationHandler?.({
+        method: 'item/completed',
+        params: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          item: {
+            id: 'call_q1',
+            type: 'agentMessage',
+            phase: 'final_answer',
+            delivery: 'async',
+            text: question,
+            questions: [{ title: 'Keep Keychain writes blocked?', options: ['Yes', 'No'] }],
+          },
+        },
+      });
+      // Resume well past the 250 ms inferred-completion window.
+      setTimeout(() => {
+        client.notificationHandler?.({
+          method: 'item/completed',
+          params: {
+            threadId: 'thread-1',
+            turnId: 'turn-1',
+            item: { id: 'message-1', type: 'agentMessage', phase: 'final_answer', text: 'Review finished' },
+          },
+        });
+        client.notificationHandler?.({
+          method: 'turn/completed',
+          params: {
+            threadId: 'thread-1',
+            turn: { id: 'turn-1', status: 'completed', usage: { input_tokens: 1, output_tokens: 1 } },
+          },
+        });
+      }, 400);
+      return { turn: { id: 'turn-1', status: 'inProgress' } };
+    });
+    const adapter = new CodexCliAdapter();
+    const outputs: Array<{ id: string; content: string; metadata?: Record<string, unknown> }> = [];
+    const completions: Array<{ content: string }> = [];
+    adapter.on('output', (output: { id: string; content: string; metadata?: Record<string, unknown> }) => outputs.push(output));
+    adapter.on('complete', (response: { content: string }) => completions.push(response));
+    (adapter as unknown as { appServerClient: typeof client }).appServerClient = client;
+    (adapter as unknown as { appServerThreadId: string }).appServerThreadId = 'thread-1';
+
+    await (adapter as unknown as {
+      appServerSendMessageInner(message: string): Promise<void>;
+    }).appServerSendMessageInner('Run the review');
+
+    expect(completions).toEqual([expect.objectContaining({ content: 'Review finished' })]);
+    const questionOutput = outputs.find((output) => output.metadata?.['asyncUserInput'] === true);
+    expect(questionOutput).toMatchObject({
+      content: question,
+      metadata: { turnId: 'turn-1', streaming: false, accumulatedContent: question },
+    });
+    // The shorter real answer must land in its own bubble, not the streamed question's.
+    const streamedQuestionId = outputs.find((output) => output.content === 'Keep Keychain writes')?.id;
+    expect(streamedQuestionId).toBeDefined();
+    const finalOutput = outputs.at(-1);
+    expect(finalOutput?.content).toBe('Review finished');
+    expect(finalOutput?.id).not.toBe(streamedQuestionId);
+  });
+
+  it('surfaces a subagent async question without ending the root turn', async () => {
+    const client = createSyntheticTurnClient([]);
+    client.request.mockImplementation(async (method: string) => {
+      if (method !== 'turn/start') throw new Error(`Unexpected synthetic RPC: ${method}`);
+      const emit = (notificationMethod: string, params: Record<string, unknown>) =>
+        client.notificationHandler?.({ method: notificationMethod, params });
+      emit('turn/started', { threadId: 'thread-1', turn: { id: 'turn-1' } });
+      emit('item/started', {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        item: { id: 'spawn-1', type: 'collabAgentToolCall', tool: 'spawn_agent', receiverThreadIds: ['child-1'] },
+      });
+      emit('item/completed', {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        item: { id: 'spawn-1', type: 'collabAgentToolCall', tool: 'spawn_agent', receiverThreadIds: ['child-1'] },
+      });
+      emit('item/completed', {
+        threadId: 'child-1',
+        item: {
+          id: 'call_c1',
+          type: 'agentMessage',
+          phase: 'final_answer',
+          delivery: 'async',
+          text: 'Which branch?',
+          questions: [{ title: 'Which branch?', options: ['main'] }],
+        },
+      });
+      setTimeout(() => {
+        emit('item/completed', {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          item: { id: 'message-1', type: 'agentMessage', phase: 'final_answer', text: 'Root finished' },
+        });
+        emit('turn/completed', {
+          threadId: 'thread-1',
+          turn: { id: 'turn-1', status: 'completed', usage: { input_tokens: 1, output_tokens: 1 } },
+        });
+      }, 400);
+      return { turn: { id: 'turn-1', status: 'inProgress' } };
+    });
+    const adapter = new CodexCliAdapter();
+    const outputs: Array<{ content: string; metadata?: Record<string, unknown> }> = [];
+    const completions: Array<{ content: string }> = [];
+    adapter.on('output', (output: { content: string; metadata?: Record<string, unknown> }) => outputs.push(output));
+    adapter.on('complete', (response: { content: string }) => completions.push(response));
+    (adapter as unknown as { appServerClient: typeof client }).appServerClient = client;
+    (adapter as unknown as { appServerThreadId: string }).appServerThreadId = 'thread-1';
+
+    await (adapter as unknown as {
+      appServerSendMessageInner(message: string): Promise<void>;
+    }).appServerSendMessageInner('Delegate the review');
+
+    expect(completions).toEqual([expect.objectContaining({ content: 'Root finished' })]);
+    expect(outputs).toContainEqual(expect.objectContaining({
+      content: 'Question from subagent child-1:\n\nWhich branch?',
+      metadata: expect.objectContaining({ asyncUserInput: true, subagentLabel: 'child-1' }),
+    }));
+  });
+
+  it('ignores an async user-input question listed in turn/completed items when choosing the final answer', async () => {
+    const asyncQuestion = {
+      id: 'call_q1',
+      type: 'agentMessage',
+      phase: 'final_answer',
+      delivery: 'async',
+      text: 'Keep Keychain writes blocked?',
+    };
+    const finalAnswer = { id: 'message-1', type: 'agentMessage', phase: 'final_answer', text: 'Review finished' };
+    const client = createSyntheticTurnClient([
+      { method: 'turn/started', params: { threadId: 'thread-1', turn: { id: 'turn-1' } } },
+      { method: 'item/completed', params: { threadId: 'thread-1', turnId: 'turn-1', item: finalAnswer } },
+      {
+        method: 'turn/completed',
+        params: {
+          threadId: 'thread-1',
+          turn: {
+            id: 'turn-1',
+            status: 'completed',
+            // The question sits after the real answer in the canonical item list.
+            items: [finalAnswer, asyncQuestion],
+            usage: { input_tokens: 1, output_tokens: 1 },
+          },
+        },
+      },
+    ]);
+    const adapter = new CodexCliAdapter();
+    const completions: Array<{ content: string }> = [];
+    adapter.on('complete', (response: { content: string }) => completions.push(response));
+    (adapter as unknown as { appServerClient: typeof client }).appServerClient = client;
+    (adapter as unknown as { appServerThreadId: string }).appServerThreadId = 'thread-1';
+
+    await (adapter as unknown as {
+      appServerSendMessageInner(message: string): Promise<void>;
+    }).appServerSendMessageInner('Run the review');
+
+    expect(completions).toEqual([expect.objectContaining({ content: 'Review finished' })]);
+  });
+
   it('serializes request/response turns and forwards attachments and metadata to the selected transport', async () => {
     const adapter = new CodexCliAdapter();
     const internals = adapter as unknown as {

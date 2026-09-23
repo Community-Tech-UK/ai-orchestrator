@@ -221,10 +221,8 @@ export function createOrchestrationDomain(ipcRenderer: IpcRenderer, ch: typeof I
     /**
      * Get a specific workflow template
      */
-    workflowGetTemplate: (templateId: string): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.WORKFLOW_GET_TEMPLATE, {
-        templateId
-      });
+    workflowGetTemplate: (payload: { templateId: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.WORKFLOW_GET_TEMPLATE, payload);
     },
 
     /**
@@ -242,78 +240,56 @@ export function createOrchestrationDomain(ipcRenderer: IpcRenderer, ch: typeof I
     /**
      * Get workflow execution status
      */
-    workflowGetExecution: (executionId: string): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.WORKFLOW_GET_EXECUTION, {
-        executionId
-      });
+    workflowGetExecution: (payload: { executionId: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.WORKFLOW_GET_EXECUTION, payload);
     },
 
     /**
      * Get workflow execution for instance
      */
-    workflowGetByInstance: (instanceId: string): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.WORKFLOW_GET_BY_INSTANCE, {
-        instanceId
-      });
+    workflowGetByInstance: (payload: { instanceId: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.WORKFLOW_GET_BY_INSTANCE, payload);
     },
 
     /**
      * Complete a workflow phase
      */
-    workflowCompletePhase: (
-      executionId: string,
-      phaseId: string,
-      result?: unknown
-    ): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.WORKFLOW_COMPLETE_PHASE, {
-        executionId,
-        phaseId,
-        result
-      });
+    workflowCompletePhase: (payload: {
+      executionId: string;
+      phaseData?: Record<string, unknown>;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.WORKFLOW_COMPLETE_PHASE, payload);
     },
 
     /**
      * Satisfy a workflow gate
      */
-    workflowSatisfyGate: (
-      executionId: string,
-      gateId: string
-    ): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.WORKFLOW_SATISFY_GATE, {
-        executionId,
-        gateId
-      });
+    workflowSatisfyGate: (payload: {
+      executionId: string;
+      response: { approved?: boolean; selection?: string; answer?: string };
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.WORKFLOW_SATISFY_GATE, payload);
     },
 
     /**
      * Skip a workflow phase
      */
-    workflowSkipPhase: (
-      executionId: string,
-      phaseId: string,
-      reason?: string
-    ): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.WORKFLOW_SKIP_PHASE, {
-        executionId,
-        phaseId,
-        reason
-      });
+    workflowSkipPhase: (payload: { executionId: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.WORKFLOW_SKIP_PHASE, payload);
     },
 
     /**
      * Cancel a workflow
      */
-    workflowCancel: (executionId: string): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.WORKFLOW_CANCEL, { executionId });
+    workflowCancel: (payload: { executionId: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.WORKFLOW_CANCEL, payload);
     },
 
     /**
      * Get workflow prompt addition
      */
-    workflowGetPromptAddition: (executionId: string): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.WORKFLOW_GET_PROMPT_ADDITION, {
-        executionId
-      });
+    workflowGetPromptAddition: (payload: { executionId: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.WORKFLOW_GET_PROMPT_ADDITION, payload);
     },
 
     // ============================================
@@ -330,8 +306,8 @@ export function createOrchestrationDomain(ipcRenderer: IpcRenderer, ch: typeof I
     /**
      * Get a specific review agent
      */
-    reviewGetAgent: (agentId: string): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.REVIEW_GET_AGENT, { agentId });
+    reviewGetAgent: (payload: { agentId: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.REVIEW_GET_AGENT, payload);
     },
 
     /**
@@ -349,15 +325,19 @@ export function createOrchestrationDomain(ipcRenderer: IpcRenderer, ch: typeof I
     /**
      * Get a review session
      */
-    reviewGetSession: (sessionId: string): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.REVIEW_GET_SESSION, { sessionId });
+    reviewGetSession: (payload: { sessionId: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.REVIEW_GET_SESSION, payload);
     },
 
     /**
      * Get issues for a review session
      */
-    reviewGetIssues: (sessionId: string): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.REVIEW_GET_ISSUES, { sessionId });
+    reviewGetIssues: (payload: {
+      sessionId: string;
+      severity?: string;
+      agentId?: string;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.REVIEW_GET_ISSUES, payload);
     },
 
     /**
@@ -366,7 +346,7 @@ export function createOrchestrationDomain(ipcRenderer: IpcRenderer, ch: typeof I
     reviewAcknowledgeIssue: (payload: {
       sessionId: string;
       issueId: string;
-      action: string;
+      acknowledged: boolean;
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.REVIEW_ACKNOWLEDGE_ISSUE, payload);
     },
@@ -483,8 +463,8 @@ export function createOrchestrationDomain(ipcRenderer: IpcRenderer, ch: typeof I
      */
     // SkillsDiscoverPayloadSchema expects `searchPaths`, not `directory` — the
     // old shape failed validation on every call (LT-011).
-    skillsDiscover: (searchPaths?: string[]): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.SKILLS_DISCOVER, { searchPaths: searchPaths ?? [] });
+    skillsDiscover: (payload: { searchPaths?: string[] }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.SKILLS_DISCOVER, payload);
     },
 
     /**
@@ -518,21 +498,15 @@ export function createOrchestrationDomain(ipcRenderer: IpcRenderer, ch: typeof I
     /**
      * Load reference documentation for a skill
      */
-    skillsLoadReference: (skillId: string): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.SKILLS_LOAD_REFERENCE, { skillId });
+    skillsLoadReference: (payload: { skillId: string; referencePath: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.SKILLS_LOAD_REFERENCE, payload);
     },
 
     /**
      * Load example for a skill
      */
-    skillsLoadExample: (
-      skillId: string,
-      exampleId: string
-    ): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.SKILLS_LOAD_EXAMPLE, {
-        skillId,
-        exampleId
-      });
+    skillsLoadExample: (payload: { skillId: string; examplePath: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.SKILLS_LOAD_EXAMPLE, payload);
     },
 
     /**
@@ -540,8 +514,8 @@ export function createOrchestrationDomain(ipcRenderer: IpcRenderer, ch: typeof I
      */
     // SkillsMatchPayloadSchema expects `text`; `{ query, maxResults }` failed
     // validation on every call (LT-011). Result capping stays caller-side.
-    skillsMatch: (query: string): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.SKILLS_MATCH, { text: query });
+    skillsMatch: (payload: { text: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.SKILLS_MATCH, payload);
     },
 
     /**
@@ -566,11 +540,8 @@ export function createOrchestrationDomain(ipcRenderer: IpcRenderer, ch: typeof I
     /**
      * Per-skill health summary plus current controls
      */
-    skillsHealthSummary: (since?: number): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(
-        ch.SKILLS_HEALTH_SUMMARY,
-        since === undefined ? undefined : { since }
-      );
+    skillsHealthSummary: (payload?: { since?: number }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.SKILLS_HEALTH_SUMMARY, payload);
     },
 
     /**
@@ -583,12 +554,12 @@ export function createOrchestrationDomain(ipcRenderer: IpcRenderer, ch: typeof I
     /**
      * Set a per-skill control mode (enabled | suggest-only | disabled)
      */
-    skillsSetControl: (
-      skillName: string,
-      mode: 'enabled' | 'suggest-only' | 'disabled',
-      reason?: string
-    ): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.SKILLS_SET_CONTROL, { skillName, mode, reason });
+    skillsSetControl: (payload: {
+      skillName: string;
+      mode: 'enabled' | 'suggest-only' | 'disabled';
+      reason?: string;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.SKILLS_SET_CONTROL, payload);
     },
 
     /**
@@ -607,10 +578,8 @@ export function createOrchestrationDomain(ipcRenderer: IpcRenderer, ch: typeof I
     /**
      * Get supervision tree
      */
-    supervisionGetTree: (rootInstanceId?: string): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.SUPERVISION_GET_TREE, {
-        rootInstanceId
-      });
+    supervisionGetTree: (payload?: { rootInstanceId?: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.SUPERVISION_GET_TREE, payload);
     },
 
     /**

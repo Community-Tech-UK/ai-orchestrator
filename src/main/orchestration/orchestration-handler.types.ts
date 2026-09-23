@@ -50,6 +50,8 @@ export interface UserActionRequest {
   }[];
   /** For ask_questions: list of questions to present with text inputs */
   questions?: string[];
+  /** Secret metadata only; the typed value stays within the secret-card IPC path. */
+  secretRequest?: RequestUserActionCommand['secretRequest'];
   context?: Record<string, unknown>;
   createdAt: number;
 }

@@ -1930,7 +1930,6 @@ describe('InstanceCommunicationManager', () => {
     adapters.set(instance.id, adapter);
     instance.status = 'busy';
     instance.activeTurnId = 'turn-123';
-    instance.interruptPhase = 'completed';
 
     manager.setupAdapterEvents(instance.id, adapter);
     (adapter as unknown as EventEmitter).emit('status', 'idle');
@@ -1938,6 +1937,34 @@ describe('InstanceCommunicationManager', () => {
     expect(instance.activeTurnId).toBeUndefined();
     expect(instance.interruptPhase).toBeUndefined();
     expect(instance.lastTurnOutcome).toBe('completed');
+  });
+
+  it('preserves interrupted outcome when an idle status follows a user Stop', () => {
+    const adapter = new FakeAdapter('codex-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    instance.status = 'interrupting';
+    instance.activeTurnId = 'turn-stop';
+    instance.interruptPhase = 'accepted';
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('status', 'idle');
+
+    expect(instance.lastTurnOutcome).toBe('interrupted');
+    expect(instance.activeTurnId).toBeUndefined();
+  });
+
+  it('does not overwrite an explicit interrupt completion on a following idle event', () => {
+    const adapter = new FakeAdapter('codex-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    instance.status = 'idle';
+    instance.activeTurnId = 'turn-stop';
+    instance.interruptPhase = 'completed';
+    instance.lastTurnOutcome = 'interrupted';
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('status', 'idle');
+
+    expect(instance.lastTurnOutcome).toBe('interrupted');
   });
 
   it('normalizes idle to busy status updates through ready', () => {

@@ -395,6 +395,11 @@
         {{ s.iterations }} iterations · {{ duration(s.endedAt - s.startedAt) }} · {{ tokens(s.tokens) }} · {{ cost(s.costCents) }}
       </div>
       <div class="lsum-reason">Reason: {{ s.reason }}</div>
+      <app-loop-causal-timeline
+        [timeline]="causalTimeline()"
+        [showSpend]="false"
+        (recoveryChosen)="onTimelineRecovery($event)"
+      />
       @if (managedStatus(s.worktreeLifecycle, s.status); as managed) {
         <div
           class="lsum-managed"

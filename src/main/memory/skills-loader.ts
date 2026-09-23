@@ -16,6 +16,7 @@ import { getSkillAttribution } from '../skills/skill-attribution-service';
 import { SkillRegistry, getSkillRegistry } from '../skills/skill-registry';
 import type { SkillBundle, LoadedSkill } from '../../shared/types/skill.types';
 import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
+import { getLogger } from '../logging/logger';
 import type {
   SkillManifest,
   SkillManifestEntry,
@@ -24,6 +25,15 @@ import type {
 
 // Re-export types for convenience
 export type { SkillManifest, SkillManifestEntry, DetectedSkill };
+
+const logger = getLogger('SkillsLoader');
+
+export interface SkillBudgetSkip {
+  name: string;
+  reason: 'budget-exceeded';
+  tokens: number;
+  budget: number;
+}
 
 export interface SkillsLoaderConfig {
   similarityThreshold: number;
@@ -448,10 +458,12 @@ export class SkillsLoader extends EventEmitter {
     totalTokens: number;
     loaded: string[];
     loadedDetails: { name: string; tokens: number }[];
+    skippedDetails: SkillBudgetSkip[];
   }> {
     const content: string[] = [];
     const loaded: string[] = [];
     const loadedDetails: { name: string; tokens: number }[] = [];
+    const skippedDetails: SkillBudgetSkip[] = [];
     let totalTokens = 0;
 
     // Sort by priority then similarity
@@ -475,10 +487,20 @@ export class SkillsLoader extends EventEmitter {
         loaded.push(skill.name);
         loadedDetails.push({ name: skill.name, tokens });
         totalTokens += tokens;
+      } else {
+        const skipped: SkillBudgetSkip = {
+          name: skill.name,
+          reason: 'budget-exceeded',
+          tokens,
+          budget: Math.max(0, maxTokens - totalTokens),
+        };
+        skippedDetails.push(skipped);
+        logger.warn('Detected skill was not injected because it exceeds the remaining token budget', { ...skipped });
+        this.emit('skill:skipped', skipped);
       }
     }
 
-    return { content, totalTokens, loaded, loadedDetails };
+    return { content, totalTokens, loaded, loadedDetails, skippedDetails };
   }
 
   // ============ Skill Management ============

@@ -16,6 +16,7 @@ import { DraftService } from '../../core/services/draft.service';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import { OperatorIpcService } from '../../core/services/ipc/operator-ipc.service';
 import { OutputStreamComponent } from '../instance-detail/output-stream.component';
+import { chatAsyncAnswerTarget } from '../instance-detail/async-question';
 import { InputPanelComponent } from '../instance-detail/input-panel.component';
 import { ActivityStatusComponent } from '../instance-detail/activity-status.component';
 import { FileAttachmentService } from '../instance-detail/file-attachment.service';
@@ -120,6 +121,17 @@ export class ChatDetailComponent {
     this.currentInstance()?.id ?? this.chat()?.id ?? 'chat'
   );
   readonly outputStreamId = computed(() => this.chat()?.id ?? 'chat');
+  /**
+   * The transcript is keyed by chat id, so async-question answers need the live
+   * instance for status and the chat service to send, without the draft's
+   * pending files and folders that onSendMessage would attach.
+   */
+  readonly asyncAnswerTarget = computed(() => chatAsyncAnswerTarget(
+    this.chat()?.id,
+    this.currentInstance()?.id,
+    (chatId, text) => this.chatStore.sendMessageTo(chatId, text),
+    (error) => this.chatStore.setError(error),
+  ));
   readonly loadOlderMessagesForOutput = () => this.loadOlderMessages();
   readonly probeOlderMessagesForOutput = () => this.probeOlderMessages();
   readonly providerForUi = computed<ChatProvider>(() =>

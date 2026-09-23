@@ -76,6 +76,8 @@ import { TranscriptFindController } from './transcript-find-controller';
 import { TranscriptJumpRailComponent } from './transcript-jump-rail.component';
 import { excerptText } from './transcript-jump-rail.markers';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { AsyncQuestionAnswersComponent } from './async-question-answers.component';
+import type { AsyncAnswerTarget } from './async-question';
 import { OutputStreamRenderWindow } from './output-stream-render-window';
 import { InlineEditController } from './output-stream-inline-edit-controller';
 import { TranscriptVirtualizerController } from './transcript-virtualizer-controller';
@@ -103,6 +105,7 @@ import {
     TranscriptFindBarComponent,
     TranscriptJumpRailComponent,
     AioTooltipDirective,
+    AsyncQuestionAnswersComponent,
   ],
   templateUrl: './output-stream.component.html',
   styleUrl: './output-stream.component.scss',
@@ -120,6 +123,8 @@ export class OutputStreamComponent {
   olderMessagesLoader = input<(() => Promise<OlderMessagesLoadResult | null>) | null>(null);
   olderMessagesProbe = input<(() => Promise<OlderMessagesProbeResult | null>) | null>(null);
   livePromptIndexEnabled = input(true);
+  /** Where Codex async-question answers go when this transcript's id is not a live instance id. */
+  asyncAnswerTarget = input<AsyncAnswerTarget | null>(null);
 
   /**
    * Emitted when the user resends an inline-edited user message. The parent

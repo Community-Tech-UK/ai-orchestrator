@@ -58,6 +58,11 @@ export interface RegisterSecretCardHandlersDeps {
    * so this module has no direct dependency on the adapter layer — constraint 1.
    */
   notifyAgent?: (instanceId: string, message: string) => Promise<void>;
+  /** Orchestration card lookup; only metadata crosses this boundary. */
+  getPendingOrchestrationSecretRequest?: (instanceId: string, requestId: string) => { name: string } | undefined;
+  resolveOrchestrationSecretRequest?: (
+    instanceId: string, requestId: string, approved: boolean, reference?: string
+  ) => boolean;
 }
 
 function failure(code: string, message: string): IpcResponse {
@@ -100,6 +105,14 @@ export function registerSecretCardHandlers(deps: RegisterSecretCardHandlersDeps 
           return failure('SECRET_CARD_INVALID_NAME', 'That secret name is not usable.');
         }
 
+        const orchestrationCard = payload.requestId.startsWith('uar-');
+        if (orchestrationCard) {
+          const pending = deps.getPendingOrchestrationSecretRequest?.(payload.instanceId, payload.requestId);
+          if (!pending || normaliseName(pending.name) !== name || !deps.resolveOrchestrationSecretRequest) {
+            return failure('SECRET_CARD_STALE_REQUEST', 'That credential request is no longer available.');
+          }
+        }
+
         try {
           store.put({
             workspaceId,
@@ -130,10 +143,14 @@ export function registerSecretCardHandlers(deps: RegisterSecretCardHandlersDeps 
           valueLength: payload.value.length,
         });
 
-        await deps.notifyAgent?.(
-          payload.instanceId,
-          `The requested credential is stored. Refer to it as secret://${name} — its value is not available to you.`,
-        );
+        if (orchestrationCard) {
+          deps.resolveOrchestrationSecretRequest?.(payload.instanceId, payload.requestId, true, `secret://${name}`);
+        } else {
+          await deps.notifyAgent?.(
+            payload.instanceId,
+            `The requested credential is stored. Refer to it as secret://${name} — its value is not available to you.`,
+          );
+        }
 
         return { success: true, data: { name, reference: `secret://${name}` } };
       },
@@ -147,17 +164,28 @@ export function registerSecretCardHandlers(deps: RegisterSecretCardHandlersDeps 
       IPC_CHANNELS.SECRET_CARD_DECLINE,
       SecretCardDeclinePayloadSchema,
       async (payload): Promise<IpcResponse> => {
+        const orchestrationCard = payload.requestId.startsWith('uar-');
+        if (orchestrationCard) {
+          const pending = deps.getPendingOrchestrationSecretRequest?.(payload.instanceId, payload.requestId);
+          if (!pending || normaliseName(pending.name) !== normaliseName(payload.name) || !deps.resolveOrchestrationSecretRequest) {
+            return failure('SECRET_CARD_STALE_REQUEST', 'That credential request is no longer available.');
+          }
+        }
         const workspaceId = workspaceFor(payload.instanceId);
         if (workspaceId && !isUnscopedWorkspace(workspaceId)) {
           store.recordDeclined(workspaceId, payload.name, payload.instanceId);
         }
 
-        await deps.notifyAgent?.(
-          payload.instanceId,
-          payload.reason
-            ? `The credential request was declined: ${payload.reason}`
-            : 'The credential request was declined. Continue without it or suggest another approach.',
-        );
+        if (orchestrationCard) {
+          deps.resolveOrchestrationSecretRequest?.(payload.instanceId, payload.requestId, false);
+        } else {
+          await deps.notifyAgent?.(
+            payload.instanceId,
+            payload.reason
+              ? `The credential request was declined: ${payload.reason}`
+              : 'The credential request was declined. Continue without it or suggest another approach.',
+          );
+        }
 
         return { success: true, data: { declined: true } };
       },

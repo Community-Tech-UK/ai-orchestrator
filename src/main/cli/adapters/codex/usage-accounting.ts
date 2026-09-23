@@ -31,6 +31,8 @@ export class CodexUsageAccounting {
   private readonly nativeTurnIds = new Map<string, string>();
   private readonly completedNativeTurns = new Map<string, Set<string>>();
   private readonly lastOnly = new Map<string, string>();
+  private readonly interruptedEstimates = new Map<string, { output: number; turnId?: string }[]>();
+  private readonly settledInterruptedTurns = new Map<string, Set<string>>();
   private turn = empty();
   private estimated = false;
   private pending = false;
@@ -85,12 +87,26 @@ export class CodexUsageAccounting {
           this.estimated = true;
         }
         gross = Math.max(0, current.total - prior.total);
+        if (current.detailed && prior.detailed) {
+          const estimates = this.interruptedEstimates.get(threadId);
+          if (estimates?.length) {
+            const nativeTurnId = this.nativeTurnIds.get(threadId);
+            const sameTurn = nativeTurnId !== undefined && estimates.some(estimate => estimate.turnId === nativeTurnId);
+            const unreportedOutput = sameTurn
+              ? delta.outputTokens
+              : call?.detailed ? Math.max(0, delta.outputTokens - call.raw.outputTokens) : 0;
+            const credit = this.consumeInterruptedEstimate(threadId, unreportedOutput, sameTurn ? nativeTurnId : undefined);
+            delta.outputTokens -= credit;
+            gross = Math.max(0, gross - credit);
+          }
+        }
       } else if (!prior && this.resumed.has(threadId)) {
         // Only the latest call is attributable when resume supplied no baseline.
         delta = call && this.lastOnly.get(threadId) !== JSON.stringify(call) ? call.raw : empty();
         gross = delta.inputTokens + delta.outputTokens;
         this.estimated = true;
       } else {
+        if (reset) this.interruptedEstimates.delete(threadId);
         delta = current.raw;
         gross = current.total;
       }
@@ -127,6 +143,7 @@ export class CodexUsageAccounting {
   }
 
   fallback(threadId: string, usage?: Record<string, unknown>, child = false, turnId?: string): void {
+    if (turnId && this.settledInterruptedTurns.get(threadId)?.has(turnId)) return;
     const current = snapshot(usage);
     if (!current?.detailed || turnId && this.completedNativeTurns.get(threadId)?.has(turnId)) return;
     if (turnId) {
@@ -139,19 +156,39 @@ export class CodexUsageAccounting {
     }
     const counted = this.accountedByThread.get(threadId) ?? empty();
     const baseline = this.nativeTurnBaselines.get(threadId);
+    const estimate = this.interruptedEstimates.get(threadId)?.find(entry => turnId && entry.turnId === turnId);
+    const estimateCredit = estimate
+      ? Math.min(estimate.output, current.raw.outputTokens)
+      : 0;
     const delta = empty();
     for (const key of keys) delta[key] = Math.max(0, current.raw[key] - counted[key] + (baseline?.raw[key] ?? 0));
     const prior = this.previous.get(threadId);
     const gross = Math.max(0, current.total - (this.totalByThread.get(threadId) ?? 0) + (baseline?.gross ?? 0));
-    if (gross === 0 && keys.every(key => delta[key] === 0)) return;
+    if (gross === 0 && keys.every(key => delta[key] === 0) && estimateCredit === 0) return;
     // Extend the latest thread baseline only by the uncounted native-turn remainder.
     if (prior || !this.resumed.has(threadId)) {
       const raw = empty();
-      for (const key of keys) raw[key] = (prior?.raw[key] ?? 0) + (this.provisional.get(threadId)?.[key] ?? 0) + delta[key];
-      this.previous.set(threadId, { raw, total: (prior?.total ?? 0) + gross, detailed: true });
+      for (const key of keys) raw[key] = (prior?.raw[key] ?? 0) + (this.provisional.get(threadId)?.[key] ?? 0) + delta[key]
+        + (key === 'outputTokens' ? estimateCredit : 0);
+      this.previous.set(threadId, { raw, total: (prior?.total ?? 0) + gross + estimateCredit, detailed: true });
       this.provisional.delete(threadId);
     }
+    if (estimate && turnId) this.removeInterruptedEstimate(threadId, turnId);
     this.add(threadId, delta, gross, child);
+  }
+
+  /** Approximate output when Codex aborts after streaming but reports no new usage. */
+  estimateInterruptedOutput(threadId: string, streamedCharacters: number): void {
+    if (!Number.isFinite(streamedCharacters) || streamedCharacters <= 0) return;
+    const nativeTurnId = this.nativeTurnIds.get(threadId);
+    if (nativeTurnId && this.interruptedEstimates.get(threadId)?.some(estimate => estimate.turnId === nativeTurnId)) return;
+    const output = Math.ceil(streamedCharacters / 4);
+    const delta = { ...empty(), outputTokens: output };
+    const estimates = this.interruptedEstimates.get(threadId) ?? [];
+    estimates.push({ output, turnId: nativeTurnId });
+    this.interruptedEstimates.set(threadId, estimates);
+    this.add(threadId, delta, output, false);
+    this.estimated = true;
   }
 
   peek(model: string | undefined): CliUsage | undefined {
@@ -161,6 +198,7 @@ export class CodexUsageAccounting {
   }
 
   ownsThread(threadId: string): boolean { return this.ownedThreads.has(threadId); }
+  hasThreadSnapshot(threadId: string): boolean { return this.previous.has(threadId); }
   trackThread(threadId: string): void { this.ownedThreads.add(threadId); }
 
   take(model: string | undefined): CliUsage | undefined {
@@ -186,5 +224,33 @@ export class CodexUsageAccounting {
     const pending = this.provisional.get(threadId) ?? empty();
     for (const key of keys) pending[key] += delta[key];
     this.provisional.set(threadId, pending);
+  }
+
+  private consumeInterruptedEstimate(threadId: string, available: number, onlyTurnId?: string): number {
+    const estimates = this.interruptedEstimates.get(threadId);
+    if (!estimates || available <= 0) return 0;
+    let remaining = available;
+    for (const estimate of estimates) {
+      if (onlyTurnId && estimate.turnId !== onlyTurnId) continue;
+      const credit = Math.min(estimate.output, remaining);
+      estimate.output -= credit;
+      remaining -= credit;
+      if (credit > 0 && !onlyTurnId && estimate.turnId) {
+        const settled = this.settledInterruptedTurns.get(threadId) ?? new Set<string>();
+        settled.add(estimate.turnId);
+        this.settledInterruptedTurns.set(threadId, settled);
+      }
+      if (remaining === 0) break;
+    }
+    const pending = estimates.filter(estimate => estimate.output > 0);
+    if (pending.length) this.interruptedEstimates.set(threadId, pending);
+    else this.interruptedEstimates.delete(threadId);
+    return available - remaining;
+  }
+
+  private removeInterruptedEstimate(threadId: string, turnId: string): void {
+    const pending = this.interruptedEstimates.get(threadId)?.filter(estimate => estimate.turnId !== turnId);
+    if (pending?.length) this.interruptedEstimates.set(threadId, pending);
+    else this.interruptedEstimates.delete(threadId);
   }
 }

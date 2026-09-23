@@ -11,7 +11,7 @@
  * {@link ContextManifestEntryStatus}).
  */
 
-/** The nine block kinds instance-system-prompt.ts may inject — mirrors SystemPromptBlockKind. */
+/** Base prompt blocks plus guidance appended by the CLI adapter at spawn. */
 export type ContextManifestBlockKind =
   | 'instructions'
   | 'output-style'
@@ -21,7 +21,11 @@ export type ContextManifestBlockKind =
   | 'repo-map'
   | 'wake-context'
   | 'mcp-tool-context'
-  | 'tool-permissions';
+  | 'tool-permissions'
+  | 'adapter-browser-gateway'
+  | 'adapter-chrome-devtools'
+  | 'adapter-mobile-mcp'
+  | 'adapter-computer-use';
 
 export type ContextManifestEntryStatus = 'supplied' | 'skipped-empty' | 'unavailable';
 

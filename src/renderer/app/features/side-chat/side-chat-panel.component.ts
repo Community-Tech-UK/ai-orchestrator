@@ -33,6 +33,7 @@ import { SettingsStore } from '../../core/state/settings.store';
 import { ViewLayoutService } from '../../core/services/view-layout.service';
 import { readStorage, writeStorage, type StorageField } from '../../shared/utils/typed-storage';
 import { OutputStreamComponent } from '../instance-detail/output-stream.component';
+import { chatAsyncAnswerTarget } from '../instance-detail/async-question';
 import { ActivityStatusComponent } from '../instance-detail/activity-status.component';
 import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
 import { ChatOutputMessageMapper } from '../chats/chat-output-message.mapper';
@@ -145,6 +146,13 @@ export class SideChatPanelComponent implements OnInit {
   readonly showToolMessages = this.settingsStore.showToolMessages;
 
   readonly streamId = computed(() => this.chat()?.id ?? 'side-chat');
+  /** Async-question answers: see ChatDetailComponent.asyncAnswerTarget. */
+  readonly asyncAnswerTarget = computed(() => chatAsyncAnswerTarget(
+    this.chat()?.id,
+    this.currentInstance()?.id,
+    (chatId, text) => this.chatStore.sendMessageTo(chatId, text),
+    (error) => this.error.set(error),
+  ));
 
   /**
    * If the bound chat disappears from the (non-archived) chat list — e.g. it

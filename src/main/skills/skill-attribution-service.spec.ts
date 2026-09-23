@@ -155,6 +155,21 @@ describe('SkillAttributionService', () => {
     });
   });
 
+  it('persists per-turn budget skips and keeps them separate from activations', () => {
+    const db = openMigratedDb();
+    const service = makeService(db);
+    service.recordBudgetSkip({
+      skillName: 'ui-ux-pro-max', skillSource: 'global', instanceId: 'inst-547',
+      sessionId: 'sess-547', turnKey: 'turn-547', tokens: 10932, budget: 5000,
+    });
+    expect(service.getHealthSummary()).toEqual([]);
+    SkillAttributionService._resetForTesting();
+    expect(makeService(db).getRecentBudgetSkips()).toMatchObject([{
+      skillName: 'ui-ux-pro-max', instanceId: 'inst-547', turnKey: 'turn-547',
+      tokens: 10932, budget: 5000, reason: 'budget-exceeded',
+    }]);
+  });
+
   it('flags recent activations for an instance when it errors, feeding precededErrors', () => {
     const service = makeService(openMigratedDb());
     service.recordActivation({

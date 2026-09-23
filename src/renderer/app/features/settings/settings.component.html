@@ -16,7 +16,11 @@
 
   <!-- Left nav rail -->
   <aside
+    #compactNav
     class="settings-sidebar"
+    [attr.role]="compactViewport() && compactNavOpen() ? 'dialog' : null"
+    [attr.aria-modal]="compactViewport() && compactNavOpen() ? 'true' : null"
+    [attr.aria-label]="compactViewport() && compactNavOpen() ? 'Settings navigation' : null"
     [class.nav-collapsed]="effectiveNavCollapsed() && !(compactViewport() && compactNavOpen())"
     [class.nav-overlay-open]="compactViewport() && compactNavOpen()"
   >

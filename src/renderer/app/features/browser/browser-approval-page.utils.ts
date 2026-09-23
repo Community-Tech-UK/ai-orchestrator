@@ -1,4 +1,4 @@
-import type { DestroyRef } from '@angular/core';
+import { afterRenderEffect, type DestroyRef } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import type { ActivatedRoute } from '@angular/router';
 import type { BrowserApprovalRequest } from '@contracts/types/browser';
@@ -37,6 +37,18 @@ export class BrowserApprovalFocus {
     card.focus();
     this.completed = true;
   }
+}
+
+/** Follow signal-targeted zoneless renders; the host view hook may not run. */
+export function bindBrowserApprovalFocus(
+  focusedRequestId: () => string | null,
+  pendingRequests: () => readonly BrowserApprovalRequest[],
+  focus: BrowserApprovalFocus,
+): void {
+  afterRenderEffect(() => {
+    pendingRequests();
+    focus.apply(focusedRequestId());
+  });
 }
 
 export function bindBrowserApprovalDeepLink(input: {

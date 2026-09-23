@@ -418,6 +418,25 @@ describe('DisplayItemProcessor', () => {
     expect(items[0].message?.content).toBe('Hello world');
   });
 
+  it('renders the canonical store content when streaming metadata rewinds', () => {
+    const committed = 'I will keep the entire committed sentence.';
+    const first = makeMsg({
+      id: 'stream-rewind',
+      content: committed,
+      metadata: { streaming: true, accumulatedContent: "I'll" },
+    });
+    const firstItems = processor.process([first]);
+    expect(firstItems[0].message?.content).toBe(committed);
+
+    const next = makeMsg({
+      id: 'stream-rewind',
+      content: committed,
+      metadata: { streaming: true, accumulatedContent: 'I' },
+    });
+    const nextItems = processor.process([first, next]);
+    expect(nextItems[0].message?.content).toBe(committed);
+  });
+
   it('should update existing streaming message on duplicate', () => {
     const msg1 = makeMsg({
       id: 'stream1',

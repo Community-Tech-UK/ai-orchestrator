@@ -50,7 +50,12 @@ function fakeSafeStorage(available = true): SafeStorageAccessor {
 let db: SqliteDriver;
 let notified: Array<{ instanceId: string; message: string }>;
 
-function setup(overrides: { available?: boolean; workingDirectory?: string | undefined } = {}): void {
+function setup(overrides: {
+  available?: boolean;
+  workingDirectory?: string | undefined;
+  pendingSecret?: { name: string };
+  resolveSecret?: (instanceId: string, requestId: string, approved: boolean, reference?: string) => boolean;
+} = {}): void {
   db = defaultDriverFactory(':memory:');
   createTables(db);
   createMigrationsTable(db);
@@ -67,6 +72,8 @@ function setup(overrides: { available?: boolean; workingDirectory?: string | und
     store,
     getWorkingDirectory: () => ('workingDirectory' in overrides ? overrides.workingDirectory : CWD),
     notifyAgent: async (instanceId, message) => { notified.push({ instanceId, message }); },
+    getPendingOrchestrationSecretRequest: () => overrides.pendingSecret,
+    resolveOrchestrationSecretRequest: overrides.resolveSecret,
   });
 }
 
@@ -80,6 +87,27 @@ afterEach(() => {
 });
 
 describe('secret card submit', () => {
+  it('resolves a matching orchestration card without a second agent message', async () => {
+    const resolveSecret = vi.fn(() => true);
+    setup({ pendingSecret: { name: 'github-pat' }, resolveSecret });
+    const result = await handlerFor(IPC_CHANNELS.SECRET_CARD_SUBMIT)(fakeEvent, {
+      instanceId: INSTANCE, requestId: 'uar-123', name: 'github-pat', value: TOKEN,
+    });
+    expect(result.success).toBe(true);
+    expect(resolveSecret).toHaveBeenCalledWith(INSTANCE, 'uar-123', true, 'secret://github-pat');
+    expect(notified).toEqual([]);
+    expect(JSON.stringify(logCalls)).not.toContain(TOKEN);
+  });
+
+  it('refuses stale or mismatched orchestration cards before storing', async () => {
+    setup({ pendingSecret: { name: 'other-secret' } });
+    const result = await handlerFor(IPC_CHANNELS.SECRET_CARD_SUBMIT)(fakeEvent, {
+      instanceId: INSTANCE, requestId: 'uar-123', name: 'github-pat', value: TOKEN,
+    });
+    expect(result.success).toBe(false);
+    const listed = await handlerFor(IPC_CHANNELS.SECRET_CARD_LIST)(fakeEvent, { workingDirectory: CWD });
+    expect(listed.data).toEqual([]);
+  });
   it('stores the secret and returns only a reference', async () => {
     setup();
     const result = await handlerFor(IPC_CHANNELS.SECRET_CARD_SUBMIT)(fakeEvent, {
@@ -145,6 +173,16 @@ describe('secret card submit', () => {
 });
 
 describe('secret card decline', () => {
+  it('clears an orchestration card and sends only the decline response', async () => {
+    const resolveSecret = vi.fn(() => true);
+    setup({ pendingSecret: { name: 'github-pat' }, resolveSecret });
+    const result = await handlerFor(IPC_CHANNELS.SECRET_CARD_DECLINE)(fakeEvent, {
+      instanceId: INSTANCE, requestId: 'uar-123', name: 'github-pat', reason: 'No credential',
+    });
+    expect(result.success).toBe(true);
+    expect(resolveSecret).toHaveBeenCalledWith(INSTANCE, 'uar-123', false);
+    expect(notified).toEqual([]);
+  });
   it('tells the agent it was declined and stores nothing', async () => {
     setup();
     const result = await handlerFor(IPC_CHANNELS.SECRET_CARD_DECLINE)(fakeEvent, {

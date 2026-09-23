@@ -63,6 +63,48 @@ describe('CodexContextCostController shared-policy execution adapter', () => {
     ]));
   });
 
+  it('retries the same-thread continuation once when it races the provider compaction turn closing', async () => {
+    vi.useFakeTimers();
+    try {
+      const { controller, deps } = createController();
+      deps.getCompactionTarget = () => ({
+        threadId: 'thread-fixture',
+        start: async () => controller.recordCompactionObserved(400_000),
+      });
+      await controller.requestRecovery('controlled-recovery');
+
+      const continueTurn = vi.fn()
+        .mockRejectedValueOnce(new Error('failed to submit turn input: ActiveTurnNotSteerable { turn_kind: Compact }'))
+        .mockResolvedValueOnce(undefined);
+
+      const pending = controller.recoverAfterTurn({ turnStatus: 'interrupted', recoveryCount: 0, continueTurn });
+      await vi.runAllTimersAsync();
+
+      await expect(pending).resolves.toBe(true);
+      expect(continueTurn).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rethrows a non-transient continuation failure without retrying', async () => {
+    const { controller, deps } = createController();
+    deps.getCompactionTarget = () => ({
+      threadId: 'thread-fixture',
+      start: async () => controller.recordCompactionObserved(400_000),
+    });
+    await controller.requestRecovery('controlled-recovery');
+
+    const continueTurn = vi.fn().mockRejectedValue(new Error('unauthorized: login required'));
+
+    await expect(controller.recoverAfterTurn({
+      turnStatus: 'interrupted',
+      recoveryCount: 0,
+      continueTurn,
+    })).rejects.toThrow('unauthorized: login required');
+    expect(continueTurn).toHaveBeenCalledOnce();
+  });
+
   it('does not treat RPC acknowledgement as observed compaction proof', async () => {
     vi.useFakeTimers();
     try {
@@ -193,6 +235,81 @@ describe('CodexContextCostController shared-policy execution adapter', () => {
       // A fresh controller starts enabled.
       expect(controller.nativeCompactionKnownUnsupported()).toBe(false);
       expect(proofEvents).toEqual([]);
+    });
+  });
+
+  // 2026-09-23: Codex self-manages compaction during the controlled-recovery
+  // interrupt. `recordCompactionObserved` settles the gate with zero waiters,
+  // then `compactContext` starts a fresh wait and sends `thread/compact/start`
+  // against an already-compacted thread — no further signal arrives, the wait
+  // times out, and `nativeCompactionUnobserved` is poisoned for the session.
+  describe('compaction observed outside an active wait', () => {
+    it('returns true without issuing a compact RPC when a compaction already landed', async () => {
+      const start = vi.fn(async () => undefined);
+      const { controller } = createController({
+        compactionTimeoutMs: 50,
+        getCompactionTarget: () => ({ threadId: 'thread-fixture', start }),
+      });
+
+      // Codex self-managed compaction during the interrupt — no gate waiters.
+      controller.recordCompactionObserved(400_000);
+
+      await expect(controller.compactContext(50)).resolves.toBe(true);
+      expect(start).not.toHaveBeenCalled();
+      expect(controller.nativeCompactionKnownUnsupported()).toBe(false);
+    });
+
+    it('clears the flag so the next call without a new observation attempts real compaction', async () => {
+      const start = vi.fn(async () => undefined);
+      const { controller } = createController({
+        compactionTimeoutMs: 5,
+        getCompactionTarget: () => ({ threadId: 'thread-fixture', start }),
+      });
+
+      controller.recordCompactionObserved(400_000);
+      await expect(controller.compactContext(5)).resolves.toBe(true);
+      expect(start).not.toHaveBeenCalled();
+
+      // Second call: no new observation, so it must attempt the RPC.
+      vi.useFakeTimers();
+      try {
+        const pending = controller.compactContext(5);
+        await vi.advanceTimersByTimeAsync(5);
+        await expect(pending).resolves.toBe(false);
+        expect(start).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('does not set the flag when a wait was already pending (normal observed path)', async () => {
+      vi.useFakeTimers();
+      try {
+        const { controller } = createController({
+          compactionTimeoutMs: 50,
+          getCompactionTarget: () => ({
+            threadId: 'thread-fixture',
+            start: async () => { /* signal arrives via recordCompactionObserved below */ },
+          }),
+        });
+
+        const pending = controller.compactContext(50);
+        // Simulate the signal arriving during the wait.
+        controller.recordCompactionObserved(1_000);
+        await expect(pending).resolves.toBe(true);
+
+        // The flag must NOT be set (the wait consumed the observation),
+        // so the next call attempts a real RPC.
+        const start2 = vi.fn(async () => undefined);
+        (controller as unknown as { deps: { getCompactionTarget: () => unknown } }).deps.getCompactionTarget =
+          () => ({ threadId: 'thread-fixture', start: start2 });
+        const pending2 = controller.compactContext(5);
+        await vi.advanceTimersByTimeAsync(5);
+        await expect(pending2).resolves.toBe(false);
+        expect(start2).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });

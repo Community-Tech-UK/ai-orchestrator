@@ -14,6 +14,8 @@ import type {
 } from '../cli/adapters/base-cli-adapter';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { CliAdapterWorkerProxy } from '../cli/spawn-worker/cli-adapter-worker-proxy';
+import { getAdapterGuidanceBlocks } from '../cli/adapters/adapter-spawn-helpers';
+import { recordAdapterGuidanceBlocks } from '../context/context-manifest-store';
 import { rememberAdapterAccountRoute } from './account-pool/adapter-account-routes';
 import { attachAccountTelemetryBridge } from './account-pool/account-telemetry-bridge';
 import {
@@ -95,6 +97,12 @@ export class ProviderRuntimeService implements ProviderRuntimeContract {
         model: input.options.model,
         source: 'adapter-created',
       });
+      if (input.options.instanceId) {
+        recordAdapterGuidanceBlocks(
+          input.options.instanceId,
+          getAdapterGuidanceBlocks(input.options),
+        );
+      }
       return adapter;
     } catch (error) {
       this.registry.recordUnavailable({

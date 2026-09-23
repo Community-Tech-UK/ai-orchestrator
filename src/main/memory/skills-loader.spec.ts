@@ -553,6 +553,32 @@ describe('SkillsLoader', () => {
       expect(result.loaded).toHaveLength(0);
       expect(result.totalTokens).toBe(0);
     });
+
+    it('reports a detected enabled skill that cannot fit the injection budget', async () => {
+      const skipped = vi.fn();
+      loader.on('skill:skipped', skipped);
+      mockReadFile.mockResolvedValueOnce('x'.repeat(24_000));
+      const result = await loader.loadSkillsWithBudget([{
+        name: 'large',
+        description: 'Oversized skill',
+        contentPath: '/skills/large.md',
+        priority: 80,
+        similarity: 0.9,
+        source: 'trigger',
+        skillSource: 'global',
+        suggestOnly: false,
+      }], 5000);
+
+      expect(result.loaded).toEqual([]);
+      expect(result.skippedDetails).toEqual([{
+        name: 'large',
+        reason: 'budget-exceeded',
+        tokens: expect.any(Number),
+        budget: 5000,
+      }]);
+      expect(result.skippedDetails[0].tokens).toBeGreaterThan(5000);
+      expect(skipped).toHaveBeenCalledWith(result.skippedDetails[0]);
+    });
   });
 
   describe('Statistics', () => {

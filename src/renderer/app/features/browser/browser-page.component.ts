@@ -1,6 +1,5 @@
 import { CommonModule } from '@angular/common';
 import {
-  AfterViewChecked,
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
@@ -28,6 +27,7 @@ import { BrowserUnattendedPanelComponent } from './browser-unattended-panel.comp
 import { BrowserGrantPaginator } from './browser-grant-paginator';
 import {
   bindBrowserApprovalDeepLink,
+  bindBrowserApprovalFocus,
   browserApprovalCanApprove,
   browserApprovalCanApproveForever,
   browserApprovalExactOnly,
@@ -73,7 +73,7 @@ const recentAuditWindowMs = 15 * 60 * 1000;
   templateUrl: './browser-page.component.html',
   styleUrl: './browser-page.component.scss',
 })
-export class BrowserPageComponent implements OnInit, AfterViewChecked {
+export class BrowserPageComponent implements OnInit {
   private readonly ipc = inject(BrowserGatewayIpcService);
   private readonly auxIpc = inject(AuxiliaryLlmIpcService);
   private readonly remoteNodes = inject(RemoteNodeStore);
@@ -171,6 +171,7 @@ export class BrowserPageComponent implements OnInit, AfterViewChecked {
   );
 
   readonly providerCapabilityRows = computed(() => this.healthPresentation().providers.rows);
+  constructor() { bindBrowserApprovalFocus(this.focusedApprovalRequestId, this.approvalRequests, this.approvalFocus); }
 
   async ngOnInit(): Promise<void> {
     bindBrowserApprovalDeepLink({
@@ -184,8 +185,6 @@ export class BrowserPageComponent implements OnInit, AfterViewChecked {
     void this.remoteNodes.initialize();
     await this.refresh();
   }
-
-  ngAfterViewChecked(): void { this.approvalFocus.apply(this.focusedApprovalRequestId()); }
 
   async refresh(): Promise<void> {
     const isCurrent = this.latestRequests.begin('refresh');

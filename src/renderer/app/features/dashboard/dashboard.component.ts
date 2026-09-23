@@ -58,7 +58,7 @@ import {
 import { runCancelOperationCascade } from './dashboard-cancel-operation';
 import { TerminateConfirmStore } from '../../shared/terminate-confirm/terminate-confirm.store';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
-
+import { SessionRecoveryBannerComponent } from '../../shared/components/session-recovery-banner/session-recovery-banner.component';
 @Component({
   selector: 'app-dashboard',
   standalone: true,
@@ -81,7 +81,7 @@ import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive'
     WorkspaceRailComponent,
     SidebarNavComponent,
     SidebarFooterComponent,
-    BrowserPreviewNoticeComponent,
+    BrowserPreviewNoticeComponent, SessionRecoveryBannerComponent,
     SessionProgressPanelComponent, AioTooltipDirective,
   ],
   templateUrl: './dashboard.component.html',

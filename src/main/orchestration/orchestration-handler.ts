@@ -63,6 +63,8 @@ import type {
 } from './orchestration-handler.types';
 import { isParentUnavailableSuppression, OrchestrationResponseDelivery } from './orchestration-response-delivery';
 import { computeCommandSignature } from './orchestration-command-signature';
+import { areAgentSecretCardRequestsAllowed } from '../secrets/secret-card-policy';
+import { normaliseName } from '../secrets/workspace-secret-store';
 import {
   handleGetChildArtifacts,
   handleGetChildSection,
@@ -865,6 +867,12 @@ export class OrchestrationHandler extends EventEmitter {
     instanceId: string,
     command: RequestUserActionCommand
   ): void {
+    if (command.requestType === 'secret_required' && !areAgentSecretCardRequestsAllowed()) {
+      this.injectResponse(instanceId, 'request_user_action', false, {
+        message: 'Workspace secret requests are turned off in Settings.',
+      });
+      return;
+    }
     const requestId = `uar-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
     const request: UserActionRequest = {
@@ -876,7 +884,8 @@ export class OrchestrationHandler extends EventEmitter {
       targetMode: command.targetMode,
       options: command.options,
       questions: command.questions,
-      context: command.context,
+      secretRequest: command.secretRequest,
+      context: command.requestType === 'secret_required' ? undefined : command.context,
       createdAt: Date.now()
     };
 
@@ -893,6 +902,24 @@ export class OrchestrationHandler extends EventEmitter {
     logger.info('User action request created', { requestId, instanceId });
   }
 
+  getPendingSecretRequest(instanceId: string, requestId: string): NonNullable<UserActionRequest['secretRequest']> | undefined {
+    const request = this.pendingUserActions.get(requestId);
+    return request?.instanceId === instanceId && request.requestType === 'secret_required'
+      ? request.secretRequest
+      : undefined;
+  }
+
+  resolveSecretRequest(instanceId: string, requestId: string, approved: boolean, reference?: string): boolean {
+    const secret = this.getPendingSecretRequest(instanceId, requestId);
+    if (!secret) return false;
+    if (approved) {
+      if (!reference || reference !== `secret://${normaliseName(secret.name)}`) return false;
+    }
+    const request = this.pendingUserActions.get(requestId)!;
+    this.completeUserAction(request, approved, reference);
+    return true;
+  }
+
   /**
    * Respond to a pending user action request
    */
@@ -906,6 +933,20 @@ export class OrchestrationHandler extends EventEmitter {
       logger.warn('No pending user action request found', { requestId });
       return;
     }
+    if (request.requestType === 'secret_required') {
+      logger.warn('Secret card requires the dedicated response channel', { requestId });
+      return;
+    }
+
+    this.completeUserAction(request, approved, selectedOption);
+  }
+
+  private completeUserAction(
+    request: UserActionRequest,
+    approved: boolean,
+    selectedOption?: string
+  ): void {
+    const requestId = request.id;
 
     // Resolve any internal waiter first (tool permission gating, etc.).
     const waiter = this.userActionWaiters.get(requestId);

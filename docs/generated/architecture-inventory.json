@@ -6014,11 +6014,11 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3598
+      "lines": 3607
     },
     {
       "path": "src/main/instance/instance-communication.spec.ts",
-      "lines": 3566
+      "lines": 3593
     },
     {
       "path": "docs/superpowers/plans/2026-06-08-50-hour-loop-resilience_completed.md",
@@ -6041,6 +6041,10 @@
       "lines": 3193
     },
     {
+      "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
+      "lines": 3025
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-08-phase1-contracts-package_completed.md",
       "lines": 2952
     },
@@ -6050,10 +6054,6 @@
     },
     {
       "path": "docs/superpowers/plans/2026-04-18-inline-images-in-chat_completed.md",
-      "lines": 2851
-    },
-    {
-      "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
       "lines": 2851
     },
     {
@@ -6086,7 +6086,7 @@
     },
     {
       "path": "src/main/instance/instance-communication.ts",
-      "lines": 2546
+      "lines": 2545
     },
     {
       "path": "docs/superpowers/plans/2026-04-07-remote-folder-browsing_completed.md",
@@ -6106,7 +6106,7 @@
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.ts",
-      "lines": 2384
+      "lines": 2400
     },
     {
       "path": "docs/superpowers/plans/2026-07-04-control-center-shell-plan_completed.md",
@@ -6137,15 +6137,15 @@
       "lines": 2115
     },
     {
+      "path": "src/main/cli/adapters/claude-cli-adapter.ts",
+      "lines": 2105
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-13-codemem-phase1-index-and-lsp-facade_completed.md",
       "lines": 2091
     },
     {
       "path": "docs/codex_todo_completed.md",
-      "lines": 2086
-    },
-    {
-      "path": "src/main/cli/adapters/claude-cli-adapter.ts",
       "lines": 2086
     },
     {
@@ -6261,6 +6261,10 @@
       "lines": 1605
     },
     {
+      "path": "src/main/instance/__tests__/instance-manager.create.spec.ts",
+      "lines": 1597
+    },
+    {
       "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
       "lines": 1596
     },
@@ -6279,10 +6283,6 @@
     {
       "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
       "lines": 1580
-    },
-    {
-      "path": "src/main/instance/__tests__/instance-manager.create.spec.ts",
-      "lines": 1576
     },
     {
       "path": "docs/superpowers/specs/2026-04-16-ai-orchestrator-cross-repo-improvements-design.md",
@@ -6317,16 +6317,16 @@
       "lines": 1443
     },
     {
+      "path": "src/main/ipc/handlers/__tests__/instance-handlers.spec.ts",
+      "lines": 1436
+    },
+    {
       "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
       "lines": 1436
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.thread-recovery.spec.ts",
       "lines": 1426
-    },
-    {
-      "path": "src/main/ipc/handlers/__tests__/instance-handlers.spec.ts",
-      "lines": 1424
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-b-context-token-efficiency_completed.md",
@@ -6345,6 +6345,10 @@
       "lines": 1394
     },
     {
+      "path": "src/main/instance/lifecycle/interrupt-respawn-handler.ts",
+      "lines": 1386
+    },
+    {
       "path": "src/main/browser-gateway/browser-gateway-service.approvals.spec.ts",
       "lines": 1383
     },
@@ -6353,8 +6357,12 @@
       "lines": 1369
     },
     {
-      "path": "src/main/instance/lifecycle/interrupt-respawn-handler.ts",
-      "lines": 1362
+      "path": "src/main/memory/unified-controller.ts",
+      "lines": 1359
+    },
+    {
+      "path": "src/main/orchestration/orchestration-handler.ts",
+      "lines": 1353
     },
     {
       "path": "src/renderer/app/core/state/source-control.store.spec.ts",
@@ -6363,10 +6371,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-a-type-safety-utilities_completed.md",
       "lines": 1347
-    },
-    {
-      "path": "src/main/memory/unified-controller.ts",
-      "lines": 1346
     },
     {
       "path": "docs/superpowers/plans/2026-06-28-pi-borrowed-capabilities_completed.md",
@@ -6413,10 +6417,6 @@
       "lines": 1312
     },
     {
-      "path": "src/main/orchestration/orchestration-handler.ts",
-      "lines": 1312
-    },
-    {
       "path": "src/main/cli/adapters/__tests__/claude-cli-adapter.spec.ts",
       "lines": 1297
     },
@@ -6430,7 +6430,7 @@
     },
     {
       "path": "src/main/ipc/handlers/instance-handlers.ts",
-      "lines": 1280
+      "lines": 1292
     },
     {
       "path": "src/main/instance/__tests__/context-worker-client.spec.ts",
@@ -6493,16 +6493,16 @@
       "lines": 1234
     },
     {
+      "path": "src/renderer/app/features/instance-detail/output-stream.component.ts",
+      "lines": 1229
+    },
+    {
       "path": "src/worker-agent/worker-node-exec-policy.spec.ts",
       "lines": 1229
     },
     {
       "path": "src/renderer/app/core/state/local-ai-guard.store.spec.ts",
       "lines": 1228
-    },
-    {
-      "path": "src/renderer/app/features/instance-detail/output-stream.component.ts",
-      "lines": 1224
     },
     {
       "path": "src/main/orchestration/__tests__/campaign-coordinator.spec.ts",
@@ -6534,7 +6534,7 @@
     },
     {
       "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
-      "lines": 1198
+      "lines": 1202
     },
     {
       "path": "src/renderer/app/features/browser/browser-page.component.scss",
@@ -6649,6 +6649,10 @@
       "lines": 1104
     },
     {
+      "path": "src/main/cli/adapters/claude-cli-adapter.spec.ts",
+      "lines": 1104
+    },
+    {
       "path": "src/main/local-ai-guard/local-ai-health-scheduler.spec.ts",
       "lines": 1096
     },
@@ -6673,16 +6677,16 @@
       "lines": 1080
     },
     {
-      "path": "src/main/cli/adapters/claude-cli-adapter.spec.ts",
-      "lines": 1075
-    },
-    {
       "path": "src/renderer/app/features/models/model-selection-panel.component.ts",
       "lines": 1069
     },
     {
       "path": "src/main/remote-node/__tests__/rpc-schemas.spec.ts",
       "lines": 1061
+    },
+    {
+      "path": "src/renderer/app/features/loop/loop-control.component.spec.ts",
+      "lines": 1044
     },
     {
       "path": "src/main/indexing/codebase-indexing-auto-coordinator.spec.ts",
@@ -6701,20 +6705,16 @@
       "lines": 1035
     },
     {
+      "path": "src/renderer/app/features/instance-detail/user-action-request.component.ts",
+      "lines": 1034
+    },
+    {
       "path": "src/renderer/app/features/hooks/hooks-config.component.ts",
       "lines": 1031
     },
     {
       "path": "docs/superpowers/plans/2026-03-14-worktree-safety-attention-cost_superseded.md",
       "lines": 1030
-    },
-    {
-      "path": "src/renderer/app/features/instance-detail/user-action-request.component.ts",
-      "lines": 1030
-    },
-    {
-      "path": "src/renderer/app/features/loop/loop-control.component.spec.ts",
-      "lines": 1029
     },
     {
       "path": "src/main/cli/adapters/base-cli-adapter.ts",
@@ -6869,10 +6869,6 @@
       "lines": 935
     },
     {
-      "path": "src/preload/domains/orchestration.preload.ts",
-      "lines": 935
-    },
-    {
       "path": "src/main/browser-gateway/browser-credential-vault.spec.ts",
       "lines": 934
     },
@@ -6893,12 +6889,20 @@
       "lines": 920
     },
     {
+      "path": "src/main/instance/lifecycle/interrupt-respawn-handler.spec.ts",
+      "lines": 918
+    },
+    {
       "path": "src/renderer/app/core/services/new-session-draft.service.ts",
       "lines": 914
     },
     {
       "path": "src/main/ipc/learning-ipc-handler.spec.ts",
       "lines": 911
+    },
+    {
+      "path": "src/preload/domains/orchestration.preload.ts",
+      "lines": 904
     },
     {
       "path": "docs/superpowers/plans/2026-04-09-remote-session-latency_completed.md",
@@ -6917,10 +6921,6 @@
       "lines": 899
     },
     {
-      "path": "src/main/instance/lifecycle/interrupt-respawn-handler.spec.ts",
-      "lines": 891
-    },
-    {
       "path": "benchmarks/external-benchmarks/swe-bench/runner.ts",
       "lines": 888
     },
@@ -6935,6 +6935,10 @@
     {
       "path": "src/main/orchestration/loop-coordinator-terminal-intents.spec.ts",
       "lines": 887
+    },
+    {
+      "path": "src/main/memory/skills-loader.spec.ts",
+      "lines": 885
     },
     {
       "path": "src/renderer/app/features/verification/config/verification-preferences.component.ts",
@@ -6985,7 +6989,7 @@
       "lines": 862
     },
     {
-      "path": "src/main/memory/skills-loader.spec.ts",
+      "path": "src/renderer/app/features/instance-detail/user-action-request.component.spec.ts",
       "lines": 859
     },
     {
@@ -7143,10 +7147,6 @@
     {
       "path": "src/main/mcp/orchestrator-tools.ts",
       "lines": 812
-    },
-    {
-      "path": "src/renderer/app/features/instance-detail/user-action-request.component.spec.ts",
-      "lines": 811
     },
     {
       "path": "docs/plans/completed/interrupt-resume-recovery-plan_completed.md",

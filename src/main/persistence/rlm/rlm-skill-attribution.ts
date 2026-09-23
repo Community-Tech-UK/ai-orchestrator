@@ -75,6 +75,53 @@ export interface SkillHealthSummaryEntry {
   precededErrors: number;
 }
 
+export interface SkillBudgetSkipRecord {
+  id: string;
+  skillName: string;
+  skillSource: string;
+  instanceId: string | null;
+  sessionId: string | null;
+  turnKey: string | null;
+  reason: 'budget-exceeded';
+  tokens: number;
+  budget: number;
+  createdAt: number;
+}
+
+interface SkillBudgetSkipRow {
+  id: string;
+  skill_name: string;
+  skill_source: string;
+  instance_id: string | null;
+  session_id: string | null;
+  turn_key: string | null;
+  reason: 'budget-exceeded';
+  tokens: number;
+  budget: number;
+  created_at: number;
+}
+
+export function insertSkillBudgetSkip(db: SqliteDriver, skip: SkillBudgetSkipRecord): void {
+  db.prepare(`
+    INSERT INTO skill_budget_skips
+      (id, skill_name, skill_source, instance_id, session_id, turn_key,
+       reason, tokens, budget, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(skip.id, skip.skillName, skip.skillSource, skip.instanceId,
+    skip.sessionId, skip.turnKey, skip.reason, skip.tokens, skip.budget, skip.createdAt);
+}
+
+export function listSkillBudgetSkips(db: SqliteDriver, limit = 100): SkillBudgetSkipRecord[] {
+  const rows = db.prepare(`
+    SELECT * FROM skill_budget_skips ORDER BY created_at DESC, id DESC LIMIT ?
+  `).all<SkillBudgetSkipRow>(Math.max(1, Math.min(limit, 1000)));
+  return rows.map((row) => ({
+    id: row.id, skillName: row.skill_name, skillSource: row.skill_source,
+    instanceId: row.instance_id, sessionId: row.session_id, turnKey: row.turn_key,
+    reason: row.reason, tokens: row.tokens, budget: row.budget, createdAt: row.created_at,
+  }));
+}
+
 function toActivation(row: SkillActivationRow): SkillActivation {
   return {
     id: row.id,

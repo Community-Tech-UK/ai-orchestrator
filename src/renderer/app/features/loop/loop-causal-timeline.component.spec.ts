@@ -78,12 +78,17 @@ describe('LoopCausalTimelineComponent (B5)', () => {
       .toContain('continues to iteration 4 of 50');
   });
 
-  it('offers a recovery action for a capped run and emits its id', () => {
+  /**
+   * `raise-cap` is not actually wired to a handler (see
+   * `timelineRecoveryTarget`) — clicking it would only resume the run without
+   * raising anything — so it renders as informational text, not a button.
+   */
+  it('renders the capped-run recovery as text, never a dead button', () => {
     seed('cap-reached');
-    const button = fixture.nativeElement.querySelector('.loop-timeline__recovery-btn') as HTMLButtonElement;
-    expect(button.getAttribute('data-recovery-id')).toBe('raise-cap');
-    button.click();
-    expect(fixture.componentInstance.chosen).toEqual(['raise-cap']);
+    expect(fixture.nativeElement.querySelector('.loop-timeline__recovery-btn')).toBeNull();
+    const label = fixture.nativeElement.querySelector('.loop-timeline__recovery-label--info');
+    expect(label?.getAttribute('data-recovery-id')).toBe('raise-cap');
+    expect(label?.tagName).toBe('SPAN');
   });
 
   it('offers no recovery button while the run is progressing', () => {

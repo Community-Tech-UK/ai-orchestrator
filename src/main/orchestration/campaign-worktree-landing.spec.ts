@@ -59,7 +59,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   _resetWorktreeManagerForTesting();
-  rmSync(repo, { recursive: true, force: true });
+  rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
 });
 
 interface Internals {

@@ -131,7 +131,8 @@ export type UserActionRequestType =
   | 'approve_action' // Request approval for a specific action
   | 'confirm' // Generic confirmation request
   | 'select_option' // Request user to select from options
-  | 'ask_questions'; // Ask user free-form questions (renders text inputs)
+  | 'ask_questions' // Ask user free-form questions (renders text inputs)
+  | 'secret_required'; // Ask user to store a workspace secret securely
 
 /**
  * Request user action command - asks the user to approve/confirm something
@@ -154,6 +155,13 @@ export interface RequestUserActionCommand {
   }[];
   /** For ask_questions: list of questions to ask the user (renders text inputs) */
   questions?: string[];
+  /** Secret metadata only. Never include the credential value. */
+  secretRequest?: {
+    name: string;
+    label: string;
+    purpose: string;
+    expectedFormat?: 'github_pat' | 'openai_key' | 'bearer' | 'opaque';
+  };
   /** Additional context/metadata */
   context?: Record<string, unknown>;
 }

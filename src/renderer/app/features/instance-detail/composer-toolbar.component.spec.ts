@@ -24,6 +24,7 @@ import { InstanceIpcService } from '../../core/services/ipc';
 import { InstanceStore } from '../../core/state/instance.store';
 import { ToastService } from '../../core/services/toast.service';
 import { ProviderAccountIpcService } from '../../core/services/ipc/provider-account-ipc.service';
+import { HistoryPreviewSessionService } from './history-preview-session.service';
 import type { ContextUsage } from '../../core/state/instance/instance.types';
 import type {
   InstanceRuntimeSummary,
@@ -410,6 +411,36 @@ describe('ComposerToolbarComponent', () => {
     });
     expect(toastStub.show).not.toHaveBeenCalled();
   });
+});
+
+it('keeps the confirmed history model on the picker when the restored instance still reports its old model', async () => {
+  TestBed.resetTestingModule();
+  const selected = { provider: 'codex', model: 'gpt-6-astra', reasoning: 'high' } as const;
+  const historySessions = {
+    selection: vi.fn().mockReturnValue(selected),
+    confirmedSelectionForInstance: vi.fn().mockReturnValue(selected),
+    clearConfirmedSelection: vi.fn(),
+  };
+  await TestBed.configureTestingModule({
+    imports: [ComposerToolbarComponent],
+    providers: [
+      ...toolbarProviders,
+      { provide: HistoryPreviewSessionService, useValue: historySessions },
+    ],
+  }).compileComponents();
+  const fixture = TestBed.createComponent(ComposerToolbarComponent);
+  fixture.componentRef.setInput('instanceId', 'history-preview:history-1');
+  fixture.componentRef.setInput('provider', 'codex');
+  fixture.componentRef.setInput('currentModel', 'gpt-5.6-sol');
+  fixture.detectChanges();
+  fixture.componentRef.setInput('instanceId', 'real-1');
+  fixture.detectChanges();
+
+  expect(fixture.componentInstance.pickerSelection()).toEqual(selected);
+  expect(historySessions.confirmedSelectionForInstance).toHaveBeenCalledWith('real-1', 'codex', 'gpt-5.6-sol');
+  fixture.componentRef.setInput('currentReasoningEffort', 'medium');
+  fixture.detectChanges();
+  expect(fixture.componentInstance.pickerSelection()).toEqual(selected);
 });
 
 // Regression for the cross-instance leak: the live composer is a single reused

@@ -28,6 +28,7 @@ const {
   mockLogger,
   mockPlanSessionRecovery,
   mockSessionMutex,
+  mockEmitInterruptBoundary,
 } = vi.hoisted(() => ({
   mockSupervisor: { recordInterrupt: vi.fn(), recordTurnEnd: vi.fn(), recordAdapterSetup: vi.fn() },
   mockCircuitBreaker: { recordAttempt: vi.fn(() => 0), isOpen: vi.fn(() => false) },
@@ -49,6 +50,7 @@ const {
     acquire: vi.fn().mockResolvedValue(vi.fn()),
     getLockInfo: vi.fn(() => null as null | { source: string; acquiredAt: number; durationMs: number; owner?: { operation?: string } }),
   },
+  mockEmitInterruptBoundary: vi.fn(),
 }));
 
 vi.mock('../../logging/logger', () => ({
@@ -82,7 +84,7 @@ vi.mock('./session-recovery', () => ({
 }));
 
 vi.mock('../../display-items/interrupt-boundary-renderer', () => ({
-  emitInterruptBoundaryDisplayMarker: vi.fn(),
+  emitInterruptBoundaryDisplayMarker: mockEmitInterruptBoundary,
 }));
 
 vi.mock('../../providers/provider-runtime-service', () => ({
@@ -413,6 +415,31 @@ describe('InterruptRespawnHandler.interrupt()', () => {
     expect(state.transitions).not.toContain('cancelled');
     expect(adapter.terminate).not.toHaveBeenCalled();
     expect(state.outputMessages.some((m) => /force-cancelled/i.test(m.content))).toBe(false);
+  });
+
+  it('records a completed in-place Stop and allows a later resident process exit to recover', () => {
+    const instance = makeInstance({ status: 'busy' });
+    const state: FakeDepsState = { instance, adapter: makeAdapter(), queueUpdateCalls: [], outputMessages: [], transitions: [] };
+    const handler = new InterruptRespawnHandler(makeDeps(state));
+
+    handler.interrupt('inst-1');
+    expect(instance.autoRespawnSuppressedUntil).toBeGreaterThan(Date.now());
+    instance.status = 'idle';
+    handler.noteInterruptSettled('inst-1');
+
+    expect(instance.autoRespawnSuppressedUntil).toBeUndefined();
+    expect(mockEmitInterruptBoundary).toHaveBeenCalledWith(instance, expect.objectContaining({
+      phase: 'completed', outcome: 'cancelled', requestId: instance.interruptRequestId,
+    }), expect.anything());
+    expect(state.outputMessages).toContainEqual(expect.objectContaining({
+      content: 'Interrupted — waiting for input',
+    }));
+    expect(state.queueUpdateCalls.at(-1)?.[0]).toBe('inst-1');
+    expect(state.queueUpdateCalls.at(-1)?.[1]).toBe('idle');
+    expect(state.queueUpdateCalls.at(-1)?.[7]).toMatchObject({
+      interruptPhase: 'completed', lastTurnOutcome: 'interrupted',
+    });
+    expect(state.queueUpdateCalls.at(-1)?.[10]).toBeNull();
   });
 
   it('noteInterruptSettled is a no-op when no interrupt is in flight', () => {

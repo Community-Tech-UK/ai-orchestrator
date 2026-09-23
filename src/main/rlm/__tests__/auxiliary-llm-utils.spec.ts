@@ -88,8 +88,17 @@ describe('pickModelForTier', () => {
       expect(pickModelForTier(ids, 'quality', loaded)).toBe('google/gemma-4-31b');
     });
 
-    it('quick picks the smallest loaded model', () => {
+    it('quick picks the smallest known model regardless of what is loaded', () => {
       expect(pickModelForTier(ids, 'quick', loaded)).toBe('nvidia/nemotron-3-nano-4b');
+    });
+
+    it('quick JIT-picks the smallest model even when only a huge model is loaded', () => {
+      // Regression: a `quality` slot loaded the 31b model and nothing else is
+      // resident. Restricting `quick` to the loaded pool used to force it onto
+      // that 31b model too, guaranteeing latency-budget timeouts. `quick` must
+      // ignore residency and pick the smallest known model outright.
+      const onlyHugeLoaded = new Map<string, number>([['google/gemma-4-31b', 32768]]);
+      expect(pickModelForTier(ids, 'quick', onlyHugeLoaded)).toBe('nvidia/nemotron-3-nano-4b');
     });
 
     it('falls back to size-based pick when nothing in the pool is loaded', () => {

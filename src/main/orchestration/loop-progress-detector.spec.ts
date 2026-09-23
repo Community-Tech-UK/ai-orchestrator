@@ -537,6 +537,11 @@ describe('LoopProgressDetector aggregator', () => {
     const result = det.evaluate(state, [], current);
     // 2 prior warns + this iteration warn = 3 warns; warnEscalationCount default = 3 → CRITICAL
     expect(result.verdict).toBe('CRITICAL');
+    expect(result.primary?.id).toBe('C');
+    expect(result.signals).toHaveLength(1);
+    expect(result.signals[0]).toMatchObject({ id: 'C', verdict: 'CRITICAL' });
+    expect(result.signals[0].message).toContain('iterations on PLAN');
+    expect(result.signals[0].message).toContain('escalated to CRITICAL');
   });
 
   it('CRITICAL signal short-circuits to CRITICAL', () => {

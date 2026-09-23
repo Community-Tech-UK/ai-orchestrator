@@ -119,11 +119,11 @@ export interface BuildClaudeCliArgsInput {
   /** Precomputed by the adapter (`shouldUsePermissionHook()`) — depends on CLI version gating. */
   shouldUsePermissionHook: boolean;
   /**
-   * Materializes an inline-JSON arg to a temp-file path on Windows (no-op on
-   * POSIX). Injected so this module stays free of the adapter's temp-file
-   * lifecycle state.
+   * Materializes inline JSON to a private file on Windows, and always for MCP
+   * configs when forceFile is true. Injected so this module stays free of the
+   * adapter's temp-file lifecycle state.
    */
-  materializeInlineJsonArg: (value: string) => string;
+  materializeInlineJsonArg: (value: string, forceFile?: boolean) => string;
 }
 
 export function buildClaudeCliArgs(input: BuildClaudeCliArgsInput): string[] {
@@ -300,12 +300,12 @@ export function buildClaudeCliArgs(input: BuildClaudeCliArgsInput): string[] {
     args.push(flag, spawnOptions.systemPrompt);
   }
 
-  // MCP server configurations (file paths or inline JSON strings). On Windows
-  // inline JSON is materialized to a temp file path — see materializeInlineJsonArg.
+  // MCP server configurations may contain decrypted workspace secrets. Keep
+  // all inline JSON out of process argv on every platform.
   if (spawnOptions.mcpConfig && spawnOptions.mcpConfig.length > 0) {
     args.push(
       '--mcp-config',
-      ...spawnOptions.mcpConfig.map((entry) => materializeInlineJsonArg(entry)),
+      ...spawnOptions.mcpConfig.map((entry) => materializeInlineJsonArg(entry, true)),
     );
   }
 

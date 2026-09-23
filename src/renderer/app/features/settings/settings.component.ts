@@ -91,6 +91,7 @@ import {
 } from './settings-navigation';
 import { bindSettingsViewportMediaQueries } from './settings-viewport-media';
 import { SettingsHelpDrawerFocus } from './settings-help-drawer-focus';
+import { SettingsCompactNavFocus } from './settings-compact-nav-focus';
 
 @Component({
   selector: 'app-settings',
@@ -145,7 +146,9 @@ export class SettingsComponent implements AfterViewChecked {
   private destroyRef = inject(DestroyRef);
   private readonly hostRef = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly helpDrawerFocus = new SettingsHelpDrawerFocus();
+  private readonly compactNavFocus = new SettingsCompactNavFocus();
   private readonly helpDrawer = viewChild<ElementRef<HTMLElement>>('helpDrawer');
+  private readonly compactNav = viewChild<ElementRef<HTMLElement>>('compactNav');
   private activeFragmentTab: SettingsTab | null = null;
 
   /** Still emitted when opened as a modal (legacy callers). */
@@ -429,6 +432,7 @@ export class SettingsComponent implements AfterViewChecked {
     });
     this.destroyRef.onDestroy(stopStartupCapabilities);
     this.destroyRef.onDestroy(() => this.helpDrawerFocus.destroy());
+    this.destroyRef.onDestroy(() => this.compactNavFocus.destroy());
 
     this.route.fragment.pipe(takeUntilDestroyed()).subscribe((fragment) => {
       this.activeFragmentTab = isSettingsTab(fragment) ? fragment : null;
@@ -587,7 +591,7 @@ export class SettingsComponent implements AfterViewChecked {
       return;
     }
     if (this.compactViewport() && this.compactNavOpen()) {
-      this.compactNavOpen.set(false);
+      this.closeCompactNav();
       event.stopPropagation();
       return;
     }
@@ -619,6 +623,7 @@ export class SettingsComponent implements AfterViewChecked {
 
   ngAfterViewChecked(): void {
     this.helpDrawerFocus.sync(this.helpDrawerOpen(), this.helpDrawer()?.nativeElement ?? null);
+    this.compactNavFocus.sync(this.compactViewport() && this.compactNavOpen(), this.compactNav()?.nativeElement ?? null);
   }
 
   closeCompactNav(): void {

@@ -996,6 +996,18 @@ describe('instance-handlers', () => {
   // ----------------------------------------------------------
 
   describe('USER_ACTION_RESPOND', () => {
+    it('refuses secret cards on the generic response channel', async () => {
+      const orchestration = mockInstanceManager.getOrchestrationHandler();
+      vi.mocked(orchestration.getPendingUserActions).mockReturnValue([{ id: 'uar-secret', requestType: 'secret_required' }] as never);
+
+      const result = await invoke(IPC_CHANNELS.USER_ACTION_RESPOND, {
+        requestId: 'uar-secret', approved: true, selectedOption: 'PLACEHOLDER_ONLY',
+      });
+
+      expect(result.success).toBe(false);
+      expect(orchestration.respondToUserAction).not.toHaveBeenCalled();
+      expect(mockClearPrompt).not.toHaveBeenCalled();
+    });
     it('dispatches approval to orchestration handler', async () => {
       const result = await invoke(IPC_CHANNELS.USER_ACTION_RESPOND, {
         requestId: 'req-1',

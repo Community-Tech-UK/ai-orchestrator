@@ -503,7 +503,9 @@ const ALLOWLIST: Record<string, number> = {
   // Raised 1266 -> 1297 (2026-07-17 thread-resilience stream updates).
   // Re-tightened 1297 -> 1290: compaction-recovery labels, failed-image
   // filter, and message context-menu items extracted.
-  'src/renderer/app/features/instance-detail/output-stream.component.ts': 1222,
+  // Raised 1222 -> 1228: AsyncQuestionAnswersComponent import + registration and
+  // the asyncAnswerTarget input chat hosts use (the logic lives in that component).
+  'src/renderer/app/features/instance-detail/output-stream.component.ts': 1228,
   // Allowlisted at 747 when the Outputs rows gained a right-click context menu
   // (Open with preferred program / Open in editor / Open in Finder / Copy path),
   // mirroring session-artifacts-strip. Inline template + styles push it past 700.

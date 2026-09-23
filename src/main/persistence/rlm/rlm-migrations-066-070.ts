@@ -39,4 +39,30 @@ export const RLM_MIGRATIONS_066_070: Migration[] = [
       DROP TABLE IF EXISTS session_observation_events;
     `,
   },
+  {
+    name: '067_skill_budget_skips',
+    up: `
+      CREATE TABLE IF NOT EXISTS skill_budget_skips (
+        id TEXT PRIMARY KEY,
+        skill_name TEXT NOT NULL,
+        skill_source TEXT NOT NULL,
+        instance_id TEXT,
+        session_id TEXT,
+        turn_key TEXT,
+        reason TEXT NOT NULL CHECK (reason = 'budget-exceeded'),
+        tokens INTEGER NOT NULL,
+        budget INTEGER NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_skill_budget_skips_time
+        ON skill_budget_skips(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_skill_budget_skips_skill_time
+        ON skill_budget_skips(skill_name, created_at DESC);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_skill_budget_skips_skill_time;
+      DROP INDEX IF EXISTS idx_skill_budget_skips_time;
+      DROP TABLE IF EXISTS skill_budget_skips;
+    `,
+  },
 ];

@@ -1167,6 +1167,27 @@ describe('InstanceManager', () => {
       expect((createdPayload as { id: string }).id).toBe(instance.id);
     });
 
+    it.each(['low', 'xhigh', null] as const)(
+      'publishes the resolved spawn reasoning effort after early creation (%s)',
+      async (reasoningEffort) => {
+        const updates: Array<{ instanceId: string; reasoningEffort?: string | null }> = [];
+        manager.on('instance:state-update', (payload) => updates.push(payload));
+
+        const instance = await manager.createInstance({
+          workingDirectory: TEST_WORKING_DIR,
+          provider: 'claude',
+          reasoningEffort,
+        });
+        await instance.readyPromise;
+
+        expect(instance.reasoningEffort).toBe(reasoningEffort ?? undefined);
+        expect(updates).toContainEqual(expect.objectContaining({
+          instanceId: instance.id,
+          reasoningEffort,
+        }));
+      },
+    );
+
     it('sets parentId when parentId is provided in config', async () => {
       const parent = await manager.createInstance({
         workingDirectory: TEST_WORKING_DIR,

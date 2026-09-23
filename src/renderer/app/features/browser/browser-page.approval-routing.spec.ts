@@ -105,8 +105,8 @@ describe('BrowserPageComponent approval deep link', () => {
     );
     expect(card).not.toBeNull();
     expect(card?.getAttribute('tabindex')).toBe('-1');
-    fixture.componentInstance.ngAfterViewChecked();
     expect(focus).toHaveBeenCalled();
+    expect(document.activeElement).toBe(card);
     expect(card?.textContent).toContain('Request 1 of 1');
     expect(card?.textContent).toContain('#request-');
     expect(card?.querySelector('.autonomous-controls')).not.toBeNull();
@@ -132,8 +132,6 @@ describe('BrowserPageComponent approval deep link', () => {
     ];
     queryParams.next(convertToParamMap({ view: 'permissions', requestId: nextRequestId }));
     await fixture.whenStable();
-    fixture.detectChanges();
-    fixture.componentInstance.ngAfterViewChecked();
 
     expect(fixture.componentInstance.focusedApprovalRequestId()).toBe(nextRequestId);
     const nextCard = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
@@ -145,5 +143,6 @@ describe('BrowserPageComponent approval deep link', () => {
       .map((button) => button.textContent?.trim())).toEqual(['Allow once', 'Deny']);
     expect(nextCard?.style.outline).toContain('2px solid');
     expect(focus).toHaveBeenCalledTimes(2);
+    expect(document.activeElement).toBe(nextCard);
   });
 });

@@ -86,6 +86,7 @@ import {
 } from './adapter-spawn-helpers';
 import { createGrokAdapter } from './grok-adapter-factory';
 import { createOpenCodeAdapter } from './opencode-adapter-factory';
+import { createPrivateCliJsonConfig } from './private-cli-json-config';
 
 const logger = getLogger('AdapterFactory');
 const INTERACTIVE_RUNTIME_UNAVAILABLE =
@@ -445,6 +446,9 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
     ...mobileMcpServers,
   ];
   const additionalMcpConfig = buildCopilotAdditionalMcpConfig(copilotMcpServers);
+  const privateMcpConfig = additionalMcpConfig
+    ? createPrivateCliJsonConfig(additionalMcpConfig)
+    : null;
   return new AcpCliAdapter({
     adapterName: 'copilot-acp',
     contextCapabilityProfile: 'copilot-acp',
@@ -467,7 +471,7 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
       '--no-ask-user',
       ...providerStateArgs,
       ...modelArgs,
-      ...(additionalMcpConfig ? ['--additional-mcp-config', additionalMcpConfig] : []),
+      ...(privateMcpConfig ? ['--additional-mcp-config', privateMcpConfig.argument] : []),
     ],
     workingDirectory: options.workingDirectory ?? process.cwd(),
     sessionId: options.sessionId,
@@ -491,6 +495,9 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
     // the 5+ parallel-children fan-out pattern that amplified the hang.
     concurrencyLimiter: getProviderConcurrencyLimiter(),
     concurrencyKey: 'copilot',
+    ...(privateMcpConfig ? {
+      prepareSpawn: privateMcpConfig.prepare,
+    } : {}),
     ...(options.concurrencyPriority === 'overflow' ? { concurrencyPriority: 'overflow' as const } : {}),
   });
 }

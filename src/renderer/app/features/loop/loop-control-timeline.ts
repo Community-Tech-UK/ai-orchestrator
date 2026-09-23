@@ -43,5 +43,5 @@ export function loopTimelineForRun(run: LoopTimelineRun | undefined | null): Loo
  * than the sentence explaining what to do.
  */
 export function timelineRecoveryTarget(id: string): 'resume' | null {
-  return id === 'resume' || id === 'raise-cap' ? 'resume' : null;
+  return id === 'resume' ? 'resume' : null;
 }

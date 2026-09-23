@@ -253,6 +253,10 @@ export class IpcMainHandler {
       ensureTrustedSender: this.ensureTrustedSender.bind(this),
       getWorkingDirectory: (id) => this.instanceManager.getInstance(id)?.workingDirectory,
       notifyAgent: async (id, message) => { await this.instanceManager.sendInput(id, message); },
+      getPendingOrchestrationSecretRequest: (id, requestId) =>
+        this.instanceManager.getOrchestrationHandler().getPendingSecretRequest(id, requestId),
+      resolveOrchestrationSecretRequest: (id, requestId, approved, reference) =>
+        this.instanceManager.getOrchestrationHandler().resolveSecretRequest(id, requestId, approved, reference),
     });
     setWorkspaceSecretWorkingDirectoryLookup(
       (id) => this.instanceManager.getInstance(id)?.workingDirectory,

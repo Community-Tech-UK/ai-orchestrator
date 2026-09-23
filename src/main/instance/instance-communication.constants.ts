@@ -3,7 +3,7 @@
  * No dependency on manager state.
  */
 
-import type { InstanceStatus, OutputMessage } from '../../shared/types/instance.types';
+import type { Instance, InstanceStatus, OutputMessage } from '../../shared/types/instance.types';
 
 export const RESPONSE_PREVIEW_LENGTH = 120;
 export const RECENT_ADAPTER_ERROR_OUTPUT_DEDUP_MS = 1_000;
@@ -27,6 +27,18 @@ export const CHILD_TURN_COMPLETE_STATUSES = new Set<InstanceStatus>([
   'ready',
   'waiting_for_input',
 ]);
+
+export function resolveSettledTurnOutcome(
+  instance: Pick<Instance, 'interruptPhase' | 'lastTurnOutcome'>,
+): 'completed' | 'interrupted' | 'cancelled' {
+  if (instance.interruptPhase === 'escalated') return 'cancelled';
+  if (instance.interruptPhase === 'requested'
+    || instance.interruptPhase === 'accepted'
+    || instance.interruptPhase === 'completed') {
+    return instance.lastTurnOutcome === 'cancelled' ? 'cancelled' : 'interrupted';
+  }
+  return 'completed';
+}
 
 /**
  * Per-instance circuit breaker state for detecting rapid empty responses.

@@ -129,11 +129,7 @@ import type {
         padding: 14px;
         border: 1px solid var(--border-subtle);
         border-radius: var(--radius-lg);
-        background: linear-gradient(
-          180deg,
-          rgba(var(--primary-rgb), 0.08) 0%,
-          rgba(0, 0, 0, 0.08) 100%
-        );
+        background: var(--card-bg);
       }
 
       .instruction-header {
@@ -146,7 +142,7 @@ import type {
       .instruction-eyebrow {
         font-size: 11px;
         font-weight: 600;
-        color: var(--text-muted);
+        color: var(--text-secondary);
       }
 
       .instruction-title {
@@ -174,7 +170,7 @@ import type {
         padding: 6px 10px;
         border: 1px solid var(--border-subtle);
         border-radius: 999px;
-        background: rgba(0, 0, 0, 0.18);
+        background: var(--bg-tertiary);
         font-size: 12px;
         color: var(--text-secondary);
       }
@@ -202,7 +198,7 @@ import type {
       .instruction-subtitle {
         font-size: 12px;
         font-weight: 600;
-        color: var(--text-muted);
+        color: var(--text-secondary);
       }
 
       .instruction-source-list {
@@ -215,9 +211,9 @@ import type {
 
       .instruction-source {
         padding: 10px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        border: 1px solid var(--border-color);
         border-radius: var(--radius-md);
-        background: rgba(0, 0, 0, 0.14);
+        background: var(--bg-secondary);
       }
 
       .instruction-source.applied {
@@ -235,20 +231,20 @@ import type {
       .instruction-source-state {
         padding: 2px 8px;
         border-radius: 999px;
-        background: rgba(245, 158, 11, 0.15);
-        color: #fbbf24;
+        background: var(--pill-warn-bg);
+        color: var(--text-primary);
         font-size: 11px;
         font-weight: 600;
       }
 
       .instruction-source-state.applied {
-        background: rgba(16, 185, 129, 0.18);
-        color: #6ee7b7;
+        background: var(--pill-ok-bg);
+        color: var(--text-primary);
       }
 
       .instruction-source-state.missing {
-        background: rgba(239, 68, 68, 0.15);
-        color: #fca5a5;
+        background: var(--pill-error-bg);
+        color: var(--text-primary);
       }
 
       .instruction-source-label {
@@ -269,14 +265,14 @@ import type {
       .instruction-source-detail {
         margin-top: 4px;
         font-size: 11px;
-        color: var(--text-muted);
+        color: var(--text-secondary);
         display: flex;
         gap: 8px;
         flex-wrap: wrap;
       }
 
       .instruction-source-detail.muted {
-        color: var(--text-muted);
+        color: var(--text-secondary);
       }
 
       .instruction-pre {
@@ -284,7 +280,7 @@ import type {
         padding: 12px;
         border: 1px solid var(--border-subtle);
         border-radius: var(--radius-md);
-        background: rgba(0, 0, 0, 0.18);
+        background: var(--surface-sunken-bg);
         color: var(--text-primary);
         font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
         font-size: 12px;
@@ -297,7 +293,7 @@ import type {
       .placeholder.small {
         padding: 12px;
         font-size: 12px;
-        color: var(--text-muted);
+        color: var(--text-secondary);
       }
 
       .btn {
@@ -340,8 +336,8 @@ import type {
         padding: 10px;
         border-radius: var(--radius-md);
         border: 1px solid rgba(245, 158, 11, 0.35);
-        background: rgba(245, 158, 11, 0.08);
-        color: #fbbf24;
+        background: var(--pill-warn-bg);
+        color: var(--text-primary);
         font-size: 12px;
       }
 
@@ -352,7 +348,7 @@ import type {
         padding: 12px;
         border: 1px solid var(--border-subtle);
         border-radius: var(--radius-md);
-        background: rgba(0, 0, 0, 0.2);
+        background: var(--surface-sunken-bg);
         color: var(--text-primary);
         font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
           'Liberation Mono', 'Courier New', monospace;

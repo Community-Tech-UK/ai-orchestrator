@@ -10,6 +10,7 @@ import {
   computed,
   inject,
   signal,
+  viewChild,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import type { SkillBundle, SkillMatch } from '../../../../shared/types/skill.types';
@@ -412,6 +413,7 @@ const DEFAULT_DISCOVERY_PATHS = '.claude/skills\n.codex/skills\nskills';
 })
 export class SkillsPageComponent implements OnInit {
   private readonly orchestrationIpc = inject(OrchestrationIpcService);
+  private readonly healthPanel = viewChild(SkillHealthPanelComponent);
 
   readonly skills = signal<SkillCardState[]>([]);
   readonly installedSkillIds = signal(new Set<string>());
@@ -451,6 +453,7 @@ export class SkillsPageComponent implements OnInit {
 
       const bundles = this.extractData<SkillBundle[]>(response) || [];
       this.skills.set(this.mapSkillCards(bundles, this.installedSkillIds(), null));
+      await this.healthPanel()?.refresh();
       await this.refreshMemory();
     } finally {
       this.working.set(false);
@@ -473,6 +476,7 @@ export class SkillsPageComponent implements OnInit {
 
       const bundles = this.extractData<SkillBundle[]>(response) || [];
       this.skills.set(this.mapSkillCards(bundles, this.installedSkillIds(), null));
+      await this.healthPanel()?.refresh();
     } finally {
       this.working.set(false);
     }

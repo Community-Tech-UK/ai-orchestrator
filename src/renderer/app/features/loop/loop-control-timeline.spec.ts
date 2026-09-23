@@ -31,9 +31,9 @@ describe('loopTimelineForRun spend provenance', () => {
 });
 
 describe('timelineRecoveryTarget', () => {
-  it('maps resume-style recoveries to the resume action', () => {
+  it('maps only the live resume recovery to the resume action', () => {
     expect(timelineRecoveryTarget('resume')).toBe('resume');
-    expect(timelineRecoveryTarget('raise-cap')).toBe('resume');
+    expect(timelineRecoveryTarget('raise-cap')).toBeNull();
   });
 
   it('leaves the deliberate no-ops unrouted', () => {

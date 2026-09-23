@@ -31,11 +31,14 @@ import { wrapCodexSystemInstructions } from './codex/codex-prompt-blocks';
 import { createCodexTurnCaptureState } from './codex/app-server-thread-runtime';
 import { CodexAppServerRuntimeError, createCodexUsageLimitError } from './codex/app-server-runtime-errors';
 import { codexLimitResetAt, parseCodexAccountRateLimitsRead } from './codex/account-rate-limits';
+import { readChildRolloutUsage } from './codex/child-rollout-usage';
 
 const USAGE_LIMIT_RATE_LIMITS_TIMEOUT_MS = 3_000;
 
 /** Executes app-server turns using the notification-routing layer. */
 export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificationAdapter {
+  private readonly childRolloutRetryTimers = new Set<ReturnType<typeof setTimeout>>();
+  private childRolloutRetryEpoch = 0;
   /**
    * Fresh per user send. Minted in `appServerSendMessage`, the only user-send
    * entry, so recovery continuations and the input-cap retry keep it.
@@ -114,13 +117,19 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     });
     this.hasTokenUsageNotification = false;
     this.usageAccounting.beginTurn(rootThreadId, resumed);
+    const startedAtMs = Date.now();
     try {
       turnState = await this.captureTurn(input, metadata);
     } catch (error) {
       this.flushPartialUsage();
       throw error;
     }
+    const endedAtMs = Date.now();
     this.usageAccounting.fallback(rootThreadId, turnState.finalTurn?.usage as Record<string, unknown> | undefined);
+    if (turnState.turnId) await this.reconcileChildRollouts(rootThreadId, turnState.turnId, startedAtMs, endedAtMs);
+    if (turnState.finalTurn?.status === 'interrupted' && !turnState.finalTurn.usage) {
+      this.usageAccounting.estimateInterruptedOutput(rootThreadId, this.unreportedStreamedCharacters(turnState));
+    }
     this.cumulativeTokensUsed = this.usageAccounting.cumulativeTokens;
     if (turnState.finalTurn?.status === 'failed' || turnState.finalTurn?.status === 'interrupted' || turnState.error) {
       this.flushPartialUsage();
@@ -133,6 +142,7 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
         continuation, undefined, nextCount, metadata,
       ),
     })) {
+      if (turnState.turnId) this.scheduleChildRolloutRetry(rootThreadId, turnState.turnId, startedAtMs, endedAtMs);
       return;
     }
 
@@ -140,6 +150,7 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     // Codex reports these as turn/completed with status: "failed".
     const turnStatus = turnState.finalTurn?.status;
     if (turnStatus === 'failed' || turnState.error) {
+      if (turnState.turnId) this.scheduleChildRolloutRetry(rootThreadId, turnState.turnId, startedAtMs, endedAtMs);
       const finalTurnDetails = turnState.finalTurn?.error !== undefined && turnState.finalTurn.error !== null
         ? extractCodexAppServerError({ error: turnState.finalTurn.error })
         : undefined;
@@ -154,7 +165,10 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
       throw new Error(errorMsg);
     }
 
-    if (turnStatus === 'interrupted') return;
+    if (turnStatus === 'interrupted') {
+      if (turnState.turnId) this.scheduleChildRolloutRetry(rootThreadId, turnState.turnId, startedAtMs, endedAtMs);
+      return;
+    }
 
     // Emit the final response
     const responseContent = turnState.lastAgentMessage || '';
@@ -234,7 +248,53 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
         costBasis: 'standard-api-equivalent',
       } },
     };
+    if (turnState.turnId) this.scheduleChildRolloutRetry(rootThreadId, turnState.turnId, startedAtMs, endedAtMs);
     this.completeResponse(response);
+  }
+
+  override async terminate(graceful = true): Promise<void> {
+    this.childRolloutRetryEpoch++;
+    for (const timer of this.childRolloutRetryTimers) clearTimeout(timer);
+    this.childRolloutRetryTimers.clear();
+    await super.terminate(graceful);
+  }
+
+  private scheduleChildRolloutRetry(
+    rootThreadId: string,
+    rootTurnId: string,
+    startedAtMs: number,
+    endedAtMs: number,
+    attempt = 0,
+  ): void {
+    const delays = [250, 750, 2_000];
+    const delay = delays[attempt];
+    if (delay === undefined) return;
+    const epoch = this.childRolloutRetryEpoch;
+    const timer = setTimeout(() => {
+      this.childRolloutRetryTimers.delete(timer);
+      if (epoch !== this.childRolloutRetryEpoch) return;
+      void this.reconcileChildRollouts(rootThreadId, rootTurnId, startedAtMs, endedAtMs)
+        .then(() => {
+          if (epoch !== this.childRolloutRetryEpoch) return;
+          if (!this.appServerRuntime.hasActiveTurn()) this.flushPartialUsage();
+        })
+        .catch(() => { /* A transient rollout read can be retried at the next bounded attempt. */ })
+        .finally(() => {
+          if (epoch === this.childRolloutRetryEpoch) {
+            this.scheduleChildRolloutRetry(rootThreadId, rootTurnId, startedAtMs, endedAtMs, attempt + 1);
+          }
+        });
+    }, delay);
+    timer.unref?.();
+    this.childRolloutRetryTimers.add(timer);
+  }
+
+  protected async reconcileChildRollouts(rootThreadId: string, rootTurnId: string, startedAtMs: number, endedAtMs: number): Promise<void> {
+    for (const { threadId, usage, baseline } of await readChildRolloutUsage(rootThreadId, rootTurnId, { startedAtMs, endedAtMs })) {
+      if (baseline && !this.usageAccounting.hasThreadSnapshot(threadId)) this.usageAccounting.seed(threadId, baseline);
+      this.usageAccounting.observe(threadId, usage, undefined, true);
+    }
+    this.cumulativeTokensUsed = this.usageAccounting.cumulativeTokens;
   }
 
   /**

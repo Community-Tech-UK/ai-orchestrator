@@ -50,6 +50,7 @@ vi.mock('./skills-loader', () => ({
 
 const skillAttributionMock = {
   recordActivation: vi.fn(),
+  recordBudgetSkip: vi.fn(),
 };
 
 vi.mock('../skills/skill-attribution-service', () => ({
@@ -164,6 +165,30 @@ describe('UnifiedMemoryController hardening', () => {
       matchScore: 0.9,
       tokensInjected: 300,
       autoSelected: true,
+    });
+  });
+
+  it('records an oversized enabled skill skipped on a turn without an activation', async () => {
+    const oversized = {
+      name: 'ui-ux-pro-max', description: 'Design skill', contentPath: '/skills/ui-ux-pro-max/SKILL.md',
+      priority: 50, similarity: 0.9, source: 'trigger' as const,
+      matchedTrigger: '/ui-ux-pro-max', skillSource: 'global' as const, suggestOnly: false,
+    };
+    skillsLoaderMock.detectRelevantSkills.mockResolvedValue([oversized]);
+    skillsLoaderMock.loadSkillsWithBudget.mockResolvedValue({
+      content: [], loadedDetails: [], skippedDetails: [{
+        name: 'ui-ux-pro-max', reason: 'budget-exceeded', tokens: 10932, budget: 5000,
+      }],
+    });
+
+    await getUnifiedMemory().retrieve('/ui-ux-pro-max audit this design', 'turn-547', {
+      types: ['skills'], instanceId: 'inst-547', sessionId: 'sess-547',
+    });
+
+    expect(skillAttributionMock.recordActivation).not.toHaveBeenCalled();
+    expect(skillAttributionMock.recordBudgetSkip).toHaveBeenCalledWith({
+      skillName: 'ui-ux-pro-max', skillSource: 'global', instanceId: 'inst-547',
+      sessionId: 'sess-547', turnKey: 'turn-547', tokens: 10932, budget: 5000,
     });
   });
 

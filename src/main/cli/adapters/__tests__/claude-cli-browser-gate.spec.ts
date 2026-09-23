@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 
 vi.mock('../../../logging/logger', () => ({
   getLogger: () => ({
@@ -14,8 +15,10 @@ import { ClaudeCliAdapter } from '../claude-cli-adapter';
 import { CHROME_DEVTOOLS_MCP_VERSION } from '../../../browser-gateway/chrome-devtools-mcp-config';
 
 const CHROME_DEVTOOLS_MCP_PACKAGE = `chrome-devtools-mcp@${CHROME_DEVTOOLS_MCP_VERSION}`;
+const materializedAdapters: ClaudeCliAdapter[] = [];
 
 function buildArgs(adapter: ClaudeCliAdapter): string[] {
+  materializedAdapters.push(adapter);
   return (
     adapter as unknown as {
       buildArgs(message: { role: 'user'; content: string }): string[];
@@ -23,14 +26,25 @@ function buildArgs(adapter: ClaudeCliAdapter): string[] {
   ).buildArgs({ role: 'user', content: 'hello' });
 }
 
+function mcpConfigAt(args: string[], index: number): {
+  mcpServers: Record<string, Record<string, unknown>>;
+} {
+  return JSON.parse(readFileSync(args[index], 'utf8')) as {
+    mcpServers: Record<string, Record<string, unknown>>;
+  };
+}
+
 describe('Claude CLI browser gate', () => {
-  // These assertions inspect the canonical (POSIX) MCP-config form: inline JSON
-  // for `--mcp-config` and an unwrapped `npx` command. On Windows the inline
-  // JSON is materialized to a temp file and `npx` is wrapped as `cmd /c npx`
-  // (covered by the win32-specific materialization tests), so pin POSIX here.
+  // Pin POSIX for the unwrapped npx command. Inline MCP JSON is materialized
+  // to a private temp file on every platform.
   const originalPlatform = process.platform;
   beforeEach(() => Object.defineProperty(process, 'platform', { value: 'linux', configurable: true }));
-  afterEach(() => Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true }));
+  afterEach(() => {
+    for (const adapter of materializedAdapters.splice(0)) {
+      (adapter as unknown as { cleanupInlineArgTempDir: () => void }).cleanupInlineArgTempDir();
+    }
+    Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+  });
 
   it('does not pass --chrome by default', () => {
     const adapter = new ClaudeCliAdapter({});
@@ -57,7 +71,7 @@ describe('Claude CLI browser gate', () => {
     const args = buildArgs(adapter);
     const mcpConfigIndex = args.indexOf('--mcp-config');
     expect(mcpConfigIndex).toBeGreaterThanOrEqual(0);
-    const config = JSON.parse(args[mcpConfigIndex + 1]);
+    const config = mcpConfigAt(args, mcpConfigIndex + 1);
     expect(config.mcpServers['browser-gateway']).toMatchObject({
       command: '/tmp/aio-mcp',
       args: ['browser-gateway'],
@@ -77,7 +91,7 @@ describe('Claude CLI browser gate', () => {
     const args = buildArgs(adapter);
     const mcpConfigIndex = args.indexOf('--mcp-config');
     expect(mcpConfigIndex).toBeGreaterThanOrEqual(0);
-    const config = JSON.parse(args[mcpConfigIndex + 1]);
+    const config = mcpConfigAt(args, mcpConfigIndex + 1);
     expect(config.mcpServers['chrome-devtools']).toEqual({
       command: 'npx',
       args: ['-y', CHROME_DEVTOOLS_MCP_PACKAGE, '--browserUrl', 'http://127.0.0.1:31234'],
@@ -91,7 +105,9 @@ describe('Claude CLI browser gate', () => {
     });
 
     const args = buildArgs(adapter);
-    const chromeDevtoolsConfigs = args.filter((arg) => arg.includes('"chrome-devtools"'));
+    const chromeDevtoolsConfigs = args
+      .filter((arg) => arg.endsWith('.json'))
+      .filter((arg) => readFileSync(arg, 'utf8').includes('"chrome-devtools"'));
     expect(chromeDevtoolsConfigs).toHaveLength(1);
   });
 
@@ -104,7 +120,7 @@ describe('Claude CLI browser gate', () => {
 
     const args = buildArgs(adapter);
     const mcpConfigIndex = args.indexOf('--mcp-config');
-    expect(args[mcpConfigIndex + 1]).toBe('{"mcpServers":{"browser-gateway":{}}}');
+    expect(readFileSync(args[mcpConfigIndex + 1], 'utf8')).toBe('{"mcpServers":{"browser-gateway":{}}}');
   });
 
   it('normalizes every supported remote workspace connector for the final Claude argv', () => {
@@ -120,7 +136,7 @@ describe('Claude CLI browser gate', () => {
 
     const args = buildArgs(adapter);
     const mcpConfigIndex = args.indexOf('--mcp-config');
-    const config = JSON.parse(args[mcpConfigIndex + 1]);
+    const config = mcpConfigAt(args, mcpConfigIndex + 1);
     expect(config.mcpServers).toMatchObject({
       'workspace-stdio': { command: 'npx', args: ['workspace-server'] },
       'workspace-http': { type: 'http', url: 'https://example.test/mcp' },

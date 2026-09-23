@@ -388,7 +388,7 @@ export class InstanceReviewPanelComponent {
     const start = Date.now();
 
     while (Date.now() - start < 5 * 60 * 1000) {
-      const resp = await this.ipc.getApi()?.reviewGetSession(sessionId);
+      const resp = await this.ipc.getApi()?.reviewGetSession({ sessionId });
       if (!resp?.success) {
         this.error.set(resp?.error?.message || 'Failed to get review session');
         this.sessionStatus.set('failed');
@@ -426,7 +426,7 @@ export class InstanceReviewPanelComponent {
     await this.ipc.getApi()?.reviewAcknowledgeIssue({
       sessionId,
       issueId: issue.id,
-      action: 'acknowledge',
+      acknowledged: true,
     });
   }
 

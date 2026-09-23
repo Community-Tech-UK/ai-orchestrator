@@ -1,16 +1,19 @@
 .loop-issue {
+  --issue-warn-fg: color-mix(in srgb, var(--warning-color) 55%, var(--text-primary));
+  --issue-error-fg: color-mix(in srgb, var(--error-color) 70%, var(--text-primary));
+  --issue-ok-fg: color-mix(in srgb, var(--success-color) 65%, var(--text-primary));
   margin: -2px 0 6px;
   padding: 10px 12px;
   border-radius: 6px;
-  border: 1px solid rgba(247, 192, 122, 0.45);
-  background: rgba(247, 192, 122, 0.08);
+  border: 1px solid var(--warning-border);
+  background: var(--warning-bg);
   font-size: 12px;
   line-height: 1.45;
 }
 
 .loop-issue[data-severity="CRITICAL"] {
-  border-color: rgba(247, 140, 124, 0.55);
-  background: rgba(247, 140, 124, 0.1);
+  border-color: var(--error-border);
+  background: var(--error-bg);
 }
 
 .li-issue-head {
@@ -28,13 +31,15 @@
   padding: 2px 7px;
   border-radius: 3px;
   font-family: var(--font-mono, monospace);
-  color: #f7c07a;
-  background: rgba(247, 192, 122, 0.18);
+  color: var(--issue-warn-fg);
+  background: var(--pill-warn-bg);
+  border: 1px solid var(--pill-warn-border);
 }
 
 .li-issue-chip[data-severity="CRITICAL"] {
-  color: #f78c7c;
-  background: rgba(247, 140, 124, 0.2);
+  color: var(--issue-error-fg);
+  background: var(--pill-error-bg);
+  border-color: var(--pill-error-border);
 }
 
 .li-issue-headline {
@@ -49,21 +54,21 @@
   font-weight: 600;
   padding: 2px 7px;
   border-radius: 999px;
-  border: 1px solid rgba(142, 220, 142, 0.4);
-  color: #8edc8e;
-  background: rgba(142, 220, 142, 0.1);
+  border: 1px solid var(--pill-ok-border);
+  color: var(--issue-ok-fg);
+  background: var(--pill-ok-bg);
 }
 
 .li-issue-fix[data-fix="maybe"] {
-  border-color: rgba(247, 192, 122, 0.45);
-  color: #f7c07a;
-  background: rgba(247, 192, 122, 0.1);
+  border-color: var(--pill-warn-border);
+  color: var(--issue-warn-fg);
+  background: var(--pill-warn-bg);
 }
 
 .li-issue-fix[data-fix="not-by-hint"] {
-  border-color: rgba(247, 140, 124, 0.45);
-  color: #f78c7c;
-  background: rgba(247, 140, 124, 0.1);
+  border-color: var(--pill-error-border);
+  color: var(--issue-error-fg);
+  background: var(--pill-error-bg);
 }
 
 .li-issue-problem,
@@ -106,8 +111,8 @@
 .li-issue-signals li {
   padding: 6px 8px;
   border-radius: 4px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(0, 0, 0, 0.16);
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
 }
 
 .li-issue-sig-title {
@@ -141,20 +146,20 @@
   font: inherit;
   font-size: 11px;
   font-weight: 600;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--bg-elevated);
   color: inherit;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid var(--border-color);
   border-radius: 4px;
   cursor: pointer;
 }
 
 .li-issue-actions button.primary {
-  color: #e7e7ea;
-  border-color: rgba(95, 142, 224, 0.55);
-  background: rgba(95, 142, 224, 0.22);
+  color: var(--text-primary);
+  border-color: var(--primary-color);
+  background: var(--primary-glow);
 }
 
 .li-issue-actions button.danger {
-  color: #f78c7c;
-  border-color: rgba(247, 140, 124, 0.4);
+  color: var(--issue-error-fg);
+  border-color: var(--error-color);
 }

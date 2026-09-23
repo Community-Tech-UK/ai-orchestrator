@@ -37,11 +37,9 @@ export function createWorkerNodeSubsystemStep(
     fn: async () => {
       hydrateRemoteNodeConfig(getSettingsManager().getAll());
       const config = getRemoteNodeConfig();
-      if (!config.enabled) {
-        logger.info('Remote node subsystem disabled');
-        return;
-      }
-
+      // Wire the RPC router and registry listeners even when the server starts
+      // later from Settings or pair-both. Otherwise authenticated sockets have
+      // no registration handler and every worker appears disconnected.
       const registry = getWorkerNodeRegistry();
       const connection = getWorkerNodeConnectionServer();
       const rpcRouter = new RpcEventRouter(connection, registry);
@@ -157,6 +155,11 @@ export function createWorkerNodeSubsystemStep(
       registry.on('remote:fs-event', (event: RemoteFsEventNotification) => {
         windowManager.sendToRenderer(IPC_CHANNELS.REMOTE_FS_EVENT, event);
       });
+
+      if (!config.enabled) {
+        logger.info('Remote node subsystem initialized; server disabled');
+        return;
+      }
 
       await connection.start(config.serverPort, config.serverHost);
       // Advertise over mDNS here, not only from the Settings "start server" IPC

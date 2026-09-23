@@ -2,7 +2,7 @@ import { getLogger } from '../logging/logger';
 import { generateId } from '../../shared/utils/id-generator';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import { getPermissionEnforcer } from '../security/permission-enforcer';
-import { getSettingsManager } from '../core/config/settings-manager';
+import { areAgentSecretCardRequestsAllowed } from '../secrets/secret-card-policy';
 import { type PermissionRequest, type PermissionScope } from '../security/permission-manager';
 import {
   loadOptionalProjectRules,
@@ -42,18 +42,6 @@ export interface InputRequiredPayload {
 const SECRET_REQUESTS_DISABLED_REASON =
   'workspace secret requests are turned off in Settings.';
 
-/** Both operator switches must be on before an agent may raise a secret card. */
-function secretCardRequestsAllowed(): boolean {
-  try {
-    const settings = getSettingsManager().getAll();
-    return settings.workspaceSecretsEnabled !== false
-      && settings.workspaceSecretsAllowAgentRequests !== false;
-  } catch {
-    // Settings unavailable: fail closed, the card is an operator-gated surface.
-    return false;
-  }
-}
-
 export class InstancePermissionRequestFlow {
   private readonly pendingByInputId = new Map<string, PermissionRequest>();
 
@@ -84,7 +72,7 @@ export class InstancePermissionRequestFlow {
     // from raising the card; both are documented as operator-only. Refuse here,
     // in main, so the card never reaches the renderer, and answer the agent so
     // it is not left waiting on a prompt nobody will see.
-    if (metaType === 'secret_required' && !secretCardRequestsAllowed()) {
+    if (metaType === 'secret_required' && !areAgentSecretCardRequestsAllowed()) {
       logger.info('[APPROVAL_TRACE] manager_block_secret_request', {
         approvalTraceId,
         instanceId: payload.instanceId,

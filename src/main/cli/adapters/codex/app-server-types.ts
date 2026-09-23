@@ -392,6 +392,9 @@ export interface ThreadItem {
   message?: { content?: string; role?: string };
   content?: string;
   phase?: string;
+  /** `"async"` marks a `request_user_input_async` question; see `isAsyncDeliveryAgentMessage`. */
+  delivery?: string | null;
+  questions?: { title: string; options?: string[] | null }[] | null;
   // File change fields
   path?: string;
   changeType?: string;
@@ -507,6 +510,16 @@ export type CodexMessagePhase = 'commentary' | 'final_answer';
  */
 export function toCodexMessagePhase(phase: unknown): CodexMessagePhase | null {
   return phase === 'commentary' || phase === 'final_answer' ? phase : null;
+}
+
+/**
+ * Codex's `request_user_input_async` tool surfaces its question as an agent
+ * message tagged `phase: "final_answer"` and `delivery: "async"`, then returns
+ * `{"accepted":true}` and the model keeps working in the same turn. Such a
+ * message is a question for the user, never the end of the turn.
+ */
+export function isAsyncDeliveryAgentMessage(item: ThreadItem): boolean {
+  return item.delivery === 'async';
 }
 
 /** One in-flight streamed assistant message, keyed by Codex item id. */

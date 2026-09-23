@@ -7,6 +7,7 @@
  */
 
 import type { OutputMessage } from '../../core/state/instance/instance.types';
+import { nextMonotonicStreamingContent } from '../../../../shared/utils/streaming-content';
 import type { CopilotPlanUpdate } from './copilot-plan-update';
 import { parseCopilotPlanUpdate } from './copilot-plan-update';
 import type { DisplayItem } from './display-item.types';
@@ -232,15 +233,11 @@ export class DisplayItemProcessor {
                   item => item.type === 'message' && item.message?.id === msg.id,
                 );
           if (targetIdx >= 0 && target[targetIdx]?.message) {
-            const accumulatedContent =
-              msg.metadata != null && 'accumulatedContent' in msg.metadata
-                ? String(msg.metadata['accumulatedContent'])
-                : msg.content;
             target[targetIdx] = {
               ...target[targetIdx],
               message: {
                 ...target[targetIdx].message!,
-                content: accumulatedContent,
+                content: this.getStreamingDisplayContent(msg, target[targetIdx].message!.content),
                 // Take the latest metadata, not the first frame's. Codex only
                 // learns an assistant message's phase at `item/completed`,
                 // after every delta has been emitted, so keeping the original
@@ -252,14 +249,10 @@ export class DisplayItemProcessor {
           continue;
         }
         this.seenStreamingIds.add(msg.id);
-        const displayContent =
-          msg.metadata != null && 'accumulatedContent' in msg.metadata
-            ? String(msg.metadata['accumulatedContent'])
-            : msg.content;
         items.push({
           id: `stream-${msg.id}`,
           type: 'message',
-          message: { ...msg, content: displayContent },
+          message: { ...msg, content: this.getStreamingDisplayContent(msg) },
           bufferIndex,
         });
       } else if (msg.thinking && msg.thinking.length > 0 && msg.type === 'assistant') {
@@ -286,6 +279,15 @@ export class DisplayItemProcessor {
     }
 
     return items;
+  }
+
+  private getStreamingDisplayContent(message: OutputMessage, previousContent = ''): string {
+    const accumulated = message.metadata?.['accumulatedContent'];
+    const current = nextMonotonicStreamingContent(
+      message.content,
+      typeof accumulated === 'string' ? accumulated : message.content,
+    );
+    return nextMonotonicStreamingContent(previousContent, current);
   }
 
   private shouldSuppressInterruptNoise(message: OutputMessage): boolean {

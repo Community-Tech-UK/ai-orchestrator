@@ -18,7 +18,7 @@ import type {
   RuntimeReconcilerDeps,
 } from './runtime-reconciler.types';
 
-const { mockContinuity, mockSessionMutex } = vi.hoisted(() => ({
+const { mockContinuity, mockSessionMutex, mockHoldRespawningChildCompletions } = vi.hoisted(() => ({
   mockContinuity: {
     writeThroughIdentityLocked: vi.fn().mockResolvedValue(undefined),
   },
@@ -29,6 +29,7 @@ const { mockContinuity, mockSessionMutex } = vi.hoisted(() => ({
         ({ source: 'respawn', acquiredAt: 1, durationMs: 0 }),
     ),
   },
+  mockHoldRespawningChildCompletions: vi.fn(),
 }));
 
 vi.mock('../../logging/logger', () => ({
@@ -40,6 +41,11 @@ vi.mock('../../session/session-mutex', () => ({
 vi.mock('../../session/session-continuity', () => ({
   getSessionContinuityManager: vi.fn(() => mockContinuity),
   getSessionContinuityManagerIfInitialized: vi.fn(() => mockContinuity),
+}));
+vi.mock('../../session/session-admission-service', () => ({
+  getSessionAdmissionService: () => ({
+    holdRespawningChildCompletions: mockHoldRespawningChildCompletions,
+  }),
 }));
 vi.mock('../../../shared/utils/id-generator', () => ({
   generateId: vi.fn(() => 'fresh-id'),
@@ -154,6 +160,37 @@ describe('RuntimeReconciler.applyRecoveryRespawn', () => {
     vi.clearAllMocks();
     mockSessionMutex.getLockInfo.mockReturnValue({ source: 'respawn', acquiredAt: 1, durationMs: 0 });
     mockContinuity.writeThroughIdentityLocked.mockResolvedValue(undefined);
+    mockHoldRespawningChildCompletions.mockReset();
+    mockHoldRespawningChildCompletions.mockReturnValue(vi.fn());
+  });
+
+  it('holds child completions across fallback spawn readiness and fallback-history reconciliation', async () => {
+    const steps: string[] = [];
+    const release = vi.fn(() => steps.push('release'));
+    mockHoldRespawningChildCompletions.mockImplementation(() => {
+      steps.push('hold');
+      return release;
+    });
+    const fallbackAdapter = makeAdapter(82);
+    (fallbackAdapter.spawn as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      steps.push('fallback spawn');
+      return 82;
+    });
+    const { reconciler, deps } = makeHarness(makeInstance(), [makeAdapter(81), fallbackAdapter]);
+    deps.evaluateResumeHealth.mockResolvedValue('unrecoverable');
+    deps.buildFallbackHistory.mockImplementation(async () => {
+      steps.push('reconcile');
+      return 'fallback history';
+    });
+    const hooks = makeHooks({ waitReady: vi.fn(async () => { steps.push('ready'); return true; }) });
+
+    await reconciler.applyRecoveryRespawn('inst-1', makeRequest(), hooks);
+
+    expect(mockHoldRespawningChildCompletions).toHaveBeenCalledWith('inst-1');
+    expect(steps.indexOf('hold')).toBeLessThan(steps.indexOf('fallback spawn'));
+    expect(steps.indexOf('fallback spawn')).toBeLessThan(steps.indexOf('reconcile'));
+    expect(steps.indexOf('reconcile')).toBeLessThan(steps.indexOf('release'));
+    expect(release).toHaveBeenCalledTimes(1);
   });
 
   it('throws when the caller does not hold the session lock (recovery-entry contract)', async () => {

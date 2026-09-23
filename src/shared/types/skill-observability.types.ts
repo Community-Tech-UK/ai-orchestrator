@@ -49,3 +49,24 @@ export interface SkillHealthEntry {
    */
   precededErrors: number;
 }
+
+/** Registry entry with the mode the loader applies before any activation. */
+export interface SkillHealthCatalogEntry {
+  skillName: string;
+  source: 'builtin' | 'global' | 'project';
+  effectiveMode: SkillControlMode;
+}
+
+/** A detected, enabled skill that could not fit the injection budget on one turn. */
+export interface SkillBudgetSkipRecord {
+  id: string;
+  skillName: string;
+  skillSource: string;
+  instanceId: string | null;
+  sessionId: string | null;
+  turnKey: string | null;
+  reason: 'budget-exceeded';
+  tokens: number;
+  budget: number;
+  createdAt: number;
+}

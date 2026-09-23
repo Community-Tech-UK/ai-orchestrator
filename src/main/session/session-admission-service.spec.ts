@@ -275,6 +275,54 @@ describe('SessionAdmissionService', () => {
   });
 
   describe('redelivery on ready edge', () => {
+    it('keeps a respawning child completion pending through the fallback ready edge until reconciliation fails it', () => {
+      const service = getSessionAdmissionService();
+      im.setInstance('i1', { status: 'respawning' as never });
+      const completion = service.admitAutomatedWrite({
+        instanceId: 'i1', origin: 'orchestration', message: 'child complete',
+        sourceMetadata: { action: 'child_completed', data: { childId: 'child-1' } },
+      });
+      expect(completion).toMatchObject({ kind: 'suppressed', reason: 'respawning' });
+      const redelivered = vi.fn();
+      service.registerRedeliveryHandler('orchestration', redelivered);
+
+      const release = service.holdRespawningChildCompletions('i1');
+      im.setInstance('i1', { status: 'idle' as never });
+      im.emitStateUpdate('i1', 'idle');
+      expect(redelivered).not.toHaveBeenCalled();
+      expect(service.listAdmissions({}).find((row) => row.admissionId === completion.admissionId)?.state)
+        .toBe('suppressed');
+
+      service.markFailed(completion.admissionId, 'represented in fallback notice');
+      release();
+      im.emitStateUpdate('i1', 'idle');
+      expect(redelivered).not.toHaveBeenCalled();
+      expect(service.listAdmissions({}).find((row) => row.admissionId === completion.admissionId)?.state)
+        .toBe('failed');
+    });
+
+    it('releases held child completions after native resume and leaves other ready-edge writes unaffected', () => {
+      const service = getSessionAdmissionService();
+      im.setInstance('i1', { status: 'respawning' as never });
+      service.admitAutomatedWrite({
+        instanceId: 'i1', origin: 'orchestration', message: 'child complete',
+        sourceMetadata: { action: 'child_completed' },
+      });
+      service.admitAutomatedWrite({ instanceId: 'i1', origin: 'reaction', message: 'nudge' });
+      const completionHandler = vi.fn();
+      const reactionHandler = vi.fn();
+      service.registerRedeliveryHandler('orchestration', completionHandler);
+      service.registerRedeliveryHandler('reaction', reactionHandler);
+
+      const release = service.holdRespawningChildCompletions('i1');
+      im.setInstance('i1', { status: 'idle' as never });
+      im.emitStateUpdate('i1', 'idle');
+      expect(completionHandler).not.toHaveBeenCalled();
+      expect(reactionHandler).toHaveBeenCalledTimes(1);
+      release();
+      expect(completionHandler).toHaveBeenCalledTimes(1);
+    });
+
     it('refires the registered handler for the origin once the instance reaches a ready status', () => {
       im.setInstance('i1', { status: 'waiting_for_permission' as never });
       const outcome = getSessionAdmissionService().admitAutomatedWrite({

@@ -148,6 +148,7 @@ export interface SessionAdmissionInstanceHost {
 interface PendingRedelivery {
   instanceId: string;
   origin: AdmissionOrigin;
+  suppressionReason: SuppressReason;
   message: string;
   attachments?: FileAttachment[];
   contextBlock?: string;
@@ -171,6 +172,7 @@ export class SessionAdmissionService {
   private instanceManager: SessionAdmissionInstanceHost | null = null;
   private redeliveryHandlers = new Map<AdmissionOrigin, RedeliveryHandler>();
   private pendingRedeliveries = new Map<string, PendingRedelivery>();
+  private heldRespawningChildCompletions = new Map<string, number>();
 
   private readonly onStateUpdate = (payload: unknown): void => this.handleStateUpdate(payload);
   private readonly onBatchUpdate = (payload: unknown): void => this.handleBatchUpdate(payload);
@@ -216,6 +218,31 @@ export class SessionAdmissionService {
   /** Register the redelivery callback for one origin. Last registration wins. */
   registerRedeliveryHandler(origin: AdmissionOrigin, handler: RedeliveryHandler): void {
     this.redeliveryHandlers.set(origin, handler);
+  }
+
+  /**
+   * A recovery spawn can briefly report ready before the fresh-fallback
+   * transcript reconciles children. Keep respawning child completions pending
+   * across that edge; the fallback reconciler fails them, while a successful
+   * native resume releases them for ordinary redelivery.
+   */
+  holdRespawningChildCompletions(instanceId: string): () => void {
+    this.heldRespawningChildCompletions.set(
+      instanceId,
+      (this.heldRespawningChildCompletions.get(instanceId) ?? 0) + 1,
+    );
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const remaining = (this.heldRespawningChildCompletions.get(instanceId) ?? 1) - 1;
+      if (remaining > 0) {
+        this.heldRespawningChildCompletions.set(instanceId, remaining);
+      } else {
+        this.heldRespawningChildCompletions.delete(instanceId);
+        this.tryRefire(instanceId);
+      }
+    };
   }
 
   private getStore(): SessionAdmissionStore | null {
@@ -307,7 +334,7 @@ export class SessionAdmissionService {
     });
 
     if (decision.kind === 'suppressed') {
-      this.rememberForRedelivery(admissionId, request);
+      this.rememberForRedelivery(admissionId, request, decision.reason);
       logger.info('Automated write suppressed', {
         instanceId: request.instanceId,
         origin: request.origin,
@@ -319,7 +346,11 @@ export class SessionAdmissionService {
     return { kind: 'admitted', admissionId };
   }
 
-  private rememberForRedelivery(admissionId: string, request: AdmitAutomatedWriteRequest): void {
+  private rememberForRedelivery(
+    admissionId: string,
+    request: AdmitAutomatedWriteRequest,
+    suppressionReason: SuppressReason,
+  ): void {
     let message = request.message;
     if (request.coalesceKey) {
       for (const [existingId, entry] of this.pendingRedeliveries) {
@@ -350,6 +381,7 @@ export class SessionAdmissionService {
     this.pendingRedeliveries.set(admissionId, {
       instanceId: request.instanceId,
       origin: request.origin,
+      suppressionReason,
       message,
       attachments: request.attachments,
       contextBlock: request.contextBlock,
@@ -489,6 +521,7 @@ export class SessionAdmissionService {
   }
 
   private handleInstanceRemoved(instanceId: string): void {
+    this.heldRespawningChildCompletions.delete(instanceId);
     for (const [admissionId, entry] of this.pendingRedeliveries) {
       if (entry.instanceId === instanceId) {
         this.pendingRedeliveries.delete(admissionId);
@@ -502,6 +535,12 @@ export class SessionAdmissionService {
     if (candidates.length === 0) return;
 
     for (const [admissionId, entry] of candidates) {
+      if (
+        this.heldRespawningChildCompletions.has(instanceId)
+        && entry.suppressionReason === 'respawning'
+        && entry.origin === 'orchestration'
+        && entry.sourceMetadata?.['action'] === 'child_completed'
+      ) continue;
       // Re-decide per entry rather than trusting the ready status alone: a
       // strict new-turn writer also requires the provider runtime to have
       // released ownership, while legacy mid-turn writers retain their

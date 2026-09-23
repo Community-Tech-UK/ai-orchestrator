@@ -94,6 +94,12 @@ export const PROGRESS_SIGNAL_CATALOG: Record<string, ProgressSignalCatalogEntry>
     fixability: 'not-by-hint',
     nextStep: 'Read the reason above, clear it (access, a decision, resources, or a failing check), then hint or resume.',
   },
+  'WARN-ESCALATION': {
+    title: 'Warnings kept recurring',
+    meaning: 'Several recent iterations raised warnings; the older record did not retain which warning caused this escalation.',
+    fixability: 'maybe',
+    nextStep: 'Inspect the iteration evidence to identify the recurring warning before choosing a hint or stopping.',
+  },
 };
 
 const FALLBACK_CATALOG: ProgressSignalCatalogEntry = {
@@ -214,16 +220,6 @@ function fixabilityLabel(fixability: LoopIssueFixability): string {
   }
 }
 
-function rollupFixability(signals: LoopIssueSignalView[]): LoopIssueFixability {
-  const entries = signals.map((signal) => catalogForSignal(signal.id));
-  if (signals.some((signal) => signal.verdict === 'CRITICAL' && catalogForSignal(signal.id).fixability === 'not-by-hint')) {
-    return 'not-by-hint';
-  }
-  if (entries.some((entry) => entry.fixability === 'fixable')) return 'fixable';
-  if (entries.some((entry) => entry.fixability === 'not-by-hint')) return 'not-by-hint';
-  return 'maybe';
-}
-
 /**
  * Worst severity first, detector order preserved within a severity.
  *
@@ -235,6 +231,30 @@ function rollupFixability(signals: LoopIssueSignalView[]): LoopIssueFixability {
  */
 function bySeverity(signals: LoopIssueSignalView[]): LoopIssueSignalView[] {
   return [...signals].sort((a, b) => rank(b.verdict) - rank(a.verdict));
+}
+
+/** Older detectors saved WARN escalation as a fabricated A (identical hash). */
+function normalizeLegacyWarnEscalation(
+  signals: readonly { id: string; verdict: string; message: string }[],
+): { id: string; verdict: string; message: string }[] {
+  const legacyIndex = signals.findIndex((signal) => signal.id === 'A'
+    && /^\d+ WARN iterations in last \d+ — escalated to CRITICAL$/.test(signal.message));
+  if (legacyIndex < 0) return [...signals];
+
+  const causeIndex = signals.findIndex((signal, index) => index !== legacyIndex && signal.verdict === 'WARN');
+  if (causeIndex < 0) {
+    return signals.map((signal, index) => index === legacyIndex
+      ? { ...signal, id: 'WARN-ESCALATION' }
+      : signal);
+  }
+  const escalation = signals[legacyIndex];
+  return signals.flatMap((signal, index) => {
+    if (index === legacyIndex) return [];
+    if (index === causeIndex) {
+      return [{ ...signal, verdict: 'CRITICAL', message: `${signal.message} — ${escalation.message}` }];
+    }
+    return [signal];
+  });
 }
 
 function headlineFor(worst: readonly LoopIssueSignalView[]): string {
@@ -315,15 +335,16 @@ function actionsFor(
   autoUnstickInFlight: boolean,
 ): LoopIssueAction[] {
   const hintPrimary = !blocked && !autoUnstickInFlight && fixability !== 'not-by-hint' && (severity === 'CRITICAL' || paused);
+  const stopPrimary = fixability === 'not-by-hint' && severity === 'CRITICAL' && !blocked;
   const actions: LoopIssueAction[] = [
     { kind: 'hint', label: 'Give a hint', primary: hintPrimary },
-    { kind: 'inspect', label: 'See why', primary: blocked || (!hintPrimary && !paused) },
+    { kind: 'inspect', label: 'See why', primary: blocked || (!hintPrimary && !stopPrimary && !paused) },
   ];
   if (paused) {
     actions.push({ kind: 'resume', label: 'Resume anyway', primary: false });
   }
   if (severity === 'CRITICAL' || blocked) {
-    actions.push({ kind: 'stop', label: 'Stop', primary: fixability === 'not-by-hint' && !blocked });
+    actions.push({ kind: 'stop', label: 'Stop', primary: stopPrimary });
   }
   if (running && severity === 'WARN') {
     return actions.filter((action) => action.kind !== 'stop');
@@ -375,7 +396,7 @@ export function buildLoopIssueView(input: {
     .reduce((worst, candidate) => (rank(candidate) > rank(worst) ? candidate : worst), 'OK');
   if (!isIssueSeverity(severity)) return null;
 
-  const iterationSignals = signalViews(input.signals);
+  const iterationSignals = signalViews(normalizeLegacyWarnEscalation(input.signals));
   // The pause cause leads; the iteration's own signals stay as supporting
   // evidence. For an ordinary no-progress pause the banner signal *is* one of
   // them, so drop the duplicate rather than showing it twice.
@@ -390,7 +411,7 @@ export function buildLoopIssueView(input: {
 
   const worstSignals = bySeverity(signals.filter((signal) => isIssueSeverity(signal.verdict)));
   const headline = headlineFor(worstSignals);
-  const fixability = rollupFixability(worstSignals.length > 0 ? worstSignals : signals);
+  const fixability = catalogForSignal(worstSignals[0]?.id ?? signals[0]?.id ?? '').fixability;
   const blocked = input.blocked === true;
   const autoUnstickInFlight = input.autoUnstickInFlight === true;
   const problem = worstSignals[0]?.message
@@ -484,7 +505,7 @@ export function buildIterationEvidenceView(iteration: {
   }
 
   return {
-    signals: signalViews(iteration.progressSignals),
+    signals: signalViews(normalizeLegacyWarnEscalation(iteration.progressSignals)),
     completionText: `Completion signals: ${completion}`,
     verifyText,
     testsText,

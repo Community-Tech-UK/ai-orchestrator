@@ -780,10 +780,23 @@ export class UnifiedMemoryController extends EventEmitter {
       const maxTokensPerSkill = 5000;
       const totalBudget = maxTokensPerSkill * injectable.length;
 
-      const { content, loadedDetails } = await this.skillsLoader.loadSkillsWithBudget(
+      const { content, loadedDetails, skippedDetails } = await this.skillsLoader.loadSkillsWithBudget(
         injectable,
         totalBudget
       );
+
+      for (const skipped of skippedDetails ?? []) {
+        const skill = injectable.find((candidate) => candidate.name === skipped.name);
+        getSkillAttribution().recordBudgetSkip({
+          skillName: skipped.name,
+          skillSource: skill?.skillSource ?? 'project',
+          instanceId: attribution?.instanceId ?? null,
+          sessionId: attribution?.sessionId ?? null,
+          turnKey: attribution?.turnKey ?? null,
+          tokens: skipped.tokens,
+          budget: skipped.budget,
+        });
+      }
 
       for (const detail of loadedDetails ?? []) {
         const skill = injectable.find((candidate) => candidate.name === detail.name);

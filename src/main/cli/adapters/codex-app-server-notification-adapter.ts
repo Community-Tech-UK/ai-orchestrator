@@ -9,7 +9,7 @@ import type {
   TurnCaptureState,
   TurnPhase,
 } from './codex/app-server-types';
-import { toCodexMessagePhase } from './codex/app-server-types';
+import { isAsyncDeliveryAgentMessage, toCodexMessagePhase } from './codex/app-server-types';
 import {
   extractCodexAppServerError,
   formatCodexAppServerError,
@@ -28,6 +28,14 @@ const INFERRED_COMPLETION_MS = 250;
 
 /** App-server notification routing and streamed-message reconciliation. */
 export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAdapter {
+  private readonly reportedStreamedCharacters = new WeakMap<TurnCaptureState, number>();
+
+  protected unreportedStreamedCharacters(state: TurnCaptureState): number {
+    const streamed = Array.from(state.streamingAgentMessages.values())
+      .reduce((sum, stream) => sum + stream.content.length, 0);
+    return Math.max(0, streamed - (this.reportedStreamedCharacters.get(state) ?? 0));
+  }
+
   private itemNotificationHost(): CodexItemNotificationHost {
     return {
       emitOutput: (payload) => {
@@ -116,11 +124,13 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
       }
 
       case 'item/started': {
+        this.trackItemChildThreads(state, params);
         handleItemStarted(this.itemNotificationHost(), state, params);
         break;
       }
 
       case 'item/completed': {
+        this.trackItemChildThreads(state, params);
         handleItemCompleted(this.itemNotificationHost(), state, params);
         break;
       }
@@ -160,7 +170,13 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
         // Guard against NaN from malformed fields (empty strings, objects, etc.).
         const threadId = typeof params['threadId'] === 'string' ? params['threadId'] : state.threadId;
         const isChild = threadId !== state.threadId;
+        const previousCumulative = this.usageAccounting.cumulativeTokens;
         this.usageAccounting.observe(threadId, total, last, isChild);
+        if (!isChild && this.usageAccounting.cumulativeTokens > previousCumulative) {
+          const streamed = Array.from(state.streamingAgentMessages.values())
+            .reduce((sum, stream) => sum + stream.content.length, 0);
+          this.reportedStreamedCharacters.set(state, streamed);
+        }
         this.cumulativeTokensUsed = this.usageAccounting.cumulativeTokens;
         const costEstimate = this.cumulativeCostUsd + (this.usageAccounting.peek(this.cliConfig.model)?.cost ?? 0);
         if (isChild) {
@@ -259,6 +275,22 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
 
       default:
         break;
+    }
+  }
+
+  private trackItemChildThreads(state: TurnCaptureState, params: Record<string, unknown>): void {
+    const parentId = params['threadId'];
+    if (parentId !== state.threadId && (typeof parentId !== 'string' || !this.usageAccounting.ownsThread(parentId))) return;
+    const item = params['item'] as ThreadItem | undefined;
+    if (!item) return;
+    const activityChild = item.type === 'subAgentActivity' || item.type === 'SubAgentActivity'
+      ? item['agentThreadId'] ?? item['agent_thread_id']
+      : undefined;
+    const ids = [activityChild, ...(item.type === 'collabAgentToolCall' ? item.receiverThreadIds ?? [] : [])];
+    for (const id of ids) {
+      if (typeof id !== 'string' || !id || id === state.threadId) continue;
+      this.usageAccounting.trackThread(id);
+      state.threadIds.add(id);
     }
   }
 
@@ -447,7 +479,7 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
     }
 
     for (const item of turn.items) {
-      if (item.type !== 'agent_message' && item.type !== 'agentMessage') {
+      if ((item.type !== 'agent_message' && item.type !== 'agentMessage') || isAsyncDeliveryAgentMessage(item)) {
         continue;
       }
 

@@ -935,6 +935,18 @@ export function registerInstanceHandlers(deps: {
         );
 
         const orchestration = instanceManager.getOrchestrationHandler();
+        if (orchestration.getPendingUserActions().some(
+          (request) => request.id === validatedPayload.requestId && request.requestType === 'secret_required'
+        )) {
+          return {
+            success: false,
+            error: {
+              code: 'SECRET_CARD_REQUIRES_DEDICATED_CHANNEL',
+              message: 'Respond to this credential request using the secure secret card.',
+              timestamp: Date.now(),
+            },
+          };
+        }
         orchestration.respondToUserAction(
           validatedPayload.requestId,
           validatedPayload.action === 'approve',

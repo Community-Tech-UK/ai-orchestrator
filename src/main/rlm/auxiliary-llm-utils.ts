@@ -256,12 +256,18 @@ export function modelSizeScore(modelId: string): number {
  * Pick a model from a candidate list appropriate to a slot's tier when no
  * explicit/tier model is configured. Embedding models are skipped.
  *
- * When `loaded` (id → resident context length) is supplied and any candidate is
- * loaded, the pick is restricted to loaded models — avoiding a JIT-load of a
- * larger model at a tiny default context that would overflow on big inputs.
- * Among loaded models: `quality` (large inputs) → largest context, then largest
- * size; `quick` (latency-sensitive) → smallest size. With no loaded info it
- * falls back to size only: `quick` → smallest, `quality` → largest.
+ * `quick` never uses the loaded-model restriction below: it is latency-sensitive
+ * by definition, and a worker (e.g. a single-GPU Ollama box) that can only keep
+ * one model resident will otherwise force every quick-tier slot to reuse
+ * whatever oversized model a concurrent `quality` slot loaded — a JIT reload of
+ * a genuinely small model is cheaper than generating on a 30B+ model. `quick`
+ * always picks the smallest known size across the full candidate pool.
+ *
+ * `quality` (and an unset tier) still prefer an already-loaded candidate when
+ * `loaded` (id → resident context length) is supplied and any candidate is
+ * loaded — avoiding a JIT-load of a larger model at a tiny default context that
+ * would overflow on big inputs: largest context, then largest size. With no
+ * loaded info it falls back to size only, `quality` → largest.
  */
 export function pickModelForTier(
   modelIds: string[],
@@ -271,6 +277,13 @@ export function pickModelForTier(
   if (modelIds.length === 0) return undefined;
   const chat = modelIds.filter((id) => !/embed/i.test(id));
   const pool = chat.length > 0 ? chat : modelIds;
+
+  if (tier === 'quick') {
+    const scored = pool.map((id) => ({ id, score: modelSizeScore(id) }));
+    const known = scored.filter((s) => s.score > 0);
+    if (known.length === 0) return pool[0];
+    return known.reduce((a, b) => (b.score < a.score ? b : a)).id;
+  }
 
   if (loaded && loaded.size > 0) {
     const loadedPool = pool.flatMap((id) => {
@@ -286,23 +299,15 @@ export function pickModelForTier(
             && modelSizeScore(b.id) > modelSizeScore(a.id)
           ) ? b : a).id;
       }
-      if (tier === 'quick') {
-        return loadedPool.reduce((a, b) =>
-          modelSizeScore(b.id) < modelSizeScore(a.id) ? b : a).id;
-      }
       return loadedPool[0].id;
     }
   }
 
-  if (tier !== 'quick' && tier !== 'quality') return pool[0];
+  if (tier !== 'quality') return pool[0];
   const scored = pool.map((id) => ({ id, score: modelSizeScore(id) }));
   const known = scored.filter((s) => s.score > 0);
   if (known.length === 0) return pool[0];
-  const winner =
-    tier === 'quick'
-      ? known.reduce((a, b) => (b.score < a.score ? b : a))
-      : known.reduce((a, b) => (b.score > a.score ? b : a));
-  return winner.id;
+  return known.reduce((a, b) => (b.score > a.score ? b : a)).id;
 }
 
 /**

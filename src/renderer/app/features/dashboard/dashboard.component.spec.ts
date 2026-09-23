@@ -1,6 +1,10 @@
-import { signal } from '@angular/core';
+import { CUSTOM_ELEMENTS_SCHEMA, signal, ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
+import { NgTemplateOutlet } from '@angular/common';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UiActionRegistration } from '../../core/services/action-dispatch.service';
 import { ActionDispatchService } from '../../core/services/action-dispatch.service';
@@ -18,8 +22,21 @@ import { InstanceStore } from '../../core/state/instance.store';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { SourceControlStore } from '../../core/state/source-control.store';
+import { SessionRecoveryStore } from '../../core/state/session-recovery.store';
+import { SessionRecoveryBannerComponent } from '../../shared/components/session-recovery-banner/session-recovery-banner.component';
 import { ResumePickerController } from '../resume/resume-picker.controller';
 import { DashboardComponent } from './dashboard.component';
+
+const directory = dirname(fileURLToPath(import.meta.url));
+const dashboardTemplate = readFileSync(resolve(directory, './dashboard.component.html'), 'utf8');
+const recoveryTemplate = readFileSync(resolve(directory, '../../shared/components/session-recovery-banner/session-recovery-banner.component.html'), 'utf8');
+
+await resolveComponentResources((url) => {
+  if (url.endsWith('dashboard.component.html')) return Promise.resolve(dashboardTemplate);
+  if (url.endsWith('session-recovery-banner.component.html')) return Promise.resolve(recoveryTemplate);
+  if (url.endsWith('.html') || url.endsWith('.scss')) return Promise.resolve('');
+  return Promise.reject(new Error(`Unexpected resource: ${url}`));
+});
 
 describe('DashboardComponent resume picker routing', () => {
   const selectedInstance = signal<unknown | null>(null);
@@ -35,6 +52,9 @@ describe('DashboardComponent resume picker routing', () => {
   const controlPlanePinned = signal(false);
   const totalChangeCount = signal(0);
   const registeredActions: UiActionRegistration[] = [];
+  const recoveryCandidates = signal([{ recoveryKey: 'recovery-1', sourceInstanceId: 'source-1',
+    displayName: 'Autosaved session', recoveredMessageCount: 2, reason: 'unarchived' as const,
+    lastActivityAt: 1 }]);
   const resumePickerController = {
     focusRecoveryContent: vi.fn(),
     resetTransientFocus: vi.fn(),
@@ -51,6 +71,18 @@ describe('DashboardComponent resume picker routing', () => {
     draftWorkingDirectory.set(null);
     draftNodeId.set(null);
     registeredActions.length = 0;
+
+    TestBed.overrideComponent(DashboardComponent, {
+      set: {
+        imports: [NgTemplateOutlet, SessionRecoveryBannerComponent],
+        template: dashboardTemplate,
+        templateUrl: undefined,
+        styles: [],
+        styleUrl: undefined,
+        styleUrls: [],
+        schemas: [CUSTOM_ELEMENTS_SCHEMA],
+      },
+    });
 
     TestBed.configureTestingModule({
       providers: [
@@ -79,6 +111,8 @@ describe('DashboardComponent resume picker routing', () => {
           useValue: {
             initialize: vi.fn(),
             refresh: vi.fn(),
+            loading: signal(false),
+            noClisError: signal(null),
           },
         },
         {
@@ -142,6 +176,10 @@ describe('DashboardComponent resume picker routing', () => {
         { provide: VisibleInstanceResolver, useValue: { selectVisibleInstance: vi.fn() } },
         { provide: ModelPickerFocusService, useValue: { requestOpen: vi.fn() } },
         { provide: ResumePickerController, useValue: resumePickerController },
+        { provide: SessionRecoveryStore, useValue: {
+          candidates: recoveryCandidates.asReadonly(), loading: signal(false), error: signal(null),
+          refresh: vi.fn(),
+        } },
         {
           provide: SourceControlStore,
           useValue: {
@@ -188,5 +226,18 @@ describe('DashboardComponent resume picker routing', () => {
     expect(component.showResumePicker()).toBe(true);
 
     component.ngOnDestroy();
+  });
+
+  it('renders the startup recovery notice and opens the recovery picker from its action', async () => {
+    const fixture = TestBed.createComponent(DashboardComponent);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const banner = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>('[data-testid="session-recovery-banner"]');
+    expect(banner?.textContent).toContain('Autosaved session');
+    banner?.querySelector<HTMLButtonElement>('button')?.click();
+    expect(fixture.componentInstance.showResumePicker()).toBe(true);
+    fixture.destroy();
   });
 });

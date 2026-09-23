@@ -41,6 +41,7 @@ import {
   parsePairingConfigInput,
   writePairedWorkerConfig,
 } from '../../../worker-agent/cli/pairing-config';
+import { getActiveCoordinatorTailscaleWatcher } from '../../remote-node/coordinator-tailscale-watcher';
 
 const logger = getLogger('PairBothHandlers');
 
@@ -279,6 +280,7 @@ async function ensureRemoteNodeServerRunning(): Promise<void> {
   if (!getWorkerNodeConnectionServer().isRunning()) {
     await getWorkerNodeConnectionServer().start(config.serverPort, config.serverHost);
   }
+  getActiveCoordinatorTailscaleWatcher()?.start();
   if (!config.enabled) {
     updateRemoteNodeConfig({ enabled: true });
     getSettingsManager().set('remoteNodesEnabled', true);

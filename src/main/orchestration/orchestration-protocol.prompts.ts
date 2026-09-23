@@ -188,11 +188,14 @@ Use \`request_user_action\` for approvals, mode switches, and questions:
 | switch_mode | Switching plan/build/review mode | targetMode |
 | approve_action | Confirming a specific action | — |
 | ask_questions | Getting user input | questions[] |
+| secret_required | Ask the user to store a workspace credential securely | secretRequest { name, label, purpose, expectedFormat? } |
 
 Example:
 ${ORCHESTRATION_MARKER_START}
 {"action": "request_user_action", "requestType": "ask_questions", "title": "Clarifying Questions", "message": "I need some information:", "questions": ["What framework?", "What database?"]}
 ${ORCHESTRATION_MARKER_END}
+
+For a credential, request a secret card with \`requestType: "secret_required"\`. Include only its name, label, purpose, and optional expected format in \`secretRequest\`. Never ask the user to type a credential into chat or include its value in the command. The operator can disable agent secret requests in Settings. If the user submits the card, you receive only a \`secret://name\` reference. If the user declines, continue without the credential.
 
 ### Multi-Model Consensus
 

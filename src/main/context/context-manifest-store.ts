@@ -28,6 +28,9 @@
  */
 
 import { getLogger } from '../logging/logger';
+import { createHash } from 'node:crypto';
+import type { ContextManifestBlockKind } from '../../shared/types/context-manifest.types';
+import type { AdapterGuidanceBlock } from '../cli/adapters/adapter-spawn-helpers';
 import {
   SYSTEM_PROMPT_BLOCK_ORDER,
   type SystemPromptBlockKind,
@@ -56,7 +59,7 @@ const MAX_HISTORY_PER_INSTANCE = 20;
 export type ContextManifestEntryStatus = 'supplied' | 'skipped-empty' | 'unavailable';
 
 export interface ContextManifestEntry {
-  kind: SystemPromptBlockKind;
+  kind: ContextManifestBlockKind;
   status: ContextManifestEntryStatus;
   /** sha256 hex digest of the block's content — only set when status is 'supplied'. */
   contentHash?: string;
@@ -111,6 +114,40 @@ export function buildContextManifestEntries(
       status: unavailableKinds.has(kind) ? 'unavailable' : 'skipped-empty',
     };
   });
+}
+
+const ADAPTER_GUIDANCE_ORDER: readonly AdapterGuidanceBlock['kind'][] = [
+  'adapter-browser-gateway',
+  'adapter-chrome-devtools',
+  'adapter-mobile-mcp',
+  'adapter-computer-use',
+];
+
+/** Complete the latest pre-spawn snapshot with the blocks the adapter appends. */
+export function recordAdapterGuidanceBlocks(
+  instanceId: string,
+  blocks: readonly AdapterGuidanceBlock[],
+): void {
+  const snapshot = getLatestContextManifest(instanceId);
+  if (!snapshot) return;
+  const byKind = new Map(blocks.map((block) => [block.kind, block.content]));
+  let position = snapshot.entries.filter((entry) =>
+    entry.status === 'supplied' && !ADAPTER_GUIDANCE_ORDER.includes(entry.kind as AdapterGuidanceBlock['kind'])
+  ).length;
+  snapshot.entries = [
+    ...snapshot.entries.filter((entry) => !ADAPTER_GUIDANCE_ORDER.includes(entry.kind as AdapterGuidanceBlock['kind'])),
+    ...ADAPTER_GUIDANCE_ORDER.map((kind): ContextManifestEntry => {
+      const content = byKind.get(kind);
+      if (!content) return { kind, status: 'skipped-empty' };
+      return {
+        kind,
+        status: 'supplied',
+        contentHash: createHash('sha256').update(content, 'utf8').digest('hex'),
+        charLength: content.length,
+        position: position++,
+      };
+    }),
+  ];
 }
 
 interface InstanceManifestState {

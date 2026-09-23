@@ -281,7 +281,9 @@ export class ComposerToolbarComponent {
         this.lastSeededInstanceId = instanceId;
         clearTimeout(this.statusTimer);
         this.liveStatus.set(null);
-        this.pendingSelection.set(derived);
+        this.pendingSelection.set(
+          this.historySessions.confirmedSelectionForInstance(instanceId, provider, currentModel) ?? derived,
+        );
         return;
       }
 
@@ -299,7 +301,8 @@ export class ComposerToolbarComponent {
       // the value genuinely diverges to avoid clobbering an in-flight pick whose
       // backend confirmation has not arrived yet (that confirmation re-runs this
       // effect with a matching value, making it a no-op).
-      if (pending && pending.reasoning !== derived.reasoning) {
+      if (pending && pending.provider === derived.provider && pending.model === derived.model
+          && pending.reasoning !== derived.reasoning) {
         this.pendingSelection.set({ ...pending, reasoning: derived.reasoning });
       }
     });
@@ -468,6 +471,7 @@ export class ComposerToolbarComponent {
     if (this.modelSwitchDisabledReason()) return;
     if (sel.provider === 'local-model' && !sel.modelRuntimeTarget) return;
     const instanceId = this.instanceId();
+    this.historySessions.clearConfirmedSelection(instanceId);
     const request = ++this.selectionRequest;
     this.pendingSelection.set(sel);
     clearTimeout(this.statusTimer);

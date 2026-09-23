@@ -356,7 +356,7 @@ describe('PlanQueueCoordinator — whole run against a temp repo', { timeout: 30
     const { run } = await coordinator.startRun({
       parentInstanceId: parent.id,
       kind: 'plans',
-      config: { workerSlots: 2, verificationSlots: 1 },
+      config: { workerSlots: 2, verificationSlots: 1, postMergeGate: [] },
     });
     await waitForRun(run.id, 60_000);
 
@@ -600,7 +600,9 @@ describe('PlanQueueCoordinator — boot recovery', { timeout: 30_000 }, () => {
     writeDoc('docs/plans/2026-01-03-orphan_plan.md', '**Spec:** [s](./missing_spec_planned.md)\n');
     const parent = fake.addParent();
     fake.scripts.triage = never;
-    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    const { run } = await coordinator.startRun({
+      parentInstanceId: parent.id, kind: 'plans', config: { postMergeGate: [] },
+    });
     const [alpha] = coordinator.getRunDto(run.id)!.items;
     // Simulate a crash straight after alpha's row moved to preparing.
     store.upsertItem({ ...store.getItem(alpha.id)!, state: 'queued' });
@@ -1154,7 +1156,9 @@ describe('PlanQueueCoordinator — the landing commit runs the repository hooks'
     planDoc('2026-01-01-alpha');
     const parent = fake.addParent();
     landing.hangPromotion = true;
-    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    const { run } = await coordinator.startRun({
+      parentInstanceId: parent.id, kind: 'plans', config: { postMergeGate: [] },
+    });
     const itemId = coordinator.getRunDto(run.id)!.items[0].id;
     await vi.waitFor(() => { if (!landing.hung) throw new Error('promotion not reached'); }, { timeout: 30_000 });
     const stale = store.getItem(itemId)!.landedCommit;

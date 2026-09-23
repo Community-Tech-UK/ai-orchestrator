@@ -1583,6 +1583,15 @@ export class InstanceLifecycleManager extends EventEmitter {
         instance.currentModel = resolvedModel;
         const resolvedReasoningEffort = resolveSpawnReasoningEffort(config, resolvedCliType, resolvedModel);
         instance.reasoningEffort = resolvedReasoningEffort;
+        // The early created event intentionally precedes model resolution.
+        // Publish the resolved effort separately so passive renderer sessions
+        // (including children) do not keep showing "Provider default".
+        this.emit('state-update', {
+          instanceId: instance.id,
+          status: instance.status,
+          reasoningEffort: resolvedReasoningEffort ?? null,
+          timestamp: Date.now(),
+        });
 
         // Fast mode: explicit per-instance override > per-provider remembered >
         // global default. Stored on the instance so respawns (yolo/model/agent

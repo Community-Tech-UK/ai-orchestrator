@@ -62,6 +62,11 @@ vi.mock('../../../util/network-addresses', () => ({
 
 const diagnose = vi.fn();
 const generateRepairCommand = vi.fn();
+const watcherStart = vi.fn();
+
+vi.mock('../../../remote-node/coordinator-tailscale-watcher', () => ({
+  getActiveCoordinatorTailscaleWatcher: () => ({ start: watcherStart }),
+}));
 
 vi.mock('../../../remote-node/remote-worker-repair-service', () => ({
   getRemoteWorkerRepairService: () => ({
@@ -107,6 +112,12 @@ describe('remote node repair IPC handlers', () => {
 
     expect(response).toEqual({ success: true, data: { nodeId, status: 'depaired' } });
     expect(diagnose).toHaveBeenCalledWith(nodeId);
+  });
+
+  it('starts the existing Tailscale watcher when the server starts at runtime', async () => {
+    const response = await handlerFor(IPC_CHANNELS.REMOTE_NODE_START_SERVER)({}, {});
+    expect(response.success).toBe(true);
+    expect(watcherStart).toHaveBeenCalledOnce();
   });
 
   it('returns commands only through the explicit repair command channel', async () => {

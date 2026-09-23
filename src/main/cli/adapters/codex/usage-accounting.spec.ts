@@ -180,4 +180,65 @@ describe('CodexUsageAccounting protocol fallbacks', () => {
     tracker.observe('root', raw(100, 20, 500, 200));
     expect(tracker.take('gpt-6-astra')).toMatchObject({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 100, reasoningTokens: 20, totalTokens: 120 });
   });
+
+  it('reconciles an interrupted estimate only against later usage beyond the next native call', () => {
+    const tracker = new CodexUsageAccounting();
+    tracker.seed('root', raw(100, 20));
+    tracker.beginTurn('root');
+    tracker.beginNativeTurn('root', 'interrupted');
+    tracker.estimateInterruptedOutput('root', 40);
+    expect(tracker.take('gpt-6-astra')).toMatchObject({ totalTokens: 10, isEstimated: true });
+    tracker.beginTurn('root');
+    tracker.beginNativeTurn('root', 'next');
+    tracker.observe('root', raw(150, 40), raw(50, 10));
+    expect(tracker.take('gpt-6-astra')?.totalTokens).toBe(60);
+    expect(tracker.cumulativeTokens).toBe(70);
+  });
+
+  it('accepts a late exact receipt for the interrupted turn without billing the estimate again', () => {
+    const tracker = new CodexUsageAccounting();
+    tracker.seed('root', raw(100, 20));
+    tracker.beginTurn('root');
+    tracker.beginNativeTurn('root', 'interrupted');
+    tracker.estimateInterruptedOutput('root', 40);
+    expect(tracker.take('gpt-6-astra')?.totalTokens).toBe(10);
+    tracker.fallback('root', raw(30, 10), false, 'interrupted');
+    expect(tracker.take('gpt-6-astra')?.totalTokens).toBe(30);
+    tracker.beginTurn('root');
+    tracker.observe('root', raw(180, 40), raw(50, 10));
+    expect(tracker.take('gpt-6-astra')?.totalTokens).toBe(60);
+    expect(tracker.cumulativeTokens).toBe(100);
+  });
+
+  it('reconciles estimates from two interrupted turns before the next reported call', () => {
+    const tracker = new CodexUsageAccounting();
+    tracker.seed('root', raw(100, 20));
+    for (const id of ['interrupted-1', 'interrupted-2']) {
+      tracker.beginTurn('root');
+      tracker.beginNativeTurn('root', id);
+      tracker.estimateInterruptedOutput('root', 40);
+      expect(tracker.take('gpt-6-astra')?.totalTokens).toBe(10);
+    }
+    tracker.beginTurn('root');
+    tracker.beginNativeTurn('root', 'next');
+    tracker.observe('root', raw(150, 50), raw(50, 10));
+    expect(tracker.take('gpt-6-astra')?.totalTokens).toBe(60);
+    expect(tracker.cumulativeTokens).toBe(80);
+  });
+
+  it('does not bill a late exact interrupted receipt after the next cumulative total included it', () => {
+    const tracker = new CodexUsageAccounting();
+    tracker.seed('root', raw(100, 20));
+    tracker.beginTurn('root');
+    tracker.beginNativeTurn('root', 'interrupted');
+    tracker.estimateInterruptedOutput('root', 40);
+    expect(tracker.take('gpt-6-astra')?.totalTokens).toBe(10);
+    tracker.beginTurn('root');
+    tracker.beginNativeTurn('root', 'next');
+    tracker.observe('root', raw(180, 40), raw(50, 10));
+    expect(tracker.take('gpt-6-astra')?.totalTokens).toBe(90);
+    tracker.fallback('root', raw(30, 10), false, 'interrupted');
+    expect(tracker.take('gpt-6-astra')).toBeUndefined();
+    expect(tracker.cumulativeTokens).toBe(100);
+  });
 });

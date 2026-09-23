@@ -94,6 +94,7 @@ import {
   ACTIVE_CHILD_TURN_STATUSES,
   CHILD_TURN_COMPLETE_STATUSES,
   RECENT_ADAPTER_ERROR_OUTPUT_DEDUP_MS,
+  resolveSettledTurnOutcome,
   summarizeInputResponse,
   getAccumulatedStreamingContent,
 } from './instance-communication.constants';
@@ -359,10 +360,7 @@ export class InstanceCommunicationManager extends EventEmitter {
   }
 
   private markTurnInactiveIfSettled(instance: Instance, status: InstanceStatus): void {
-    const isReadyForInput =
-      status === 'idle'
-      || status === 'ready'
-      || status === 'waiting_for_input';
+    const isReadyForInput = CHILD_TURN_COMPLETE_STATUSES.has(status);
     const turnWasActive = Boolean(instance.activeTurnId);
 
     if (isReadyForInput || isInstanceSettledStatus(status)) {
@@ -370,8 +368,9 @@ export class InstanceCommunicationManager extends EventEmitter {
     }
 
     if (isReadyForInput && turnWasActive) {
-      instance.lastTurnOutcome = 'completed';
-      getOrCreateTurnSupervisor(instance.id).recordTurnEnd('completed');
+      const outcome = resolveSettledTurnOutcome(instance);
+      instance.lastTurnOutcome = outcome;
+      getOrCreateTurnSupervisor(instance.id).recordTurnEnd(outcome);
     }
 
     if (isReadyForInput && instance.interruptPhase === 'completed') {

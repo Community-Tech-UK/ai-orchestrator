@@ -149,8 +149,9 @@ import type { TaskPreflightReport } from '../../../../shared/types/task-prefligh
       gap: 0.9rem;
       padding: 1rem;
       border-radius: 0.95rem;
-      border: 1px solid rgba(148, 163, 184, 0.16);
-      background: rgba(8, 18, 30, 0.78);
+      border: 1px solid var(--card-border);
+      background: var(--card-bg);
+      color: var(--text-primary);
     }
 
     .card-header,
@@ -178,7 +179,7 @@ import type { TaskPreflightReport } from '../../../../shared/types/task-prefligh
     .empty,
     .label-row,
     .list span {
-      color: #9fb3c7;
+      color: var(--text-secondary);
     }
 
     .summary-grid {
@@ -191,15 +192,15 @@ import type { TaskPreflightReport } from '../../../../shared/types/task-prefligh
       gap: 0.2rem;
       padding: 0.75rem 0.85rem;
       border-radius: 0.8rem;
-      background: rgba(15, 23, 42, 0.72);
-      border: 1px solid rgba(148, 163, 184, 0.12);
+      background: var(--surface-sunken-bg);
+      border: 1px solid var(--card-border);
     }
 
     .summary-label,
     .section-label {
       font-weight: 600;
       font-size: 0.72rem;
-      color: #82a2bf;
+      color: var(--text-secondary);
     }
 
     .section {
@@ -231,24 +232,38 @@ import type { TaskPreflightReport } from '../../../../shared/types/task-prefligh
     }
 
     .status-pill {
-      background: rgba(148, 163, 184, 0.14);
-      color: #e5eef6;
+      background: var(--pill-neutral-bg);
+      color: var(--text-primary);
     }
 
     .status-pill.ready {
-      background: rgba(34, 197, 94, 0.16);
-      color: #bbf7d0;
+      background: var(--pill-ok-bg);
+      color: var(--text-primary);
     }
 
-    .status-pill.error,
+    .status-pill.error {
+      color: var(--text-primary);
+      background: var(--pill-error-bg);
+    }
+
     .section-label.error,
     .list.error {
-      color: #fecaca;
+      color: var(--text-primary);
     }
 
     .section-label.warn,
     .list.warn {
-      color: #fcd34d;
+      color: var(--text-primary);
+    }
+
+    .list.error {
+      border-left: 2px solid var(--error-color);
+      background: var(--pill-error-bg);
+    }
+
+    .list.warn {
+      border-left: 2px solid var(--warning-color);
+      background: var(--pill-warn-bg);
     }
 
     .link-row {
@@ -258,8 +273,8 @@ import type { TaskPreflightReport } from '../../../../shared/types/task-prefligh
 
     .link-pill {
       text-decoration: none;
-      background: rgba(56, 189, 248, 0.16);
-      color: #bae6fd;
+      background: var(--pill-info-bg);
+      color: var(--text-primary);
     }
 
     @media (max-width: 720px) {

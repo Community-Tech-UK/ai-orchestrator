@@ -120,8 +120,8 @@ describe('buildLoopIssueView', () => {
     expect(view!.signals.map((signal) => signal.id)).toEqual(['G', 'A']);
   });
 
-  it('leads with the escalated CRITICAL the detector appends after the WARNs', () => {
-    // WARN escalation pushes its CRITICAL 'A' onto the END of the array.
+  it('attributes a persisted legacy WARN escalation to the signal that actually fired', () => {
+    // Older iterations appended a synthetic CRITICAL A regardless of cause.
     const view = buildLoopIssueView({
       verdict: 'CRITICAL',
       signals: [
@@ -131,9 +131,37 @@ describe('buildLoopIssueView', () => {
       running: true,
       paused: false,
     });
-    expect(view!.headline).toBe('Repeating the same work');
+    expect(view!.headline).toBe('Saying the same thing each iteration');
     expect(view!.problem).toContain('escalated to CRITICAL');
+    expect(view!.nextStep).toBe(PROGRESS_SIGNAL_CATALOG['H'].nextStep);
+    expect(view!.signals.map((signal) => signal.id)).toEqual(['H']);
+  });
+
+  it('keeps decision, next step, and primary action aligned with the leading signal', () => {
+    const view = buildLoopIssueView({
+      verdict: 'CRITICAL',
+      signals: [
+        { id: 'A', verdict: 'CRITICAL', message: 'same work hash' },
+        { id: 'F', verdict: 'CRITICAL', message: 'token budget spent' },
+      ],
+      running: true,
+      paused: false,
+    });
+    expect(view!.fixability).toBe(PROGRESS_SIGNAL_CATALOG['A'].fixability);
     expect(view!.nextStep).toBe(PROGRESS_SIGNAL_CATALOG['A'].nextStep);
+    expect(view!.actions.find((action) => action.kind === 'hint')?.primary).toBe(true);
+    expect(view!.actions.filter((action) => action.primary)).toHaveLength(1);
+  });
+
+  it('offers only one primary action for a decision-led signal', () => {
+    const view = buildLoopIssueView({
+      verdict: 'CRITICAL',
+      signals: [{ id: 'F', verdict: 'CRITICAL', message: 'token budget spent' }],
+      running: true,
+      paused: false,
+    });
+    expect(view!.fixability).toBe('not-by-hint');
+    expect(view!.actions.filter((action) => action.primary)).toHaveLength(1);
   });
 
   it('leads with the out-of-band pause signal the iteration never recorded', () => {

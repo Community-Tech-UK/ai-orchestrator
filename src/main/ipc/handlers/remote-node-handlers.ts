@@ -37,6 +37,7 @@ import {
 } from '../../util/network-addresses';
 import { getRemoteAuthService } from '../../auth/remote-auth';
 import { getRemoteWorkerRepairService } from '../../remote-node/remote-worker-repair-service';
+import { getActiveCoordinatorTailscaleWatcher } from '../../remote-node/coordinator-tailscale-watcher';
 
 const logger = getLogger('RemoteNodeHandlers');
 
@@ -94,6 +95,7 @@ export function registerRemoteNodeHandlers(): void {
         const port = validated?.port ?? config.serverPort;
         const host = validated?.host ?? config.serverHost;
         await getWorkerNodeConnectionServer().start(port, host);
+        getActiveCoordinatorTailscaleWatcher()?.start();
         getDiscoveryService().publish(port, config.namespace, config.namespace);
         return { success: true, data: { port, host } };
       } catch (error) {

@@ -4,6 +4,7 @@
  */
 
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import type { ChildProcess } from 'child_process';
 import { homedir, tmpdir } from 'os';
 import { join } from 'path';
 import {
@@ -443,10 +444,11 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     this.disallowedToolsOverride = tools && tools.length > 0 ? [...tools] : null;
   }
 
-  /** Temp dir holding inline-JSON args materialized to files on Windows. */
+  /** Private temp dir holding inline-JSON arguments. */
   private inlineArgTempDir: string | null = null;
   /** Dedup map: inline-JSON content → temp file path (stable across buildArgs calls). */
   private readonly inlineArgFiles = new Map<string, string>();
+  private inlineArgTempUsers = 0;
 
   /**
    * On Windows the CLI is spawned with `shell: true` (it's `claude.cmd`), so the
@@ -456,10 +458,11 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
    * arrived as `{x:1}`. A file PATH has no shell-special characters and survives
    * intact, and `claude --mcp-config` / `--settings` both accept a file path. So
    * on Windows we materialize inline-JSON args (those starting with `{`) to a temp
-   * file and pass the path. No-op on POSIX, where there is no shell layer.
+   * file and pass the path. MCP configs are also materialized on POSIX because
+   * workspace connector environment values can contain decrypted secrets.
    */
-  private materializeInlineJsonArg(value: string): string {
-    if (process.platform !== 'win32' || !value.trimStart().startsWith('{')) {
+  private materializeInlineJsonArg(value: string, forceFile = false): string {
+    if ((!forceFile && process.platform !== 'win32') || !value.trimStart().startsWith('{')) {
       return value;
     }
     const cached = this.inlineArgFiles.get(value);
@@ -467,10 +470,10 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       return cached;
     }
     if (!this.inlineArgTempDir) {
-      this.inlineArgTempDir = mkdtempSync(join(tmpdir(), 'aio-claude-args-'));
+      this.inlineArgTempDir = mkdtempSync(join(tmpdir(), 'aio-claude-args-'), { encoding: 'utf8' });
     }
     const file = join(this.inlineArgTempDir, `arg-${this.inlineArgFiles.size}.json`);
-    writeFileSync(file, value, 'utf-8');
+    writeFileSync(file, value, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
     this.inlineArgFiles.set(value, file);
     return file;
   }
@@ -486,6 +489,26 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     }
     this.inlineArgTempDir = null;
     this.inlineArgFiles.clear();
+  }
+
+  private spawnWithInlineArgCleanup(args: string[]): ChildProcess {
+    try {
+      const child = this.spawnProcess(args);
+      this.inlineArgTempUsers += 1;
+      let released = false;
+      const release = (): void => {
+        if (released) return;
+        released = true;
+        this.inlineArgTempUsers -= 1;
+        if (this.inlineArgTempUsers === 0) this.cleanupInlineArgTempDir();
+      };
+      child.once('close', release);
+      child.once('error', release);
+      return child;
+    } catch (error) {
+      if (this.inlineArgTempUsers === 0) this.cleanupInlineArgTempDir();
+      throw error;
+    }
   }
 
   async checkStatus(): Promise<CliStatus> {
@@ -666,7 +689,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       };
 
       const args = this.buildArgs(message);
-      this.process = this.spawnProcess(args);
+      this.process = this.spawnWithInlineArgCleanup(args);
 
       // Set up stdin formatter
       if (this.process.stdin) {
@@ -801,7 +824,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   async *sendMessageStream(message: CliMessage): AsyncIterable<string> {
     await this.primeCliVersion();
     const args = this.buildArgs(message);
-    this.process = this.spawnProcess(args);
+    this.process = this.spawnWithInlineArgCleanup(args);
 
     // Set up stdin formatter
     if (this.process.stdin) {
@@ -1006,7 +1029,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       disallowedToolsOverride: this.disallowedToolsOverride,
       shouldUseNativeResume: this.shouldUseNativeResume(),
       shouldUsePermissionHook: this.shouldUsePermissionHook(),
-      materializeInlineJsonArg: (value) => this.materializeInlineJsonArg(value),
+      materializeInlineJsonArg: (value, forceFile) => this.materializeInlineJsonArg(value, forceFile),
     });
   }
 
@@ -1032,15 +1055,11 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       : { source: 'fresh-fallback', confirmed: false };
     const args = this.buildArgs({ role: 'user', content: '' });
 
-    this.process = this.spawnProcess(args);
+    this.process = this.spawnWithInlineArgCleanup(args);
 
     if (!this.process.pid) {
       throw new Error('Failed to spawn Claude CLI process');
     }
-
-    // Remove any temp files created for Windows inline-JSON args once the
-    // process exits (it has read them at startup by then).
-    this.process.once('exit', () => this.cleanupInlineArgTempDir());
 
     // Set up stdin formatter
     if (this.process.stdin) {

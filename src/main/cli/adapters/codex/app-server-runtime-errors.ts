@@ -95,6 +95,15 @@ function classifyMessage(message: string): Pick<
   if (/turn stalled: no notifications received/i.test(message)) {
     return { kind: 'turn-stalled', recoverability: 'retry-thread' };
   }
+  // Codex's app-server can still consider its own internal compaction turn
+  // ("turn_kind: Compact") active for a moment after the `contextCompaction`
+  // item completes. A same-thread continuation submitted right then races
+  // that turn closing and is rejected with this provider-native error. It is
+  // a transient scheduling collision, not a real failure — treat it the same
+  // as the own-runtime "already has an active turn" collision above.
+  if (/not\s*steerable/i.test(message) || /failed to submit turn input/i.test(message)) {
+    return { kind: 'request-rejected', recoverability: 'retry-thread' };
+  }
   if (/rpc timeout|request timed out|did not respond within|\btimeout\b/i.test(message)) {
     return { kind: 'request-timeout', recoverability: 'retry-thread' };
   }

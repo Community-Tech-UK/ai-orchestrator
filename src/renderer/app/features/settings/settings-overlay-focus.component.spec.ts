@@ -31,7 +31,7 @@ await resolveComponentResources((url) => {
 });
 
 describe('Settings overlay focus', () => {
-  it('moves focus into Help, traps Tab, and returns focus on Escape', async () => {
+  it('manages focus for Help and compact navigation overlays', async () => {
     TestBed.overrideComponent(SettingsComponent, {
       set: {
         imports: [],
@@ -93,5 +93,41 @@ describe('Settings overlay focus', () => {
     );
     fixture.detectChanges();
     expect(document.activeElement).toBe(opener);
+
+    fixture.componentInstance.compactViewport.set(true);
+    fixture.detectChanges();
+    const navToggle = (fixture.nativeElement as HTMLElement).querySelector('.settings-nav-toggle') as HTMLButtonElement;
+    navToggle.focus();
+    navToggle.click();
+    fixture.detectChanges();
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+    const nav = (fixture.nativeElement as HTMLElement).querySelector('.settings-sidebar') as HTMLElement;
+    expect(nav.contains(document.activeElement)).toBe(true);
+    const navLast = document.createElement('button');
+    nav.append(navLast);
+    navLast.focus();
+    const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    navLast.dispatchEvent(tab);
+    expect(tab.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(navToggle);
+
+    fixture.componentInstance.helpDrawerMode.set(true);
+    fixture.componentInstance.helpDrawerOpen.set(true);
+    fixture.detectChanges();
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    const nestedHelp = (fixture.nativeElement as HTMLElement).querySelector('#settings-help-drawer') as HTMLElement;
+    const nestedLast = document.createElement('button');
+    nestedHelp.append(nestedLast);
+    nestedLast.focus();
+    nestedLast.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+    expect(nestedHelp.contains(document.activeElement)).toBe(true);
+    fixture.componentInstance.closeHelpDrawer();
+    fixture.detectChanges();
+
+    navToggle.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    fixture.detectChanges();
+    expect(fixture.componentInstance.compactNavOpen()).toBe(false);
+    expect(document.activeElement).toBe(navToggle);
   });
 });

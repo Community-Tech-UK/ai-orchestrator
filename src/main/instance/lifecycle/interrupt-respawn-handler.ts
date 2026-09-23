@@ -591,7 +591,30 @@ export class InterruptRespawnHandler {
     this.deps.clearInterrupted(instanceId);
     instance.interruptPhase = 'completed';
     instance.lastTurnOutcome = 'interrupted';
+    // An in-place settle has finished the interrupt owner flow. Some resident
+    // CLIs exit just after reporting idle; that later exit must use recovery.
+    instance.autoRespawnSuppressedUntil = undefined;
     this.deps.onToolStateChange?.(instanceId, 'idle');
+    this.emitInterruptBoundary(instance, {
+      phase: 'completed',
+      requestId: instance.interruptRequestId ?? generateId(),
+      outcome: instance.cancelledForEdit ? 'cancelled-for-edit' : 'cancelled',
+    });
+    this.emitRecoverySafeOutput(instance, {
+      id: generateId(),
+      timestamp: Date.now(),
+      type: 'system',
+      content: 'Interrupted — waiting for input',
+      metadata: { interruptStatus: 'interrupted', turnId: instance.activeTurnId },
+    });
+    this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage, undefined, undefined, undefined, undefined, {
+      activeTurnId: instance.activeTurnId,
+      interruptRequestId: instance.interruptRequestId,
+      interruptRequestedAt: instance.interruptRequestedAt,
+      interruptPhase: instance.interruptPhase,
+      lastTurnOutcome: instance.lastTurnOutcome,
+      adapterGeneration: instance.adapterGeneration,
+    }, undefined, undefined, null);
     // Clears the force-abort timer and resolves any sendInput() waiters.
     this.resolveRespawnPromise(instance);
   }
@@ -679,6 +702,7 @@ export class InterruptRespawnHandler {
     }
 
     this.deps.transitionState(instance, 'idle');
+    instance.autoRespawnSuppressedUntil = undefined;
     instance.lastActivity = Date.now();
     this.resolveRespawnPromise(instance);
     this.deps.onToolStateChange?.(instanceId, 'idle');

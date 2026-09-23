@@ -305,6 +305,8 @@ export interface AcpCliAdapterConfig extends Omit<CliAdapterConfig, 'command' | 
    *  $0 instead of pricing its tokens from a static table (OpenCode fronts
    *  flat-fee and free backends that no price row describes). */
   reportedCostOnly?: boolean;
+  /** Materialize provider-specific private launch files and return that spawn's cleanup. */
+  prepareSpawn?: () => () => void;
 }
 
 type InputRequiredResolvedReason = 'timeout' | 'auto_approved' | 'decided' | 'cancelled' | 'exited';
@@ -382,6 +384,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
   private readonly costLedger = new AcpSessionCostLedger();
   /** True once the agent reported measured occupancy via `usage_update`. */
   private measuredOccupancy = false;
+  private spawnCleanup: (() => void) | null = null;
 
   constructor(config: AcpCliAdapterConfig) {
     super({
@@ -516,8 +519,11 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
     const releaseStartupGate = this.acpConfig.startupGate ? await this.acpConfig.startupGate() : undefined;
     try {
+      this.spawnCleanup = this.acpConfig.prepareSpawn?.() ?? null;
       this.process = this.spawnProcess([]);
     } catch (error) {
+      this.spawnCleanup?.();
+      this.spawnCleanup = null;
       releaseStartupGate?.();
       this.releaseConcurrencySlot();
       throw error;
@@ -815,7 +821,12 @@ export class AcpCliAdapter extends BaseCliAdapter {
     this.measuredOccupancy = false;
     this.toolCalls.clear();
     this.stdoutBuffer = '';
-    await super.terminate(graceful);
+    try {
+      await super.terminate(graceful);
+    } finally {
+      this.spawnCleanup?.();
+      this.spawnCleanup = null;
+    }
     // Release after super.terminate so ordering is: cancel → drain → kill →
     // free slot for the next queued spawn. Safe to call even without a
     // prior acquire (it's idempotent + null-guarded).
@@ -996,6 +1007,11 @@ export class AcpCliAdapter extends BaseCliAdapter {
       // parent SIGKILL, etc.).
       this.releaseConcurrencySlot();
       this.emit('exit', code, signal);
+    });
+    const cleanup = this.spawnCleanup;
+    this.process.once('close', () => {
+      cleanup?.();
+      if (this.spawnCleanup === cleanup) this.spawnCleanup = null;
     });
   }
 

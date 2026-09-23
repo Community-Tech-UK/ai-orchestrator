@@ -712,12 +712,19 @@ export class LoopProgressDetector {
       const countWithCurrent = recent.length + 1;
       if (countWithCurrent >= th.warnEscalationCount) {
         verdict = 'CRITICAL';
-        signals.push({
-          id: 'A',
-          verdict: 'CRITICAL',
-          message: `${countWithCurrent} WARN iterations in last ${th.warnEscalationWindow} — escalated to CRITICAL`,
-          detail: { recentWarnSeqs: [...recent, current.seq], window: th.warnEscalationWindow },
-        });
+        // Promote the signal that actually fired this iteration. A synthetic
+        // A claimed identical work even when no work hashes repeated.
+        const cause = SIGNAL_PRIORITY.map((id) => signals.find((signal) => signal.id === id && signal.verdict === 'WARN'))
+          .find((signal) => signal !== undefined) ?? signals.find((signal) => signal.verdict === 'WARN');
+        if (cause) {
+          cause.verdict = 'CRITICAL';
+          cause.message = `${cause.message} — ${countWithCurrent} WARN iterations in last ${th.warnEscalationWindow}, escalated to CRITICAL`;
+          cause.detail = {
+            ...cause.detail,
+            recentWarnSeqs: [...recent, current.seq],
+            window: th.warnEscalationWindow,
+          };
+        }
       }
     }
 

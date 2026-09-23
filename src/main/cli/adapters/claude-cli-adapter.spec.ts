@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs';
+import { EventEmitter } from 'node:events';
 import { homedir, tmpdir } from 'os';
-import { join } from 'path';
+import { dirname, join } from 'path';
 
 // Mock logger to avoid side-effects from logging stack during tests.
 vi.mock('../../logging/logger', () => ({
@@ -711,16 +712,44 @@ describe('ClaudeCliAdapter Windows inline-JSON --mcp-config materialization', ()
     expect(readFileSync(arg, 'utf-8')).toBe(INLINE); // intact content
   });
 
-  it('off-win32, passes inline JSON unchanged', () => {
+  it('off-win32, keeps MCP JSON with a placeholder secret out of argv in a private file', () => {
     setPlatform('darwin');
-    const adapter = new ClaudeCliAdapter({ mcpConfig: [INLINE] });
-    expect(mcpConfigArg(adapter)).toBe(INLINE);
+    const config = '{"mcpServers":{"demo":{"command":"demo","env":{"KEY":"PLACEHOLDER_ONLY"}}}}';
+    const adapter = new ClaudeCliAdapter({ mcpConfig: [config] });
+    const arg = mcpConfigArg(adapter);
+    expect(arg).not.toContain('PLACEHOLDER_ONLY');
+    expect(readFileSync(arg, 'utf8')).toBe(config);
+    expect(statSync(arg).mode & 0o777).toBe(0o600);
+    expect(statSync(dirname(arg)).mode & 0o777).toBe(0o700);
+    (adapter as unknown as { cleanupInlineArgTempDir: () => void }).cleanupInlineArgTempDir();
   });
 
   it('leaves a file-path mcp-config entry untouched on win32', () => {
     setPlatform('win32');
     const adapter = new ClaudeCliAdapter({ mcpConfig: ['C:\\cfg\\mcp.json'] });
     expect(mcpConfigArg(adapter)).toBe('C:\\cfg\\mcp.json');
+  });
+
+  it('removes materialized JSON after the final child closes', () => {
+    setPlatform('darwin');
+    const adapter = new ClaudeCliAdapter({ mcpConfig: [INLINE] });
+    const file = mcpConfigArg(adapter);
+    const first = new EventEmitter();
+    const second = new EventEmitter();
+    const spawn = vi.spyOn(adapter as unknown as {
+      spawnProcess: (args: string[]) => EventEmitter;
+    }, 'spawnProcess');
+    spawn.mockReturnValueOnce(first).mockReturnValueOnce(second);
+    const spawnWithCleanup = (adapter as unknown as {
+      spawnWithInlineArgCleanup: (args: string[]) => EventEmitter;
+    }).spawnWithInlineArgCleanup.bind(adapter);
+
+    spawnWithCleanup([]);
+    spawnWithCleanup([]);
+    first.emit('close');
+    expect(existsSync(file)).toBe(true);
+    second.emit('close');
+    expect(existsSync(file)).toBe(false);
   });
 });
 

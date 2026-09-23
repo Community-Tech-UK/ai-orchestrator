@@ -288,6 +288,13 @@
                       [class.user-message-collapsed]="item.message.type === 'user' && shouldShowUserMessageToggle(item.message) && !isUserMessageExpanded(item.message.id)"
                       [class.progress-note-collapsed]="isProgressNote(item.message) && !isProgressNoteExpanded(item.message.id)"
                       [innerHTML]="item.renderedMessage"></div>
+                    @if (item.message.type === 'assistant' && item.message.metadata?.['asyncUserInput']) {
+                      <app-async-question-answers
+                        [message]="item.message"
+                        [instanceId]="instanceId()"
+                        [target]="asyncAnswerTarget()"
+                        [transcript]="messages()" />
+                    }
                   }
                   @if (item.message.attachments && item.message.attachments.length > 0) {
                     <app-message-attachments [attachments]="item.message.attachments" />

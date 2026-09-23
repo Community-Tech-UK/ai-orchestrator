@@ -20,12 +20,16 @@ import type {
   SkillControlMode,
   SkillControlRecord,
   SkillHealthEntry,
+  SkillHealthCatalogEntry,
+  SkillBudgetSkipRecord,
 } from '../../../../shared/types/skill-observability.types';
 
 interface HealthRow extends SkillHealthEntry {
   mode: SkillControlMode | null;
+  source: SkillHealthCatalogEntry['source'] | null;
   errorShare: number;
   outlier: string | null;
+  budgetSkips: SkillBudgetSkipRecord[];
 }
 
 const CONTROL_MODES: SkillControlMode[] = ['enabled', 'suggest-only', 'disabled'];
@@ -37,11 +41,11 @@ const CONTROL_MODES: SkillControlMode[] = ['enabled', 'suggest-only', 'disabled'
     <div class="panel-card">
       <div class="panel-title">Skill Health</div>
       <div class="panel-note">
-        Auto-injected skills recorded per session. Error flags are correlation, not causation.
+        Discovered skills and session activations. Suggest means available for manual selection, without auto-injection. Error flags are correlation, not causation.
       </div>
 
       @if (rows().length === 0) {
-        <div class="hint">No skill activations recorded yet.</div>
+        <div class="hint">No skills discovered yet.</div>
       } @else {
         <div class="health-rows">
           @for (row of rows(); track row.skillName) {
@@ -53,6 +57,9 @@ const CONTROL_MODES: SkillControlMode[] = ['enabled', 'suggest-only', 'disabled'
                 }
               </div>
               <div class="row-stats">
+                @if (row.source) {
+                  {{ row.source }} ·
+                }
                 {{ row.totalActivations }} activation{{ row.totalActivations === 1 ? '' : 's' }}
                 · ~{{ row.totalTokens }} tokens
                 @if (row.precededErrors > 0) {
@@ -62,12 +69,18 @@ const CONTROL_MODES: SkillControlMode[] = ['enabled', 'suggest-only', 'disabled'
                   · last {{ formatWhen(row.lastUsedAt) }}
                 }
               </div>
+              @for (skip of row.budgetSkips; track skip.id) {
+                <div class="row-skip">
+                  Detected, not injected · needs {{ skip.tokens.toLocaleString() }} tokens,
+                  {{ skip.budget.toLocaleString() }} available · {{ formatWhen(skip.createdAt) }}
+                </div>
+              }
               <div class="row-controls">
                 @for (mode of controlModes; track mode) {
                   <button
                     type="button"
                     class="mode-btn"
-                    [class.active]="(row.mode ?? 'enabled') === mode"
+                    [class.active]="row.mode === mode"
                     (click)="setMode(row.skillName, mode)"
                   >
                     {{ modeLabel(mode) }}
@@ -160,6 +173,11 @@ const CONTROL_MODES: SkillControlMode[] = ['enabled', 'suggest-only', 'disabled'
       color: var(--text-muted);
     }
 
+    .row-skip {
+      font-size: 11px;
+      color: var(--warning-color, #d97706);
+    }
+
     .row-controls {
       display: flex;
       gap: 4px;
@@ -206,11 +224,32 @@ export class SkillHealthPanelComponent implements OnInit {
   readonly controlModes = CONTROL_MODES;
 
   private readonly _summary = signal<readonly SkillHealthEntry[]>([]);
+  private readonly _catalog = signal<readonly SkillHealthCatalogEntry[]>([]);
+  private readonly _budgetSkips = signal<readonly SkillBudgetSkipRecord[]>([]);
 
   readonly rows = computed<HealthRow[]>(() => {
     const controls = this.skillStore.controls();
-    return this._summary().map((entry) => {
-      const mode = controls.get(entry.skillName)?.mode ?? null;
+    const summaries = new Map(this._summary().map((entry) => [entry.skillName, entry]));
+    const catalog = new Map(this._catalog().map((entry) => [entry.skillName, entry]));
+    const skips = new Map<string, SkillBudgetSkipRecord[]>();
+    for (const skip of this._budgetSkips()) {
+      const prior = skips.get(skip.skillName) ?? [];
+      if (prior.length < 3) prior.push(skip);
+      skips.set(skip.skillName, prior);
+    }
+    const names = new Set([...catalog.keys(), ...summaries.keys(), ...skips.keys()]);
+    return [...names].map((skillName) => {
+      const entry = summaries.get(skillName) ?? {
+        skillName,
+        totalActivations: 0,
+        totalTokens: 0,
+        lastUsedAt: null,
+        byTrigger: 0,
+        byEmbedding: 0,
+        byExplicit: 0,
+        precededErrors: 0,
+      };
+      const mode = controls.get(skillName)?.mode ?? catalog.get(skillName)?.effectiveMode ?? null;
       const errorShare = entry.totalActivations > 0
         ? entry.precededErrors / entry.totalActivations
         : 0;
@@ -220,7 +259,8 @@ export class SkillHealthPanelComponent implements OnInit {
       } else if (entry.totalActivations >= 50) {
         outlier = `fires very often (${entry.totalActivations} activations)`;
       }
-      return { ...entry, mode, errorShare, outlier };
+      return { ...entry, mode, source: catalog.get(skillName)?.source ?? null,
+        errorShare, outlier, budgetSkips: skips.get(skillName) ?? [] };
     });
   });
 
@@ -234,8 +274,12 @@ export class SkillHealthPanelComponent implements OnInit {
       const data = response.data as {
         summary?: SkillHealthEntry[];
         controls?: SkillControlRecord[];
+        catalog?: SkillHealthCatalogEntry[];
+        budgetSkips?: SkillBudgetSkipRecord[];
       };
       this._summary.set(data.summary ?? []);
+      this._catalog.set(data.catalog ?? []);
+      this._budgetSkips.set(data.budgetSkips ?? []);
     }
     await this.skillStore.refreshControls();
   }

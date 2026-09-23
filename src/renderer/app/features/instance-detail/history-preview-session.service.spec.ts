@@ -217,4 +217,17 @@ describe('HistoryPreviewSessionService', () => {
     service.complete('history-1');
     expect(service.selection('history-1')).toBeNull();
   });
+
+  it('makes the confirmed model available after the preview selection is completed', async () => {
+    runtime = { ...runtime, currentModel: 'gpt-5.6-sol' };
+    service.select('history-1', first);
+    expect(await service.prepare(conversation())).toBe('real-1');
+    service.complete('history-1');
+
+    expect(service.selection('history-1')).toBeNull();
+    expect(service.confirmedSelectionForInstance('real-1', 'codex', 'gpt-5.6-sol')).toEqual(first);
+    expect(service.confirmedSelectionForInstance('real-1', 'codex', 'gpt-6-astra')).toEqual(first);
+    expect(service.confirmedSelectionForInstance('real-1', 'codex', 'gpt-6-other')).toBeNull();
+    expect(service.confirmedSelectionForInstance('real-1', 'codex', 'gpt-5.6-sol')).toBeNull();
+  });
 });

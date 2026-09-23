@@ -24,6 +24,8 @@ import { getLogger } from '../logging/logger';
 import { getRLMDatabase } from '../persistence/rlm-database';
 import {
   insertSkillActivation,
+  insertSkillBudgetSkip,
+  listSkillBudgetSkips,
   listSkillActivations,
   getSkillHealthSummary,
   getSkillControl,
@@ -36,6 +38,7 @@ import {
   type SkillControlMode,
   type SkillHealthSummaryEntry,
   type SkillMatchedBy,
+  type SkillBudgetSkipRecord,
 } from '../persistence/rlm/rlm-skill-attribution';
 
 export type {
@@ -44,6 +47,7 @@ export type {
   SkillControlMode,
   SkillHealthSummaryEntry,
   SkillMatchedBy,
+  SkillBudgetSkipRecord,
 } from '../persistence/rlm/rlm-skill-attribution';
 
 const logger = getLogger('SkillAttribution');
@@ -61,6 +65,16 @@ export interface RecordActivationParams {
   matchScore?: number | null;
   tokensInjected: number;
   autoSelected: boolean;
+}
+
+export interface RecordBudgetSkipParams {
+  skillName: string;
+  skillSource: string;
+  instanceId?: string | null;
+  sessionId?: string | null;
+  turnKey?: string | null;
+  tokens: number;
+  budget: number;
 }
 
 export class SkillAttributionService extends EventEmitter {
@@ -188,6 +202,41 @@ export class SkillAttributionService extends EventEmitter {
       return getSkillHealthSummary(db, since);
     } catch (err) {
       logger.warn('getHealthSummary failed (fail-soft)', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return [];
+    }
+  }
+
+  /** Record why a detected, enabled skill was not injected on this turn. */
+  recordBudgetSkip(params: RecordBudgetSkipParams): SkillBudgetSkipRecord | null {
+    const db = this.resolveDb();
+    if (!db) return null;
+    const skip: SkillBudgetSkipRecord = {
+      id: crypto.randomUUID(), skillName: params.skillName, skillSource: params.skillSource,
+      instanceId: params.instanceId ?? null, sessionId: params.sessionId ?? null,
+      turnKey: params.turnKey ?? null, reason: 'budget-exceeded',
+      tokens: params.tokens, budget: params.budget, createdAt: Date.now(),
+    };
+    try {
+      insertSkillBudgetSkip(db, skip);
+      return skip;
+    } catch (err) {
+      logger.warn('recordBudgetSkip failed (fail-soft)', {
+        skillName: params.skillName,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    }
+  }
+
+  getRecentBudgetSkips(limit = 100): SkillBudgetSkipRecord[] {
+    const db = this.resolveDb();
+    if (!db) return [];
+    try {
+      return listSkillBudgetSkips(db, limit);
+    } catch (err) {
+      logger.warn('getRecentBudgetSkips failed (fail-soft)', {
         error: err instanceof Error ? err.message : String(err),
       });
       return [];

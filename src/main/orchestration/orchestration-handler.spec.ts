@@ -8,6 +8,17 @@ const automationMocks = vi.hoisted(() => ({
   createAutomationWithScheduling: vi.fn(),
 }));
 
+const { settingsGetAll } = vi.hoisted(() => ({
+  settingsGetAll: vi.fn(() => ({
+    workspaceSecretsEnabled: true,
+    workspaceSecretsAllowAgentRequests: true,
+  })),
+}));
+
+vi.mock('../core/config/settings-manager', () => ({
+  getSettingsManager: () => ({ getAll: settingsGetAll }),
+}));
+
 // Mock the logger before any imports that transitively pull in Electron's app.getPath
 vi.mock('../logging/logger', () => ({
   getLogger: () => ({
@@ -201,6 +212,92 @@ describe('OrchestrationHandler.processOutput (streaming markers)', () => {
       'Which panel first?',
       'Do you prefer tabs or sections?',
     ]);
+  });
+
+  it('creates a secret card request and resolves it with only an opaque reference', () => {
+    const orchestration = new OrchestrationHandler();
+    orchestration.registerInstance('i-secret', '/tmp', null);
+    const onUserAction = vi.fn();
+    const responses: string[] = [];
+    orchestration.on('user-action-request', onUserAction);
+    orchestration.on('inject-response', (_id, response) => responses.push(response));
+
+    orchestration.processOutput('i-secret', commandBlock({
+      action: 'request_user_action', requestType: 'secret_required',
+      title: 'Credential needed', message: 'Supply the deployment credential',
+      secretRequest: { name: 'DEPLOY_TOKEN', label: 'Deployment token', purpose: 'Deploy' },
+    }));
+
+    const request = orchestration.getPendingUserActionsForInstance('i-secret')[0];
+    expect(onUserAction).toHaveBeenCalledWith(expect.objectContaining({
+      requestType: 'secret_required',
+      secretRequest: expect.objectContaining({ name: 'DEPLOY_TOKEN' }),
+    }));
+    expect(orchestration.getPendingSecretRequest('i-secret', request.id)).toMatchObject({ name: 'DEPLOY_TOKEN' });
+    expect(orchestration.resolveSecretRequest('i-secret', request.id, true, 'secret://deploy-token')).toBe(true);
+    expect(orchestration.getPendingUserActionsForInstance('i-secret')).toEqual([]);
+    expect(responses.at(-1)).toContain('secret://deploy-token');
+    expect(responses.at(-1)).not.toContain('PLACEHOLDER_ONLY');
+  });
+
+  it('does not let a generic response consume a pending secret card', () => {
+    const orchestration = new OrchestrationHandler();
+    orchestration.registerInstance('i-secret-generic', '/tmp', null);
+    const responses: string[] = [];
+    orchestration.on('inject-response', (_id, response) => responses.push(response));
+    orchestration.processOutput('i-secret-generic', commandBlock({
+      action: 'request_user_action', requestType: 'secret_required',
+      title: 'Credential needed', message: 'Supply credential',
+      secretRequest: { name: 'DEPLOY_TOKEN', label: 'Deployment token', purpose: 'Deploy' },
+    }));
+    const request = orchestration.getPendingUserActionsForInstance('i-secret-generic')[0];
+    orchestration.respondToUserAction(request.id, true, 'PLACEHOLDER_ONLY');
+    expect(orchestration.getPendingUserActionsForInstance('i-secret-generic')).toHaveLength(1);
+    expect(responses).toEqual([]);
+  });
+
+  it('ignores agent-controlled response suppression on a secret card', () => {
+    const orchestration = new OrchestrationHandler();
+    orchestration.registerInstance('i-secret-context', '/tmp', null);
+    const responses: string[] = [];
+    orchestration.on('inject-response', (_id, response) => responses.push(response));
+    orchestration.processOutput('i-secret-context', commandBlock({
+      action: 'request_user_action', requestType: 'secret_required',
+      title: 'Credential needed', message: 'Supply credential',
+      secretRequest: { name: 'DEPLOY_TOKEN', label: 'Deployment token', purpose: 'Deploy' },
+      context: { suppressInjectResponse: true },
+    }));
+    const request = orchestration.getPendingUserActionsForInstance('i-secret-context')[0];
+    expect(orchestration.resolveSecretRequest('i-secret-context', request.id, true, 'secret://deploy-token')).toBe(true);
+    expect(responses.at(-1)).toContain('secret://deploy-token');
+  });
+
+  it('rejects a secret name that cannot form a reference', () => {
+    const orchestration = new OrchestrationHandler();
+    orchestration.registerInstance('i-secret-invalid', '/tmp', null);
+    const onUserAction = vi.fn();
+    orchestration.on('user-action-request', onUserAction);
+    orchestration.processOutput('i-secret-invalid', commandBlock({
+      action: 'request_user_action', requestType: 'secret_required',
+      title: 'Credential needed', message: 'Supply credential',
+      secretRequest: { name: '!!!', label: 'Credential', purpose: 'Deploy' },
+    }));
+    expect(onUserAction).not.toHaveBeenCalled();
+  });
+
+  it('does not raise a secret card when either operator switch is off', () => {
+    settingsGetAll.mockReturnValueOnce({ workspaceSecretsEnabled: true, workspaceSecretsAllowAgentRequests: false });
+    const orchestration = new OrchestrationHandler();
+    orchestration.registerInstance('i-secret-disabled', '/tmp', null);
+    const onUserAction = vi.fn();
+    orchestration.on('user-action-request', onUserAction);
+    orchestration.processOutput('i-secret-disabled', commandBlock({
+      action: 'request_user_action', requestType: 'secret_required',
+      title: 'Credential needed', message: 'Supply the credential',
+      secretRequest: { name: 'DEPLOY_TOKEN', label: 'Deployment token', purpose: 'Deploy' },
+    }));
+    expect(onUserAction).not.toHaveBeenCalled();
+    expect(orchestration.getPendingUserActionsForInstance('i-secret-disabled')).toEqual([]);
   });
 
   it('suppresses a user-action response when session admission reports the instance is blocked', () => {

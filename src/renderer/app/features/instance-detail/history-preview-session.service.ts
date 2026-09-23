@@ -4,6 +4,7 @@ import { InstanceStore, type OutputMessage } from '../../core/state/instance.sto
 import { InstanceIpcService } from '../../core/services/ipc/instance-ipc.service';
 import type { ConversationData } from '../../../../shared/types/history.types';
 import type { Instance } from '../../../../shared/types/instance.types';
+import type { InstanceProvider } from '../../core/state/instance/instance.types';
 import { isModelSwitchAllowedStatus } from '../../../../shared/types/instance-status-policy';
 import { normalizeModelAliasForProvider } from '../../../../shared/types/provider-model-utils';
 import type { PendingSelection } from '../models/compact-model-picker.types';
@@ -28,9 +29,38 @@ export class HistoryPreviewSessionService {
   private readonly restores = new Map<string, Promise<string | null>>();
   private readonly preparations = new Map<string, Promise<string | null>>();
   private readonly applied = new Map<string, { instanceId: string; selection: PendingSelection }>();
+  /** A validated model switch can reach the preview handoff before the normal
+   * instance update event. Keep its result so the live picker has the same truth. */
+  private readonly confirmedByInstance = new Map<string, {
+    selection: PendingSelection;
+    before: { provider: string; currentModel?: string } | null;
+    after: { provider: string; currentModel?: string };
+  }>();
 
   selection(entryId: string): PendingSelection | null {
     return this.selections().get(entryId) ?? null;
+  }
+
+  confirmedSelectionForInstance(
+    instanceId: string,
+    provider: InstanceProvider,
+    currentModel: string | undefined,
+  ): PendingSelection | null {
+    const confirmed = this.confirmedByInstance.get(instanceId);
+    if (!confirmed) return null;
+    const matches = (runtime: { provider: string; currentModel?: string } | null): boolean =>
+      runtime !== null && provider === runtime.provider
+      && normalizeModelAliasForProvider(provider, currentModel)
+        === normalizeModelAliasForProvider(provider, runtime.currentModel);
+    // A later model change from the header (or another window) supersedes the
+    // handoff. The original runtime is allowed only while its event is stale.
+    if (matches(confirmed.before) || matches(confirmed.after)) return confirmed.selection;
+    this.confirmedByInstance.delete(instanceId);
+    return null;
+  }
+
+  clearConfirmedSelection(instanceId: string): void {
+    this.confirmedByInstance.delete(instanceId);
   }
 
   select(entryId: string, selection: PendingSelection): void {
@@ -152,6 +182,7 @@ export class HistoryPreviewSessionService {
     if (selection.provider === 'local-model' && !target) throw new Error('Choose a local model again.');
     for (;;) {
       if (Date.now() >= deadline) throw new Error(MODEL_WAIT_ERROR);
+      const before = this.instances.getInstance(instanceId);
       const response = await this.beforeDeadline(this.ipc.changeModel(
         instanceId,
         target?.kind === 'local-model' ? target.modelId : selection.model ?? undefined,
@@ -169,6 +200,13 @@ export class HistoryPreviewSessionService {
             && (!selection.model || normalizeModelAliasForProvider(selection.provider, data.currentModel)
               === normalizeModelAliasForProvider(selection.provider, selection.model));
         if (!matches) throw new Error('The session confirmed a different model. Choose an available model and try again.');
+        if (data.provider) {
+          this.confirmedByInstance.set(instanceId, {
+            selection,
+            before: before ? { provider: before.provider, currentModel: before.currentModel } : null,
+            after: { provider: data.provider, currentModel: data.currentModel },
+          });
+        }
         return;
       }
 

@@ -567,7 +567,7 @@ export class OrchestrationIpcService {
    * Get supervision tree
    */
   async supervisionGetTree(rootInstanceId?: string): Promise<IpcResponse> {
-    return this.invokeChannel('supervision:get-tree', { instanceId: rootInstanceId });
+    return this.invokeChannel('supervision:get-tree', { rootInstanceId });
   }
 
   /**

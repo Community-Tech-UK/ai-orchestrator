@@ -29,6 +29,7 @@ const fakes = vi.hoisted(() => {
     },
     registry,
     connectionStart: vi.fn(async () => undefined),
+    rpcRouterStart: vi.fn(),
     publish: vi.fn(),
     notify: vi.fn(),
   };
@@ -50,7 +51,7 @@ vi.mock('../remote-node', () => ({
   handleNodeFailover: vi.fn(),
   handleLateNodeReconnect: vi.fn(),
   RpcEventRouter: class {
-    start = vi.fn();
+    start = fakes.rpcRouterStart;
   },
   getRemoteNodeConfig: () => fakes.config,
   hydrateRemoteNodeConfig: vi.fn(),
@@ -108,6 +109,14 @@ describe('createWorkerNodeSubsystemStep', () => {
 
     expect(fakes.connectionStart).not.toHaveBeenCalled();
     expect(fakes.publish).not.toHaveBeenCalled();
+  });
+
+  it('wires RPC registration before a server is started later when initially disabled', async () => {
+    fakes.config.enabled = false;
+    await createWorkerNodeSubsystemStep(buildContext()).fn();
+
+    expect(fakes.rpcRouterStart).toHaveBeenCalledOnce();
+    expect(fakes.connectionStart).not.toHaveBeenCalled();
   });
 
   it('notifies with the node name when a node disconnects', async () => {

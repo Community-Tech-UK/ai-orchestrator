@@ -1,5 +1,5 @@
-import { readFileSync } from 'fs';
-import { join } from 'path';
+import { readFileSync, statSync } from 'fs';
+import { dirname, join } from 'path';
 import { tmpdir } from 'os';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createCliAdapter, getCliDisplayName, mapSettingsToDetectionType } from '../adapter-factory';
@@ -32,6 +32,7 @@ function legacyRoute(
 const CHROME_DEVTOOLS_MCP_PACKAGE = `chrome-devtools-mcp@${CHROME_DEVTOOLS_MCP_VERSION}`;
 
 describe('adapter factory — copilot', () => {
+  const preparedConfigCleanups: Array<() => void> = [];
   const testCopilotHome = join(tmpdir(), 'ai-orchestrator-test-copilot-home');
   const testAioMcp = '/tmp/aio-mcp';
   const originalOrchestratorCopilotHome = process.env['AI_ORCHESTRATOR_COPILOT_HOME'];
@@ -54,11 +55,38 @@ describe('adapter factory — copilot', () => {
   }
 
   function readAdditionalMcpConfig(adapter: ReturnType<typeof createCliAdapter>) {
+    const lifecycle = (adapter as unknown as {
+      acpConfig: { prepareSpawn?: () => () => void };
+    }).acpConfig;
+    const cleanup = lifecycle.prepareSpawn?.();
+    if (cleanup) preparedConfigCleanups.push(cleanup);
     const args = configOf(adapter).args ?? [];
     const configIdx = args.indexOf('--additional-mcp-config');
     expect(configIdx).toBeGreaterThanOrEqual(0);
-    return JSON.parse(args[configIdx + 1]);
+    const argument = args[configIdx + 1];
+    expect(argument).toMatch(/^@.+\.json$/);
+    return JSON.parse(readFileSync(argument.slice(1), 'utf8'));
   }
+
+  it('keeps workspace MCP placeholder values out of Copilot argv', () => {
+    const adapter = createCliAdapter('copilot', {
+      copilotAccountRoute: legacyRoute(),
+      workingDirectory: '/tmp',
+      mcpConfig: [JSON.stringify({ mcpServers: { demo: { command: 'demo', env: { KEY: 'PLACEHOLDER_ONLY' } } } })],
+    });
+    const args = configOf(adapter).args ?? [];
+    const configIdx = args.indexOf('--additional-mcp-config');
+    const configArg = args[configIdx + 1];
+    expect(configArg).toMatch(/^@.+\.json$/);
+    expect(args.join(' ')).not.toContain('PLACEHOLDER_ONLY');
+    const lifecycle = (adapter as unknown as {
+      acpConfig: { prepareSpawn: () => () => void };
+    }).acpConfig;
+    preparedConfigCleanups.push(lifecycle.prepareSpawn());
+    expect(JSON.parse(readFileSync(configArg.slice(1), 'utf8')).mcpServers.demo.env.KEY).toBe('PLACEHOLDER_ONLY');
+    expect(statSync(configArg.slice(1)).mode & 0o777).toBe(0o600);
+    expect(statSync(dirname(configArg.slice(1))).mode & 0o777).toBe(0o700);
+  });
 
   beforeEach(() => {
     process.env['AI_ORCHESTRATOR_COPILOT_HOME'] = testCopilotHome;
@@ -66,6 +94,7 @@ describe('adapter factory — copilot', () => {
   });
 
   afterEach(() => {
+    for (const cleanup of preparedConfigCleanups.splice(0)) cleanup();
     if (originalOrchestratorCopilotHome === undefined) {
       delete process.env['AI_ORCHESTRATOR_COPILOT_HOME'];
     } else {

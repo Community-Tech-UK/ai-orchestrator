@@ -51,4 +51,16 @@ describe('chat feature templates', () => {
     expect(source).toContain('this.operatorIpc.listRuns({ threadId, limit: 5 })');
     expect(source).toContain('this.operatorIpc.cancelRun(runId)');
   });
+
+  it('routes Codex async-question answers through the chat service in both chat hosts', () => {
+    for (const host of [
+      'src/renderer/app/features/chats/chat-detail.component',
+      'src/renderer/app/features/side-chat/side-chat-panel.component',
+    ]) {
+      expect(readFileSync(`${host}.html`, 'utf-8')).toContain('[asyncAnswerTarget]="asyncAnswerTarget()"');
+      const source = readFileSync(`${host}.ts`, 'utf-8');
+      expect(source).toContain('chatAsyncAnswerTarget(');
+      expect(source).toContain('this.chatStore.sendMessageTo(chatId, text)');
+    }
+  });
 });

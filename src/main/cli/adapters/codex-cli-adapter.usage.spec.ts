@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { CodexCliAdapter } from './codex-cli-adapter';
 import type { CliResponse } from './base-cli-adapter';
 import type { AppServerNotification } from './codex/app-server-types';
@@ -202,6 +202,80 @@ describe('Codex cumulative usage accounting', () => {
     expect(h.completions[0].usage).toMatchObject({ inputTokens: 220, cacheReadTokens: 380, outputTokens: 70, reasoningTokens: 50, totalTokens: 720, isEstimated: true });
     expect(h.contexts.every(c => c.used === 120)).toBe(true);
     expect(h.contexts.at(-1)?.cumulativeTokens).toBe(720);
+  });
+
+  it('charges a child advertised by subagent activity without thread/started', async () => {
+    const h = harness();
+    await h.send([
+      update(sample(100, 80, 20)),
+      { method: 'item/completed', params: { threadId: 'root', item: {
+        id: 'activity-1', type: 'subAgentActivity', agentThreadId: 'child', status: 'completed',
+      } } },
+      { method: 'turn/completed', params: { threadId: 'child', turn: {
+        id: 'child-turn', status: 'completed', usage: sample(21759, 17920, 71, 63),
+      } } },
+    ]);
+    expect(h.completions[0].usage).toMatchObject({ totalTokens: 21950, isEstimated: true });
+    expect(h.contexts.at(-1)?.cumulativeTokens).toBe(21950);
+  });
+
+  it('charges a child found at the rollout boundary when no child notification arrives', async () => {
+    const h = harness();
+    const adapter = h.adapter as unknown as { usageAccounting: { observe(id: string, total: Record<string, number>, last: undefined, child: boolean): void }; reconcileChildRollouts(id: string, turnId: string, startedAtMs: number, endedAtMs: number): Promise<void> };
+    adapter.reconcileChildRollouts = async (id, turnId, startedAtMs, endedAtMs) => {
+      expect(id).toBe('root');
+      expect(turnId).toMatch(/^turn-/);
+      expect(startedAtMs).toBeLessThanOrEqual(endedAtMs);
+      adapter.usageAccounting.observe('child', sample(21759, 17920, 71, 63), undefined, true);
+    };
+    await h.send([update(sample(100, 80, 20))]);
+    await h.send([update(sample(150, 100, 30), sample(50, 20, 10))]);
+    expect(h.completions.map(response => response.usage?.totalTokens)).toEqual([21950, 60]);
+    expect(h.completions[0].usage?.isEstimated).toBe(true);
+  });
+
+  it('persists a child receipt that appears just after root finalization', async () => {
+    const h = harness();
+    let scans = 0;
+    const adapter = h.adapter as unknown as {
+      usageAccounting: { observe(id: string, total: Record<string, number>, last: undefined, child: boolean): void };
+      reconcileChildRollouts(id: string, turnId: string, startedAtMs: number, endedAtMs: number): Promise<{ candidates: number; receipts: number }>;
+    };
+    adapter.reconcileChildRollouts = async () => {
+      scans++;
+      if (scans === 2) adapter.usageAccounting.observe('child', sample(50, 20, 10), undefined, true);
+      return { candidates: 1, receipts: scans >= 2 ? 1 : 0 };
+    };
+    await h.send([update(sample(100, 80, 20))]);
+    expect(h.completions[0].usage?.totalTokens).toBe(120);
+    await vi.waitFor(() => expect(h.partials).toMatchObject([{ totalTokens: 60, isEstimated: true }]), { timeout: 2_000 });
+    expect(scans).toBe(2);
+  });
+
+  it('records streamed interrupted output as an estimate without charging the next native call twice', async () => {
+    const h = harness();
+    await h.send([update(sample(100, 80, 20))]);
+    await h.send([
+      { method: 'item/agentMessage/delta', params: { threadId: 'root', itemId: 'message-2', delta: 'Forty characters of interrupted output!!' } },
+      update(sample(100, 80, 20)),
+    ], 'interrupted');
+    expect(h.partials).toMatchObject([{ isEstimated: true, outputTokens: 10, totalTokens: 10 }]);
+    await h.send([update(sample(150, 100, 30), sample(50, 20, 10))]);
+    expect(h.completions.at(-1)?.usage?.totalTokens).toBe(60);
+    expect(h.contexts.at(-1)?.cumulativeTokens).toBe(190);
+  });
+
+  it('estimates only the streamed output after an earlier reported call in an interrupted turn', async () => {
+    const h = harness();
+    await h.send([
+      { method: 'item/agentMessage/delta', params: { threadId: 'root', itemId: 'message', delta: 'A'.repeat(20) } },
+      update(sample(100, 80, 20)),
+      { method: 'item/agentMessage/delta', params: { threadId: 'root', itemId: 'message', delta: 'B'.repeat(40) } },
+    ], 'interrupted');
+    expect(h.partials).toMatchObject([{ totalTokens: 130, outputTokens: 30, isEstimated: true }]);
+    await h.send([update(sample(150, 100, 30), sample(50, 20, 10))]);
+    expect(h.completions[0].usage?.totalTokens).toBe(60);
+    expect(h.contexts.at(-1)?.cumulativeTokens).toBe(190);
   });
 
   it.each(['failed', 'interrupted'])('preserves partial %s spend without completing or charging again next turn', async status => {

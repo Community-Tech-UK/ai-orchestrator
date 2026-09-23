@@ -146,8 +146,19 @@ export class LoopControlComponent implements OnDestroy {
     this.settingsForHints.settings().toolLoopAutoInterrupt === true,
   ));
 
-  /** B5 — four stable steps plus what is blocking. Derivation lives next door. */
-  causalTimeline = computed(() => loopTimelineForRun(this.active()));
+  /** B5 — preserve the final decision when the active run becomes a summary. */
+  causalTimeline = computed(() => {
+    const active = this.active();
+    if (active) return loopTimelineForRun(active);
+    const summary = this.summary();
+    return summary ? loopTimelineForRun({
+      status: summary.status,
+      endedAt: summary.endedAt,
+      totalIterations: summary.iterations,
+      totalCostCents: summary.costCents,
+      endReason: summary.reason,
+    }) : null;
+  });
 
   onTimelineRecovery(id: string): void {
     if (timelineRecoveryTarget(id) === 'resume') void this.onResumeAnyway();
