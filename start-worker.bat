@@ -2,9 +2,8 @@
 setlocal
 cd /d "%~dp0"
 
-REM One launcher run at a time. Two scheduled tasks share this launcher (the
-REM keep-alive and the update task, see install-worker-launcher.ps1), and at logon
-REM both can fire within seconds of each other. Without a lock both would see "no
+REM One launcher run at a time. The keep-alive and logon triggers can fire within
+REM seconds of each other. Without a lock both would see "no
 REM worker", both build, and both start one. mkdir is atomic, so it is the lock.
 REM A lock older than 20 minutes is a leftover from a run that died mid-build
 REM (reboot, killed console): a build takes a minute or two, never twenty.
@@ -61,18 +60,11 @@ where powershell >nul 2>&1
 if not "%errorlevel%"=="0" goto :aio_live_check_done
 powershell -NoProfile -ExecutionPolicy Bypass -Command "if (-not $env:AIO_LIVE_PATH) { exit 2 }; try { $ps = @(Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" -ErrorAction Stop) } catch { exit 2 }; foreach ($p in $ps) { $c = $p.CommandLine; if (-not $c) { continue }; if ($c.IndexOf('native-host', [StringComparison]::OrdinalIgnoreCase) -ge 0) { continue }; if ($c.IndexOf($env:AIO_LIVE_PATH, [StringComparison]::OrdinalIgnoreCase) -ge 0) { exit 0 } }; exit 2" >nul 2>&1
 if not "%errorlevel%"=="0" goto :aio_live_check_done
-REM A worker is already running. The pull that brought us here may have landed
-REM new code, and simply exiting (as this used to) left the live worker on its old
-REM build indefinitely. update-running-worker.ps1 rebuilds when HEAD has moved
-REM past the built commit and restarts the worker CHILD onto the new bundle; its
-REM supervisor brings it back within a second. See that script for the rules.
-REM "%~dp0." not "%~dp0": a trailing backslash before the closing quote would
-REM escape the quote in PowerShell's argument parsing.
-echo A worker is already running for this checkout - checking for an update.
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\windows\update-running-worker.ps1" -RepoPath "%~dp0."
-set "_AIO_UPDATE_RC=%errorlevel%"
+REM Keep-alive must never rebuild or restart a live worker. Updating is an
+REM explicit maintenance action through update-running-worker.ps1.
+echo A worker is already running for this checkout - leaving it alone.
 rmdir "%_AIO_LOCK%" 2>nul
-exit /b %_AIO_UPDATE_RC%
+exit /b 0
 :aio_live_check_done
 set "AIO_LIVE_PATH="
 
@@ -83,8 +75,7 @@ if errorlevel 1 (
     rmdir "%_AIO_LOCK%" 2>nul
     exit /b 1
 )
-REM Record which commit this bundle came from, so a later run can tell whether a
-REM pull has moved HEAD past it (update-running-worker.ps1 reads this).
+REM Record which commit this bundle came from for explicit maintenance updates.
 for /f "delims=" %%C in ('git rev-parse HEAD 2^>nul') do >"%~dp0dist\worker-agent\.source-commit" echo %%C
 
 REM Capture raw stderr. V8's fatal handler ("FATAL ERROR: ... JavaScript heap
@@ -105,7 +96,7 @@ if exist "%_AIO_STDERR_DIR%\worker-stderr.log" (
 REM Drift check. The deployed launcher in %USERPROFILE%\.orchestrator is rendered
 REM from scripts\windows\start-worker-autoupdate.template.bat by
 REM install-worker-launcher.ps1, which records two hashes. Compare both:
-REM   template - the repo moved on (this pull brought a new template).
+REM   template - the repo moved on (a maintenance update brought a new template).
 REM   deployed - someone hand-edited the deployed launcher. That is the
 REM              2026-09-03 failure mode; the template hash cannot see it.
 REM
@@ -297,8 +288,8 @@ REM The flag goes LAST: index.ts dispatches positional subcommands off argv[0]
 REM ("native-host", "pair", "install-extension-relay"), so putting it first would
 REM shadow them. Supervision is selected with argv.includes(), not by position.
 REM Release the launcher lock BEFORE the node line: it blocks for the worker's
-REM whole lifetime, and holding the lock that long would stop every later run
-REM from updating it.
+REM whole lifetime, and holding the lock that long would stop later keep-alive
+REM runs from checking whether a worker is present.
 rmdir "%_AIO_LOCK%" 2>nul
 echo Starting worker agent (supervised)...
 node dist/worker-agent/index.js %* --supervise 2>> "%_AIO_STDERR_DIR%\worker-stderr.log"
