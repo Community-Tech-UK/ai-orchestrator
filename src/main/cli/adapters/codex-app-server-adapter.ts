@@ -27,6 +27,7 @@ import {
   isRecoverableThreadResumeError,
 } from './codex/exec-error-classifier';
 import { planCodexAppServerRecovery } from './codex/app-server-recovery-policy';
+import { isActiveTurnCollision } from './codex/orchestration-response-send';
 import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
 import type { ResumeCursor } from '../../session/session-continuity';
 import type {
@@ -586,7 +587,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
       this.emit('status', 'idle' as InstanceStatus);
     } catch (error) {
       const errorText = error instanceof Error ? error.message : String(error);
-      this.emit('output', {
+      if (!isActiveTurnCollision(error)) this.emit('output', {
         id: generateId(),
         timestamp: Date.now(),
         type: 'error',

@@ -22,9 +22,10 @@
   This script makes the launch chain reproducible from tracked templates, and
   records drift stamps so a later divergence is detectable rather than silent.
 
-  The deployed launcher must live OUTSIDE the repo because it runs `git pull` on
-  that repo, and cmd.exe reads a running .bat incrementally by byte offset. The
-  templates in scripts/windows/ are the source of truth; this script renders them.
+  The deployed launcher lives outside the repo so scheduled-task actions remain
+  stable while the checkout changes. The templates in scripts/windows/ are the
+  source of truth; this script renders them. Updates are explicit maintenance.
+  Any legacy worker-update task is disabled on every install.
 
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File .\scripts\windows\install-worker-launcher.ps1 `
@@ -33,10 +34,6 @@
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File .\scripts\windows\install-worker-launcher.ps1 `
     -RepoPath 'C:\Users\shutu\Documents\Work\orchestrat0r\ai-orchestrator' -RegisterTask
-.EXAMPLE
-  # Add only the update task (no elevation needed; the keep-alive is untouched):
-  powershell -ExecutionPolicy Bypass -File .\scripts\windows\install-worker-launcher.ps1 `
-    -RepoPath 'C:\Users\shutu\Documents\Work\orchestrat0r\ai-orchestrator' -RegisterUpdateTask
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
@@ -57,26 +54,18 @@ param(
 
   # How often Task Scheduler re-checks that the worker is running. The task uses
   # MultipleInstancesPolicy=IgnoreNew and the worker holds a single-instance
-  # lock, so a repeat never starts a second worker. A repeat that does run while
-  # a worker is alive pulls and brings that worker onto new code
-  # (update-running-worker.ps1).
+  # lock, so a repeat never starts a second worker or updates a live one.
   [int]$RepeatMinutes = 5,
 
   [switch]$RegisterTask,
 
-  # Register a SECOND task that runs the same launcher on its own schedule.
-  #
-  # Why it exists: while the keep-alive task above owns the worker it stays in
-  # the Running state, and IgnoreNew then suppresses every one of its repeats -
-  # so in the designed steady state nothing ever pulled new code. This task is
-  # not running (unless it happens to be the one that started the worker, in
-  # which case the keep-alive is the idle one), so one of the two always fires.
-  # Creating a NEW task needs no elevation, so this can be added without
-  # replacing the keep-alive task.
+  # Kept only so old install commands fail safely: this no longer creates an
+  # automatic update task. The installer disables any existing task instead.
   [switch]$RegisterUpdateTask,
 
   [string]$UpdateTaskName = 'AI Orchestrator Worker Update',
 
+  # Deprecated with -RegisterUpdateTask; accepted for old install commands.
   [int]$UpdateMinutes = 15,
 
   # The account the worker actually runs as, which is NOT always the account you
@@ -285,6 +274,9 @@ Re-run naming them explicitly:
 }
 
 $taskPresence = 'unknown'
+if ($RegisterUpdateTask) {
+  Write-Warning '-RegisterUpdateTask is retired. Updates now require an explicit maintenance action; the old update task will be disabled.'
+}
 if ($RegisterTask) {
   $taskPresence = Get-TaskPresence -Name $TaskName
   # Gated on a task ALREADY EXISTING, not merely on -RegisterTask. Creating a task
@@ -297,6 +289,56 @@ if ($RegisterTask) {
                  else { 'the launcher files will still deploy' }
     Write-Warning "Not running elevated, and a task named '$TaskName' already exists. Replacing it requires elevation; $filesNote, and the task step will print the exact command to re-run if it is refused."
   }
+}
+
+# Retire the legacy updater before writing any launcher files. If task lookup or
+# disabling fails, leave the deployed launcher alone rather than reporting a
+# partial install while automatic pulls may still be armed.
+$updateTaskNames = @('AI Orchestrator Worker Update', $UpdateTaskName) | Select-Object -Unique
+if ($updateTaskNames -contains $TaskName) {
+  throw "The update-task name matches the keep-alive task '$TaskName'; refusing to disable it."
+}
+foreach ($updateName in $updateTaskNames) {
+  $updateTaskPresence = Get-TaskPresence -Name $updateName
+  if ($updateTaskPresence -eq 'unknown') {
+    throw "Could not inspect Task Scheduler, so automatic updates may still be armed. Check the service and re-run the installer."
+  }
+  if ($updateTaskPresence -ne 'yes') { continue }
+  $updateTasks = @(Get-ScheduledTask -ErrorAction Stop | Where-Object { $_.TaskName -eq $updateName })
+  foreach ($updateTask in $updateTasks) {
+    $updateIdentity = "$($updateTask.TaskPath)$($updateTask.TaskName)"
+    if ($PSCmdlet.ShouldProcess($updateIdentity, 'Disable automatic worker updates')) {
+      Disable-ScheduledTask -InputObject $updateTask -ErrorAction Stop | Out-Null
+      $disabledTask = Get-ScheduledTask -TaskName $updateTask.TaskName -TaskPath $updateTask.TaskPath -ErrorAction Stop
+      if ($disabledTask.Settings.Enabled -ne $false) {
+        throw "Automatic update task '$updateIdentity' is still enabled after Disable-ScheduledTask."
+      }
+      Write-Host "  disabled automatic update task '$updateIdentity'"
+      if ($updateTask.State -eq 'Running') {
+        Write-Warning "'$updateIdentity' was already running. Disabling prevents future triggers but does not stop this run."
+      }
+    }
+  }
+}
+
+# cmd.exe reads batch files incrementally. Rewriting the deployed launcher while
+# a task is executing it can corrupt the running command stream. An enabled
+# keep-alive can also start between a one-time state check and the file write.
+# Require the keep-alive disabled for the whole maintenance window; -RegisterTask
+# re-registers and arms it after the files are written.
+$launchTasks = @(Get-ScheduledTask -ErrorAction Stop | Where-Object {
+  $_.TaskName -eq $TaskName -or $updateTaskNames -contains $_.TaskName
+})
+$runningLaunchTasks = @($launchTasks | Where-Object { $_.State -eq 'Running' })
+if ($runningLaunchTasks.Count -gt 0) {
+  $names = ($runningLaunchTasks | ForEach-Object { "$($_.TaskPath)$($_.TaskName)" }) -join ', '
+  throw "Launcher files may be in use by running task(s): $names. The legacy update task was disabled, but no files were written. Stop the worker in a maintenance window and re-run the installer."
+}
+$armedKeepAlive = @($launchTasks | Where-Object {
+  $_.TaskName -eq $TaskName -and $_.Settings.Enabled -ne $false
+})
+if ($armedKeepAlive.Count -gt 0) {
+  throw "Keep-alive task '$TaskName' is still enabled and could start during deployment. Disable it in a maintenance window, then re-run with -RegisterTask to re-arm it after the launcher files are written."
 }
 
 $templateDir = Join-Path $RepoPath 'scripts\windows'
@@ -346,44 +388,6 @@ if ($PSCmdlet.ShouldProcess($deployedStamp, 'Write deployed-launcher drift stamp
   $deployedHash = (Get-FileHash -LiteralPath $deployedBat -Algorithm SHA256).Hash
   Set-Content -LiteralPath $deployedStamp -Value $deployedHash -Encoding ASCII
   Write-Host "  wrote $deployedStamp"
-}
-
-# --- update task --------------------------------------------------------------
-
-if ($RegisterUpdateTask) {
-  # Same action as the keep-alive: the hidden VBS running the deployed launcher.
-  # If the worker happens to be down when this fires it starts it, and then
-  # blocks for its lifetime exactly like the keep-alive does - hence the same
-  # unlimited execution time limit.
-  $updateAction = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument "`"$deployedVbs`"" -WorkingDirectory $RepoPath
-  # Offset from the keep-alive's start so the two do not fire in the same
-  # second. The launcher lock in start-worker.bat covers any overlap anyway.
-  $updateTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(3) `
-    -RepetitionInterval (New-TimeSpan -Minutes $UpdateMinutes)
-  $updateSettings = New-ScheduledTaskSettingsSet `
-    -MultipleInstances IgnoreNew `
-    -AllowStartIfOnBatteries `
-    -DontStopIfGoingOnBatteries `
-    -StartWhenAvailable `
-    -ExecutionTimeLimit ([TimeSpan]::Zero)
-  $updatePrincipal = New-ScheduledTaskPrincipal -UserId $WorkerUser -LogonType Interactive -RunLevel Limited
-  if ($PSCmdlet.ShouldProcess($UpdateTaskName, 'Register update task')) {
-    try {
-      Register-ScheduledTask -TaskName $UpdateTaskName -Action $updateAction -Trigger $updateTrigger `
-        -Settings $updateSettings -Principal $updatePrincipal -Force | Out-Null
-      Write-Host "  registered scheduled task '$UpdateTaskName' (update check every $UpdateMinutes min)"
-      $updateNext = (Get-ScheduledTask -TaskName $UpdateTaskName | Get-ScheduledTaskInfo).NextRunTime
-      if ($updateNext) {
-        Write-Host "  verified update task is armed: next run at $updateNext"
-      } else {
-        Write-Warning "Update task registered but NextRunTime is EMPTY - it is not armed."
-      }
-    } catch {
-      # Not fatal for the rest of the install: the keep-alive task still works,
-      # the worker just will not pick up new code until it next restarts.
-      Write-Warning "Could not register '$UpdateTaskName': $($_.Exception.Message). If a task with that name already exists and was created elevated, re-run from an elevated PowerShell with -WorkerUser '$WorkerUser'."
-    }
-  }
 }
 
 # --- scheduled task -----------------------------------------------------------

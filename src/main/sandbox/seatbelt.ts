@@ -20,6 +20,7 @@ import { execFile } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getLogger } from '../logging/logger';
+import { isSandboxCredentialFailure, isSandboxFileDenial } from '../../shared/sandbox-failure-keywords';
 
 const logger = getLogger('Seatbelt');
 
@@ -176,6 +177,21 @@ export function defaultHardenedWritableRoots(workingDirectory: string | undefine
   ];
 }
 
+/** Refuse a Claude config path that the Seatbelt invocation will not grant. */
+function assertClaudeConfigDirGranted(configDir: string, writableRoots: readonly string[]): void {
+  if (!path.isAbsolute(configDir)) {
+    throw new Error('Hardened Claude CLAUDE_CONFIG_DIR must be an absolute path inside a granted writable root.');
+  }
+  const actualConfigDir = realpathForSandbox(configDir);
+  const granted = writableRoots.some((root) => {
+    const relative = path.relative(realpathForSandbox(path.resolve(root)), actualConfigDir);
+    return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+  });
+  if (!granted) {
+    throw new Error('Hardened Claude CLAUDE_CONFIG_DIR is outside the granted writable roots; refusing to spawn.');
+  }
+}
+
 /**
  * The spawn-time wrap decision, pure for testability. FAIL-CLOSED: a hardened
  * spawn on a system where Seatbelt is unavailable throws instead of silently
@@ -186,11 +202,15 @@ export function resolveHardenedSpawn(params: {
   command: string;
   args: readonly string[];
   writableRoots: readonly string[];
+  claudeConfigDir?: string;
   available?: boolean;
   basePolicy?: string;
 }): SeatbeltCommand {
   if (!params.hardened) {
     return { command: params.command, args: [...params.args] };
+  }
+  if (params.claudeConfigDir !== undefined) {
+    assertClaudeConfigDirGranted(params.claudeConfigDir, params.writableRoots);
   }
   const available = params.available ?? isSeatbeltAvailable();
   if (!available) {
@@ -224,36 +244,16 @@ export type SandboxFailureKind =
  * reports them as ordinary auth errors — so without matching them the user gets
  * "Not logged in" or a 401 with no hint that the jail caused it.
  */
-const CREDENTIAL_FAILURE_KEYWORDS = [
-  'not logged in',
-  'please run /login',
-  'oauth access token',
-  'invalid_grant',
-  'failed to refresh',
-  'authentication failed',
-  'failed to authenticate',
-];
-
 export function classifySandboxFailure(output: {
   exitCode: number | null;
   stderr?: string;
   stdout?: string;
 }): SandboxFailureKind {
   if (output.exitCode === 0) return 'normal-failure';
-  const haystackForCreds = `${output.stderr ?? ''}\n${output.stdout ?? ''}`.toLowerCase();
-  if (CREDENTIAL_FAILURE_KEYWORDS.some((needle) => haystackForCreds.includes(needle))) {
+  if (isSandboxCredentialFailure(`${output.stderr ?? ''}\n${output.stdout ?? ''}`)) {
     return 'credential-denial';
   }
-  const keywords = [
-    'operation not permitted',
-    'permission denied',
-    'read-only file system',
-    'sandbox',
-    'deny(1)',
-    'failed to write file',
-  ];
-  const haystack = `${output.stderr ?? ''}\n${output.stdout ?? ''}`.toLowerCase();
-  if (keywords.some((needle) => haystack.includes(needle))) {
+  if (isSandboxFileDenial(`${output.stderr ?? ''}\n${output.stdout ?? ''}`)) {
     return 'sandbox-denial';
   }
   return 'normal-failure';

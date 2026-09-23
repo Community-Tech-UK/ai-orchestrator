@@ -27,7 +27,9 @@ import {
   deriveAttachmentTaskTitle,
   extractAttachmentPreamble,
   isLowSignalTitle,
+  LOW_SIGNAL_TITLE_WORDS,
   sanitizeGeneratedTitle,
+  standaloneDocumentPathTitle,
   titleFromAttachments,
   truncateForRail,
 } from '../../shared/types/title-derivation';
@@ -153,6 +155,29 @@ function finalizeGeneratedTitle(
     return deriveAttachmentTaskTitle(sourceMessage, labels) ?? frontLoadedTitle;
   }
   return frontLoadedTitle;
+}
+
+/** Keep a filename-only task anchored to its document, not a parent directory. */
+function titleMatchesDocumentSubject(title: string, subject: string): boolean {
+  const meaningfulWords = (value: string): string[] =>
+    (value.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])
+      .filter((word) => word.length >= 3 && !LOW_SIGNAL_TITLE_WORDS.has(word));
+  const subjectWords = new Set<string>(meaningfulWords(subject));
+  if (subjectWords.size === 0) return false;
+  const titleWords = new Set<string>(meaningfulWords(title));
+  const overlap = [...subjectWords].filter((word) => titleWords.has(word)).length;
+  return overlap >= Math.min(2, subjectWords.size);
+}
+
+function finalizeDocumentTitle(
+  raw: string | null | undefined,
+  sourceMessage: string,
+  labels: readonly string[],
+  documentSubject: string | null,
+): string | null {
+  const title = finalizeGeneratedTitle(raw, sourceMessage, labels);
+  if (!title || !documentSubject) return title;
+  return titleMatchesDocumentSubject(title, documentSubject) ? title : documentSubject;
 }
 
 function hasSendMessage(adapter: CliAdapter): adapter is CliAdapter & {
@@ -367,10 +392,14 @@ export class AutoTitleService {
     const trimmedReply = assistantReply.trim();
     if (trimmedReply.length < MIN_MESSAGE_LENGTH) return;
 
-    const combinedText = `${pending.message}\n\nWhat actually happened: ${trimmedReply}`;
+    const documentSubject = standaloneDocumentPathTitle(pending.message);
+    const openingContext = documentSubject
+      ? `Document filename subject: ${documentSubject}. Ignore directory names.`
+      : pending.message;
+    const combinedText = `${openingContext}\n\nWhat actually happened: ${trimmedReply}`;
 
     try {
-      const title = await this.generateTitle(combinedText, pending.attachmentNames);
+      const title = await this.generateTitle(combinedText, pending.attachmentNames, documentSubject);
       if (title) {
         applyTitle(instanceId, title, 'ai');
         logger.info('Auto-titled instance (AI, contextual upgrade)', { instanceId, title });
@@ -408,13 +437,17 @@ export class AutoTitleService {
     const truncatedMessage = trimmed.length > MAX_INPUT_LENGTH
       ? `${trimmed.slice(0, MAX_INPUT_LENGTH)}...`
       : trimmed;
+    const documentSubject = standaloneDocumentPathTitle(trimmed);
+    const modelMessage = documentSubject
+      ? `Document filename subject: ${documentSubject}. Ignore directory names.`
+      : truncatedMessage;
     const systemPrompt =
       'You generate very short tab titles (3-6 words) that summarize a task. '
       + `Lead with the most distinctive word. ${IGNORE_BARE_IDS_CLAUSE} `
       + 'Reply with ONLY the title — no quotes, no trailing punctuation.';
     const userPrompt = labels.length > 0
-      ? `${truncatedMessage}\n\nAttached: ${labels.join(', ')}`
-      : truncatedMessage;
+      ? `${modelMessage}\n\nAttached: ${labels.join(', ')}`
+      : modelMessage;
 
     try {
       const { text: generatedTitle, decision } = await getAuxiliaryLlmService().generate(
@@ -423,7 +456,7 @@ export class AutoTitleService {
         userPrompt,
       );
       if (decision.source === 'fallback') return null;
-      const cleaned = finalizeGeneratedTitle(generatedTitle, truncatedMessage, labels);
+      const cleaned = finalizeDocumentTitle(generatedTitle, modelMessage, labels, documentSubject);
       if (!cleaned) {
         logger.debug('Auxiliary model returned unusable title output', {
           model: decision.model,
@@ -449,7 +482,11 @@ export class AutoTitleService {
    * Returns null when no CLI is available, the adapter can't do a one-shot, the
    * text is too short with no attachment, or generation fails/times out.
    */
-  async generateTitle(text: string, attachmentNames: readonly string[] = []): Promise<string | null> {
+  async generateTitle(
+    text: string,
+    attachmentNames: readonly string[] = [],
+    documentSubjectOverride?: string | null,
+  ): Promise<string | null> {
     // A loop started with attachments prepends an injected "Attached files …"
     // block. Strip it so the model summarizes the real prompt, and fold the
     // referenced file paths into the attachment list so they remain the subject.
@@ -468,6 +505,11 @@ export class AutoTitleService {
     const truncatedMessage = trimmed.length > MAX_INPUT_LENGTH
       ? trimmed.slice(0, MAX_INPUT_LENGTH) + '...'
       : trimmed;
+    const standaloneSubject = standaloneDocumentPathTitle(trimmed);
+    const documentSubject = documentSubjectOverride ?? standaloneSubject;
+    const modelMessage = standaloneSubject
+      ? `Document filename subject: ${standaloneSubject}. Ignore directory names.`
+      : truncatedMessage;
 
     // Try auxiliary LLM (local/cheap model) first — much cheaper than a full CLI spawn
     const auxSystemPrompt =
@@ -475,8 +517,8 @@ export class AutoTitleService {
       `Lead with the most distinctive word. ${IGNORE_BARE_IDS_CLAUSE} ` +
       'Reply with ONLY the title — no quotes, no trailing punctuation.';
     const auxUserPrompt = labels.length > 0
-      ? `${truncatedMessage}\n\nAttached: ${labels.join(', ')}`
-      : truncatedMessage;
+      ? `${modelMessage}\n\nAttached: ${labels.join(', ')}`
+      : modelMessage;
     let fallbackDecision: AuxiliaryLlmDecision;
     try {
       const { text: auxTitle, decision: auxDecision } = await getAuxiliaryLlmService().generate(
@@ -485,7 +527,7 @@ export class AutoTitleService {
         auxUserPrompt
       );
       if (auxDecision.source !== 'fallback') {
-        const cleaned = finalizeGeneratedTitle(auxTitle, truncatedMessage, labels);
+        const cleaned = finalizeDocumentTitle(auxTitle, modelMessage, labels, documentSubject);
         if (cleaned) {
           logger.debug('Auto-title via auxiliary model', { source: auxDecision.source, model: auxDecision.model });
           return cleaned;
@@ -576,8 +618,8 @@ export class AutoTitleService {
     const attachmentLine = labels.length > 0
       ? `\n\nAttached file${labels.length > 1 ? 's' : ''}: ${labels.join(', ')}`
       : '';
-    const messageBlock = truncatedMessage.length > 0
-      ? truncatedMessage
+    const messageBlock = modelMessage.length > 0
+      ? modelMessage
       : '(no message text — the task is about the attached file)';
     const userInstruction = `${CLI_TITLE_USER_INSTRUCTION}\n\n${messageBlock}${attachmentLine}`;
 
@@ -618,7 +660,7 @@ export class AutoTitleService {
       return null;
     }
 
-    const cliTitle = finalizeGeneratedTitle(response.content, truncatedMessage, labels);
+    const cliTitle = finalizeDocumentTitle(response.content, modelMessage, labels, documentSubject);
     if (!cliTitle) {
       logger.warn('AI title escalation returned unusable output', {
         cliType,

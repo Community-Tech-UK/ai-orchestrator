@@ -38,8 +38,9 @@ vi.mock('../../../logging/logger', () => ({
   getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
 
-import { createClaudeAdapter, createCodexAdapter } from '../adapter-factory';
+import { createClaudeAdapter, createCliAdapter, createCodexAdapter } from '../adapter-factory';
 import { CLAUDE_STRIPPED_AUTH_ENV_VARS, CODEX_STRIPPED_AUTH_ENV_VARS } from '../adapter-spawn-helpers';
+import { _resetHardenedModeScopingForTesting, setInstanceHardened } from '../../../instance/lifecycle/hardened-mode-scoping';
 import type { UnifiedSpawnOptions } from '../adapter-factory.types';
 import type { ResolvedAccountRoute } from '../../../../shared/types/provider-account.types';
 
@@ -58,6 +59,7 @@ function childEnvOf(adapter: unknown): NodeJS.ProcessEnv {
 }
 
 beforeEach(() => {
+  _resetHardenedModeScopingForTesting();
   stateRoot.current = mkdtempSync(join(tmpdir(), 'factory-account-route-'));
   pool.hasNonLegacy = { claude: false, codex: false };
   for (const key of AMBIENT) {
@@ -67,6 +69,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  _resetHardenedModeScopingForTesting();
   for (const key of AMBIENT) {
     if (savedEnv[key] === undefined) delete process.env[key];
     else process.env[key] = savedEnv[key];
@@ -85,6 +88,21 @@ describe('createClaudeAdapter account routing', () => {
     for (const key of CLAUDE_STRIPPED_AUTH_ENV_VARS.filter((name) => name !== 'CLAUDE_CONFIG_DIR')) {
       expect(env[key], key).toBeUndefined();
     }
+  });
+
+  it('grants a hardened derived profile its exact config home', () => {
+    pool.hasNonLegacy.claude = true;
+    setInstanceHardened('hardened-derived', true);
+    const adapter = createCliAdapter('claude', {
+      ...base,
+      instanceId: 'hardened-derived',
+      accountRoute: route('claude', 'max-b'),
+    });
+    const home = realpathSync(join(stateRoot.current, 'claude-cli-profiles', 'max-b'));
+    const configured = adapter as unknown as { hardenedMode: { writableRoots: string[] } };
+
+    expect(configured.hardenedMode.writableRoots).toContain(home);
+    expect(configured.hardenedMode.writableRoots).not.toContain(stateRoot.current);
   });
 
   it('keeps a caller-supplied CLAUDE_CONFIG_DIR from overriding the profile', () => {

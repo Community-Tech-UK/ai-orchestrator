@@ -5,20 +5,15 @@ REM
 REM Source of truth: scripts\windows\restart-worker.bat
 REM Deploy a COPY to: %USERPROFILE%\Desktop\restart-worker.bat
 REM
-REM *** DO NOT RUN THE COPY THAT LIVES INSIDE THE REPO. ***
-REM The launch chain this script triggers performs a `git pull`. cmd.exe reads a
-REM .bat incrementally from disk by byte offset while executing it, so a pull
-REM that rewrote this file mid-run would resume at a stale offset and execute
-REM garbage. That is the same reason start-worker-autoupdate.bat is deployed
-REM outside the tree. Run the Desktop copy.
+REM Run the deployed Desktop copy so the script remains available if the repo
+REM is moved or an explicit maintenance update changes this file.
 REM
 REM WHY A DEDICATED RESTART SCRIPT EXISTS
 REM start-worker.bat deliberately SKIPS the build and the start when a worker is
 REM already running for the checkout - by design, because the scheduled task
 REM fires every few minutes and must not rewrite a live worker's code. The side
-REM effect is that `git pull` + rebuild can land a new dist\worker-agent\index.js
-REM underneath a long-lived process, and that process keeps serving the OLD code
-REM until something stops it.
+REM effect is that a separately rebuilt dist\worker-agent\index.js can sit
+REM alongside a long-lived process that keeps serving OLD code until restarted.
 REM
 REM That is exactly what happened on 2026-09-07/08: the checkout was current, the
 REM bundle was rebuilt at 09:14, but the worker had been running since 07:49, so
@@ -61,8 +56,8 @@ REM above, and the first match would slice the file from there.
 $ErrorActionPreference = 'Continue'
 
 $taskName = 'AI Orchestrator Worker'
-# The update task (install-worker-launcher.ps1 -RegisterUpdateTask) runs the same
-# launcher, so it is stopped too: left running it could relaunch mid-kill.
+# A legacy update task may still be running, so stop it too to prevent a
+# relaunch while this explicit restart is in progress.
 $updateTaskName = 'AI Orchestrator Worker Update'
 $orch     = Join-Path $env:USERPROFILE '.orchestrator'
 $vbs      = Join-Path $orch 'run-worker-hidden.vbs'
@@ -280,9 +275,9 @@ if (-not $started) {
 Write-Host ''
 
 # --- 5. Confirm it came back ------------------------------------------------
-# Generous timeout on purpose: the launcher runs `git pull` and then rebuilds
-# dist\worker-agent\index.js before the worker process appears, which is well
-# over a minute on a cold cache. Reporting failure at 15s would just be wrong.
+# Generous timeout on purpose: on a cold start the launcher may rebuild
+# dist\worker-agent\index.js before the worker process appears, which can take
+# well over a minute. Reporting failure at 15s would just be wrong.
 Write-Host '[5/5] Waiting for the worker to come back (up to 3 minutes)...'
 $deadline = (Get-Date).AddSeconds(180)
 $after = @()

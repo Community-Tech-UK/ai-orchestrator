@@ -2766,6 +2766,38 @@ describe('CodexCliAdapter', () => {
       expect(statuses.at(-1)).toBe('idle');
     });
 
+    it('delivers an orchestration child ID once after the parent app-server turn settles', async () => {
+      const adapter = await spawnExecAdapter();
+      const client = createSyntheticTurnClient([]);
+      (adapter as unknown as { useAppServer: boolean }).useAppServer = true;
+      (adapter as unknown as { appServerClient: SyntheticTurnClient }).appServerClient = client;
+      (adapter as unknown as { appServerThreadId: string }).appServerThreadId = 'thread-1';
+
+      const firstTurn = adapter.sendInput('spawn a child');
+      await vi.waitFor(() => expect(client.request).toHaveBeenCalledTimes(1));
+
+      const confirmation = adapter.sendOrchestrationResponse('Action: spawn_child\nchildId: child-42');
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(client.request).toHaveBeenCalledTimes(1);
+
+      client.notificationHandler?.({
+        method: 'turn/completed',
+        params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed' } },
+      });
+      await firstTurn;
+      await vi.waitFor(() => expect(client.request).toHaveBeenCalledTimes(2));
+
+      client.notificationHandler?.({
+        method: 'turn/completed',
+        params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed' } },
+      });
+      await confirmation;
+      expect(client.request).toHaveBeenCalledTimes(2);
+      expect(client.request.mock.calls[1]?.[1]?.['input']).toEqual(
+        expect.arrayContaining([expect.objectContaining({ text: expect.stringContaining('child-42') })]),
+      );
+    });
+
     it('emits status=idle in app-server mode for response stream disconnect failures', async () => {
       const adapter = await spawnExecAdapter();
       (adapter as unknown as { useAppServer: boolean }).useAppServer = true;

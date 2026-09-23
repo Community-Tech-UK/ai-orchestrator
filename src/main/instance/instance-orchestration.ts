@@ -517,10 +517,11 @@ export class InstanceOrchestrationManager {
     // Handle response injection with serialized writes per instance
     this.orchestration.on(
       'inject-response',
-      (instanceId: string, response: string) => {
+      (instanceId: string, response: string, confirm: (error?: Error) => void) => {
         // Guard against empty responses — sending empty user messages causes API 400 errors
         if (!response || !response.trim()) {
           logger.warn('Skipping inject-response with empty content', { instanceId });
+          confirm(new Error('Orchestration response was empty'));
           return;
         }
 
@@ -557,14 +558,51 @@ export class InstanceOrchestrationManager {
 
           // Serialize writes per instance to prevent concurrent stdin corruption
           const prev = this.writeQueues.get(instanceId) ?? Promise.resolve();
-          const next = prev.then(async () => {
+          const next = prev.catch(() => undefined).then(async () => {
             try {
-              await adapter.sendInput(response);
+              if (this.deps.getAdapter(instanceId) !== adapter) {
+                throw new Error('Instance adapter changed before orchestration response delivery');
+              }
+              if (typeof adapter.sendOrchestrationResponse === 'function') {
+                await adapter.sendOrchestrationResponse(response, () => {
+                  const childId = typeof data.childId === 'string' ? data.childId : undefined;
+                  const pendingMessage: OutputMessage = {
+                    id: `orch-pending-${Date.now()}`,
+                    timestamp: Date.now(),
+                    type: 'system',
+                    content: `Orchestration ${action} response${childId ? ` for child ${childId}` : ''} is still waiting for the current Codex turn to finish. Delivery remains pending.`,
+                    metadata: { source: 'orchestration', action, deliveryPending: true, childId },
+                  };
+                  addToOutputBuffer(instance, pendingMessage);
+                  publishOutput(instanceId, pendingMessage);
+                });
+              } else {
+                await adapter.sendInput(response);
+              }
+              confirm();
             } catch (err) {
               logger.error('Failed to inject response to instance', err instanceof Error ? err : undefined, { instanceId });
+              const error = err instanceof Error ? err : new Error(String(err));
+              const childId = typeof data.childId === 'string' ? data.childId : undefined;
+              const deliveryError: OutputMessage = {
+                id: `orch-error-${Date.now()}`,
+                timestamp: Date.now(),
+                type: 'error',
+                content: `Orchestration ${action} response${childId ? ` for child ${childId}` : ''} was not delivered to the agent: ${error.message}`,
+                metadata: { source: 'orchestration', action, deliveryFailure: true, childId },
+              };
+              addToOutputBuffer(instance, deliveryError);
+              publishOutput(instanceId, deliveryError);
+              confirm(error);
             }
           });
           this.writeQueues.set(instanceId, next);
+          void next.then(
+            () => { if (this.writeQueues.get(instanceId) === next) this.writeQueues.delete(instanceId); },
+            () => { if (this.writeQueues.get(instanceId) === next) this.writeQueues.delete(instanceId); },
+          );
+        } else {
+          confirm(new Error('Instance or adapter is unavailable for orchestration response delivery'));
         }
       }
     );

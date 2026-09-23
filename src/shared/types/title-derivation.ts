@@ -122,6 +122,32 @@ export function attachmentLabels(names: readonly string[]): string[] {
   return names.map(attachmentLabel).filter((label) => label.length > 0);
 }
 
+/** A document path sent as the entire opening message has its subject in the filename. */
+export function standaloneDocumentPathTitle(message: string): string | null {
+  const path = message.trim();
+  if (
+    /[\r\n]/.test(path)
+    || !/^(?:~?\/|\.{1,2}[/\\]|[A-Za-z]:[\\/]|[^\s/\\]+[/\\])/.test(path)
+  ) {
+    return null;
+  }
+
+  const label = attachmentLabel(path);
+  const extension = label.match(/\.[A-Za-z0-9]{1,10}$/)?.[0]?.toLowerCase();
+  if (!extension || !DOCUMENT_TITLE_EXTENSIONS.has(extension)) return null;
+
+  const subject = label.slice(0, -extension.length)
+    .replace(/^\d{4}-\d{2}-\d{2}[-_\s]+/, '')
+    .replace(/[-_]+/g, ' ')
+    .replace(/\b(?:implementation|plan|spec|design|brief|proposal|notes?)$/i, '')
+    .trim();
+  if (!subject) return null;
+  const readableSubject = subject
+    .replace(/\b(?:kpi|api|ui|ux|sql|ai)\b/gi, (word) => word.toUpperCase())
+    .replace(/^(\p{Ll})/u, (char) => char.toUpperCase());
+  return truncateForRail(readableSubject);
+}
+
 /** Build a title from attachment labels alone (used when there's no real text). */
 export function titleFromAttachments(labels: readonly string[]): string | null {
   if (labels.length === 0) return null;
@@ -381,6 +407,9 @@ export function frontLoadTitle(value: string | null | undefined): string {
     const attachmentTitle = deriveAttachmentTaskTitle(preamble.remainder, preamble.paths);
     if (attachmentTitle) return attachmentTitle;
   }
+
+  const documentTitle = standaloneDocumentPathTitle(value ?? '');
+  if (documentTitle) return documentTitle;
 
   const normalized = normalizeHistoryTitlePart(value);
   if (!normalized) return '';

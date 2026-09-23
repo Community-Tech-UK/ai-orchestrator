@@ -88,6 +88,35 @@ describe('BaseCliAdapter hardened spawn wrap', () => {
     expect(spawnMock.mock.calls[0][1]).toEqual(['--print']);
   });
 
+  it('rejects a hardened Claude spawn whose caller-supplied config dir is not granted', () => {
+    spawnMock.mockReturnValue(makeFakeProc());
+    const adapter = new TestAdapter({
+      command: 'claude',
+      cwd: tmpdir(),
+      env: { CLAUDE_CONFIG_DIR: '/definitely/ungranted/claude-config' },
+    });
+    adapter.configureHardenedMode({ writableRoots: [tmpdir()] });
+
+    expect(() => adapter.spawnForTest(['--print'])).toThrow(/CLAUDE_CONFIG_DIR.*outside.*writable roots/);
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects an ungranted CLAUDE_CONFIG_DIR inherited from the app environment', () => {
+    spawnMock.mockReturnValue(makeFakeProc());
+    const previous = process.env['CLAUDE_CONFIG_DIR'];
+    process.env['CLAUDE_CONFIG_DIR'] = '/definitely/ungranted/ambient-config';
+    try {
+      const adapter = new TestAdapter({ command: 'claude', cwd: tmpdir() });
+      adapter.configureHardenedMode({ writableRoots: [tmpdir()] });
+
+      expect(() => adapter.spawnForTest(['--print'])).toThrow(/CLAUDE_CONFIG_DIR.*outside.*writable roots/);
+      expect(spawnMock).not.toHaveBeenCalled();
+    } finally {
+      if (previous === undefined) delete process.env['CLAUDE_CONFIG_DIR'];
+      else process.env['CLAUDE_CONFIG_DIR'] = previous;
+    }
+  });
+
   it.runIf(process.platform === 'darwin')(
     'wraps the spawn in sandbox-exec when hardened mode is configured',
     () => {

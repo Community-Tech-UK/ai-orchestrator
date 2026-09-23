@@ -9,7 +9,7 @@
  */
 
 import { getNotificationService } from '../../notifications/notification-service';
-import { buildSandboxExitAdvice } from '../../sandbox/seatbelt';
+import { buildSandboxExitAdvice, classifySandboxFailure } from '../../sandbox/seatbelt';
 import { isInstanceHardened } from './hardened-mode-scoping';
 import type { OutputMessage } from '../../../shared/types/instance.types';
 
@@ -22,18 +22,23 @@ export function noteSandboxDenialOnExit(
   exitCode: number | null,
   recentMessages: readonly OutputMessage[],
 ): string {
+  const hardened = isInstanceHardened(instanceId);
+  const recentOutput = recentMessages.slice(-5).map((m) => m.content).join('\n');
   const advice = buildSandboxExitAdvice({
-    hardened: isInstanceHardened(instanceId),
+    hardened,
     exitCode,
-    recentOutput: recentMessages.slice(-5).map((m) => m.content).join('\n'),
+    recentOutput,
   });
   if (!advice) return '';
+  const credentialFailure = classifySandboxFailure({ exitCode, stderr: recentOutput }) === 'credential-denial';
   try {
     getNotificationService().notify({
-      kind: 'sandbox-denial',
+      kind: credentialFailure ? 'sandbox-credential-denial' : 'sandbox-denial',
       instanceId,
-      title: 'Hardened mode blocked the session',
-      body: 'The Seatbelt sandbox likely denied a file write and the CLI exited. Grant the blocked path ("Allow path & retry") or recreate without hardened mode.',
+      title: credentialFailure ? 'Hardened session needs credential repair' : 'Hardened mode blocked the session',
+      body: credentialFailure
+        ? 'Hardened mode may prevent credential refresh. Sign in without hardened mode, then retry this session.'
+        : 'The Seatbelt sandbox likely denied a file write and the CLI exited. Grant the blocked path ("Allow path & retry") or recreate without hardened mode.',
       fingerprintFields: { instanceId },
     });
   } catch { /* notification is best-effort */ }

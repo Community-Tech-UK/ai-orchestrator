@@ -15,7 +15,7 @@ export function isParentUnavailableSuppression(reason: SuppressReason): boolean 
 }
 
 export interface OrchestrationResponseDeliveryOptions {
-  emit: (instanceId: string, response: string) => void;
+  emit: (instanceId: string, response: string, confirm: (error?: Error) => void) => void;
   onChildCompletionRedelivered: (parentId: string, childId: string) => void;
 }
 
@@ -33,7 +33,7 @@ export class OrchestrationResponseDelivery {
     action: string,
     success: boolean,
     data: unknown,
-    options: { alreadyAdmitted?: boolean } = {},
+    options: { alreadyAdmitted?: boolean; admissionId?: string; onDelivered?: () => void } = {},
   ): AdmissionOutcome | null {
     const response = formatCommandResponse(action as OrchestratorAction, success, data);
     let admission: AdmissionOutcome | null = null;
@@ -53,11 +53,21 @@ export class OrchestrationResponseDelivery {
         });
         return outcome;
       }
-      getSessionAdmissionService().markDelivered(outcome.admissionId);
       admission = outcome;
     }
-    this.emitAuditHook(instanceId, action, success, data);
-    this.options.emit(instanceId, response);
+    let confirmed = false;
+    this.options.emit(instanceId, response, (error) => {
+      if (confirmed) return;
+      confirmed = true;
+      const admissionId = admission?.admissionId ?? options.admissionId;
+      if (error) {
+        if (admissionId) getSessionAdmissionService().markFailed(admissionId, error.message);
+        return;
+      }
+      if (admissionId) getSessionAdmissionService().markDelivered(admissionId);
+      this.emitAuditHook(instanceId, action, success, data);
+      options.onDelivered?.();
+    });
     return admission;
   }
 
@@ -78,14 +88,16 @@ export class OrchestrationResponseDelivery {
       );
       return;
     }
-    this.inject(ctx.instanceId, meta.action, Boolean(meta.success), meta.data, {
-      alreadyAdmitted: true,
-    });
     const childId = meta.action === 'child_completed'
       ? childIdFromResponseData(meta.data)
       : null;
-    if (childId) this.options.onChildCompletionRedelivered(ctx.instanceId, childId);
-    getSessionAdmissionService().markDelivered(ctx.admissionId);
+    this.inject(ctx.instanceId, meta.action, Boolean(meta.success), meta.data, {
+      alreadyAdmitted: true,
+      admissionId: ctx.admissionId,
+      onDelivered: () => {
+        if (childId) this.options.onChildCompletionRedelivered(ctx.instanceId, childId);
+      },
+    });
   }
 
   private emitAuditHook(

@@ -32,6 +32,7 @@ import { createCodexTurnCaptureState } from './codex/app-server-thread-runtime';
 import { CodexAppServerRuntimeError, createCodexUsageLimitError } from './codex/app-server-runtime-errors';
 import { codexLimitResetAt, parseCodexAccountRateLimitsRead } from './codex/account-rate-limits';
 import { readChildRolloutUsage } from './codex/child-rollout-usage';
+import { sendCodexOrchestrationResponse } from './codex/orchestration-response-send';
 
 const USAGE_LIMIT_RATE_LIMITS_TIMEOUT_MS = 3_000;
 
@@ -44,6 +45,17 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
    * entry, so recovery continuations and the input-cap retry keep it.
    */
   private contextOuterSendId: string | null = null;
+
+  /** Deliver an orchestration response after the resident turn releases its slot. */
+  async sendOrchestrationResponse(message: string, onDelayed?: () => void): Promise<void> {
+    return sendCodexOrchestrationResponse(message, {
+      isAppServerMode: () => this.useAppServer,
+      isReady: () => this.isSpawned && this.useAppServer && this.appServerRuntime.isRunning(),
+      hasActiveTurn: () => this.appServerRuntime.hasActiveTurn(),
+      sendInput: (content) => this.sendInput(content),
+      onDelayed,
+    });
+  }
 
   /** Scopes ContextSafetyPolicy's per-send recovery ceiling to one user send. */
   getContextOuterSendId(): string | null {

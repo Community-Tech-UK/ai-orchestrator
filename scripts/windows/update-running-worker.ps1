@@ -3,11 +3,10 @@
   Bring an ALREADY RUNNING worker onto the code this checkout now holds.
 
 .DESCRIPTION
-  Called by start-worker.bat when it finds a live worker for this checkout, right
-  after start-worker-autoupdate.bat has run `git pull`. Before this existed the
-  launcher simply exited there, so a pull landed new code on disk and the running
-  worker kept serving the old build indefinitely (on 2026-09-22 windows-pc was
-  still running the 2026-09-19 bundle, and fixes merged since were not live).
+  Run explicitly after updating the checkout to bring a live worker onto the new
+  code. The normal launcher leaves a running worker alone. On 2026-09-22
+  windows-pc was still running the 2026-09-19 bundle after a pull; this script
+  provides a deliberate way to rebuild and restart the worker child.
 
   Two independent questions, because they fail independently:
 
@@ -25,11 +24,13 @@
 
   A worker that is doing something - it has descendant processes other than known
   long-lived helpers, i.e. a provider CLI, a terminal, a build - is left alone
-  and the restart is retried on the next scheduled run. Killing it would take
-  live agent sessions down with it.
+  and the operator can retry after work finishes. Killing it would take live
+  agent sessions down with it.
 
-  Exit codes: 0 up to date / restarted / deferred, 1 build failed (the running
-  worker is untouched), 2 could not inspect processes.
+  Exit codes: 0 up to date / restarted / dry run with no pending obstacle,
+  1 build failed or bundle missing, 2 could not inspect processes,
+  3 restart still needed (busy, unsupervised, or stop failed). A deferred
+  restart must be retried manually after the worker becomes idle.
 
   Keep this file pure ASCII.
 #>
@@ -79,43 +80,81 @@ function Get-StampCommit {
   return ([string]$value).Trim()
 }
 
+function Get-WorkerState {
+  param([object[]]$Processes)
+  # Same matching rule as start-worker.bat's live check: this checkout's
+  # absolute entrypoint path, native-host helpers excluded.
+  $workers = @($Processes | Where-Object {
+    $_.Name -eq 'node.exe' -and $_.CommandLine -and
+    $_.CommandLine.IndexOf($bundle, [StringComparison]::OrdinalIgnoreCase) -ge 0 -and
+    $_.CommandLine.IndexOf('native-host', [StringComparison]::OrdinalIgnoreCase) -lt 0
+  })
+  # A supervisor may use the relative entrypoint. Its child relationship is
+  # checked before stopping a worker; the flag alone is not enough.
+  $supervisorIds = @($Processes | Where-Object {
+    $_.Name -eq 'node.exe' -and $_.CommandLine -and
+    $_.CommandLine.IndexOf('--supervise', [StringComparison]::OrdinalIgnoreCase) -ge 0
+  } | ForEach-Object { $_.ProcessId })
+  $children = @($workers | Where-Object {
+    $_.CommandLine.IndexOf('--supervise', [StringComparison]::OrdinalIgnoreCase) -lt 0
+  })
+  return @{ Children = $children; SupervisorIds = $supervisorIds }
+}
+
+function Get-Descendants {
+  param([uint32]$RootId, [object[]]$Processes)
+  $found = New-Object System.Collections.Generic.List[object]
+  $frontier = @($RootId)
+  while ($frontier.Count -gt 0) {
+    $next = @()
+    foreach ($id in $frontier) {
+      foreach ($p in @($Processes | Where-Object { $_.ParentProcessId -eq $id -and $_.ProcessId -ne $id })) {
+        $found.Add($p)
+        if ($idleHelperNames -notcontains $p.Name) { $next += $p.ProcessId }
+      }
+    }
+    $frontier = $next
+  }
+  return $found
+}
+
 try {
   $all = @(Get-CimInstance Win32_Process -ErrorAction Stop)
 } catch {
   Write-Host "Could not list processes, leaving the worker alone: $($_.Exception.Message)"
   exit 2
 }
-
-# Same matching rule as start-worker.bat's live check: this checkout's absolute
-# entrypoint path, native-host helpers excluded.
-$workers = @($all | Where-Object {
-  $_.Name -eq 'node.exe' -and $_.CommandLine -and
-  $_.CommandLine.IndexOf($bundle, [StringComparison]::OrdinalIgnoreCase) -ge 0 -and
-  $_.CommandLine.IndexOf('native-host', [StringComparison]::OrdinalIgnoreCase) -lt 0
-})
-# The supervisor's command line may use the RELATIVE entrypoint
-# (`node dist/worker-agent/index.js --supervise`), so identify it by the flag and
-# by being a worker child's parent, not by the absolute path.
-$supervisorIds = @($all | Where-Object {
-  $_.Name -eq 'node.exe' -and $_.CommandLine -and
-  $_.CommandLine.IndexOf('--supervise', [StringComparison]::OrdinalIgnoreCase) -ge 0
-} | ForEach-Object { $_.ProcessId })
-$children = @($workers | Where-Object {
-  $_.CommandLine.IndexOf('--supervise', [StringComparison]::OrdinalIgnoreCase) -lt 0
-})
+$state = Get-WorkerState -Processes $all
+$children = @($state.Children)
+$preBuildChildren = @($children | ForEach-Object { "$($_.ProcessId):$($_.CreationDate.Ticks)" })
 
 if ($children.Count -eq 0) {
   Write-Host 'No running worker child found for this checkout; nothing to update.'
   exit 0
 }
+foreach ($child in $children) {
+  if ($state.SupervisorIds -notcontains $child.ParentProcessId) {
+    Write-Host "Worker pid $($child.ProcessId) is not supervised; use restart-worker.bat in a maintenance window. No build was run."
+    exit 3
+  }
+  $busy = @(Get-Descendants -RootId $child.ProcessId -Processes $all |
+    Where-Object { $idleHelperNames -notcontains $_.Name })
+  if ($busy.Count -gt 0 -and -not $Force) {
+    $names = ($busy | ForEach-Object { $_.Name } | Sort-Object -Unique) -join ', '
+    Write-Host "Worker pid $($child.ProcessId) is busy ($names); no build was run. Retry after it is idle."
+    exit 3
+  }
+}
 
 # --- 1. rebuild when HEAD has moved past the built commit ----------------------
 $head = Get-HeadCommit
 $stamp = Get-StampCommit
+$bundleExists = Test-Path -LiteralPath $bundle -PathType Leaf
+$rebuildNeeded = $head -and ($head -ne $stamp -or -not $bundleExists)
 $rebuilt = $false
 if (-not $head) {
   Write-Host 'Could not read HEAD (is git on PATH?); skipping the rebuild check.'
-} elseif ($head -ne $stamp) {
+} elseif ($rebuildNeeded) {
   $from = if ($stamp) { $stamp.Substring(0, [Math]::Min(8, $stamp.Length)) } else { 'unknown' }
   Write-Host "Bundle was built from $from, checkout is at $($head.Substring(0, 8)); rebuilding."
   if ($DryRun) {
@@ -132,54 +171,90 @@ if (-not $head) {
       Write-Host "Build failed (exit $buildRc). The running worker was left untouched."
       exit 1
     }
+    if (-not (Test-Path -LiteralPath $bundle -PathType Leaf)) {
+      Write-Host "Build reported success but bundle is missing at $bundle. The running worker was left untouched."
+      exit 1
+    }
     Set-Content -LiteralPath $stampPath -Value $head -Encoding ASCII
     $rebuilt = $true
   }
 }
 
 # --- 2. restart any child older than the bundle -------------------------------
-if (-not (Test-Path -LiteralPath $bundle -PathType Leaf)) {
-  Write-Host "Bundle not found at $bundle; leaving the worker alone."
-  exit 0
+if (-not (Test-Path -LiteralPath $bundle -PathType Leaf) -and -not ($DryRun -and $rebuildNeeded)) {
+  Write-Host "Bundle not found at $bundle; the worker cannot be brought onto this checkout."
+  exit 1
 }
-$builtAt = (Get-Item -LiteralPath $bundle).LastWriteTime
-# After a rebuild every running child is on old code by definition; do not lean
-# on timestamps for that (a copy that preserves mtime, or clock skew, would hide
-# it). Otherwise compare start time against the bundle's last write.
-$stale = @(if ($rebuilt) { $children } else { $children | Where-Object { $_.CreationDate -lt $builtAt } })
+$builtAt = if (Test-Path -LiteralPath $bundle -PathType Leaf) {
+  (Get-Item -LiteralPath $bundle).LastWriteTime
+} else {
+  $null # A dry run projects the rebuild that would create this bundle.
+}
+# A build can take a minute or more. A worker may have restarted or begun work
+# during that time, so discard the process snapshot taken before the build.
+try {
+  $all = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+} catch {
+  Write-Host "Could not refresh processes after the build; retry the update: $($_.Exception.Message)"
+  exit 2
+}
+$state = Get-WorkerState -Processes $all
+$children = @($state.Children)
+if ($children.Count -eq 0) {
+  Write-Host 'No running worker child remains after the build; verify the supervisor and retry.'
+  exit 3
+}
+# A child that survived the rebuild is stale even if timestamps were preserved.
+# A replacement child that started after the new bundle was written is current.
+# Dry-run projects a future rebuild, so every current child would need review.
+$stale = @(if ($DryRun -and $rebuildNeeded) {
+  $children
+} else {
+  $children | Where-Object {
+    ($rebuilt -and $preBuildChildren -contains "$($_.ProcessId):$($_.CreationDate.Ticks)") -or
+    $_.CreationDate -lt $builtAt
+  }
+})
 if ($stale.Count -eq 0) {
   Write-Host 'Worker is already running the current bundle.'
   exit 0
 }
 
-function Get-Descendants {
-  param([uint32]$RootId)
-  $found = New-Object System.Collections.Generic.List[object]
-  $frontier = @($RootId)
-  while ($frontier.Count -gt 0) {
-    $next = @()
-    foreach ($id in $frontier) {
-      foreach ($p in @($all | Where-Object { $_.ParentProcessId -eq $id -and $_.ProcessId -ne $id })) {
-        $found.Add($p)
-        if ($idleHelperNames -notcontains $p.Name) { $next += $p.ProcessId }
-      }
-    }
-    $frontier = $next
-  }
-  return $found
-}
-
+$restartPending = $false
 foreach ($child in $stale) {
-  $label = "worker pid $($child.ProcessId) (started $($child.CreationDate), bundle built $builtAt)"
-  if ($supervisorIds -notcontains $child.ParentProcessId) {
-    Write-Host "$label is NOT supervised, so stopping it would leave the node offline."
-    Write-Host '  Restart it by hand (scripts\windows\restart-worker.bat) to pick up the new code.'
+  # Recheck immediately before a stop. A newly started provider CLI must block
+  # the restart, and PID plus creation time prevents acting on a recycled PID.
+  try {
+    $all = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+  } catch {
+    Write-Host "Could not refresh processes before stopping worker pid $($child.ProcessId): $($_.Exception.Message)"
+    $restartPending = $true
     continue
   }
-  $busy = @(Get-Descendants -RootId $child.ProcessId | Where-Object { $idleHelperNames -notcontains $_.Name })
+  $state = Get-WorkerState -Processes $all
+  $current = @($state.Children | Where-Object {
+    $_.ProcessId -eq $child.ProcessId -and $_.CreationDate -eq $child.CreationDate
+  }) | Select-Object -First 1
+  if (-not $current) {
+    Write-Host "Worker pid $($child.ProcessId) changed while checking; verify the new child and retry."
+    $restartPending = $true
+    continue
+  }
+  $child = $current
+  $bundleState = if ($DryRun -and $rebuildNeeded) { 'bundle would be rebuilt' } else { "bundle built $builtAt" }
+  $label = "worker pid $($child.ProcessId) (started $($child.CreationDate), $bundleState)"
+  if ($state.SupervisorIds -notcontains $child.ParentProcessId) {
+    Write-Host "$label is NOT supervised, so stopping it would leave the node offline."
+    Write-Host '  Restart it by hand (scripts\windows\restart-worker.bat) to pick up the new code.'
+    $restartPending = $true
+    continue
+  }
+  $busy = @(Get-Descendants -RootId $child.ProcessId -Processes $all |
+    Where-Object { $idleHelperNames -notcontains $_.Name })
   if ($busy.Count -gt 0 -and -not $Force) {
     $names = ($busy | ForEach-Object { $_.Name } | Sort-Object -Unique) -join ', '
-    Write-Host "$label is busy ($names); restart deferred to the next scheduled run."
+    Write-Host "$label is busy ($names); rerun this command after the worker is idle."
+    $restartPending = $true
     continue
   }
   if ($DryRun) {
@@ -188,9 +263,39 @@ foreach ($child in $stale) {
   }
   try {
     Stop-Process -Id $child.ProcessId -Force -ErrorAction Stop
-    Write-Host "$label stopped; its supervisor will start it on the new bundle."
   } catch {
     Write-Host "Could not stop $label : $($_.Exception.Message)"
+    $restartPending = $true
+    continue
+  }
+  # Stop-Process is asynchronous. Do not report success until the original
+  # process is gone and this supervisor has created a replacement child.
+  $deadline = (Get-Date).AddSeconds(30)
+  $replacement = $null
+  while ((Get-Date) -lt $deadline) {
+    Start-Sleep -Milliseconds 500
+    try {
+      $after = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+    } catch {
+      continue
+    }
+    $afterState = Get-WorkerState -Processes $after
+    $oldAlive = @($afterState.Children | Where-Object {
+      $_.ProcessId -eq $child.ProcessId -and $_.CreationDate -eq $child.CreationDate
+    }).Count -gt 0
+    $replacement = @($afterState.Children | Where-Object {
+      $_.ParentProcessId -eq $child.ParentProcessId -and
+      $_.CreationDate -gt $child.CreationDate
+    }) | Select-Object -First 1
+    if (-not $oldAlive -and $replacement) { break }
+    $replacement = $null
+  }
+  if ($replacement) {
+    Write-Host "$label stopped; supervisor started replacement pid $($replacement.ProcessId)."
+  } else {
+    Write-Host "Could not confirm a replacement for $label within 30 seconds; check the supervisor and retry."
+    $restartPending = $true
   }
 }
+if ($restartPending) { exit 3 }
 exit 0

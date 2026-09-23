@@ -1,6 +1,7 @@
 import { createInterface } from 'node:readline';
 import { stdin, stdout } from 'node:process';
 import { getLogManager, getLogger } from '../logging/logger';
+import { getForwarderLogDirectory } from '../logging/log-paths';
 import { McpServer } from '../mcp/mcp-server';
 import {
   BrowserGatewayRpcClient,
@@ -11,6 +12,7 @@ import {
   createDeferredBrowserMcpTools,
 } from './browser-mcp-deferral';
 import { createBrowserMcpTools } from './browser-mcp-tools';
+import { registerBrowserForwarderLogOwner } from './browser-forwarder-log-retention';
 import { BROWSER_TOOL_STABLE_ENV, createStableBrowserMcpTools } from './browser-mcp-stable-tools';
 import {
   BROWSER_GATEWAY_RPC_PROTOCOL_VERSION,
@@ -157,6 +159,17 @@ export async function runBrowserMcpForwarder(
   client: BrowserGatewayRpcClientLike = new BrowserGatewayRpcClient(),
 ): Promise<void> {
   getLogManager().updateConfig({ enableConsole: false });
+  let unregisterLogOwner: () => void = () => undefined;
+  const logDirectory = getForwarderLogDirectory();
+  if (logDirectory) {
+    try {
+      unregisterLogOwner = registerBrowserForwarderLogOwner(logDirectory);
+    } catch (error) {
+      logger.warn('Could not register browser forwarder log owner', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
 
   const server = McpServer.getInstance();
   const toolDeferral = process.env[BROWSER_TOOL_DEFERRAL_ENV] === '1';
@@ -217,6 +230,13 @@ export async function runBrowserMcpForwarder(
   reportToolSurface(client, [...revealedNames], { revealRestoreFailed });
 
   const shutdown = (): void => {
+    try {
+      unregisterLogOwner();
+    } catch (error) {
+      logger.warn('Could not remove browser forwarder log owner', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
     server.stop();
   };
 

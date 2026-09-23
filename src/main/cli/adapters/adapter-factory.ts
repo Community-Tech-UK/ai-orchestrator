@@ -54,6 +54,7 @@ import {
   buildMobileMcpCodexConfigToml,
 } from '../../browser-gateway/mobile-mcp-config';
 import type { UnifiedSpawnOptions, CliAdapter } from './adapter-factory.types';
+import { isLegacyAccountProfileId } from '../../../shared/types/provider-account.types';
 import { COPILOT_LEGACY_PROFILE_ID } from '../../../shared/types/copilot-account.types';
 import { resolveCopilotProfileHome } from './copilot/copilot-account-home-resolver';
 import {
@@ -730,9 +731,22 @@ export function createCliAdapter(
         'Hardened mode is not supported for remote instances (Phase A is local macOS only).',
       );
     }
+    // Account-pool homes live under Electron userData, outside the legacy
+    // default roots. Only a resolved derived Claude route may add its exact
+    // home; an arbitrary ambient or caller-supplied CLAUDE_CONFIG_DIR cannot.
+    const derivedClaudeRoute = adapter instanceof ClaudeCliAdapter
+      && effectiveOptions.accountRoute
+      && !isLegacyAccountProfileId(effectiveOptions.accountRoute.profileId);
+    const derivedClaudeHome = derivedClaudeRoute
+      ? adapter.getConfig().env?.['CLAUDE_CONFIG_DIR']
+      : undefined;
+    if (derivedClaudeRoute && !derivedClaudeHome) {
+      throw new Error('Hardened Claude account profile has no resolved config home; refusing to spawn.');
+    }
     adapter.configureHardenedMode({
       writableRoots: [
         ...defaultHardenedWritableRoots(effectiveOptions.workingDirectory),
+        ...(derivedClaudeHome ? [derivedClaudeHome] : []),
         // Session-scoped allow-and-retry grants (WS13 slice 3).
         ...getInstanceExtraWritableRoots(effectiveOptions.instanceId),
       ],

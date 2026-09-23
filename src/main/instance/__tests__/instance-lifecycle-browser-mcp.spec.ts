@@ -33,6 +33,10 @@ const browserGatewayMocks = vi.hoisted(() => ({
   measureToolSchemaBytes: vi.fn((tools: unknown[]) => tools.length * 100),
 }));
 
+const forwarderLogMocks = vi.hoisted(() => ({
+  maybePruneBrowserForwarderLogs: vi.fn(() => ({ removed: 0 })),
+}));
+
 const desktopGatewayMocks = vi.hoisted(() => ({
   buildComputerUseMcpConfigJson: vi.fn(() => '{"mcpServers":{"computer-use":{}}}'),
   getDesktopGatewayRpcSocketPath: vi.fn(() => '/tmp/computer-use.sock'),
@@ -88,6 +92,8 @@ vi.mock('../../browser-gateway', () => ({
   resolveBrowserGatewayToolMode: (provider?: string, deferred?: boolean) =>
     !deferred || provider === 'cursor' ? 'eager' : provider === 'codex' ? 'stable' : 'deferred',
 }));
+
+vi.mock('../../browser-gateway/browser-forwarder-log-retention', () => forwarderLogMocks);
 
 vi.mock('../../desktop-gateway', () => ({
   buildComputerUseMcpConfigJson: desktopGatewayMocks.buildComputerUseMcpConfigJson,
@@ -187,6 +193,18 @@ describe('SpawnConfigBuilder — Browser Gateway MCP config', () => {
       'Browser gateway tool schemas deferred',
       expect.objectContaining({ instanceId: 'instance-codex', toolMode: 'stable', visibleToolCount: 11 }),
     );
+  });
+
+  it('keeps an unexpected instance ID inside the forwarder log root', () => {
+    const builder = makeBuilder();
+
+    const options = builder.getBrowserGatewayMcpOptions(
+      { type: 'local' },
+      '../../outside',
+    );
+
+    expect(options?.logDirectory)
+      .toBe('/tmp/harness/browser-forwarders/%2E%2E%2F%2E%2E%2Foutside');
   });
 
   it('reports and configures the actual eager Browser Gateway surface for Cursor', () => {
@@ -365,7 +383,7 @@ describe('SpawnConfigBuilder — MCP configs route through the aio-mcp SEA + RPC
     );
   });
 
-  it('passes the SEA path + browser-gateway socket to buildBrowserGatewayMcpConfigJson', () => {
+  it('passes the SEA path, browser-gateway socket, and persistent forwarder log directory to buildBrowserGatewayMcpConfigJson', () => {
     const builder = makeBuilder();
 
     builder.getMcpConfig({ type: 'local' }, 'instance-browser');
@@ -374,7 +392,10 @@ describe('SpawnConfigBuilder — MCP configs route through the aio-mcp SEA + RPC
       aioMcpCliPath: FAKE_AIO_MCP_PATH,
       socketPath: FAKE_BROWSER_GATEWAY_SOCKET,
       instanceId: 'instance-browser',
+      logDirectory: '/tmp/harness/browser-forwarders/instance-browser',
     });
+    expect(forwarderLogMocks.maybePruneBrowserForwarderLogs)
+      .toHaveBeenCalledWith('/tmp/harness/browser-forwarders');
   });
 
   it('passes the SEA path + orchestrator-tools socket to buildOrchestratorToolsMcpConfig', () => {

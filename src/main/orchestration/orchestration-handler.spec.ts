@@ -414,6 +414,24 @@ describe('OrchestrationHandler.processOutput (streaming markers)', () => {
   });
 
   describe('SessionAdmissionService gating on consensus completion (A5)', () => {
+    it('records a spawned-child response as delivered only after the listener confirms the send', () => {
+      const orchestration = new OrchestrationHandler();
+      orchestration.registerInstance('parent-1', '/tmp', null);
+      let confirmDelivery: ((error?: Error) => void) | undefined;
+      orchestration.on('inject-response', (_id, response, confirm) => {
+        expect(response).toContain('child-42');
+        confirmDelivery = confirm;
+      });
+
+      orchestration.notifyChildSpawned('parent-1', 'child-42', 'worker');
+      expect(confirmDelivery).toBeTypeOf('function');
+      expect(admissionMocks.markDelivered).not.toHaveBeenCalledWith('adm-default');
+
+      confirmDelivery?.();
+      expect(admissionMocks.markDelivered).toHaveBeenCalledTimes(1);
+      expect(admissionMocks.markDelivered).toHaveBeenCalledWith('adm-default');
+    });
+
     it('registers a redelivery handler for the consensus origin on construction', () => {
       new OrchestrationHandler();
       expect(admissionMocks.registerRedeliveryHandler).toHaveBeenCalledWith('consensus', expect.any(Function));

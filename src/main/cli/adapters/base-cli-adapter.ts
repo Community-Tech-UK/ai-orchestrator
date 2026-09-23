@@ -603,6 +603,7 @@ export abstract class BaseCliAdapter extends EventEmitter {
       command: this.config.command,
       args: fullArgs,
       writableRoots: this.hardenedMode?.writableRoots ?? [],
+      ...(this.config.command === 'claude' ? { claudeConfigDir: mergedEnv['CLAUDE_CONFIG_DIR'] } : {}),
     });
     if (this.hardenedMode) {
       // LT-027: log the roots the jail was actually GRANTED, not the ones we

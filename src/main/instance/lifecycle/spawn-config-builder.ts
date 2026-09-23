@@ -35,6 +35,7 @@ import {
   type ChromeDevtoolsMcpConfigOptions,
 } from '../../browser-gateway';
 import { createStableBrowserMcpTools } from '../../browser-gateway/browser-mcp-stable-tools';
+import { maybePruneBrowserForwarderLogs } from '../../browser-gateway/browser-forwarder-log-retention';
 import {
   buildComputerUseMcpConfigJson,
   DESKTOP_DEGRADED_TOOL_NAMES,
@@ -422,10 +423,25 @@ export class SpawnConfigBuilder {
     const toolMode = resolveBrowserGatewayToolMode(provider, mode === 'deferred');
     const toolDeferral = toolMode !== 'eager';
     this.logBrowserToolSchemaBytes(instanceId, toolMode);
+    const browserForwarderLogRoot = path.join(app.getPath('userData'), 'browser-forwarders');
+    try {
+      const { removed } = maybePruneBrowserForwarderLogs(browserForwarderLogRoot);
+      if (removed > 0) logger.info('Pruned inactive browser forwarder logs', { removed });
+    } catch (error) {
+      logger.warn('Failed to prune browser forwarder logs', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
     return {
       aioMcpCliPath,
       socketPath,
       instanceId,
+      // Instance IDs are generated from a path-safe alphabet, but persisted
+      // state can be malformed; encode the component before joining it.
+      logDirectory: path.join(
+        browserForwarderLogRoot,
+        encodeURIComponent(instanceId).replace(/\./g, '%2E'),
+      ),
       ...(provider ? { provider } : {}),
       ...(toolDeferral ? { toolDeferral } : {}),
     };

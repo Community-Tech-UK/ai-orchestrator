@@ -26,6 +26,7 @@ import type { InstanceStatus } from '../../core/state/instance/instance.types';
 import type { InstanceWaitReason } from '../../../../shared/types/instance.types';
 import { isPooledProvider } from '../../../../shared/types/provider-account.types';
 import { formatQuotaParkCountdown } from './input-panel-formatters';
+import { isSandboxCredentialFailure, isSandboxFileDenial } from '../../../../shared/sandbox-failure-keywords';
 
 @Component({
   selector: 'app-composer-banners',
@@ -105,7 +106,28 @@ import { formatQuotaParkCountdown } from './input-panel-formatters';
       </div>
     }
 
-    <!-- WS13: hardened session died — offer the allow-and-retry lever -->
+    @if (showHardenedCredentialBar()) {
+      <div class="quota-park-bar hardened-credential-bar" role="status">
+        <span class="quota-park-text">Hardened mode may prevent credential refresh. Sign in outside this session, then retry it.</span>
+        <button
+          type="button"
+          class="quota-park-btn"
+          [disabled]="hardenedCredentialBusy()"
+          (click)="onHardenedCredentialSignIn()"
+        >Sign in</button>
+        <button
+          type="button"
+          class="quota-park-btn quota-park-btn--secondary"
+          [disabled]="hardenedCredentialBusy()"
+          (click)="onHardenedRetry()"
+        >Retry session</button>
+        @if (hardenedCredentialNotice()) {
+          <span class="quota-park-text">{{ hardenedCredentialNotice() }}</span>
+        }
+      </div>
+    }
+
+    <!-- WS13: hardened session died after a file denial — offer the allow-and-retry lever -->
     @if (showHardenedDenialBar()) {
       <div class="quota-park-bar hardened-denial-bar" role="status">
         <span class="quota-park-text">Hardened session exited — the sandbox may have blocked a write.</span>
@@ -399,15 +421,64 @@ export class ComposerBannersComponent {
   }
 
   /** WS13 slice 3 — hardened session died; offer the allow-and-retry lever. */
+  readonly showHardenedCredentialBar = computed(() => {
+    if (this.instanceStatus() !== 'error') return false;
+    const instance = this.instanceStore.getInstance(this.instanceId());
+    if (!instance?.hardened) return false;
+    return isSandboxCredentialFailure(instance.outputBuffer.slice(-5).map((message) => message.content).join('\n'));
+  });
+
   readonly showHardenedDenialBar = computed(() => {
     if (this.instanceStatus() !== 'error') return false;
-    return Boolean(this.instanceStore.getInstance(this.instanceId())?.hardened);
+    const instance = this.instanceStore.getInstance(this.instanceId());
+    if (!instance?.hardened || this.showHardenedCredentialBar()) return false;
+    return isSandboxFileDenial(instance.outputBuffer.slice(-5).map((message) => message.content).join('\n'));
+  });
+  private readonly hardenedCredentialBusyOwner = signal<string | null>(null);
+  readonly hardenedCredentialBusy = computed(() => this.hardenedCredentialBusyOwner() === this.instanceId());
+  private readonly hardenedCredentialNoticeState = signal<{ instanceId: string; text: string } | null>(null);
+  readonly hardenedCredentialNotice = computed(() => {
+    const notice = this.hardenedCredentialNoticeState();
+    return notice?.instanceId === this.instanceId() ? notice.text : null;
   });
   readonly hardenedAllowPathValue = signal('');
   readonly hardenedAllowBusy = signal(false);
 
   onHardenedPathInput(event: Event): void {
     this.hardenedAllowPathValue.set((event.target as HTMLInputElement).value);
+  }
+
+  async onHardenedCredentialSignIn(): Promise<void> {
+    const instanceId = this.instanceId();
+    const instance = this.instanceStore.getInstance(instanceId);
+    const provider = instance?.provider;
+    if (!provider || this.hardenedCredentialBusy()) return;
+    this.hardenedCredentialBusyOwner.set(instanceId);
+    this.hardenedCredentialNoticeState.set(null);
+    try {
+      const response = instance.accountProfileId && isPooledProvider(provider)
+        ? await this.providerAccountIpc.launchLogin(provider, instance.accountProfileId, { openTerminal: true })
+        : await this.providerIpc.runProviderLogin(provider);
+      if (this.instanceId() === instanceId) {
+        this.hardenedCredentialNoticeState.set({
+          instanceId,
+          text: response.success
+            ? 'Complete sign-in in the terminal, then retry this session.'
+            : response.error?.message ?? 'Could not open a sign-in terminal.',
+        });
+      }
+    } catch (error) {
+      if (this.instanceId() === instanceId) {
+        this.hardenedCredentialNoticeState.set({
+          instanceId,
+          text: error instanceof Error ? error.message : 'Could not open a sign-in terminal.',
+        });
+      }
+    } finally {
+      if (this.hardenedCredentialBusyOwner() === instanceId) {
+        this.hardenedCredentialBusyOwner.set(null);
+      }
+    }
   }
 
   async onHardenedAllowPath(): Promise<void> {

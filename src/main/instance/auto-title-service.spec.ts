@@ -117,6 +117,50 @@ describe('AutoTitleService', () => {
     expect(applyTitle).toHaveBeenCalledWith('instance-1', 'AI generated title', 'ai');
   });
 
+  it('uses the filename when the local model titles a path-only task from its parent folder', async () => {
+    mockAuxGenerate.mockResolvedValue({
+      text: 'Superpowers',
+      decision: {
+        slot: 'titleGeneration',
+        provider: 'ollama',
+        source: 'local',
+        reason: 'test local',
+        allowFrontierFallback: true,
+      },
+    });
+    const applyTitle = vi.fn();
+    const path = '/Users/suas/work/Dingley/dingley-kpi/dingley-kpi-fe/docs/superpowers/plans/2026-09-23-kpi-workbook-alignment-and-data-load_plan.md';
+
+    await AutoTitleService.getInstance().maybeGenerateTitle('instance-1', path, applyTitle);
+
+    expect(applyTitle).toHaveBeenCalledWith('instance-1', 'KPI workbook alignment and data load', 'instant');
+    expect(applyTitle).toHaveBeenCalledWith('instance-1', 'KPI workbook alignment and data load', 'ai');
+    expect(applyTitle).not.toHaveBeenCalledWith('instance-1', 'Superpowers', 'ai');
+    expect(mockAuxGenerate.mock.calls[0][2]).toContain('KPI workbook alignment and data load');
+    expect(mockAuxGenerate.mock.calls[0][2]).not.toContain('superpowers');
+    expect(mockIsCliAvailable).not.toHaveBeenCalled();
+  });
+
+  it('keeps a grounded local-model title for a path-only task', async () => {
+    mockAuxGenerate.mockResolvedValue({
+      text: 'KPI workbook data load',
+      decision: {
+        slot: 'titleGeneration',
+        provider: 'ollama',
+        source: 'local',
+        reason: 'test local',
+        allowFrontierFallback: false,
+      },
+    });
+
+    const title = await AutoTitleService.getInstance().generateLocalTitle(
+      '/Users/suas/work/Dingley/dingley-kpi/dingley-kpi-fe/docs/superpowers/plans/2026-09-23-kpi-workbook-alignment-and-data-load_plan.md',
+    );
+
+    expect(title).toBe('KPI workbook data load');
+    expect(mockAuxGenerate.mock.calls[0][2]).not.toContain('superpowers');
+  });
+
   it('skips copilot and falls back to claude when antigravity is not available', async () => {
     mockIsCliAvailable.mockImplementation(async (type: string) => ({
       installed: type === 'copilot' || type === 'claude' || type === 'codex',
@@ -283,6 +327,36 @@ describe('AutoTitleService', () => {
   });
 
   describe('maybeUpgradeTitleWithFirstReply', () => {
+    it('keeps a document-path title grounded after the first reply', async () => {
+      mockAuxGenerate.mockResolvedValue({
+        text: 'Superpowers',
+        decision: {
+          slot: 'titleGeneration',
+          provider: 'ollama',
+          source: 'local',
+          reason: 'test local',
+          allowFrontierFallback: false,
+        },
+      });
+      const path = '/Users/suas/work/Dingley/dingley-kpi/dingley-kpi-fe/docs/superpowers/plans/2026-09-23-kpi-workbook-alignment-and-data-load_plan.md';
+      const applyTitle = vi.fn();
+      const service = AutoTitleService.getInstance();
+
+      await service.maybeGenerateTitle('instance-1', path, applyTitle);
+      await service.maybeUpgradeTitleWithFirstReply(
+        'instance-1',
+        'I will align the KPI workbook fields and load the source data.',
+        applyTitle,
+      );
+
+      expect(applyTitle).toHaveBeenLastCalledWith('instance-1', 'KPI workbook alignment and data load', 'ai');
+      expect(applyTitle).not.toHaveBeenCalledWith('instance-1', 'Superpowers', 'ai');
+      expect(mockAuxGenerate).toHaveBeenCalledTimes(2);
+      expect(mockAuxGenerate.mock.calls[1][2]).toContain('KPI workbook alignment and data load');
+      expect(mockAuxGenerate.mock.calls[1][2]).toContain('align the KPI workbook fields');
+      expect(mockAuxGenerate.mock.calls[1][2]).not.toContain('superpowers');
+    });
+
     it('is a no-op when the instance never had a Phase 1/2 title generated', async () => {
       const applyTitle = vi.fn();
       await AutoTitleService.getInstance().maybeUpgradeTitleWithFirstReply(

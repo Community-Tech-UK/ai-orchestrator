@@ -255,6 +255,43 @@ describe('resolveHardenedSpawn', () => {
     expect(result.args.slice(-3)).toEqual(['--', 'claude', '--print']);
     expect(result.args).toContain(`WRITABLE_ROOT_0=${expectedRoot(FIXTURE_A)}`);
   });
+
+  it('refuses a Claude config directory outside every granted writable root', () => {
+    expect(() => resolveHardenedSpawn({
+      hardened: true,
+      command: 'claude',
+      args: ['--print'],
+      writableRoots: [FIXTURE_A],
+      claudeConfigDir: FIXTURE_B,
+      available: true,
+      basePolicy: BASE,
+    })).toThrow(/CLAUDE_CONFIG_DIR.*outside.*writable roots/);
+  });
+
+  it('accepts a Claude config directory inside a granted writable root', () => {
+    const result = resolveHardenedSpawn({
+      hardened: true,
+      command: 'claude',
+      args: ['--print'],
+      writableRoots: [FIXTURE_A],
+      claudeConfigDir: path.join(FIXTURE_A, 'profile'),
+      available: true,
+      basePolicy: BASE,
+    });
+    expect(result.args).toContain(`WRITABLE_ROOT_0=${expectedRoot(FIXTURE_A)}`);
+  });
+
+  it('does not confuse a sibling sharing a root prefix with a granted child', () => {
+    expect(() => resolveHardenedSpawn({
+      hardened: true,
+      command: 'claude',
+      args: [],
+      writableRoots: [FIXTURE_A],
+      claudeConfigDir: `${FIXTURE_A}-sibling`,
+      available: true,
+      basePolicy: BASE,
+    })).toThrow(/CLAUDE_CONFIG_DIR.*outside.*writable roots/);
+  });
 });
 
 describe('defaultHardenedWritableRoots', () => {

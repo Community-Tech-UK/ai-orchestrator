@@ -69,7 +69,7 @@ export interface OrchestrationEvents {
     command: GetChildOutputCommand,
     callback: (output: string[]) => void
   ) => void;
-  'inject-response': (instanceId: string, response: string) => void;
+  'inject-response': (instanceId: string, response: string, confirm: (error?: Error) => void) => void;
   'task-complete': (
     parentId: string,
     childId: string,

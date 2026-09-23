@@ -3,7 +3,9 @@ import {
   ATTACHMENT_PREAMBLE_HEADER,
   deriveAttachmentTaskTitle,
   extractAttachmentPreamble,
+  frontLoadTitle,
   sanitizeGeneratedTitle,
+  standaloneDocumentPathTitle,
   titleFromAttachments,
 } from './title-derivation';
 
@@ -78,6 +80,21 @@ describe('titleFromAttachments', () => {
     expect(titleFromAttachments(['only.md'])).toBe('only.md');
     expect(titleFromAttachments(['a.md', 'b.md', 'c.md'])).toBe('a.md +2 more');
     expect(titleFromAttachments([])).toBeNull();
+  });
+});
+
+describe('standaloneDocumentPathTitle', () => {
+  const planPath = '/Users/suas/work/Dingley/dingley-kpi/dingley-kpi-fe/docs/superpowers/plans/2026-09-23-kpi-workbook-alignment-and-data-load_plan.md';
+
+  it('uses the document filename rather than its parent folders', () => {
+    expect(standaloneDocumentPathTitle(planPath)).toBe('KPI workbook alignment and data load');
+    expect(frontLoadTitle(planPath)).toBe('KPI workbook alignment and data load');
+  });
+
+  it('leaves ordinary messages and non-document paths alone', () => {
+    expect(standaloneDocumentPathTitle('Please read docs/superpowers/plans/plan.md')).toBeNull();
+    expect(standaloneDocumentPathTitle('/Users/suas/work/project')).toBeNull();
+    expect(standaloneDocumentPathTitle(`${planPath}\nPlease implement it`)).toBeNull();
   });
 });
 

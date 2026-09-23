@@ -231,3 +231,151 @@ describe('ComposerBannersComponent same-provider account switch', () => {
     expect(component.accountSwitchOptions()).toEqual([]);
   });
 });
+
+describe('ComposerBannersComponent hardened credential failure', () => {
+  const getInstance = vi.fn();
+  const runProviderLogin = vi.fn();
+  const launchLogin = vi.fn();
+  const instanceIpc = {
+    authRepairRetry: vi.fn(), authRepairCancel: vi.fn(),
+    providerLimitResumeNow: vi.fn(), providerLimitCancel: vi.fn(),
+    instanceFailoverNow: vi.fn(), hardenedAllowPath: vi.fn(), restartInstance: vi.fn(),
+  };
+
+  beforeEach(async () => {
+    vi.resetAllMocks();
+    getInstance.mockReturnValue({
+      id: 'hardened-instance', provider: 'claude', hardened: true,
+      outputBuffer: [{
+        id: 'auth-error', timestamp: 1, type: 'error',
+        content: 'Failed to authenticate: OAuth session expired and could not be refreshed',
+      }],
+    });
+    await TestBed.configureTestingModule({
+      imports: [ComposerBannersComponent],
+      providers: [
+        { provide: InstanceIpcService, useValue: instanceIpc },
+        { provide: ProviderIpcService, useValue: { runProviderLogin } },
+        { provide: ProviderAccountIpcService, useValue: { list: vi.fn(), switchSession: vi.fn(), launchLogin } },
+        { provide: InstanceStore, useValue: { getInstance, setError: vi.fn() } },
+      ],
+    }).compileComponents();
+  });
+
+  it('shows credential repair without offering to grant a Keychain path', () => {
+    const fixture = TestBed.createComponent(ComposerBannersComponent);
+    fixture.componentRef.setInput('instanceId', 'hardened-instance');
+    fixture.componentRef.setInput('instanceStatus', 'error');
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toMatch(/credential|sign in/i);
+    expect(fixture.nativeElement.querySelector('.hardened-path-input')).toBeNull();
+    expect(fixture.nativeElement.textContent).not.toContain('Allow path & retry');
+  });
+
+  it('opens provider sign-in outside the hardened session and asks for an explicit retry', async () => {
+    runProviderLogin.mockResolvedValue({ success: true });
+    const fixture = TestBed.createComponent(ComposerBannersComponent);
+    fixture.componentRef.setInput('instanceId', 'hardened-instance');
+    fixture.componentRef.setInput('instanceStatus', 'error');
+    fixture.detectChanges();
+
+    const signIn = [...fixture.nativeElement.querySelectorAll('.hardened-credential-bar button')]
+      .find((button: HTMLButtonElement) => button.textContent?.trim() === 'Sign in') as HTMLButtonElement | undefined;
+    expect(signIn).toBeDefined();
+    signIn!.click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(runProviderLogin).toHaveBeenCalledWith('claude');
+    expect(fixture.nativeElement.textContent).toContain('then retry this session');
+  });
+
+  it('keeps a sign-in launch failure visible and clears the busy state', async () => {
+    runProviderLogin.mockRejectedValue(new Error('Terminal launch failed'));
+    const fixture = TestBed.createComponent(ComposerBannersComponent);
+    fixture.componentRef.setInput('instanceId', 'hardened-instance');
+    fixture.componentRef.setInput('instanceStatus', 'error');
+    fixture.detectChanges();
+
+    await fixture.componentInstance.onHardenedCredentialSignIn();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('Terminal launch failed');
+    expect(fixture.componentInstance.hardenedCredentialBusy()).toBe(false);
+  });
+
+  it('signs in the account profile actually used by a routed Claude session', async () => {
+    getInstance.mockReturnValue({
+      id: 'hardened-instance', provider: 'claude', accountProfileId: 'max-b', hardened: true,
+      outputBuffer: [{
+        id: 'auth-error', timestamp: 1, type: 'error', content: 'Failed to authenticate',
+      }],
+    });
+    launchLogin.mockResolvedValue({ success: true, data: { openedTerminal: true } });
+    const fixture = TestBed.createComponent(ComposerBannersComponent);
+    fixture.componentRef.setInput('instanceId', 'hardened-instance');
+    fixture.componentRef.setInput('instanceStatus', 'error');
+    fixture.detectChanges();
+
+    await fixture.componentInstance.onHardenedCredentialSignIn();
+
+    expect(launchLogin).toHaveBeenCalledWith('claude', 'max-b', { openTerminal: true });
+    expect(runProviderLogin).not.toHaveBeenCalled();
+  });
+
+  it('does not display a previous instance’s delayed sign-in result after selection changes', async () => {
+    let finishLogin: ((response: { success: boolean }) => void) | undefined;
+    const loginResponse = new Promise((resolve) => { finishLogin = resolve; });
+    launchLogin.mockReturnValue(loginResponse);
+    runProviderLogin.mockReturnValue(loginResponse);
+    getInstance.mockImplementation((id: string) => ({
+      id, provider: 'claude', accountProfileId: id === 'hardened-instance' ? 'max-b' : 'max-c', hardened: true,
+      outputBuffer: [{ id: 'auth-error', timestamp: 1, type: 'error', content: 'Failed to authenticate' }],
+    }));
+    const fixture = TestBed.createComponent(ComposerBannersComponent);
+    fixture.componentRef.setInput('instanceId', 'hardened-instance');
+    fixture.componentRef.setInput('instanceStatus', 'error');
+    fixture.detectChanges();
+
+    const pending = fixture.componentInstance.onHardenedCredentialSignIn();
+    fixture.componentRef.setInput('instanceId', 'another-instance');
+    fixture.detectChanges();
+    expect(finishLogin).toBeDefined();
+    finishLogin!({ success: true });
+    await pending;
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).not.toContain('Complete sign-in');
+    expect(fixture.componentInstance.hardenedCredentialBusy()).toBe(false);
+  });
+
+  it('does not offer a path grant for an unrelated hardened process error', () => {
+    getInstance.mockReturnValue({
+      id: 'hardened-instance', provider: 'claude', hardened: true,
+      outputBuffer: [{ id: 'process-error', timestamp: 1, type: 'error', content: 'Process exited with code 1' }],
+    });
+    const fixture = TestBed.createComponent(ComposerBannersComponent);
+    fixture.componentRef.setInput('instanceId', 'hardened-instance');
+    fixture.componentRef.setInput('instanceStatus', 'error');
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.hardened-path-input')).toBeNull();
+  });
+
+  it('still offers a path grant after a genuine file denial', () => {
+    getInstance.mockReturnValue({
+      id: 'hardened-instance', provider: 'claude', hardened: true,
+      outputBuffer: [{
+        id: 'file-error', timestamp: 1, type: 'error',
+        content: 'Operation not permitted: /Users/test/Desktop/probe',
+      }],
+    });
+    const fixture = TestBed.createComponent(ComposerBannersComponent);
+    fixture.componentRef.setInput('instanceId', 'hardened-instance');
+    fixture.componentRef.setInput('instanceStatus', 'error');
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.hardened-path-input')).not.toBeNull();
+  });
+});

@@ -6042,7 +6042,7 @@
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
-      "lines": 3025
+      "lines": 3057
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase1-contracts-package_completed.md",
@@ -6362,7 +6362,7 @@
     },
     {
       "path": "src/main/orchestration/orchestration-handler.ts",
-      "lines": 1353
+      "lines": 1357
     },
     {
       "path": "src/renderer/app/core/state/source-control.store.spec.ts",
@@ -6529,6 +6529,10 @@
       "lines": 1206
     },
     {
+      "path": "src/main/instance/auto-title-service.spec.ts",
+      "lines": 1204
+    },
+    {
       "path": "docs/plans/2026-06-27-supergoal-inspired-loop-planning-audit_completed.md",
       "lines": 1203
     },
@@ -6573,6 +6577,10 @@
       "lines": 1156
     },
     {
+      "path": "src/main/instance/instance-orchestration.ts",
+      "lines": 1148
+    },
+    {
       "path": "src/main/cli/adapters/copilot-cli-adapter.ts",
       "lines": 1146
     },
@@ -6591,10 +6599,6 @@
     {
       "path": "src/main/ipc/handlers/local-ai-guard-handlers.spec.ts",
       "lines": 1131
-    },
-    {
-      "path": "src/main/instance/auto-title-service.spec.ts",
-      "lines": 1130
     },
     {
       "path": "src/renderer/app/features/mcp/mcp-page.component.ts",
@@ -6619,10 +6623,6 @@
     {
       "path": "src/main/history/__tests__/history-manager-native-import.spec.ts",
       "lines": 1112
-    },
-    {
-      "path": "src/main/instance/instance-orchestration.ts",
-      "lines": 1110
     },
     {
       "path": "src/renderer/app/core/state/loop.store.spec.ts",
@@ -6718,7 +6718,7 @@
     },
     {
       "path": "src/main/cli/adapters/base-cli-adapter.ts",
-      "lines": 1026
+      "lines": 1027
     },
     {
       "path": "src/main/mcp/mcp-manager.ts",

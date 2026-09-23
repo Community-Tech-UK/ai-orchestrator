@@ -121,7 +121,11 @@ export class OrchestrationHandler extends EventEmitter {
   constructor() {
     super();
     this.responseDelivery = new OrchestrationResponseDelivery({
-      emit: (instanceId, response) => this.emit('inject-response', instanceId, response),
+      emit: (instanceId, response, confirm) => {
+        if (!this.emit('inject-response', instanceId, response, confirm)) {
+          confirm(new Error('No orchestration response delivery listener is registered'));
+        }
+      },
       onChildCompletionRedelivered: (parentId, childId) => this.forgetSuppressedChildCompletion(parentId, childId),
     });
     // Refire a suppressed consensus_query result injection once the
